@@ -34,8 +34,9 @@ DSH Web Worker                              dedicated tool Worker
   fresh WASI fd table/env, because a wasm instance cannot be reused after
   `_start` without inheriting the previous command's heap and libc state.
   `reset()` drops the instance; `terminate()` is used only for cancellation.
-- **Memory ceiling**: `DEFAULT_HOT_INSTANCE_MEMORY_BYTES` is 150 MB (PLAN §2.5,
-  8 GiB tier; the table in `limits.ts` has the 6/4/3 GiB tiers). Defining
+- **Memory ceiling**: `DEFAULT_HOT_INSTANCE_MEMORY_BYTES` is 260 MB
+  (`spec/v1/budgets.md` §4, 8 GiB tier; the table in `limits.ts` has the
+  6/4/3 GiB tiers). Defining
   modules are checked on every host call; imported memories get a real
   `maximum`. A ceiling hit exits 137 and the warm worker serves the next command.
 - **Worker URL**: `WasiToolbox` spawns the built tool worker (`workerUrl`,

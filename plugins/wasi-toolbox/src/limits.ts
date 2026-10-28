@@ -2,7 +2,7 @@
 /**
  * Budget constants of the WASI toolbox. The memory values are the "WASI hot
  * instance" row of `spec/v1/budgets.md` (PLAN §2.5) for each device
- * tier; 150 MB is the default 8 GiB tier.
+ * tier; 260 MB is the default 8 GiB tier.
  * @module @phone-dsh/dsh-wasi-toolbox/limits
  */
 import type { GuestPreopen } from './types.ts'
@@ -107,15 +107,15 @@ export function singleFileLimitFromEnvironment(
   return Math.min(MAX_SINGLE_FILE_LIMIT, Math.max(MIN_SINGLE_FILE_LIMIT, parsed))
 }
 
-/** Default ceiling for one live WASI instance (150 MB, 8 GiB tier). */
-export const DEFAULT_HOT_INSTANCE_MEMORY_BYTES = 150 * MEBIBYTE
+/** Default ceiling for one live WASI instance (260 MB, 8 GiB tier). */
+export const DEFAULT_HOT_INSTANCE_MEMORY_BYTES = 260 * MEBIBYTE
 
 /** Ceiling per device tier, from budgets.md §4. */
 export const HOT_INSTANCE_MEMORY_BYTES_BY_TIER = {
-  '8GiB': 150 * MEBIBYTE,
-  '6GiB': 120 * MEBIBYTE,
-  '4GiB': 96 * MEBIBYTE,
-  '3GiB': 72 * MEBIBYTE,
+  '8GiB': 260 * MEBIBYTE,
+  '6GiB': 200 * MEBIBYTE,
+  '4GiB': 144 * MEBIBYTE,
+  '3GiB': 96 * MEBIBYTE,
 } as const
 
 /** One proxy frame (request or response) fits in this many bytes by default. */

@@ -207,7 +207,7 @@ surface.
 Workspace and home still go through the existing synchronous VFS proxy, so
 every Python write is an ordinary DSH write and reaches the WAL sink.
 `open("/dsh/workspace/probe.txt", "w")` produces the file on disk through that
-path. Cancellation uses the toolbox's existing worker `terminate()`; the 150 MB
+path. Cancellation uses the toolbox's existing worker `terminate()`; the 260 MB
 `DEFAULT_HOT_INSTANCE_MEMORY_BYTES` ceiling applies.
 
 ## HTTP: the host `/v1/http` bridge (G2-FIX-67)
@@ -401,8 +401,8 @@ Ship `python3` as a toolbox command for scripts that use the pure-Python
 standard library, the workspace, and nested interpreter calls through
 `subprocess` and the compression standard library. The binary and stored stdlib
 together are 38.7 MiB on disk, and a live interpreter peaks at about 20 MiB,
-comfortably inside the 150 MB WASI
-budget and the 50 MB per-area VFS budget. Cold start is ~0.13 s, warm commands
+comfortably inside the 260 MB WASI
+budget and the 160 MB workspace VFS budget. Cold start is ~0.13 s, warm commands
 are ~28 ms before imports, and a nested interpreter is ~28 ms, so an agent loop
 can call Python several times per turn without hurting responsiveness on the
 Mac host. Keep the build in the image pipeline rather than the repository and

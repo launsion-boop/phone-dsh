@@ -521,17 +521,22 @@ test harness, or keep the app foreground with its main run loop in production.
 
 ### Budgets and failure modes
 
-`BudgetTable` contains policy constants, not measurements. The default 8 GiB
-row: engine heap ≤ 200 MB; VFS logical bytes ≤ 150 MB split 50/50/50 across
-workspace/sessions/tmp; single file ≤ 15 MiB; WASI hot instance ≤ 150 MB; app
-process ≤ 150 MB; peak ≤ 50 % of the device ceiling; sub-agents ≤ 2 (1 under
-thermal fair); loopback round trip p95 < 5 ms; planned restart every 2 h;
-recovery target `a + k·MB` (`a ≤ 3 s`, `k ≤ 0.05 s/MB`). The 6/4/3 GiB rows are
-in `spec/v1/budgets.md` §4.
+`BudgetTable` contains policy constants, not measurements. The normative tier
+rows — engine heap, VFS logical bytes with its workspace/sessions/tmp split,
+single file, WASI hot instance, app process, peak, sub-agents, the loopback
+target, the planned-restart interval and the `a + k·MB` recovery bound — are in
+`spec/v1/budgets.md` §4, which also fixes how a tier is selected (once per boot
+from the physical memory ceiling; the 8 GiB row is the default, a lower row
+applies only when the ceiling is below it). The numbers are deliberately not
+repeated here: the W12-BIGFILE revision reached the spec, the enforced VFS and
+single-file quotas and the published manifest while a copied row on this page
+(and the WASI hot-instance constant in `plugins/wasi-toolbox/src/limits.ts`)
+kept the superseded values, and copying is what allowed the drift.
 
-Persistent stores have their own absolute quotas: WAL ≤ 256 MiB, journal ≤
-64 MiB, response log ≤ 128 MiB. An overflow compacts what is droppable and
-then fails loud; `home/`, `workspace/` and un-journaled steps are never evicted.
+Persistent stores keep their own absolute quotas — the WAL, journal and
+response log rows of `spec/v1/budgets.md` §5. An overflow compacts what is
+droppable and then fails loud; `home/`, `workspace/` and un-journaled steps are
+never evicted.
 Under memory pressure the monitor emits at most one action per evaluation, in
 the fixed order `clearTmp` → `plannedRestart` → `handoff`; a hard cap still
 exceeded after those actions is `Failed` and needs the user.
