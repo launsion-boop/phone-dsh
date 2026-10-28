@@ -62,6 +62,9 @@ struct ChatPage: View {
     @State private var isSelectingAccessMode = false
     @State private var attachmentError: String?
     @State private var nearBottom = true
+    /// Measured transcript height; the scroll helpers use it to refuse a
+    /// scroll into empty space.
+    @State private var transcriptContentHeight: CGFloat = 0
     /// Set when a session opens; the next transcript layout jumps to the tail
     /// without animation so history loading never leaves the view at the top.
     @State private var pendingInitialScroll = false
@@ -767,10 +770,20 @@ struct ChatPage: View {
                     // Room for the "回到最新" pill (28pt tall) so it never sits
                     // on top of the last rows.
                     .padding(.bottom, 48)
+                    .background(
+                        GeometryReader { content in
+                            Color.clear.preference(
+                                key: TranscriptContentHeightPreference.self,
+                                value: content.size.height)
+                        })
                 }
                 .coordinateSpace(name: "chat-transcript")
                 .scrollDismissesKeyboard(.interactively)
                 .defaultScrollAnchor(.bottom)
+                .scrollBounceBehavior(.basedOnSize)
+                .onPreferenceChange(TranscriptContentHeightPreference.self) { height in
+                    transcriptContentHeight = height
+                }
                 .onPreferenceChange(TranscriptTailPreference.self) { tailY in
                     // A short transcript is already at the bottom: it must not
                     // advertise "back to latest" just because it lays out once.
@@ -780,23 +793,45 @@ struct ChatPage: View {
                 }
                 .onChange(of: transcriptScrollSignature) { _, _ in
                     if pendingInitialScroll, !visibleItems.isEmpty {
+                        // Wait for the measured content height: scrolling
+                        // before the layout is known cannot prove the content
+                        // overflows, and the height change consumes this below.
+                        guard transcriptContentHeight > 0 else { return }
                         pendingInitialScroll = false
                         nearBottom = true
-                        proxy.scrollTo("transcript-tail", anchor: .bottom)
+                        scrollToTail(proxy, viewportHeight: viewport.size.height)
                         return
                     }
                     guard nearBottom, !loadingEarlierTranscript else { return }
-                    scrollToTailIfFollowing(proxy)
+                    scrollToTailIfFollowing(proxy, viewportHeight: viewport.size.height)
                 }
                 .onChange(of: model.isTranscriptReady) { _, ready in
-                    guard ready, pendingInitialScroll, !visibleItems.isEmpty else { return }
+                    guard ready, pendingInitialScroll, !visibleItems.isEmpty,
+                          transcriptContentHeight > 0 else { return }
                     pendingInitialScroll = false
                     nearBottom = true
-                    proxy.scrollTo("transcript-tail", anchor: .bottom)
+                    scrollToTail(proxy, viewportHeight: viewport.size.height)
+                }
+                .onChange(of: transcriptContentHeight) { _, height in
+                    // A freshly opened session measures its history after the
+                    // first layout; the pending jump lands here.
+                    guard height > 0, pendingInitialScroll, !visibleItems.isEmpty else { return }
+                    pendingInitialScroll = false
+                    nearBottom = true
+                    scrollToTail(proxy, viewportHeight: viewport.size.height)
                 }
                 .onChange(of: scrollToLatestTrigger) { _, _ in
                     nearBottom = true
-                    withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("transcript-tail", anchor: .bottom) }
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        scrollToTail(proxy, viewportHeight: viewport.size.height)
+                    }
+                }
+                .onChange(of: viewport.size.height) { old, new in
+                    // The keyboard and the growing composer change the
+                    // viewport. A transcript that was following re-anchors to
+                    // the tail, so no blank strip is left below the content.
+                    guard new > old, nearBottom else { return }
+                    scrollToTail(proxy, viewportHeight: new)
                 }
             }
         }
@@ -820,13 +855,28 @@ struct ChatPage: View {
         }
     }
 
+    /// Scrolls to the transcript's last row, and only when the content
+    /// actually overflows: scrolling a shorter transcript to a bottom anchor
+    /// overshoots into empty space (the blank page). The last row is a real,
+    /// laid-out frame; the lazy tail anchor can be scrolled past its estimate.
+    private func scrollToTail(_ proxy: ScrollViewProxy, viewportHeight: CGFloat) {
+        guard transcriptContentHeight > viewportHeight + 1 else { return }
+        // The last row may be a folded tool-run group, not the last message;
+        // scroll to the row that is actually last.
+        if let last = timelineRows.last?.id {
+            proxy.scrollTo(last, anchor: .bottom)
+        } else {
+            proxy.scrollTo("transcript-tail", anchor: .bottom)
+        }
+    }
+
     /// Follow the streaming tail. No animation: a per-token animated scroll
     /// kept racing the growing lazy stack and could leave the offset past the
     /// last row — a blank viewport below the content until the person scrolled
     /// again. The explicit "回到最新" pill keeps its animation.
-    private func scrollToTailIfFollowing(_ proxy: ScrollViewProxy) {
+    private func scrollToTailIfFollowing(_ proxy: ScrollViewProxy, viewportHeight: CGFloat) {
         guard nearBottom else { return }
-        proxy.scrollTo("transcript-tail", anchor: .bottom)
+        scrollToTail(proxy, viewportHeight: viewportHeight)
     }
 
     /// 新会话空屏。三种状态互斥,同一时刻只渲染一种;三者都在滚动区里,
@@ -1640,6 +1690,16 @@ private enum AttachmentImportError: LocalizedError {
 private struct TranscriptTailPreference: PreferenceKey {
     static var defaultValue: CGFloat = .greatestFiniteMagnitude
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
+/// Full transcript height, so a "scroll to the tail" is skipped when the
+/// content already fits the viewport: a bottom-anchored scroll on a shorter
+/// transcript overshoots into empty space and reads as a blank page.
+private struct TranscriptContentHeightPreference: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
 }
 
 private struct QuestionCard: View {

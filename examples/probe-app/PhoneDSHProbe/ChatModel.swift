@@ -966,6 +966,15 @@ final class ChatModel {
     private func parkHost(_ host: PhoneDSHHost) async {
         guard !hostLifecycleTransition else { return }
         hostLifecycleTransition = true
+        // Every early return, thrown error or lost continuation must release
+        // the flag: while it is set the composer reads "处理中" and every
+        // send/session switch/park/resume is refused. The watchdog is the
+        // last resort behind the host's own 20 s drain bound.
+        let watchdog = transitionWatchdog(seconds: 60, label: "Host park")
+        defer {
+            watchdog.cancel()
+            hostLifecycleTransition = false
+        }
         appendStatus("App in background: parking the host (in-flight work gets the drain window, then the turn is cancelled)…")
         do {
             try await host.park()
@@ -980,6 +989,7 @@ final class ChatModel {
         foregroundResumeRequested = false
         let shouldParkAgain = backgroundParkRequested
         backgroundParkRequested = false
+        // Release before the queued follow-up so it passes its own guard.
         hostLifecycleTransition = false
         if shouldResume && parked {
             await resumeHost(host)
@@ -998,6 +1008,13 @@ final class ChatModel {
     private func resumeHost(_ host: PhoneDSHHost) async {
         guard parked, !hostLifecycleTransition else { return }
         hostLifecycleTransition = true
+        // See parkHost: the flag must never stay set. A resume waits for the
+        // host's own 240 s hello timeout, so the watchdog clears only past it.
+        let watchdog = transitionWatchdog(seconds: 300, label: "Host resume")
+        defer {
+            watchdog.cancel()
+            hostLifecycleTransition = false
+        }
         do {
             try await host.resume()
             parked = false
@@ -1010,8 +1027,21 @@ final class ChatModel {
         let shouldPark = backgroundParkRequested
         foregroundResumeRequested = false
         backgroundParkRequested = false
+        // Release before the queued follow-up so it passes its own guard.
         hostLifecycleTransition = false
         if shouldPark && !parked { await parkHost(host) }
+    }
+
+    /// Releases a latched host transition after a bound the host's own
+    /// drain/hello timeouts cannot exceed, so a wedged host fails loud on the
+    /// status line instead of pinning the composer at "处理中" forever.
+    private func transitionWatchdog(seconds: UInt64, label: String) -> Task<Void, Never> {
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: seconds * 1_000_000_000)
+            guard !Task.isCancelled, let self, self.hostLifecycleTransition else { return }
+            self.hostLifecycleTransition = false
+            self.appendStatus("\(label) did not finish in time; the host transition was released")
+        }
     }
 
     /// Reconciles `turnRunning` with the host after a park/resume cycle.
