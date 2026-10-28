@@ -114,9 +114,16 @@ struct FilesPage: View {
             directory = String(normalized[..<slashIndex]) + "/"
         }
         var match: WorkspaceFile?
+        let canonical = normalized.precomposedStringWithCanonicalMapping
         for candidate in model.files where candidate.relativePath == normalized {
             match = candidate
             break
+        }
+        if match == nil {
+            // The list comes from the materialized tree and the requested path
+            // from a tool result; a Chinese name can differ only in Unicode
+            // normalization, which is not a missing file.
+            match = model.files.first { $0.relativePath.precomposedStringWithCanonicalMapping == canonical }
         }
         if match == nil {
             match = ChatPage.uniqueBasenameMatch(normalized, in: model.files)
@@ -323,7 +330,16 @@ private struct FilePreviewPage: View {
                 previewNotice = appendNotice(previewNotice, "仅显示前 \(Self.inlineTextPreviewLines) 行；可继续使用分享功能打开完整文件。")
             }
         } catch {
-            previewError = "读取文件失败：\(error.localizedDescription)"
+            // This browser listed the file from the durable materialized copy,
+            // so a Worker read failure must not claim the file does not exist.
+            // Show the on-disk copy and name it as such; a write that is still
+            // in flight becomes visible after a workspace refresh.
+            if let url = safeFileURL, let data = try? Data(contentsOf: url) {
+                textPreview = String(decoding: data.prefix(Self.inlineTextPreviewLimit), as: UTF8.self)
+                previewNotice = appendNotice(previewNotice, "当前显示本机物化副本；若刚有写入，请稍后刷新工作区。")
+            } else {
+                previewError = "读取文件失败：\(error.localizedDescription)"
+            }
         }
     }
 

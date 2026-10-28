@@ -820,11 +820,13 @@ struct ChatPage: View {
         }
     }
 
+    /// Follow the streaming tail. No animation: a per-token animated scroll
+    /// kept racing the growing lazy stack and could leave the offset past the
+    /// last row — a blank viewport below the content until the person scrolled
+    /// again. The explicit "回到最新" pill keeps its animation.
     private func scrollToTailIfFollowing(_ proxy: ScrollViewProxy) {
         guard nearBottom else { return }
-        withAnimation(.easeOut(duration: 0.18)) {
-            proxy.scrollTo("transcript-tail", anchor: .bottom)
-        }
+        proxy.scrollTo("transcript-tail", anchor: .bottom)
     }
 
     /// 新会话空屏。三种状态互斥,同一时刻只渲染一种;三者都在滚动区里,
@@ -1427,6 +1429,15 @@ struct ChatPage: View {
                 pendingAttachments.removeAll()
                 attachmentError = nil
                 inputFocused = false
+                // A send means "show me the newest turn". The composer (a
+                // TextEditor that grows to five lines) and the keyboard change
+                // the transcript viewport, which used to leave `nearBottom`
+                // false even though the person never scrolled away; the new
+                // row then stayed below the fold. Jump to the tail through the
+                // session-open path, which scrolls without animation.
+                nearBottom = true
+                userScrolledAway = false
+                pendingInitialScroll = true
             } else if draft.isEmpty {
                 // The send was refused before it produced a row (host not
                 // ready, session switching, busy): keep the text so the person
@@ -1462,7 +1473,12 @@ struct ChatPage: View {
         if !model.files.contains(where: { $0.relativePath == normalized }) {
             model.refreshFiles()
         }
+        // The tool result and the file list can disagree only in Unicode
+        // normalization (a Chinese name written NFC, listed NFD); try the
+        // canonical spelling before falling back to a unique basename.
+        let canonical = normalized.precomposedStringWithCanonicalMapping
         if let match = model.files.first(where: { $0.relativePath == normalized })
+            ?? model.files.first(where: { $0.relativePath.precomposedStringWithCanonicalMapping == canonical })
             ?? Self.uniqueBasenameMatch(normalized, in: model.files) {
             initialWorkbenchPath = match.relativePath
             showWorkbench = true
@@ -1486,12 +1502,19 @@ struct ChatPage: View {
             path = String(path.dropFirst("/dsh/workspace/".count))
         }
         if path.hasPrefix("./") { path = String(path.dropFirst(2)) }
+        // A Chinese name can arrive decomposed (NFD) from a tool result while
+        // the materialized tree lists it composed (NFC); compare in one form.
+        path = path.precomposedStringWithCanonicalMapping
         return path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
     }
 
     static func uniqueBasenameMatch(_ path: String, in files: [WorkspaceFile]) -> WorkspaceFile? {
         let name = path.split(separator: "/").last.map(String.init) ?? path
-        let matches = files.filter { $0.relativePath.split(separator: "/").last.map(String.init) == name }
+        let wanted = name.precomposedStringWithCanonicalMapping
+        let matches = files.filter { file in
+            let candidate = file.relativePath.split(separator: "/").last.map(String.init) ?? file.relativePath
+            return candidate.precomposedStringWithCanonicalMapping == wanted
+        }
         return matches.count == 1 ? matches[0] : nil
     }
 
@@ -2210,12 +2233,43 @@ private struct WorkspaceOutputReferences: View {
 }
 
 private func workspaceRelativePath(from url: URL) -> String? {
-    guard url.scheme == nil || url.scheme == "file" else { return nil }
-    guard url.host == nil || url.host?.isEmpty == true else { return nil }
-    var path = url.path.removingPercentEncoding ?? url.path
+    let scheme = url.scheme?.lowercased()
+    var path: String
+    switch scheme {
+    case nil, "file", "sandbox":
+        guard url.host == nil || url.host?.isEmpty == true else { return nil }
+        path = url.path.removingPercentEncoding ?? url.path
+    case "dsh-resource":
+        // DSH's own file address — `dsh-resource://file/session/<id>/<path>`
+        // (workspace-relative, or absolute with the leading `/` dropped) and
+        // `dsh-resource://file/absolute/<path>`. The web surface accepts
+        // these; a native message that quotes one used to fall through to the
+        // system as an unopenable URL, which read as "the file is missing".
+        guard url.host?.lowercased() == "file" else { return nil }
+        let segments = url.path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+        guard let scope = segments.first else { return nil }
+        let tail: [String]
+        switch scope {
+        case "session" where segments.count >= 3: tail = Array(segments.dropFirst(2))
+        case "absolute" where segments.count >= 2: tail = Array(segments.dropFirst())
+        default: return nil
+        }
+        var joined = tail.joined(separator: "/")
+        if joined == "dsh/workspace" { return nil }
+        if joined.hasPrefix("dsh/workspace/") {
+            joined = String(joined.dropFirst("dsh/workspace/".count))
+        } else if joined.hasPrefix("dsh/") {
+            return nil
+        }
+        path = joined
+    default:
+        return nil
+    }
     if path.hasPrefix("/dsh/workspace/") {
         path = String(path.dropFirst("/dsh/workspace/".count))
-    } else if path == "/dsh/workspace" {
+    } else if path.hasPrefix("dsh/workspace/") {
+        path = String(path.dropFirst("dsh/workspace/".count))
+    } else if path == "/dsh/workspace" || path == "dsh/workspace" {
         return nil
     } else if path.hasPrefix("/") {
         return nil
@@ -2223,7 +2277,7 @@ private func workspaceRelativePath(from url: URL) -> String? {
     path = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
     let components = path.split(separator: "/")
     guard !components.isEmpty, !components.contains("."), !components.contains("..") else { return nil }
-    return components.joined(separator: "/")
+    return components.joined(separator: "/").precomposedStringWithCanonicalMapping
 }
 
 struct RuntimeDetailsPage: View {
