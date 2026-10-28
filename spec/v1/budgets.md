@@ -81,13 +81,13 @@ the ceiling is at least 12 GiB. `MB`/`MiB` are 1 048 576 bytes.
 
 | Resource | 12 GiB | 8 GiB (default) | 6 GiB | 4 GiB | ≤ 3 GiB |
 |---|---|---|---|---|---|
-| Engine heap | ≤ 832 MB | ≤ 320 MB | ≤ 256 MB | ≤ 192 MB | ≤ 144 MB |
-| VFS logical bytes | ≤ 768 MB | ≤ 260 MB | ≤ 200 MB | ≤ 144 MB | ≤ 96 MB |
-| VFS split: workspace / sessions / tmp | 576 / 96 / 96 MB | 160 / 50 / 50 MB | 120 / 40 / 40 MB | 80 / 32 / 32 MB | 48 / 24 / 24 MB |
-| Single file | ≤ 256 MiB | ≤ 64 MiB | ≤ 48 MiB | ≤ 32 MiB | ≤ 16 MiB |
+| Engine heap | ≤ 832 MB | ≤ 448 MB | ≤ 256 MB | ≤ 192 MB | ≤ 144 MB |
+| VFS logical bytes | ≤ 768 MB | ≤ 388 MB | ≤ 200 MB | ≤ 144 MB | ≤ 96 MB |
+| VFS split: workspace / sessions / tmp | 576 / 96 / 96 MB | 288 / 50 / 50 MB | 120 / 40 / 40 MB | 80 / 32 / 32 MB | 48 / 24 / 24 MB |
+| Single file | ≤ 256 MiB | ≤ 128 MiB | ≤ 48 MiB | ≤ 32 MiB | ≤ 16 MiB |
 | Single file, host maximum | 256 MiB | 128 MiB | 128 MiB | 32 MiB | 16 MiB |
 | WASI hot instance | ≤ 640 MB | ≤ 260 MB | ≤ 200 MB | ≤ 144 MB | ≤ 96 MB |
-| App process | ≤ 400 MB | ≤ 150 MB | ≤ 140 MB | ≤ 120 MB | ≤ 100 MB |
+| App process | ≤ 540 MB | ≤ 230 MB | ≤ 140 MB | ≤ 120 MB | ≤ 100 MB |
 | Peak | ≤ 50 % of the ceiling (6 GiB) | ≤ 50 % (4 GiB) | ≤ 50 % (3 GiB) | ≤ 50 % (2 GiB) | ≤ 50 % (1.5 GiB) |
 | Sub-agents | ≤ 2; 1 when thermal fair | ≤ 2; 1 when thermal fair | ≤ 2; 1 fair | ≤ 1 | ≤ 1 |
 | Loopback round trip | p95 < 5 ms | p95 < 5 ms | p95 < 5 ms | p95 < 5 ms | p95 < 5 ms |
@@ -105,7 +105,7 @@ the ceiling is at least 12 GiB. `MB`/`MiB` are 1 048 576 bytes.
   accept up to 128 MiB, and the 12 GiB row accepts up to 256 MiB. A value outside the range is
   clamped, never a start failure.
 - The workspace bucket is at least `2 × single_file_limit + headroom`, with 64 / 32 / 24 / 16 / 16 MiB
-  of headroom for the five rows: 576 = 2 × 256 + 64, 160 = 2 × 64 + 32, 120 = 2 × 48 + 24, 80 =
+  of headroom for the five rows: 576 = 2 × 256 + 64, 288 = 2 × 128 + 32, 120 = 2 × 48 + 24, 80 =
   2 × 32 + 16, 48 = 2 × 16 + 16. The VFS logical cap is at least `workspace + sessions + tmp`, and
   the engine heap is at least the VFS logical cap. Raising the file limit raises workspace, VFS and
   heap in step; a configuration never lowers a bucket.
@@ -120,9 +120,9 @@ the ceiling is at least 12 GiB. `MB`/`MiB` are 1 048 576 bytes.
   headroom: (1) clear the volatile tmp root (`/dsh/tmp/**` and `/tmp/**`); (2) planned WebContent
   restart at the next tool-call boundary; (3) handoff to the remote. A hard cap still exceeded after the actions is `Failed`.
 - The recovery target is `a + k × MB`, with `a ≤ 3 s` and `k ≤ 0.05 s/MB`, where `MB` is the
-  materialized tree in MiB rounded up. A full 64 MiB file costs 3 + 0.05 × 64 = 6.2 s; at the
-  260 MB VFS cap the bound is 3 + 13 = 16 s, and at the 768 MB cap 3 + 38.4 = 41.4 s. The formula
-  is unchanged; the values cover the larger workspace and the overlay repack.
+  materialized tree in MiB rounded up. A full 128 MiB file costs 3 + 0.05 × 128 = 9.4 s; at the
+  388 MB VFS cap the bound is 3 + 19.4 = 22.4 s, and at the 768 MB cap 3 + 38.4 = 41.4 s. The
+  formula is unchanged; the values cover the larger workspace and the overlay repack.
 - The loopback target is measured over at least 1000 sequential WebSocket echoes on the loopback
   origin and is informational for the controller; exceeding it never changes a state by itself.
 - A planned restart or handoff starts only at a tool-call boundary: no frame is in flight, the epoch
@@ -136,6 +136,7 @@ the ceiling is at least 12 GiB. `MB`/`MiB` are 1 048 576 bytes.
 | WAL segments | 512 MiB | Close the epoch, compact droppable segments and retry; still over after a second close → `Failed`. |
 | Response log | 128 MiB | Drop complete, oldest replays first; a partial stream is never logged; still over → `Failed`. |
 | Journal | 64 MiB | Prune entries whose step is `journaled` and durable; still over → `Failed`. |
+| `video/` | 512 MiB (12 / 8 GiB; 384 / 256 / 192 MiB at 6 / 4 / ≤ 3 GiB) | Delete `completed` and already re-read sessions first; a session that was never re-read is never evicted; still over → `Failed`. |
 
 Quotas are absolute for every tier: a handoff or a restore does not raise them. None of the three
 stores ever evicts `home/`, `workspace/` or an un-journaled step; data is never silently dropped.
@@ -149,6 +150,10 @@ epoch-close segment and the open segment survive, so a 64 MiB rewrite cycle cann
 whole-file records; if the quota is still exceeded after the second close the state becomes `Failed`.
 The absolute WAL quota is 512 MiB because the 12 GiB row publishes 256 MiB files: one such file
 rewritten twice would otherwise reach the former 256 MiB quota before compaction could help.
+The `video/` store is a fourth quota-managed store: during encoding a video never touches the WAL
+or the VFS, and a session's artefact counts against the workspace and single-file budgets only
+after `video/read` has put it into the workspace. A session that is never re-read is marked
+`orphaned` after 10 minutes and may be reclaimed; an unread session is never deleted to make room.
 
 ## 6. Revision note (large-file budget)
 
@@ -158,7 +163,14 @@ let alone two. The old row is superseded and not normative; 15 MiB survives only
 frame bound of channel.md. The recovery formula and the absolute WAL / journal quotas are unchanged.
 
 The 12 GiB row (office/big-file) adds a larger workspace above the 8 GiB default: 256 MiB single
-files, a 768 MB VFS, an 832 MB heap, a 640 MB WASI hot instance and a 400 MB app process. It is
+files, a 768 MB VFS, an 832 MB heap, a 640 MB WASI hot instance and a 540 MB app process. It is
 selected only when the physical memory ceiling is at least 12 GiB; every lower tier keeps its
 current row. The row raises the absolute WAL quota from 256 MiB to 512 MiB, because one 256 MiB
 file rewritten twice would otherwise reach the old quota; the compaction rule itself is unchanged.
+
+The VIDEO revision (spec-render-media-v1 §A) raises the 8 GiB single file from 64 to 128 MiB
+(workspace 288, VFS 388, heap 448), so a 60 s 1080p artefact (96 MiB cap, ≈ 45 MB at 6 Mbps) fits
+the published file budget, and adds the 60 s / 75 s duration, 4500-frame and 96 MiB output limits
+per tier. The encoder's footprint is booked in the app process row (150 → 230 MB at 8 GiB,
+400 → 540 MB at 12 GiB). Video artefacts live in the separate `video/` store of §5, so they do not
+consume WAL bytes during encoding.

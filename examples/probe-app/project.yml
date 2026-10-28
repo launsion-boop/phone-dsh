@@ -49,6 +49,11 @@ targets:
       - path: Bundle/worker
         type: folder
         buildPhase: resources
+      # Offline 3D library for the PAGE surface (three.js r170 + loaders +
+      # scaffold/demo). Served as pdsh-page://lib/... from the app bundle.
+      - path: Web3DLib
+        type: folder
+        buildPhase: resources
     dependencies:
       - target: ProbeKit
       # SwiftPM products are not re-exported: every module the app imports

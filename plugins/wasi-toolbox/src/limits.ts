@@ -43,8 +43,8 @@ export function formatByteLimitMib(limit: number): string | undefined {
 /** Environment name the host uses to publish its `single_file_limit` (D4). */
 export const SINGLE_FILE_LIMIT_ENV = 'PDSH_SINGLE_FILE_LIMIT_BYTES'
 
-/** Default single-file budget, 8 GiB tier (budgets.md §4): 64 MiB. */
-export const DEFAULT_SINGLE_FILE_LIMIT = 64 * MEBIBYTE
+/** Default single-file budget, 8 GiB tier (budgets.md §4): 128 MiB. */
+export const DEFAULT_SINGLE_FILE_LIMIT = 128 * MEBIBYTE
 /** Contract floor for a host-configured single-file limit: 16 MiB. */
 export const MIN_SINGLE_FILE_LIMIT = 16 * MEBIBYTE
 /** Absolute host maximum for a configured single-file limit: 256 MiB. */

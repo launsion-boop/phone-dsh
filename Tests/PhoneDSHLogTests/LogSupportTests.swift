@@ -43,7 +43,7 @@ final class LogSupportTests: XCTestCase {
         XCTAssertEqual(WorkspaceLogConfiguration.defaultSingleFileLimitBytes,
                        WireLimits.defaultSingleFileLimitBytes)
         XCTAssertEqual(WorkspaceLogConfiguration.defaultSingleFileLimitBytes,
-                       64 * WireLimits.mebibyte)
+                       128 * WireLimits.mebibyte)
     }
 
     // MARK: - Resource refusal classification (channel.md §4.8, §8)

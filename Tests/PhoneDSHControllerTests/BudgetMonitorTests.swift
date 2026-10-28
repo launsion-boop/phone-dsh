@@ -50,7 +50,7 @@ final class BudgetMonitorTests: XCTestCase {
         XCTAssertEqual(table.tmpBytes, 96 * mb)
         XCTAssertEqual(table.singleFileBytes, 256 * mb)
         XCTAssertEqual(table.wasiHotInstanceBytes, 640 * mb)
-        XCTAssertEqual(table.appProcessBytes, 400 * mb)
+        XCTAssertEqual(table.appProcessBytes, 540 * mb)
         XCTAssertEqual(table.maximumSingleFileBytes, 256 * mb)
         XCTAssertTrue(table.isCoherent)
         XCTAssertEqual(DeviceTier.twelveGB.physicalMemoryBytes, 12 * 1024 * mb)
@@ -66,6 +66,44 @@ final class BudgetMonitorTests: XCTestCase {
         XCTAssertEqual(DeviceTier.forPhysicalMemory(4 * 1024 * UInt64(mb)), .fourGB)
         XCTAssertEqual(DeviceTier.forPhysicalMemory(3 * 1024 * UInt64(mb)), .threeGB)
         XCTAssertEqual(DeviceTier.forPhysicalMemory(1), .threeGB)
+    }
+
+    /// spec-render-media-v1 §A.2 / §A.5: the VIDEO contract constants.
+    func testVideoBudgetRows() {
+        XCTAssertEqual(VideoBudget.nominalDurationSeconds, 60)
+        XCTAssertEqual(VideoBudget.budgetedDurationSeconds, 75)
+
+        let eight = VideoBudget.table(for: .eightGB)
+        XCTAssertEqual(eight.maximumFrames, 4500)
+        XCTAssertEqual(eight.maximumFrameBytes, 8 * mb)
+        XCTAssertEqual(eight.maximumOutputBytes, 96 * mb)
+        XCTAssertEqual(eight.maximumWidth, 1920)
+        XCTAssertEqual(eight.maximumHeight, 1080)
+        XCTAssertEqual(eight.inFlightFrames, 3)
+        XCTAssertEqual(eight.appProcessIncrementBytes, 80 * mb)
+        XCTAssertEqual(eight.storeQuotaBytes, 512 * mb)
+        XCTAssertEqual(eight.effectiveOutputBytes(for: .eightGB), 96 * mb)
+        XCTAssertEqual(BudgetTable.eightGB.appProcessBytes,
+                       VideoBudget.eightGB.appProcessIncrementBytes + 150 * mb)
+
+        let twelve = VideoBudget.table(for: .twelveGB)
+        XCTAssertEqual(twelve.maximumFrames, 9000)
+        XCTAssertEqual(twelve.maximumFrameBytes, 16 * mb)
+        XCTAssertEqual(twelve.maximumOutputBytes, 128 * mb)
+        XCTAssertEqual(twelve.maximumWidth, 3840)
+        XCTAssertEqual(twelve.inFlightFrames, 4)
+        XCTAssertEqual(twelve.appProcessIncrementBytes, 140 * mb)
+        XCTAssertEqual(twelve.effectiveOutputBytes(for: .twelveGB), 128 * mb)
+        XCTAssertEqual(BudgetTable.twelveGB.appProcessBytes,
+                       VideoBudget.twelveGB.appProcessIncrementBytes + 400 * mb)
+
+        // The spec enumerates only the 8 / 12 GiB rows; the smaller tiers keep
+        // the 8 GiB contract clamped by their own single-file maximum.
+        XCTAssertEqual(VideoBudget.table(for: .sixGB), VideoBudget.eightGB)
+        XCTAssertEqual(VideoBudget.table(for: .fourGB).effectiveOutputBytes(for: .fourGB),
+                       32 * mb)
+        XCTAssertEqual(VideoBudget.table(for: .threeGB).effectiveOutputBytes(for: .threeGB),
+                       16 * mb)
     }
 
     func testWithinBudgetReturnsNoAction() async throws {
@@ -158,12 +196,12 @@ final class BudgetMonitorTests: XCTestCase {
 
     func testMetricsAdapterDrivesTheMonitor() async throws {
         let monitor = BudgetMonitor(table: .eightGB)
-        let metrics = WorkspaceLogMetrics(workspaceBytes: 200 * mb)
+        let metrics = WorkspaceLogMetrics(workspaceBytes: 300 * mb)
         let decision = await monitor.evaluate(metrics: metrics,
                                               webContentTerminations: 0)
         XCTAssertEqual(decision.action, .clearTmp)
-        XCTAssertEqual(decision.vfsBytes, 200 * mb)
-        XCTAssertEqual(decision.vfsLimitBytes, 260 * mb)
+        XCTAssertEqual(decision.vfsBytes, 300 * mb)
+        XCTAssertEqual(decision.vfsLimitBytes, 388 * mb)
     }
 
     func testWorkspaceLogMetricsOverload() async throws {
@@ -181,7 +219,7 @@ final class BudgetMonitorTests: XCTestCase {
 
     func testResetClearsTheEpisode() async throws {
         let monitor = BudgetMonitor(table: .eightGB)
-        let over = sample(workspace: 200 * mb)
+        let over = sample(workspace: 300 * mb)
         _ = await monitor.evaluate(over)
         await monitor.reset()
         let taken = await monitor.actionsTaken

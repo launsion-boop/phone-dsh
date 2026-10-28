@@ -553,6 +553,10 @@ final class ChatModel {
             .appendingPathComponent("workspace", isDirectory: true)
     }
 
+    /// The materialized workspace directory: what the browser lists and the
+    /// PAGE surface serves from `pdsh-page://<session>/...`.
+    var workspaceDirectoryURL: URL { materializedWorkspace }
+
     private var materializedHome: URL {
         workspaceRoot.appendingPathComponent("materialized", isDirectory: true)
             .appendingPathComponent("home", isDirectory: true)

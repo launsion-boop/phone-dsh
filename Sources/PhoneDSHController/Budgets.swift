@@ -46,7 +46,7 @@ extension BudgetTable {
         tmpBytes: 96 * 1024 * 1024,
         singleFileBytes: 256 * 1024 * 1024,
         wasiHotInstanceBytes: 640 * 1024 * 1024,
-        appProcessBytes: 400 * 1024 * 1024,
+        appProcessBytes: 540 * 1024 * 1024,
         peakFraction: 0.5,
         maxSubAgents: 2,
         thermalFairSubAgents: 1,
@@ -172,7 +172,10 @@ extension BudgetTable {
             sessionBytes: sessionBytes,
             tmpBytes: tmpBytes,
             singleFileBytes: limit,
-            wasiHotInstanceBytes: max(wasiHotInstanceBytes, requiredVFS),
+            // The WASI hot instance follows the tier row (260 MB at 8 GiB,
+            // 640 MB at 12 GiB); it is a tool-worker memory ceiling, not a
+            // mirror of the VFS, and budgets.md §4 keeps it below it.
+            wasiHotInstanceBytes: wasiHotInstanceBytes,
             appProcessBytes: appProcessBytes,
             peakFraction: peakFraction,
             maxSubAgents: maxSubAgents,

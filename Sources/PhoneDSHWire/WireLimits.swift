@@ -25,7 +25,7 @@ public enum WireLimits {
     /// Default single-file budget of the 8 GiB tier (budgets.md §4). The host
     /// may configure `single_file_limit` in 16 MiB ... 128 MiB, gated by the
     /// device tier; this is the one default the log and the wire agree on.
-    public static let defaultSingleFileLimitBytes = 64 * mebibyte
+    public static let defaultSingleFileLimitBytes = 128 * mebibyte
     /// Maximum API_REQ body; channel.md §3.7 (`4 MiB`).
     public static let maxAPIBodyBytes = 4 * mebibyte
     /// Maximum length of a D6 identifier, in bytes; channel.md §6.

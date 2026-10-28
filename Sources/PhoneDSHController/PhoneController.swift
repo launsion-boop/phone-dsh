@@ -233,16 +233,17 @@ public struct BudgetTable: Equatable, Sendable {
     public static let absoluteMaximumSingleFileBytes = 256 * 1024 * 1024
 
     /// The 8 GB row of budgets.md §4. The workspace bucket holds two files at
-    /// the default 64 MiB cap plus 32 MiB of headroom.
+    /// the 128 MiB cap plus 32 MiB of headroom (288 = 2 × 128 + 32); the app
+    /// process allows the 60 s video encoder (+80 MB).
     public static let eightGB = BudgetTable(
-        engineHeapBytes: 320 * 1024 * 1024,
-        vfsLogicalBytes: 260 * 1024 * 1024,
-        workspaceBytes: 160 * 1024 * 1024,
+        engineHeapBytes: 448 * 1024 * 1024,
+        vfsLogicalBytes: 388 * 1024 * 1024,
+        workspaceBytes: 288 * 1024 * 1024,
         sessionBytes: 50 * 1024 * 1024,
         tmpBytes: 50 * 1024 * 1024,
-        singleFileBytes: 64 * 1024 * 1024,
+        singleFileBytes: 128 * 1024 * 1024,
         wasiHotInstanceBytes: 260 * 1024 * 1024,
-        appProcessBytes: 150 * 1024 * 1024,
+        appProcessBytes: 230 * 1024 * 1024,
         peakFraction: 0.5,
         maxSubAgents: 2,
         thermalFairSubAgents: 1,
