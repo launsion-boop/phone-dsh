@@ -9,7 +9,6 @@ import UIKit
 struct SettingsPage: View {
     @State private var model = ChatModel.shared
     @State private var configuration = NativeConfigurationModel.shared
-    @State private var web = WebHostModel.shared
     @AppStorage("phone-dsh.composer.busyEnter") private var busyEnterMode = "queue"
     @State private var showDSHConfiguration = false
     @State private var didSave = false
@@ -73,7 +72,7 @@ struct SettingsPage: View {
             row("权限", permissionValue) { PermissionDefaultsPage() }
             settingsRow(rowLabel("写之前", askValue, chevronSlot: true))
             row("模型服务", selectedProvider?.displayName ?? "未配置") { ModelProviderSettingsPage() }
-            row("MCP", mcpSummary) { MCPSettingsPage(host: .native) }
+            row("MCP", mcpSummary) { MCPSettingsPage() }
             settingsRow(Toggle("后台运行", isOn: $model.backgroundKeepAlive)
                 .onChange(of: model.backgroundKeepAlive) { _, value in
                     ChatSettings.backgroundKeepAlive = value
@@ -85,7 +84,7 @@ struct SettingsPage: View {
 
     private var toolsGroup: some View {
         Section {
-            row("网页搜索", searchSummary.title) { WebSearchSettingsPage(host: .native) }
+            row("网页搜索", searchSummary.title) { WebSearchSettingsPage() }
             row("网络访问", "\(egressEntries.count) 个地址") { EgressAllowListPage() }
             settingsRow(Button { showDSHConfiguration = true } label: {
                 rowLabel("插件与模型", "")
@@ -146,7 +145,6 @@ struct SettingsPage: View {
     private func refreshMCPRows() async {
         guard model.isStarted else { mcpRows = []; return }
         let probe = MCPSettingsModel(
-            host: .native,
             settings: .shared,
             isHostRunning: { ChatModel.shared.isStarted },
             makeTransport: { try await ChatModel.shared.transportForManagement() },
@@ -326,7 +324,7 @@ struct SettingsPage: View {
     private var webSearchSection: some View {
         Section {
             NavigationLink {
-                WebSearchSettingsPage(host: .native)
+                WebSearchSettingsPage()
             } label: {
                 HStack(spacing: 12) {
                     Image(systemName: "globe")
@@ -357,11 +355,9 @@ struct SettingsPage: View {
         }
     }
 
-    /// The same non-secret launch decision the active host published. The Web
-    /// surface and the native recovery host each own one; only the active
-    /// surface's warning is shown.
+    /// The non-secret launch decision the native host published.
     private var searchLaunchWarning: String? {
-        web.mode == .web ? web.searchLaunchWarning : model.searchLaunchWarning
+        model.searchLaunchWarning
     }
 
     private var searchSummary: (title: String, detail: String) {
@@ -385,7 +381,7 @@ struct SettingsPage: View {
     private var mcpSection: some View {
         Section {
             NavigationLink {
-                MCPSettingsPage(host: .native)
+                MCPSettingsPage()
             } label: {
                 Label("MCP 网络与密钥", systemImage: "network")
             }

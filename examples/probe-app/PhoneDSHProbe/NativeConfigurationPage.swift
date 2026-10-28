@@ -129,7 +129,7 @@ struct NativeConfigurationPage: View {
             }
 
             NavigationLink {
-                WebSearchSettingsPage(host: .native)
+                WebSearchSettingsPage()
             } label: {
                 Label("网页搜索与抓取", systemImage: "globe")
             }

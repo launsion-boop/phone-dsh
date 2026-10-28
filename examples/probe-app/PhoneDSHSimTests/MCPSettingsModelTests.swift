@@ -87,7 +87,6 @@ final class MCPSettingsModelTests: XCTestCase {
     private func makeModel(_ harness: Harness,
                            transport: ScriptedTransport) -> MCPSettingsModel {
         MCPSettingsModel(
-            host: .native,
             settings: harness.settings,
             isHostRunning: { true },
             makeTransport: { transport },

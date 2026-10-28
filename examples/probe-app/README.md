@@ -3,14 +3,10 @@
 The shipped app opens the **native SwiftUI shell** (conversation, workspace
 drawer, composer, workbench) on top of `PhoneDSHHost`, which owns the Worker,
 VFS, model gateway and native `PDSHShellProvider`. The complete DSH Web UI is
-still built and served from the local loopback origin
-(`/static/web/index.html`), but in the current release it has **no user-facing
-entry**: `WebHostModel.mode` starts in the native recovery surface and the Web
-surface stays switched off until that entry is restored. When it is enabled it
-loads edge-to-edge in the same host, with no Safari view controller or toolbar;
-file input, downloads/share and external links use the system
-pickers/sheets/opener, and switching back to the native shell stops the Web host
-and its session first. The Web MCP tab and the recovery Settings page open the native
+**removed**: the Worker image still carries the DSH page it boots from
+(`/static/web/index.html`), but the app no longer has a Web surface, and its
+lifecycle/tests were deleted with it. The worker page stays a Worker input,
+not an app surface. The recovery Settings page opens the native
 **MCP 网络与密钥** sheet, which keeps the one Worker `mcp.json` registry, adds
 only the exact MCP scheme/host/port/path to Worker egress, and stores header
 values in the dedicated MCP Keychain.
@@ -65,7 +61,7 @@ documented Apple platform facts.
 |---|---|
 | `project.yml` | XcodeGen project. Bundle id placeholder `dev.phone-dsh.probe`; change it for device signing. |
 | `PhoneDSHProbe/` | SwiftUI app: `Probes`, `Memory`, `Background`, `Screen`, `Export`. |
-| `ProbeKit/` | Library target: the iOS port of the W3-PROBES suite, the report model, the host session, the shared complete-Web host assembly (`WebHostConfiguration`), the synthetic-overlay writer and the memory/background runners. |
+| `ProbeKit/` | Library target: the iOS port of the W3-PROBES suite, the report model, the host session, the shared complete-page host assembly (`WebHostConfiguration`, used by the simulator suites), the synthetic-overlay writer and the memory/background runners. |
 | `PhoneDSHSimTests/` | Hostless XCTest target for the W3-SIM simulator gate: probes via `ProbeKit`, the end-to-end smoke, the kill matrix and the shared report/window/bundle discovery. |
 | `Bundle/worker/` | Build-time copy of the packed Worker assets. Not committed; filled by `scripts/copy-bundle-assets.sh`. |
 | `Config/PhoneDSHProbe-Info.plist` | Local-network ATS exception, `processing` background mode, `BGTaskSchedulerPermittedIdentifiers` family. |
