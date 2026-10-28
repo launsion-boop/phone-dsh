@@ -58,7 +58,10 @@ public struct WorkspaceLogAck: Equatable, Sendable {
 public struct WorkspaceLogConfiguration: Equatable, Sendable {
     /// Quotas of PLAN §2.3; an exceeded quota compacts droppable data first and
     /// then fails loud.
-    public static let defaultWALQuotaBytes = 256 * 1024 * 1024
+    /// 512 MiB: the 12 GiB row publishes 256 MiB files, and one such file
+    /// rewritten twice would otherwise reach the former 256 MiB quota
+    /// (budgets.md §5).
+    public static let defaultWALQuotaBytes = 512 * 1024 * 1024
     public static let defaultJournalQuotaBytes = 64 * 1024 * 1024
     public static let defaultResponseLogQuotaBytes = 128 * 1024 * 1024
     /// A segment rolls before a mutation that would exceed 8 MiB (wal.md §1).

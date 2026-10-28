@@ -262,7 +262,7 @@ JSON object, and a duplicate member, non-integer number or malformed JSON is `BA
 - `/dsh/home/{sessions,storages,tool-journal}/**` is DSH-internal: execution surfaces (`bash`,
   `python3`, `git`) receive `EACCES` with a remediation line and never see the bytes.
 - One file is at most the host's `single_file_limit`: the budgets.md tier default (64 / 48 / 32 / 16 MiB)
-  or a configured value in 16 MiB ... 128 MiB, gated by the tier. One mutation carries at most 15 MiB
+  or a configured value in 16 MiB ... 256 MiB, gated by the tier. One mutation carries at most 15 MiB
   (the 16 MiB frame cap leaves room for header and path); a larger file is one complete write plus
   appended suffixes whose `append_from` equals the accepted logical length, carrying only the suffix.
   The worker VFS refuses a post-write file above `single_file_limit` with `EFBIG` and emits no

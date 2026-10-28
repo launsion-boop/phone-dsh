@@ -3154,6 +3154,13 @@ public actor PhoneDSHHost: PhoneDSHHosting {
             environment[PhoneDSHWorkerEnvironment.singleFileLimit] =
                 String(configuration.singleFileLimitBytes)
         }
+        // The 12 GiB row publishes 640 MiB hot instances; the 8 GiB default
+        // stays 260 MiB. The entry merges this into the manifest and the tool
+        // workers' memory ceiling.
+        if environment[PhoneDSHWorkerEnvironment.wasiHotInstanceBytes] == nil {
+            environment[PhoneDSHWorkerEnvironment.wasiHotInstanceBytes] =
+                String(configuration.budgets.wasiHotInstanceBytes)
+        }
         // The capability manifest states which hosts `curl` may reach so the
         // agent does not have to probe; the gateway still enforces the union.
         // An explicit App override still wins.

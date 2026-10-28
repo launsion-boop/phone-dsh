@@ -104,6 +104,27 @@ final class BigFileBudgetTests: XCTestCase {
         XCTAssertEqual(defaulted.budgets, BudgetTable.eightGB)
     }
 
+    /// The 12 GiB row accepts 256 MiB files; the 8 GiB row stays capped at
+    /// its 128 MiB maximum even when the host asks for more.
+    func testTwelveGiBTierAcceptsThe256MiBLimitAndTheEightGiBRowDoesNot() throws {
+        let root = try temporaryRoot("twelve")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let origin = try XCTUnwrap(URL(string: "http://127.0.0.1:1"))
+
+        let twelve = PhoneDSHConfiguration(
+            workspaceRoot: root, token: "token", origin: origin,
+            deviceTier: .twelveGB, singleFileLimitBytes: 256 * mib)
+        XCTAssertEqual(twelve.singleFileLimitBytes, 256 * mib)
+        XCTAssertEqual(twelve.budgets.singleFileBytes, 256 * mib)
+        XCTAssertTrue(twelve.budgets.isCoherent)
+        XCTAssertEqual(twelve.budgets.workspaceBytes, 576 * mib)
+
+        let eight = PhoneDSHConfiguration(
+            workspaceRoot: root, token: "token", origin: origin,
+            deviceTier: .eightGB, singleFileLimitBytes: 256 * mib)
+        XCTAssertEqual(eight.singleFileLimitBytes, 128 * mib)
+    }
+
     /// The 4 GiB and ≤3 GiB tiers must gate a larger host request instead of
     /// accepting a bucket the device cannot hold.
     func testSmallDeviceTiersGateTheSingleFileLimit() throws {

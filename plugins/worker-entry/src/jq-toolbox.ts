@@ -74,6 +74,11 @@ export interface JqToolboxOptions {
   readonly crossOriginIsolated?: boolean
   /** Visible-line sink; defaults to `console.info`. */
   readonly log?: (message: string) => void
+  /**
+   * WASI hot-instance ceiling for the jq tool worker (budgets.md §4,
+   * `wasiHotInstanceBytes`); omitted means the 8 GiB default.
+   */
+  readonly memoryLimitBytes?: number
 }
 
 /** The published jq toolbox and the probed engine facts. */
@@ -141,6 +146,7 @@ export async function installJqToolbox(
     ...options.spawnWorker === undefined ? {} : { spawnWorker: options.spawnWorker },
     ...options.workerUrl === undefined ? {} : { workerUrl: options.workerUrl },
     ...options.crossOriginIsolated === undefined ? {} : { crossOriginIsolated: options.crossOriginIsolated },
+    ...options.memoryLimitBytes === undefined ? {} : { memoryLimitBytes: options.memoryLimitBytes },
   })
   // Prove the guest can resolve the shell's workspace before publishing. A
   // toolbox that cannot read the preopened roots would turn every jq step

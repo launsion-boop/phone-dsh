@@ -285,7 +285,7 @@ existing `EFBIG` pre-check keep their fast path. The in-memory
 `MemoryVfsBackend` has no sink and no tracker; it stays a test double.
 
 Both backends enforce the configured single-file budget (`MAX_FILE_SIZE`, 64 MiB
-by default; the host's `PDSH_SINGLE_FILE_LIMIT_BYTES` is clamped to 16–128 MiB and
+by default; the host's `PDSH_SINGLE_FILE_LIMIT_BYTES` is clamped to 16–256 MiB and
 applied by `configureSingleFileLimit`) before they touch the runtime filesystem:
 a whole write, an append whose post-write file would exceed it, or a `truncate`
 that would grow the file past it fails with `EFBIG: File too large: <path>

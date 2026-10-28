@@ -16,6 +16,7 @@ import UIKit
 import CryptoKit
 import PhoneDSHAgentCore
 import PhoneDSH
+import enum PhoneDSHController.DeviceTier
 import PhoneDSHEngine
 import PhoneDSHShell
 
@@ -644,6 +645,9 @@ final class ChatModel {
             workspaceRoot: workspaceRoot,
             token: "",
             origin: URL(string: "http://127.0.0.1:1")!,
+            // Budgets follow the device: the 12 GiB row is selected only at or
+            // above 12 GiB (budgets.md §4).
+            deviceTier: DeviceTier.forPhysicalMemory(ProcessInfo.processInfo.physicalMemory),
             bundle: bundle,
             allowedModelHosts: allowedModelHosts,
             egressAllowHosts: egressHosts,

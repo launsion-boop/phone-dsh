@@ -4,6 +4,7 @@ import { test } from 'node:test'
 import {
   DEFAULT_HOT_INSTANCE_MEMORY_BYTES,
   HOT_INSTANCE_MEMORY_BYTES_BY_TIER,
+  MAX_SINGLE_FILE_LIMIT,
   MEBIBYTE,
 } from './limits.ts'
 
@@ -23,9 +24,14 @@ test('limits: the default WASI hot-instance ceiling is the 8 GiB budgets.md §4 
 
 test('limits: the WASI hot-instance row of every tier matches budgets.md §4', () => {
   assert.deepEqual({ ...HOT_INSTANCE_MEMORY_BYTES_BY_TIER }, {
+    '12GiB': 640 * MEBIBYTE,
     '8GiB': 260 * MEBIBYTE,
     '6GiB': 200 * MEBIBYTE,
     '4GiB': 144 * MEBIBYTE,
     '3GiB': 96 * MEBIBYTE,
   })
+})
+
+test('limits: the absolute single-file maximum is the 12 GiB host maximum (256 MiB)', () => {
+  assert.equal(MAX_SINGLE_FILE_LIMIT, 256 * MEBIBYTE)
 })

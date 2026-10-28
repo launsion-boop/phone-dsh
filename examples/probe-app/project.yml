@@ -60,6 +60,10 @@ targets:
       # that product explicitly instead of relying on a transitive test build.
       - package: PhoneDSH
         product: PhoneDSHLog
+      # DeviceTier/BudgetTable drive the configuration's budget row (12 GiB
+      # devices select the larger row).
+      - package: PhoneDSH
+        product: PhoneDSHController
       - package: PhoneDSH
         product: PhoneDSHEngine
       # the Chat page drives a harness session (HarnessEvent/HarnessCommand) and renders JSONValue arguments
@@ -108,6 +112,8 @@ targets:
         product: PhoneDSHWire
       - package: PhoneDSH
         product: PhoneDSHAgentCore
+      - package: PhoneDSH
+        product: PhoneDSHController
       # WebHostConfiguration assembles the linked PDSHShellProvider and its
       # runnable accelerator set for the production Web surface and the E2E.
       - package: PhoneDSH

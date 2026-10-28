@@ -595,7 +595,7 @@ final class PhoneDSHScenarioTestsBudgetInjection: XCTestCase {
             XCTAssertTrue(text.contains("15728640"), text)
         }
         XCTAssertThrowsError(try loadCatalog(
-            catalogData(budgets: ["singleFileBytes": 129 * Self.mebibyte]))) {
+            catalogData(budgets: ["singleFileBytes": 257 * Self.mebibyte]))) {
             XCTAssertTrue(String(describing: $0)
                 .contains("outside the supported range"))
         }
@@ -640,7 +640,7 @@ final class PhoneDSHScenarioTestsBudgetInjection: XCTestCase {
             guard let budget = scenario.budgets?.singleFileBytes else { continue }
             declared += 1
             XCTAssertGreaterThanOrEqual(budget, 16 * Self.mebibyte)
-            XCTAssertLessThanOrEqual(budget, 128 * Self.mebibyte)
+            XCTAssertLessThanOrEqual(budget, 256 * Self.mebibyte)
             for turn in scenario.turns {
                 XCTAssertFalse(turn.prompt.contains("{{budgets."),
                                "\(scenario.id) prompt left a budget reference unresolved")

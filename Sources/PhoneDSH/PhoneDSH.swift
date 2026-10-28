@@ -85,6 +85,10 @@ public enum PhoneDSHWorkerEnvironment {
     /// Decimal bytes of the host's single-file budget. The Worker entry uses
     /// it for write pre-checks and the ENG-05 capability manifest.
     public static let singleFileLimit = "PDSH_SINGLE_FILE_LIMIT_BYTES"
+    /// Decimal bytes of the host's WASI hot-instance budget for tool workers
+    /// (the tier's `wasiHotInstanceBytes`). The Worker entry uses it for the
+    /// toolbox memory ceiling and the ENG-05 capability manifest.
+    public static let wasiHotInstanceBytes = "PDSH_WASI_HOT_INSTANCE_BYTES"
     /// Comma-separated hosts the Worker may reach through `/v1/http` egress
     /// (``PhoneDSHConfiguration/egressAllowHosts``, wildcards included). The
     /// Worker entry only states it in the capability manifest so the agent

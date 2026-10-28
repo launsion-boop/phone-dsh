@@ -426,7 +426,7 @@ every path goes through one namespace (`/tmp` and `/dsh/tmp` are one volatile
 store; `/dsh/home` and `/dsh/workspace` are the only persisted roots, `/tmp` is
 never sent to the sink), every failure from this layer ends in one
 `pdsh-shell: exit=… program=… reason=… hint=…` line, and the single-file budget
-is the host's clamped value (64 MiB at the 8 GiB tier, up to 128 MiB when the
+is the host's clamped value (64 MiB at the 8 GiB tier, up to 256 MiB when the
 tier allows) with the same number reported to the model.
 
 Acceptance is covered by `plugins/worker-entry/src/capability-manifest.test.ts`

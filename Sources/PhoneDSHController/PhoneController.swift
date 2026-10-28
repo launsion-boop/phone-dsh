@@ -192,6 +192,8 @@ public enum DeviceTier: String, CaseIterable, Codable, Sendable {
     case fourGB = "4gb"
     case sixGB = "6gb"
     case eightGB = "8gb"
+    /// 12 GiB or more (budgets.md §4, selected only at or above 12 GiB).
+    case twelveGB = "12gb"
 
     /// The plan's default is the 8 GB tier.
     public static let `default`: DeviceTier = .eightGB
@@ -227,8 +229,8 @@ public struct BudgetTable: Equatable, Sendable {
 
     /// Smallest host-configurable single-file budget (16 MiB).
     public static let minimumSingleFileLimitBytes = 16 * 1024 * 1024
-    /// Largest host-configurable single-file budget (128 MiB).
-    public static let absoluteMaximumSingleFileBytes = 128 * 1024 * 1024
+    /// Largest host-configurable single-file budget (256 MiB).
+    public static let absoluteMaximumSingleFileBytes = 256 * 1024 * 1024
 
     /// The 8 GB row of budgets.md §4. The workspace bucket holds two files at
     /// the default 64 MiB cap plus 32 MiB of headroom.
@@ -257,6 +259,7 @@ public struct BudgetTable: Equatable, Sendable {
         .fourGB: .fourGB,
         .sixGB: .sixGB,
         .eightGB: .eightGB,
+        .twelveGB: .twelveGB,
     ]
 
     /// Returns the budget row for a tier (the 8 GB row when unknown).

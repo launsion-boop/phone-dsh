@@ -76,22 +76,23 @@ without `Reclaiming`, and a drain deadline never reopens admission.
 ## 4. Budgets
 
 Device tiers are selected once per boot from the physical memory ceiling. The 8 GB row is the
-default; a lower row applies when the ceiling is below 8 GiB. `MB`/`MiB` are 1 048 576 bytes.
+default; a lower row applies when the ceiling is below 8 GiB, and the 12 GiB row applies only when
+the ceiling is at least 12 GiB. `MB`/`MiB` are 1 048 576 bytes.
 
-| Resource | 8 GiB (default) | 6 GiB | 4 GiB | ≤ 3 GiB |
-|---|---|---|---|---|
-| Engine heap | ≤ 320 MB | ≤ 256 MB | ≤ 192 MB | ≤ 144 MB |
-| VFS logical bytes | ≤ 260 MB | ≤ 200 MB | ≤ 144 MB | ≤ 96 MB |
-| VFS split: workspace / sessions / tmp | 160 / 50 / 50 MB | 120 / 40 / 40 MB | 80 / 32 / 32 MB | 48 / 24 / 24 MB |
-| Single file | ≤ 64 MiB | ≤ 48 MiB | ≤ 32 MiB | ≤ 16 MiB |
-| Single file, host maximum | 128 MiB | 128 MiB | 32 MiB | 16 MiB |
-| WASI hot instance | ≤ 260 MB | ≤ 200 MB | ≤ 144 MB | ≤ 96 MB |
-| App process | ≤ 150 MB | ≤ 140 MB | ≤ 120 MB | ≤ 100 MB |
-| Peak | ≤ 50 % of the ceiling (4 GiB) | ≤ 50 % (3 GiB) | ≤ 50 % (2 GiB) | ≤ 50 % (1.5 GiB) |
-| Sub-agents | ≤ 2; 1 when thermal fair | ≤ 2; 1 fair | ≤ 1 | ≤ 1 |
-| Loopback round trip | p95 < 5 ms | p95 < 5 ms | p95 < 5 ms | p95 < 5 ms |
-| Planned WebContent restart | every 2 h at a tool-call boundary | same | same | same |
-| Recovery time target | `a + k·MB`, a ≤ 3 s, k ≤ 0.05 s/MB | same | same | same |
+| Resource | 12 GiB | 8 GiB (default) | 6 GiB | 4 GiB | ≤ 3 GiB |
+|---|---|---|---|---|---|
+| Engine heap | ≤ 832 MB | ≤ 320 MB | ≤ 256 MB | ≤ 192 MB | ≤ 144 MB |
+| VFS logical bytes | ≤ 768 MB | ≤ 260 MB | ≤ 200 MB | ≤ 144 MB | ≤ 96 MB |
+| VFS split: workspace / sessions / tmp | 576 / 96 / 96 MB | 160 / 50 / 50 MB | 120 / 40 / 40 MB | 80 / 32 / 32 MB | 48 / 24 / 24 MB |
+| Single file | ≤ 256 MiB | ≤ 64 MiB | ≤ 48 MiB | ≤ 32 MiB | ≤ 16 MiB |
+| Single file, host maximum | 256 MiB | 128 MiB | 128 MiB | 32 MiB | 16 MiB |
+| WASI hot instance | ≤ 640 MB | ≤ 260 MB | ≤ 200 MB | ≤ 144 MB | ≤ 96 MB |
+| App process | ≤ 400 MB | ≤ 150 MB | ≤ 140 MB | ≤ 120 MB | ≤ 100 MB |
+| Peak | ≤ 50 % of the ceiling (6 GiB) | ≤ 50 % (4 GiB) | ≤ 50 % (3 GiB) | ≤ 50 % (2 GiB) | ≤ 50 % (1.5 GiB) |
+| Sub-agents | ≤ 2; 1 when thermal fair | ≤ 2; 1 when thermal fair | ≤ 2; 1 fair | ≤ 1 | ≤ 1 |
+| Loopback round trip | p95 < 5 ms | p95 < 5 ms | p95 < 5 ms | p95 < 5 ms | p95 < 5 ms |
+| Planned WebContent restart | every 2 h at a tool-call boundary | same | same | same | same |
+| Recovery time target | `a + k·MB`, a ≤ 3 s, k ≤ 0.05 s/MB | same | same | same | same |
 
 - The VFS caps are logical bytes and are enforced at write time; exceeding a prefix or the total is
   `ENOSPC` to the worker and is fail loud. `tmp` is cleared first under pressure because it is
@@ -100,13 +101,14 @@ default; a lower row applies when the ceiling is below 8 GiB. `MB`/`MiB` are 1 0
   one store, so a byte is counted once whichever name wrote it. They are the only writable non-sink
   roots. A `/dev/null` write is a device write and counts against no bucket.
 - The single-file budget is the tier default above. The host may set `single_file_limit` in
-  16 MiB ... 128 MiB: the 4 GiB and ≤ 3 GiB rows gate the value to their default, and the 8 / 6 GiB
-  rows accept up to 128 MiB. A value outside the range is clamped, never a start failure.
-- The workspace bucket is at least `2 × single_file_limit + headroom`, with 32 / 24 / 16 / 16 MiB of
-  headroom for the four rows: 160 = 2 × 64 + 32, 120 = 2 × 48 + 24, 80 = 2 × 32 + 16, 48 =
-  2 × 16 + 16. The VFS logical cap is at least `workspace + sessions + tmp`, and the engine heap is
-  at least the VFS logical cap. Raising the file limit raises workspace, VFS and heap in step; a
-  configuration never lowers a bucket.
+  16 MiB ... 256 MiB: the 4 GiB and ≤ 3 GiB rows gate the value to their default, the 8 / 6 GiB rows
+  accept up to 128 MiB, and the 12 GiB row accepts up to 256 MiB. A value outside the range is
+  clamped, never a start failure.
+- The workspace bucket is at least `2 × single_file_limit + headroom`, with 64 / 32 / 24 / 16 / 16 MiB
+  of headroom for the five rows: 576 = 2 × 256 + 64, 160 = 2 × 64 + 32, 120 = 2 × 48 + 24, 80 =
+  2 × 32 + 16, 48 = 2 × 16 + 16. The VFS logical cap is at least `workspace + sessions + tmp`, and
+  the engine heap is at least the VFS logical cap. Raising the file limit raises workspace, VFS and
+  heap in step; a configuration never lowers a bucket.
 - A file larger than one mutation is published as one complete write followed by appended suffixes
   (channel.md §3.1, §6). An appended mutation carries only the suffix, never the complete post-write
   file: the host tracks the accepted logical size and refuses a chunk that would grow one file past
@@ -118,9 +120,9 @@ default; a lower row applies when the ceiling is below 8 GiB. `MB`/`MiB` are 1 0
   headroom: (1) clear the volatile tmp root (`/dsh/tmp/**` and `/tmp/**`); (2) planned WebContent
   restart at the next tool-call boundary; (3) handoff to the remote. A hard cap still exceeded after the actions is `Failed`.
 - The recovery target is `a + k × MB`, with `a ≤ 3 s` and `k ≤ 0.05 s/MB`, where `MB` is the
-  materialized tree in MiB rounded up. A full 64 MiB file costs 3 + 0.05 × 64 = 6.2 s; at the new
-  260 MB VFS cap the bound is 3 + 13 = 16 s. The formula is unchanged; the values cover the larger
-  workspace and the overlay repack.
+  materialized tree in MiB rounded up. A full 64 MiB file costs 3 + 0.05 × 64 = 6.2 s; at the
+  260 MB VFS cap the bound is 3 + 13 = 16 s, and at the 768 MB cap 3 + 38.4 = 41.4 s. The formula
+  is unchanged; the values cover the larger workspace and the overlay repack.
 - The loopback target is measured over at least 1000 sequential WebSocket echoes on the loopback
   origin and is informational for the controller; exceeding it never changes a state by itself.
 - A planned restart or handoff starts only at a tool-call boundary: no frame is in flight, the epoch
@@ -131,7 +133,7 @@ default; a lower row applies when the ceiling is below 8 GiB. `MB`/`MiB` are 1 0
 
 | Store | Quota | Overflow rule |
 |---|---|---|
-| WAL segments | 256 MiB | Close the epoch, compact droppable segments and retry; still over after a second close → `Failed`. |
+| WAL segments | 512 MiB | Close the epoch, compact droppable segments and retry; still over after a second close → `Failed`. |
 | Response log | 128 MiB | Drop complete, oldest replays first; a partial stream is never logged; still over → `Failed`. |
 | Journal | 64 MiB | Prune entries whose step is `journaled` and durable; still over → `Failed`. |
 
@@ -145,6 +147,8 @@ append would cross the WAL quota the host closes the epoch in the D18 order, com
 segment and retries; a second failure closes and compacts once more. After a close at most the newest
 epoch-close segment and the open segment survive, so a 64 MiB rewrite cycle cannot accumulate five
 whole-file records; if the quota is still exceeded after the second close the state becomes `Failed`.
+The absolute WAL quota is 512 MiB because the 12 GiB row publishes 256 MiB files: one such file
+rewritten twice would otherwise reach the former 256 MiB quota before compaction could help.
 
 ## 6. Revision note (large-file budget)
 
@@ -152,3 +156,9 @@ The W12-BIGFILE revision replaced the former row (engine heap 200 MB, VFS logica
 split 50 / 50 / 50 MB, single file 15 MiB): that workspace bucket could not hold one 64 MiB file,
 let alone two. The old row is superseded and not normative; 15 MiB survives only as the per-mutation
 frame bound of channel.md. The recovery formula and the absolute WAL / journal quotas are unchanged.
+
+The 12 GiB row (office/big-file) adds a larger workspace above the 8 GiB default: 256 MiB single
+files, a 768 MB VFS, an 832 MB heap, a 640 MB WASI hot instance and a 400 MB app process. It is
+selected only when the physical memory ceiling is at least 12 GiB; every lower tier keeps its
+current row. The row raises the absolute WAL quota from 256 MiB to 512 MiB, because one 256 MiB
+file rewritten twice would otherwise reach the old quota; the compaction rule itself is unchanged.

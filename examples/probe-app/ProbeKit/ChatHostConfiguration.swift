@@ -11,6 +11,7 @@
 import Foundation
 import PhoneDSH
 import PhoneDSHAgentCore
+import enum PhoneDSHController.DeviceTier
 import PhoneDSHEngine
 
 /// Host assembly shared by the App and the simulator E2E suites.
@@ -58,13 +59,15 @@ public enum ChatHostConfiguration {
                             egressHosts: Set<String>,
                             workerPlaceholderKey: String = ChatHostConfiguration.workerPlaceholderKey,
                             drainDeadline: TimeInterval = ChatHostConfiguration.defaultDrainDeadline,
-                            helloTimeout: TimeInterval = ChatHostConfiguration.defaultHelloTimeout)
+                            helloTimeout: TimeInterval = ChatHostConfiguration.defaultHelloTimeout,
+                            deviceTier: DeviceTier = .default)
         -> PhoneDSHConfiguration {
         let hostRule = modelHostRule(for: modelBaseURL) ?? modelBaseURL.absoluteString
         var configuration = PhoneDSHConfiguration(
             workspaceRoot: workspaceRoot,
             token: "",
             origin: URL(string: "http://127.0.0.1:1")!,
+            deviceTier: deviceTier,
             bundle: bundle,
             allowedModelHosts: [hostRule],
             egressAllowHosts: egressHosts,

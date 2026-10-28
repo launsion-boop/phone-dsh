@@ -47,8 +47,8 @@ export const SINGLE_FILE_LIMIT_ENV = 'PDSH_SINGLE_FILE_LIMIT_BYTES'
 export const DEFAULT_SINGLE_FILE_LIMIT = 64 * MEBIBYTE
 /** Contract floor for a host-configured single-file limit: 16 MiB. */
 export const MIN_SINGLE_FILE_LIMIT = 16 * MEBIBYTE
-/** Absolute host maximum for a configured single-file limit: 128 MiB. */
-export const MAX_SINGLE_FILE_LIMIT = 128 * MEBIBYTE
+/** Absolute host maximum for a configured single-file limit: 256 MiB. */
+export const MAX_SINGLE_FILE_LIMIT = 256 * MEBIBYTE
 
 /**
  * Active single-file budget: 64 MiB by default, the 8 GiB tier row.
@@ -91,7 +91,7 @@ export function configureSingleFileLimit(bytes: number): number {
  *
  * A missing, non-decimal or non-positive value yields undefined so the
  * built-in tier default applies. A parsed value is clamped into the contract
- * range 16 MiB...128 MiB (budgets.md §4 says an out-of-range configuration is
+ * range 16 MiB...256 MiB (budgets.md §4 says an out-of-range configuration is
  * clamped, never a start failure).
  * @param env - environment map; defaults to `process.env` when available.
  * @returns the clamped byte limit, or undefined when unset.
@@ -112,6 +112,7 @@ export const DEFAULT_HOT_INSTANCE_MEMORY_BYTES = 260 * MEBIBYTE
 
 /** Ceiling per device tier, from budgets.md §4. */
 export const HOT_INSTANCE_MEMORY_BYTES_BY_TIER = {
+  '12GiB': 640 * MEBIBYTE,
   '8GiB': 260 * MEBIBYTE,
   '6GiB': 200 * MEBIBYTE,
   '4GiB': 144 * MEBIBYTE,

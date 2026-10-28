@@ -137,6 +137,11 @@ export interface PythonToolboxOptions {
   readonly http?: LoopbackHttpRoute
   /** Environment the route is read from; defaults to `process.env`. */
   readonly processEnv?: Readonly<Record<string, string | undefined>>
+  /**
+   * WASI hot-instance ceiling for the python tool workers (budgets.md §4,
+   * `wasiHotInstanceBytes`); omitted means the 8 GiB default.
+   */
+  readonly memoryLimitBytes?: number
 }
 
 /** The published runtime and the toolbox the Worker shell dispatches to. */
@@ -211,6 +216,7 @@ export async function installPythonToolbox(
     ...options.spawnWorker === undefined ? {} : { spawnWorker: options.spawnWorker },
     ...options.workerUrl === undefined ? {} : { workerUrl: options.workerUrl },
     ...options.crossOriginIsolated === undefined ? {} : { crossOriginIsolated: options.crossOriginIsolated },
+    ...options.memoryLimitBytes === undefined ? {} : { memoryLimitBytes: options.memoryLimitBytes },
     ...http === undefined ? {} : { http },
   })
   // Verify the guest's file view *before* publishing: a toolbox that cannot

@@ -9,7 +9,7 @@ final class WorkspaceLogSkeletonTests: XCTestCase {
     func testConfigurationDefaultsMatchPlanQuotas() {
         let configuration = WorkspaceLogConfiguration(
             root: FileManager.default.temporaryDirectory.appendingPathComponent("workspace"))
-        XCTAssertEqual(configuration.walQuotaBytes, 256 * 1024 * 1024)
+        XCTAssertEqual(configuration.walQuotaBytes, 512 * 1024 * 1024)
         XCTAssertEqual(configuration.journalQuotaBytes, 64 * 1024 * 1024)
         XCTAssertEqual(configuration.responseLogQuotaBytes, 128 * 1024 * 1024)
         XCTAssertEqual(configuration.segmentRollBytes, 8 * 1024 * 1024)

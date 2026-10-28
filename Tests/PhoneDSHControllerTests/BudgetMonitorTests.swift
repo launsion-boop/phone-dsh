@@ -39,6 +39,35 @@ final class BudgetMonitorTests: XCTestCase {
                        4 * 1024 * mb)
     }
 
+    /// budgets.md §4, 12 GiB row: the office/big-file tier above the 8 GiB
+    /// default. It is the only row that may publish 256 MiB files.
+    func testTwelveGiBTierRowAndSelection() {
+        let table = BudgetTable.table(for: .twelveGB)
+        XCTAssertEqual(table.engineHeapBytes, 832 * mb)
+        XCTAssertEqual(table.vfsLogicalBytes, 768 * mb)
+        XCTAssertEqual(table.workspaceBytes, 576 * mb)
+        XCTAssertEqual(table.sessionBytes, 96 * mb)
+        XCTAssertEqual(table.tmpBytes, 96 * mb)
+        XCTAssertEqual(table.singleFileBytes, 256 * mb)
+        XCTAssertEqual(table.wasiHotInstanceBytes, 640 * mb)
+        XCTAssertEqual(table.appProcessBytes, 400 * mb)
+        XCTAssertEqual(table.maximumSingleFileBytes, 256 * mb)
+        XCTAssertTrue(table.isCoherent)
+        XCTAssertEqual(DeviceTier.twelveGB.physicalMemoryBytes, 12 * 1024 * mb)
+        XCTAssertEqual(BudgetTable.absoluteMaximumSingleFileBytes, 256 * mb)
+
+        // The 12 GiB row applies only at or above 12 GiB; everything below
+        // keeps the previous row (the 8 GiB default down to 4 GiB).
+        XCTAssertEqual(DeviceTier.forPhysicalMemory(16 * 1024 * UInt64(mb)), .twelveGB)
+        XCTAssertEqual(DeviceTier.forPhysicalMemory(12 * 1024 * UInt64(mb)), .twelveGB)
+        XCTAssertEqual(DeviceTier.forPhysicalMemory(12 * 1024 * UInt64(mb) - 1), .eightGB)
+        XCTAssertEqual(DeviceTier.forPhysicalMemory(8 * 1024 * UInt64(mb)), .eightGB)
+        XCTAssertEqual(DeviceTier.forPhysicalMemory(6 * 1024 * UInt64(mb)), .sixGB)
+        XCTAssertEqual(DeviceTier.forPhysicalMemory(4 * 1024 * UInt64(mb)), .fourGB)
+        XCTAssertEqual(DeviceTier.forPhysicalMemory(3 * 1024 * UInt64(mb)), .threeGB)
+        XCTAssertEqual(DeviceTier.forPhysicalMemory(1), .threeGB)
+    }
+
     func testWithinBudgetReturnsNoAction() async throws {
         let monitor = BudgetMonitor(table: .eightGB)
         let decision = await monitor.evaluate(sample(workspace: 10 * mb,

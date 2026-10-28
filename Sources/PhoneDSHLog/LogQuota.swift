@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: MIT
 // phone-dsh phone DSH — PhoneDSHLog: quota constants.
 //
-// PLAN §2.3 and spec/v1/wal.md §9. The WAL is limited to 256 MB and
-// the journal to 64 MB. Overflow compacts droppable data first and then fails
+// PLAN §2.3 and spec/v1/wal.md §9. The WAL is limited to 512 MiB and
+// the journal to 64 MiB. Overflow compacts droppable data first and then fails
 // loud with `LogError.quotaExceeded`; nothing is silently evicted.
 
 import Foundation
 
 /// The two quota-managed logs of one workspace.
 public struct LogQuota: Equatable, Sendable {
-    /// PLAN §2.3: WAL ≤ 256 MB.
-    public static let defaultWALBytes = 256 * 1024 * 1024
+    /// PLAN §2.3 / budgets.md §5: WAL ≤ 512 MiB.
+    public static let defaultWALBytes = 512 * 1024 * 1024
     /// PLAN §2.3: journal ≤ 64 MB.
     public static let defaultJournalBytes = 64 * 1024 * 1024
 
