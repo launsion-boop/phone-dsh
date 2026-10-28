@@ -2,7 +2,7 @@
 
 # Phone DSH — Xiaozhi & Tono AI Team 联合开源
 
-把 DeepSeek Harness 原样跑进 iOS / macOS App。
+把 DeepSeek Harness 原样跑进 iPhone App。
 
 [English](README.md) · [架构说明](docs/architecture.md) · [协议规范](spec/v1/README.md)
 
@@ -24,6 +24,7 @@ DSH 版本钉在 [`plugins/dsh-pin.json`](plugins/dsh-pin.json)：`0.2.1-rc.2`�
 - **单一回环源。** 页面、静态资源、镜像与 overlay 分片、有序 WebSocket、`/v1/http` 和 MCP 端点共用同一个 `127.0.0.1` 源。Worker 用普通的同源 `fetch` 和 WebSocket 即可，不需要自定义 URL scheme，也没有第二个服务器。
 - **工作区写入是持久的。** 模型做出的每一次改动都带持久 `mseq` 编号写入预写日志，确认后才算持久；重连或重启后，Worker 从最后确认的编号开始重放。一级确认能扛进程被杀；二级确认（epoch 关闭、`F_FULLFSYNC`、原子写 manifest）把 epoch 落到稳定存储，所以断电最多丢最后一个未关闭的 epoch。
 - **API key 不进 Worker。** 模型网关按精确的上游 host 与路径向 App 的 `CredentialProvider` 取凭据，在宿主侧注入，并先剥掉入站的 `authorization`、`proxy-authorization` 和 `x-pdsh-*` 头。Worker 手里只有占位符；重定向只有在同一作用域内才会重新带上凭据。
+- **后台运行。** 切到别的 App 不会打断正在跑的回合：回合进行中，App 保持一个静音音频会话（已声明 `audio` 后台模式），宿主和事件泵继续工作；空闲时宿主自动 park，不白耗电；回合在后台结束时释放音频会话并 park。若 iOS 中断了音频会话（来电、别的 App 抢占音频），宿主会排空在跑的工作，回到前台后从 WAL 继续。
 - **生命周期扛得住系统打断。** 在工具调用边界做计划内重启；后台 park/drain/resume，排空窗口 20 秒；内存与温度预算；带持久非秘密 intent 的交接/收回 facade。宿主状态机出错就大声失败，不会悄悄重新放行。
 - **执行器倒置。** `bash`、`git`、`python3` 和文件工具都在 Worker 内的内存 VFS 上运行，写入就是普通的工作区变更。只有宿主广播过的只读加速器（`rg`、`jaq`/`jq`、`ts-parse`、`ts-query`，以及有 bridge 时的 `phone`/`ctx`）才会跨进 App 进程。
 
@@ -31,7 +32,7 @@ DSH 版本钉在 [`plugins/dsh-pin.json`](plugins/dsh-pin.json)：`0.2.1-rc.2`�
 
 ```text
 ┌───────────────────────────────────────────────────┐
-│ iOS / macOS app (one process)                     │
+│ iPhone app (one process)                          │
 │                                                   │
 │ Swift host: PhoneDSHHost                          │
 │  ├─ LoopbackServer   127.0.0.1, one origin        │
@@ -63,9 +64,9 @@ App 与 Worker 在一个源上碰面。页面和静态资源走 HTTP；副作用
 
 | 要求 | 说明 |
 |---|---|
-| macOS、Xcode 26、Swift 6.3+ | 记录在案的构建使用 Xcode 26.5 与 Swift 6.3.2 |
+| Xcode 26、Swift 6.3+ | 记录在案的构建使用 Xcode 26.5 与 Swift 6.3.2 |
 | XcodeGen | `brew install xcodegen`；用来重新生成 `examples/probe-app/PhoneDSHProbe.xcodeproj` |
-| iOS 17+（SwiftPM 包：iOS 17 / macOS 14） | `project.yml`、`Package.swift` |
+| iOS 17+（SwiftPM 包同时支持 macOS 14） | `project.yml`、`Package.swift` |
 | Node.js ≥ 22.19、npm、pnpm | plugins、Worker 镜像、DSH 检出构建 |
 | 钉住版本的 DSH 检出 | 本地构建，不入库 |
 | Rust stable 与 Apple targets（可选） | 只用于加速器 XCFramework |
@@ -124,7 +125,7 @@ xcodebuild -scheme PhoneDSHProbe \
 bash scripts/ci/check.sh --list
 bash scripts/ci/check.sh --only phone-plugins,phone-image,phone-sdk
 bash scripts/ci/check.sh        # 全部阶段
-bash scripts/ci/smoke.sh        # macOS，真 WKWebView，脚本模型
+bash scripts/ci/smoke.sh        # 桌面端，真 WKWebView，脚本模型
 bash scripts/ci/sim.sh          # iPhone 17 Pro 模拟器，四份参与判定的 JSON 报告
 ```
 
@@ -171,7 +172,7 @@ bash scripts/ci/scenarios.sh --upstream real
 
 | 范围 | 状态 |
 |---|---|
-| macOS smoke（真 WKWebView + 脚本模型） | 在较早修订上通过的历史门禁；当前源码重跑未记录 |
+| 桌面 smoke（真 WKWebView + 脚本模型） | 在较早修订上通过的历史门禁；当前源码重跑未记录 |
 | iPhone 17 Pro 模拟器门禁（`sim.sh`） | 历史模拟器门禁；只是模拟器证据 |
 | 全 56 场景真实模型批跑（`scenarios.sh`） | 当前源码 NOT_RUN；需要真实密钥和绑定源码的 receipt |
 | 物理 iPhone（签名、安装、真实 provider、后台） | NOT_RUN；没有真机证据，限流、JIT、jetsam、锁定模式和后台调度在真机上仍是 NOT_VERIFIED |

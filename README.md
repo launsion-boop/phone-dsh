@@ -2,7 +2,7 @@
 
 # Phone DSH — Jointly open-sourced by Xiaozhi & Tono AI Team
 
-Run DeepSeek Harness, unmodified, inside an iOS or macOS app.
+Run DeepSeek Harness, unmodified, on your iPhone.
 
 [简体中文](README.zh.md) · [Architecture](docs/architecture.md) · [Protocol spec](spec/v1/README.md)
 
@@ -24,6 +24,7 @@ Without this split, the official DSH plugin tree (model adapters, tools, sub-age
 - **One loopback origin.** Page, static assets, image and overlay shards, the ordered WebSocket, `/v1/http` and the MCP endpoint share one `127.0.0.1` origin. The Worker uses ordinary same-origin `fetch` and a normal WebSocket; there is no custom URL scheme and no second server.
 - **Durable workspace writes.** Every mutation the model makes is numbered with a persistent `mseq`, appended to a write-ahead log and acknowledged before it counts as durable. After a reconnect or restart the Worker replays from the last acknowledged number. Level 1 survives a process kill; level 2 (epoch close, `F_FULLFSYNC`, atomic manifest) puts an epoch on stable storage, so a power loss costs at most the unclosed epoch.
 - **The API key never enters the Worker.** The model gateway asks the app's `CredentialProvider` for a credential scoped to the exact upstream host and path, injects it on the host side, and first strips inbound `authorization`, `proxy-authorization` and `x-pdsh-*` headers. The Worker only ever holds a placeholder. A redirect is re-credentialed only within the same scope.
+- **Background running.** Switching to another app does not stop a running turn: while a turn is in flight the app holds a silent audio session (the `audio` background mode is declared) and keeps the host and its event pump alive. An idle host is parked instead, so an idle session costs no battery, and a turn that finishes while hidden releases the session and parks the host. If iOS interrupts the audio session (a call, another app taking audio), the host drains the in-flight work and the session resumes from the WAL when you come back.
 - **Lifecycle the OS can interrupt.** Planned restarts at tool-call boundaries, background park/drain/resume with a 20 s drain window, memory and thermal budgets, and a handoff/reclaim facade backed by a durable non-secret intent. The host state machine fails loud and never silently reopens admission.
 - **Executor inversion.** `bash`, `git`, `python3` and the file tools run inside the Worker on the in-memory VFS, so their writes are ordinary workspace mutations. Only read-only accelerators (`rg`, `jaq`/`jq`, `ts-parse`, `ts-query`, and `phone`/`ctx` when a bridge exists) cross into the app process, and only when the host advertised them.
 
@@ -31,7 +32,7 @@ Without this split, the official DSH plugin tree (model adapters, tools, sub-age
 
 ```text
 ┌───────────────────────────────────────────────────┐
-│ iOS / macOS app (one process)                     │
+│ iPhone app (one process)                          │
 │                                                   │
 │ Swift host: PhoneDSHHost                          │
 │  ├─ LoopbackServer   127.0.0.1, one origin        │
@@ -63,9 +64,9 @@ All commands run from the repository root unless stated otherwise.
 
 | Requirement | Notes |
 |---|---|
-| macOS with Xcode 26 and a Swift 6.3+ toolchain | recorded builds use Xcode 26.5 and Swift 6.3.2 |
+| Xcode 26 with a Swift 6.3+ toolchain | recorded builds use Xcode 26.5 and Swift 6.3.2 |
 | XcodeGen | `brew install xcodegen`; regenerates `examples/probe-app/PhoneDSHProbe.xcodeproj` |
-| iOS 17+; the SwiftPM package supports iOS 17 and macOS 14 | `project.yml`, `Package.swift` |
+| iOS 17+ (the SwiftPM package also builds for macOS 14) | `project.yml`, `Package.swift` |
 | Node.js ≥ 22.19, npm and pnpm | plugins, Worker image, pinned DSH build |
 | A DSH checkout at the pinned commit | built locally, never committed |
 | Rust stable and Apple targets (optional) | only for the accelerator XCFramework |
@@ -125,7 +126,7 @@ The generated `PhoneDSHProbe.xcodeproj` is intentionally not committed. Simulato
 bash scripts/ci/check.sh --list
 bash scripts/ci/check.sh --only phone-plugins,phone-image,phone-sdk
 bash scripts/ci/check.sh        # every stage
-bash scripts/ci/smoke.sh        # macOS, real WKWebView, scripted model
+bash scripts/ci/smoke.sh        # desktop, real WKWebView, scripted model
 bash scripts/ci/sim.sh          # iPhone 17 Pro simulator, four gated JSON reports
 ```
 
@@ -172,7 +173,7 @@ A PASS belongs only to the source commit, built artifacts and environment named 
 
 | Area | Status |
 |---|---|
-| macOS smoke (real WKWebView, scripted model) | historical gate on an earlier revision; a rerun on the current source is not recorded here |
+| Desktop smoke (real WKWebView, scripted model) | historical gate on an earlier revision; a rerun on the current source is not recorded here |
 | iPhone 17 Pro simulator gate (`sim.sh`) | historical simulator gate; simulator evidence only |
 | Full 56-scenario real-model batch (`scenarios.sh`) | NOT_RUN on the current source; needs a real key and a source-bound receipt |
 | Physical iPhone (signing, install, real provider, background) | NOT_RUN; no device evidence, so throttling, JIT, jetsam, Lockdown Mode and background scheduling stay NOT_VERIFIED on device |
