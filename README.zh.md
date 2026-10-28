@@ -26,6 +26,7 @@ DSH 版本钉在 [`plugins/dsh-pin.json`](plugins/dsh-pin.json)：`0.2.1-rc.2`�
 - **API key 不进 Worker。** 模型网关按精确的上游 host 与路径向 App 的 `CredentialProvider` 取凭据，在宿主侧注入，并先剥掉入站的 `authorization`、`proxy-authorization` 和 `x-pdsh-*` 头。Worker 手里只有占位符；重定向只有在同一作用域内才会重新带上凭据。
 - **后台运行。** 切到别的 App 不会打断正在跑的回合：回合进行中，App 保持一个静音音频会话（已声明 `audio` 后台模式），宿主和事件泵继续工作；空闲时宿主自动 park，不白耗电；回合在后台结束时释放音频会话并 park。若 iOS 中断了音频会话（来电、别的 App 抢占音频），宿主会排空在跑的工作，回到前台后从 WAL 继续。
 - **生命周期扛得住系统打断。** 在工具调用边界做计划内重启；后台 park/drain/resume，排空窗口 20 秒；内存与温度预算；带持久非秘密 intent 的交接/收回 facade。宿主状态机出错就大声失败，不会悄悄重新放行。
+- **自研加速器 xz-shell。** 宿主侧的只读加速器是我们自己的 Rust workspace（`shell/`），不是打包的第三方二进制：ripgrep 兼容搜索、jq 兼容过滤、tree-sitter 解析/查询，以及 `phone`/`ctx` 宿主桥，统一走手写 C ABI（`include/xzshell.h`），链接为 `PDSHShell.xcframework`。同一个 workspace 还产出 Worker 里运行的 WASI jq 引擎。每个命令在构造上只读（mount table 沙箱拒绝 `/dsh/workspace`、`/dsh/home` 之外的一切）、输出有上限、可取消。
 - **执行器倒置。** `bash`、`git`、`python3` 和文件工具都在 Worker 内的内存 VFS 上运行，写入就是普通的工作区变更。只有宿主广播过的只读加速器（`rg`、`jaq`/`jq`、`ts-parse`、`ts-query`，以及有 bridge 时的 `phone`/`ctx`）才会跨进 App 进程。
 
 ## 架构
@@ -55,6 +56,28 @@ DSH 版本钉在 [`plugins/dsh-pin.json`](plugins/dsh-pin.json)：`0.2.1-rc.2`�
 ```
 
 App 与 Worker 在一个源上碰面。页面和静态资源走 HTTP；副作用走一条有序二进制 WebSocket（`VFS`、`EXEC`、`JOURNAL`、`API`、`LIFECYCLE`、`CONSOLE`、`FENCE` 等）；模型与 MCP 流量走 `/v1/http`，这是唯一离开设备的路径。WAL 是恢复日志，不是第二个写者：Worker 运行时，内存 VFS 才是权威。持久化模型、帧契约与失败模式见 [docs/architecture.md](docs/architecture.md)。
+
+## xz-shell
+
+Worker 允许交给 App 进程的加速器，是我们自己的 Rust workspace，位于
+[`shell/`](shell/README.md)。Apple 构建里没有生成或拷贝的源码：`pdsh-ffi`
+导出手写 C ABI（`shell/include/xzshell.h`，有测试核对导出符号），Swift 宿主
+链接 `shell/build-apple.sh` 产出的 `PDSHShell.xcframework`。
+
+| crate | 提供什么 |
+|---|---|
+| `pdsh-core` | mount table 路径沙箱、只读 VFS、取消、输出上限、资源限制、宿主桥、命令注册表与能力 JSON |
+| `pdsh-rg` | `rg`（ripgrep 兼容的只读搜索） |
+| `pdsh-jaq` | `jaq` 及 `jq` 别名 |
+| `pdsh-ts` | `ts-parse`、`ts-query`（tree-sitter） |
+| `pdsh-phone` | `phone`、`ctx` 宿主桥加速器 |
+| `pdsh-all` | 宿主实际广播的完整生产注册表 |
+| `pdsh-jaq-wasm` | Worker 在 WASI 下运行的 jq 兼容引擎 |
+
+它刻意**不是**通用 shell：`bash -c` 以及一切会写工作区的命令都留在 Worker
+里，宿主只广播它真能执行的命令名。可选链接让这条边界保持可见：先
+`bash shell/build-apple.sh` 构建，再用 `PDSH_WITH_XZSHELL=1` 链接；没有产物时
+SDK 不广播任何加速器能力。
 
 ## 快速开始
 
@@ -143,7 +166,7 @@ bash scripts/ci/scenarios.sh --upstream real
 | `Sources/PhoneDSH*` | Swift 宿主模块：`Wire`、`Log`（WAL）、`Loopback`、`Gateway`、`Controller`、`Engine`、`Shell`、`AgentCore`，以及门面 `PhoneDSH` |
 | `plugins/` | Worker 侧 TypeScript：入口、通道客户端、DSH 插件、手机 profile、镜像打包器、`dsh-pin.json` |
 | `spec/v1/` | 宿主/Worker 契约：帧、WAL、exec、交接、预算、golden vectors |
-| `shell/` | Rust 只读加速器，构建为 `PDSHShell.xcframework` |
+| `shell/` | xz-shell：自研 Rust 只读加速器，构建为 `PDSHShell.xcframework` |
 | `examples/probe-app/` | iOS probe App、模拟器套件、真机报告导出 |
 | `Tests/` | Swift 单测、探针、kill、smoke、场景套件 |
 | `scripts/ci/` | 本地门禁：`check.sh`、`smoke.sh`、`sim.sh`、`scenarios.sh`、`probes.sh` |

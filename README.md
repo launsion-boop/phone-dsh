@@ -26,6 +26,7 @@ Without this split, the official DSH plugin tree (model adapters, tools, sub-age
 - **The API key never enters the Worker.** The model gateway asks the app's `CredentialProvider` for a credential scoped to the exact upstream host and path, injects it on the host side, and first strips inbound `authorization`, `proxy-authorization` and `x-pdsh-*` headers. The Worker only ever holds a placeholder. A redirect is re-credentialed only within the same scope.
 - **Background running.** Switching to another app does not stop a running turn: while a turn is in flight the app holds a silent audio session (the `audio` background mode is declared) and keeps the host and its event pump alive. An idle host is parked instead, so an idle session costs no battery, and a turn that finishes while hidden releases the session and parks the host. If iOS interrupts the audio session (a call, another app taking audio), the host drains the in-flight work and the session resumes from the WAL when you come back.
 - **Lifecycle the OS can interrupt.** Planned restarts at tool-call boundaries, background park/drain/resume with a 20 s drain window, memory and thermal budgets, and a handoff/reclaim facade backed by a durable non-secret intent. The host state machine fails loud and never silently reopens admission.
+- **Self-built accelerators: xz-shell.** The read-only accelerators are our own Rust workspace (`shell/`), not a bundled external binary: ripgrep-compatible search, jq-compatible filters, tree-sitter parse/query and the `phone`/`ctx` host bridge, behind a hand-written C ABI (`include/xzshell.h`) that is linked as `PDSHShell.xcframework`. The same workspace also produces the WASI jq engine the Worker runs. Every command is read-only by construction (a mount-table sandbox rejects anything outside `/dsh/workspace` and `/dsh/home`), bounded in output, and cancellable.
 - **Executor inversion.** `bash`, `git`, `python3` and the file tools run inside the Worker on the in-memory VFS, so their writes are ordinary workspace mutations. Only read-only accelerators (`rg`, `jaq`/`jq`, `ts-parse`, `ts-query`, and `phone`/`ctx` when a bridge exists) cross into the app process, and only when the host advertised them.
 
 ## Architecture
@@ -55,6 +56,30 @@ Without this split, the official DSH plugin tree (model adapters, tools, sub-age
 ```
 
 The app and the Worker meet at one origin. The page and static assets are served over HTTP; side effects travel over one ordered binary WebSocket (`VFS`, `EXEC`, `JOURNAL`, `API`, `LIFECYCLE`, `CONSOLE`, `FENCE` and the rest); model and MCP traffic goes to `/v1/http`, the only path that leaves the device. The WAL is the recovery log, never a second writer: while the Worker runs, its in-memory VFS is the authority. See [docs/architecture.md](docs/architecture.md) for the persistence model, the frame contract and the failure modes.
+
+## xz-shell
+
+The accelerators the Worker is allowed to hand to the app process are a Rust
+workspace of our own, in [`shell/`](shell/README.md). Nothing is generated or
+copied into the Apple build: `pdsh-ffi` exports a hand-written C ABI
+(`shell/include/xzshell.h`, checked against the exports by a test) and the
+Swift host links `PDSHShell.xcframework` built by `shell/build-apple.sh`.
+
+| Crate | What it provides |
+|---|---|
+| `pdsh-core` | mount-table path sandbox, read-only VFS, cancellation, bounded output, limits, host bridge, command registry and capability JSON |
+| `pdsh-rg` | `rg`, ripgrep-compatible read-only search |
+| `pdsh-jaq` | `jaq` and its `jq` alias |
+| `pdsh-ts` | `ts-parse` and `ts-query` (tree-sitter) |
+| `pdsh-phone` | `phone` and `ctx` host-bridge accelerators |
+| `pdsh-all` | the complete production registry the host advertises |
+| `pdsh-jaq-wasm` | the jq-compatible engine the Worker runs under WASI |
+
+It is deliberately **not** a general shell: `bash -c` and every command that can
+write the workspace stay inside the Worker, and the host advertises only the
+names it can actually execute. The opt-in link keeps that boundary visible:
+build with `bash shell/build-apple.sh` and link with `PDSH_WITH_XZSHELL=1`;
+without the artifact the SDK advertises no accelerators at all.
 
 ## Quick start
 
@@ -144,7 +169,7 @@ bash scripts/ci/scenarios.sh --upstream real
 | `Sources/PhoneDSH*` | Swift host modules: `Wire`, `Log` (WAL), `Loopback`, `Gateway`, `Controller`, `Engine`, `Shell`, `AgentCore`, and the `PhoneDSH` facade |
 | `plugins/` | Worker-side TypeScript: entry, channel client, DSH plugins, phone profile, image packer, `dsh-pin.json` |
 | `spec/v1/` | Host/Worker contract: frames, WAL, exec, handoff, budgets, golden vectors |
-| `shell/` | Rust read-only accelerators, built into `PDSHShell.xcframework` |
+| `shell/` | xz-shell: our Rust read-only accelerators, built into `PDSHShell.xcframework` |
 | `examples/probe-app/` | iOS probe app, simulator suites, device report export |
 | `Tests/` | Swift unit, probe, kill, smoke and scenario suites |
 | `scripts/ci/` | Local gates: `check.sh`, `smoke.sh`, `sim.sh`, `scenarios.sh`, `probes.sh` |
