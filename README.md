@@ -123,7 +123,7 @@ examples/probe-app/scripts/copy-bundle-assets.sh \
   --checkout "$PDSH_DSH_CHECKOUT" --force
 ```
 
-The copy step builds the Worker image, adds the CPython and jq WASI artifacts unless you pass `--without-python` / `--without-jq`, verifies the checkout against the image source, and records provenance. The Web distribution holds the complete DSH page; the shipped app's native surface does not open it, but the full-Web simulator suite does.
+The copy step builds the Worker image, adds the CPython and jq WASI artifacts unless you pass `--without-python` / `--without-jq`, verifies the checkout against the image source, and records provenance. The Web distribution holds the complete DSH page; the app's native surface does not open it.
 
 ### 3. Build and run the probe app
 

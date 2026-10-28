@@ -27,7 +27,7 @@ import PhoneDSHAgentCore
 import PhoneDSHEngine
 import PhoneDSHShell
 
-/// Host assembly shared by the App's Web surface and the full-Web E2E suite.
+/// Host assembly shared by the simulator suites that boot the complete page.
 public enum WebHostConfiguration {
     /// Integration contract: the complete DSH Web page served by the bundle.
     public static let pagePath = "/static/web/index.html"

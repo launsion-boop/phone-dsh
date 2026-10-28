@@ -193,7 +193,7 @@ targets:
         product: PhoneDSHLoopback
       - package: PhoneDSH
         product: PhoneDSHAgentCore
-      # The full-Web suite imports the linked shell provider exposed by the
+      # The simulator suites import the linked shell provider exposed by the
       # shared WebHostConfiguration assembly.
       - package: PhoneDSH
         product: PhoneDSHShell

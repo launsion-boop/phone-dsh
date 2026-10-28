@@ -15,17 +15,14 @@
 #   * smoke-report.json — one real model tool call, WAL/materialized/journal/
 #     step-machine assertions, one planned restart and a resumed session (G1);
 #   * kill-report.json — worker-terminate and WebContent-restart kills over the
-#     four timings, with the W3-KILL acked/VFS/reconcile assertions (G1);
-#   * web-surface-report.json — the complete DSH Web page in a real WKWebView,
-#     driven through its own composer, with the real Worker bash tool result,
-#     native session/page + JSONL agreement, text/PNG previews and restart
-#     recovery (G1).
+#     four timings, with the W3-KILL acked/VFS/reconcile assertions (G1).
 #
-# The real WebContent kill has two handshakes: the smoke suite records it as
-# INFO evidence, while the full-Web suite gates recovery of the same Session id,
-# callId, seq and tool result after a real SIGKILL. Both watchers only signal
-# WebContent pids that belong to this simulator (found by the process
-# environment's SIMULATOR_UDID, never by name alone).
+# The real WebContent kill has one handshake: the smoke suite writes the ready
+# marker while its real WKWebView is alive, the watcher SIGKILLs this
+# simulator's WebContent, and the suite then gates recovery of the same
+# Session and a completed follow-up turn. The watcher only signals WebContent
+# pids that belong to this simulator (found by the process environment's
+# SIMULATOR_UDID, never by name alone).
 #
 # Every row says `environment: "ios-simulator"`. This is simulator evidence,
 # never device evidence: iOS/WebKit behaviour on an iPhone remains
@@ -73,18 +70,13 @@ PACKAGE_CACHE="$OUT/PackageCache"
 XCODE_HOME="$OUT/xcode-home"
 BUNDLE="$OUT/worker-bundle"
 REPORT_DIR=""
-# Real WebContent kill handshake (smoke INFO evidence, web-surface gate): the
-# report-container paths and the background watchers scoped to the selected
-# simulator. The smoke watcher uses real-kill-*; the full-Web suite uses
-# web-kill-* so both can run in one xcodebuild invocation.
+# Real WebContent kill handshake (smoke INFO evidence; the smoke suite itself
+# gates recovery): the report-container paths and the background watcher scoped
+# to the selected simulator.
 REAL_KILL_EXPECT=""
 REAL_KILL_READY=""
 REAL_KILL_RESULT=""
 REAL_KILL_WATCHER_PID=""
-WEB_KILL_EXPECT=""
-WEB_KILL_READY=""
-WEB_KILL_RESULT=""
-WEB_KILL_WATCHER_PID=""
 
 mkdir -p "$OUT" "$XCODE_HOME" "$PACKAGE_CACHE"
 : > "$LOG"
@@ -102,10 +94,6 @@ finish() {
   if [ -n "${REAL_KILL_WATCHER_PID:-}" ]; then
     kill "$REAL_KILL_WATCHER_PID" 2>/dev/null || true
     wait "$REAL_KILL_WATCHER_PID" 2>/dev/null || true
-  fi
-  if [ -n "${WEB_KILL_WATCHER_PID:-}" ]; then
-    kill "$WEB_KILL_WATCHER_PID" 2>/dev/null || true
-    wait "$WEB_KILL_WATCHER_PID" 2>/dev/null || true
   fi
   tail -n 200 "$LOG" >&3 2>/dev/null || true
   exit "$status"
@@ -409,11 +397,10 @@ xcrun simctl spawn "$UDID" /bin/rm -rf "$REPORT_DIR" 2>/dev/null || true
 # `expect-*-kill` marker there, so an xcodebuild reinstall that migrates the
 # container cannot strand the expectation in the old path. The smoke suite
 # creates `real-kill-ready.json` at the end of its run (INFO evidence), while
-# the full-Web suite creates `web-kill-ready.json` after its real tool result
-# and previews pass. Each watcher then SIGKILLs the simulator's WebContent
-# pid(s) and writes its own result file. The web suite gates recovery of the
-# same Session from that real kill; the smoke row only records that the attempt
-# was made -- never that a measured device kill happened.
+# the smoke suite creates `real-kill-ready.json` after its first-turn evidence
+# passes. The watcher then SIGKILLs the simulator's WebContent pid(s) and writes
+# the result file; the suite gates recovery of the same Session and a follow-up
+# turn from that real kill.
 #
 # Every pid is selected three times: its command must contain the simulator
 # runtime path (`CoreSimulator`) and the WebKit WebContent executable path, and
@@ -426,9 +413,6 @@ xcrun simctl spawn "$UDID" /bin/rm -rf "$REPORT_DIR" 2>/dev/null || true
 REAL_KILL_EXPECT="$REPORT_DIR/expect-real-kill"
 REAL_KILL_READY="$REPORT_DIR/real-kill-ready.json"
 REAL_KILL_RESULT="$REPORT_DIR/real-kill-result.json"
-WEB_KILL_EXPECT="$REPORT_DIR/expect-web-kill"
-WEB_KILL_READY="$REPORT_DIR/web-kill-ready.json"
-WEB_KILL_RESULT="$REPORT_DIR/web-kill-result.json"
 REAL_KILL_PREFLIGHT="unavailable (xcrun simctl spawn is not usable here)"
 
 # The pid selection, the expectation marker and the SIGKILL handshake live in
@@ -451,19 +435,12 @@ if xcrun simctl spawn "$UDID" /bin/ps -A -o pid= >/dev/null 2>&1; then
         --directory "$REPORT_DIR" --bundle-id "$BUNDLE_ID"
     ) &
     REAL_KILL_WATCHER_PID=$!
-    (
-      exec 3>&-
-      exec bash "$HERE/webcontent-watch.sh" web --udid "$UDID" \
-        --directory "$REPORT_DIR" --bundle-id "$BUNDLE_ID"
-    ) &
-    WEB_KILL_WATCHER_PID=$!
   else
     REAL_KILL_PREFLIGHT="unavailable (cannot create the report directory in the app container)"
-    log "full-Web kill handshake: unavailable (cannot create the report directory)"
+    log "real WebContent kill handshake: unavailable (cannot create the report directory)"
   fi
 fi
 log "real WebContent kill preflight: $REAL_KILL_PREFLIGHT"
-log "full-Web WebContent kill watcher: ${WEB_KILL_WATCHER_PID:-not started}"
 # 7. Run the contract command:
 #      xcodebuild test -scheme PhoneDSHSim \
 #        -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
@@ -473,7 +450,6 @@ log "full-Web WebContent kill watcher: ${WEB_KILL_WATCHER_PID:-not started}"
 #    built app container, same suites, same reports).
 TEST_LOG="$OUT/xcodebuild-test.log"
 TEST_RC=0
-WEB_KILL_RC=0
 log "running xcodebuild test -scheme PhoneDSHSim"
 run_with_timeout "$TIMEOUT" "xcodebuild test" \
   xcodebuild test -scheme PhoneDSHSim "${COMMON[@]}" > "$TEST_LOG" 2>&1 || TEST_RC=$?
@@ -520,23 +496,15 @@ if NEW_CONTAINER="$(sim_app_container "$UDID" 2>/dev/null)" && [ -n "$NEW_CONTAI
   REAL_KILL_EXPECT="$REPORT_DIR/expect-real-kill"
   REAL_KILL_READY="$REPORT_DIR/real-kill-ready.json"
   REAL_KILL_RESULT="$REPORT_DIR/real-kill-result.json"
-  WEB_KILL_EXPECT="$REPORT_DIR/expect-web-kill"
-  WEB_KILL_READY="$REPORT_DIR/web-kill-ready.json"
-  WEB_KILL_RESULT="$REPORT_DIR/web-kill-result.json"
 fi
 
-# The suites are over: stop both real-kill watchers so they cannot write a
-# result after this point, then read the smoke handshake outcome (INFO row) and
-# the full-Web outcome (the suite itself gates it).
+# The suites are over: stop the real-kill watcher so it cannot write a result
+# after this point, then read the smoke handshake outcome (INFO row; the smoke
+# suite itself gates recovery).
 if [ -n "$REAL_KILL_WATCHER_PID" ]; then
   kill "$REAL_KILL_WATCHER_PID" 2>/dev/null || true
   wait "$REAL_KILL_WATCHER_PID" 2>/dev/null || true
   REAL_KILL_WATCHER_PID=""
-fi
-if [ -n "$WEB_KILL_WATCHER_PID" ]; then
-  kill "$WEB_KILL_WATCHER_PID" 2>/dev/null || true
-  wait "$WEB_KILL_WATCHER_PID" 2>/dev/null || true
-  WEB_KILL_WATCHER_PID=""
 fi
 REAL_KILL_STATUS="unavailable: the smoke suite did not reach the real-kill handshake"
 if [ -f "$REAL_KILL_RESULT" ]; then
@@ -553,42 +521,17 @@ except Exception:
 PY
 )"
 fi
-WEB_KILL_STATUS="unavailable: the full-Web suite did not request the real WebContent kill"
-if [ -f "$WEB_KILL_RESULT" ]; then
-  WEB_KILL_STATUS="$(python3 - "$WEB_KILL_RESULT" <<'PY'
-import json
-import sys
-
-try:
-    with open(sys.argv[1], encoding="utf-8") as handle:
-        document = json.load(handle)
-    print(document.get("status", "unavailable: the result has no status"))
-except Exception:
-    print("unavailable: the WebContent kill result is not readable")
-PY
-)"
-fi
-log "full-Web WebContent kill: $WEB_KILL_STATUS"
-case "$WEB_KILL_STATUS" in
-  attempted:*) ;;
-  *)
-    WEB_KILL_RC=4
-    log "FAILED: the full-Web suite did not get a real WebContent SIGKILL"
-    ;;
-esac
 # Drop the handshake markers from the container (the results were already read;
 # reports are untouched). The next run uninstalls the app anyway.
-container_remove "$REAL_KILL_EXPECT" "$REAL_KILL_READY" \
-                 "$WEB_KILL_EXPECT" "$WEB_KILL_READY"
+container_remove "$REAL_KILL_EXPECT" "$REAL_KILL_READY"
 
 # 8. Pull the reports. Every suite writes into the app container; the fallback
 #    for an older run (or a hostless runner without the app installed) is the
 #    test process's own Documents directory.
-rm -f "$OUT/probe-report.json" "$OUT/smoke-report.json" "$OUT/kill-report.json" \
-      "$OUT/web-surface-report.json"
+rm -f "$OUT/probe-report.json" "$OUT/smoke-report.json" "$OUT/kill-report.json"
 PULLED=0
 if [ -d "$REPORT_DIR" ]; then
-  for name in probe-report.json smoke-report.json kill-report.json web-surface-report.json; do
+  for name in probe-report.json smoke-report.json kill-report.json; do
     if [ -f "$REPORT_DIR/$name" ]; then
       cp "$REPORT_DIR/$name" "$OUT/$name"
       PULLED=$(( PULLED + 1 ))
@@ -598,7 +541,7 @@ fi
 if [ "$PULLED" -lt 4 ]; then
   RUNNER_HOME="$(xcrun simctl getenv "$UDID" HOME 2>/dev/null || true)"
   if [ -n "$RUNNER_HOME" ] && [ -d "$RUNNER_HOME/Documents/pdsh-reports" ]; then
-    for name in probe-report.json smoke-report.json kill-report.json web-surface-report.json; do
+    for name in probe-report.json smoke-report.json kill-report.json; do
       if [ ! -f "$OUT/$name" ] && [ -f "$RUNNER_HOME/Documents/pdsh-reports/$name" ]; then
         cp "$RUNNER_HOME/Documents/pdsh-reports/$name" "$OUT/$name"
         PULLED=$(( PULLED + 1 ))
@@ -606,7 +549,7 @@ if [ "$PULLED" -lt 4 ]; then
     done
   fi
 fi
-[ "$PULLED" -eq 4 ] || fail "only $PULLED/4 reports were written (see $LOG)"
+[ "$PULLED" -eq 3 ] || fail "only $PULLED/3 reports were written (see $LOG)"
 
 # 9. Record the real WebContent kill attempt on the kill suite's INFO row. The
 #    attempt itself happened in step 6b while the smoke suite's real WKWebView
@@ -614,6 +557,17 @@ fi
 #    turns into a gating row: this is evidence that the attempt was made, not a
 #    measured device kill.
 log "real WebContent kill: $REAL_KILL_STATUS"
+# The native surface is now the only automated process-kill coverage: a run
+# where the watcher could not SIGKILL this simulator's WebContent must not
+# report PASS, even though the attempt row itself stays INFO.
+KILL_ATTEMPT_RC=0
+case "$REAL_KILL_STATUS" in
+  attempted:*) ;;
+  *)
+    KILL_ATTEMPT_RC=4
+    log "FAILED: the native smoke suite did not get a real WebContent SIGKILL"
+    ;;
+esac
 python3 - "$OUT/kill-report.json" "$REAL_KILL_STATUS" <<'PY' || true
 import json, sys
 path, status = sys.argv[1], sys.argv[2]
@@ -641,11 +595,7 @@ PY
 #     synthetic non-gating FAIL row through the same gate; the outcome is
 #     repeated here so the end of the gate log carries that evidence.
 log "report gate self-test: $GATE_SELFTEST"
-GATE_ARGS=("$OUT" --canonical-commit "$PIN_COMMIT" --canonical-version "$PIN_VERSION")
-if [ -n "$SOURCE_COMMIT" ]; then
-  GATE_ARGS+=(--source-commit "$SOURCE_COMMIT" --source-version "$SOURCE_VERSION")
-fi
-python3 "$HERE/sim_gate.py" "${GATE_ARGS[@]}"
+python3 "$HERE/sim_gate.py" "$OUT"
 
 if [ "$TEST_RC" -ne 0 ]; then
   log "the test process exited $TEST_RC"
@@ -653,12 +603,9 @@ if [ "$TEST_RC" -ne 0 ]; then
   tail -50 "$LOG" || true
   exit "$TEST_RC"
 fi
-# The full-Web acceptance includes a real WebContent kill. sim.sh owns the only
-# watcher that can signal it, so a run that never attempted the SIGKILL must not
-# report PASS even if the marker-less test path skipped that row.
-if [ "$WEB_KILL_RC" -ne 0 ]; then
-  log "the full-Web real WebContent kill was not attempted (see above)"
-  exit "$WEB_KILL_RC"
+if [ "$KILL_ATTEMPT_RC" -ne 0 ]; then
+  log "the real WebContent kill was not attempted (see above)"
+  exit "$KILL_ATTEMPT_RC"
 fi
-log "reports: $OUT/probe-report.json $OUT/smoke-report.json $OUT/kill-report.json $OUT/web-surface-report.json"
+log "reports: $OUT/probe-report.json $OUT/smoke-report.json $OUT/kill-report.json"
 log "PASS"

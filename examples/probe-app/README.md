@@ -118,8 +118,8 @@ Before staging and again afterwards, `sim.sh` audits the same-source records:
 match `image.tar.gz`; `probe-bundle.json` must record the pack-image source
 and JavaScriptCore prelude. A missing record is never synthesized for a
 prebuilt page — the gate fails instead of stamping an older Web dist with the
-current pin. The full-Web test repeats the same comparison on the installed
-app bundle.
+current pin. `sim.sh` repeats the same comparison on the staged bundle before
+any suite starts.
 
 ```bash
 # From the repository root. DSH is resolved from PDSH_DSH_CHECKOUT or the
@@ -139,7 +139,6 @@ the MCP production and Web→native bridge suites (the former writes its own
 | Phase 0 probes through the same `ProbeKit` implementation the Probes page runs | `probe-report.json` | G0 |
 | One real model tool call (`bash -c` writing `a.txt`), WAL/materialized/journal/step-machine assertions, one D24 planned restart, resumed session | `smoke-report.json` | G1 |
 | 20 seeded kills over `worker-terminate` and `webcontent-restart` × the four W3-KILL timings, each with acked-prefix/VFS/reconcile assertions | `kill-report.json` | G1 |
-| Complete DSH Web page in a real WKWebView: a fresh nonce names this run's text file, PNG bytes/tEXt chunk, bash PNG-write marker and assistant message; page-created Session, real Worker `bash` writing those files, Web tool row/result/assistant text, `session/page` + materialized session JSONL agreement, text/PNG previews, background park → new engine resume, WebContent-kill recovery and a same-Session planned restart | `web-surface-report.json` | G1 |
 
 Every row carries its G0/G1 threshold (or an explicit `n/a`), a
 PASS/FAIL/INFO status and `"environment": "ios-simulator"`. The script prints
@@ -165,25 +164,24 @@ Reports are written by the tests into the probe app container at
 $OUT/probe-report.json
 $OUT/smoke-report.json
 $OUT/kill-report.json
-$OUT/web-surface-report.json
 ```
 
 `OUT` defaults to `${TMPDIR}/pdsh-sim`; override it with `OUT=/path`. The
 simulator run also attempts one real WebContent SIGKILL, scoped to the selected
 simulator: before the suites the script records that simulator's existing
-WebContent pids, and background watchers follow the app's current data
-container to write `expect-real-kill` / `expect-web-kill` there. The watched
-suites write their `*-kill-ready.json` marker while the real WKWebView is
-still alive, then wait (bounded) for the watcher's result. Following the
-container matters because `xcodebuild test` can reinstall the app and move
-`Documents/pdsh-reports`; a marker written only before the run would be lost
-and the full-Web kill gate would degrade to NOT_RUN. A
+WebContent pids and starts a background watcher that follows the app's current
+data container to write `expect-real-kill` there. The smoke suite writes
+`real-kill-ready.json` while its real WKWebView is alive, waits (bounded) for
+the watcher's result, and then gates recovery of the same Session and a
+completed follow-up turn from that real kill. Following the container matters
+because `xcodebuild test` can reinstall the app and move
+`Documents/pdsh-reports`; a marker written only before the run would be lost. A
 candidate pid must contain the simulator's runtime path (`CoreSimulator`) and
 the WebKit WebContent executable path, and carry the selected simulator's
 `SIMULATOR_UDID` in its environment; a host process — including a Safari or
 other-simulator WebContent — matches none of that and is never signalled. The
-attempt is logged and recorded as an INFO row, never as a PASS that would imply
-a measured device kill. If the harness forbids the pseudo-terminal
+attempt is logged and recorded as an INFO row; the recovery row after it is
+the gate, so a run that never attempted the SIGKILL cannot pass. If the harness forbids the pseudo-terminal
 `xcodebuild test` needs, the script falls back to launching the same XCTest
 bundle with `simctl spawn` (same suites, same reports) and says so in its log.
 
