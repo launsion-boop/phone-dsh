@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleDisplayName</key>
+	<string>Phone DSH</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+	</dict>
+	<key>UIApplicationSupportsIndirectInputEvents</key>
+	<true/>
+	<key>UILaunchScreen</key>
+	<dict/>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+	</array>
+	<!-- The 20 s background drain may use a BGContinuedProcessingTask window on
+	     iOS 26 (PhoneDSH Background). iOS requires the concrete
+	     identifier family in BGTaskSchedulerPermittedIdentifiers; the runtime
+	     prefix is `<bundle id>.continued-processing.drain.`.
+	     NOT_VERIFIED on a device: entitlement/scheduling behaviour. -->
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>$(PRODUCT_BUNDLE_IDENTIFIER).continued-processing.drain.*</string>
+	</array>
+	<!-- `audio`: the Chat page keeps a silent, mixWithOthers playback session
+	     while a turn is running in the background so the agent is not
+	     suspended mid-task (see BackgroundKeepAlive.swift). -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+		<string>processing</string>
+	</array>
+	<!-- Connecting an MCP server on the household/corporate LAN triggers the
+	     iOS local-network prompt. The app only uses this for the exact MCP
+	     endpoint the user adds in the MCP tab; it does not browse the LAN. -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>用于连接你明确添加的局域网 Streamable HTTP MCP 服务器；不会扫描或浏览局域网中的其它设备。</string>
+	<!-- The probe origin is plain HTTP on 127.0.0.1; NSAllowsLocalNetworking
+	     also permits a user-added plain-HTTP MCP endpoint on the local network.
+	     No arbitrary-loads or remote-HTTP exception is declared. -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+		<key>NSExceptionDomains</key>
+		<dict>
+			<key>127.0.0.1</key>
+			<dict>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+			</dict>
+			<key>localhost</key>
+			<dict>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+			</dict>
+		</dict>
+	</dict>
+</dict>
+</plist>

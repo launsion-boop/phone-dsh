@@ -1,0 +1,27 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: MIT -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="referrer" content="no-referrer">
+  <title>DSH phone worker</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { margin: 0; font: 14px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+    main { padding: 12px; }
+    #status { white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>DSH phone worker</h1>
+    <p id="status">booting…</p>
+    <!--
+      The page carries no credentials: the per-start token is read from this
+      page's own query string by boot.js and forwarded once in the init frame.
+    -->
+  </main>
+  <script type="module" src="./boot.js"></script>
+</body>
+</html>

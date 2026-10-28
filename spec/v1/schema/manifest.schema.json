@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "WAL manifest.json",
+  "description": "Checkpoint of the host WAL: boot identity, the strictly contiguous materialized watermark, the never-reused mseq high-water mark, the durable epoch and the retained segments. Normative semantics are in wal.md.",
+  "type": "object",
+  "required": [
+    "format",
+    "boot_id",
+    "materialized_upto_mseq",
+    "last_mseq",
+    "last_durable_epoch",
+    "segments"
+  ],
+  "properties": {
+    "format": {
+      "type": "integer",
+      "const": 1
+    },
+    "boot_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "materialized_upto_mseq": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 18446744073709551615
+    },
+    "last_mseq": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 18446744073709551615
+    },
+    "last_durable_epoch": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 99999999
+    },
+    "segments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "file",
+          "epoch",
+          "first_mseq",
+          "last_mseq"
+        ],
+        "properties": {
+          "file": {
+            "type": "string",
+            "pattern": "^wal/[0-9]{8}\\.[0-9]{6}\\.xlwal$"
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 99999999
+          },
+          "first_mseq": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 18446744073709551615
+          },
+          "last_mseq": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 18446744073709551615
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

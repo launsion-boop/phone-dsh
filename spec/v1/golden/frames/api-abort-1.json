@@ -1,0 +1,11 @@
+{
+  "type": "API_ABORT",
+  "type_byte": 67,
+  "seq": 16,
+  "fields": {
+    "reason": "client_cancelled",
+    "req_id": 7
+  },
+  "payload_hex": "000000077b22726561736f6e223a22636c69656e745f63616e63656c6c6564227d",
+  "frame_hex": "5a4c4300000000000000001000000021000000077b22726561736f6e223a22636c69656e745f63616e63656c6c6564227d"
+}

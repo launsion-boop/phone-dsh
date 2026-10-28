@@ -1,0 +1,16 @@
+[package]
+name = "pdsh-ffi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "C ABI of the phone-dsh phone DSH pdsh-shell read-only accelerators."
+
+[lib]
+name = "pdsh_ffi"
+path = "src/lib.rs"
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+pdsh-core.workspace = true
+pdsh-all.workspace = true

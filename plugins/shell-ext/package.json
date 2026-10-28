@@ -1,0 +1,24 @@
+{
+  "name": "@phone-dsh/dsh-shell-ext",
+  "version": "0.1.0",
+  "description": "Worker shell core: just-bash over the Worker VFS with accelerators on the exec bridge, a /v1/http curl shim and bounded output.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./filesystem": "./src/filesystem.ts",
+    "./curl": "./src/curl.ts",
+    "./shell": "./src/shell.ts",
+    "./bridge": "./src/bridge.ts",
+    "./output": "./src/output.ts",
+    "./corpus": "./src/corpus.ts"
+  },
+  "dependencies": {
+    "@phone-dsh/dsh-exec-bridge": "0.1.0",
+    "@phone-dsh/dsh-wasi-toolbox": "0.1.0",
+    "just-bash": "3.6.0"
+  }
+}

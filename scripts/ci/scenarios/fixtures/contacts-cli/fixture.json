@@ -1,0 +1,4 @@
+{
+  "name": "contacts-cli",
+  "description": "Python 3 standard-library contacts tool: raw dicts through store/search/cli, a JSON store with three entries, and eight passing unittest cases."
+}

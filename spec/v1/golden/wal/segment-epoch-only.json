@@ -1,0 +1,24 @@
+{
+  "header": {
+    "format": 1,
+    "reserved": 0,
+    "first_mseq": 88,
+    "boot_id_hex": "00112233445566778899aabbccddeeff",
+    "header_crc32c": 4175390169,
+    "header_hex": "584c57414c31000000010000000000000000005800112233445566778899aabbccddeefff8df65d9"
+  },
+  "records": [
+    {
+      "kind": "epoch_close",
+      "fields": {
+        "mseq": 87,
+        "op": 255,
+        "wall_ms": 1792800060000,
+        "durable_upto": 87
+      },
+      "crc32c": 2760452283,
+      "record_hex": "00000019a48928bb0000000000000057ff000001a16b35f2600000000000000057"
+    }
+  ],
+  "file_hex": "584c57414c31000000010000000000000000005800112233445566778899aabbccddeefff8df65d900000019a48928bb0000000000000057ff000001a16b35f2600000000000000057"
+}

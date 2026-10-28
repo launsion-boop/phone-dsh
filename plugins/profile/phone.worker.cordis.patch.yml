@@ -1,0 +1,840 @@
+# SPDX-License-Identifier: MIT
+# Worker profile layer for DeepSeek Harness 0.2.1-rc.2 on the phone path.
+#
+# Host: DeepSeek Harness runs in a dedicated Web Worker inside WKWebView; the
+# App process is the host and owns one loopback HTTP origin and one ordered
+# WebSocket channel. The Worker is WebKit's JavaScript engine (JIT enabled);
+# the runtime supplies its own VFS-backed node:* modules, there are no child
+# processes, and every command that writes the workspace stays in the Worker's
+# own shell. Only read-only accelerators are sent to the App process.
+#
+# This file is packed as the image's home layer (`home/cordis.patch.yml`) and
+# applied after `dsh-base`. The resident host surface is `surface-phone`, built
+# from DSH's remote/web host modules on loopback; the `dsh-web-app` bundle and
+# its `web-runtime` row are deliberately not materialized. The image does carry
+# the official `dsh.client` browser roster (module system, connection browser
+# bundle and the mobile Web UI rows) so `window.__DSH_BOOT__` can be composed and
+# served from the same image. The image's profile template name is `web` (the
+# Worker host passes the web command line: --host 127.0.0.1 --port <n>
+# --no-open). The Worker entry supplies a minimal
+# `home/profiles/web/package.json` overlay that names only `dsh-base`, so
+# app-boot does not report the absent `dsh-web-app` bundle as skipped on every
+# boot (see worker-entry/src/profile-overlay.ts).
+#
+# Global instruction source (G2-ENG-05). The unmodified `agent-instructions`
+# row inherited from `dsh-base` reads `$DSH_HOME/AGENTS.md` (on this path
+# `/dsh/home/AGENTS.md`) as the user-global instruction chain. The Worker entry
+# writes that file, plus `/dsh/home/capabilities.json`, before the first API
+# request, so the model starts with the command surface, Python capability,
+# budgets, egress allow-list, `/tmp` semantics, bash deviations and recovery
+# rules instead of discovering them with probe requests. Do not disable or
+# replace this row: `scripts/pack-image.mjs` asserts it is in the roster and
+# unconditionally enabled before it packs an image.
+#
+# Channel environment the Worker-entry host (W1-ENTRY) provides to the plugins:
+#   PDSH_CHANNEL_URL    loopback URL of the ordered WebSocket channel
+#   PDSH_CHANNEL_TOKEN  per-boot bearer token for that channel
+# The exec-bridge, journal, and API frames travel over
+# `globalThis.__PDSH_CHANNEL__`, and llm-bridge carries outbound HTTP through the
+# host `/v1/http` endpoint with the channel bearer. The surface announces
+# readiness on stdout as `XL_DSH_READY`.
+#
+# Runtime assumptions (Worker-in-WKWebView; on-device behaviour is NOT_VERIFIED
+# until the Phase 0 probe package runs):
+# - no opened node:sqlite (openAt: never), no node:worker_threads, node:vm,
+#   node:dns, real node:net, child processes, or host Zstandard;
+# - no native addons, no `dsh-web-app` bundle and no `web-runtime` host row;
+#   the browser client roster rides the ordinary dsh.client rows below;
+# - no OS process/PTY (subprocess-xl rejects `spawnTerminal`) and no LibreOffice
+#   kit (its runtime replacement reports `unavailable`);
+# - outbound model traffic goes through the host model gateway (W1-GATEWAY).
+#
+# Environment set by the host App for the Worker process shim:
+#   PDSH_DSH_PORT, PDSH_DSH_LAUNCH_TOKEN   surface-phone loopback carrier
+#   PDSH_LIFECYCLE_FILE                  optional lifecycle control file
+#   PDSH_SANDBOX_MODE                    default workspace-write
+#   PDSH_PHONE_MCP_URL, PDSH_PHONE_MCP_TOKEN  optional App MCP endpoint
+#   DSH_HOME                           virtual home (`<root>/home` by default)
+#   PDSH_SHELL                           Worker shell core: just-bash (default) or runtime
+#   PDSH_SHELL_TIMEOUT_MS                per-command wall-clock limit (default 120 s)
+#   PDSH_SHELL_MAX_OUTPUT_BYTES          per-stream head/tail cap (default 256 KiB)
+#   PDSH_VFS_ROOT                        real directory behind virtual `/`; unset in the Worker
+#   PDSH_THERMAL_STATE                   nominal|fair|serious|critical at Worker start
+
+# ── execution world ──────────────────────────────────────────────────────────
+# The shipped providers assume a host process and native sandboxes. The phone
+# executes commands inside the Worker (bash -c and workspace writes) and sends
+# only read-only accelerators to the App's exec provider (W1-PLUGINS).
+- id: subprocess
+  disabled: true
+- id: sandbox
+  disabled: true
+
+# workspace-write is the only writable mode on a phone: DSH's in-process file
+# tools may write under the workspace and the Worker shell is confined there.
+- id: sandbox-policy
+  config:
+    mode: !!js process.env.PDSH_SANDBOX_MODE ?? 'workspace-write'
+    workspaceRoot: !!js process.cwd()
+
+# No interactive approval channel exists inside the Worker. Phone-side effects
+# are approved by the App's MCP server before the model sees them.
+- id: approval
+  config:
+    policy: never
+
+# The phone has no approval prompt: effects are approved by the App's MCP
+# server before the model sees them. 0.2.1's permission presets must contain a
+# preset matching the composed sandbox + approval defaults; `phone` is that
+# permission pair, and it is the default for a new session. This is the
+# DSH permission preset, not the agent preset below.
+- id: permission
+  config:
+    # Honour PDSH_SANDBOX_MODE: the preset seeds each session's sandbox + approval
+    # pair, so an env override must select a matching entry.
+    defaultPreset: !!js >-
+      process.env.PDSH_SANDBOX_MODE === 'danger-full-access'
+        ? 'danger-full-access'
+        : process.env.PDSH_SANDBOX_MODE === 'read-only'
+          ? 'phone-read-only'
+          : 'phone'
+    presets:
+      read-only:
+        sandbox: read-only
+        approval: ask
+      workspace-write:
+        sandbox: workspace-write
+        approval: ask
+      danger-full-access:
+        sandbox: danger-full-access
+        approval: never
+      phone:
+        sandbox: workspace-write
+        approval: never
+        name: phone
+        description: Write inside the workspace; phone-side effects are approved by the App.
+      phone-read-only:
+        sandbox: read-only
+        approval: never
+        name: phone-read-only
+        description: Read-only workspace; phone-side effects are approved by the App.
+
+# The system JavaScriptCore (`jsc`, the engine WKWebView embeds) prints a
+# native function's source on several lines in this worktree:
+# `function Object() {\n    [native code]\n}` (on-device WKWebView is
+# NOT_VERIFIED, but it is the same engine). DSH's `@deepseek-ai/dsh-tools`
+# plain-record check compares the V8 single-line form exactly
+# (packages/core/tools/src/json-schema.ts), so there every tool schema is
+# rejected with `authorError` before its plugin gate. Normalize the
+# native-function representation to the V8 form before any tool row mounts.
+# The `tools` service row is exactly the dependency every tool row waits for,
+# and a config expression is interpolated before its constructor runs.
+- id: tools
+  config:
+    # Unknown keys survive schemastery; this value exists only for its side
+    # effect at config interpolation time.
+    xlNativeFunctionSource: !!js |
+      (() => {
+        const original = Function.prototype.toString
+        const MARK = Symbol.for('xl.runtime-compat.native-function-source')
+        if (original[MARK] === true) return true
+        const normalized = function toString() {
+          const source = original.call(this)
+          if (typeof source !== 'string' || source.indexOf('[native code]') === -1) return source
+          if (!/^function\s+[^\s(]+\(\)\s*\{\s*\[native code\]\s*\}$/.test(source)) return source
+          return `function ${this.name}() { [native code] }`
+        }
+        Object.defineProperty(normalized, MARK, { value: true })
+        Function.prototype.toString = normalized
+        return true
+      })()
+
+# ── persistence: plaintext JSONL + tool journal ──────────────────────────────
+# The Worker has no Zstandard writer for its own session log; the shipped
+# backend mounts with compression: none, which is also the image's required
+# platform config. The reconciliation row below wraps its write-open.
+- id: session-persistence-jsonl
+  disabled: true
+
+# Kept mounted but never opened: session adoption and Remote listing need
+# ctx.sessionQuery, but the Worker's node:sqlite is a structural mock.
+- id: session-query-sqlite
+  config:
+    path: ':memory:'
+    openAt: never
+
+# ── rows the Worker cannot run or does not need ───────────────────────────────
+- id: plugin-manager             # spawns pnpm/execa
+  disabled: true
+- id: tool-plugin-manager
+  disabled: true
+- id: hmr                        # fs.watch is not part of the Worker layer
+  disabled: true
+- id: config-editor
+  disabled: false
+- id: settings
+  disabled: false
+# `ptc-runtime` would spawn a local Node child with a control fd, which the
+# phone execution world rejects. Keep it disabled and do not mount the official
+# `workflow-ptc` engine directly: the static-module table serves that package's
+# specifier from `@phone-dsh/dsh-workflow-worker`, so the standard preset's
+# row resolves to the Worker-native bridge instead. `tool-workflow` itself is
+# an ordinary tool over `ctx.workflowEngine` and is provided by the standard
+# preset composition below, not by this host row.
+- id: ptc-runtime
+  disabled: true
+- id: workflow-ptc
+  disabled: true
+- id: tool-workflow
+  disabled: true
+- id: otel                       # no telemetry exporter in the Worker
+  disabled: true
+- id: session-telemetry-otel
+  disabled: true
+- id: deepseek-account
+  disabled: true
+- id: authorization              # keys come from the App host and gateway
+  disabled: true
+- id: credentials
+  disabled: true
+# Request extensions that send session data to the official DeepSeek API with
+# every model request; neither belongs on the phone path.
+- id: session-log-deepseek
+  disabled: true
+- id: plugin-package-inventory-deepseek
+  disabled: true
+- id: llm-pi-ai                  # large multi-provider SDK, needs node:worker_threads
+  disabled: true
+# Session titles stay ON: the phone drawer shows one row per session and an
+# untitled list is unusable. The row costs one extra model request per session
+# (it derives the title from the first prompt once).
+# The Worker shell implements bash, not PowerShell.
+- id: pwsh-sandbox
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+# The Worker loader owns module resolution; the Typert loader scans a package
+# tree that a packed image has no reason to mount for each plugin.
+- id: typert-loader
+  disabled: true
+
+# ── web search: the official provider selection contract ────────────────────
+# The native host resolves one independent search document. In explicit
+# follow-model mode it sends `PDSH_WEB_SEARCH_PROVIDER=deepseek-official` and
+# the Messages-search base (only for an official DeepSeek endpoint). In
+# independent mode it sends `deepseek-search-api` / `deepseek-fetch-api`, the
+# configured `/v1/tools` base, and a non-secret placeholder key. The search key
+# itself never enters the Worker: the host credential router matches the
+# normalized `/search` and `/fetch` paths on the configured host and injects the
+# dedicated Keychain value. Every other path keeps the model credential.
+#
+# Both provider rows are mounted conditionally from the same variables that
+# select them. A missing provider therefore has no registered provider instead
+# of silently auto-selecting another one when a document is corrupt or the
+# selected model endpoint cannot support Messages search.
+#
+# The official `DSH_WEB_SEARCH_PROVIDER` / `DSH_WEB_FETCH_PROVIDER` variables
+# remain accepted as the upstream equivalent; the host-owned `PDSH_*` names are
+# the phone contract. The anonymous local HTTP fetcher depends on
+# node:dns/undici and is not usable in the Worker, so it stays disabled.
+- id: web
+  disabled: false
+  config:
+    searchProvider: !!js process.env.PDSH_WEB_SEARCH_PROVIDER ?? process.env.DSH_WEB_SEARCH_PROVIDER
+    fetchProvider: !!js process.env.PDSH_WEB_FETCH_PROVIDER ?? process.env.DSH_WEB_FETCH_PROVIDER
+- id: web-search-deepseek
+  disabled: !!js (process.env.PDSH_WEB_SEARCH_PROVIDER ?? process.env.DSH_WEB_SEARCH_PROVIDER) !== 'deepseek-official'
+  config:
+    apiKeyEnv: DEEPSEEK_API_KEY
+    baseURL: !!js process.env.DEEPSEEK_SEARCH_BASE_URL
+# Register only the tools that have a real provider behind them. The model
+# must never see `web_search` for an empty/unsupported provider id, and
+# `web_fetch` requires the same independent Search API pair that registers the
+# fetch provider. Follow-model (official Messages search) has no fetch.
+- id: tool-web
+  disabled: false
+  config:
+    search: !!js (process.env.PDSH_WEB_SEARCH_PROVIDER ?? process.env.DSH_WEB_SEARCH_PROVIDER) === 'deepseek-official' || (process.env.PDSH_WEB_SEARCH_PROVIDER ?? process.env.DSH_WEB_SEARCH_PROVIDER) === 'deepseek-search-api'
+    fetch: !!js (process.env.PDSH_WEB_SEARCH_PROVIDER ?? process.env.DSH_WEB_SEARCH_PROVIDER) === 'deepseek-search-api' && (process.env.PDSH_WEB_FETCH_PROVIDER ?? process.env.DSH_WEB_FETCH_PROVIDER) === 'deepseek-fetch-api'
+    searchTimeoutMs: 60000
+# The local HTTP fetch provider talks to node:dns/undici directly and has no
+# Worker host route. Independent mode uses the official Search-and-Fetch API
+# provider below instead.
+- id: web-fetch-http
+  disabled: true
+- id: web-deepseek-api
+  disabled: !!js (process.env.PDSH_WEB_SEARCH_PROVIDER ?? process.env.DSH_WEB_SEARCH_PROVIDER) !== 'deepseek-search-api'
+  config:
+    apiKeyEnv: DEEPSEEK_SEARCH_API_KEY
+    baseURL: !!js process.env.DEEPSEEK_SEARCH_API_BASE_URL
+    sendOriginalQuestion: true
+# The official web-search settings card writes the key through
+# ctx.credentials, which this image deliberately does not mount: the native
+# model service page owns the Keychain. The browser row below is therefore
+# inserted disabled; the native search page and the phone model-config tab
+# explain the real host-owned selection instead.
+
+# ── model selection: the native profile is the one default ───────────────────
+# `agent-default-model` is the DSH service that a fresh Web/Session uses before
+# any user selection. Keep its provider on the deepseek-official adapter (the
+# gateway still routes every request to the selected Base URL) and take the
+# model and reasoning effort from the host's non-secret provider projection.
+# This is what makes the native profile's effort an actual model choice rather
+# than a read-only label.
+- id: agent-default-model
+  config:
+    provider: deepseek-official
+    model: !!js process.env.PDSH_MODEL_NAME || 'deepseek-flash'
+    reasoningEffort: !!js |
+      (() => {
+        try {
+          const doc = JSON.parse(process.env.PDSH_MODEL_PROVIDER_JSON ?? '{}')
+          const providers = Array.isArray(doc.providers) ? doc.providers : []
+          const provider = providers.find(entry => entry && entry.id === doc.selectedId) ?? providers[0]
+          return provider && typeof provider.reasoningEffort === 'string' && provider.reasoningEffort !== ''
+            ? provider.reasoningEffort
+            : undefined
+        } catch {
+          return undefined
+        }
+      })()
+
+# ── surface: the resident remote/web host on loopback ───────────────────────
+- insert:
+    # HTTP carrier. The Worker's node:http mock binds no socket; it captures
+    # this listener for the tunnel (whenRequestListener). Port 0 keeps the
+    # desktop behaviour harmless; the Worker reports a virtual port.
+    - id: webserver
+      name: '@deepseek-ai/dsh-host-webserver'
+      config:
+        host: 127.0.0.1
+        port: !!js Number(process.env.PDSH_DSH_PORT ?? 0)
+        compression: none
+
+    # ctx.connection, token/cookie authentication, /api RPC carrier, and the
+    # XL_DSH_READY announcement. Replaces the dsh-web-app connection row.
+    - id: phone-surface
+      name: '@phone-dsh/dsh-surface-phone'
+
+    # Remote BFF event source ($events: status, approvals, questions).
+    - id: api-remotes
+      name: '@deepseek-ai/dsh-api-remotes'
+
+    # Session commands, cold reads, and the live follow stream over Remote.
+    - id: session-controller
+      name: '@deepseek-ai/dsh-api-session-controller'
+
+    # Native configuration surfaces read/write the live profile through DSH's
+    # existing settings service; plugin inventory remains a read-only view.
+    - id: settings-controller
+      name: '@deepseek-ai/dsh-api-settings-controller'
+    - id: plugin-inventory
+      name: '@deepseek-ai/dsh-host-plugin-inventory'
+    - id: subagent-model-selection-settings
+      name: '@deepseek-ai/dsh-tool-subagent/model-selection-settings'
+
+    # Background-job roster and human-initiated kill Remote. The jobs registry
+    # is already supplied by dsh-base; the host controller is surface-owned.
+    - id: job-controller
+      name: '@deepseek-ai/dsh-api-job-controller'
+
+    # Durable Workspace grouping, archive/restore, and its baseline stream.
+    # The Workspace registry itself is mounted below by dsh-workspace.
+    #
+    # First-use creation resolves `<Documents>/deepseek-harness/default-workspace`.
+    # The Worker has no OS Documents directory and no native `xdg-user-dir`/
+    # `osascript` child process, so the App's existing durable workspace mount
+    # is the document authority. The registered Workspace, the Session's cwd and
+    # every file operation remain the same VFS root (`/dsh/workspace`); this
+    # option only replaces the desktop Documents lookup that cannot run here.
+    - id: workspace-controller
+      name: '@deepseek-ai/dsh-api-workspace-controller'
+      config:
+        documentsDirectory: /dsh/workspace
+
+    # Host-owned schedule catalog and per-session reminder lifecycle Remotes.
+    - id: schedule
+      name: '@deepseek-ai/dsh-schedule'
+
+    # Services session-controller injects: raw uploads and the workspace
+    # registry (a phone session's cwd is the App-container workspace).
+    - id: file-upload
+      name: '@deepseek-ai/dsh-client-file-upload'
+    - id: workspace
+      name: '@deepseek-ai/dsh-workspace'
+    # Session-scoped document preview reads over the pinned read/readBytes
+    # WorkspaceFiles Remote; no Worker-side native path is exposed to Swift.
+    - id: workspace-files
+      name: '@deepseek-ai/dsh-api-workspace-files'
+
+    # Changed-files card: records each top-level turn's changed files from git
+    # working-tree snapshots. The eight git subcommands it runs (rev-parse,
+    # add --all, write-tree, ls-tree, cat-file, diff-tree, ls-files and
+    # check-ignore -z --stdin) are served inside the Worker by the git program
+    # in plugins/wasi-toolbox/git, so the row is enabled here; there is no
+    # host-side git on the phone path and no command leaves the Worker (D12).
+    - id: workspace-changes
+      name: '@deepseek-ai/dsh-workspace-changes'
+
+# ── browser client roster: the complete DSH mobile Web UI ───────────────────
+# The image carries DSH's official browser bundles and the host rows whose
+# Remotes those bundles consume. It does not materialize the `dsh-web-app`
+# bundle or `web-runtime`: `phone-surface` remains the only host
+# `ctx.connection` and `/api` carrier.
+#
+# `modules` is the dual-face module system: its node half scans enabled
+# `dsh.client` rows into `window.__DSH_BOOT__` and serves `/plugins/<id>/
+# client.js`; its browser half is the module table the shell boots first.
+- insert:
+    - id: modules
+      name: '@deepseek-ai/dsh-client-modules'
+
+    # Browser transport only. The official web-app row injects `webStartup`,
+    # which this image deliberately never provides, so the host half stays
+    # pending for the whole process lifetime. `phone-surface` below is the
+    # only host `ctx.connection` and the only `/api` registration; enabling
+    # this host half would create a second one. `credentials` stays disabled,
+    # so the connection host half would remain pending even without the
+    # explicit service gate.
+    #
+    # The row id is deliberately not the global `connection` id: app-boot's
+    # required-entry audit hard-codes that id, and it must never demand a
+    # pending host half whose only job here is to be scanned for its browser
+    # bundle. Client rows still reference this package by its package name, so
+    # the browser module graph is unchanged.
+    - id: connection-browser
+      name: '@deepseek-ai/dsh-client-connection'
+      inject: [webStartup]
+      config:
+        trustedHosts: []
+
+    # Host services the browser rows call. Each one is an existing DSH
+    # package; no phone-specific protocol is introduced here.
+    - id: message-feedback
+      name: '@deepseek-ai/dsh-message-feedback'
+      config:
+        maxNoteBytes: 8192
+
+    # @-reference discovery: file candidates over the Worker VFS and
+    # cross-session references over the session query/cache rows.
+    - id: session-reference
+      name: '@deepseek-ai/dsh-session-reference'
+    - id: file-reference-local
+      name: '@deepseek-ai/dsh-file-reference-local'
+
+    # Whole-log chat stats and turn outline projections used by the chat rail.
+    - id: session-stats
+      name: '@deepseek-ai/dsh-session-stats'
+    - id: session-turn-outline
+      name: '@deepseek-ai/dsh-session-turn-outline'
+
+    # Office documents are rendered by this host provider. On the phone the
+    # runtime's `@deepseek-ai/libreoffice-kit` replacement answers
+    # `createConverter` with the kit's own `unavailable` error, so the Office
+    # tab stays present but reports the honest conversion failure instead of
+    # hiding the tab or returning an empty PDF. A future native renderer can
+    # replace this row behind the same `remote.officeToPdf` contract.
+    - id: office-to-pdf
+      name: '@deepseek-ai/dsh-office-to-pdf'
+
+    # Directory selection over the Worker VFS. The browse backend lists and
+    # creates directories through the runtime's node:fs proxy, so it needs no
+    # OS dialog, no child process and no second filesystem authority. The
+    # matching client surface is `ui-directory-picker-browse` below.
+    - id: directory-picker-browse
+      name: '@deepseek-ai/dsh-host-directory-picker-browse'
+      config:
+        maxEntries: 1000
+
+    # The host half activates over `subprocess-xl`, but that phone provider has
+    # no terminal primitive: `spawnTerminal` rejects with "the phone execution
+    # world has no terminal (PTY) primitive". Keep the host row for an honest
+    # refusal if a Session asks; the browser xterm tab itself is disabled in
+    # the roster below and replaced by the phone-shell command console.
+    - id: terminal-controller
+      name: '@deepseek-ai/dsh-api-terminal-controller'
+
+# The official web-app browser roster, minus desktop-only/dev-only rows. Rows
+# that are also host services already exist above (`file-upload`,
+# `api-remotes`, `session-controller`, `settings-controller`, `job-controller`,
+# `workspace-controller`, `workspace-files`, `schedule`) and are reused, not
+# duplicated.
+- insert:
+    - id: ui-theme
+      name: '@deepseek-ai/dsh-client-ui-theme'
+    - id: locale
+      name: '@deepseek-ai/dsh-client-locale'
+    - id: shortcuts
+      name: '@deepseek-ai/dsh-client-shortcuts'
+    - id: ui-shortcuts
+      name: '@deepseek-ai/dsh-client-ui-shortcuts'
+    - id: ui-layout
+      name: '@deepseek-ai/dsh-client-ui-layout'
+    - id: ui-renderer
+      name: '@deepseek-ai/dsh-client-ui-renderer'
+    - id: ui-session
+      name: '@deepseek-ai/dsh-client-ui-session'
+    - id: resources
+      name: '@deepseek-ai/dsh-client-resources'
+    - id: ui-sidebar
+      name: '@deepseek-ai/dsh-client-ui-sidebar'
+
+    # Right Sidebar and its document/file/browser tabs. The browser tab is the
+    # web iframe implementation, not the Electron shell. The xterm terminal tab
+    # has no iOS PTY and is disabled below; phone-shell is the honest console.
+    - id: ui-sidebar-right
+      name: '@deepseek-ai/dsh-client-ui-sidebar-right'
+    - id: ui-sidebar-browser
+      name: '@deepseek-ai/dsh-client-ui-sidebar-browser'
+    - id: ui-sidebar-documentpreview
+      name: '@deepseek-ai/dsh-client-ui-sidebar-documentpreview'
+    # iOS has no OS PTY. The phone-shell tab below is the honest command
+    # console (Worker bash over the VFS plus advertised read-only accelerators);
+    # the official xterm tab would be a permanently failing fake terminal, so
+    # its browser row is disabled here. The host terminal-controller row above
+    # remains for an honest `spawnTerminal` refusal if a Session asks.
+    - id: ui-sidebar-terminal
+      name: '@deepseek-ai/dsh-client-ui-sidebar-terminal'
+      disabled: true
+    - id: ui-sidebar-files
+      name: '@deepseek-ai/dsh-client-ui-sidebar-files'
+
+    - id: ui-directory-picker-browse
+      name: '@deepseek-ai/dsh-client-ui-directory-picker-browse'
+
+    - id: ui-settings
+      name: '@deepseek-ai/dsh-client-ui-settings'
+    - id: ui-settings-general
+      name: '@deepseek-ai/dsh-client-ui-settings-general'
+    # The native host owns the model service and the Keychain. This page would
+    # be a save-less model editor over the deliberately disabled
+    # `ctx.credentials`, and its first-run preview notice is a desktop-Web
+    # modal. The phone model page is `phone-model-config` (Settings → Plugins,
+    # with the real native-sheet action); the same notice lives in the native
+    # About page. Keep the row present but disabled so the omission is explicit
+    # instead of a broken settings section.
+    - id: ui-settings-models
+      name: '@deepseek-ai/dsh-client-ui-settings-models'
+      disabled: true
+    - id: ui-plugin-manager
+      name: '@deepseek-ai/dsh-client-ui-plugin-manager'
+    - id: ui-settings-plugin-inventory
+      name: '@deepseek-ai/dsh-client-ui-settings-plugin-inventory'
+    - id: ui-settings-account
+      name: '@deepseek-ai/dsh-client-ui-settings-account'
+    - id: ui-settings-session-log
+      name: '@deepseek-ai/dsh-client-ui-settings-session-log'
+    - id: ui-settings-plugins
+      name: '@deepseek-ai/dsh-client-ui-settings-plugins'
+    - id: ui-settings-shell
+      name: '@deepseek-ai/dsh-client-ui-settings-shell'
+    - id: ui-settings-agent-loop
+      name: '@deepseek-ai/dsh-client-ui-settings-agent-loop'
+    - id: ui-settings-subagent
+      name: '@deepseek-ai/dsh-client-ui-settings-subagent'
+    - id: ui-settings-web-search
+      name: '@deepseek-ai/dsh-client-ui-settings-web-search'
+      disabled: true
+
+    - id: ui-conversation
+      name: '@deepseek-ai/dsh-client-ui-conversation'
+    - id: ui-approval
+      name: '@deepseek-ai/dsh-client-ui-approval'
+    - id: ui-chat
+      name: '@deepseek-ai/dsh-client-ui-chat'
+    - id: ui-brand-official
+      name: '@deepseek-ai/dsh-client-ui-brand-official'
+    - id: ui-attachment
+      name: '@deepseek-ai/dsh-client-ui-attachment'
+    - id: ui-tool
+      name: '@deepseek-ai/dsh-client-ui-tool'
+    - id: ui-deliverables
+      name: '@deepseek-ai/dsh-client-ui-deliverables'
+    - id: ui-workspace
+      name: '@deepseek-ai/dsh-client-ui-workspace'
+
+    # Durable workflow lifecycle as an independent Chat node after the
+    # existing generic workflow tool row (same order as the official Web app).
+    - id: ui-workflow-run
+      name: '@deepseek-ai/dsh-client-ui-workflow-run'
+
+    - id: ui-input-trigger
+      name: '@deepseek-ai/dsh-client-ui-input-trigger'
+    - id: ui-commands
+      name: '@deepseek-ai/dsh-client-ui-commands'
+    - id: ui-skill
+      name: '@deepseek-ai/dsh-client-ui-skill'
+    - id: ui-subagent
+      name: '@deepseek-ai/dsh-client-ui-subagent'
+    - id: ui-reference
+      name: '@deepseek-ai/dsh-client-ui-reference'
+    - id: ui-secret-mask
+      name: '@deepseek-ai/dsh-client-ui-secret-mask'
+
+    - id: ui-jobs
+      name: '@deepseek-ai/dsh-client-ui-jobs'
+    - id: ui-schedule
+      name: '@deepseek-ai/dsh-client-ui-schedule'
+    - id: ui-goal
+      name: '@deepseek-ai/dsh-client-ui-goal'
+    - id: ui-message-feedback
+      name: '@deepseek-ai/dsh-client-ui-message-feedback'
+    - id: ui-model-selection
+      name: '@deepseek-ai/dsh-client-ui-model-selection'
+    - id: ui-deepseek-model-label-1017
+      name: '@deepseek-ai/dsh-client-ui-deepseek-model-label-1017'
+    - id: ui-permission
+      name: '@deepseek-ai/dsh-client-ui-permission-presets'
+    - id: ui-agent-preset
+      name: '@deepseek-ai/dsh-client-ui-agent-preset'
+    - id: ui-plan
+      name: '@deepseek-ai/dsh-client-ui-plan'
+    - id: ui-user-questions
+      name: '@deepseek-ai/dsh-client-ui-user-questions'
+    - id: ui-trajectory
+      name: '@deepseek-ai/dsh-client-ui-trajectory'
+
+    # Touch workbench: off-canvas navigation, touch-first composer and PWA
+    # install prompt below the mobile breakpoint.
+    - id: ui-mobile
+      name: '@deepseek-ai/dsh-client-ui-mobile'
+
+# ── phone-dsh plugins ─────────────────────────────────────────────────────
+- insert:
+    - id: subprocess-xl
+      name: '@phone-dsh/dsh-subprocess-xl'
+
+    # The Worker shell is the boundary: commands never leave it unconfined
+    # except the read-only accelerators routed by the ordered channel.
+    - id: sandbox-xl
+      name: '@phone-dsh/dsh-subprocess-xl/sandbox'
+
+    # JSONL persistence plus tool-journal reconciliation on write-open, in
+    # plaintext (`compression: none`). DSH 0.2.1's session-persistence-jsonl is
+    # a function plugin whose service class is private, so the 0.1.7 subclass
+    # wrapper cannot mount; this adapter wraps the service's write-open instead.
+    - id: session-persistence-journaled
+      name: '@phone-dsh/dsh-surface-phone'
+      config:
+        mode: session-persistence
+        root: !!js dshHomePath('sessions')
+        compression: none
+
+    # exec-bridge prefers the ordered channel published on
+    # globalThis.__PDSH_CHANNEL__ (PDSH_CHANNEL_URL / PDSH_CHANNEL_TOKEN); the
+    # PDSH_EXEC_BRIDGE_URL below is the desktop-only fallback, for simulations
+    # where no channel exists.
+    - id: pdsh-exec-bridge
+      name: '@phone-dsh/dsh-exec-bridge'
+      config:
+        url: !!js process.env.PDSH_EXEC_BRIDGE_URL
+
+    - id: llm-bridge
+      name: '@phone-dsh/dsh-llm-bridge'
+      config:
+        mode: auto
+        hostProxy: !!js "['1', 'all'].includes(process.env.PDSH_LLM_VIA_HOST ?? '')"
+        hostProxyRoutes: !!js "process.env.PDSH_LLM_VIA_HOST === 'all' ? 'all' : 'external'"
+
+    - id: tool-journal
+      name: '@phone-dsh/dsh-tool-journal'
+      config:
+        root: !!js dshHomePath('tool-journal')
+        profile: !!js "`pdsh-phone/1+dsh-${process.env.PDSH_DSH_VERSION ?? 'unknown'}`"
+
+    - id: lifecycle-gate
+      name: '@phone-dsh/dsh-lifecycle-gate'
+      config:
+        bridge: true
+        file: !!js process.env.PDSH_LIFECYCLE_FILE
+
+    # The App's own MCP server (phone tools) on loopback, streamable HTTP.
+    - id: mcp-phone
+      name: '@deepseek-ai/dsh-mcp-client'
+      disabled: !!js "!process.env.PDSH_PHONE_MCP_URL"
+      config:
+        serverName: phone
+        transport: streamable-http
+        url: !!js "process.env.PDSH_PHONE_MCP_URL ?? 'http://127.0.0.1:1/mcp'"
+        headers:
+          Authorization: !!js "`Bearer ${process.env.PDSH_PHONE_MCP_TOKEN ?? ''}`"
+        failOnStartupError: false
+
+    # ── phone public surfaces over the same Worker/session/VFS ──────────────
+    # Read-only projection of the native model service, plus the real action
+    # that opens the native configuration sheet from the Web settings tab.
+    - id: phone-model-config
+      name: '@phone-dsh/dsh-phone-model-config'
+
+    # Installed-plugin enablement, flat user skills and the official preset
+    # roster. The Host writes only the profile layer; the image is immutable.
+    - id: feature-admin
+      name: '@phone-dsh/dsh-feature-admin'
+
+    # Official roster the feature-admin tab lists/selects. The preset
+    # declarations are applied from the pinned Web-app bundle by the packer.
+    # `standard` is the default again: the Worker serves its
+    # `workflow-ptc`/`tool-workflow` rows with the native bridge in
+    # `workflow-worker` (official meta/workflow semantics in a dedicated
+    # workflow Worker; the official process PTC runtime is still absent).
+    # `ptc` is usable because its presentation row falls back to real native
+    # presentation when no `ptcRuntime` exists; it does not claim PTC
+    # execution is available. `minimal` and `cordis` stay listed and report
+    # their real broken rows (terminals/PTY, cordisInspect): they are not
+    # hidden or replaced by a healthy-looking stub. `phone` remains only as a
+    # non-default compatibility preset for sessions created before the
+    # standard preset worked on the Worker; it lacks `workflow-ptc`/
+    # `tool-workflow`, has no `tool-pwsh` row and no independent Search/Fetch
+    # provider pair, so its `web_fetch` stays off.
+    #
+    # The Worker still deliberately does not mount desktop host services
+    # (PTC process runtime, PTY, xdg), so PTC/PTY/full capability remain
+    # NOT PASS until the official preset is validated on Mac. This is the
+    # `phone-dsh-standard-preset-1027` replacement tracked in
+    # integration-blockers.json; the other shipped presets remain listed
+    # (and report their real broken rows).
+    - id: agent-preset-registry
+      name: '@deepseek-ai/dsh-agent-preset-registry'
+      config:
+        default: standard
+
+    # Legacy compatibility only. This is NOT the final default: it exists so
+    # a session that already recorded `phone` can still re-open and recompose.
+    # New sessions use the official standard preset.
+    - id: preset-phone
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: phone
+        order: 0
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: You are a coding agent powered by the {{model}} model.
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 65536
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
+          - id: tool-bash
+            name: '@deepseek-ai/dsh-tool-bash'
+            disabled: !!js process.platform === 'win32'
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: tool-jobs
+            name: '@deepseek-ai/dsh-tool-jobs'
+          - id: tool-schedule
+            name: '@deepseek-ai/dsh-tool-schedule'
+          - id: skill-filesystem
+            name: '@deepseek-ai/dsh-skill-filesystem'
+          - id: tool-skill
+            name: '@deepseek-ai/dsh-tool-skill'
+          - id: command-goal
+            name: '@deepseek-ai/dsh-command-goal'
+          - id: tool-goal
+            name: '@deepseek-ai/dsh-tool-goal'
+          - id: planning
+            name: cordis:group
+            group: true
+            isolate:
+              planMode: true
+            config:
+              - id: plan-mode
+                name: '@deepseek-ai/dsh-plan-mode'
+                config:
+                  section: |
+                    You are in plan mode. Stay in plan mode until the user approves your plan through exit_plan_mode or switches the session mode. Imperative language to implement changes means plan the implementation, not execute it. A user's conversational agreement — including an answer confirming something you asked — approves nothing and does not end plan mode; fold the confirmed decision into the plan and submit it through exit_plan_mode.
+
+                    Explore first. Use non-mutating reads, searches, static analysis, and checks to ground the plan in the actual repository. Do not edit or write files, change configuration, run formatters or code generation that rewrites tracked files, commit, or otherwise carry out the plan. Prefer existing functions and patterns over new machinery.
+
+                    The tool catalog stays the same across modes for request-cache stability. These plan-mode rules override any later tool description or guidance that suggests using mutation tools; those tools remain listed to keep the tool catalog unchanged. Do not use todo_write to track this planning phase: it tracks implementation after an approved plan, while the plan itself belongs in exit_plan_mode.
+
+                    Resolve discoverable facts by inspection. Use ask_user_question only for user-owned choices or material ambiguity that inspection cannot answer. Do not ask the user where code lives or how current behavior works when you can find out.
+
+                    Make the plan decision-complete: state the goal and success criteria; group implementation changes by subsystem; identify public API, schema, and data-flow changes; cover edge cases, failure modes, tests, acceptance criteria, and explicit assumptions. Keep it concise enough to review but detailed enough that another engineer can implement it without making design decisions.
+
+                    When ready, call exit_plan_mode with the complete plan markdown, starting with a # title. Make exit_plan_mode the only and final tool call in that assistant response: it presents the plan for approval, and implementation begins only in a later step after approval. Do not paste the final plan as a plain reply or ask "should I proceed?" through prose or ask_user_question. If review rejects it, incorporate the feedback and present again. If the review channel is unavailable or aborted, stay in plan mode and ask the user to switch modes manually; do not proceed with implementation.
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 8192
+                  headChars: 4096
+                  tailChars: 1024
+          - id: delegation
+            name: cordis:group
+            group: true
+            isolate:
+              workflowEngine: true
+            config:
+              - id: tool-subagent-control
+                name: '@deepseek-ai/dsh-tool-subagent-control'
+              - id: tool-subagent-list-agents
+                name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'
+              - id: tool-subagent
+                name: '@deepseek-ai/dsh-tool-subagent'
+                config:
+                  provider: spawn
+                  toolName: subagent
+                  modelSelectionSettings: true
+              - id: tool-subagent-fork
+                name: '@deepseek-ai/dsh-tool-subagent'
+                config:
+                  provider: fork
+                  toolName: subagent_fork
+          - id: tool-ask-user
+            name: '@deepseek-ai/dsh-tool-ask-user'
+          - id: tool-todo
+            name: '@deepseek-ai/dsh-tool-todo'
+            config:
+              allowParallelInProgress: true
+          - id: tool-web
+            name: '@deepseek-ai/dsh-tool-web'
+            config:
+              # Both registration sites use the same conditional contract:
+              # no web_search for empty/unsupported provider ids, and web_fetch
+              # only with the independent Search/Fetch provider pair.
+              search: !!js (process.env.PDSH_WEB_SEARCH_PROVIDER ?? process.env.DSH_WEB_SEARCH_PROVIDER) === 'deepseek-official' || (process.env.PDSH_WEB_SEARCH_PROVIDER ?? process.env.DSH_WEB_SEARCH_PROVIDER) === 'deepseek-search-api'
+              fetch: !!js (process.env.PDSH_WEB_SEARCH_PROVIDER ?? process.env.DSH_WEB_SEARCH_PROVIDER) === 'deepseek-search-api' && (process.env.PDSH_WEB_FETCH_PROVIDER ?? process.env.DSH_WEB_FETCH_PROVIDER) === 'deepseek-fetch-api'
+              searchTimeoutMs: 60000
+          - id: present
+            name: '@deepseek-ai/dsh-tool-present'
+          - id: tool-plugin-manager
+            name: '@deepseek-ai/dsh-plugin-manager/tools'
+            disabled: true
+          - id: tool-plugin-market
+            name: '@deepseek-ai/dsh-plugin-market/tools'
+            disabled: true
+
+    # HTTP-SSE MCP management through the official dsh-mcp-client.
+    - id: phone-mcp
+      name: '@phone-dsh/dsh-phone-mcp'
+
+    # Real command console: Worker bash over the VFS and only the accelerators
+    # the host advertised; it never allocates a PTY.
+    - id: phone-shell
+      name: '@phone-dsh/dsh-phone-shell'
+
+    # Office documents open in the system Quick Look through the native
+    # handler; the host half only holds the Loader row.
+    - id: phone-native-preview
+      name: '@phone-dsh/dsh-phone-native-preview'
+
+    # Native Files folder import into the existing session workspace.
+    - id: phone-directory-import
+      name: '@phone-dsh/dsh-phone-directory-import'

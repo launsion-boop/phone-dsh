@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "handoff fence request",
+  "description": "POST /v1/handoff/fence request body: generation CAS plus the WAL target.",
+  "type": "object",
+  "required": [
+    "expected_generation",
+    "wal_seq"
+  ],
+  "properties": {
+    "expected_generation": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 18446744073709551615
+    },
+    "wal_seq": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 18446744073709551615
+    }
+  },
+  "additionalProperties": false
+}

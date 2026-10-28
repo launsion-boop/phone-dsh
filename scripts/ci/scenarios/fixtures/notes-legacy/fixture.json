@@ -1,0 +1,40 @@
+{
+  "name": "notes-legacy",
+  "description": "Python 3 standard-library notes project with four commits on master and a configured identity: duplicated _slugify/_truncate helpers in storage.py and format.py, and a long mixed render(note, width) in cli.py. All six behavior tests pass; behaviour must not change.",
+  "git": {
+    "branch": "master",
+    "identity": {
+      "name": "phone-fixture",
+      "email_user": "dev",
+      "email_host": "example.invalid"
+    },
+    "commits": [
+      {
+        "message": "initial notes model and readme",
+        "files": [
+          "notes.py",
+          "README.md"
+        ]
+      },
+      {
+        "message": "add json storage",
+        "files": [
+          "storage.py"
+        ]
+      },
+      {
+        "message": "add formatting and cli",
+        "files": [
+          "format.py",
+          "cli.py"
+        ]
+      },
+      {
+        "message": "add behavior tests",
+        "files": [
+          "test_notes.py"
+        ]
+      }
+    ]
+  }
+}

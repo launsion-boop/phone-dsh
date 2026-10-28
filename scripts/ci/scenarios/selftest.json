@@ -1,0 +1,433 @@
+{
+  "version": 1,
+  "generated_by": "W10-SCENARIOS self-test",
+  "scenarios": [
+    {
+      "id": "G2-SELFTEST",
+      "category": "recovery",
+      "title": "Scenario runner self-test: a drain-window write and one planned restart",
+      "user_story": "A developer checks that the catalog runner boots the phone DSH stack, completes one tool-calling turn whose write lands while the host drains for a park, survives the park and a planned restart, and verifies recovery by WAL accounting instead of a raw snapshot comparison.",
+      "workspace": {
+        "files": {
+          "README.md": "# Scenario runner self-test\n",
+          "bill_a.py": "bill_a = 0\n"
+        }
+      },
+      "turns": [
+        {
+          "prompt": "Rewrite bill_a.py while the host drains, create a.txt containing the word scenario, then tell me it is done."
+        }
+      ],
+      "assertions": [
+        {
+          "type": "file_exists",
+          "path": "a.txt"
+        },
+        {
+          "type": "file_contains",
+          "path": "bill_a.py",
+          "value": "bill_a = 1"
+        },
+        {
+          "type": "workspace_command",
+          "command": "test -f /dsh/workspace/a.txt && grep -qx scenario /dsh/workspace/a.txt && grep -qx 'bill_a = 1' /dsh/workspace/bill_a.py && test -s README.md"
+        },
+        {
+          "type": "turn_count_lte",
+          "max": 2
+        },
+        {
+          "type": "restart_recovered"
+        }
+      ],
+      "rubric": [
+        "The mocked model issues exactly one fixed tool call whose command sleeps before writing, so the rewrite of the pre-existing bill_a.py lands inside the D14 drain window opened by the during_first_tool park_resume; a new file alone would not have exercised the old snapshot difference.",
+        "The park and the after-turn planned restart both return the host to Running with the acked write intact; restart_recovered passes because the WAL mutations in the drain window are replayed onto the pre-park snapshot and their mseq is reported in accounted_changes instead of every byte difference being treated as corruption.",
+        "a.txt exists in the materialized workspace at the end of the run and bill_a.py carries the session's new content.",
+        "The workspace_command assertion passes only against the real materialized files (a.txt with the tool's output, the rewritten bill_a.py and the seeded README.md); on the simulator it is evaluated by the Mac host phase after the results are pulled and the final report carries host_evaluated: true."
+      ],
+      "budget": {
+        "max_minutes": 5,
+        "max_model_requests": 8
+      },
+      "perturbations": [
+        {
+          "at": "during_first_tool",
+          "kind": "park_resume"
+        },
+        {
+          "at": "after_turn:1",
+          "kind": "planned_restart"
+        }
+      ],
+      "mock": {
+        "tool_call_rounds": 1,
+        "tool_command": "sleep 1; echo bill_a = 1 > bill_a.py; echo scenario > a.txt; cat a.txt",
+        "tool_description": "Rewrite bill_a.py during the park drain window"
+      },
+      "network": "none",
+      "tags": [
+        "selftest",
+        "recovery",
+        "drain"
+      ],
+      "target": "macos"
+    },
+    {
+      "id": "G2-SELFTEST-DELIVERY",
+      "category": "shell",
+      "title": "Scenario runner self-test: several streamed SSE model responses are delivered",
+      "user_story": "A developer checks that the host gateway's streamed SSE replies survive the loopback chunked egress and the WKWebView Worker's host-route fetch, so a turn with several tool calls completes instead of stalling after a progress step.",
+      "workspace": {
+        "files": {
+          "README.md": "# Delivery self-test\n"
+        }
+      },
+      "turns": [
+        {
+          "prompt": "Create a.txt containing the word scenario, then tell me it is done."
+        }
+      ],
+      "assertions": [
+        {
+          "type": "file_exists",
+          "path": "a.txt"
+        },
+        {
+          "type": "file_contains",
+          "path": "a.txt",
+          "value": "scenario"
+        },
+        {
+          "type": "turn_count_lte",
+          "max": 2
+        },
+        {
+          "type": "no_console_error"
+        }
+      ],
+      "rubric": [
+        "The mock upstream returns six same-shape streamed SSE tool-call replies followed by a final text reply; every reply must be consumed within the budget.",
+        "The report carries the automatic mock_delivery assertion with one usage event per streamed response, and the turn ends.",
+        "The run must not stall at a progress step until the wall-clock budget expires."
+      ],
+      "mock": {
+        "tool_call_rounds": 6,
+        "response_bytes": [
+          15151,
+          37153,
+          94724,
+          46469,
+          20204,
+          77106,
+          33000
+        ],
+        "chunk_bytes": 2048,
+        "chunk_delay_ms": 0
+      },
+      "budget": {
+        "max_minutes": 2,
+        "max_model_requests": 12
+      },
+      "network": "none",
+      "tags": [
+        "selftest",
+        "delivery"
+      ],
+      "target": "macos"
+    },
+    {
+      "id": "G2-SELFTEST-DELIVERY-STALL",
+      "category": "recovery",
+      "title": "Scenario runner self-test: a stalled streamed reply fails loud",
+      "user_story": "A developer checks that when the host has the response but the Worker's fetch never receives the remaining body bytes, the delivery inactivity deadline ends the request with a typed error and the session records an error event instead of waiting for the scenario budget.",
+      "workspace": {
+        "files": {
+          "README.md": "# Delivery stall self-test\n"
+        }
+      },
+      "turns": [
+        {
+          "prompt": "Create a.txt containing the word scenario, then tell me it is done."
+        }
+      ],
+      "assertions": [
+        {
+          "type": "session_error",
+          "value": "PDSH_DELIVERY_TIMEOUT"
+        },
+        {
+          "type": "turn_count_lte",
+          "max": 2
+        },
+        {
+          "type": "model_requests_lte",
+          "max": 2
+        }
+      ],
+      "rubric": [
+        "The first scripted reply is consumed normally; from the second reply on, the mock writes part of the SSE body and then holds the socket open with no terminating chunk.",
+        "The Worker's host-route fetch fails the stalled attempt with PDSH_DELIVERY_TIMEOUT after the configured inactivity interval; the typed failure is not retried (the model-request count is asserted) and the session records an error event.",
+        "With the delivery deadline neutralized (a value above the scenario budget) the same run never errors and fails instead: TIMEOUT when the visible page reaches the wall budget, or the earlier locked-screen guard on a hidden page. That is the pre-fix failure this self-test guards."
+      ],
+      "mock": {
+        "tool_call_rounds": 1,
+        "response_bytes": [
+          15151,
+          46469,
+          33000
+        ],
+        "chunk_bytes": 2048,
+        "chunk_delay_ms": 0,
+        "stall_from_response": 2,
+        "stall_after_bytes": 8192,
+        "delivery_idle_timeout_ms": 2000
+      },
+      "budget": {
+        "max_minutes": 2,
+        "max_model_requests": 12
+      },
+      "network": "none",
+      "tags": [
+        "selftest",
+        "delivery",
+        "stall"
+      ],
+      "target": "macos"
+    },
+    {
+      "id": "G2-SELFTEST-DELIVERY-128K",
+      "category": "shell",
+      "title": "Scenario runner self-test: the 128 KiB session delivery window is replenished",
+      "user_story": "A developer checks that a session that has already received model output crossing the 128 KiB boundary still gets the rest of a streamed SSE response after the downstream consumer stops pulling for longer than the delivery inactivity interval: the host already holds the complete body, so the delivery layer resumes from the host response log instead of abandoning the request.",
+      "workspace": {
+        "files": {
+          "README.md": "# Delivery 128K self-test\n"
+        }
+      },
+      "turns": [
+        {
+          "prompt": "Create a.txt containing the word scenario, then tell me it is done."
+        }
+      ],
+      "assertions": [
+        {
+          "type": "file_exists",
+          "path": "a.txt"
+        },
+        {
+          "type": "file_contains",
+          "path": "a.txt",
+          "value": "scenario"
+        },
+        {
+          "type": "turn_count_lte",
+          "max": 2
+        },
+        {
+          "type": "no_console_error"
+        }
+      ],
+      "rubric": [
+        "The mock upstream answers five same-shape SSE replies; the fifth delivers 8 KiB and then pauses for 4 s while the host holds the complete body, which recreates the cumulative-boundary shape the real-model batch exposed.",
+        "The Worker's delivery inactivity interval (1.5 s) elapses first; the delivery layer must replenish the window by resuming the body from the host response log, and the automatic mock_delivery assertion requires one usage event per complete streamed response.",
+        "On the unfixed tree the fifth reply is abandoned with PDSH_DELIVERY_TIMEOUT and the run reports 4 usage events for 5 complete streamed responses; after the fix the turn finishes and a.txt is materialized."
+      ],
+      "mock": {
+        "tool_call_rounds": 4,
+        "response_bytes": [
+          30720,
+          30720,
+          30720,
+          30720,
+          30720
+        ],
+        "chunk_bytes": 2048,
+        "chunk_delay_ms": 0,
+        "stall_from_response": 5,
+        "stall_after_bytes": 8192,
+        "resume_after_ms": 4000,
+        "delivery_idle_timeout_ms": 1500
+      },
+      "budget": {
+        "max_minutes": 3,
+        "max_model_requests": 12
+      },
+      "network": "none",
+      "tags": [
+        "selftest",
+        "delivery",
+        "128k",
+        "resume"
+      ],
+      "target": "macos"
+    },
+    {
+      "id": "G2-SELFTEST-REPORT-SCHEMA",
+      "category": "recovery",
+      "title": "Scenario runner self-test: a timed-out run keeps runner diagnostics out of console_errors",
+      "user_story": "A developer checks that a report which ends on the wall-budget timeout does not contradict its own no_console_error assertion: the Worker/session console-error stream stays the only content of console_errors, while the runner's timeout is reported in the separate runner_errors field.",
+      "workspace": {
+        "files": {
+          "README.md": "# Report schema self-test\n"
+        }
+      },
+      "turns": [
+        {
+          "prompt": "Write one short status line."
+        }
+      ],
+      "assertions": [
+        {
+          "type": "no_console_error"
+        }
+      ],
+      "rubric": [
+        "The first scripted reply writes a few thousand bytes of SSE body and then holds the socket open forever, so the turn stays open until the one-minute wall budget ends the run with status TIMEOUT.",
+        "The report must carry the runner's 'budget.max_minutes=1 elapsed' diagnostic in runner_errors only; console_errors stays empty because the Worker emitted no console/session error.",
+        "no_console_error must stay ok because it evaluates the same console_errors array the report writes; the timeout never makes it fail, and the assertion is not loosened.",
+        "This fixture is an expected-timeout regression consumed by PhoneDSHScenarioAbortJournalTests.testTimedOutRunKeepsRunnerDiagnosticsOutOfConsoleErrors, not a pass/fail batch scenario: the batch report gate would read its TIMEOUT status as a product verdict."
+      ],
+      "mock": {
+        "chunk_bytes": 512,
+        "chunk_delay_ms": 0,
+        "stall_from_response": 1,
+        "stall_after_bytes": 4096
+      },
+      "budget": {
+        "max_minutes": 1,
+        "max_model_requests": 12
+      },
+      "network": "none",
+      "tags": [
+        "selftest",
+        "report-schema",
+        "timeout"
+      ],
+      "target": "macos"
+    },
+    {
+      "id": "G2-SELFTEST-WORKER-COMMAND",
+      "category": "recovery",
+      "title": "Scenario runner self-test: host and Worker command acceptance stay distinct",
+      "user_story": "A developer checks that the old workspace_command still proves host-bash acceptance against the materialized copy while the new worker_command runs the same class of check through the live Worker's authenticated connection, on an immutable VFS fork, with a receipt bound to this scenario/session/turn.",
+      "workspace": {
+        "files": {
+          "README.md": "# Worker command self-test\n"
+        }
+      },
+      "turns": [
+        {
+          "prompt": "Create worker-probe.txt containing worker-ready, then tell me it is done."
+        }
+      ],
+      "assertions": [
+        {
+          "type": "file_exists",
+          "path": "worker-probe.txt"
+        },
+        {
+          "type": "workspace_command",
+          "command": "test -f worker-probe.txt && grep -qx worker-ready worker-probe.txt && printf 'host-acceptance\\n'"
+        },
+        {
+          "type": "worker_command",
+          "program": "bash",
+          "cwd": "/dsh/workspace",
+          "timeout_ms": 10000,
+          "command": "test -f worker-probe.txt && grep -qx worker-ready worker-probe.txt && test -f /dsh/home/capabilities.json && test \"$PDSH_WORKER_COMMAND_LOCATION\" = worker && printf 'worker-acceptance:%s\\n' \"$PDSH_WORKER_COMMAND_LOCATION\""
+        },
+        {
+          "type": "worker_command",
+          "program": "python3",
+          "cwd": "/dsh/workspace",
+          "timeout_ms": 10000,
+          "command": "from pathlib import Path; root=Path('/dsh/workspace'); assert (root/'worker-probe.txt').read_text().strip() == 'worker-ready'; scratch=root/'.worker-acceptance-fork.txt'; scratch.write_text('fork-python-ok\\n'); assert scratch.read_text() == 'fork-python-ok\\n'; print('worker-python-fork-ok')"
+        },
+        {
+          "type": "model_requests_lte",
+          "max": 4
+        },
+        {
+          "type": "turn_count_lte",
+          "max": 2
+        }
+      ],
+      "rubric": [
+        "The scripted model writes worker-probe.txt through the ordinary Worker tool path.",
+        "workspace_command is still evaluated after host.stop() by /bin/bash against host/materialized/workspace and reports host_evaluated: true; it is not relabelled as a Worker run.",
+        "worker_command runs before host.stop() through the phone-only /api/pdsh-worker-command/execute route. Its receipt records location.kind=worker, location.host_process=false, an immutable Worker VFS fork, the scenario/session/turn/assertion binding and model_requests=0; the command sees /dsh/home/capabilities.json and the Worker-side location sentinel, which the Mac host command does not.",
+        "Both assertion rows and both report-level markers are present, so a reviewer can see the two acceptance locations separately.",
+        "The real Python worker_command reads the captured probe and writes only its immutable fork. Its served tool-worker URL comes from boot, its receipt proves no live workspace change, and acceptance makes no model calls."
+      ],
+      "budget": {
+        "max_minutes": 2,
+        "max_model_requests": 4
+      },
+      "mock": {
+        "tool_call_rounds": 1,
+        "tool_command": "printf worker-ready > worker-probe.txt; cat worker-probe.txt",
+        "tool_description": "Write the Worker command probe file"
+      },
+      "network": "none",
+      "tags": [
+        "selftest",
+        "worker-command",
+        "host-vs-worker"
+      ],
+      "target": "macos"
+    },
+    {
+      "id": "G2-SELFTEST-WORKER-COMMAND-BUDGET",
+      "category": "recovery",
+      "title": "Scenario runner self-test: a Worker command over its budget fails loud",
+      "user_story": "A developer checks that the Worker command receipt reports the command's own budget and timeout instead of turning a killed command into a pass. This fixture is expected to end FAIL and is run only when a lane selects it explicitly for the budget proof.",
+      "workspace": {
+        "files": {
+          "README.md": "# Worker command budget self-test\n"
+        }
+      },
+      "turns": [
+        {
+          "prompt": "Create worker-budget.txt, then tell me it is done."
+        }
+      ],
+      "assertions": [
+        {
+          "type": "worker_command",
+          "program": "bash",
+          "cwd": "/dsh/workspace",
+          "timeout_ms": 50,
+          "command": "sleep 5; echo late"
+        },
+        {
+          "type": "model_requests_lte",
+          "max": 4
+        }
+      ],
+      "rubric": [
+        "The Worker command is cut at its own 50 ms budget, so the receipt has timed_out: true and exit_code 124.",
+        "The assertion fails with command_failed; a timeout is never reported as a passing Worker acceptance.",
+        "This fixture intentionally ends FAIL. It is not part of the default selftest gate."
+      ],
+      "budget": {
+        "max_minutes": 2,
+        "max_model_requests": 4
+      },
+      "mock": {
+        "tool_call_rounds": 1,
+        "tool_command": "printf budget-ready > worker-budget.txt; cat worker-budget.txt",
+        "tool_description": "Write the Worker budget probe file"
+      },
+      "network": "none",
+      "tags": [
+        "selftest",
+        "worker-command",
+        "budget",
+        "expected-fail"
+      ],
+      "target": "macos"
+    }
+  ],
+  "fixtures": []
+}

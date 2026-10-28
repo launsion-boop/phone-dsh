@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: MIT
+# Desktop-simulation overlay: point the DeepSeek Messages adapter at the local
+# mock model (sim/mock-llm.mjs). No real model API, no credentials.
+- id: llm-deepseek
+  config:
+    baseURL: !!js process.env.PDSH_SIM_LLM_URL
+    thinking: disabled

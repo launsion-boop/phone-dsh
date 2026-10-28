@@ -1,0 +1,45 @@
+{
+  "name": "textstats-lib",
+  "description": "Python 3 standard-library text statistics library v1.0 with five commits on master and a configured identity: _tokenize in core, an unused STOPWORDS module, and five passing tests whose inputs contain no stop words so v2's default stop-word filtering keeps them green.",
+  "git": {
+    "branch": "master",
+    "identity": {
+      "name": "phone-fixture",
+      "email_user": "dev",
+      "email_host": "example.invalid"
+    },
+    "commits": [
+      {
+        "message": "init package",
+        "files": [
+          "textstats/__init__.py"
+        ]
+      },
+      {
+        "message": "add core counting",
+        "files": [
+          "textstats/core.py"
+        ]
+      },
+      {
+        "message": "add stopwords",
+        "files": [
+          "textstats/stopwords.py"
+        ]
+      },
+      {
+        "message": "add tests",
+        "files": [
+          "test_textstats.py"
+        ]
+      },
+      {
+        "message": "add readme",
+        "files": [
+          "README.md",
+          "textstats/py.typed"
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,165 @@
+From 52d719a04341dc51317d0ac5de444146277ba51d Mon Sep 17 00:00:00 2001
+From: Xiaozhi & Tono AI Team <noreply>
+Date: Sat, 24 Oct 2026 22:24:15 +0800
+Subject: [PATCH] fix(webworker-packer): keep platform rows when an overlay
+ ships a home patch
+
+The base image carries the platform rows the Worker composition requires at
+home/cordis.patch.yml. An overlay that ships the same path replaces the
+whole file when the host applies it, silently dropping those rows and
+letting a deployment overlay change required platform config.
+
+Give packVfsOverlay an optional platformHomePatch. When the overlay being
+packed carries home/cordis.patch.yml, rewrite its patch list as the
+overlay's own rows followed by the platform rows. Patch lists apply in
+order with a later row replacing an earlier same-id config, so the overlay
+can add or restate rows while the platform's required config still wins.
+Without platformHomePatch the overlay's bytes are unchanged, and an overlay
+without a home patch gains none.
+
+Export PackOverlayOptions from the package root.
+
+Test: packages/experimental/webworker-packer/tests/overlay-home-patch.spec.ts
+packs an overlay carrying an added row and a restated platform row, then
+reads the merged YAML back and asserts both lists survive with the platform
+row last.
+---
+ .../webworker-packer/src/index.ts             |  2 +-
+ .../experimental/webworker-packer/src/pack.ts | 35 ++++++++++++-
+ .../tests/overlay-home-patch.spec.ts          | 52 +++++++++++++++++++
+ 3 files changed, 87 insertions(+), 2 deletions(-)
+ create mode 100644 packages/experimental/webworker-packer/tests/overlay-home-patch.spec.ts
+
+diff --git a/packages/experimental/webworker-packer/src/index.ts b/packages/experimental/webworker-packer/src/index.ts
+index 1b0c8f03ac..d32126476b 100644
+--- a/packages/experimental/webworker-packer/src/index.ts
++++ b/packages/experimental/webworker-packer/src/index.ts
+@@ -9,7 +9,7 @@ export {
+ export {
+   collectModuleNames, DEFAULT_ROOT, MANIFEST_PATH, packVfsImage, packVfsOverlay,
+   type ConfigTree, type ImageInstallation, type ImageTree, type PackedLazyArchive, type PackOptions,
+-  type PackOverlayResult, type PackResult,
++  type PackOverlayOptions, type PackOverlayResult, type PackResult,
+ } from './pack.ts'
+ export {
+   configTrees, describePack, indexWorkspacePackages, installationManifest, packPreviewFixture, packRepositoryImage,
+diff --git a/packages/experimental/webworker-packer/src/pack.ts b/packages/experimental/webworker-packer/src/pack.ts
+index fd394d2d51..3c6e9a425f 100644
+--- a/packages/experimental/webworker-packer/src/pack.ts
++++ b/packages/experimental/webworker-packer/src/pack.ts
+@@ -157,6 +157,17 @@ export interface PackOverlayResult {
+   readonly files: ImageFiles
+ }
+ 
++/** Construction inputs for {@link packVfsOverlay}. */
++export interface PackOverlayOptions {
++  /**
++   * Platform patch rows the base image carries at {@link HOME_PATCH_PATH}. An
++   * overlay that ships its own patch file has it rewritten as the overlay's
++   * rows followed by these, so a later row (the platform's) still wins a
++   * same-id replacement. Defaults to none: the overlay's file is kept as packed.
++   */
++  readonly platformHomePatch?: readonly PatchOptions[]
++}
++
+ const readJson = (file: string): Record<string, unknown> =>
+   JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>
+ 
+@@ -759,10 +770,20 @@ export function packVfsImage(options: PackOptions): PackResult {
+  * overlay cannot replace configuration, the lowering manifest, or modules.
+  * Files bypass package excludes and module reachability processing; later
+  * trees replace earlier files at the same path.
++ *
++ * An overlay's own `home/cordis.patch.yml` replaces the base image's file when
++ * the Worker applies the overlay, which would drop the platform rows the image
++ * carries. Pass those rows as {@link PackOverlayOptions.platformHomePatch} and
++ * the packed file becomes the overlay's rows followed by them; a same-id row
++ * therefore keeps the platform's config.
+  * @param trees - Absolute source directories and their data-directory mounts.
++ * @param options - Platform patch rows to merge into an overlay home patch.
+  * @returns Deterministic compressed archive plus its uncompressed entries.
+  */
+-export function packVfsOverlay(trees: readonly ImageTree[]): PackOverlayResult {
++export function packVfsOverlay(
++  trees: readonly ImageTree[],
++  options: PackOverlayOptions = {},
++): PackOverlayResult {
+   const files: ImageFiles = {}
+   for (const tree of trees) {
+     if (!existsSync(tree.directory)) {
+@@ -778,5 +799,17 @@ export function packVfsOverlay(trees: readonly ImageTree[]): PackOverlayResult {
+     }
+     collectTree(tree.directory, files, mount, () => true, true)
+   }
++  const overlayPatch = files[HOME_PATCH_PATH]
++  const platformRows = options.platformHomePatch ?? []
++  if (overlayPatch !== undefined && platformRows.length > 0) {
++    const rows: unknown = yaml.load(new TextDecoder().decode(overlayPatch), { schema: entryListSchema })
++    if (!Array.isArray(rows)) {
++      throw new Error(`vfs overlay: ${HOME_PATCH_PATH} must be a top-level YAML array of loader patch entries`)
++    }
++    files[HOME_PATCH_PATH] = new TextEncoder().encode(yaml.dump(
++      [...rows as PatchOptions[], ...platformRows],
++      { schema: entryListSchema, noRefs: true },
++    ))
++  }
+   return { image: compressImage(packTar(files)), files }
+ }
+diff --git a/packages/experimental/webworker-packer/tests/overlay-home-patch.spec.ts b/packages/experimental/webworker-packer/tests/overlay-home-patch.spec.ts
+new file mode 100644
+index 0000000000..45459f59a5
+--- /dev/null
++++ b/packages/experimental/webworker-packer/tests/overlay-home-patch.spec.ts
+@@ -0,0 +1,52 @@
++/**
++ * An overlay that ships its own `home/cordis.patch.yml` replaces the base
++ * image's home-patch file when the Worker applies it. Packing the overlay with
++ * the platform rows the image carries merges the two lists instead: the
++ * overlay's rows come first and the platform's last, so a same-id row keeps the
++ * platform config the Worker requires.
++ */
++import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
++import { tmpdir } from 'node:os'
++import { join } from 'node:path'
++import { describe, expect, it } from 'vitest'
++import yaml from 'js-yaml'
++import { entryListSchema } from '@deepseek-ai/cordis-plugin-include'
++import { HOME_PATCH_PATH, packVfsOverlay } from '../src/pack.ts'
++
++/** The row shape the packer writes to the image's home patch. */
++const platformRows = [{
++  id: 'session-persistence-jsonl',
++  config: { root: { __jsExpr: "dshHomePath('sessions')" }, compression: 'none' },
++}]
++
++describe('overlay home patch', () => {
++  it('merges the overlay rows with the platform rows instead of replacing them', (test) => {
++    const directory = mkdtempSync(join(tmpdir(), 'dsh-overlay-home-patch-'))
++    test.onTestFinished(() => { rmSync(directory, { recursive: true, force: true }) })
++    writeFileSync(join(directory, 'cordis.patch.yml'), [
++      '- id: overlay-row',
++      '  config:',
++      '    answer: 42',
++      '- id: session-persistence-jsonl',
++      '  config:',
++      '    root: !!js dshHomePath("sessions")',
++      '    compression: zstd',
++      '',
++    ].join('\n'))
++
++    const { files } = packVfsOverlay([{ mount: 'home', directory }], { platformHomePatch: platformRows })
++    expect(HOME_PATCH_PATH).toBe('home/cordis.patch.yml')
++    const merged = yaml.load(new TextDecoder().decode(files[HOME_PATCH_PATH]), { schema: entryListSchema })
++    expect(merged).toEqual([
++      { id: 'overlay-row', config: { answer: 42 } },
++      { id: 'session-persistence-jsonl', config: { root: { __jsExpr: 'dshHomePath("sessions")' }, compression: 'zstd' } },
++      ...platformRows,
++    ])
++    // Later rows win a same-id replacement, so the platform's plaintext
++    // compression survives an overlay that restates the row.
++    const compression = (merged as { id?: string; config?: { compression?: string } }[])
++      .filter(row => row.id === 'session-persistence-jsonl')
++      .at(-1)?.config?.compression
++    expect(compression).toBe('none')
++  })
++})

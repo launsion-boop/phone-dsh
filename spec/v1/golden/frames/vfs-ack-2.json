@@ -1,0 +1,11 @@
+{
+  "type": "VFS_ACK",
+  "type_byte": 17,
+  "seq": 9,
+  "fields": {
+    "level": 2,
+    "upto_mseq": 47
+  },
+  "payload_hex": "02000000000000002f",
+  "frame_hex": "5a4c110000000000000000090000000902000000000000002f"
+}

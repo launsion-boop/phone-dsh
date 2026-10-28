@@ -1,0 +1,40 @@
+{
+ "version": 1,
+ "scenarios": [
+  {
+   "id": "G2-DEBUG-PY",
+   "category": "debug",
+   "title": "Python file-view probe after a park_resume rebuild",
+   "user_story": "Run a python3 file-view probe in the second turn, after a park/resume rebuild.",
+   "workspace": {
+    "files": {
+     "hello.py": "print('hello-from-workspace')\n",
+     "test_smoke.py": "import unittest\n\nclass T(unittest.TestCase):\n    def test_ok(self):\n        self.assertTrue(True)\n"
+    }
+   },
+   "turns": [
+    {
+     "prompt": "Run one bash command: ls -la /dsh/workspace . Report what you see in one sentence."
+    },
+    {
+     "prompt": "Run exactly this bash command and report its full output verbatim, without editing anything: python3 -c \"import os; print('cwd=' + os.getcwd()); print('hello_exists=' + str(os.path.exists('/dsh/workspace/hello.py'))); print('list=' + str(sorted(os.listdir('/dsh/workspace'))))\"; python3 -c \"import unittest; print('unittest-import-ok')\""
+    }
+   ],
+   "assertions": [
+    {"type": "no_console_error"},
+    {"type": "turn_count_lte", "max": 4},
+    {"type": "restart_recovered"}
+   ],
+   "budget": {
+    "max_minutes": 8,
+    "max_model_requests": 40
+   },
+   "perturbations": [
+    {"at": "during_first_tool", "kind": "park_resume"}
+   ],
+   "network": "none",
+   "tags": ["debug"],
+   "target": "both"
+  }
+ ]
+}

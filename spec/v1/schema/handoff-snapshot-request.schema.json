@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "handoff snapshot request metadata",
+  "description": "Metadata part of the POST /v1/handoff/snapshot binary frame; the payload is an uncompressed home/ and workspace/ ustar.",
+  "type": "object",
+  "required": [
+    "generation",
+    "materialized_upto_mseq",
+    "wal_seq",
+    "payload_bytes",
+    "payload_sha256"
+  ],
+  "properties": {
+    "generation": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 18446744073709551615
+    },
+    "materialized_upto_mseq": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 18446744073709551615
+    },
+    "wal_seq": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 18446744073709551615
+    },
+    "payload_bytes": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 285212672
+    },
+    "payload_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "additionalProperties": false
+}

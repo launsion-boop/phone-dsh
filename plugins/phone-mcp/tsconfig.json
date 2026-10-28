@@ -1,0 +1,14 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "noEmit": true
+  },
+  "include": [
+    "src/index.ts",
+    "src/manager.ts",
+    "src/remote.ts",
+    "src/schema.ts",
+    "src/protocol.ts"
+  ]
+}

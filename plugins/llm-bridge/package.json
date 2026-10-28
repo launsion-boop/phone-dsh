@@ -1,0 +1,16 @@
+{
+  "name": "@phone-dsh/dsh-llm-bridge",
+  "version": "0.1.0",
+  "description": "Process-wide fetch transport over node:http(s) or a host HTTP proxy, for DSH under node --jitless.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./node-fetch": "./src/node-fetch.ts",
+    "./install": "./src/install.ts"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "~4.0.4",
+    "@deepseek-ai/schemastery": "^3.18.3"
+  }
+}

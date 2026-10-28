@@ -1,0 +1,25 @@
+[package]
+name = "pdsh-brush-wasm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+# brush-core 0.5.0 declares Rust 1.88; the rest of the workspace stays on 1.85.
+rust-version = "1.88"
+description = "Wasm brush shell spike for the phone-dsh phone DSH Worker."
+
+[lib]
+name = "pdsh_brush_wasm"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+# The host-dispatch imports only exist on wasm targets. The feature is on by
+# default so the documented wasm build needs no extra flags, while
+# `cargo test --workspace` on the host compiles the fallback implementation.
+default = ["wasm-host"]
+wasm-host = []
+
+[dependencies]
+brush-core.workspace = true
+brush-builtins.workspace = true
+brush-parser.workspace = true
+tokio.workspace = true

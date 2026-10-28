@@ -1,0 +1,10 @@
+[
+  {"title": "Garlic Pasta", "ingredients": ["pasta", "garlic", "olive oil"]},
+  {"title": "Tomato Soup", "ingredients": ["tomato", "onion", "stock"]},
+  {"title": "Cheese Omelette", "ingredients": ["egg", "cheese", "butter"]},
+  {"title": "Lentil Stew", "ingredients": ["lentil", "carrot", "onion"]},
+  {"title": "Banana Bread", "ingredients": ["banana", "flour", "sugar"]},
+  {"title": "Rice Bowl", "ingredients": ["rice", "egg", "soy sauce"]},
+  {"title": "Cucumber Salad", "ingredients": ["cucumber", "yogurt", "mint"]},
+  {"title": "Mushroom Toast", "ingredients": ["mushroom", "bread", "butter"]}
+]

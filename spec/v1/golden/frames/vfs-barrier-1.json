@@ -1,0 +1,11 @@
+{
+  "type": "VFS_BARRIER",
+  "type_byte": 18,
+  "seq": 10,
+  "fields": {
+    "want_level": 2,
+    "upto_mseq": 47
+  },
+  "payload_hex": "02000000000000002f",
+  "frame_hex": "5a4c1200000000000000000a0000000902000000000000002f"
+}

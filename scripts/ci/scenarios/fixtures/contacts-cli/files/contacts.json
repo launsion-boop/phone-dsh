@@ -1,0 +1,5 @@
+[
+  {"name": "Ada Lovelace", "phone": "555-0101", "city": "London"},
+  {"name": "Grace Hopper", "phone": "555-0102", "city": "New York"},
+  {"name": "Alan Turing", "phone": "555-0103", "city": "London"}
+]

@@ -1,0 +1,13 @@
+.build/
+.swiftpm/
+DerivedData/
+node_modules/
+plugins/**/node_modules/
+plugins/**/dist/
+shell/target/
+shell/dist/
+examples/probe-app/Bundle/worker/
+examples/probe-app/*.xcodeproj/
+*.xcuserstate
+.DS_Store
+__pycache__/

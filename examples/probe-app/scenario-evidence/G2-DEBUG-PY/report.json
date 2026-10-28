@@ -1,0 +1,79 @@
+{
+  "assertions" : [
+    {
+      "detail" : "no console errors",
+      "ok" : true,
+      "type" : "no_console_error"
+    },
+    {
+      "detail" : "2 turn(s), max 4",
+      "ok" : true,
+      "type" : "turn_count_lte"
+    },
+    {
+      "detail" : "1 perturbation(s) applied and recovered",
+      "ok" : true,
+      "type" : "restart_recovered"
+    }
+  ],
+  "console_errors" : [
+
+  ],
+  "host_states" : [
+    "stopped->starting",
+    "controller:recovering->running",
+    "starting->running",
+    "running->draining",
+    "controller:running->draining",
+    "controller:draining->parked",
+    "draining->stopped",
+    "stopped->starting",
+    "controller:parked->recovering",
+    "controller:recovering->running",
+    "starting->running",
+    "running->draining",
+    "controller:running->draining",
+    "controller:draining->parked",
+    "draining->stopped"
+  ],
+  "id" : "G2-DEBUG-PY",
+  "page_visibility" : {
+    "attached_with_visible_area" : true,
+    "document_visibility_state" : "visible",
+    "is_visible" : true,
+    "window_occlusion_visible" : true
+  },
+  "perturbations" : [
+    {
+      "at" : "during_first_tool",
+      "kind" : "park_resume",
+      "ok" : true,
+      "recovered_ms" : 20843
+    }
+  ],
+  "status" : "PASS",
+  "turns" : [
+    {
+      "ended" : "2026-10-25T19:20:43.750Z",
+      "events" : 67,
+      "model_requests" : 2,
+      "prompt_len" : 82,
+      "started" : "2026-10-25T19:20:21.886Z",
+      "tool_calls" : 1
+    },
+    {
+      "ended" : "2026-10-25T19:20:46.135Z",
+      "events" : 51,
+      "model_requests" : 2,
+      "prompt_len" : 336,
+      "started" : "2026-10-25T19:20:43.750Z",
+      "tool_calls" : 1
+    }
+  ],
+  "usage" : {
+    "model_requests" : 4,
+    "upstream_bytes_in" : 0,
+    "upstream_bytes_out" : 56884,
+    "wall_s" : 45.47
+  }
+}

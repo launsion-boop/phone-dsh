@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  Keychain access for the app's own items.
+
+	  The probe app stores model-provider API keys (and the legacy chat key)
+	  in the device Keychain under the app's default access group. Without
+	  this entitlement a signed device build returns errSecMissingEntitlement
+	  (-34018) for every query, which the model-provider page surfaces as
+	  "密钥读取失败" and the host turns into a model route without a
+	  credential provider. Both spellings stay in the app's own group:
+	  `$(AppIdentifierPrefix)` is the team identifier Xcode injects at build.
+	-->
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)dev.phone-dsh.probe</string>
+	</array>
+</dict>
+</plist>

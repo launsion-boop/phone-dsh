@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>phone-dsh channel probe</title>
+</head>
+<body>
+<script>
+// The probe page runs on the loopback origin served by LoopbackServer. It
+// starts the probe Worker from the same origin and stores the Worker's result
+// on `window.__probe` so the macOS test harness can read it by polling
+// `evaluateJavaScript`.
+(function () {
+  var params = new URLSearchParams(window.location.search);
+  var token = params.get('token') || '';
+  var mode = params.get('mode') || 'full';
+  window.__probe = { done: false, result: null, error: null };
+  try {
+    var workerURL = '/static/probe-worker.js?token=' + encodeURIComponent(token);
+    var worker = new Worker(workerURL);
+    worker.onmessage = function (event) {
+      window.__probe.result = event.data;
+      window.__probe.done = true;
+    };
+    worker.onerror = function (event) {
+      window.__probe.error = (event && (event.message || String(event))) || 'worker error';
+      window.__probe.done = true;
+    };
+    worker.postMessage({ mode: mode, token: token });
+  } catch (error) {
+    window.__probe.error = String((error && error.stack) || error);
+    window.__probe.done = true;
+  }
+})();
+</script>
+</body>
+</html>

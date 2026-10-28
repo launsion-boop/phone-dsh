@@ -1,0 +1,10 @@
+{
+  "type": "VFS_RESYNC",
+  "type_byte": 19,
+  "seq": 11,
+  "fields": {
+    "path": "/dsh/workspace/notes.txt"
+  },
+  "payload_hex": "00182f6473682f776f726b73706163652f6e6f7465732e747874",
+  "frame_hex": "5a4c1300000000000000000b0000001a00182f6473682f776f726b73706163652f6e6f7465732e747874"
+}

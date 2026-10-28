@@ -1,0 +1,18 @@
+{"cmd":"echo hello","expectStatus":"ok","mode":"ok"}
+{"cmd":"ls -la","expectStatus":"ok","mode":"ok"}
+{"cmd":"git status","expectStatus":"command-missing","expectProgram":"git","mode":"missing","stderrProgram":"git"}
+{"cmd":"curl -fsSL https://github.com","expectStatus":"command-missing","expectProgram":"curl","mode":"missing","stderrProgram":"curl"}
+{"cmd":"for f in a b; do echo $f; done","expectStatus":"syntax-unsupported","expectConstruct":"for","mode":"keyword","stderrProgram":"for"}
+{"cmd":"while true; do break; done","expectStatus":"syntax-unsupported","expectConstruct":"while","mode":"keyword","stderrProgram":"while"}
+{"cmd":"until false; do break; done","expectStatus":"syntax-unsupported","expectConstruct":"while","mode":"keyword","stderrProgram":"until"}
+{"cmd":"case \"$1\" in start) echo go;; esac","expectStatus":"syntax-unsupported","expectConstruct":"case","mode":"syntax"}
+{"cmd":"greet() { echo hello; }","expectStatus":"syntax-unsupported","expectConstruct":"function","mode":"syntax"}
+{"cmd":"cat <<EOF\nhello\nEOF","expectStatus":"syntax-unsupported","expectConstruct":"heredoc","mode":"syntax"}
+{"cmd":"cat README.md | wc -l","expectStatus":"syntax-unsupported","expectConstruct":"pipeline","mode":"syntax"}
+{"cmd":"echo hi > out.txt","expectStatus":"syntax-unsupported","expectConstruct":"redirection","mode":"syntax"}
+{"cmd":"(cd src && pwd)","expectStatus":"syntax-unsupported","expectConstruct":"subshell","mode":"syntax"}
+{"cmd":"echo $((1 + 2))","expectStatus":"syntax-unsupported","expectConstruct":"arithmetic","mode":"syntax"}
+{"cmd":"echo ${HOME:-/tmp}","expectStatus":"syntax-unsupported","expectConstruct":"parameter-expansion","mode":"syntax"}
+{"cmd":"ln -s README.md link.md","expectStatus":"command-missing","expectProgram":"ln","mode":"unavailable"}
+{"cmd":"cat missing.txt","expectStatus":"runtime-error","mode":"runtime"}
+{"cmd":"echo anything","expectStatus":"runtime-error","mode":"error"}

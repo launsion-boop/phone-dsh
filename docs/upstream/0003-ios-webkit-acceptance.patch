@@ -1,0 +1,133 @@
+From 2278691ea8c0af7ab4712f9fe84f8be28b0c950c Mon Sep 17 00:00:00 2001
+From: Xiaozhi & Tono AI Team <noreply>
+Date: Sat, 24 Oct 2026 22:24:15 +0800
+Subject: [PATCH] test(web): boot the packed worker deployment in WebKit
+
+The preview acceptance drove the packed Worker image only in headless
+Chromium, so the engine WKWebView runs had no browser-runner acceptance.
+Add the same first-run boot case through Playwright's WebKit: the Worker
+mounts the base image, activates the tree, and the client reaches its
+first-run workspace surface over the tunnel.
+
+The case skips when the runner has no WebKit build, and it keeps the
+Chromium-specific response and console expectations in the existing case
+instead of assuming WebKit reports resources the same way. This is a
+browser-runner acceptance, not a device measurement.
+
+Test: apps/web/tests/preview-boot.e2e.ts (WebKit case)
+---
+ apps/web/tests/preview-boot.e2e.ts | 83 +++++++++++++++++++++++++++++-
+ 1 file changed, 82 insertions(+), 1 deletion(-)
+
+diff --git a/apps/web/tests/preview-boot.e2e.ts b/apps/web/tests/preview-boot.e2e.ts
+index 5c4ff97585..965769e585 100644
+--- a/apps/web/tests/preview-boot.e2e.ts
++++ b/apps/web/tests/preview-boot.e2e.ts
+@@ -29,7 +29,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
+ import { tmpdir } from 'node:os'
+ import { dirname, extname, join, normalize } from 'node:path'
+ import { fileURLToPath } from 'node:url'
+-import { chromium } from 'playwright'
++import { chromium, webkit } from 'playwright'
+ import type { Browser, Page } from 'playwright'
+ import { expect, it } from 'vitest'
+ import { OPTIONAL_BUNDLES } from '@deepseek-ai/dsh-app-boot'
+@@ -62,6 +62,19 @@ const SNAPSHOT_MODE = webSnapshotMode()
+ /** Profile the preview deployment composes; `build:preview` packs the same one. */
+ const PROFILE = 'web'
+ 
++/**
++ * Whether this runner has Playwright's WebKit build. The WebKit acceptance
++ * skips without it rather than failing a lane that never installed that
++ * browser; CI lanes that intend to run it install WebKit explicitly.
++ */
++function webkitInstalled(): boolean {
++  try {
++    return existsSync(webkit.executablePath())
++  } catch {
++    return false
++  }
++}
++
+ /** Optional bundle whose patch layer disables a base row and inserts its replacement. */
+ const SESSION_TITLES_BUNDLE = '@deepseek-ai/dsh-experimental-session-titles-bundle'
+ const BASE_TITLE_MODULE = '@deepseek-ai/dsh-session-title-first-prompt-llm'
+@@ -301,6 +314,32 @@ it('boots the packed worker deployment to an interactive page', async () => {
+   }
+ }, 600_000)
+ 
++/**
++ * The same startup acceptance in WebKit, the engine WKWebView runs. This is a
++ * browser-runner acceptance, not a device measurement: it proves the packed
++ * deployment's mount, activation, and first-run client boot on WebKit where the
++ * runner provides that browser and skips where it does not.
++ */
++it.skipIf(!webkitInstalled())('boots the packed worker deployment in WebKit', async () => {
++  requirePreviewPages()
++  const assets = requireVfsAssets()
++  try {
++    const site = await serveDist(assets.overrides)
++    try {
++      const browser = await webkit.launch({ headless: true })
++      try {
++        await bootEmptyPreviewWebKit(site.origin, browser)
++      } finally {
++        await browser.close()
++      }
++    } finally {
++      await site.close()
++    }
++  } finally {
++    assets.cleanup()
++  }
++}, 600_000)
++
+ /**
+  * Open the preview page and hold it to both boot milestones.
+  * @param site - Site serving `dist/`, with its request log.
+@@ -818,3 +857,45 @@ async function bootEmptyPreview(origin: string, browser: Browser): Promise<void>
+     await page.close()
+   }
+ }
++
++/**
++ * Hold the untouched base image's boot to the WebKit-relevant milestones: the
++ * Worker mounts the image and activates the tree, and the client reaches its
++ * first-run surface over the tunnel. Chromium-specific response and console
++ * expectations stay in {@link bootEmptyPreview}; this case asserts the startup
++ * chain WebKit must carry, not engine-specific resource reporting.
++ * @param origin - Site serving `dist/`.
++ * @param browser - WebKit browser to open the page in.
++ */
++async function bootEmptyPreviewWebKit(origin: string, browser: Browser): Promise<void> {
++  const page = await newEnglishPage(browser)
++  const pageErrors: Error[] = []
++  page.on('pageerror', (error) => { pageErrors.push(error) })
++  // Registered before navigation: the Worker reports its tree before the tunnel
++  // serves the client, so a listener added later would miss the line.
++  const treeActive = new Promise<string>((reported) => {
++    page.on('console', (message) => {
++      const text = message.text()
++      if (text.includes(TREE_ACTIVE)) reported(text)
++    })
++  })
++  try {
++    await page.goto(`${origin}/preview.html?preview-fixture=none`, { waitUntil: 'domcontentloaded' })
++    const bootLine = await within(
++      treeActive,
++      BOOT_TIMEOUT_MS,
++      `WebKit preview boot: the worker never reported "${TREE_ACTIVE}"`,
++    )
++    expect(bootLine).toContain(`image lowering=${WRAPPER_CONTRACT}`)
++    expect(bootLine).toContain('data overlays=0')
++    await page.getByRole('textbox', { name: 'Choose workspace' }).waitFor({ timeout: HERO_TIMEOUT_MS })
++    expect(pageErrors.map(error => error.message)).toEqual([])
++  } catch (error) {
++    await saveFailureShot(page, 'preview-boot-webkit')
++    throw pageErrors.length === 0
++      ? error
++      : new AggregateError([error, ...pageErrors], 'WebKit preview boot failed, with uncaught page errors')
++  } finally {
++    await page.close()
++  }
++}

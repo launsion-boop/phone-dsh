@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "API_RES head",
+  "description": "Head JSON of the first API_RES chunk.",
+  "type": "object",
+  "required": [
+    "status",
+    "headers"
+  ],
+  "properties": {
+    "status": {
+      "type": "integer",
+      "minimum": 100,
+      "maximum": 599
+    },
+    "headers": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z0-9!#$%&'*+.^_`|~-]+$"
+      },
+      "additionalProperties": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,81 @@
+{
+  "assertions" : [
+    {
+      "detail" : "absent: testdata.bin",
+      "ok" : true,
+      "type" : "no_file"
+    },
+    {
+      "detail" : "exists: LIMITS.md",
+      "ok" : true,
+      "type" : "file_exists"
+    },
+    {
+      "detail" : "matches 15 ?M(i)?B|15,?728,?640",
+      "ok" : true,
+      "type" : "file_regex"
+    },
+    {
+      "command" : "python3 -c \"import pathlib;fs=[p for p in pathlib.Path('.').glob('*.bin') if p.is_file()];exit(0 if len(fs)>=2 and sum(p.stat().st_size for p in fs)>=16777216 and all(p.stat().st_size<=15728640 for p in fs) else 1)\"",
+      "detail" : "exit 0",
+      "duration_ms" : 91,
+      "host_evaluated" : true,
+      "ok" : true,
+      "status" : "host_evaluated",
+      "type" : "workspace_command"
+    },
+    {
+      "detail" : "2 turn(s), max 4",
+      "ok" : true,
+      "type" : "turn_count_lte"
+    }
+  ],
+  "console_errors" : [
+
+  ],
+  "host_evaluated" : true,
+  "host_states" : [
+    "stopped->starting",
+    "controller:recovering->running",
+    "starting->running",
+    "running->draining",
+    "controller:running->draining",
+    "controller:draining->parked",
+    "draining->stopped"
+  ],
+  "id" : "G2-A09",
+  "page_visibility" : {
+    "attached_with_visible_area" : true,
+    "document_visibility_state" : "visible",
+    "is_visible" : true,
+    "window_occlusion_visible" : true
+  },
+  "perturbations" : [
+
+  ],
+  "status" : "PASS",
+  "turns" : [
+    {
+      "ended" : "2026-10-25T21:58:11.267Z",
+      "events" : 209,
+      "model_requests" : 6,
+      "prompt_len" : 67,
+      "started" : "2026-10-25T21:57:50.930Z",
+      "tool_calls" : 5
+    },
+    {
+      "ended" : "2026-10-25T21:58:50.253Z",
+      "events" : 202,
+      "model_requests" : 5,
+      "prompt_len" : 199,
+      "started" : "2026-10-25T21:58:11.268Z",
+      "tool_calls" : 4
+    }
+  ],
+  "usage" : {
+    "model_requests" : 11,
+    "upstream_bytes_in" : 0,
+    "upstream_bytes_out" : 581678,
+    "wall_s" : 80.519999999999996
+  }
+}

@@ -1,0 +1,168 @@
+# SPDX-License-Identifier: MIT
+# Phone profile layer for DeepSeek Harness 0.1.7. Applied over the shipped
+# `dsh-base` bundle and one surface layer (`dsh-headless` for the one-shot
+# desktop simulation, surface-phone/ for the resident phone host), exactly like
+# a profile's own cordis.patch.yml: a row patch
+# replaces that row's whole config, `insert` adds rows.
+#
+# Runtime assumptions (iOS host app embedding nodejs-mobile):
+# - no child_process: every command goes to the app's exec provider;
+# - `node --jitless`: no WebAssembly, so Node's fetch cannot make requests;
+# - no native addons: flock, node-pty, sharp, koffi, ripgrep binaries are absent
+#   (the bundle replaces their modules, see bundle/build.mjs).
+#
+# Environment the host app sets before starting Node:
+#   PDSH_EXEC_BRIDGE_URL, PDSH_EXEC_BRIDGE_TOKEN   exec bridge (spec/exec-bridge-v1)
+#   PDSH_LLM_VIA_HOST=1                         send external model/web HTTP through the app (bridge /v1/http);
+#                                             `all` also routes loopback upstreams (used by the simulation)
+#   PDSH_PHONE_MCP_URL, PDSH_PHONE_MCP_TOKEN       the app's loopback MCP endpoint (optional)
+#   PDSH_LIFECYCLE_FILE                          optional control file for the lifecycle gate
+#   PDSH_SANDBOX_MODE                            default workspace-write (see sandbox-policy below)
+#   DSH_HOME                                   app-container directory for sessions, journal, storage
+
+# ── execution world: the exec bridge ──────────────────────────────────────────
+# A patch row asserts the plugin name of the row it targets, so providers are
+# swapped by disabling the shipped row and inserting the replacement (below).
+- id: subprocess              # replaced by subprocess-xl
+  disabled: true
+- id: sandbox                 # replaced by sandbox-xl
+  disabled: true
+
+# workspace-write by default: DSH's in-process file tools may write only under
+# the workspace (they run in the app container), and every shell command is
+# sent with `confine: workspace-write`, which the provider must advertise in
+# `capabilities.confine` (an iSH guest whose only writable host-visible mount
+# is the workspace satisfies it by construction). A provider that cannot
+# confine makes commands fail closed. `PDSH_SANDBOX_MODE=danger-full-access` is
+# for providers that are already a disposable boundary (e.g. a cloud sandbox)
+# and for the desktop simulation, which is not a sandbox.
+- id: sandbox-policy
+  config:
+    mode: !!js process.env.PDSH_SANDBOX_MODE ?? 'workspace-write'
+    workspaceRoot: !!js process.cwd()
+
+# No interactive approval channel inside the harness: every escalation request
+# is rejected. Phone-side effects are approved on the phone by the app's MCP server.
+
+- id: approval
+  config:
+    policy: never
+
+# ── persistence: plaintext JSONL + tool journal reconciliation ───────────────
+# `compression: none`: no zstd on the phone path (smaller CPU cost, and runtimes
+# without node:zlib zstd can still read/write the log). The flock native addon
+# is replaced by a single-process stub in the bundle (see README "flock stub").
+# The reconciliation row wraps this backend's write-open.
+- id: session-persistence-jsonl
+  disabled: true
+
+# Kept mounted but never opened: `--session-id` adoption and Remote session
+# listing need ctx.sessionQuery; SQLite itself is never loaded (`openAt: never`).
+- id: session-query-sqlite
+  config:
+    path: ':memory:'
+    openAt: never
+
+# ── rows the phone cannot run or does not want ─────────────────────────────────
+- id: plugin-manager          # spawns pnpm/execa
+  disabled: true
+- id: tool-plugin-manager
+  disabled: true
+- id: hmr
+  disabled: true
+- id: config-editor
+  disabled: true
+- id: settings
+  disabled: true
+- id: ptc-runtime             # ptc-runtime-node spawns a local Node child with a control fd
+  disabled: true
+- id: workflow-ptc
+  disabled: true
+- id: tool-workflow
+  disabled: true
+- id: session-telemetry-otel  # no telemetry export from the phone
+  disabled: true
+- id: deepseek-account
+  disabled: true
+- id: authorization           # keys come from the host (env or host HTTP egress), not .env files
+  disabled: true
+- id: credentials
+  disabled: true
+# Request extensions that send data to the official DeepSeek API with every
+# model request: an incremental session-log upload (which would include phone
+# tool output) and the active plugin-package inventory (which also needs a
+# package tree on disk). Neither belongs on a phone.
+- id: session-log-deepseek
+  disabled: true
+- id: plugin-package-inventory-deepseek
+  disabled: true
+- id: llm-pi-ai               # large multi-provider SDK set; not needed for the Messages adapter
+  disabled: true
+- id: session-title-llm       # one extra model request per session; fallback titles only
+  disabled: true
+- id: web                     # web fetch pins connections with an undici agent (needs WebAssembly)
+  disabled: true
+- id: web-search-deepseek
+  disabled: true
+- id: web-fetch-http
+  disabled: true
+- id: tool-web
+  disabled: true
+
+# ── phone-dsh plugins ───────────────────────────────────────────────────────
+- insert:
+    - id: subprocess-xl
+      name: '@phone-dsh/dsh-subprocess-xl'
+
+    # The guest (iSH VM or cloud sandbox) is the boundary. This provider never
+    # passes argv through unconfined: confined modes need the provider's
+    # `capabilities.confine`, otherwise they fail closed.
+    - id: sandbox-xl
+      name: '@phone-dsh/dsh-subprocess-xl/sandbox'
+
+    # The JSONL backend plus tool-journal reconciliation on write-open, in
+    # plaintext (`compression: none`). 0.2.1's backend is a function plugin with
+    # a private service class, so the adapter wraps the service instead of
+    # subclassing it.
+    - id: session-persistence-journaled
+      name: '@phone-dsh/dsh-surface-phone'
+      config:
+        mode: session-persistence
+        root: !!js dshHomePath('sessions')
+        compression: none
+
+    - id: pdsh-exec-bridge
+      name: '@phone-dsh/dsh-exec-bridge'
+      config:
+        url: !!js process.env.PDSH_EXEC_BRIDGE_URL
+
+    - id: llm-bridge
+      name: '@phone-dsh/dsh-llm-bridge'
+      config:
+        mode: auto
+        hostProxy: !!js "['1', 'all'].includes(process.env.PDSH_LLM_VIA_HOST ?? '')"
+        hostProxyRoutes: !!js "process.env.PDSH_LLM_VIA_HOST === 'all' ? 'all' : 'external'"
+
+    - id: tool-journal
+      name: '@phone-dsh/dsh-tool-journal'
+      config:
+        root: !!js dshHomePath('tool-journal')
+        profile: !!js "`pdsh-phone/1+dsh-${process.env.PDSH_DSH_VERSION ?? 'unknown'}`"
+
+    - id: lifecycle-gate
+      name: '@phone-dsh/dsh-lifecycle-gate'
+      config:
+        bridge: true
+        file: !!js process.env.PDSH_LIFECYCLE_FILE
+
+    # The app's own MCP server (phone tools) on loopback, streamable HTTP + bearer.
+    - id: mcp-phone
+      name: '@deepseek-ai/dsh-mcp-client'
+      disabled: !!js "!process.env.PDSH_PHONE_MCP_URL"
+      config:
+        serverName: phone
+        transport: streamable-http
+        url: !!js "process.env.PDSH_PHONE_MCP_URL ?? 'http://127.0.0.1:1/mcp'"
+        headers:
+          Authorization: !!js "`Bearer ${process.env.PDSH_PHONE_MCP_TOKEN ?? ''}`"
+        failOnStartupError: false

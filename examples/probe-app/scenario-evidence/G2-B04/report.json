@@ -1,0 +1,100 @@
+{
+  "assertions" : [
+    {
+      "detail" : "exit -1: host process execution is not available in the iOS scenario runner (/bin/bash cannot be spawned from the simulator test process)",
+      "ok" : false,
+      "type" : "workspace_command"
+    },
+    {
+      "detail" : "exists: billing.py",
+      "ok" : true,
+      "type" : "file_exists"
+    },
+    {
+      "detail" : "exists: test_billing.py",
+      "ok" : true,
+      "type" : "file_exists"
+    },
+    {
+      "detail" : "exit -1: host process execution is not available in the iOS scenario runner (/bin/bash cannot be spawned from the simulator test process)",
+      "ok" : false,
+      "type" : "workspace_command"
+    },
+    {
+      "detail" : "exit -1: host process execution is not available in the iOS scenario runner (/bin/bash cannot be spawned from the simulator test process)",
+      "ok" : false,
+      "type" : "workspace_command"
+    },
+    {
+      "detail" : "unrecovered perturbation point(s): during_first_tool (park_resume); run status completed",
+      "ok" : false,
+      "type" : "restart_recovered"
+    },
+    {
+      "detail" : "2 turn(s), max 6",
+      "ok" : true,
+      "type" : "turn_count_lte"
+    }
+  ],
+  "console_errors" : [
+
+  ],
+  "host_states" : [
+    "stopped->starting",
+    "controller:recovering->running",
+    "starting->running",
+    "running->draining",
+    "controller:running->draining",
+    "controller:draining->parked",
+    "draining->stopped",
+    "stopped->starting",
+    "controller:parked->recovering",
+    "controller:recovering->running",
+    "starting->running",
+    "running->draining",
+    "controller:running->draining",
+    "controller:draining->parked",
+    "draining->stopped"
+  ],
+  "id" : "G2-B04",
+  "page_visibility" : {
+    "attached_with_visible_area" : true,
+    "document_visibility_state" : "visible",
+    "is_visible" : true,
+    "window_occlusion_visible" : true
+  },
+  "perturbations" : [
+    {
+      "at" : "during_first_tool",
+      "detail" : "acked materialized files changed: bill_a.py changed, bill_b.py changed, bill_c.py changed",
+      "kind" : "park_resume",
+      "ok" : false,
+      "recovered_ms" : 20871
+    }
+  ],
+  "status" : "FAIL",
+  "turns" : [
+    {
+      "ended" : "2026-10-25T19:06:15.954Z",
+      "events" : 231,
+      "model_requests" : 7,
+      "prompt_len" : 176,
+      "started" : "2026-10-25T19:05:53.885Z",
+      "tool_calls" : 16
+    },
+    {
+      "ended" : "2026-10-25T19:06:24.891Z",
+      "events" : 153,
+      "model_requests" : 6,
+      "prompt_len" : 76,
+      "started" : "2026-10-25T19:06:15.954Z",
+      "tool_calls" : 13
+    }
+  ],
+  "usage" : {
+    "model_requests" : 13,
+    "upstream_bytes_in" : 0,
+    "upstream_bytes_out" : 363571,
+    "wall_s" : 52.246
+  }
+}

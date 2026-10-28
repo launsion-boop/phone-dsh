@@ -1,0 +1,36 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  gates:
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: XcodeGen
+        run: brew install xcodegen
+      - name: Pinned DeepSeek Harness checkout
+        run: |
+          set -euo pipefail
+          repo=$(node -e 'console.log(require("./plugins/dsh-pin.json").repo)')
+          commit=$(node -e 'console.log(require("./plugins/dsh-pin.json").commit)')
+          git clone --filter=blob:none "$repo" "$RUNNER_TEMP/dsh" && git -C "$RUNNER_TEMP/dsh" checkout "$commit"
+          corepack enable && (cd "$RUNNER_TEMP/dsh" && pnpm install --frozen-lockfile && pnpm build)
+          echo "PDSH_DSH_CHECKOUT=$RUNNER_TEMP/dsh" >> "$GITHUB_ENV"
+      - name: Plugins
+        run: cd plugins && npm ci && npm run typecheck && npm test
+      - name: Static gates
+        run: bash scripts/ci/check.sh --only phone-no-dsh-patch,phone-hygiene,phone-license,phone-modules,phone-spec,phone-gate-contracts
+      - name: Xcode package resolution
+        run: bash scripts/ci/check.sh --only phone-xcode-resolve
+      - name: Image
+        run: bash scripts/ci/check.sh --only phone-image
+      - name: Swift
+        run: bash scripts/ci/check.sh --only phone-sdk
+      - name: macOS WKWebView smoke
+        run: bash scripts/ci/smoke.sh

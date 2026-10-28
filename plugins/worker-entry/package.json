@@ -1,0 +1,16 @@
+{
+  "name": "@phone-dsh/dsh-worker-entry",
+  "version": "0.1.0",
+  "description": "WKWebView Web Worker entry skeleton that boots the pinned DeepSeek Harness webworker runtime over the phone-dsh-v1 channel.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "exports": {
+    ".": "./src/entry.ts"
+  },
+  "scripts": {
+    "build": "node build.mjs"
+  }
+}

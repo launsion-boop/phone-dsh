@@ -1,0 +1,28 @@
+{
+  "name": "csv-pipeline",
+  "description": "Python 3 standard-library CSV cleaning pipeline with a two-commit history (the second commit adds report.py) and six passing unittest cases.",
+  "git": {
+    "branch": "main",
+    "commits": [
+      {
+        "message": "initial pipeline",
+        "files": [
+          "main.py",
+          "loader.py",
+          "validate.py",
+          "transform.py",
+          "errors.py",
+          "config.py",
+          "sample.csv",
+          "test_pipeline.py"
+        ]
+      },
+      {
+        "message": "add markdown report",
+        "files": [
+          "report.py"
+        ]
+      }
+    ]
+  }
+}

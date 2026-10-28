@@ -1,0 +1,133 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EXEC_REQ payload",
+  "description": "exec-bridge v1 POST /v1/exec request body plus requires_mseq and idem_key.",
+  "type": "object",
+  "required": [
+    "exec_id",
+    "argv",
+    "cwd",
+    "requires_mseq",
+    "idem_key"
+  ],
+  "properties": {
+    "exec_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._-]{1,64}$"
+    },
+    "argv": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "cwd": {
+      "type": "string",
+      "pattern": "^/.*"
+    },
+    "env": {
+      "type": "object",
+      "additionalProperties": {
+        "type": [
+          "string",
+          "null"
+        ]
+      }
+    },
+    "deadline": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 18446744073709551615
+    },
+    "grace_ms": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 60000
+    },
+    "stdin": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "mode"
+          ],
+          "properties": {
+            "mode": {
+              "const": "ignore"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "mode",
+            "data"
+          ],
+          "properties": {
+            "mode": {
+              "const": "data"
+            },
+            "data": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "mode"
+          ],
+          "properties": {
+            "mode": {
+              "const": "pipe"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "tier": {
+      "type": "string",
+      "enum": [
+        "interactive",
+        "session",
+        "batch"
+      ]
+    },
+    "confine": {
+      "type": "object",
+      "required": [
+        "mode",
+        "workspace_root"
+      ],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "read-only",
+            "workspace-write"
+          ]
+        },
+        "workspace_root": {
+          "type": "string",
+          "pattern": "^/.*"
+        }
+      },
+      "additionalProperties": false
+    },
+    "requires_mseq": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 18446744073709551615
+    },
+    "idem_key": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "additionalProperties": false
+}

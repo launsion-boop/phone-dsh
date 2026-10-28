@@ -1,0 +1,30 @@
+{
+  "name": "stats-double",
+  "description": "Python 3 standard-library reading-stats project with three commits on master: reader, stats and the main/render/test layer. main.py reads the events twice (rows.extend(read_events(path))), so total_minutes and the per-user average are exactly double; four pure-function tests pass.",
+  "git": {
+    "branch": "master",
+    "commits": [
+      {
+        "message": "add event reader and sample data",
+        "files": [
+          "reader.py",
+          "events.jsonl"
+        ]
+      },
+      {
+        "message": "add stats",
+        "files": [
+          "stats.py"
+        ]
+      },
+      {
+        "message": "add markdown render, main and tests",
+        "files": [
+          "render.py",
+          "main.py",
+          "test_stats.py"
+        ]
+      }
+    ]
+  }
+}

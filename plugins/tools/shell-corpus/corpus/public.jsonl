@@ -1,0 +1,428 @@
+{"cmd": "ls", "category": "files", "source": "public"}
+{"cmd": "ls -la", "category": "files", "source": "public"}
+{"cmd": "ls -a", "category": "files", "source": "public"}
+{"cmd": "ls src", "category": "files", "source": "public"}
+{"cmd": "ls src docs data", "category": "files", "source": "public"}
+{"cmd": "ls -l package.json", "category": "files", "source": "public"}
+{"cmd": "find . -name \"*.ts\"", "category": "files", "source": "public"}
+{"cmd": "find src -name \"*.ts\" -maxdepth 2", "category": "files", "source": "public"}
+{"cmd": "find . -type f -maxdepth 1", "category": "files", "source": "public"}
+{"cmd": "find docs -type f", "category": "files", "source": "public"}
+{"cmd": "mkdir -p build/output", "category": "files", "source": "public"}
+{"cmd": "mkdir -p src/components", "category": "files", "source": "public"}
+{"cmd": "rmdir empty", "category": "files", "source": "public"}
+{"cmd": "rm -f build.log", "category": "files", "source": "public"}
+{"cmd": "rm -rf dist", "category": "files", "source": "public"}
+{"cmd": "rm README.md", "category": "files", "source": "public"}
+{"cmd": "cp README.md README.copy.md", "category": "files", "source": "public"}
+{"cmd": "cp -r src src-backup", "category": "files", "source": "public"}
+{"cmd": "cp src/index.ts src/index.bak.ts", "category": "files", "source": "public"}
+{"cmd": "mv README.md README.old.md", "category": "files", "source": "public"}
+{"cmd": "mv src/index.ts src/main.ts", "category": "files", "source": "public"}
+{"cmd": "touch notes.md", "category": "files", "source": "public"}
+{"cmd": "touch src/new-file.ts docs/changelog.md", "category": "files", "source": "public"}
+{"cmd": "stat README.md", "category": "files", "source": "public"}
+{"cmd": "stat src/index.ts docs/guide.md", "category": "files", "source": "public"}
+{"cmd": "basename /dsh/workspace/src/index.ts", "category": "files", "source": "public"}
+{"cmd": "basename src/index.ts .ts", "category": "files", "source": "public"}
+{"cmd": "dirname src/index.ts", "category": "files", "source": "public"}
+{"cmd": "dirname /dsh/workspace/src/index.ts", "category": "files", "source": "public"}
+{"cmd": "pwd", "category": "files", "source": "public"}
+{"cmd": "cd src && pwd", "category": "files", "source": "public"}
+{"cmd": "cd docs && ls", "category": "files", "source": "public"}
+{"cmd": "cd /dsh/home && pwd", "category": "files", "source": "public"}
+{"cmd": "test -f README.md", "category": "files", "source": "public"}
+{"cmd": "test -d src", "category": "files", "source": "public"}
+{"cmd": "test -e package.json", "category": "files", "source": "public"}
+{"cmd": "test -z \"\"", "category": "files", "source": "public"}
+{"cmd": "test -n \"value\"", "category": "files", "source": "public"}
+{"cmd": "test 1 -eq 1", "category": "files", "source": "public"}
+{"cmd": "test 2 -gt 1", "category": "files", "source": "public"}
+{"cmd": "test \"a\" = \"a\"", "category": "files", "source": "public"}
+{"cmd": "[ -f README.md ]", "category": "files", "source": "public"}
+{"cmd": "[ -d src ]", "category": "files", "source": "public"}
+{"cmd": "which ls", "category": "files", "source": "public"}
+{"cmd": "which cp mv rm", "category": "files", "source": "public"}
+{"cmd": "env", "category": "files", "source": "public"}
+{"cmd": "printenv", "category": "files", "source": "public"}
+{"cmd": "export DEMO=1 && printenv DEMO", "category": "files", "source": "public"}
+{"cmd": "export PATH=\"$PATH:/dsh/workspace/bin\" && echo \"$PATH\"", "category": "files", "source": "public"}
+{"cmd": "unset DEMO && echo done", "category": "files", "source": "public"}
+{"cmd": "cp docs/guide.md docs/guide.copy.md", "category": "files", "source": "public"}
+{"cmd": "mv docs/guide.md docs/guide.bak.md", "category": "files", "source": "public"}
+{"cmd": "mkdir -p a/b/c && test -d a/b/c", "category": "files", "source": "public"}
+{"cmd": "find . -maxdepth 1 -type f", "category": "files", "source": "public"}
+{"cmd": "find src -name \"*.ts\" -type f", "category": "files", "source": "public"}
+{"cmd": "stat package.json", "category": "files", "source": "public"}
+{"cmd": "cd ../home && pwd && ls", "category": "files", "source": "public"}
+{"cmd": "cd src && cd - && pwd", "category": "files", "source": "public"}
+{"cmd": "pwd && ls", "category": "files", "source": "public"}
+{"cmd": "touch README.md && stat README.md", "category": "files", "source": "public"}
+{"cmd": "cat README.md", "category": "text", "source": "public"}
+{"cmd": "cat package.json", "category": "text", "source": "public"}
+{"cmd": "cat src/index.ts src/util.ts", "category": "text", "source": "public"}
+{"cmd": "cat -n data/numbers.txt", "category": "text", "source": "public"}
+{"cmd": "cat docs/guide.md", "category": "text", "source": "public"}
+{"cmd": "head README.md", "category": "text", "source": "public"}
+{"cmd": "head -n 2 data/numbers.txt", "category": "text", "source": "public"}
+{"cmd": "tail data/numbers.txt", "category": "text", "source": "public"}
+{"cmd": "tail -n 1 data/numbers.txt", "category": "text", "source": "public"}
+{"cmd": "wc README.md", "category": "text", "source": "public"}
+{"cmd": "wc -l data/numbers.txt", "category": "text", "source": "public"}
+{"cmd": "wc -w docs/guide.md", "category": "text", "source": "public"}
+{"cmd": "wc -c package.json", "category": "text", "source": "public"}
+{"cmd": "grep -i demo README.md", "category": "text", "source": "public"}
+{"cmd": "grep -n Demo README.md", "category": "text", "source": "public"}
+{"cmd": "grep -i GUIDE docs/guide.md", "category": "text", "source": "public"}
+{"cmd": "grep -v banana data/words.txt", "category": "text", "source": "public"}
+{"cmd": "grep -c apple data/words.txt", "category": "text", "source": "public"}
+{"cmd": "grep -r \"answer\" src", "category": "text", "source": "public"}
+{"cmd": "grep -rn \"demo\" .", "category": "text", "source": "public"}
+{"cmd": "grep -l Guide docs/guide.md", "category": "text", "source": "public"}
+{"cmd": "sort data/numbers.txt", "category": "text", "source": "public"}
+{"cmd": "sort -n data/numbers.txt", "category": "text", "source": "public"}
+{"cmd": "sort -r data/words.txt", "category": "text", "source": "public"}
+{"cmd": "sort -u data/words.txt", "category": "text", "source": "public"}
+{"cmd": "uniq data/words.txt", "category": "text", "source": "public"}
+{"cmd": "uniq -c data/words.txt", "category": "text", "source": "public"}
+{"cmd": "uniq -d data/words.txt", "category": "text", "source": "public"}
+{"cmd": "cut -d, -f1 data/people.csv", "category": "text", "source": "public"}
+{"cmd": "cut -d, -f2 data/people.csv", "category": "text", "source": "public"}
+{"cmd": "cut -c1-5 data/numbers.txt", "category": "text", "source": "public"}
+{"cmd": "echo hello", "category": "text", "source": "public"}
+{"cmd": "echo \"hello world\"", "category": "text", "source": "public"}
+{"cmd": "echo -n hello", "category": "text", "source": "public"}
+{"cmd": "printf \"hello\\\\n\"", "category": "text", "source": "public"}
+{"cmd": "printf \"%s-%s\\\\n\" a b", "category": "text", "source": "public"}
+{"cmd": "seq 1 5", "category": "text", "source": "public"}
+{"cmd": "seq 2 2 10", "category": "text", "source": "public"}
+{"cmd": "date", "category": "text", "source": "public"}
+{"cmd": "cat data/words.txt | tr a-z A-Z", "category": "text", "source": "public"}
+{"cmd": "printf \"a\\\\nb\\\\n\" | tr -d \"\\\\n\"", "category": "text", "source": "public"}
+{"cmd": "sed \"s/apple/orange/\" data/words.txt", "category": "text", "source": "public"}
+{"cmd": "sed \"s/apple/orange/g\" data/words.txt", "category": "text", "source": "public"}
+{"cmd": "sed \"s/demo/project/\" README.md", "category": "text", "source": "public"}
+{"cmd": "echo hello | tee copied.txt", "category": "text", "source": "public"}
+{"cmd": "echo hello > out.txt && cat out.txt", "category": "text", "source": "public"}
+{"cmd": "cat data/people.csv | cut -d, -f2 | sort -u", "category": "text", "source": "public"}
+{"cmd": "grep -r \"export\" src | wc -l", "category": "text", "source": "public"}
+{"cmd": "sort data/words.txt | uniq -c", "category": "text", "source": "public"}
+{"cmd": "printf \"b\\\\na\\\\n\" | sort", "category": "text", "source": "public"}
+{"cmd": "head -n 1 README.md | wc -c", "category": "text", "source": "public"}
+{"cmd": "tail -n 2 data/numbers.txt", "category": "text", "source": "public"}
+{"cmd": "cat README.md | grep -i demo", "category": "text", "source": "public"}
+{"cmd": "printf \"%d\\\\n\" 42", "category": "text", "source": "public"}
+{"cmd": "printf \"%s\\\\n\" alpha beta gamma", "category": "text", "source": "public"}
+{"cmd": "basename docs/guide.md .md", "category": "text", "source": "public"}
+{"cmd": "dirname docs/guide.md", "category": "text", "source": "public"}
+{"cmd": "echo \"$HOME\"", "category": "text", "source": "public"}
+{"cmd": "wc -l src/index.ts src/util.ts", "category": "text", "source": "public"}
+{"cmd": "grep -n \"function\" src/index.ts", "category": "text", "source": "public"}
+{"cmd": "git status", "category": "git", "source": "public"}
+{"cmd": "git status --short", "category": "git", "source": "public"}
+{"cmd": "git diff", "category": "git", "source": "public"}
+{"cmd": "git diff --check", "category": "git", "source": "public", "origin": "dsh-repo"}
+{"cmd": "git diff --stat", "category": "git", "source": "public"}
+{"cmd": "git diff HEAD~1", "category": "git", "source": "public"}
+{"cmd": "git log --oneline -5", "category": "git", "source": "public"}
+{"cmd": "git log --oneline --decorate -10", "category": "git", "source": "public"}
+{"cmd": "git show --stat HEAD", "category": "git", "source": "public"}
+{"cmd": "git show HEAD:README.md", "category": "git", "source": "public"}
+{"cmd": "git rev-parse --show-toplevel", "category": "git", "source": "public"}
+{"cmd": "git rev-parse HEAD", "category": "git", "source": "public"}
+{"cmd": "git rev-parse --abbrev-ref HEAD", "category": "git", "source": "public"}
+{"cmd": "git branch", "category": "git", "source": "public"}
+{"cmd": "git branch --show-current", "category": "git", "source": "public"}
+{"cmd": "git branch -a", "category": "git", "source": "public"}
+{"cmd": "git checkout -b feature/shell", "category": "git", "source": "public"}
+{"cmd": "git switch main", "category": "git", "source": "public"}
+{"cmd": "git add .", "category": "git", "source": "public"}
+{"cmd": "git add -A", "category": "git", "source": "public"}
+{"cmd": "git add README.md src/index.ts", "category": "git", "source": "public"}
+{"cmd": "git add --intent-to-add README.md", "category": "git", "source": "public"}
+{"cmd": "git commit -m \"Update docs\"", "category": "git", "source": "public"}
+{"cmd": "git commit --amend --no-edit", "category": "git", "source": "public"}
+{"cmd": "git push origin HEAD", "category": "git", "source": "public"}
+{"cmd": "git pull --rebase", "category": "git", "source": "public"}
+{"cmd": "git fetch --all --prune", "category": "git", "source": "public"}
+{"cmd": "git merge main", "category": "git", "source": "public"}
+{"cmd": "git rebase main", "category": "git", "source": "public"}
+{"cmd": "git stash", "category": "git", "source": "public"}
+{"cmd": "git stash pop", "category": "git", "source": "public"}
+{"cmd": "git stash list", "category": "git", "source": "public"}
+{"cmd": "git restore README.md", "category": "git", "source": "public"}
+{"cmd": "git reset --hard HEAD", "category": "git", "source": "public"}
+{"cmd": "git reset --soft HEAD~1", "category": "git", "source": "public"}
+{"cmd": "git rm --cached secrets.txt", "category": "git", "source": "public"}
+{"cmd": "git mv docs/guide.md docs/handbook.md", "category": "git", "source": "public", "origin": "dsh-repo"}
+{"cmd": "git ls-files", "category": "git", "source": "public"}
+{"cmd": "git ls-files src", "category": "git", "source": "public"}
+{"cmd": "git ls-tree HEAD", "category": "git", "source": "public"}
+{"cmd": "git cat-file -p HEAD", "category": "git", "source": "public"}
+{"cmd": "git diff-tree --no-commit-id --name-only -r HEAD", "category": "git", "source": "public"}
+{"cmd": "git write-tree", "category": "git", "source": "public"}
+{"cmd": "git hash-object README.md", "category": "git", "source": "public"}
+{"cmd": "git update-index --add README.md", "category": "git", "source": "public"}
+{"cmd": "git submodule status", "category": "git", "source": "public"}
+{"cmd": "git remote -v", "category": "git", "source": "public"}
+{"cmd": "git remote add upstream https://github.com/deepseek-ai/deepseek-harness.git", "category": "git", "source": "public"}
+{"cmd": "git tag --list", "category": "git", "source": "public"}
+{"cmd": "git describe --tags", "category": "git", "source": "public"}
+{"cmd": "git blame README.md", "category": "git", "source": "public"}
+{"cmd": "git reflog -5", "category": "git", "source": "public"}
+{"cmd": "git cherry-pick 0123456", "category": "git", "source": "public"}
+{"cmd": "git apply --check patch.diff", "category": "git", "source": "public"}
+{"cmd": "git clean -fdn", "category": "git", "source": "public"}
+{"cmd": "git count-objects -v", "category": "git", "source": "public"}
+{"cmd": "git mv packages/old/src/endpoint.ts packages/new/src/endpoint.ts", "category": "git", "source": "public", "origin": "dsh-repo"}
+{"cmd": "git worktree list", "category": "git", "source": "public"}
+{"cmd": "git rev-list --count HEAD", "category": "git", "source": "public"}
+{"cmd": "git grep TODO", "category": "git", "source": "public"}
+{"cmd": "npm install", "category": "package", "source": "public"}
+{"cmd": "npm ci", "category": "package", "source": "public"}
+{"cmd": "npm install --save-dev typescript", "category": "package", "source": "public"}
+{"cmd": "npm install --global memorix@1.3.0", "category": "package", "source": "public", "origin": "dsh-repo"}
+{"cmd": "npm uninstall lodash", "category": "package", "source": "public"}
+{"cmd": "pnpm run build && pnpm run constraints", "category": "package", "source": "public", "origin": "dsh-repo"}
+{"cmd": "npm outdated", "category": "package", "source": "public"}
+{"cmd": "npm ls --depth=0", "category": "package", "source": "public"}
+{"cmd": "npm view typescript version", "category": "package", "source": "public"}
+{"cmd": "npm config get registry", "category": "package", "source": "public"}
+{"cmd": "npm audit --omit=dev", "category": "package", "source": "public"}
+{"cmd": "npm exec tsc -- --version", "category": "package", "source": "public"}
+{"cmd": "npm pack", "category": "package", "source": "public"}
+{"cmd": "npm publish --dry-run", "category": "package", "source": "public"}
+{"cmd": "node scripts/install-lefthook.mjs", "category": "package", "source": "public", "origin": "dsh-repo"}
+{"cmd": "npm --version", "category": "package", "source": "public"}
+{"cmd": "npx tsc --noEmit", "category": "package", "source": "public"}
+{"cmd": "npx eslint .", "category": "package", "source": "public"}
+{"cmd": "npx prettier --write src", "category": "package", "source": "public"}
+{"cmd": "npx create-vite demo", "category": "package", "source": "public"}
+{"cmd": "npx tsx script.ts", "category": "package", "source": "public"}
+{"cmd": "npx http-server .", "category": "package", "source": "public"}
+{"cmd": "pnpm install", "category": "package", "source": "public"}
+{"cmd": "pnpm add -D typescript", "category": "package", "source": "public"}
+{"cmd": "pnpm remove lodash", "category": "package", "source": "public"}
+{"cmd": "pnpm run clean", "category": "package", "source": "public"}
+{"cmd": "pnpm --filter demo test", "category": "package", "source": "public"}
+{"cmd": "pnpm dlx tsx --version", "category": "package", "source": "public"}
+{"cmd": "pnpm store prune", "category": "package", "source": "public"}
+{"cmd": "pnpm list --depth 0", "category": "package", "source": "public"}
+{"cmd": "pnpm --silent run verify-persistence-changes --json", "category": "package", "source": "public", "origin": "dsh-repo"}
+{"cmd": "pnpm --filter @deepseek-ai/dsh-desktop run bundle", "category": "package", "source": "public", "origin": "dsh-repo"}
+{"cmd": "yarn install", "category": "package", "source": "public"}
+{"cmd": "yarn add vite", "category": "package", "source": "public"}
+{"cmd": "yarn workspace demo build", "category": "package", "source": "public"}
+{"cmd": "bun install", "category": "package", "source": "public"}
+{"cmd": "bun run dev", "category": "package", "source": "public"}
+{"cmd": "deno run -A main.ts", "category": "package", "source": "public"}
+{"cmd": "pip install -r requirements.txt", "category": "package", "source": "public"}
+{"cmd": "python3 -m pip install requests", "category": "package", "source": "public"}
+{"cmd": "uv run --python 3.10 --group test --project python/sdk pytest python/sdk/tests/test_client.py -k preserves_auto_review_errors", "category": "package", "source": "public", "origin": "dsh-repo"}
+{"cmd": "uv sync", "category": "package", "source": "public"}
+{"cmd": "cargo fetch", "category": "package", "source": "public"}
+{"cmd": "cargo add serde", "category": "package", "source": "public"}
+{"cmd": "go mod download", "category": "package", "source": "public"}
+{"cmd": "go get github.com/example/pkg", "category": "package", "source": "public"}
+{"cmd": "gem install rake", "category": "package", "source": "public"}
+{"cmd": "brew install jq", "category": "package", "source": "public"}
+{"cmd": "apt-get install -y curl", "category": "package", "source": "public"}
+{"cmd": "apk add git", "category": "package", "source": "public"}
+{"cmd": "composer install", "category": "package", "source": "public"}
+{"cmd": "bundle install", "category": "package", "source": "public"}
+{"cmd": "swift package resolve", "category": "package", "source": "public"}
+{"cmd": "flutter pub get", "category": "package", "source": "public"}
+{"cmd": "dotnet restore", "category": "package", "source": "public"}
+{"cmd": "gradle dependencies", "category": "package", "source": "public"}
+{"cmd": "docker build -t demo .", "category": "package", "source": "public"}
+{"cmd": "make deps", "category": "package", "source": "public"}
+{"cmd": "npm start", "category": "package", "source": "public"}
+{"cmd": "pnpm dsh web", "category": "package", "source": "public", "origin": "dsh-repo"}
+{"cmd": "npm test", "category": "build-test", "source": "public"}
+{"cmd": "npm run build", "category": "build-test", "source": "public", "origin": "dsh-repo"}
+{"cmd": "npm run lint", "category": "build-test", "source": "public"}
+{"cmd": "npm run typecheck", "category": "build-test", "source": "public"}
+{"cmd": "npm run test:unit", "category": "build-test", "source": "public"}
+{"cmd": "pnpm test", "category": "build-test", "source": "public"}
+{"cmd": "pnpm run build", "category": "build-test", "source": "public"}
+{"cmd": "pnpm exec vitest run", "category": "build-test", "source": "public"}
+{"cmd": "pnpm run test:snapshot snapshots/sdk/sdk.snapshot.ts -t text-turn", "category": "build-test", "source": "public", "origin": "dsh-repo"}
+{"cmd": "yarn test", "category": "build-test", "source": "public"}
+{"cmd": "node --test", "category": "build-test", "source": "public", "origin": "dsh-repo"}
+{"cmd": "node --test tests/", "category": "build-test", "source": "public"}
+{"cmd": "node --test \"test/*.test.mjs\"", "category": "build-test", "source": "public"}
+{"cmd": "node --import tsx --test src/index.test.ts", "category": "build-test", "source": "public"}
+{"cmd": "node --import tsx ../../vendor/cordis/bin.js", "category": "build-test", "source": "public", "origin": "dsh-repo"}
+{"cmd": "npx vitest run --coverage", "category": "build-test", "source": "public", "origin": "dsh-repo"}
+{"cmd": "npx jest", "category": "build-test", "source": "public"}
+{"cmd": "pnpm exec vitest run packages/api/session-controller/tests/remote-access.host.spec.ts", "category": "build-test", "source": "public", "origin": "dsh-repo"}
+{"cmd": "npx playwright test", "category": "build-test", "source": "public"}
+{"cmd": "pnpm run test:snapshot scripts/session-snapshot-corpus.corpus.ts", "category": "build-test", "source": "public", "origin": "dsh-repo"}
+{"cmd": "tsc --noEmit", "category": "build-test", "source": "public"}
+{"cmd": "npx tsc -p tsconfig.json", "category": "build-test", "source": "public"}
+{"cmd": "npx tsc --build", "category": "build-test", "source": "public"}
+{"cmd": "npx eslint src", "category": "build-test", "source": "public"}
+{"cmd": "npx oxlint .", "category": "build-test", "source": "public"}
+{"cmd": "cargo build", "category": "build-test", "source": "public"}
+{"cmd": "cargo build --release", "category": "build-test", "source": "public"}
+{"cmd": "cargo test", "category": "build-test", "source": "public", "origin": "dsh-repo"}
+{"cmd": "cargo test --all-features", "category": "build-test", "source": "public"}
+{"cmd": "cargo clippy -- -D warnings", "category": "build-test", "source": "public"}
+{"cmd": "cargo fmt --check", "category": "build-test", "source": "public"}
+{"cmd": "rustc --version", "category": "build-test", "source": "public"}
+{"cmd": "swift build", "category": "build-test", "source": "public"}
+{"cmd": "swift test", "category": "build-test", "source": "public", "origin": "dsh-repo"}
+{"cmd": "xcodebuild -scheme Demo -destination 'generic/platform=iOS Simulator' build", "category": "build-test", "source": "public"}
+{"cmd": "make", "category": "build-test", "source": "public"}
+{"cmd": "pnpm run build && pnpm run hygiene", "category": "build-test", "source": "public", "origin": "dsh-repo"}
+{"cmd": "make build", "category": "build-test", "source": "public"}
+{"cmd": "cmake -S . -B build", "category": "build-test", "source": "public"}
+{"cmd": "cmake --build build", "category": "build-test", "source": "public"}
+{"cmd": "go build ./...", "category": "build-test", "source": "public"}
+{"cmd": "go test ./...", "category": "build-test", "source": "public", "origin": "dsh-repo"}
+{"cmd": "go vet ./...", "category": "build-test", "source": "public"}
+{"cmd": "gofmt -l .", "category": "build-test", "source": "public"}
+{"cmd": "python3 -m pytest", "category": "build-test", "source": "public"}
+{"cmd": "python3 -m unittest discover", "category": "build-test", "source": "public"}
+{"cmd": "python3 -m build", "category": "build-test", "source": "public"}
+{"cmd": "ruff check .", "category": "build-test", "source": "public"}
+{"cmd": "mypy src", "category": "build-test", "source": "public"}
+{"cmd": "black --check .", "category": "build-test", "source": "public"}
+{"cmd": "pytest -q", "category": "build-test", "source": "public"}
+{"cmd": "tox", "category": "build-test", "source": "public"}
+{"cmd": "bazel build //...", "category": "build-test", "source": "public"}
+{"cmd": "bazel test //...", "category": "build-test", "source": "public"}
+{"cmd": "gradle test", "category": "build-test", "source": "public"}
+{"cmd": "mvn test", "category": "build-test", "source": "public"}
+{"cmd": "dotnet test", "category": "build-test", "source": "public"}
+{"cmd": "npm run test:e2e", "category": "build-test", "source": "public"}
+{"cmd": "vitest run", "category": "build-test", "source": "public"}
+{"cmd": "jest", "category": "build-test", "source": "public"}
+{"cmd": "echo start; echo done", "category": "script", "source": "public"}
+{"cmd": "echo a && echo b", "category": "script", "source": "public"}
+{"cmd": "false || echo fallback", "category": "script", "source": "public"}
+{"cmd": "true && echo ok || echo fail", "category": "script", "source": "public"}
+{"cmd": "x=1; y=2; echo $((x + y))", "category": "script", "source": "public"}
+{"cmd": "n=5; echo $((n * 2))", "category": "script", "source": "public"}
+{"cmd": "echo $((10 - 3))", "category": "script", "source": "public"}
+{"cmd": "echo $((8 / 2))", "category": "script", "source": "public"}
+{"cmd": "echo ${HOME}", "category": "script", "source": "public"}
+{"cmd": "echo ${HOME:-/tmp}", "category": "script", "source": "public"}
+{"cmd": "name=demo; echo ${name}", "category": "script", "source": "public"}
+{"cmd": "unset name; echo ${name:-fallback}", "category": "script", "source": "public"}
+{"cmd": "echo \"$(pwd)\"", "category": "script", "source": "public"}
+{"cmd": "files=$(ls); echo \"$files\"", "category": "script", "source": "public"}
+{"cmd": "(cd src && ls)", "category": "script", "source": "public"}
+{"cmd": "(echo subshell)", "category": "script", "source": "public"}
+{"cmd": "echo one > out.txt; cat out.txt", "category": "script", "source": "public"}
+{"cmd": "printf \"a\\\\nb\\\\n\" > lines.txt; wc -l lines.txt", "category": "script", "source": "public"}
+{"cmd": "cat data/numbers.txt | sort | head -n 2", "category": "script", "source": "public"}
+{"cmd": "echo hello | tr a-z A-Z | tee upper.txt", "category": "script", "source": "public"}
+{"cmd": "cat README.md | grep -i demo | wc -l", "category": "script", "source": "public"}
+{"cmd": "mkdir -p build && cd build && pwd", "category": "script", "source": "public"}
+{"cmd": "cd src; cd ..; pwd", "category": "script", "source": "public"}
+{"cmd": "for f in a b c; do echo $f; done", "category": "script", "source": "public"}
+{"cmd": "for file in src/*.ts; do echo $file; done", "category": "script", "source": "public"}
+{"cmd": "while true; do break; done", "category": "script", "source": "public"}
+{"cmd": "until false; do break; done", "category": "script", "source": "public"}
+{"cmd": "if [ -f README.md ]; then echo yes; fi", "category": "script", "source": "public"}
+{"cmd": "if [ -d src ]; then echo dir; else echo file; fi", "category": "script", "source": "public"}
+{"cmd": "case \"$1\" in start) echo starting;; esac", "category": "script", "source": "public"}
+{"cmd": "case x in x) echo match;; *) echo no;; esac", "category": "script", "source": "public"}
+{"cmd": "greet() { echo hello; }", "category": "script", "source": "public"}
+{"cmd": "greet() { echo hello; }; greet", "category": "script", "source": "public"}
+{"cmd": "function greet { echo hi; }", "category": "script", "source": "public"}
+{"cmd": "cat <<EOF\nhello\nEOF", "category": "script", "source": "public"}
+{"cmd": "cat <<'EOF'\n$HOME\nEOF", "category": "script", "source": "public"}
+{"cmd": "cat <<-EOF\n\thello\n\tEOF", "category": "script", "source": "public"}
+{"cmd": "echo hi 2>&1", "category": "script", "source": "public"}
+{"cmd": "ls 2> errors.txt", "category": "script", "source": "public"}
+{"cmd": "printf x >> append.txt; printf y >> append.txt; cat append.txt", "category": "script", "source": "public"}
+{"cmd": "head -n 1 < data/numbers.txt", "category": "script", "source": "public"}
+{"cmd": "wc -l < README.md", "category": "script", "source": "public"}
+{"cmd": "seq 1 3 > nums.txt; sort -r nums.txt", "category": "script", "source": "public"}
+{"cmd": "echo $?", "category": "script", "source": "public"}
+{"cmd": "true; echo $?", "category": "script", "source": "public"}
+{"cmd": "false; true; echo $?", "category": "script", "source": "public"}
+{"cmd": "export FOO=bar; printenv FOO", "category": "script", "source": "public"}
+{"cmd": "export A=1; export B=2; echo $A$B", "category": "script", "source": "public"}
+{"cmd": "pwd; cd src; pwd; cd ..; pwd", "category": "script", "source": "public"}
+{"cmd": "echo $(printf \"abc\")", "category": "script", "source": "public"}
+{"cmd": "x=$(seq 1 3); echo \"$x\"", "category": "script", "source": "public"}
+{"cmd": "echo \"$(basename src/index.ts)\"", "category": "script", "source": "public"}
+{"cmd": "(false) || echo recovered", "category": "script", "source": "public"}
+{"cmd": "echo one && (echo two)", "category": "script", "source": "public"}
+{"cmd": "{ echo group; }", "category": "script", "source": "public"}
+{"cmd": "! true", "category": "script", "source": "public"}
+{"cmd": "echo a | grep -i A", "category": "script", "source": "public"}
+{"cmd": "printf \"%s\\\\n\" one | wc -l", "category": "script", "source": "public"}
+{"cmd": "echo status: $?", "category": "script", "source": "public"}
+{"cmd": "sort data/words.txt > sorted.txt && wc -l sorted.txt", "category": "script", "source": "public"}
+{"cmd": "curl -fsSL https://github.com/deepseek-ai/deepseek-harness", "category": "network", "source": "public"}
+{"cmd": "curl -I https://github.com", "category": "network", "source": "public"}
+{"cmd": "curl -s https://nodejs.org/dist/index.json", "category": "network", "source": "public"}
+{"cmd": "curl -fsSL https://npmjs.com", "category": "network", "source": "public"}
+{"cmd": "curl -o out.html https://github.com", "category": "network", "source": "public"}
+{"cmd": "curl -sS -X POST http://127.0.0.1:8080/v1/health", "category": "network", "source": "public"}
+{"cmd": "curl -H \"Content-Type: application/json\" http://localhost:8080/api", "category": "network", "source": "public"}
+{"cmd": "curl -s -X PUT -d '{\"a\":1}' http://127.0.0.1:9000/key", "category": "network", "source": "public"}
+{"cmd": "curl -s -X DELETE http://localhost:3000/items/1", "category": "network", "source": "public"}
+{"cmd": "curl -s http://127.0.0.1:8080/metrics", "category": "network", "source": "public"}
+{"cmd": "curl -s http://127.0.0.1:8080/healthz", "category": "network", "source": "public"}
+{"cmd": "curl -s http://localhost:5173/", "category": "network", "source": "public"}
+{"cmd": "curl -s http://localhost:3000/api/status", "category": "network", "source": "public"}
+{"cmd": "curl -w \"%{http_code}\\\\n\" -o out.txt https://github.com", "category": "network", "source": "public"}
+{"cmd": "curl -s --max-time 10 https://github.com/robots.txt", "category": "network", "source": "public"}
+{"cmd": "curl --retry 3 --retry-delay 1 -fsSL https://nodejs.org/dist/index.json", "category": "network", "source": "public"}
+{"cmd": "curl -sS -o out.tar.gz https://crates.io/api/v1/crates", "category": "network", "source": "public"}
+{"cmd": "curl -fsSL https://docs.rs", "category": "network", "source": "public", "origin": "dsh-repo"}
+{"cmd": "curl -fsSL https://python.org", "category": "network", "source": "public"}
+{"cmd": "curl -fsSL https://modelcontextprotocol.io", "category": "network", "source": "public"}
+{"cmd": "curl -fsSL https://deepseek.com", "category": "network", "source": "public"}
+{"cmd": "curl -I https://nodejs.org", "category": "network", "source": "public"}
+{"cmd": "curl -I https://npmjs.com", "category": "network", "source": "public"}
+{"cmd": "wget -q https://github.com/deepseek-ai/deepseek-harness", "category": "network", "source": "public"}
+{"cmd": "wget -O docs.html https://docs.rs", "category": "network", "source": "public"}
+{"cmd": "git clone https://github.com/deepseek-ai/deepseek-harness.git", "category": "network", "source": "public", "origin": "dsh-repo"}
+{"cmd": "git clone --depth 1 https://github.com/deepseek-ai/deepseek-harness.git", "category": "network", "source": "public"}
+{"cmd": "git ls-remote https://github.com/deepseek-ai/deepseek-harness.git", "category": "network", "source": "public"}
+{"cmd": "git fetch https://github.com/deepseek-ai/deepseek-harness.git main", "category": "network", "source": "public"}
+{"cmd": "npm ping", "category": "network", "source": "public"}
+{"cmd": "npm view express version", "category": "network", "source": "public"}
+{"cmd": "npm whoami", "category": "network", "source": "public"}
+{"cmd": "npm access list packages", "category": "network", "source": "public"}
+{"cmd": "node fetch.js", "category": "network", "source": "public"}
+{"cmd": "node -e \"fetch('http://localhost:8080').then(r => r.text()).then(console.log)\"", "category": "network", "source": "public"}
+{"cmd": "node server.mjs", "category": "network", "source": "public"}
+{"cmd": "npx serve dist", "category": "network", "source": "public"}
+{"cmd": "npx vite --host 127.0.0.1", "category": "network", "source": "public"}
+{"cmd": "npx http-server . -p 8080", "category": "network", "source": "public"}
+{"cmd": "python3 -m http.server 8080", "category": "network", "source": "public"}
+{"cmd": "python3 -m http.server --bind 127.0.0.1 8000", "category": "network", "source": "public"}
+{"cmd": "openssl s_client -connect github.com:443", "category": "network", "source": "public"}
+{"cmd": "openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem -days 1", "category": "network", "source": "public"}
+{"cmd": "ssh-keygen -t ed25519 -f id_ed25519 -N \"\"", "category": "network", "source": "public"}
+{"cmd": "ssh -T github.com", "category": "network", "source": "public"}
+{"cmd": "scp README.md github.com:/tmp/README.md", "category": "network", "source": "public"}
+{"cmd": "rsync -av src/ github.com:/tmp/src/", "category": "network", "source": "public"}
+{"cmd": "ping -c 1 127.0.0.1", "category": "network", "source": "public"}
+{"cmd": "nc -z localhost 8080", "category": "network", "source": "public"}
+{"cmd": "dig github.com", "category": "network", "source": "public"}
+{"cmd": "nslookup github.com", "category": "network", "source": "public"}
+{"cmd": "host github.com", "category": "network", "source": "public"}
+{"cmd": "telnet localhost 8080", "category": "network", "source": "public"}
+{"cmd": "http GET https://github.com", "category": "network", "source": "public"}
+{"cmd": "xh GET https://github.com", "category": "network", "source": "public"}
+{"cmd": "curl -s https://github.com/deepseek-ai/deepseek-harness | head -n 5", "category": "network", "source": "public"}
+{"cmd": "npm run dev -- --host 127.0.0.1", "category": "network", "source": "public"}
+{"cmd": "npx vercel --version", "category": "network", "source": "public"}
+{"cmd": "python3 -c \"import urllib.request; print(urllib.request.urlopen('http://localhost:8080').status)\"", "category": "network", "source": "public"}
+{"cmd": "curl -fsSL https://github.com/deepseek-ai/deepseek-harness/raw/main/README.md", "category": "network", "source": "public"}
+{"cmd": "printf 'needle\\n' > grep-text.txt && printf 'needle\\000tail\\n' > grep-blob.bin && grep -RIl needle .", "category": "text", "source": "public"}
+{"cmd": "printf 'needle\\n' > grep-text.txt && printf 'needle\\000tail\\n' > grep-blob.bin && grep -RIn needle .", "category": "text", "source": "public"}
+{"cmd": "printf 'needle\\000tail\\n' > grep-blob.bin && grep -In needle grep-blob.bin; test $? -eq 1", "category": "text", "source": "public"}
+{"cmd": "printf 'needle\\000tail\\n' > grep-blob.bin && grep --binary-files=without-match needle grep-blob.bin; test $? -eq 1", "category": "text", "source": "public"}
+{"cmd": "grep -RIn \"answer\" src", "category": "text", "source": "public"}
+{"cmd": "grep -RIl \"answer\" src", "category": "text", "source": "public"}
+{"cmd": "grep -In --binary-files=without-match \"answer\" src/index.ts", "category": "text", "source": "public"}
+{"cmd": "grep -RIn --exclude='*.json' -E \"demo|answer\" .", "category": "text", "source": "public"}

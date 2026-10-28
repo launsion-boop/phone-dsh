@@ -1,0 +1,28 @@
+{
+  "name": "@phone-dsh/dsh-channel",
+  "version": "0.1.0",
+  "description": "Byte-level codecs and client face for the phone-dsh-v1 ordered channel of the DeepSeek Harness phone worker.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./ack-tracker": "./src/ack-tracker.ts",
+    "./api-frames": "./src/api-frames.ts",
+    "./bytes": "./src/bytes.ts",
+    "./canonical-json": "./src/canonical-json.ts",
+    "./client": "./src/client.ts",
+    "./crc32c": "./src/crc32c.ts",
+    "./errors": "./src/errors.ts",
+    "./frames": "./src/frames.ts",
+    "./host-hello": "./src/host-hello.ts",
+    "./memory-channel": "./src/memory-channel.ts",
+    "./payloads": "./src/payloads.ts",
+    "./validate": "./src/validate.ts",
+    "./vfs-mutation": "./src/vfs-mutation.ts",
+    "./wal": "./src/wal.ts",
+    "./ws-client": "./src/ws-client.ts"
+  }
+}

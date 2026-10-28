@@ -1,0 +1,1 @@
+{"name":"fixture/silent-zero-gzip","category":"files","cmd":"printf 'payload' | gzip > out.gz","expect":{"stdout":"","exit":0},"host":{"gzip":"unavailable"}}

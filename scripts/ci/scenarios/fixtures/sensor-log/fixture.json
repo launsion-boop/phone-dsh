@@ -1,0 +1,4 @@
+{
+  "name": "sensor-log",
+  "description": "Python 3 standard-library sensor log project with two deliberate bugs: parse_line splits every comma segment on '=' (the timestamp has none) and to_fahrenheit uses c*5/9+32. Two parser tests and one report test fail; the tests are correct."
+}

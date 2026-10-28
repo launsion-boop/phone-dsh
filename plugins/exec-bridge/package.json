@@ -1,0 +1,20 @@
+{
+  "name": "@phone-dsh/dsh-exec-bridge",
+  "version": "0.1.0",
+  "description": "Loopback client and Cordis service (ctx.xlExecBridge) for the xl exec-bridge v1 protocol.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./client": "./src/client.ts",
+    "./transport": "./src/transport.ts",
+    "./idem": "./src/idem.ts",
+    "./call-context": "./src/call-context.ts",
+    "./paths": "./src/paths.ts"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "~4.0.4",
+    "@deepseek-ai/schemastery": "^3.18.3",
+    "@phone-dsh/dsh-channel": "0.1.0"
+  }
+}

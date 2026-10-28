@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FENCE payload",
+  "description": "FENCE payload of the ordered channel.",
+  "type": "object",
+  "required": [
+    "fence",
+    "admission"
+  ],
+  "properties": {
+    "fence": {
+      "type": "object",
+      "required": [
+        "owner",
+        "generation",
+        "wal_seq"
+      ],
+      "properties": {
+        "owner": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._:-]{1,64}$"
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "wal_seq": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        }
+      },
+      "additionalProperties": false
+    },
+    "admission": {
+      "type": "string",
+      "enum": [
+        "open",
+        "closed"
+      ]
+    }
+  },
+  "additionalProperties": false
+}

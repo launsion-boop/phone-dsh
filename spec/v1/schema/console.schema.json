@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CONSOLE payload",
+  "description": "CONSOLE payload of the ordered channel.",
+  "type": "object",
+  "required": [
+    "level",
+    "text"
+  ],
+  "properties": {
+    "level": {
+      "type": "string",
+      "enum": [
+        "debug",
+        "info",
+        "warn",
+        "error"
+      ]
+    },
+    "text": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

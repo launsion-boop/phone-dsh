@@ -1,0 +1,4 @@
+module PDSHShell {
+    header "xzshell.h"
+    export *
+}

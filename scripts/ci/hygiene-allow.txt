@@ -1,0 +1,31 @@
+json-schema\.org
+@example\.invalid
+# public documentation host used by the G2 network scenarios (scripts/ci/scenarios/catalog.json)
+raw\.githubusercontent\.com
+schemas\.openxmlformats\.org
+# the gateway allow-list wildcard entry (`https://*`) is a rule, not a hostname
+^\*$
+
+# credits line in the READMEs (the project started as the phone-DSH work of xiaozhi-link)
+(README|README\.zh)\.md:.*xiaozhi-link
+
+# official DeepSeek model/search provider hosts named by the shipped provider
+# contract (PhoneModelProviderSettings/PhoneWebSearchSettings tests and docs)
+api\.deepseek\.com
+chat\.deepseek\.com
+
+# QuickJS upstream credits link (plugins/THIRD_PARTY.md) and the standard YAML
+# tag URI schema (plugins/phone-feature-admin/src/plugin-toggle.ts)
+bellard\.org
+tag:yaml\.org,2002
+
+# `host` is a placeholder hostname in doc comments and redaction test fixtures,
+# never a real upstream
+^host$
+
+# test-fixture credentials and userinfo in the redaction/regression suites
+# (values are deliberately credential-shaped; none is a real secret)
+Bearer mcp-device-token-never-in-document
+password@api\.example\.com
+userinfo-password@channel\.invalid
+docs\.example\.org

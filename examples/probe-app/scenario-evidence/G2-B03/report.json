@@ -1,0 +1,86 @@
+{
+  "assertions" : [
+    {
+      "detail" : "exit -1: host process execution is not available in the iOS scenario runner (/bin/bash cannot be spawned from the simulator test process)",
+      "ok" : false,
+      "type" : "workspace_command"
+    },
+    {
+      "detail" : "exit -1: host process execution is not available in the iOS scenario runner (/bin/bash cannot be spawned from the simulator test process)",
+      "ok" : false,
+      "type" : "workspace_command"
+    },
+    {
+      "detail" : "1 perturbation(s) applied and recovered",
+      "ok" : true,
+      "type" : "restart_recovered"
+    },
+    {
+      "detail" : "no console errors",
+      "ok" : true,
+      "type" : "no_console_error"
+    },
+    {
+      "detail" : "3 turn(s), max 6",
+      "ok" : true,
+      "type" : "turn_count_lte"
+    }
+  ],
+  "console_errors" : [
+
+  ],
+  "host_states" : [
+    "stopped->starting",
+    "controller:recovering->running",
+    "starting->running",
+    "running->draining",
+    "draining->starting",
+    "controller:running->recovering",
+    "controller:recovering->running",
+    "starting->running",
+    "running->draining",
+    "controller:running->draining",
+    "controller:draining->parked",
+    "draining->stopped"
+  ],
+  "id" : "G2-B03",
+  "page_visibility" : {
+    "attached_with_visible_area" : true,
+    "document_visibility_state" : "visible",
+    "is_visible" : true,
+    "window_occlusion_visible" : true
+  },
+  "perturbations" : [
+    {
+      "at" : "during_first_tool",
+      "kind" : "worker_kill",
+      "ok" : true,
+      "recovered_ms" : 337
+    }
+  ],
+  "status" : "FAIL",
+  "turns" : [
+    {
+      "ended" : "2026-10-25T19:11:59.904Z",
+      "events" : 197,
+      "model_requests" : 5,
+      "prompt_len" : 346,
+      "started" : "2026-10-25T19:11:49.427Z",
+      "tool_calls" : 10
+    },
+    {
+      "ended" : "2026-10-25T19:12:02.230Z",
+      "events" : 178,
+      "model_requests" : 2,
+      "prompt_len" : 40,
+      "started" : "2026-10-25T19:11:59.904Z",
+      "tool_calls" : 1
+    }
+  ],
+  "usage" : {
+    "model_requests" : 7,
+    "upstream_bytes_in" : 0,
+    "upstream_bytes_out" : 200962,
+    "wall_s" : 34.288
+  }
+}

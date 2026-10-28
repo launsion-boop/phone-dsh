@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "handoff fence response",
+  "description": "POST /v1/handoff/fence response body: the new remote fence and the reclaim token.",
+  "type": "object",
+  "required": [
+    "fence",
+    "reclaim_token"
+  ],
+  "properties": {
+    "fence": {
+      "type": "object",
+      "required": [
+        "owner",
+        "generation",
+        "wal_seq"
+      ],
+      "properties": {
+        "owner": {
+          "type": "string",
+          "const": "remote"
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "wal_seq": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        }
+      },
+      "additionalProperties": false
+    },
+    "reclaim_token": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    }
+  },
+  "additionalProperties": false
+}

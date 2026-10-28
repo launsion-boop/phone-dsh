@@ -1,0 +1,15 @@
+[package]
+name = "pdsh-phone"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "phone/ctx host-bridge accelerators for the phone-dsh phone DSH pdsh-shell."
+
+[lib]
+name = "pdsh_phone"
+path = "src/lib.rs"
+
+[dependencies]
+pdsh-core.workspace = true
+serde_json.workspace = true

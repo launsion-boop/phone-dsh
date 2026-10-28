@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "API_REQ head",
+  "description": "Head JSON of API_REQ.",
+  "type": "object",
+  "required": [
+    "method",
+    "path",
+    "headers"
+  ],
+  "properties": {
+    "method": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9-]*$"
+    },
+    "path": {
+      "type": "string",
+      "pattern": "^/.*"
+    },
+    "headers": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z0-9!#$%&'*+.^_`|~-]+$"
+      },
+      "additionalProperties": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": false
+}

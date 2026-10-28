@@ -1,0 +1,37 @@
+{
+  "name": "recipe-app",
+  "description": "Python 3 standard-library recipe recommender with four commits on main, eight recipes, a pantry list and five passing unittest cases. The repository deliberately has no git identity configured.",
+  "git": {
+    "branch": "main",
+    "commits": [
+      {
+        "message": "add recipe data and loader",
+        "files": [
+          "README.md",
+          "recipes.py",
+          "data/recipes.json"
+        ]
+      },
+      {
+        "message": "add pantry loader",
+        "files": [
+          "pantry.py",
+          "data/pantry.json"
+        ]
+      },
+      {
+        "message": "add markdown report and main",
+        "files": [
+          "report.py",
+          "main.py"
+        ]
+      },
+      {
+        "message": "add tests",
+        "files": [
+          "test_recipes.py"
+        ]
+      }
+    ]
+  }
+}

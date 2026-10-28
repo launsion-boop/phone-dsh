@@ -1,0 +1,71 @@
+✖ copy-bundle-assets stages the python tool worker beside the entry (32.708583ms)
+✖ copy-bundle-assets fails loud when the build has no python tool worker (28.498916ms)
+✖ sim_prepare_worker_assets stages a prebuilt python tool worker into the app bundle (42.3745ms)
+✖ sim_prepare_worker_assets refuses a prebuilt bundle without the tool worker (38.93825ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 0
+ℹ fail 4
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 211.408292
+
+✖ failing tests:
+
+test at tests/probe-asset-staging.test.ts:85:1
+✖ copy-bundle-assets stages the python tool worker beside the entry (32.708583ms)
+  Error: ENOENT: no such file or directory, open '<tmp>
+      at async open (node:internal/fs/promises:697:25)
+      at async readFile (node:internal/fs/promises:1348:14)
+      at async TestContext.<anonymous> (file://<worktree>/plugins/tests/probe-asset-staging.test.ts:95:24)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    errno: -2,
+    code: 'ENOENT',
+    syscall: 'open',
+    path: '<tmp>
+  }
+
+test at tests/probe-asset-staging.test.ts:104:1
+✖ copy-bundle-assets fails loud when the build has no python tool worker (28.498916ms)
+  AssertionError [ERR_ASSERTION]: Expected "actual" to be strictly unequal to: 0
+      at TestContext.<anonymous> (file://<worktree>/plugins/tests/probe-asset-staging.test.ts:111:12)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 0,
+    operator: 'notStrictEqual',
+    diff: 'simple'
+  }
+
+test at tests/probe-asset-staging.test.ts:118:1
+✖ sim_prepare_worker_assets stages a prebuilt python tool worker into the app bundle (42.3745ms)
+  Error: ENOENT: no such file or directory, open '<tmp>
+      at async open (node:internal/fs/promises:697:25)
+      at async readFile (node:internal/fs/promises:1348:14)
+      at async TestContext.<anonymous> (file://<worktree>/plugins/tests/probe-asset-staging.test.ts:128:20)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    errno: -2,
+    code: 'ENOENT',
+    syscall: 'open',
+    path: '<tmp>
+  }
+
+test at tests/probe-asset-staging.test.ts:139:1
+✖ sim_prepare_worker_assets refuses a prebuilt bundle without the tool worker (38.93825ms)
+  AssertionError [ERR_ASSERTION]: Expected "actual" to be strictly unequal to: 0
+      at TestContext.<anonymous> (file://<worktree>/plugins/tests/probe-asset-staging.test.ts:147:12)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 0,
+    operator: 'notStrictEqual',
+    diff: 'simple'
+  }
+exit=1

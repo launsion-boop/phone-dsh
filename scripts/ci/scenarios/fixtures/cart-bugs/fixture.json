@@ -1,0 +1,4 @@
+{
+  "name": "cart-bugs",
+  "description": "Python 3 standard-library shopping cart: Cart.total() and apply_discount() (100-off-10 boundary bug) plus pricing.format_money() (banker's rounding bug); three of six unittest cases fail and the tests are correct."
+}

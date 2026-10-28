@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "handoff snapshot response",
+  "description": "POST /v1/handoff/snapshot response body: the stored base and the fence replication target.",
+  "type": "object",
+  "required": [
+    "materialized_upto_mseq",
+    "fence",
+    "snapshot_sha256"
+  ],
+  "properties": {
+    "materialized_upto_mseq": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 18446744073709551615
+    },
+    "fence": {
+      "type": "object",
+      "required": [
+        "owner",
+        "generation",
+        "wal_seq"
+      ],
+      "properties": {
+        "owner": {
+          "type": "string",
+          "const": "remote"
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "wal_seq": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        }
+      },
+      "additionalProperties": false
+    },
+    "snapshot_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "additionalProperties": false
+}

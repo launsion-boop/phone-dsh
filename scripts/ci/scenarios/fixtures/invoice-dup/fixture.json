@@ -1,0 +1,4 @@
+{
+  "name": "invoice-dup",
+  "description": "Python 3 standard-library invoice project with three copy-pasted billing modules (money formatting and totals duplicated), a misspelled late_feee in bill_b, and eight passing unittest cases."
+}

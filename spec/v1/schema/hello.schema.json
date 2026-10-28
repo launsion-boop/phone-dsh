@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "HELLO payload",
+  "description": "First frame of each direction, seq 1. Exactly one host/worker variant matches.",
+  "oneOf": [
+    {
+      "title": "host HELLO",
+      "type": "object",
+      "required": [
+        "proto",
+        "role",
+        "boot_id",
+        "session_epoch",
+        "fence",
+        "caps",
+        "next_mseq",
+        "acked_mseq",
+        "durable_mseq"
+      ],
+      "properties": {
+        "proto": {
+          "type": "integer",
+          "const": 1
+        },
+        "role": {
+          "type": "string",
+          "const": "host"
+        },
+        "boot_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "session_epoch": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "fence": {
+          "type": "object",
+          "required": [
+            "owner",
+            "generation",
+            "wal_seq"
+          ],
+          "properties": {
+            "owner": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{1,64}$"
+            },
+            "generation": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709551615
+            },
+            "wal_seq": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709551615
+            }
+          },
+          "additionalProperties": false
+        },
+        "caps": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^(?:[a-z][a-z0-9-]*/[0-9]+|accelerator:[A-Za-z0-9._-]{1,64})$"
+          },
+          "uniqueItems": true
+        },
+        "next_mseq": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 18446744073709551615
+        },
+        "acked_mseq": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "durable_mseq": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "title": "worker HELLO",
+      "type": "object",
+      "required": [
+        "proto",
+        "role",
+        "boot_id",
+        "session_epoch",
+        "fence",
+        "caps",
+        "last_mseq"
+      ],
+      "properties": {
+        "proto": {
+          "type": "integer",
+          "const": 1
+        },
+        "role": {
+          "type": "string",
+          "const": "worker"
+        },
+        "boot_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "session_epoch": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "fence": {
+          "type": "object",
+          "required": [
+            "owner",
+            "generation",
+            "wal_seq"
+          ],
+          "properties": {
+            "owner": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{1,64}$"
+            },
+            "generation": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709551615
+            },
+            "wal_seq": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709551615
+            }
+          },
+          "additionalProperties": false
+        },
+        "caps": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^(?:[a-z][a-z0-9-]*/[0-9]+|accelerator:[A-Za-z0-9._-]{1,64})$"
+          },
+          "uniqueItems": true
+        },
+        "last_mseq": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        }
+      },
+      "additionalProperties": false
+    }
+  ]
+}

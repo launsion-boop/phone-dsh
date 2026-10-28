@@ -1,0 +1,11 @@
+[package]
+name = "pdsh-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Read-only accelerator core for the phone-dsh phone DSH pdsh-shell."
+
+[lib]
+name = "pdsh_core"
+path = "src/lib.rs"

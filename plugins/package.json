@@ -1,0 +1,48 @@
+{
+  "name": "@phone-dsh/dsh-plugins",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "description": "DeepSeek Harness plugins that run DSH phone-style: in the host app process, commands on the app's exec provider.",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "workspaces": [
+    "exec-bridge",
+    "subprocess-xl",
+    "llm-bridge",
+    "tool-journal",
+    "lifecycle-gate",
+    "channel",
+    "worker-entry",
+    "wasi-toolbox",
+    "shell-ext",
+    "phone-model-config",
+    "phone-feature-admin",
+    "phone-mcp",
+    "phone-shell",
+    "phone-native-preview",
+    "phone-directory-import",
+    "workflow-worker"
+  ],
+  "scripts": {
+    "pretypecheck": "node shell-ext/tools/ensure-deps.mjs && node shell-ext/tools/patch-just-bash.mjs && node wasi-toolbox/tools/ensure-dev-deps.mjs",
+    "pretest": "node shell-ext/tools/ensure-deps.mjs && node shell-ext/tools/patch-just-bash.mjs && node wasi-toolbox/tools/ensure-dev-deps.mjs",
+    "test": "node scripts/run-tests.mjs \"tests/*.test.ts\" \"channel/src/*.test.ts\" \"worker-entry/src/*.test.ts\" \"shell-ext/src/*.test.ts\" \"shell-ext/test/*.test.ts\" \"wasi-toolbox/**/*.test.ts\" \"scripts/*.test.mjs\" \"tools/shell-corpus/*.test.mjs\"",
+    "typecheck": "tsc -p tsconfig.json",
+    "contract": "node contract-tests/src/cli.ts",
+    "contract:diff": "node contract-tests/src/diff.ts",
+    "bundle": "node bundle/build.mjs",
+    "sim": "node sim/exec-bridge-sim.mjs",
+    "demo": "bash sim/run-demo.sh",
+    "postinstall": "node shell-ext/tools/patch-just-bash.mjs"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh": "0.2.1-rc.2",
+    "@types/node": "24.10.1",
+    "@types/react": "18.3.27",
+    "esbuild": "0.25.10",
+    "playwright-core": "^1.49.1",
+    "typescript": "5.9.3"
+  }
+}

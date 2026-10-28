@@ -1,0 +1,65 @@
+[workspace]
+members = [
+    "crates/pdsh-core",
+    "crates/pdsh-ffi",
+    "crates/pdsh-rg",
+    "crates/pdsh-jaq",
+    "crates/pdsh-ts",
+    "crates/pdsh-phone",
+    "crates/pdsh-brush-wasm",
+    "crates/pdsh-jaq-wasm",
+    "crates/pdsh-all",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+rust-version = "1.85"
+
+[workspace.dependencies]
+pdsh-core = { path = "crates/pdsh-core" }
+pdsh-rg = { path = "crates/pdsh-rg" }
+pdsh-jaq = { path = "crates/pdsh-jaq" }
+pdsh-ts = { path = "crates/pdsh-ts" }
+pdsh-phone = { path = "crates/pdsh-phone" }
+pdsh-all = { path = "crates/pdsh-all" }
+pdsh-brush-wasm = { path = "crates/pdsh-brush-wasm" }
+
+# Read-only search (ripgrep libraries; Unlicense OR MIT).
+grep-matcher = "0.1.9"
+grep-regex = "0.1.14"
+grep-searcher = "0.1.17"
+grep-printer = "0.3.1"
+ignore = "0.4.33"
+globset = "0.4.20"
+
+# JSON for the host-bridge argument/result checks (MIT OR Apache-2.0).
+serde_json = "1.0"
+
+# jq-compatible filters (MIT).
+jaq-core = "3.1.2"
+jaq-std = "3.0.4"
+jaq-json = "2.0.3"
+
+# Syntax trees (MIT).
+tree-sitter = "0.25.10"
+tree-sitter-typescript = "0.23.2"
+tree-sitter-javascript = "0.25.0"
+tree-sitter-swift = "0.7.4"
+tree-sitter-python = "0.25.0"
+tree-sitter-rust = "0.24.2"
+tree-sitter-c = "0.24.2"
+tree-sitter-json = "0.24.8"
+
+# Bash-compatible shell core for the optional Wasm brush spike (MIT).
+# The exact pin matters: brush-core's public API changes between minor
+# releases, and the Wasm feature matrix is verified only for this version.
+brush-core = "=0.5.0"
+brush-builtins = "=0.2.0"
+brush-parser = "=0.4.0"
+
+# Async runtime used by brush-core; this feature set is the one brush-core's
+# own `cfg(target_family = "wasm")` dependency enables.
+tokio = { version = "1.52.1", features = ["io-util", "macros", "rt", "sync"] }

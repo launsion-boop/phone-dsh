@@ -1,0 +1,4 @@
+{
+  "name": "office-files",
+  "description": "Six small, valid OOXML documents built by build.py with the standard library only (deterministic bytes): quarterly-report.docx, offer-template.docx, budget-2026Q1.xlsx and kickoff.pptx use STORED zip members (readable by a Python without zlib); team-memo.docx and vendor-invoices.xlsx use DEFLATED members and need the zlib module. No git history."
+}

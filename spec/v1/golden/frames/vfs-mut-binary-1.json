@@ -1,0 +1,17 @@
+{
+  "type": "VFS_MUT",
+  "type_byte": 16,
+  "seq": 4,
+  "fields": {
+    "append_from": 0,
+    "data_hex": "fffe00800a",
+    "data_len": 5,
+    "mflags": 1,
+    "mode": 420,
+    "mseq": 44,
+    "op": 1,
+    "path": "/dsh/home/blob.bin"
+  },
+  "payload_hex": "000000000000002c01000001a401000000000000000000122f6473682f686f6d652f626c6f622e62696e00000005fffe00800a",
+  "frame_hex": "5a4c1000000000000000000400000033000000000000002c01000001a401000000000000000000122f6473682f686f6d652f626c6f622e62696e00000005fffe00800a"
+}

@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "handoff segments request metadata",
+  "description": "Metadata part of the POST /v1/handoff/segments binary frame; the payload is an uncompressed tar of the listed complete WAL segments.",
+  "type": "object",
+  "required": [
+    "generation",
+    "base_mseq",
+    "wal_seq",
+    "segments",
+    "payload_bytes",
+    "payload_sha256"
+  ],
+  "properties": {
+    "generation": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 18446744073709551615
+    },
+    "base_mseq": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 18446744073709551615
+    },
+    "wal_seq": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 18446744073709551615
+    },
+    "segments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "file",
+          "first_mseq",
+          "last_mseq",
+          "bytes"
+        ],
+        "properties": {
+          "file": {
+            "type": "string",
+            "pattern": "^wal/[0-9]{8}\\.[0-9]{6}\\.xlwal$"
+          },
+          "first_mseq": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 18446744073709551615
+          },
+          "last_mseq": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 18446744073709551615
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 40,
+            "maximum": 16777216
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "payload_bytes": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 285212672
+    },
+    "payload_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "additionalProperties": false
+}

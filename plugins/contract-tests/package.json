@@ -1,0 +1,14 @@
+{
+  "name": "@phone-dsh/dsh-contract-tests",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "description": "Compatibility contract suite for the DeepSeek Harness seams the phone-dsh phone host depends on.",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "contract": "node src/cli.ts",
+    "contract:diff": "node src/diff.ts"
+  }
+}

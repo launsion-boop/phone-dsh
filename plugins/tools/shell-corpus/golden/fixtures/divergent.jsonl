@@ -1,0 +1,1 @@
+{"name":"gate/committed-expectation","category":"gate","script":"printf 'actual\\n'","stdout":"expected\n","exitCode":0}

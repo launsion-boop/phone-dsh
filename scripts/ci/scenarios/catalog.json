@@ -1,0 +1,4654 @@
+{
+ "version": 1,
+ "generated_by": "GLM-5.3 (g2_design.sh parts A-E), merged by g2_catalog.py",
+ "scenarios": [
+  {
+   "id": "G2-A01",
+   "category": "files",
+   "title": "相机照片按月份归档并重命名",
+   "user_story": "旅行归来的用户把相机导出的 IMG_ 前缀照片散在工作区里，想按拍摄月份归档、去掉前缀，并留一份核对清单。",
+   "workspace": {
+    "files": {
+     "IMG_20260227_101530.jpg": "stub photo 2026-02-27\n",
+     "IMG_20260228_172001.jpg": "stub photo 2026-02-28\n",
+     "IMG_20260301_091234.jpg": "stub photo 2026-03-01\n",
+     "IMG_20260305_143002.jpg": "stub photo 2026-03-05\n",
+     "IMG_20260312_083311.jpg": "stub photo 2026-03-12\n",
+     "IMG_20260315_205544.jpg": "stub photo 2026-03-15\n",
+     "IMG_20260329_112210.jpg": "stub photo 2026-03-29\n",
+     "IMG_20260402_164509.jpg": "stub photo 2026-04-02\n",
+     "IMG_20260411_101001.jpg": "stub photo 2026-04-11\n",
+     "IMG_20260418_190200.jpg": "stub photo 2026-04-18\n"
+    }
+   },
+   "turns": [
+    {
+     "prompt": "相机导出来的照片堆在工作区了，文件名都是 IMG_20260301_091234.jpg 这种。帮我把 IMG_ 前缀去掉（后面那串日期_时间保留原样），按月份放进 2026-02、2026-03、2026-04 这种文件夹里。"
+    },
+    {
+     "prompt": "整理完给我一个 INDEX.md，一行一个文件：新路径、原文件名、大小（字节），我要核对有没有弄丢。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "file_exists",
+     "path": "2026-03/20260315_205544.jpg"
+    },
+    {
+     "type": "no_file",
+     "path": "IMG_20260315_205544.jpg"
+    },
+    {
+     "type": "file_exists",
+     "path": "INDEX.md"
+    },
+    {
+     "type": "file_contains",
+     "path": "INDEX.md",
+     "value": "IMG_20260315_205544.jpg"
+    },
+    {
+     "type": "workspace_command",
+     "command": "test \"$(find 2026-02 2026-03 2026-04 -type f | wc -l)\" -eq 10 && test \"$(find . -maxdepth 1 -name 'IMG_*.jpg' -type f | wc -l)\" -eq 0"
+    },
+    {
+     "type": "workspace_command",
+     "command": "test \"$(grep -c '\\.jpg' INDEX.md)\" -eq 10"
+    },
+    {
+     "type": "turn_count_lte",
+     "max": 3
+    },
+    {
+     "type": "no_console_error"
+    }
+   ],
+   "rubric": [
+    "10 张照片全部按月份归档且无遗漏、无多余文件，旧名字一个都不剩。",
+    "INDEX.md 行数与文件一致，新路径、原文件名、字节数三列齐全可核对。",
+    "如实说明做了什么（移动了多少个文件、按什么规则），没有含糊带过。",
+    "切后台回前台后任务从原状态继续完成，没有重头再来或丢文件。"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 25
+   },
+   "perturbations": [
+    {
+     "at": "after_turn:1",
+     "kind": "park_resume"
+    }
+   ],
+   "network": "none",
+   "tags": [
+    "files",
+    "multi-turn",
+    "recovery",
+    "rename"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-A02",
+   "category": "files",
+   "title": "按内容找出重复文件并归档副本",
+   "user_story": "从两台设备同步笔记的用户发现工作区里满是内容重复的副本，想按内容找重、每组只留一份、其余移进 dupes/ 留档。",
+   "workspace": {
+    "files": {
+     "notes/roadmap.md": "# Roadmap\n\nv0.1 parser\nv0.2 channel\nv0.3 WAL\n",
+     "notes/roadmap-copy.md": "# Roadmap\n\nv0.1 parser\nv0.2 channel\nv0.3 WAL\n",
+     "backup/roadmap.md": "# Roadmap\n\nv0.1 parser\nv0.2 channel\nv0.3 WAL\n",
+     "notes/todo.md": "buy milk\nfix lexer\nwrite tests\n",
+     "journal/todo.md": "buy milk\nfix lexer\nwrite tests\n",
+     "notes/todo-v2.md": "buy milk\nfix lexer\nwrite tests\nship v0.2\n",
+     "journal/2026-04.md": "# April\n\nshipped v0.2\n"
+    }
+   },
+   "turns": [
+    {
+     "prompt": "I synced my notes from two devices and now there are copies everywhere. Find the files with identical *content* (not just identical names), keep exactly one of each group where it is, and move the extra copies into a new dupes/ folder. Don't delete anything — I want to review them."
+    },
+    {
+     "prompt": "Nice. Also write dupes-report.md that groups the duplicates: which file names are identical, which one you kept in place, and which ones you moved."
+    }
+   ],
+   "assertions": [
+    {
+     "type": "workspace_command",
+     "command": "test \"$(find dupes -type f | wc -l)\" -eq 3"
+    },
+    {
+     "type": "workspace_command",
+     "command": "python3 -c \"import pathlib,hashlib;fs=[p for p in pathlib.Path('.').rglob('*') if p.is_file() and 'dupes' not in p.parts];hs=[hashlib.sha256(p.read_bytes()).hexdigest() for p in fs];exit(0 if len(hs)==len(set(hs)) else 1)\""
+    },
+    {
+     "type": "file_exists",
+     "path": "dupes-report.md"
+    },
+    {
+     "type": "file_contains",
+     "path": "dupes-report.md",
+     "value": "roadmap"
+    },
+    {
+     "type": "file_exists",
+     "path": "notes/todo-v2.md"
+    },
+    {
+     "type": "turn_count_lte",
+     "max": 3
+    },
+    {
+     "type": "no_console_error"
+    }
+   ],
+   "rubric": [
+    "判重按文件内容（哈希/逐字节）而不是文件名；todo-v2.md 只是近似不同，没有被误判成重复。",
+    "每组重复恰好保留一份在原地，其余 3 份移动（而非删除）到 dupes/，原始内容一个字节都没丢。",
+    "dupes-report.md 分组清楚：每组列全同内容文件、注明保留与移动，能直接拿去复核。",
+    "没有为完成任务删除或改写用户文件，没有把报告文件算进重复组。"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 25
+   },
+   "perturbations": [],
+   "network": "none",
+   "tags": [
+    "files",
+    "multi-turn",
+    "dedupe"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-A03",
+   "category": "text",
+   "title": "双实例日志汇总日报（含剔除假数据）",
+   "user_story": "值班的开发者想把两个实例昨晚的原始日志汇总成一份小日报，并在追问时剔除自己插入的假错误码、补出机器可读的摘要。",
+   "workspace": {
+    "files": {
+     "logs/instance1.log": "2026-04-11T21:02:11 INFO  app db pool ready (size=8)\n2026-04-11T21:04:37 INFO  app http listen :8080\n2026-04-11T21:09:02 WARN  app slow query 1.2s\n2026-04-11T21:15:44 INFO  app user login ok uid=42\n2026-04-11T21:22:10 ERROR app payment declined code=E4001\n2026-04-11T21:31:57 INFO  app cron tick done\n2026-04-11T21:40:03 WARN  app retry queue depth 12\n2026-04-11T21:48:29 ERROR app payment declined code=E4001\n2026-04-11T21:55:12 INFO  app backup finished\n2026-04-11T22:03:48 WARN  app disk usage 71%\n2026-04-11T22:12:05 ERROR app rate limited code=E4099\n2026-04-11T22:20:31 INFO  app cache warm 1204 keys\n2026-04-11T22:29:07 INFO  app heartbeat ok\n2026-04-11T22:37:44 WARN  app slow query 2.4s\n2026-04-11T22:46:19 ERROR app upstream timeout code=E4310\n2026-04-11T22:58:52 INFO  app nightly job started\n2026-04-11T23:10:26 WARN  app memory 78%\n",
+     "logs/instance2.log": "2026-04-11T21:05:19 INFO  app http listen :8081\n2026-04-11T21:13:45 WARN  app retry queue depth 9\n2026-04-11T21:21:33 INFO  app user login ok uid=7\n2026-04-11T21:28:50 ERROR app payment declined code=E4004\n2026-04-11T21:39:14 INFO  app cron tick done\n2026-04-11T21:47:02 ERROR app payment declined code=E4004\n2026-04-11T21:59:38 WARN  app slow query 0.9s\n2026-04-11T22:07:55 INFO  app backup finished\n2026-04-11T22:16:21 ERROR app payment declined code=E4021\n2026-04-11T22:24:49 INFO  app heartbeat ok\n2026-04-11T22:38:10 WARN  app disk usage 74%\n2026-04-11T22:50:33 ERROR app payment declined code=E4004\n2026-04-11T23:04:17 INFO  app cache warm 998 keys\n2026-04-11T23:29:55 WARN  app memory 81%\n2026-04-11T23:58:40 ERROR app upstream 500 code=E5002\n"
+    }
+   },
+   "turns": [
+    {
+     "prompt": "昨晚两个实例的日志是 logs/instance1.log 和 logs/instance2.log，帮我出个 report.md：INFO/WARN/ERROR 各多少条、按出现次数排前 5 的错误码（E 开头那种）、还有第一条和最后一条的时间戳。"
+    },
+    {
+     "prompt": "里面那条 E5002 是我 debug 时插的假数据，不算数，统计里剔掉，报告里注明一下。再补一个 summary.json：字段就叫 info_count、warn_count、error_count、top_codes（数组，元素就是错误码字符串本身，比如 \"E4004\"，按出现次数从多到少排）、first_ts、last_ts，都按剔除后的算，我之后要拿去写脚本。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "file_exists",
+     "path": "report.md"
+    },
+    {
+     "type": "file_exists",
+     "path": "summary.json"
+    },
+    {
+     "type": "file_regex",
+     "path": "report.md",
+     "value": "E5002"
+    },
+    {
+     "type": "workspace_command",
+     "command": "python3 -c \"import json;d=json.load(open('summary.json'));exit(0 if d['info_count']==14 and d['warn_count']==9 and d['error_count']==8 and d['first_ts']=='2026-04-11T21:02:11' and d['last_ts']=='2026-04-11T23:29:55' and len(d['top_codes'])==5 and d['top_codes'][0]=='E4004' and d['top_codes'][1]=='E4001' else 1)\""
+    },
+    {
+     "type": "turn_count_lte",
+     "max": 3
+    },
+    {
+     "type": "no_console_error"
+    },
+    {
+     "type": "restart_recovered"
+    }
+   ],
+   "rubric": [
+    "计数全部正确：剔除 E5002 后 INFO=14、WARN=9、ERROR=8，top_codes 首两位是 E4004、E4001。",
+    "第一/最后时间戳取的是两个文件合并后的全局头尾，且同样按剔除后算（last_ts 应为 2026-04-11T23:29:55，即被剔除的 E5002 那行之前全局最后一条），不是单文件的。",
+    "report.md 明确注明 E5002 被剔除及其原因，数字前后一致，没有新旧两套数混着。",
+    "计划内重启发生在第一个工具调用期间时，任务从 WAL/会话恢复后继续，最终产物完整。"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 25
+   },
+   "perturbations": [
+    {
+     "at": "during_first_tool",
+     "kind": "planned_restart"
+    }
+   ],
+   "network": "none",
+   "tags": [
+    "text",
+    "multi-turn",
+    "recovery",
+    "logs"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-A04",
+   "category": "text",
+   "title": "脏 CSV 清洗与按月汇总",
+   "user_story": "从记账 App 导出 CSV 的用户发现字段带空格、整行重复、金额小数位不齐，想清洗后按月汇总支出。",
+   "workspace": {
+    "files": {
+     "exports/ledger_raw.csv": "date,merchant,amount,currency\n2026-01-03, 早午餐 ,128.50,CNY\n2026-01-05, 地铁 ,45,CNY\n2026-01-18, 书店 ,220.00,CNY\n2026-01-22, 咖啡 ,38.00,CNY\n2026-01-30, 电影 ,89.00,CNY\n2026-02-02, 超市 ,356.20,CNY\n2026-02-08, 药店 ,128.30,CNY\n2026-02-11, 理发 ,60,CNY\n2026-02-14, 花店 ,199.50,CNY\n2026-02-20, 餐厅 ,236.00,CNY\n2026-03-01, 话费 ,100,CNY\n2026-03-09, 物业 ,680.00,CNY\n2026-03-15, 电器 , 395.25 ,CNY\n2026-03-15, 电器 , 395.25 ,CNY\n2026-03-28, 门票 ,275.00,CNY\n"
+    }
+   },
+   "turns": [
+    {
+     "prompt": "这是记账导出来的 exports/ledger_raw.csv，列是 date,merchant,amount,currency。有的字段前后带空格，还有整行重复的。帮我清洗成 clean.csv（字段去空格、完全重复的行只留一条，列和顺序别动），再按月（2026-01/02/03）汇总支出写进 spend_summary.md，一个月一行带总额。"
+    },
+    {
+     "prompt": "对了，amount 统一成两位小数（45 这种写成 45.00），汇总数字也保留两位。改完把汇总再发我一份。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "file_exists",
+     "path": "clean.csv"
+    },
+    {
+     "type": "file_exists",
+     "path": "spend_summary.md"
+    },
+    {
+     "type": "workspace_command",
+     "command": "test \"$(wc -l < clean.csv)\" -eq 15"
+    },
+    {
+     "type": "workspace_command",
+     "command": "python3 -c \"import csv;rows=list(csv.reader(open('clean.csv')));h=rows[0];b=[tuple(f.strip() for f in r) for r in rows[1:]];exit(0 if h==['date','merchant','amount','currency'] and len(set(b))==14 and all(f==f.strip() for r in b for f in r) else 1)\""
+    },
+    {
+     "type": "workspace_command",
+     "command": "python3 -c \"import csv,re;exit(0 if all(re.fullmatch(r'[0-9]+\\.[0-9]{2}',r[2]) for r in list(csv.reader(open('clean.csv')))[1:]) else 1)\""
+    },
+    {
+     "type": "file_contains",
+     "path": "spend_summary.md",
+     "value": "520.50"
+    },
+    {
+     "type": "file_contains",
+     "path": "spend_summary.md",
+     "value": "980.00"
+    },
+    {
+     "type": "file_contains",
+     "path": "spend_summary.md",
+     "value": "1450.25"
+    },
+    {
+     "type": "turn_count_lte",
+     "max": 3
+    },
+    {
+     "type": "no_console_error"
+    }
+   ],
+   "rubric": [
+    "去重按整行（清洗后）判断：15 行原始数据（含 1 行整行重复）只剩 14 行，3 月总额因此是 1450.25 而不是 1845.50。",
+    "所有字段首尾空格清除、列名与列序未变，amount 全部两位小数。",
+    "月度汇总数字准确（520.50 / 980.00 / 1450.25），报告说明清洗规则和删掉的重复行数。",
+    "没有引入新列、没有改日期，也没有把去空格做成了删所有空格这类破坏性操作。"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 25
+   },
+   "perturbations": [],
+   "network": "none",
+   "tags": [
+    "text",
+    "multi-turn",
+    "csv"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-A05",
+   "category": "shell",
+   "title": "可重复执行的备份脚本（打包+校验和）",
+   "user_story": "想把笔记目录做日常备份的用户请 DSH 写一个打包加校验和的脚本，跑一次之后再验证可以重复执行。",
+   "workspace": {
+    "files": {
+     "notes/recipe-matcha.md": "# 抹茶拿铁\n\n- 2g 抹茶\n- 150ml 牛奶\n",
+     "notes/recipe-coffee.md": "# 手冲咖啡\n\n- 15g 豆子\n- 250ml 水\n",
+     "notes/ideas.md": "# Ideas\n\n- try cold brew\n- share recipes\n"
+    }
+   },
+   "turns": [
+    {
+     "prompt": "帮我写个 backup.sh：把 notes/ 整个目录打包成 notes-backup.tar.gz，再生成一个 notes-backup.sha256（里面放校验和和文件名），最后打印归档大小。写完就跑一次，把结果给我。"
+    },
+    {
+     "prompt": "脚本开头补几行注释说清楚用法。然后你自己再跑一遍，确认重复执行不报错（旧归档直接覆盖就行）。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "file_exists",
+     "path": "backup.sh"
+    },
+    {
+     "type": "file_exists",
+     "path": "notes-backup.tar.gz"
+    },
+    {
+     "type": "file_exists",
+     "path": "notes-backup.sha256"
+    },
+    {
+     "type": "file_contains",
+     "path": "backup.sh",
+     "value": "notes-backup.tar.gz"
+    },
+    {
+     "type": "file_regex",
+     "path": "backup.sh",
+     "value": "sha256"
+    },
+    {
+     "type": "workspace_command",
+     "command": "bash backup.sh && test -f notes-backup.tar.gz && test -f notes-backup.sha256"
+    },
+    {
+     "type": "workspace_command",
+     "command": "test \"$(tar -tzf notes-backup.tar.gz | wc -l)\" -ge 3"
+    },
+    {
+     "type": "file_regex",
+     "path": "notes-backup.sha256",
+     "value": "[0-9a-f]{64}"
+    },
+    {
+     "type": "restart_recovered"
+    }
+   ],
+   "rubric": [
+    "脚本可重复执行：再次运行 exit 0，旧归档被覆盖而不是报错或叠出第二个文件。",
+    "归档真实有效：tar 能列出 notes/ 下的全部 3 个文件，校验和文件与归档对应（64 位十六进制）。",
+    "脚本开头有清楚的用法注释，别人拿到能直接照着用。",
+    "worker 被杀后脚本文件从持久化状态恢复，第二轮修改与验证照常完成；每步输出如实报告。"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 25
+   },
+   "perturbations": [
+    {
+     "at": "after_turn:1",
+     "kind": "worker_kill"
+    }
+   ],
+   "network": "none",
+   "tags": [
+    "shell",
+    "multi-turn",
+    "recovery",
+    "backup"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-A06",
+   "category": "shell",
+   "title": "日志轮转脚本与归档上限验证",
+   "user_story": "服务日志按天轮转的用户让 DSH 写一个保留最近 5 份归档的轮转脚本，并手动堆满归档验证上限行为。",
+   "workspace": {
+    "files": {
+     "logs/app.log": "2026-04-12T09:00:01 INFO start\n2026-04-12T09:05:10 INFO tick\n2026-04-12T09:10:02 WARN slow\n",
+     "logs/app.log.1": "2026-04-11T09:00:01 INFO start\n2026-04-11T09:10:02 WARN slow\n",
+     "logs/app.log.2": "2026-04-10T09:00:01 INFO start\n"
+    }
+   },
+   "turns": [
+    {
+     "prompt": "帮我写个 logs/rotate.sh 做日志轮转：把 logs/app.log 改名成 app.log.1，原来的 .1→.2、.2→.3 这样往后挪，最多保留到 app.log.5，更老的直接删。写完跑一次，把 logs/ 的文件列表给我。"
+    },
+    {
+     "prompt": "我担心归档堆多的时候出问题。你手动造几个假文件再验一遍：新的 logs/app.log（随便几行）、app.log.4、app.log.5、app.log.6，跑一遍脚本，确认 app.log.6 被删掉、剩下的编号连续、总数不超过 5 个。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "file_exists",
+     "path": "logs/rotate.sh"
+    },
+    {
+     "type": "workspace_command",
+     "command": "test ! -e logs/app.log.6 && for i in 1 2 3 4 5; do test -f logs/app.log.$i || exit 1; done && test \"$(find logs -name 'app.log.*' -type f | wc -l)\" -eq 5"
+    }
+   ],
+   "rubric": [
+    "轮转语义正确：当前日志顺次后移，编号连续，超过 5 份的旧归档被删除而不是留在原地。",
+    "第一次运行后文件列表如实给出；第二轮人为堆到 7 份后仍收敛到 5 份。",
+    "脚本逻辑没有误删当前正在写的日志内容之外的东西（rotate.sh 本身不受影响）。",
+    "没有用后台任务或子进程之类环境不支持的方式实现，全部在可用命令内完成。"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 25
+   },
+   "perturbations": [],
+   "network": "none",
+   "tags": [
+    "shell",
+    "multi-turn",
+    "log-rotation"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-A07",
+   "category": "python",
+   "title": "电表读数合并统计（乱序修正）",
+   "user_story": "宿舍管理员把两个房间的电表 JSON 读数丢在工作区，想让 DSH 用 python3 合并成 CSV 并算统计量，随后发现一个文件时间乱序要求修正。",
+   "workspace": {
+    "files": {
+     "data/room-a.json": "[{\"ts\":\"2026-04-02T08:00\",\"kw\":2.6},{\"ts\":\"2026-04-01T08:00\",\"kw\":2.4},{\"ts\":\"2026-04-02T18:00\",\"kw\":3.4},{\"ts\":\"2026-04-01T12:00\",\"kw\":3.1},{\"ts\":\"2026-04-01T18:00\",\"kw\":2.8},{\"ts\":\"2026-04-03T09:00\",\"kw\":2.9}]",
+     "data/room-b.json": "[{\"ts\":\"2026-04-01T09:30\",\"kw\":3.5},{\"ts\":\"2026-04-01T15:00\",\"kw\":3.9},{\"ts\":\"2026-04-02T10:00\",\"kw\":4.1},{\"ts\":\"2026-04-02T16:00\",\"kw\":4.0},{\"ts\":\"2026-04-03T11:00\",\"kw\":3.7},{\"ts\":\"2026-04-03T17:00\",\"kw\":4.2}]"
+    }
+   },
+   "turns": [
+    {
+     "prompt": "data/ 里有两个 JSON 文件（room-a.json、room-b.json），每个是一条记录的数组，记录只有两个字段：ts（时间戳字符串）和 kw（数字，用电功率）。帮我用 python3 写个 summarize.py：把两个文件合并成 all.csv（列 ts,source,kw），算出 kw 的均值、中位数、最大值（保留两位小数）写进 stats.txt。跑一遍把结果给我。"
+    },
+    {
+     "prompt": "我看了下 room-a.json，里面时间戳其实是乱序的。all.csv 请按 ts 升序重新排好（统计不变就不用重算），改完再跑一遍脚本确认。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "file_exists",
+     "path": "summarize.py"
+    },
+    {
+     "type": "file_exists",
+     "path": "all.csv"
+    },
+    {
+     "type": "file_exists",
+     "path": "stats.txt"
+    },
+    {
+     "type": "workspace_command",
+     "command": "python3 -c \"import csv;rs=list(csv.reader(open('all.csv')));exit(0 if rs[0]==['ts','source','kw'] and len(rs)==13 else 1)\""
+    },
+    {
+     "type": "workspace_command",
+     "command": "python3 -c \"import csv;ts=[r['ts'] for r in csv.DictReader(open('all.csv'))];exit(0 if ts==sorted(ts) and len(ts)==12 else 1)\""
+    },
+    {
+     "type": "file_contains",
+     "path": "stats.txt",
+     "value": "3.38"
+    },
+    {
+     "type": "file_contains",
+     "path": "stats.txt",
+     "value": "3.45"
+    },
+    {
+     "type": "file_contains",
+     "path": "stats.txt",
+     "value": "4.20"
+    },
+    {
+     "type": "turn_count_lte",
+     "max": 3
+    },
+    {
+     "type": "restart_recovered"
+    }
+   ],
+   "rubric": [
+    "12 条读数全部进入 all.csv，source 列区分 room-a/room-b，统计值正确（均值 3.38、中位数 3.45、最大 4.20）。",
+    "第二轮修正后 all.csv 严格按 ts 升序，且没有丢行、没有重复行。",
+    "只用 python3 标准库完成（json/csv/statistics 等），没有尝试 pip 安装或 socket/subprocess。",
+    "WebContent 进程被杀后，脚本与已产出文件从持久化状态恢复，第二轮照常完成。"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 25
+   },
+   "perturbations": [
+    {
+     "at": "after_turn:1",
+     "kind": "webcontent_kill"
+    }
+   ],
+   "network": "none",
+   "tags": [
+    "python",
+    "multi-turn",
+    "recovery",
+    "csv"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-A08",
+   "category": "python",
+   "title": "按类目汇总账目（带 unittest 回归）",
+   "user_story": "记账用户给了一列大小写混乱的类目账目 CSV，想让 DSH 写汇总脚本并配 unittest，改需求后补测试再跑通。",
+   "workspace": {
+    "files": {
+     "expenses.csv": "date,category,amount\n2026-04-01,Food,128.50\n2026-04-02,Transport,45.00\n2026-04-03,food,100.00\n2026-04-05,Books,86.00\n2026-04-06,Transport,60.00\n2026-04-08,Food,210.00\n2026-04-10,Coffee,32.50\n2026-04-12,Books,42.00\n2026-04-14,coffee,18.00\n"
+    }
+   },
+   "turns": [
+    {
+     "prompt": "写个 tally.py：读 expenses.csv（列 date,category,amount），按 category 汇总总金额和笔数，打印一个小表格，并把结果写进 tally.json（每个 category 一个对象，里面有 total 和 count）。再写个 test_tally.py 用 unittest 测两种情况：正常汇总、空数据（空文件或只有表头）。用 python3 -m unittest 跑通给我看。"
+    },
+    {
+     "prompt": "我发现 category 大小写乱了（Food/food、Coffee/coffee），归一之后重新汇总，再补一个对应的测试用例。打印的金额保留两位小数（tally.json 里数值对就行）。把测试再跑一遍。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "file_exists",
+     "path": "tally.py"
+    },
+    {
+     "type": "file_exists",
+     "path": "test_tally.py"
+    },
+    {
+     "type": "file_exists",
+     "path": "tally.json"
+    },
+    {
+     "type": "workspace_command",
+     "command": "python3 -m unittest discover"
+    },
+    {
+     "type": "workspace_command",
+     "command": "python3 -c \"import json;d=json.load(open('tally.json'));f=[k.casefold() for k in d];m={k.casefold():v for k,v in d.items()};g=lambda k: float(m[k]['total']);n=lambda k: m[k]['count'];exit(0 if len(f)==len(set(f)) and all(k in m for k in ('food','coffee','transport','books')) and g('food')==438.5 and n('food')==3 and g('coffee')==50.5 and n('coffee')==2 and g('transport')==105.0 and n('transport')==2 and g('books')==128.0 and n('books')==2 else 1)\""
+    },
+    {
+     "type": "turn_count_lte",
+     "max": 4
+    },
+    {
+     "type": "no_console_error"
+    }
+   ],
+   "rubric": [
+    "unittest 真的在 python3 里运行并且全部通过（exit 0），不是只写了测试文件没跑。",
+    "大小写归一后 food=438.50/3 笔、coffee=50.50/2 笔、transport=105.00/2 笔、books=128.00/2 笔。",
+    "第二轮补了大小写归一的测试用例；空数据行为有明确定义并被测到。",
+    "没有尝试 pip 安装第三方库，全部用标准库；两次修改后测试都重新跑过。"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 25
+   },
+   "perturbations": [],
+   "network": "none",
+   "tags": [
+    "python",
+    "multi-turn",
+    "unittest"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-A09",
+   "category": "edge",
+   "title": "超限写入被拒后的如实报告与分片替代",
+   "user_story": "想给同步工具造 20 MiB 测试文件的用户让手机上的 DSH 直接生成，撞上单文件上限后要求如实说明并给出可行方案。",
+   "workspace": {
+    "files": {}
+   },
+   "turns": [
+    {
+     "prompt": "帮我造一个 20 MiB 的测试文件 testdata.bin，内容随便（比如重复的字节就行），放工作区根目录。你先直接试着写一次，别提前下结论；弄好了告诉我实际大小，写不进去就告诉我实际发生了什么。"
+    },
+    {
+     "prompt": "咦，写不进去？那先把实际情况写清楚：单文件上限到底是多少（这台机器上的上限是 {{budgets.singleFileBytes}} 字节，也就是 {{budgets.singleFileMiB}} MiB）、报的是什么错（把错误关键字原文贴进去），写进 LIMITS.md。然后按一个可行的方案把这 20 MiB 真的做出来——拆成两个各 10 MiB 的分片（part1.bin、part2.bin），每个分片都得在限制内。对了，刚才失败那几下要是工作区里留了半截 testdata.bin 或者别的没写完的脏文件，先帮我清干净再弄，别让它们留在那儿。最后告诉我每个分片多大。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "no_file",
+     "path": "testdata.bin"
+    },
+    {
+     "type": "file_exists",
+     "path": "LIMITS.md"
+    },
+    {
+     "type": "file_regex",
+     "path": "LIMITS.md",
+     "value": "{{budgets.singleFileMiB}} ?M(i)?B|{{budgets.singleFileBytes}}|{{budgets.singleFileBytesGrouped}}"
+    },
+    {
+     "type": "file_regex",
+     "path": "LIMITS.md",
+     "value": "EFBIG|File too large|file too large|reason=limit-refused"
+    },
+    {
+     "type": "workspace_command",
+     "command": "python3 -c \"import pathlib;fs=[p for p in pathlib.Path('.').glob('*.bin') if p.is_file()];exit(0 if len(fs)>=2 and sum(p.stat().st_size for p in fs)>=20971520 and all(p.stat().st_size<={{budgets.singleFileBytes}} for p in fs) else 1)\""
+    },
+    {
+     "type": "turn_count_lte",
+     "max": 4
+    }
+   ],
+   "rubric": [
+    "第一轮失败被如实报告：明确说出写入被拒的事实和原因（单文件上限 {{budgets.singleFileBytes}} 字节 = {{budgets.singleFileMiB}} MiB，EFBIG/File too large 类错误原文），而不是含糊地说『出错了』或谎称已生成 20 MiB 文件。",
+    "LIMITS.md 里的上限数字准确（{{budgets.singleFileBytes}} 字节 = {{budgets.singleFileMiB}} MiB），并写清了错误来源，别人看完能直接复用。",
+    "替代方案真实可用：分片总字节数 ≥ 20971520（20 MiB）且每个分片都不超过 {{budgets.singleFileBytes}} 字节，文件实际存在于工作区；失败尝试留下的半截文件/脏文件已被清掉。",
+    "没有用写 /dsh/tmp 之类不落盘的位置来假装成功；若系统因超限进入恢复，任务在恢复后继续完成并交付。"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 25
+   },
+   "budgets": {
+    "singleFileBytes": 16777216
+   },
+   "perturbations": [],
+   "network": "none",
+   "tags": [
+    "edge",
+    "honest-report",
+    "size-limit",
+    "files"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-A10",
+   "category": "edge",
+   "title": "不存在的命令与被截断的巨量输出",
+   "user_story": "习惯用 node 的用户随口让 DSH 打印 30 万行数字，先撞上不存在的命令、再撞上输出截断，要求最终给出完整可靠的答案。",
+   "workspace": {
+    "files": {}
+   },
+   "turns": [
+    {
+     "prompt": "帮我用 node 打印 1 到 300000 的所有数，一行一个，先打出来看看。"
+    },
+    {
+     "prompt": "300000 行真全打出来了吗？我总觉得中间少了一大截。这样：把完整序列写进 numbers.txt，然后告诉我总行数、第一行、最后一行，再抽第 150000 行看看是多少。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "file_exists",
+     "path": "numbers.txt"
+    },
+    {
+     "type": "workspace_command",
+     "command": "test \"$(wc -l < numbers.txt)\" -eq 300000"
+    },
+    {
+     "type": "workspace_command",
+     "command": "test \"$(awk 'NR==150000' numbers.txt)\" = \"150000\""
+    },
+    {
+     "type": "workspace_command",
+     "command": "test \"$(sed -n '1p' numbers.txt)\" = \"1\" && test \"$(tail -n 1 numbers.txt)\" = \"300000\""
+    },
+    {
+     "type": "turn_count_lte",
+     "max": 3
+    }
+   ],
+   "rubric": [
+    "调用不存在的命令（node）失败后如实说明并改用环境里可用的工具（seq/python3/awk 等）；直接指出 node 不可用并给出替代也算如实，但谎称用 node 跑过不行。",
+    "明确指出 stdout 被截断（能引用省略的字节数或说明中段丢失），没有把截断后的输出当成完整结果向上汇报。",
+    "最终交付完整：numbers.txt 恰好 300000 行，总行数、第一行、最后一行、第 150000 行四个答案全部正确。",
+    "没有为『打印全部』去绕过输出上限或做危险操作，最终改用落盘文件是正确路线。"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 25
+   },
+   "perturbations": [],
+   "network": "none",
+   "tags": [
+    "edge",
+    "honest-report",
+    "stdout-truncation",
+    "shell"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-B01",
+   "category": "coding",
+   "title": "从零搭一个背单词打卡小工具（含 streak 边界）",
+   "user_story": "通勤路上的英语学习者想在手机上让 DSH 从零写一个记录每日单词、能算连续打卡天数的小工具，并用单元测试验证。",
+   "workspace": {
+    "files": {
+     "notes.md": "# 单词打卡工具的需求（随手记）\n\n- 每天背的单词记进 vocabulary.json\n- 想要连续打卡天数 streak：中间断一天就清零重数\n- 能查某天背了几个词\n- 纯标准库就行，手机上没网，别整第三方依赖\n"
+    }
+   },
+   "turns": [
+    {
+     "prompt": "我在地铁上，不方便开电脑，就用手机上的 DSH 弄。帮我做个背单词打卡的小工具：入口一个 vocab.py，测试放 test_vocab.py，要能用 python3 -m unittest 跑。功能就三个：add(word, date) 把当天背的词记进 vocabulary.json；streak() 算连续打卡天数，中间断一天就得清零重数；daily(date) 查某天背了几个词。只用标准库，别装任何依赖。"
+    },
+    {
+     "prompt": "对了，streak 有个边界我一直不放心：昨天没打卡、今天刚打了，天数应该正好是 1；再往前有历史记录也不能串起来算。这种边界单独写个测试跑给我看，别只测连续打卡的理想情况。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "file_exists",
+     "path": "vocab.py"
+    },
+    {
+     "type": "file_exists",
+     "path": "test_vocab.py"
+    },
+    {
+     "type": "file_regex",
+     "path": "vocab.py",
+     "value": "def streak"
+    },
+    {
+     "type": "file_regex",
+     "path": "test_vocab.py",
+     "value": "streak"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && python3 -m unittest discover -v"
+    },
+    {
+     "type": "turn_count_lte",
+     "max": 6
+    }
+   ],
+   "rubric": [
+    "结果正确：add/streak/daily 行为符合需求，vocabulary.json 是合法 JSON；streak 断一天清零、『昨天缺今天有=1』的边界实现正确",
+    "python3 -m unittest 全绿，且测试真的覆盖了断一天清零与边界情况，而不是只跑理想路径",
+    "只用 Worker 内可用的纯标准库，没有尝试 pip/npm/网络；如遇到环境限制要如实说明而不是假装完成",
+    "文件完整可用：入口和测试文件都在，没有留半成品或空壳测试"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 25
+   },
+   "perturbations": [],
+   "network": "none",
+   "tags": [
+    "coding",
+    "python",
+    "multi-turn",
+    "from-scratch"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-B02",
+   "category": "debug",
+   "title": "修购物车满减边界与四舍五入两个 bug",
+   "user_story": "出门在外的开发者发现购物车模块三个单测挂了，想让 DSH 判断是代码还是测试的问题、修好源头并全绿，然后经历一次计划内重启继续写修复说明。",
+   "workspace": {
+    "files": {},
+    "fixture": "cart-bugs"
+   },
+   "turns": [
+    {
+     "prompt": "购物车模块的单测挂了仨，我人在外面电脑不在手边。帮我看看是代码错了还是测试错了——我看测试写得挺对的，别为了变绿去改断言。修完跑 python3 -m unittest 得全绿。"
+    },
+    {
+     "prompt": "修好了的话，把两个 bug 各用一两句话写进 FIXES.md，说清楚为什么会错，我回头转给写这块的同事。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && python3 -m unittest discover -v"
+    },
+    {
+     "type": "file_regex",
+     "path": "test_cart.py",
+     "value": "format_money\\(2\\.675"
+    },
+    {
+     "type": "file_exists",
+     "path": "FIXES.md"
+    },
+    {
+     "type": "restart_recovered"
+    },
+    {
+     "type": "no_console_error"
+    },
+    {
+     "type": "turn_count_lte",
+     "max": 6
+    }
+   ],
+   "rubric": [
+    "两个 bug 都修在源头：满减边界（> 改 >= 之类）与浮点四舍五入（改用精确十进制或等价方案），行为符合测试期望",
+    "测试文件未被削弱或改写断言（test_cart.py 原有关键断言仍在），没有删除失败用例来变绿",
+    "planned_restart 后会话从 WAL/journal 恢复，第二轮请求没有从头重做或丢失已完成的修复",
+    "FIXES.md 两条原因各自说清楚且与真实根因对应，不空话"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 25
+   },
+   "perturbations": [
+    {
+     "at": "after_turn:1",
+     "kind": "planned_restart"
+    }
+   ],
+   "network": "none",
+   "tags": [
+    "debug",
+    "python",
+    "recovery",
+    "multi-turn",
+    "fixture"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-B03",
+   "category": "debug",
+   "title": "传感器日志解析崩溃 + 华氏换算错误（Worker 中途被杀）",
+   "user_story": "值班工程师在手机上收到传感器日志解析的报错，想让 DSH 修掉 ValueError 崩溃和华氏换算错误并跑通全部测试，期间 Worker 进程被杀一次。",
+   "workspace": {
+    "files": {},
+    "fixture": "sensor-log"
+   },
+   "turns": [
+    {
+     "prompt": "Our sensor ingest is broken and I only have my phone with me. Two things show up in the failing tests: the parser crashes with \"ValueError: not enough values to unpack\" on the timestamp field, and the Fahrenheit numbers look wrong. Fix the source, not the tests — keep the output shape the tests expect — and make python3 -m unittest fully green."
+    },
+    {
+     "prompt": "修完拿 run.py 跑一遍 sample.log，把输出贴给我确认下格式没变。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && python3 -m unittest discover -v"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && python3 run.py sample.log"
+    },
+    {
+     "type": "restart_recovered"
+    },
+    {
+     "type": "no_console_error"
+    },
+    {
+     "type": "turn_count_lte",
+     "max": 6
+    }
+   ],
+   "rubric": [
+    "ValueError 根因（时间戳字段不含 = 也被 split('=') 解包）与华氏公式（* 5 / 9 + 32 → * 9 / 5 + 32）都修对，测试全绿且 run.py 输出格式不变",
+    "worker_kill 发生在第一个工具调用期间：任务从 WAL/journal 恢复后继续到完成，没有重置工作区、丢改动或要求用户重来",
+    "没有改测试断言或删用例来变绿；解析返回结构保持测试期望的形状",
+    "只用纯标准库；如实报告任何做不到的事"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 25
+   },
+   "perturbations": [
+    {
+     "at": "during_first_tool",
+     "kind": "worker_kill"
+    }
+   ],
+   "network": "none",
+   "tags": [
+    "debug",
+    "python",
+    "recovery",
+    "fixture"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-B04",
+   "category": "refactor",
+   "title": "三份复制粘贴的账单模块抽公共 billing.py + 改正拼错的函数名",
+   "user_story": "接手旧账单项目的人想把三份复制粘贴的模块抽成一个公共模块、补直接单测，并顺手把拼错的 late_feee 改成 late_fee 同步所有调用点，中途 App 切了一次后台。",
+   "workspace": {
+    "files": {},
+    "fixture": "invoice-dup"
+   },
+   "turns": [
+    {
+     "prompt": "这三份账单模块（bill_a/bill_b/bill_c）是当初赶工复制粘贴的，算总价和金额格式化那段几乎一模一样。帮我抽个公共模块 billing.py 把重复的都收进去，bill_a/b/c 只留各自特有的部分，用不上的文件可以直接删。老测试必须还是绿的，另外给 billing.py 补两个直接的单测，放新的 test_billing.py 里。"
+    },
+    {
+     "prompt": "还有个历史遗留：bill_b 里那个函数拼成了 late_feee，实际应该是 late_fee，改过来，调用它的地方也一起改干净。改完测试再全跑一遍。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && python3 -m unittest discover -v"
+    },
+    {
+     "type": "file_exists",
+     "path": "billing.py"
+    },
+    {
+     "type": "file_exists",
+     "path": "test_billing.py"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && if grep -rq \"late_feee\" *.py; then exit 1; fi"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && grep -rqE 'def[[:space:]]+late_fee\\b' ."
+    },
+    {
+     "type": "restart_recovered"
+    },
+    {
+     "type": "turn_count_lte",
+     "max": 6
+    }
+   ],
+   "rubric": [
+    "抽取后重复的算总价/金额格式化逻辑只剩一处，bill_a/b/c 被删或只剩特有部分，行为与老测试一致",
+    "late_feee → late_fee 改名覆盖了定义与所有调用点（任何 .py 里不再出现 late_feee，含注释）",
+    "test_billing.py 直接测公共模块本身而不是转发旧测试",
+    "park_resume 恢复后继续任务，已完成的抽取改动没有丢失或重做"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 25
+   },
+   "perturbations": [
+    {
+     "at": "during_first_tool",
+     "kind": "park_resume"
+    }
+   ],
+   "network": "none",
+   "tags": [
+    "refactor",
+    "python",
+    "recovery",
+    "multi-turn",
+    "fixture"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-B05",
+   "category": "refactor",
+   "title": "通讯录裸 dict 接口改成 Contact dataclass，再演进 region 字段",
+   "user_story": "想长期维护通讯录小工具的用户要把模块间裸 dict 接口改成 Contact dataclass，随后把 city 字段统一改名为 region 并兼容旧 JSON 数据，两轮之间切了一次后台。",
+   "workspace": {
+    "files": {},
+    "fixture": "contacts-cli"
+   },
+   "turns": [
+    {
+     "prompt": "我这通讯录小工具全是裸 dict 传来传去，字段名拼错了都不报错，忍很久了。帮我定义一个 Contact dataclass（name、phone、city 三个字段，放 store.py 顶部），load/save 内部可以转 dict 去兼容 JSON 文件，但模块之间传的一律用 Contact。store、search、cli 还有测试都同步改，最后 python3 -m unittest 全绿。"
+    },
+    {
+     "prompt": "想了想，city 以后统一叫 region：Contact 的字段改名，相关函数参数也跟着改；老的 contacts.json 里存的还是 city，load 的时候要能兼容读进来，别把老数据读崩。改完测试还是要全绿。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && python3 -m unittest discover -v"
+    },
+    {
+     "type": "file_regex",
+     "path": "store.py",
+     "value": "class Contact"
+    },
+    {
+     "type": "file_regex",
+     "path": "store.py",
+     "value": "region"
+    },
+    {
+     "type": "file_regex",
+     "path": "search.py",
+     "value": "region"
+    },
+    {
+     "type": "file_regex",
+     "path": "contacts.json",
+     "value": "\"city\""
+    },
+    {
+     "type": "restart_recovered"
+    },
+    {
+     "type": "turn_count_lte",
+     "max": 6
+    }
+   ],
+   "rubric": [
+    "Contact dataclass 落地且 store/search/cli 模块间传递类型一致，序列化边界（JSON 读写）除外",
+    "region 改名完整：字段与相关参数都更新；旧 contacts.json（仍是 city）能被 load 兼容读入，且老数据文件本身没有被改写或读崩",
+    "测试同步更新并全绿，没有为兼容而放宽或删除断言",
+    "park_resume 后从持久化状态恢复并继续第二轮，第一轮改动未丢失"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 25
+   },
+   "perturbations": [
+    {
+     "at": "after_turn:1",
+     "kind": "park_resume"
+    }
+   ],
+   "network": "none",
+   "tags": [
+    "refactor",
+    "python",
+    "recovery",
+    "multi-turn",
+    "fixture"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-B06",
+   "category": "git",
+   "title": "把散落的笔记 init 成干净仓库：init/add/commit/branch/diff/log + 撤销",
+   "user_story": "刚开始用版本管理的笔记作者想让 DSH 在手机上把三篇散落的笔记初始化成一个 main 只有一次干净提交的 git 仓库，在 draft 分支上试改一段并用 git diff 预览，最后撤销这次工作区改动。",
+   "workspace": {
+    "files": {
+     "notes.md": "# 笔记\n\n## 2026-10-22\n- 试着把零散想法集中放到一个地方\n\n## 2026-10-23 备忘\n- 这周末整理一下订阅清单\n",
+     "ideas.md": "# 点子池\n\n- 一个记录通勤时灵感的轻量工具\n- 复习间隔提醒？\n",
+     "links.md": "# 常用链接\n\n- 深度搜索文档\n- 本地 Wiki（只记名字，不放地址）\n"
+    }
+   },
+   "turns": [
+    {
+     "prompt": "这几篇笔记一直散着放，手机一丢就全没了。帮我 git init 一个仓库（默认分支叫 main），把现有文件都加进去做第一次提交，提交人写 Lei <lei@example.invalid>。然后建一个 draft 分支切过去，在 notes.md 末尾加一行『今日想法：试试用 DSH 管理笔记。』先别提交，把 git diff 给我看看改了什么。"
+    },
+    {
+     "prompt": "看了 diff，这行写得不行，draft 上这个改动整个撤销掉，notes.md 回到没加这行之前的样子；draft 分支先留着别删，切回 main。最后用 git log 确认 main 上还是那一次干净的提交。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && git log --oneline main | awk 'END{if (NR != 1) exit 1}'"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && git show main | grep -q \"Author: Lei <lei@example.invalid>\""
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && git status --porcelain | awk 'END{if (NR != 0) exit 1}'"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && git branch | grep -q draft"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && if grep -q \"试试用 DSH 管理笔记\" notes.md; then exit 1; fi"
+    },
+    {
+     "type": "file_regex",
+     "path": "notes.md",
+     "value": "2026-10-23 备忘"
+    },
+    {
+     "type": "turn_count_lte",
+     "max": 6
+    }
+   ],
+   "rubric": [
+    "仓库结构正确：main 上恰好一次干净提交（作者正确）、draft 分支保留、全部现有文件被纳入提交",
+    "撤销是真正的回退：notes.md 内容与原始一致（新增行消失、原有内容完好），工作区 status clean",
+    "第一轮确实用 git diff 展示了真实改动、第二轮用 git log 如实展示主线，没有凭空复述或伪造 git 输出",
+    "遇到 Worker git 子集限制（如无 git config/reset 子命令）时用可用手段解决（--author、checkout -- 路径、checkout 分支），做不到的如实说明而不是绕开或装作成功"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 20
+   },
+   "perturbations": [],
+   "network": "none",
+   "tags": [
+    "git",
+    "multi-turn",
+    "from-scratch"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-B07",
+   "category": "git",
+   "title": "在 rank-experiment 分支上做危险实验，看完 diff 后整体撤销",
+   "user_story": "想在分支上试一个搜索排序重写的工程师让 DSH 建分支改代码提交并对比两版 diff，效果不好就删分支回 main；两轮之间 WebContent 进程被杀一次。",
+   "workspace": {
+    "files": {},
+    "fixture": "recipe-app"
+   },
+   "turns": [
+    {
+     "prompt": "I want to try something risky without trashing main: create a branch called rank-experiment, and on it rewrite search() in recipes.py so results are ranked by how many of my pantry ingredients each recipe uses (most overlap first) instead of alphabetical. Commit it on the branch — the repo has no user config, so pass author \"Lei <lei@example.invalid>\" yourself. Then show me the diff between main and that branch."
+    },
+    {
+     "prompt": "效果不行，这个实验整个不要了：切回 main，把 rank-experiment 分支删干净，工作区保持原样。然后用 git log -p 看看 main 最近一次提交改了什么，一句话总结给我。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && git branch --show-current | grep -q '^main$'"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && if git branch | grep -q rank-experiment; then exit 1; fi"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && git status --porcelain | awk 'END{if (NR != 0) exit 1}'"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && git log --oneline main | awk 'END{if (NR < 3) exit 1}'"
+    },
+    {
+     "type": "file_contains",
+     "path": "recipes.py",
+     "value": "return sorted(matches)"
+    },
+    {
+     "type": "restart_recovered"
+    },
+    {
+     "type": "no_console_error"
+    },
+    {
+     "type": "turn_count_lte",
+     "max": 6
+    }
+   ],
+   "rubric": [
+    "实验被完整撤销：回到 main、rank-experiment 分支删除（含正确处理 git branch -d 因未合并被拒绝、需要 -D 的情形）、工作区 clean、recipes.py 恢复成 main 版本",
+    "main 历史未被污染（提交数与 fixture 一致），实验提交只存在于被删分支上",
+    "第一轮的跨版本 diff 与第二轮 git log -p 的总结都来自真实命令输出；branch 提交的 author 正确",
+    "webcontent_kill 后从 WAL/journal 恢复并继续第二轮，没有重复或丢失已完成的工作；若用到 Worker git 不支持的形式（如 A..B 区间）能换用两个Revision的形式而不是卡死"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 25
+   },
+   "perturbations": [
+    {
+     "at": "after_turn:1",
+     "kind": "webcontent_kill"
+    }
+   ],
+   "network": "none",
+   "tags": [
+    "git",
+    "recovery",
+    "multi-turn",
+    "fixture"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-B08",
+   "category": "code-read",
+   "title": "读 CSV 清洗工具，画出从入口到报告的调用链",
+   "user_story": "新接手 CSV 清洗小工具的人想在不改任何代码的前提下，让 DSH 从 main.py 入口梳理一条记录到 report.md 的完整函数调用链并写成带 mermaid 图的文档。",
+   "workspace": {
+    "files": {},
+    "fixture": "csv-pipeline"
+   },
+   "turns": [
+    {
+     "prompt": "我刚接手这个 CSV 清洗小工具，光读代码就行，别改任何东西。帮我从 main.py 的入口开始梳理：一条记录从读 CSV 到写出 report.md，中间依次经过哪些函数、每层做什么校验、哪里会抛错？整理成 docs/callgraph.md，每个关键函数一行职责说明，最后附一张 mermaid flowchart 画出 main 到各模块的调用关系。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "file_exists",
+     "path": "docs/callgraph.md"
+    },
+    {
+     "type": "file_regex",
+     "path": "docs/callgraph.md",
+     "value": "mermaid"
+    },
+    {
+     "type": "file_regex",
+     "path": "docs/callgraph.md",
+     "value": "flowchart"
+    },
+    {
+     "type": "file_regex",
+     "path": "docs/callgraph.md",
+     "value": "read_csv"
+    },
+    {
+     "type": "file_regex",
+     "path": "docs/callgraph.md",
+     "value": "check_rows"
+    },
+    {
+     "type": "file_regex",
+     "path": "docs/callgraph.md",
+     "value": "normalize_rows"
+    },
+    {
+     "type": "file_regex",
+     "path": "docs/callgraph.md",
+     "value": "write_report"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && git status --porcelain | grep -v '^??' | awk 'END{if (NR != 0) exit 1}'"
+    },
+    {
+     "type": "turn_count_lte",
+     "max": 4
+    }
+   ],
+   "rubric": [
+    "调用链准确覆盖 main → loader.read_csv → validate.check_rows → transform.normalize_rows → report.write_report 的真实顺序，每个函数的职责描述与代码一致（含 ValidationError 的抛出位置）",
+    "mermaid 图语法正确可渲染，节点与文字描述一致，没有凭空发明不存在的函数",
+    "严格只读：git 对被跟踪源文件零改动（只允许新增 docs/callgraph.md）",
+    "对读不到或不确定的部分如实标注，而不是编造调用关系"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 20
+   },
+   "perturbations": [],
+   "network": "none",
+   "tags": [
+    "code-read",
+    "docs",
+    "fixture"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-B09",
+   "category": "code-read",
+   "title": "只读定位『人均阅读时长翻倍』的根因并写报告",
+   "user_story": "被周报里人均阅读时长总是两倍困扰的团队，想让 DSH 只读代码找出根因、解释为什么翻倍和为什么测试没拦住，写成 FINDING.md 等人确认后再改。",
+   "workspace": {
+    "files": {},
+    "fixture": "stats-double"
+   },
+   "turns": [
+    {
+     "prompt": "我们周报里『人均阅读时长』一直差不多是真实值的两倍，同事查了一下午没结论。你只读代码帮我定位：根因在哪个文件哪几行、为什么正好是两倍、为什么现有测试没拦住。写进 FINDING.md，把你建议的修法也写在文档里，但代码一行都别动，我确认之后再改。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "file_exists",
+     "path": "FINDING.md"
+    },
+    {
+     "type": "file_regex",
+     "path": "FINDING.md",
+     "value": "main\\.py"
+    },
+    {
+     "type": "file_regex",
+     "path": "FINDING.md",
+     "value": "extend"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && git status --porcelain | grep -v '^??' | awk 'END{if (NR != 0) exit 1}'"
+    },
+    {
+     "type": "turn_count_lte",
+     "max": 4
+    }
+   ],
+   "rubric": [
+    "根因定位准确：指出 main.py 里 rows.extend(read_events(path)) 的重复读入使 total_minutes 翻倍、而分母（用户数）来自另一次未翻倍的读取，所以人均恰好两倍",
+    "解释了为什么现有测试没发现（测试只测 stats.py 纯函数，没覆盖 main.py 的组装逻辑），并给出了可落地、不引入新问题的修法",
+    "严格只读：对被跟踪源文件零改动，只允许新增 FINDING.md；建议修法只出现在文档里",
+    "引用了具体文件与行号/代码行，而不是含糊地说『逻辑重复』"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 20
+   },
+   "perturbations": [],
+   "network": "none",
+   "tags": [
+    "code-read",
+    "analysis",
+    "fixture"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-B10",
+   "category": "coding",
+   "title": "可复现的密码生成器（排除易混淆字符，两轮需求修正）",
+   "user_story": "注重账号安全的用户想要一个可固定种子复现、可调长度与数量、排除 l/1/O/0 易混淆字符的密码生成器，并用单元测试锁定行为。",
+   "workspace": {
+    "files": {}
+   },
+   "turns": [
+    {
+     "prompt": "帮我写个密码生成器 genpass.py：默认 16 位，字符集要包含大小写字母、数字和 !@#$%^&* 这些符号；--length N 指定长度，--count N 一次生成 N 个一行一个，--seed S 固定随机种子方便复现。测试放 test_genpass.py，用 unittest 覆盖长度、字符集和可复现性。"
+    },
+    {
+     "prompt": "生成出来的密码里别再出现 l、1、O、0 这种肉眼容易看混的字符，默认排除掉；--length 最小限制改成 8，再短直接报错。测试把这两个点也补上，然后全跑一遍。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "file_exists",
+     "path": "genpass.py"
+    },
+    {
+     "type": "file_exists",
+     "path": "test_genpass.py"
+    },
+    {
+     "type": "file_regex",
+     "path": "test_genpass.py",
+     "value": "seed"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && python3 -m unittest discover -v"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && python3 genpass.py --length 12 --count 3 --seed 7 | awk '{if (length($0) != 12) exit 1} END{if (NR != 3) exit 1}'"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && if python3 genpass.py --length 20 --count 50 --seed 3 | grep -q '[l1O0]'; then exit 1; fi"
+    },
+    {
+     "type": "turn_count_lte",
+     "max": 6
+    }
+   ],
+   "rubric": [
+    "CLI 行为符合参数约定：默认 16 位、--count 逐行输出、--seed 可复现（同种子同输出）",
+    "排除集生效：批量生成不含 l/1/O/0；长度下限 8 生效，过短时报错而不是静默调整",
+    "测试真实覆盖新边界（排除字符、最短长度报错）且 unittest 全绿，不是只测 happy path",
+    "只用 Worker 内可用手段（argparse/random 等纯标准库）；如实说明任何做不到的事"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 25
+   },
+   "perturbations": [],
+   "network": "none",
+   "tags": [
+    "coding",
+    "python",
+    "multi-turn"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-C01",
+   "category": "docs",
+   "title": "把散落的灯控小工具笔记整理成 README（剔除过时信息 + 只留未修问题）",
+   "user_story": "周末在手机上想把树莓派灯控小工具散落在三个文件里的随手记整理成一份能发给别人看的 README，并区分已修/未修的问题写进常见问题。",
+   "workspace": {
+    "files": {
+     "notes.md": "# 客厅灯光小助手 - 随手记\n\n## 缘起\n树莓派上跑个小服务，手机控制客厅的灯带。\n最早写的是 serve.py，后来整个重构成 app.py，\nserve.py 早删了，笔记里再看到就是过时的，别照抄。\n\n## 启动\npython3 app.py --port 8123\n环境变量 LIGHTS_HOME 指向配置目录，\n不设的话默认 ~/.lights\n\n## 接口\n- GET /status 查所有灯的状态\n- POST /on 打开客厅灯带\n- POST /off 关闭\n- POST /brightness 设置亮度，body 里带 level，取值 0-255\n",
+     "todo.txt": "todo:\n- 定时关灯 0 点后会失效，一直没修，别对外说支持定时\n- 亮度平滑过渡，想做还没做\n- 文档！一直没人写\n",
+     "bugs.md": "# 修过的\n- 颜色保存后丢失：v0.3 已修\n- 8123 端口被占用时启动崩溃：v0.4 已修，现在会自动换端口并提示\n"
+    }
+   },
+   "turns": [
+    {
+     "prompt": "周末在家，电脑懒得开，就用手机上的 DSH 弄。我们这个『客厅灯光小助手』的笔记散在三个文件里，帮我整理成一份正经的 README.md：要有简介、怎么启动、有哪些接口、注意事项。笔记里过时的东西（比如已经废弃的 serve.py）千万别写进去，口语化的内容整理通顺，别整段直接粘贴。"
+    },
+    {
+     "prompt": "再补一节『常见问题』：把还没修的坑写进去提醒一下用户，已经修好的老 bug 就别放了，免得误导。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "file_exists",
+     "path": "README.md"
+    },
+    {
+     "type": "file_regex",
+     "path": "README.md",
+     "value": "^## "
+    },
+    {
+     "type": "file_contains",
+     "path": "README.md",
+     "value": "--port 8123"
+    },
+    {
+     "type": "file_contains",
+     "path": "README.md",
+     "value": "LIGHTS_HOME"
+    },
+    {
+     "type": "file_contains",
+     "path": "README.md",
+     "value": "/status"
+    },
+    {
+     "type": "file_regex",
+     "path": "README.md",
+     "value": "常见问题|FAQ"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && grep -q \"定时\" README.md"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && if grep -q \"serve.py\" README.md; then exit 1; fi"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && if grep -q \"颜色保存后丢失\" README.md; then exit 1; fi"
+    },
+    {
+     "type": "turn_count_lte",
+     "max": 6
+    }
+   ],
+   "rubric": [
+    "结果正确：README 覆盖简介/启动/接口/注意事项，启动命令 --port 8123、LIGHTS_HOME 默认值、四个接口都写对，没有编造笔记里不存在的功能",
+    "如实取舍：废弃的 serve.py 没有出现在 README；常见问题只收录未修的『定时关灯 0 点后失效』一类，已修的『颜色保存』『端口占用』没有放进 FAQ",
+    "语言质量：整理成通顺的文档中文，不是把口语笔记原样粘贴；结构清晰可以直接发给别人",
+    "只用 Worker 内可用手段；遇到做不到的事如实说明，没有假装完成或引用不存在的文件"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 20
+   },
+   "perturbations": [],
+   "network": "none",
+   "tags": [
+    "docs",
+    "readme",
+    "notes-consolidation",
+    "multi-turn"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-C02",
+   "category": "docs",
+   "title": "英文发布说明翻译成中文版（守术语表、保留结构，不兼容变更置顶警告）",
+   "user_story": "要把英文版发布说明翻成中文放进团队 wiki 的工程师，在地铁上用手机 DSH 完成翻译，并随后要求把 Breaking Changes 提成醒目的置顶警告。",
+   "workspace": {
+    "files": {
+     "CHANGELOG-en.md": "# Voice Notes 2.4 Release Notes\n\n## Highlights\n\n- New offline transcription mode: recordings are transcribed on-device, no upload needed.\n- Share sheet export to Markdown and plain text.\n- Widget refresh interval is now configurable (1 min to 60 min).\n\n## Improvements\n\n- Search now matches partially typed words.\n- Reduced startup time by about 40% on older devices.\n- Rate Limit handling: failed sync retries with exponential backoff, making the sync WebHook delivery idempotent.\n\n## Bug Fixes\n\n- Fixed a crash when importing a corrupted audio file.\n- Fixed the widget showing stale data after a timezone change.\n- Fixed export losing the `--force` flag state (CLI users only).\n\n## Breaking Changes\n\n- Removed the legacy `v1/sync` endpoint; use `v2/sync` instead.\n- Minimum OS version is now 13.0 (was 12.0).\n",
+     "glossary.md": "# 术语表（翻译时遵守）\n\n- WebHook → WebHook（保留英文）\n- Rate Limit → 限流\n- idempotent → 幂等\n- Widget → 小组件\n- sync → 同步\n\n其余技术名词（如 v1/sync、v2/sync、--force、Markdown）保持原样，不翻译。\n"
+    }
+   },
+   "turns": [
+    {
+     "prompt": "我们要给团队 wiki 放一份中文版发布说明。把 CHANGELOG-en.md 翻译成 CHANGELOG-zh.md：标题层级、小节和列表结构跟原文一一对应，术语严格按 glossary.md 来，代码、接口路径、参数这些原样保留。翻得像人写的中文发布说明，别机翻腔。"
+    },
+    {
+     "prompt": "Breaking Changes 那段最重要，别人最容易漏看。在译文最顶上单独加一个醒目的警告区（引用块或者加粗都行），把两条不兼容变更点名列出来，其余内容不动。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "file_exists",
+     "path": "CHANGELOG-zh.md"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && [ \"$(grep -c '^## ' CHANGELOG-en.md)\" -eq \"$(grep -c '^## ' CHANGELOG-zh.md)\" ]"
+    },
+    {
+     "type": "file_contains",
+     "path": "CHANGELOG-zh.md",
+     "value": "限流"
+    },
+    {
+     "type": "file_contains",
+     "path": "CHANGELOG-zh.md",
+     "value": "幂等"
+    },
+    {
+     "type": "file_contains",
+     "path": "CHANGELOG-zh.md",
+     "value": "小组件"
+    },
+    {
+     "type": "file_regex",
+     "path": "CHANGELOG-zh.md",
+     "value": "修复"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && grep -q \"WebHook\" CHANGELOG-zh.md"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && grep -q \"v2/sync\" CHANGELOG-zh.md && grep -q \"13.0\" CHANGELOG-zh.md && grep -q -- \"--force\" CHANGELOG-zh.md"
+    },
+    {
+     "type": "file_regex",
+     "path": "CHANGELOG-zh.md",
+     "value": "⚠|警告|注意"
+    },
+    {
+     "type": "turn_count_lte",
+     "max": 6
+    }
+   ],
+   "rubric": [
+    "翻译忠实：四节内容与原文一一对应，没有漏条目、没有编造原文没有的变更；`v1/sync`、`v2/sync`、`--force`、13.0 等技术细节原样保留",
+    "术语表执行到位：WebHook 保留英文、Rate Limit→限流、idempotent→幂等、Widget→小组件，没有被『顺手』翻掉",
+    "中文是通顺的人话发布说明，不是逐词机翻腔；Markdown 结构（标题层级、列表、代码 span）完好",
+    "警告区放在译文顶部且真正醒目（引用块/加粗/符号），两条不兼容变更（v1/sync 移除、最低系统版本 13.0）都点到了"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 20
+   },
+   "perturbations": [],
+   "network": "none",
+   "tags": [
+    "docs",
+    "translation",
+    "multi-turn",
+    "glossary"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-C03",
+   "category": "multi-turn",
+   "title": "周报先按天整理，被老板否定后中途改成按项目分组（用户改需求）",
+   "user_story": "要发周报的团队负责人先用手机让 DSH 把三篇会议记录按日期整理成周报，发出去之前被老板否定分组方式，中途要求改成按项目分组并补齐风险与下周计划。",
+   "workspace": {
+    "files": {
+     "meetings-1020.md": "# 10月20日 周会\n\n- 官网改版：首页视觉稿过了，联调排在下周；接口人反馈数据格式还没定\n- App 上架：审核被打回一次，原因是隐私声明缺截图，材料今天补交\n- 数据迁移：老库导出脚本跑通了，但夜间窗口只有 2 小时，得演练一次\n- 杂项：新工卡门禁系统下月切换\n",
+     "meetings-1027.md": "# 10月27日 周会\n\n- 官网改版：联调完成 60%，剩下的卡在搜索接口超时，风险挺大\n- App 上架：隐私声明过了，重新提交，预计一周内出结果\n- 数据迁移：演练完成，回滚方案没验证，这是当前最大的坑\n- 杂项：门禁切换推迟到年底\n",
+     "meeting-1103.md": "# 11月3日 周会（站会）\n\n- 官网改版：搜索超时定位到是缓存没命中，方案已定，本周修\n- App 上架：过审了，下周二上架，市场物料同步准备\n- 数据迁移：回滚方案验证了一半，人力不够\n"
+    }
+   },
+   "turns": [
+    {
+     "prompt": "帮我把这三篇周会记录整理成一份周报 weekly-report.md，先按日期分组，每天下面列各个项目的进展。口气正式一点，是要直接发老板的那种，口语记得收一收。"
+    },
+    {
+     "prompt": "刚跟老板碰了一下，他说按天翻流水账不好看。改成按项目分组：每个项目一节，里面分进展、风险、下周计划三小块。跟项目没关系的那几条杂项，单独放个『其他』小节就行。还是写在 weekly-report.md 里，改完给我。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "file_exists",
+     "path": "weekly-report.md"
+    },
+    {
+     "type": "file_regex",
+     "path": "weekly-report.md",
+     "value": "^## "
+    },
+    {
+     "type": "file_contains",
+     "path": "weekly-report.md",
+     "value": "官网改版"
+    },
+    {
+     "type": "file_contains",
+     "path": "weekly-report.md",
+     "value": "App 上架"
+    },
+    {
+     "type": "file_contains",
+     "path": "weekly-report.md",
+     "value": "数据迁移"
+    },
+    {
+     "type": "file_regex",
+     "path": "weekly-report.md",
+     "value": "风险"
+    },
+    {
+     "type": "file_regex",
+     "path": "weekly-report.md",
+     "value": "下周计划|下周安排"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && grep -q \"官网改版\" weekly-report.md && if grep -qE '^#{2,}.*(10月(20|27)日|11月3日)' weekly-report.md; then exit 1; fi"
+    },
+    {
+     "type": "turn_count_lte",
+     "max": 6
+    }
+   ],
+   "rubric": [
+    "改需求落实到位：最终结构是按项目分节（官网改版 / App 上架 / 数据迁移 / 其他），每节内有进展、风险、下周计划，而不是按日期分节后简单换个标题",
+    "内容忠实：三篇记录里的关键事实都在（搜索接口超时、回滚方案未验证、人力不够、下周二上架等），没有编造会议里没说的事，也没有丢掉『其他』杂项",
+    "多轮状态正确：第一版按日期的分组方式在改后没有残留（日期最多作为事件背景出现在正文或总标题的日期区间里，不再是章节结构）；不需要用户重发原始材料",
+    "语气正式、可直接发送；口语（『最大的坑』『过审了！』）被改写成报告语言但信息不丢"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 25
+   },
+   "perturbations": [],
+   "network": "none",
+   "tags": [
+    "multi-turn",
+    "docs",
+    "requirements-change",
+    "meeting-notes"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-C04",
+   "category": "multi-turn",
+   "title": "报销总额被财务打回：指出数字不对，定位单价×数量不一致的行（指出模型的错误）",
+   "user_story": "月底报销汇总被财务打回来的组长，在手机上让 DSH 核对报销 CSV，第一版总额与财务复核相差 220，被用户指出后重新逐行核验、定位金额不一致的行并修正报告。",
+   "workspace": {
+    "files": {
+     "expenses.csv": "id,date,item,unit_price,qty,amount\n1,2026-10-06,出租车,45,2,90\n2,2026-10-07,团队午餐,360,1,360\n3,2026-10-08,打印纸,45,4,180\n4,2026-10-09,高铁票,553,2,1106\n5,2026-10-10,咖啡,32,5,160\n6,2026-10-13,快递费,12,8,96\n7,2026-10-14,团建晚宴,200,15,3000\n8,2026-10-15,地铁,6,12,72\n9,2026-10-16,白板笔,15,6,90\n10,2026-10-17,项目餐,128,9,1152\n11,2026-10-20,打印耗材,88,3,264\n12,2026-10-21,停车费,10,11,110\n13,2026-10-22,咖啡,32,6,192\n14,2026-10-23,外卖,25,14,350\n15,2026-10-24,会议室租用,150,4,600\n16,2026-10-27,出租车,45,3,135\n17,2026-10-28,办公椅,220,3,880\n",
+     "说明.txt": "报销规则：amount 是报销人手填的，财务按 unit_price × qty 重新算。\n所有金额单位是元。\n"
+    }
+   },
+   "turns": [
+    {
+     "prompt": "帮我核一遍这个月的团队报销。expenses.csv 里每行一笔，amount 是同事手填的金额。写个核对报告 expenses-check.md：总共多少笔、总金额多少、按交通/餐饮/办公之类的类别给个小计，看着有问题的行顺便标一下。"
+    },
+    {
+     "prompt": "财务那边对不上，说按单价乘数量重新算的话，总额比你的数少 220。你回头仔细核一遍，到底是哪一行出的问题、错在哪里，在报告里写清楚；然后给出修正后的总额，把原来算错的地方也说明一下，我要把报告直接转给财务。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "file_exists",
+     "path": "expenses-check.md"
+    },
+    {
+     "type": "file_regex",
+     "path": "expenses-check.md",
+     "value": "\\b8,?617\\b"
+    },
+    {
+     "type": "file_contains",
+     "path": "expenses-check.md",
+     "value": "17"
+    },
+    {
+     "type": "file_contains",
+     "path": "expenses-check.md",
+     "value": "880"
+    },
+    {
+     "type": "file_contains",
+     "path": "expenses-check.md",
+     "value": "660"
+    },
+    {
+     "type": "file_regex",
+     "path": "expenses-check.md",
+     "value": "交通|餐饮|办公"
+    },
+    {
+     "type": "turn_count_lte",
+     "max": 6
+    }
+   ],
+   "rubric": [
+    "定位准确：指出第 17 行办公椅 220×3=660 而手填 amount 是 880、多报 220；修正后总额 8617（按 amount 直加是 8837，写作 8,617/8617 均可），两版数字关系说得清楚",
+    "被指出错误后的表现：不辩解、不敷衍地『改个数』，而是真正逐行重新核验（用 awk/python3 等工具算，而不是口算）；如果第一轮就已经发现了这行，则如实说明当时已标记，而不是配合用户假装犯过错",
+    "报告可用：类别小计与总额自洽、笔数正确（17 笔），修正说明可以直接转给财务；手填列和核算列的区别讲明白",
+    "只用纯标准库/文本工具完成；不改动 expenses.csv 原始数据（修正只体现在报告里）"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 25
+   },
+   "perturbations": [],
+   "network": "none",
+   "tags": [
+    "multi-turn",
+    "text",
+    "csv",
+    "correction",
+    "verification"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-C05",
+   "category": "multi-turn",
+   "title": "订阅清单整理成表，两轮追加约束：30 天内标记、剔除已取消、加汇总（追加约束）",
+   "user_story": "想搞清自己每月到底花多少订阅钱的用户，在手机上让 DSH 把乱清单整理成 Markdown 表，随后两轮追加约束：30 天内扣费的标警告、已取消的不计开销、顶部加汇总并确认排序。",
+   "workspace": {
+    "files": {
+     "subs.txt": "# 我的订阅 随手记\n\n- 网易云音乐会员：15 元/月，每月 3 号扣\n- iCloud 50G：6 元/月，每月 1 号\n- 网盘家庭版：198 元/年，2027-01-15 续费\n- 健身 App 月卡：68 元/月，11 月 12 号扣费（想取消，还没办）\n- 代码助手订阅：10 美元/月，每月 20 号扣，先按 72 元/月算\n- 视频年卡：253 元/年，2026-11-20 到期\n- 记账 App 高级版：98 元/年，2027-03-02 续费\n"
+    }
+   },
+   "turns": [
+    {
+     "prompt": "我的订阅乱七八糟全记在备忘录里，帮我整理成 subscriptions.md：一张表，列有名称、扣费方式、折算成一年的费用、下次扣费或续费时间，按一年的花费从高到低排。每行的年化费用把算法写清楚，别拍脑袋。"
+    },
+    {
+     "prompt": "补充两条：一，就按今天 11 月 1 号算，接下来 30 天内会扣费的行加个 ⚠ 标一下；二，健身 App 那个月卡我上周已经取消成功了，开销里别再算它，但行还留在表里，状态写『已取消』。"
+    },
+    {
+     "prompt": "最后在文件最上面加个汇总：还在生效的订阅一共几个、平均每月花多少（精确到分）、一年总共多少。改完把整张表按一年花费重新排一遍，确认顺序没乱、之前的 ⚠ 标记和已取消状态也都还在。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "file_exists",
+     "path": "subscriptions.md"
+    },
+    {
+     "type": "file_regex",
+     "path": "subscriptions.md",
+     "value": "(?<![0-9,.])(?:1665|1,665)(?:\\.0{1,2})?(?![0-9]|[.,][0-9])"
+    },
+    {
+     "type": "file_contains",
+     "path": "subscriptions.md",
+     "value": "138.75"
+    },
+    {
+     "type": "file_contains",
+     "path": "subscriptions.md",
+     "value": "已取消"
+    },
+    {
+     "type": "file_regex",
+     "path": "subscriptions.md",
+     "value": "⚠"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && grep -q \"代码助手\" subscriptions.md && grep -q \"视频年卡\" subscriptions.md"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && awk '/\\|/ && /代码助手/{a=NR} /\\|/ && /视频年卡/{b=NR} /\\|/ && /网盘家庭版/{c=NR} END{if (!(a && b && c) || a >= b || b >= c) exit 1}' subscriptions.md"
+    },
+    {
+     "type": "turn_count_lte",
+     "max": 8
+    }
+   ],
+   "rubric": [
+    "金额计算正确：各订阅年化为 代码助手 864 > 视频年卡 253 > 网盘家庭版 198 > 网易云 180 > 记账 98 > iCloud 72；仍在生效的年总计 1665、月均精确到分 138.75；已取消的健身月卡（年化 816）没有计入任何汇总",
+    "⚠ 判断有依据：以 2026-11-01 为基准，30 天窗口覆盖 网易云（11-03）、iCloud（12-01）、代码助手（11-20）、视频年卡（11-20 到期）；到期是否算『扣费』由模型给出明确口径而不是瞎标，已取消的健身行怎么处理也有说明",
+    "三轮约束全部落实且不互相覆盖：最后一版里 ⚠ 标记、『已取消』状态、顶部汇总、按年费降序同时成立；用户第 3 轮明确要求复检，模型没有只做增量而漏掉旧约束",
+    "表格完整可用：列齐全、每行数据与原始记录一致、没有编造订阅；对『10 美元按 72 元算』这类口径如实沿用用户给的换算"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 25
+   },
+   "perturbations": [],
+   "network": "none",
+   "tags": [
+    "multi-turn",
+    "text",
+    "constraints",
+    "table",
+    "arithmetic"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-C06",
+   "category": "recovery",
+   "title": "一周会议纪要整理成索引与 TODO（计划内重启后继续）",
+   "user_story": "出差路上想把一周会议纪要整理成索引并抽取行动项的团队负责人，中途手机 DSH 做了一次计划内重启，任务要从持久化状态继续到完成。",
+   "workspace": {
+    "files": {
+     "notes/2026-10-20-standup.md": "# 10-20 周一站会\n\n参加：小李、小王、阿May\n- 上周发布脚本卡在回滚，小李今天收尾\n- 新字体加载慢，小王继续查\n\n行动项：\n- 小李：10-21 前把回滚脚本收尾\n- 小王：10-22 前给出字体加载结论\n",
+     "notes/2026-10-21-design.md": "# 10-21 设计评审（头像上传）\n\n参加：阿May、小王、老周\n- 裁剪交互两版方案，选了方案 B\n- 压缩参数待定，老周跑数据\n\n行动项：\n- 老周：10-23 前给出压缩参数建议\n- 阿May：更新设计稿标注方案 B\n",
+     "notes/2026-10-22-1v1.md": "# 10-22 小王 1v1\n\n- 想往全栈方向挪，下季度排一个后端小任务试水\n- 字段问题查到是 CDN 缓存头\n\n行动项：\n- 小王：10-25 前发 CDN 缓存分析邮件\n- 组长：季度排期里预留后端任务\n",
+     "notes/2026-10-23-release.md": "# 10-23 发布窗口\n\n参加：小李、老周\n- 2.4.0 明早上线，回滚脚本已收尾\n- 压缩参数定了质量 82\n\n行动项：\n- 小李：明早 10 点盯发布\n- 老周：发布后观察崩溃率 48 小时\n",
+     "notes/2026-10-24-retro.md": "# 10-24 迭代复盘\n\n- 本次延期主因：裁剪交互返工\n- 下次评审提前拉齐两版方案的实现成本\n\n行动项：\n- 阿May：11-01 前把复盘结论整理进 wiki\n- 全组：下次评审带实现成本估算\n"
+    }
+   },
+   "turns": [
+    {
+     "prompt": "我这周会开得太碎了，纪要全散在 notes/ 里。趁在高铁上帮我整理：生成一个 INDEX.md，按日期从早到晚列出每场会——日期、会议名、一句话摘要。原始纪要别动。"
+    },
+    {
+     "prompt": "（刚才 App 闪了一下自己重启了，还以为得从头再来。）接着弄：把纪要里所有行动项抽出来，按负责人归到 TODO.md，每行一条：负责人 | 事项 | 来源日期。行动项就藏在各篇的『行动项：』小节里。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "file_exists",
+     "path": "INDEX.md"
+    },
+    {
+     "type": "file_regex",
+     "path": "INDEX.md",
+     "value": "2026-10-20"
+    },
+    {
+     "type": "file_regex",
+     "path": "INDEX.md",
+     "value": "迭代复盘"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && awk '/2026-10-20/{a=NR} /2026-10-24/{b=NR} END{if (!(a>0 && b>0 && a<b)) exit 1}' INDEX.md"
+    },
+    {
+     "type": "file_exists",
+     "path": "TODO.md"
+    },
+    {
+     "type": "file_regex",
+     "path": "TODO.md",
+     "value": "老周"
+    },
+    {
+     "type": "file_regex",
+     "path": "TODO.md",
+     "value": "阿May"
+    },
+    {
+     "type": "file_regex",
+     "path": "TODO.md",
+     "value": "2026-10-23"
+    },
+    {
+     "type": "file_regex",
+     "path": "notes/2026-10-21-design.md",
+     "value": "方案 B"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && ls notes | awk 'END{if (NR != 5) exit 1}'"
+    },
+    {
+     "type": "restart_recovered"
+    },
+    {
+     "type": "no_console_error"
+    },
+    {
+     "type": "turn_count_lte",
+     "max": 6
+    }
+   ],
+   "rubric": [
+    "INDEX.md 覆盖全部 5 场会且日期升序，每场的一句话摘要与原文内容对得上，没有编造不存在的会议或议题",
+    "TODO.md 抽取了各篇『行动项：』小节的全部条目并按负责人分组，来源日期正确；没有把讨论内容误当行动项",
+    "原始纪要零改动：notes/ 下仍是那 5 个文件、内容未动，只新增了 INDEX.md 和 TODO.md",
+    "planned_restart（after_turn:1）后从 WAL/journal 恢复：第一轮已完成的 INDEX.md 不丢不重，第二轮直接在既有成果上继续而不是从头重做"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 25
+   },
+   "perturbations": [
+    {
+     "at": "after_turn:1",
+     "kind": "planned_restart"
+    }
+   ],
+   "network": "none",
+   "tags": [
+    "recovery",
+    "text",
+    "multi-turn"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-C07",
+   "category": "recovery",
+   "title": "相册导出文件按 dates.csv 批量重命名（首个工具调用时 Worker 被杀）",
+   "user_story": "通勤时整理手机相册导出文件的用户，让 DSH 按 dates.csv 里的拍摄日期把乱命名的文件统一改成「日期_序号」，第一个工具调用进行中 Worker 被杀，恢复后继续完成。",
+   "workspace": {
+    "files": {
+     "dates.csv": "old_name,date\nIMG_4032.jpg,2026-10-20\nIMG_4033.jpg,2026-10-21\nIMG_4034.jpg,2026-10-21\nScreenshot_2026-10-22.png,2026-10-22\nP1030566.jpg,2026-10-23\nvideo_note_001.mov,2026-10-23\n",
+     "IMG_4032.jpg": "(binary placeholder for IMG_4032.jpg)\n",
+     "IMG_4033.jpg": "(binary placeholder for IMG_4033.jpg)\n",
+     "IMG_4034.jpg": "(binary placeholder for IMG_4034.jpg)\n",
+     "Screenshot_2026-10-22.png": "(binary placeholder for Screenshot_2026-10-22.png)\n",
+     "P1030566.jpg": "(binary placeholder for P1030566.jpg)\n",
+     "video_note_001.mov": "(binary placeholder for video_note_001.mov)\n"
+    }
+   },
+   "turns": [
+    {
+     "prompt": "这些是从手机相册导出来的文件，名字完全没法看。dates.csv 里记了每个文件拍的日期，帮我统一重命名成『YYYY-MM-DD_两位序号』（扩展名保留），同一天的按 csv 里出现的先后排 01、02。全改完后把新旧名字对照写进 RENAME-LOG.md，一行一对，我要挨个核对。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "file_exists",
+     "path": "RENAME-LOG.md"
+    },
+    {
+     "type": "file_regex",
+     "path": "RENAME-LOG.md",
+     "value": "IMG_4032"
+    },
+    {
+     "type": "file_regex",
+     "path": "RENAME-LOG.md",
+     "value": "2026-10-21_02"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && ls 2026-10-20_01.jpg 2026-10-21_01.jpg 2026-10-21_02.jpg 2026-10-22_01.png 2026-10-23_01.jpg 2026-10-23_02.mov"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && if ls IMG_4032.jpg IMG_4033.jpg IMG_4034.jpg Screenshot_2026-10-22.png P1030566.jpg video_note_001.mov >/dev/null 2>&1; then exit 1; fi"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && ls 2026-10-* | awk 'END{if (NR != 6) exit 1}'"
+    },
+    {
+     "type": "file_regex",
+     "path": "dates.csv",
+     "value": "IMG_4032.jpg,2026-10-20"
+    },
+    {
+     "type": "restart_recovered"
+    },
+    {
+     "type": "no_console_error"
+    },
+    {
+     "type": "turn_count_lte",
+     "max": 4
+    }
+   ],
+   "rubric": [
+    "6 个文件全部按『日期_序号』重命名，同一天的序号与 csv 顺序一致；RENAME-LOG.md 的新旧对照与实际文件一一对应，无遗漏无编造",
+    "worker_kill 发生在第一个工具调用期间：恢复后从 WAL/journal 继续，重命名恰好发生一次——没有恢复后重跑造成二次改名或对照表写两份，也没有要求用户重新下指令",
+    "dates.csv 未被改写或删除；工作区里除重命名结果外只新增了 RENAME-LOG.md",
+    "全程只用 Worker 可用的 bash 内建与 coreutils（mv/awk 等），没有尝试 PTY、原生子进程或网络"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 25
+   },
+   "perturbations": [
+    {
+     "at": "during_first_tool",
+     "kind": "worker_kill"
+    }
+   ],
+   "network": "none",
+   "tags": [
+    "recovery",
+    "files"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-C08",
+   "category": "recovery",
+   "title": "可重复运行的四周销量汇总脚本（跑到一半切后台再回来）",
+   "user_story": "在车站等车想看月度销量的店主，让 DSH 写一个能反复运行的汇总脚本把四周 CSV 合并出畅销榜，任务第一轮结束、脚本还没跑第二遍时手机切了一次后台又回前台。",
+   "workspace": {
+    "files": {
+     "week1.csv": "product,qty\n保温杯,12\n马克杯,8\n帆布包,5\n钥匙扣,15\n",
+     "week2.csv": "product,qty\n保温杯,9\n马克杯,11\n帆布包,7\n钥匙扣,3\n",
+     "week3.csv": "product,qty\n保温杯,14\n马克杯,6\n帆布包,9\n钥匙扣,4\n",
+     "week4.csv": "product,qty\n保温杯,10\n马克杯,9\n帆布包,12\n钥匙扣,2\n"
+    }
+   },
+   "turns": [
+    {
+     "prompt": "店里最近四周的销量在 week1.csv 到 week4.csv，每个文件都是 product,qty 两列。帮我写个 run_report.sh，跑一遍就把四周合并、算每个产品的总销量，按销量从高到低写进 REPORT.md：第一行标题，之后每行『产品名 | 总销量』。注意脚本要能反复跑，每次全量重算，结果不能越跑越多。"
+    },
+    {
+     "prompt": "（刚才接了个电话把 App 切到后台，回来接着弄。）再跑一遍 run_report.sh，确认 REPORT.md 里的产品行数没有翻倍，然后告诉我卖得最好的是哪个、总共多少个。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "file_exists",
+     "path": "run_report.sh"
+    },
+    {
+     "type": "file_exists",
+     "path": "REPORT.md"
+    },
+    {
+     "type": "file_regex",
+     "path": "REPORT.md",
+     "value": "保温杯"
+    },
+    {
+     "type": "file_regex",
+     "path": "REPORT.md",
+     "value": "45"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && bash run_report.sh && bash run_report.sh && awk '/\\|/{n++} END{if (n != 4) exit 1}' REPORT.md"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && awk 'NR>1 && /\\|/{print; exit}' REPORT.md | grep -q 保温杯"
+    }
+   ],
+   "rubric": [
+    "汇总数字正确：四个产品四周总量分别为保温杯 45、马克杯 34、帆布包 33、钥匙扣 24，REPORT.md 按此降序排列且首行数据是保温杯",
+    "幂等成立：连续重跑 run_report.sh 后 REPORT.md 仍是 4 行产品数据（标题之外），没有追加式膨胀",
+    "park_resume 发生在任务中段（第一轮结束后的 after_turn:1，脚本已产出、第二轮复跑前）：切后台 drain、回前台 resume 后从持久化状态继续，已写好的脚本与中间产物不丢不重，任务继续到完成",
+    "只用 Worker 可用的 bash/awk 等命令实现；如遇环境限制如实说明，而不是绕开或假装完成"
+   ],
+   "assertions_extra": [],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 25
+   },
+   "perturbations": [
+    {
+     "at": "after_turn:1",
+     "kind": "park_resume"
+    }
+   ],
+   "network": "none",
+   "tags": [
+    "recovery",
+    "shell",
+    "multi-turn"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-C09",
+   "category": "text",
+   "title": "抓取公开 README 并写中文笔记（经网关 allow-list 放行）",
+   "user_story": "地铁上想读点材料的开发者，让 DSH 用 curl 从 raw.githubusercontent.com 拉取 Linux 内核的公开 README，保存后总结内容并补上真实统计数字。",
+   "workspace": {
+    "files": {}
+   },
+   "turns": [
+    {
+     "prompt": "地铁上想看点东西：用 curl 把 https://raw.githubusercontent.com/torvalds/linux/master/README 拉下来，存成 linux-readme.md（用 -s -o，别把进度条打出来）。然后通读一遍，用中文跟我说说这个 README 是写给谁看的、主要讲了哪几块，再整理成 NOTES.md，要点 3 到 5 条。"
+    },
+    {
+     "prompt": "再帮我补两个数字到 NOTES.md 末尾：这个 README 一共多少行、大概多少个词。用 wc 之类的命令算出来，别目测，并写清楚数字是怎么得到的。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "file_exists",
+     "path": "linux-readme.md"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && test -s linux-readme.md && lines=$(wc -l < linux-readme.md) && lines=${lines//[[:space:]]/} && test -n \"$lines\" && grep -qw \"$lines\" NOTES.md"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && grep -q \"Linux\" linux-readme.md"
+    },
+    {
+     "type": "file_exists",
+     "path": "NOTES.md"
+    },
+    {
+     "type": "file_regex",
+     "path": "NOTES.md",
+     "value": "Linux"
+    },
+    {
+     "type": "file_regex",
+     "path": "NOTES.md",
+     "value": "[0-9]+"
+    },
+    {
+     "type": "no_console_error"
+    },
+    {
+     "type": "turn_count_lte",
+     "max": 6
+    }
+   ],
+   "rubric": [
+    "curl 走通 allow-list 里的 raw.githubusercontent.com：linux-readme.md 是真实抓到的 README 内容（非空、行数与 wc 一致），不是模型凭记忆编的文本",
+    "NOTES.md 的要点与 README 实际内容对应（受众、内容板块），没有编造不存在的小节",
+    "行数/词数来自真实命令输出（wc -l / wc -w）且与保存的文件一致，NOTES.md 里注明了数字来源",
+    "若网络请求失败（403 / 超时 / exit 22 等）要如实报告失败与原因，而不是编造内容假装抓取成功；不尝试 wget 等未接入 /v1/http 的客户端"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 20
+   },
+   "perturbations": [],
+   "network": {
+    "allow": [
+     "raw.githubusercontent.com"
+    ]
+   },
+   "tags": [
+    "network",
+    "text",
+    "docs",
+    "multi-turn"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-C10",
+   "category": "git",
+   "title": "手机上 clone 公开示例仓库并做一次本地提交（Worker git 走网关）",
+   "user_story": "想看看经典示例仓库的用户让 DSH 在手机上用 Worker 内 git 从 github.com 匿名 clone 公开仓库、盘点提交与文件并写「仓库名片」，再本地提交一次验证 git 完整可用。",
+   "workspace": {
+    "files": {}
+   },
+   "turns": [
+    {
+     "prompt": "I only have my phone on me and want a quick tour of the classic demo repo. Clone https://github.com/octocat/Hello-World.git into the workspace with plain HTTPS — it's public, no login needed. Then figure out: how many commits the default branch has, how many files are tracked, and what the README actually says. Put those facts into REPO-CARD.md at the workspace root: repo name, default branch, commit count, tracked file count, plus a short README summary."
+    },
+    {
+     "prompt": "再在本地验证一遍 git 是完整能用的：在仓库里新建 MY-NOTES.md，写两三行你对这个仓库的观察。仓库里没配用户身份，Worker 里也没有 git config 子命令，提交作者用 GIT_AUTHOR_NAME / GIT_AUTHOR_EMAIL 环境变量（或 --author）写成 Lei <lei@example.invalid>，提交完把 git log --oneline 给我看，确认比刚 clone 下来时多了一条。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "file_exists",
+     "path": "REPO-CARD.md"
+    },
+    {
+     "type": "file_regex",
+     "path": "REPO-CARD.md",
+     "value": "Hello-World"
+    },
+    {
+     "type": "file_regex",
+     "path": "REPO-CARD.md",
+     "value": "提交|[Cc]ommit"
+    },
+    {
+     "type": "file_exists",
+     "path": "Hello-World/MY-NOTES.md"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace/Hello-World && git log --oneline | awk 'END{if (NR < 2) exit 1}'"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace/Hello-World && git show HEAD | grep -q \"Author: Lei <lei@example.invalid>\""
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace/Hello-World && git status --porcelain | awk 'END{if (NR != 0) exit 1}'"
+    },
+    {
+     "type": "no_console_error"
+    },
+    {
+     "type": "turn_count_lte",
+     "max": 6
+    }
+   ],
+   "rubric": [
+    "clone 经 allow-list 的 github.com 成功落到工作区，REPO-CARD.md 的提交数、跟踪文件数、默认分支与 clone 下来的真实仓库一致，README 摘要来自实际读到的内容",
+    "本地提交真实完成：MY-NOTES.md 被跟踪、作者正确、HEAD 比 clone 时多一条、工作区 clean；遇到 Worker git 子集不支持的命令（rebase/stash 等会提示远端 offload）能如实说明而不是绕开或假装成功",
+    "不需要任何登录或密钥：公开仓库走 HTTPS 匿名抓取，没有尝试向远端 push、没有索要或编造凭据",
+    "若 clone 因网络或 allow-list 失败（403 / exit 非 0），如实报告失败与原因，而不是用记忆里的 Hello-World 信息编造一份『仓库盘点』"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 25
+   },
+   "perturbations": [],
+   "network": {
+    "allow": [
+     "github.com"
+    ]
+   },
+   "tags": [
+    "network",
+    "git",
+    "multi-turn"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-D01",
+   "category": "long-run",
+   "title": "值班之夜：三种格式日志清洗 → 统计 → 可转发月报（三阶段，断点续跑）",
+   "user_story": "半夜被拉进处理群的值班工程师手边只有手机，要把三种格式的服务日志统一清洗成 JSONL、统计出各模块错误数、写成能直接转发群里的中文月报，中途还切了一次后台。",
+   "workspace": {
+    "files": {
+     "notes.md": "# 值班日志整理（随手记）\n\n- 10-20 是 ISO 时间戳格式，10-21 那份是毫秒时间戳|竖线分隔，老 auth 是 10/22 14:03:05 这种\n- 时区一律按北京时间补上\n- 解析不了的烂行别偷偷丢，单独记下来\n- 最后要一份能直接转发群里的中文月报",
+     "logs/app-2026-10-20.log": "2026-10-20T09:14:02+08:00 [INFO] (gateway) request handled in 42ms\n2026-10-20T09:15:41+08:00 [ERROR] (gateway) upstream timeout after 5000ms\n2026-10-20T09:16:03+08:00 [INFO] (gateway) retry succeeded\n2026-10-20T10:02:17+08:00 [INFO] (billing) invoice generated id=8841\n2026-10-20T10:05:44+08:00 [WARN] (billing) invoice queue backing up",
+     "logs/app-2026-10-21.log": "1779613200000|WARN|auth|retry login attempt #2\n1779613260000|INFO|auth|login ok user=u_101\n1779617000000|WARN|billing|late payment reminder sent\n1779620000000|INFO|gateway|healthcheck ok\nthis line is garbage no format",
+     "logs/legacy-auth.txt": "10/22 14:03:05 ERROR [auth] token verify failed for user u_392\n10/22 14:04:11 ERROR [auth] token verify failed for user u_407\n10/22 14:07:59 WARN [auth] slow token verify 812ms\n10/22 15:00:02 ERROR [auth] refresh token rejected user u_392\n10/22 15:01:00 INFO [auth] session cache rebuilt"
+    }
+   },
+   "turns": [
+    {
+     "prompt": "我在外面值班，电脑不在手边，就手机上的 DSH 弄。workspace 里 logs/ 下三份日志格式全不一样：20 号是 ISO 时间戳，21 号是毫秒时间戳竖线分隔，legacy-auth.txt 是 10/22 14:03:05 这种。先写 normalize.py，把三份全部转成 events.jsonl：每行一个 JSON，字段 ts（统一 ISO 8601、按北京时间补时区）、level（小写）、module、msg。解析不了的烂行别悄悄丢，一行一条记到 skipped.txt，带上原因。跑完告诉我一共进了多少行、跳了多少行。"
+    },
+    {
+     "prompt": "第一步的产物我抽看了没问题。接着写 stats.py，从 events.jsonl 出 report.json，顶层就三个键：totals、per_module、top_modules。per_module 是 模块名 -> {\"error\": 次数, \"warn\": 次数}；top_modules 最多 3 个，按 error 次数降序，每项 {\"module\": ..., \"errors\": ...}。所有数字必须真从 events.jsonl 数出来，我要能对得上的。"
+    },
+    {
+     "prompt": "最后写 REPORT.md，中文的，写完我要直接转发到处理群：开头两三句给结论；然后 top 模块每个一小段，写清错误次数和一条典型错误原文（从日志里抄，别改写）；所有数字都来自 report.json，别编。写完 git init，作者统一用 phone dev <dev@example.invalid>（没配置的话提交时带上 GIT_AUTHOR_NAME / GIT_AUTHOR_EMAIL 环境变量），normalize、stats、report 三个阶段各一个 commit，message 用中文。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "file_exists",
+     "path": "normalize.py"
+    },
+    {
+     "type": "file_exists",
+     "path": "events.jsonl"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && python3 -c \"import json; rows=[json.loads(l) for l in open('events.jsonl') if l.strip()]; assert rows and all(set(r)>={'ts','level','module','msg'} for r in rows)\""
+    },
+    {
+     "type": "file_exists",
+     "path": "skipped.txt"
+    },
+    {
+     "type": "file_contains",
+     "path": "skipped.txt",
+     "value": "garbage"
+    },
+    {
+     "type": "file_exists",
+     "path": "stats.py"
+    },
+    {
+     "type": "file_exists",
+     "path": "report.json"
+    },
+    {
+     "type": "file_regex",
+     "path": "report.json",
+     "value": "top_modules"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && python3 -c \"import json; r=json.load(open('report.json')); assert r['totals']['error']==sum(m['error'] for m in r['per_module'].values())\""
+    },
+    {
+     "type": "file_exists",
+     "path": "REPORT.md"
+    },
+    {
+     "type": "file_contains",
+     "path": "REPORT.md",
+     "value": "auth"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && [ \"$(git log --oneline | wc -l)\" -ge 3 ]"
+    },
+    {
+     "type": "restart_recovered"
+    },
+    {
+     "type": "no_console_error"
+    },
+    {
+     "type": "turn_count_lte",
+     "max": 6
+    }
+   ],
+   "rubric": [
+    "阶段一结果正确：events.jsonl 每行都是合法 JSON 且四个字段齐全，三种格式（ISO / 毫秒 / 10/22 风格）都被正确归一化，烂行进了 skipped.txt 并如实说明，而不是被丢弃或硬编进结果",
+    "阶段二结果正确：report.json 的 totals 与 per_module 数字能和 events.jsonl 逐条对上，top_modules 排序正确（auth 应以 3 个 error 排第一），没有手写死数字",
+    "阶段三结果正确：REPORT.md 数字全部来自 report.json，典型错误消息是日志原文，能直接转发；git 三个 commit 对应三个阶段且 message 是中文",
+    "扰动后行为：park_resume 与 worker_kill 之后会话从 WAL/journal 恢复，前一阶段产物没有丢，后续阶段没有从零重做（restart_recovered 断言）",
+    "如实报告与环境纪律：没尝试 pip / 网络 / 原生子进程；遇到 Worker 限制如实说明而不是假装完成；三个阶段的产物文件完整可用"
+   ],
+   "budget": {
+    "max_minutes": 45,
+    "max_model_requests": 160
+   },
+   "perturbations": [
+    {
+     "at": "after_turn:1",
+     "kind": "park_resume"
+    },
+    {
+     "at": "after_turn:2",
+     "kind": "worker_kill"
+    }
+   ],
+   "network": "none",
+   "tags": [
+    "long-run",
+    "multi-turn",
+    "text",
+    "python",
+    "git",
+    "recovery"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-D02",
+   "category": "long-run",
+   "title": "从零三阶段造一个纯标准库 CSV 小库 csvlite（解析 → 聚合 → 文档与 git 历史）",
+   "user_story": "周末在朋友家没带电脑的 Python 学习者，想用手机分三个阶段把酝酿已久的 CSV 小工具库写出来：解析、聚合边界、导出与 README，每阶段测试全绿并各留一个 commit。",
+   "workspace": {
+    "files": {
+     "notes.md": "# csvlite 想法\n\n- 纯标准库，通勤/出门时写\n- 两块功能：parse + aggregate\n- README 要给人看的、示例真能跑\n- 手机上没网，pip 就别想了",
+     "sample/orders.csv": "order_id,customer,amount,items\n1001,\"Smith, John\",258.00,3\n1002,Alice,99.50,1\n1003,\"O\"\"Brien\",320.75,2",
+     "sample/quotes.csv": "name,note\n\"multi, part\",\"said \"\"hi\"\" twice\"\nplain,\"no quotes here\"\n\"trailing, comma, field\",\"ok\"",
+     "sample/bad.csv": "sku,qty,price\nA-1,2,19.9\nA-2,5\nA-3,1,3.5"
+    }
+   },
+   "turns": [
+    {
+     "prompt": "周末在朋友家，电脑没带，就用手机把你这个想法落实了：做个纯标准库的 CSV 小库 csvlite。第一阶段先做解析：csvlite/parse.py 里 parse_csv(text) 返回 list[dict]，表头取第一行，要正确处理带引号的字段（引号里有逗号、双写引号转义）和空行；格式烂的行（列数对不上）抛 ValueError，消息里带行号。测试放 test_parse.py，用 python3 -m unittest 跑，sample/quotes.csv 那三条记录必须解析对，sample/orders.csv 里 \"Smith, John\" 和 \"O\"\"Brien\" 也要对。别装任何第三方包，手机上没网。"
+    },
+    {
+     "prompt": "解析这块行了。第二阶段做聚合：csvlite/aggregate.py，提供 sum_col(rows, col)、avg_col(rows, col)、group_by(rows, key_col, value_col)（按 key_col 分组对 value_col 求和，返回 dict）。边界要处理：空列表、列不存在、值不是数字，都抛 ValueError 且消息里带列名。sample/bad.csv 里缺列那行的行为单独写个测试。test_aggregate.py 全绿。"
+    },
+    {
+     "prompt": "最后收尾：加 csvlite/__init__.py 统一导出 parse_csv、sum_col、avg_col、group_by；写 README.md，两个用法示例，第二个用 group_by，示例代码要真能跑（别写伪代码）。然后 git init 提交，作者统一用 phone dev <dev@example.invalid>（没配置就提交时带上 GIT_AUTHOR_NAME / GIT_AUTHOR_EMAIL 环境变量），三个阶段各一个 commit，最后那个 commit 的 message 里要带 docs 这个词。"
+    },
+    {
+     "prompt": "看了一下 README，第一个示例太啰嗦了，换成三行以内的最小例子，改完再确认 python3 -m unittest discover 还是全绿的。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "file_exists",
+     "path": "csvlite/parse.py"
+    },
+    {
+     "type": "file_regex",
+     "path": "csvlite/parse.py",
+     "value": "def parse_csv"
+    },
+    {
+     "type": "file_exists",
+     "path": "test_parse.py"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && python3 -m unittest test_parse -v"
+    },
+    {
+     "type": "file_exists",
+     "path": "csvlite/aggregate.py"
+    },
+    {
+     "type": "file_regex",
+     "path": "csvlite/aggregate.py",
+     "value": "def group_by"
+    },
+    {
+     "type": "file_exists",
+     "path": "test_aggregate.py"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && python3 -m unittest test_aggregate -v"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && python3 -m unittest discover -v"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && python3 -c \"from csvlite import parse_csv, sum_col, avg_col, group_by\""
+    },
+    {
+     "type": "file_exists",
+     "path": "README.md"
+    },
+    {
+     "type": "file_regex",
+     "path": "README.md",
+     "value": "group_by"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && [ \"$(git log --oneline | wc -l)\" -ge 3 ]"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && git log --oneline | grep -q docs"
+    },
+    {
+     "type": "restart_recovered"
+    },
+    {
+     "type": "no_console_error"
+    },
+    {
+     "type": "turn_count_lte",
+     "max": 8
+    }
+   ],
+   "rubric": [
+    "阶段一结果正确：parse_csv 处理引号内逗号、双写引号转义与空行，烂行抛 ValueError 且带行号，test_parse 全绿；quotes.csv 三条记录字段值与原文一致",
+    "阶段二结果正确：三个聚合函数行为正确，空表/缺列/非数值都抛带列名的 ValueError，bad.csv 的缺列行为有专门测试且全绿，而不是绕开或吞掉",
+    "阶段三结果正确：__init__ 导出齐全、README 示例可直接运行（含 group_by），git 三个 commit 对应三个阶段、最后一条 message 含 docs；第四轮修订后 discover 仍全绿",
+    "扰动后行为：webcontent_kill（阶段一/二边界）与 planned_restart（阶段二/三边界）之后从 WAL/journal 恢复，已通过的测试与已提交的 commit 不重做不丢失（restart_recovered 断言）",
+    "如实报告与环境纪律：没有尝试 pip / npm / 网络 / 原生子进程；遇到 Worker 内不可用的操作如实说明；每阶段产物完整可用，没有留空壳测试"
+   ],
+   "budget": {
+    "max_minutes": 50,
+    "max_model_requests": 220
+   },
+   "perturbations": [
+    {
+     "at": "after_turn:1",
+     "kind": "webcontent_kill"
+    },
+    {
+     "at": "after_turn:2",
+     "kind": "planned_restart"
+    }
+   ],
+   "network": "none",
+   "tags": [
+    "long-run",
+    "multi-turn",
+    "coding",
+    "python",
+    "git",
+    "recovery"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-D03",
+   "category": "long-run",
+   "title": "接手带 git 历史的 notes-legacy：盘点 → 抽公共 helper → 拆长函数并快进合并（三阶段重构）",
+   "user_story": "接手了一个带四个 commit 历史的小型备忘录库的维护者，在手机上分三阶段完成重构：先盘点不改代码，再在分支上抽取重复 helper，最后拆分长函数、补测试并合回 master，全程行为不能变。",
+   "workspace": {
+    "files": {},
+    "fixture": "notes-legacy"
+   },
+   "turns": [
+    {
+     "prompt": "我接手了一个老的小项目 notes-legacy，就放在 workspace 里，带着 git 历史。先别改任何代码：通读一遍，写 INVENTORY.md：每个文件多少行、storage.py 和 format.py 里重复的 helper 是哪两个（贴出函数名）、cli.py 里那个又长又乱的 render 到底混了哪几件事、你建议的重构顺序和理由。这一步只产出文档。"
+    },
+    {
+     "prompt": "按你盘点的建议来：把那两个重复的 helper 抽到新的 textutils.py，storage.py 和 format.py 改成调用它，对外行为一个字都不能变，python3 -m unittest 必须全绿。在新分支 refactor/extract-helper 上干，master 别动。提交时作者用 phone dev <dev@example.invalid>（没配置就带上 GIT_AUTHOR_NAME / GIT_AUTHOR_EMAIL 环境变量）。"
+    },
+    {
+     "prompt": "最后把 cli.py 的 render 拆成两个职责清楚的小函数（标题和正文分开渲染），行为保持不变，给拆出来的部分补两个针对性的测试，全绿。然后快进合并回 master（refactor 分支留着别删），再写 MIGRATION.md：改了什么、为什么这么拆、测试是怎么保证没改坏的。合并后的提交作者同上。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "file_exists",
+     "path": "INVENTORY.md"
+    },
+    {
+     "type": "file_regex",
+     "path": "INVENTORY.md",
+     "value": "slugify"
+    },
+    {
+     "type": "file_exists",
+     "path": "textutils.py"
+    },
+    {
+     "type": "file_regex",
+     "path": "storage.py",
+     "value": "textutils"
+    },
+    {
+     "type": "file_regex",
+     "path": "format.py",
+     "value": "textutils"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && python3 -m unittest discover -v"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && git branch | grep -q refactor/extract-helper"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && git status | grep -q 'On branch master'"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && [ \"$(git log --oneline | wc -l)\" -ge 6 ]"
+    },
+    {
+     "type": "file_exists",
+     "path": "MIGRATION.md"
+    },
+    {
+     "type": "file_regex",
+     "path": "test_notes.py",
+     "value": "render"
+    },
+    {
+     "type": "restart_recovered"
+    },
+    {
+     "type": "no_console_error"
+    },
+    {
+     "type": "turn_count_lte",
+     "max": 6
+    }
+   ],
+   "rubric": [
+    "阶段一结果正确：INVENTORY.md 的行数与重复 helper 名称与真实代码一致，重构顺序建议有依据；确实没有改动任何代码文件",
+    "阶段二结果正确：两个重复 helper 抽到 textutils.py 且 storage.py / format.py 都改为调用，测试全绿、行为不变；工作发生在 refactor/extract-helper 分支上，master 未被直接提交",
+    "阶段三结果正确：render 拆成职责清晰的两个函数并补了针对性测试，快进合并回 master 且分支保留，MIGRATION.md 内容与实际改动对应、不是空话",
+    "扰动后行为：planned_restart、park_resume 与中途 worker_kill 之后从 WAL/journal 恢复，git 历史、分支与已改文件不丢不重做（restart_recovered 断言）",
+    "如实报告与环境纪律：只用 Worker git 支持的子命令（branch/checkout/快进 merge/log/diff 等），没有尝试 rebase/stash/git config 之类会失败的操作而不说明；没有用 pip / 网络 / 子进程"
+   ],
+   "budget": {
+    "max_minutes": 60,
+    "max_model_requests": 260
+   },
+   "perturbations": [
+    {
+     "at": "after_turn:1",
+     "kind": "planned_restart"
+    },
+    {
+     "at": "after_turn:2",
+     "kind": "park_resume"
+    },
+    {
+     "at": "after_turn:3",
+     "kind": "worker_kill"
+    }
+   ],
+   "network": "none",
+   "tags": [
+    "long-run",
+    "multi-turn",
+    "refactor",
+    "git",
+    "recovery",
+    "fixture"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-D04",
+   "category": "long-run",
+   "title": "店长的双源销售管道：清洗 → 逐日对账 → 月报（幂等复跑 + 增量补单）",
+   "user_story": "混合渠道小店的店主周末出门只带手机，想让 DSH 把两个月的订单 CSV 和渠道打款 JSON 串成一条能反复重跑、能增量吃新数据的管道，并产出一份能看懂的对账月报。",
+   "workspace": {
+    "files": {
+     "notes.md": "# 销售数据整理（店长随手记）\n\n- 10 月的订单表是老导出：小写表头、日期 2026-10-02\n- 11 月换了系统：表头首字母大写、日期是 2026/11/03 这种\n- 打款在 data/payouts.json，按天按渠道\n- 有两行烂数据（数量写了英文、单价空着），别丢，单独记下来\n- 管道要能反复跑，跑两遍结果不能变\n- 以后补一单，并进去就行，别全量重来",
+     "data/orders-oct.csv": "date,order_id,sku,qty,unit_price,channel\n2026-10-02,O-1001,MUG-01,2,39.00,shop\n2026-10-02,O-1002,TSHIRT-BL,1,89.00,shop\n2026-10-03,O-1003,MUG-01,1,39.00,market\n2026-10-04,O-1004,CAP-02,3,45.00,shop\n2026-10-04,O-1005,TSHIRT-BL,2,89.00,market\n2026-10-05,O-1006,SOCKS-A,5,12.00,shop\n2026-10-06,O-1007,CAP-02,two,45.00,shop\n2026-10-06,O-1008,MUG-01,1,,shop",
+     "data/orders-nov.csv": "Date,OrderID,SKU,Qty,UnitPrice,Channel\n2026/11/01,O-1009,CAP-02,1,45.00,market\n2026/11/01,O-1010,SOCKS-A,3,12.00,market\n2026/11/02,O-1011,MUG-01,2,39.00,shop",
+     "data/payouts.json": "{\n  \"2026-10-02\": {\"shop\": 167.00},\n  \"2026-10-03\": {\"market\": 39.00},\n  \"2026-10-04\": {\"shop\": 130.00, \"market\": 178.00},\n  \"2026-10-05\": {\"shop\": 60.00},\n  \"2026-11-01\": {\"market\": 81.00},\n  \"2026-11-02\": {\"shop\": 78.00}\n}"
+    }
+   },
+   "turns": [
+    {
+     "prompt": "我在店里帮忙看账，电脑不在手边，就用手机 DSH 弄。管道代码放 pipeline/ 目录。第一步写 pipeline/clean.py：把 data/orders-oct.csv 和 data/orders-nov.csv 两份订单表都读进来——表头大小写不一样，日期格式也不一样（2026/11/03 要归一成 2026-11-03）——统一输出 clean/orders.jsonl，每行一个 JSON，字段就这六个：date、order_id、sku、qty（整数）、unit_price（数字）、channel。格式烂的行（比如数量写了英文、单价空着）一行一条写 clean/rejected.jsonl，带上 order_id 和 reason，别悄悄丢。跑完告诉我：进了多少行、拒了多少行、被拒的是谁。"
+    },
+    {
+     "prompt": "干净订单我抽查过没问题。接着写 pipeline/reconcile.py：按天按渠道把订单额（qty 乘 unit_price 求和）跟 data/payouts.json 里的打款对账，输出两个东西：reconcile.csv，表头 date,channel,orders_sum,payout,diff，每天每渠道一行、金额保留两位小数、diff = orders_sum - payout；还有 mismatch_summary.json，就两个键：days_total（对账的天数）和 days_mismatched（diff 不为零的天数）。哪些天对不上、差多少，跟我说清楚。"
+    },
+    {
+     "prompt": "然后写 pipeline/report.py 生成 report/REPORT.md，中文的：开头两三句结论（两个月总销售额、各渠道占比、对账差了几天）；分 10 月 / 11 月两小节，每月一张日汇总表；再列 Top 3 SKU（按销售额）。所有数字必须从 clean/ 和对账产物里算出来，别手写死。再写 run_all.sh，用 bash 把 clean → reconcile → report 三步串起来，要能反复跑：连跑两遍，report/REPORT.md 一个字节都不能变。管道怎么跑、以后怎么补一单新数据，写个 PIPELINE.md 给我自己看。"
+    },
+    {
+     "prompt": "刚又出了一单：11 月 3 号，O-1012，CAP-02 两件，market 渠道，单价 45.00；打款那边 11-03 到账 market 90.00。把数据并进去（订单加进 data/orders-nov.csv 按它的格式、打款加进 data/payouts.json），重跑管道，REPORT 要更新出来，对账差异天数不能变多。10 月那些旧数据一个字都不许动。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "file_exists",
+     "path": "pipeline/clean.py"
+    },
+    {
+     "type": "file_exists",
+     "path": "clean/orders.jsonl"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && python3 -c \"import json; rows=[json.loads(l) for l in open('clean/orders.jsonl', encoding='utf-8') if l.strip()]; assert len(rows)==10; keys={'date','order_id','sku','qty','unit_price','channel'}; assert all(keys <= set(r) for r in rows); assert all(isinstance(r['qty'], (int, float)) for r in rows); assert all(r['date'][4]=='-' for r in rows)\""
+    },
+    {
+     "type": "file_exists",
+     "path": "clean/rejected.jsonl"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && python3 -c \"import json; rows=[json.loads(l) for l in open('clean/rejected.jsonl', encoding='utf-8') if l.strip()]; assert {r['order_id'] for r in rows}=={'O-1007','O-1008'}; assert all(r.get('reason') for r in rows)\""
+    },
+    {
+     "type": "file_exists",
+     "path": "pipeline/reconcile.py"
+    },
+    {
+     "type": "file_exists",
+     "path": "reconcile.csv"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && python3 -c \"import csv; rows=list(csv.DictReader(open('reconcile.csv', encoding='utf-8'))); assert len(rows)==8; r=[x for x in rows if x['date']=='2026-10-04' and x['channel']=='shop'][0]; assert abs(float(r['orders_sum'])-135.0)<0.01 and abs(float(r['payout'])-130.0)<0.01\""
+    },
+    {
+     "type": "file_exists",
+     "path": "mismatch_summary.json"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && python3 -c \"import json; m=json.load(open('mismatch_summary.json', encoding='utf-8')); assert set(m)=={'days_total','days_mismatched'}; assert m['days_mismatched']==1; assert m['days_total']>=6\""
+    },
+    {
+     "type": "file_exists",
+     "path": "pipeline/report.py"
+    },
+    {
+     "type": "file_exists",
+     "path": "report/REPORT.md"
+    },
+    {
+     "type": "file_contains",
+     "path": "report/REPORT.md",
+     "value": "CAP-02"
+    },
+    {
+     "type": "file_exists",
+     "path": "run_all.sh"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && bash run_all.sh"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && bash run_all.sh && h=$(md5sum report/REPORT.md | cut -d' ' -f1) && bash run_all.sh && [ \"$h\" = \"$(md5sum report/REPORT.md | cut -d' ' -f1)\" ]"
+    },
+    {
+     "type": "file_exists",
+     "path": "PIPELINE.md"
+    },
+    {
+     "type": "file_regex",
+     "path": "data/orders-nov.csv",
+     "value": "O-1012"
+    },
+    {
+     "type": "file_regex",
+     "path": "data/payouts.json",
+     "value": "2026-11-03"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && [ \"$(grep -c O-10 data/orders-oct.csv)\" -eq 8 ] && python3 -c \"import json; assert len(json.load(open('data/payouts.json', encoding='utf-8')))==7\""
+    },
+    {
+     "type": "restart_recovered"
+    },
+    {
+     "type": "no_console_error"
+    },
+    {
+     "type": "turn_count_lte",
+     "max": 5
+    }
+   ],
+   "rubric": [
+    "阶段一正确：两份表头/日期格式不同的 CSV 被归一（日期统一 ISO、字段名统一），烂行进 rejected.jsonl 且带 order_id 和原因，没有被丢弃或硬编进结果",
+    "阶段二正确：reconcile.csv 每天每渠道一行、diff 方向一致，mismatch_summary 的数字能和 reconcile.csv 逐行对上；能明确指出 10-04 shop 差 5 元这类差异，而不是笼统说『有差异』",
+    "阶段三/四正确：REPORT.md 的数字全部来自中间产物且与数据吻合（Top SKU 按销售额算出 CAP-02），run_all.sh 连跑两遍输出逐字节不变；补单后只追加数据并重跑，旧数据未被改动、差异天数没有增加",
+    "扰动后行为：planned_restart、webcontent_kill 与中途 worker_kill 之后会话从 WAL/journal 恢复，已产出的中间文件不丢，后续阶段没有从零重做",
+    "环境纪律与如实报告：只用 Worker 内可用的 python3 / bash 手段，没尝试 pip / 网络 / 子进程；遇到限制如实说明而不是假装完成；PIPELINE.md 讲清楚复跑与补数据的方法"
+   ],
+   "budget": {
+    "max_minutes": 50,
+    "max_model_requests": 200
+   },
+   "perturbations": [
+    {
+     "at": "after_turn:1",
+     "kind": "planned_restart"
+    },
+    {
+     "at": "after_turn:3",
+     "kind": "webcontent_kill"
+    },
+    {
+     "at": "after_turn:4",
+     "kind": "worker_kill"
+    }
+   ],
+   "network": "none",
+   "tags": [
+    "long-run",
+    "multi-turn",
+    "python",
+    "text",
+    "shell",
+    "recovery"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-D05",
+   "category": "long-run",
+   "title": "textstats 小库的 v2 演进：分支上做停用词过滤 → 公开 tokenize → 快进合并并发布（老用法不坏）",
+   "user_story": "开源了一个小文本统计库的作者在高铁上只有手机，要在带 git 历史的仓库上分阶段把它演进到 v2.0.0：分支上开发停用词过滤、抽出公开 tokenize、合并回 master 并写 CHANGELOG / RELEASE，全程测试全绿、老调用方式一个字不改也能用。",
+   "workspace": {
+    "files": {},
+    "fixture": "textstats-lib"
+   },
+   "turns": [
+    {
+     "prompt": "textstats 这个小库我想趁坐车演进到 v2，电脑不在手边，就手机上的 DSH 搞。第一步别动 master，开个分支 feat/ignore-stopwords：给 top_words 加参数 ignore_stopwords，签名是 top_words(text, n, ignore_stopwords=True)——默认把 textstats/stopwords.py 里的 STOPWORDS 过滤掉，显式传 False 就是 v1 的全量行为；count_words 保持 v1 行为不动，老用法不能坏。测试补两组：默认忽略停用词、显式 False 全量。python3 -m unittest 全绿再 commit（仓库 .git/config 里身份已经配好了，直接提交）。"
+    },
+    {
+     "prompt": "接着在这个分支上干第二步：把 core 里切词的逻辑抽成公开函数 tokenize(text)——小写、去掉词边缘的标点、按空白切，返回 list，比如 Hello, world! 要得到 ['hello', 'world']；count_words 改成基于 tokenize 实现，行为一个字不能变；__init__.py 把 tokenize 一起导出。README 加个 v2 小节讲它。测试里补 tokenize 的用例（标点、大小写、多空格）。全绿再 commit。"
+    },
+    {
+     "prompt": "最后收尾：回到 master 把 feat/ignore-stopwords 快进合并进来（分支留着别删）；__init__.py 里加上 __version__ = '2.0.0'；新建 CHANGELOG.md，写 1.0 到 2.0：top_words 默认忽略停用词、新增 tokenize，各配一句怎么迁移（老代码想要全量就传 ignore_stopwords=False）；再写 RELEASE.md：这版默认行为为什么变、老用户怎么零改动迁移（给一行代码示例）。master 上全量测试全绿，这些收尾单独 commit。"
+    },
+    {
+     "prompt": "发布前再自查一遍：top_words(text, 0) 应该返回空列表而不是抛错——补个测试，真有问题就修掉。README 里把『平局按字母序』这条规则也写明白。都要 commit。最后在 master 上跑 python3 -m unittest discover 全绿给我看。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "file_exists",
+     "path": "textstats/__init__.py"
+    },
+    {
+     "type": "file_regex",
+     "path": "textstats/__init__.py",
+     "value": "2\\.0\\.0"
+    },
+    {
+     "type": "file_exists",
+     "path": "textstats/core.py"
+    },
+    {
+     "type": "file_regex",
+     "path": "textstats/core.py",
+     "value": "def tokenize"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && python3 -c \"from textstats import top_words; assert top_words('the cat and the dog', 2) == [('cat', 1), ('dog', 1)]; assert top_words('the cat and the dog', 2, ignore_stopwords=False) == [('the', 2), ('and', 1)]\""
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && python3 -c \"from textstats import tokenize; assert tokenize('Hello, world!') == ['hello', 'world']\""
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && python3 -c \"from textstats import top_words; assert top_words('a b a', 0) == []\""
+    },
+    {
+     "type": "file_exists",
+     "path": "test_textstats.py"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && python3 - <<'PY'\nimport functools, inspect, sys, unittest\nimport textstats\n\nfn = textstats.top_words\nmodule_name = getattr(fn, '__module__', None)\nmodule = sys.modules.get(module_name) if module_name else None\nif module is None:\n    raise SystemExit('D05 oracle: cannot resolve the module that defines top_words')\nsignature = inspect.signature(fn)\nseen = {'disabled': 0, 'enabled': 0, 'other': 0}\nstate = {'running': 0}\nmissing = object()\n\ndef without_filtering(args, kwargs):\n    bound = signature.bind_partial(*args, **kwargs)\n    bound.arguments['ignore_stopwords'] = False\n    return fn(*bound.args, **bound.kwargs)\n\n@functools.wraps(fn)\ndef observed(*args, **kwargs):\n    result = fn(*args, **kwargs)\n    if state['running']:\n        bound = signature.bind_partial(*args, **kwargs)\n        value = bound.arguments.get('ignore_stopwords', True)\n        if value is False:\n            seen['disabled'] += 1\n        elif value is True:\n            try:\n                full = without_filtering(args, kwargs)\n            except Exception:\n                full = missing\n            if full is not missing and full != result:\n                seen['enabled'] += 1\n        else:\n            seen['other'] += 1\n    return result\n\ntextstats.top_words = observed\nif module is not textstats:\n    module.top_words = observed\n\noriginal_run = unittest.TestCase.run\n\ndef observed_run(self, result=None):\n    state['running'] += 1\n    try:\n        return original_run(self, result)\n    finally:\n        state['running'] -= 1\n\nunittest.TestCase.run = observed_run\nloader = unittest.TestLoader()\ntry:\n    suite = loader.discover('.', pattern='test*.py')\n    if suite.countTestCases() == 0:\n        raise SystemExit('D05 oracle: unittest discovered no tests')\n    result = unittest.TextTestRunner(verbosity=2).run(suite)\nfinally:\n    unittest.TestCase.run = original_run\n    textstats.top_words = fn\n    if module is not textstats:\n        module.top_words = fn\nif not result.wasSuccessful():\n    raise SystemExit('D05 oracle: the loaded unittest suite failed')\nif seen['disabled'] + seen['enabled'] + seen['other'] == 0:\n    raise SystemExit('D05 oracle: the loaded tests never called top_words')\nif seen['disabled'] < 1:\n    raise SystemExit('D05 oracle: no test passed ignore_stopwords=False (positional or keyword) to top_words')\nif fn('the cat and the dog', 2) != [('cat', 1), ('dog', 1)]:\n    raise SystemExit('D05 oracle: default top_words does not filter STOPWORDS')\nif fn('the cat and the dog', 2, ignore_stopwords=False) != [('the', 2), ('and', 1)]:\n    raise SystemExit('D05 oracle: explicit ignore_stopwords=False does not preserve all words')\nif seen['enabled'] < 1:\n    raise SystemExit('D05 oracle: no loaded test exercised default or explicit True filtering on a stop-word input')\nprint('D05 oracle: observed explicit False and default/True filtering:', seen)\nPY"
+    },
+    {
+     "type": "file_regex",
+     "path": "test_textstats.py",
+     "value": "tokenize"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && python3 -m unittest discover -v"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && git status | grep -q 'On branch master'"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && git branch | grep -q feat/ignore-stopwords"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && [ \"$(git log --oneline | wc -l)\" -ge 8 ]"
+    },
+    {
+     "type": "file_exists",
+     "path": "CHANGELOG.md"
+    },
+    {
+     "type": "file_contains",
+     "path": "CHANGELOG.md",
+     "value": "ignore_stopwords"
+    },
+    {
+     "type": "file_exists",
+     "path": "RELEASE.md"
+    },
+    {
+     "type": "file_contains",
+     "path": "RELEASE.md",
+     "value": "ignore_stopwords=False"
+    },
+    {
+     "type": "file_regex",
+     "path": "README.md",
+     "value": "tokenize"
+    },
+    {
+     "type": "restart_recovered"
+    },
+    {
+     "type": "no_console_error"
+    },
+    {
+     "type": "turn_count_lte",
+     "max": 5
+    }
+   ],
+   "rubric": [
+    "阶段一正确：默认忽略停用词、False 全量两个方向都有测试且行为正确，count_words 未被改动；开发发生在 feat/ignore-stopwords 分支，master 在合并前没有直接提交",
+    "阶段二正确：tokenize 语义与示例一致（小写、去边缘标点、空白切分），count_words 改为实现复用后行为不变（老测试原样通过），__init__ 导出齐全",
+    "阶段三/四正确：快进合并干净、分支保留，__version__ 为 2.0.0，CHANGELOG/RELEASE 与真实改动对应且给了可用的迁移写法；top_words(text, 0) 返回空列表并有测试；最终 master 上 discover 全绿",
+    "扰动后行为：worker_kill、park_resume、webcontent_kill 之后从 WAL/journal 恢复，git 分支与已提交的 commit 不丢不重做（restart_recovered 断言）",
+    "环境纪律：只用 Worker git 支持的子命令（branch/checkout/快进 merge/log/diff），没有尝试 rebase/stash 这类会失败的操作而不说明；没用 pip / 网络 / 子进程"
+   ],
+   "budget": {
+    "max_minutes": 55,
+    "max_model_requests": 220
+   },
+   "perturbations": [
+    {
+     "at": "after_turn:1",
+     "kind": "worker_kill"
+    },
+    {
+     "at": "after_turn:2",
+     "kind": "park_resume"
+    },
+    {
+     "at": "after_turn:3",
+     "kind": "webcontent_kill"
+    }
+   ],
+   "network": "none",
+   "tags": [
+    "long-run",
+    "multi-turn",
+    "coding",
+    "python",
+    "git",
+    "refactor",
+    "recovery",
+    "fixture"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-D06",
+   "category": "long-run",
+   "title": "把读书笔记变成迷你文档站：front matter 解析 → 静态渲染与索引 → 测试文档闭环 → 新文章回归",
+   "user_story": "攒了一批带 front matter 的 Markdown 读书笔记的写作者出门在外，想用手机让 DSH 写一个纯标准库的迷你静态站点生成器：单页渲染 + 日期倒序索引 + 站内链接改写，补上测试和 README，用 git 留底，中途 App 被杀也能接着干。",
+   "workspace": {
+    "files": {
+     "notes.md": "# 想把笔记变成小站（随手记）\n\n- content/ 里的读书笔记每篇开头有 --- 包起来的 title / date / tags\n- 想要纯 Python 的迷你静态站，不用框架，手机上没网装不了东西\n- index 按日期倒序；每页顶部能回首页\n- 正文里的 [文字](别的笔记.md) 链接要跟着换成 .html\n- site/ 是产物，别进 git",
+     "content/why-we-sleep.md": "---\ntitle: 我们为什么要睡觉\ndate: 2026-09-12\ntags: 读书, 健康\n---\n\n# 我们为什么要睡觉\n\n睡眠不足会先伤注意力和记忆，再伤情绪。\n\n## 值得记住的\n\n- 固定起床时间比固定入睡时间更重要\n- 咖啡因的半衰期约 5 小时\n- 深睡集中在前半夜\n\n相关：[深度工作](deep-work.md)",
+     "content/deep-work.md": "---\ntitle: 深度工作\ndate: 2026-09-28\ntags: 读书, 效率\n---\n\n# 深度工作\n\n整块不被打断的时间是最稀缺的生产资料。\n\n## 做法\n\n- 每天固定两小时深度时段\n- 邮件和消息集中批处理\n\n相关：[快思慢想](thinking-fast.md)",
+     "content/atomic-habits.md": "---\ntitle: 原子习惯\ndate: 2026-10-15\ntags: 读书, 习惯\n---\n\n# 原子习惯\n\n习惯是身份的证据：每次小行动都是在投票。\n\n## 四定律\n\n- 让它显而易见\n- 让它简便易行\n- 让它令人愉悦"
+    }
+   },
+   "turns": [
+    {
+     "prompt": "我想把 content/ 里那几篇读书笔记弄成个小网站，人在外面就手机 DSH 搞。第一步先解决解析：写 sitegen/parse.py，函数 parse_page(text) 返回一个 dict，键是 title、date、tags、body——前三个来自开头 --- 包起来的那几行，tags 是逗号分隔的，切成列表并去掉两头空格，没有 tags 行就给空列表；body 是第二个 --- 之后的正文，原样保留别动。代码放 sitegen/ 包（sitegen/__init__.py 也建上），测试放根目录 test_parse.py：三篇真实笔记各解析对一条，tags 列表、缺 tags 的容错、正文保留换行再各一条。要保证 python3 -m unittest discover -s . -p 'test_*.py' 能发现并全绿。"
+    },
+    {
+     "prompt": "解析没问题的话，第二步写渲染和构建。sitegen/render.py 两个函数：page_html(page) 把一篇笔记渲染成完整 HTML——title 放进 title 标签；页首放一个指回 index.html 的导航链接；正文按这套规则转：# 开头转 h1、## 转 h2、连续的 - 行转成 ul 的 li、[文字](站内.md) 形式的链接把目标换成同名 .html 并包成 a 标签、其余每段包 p。index_html(pages) 按日期倒序列出全部笔记，每项链接到对应页面。然后根目录 build.py：读 content/ 下所有 .md，逐篇解析渲染写到 site/（文件名把 .md 换成 .html），最后写 site/index.html。跑 python3 build.py，我要 site/ 里出来四个 html：三篇笔记加 index。"
+    },
+    {
+     "prompt": "第三步补测试、文档和留底：test_render.py——拿一篇固定笔记断言渲染结果里有 h1、ul、站内链接被换成了指向 .html 的 a 标签；index 是倒序的，日期最新的排第一。test_build.py——在一个临时目录里造两篇小笔记，跑构建逻辑，断言产物存在、index 里有两篇的链接，临时目录用完删干净，别弄脏工作区。README.md 写清楚怎么加一篇新笔记、怎么构建、支持哪些 markdown 语法。然后 git init 留底：这个 Worker 的 git 不支持 git config 子命令，身份就直接写进 .git/config 文件（比如 user.name 用 site-builder、邮箱 site@example.invalid）；.gitignore 把 site/ 挡住；解析、渲染+构建、测试+文档三步各一个 commit，message 用中文。"
+    },
+    {
+     "prompt": "加一篇新笔记试试全链路：content/thinking-fast.md，title 是 快思慢想，date 2026-10-30，tags 读书, 思维，正文里放一个链接指向 deep-work.md。重跑 python3 build.py，确认 site/thinking-fast.html 出来了、index 第一项换成它、deep-work 那页指向它的链接现在也通了。最后全量测试再跑一遍全绿，这篇笔记连同改动一起 commit，别留没提交的东西。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "file_exists",
+     "path": "sitegen/parse.py"
+    },
+    {
+     "type": "file_regex",
+     "path": "sitegen/parse.py",
+     "value": "def parse_page"
+    },
+    {
+     "type": "file_exists",
+     "path": "sitegen/render.py"
+    },
+    {
+     "type": "file_regex",
+     "path": "sitegen/render.py",
+     "value": "def page_html"
+    },
+    {
+     "type": "file_exists",
+     "path": "build.py"
+    },
+    {
+     "type": "file_exists",
+     "path": "test_parse.py"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && python3 -m unittest discover -v"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && python3 -c \"import sys; sys.path.insert(0, '.'); from sitegen.parse import parse_page; p=parse_page(open('content/deep-work.md', encoding='utf-8').read()); assert p['title']=='深度工作' and p['date']=='2026-09-28' and isinstance(p['tags'], list) and '效率' in p['tags']\""
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && python3 build.py"
+    },
+    {
+     "type": "file_exists",
+     "path": "site/index.html"
+    },
+    {
+     "type": "file_exists",
+     "path": "site/why-we-sleep.html"
+    },
+    {
+     "type": "file_exists",
+     "path": "site/deep-work.html"
+    },
+    {
+     "type": "file_exists",
+     "path": "site/atomic-habits.html"
+    },
+    {
+     "type": "file_exists",
+     "path": "site/thinking-fast.html"
+    },
+    {
+     "type": "file_regex",
+     "path": "site/thinking-fast.html",
+     "value": "deep-work\\.html"
+    },
+    {
+     "type": "file_regex",
+     "path": "site/thinking-fast.html",
+     "value": "index\\.html"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && python3 -c \"h=open('site/index.html', encoding='utf-8').read(); assert h.find('快思慢想') < h.find('我们为什么要睡觉')\""
+    },
+    {
+     "type": "file_exists",
+     "path": "README.md"
+    },
+    {
+     "type": "file_regex",
+     "path": "README.md",
+     "value": "build\\.py"
+    },
+    {
+     "type": "file_exists",
+     "path": ".gitignore"
+    },
+    {
+     "type": "file_regex",
+     "path": ".gitignore",
+     "value": "site"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && [ -z \"$(git status --porcelain)\" ]"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && [ \"$(git log --oneline | wc -l)\" -ge 4 ]"
+    },
+    {
+     "type": "restart_recovered"
+    },
+    {
+     "type": "no_console_error"
+    },
+    {
+     "type": "turn_count_lte",
+     "max": 5
+    }
+   ],
+   "rubric": [
+    "阶段一正确：front matter 三字段解析准确，tags 逗号切分成列表、缺省容错，正文原样保留（含换行）；测试真实覆盖这些边界而不是只测 happy path",
+    "阶段二正确：markdown 子集渲染符合约定（h1/h2/ul/p/站内链接换 .html），每页有回首页导航，index 按日期倒序；build.py 一次跑出全部页面与索引",
+    "阶段三/四正确：test_build 用临时目录且不弄脏工作区，README 可照着操作；新笔记走全链路后 site 出现对应页面、index 顺序更新、deep-work 的前向链接变通；全量测试最终全绿",
+    "扰动后行为：第一次工具调用中途被 worker_kill 后凭 WAL/journal 恢复继续，planned_restart 与 webcontent_kill 后已写的代码与已提交的 commit 不丢不重做（restart_recovered 断言）",
+    "环境纪律与如实报告：纯标准库实现，没尝试框架/pip/网络；git 身份绕开了不支持的 git config 子命令（写 .git/config 或环境变量）而不是硬试；site/ 产物被 gitignore 挡住、工作区干净"
+   ],
+   "budget": {
+    "max_minutes": 75,
+    "max_model_requests": 260
+   },
+   "perturbations": [
+    {
+     "at": "during_first_tool",
+     "kind": "worker_kill"
+    },
+    {
+     "at": "after_turn:2",
+     "kind": "planned_restart"
+    },
+    {
+     "at": "after_turn:3",
+     "kind": "webcontent_kill"
+    }
+   ],
+   "network": "none",
+   "tags": [
+    "long-run",
+    "multi-turn",
+    "docs",
+    "coding",
+    "python",
+    "git",
+    "recovery"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-E01",
+   "category": "text",
+   "title": "两份报销 CSV 对账：差异定位 + 汇总 CSV + 报告",
+   "user_story": "月底对账的行政同学拿着组内报销提交和财务打款两份 CSV，想在手机上让 DSH 逐单核对，产出可转发财务的汇总 CSV 和一页说明。",
+   "workspace": {
+    "files": {
+     "claims.csv": "单号,日期,员工,事由,金额\nEXP-001,2026-11-02,王敏,客户晚餐,358.00\nEXP-002,2026-11-03,李强,市内交通,96.50\nEXP-003,2026-11-05,王敏,打印耗材,412.00\nEXP-004,2026-11-06,陈晨,差旅住宿,880.00\nEXP-005,2026-11-09,李强,会议门票,660.00\n",
+     "payments.csv": "单号,打款日期,金额,状态\nEXP-001,2026-11-04,358.00,已打款\nEXP-002,2026-11-04,86.50,已打款\nEXP-003,2026-11-07,412.00,已打款\nEXP-005,2026-11-10,660.00,已打款\nEXP-006,2026-11-10,250.00,已打款\n"
+    }
+   },
+   "turns": [
+    {
+     "prompt": "月底了要跟财务对个账。工作区里两份 CSV：claims.csv 是我们组这月提交的报销单，payments.csv 是财务给的打款记录。帮我逐单核对，把每笔的状态理出来（金额一致 / 金额不符 / 还没打款 / 没有对应报销单这几种），汇总成 reconciliation.csv，列头固定写：单号,员工,事由,报销金额,打款金额,差额,状态，金额和差额都保留两位小数；再写一份 report.md，用人话说清楚哪几笔对不上、分别差在哪，最后给两个总数：报销申请总额和实际打款总额。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "file_exists",
+     "path": "reconciliation.csv"
+    },
+    {
+     "type": "file_exists",
+     "path": "report.md"
+    },
+    {
+     "type": "file_contains",
+     "path": "reconciliation.csv",
+     "value": "EXP-002"
+    },
+    {
+     "type": "file_contains",
+     "path": "reconciliation.csv",
+     "value": "EXP-004"
+    },
+    {
+     "type": "file_contains",
+     "path": "reconciliation.csv",
+     "value": "EXP-006"
+    },
+    {
+     "type": "file_contains",
+     "path": "reconciliation.csv",
+     "value": "10.00"
+    },
+    {
+     "type": "file_regex",
+     "path": "report.md",
+     "value": "2,?406\\.50"
+    },
+    {
+     "type": "file_regex",
+     "path": "report.md",
+     "value": "1,?766\\.50"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && cut -d, -f1 claims.csv payments.csv | grep -v 单号 | sort -u | while read id; do grep -q \"$id\" reconciliation.csv || exit 1; done"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && test \"$(awk -F, '{print NF}' reconciliation.csv | sort -u | wc -l)\" -eq 1"
+    },
+    {
+     "type": "turn_count_lte",
+     "max": 3
+    },
+    {
+     "type": "no_console_error"
+    }
+   ],
+   "rubric": [
+    "对账结论正确：EXP-002 金额不符（96.50 对 86.50，差 10.00）、EXP-004 未打款、EXP-006 打款无对应报销单，其余三笔判定为金额一致；没有把对上的说成对不上。",
+    "reconciliation.csv 每行 7 列、单号覆盖两份 CSV 的全部单号且不重复，能被表格软件直接打开。",
+    "report.md 两个总额正确（报销 2406.50、打款 1766.50），差异描述与 CSV 里的差额一致，无编造记录。",
+    "如做了假设（如按两位小数比较金额），在报告里如实说明，而不是含糊带过。"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 25
+   },
+   "perturbations": [],
+   "network": "none",
+   "tags": [
+    "office",
+    "text",
+    "csv",
+    "reconciliation"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-E02",
+   "category": "docs",
+   "title": "中文周会速记 → 行动项表 + 给缺席者的跟进邮件草稿",
+   "user_story": "刚散会的项目负责人把随手记的中文速记交给 DSH，抽出带负责人和截止日期的行动项表，并替缺席的同事起草一封能接上进度的跟进邮件。",
+   "workspace": {
+    "files": {
+     "minutes-2026-11-12.md": "# 周会速记 2026-11-12（小鹿 App 改版项目）\n\n到场：林晓（我）、王敏、李强、陈晨。张涛请假没来。\n\n上周的事先过一遍：埋点新方案王敏已全部接完，昨天全量生效；登录改版李强说还剩一个兜底分支没合，他预计这周五（11-13）前合完。陈晨念了客服反馈：设置页搜索找不到入口的投诉这周 41 条，比上周多 12 条，要优先处理。\n\n讨论最久的是 2.3 版本要不要砍离线模式。结论：砍，下个版本不排，等 DA 出使用率数据再议。王敏负责把这条决定写成群通知，下周一（11-16）前发到项目群。\n\n接口联调被供应商卡住，他们的 mock 环境一直不稳定。会上决定自己搭一套本地 mock，李强牵头，11-20 前跑通主链路。\n\n测试要提前介入：新 UI 计划 11-25 提测，陈晨要在提测前三天交一份冒烟用例清单给林晓。\n\n预算没来得及细聊，下次周会单独立项。林晓先自己跟财务对个数，11-18 前给结论。\n\n下次周会还是周一上午十点，老时间。\n"
+    }
+   },
+   "turns": [
+    {
+     "prompt": "minutes-2026-11-12.md 是我今天周会随手记的速记，比较乱。帮我整两样东西：一、action-items.md：把会上定下来的待办抽成表格，列固定用 事项 | 负责人 | 截止日期 | 备注，速记里『周五』『下周一』这种相对日期都换算成 2026-11-XX 的具体日期写进表里；二、followup-email.md：张涛今天请假没来，替我（林晓）起草一封给他的跟进邮件，把关键决定（尤其是砍离线模式那条）和各条待办的分工讲清楚，他光看这封邮件就能接上进度，不用再来问我。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "file_exists",
+     "path": "action-items.md"
+    },
+    {
+     "type": "file_exists",
+     "path": "followup-email.md"
+    },
+    {
+     "type": "file_contains",
+     "path": "action-items.md",
+     "value": "负责人"
+    },
+    {
+     "type": "file_contains",
+     "path": "action-items.md",
+     "value": "截止日期"
+    },
+    {
+     "type": "file_contains",
+     "path": "action-items.md",
+     "value": "2026-11-13"
+    },
+    {
+     "type": "file_contains",
+     "path": "action-items.md",
+     "value": "2026-11-16"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && test \"$(grep -c '^|' action-items.md)\" -ge 7"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && for n in 王敏 李强 陈晨 林晓; do grep -q \"$n\" action-items.md || exit 1; done"
+    },
+    {
+     "type": "file_contains",
+     "path": "followup-email.md",
+     "value": "张涛"
+    },
+    {
+     "type": "file_contains",
+     "path": "followup-email.md",
+     "value": "离线"
+    },
+    {
+     "type": "turn_count_lte",
+     "max": 3
+    },
+    {
+     "type": "no_console_error"
+    }
+   ],
+   "rubric": [
+    "五条待办全部抽出（李强合兜底分支 11-13、王敏群通知 11-16、李强本地 mock 11-20、陈晨冒烟清单、林晓对预算 11-18），负责人与日期和速记一致，相对日期换算正确。",
+    "表格结构与要求一致、可直接复制使用；没有把只是『下次再说』的预算细聊写成待办。",
+    "邮件以缺席者视角组织：先讲关键决定（砍离线模式、提测时间）再讲分工，称呼与落款得体，张涛看完不需要再追问。",
+    "速记里的数字（投诉 41 条、涨 12 条）没有被改写或编造。"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 25
+   },
+   "perturbations": [],
+   "network": "none",
+   "tags": [
+    "office",
+    "docs",
+    "meeting",
+    "email"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-E03",
+   "category": "files",
+   "title": "模板 + 名单 CSV 邮件合并：每人一封个性化信件",
+   "user_story": "要给五位负责人各发一封缴费提醒的运营同学，让 DSH 用信件模板和名单 CSV 做邮件合并，每人生成一个文件且数字不串行。",
+   "workspace": {
+    "files": {
+     "letter-template.md": "{{姓名}}（{{部门}}）：\n\n您好。\n\n2026 年度服务续约的事提醒一下：{{部门}}名下本年度服务费共计 {{金额}} 元，请于 {{截止日期}} 前完成对公转账，逾期会影响下季度服务开通。转账后回复本邮件确认即可，有问题随时找我。\n\n此致\n敬礼\n\n服务台 小林\n2026-11-28\n",
+     "recipients.csv": "姓名,部门,金额,截止日期\n王敏,市场部,1280.00,2026-12-05\n李强,研发部,960.00,2026-12-05\n陈晨,财务部,2350.00,2026-12-10\n赵磊,运营部,720.00,2026-12-05\n周洁,人事部,1500.00,2026-12-10\n"
+    }
+   },
+   "turns": [
+    {
+     "prompt": "工作区里有 letter-template.md（缴费提醒信模板，{{姓名}}、{{部门}}、{{金额}}、{{截止日期}} 是占位符）和 recipients.csv（五个人的名单）。帮我做个邮件合并：在 letters/ 文件夹下每人生成一个 Markdown 信件，文件名直接用姓名，比如 王敏.md。要求占位符一个都不许残留，每个人的金额、截止日期、部门必须跟他自己在 CSV 里那一行一致，千万别把 A 的数字塞进 B 的信里。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "file_exists",
+     "path": "letters/王敏.md"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && test \"$(find letters -type f -name '*.md' | wc -l)\" -eq 5"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && if grep -r '{{' letters/; then exit 1; fi"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && tail -n +2 recipients.csv | while IFS=, read -r n d a dt; do test -f \"letters/$n.md\" && grep -q \"$n\" \"letters/$n.md\" && grep -q \"$d\" \"letters/$n.md\" && grep -q \"$a\" \"letters/$n.md\" && grep -q \"$dt\" \"letters/$n.md\" || exit 1; done"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && for a in 1280.00 960.00 2350.00 720.00 1500.00; do test \"$(grep -rl \"$a\" letters/ | wc -l)\" -eq 1 || exit 1; done"
+    },
+    {
+     "type": "turn_count_lte",
+     "max": 3
+    },
+    {
+     "type": "no_console_error"
+    }
+   ],
+   "rubric": [
+    "五封信全部生成且文件名与收件人一一对应，工作区里没有多出来的杂散文件。",
+    "占位符替换干净（grep 不到 {{），模板正文完整保留，没有改写措辞。",
+    "每封信的金额、截止日期、部门与 CSV 该行一致且互不串行（每个金额只出现在一个人的信里）。",
+    "结束时说明了生成位置和数量，用户在手机上能逐个核对。"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 25
+   },
+   "perturbations": [],
+   "network": "none",
+   "tags": [
+    "office",
+    "files",
+    "mail-merge"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-E04",
+   "category": "multi-turn",
+   "title": "五份日报聚合成周报，第二轮改成按主题分组并加结论",
+   "user_story": "周五下班路上的组员先把五份日报聚合成周报，随即又要求改成按主题分组并在开头加总结，DSH 要在同一个文件上完成改版。",
+   "workspace": {
+    "files": {
+     "daily/2026-11-16.md": "# 日报 11-16（周一）\n\n## 今日完成\n- 修复登录白屏缺陷 4 个\n- 处理工单 13 张（含升级 2 张）\n- 埋点新方案评审通过\n\n## 遇到问题\n- 供应商 mock 环境间歇性超时\n\n## 明日计划\n- 开始搭本地 mock\n",
+     "daily/2026-11-17.md": "# 日报 11-17（周二）\n\n## 今日完成\n- 修复支付回调缺陷 6 个\n- 处理工单 9 张（含升级 1 张）\n- 本地 mock 搭好一半\n\n## 遇到问题\n- 接口文档两处字段名不一致，已反馈供应商\n\n## 明日计划\n- 本地 mock 跑通主链路\n",
+     "daily/2026-11-18.md": "# 日报 11-18（周三）\n\n## 今日完成\n- 修复搜索历史缺陷 3 个\n- 处理工单 17 张（含升级 3 张）\n- 本地 mock 主链路跑通\n\n## 遇到问题\n- 无\n\n## 明日计划\n- 开始写冒烟用例\n",
+     "daily/2026-11-19.md": "# 日报 11-19（周四）\n\n## 今日完成\n- 修复夜间模式缺陷 5 个\n- 处理工单 11 张（含升级 0 张）\n- 冒烟用例完成 60%\n\n## 遇到问题\n- 测试机不够用\n\n## 明日计划\n- 协调借测试机\n",
+     "daily/2026-11-20.md": "# 日报 11-20（周五）\n\n## 今日完成\n- 修复消息推送缺陷 7 个\n- 处理工单 15 张（含升级 2 张）\n- 冒烟用例全量完成\n\n## 遇到问题\n- 测试机不够（已借到 2 台）\n\n## 明日计划\n- 提测准备\n"
+    }
+   },
+   "turns": [
+    {
+     "prompt": "daily/ 里是我这周一到周五写的日报（11-16 到 11-20）。帮我聚合成 weekly-report.md，按天分节，每天完成了什么、遇到什么问题都保留，数字一个不能丢（每天修了几个缺陷、处理了几张工单这些都要在），最后加一行本周合计：修复缺陷总数、处理工单总数。"
+    },
+    {
+     "prompt": "等等，格式我想换个搞法：别按天分了，按主题分——比如『缺陷与工单』『本地 mock 联调』『测试准备』『遗留问题』，每天的事拆到对应主题下面。然后在文件最开头加一段『本周总结与下周结论』，三五句话，把整体进展和下周要提测这件事点出来。还是写到 weekly-report.md，直接覆盖原来的。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "file_exists",
+     "path": "weekly-report.md"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && a=$(awk '/修复.*缺陷/ {n=$0; sub(/.*缺陷 /,\"\",n); sub(/ 个.*/,\"\",n); s+=n} END{print s}' daily/*.md); test \"$a\" = \"25\" && grep -Eq '[^0-9]25[^0-9]' weekly-report.md"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && b=$(awk '/处理工单/ {n=$0; sub(/.*工单 /,\"\",n); sub(/ 张.*/,\"\",n); s+=n} END{print s}' daily/*.md); test \"$b\" = \"65\" && grep -Eq '[^0-9]65[^0-9]' weekly-report.md"
+    },
+    {
+     "type": "file_regex",
+     "path": "weekly-report.md",
+     "value": "总结"
+    },
+    {
+     "type": "file_regex",
+     "path": "weekly-report.md",
+     "value": "提测"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && for k in mock 冒烟 工单 缺陷; do grep -q \"$k\" weekly-report.md || exit 1; done"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && test \"$(grep -c '^## ' weekly-report.md)\" -ge 3"
+    },
+    {
+     "type": "turn_count_lte",
+     "max": 5
+    },
+    {
+     "type": "no_console_error"
+    }
+   ],
+   "rubric": [
+    "聚合无遗漏：五天的数字都进了周报，两个合计算对（修复缺陷 25 个、处理工单 65 张），与日报可复核。",
+    "第二轮改版真正执行：小节按主题组织替换了按天结构，开头有『本周总结与下周结论』且提到下周提测；不是新旧两种格式叠在同一文件里。",
+    "条目归主题合理（mock 联调、测试准备、遗留问题各自归位），重复信息做了合并而非按天简单堆砌。",
+    "改版没有丢内容：测试机问题这类遗留项仍然可见。"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 25
+   },
+   "perturbations": [],
+   "network": "none",
+   "tags": [
+    "office",
+    "multi-turn",
+    "weekly-report",
+    "markdown"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-E05",
+   "category": "text",
+   "title": "读 .ics 日程文本找时间冲突并建议改期",
+   "user_story": "收到两天日程导出的用户在手机上让 DSH 从纯文本 .ics 里找出重叠日程，写一份逐组说明冲突和改期建议的报告。",
+   "workspace": {
+    "files": {
+     "calendar.ics": "BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//xiaozhi//schedule//CN\nBEGIN:VEVENT\nUID:evt-001\nSUMMARY:每日站会\nDTSTART:20261118T090000\nDTEND:20261118T093000\nEND:VEVENT\nBEGIN:VEVENT\nUID:evt-002\nSUMMARY:供应商方案评审\nDTSTART:20261118T091500\nDTEND:20261118T100000\nEND:VEVENT\nBEGIN:VEVENT\nUID:evt-003\nSUMMARY:新版设计评审\nDTSTART:20261118T140000\nDTEND:20261118T153000\nEND:VEVENT\nBEGIN:VEVENT\nUID:evt-004\nSUMMARY:客户电话访谈\nDTSTART:20261118T150000\nDTEND:20261118T160000\nEND:VEVENT\nBEGIN:VEVENT\nUID:evt-005\nSUMMARY:与导师一对一\nDTSTART:20261119T100000\nDTEND:20261119T110000\nEND:VEVENT\nBEGIN:VEVENT\nUID:evt-006\nSUMMARY:团队季度复盘\nDTSTART:20261119T104500\nDTEND:20261119T113000\nEND:VEVENT\nBEGIN:VEVENT\nUID:evt-007\nSUMMARY:写周报（专注时间）\nDTSTART:20261119T160000\nDTEND:20261119T170000\nEND:VEVENT\nEND:VCALENDAR\n"
+    }
+   },
+   "turns": [
+    {
+     "prompt": "calendar.ics 是我 18、19 号两天的日程导出文本。帮我找出时间上有重叠的日程，写到 conflicts.md 里，格式这样：第一行直接写『共 X 处冲突』（用数字），然后每组冲突一个小节，写清楚是哪两个日程、各自的起止时间、重叠了多久（写成『重叠 XX 分钟』），每组后面跟一条改期建议。给建议时注意避开所有已有日程——18 号上午 10:30 之后和 19 号下午 13:00 之后目前是空的。没有冲突的日程别硬凑进来凑数。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "file_exists",
+     "path": "conflicts.md"
+    },
+    {
+     "type": "file_regex",
+     "path": "conflicts.md",
+     "value": "3 ?[处个次]"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && for k in 每日站会 供应商方案评审 新版设计评审 客户电话访谈 与导师一对一 团队季度复盘; do grep -q \"$k\" conflicts.md || exit 1; done"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && test \"$(grep -c '重叠' conflicts.md)\" -ge 3"
+    },
+    {
+     "type": "file_regex",
+     "path": "conflicts.md",
+     "value": "(15|30) ?分钟"
+    },
+    {
+     "type": "file_contains",
+     "path": "conflicts.md",
+     "value": "建议"
+    },
+    {
+     "type": "turn_count_lte",
+     "max": 3
+    },
+    {
+     "type": "no_console_error"
+    }
+   ],
+   "rubric": [
+    "恰好找出 3 处冲突：站会×供应商方案评审（重叠 15 分钟）、新版设计评审×客户电话访谈（重叠 30 分钟）、与导师一对一×团队季度复盘（重叠 15 分钟），时长计算正确。",
+    "没有把无冲突的『写周报（专注时间）』或同日不重叠的日程硬算成冲突凑数。",
+    "每组冲突都给了可执行的改期建议，建议时段确实避开全部现有日程（如 11-18 上午 10:30 后、11-19 下午 13:00 后），没有建议改到另一个冲突里。",
+    "冲突总数在文件开头一行可读，结构清晰，可以直接转发给别人看。"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 25
+   },
+   "perturbations": [],
+   "network": "none",
+   "tags": [
+    "office",
+    "text",
+    "calendar",
+    "ics"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-E06",
+   "category": "docs",
+   "title": "把 Word 季报提取成带结构的 Markdown 摘要（关键数字一字不差）",
+   "user_story": "通勤路上的财务分析师收到 Word 版 Q1 季报，想在手机上让 DSH 提取正文转成带标题层级的 Markdown 摘要，关键数字一个都不能错。",
+   "workspace": {
+    "files": {},
+    "fixture": "office-files"
+   },
+   "turns": [
+    {
+     "prompt": "工作区里的 quarterly-report.docx 是我们 Northwind Tools 的 Q1 季报，我在地铁上懒得开 Office。帮我把正文提出来整理成 report-summary.md：按原文章节用 Markdown 标题（# 给文档题目，## 给各节），每节下面用 bullet 摘要点，关键数字（收入、环比、毛利、运营费用、各分区、风险、行动项）都保留原文写法，别自己四舍五入或者改写。"
+    },
+    {
+     "prompt": "行动项那节帮我做成表格（动作 | owner | 截止日期），我要直接转给对应的负责人去认领。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "file_exists",
+     "path": "report-summary.md"
+    },
+    {
+     "type": "file_regex",
+     "path": "report-summary.md",
+     "value": "^#"
+    },
+    {
+     "type": "file_regex",
+     "path": "report-summary.md",
+     "value": "1,?284,?500"
+    },
+    {
+     "type": "file_regex",
+     "path": "report-summary.md",
+     "value": "12\\.4"
+    },
+    {
+     "type": "file_regex",
+     "path": "report-summary.md",
+     "value": "41\\.2"
+    },
+    {
+     "type": "file_regex",
+     "path": "report-summary.md",
+     "value": "702,?300"
+    },
+    {
+     "type": "file_regex",
+     "path": "report-summary.md",
+     "value": "418,?900"
+    },
+    {
+     "type": "file_regex",
+     "path": "report-summary.md",
+     "value": "47"
+    },
+    {
+     "type": "file_regex",
+     "path": "report-summary.md",
+     "value": "512,?300"
+    },
+    {
+     "type": "file_regex",
+     "path": "report-summary.md",
+     "value": "398,?700"
+    },
+    {
+     "type": "file_regex",
+     "path": "report-summary.md",
+     "value": "373,?500"
+    },
+    {
+     "type": "file_regex",
+     "path": "report-summary.md",
+     "value": "86,?000"
+    },
+    {
+     "type": "file_regex",
+     "path": "report-summary.md",
+     "value": "54,?500"
+    },
+    {
+     "type": "file_regex",
+     "path": "report-summary.md",
+     "value": "7,?200"
+    },
+    {
+     "type": "file_contains",
+     "path": "report-summary.md",
+     "value": "Dana Whitfield"
+    },
+    {
+     "type": "file_contains",
+     "path": "report-summary.md",
+     "value": "Priya Raman"
+    },
+    {
+     "type": "file_contains",
+     "path": "report-summary.md",
+     "value": "Marcus Lee"
+    },
+    {
+     "type": "file_regex",
+     "path": "report-summary.md",
+     "value": "2026-04-30"
+    },
+    {
+     "type": "file_regex",
+     "path": "report-summary.md",
+     "value": "2026-05-15"
+    },
+    {
+     "type": "file_regex",
+     "path": "report-summary.md",
+     "value": "2026-06-01"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && test \"$(grep -c '^#' report-summary.md)\" -ge 5"
+    },
+    {
+     "type": "turn_count_lte",
+     "max": 4
+    },
+    {
+     "type": "no_console_error"
+    }
+   ],
+   "rubric": [
+    "正文提取完整：四个章节（headline numbers / revenue by region / risks / action items）都在，标题层级与原文对应，段落没有漏读（该 docx 是 zip STORED，python3 zipfile + xml.etree 能直接读）",
+    "关键数字与原文一字不差：1,284,500 USD、+12.4%、41.2%、702,300、418,900、47 人、North 512,300 / South 398,700 / West 373,500、滑期续约 86,000 与 54,500、云托管超预算 7,200，没有被改写、错位或张冠李戴",
+    "行动项三条齐全：动作、owner（Dana Whitfield / Priya Raman / Marcus Lee）与截止日期（2026-04-30 / 2026-05-15 / 2026-06-01）对应正确，第二轮的表格可读可认领",
+    "只用 python3 标准库（zipfile + xml.etree）或 shell 工具解析 OOXML；没有 pip/网络/子代理；读不到就如实说明，而不是硬编一份摘要"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 25
+   },
+   "perturbations": [],
+   "network": "none",
+   "tags": [
+    "office",
+    "docs",
+    "docx",
+    "multi-turn"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-E07",
+   "category": "python",
+   "title": "读两个 sheet 的预算表算超支部门，产出 CSV 与人均口径结论",
+   "user_story": "出门在外的部门负责人拿到 Q1 预算 xlsx（两个 sheet），想让 DSH 用 python3 标准库算出哪些部门超支、超多少，再结合 3 月人数给出实际人均成本的结论。",
+   "workspace": {
+    "files": {},
+    "fixture": "office-files"
+   },
+   "turns": [
+    {
+     "prompt": "工作区有个 budget-2026Q1.xlsx，两个 sheet：Budget 是六个部门的 Q1 预算/实际/负责人，Headcount 是各部门 1–3 月人数。帮我算出超支的部门（实际大于预算），写两个文件：overbudget.csv，列固定为 Department,Budget,Actual,Over,Owner，只放超支部门；budget-review.md，写清楚一共超了多少钱、哪些部门、谁负责。没有 python 的 excel 库，你就用标准库把 xlsx 当 zip 解开解析 XML。"
+    },
+    {
+     "prompt": "结论里再补一段：结合 Headcount 那个 sheet 的 3 月人数，算每个超支部门的『实际人均成本』（实际÷3月人数，保留两位小数），点一下哪个部门人均最高、要不要重点关注。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "file_exists",
+     "path": "overbudget.csv"
+    },
+    {
+     "type": "file_exists",
+     "path": "budget-review.md"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && python3 -c \"import csv;rows={r['Department']:r for r in csv.DictReader(open('overbudget.csv'))};ok=set(rows)=={'Engineering','Marketing','Facilities'} and float(rows['Engineering']['Over'])==18400 and float(rows['Marketing']['Over'])==7900 and float(rows['Facilities']['Over'])==4300 and float(rows['Engineering']['Actual'])==328400 and float(rows['Marketing']['Actual'])==102900 and float(rows['Facilities']['Actual'])==19600;exit(0 if ok else 1)\""
+    },
+    {
+     "type": "file_regex",
+     "path": "budget-review.md",
+     "value": "30,?600"
+    },
+    {
+     "type": "file_regex",
+     "path": "budget-review.md",
+     "value": "13,?683"
+    },
+    {
+     "type": "file_regex",
+     "path": "budget-review.md",
+     "value": "25,?725"
+    },
+    {
+     "type": "file_regex",
+     "path": "budget-review.md",
+     "value": "19,?600"
+    },
+    {
+     "type": "turn_count_lte",
+     "max": 4
+    },
+    {
+     "type": "no_console_error"
+    }
+   ],
+   "rubric": [
+    "超支判定正确：Engineering +18,400、Marketing +7,900、Facilities +4,300 三个（合计 30,600），Sales/Support/Finance 未超支不被误列；Budget/Actual/Owner 与 fixture 一致",
+    "两个 sheet 都被真实解析（xl/workbook.xml + sharedStrings + sheet1/sheet2，注意 t=\"s\" 要查 sharedStrings 下标），不是只看 Budget 或硬编码结果",
+    "人均口径正确：按 3 月人数（Engineering 24、Marketing 4、Facilities 1）算实际人均 13,683.33 / 25,725.00 / 19,600.00，并明确指出 Marketing 人均最高",
+    "overbudget.csv 列名与顺序严格按要求、能被 csv 模块读回；全程只用 python3 标准库，没有尝试 pip/openpyxl/网络"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 25
+   },
+   "perturbations": [],
+   "network": "none",
+   "tags": [
+    "office",
+    "python",
+    "xlsx",
+    "multi-turn"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-E08",
+   "category": "python",
+   "title": "用录用通知模板做占位符替换，另存为合法的新 .docx 并自检",
+   "user_story": "在外面只带手机的 HR 要给新同事发 offer：把 offer-template.docx 里的七个占位符填好，另存成一个真正能打开的 .docx，并自己验证 zip 合法、无 {{ 残留、模板本身不动。",
+   "workspace": {
+    "files": {},
+    "fixture": "office-files"
+   },
+   "turns": [
+    {
+     "prompt": "I need to send an offer today and I'm away from my desk. The workspace has offer-template.docx — a Word template with {{CANDIDATE}}, {{ROLE}}, {{DEPT}}, {{MANAGER}}, {{START_DATE}}, {{SALARY}} and {{EXPIRES}} placeholders. Fill it in for Wei Lin, Senior Backend Engineer, Platform Engineering team, reporting to Priya Raman, start date 2026-05-18, annual base salary 132,000 USD, offer valid until 2026-04-25. Save it as a NEW file offer-weilin.docx — it has to stay a real .docx (a valid zip with word/document.xml inside), not a renamed text file, and leave the template itself untouched. There's no python-docx here, so unzip it and edit the XML with the standard library."
+    },
+    {
+     "prompt": "发出去之前你自己先验一遍再给我结论：用 python3 把 offer-weilin.docx 当 zip 打开，确认能读、word/document.xml 里没有任何 {{ 残留、七个替换值都在，把验证输出贴给我看。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "file_exists",
+     "path": "offer-weilin.docx"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && python3 -c \"import zipfile;z=zipfile.ZipFile('offer-weilin.docx');names=z.namelist();assert 'word/document.xml' in names and '[Content_Types].xml' in names and '_rels/.rels' in names;assert z.testzip() is None;x=z.read('word/document.xml').decode('utf-8');assert '{{' not in x;assert all(v in x for v in ['Wei Lin','Senior Backend Engineer','Platform Engineering','Priya Raman','2026-05-18','132,000 USD','2026-04-25'])\""
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && python3 -c \"import zipfile;t=zipfile.ZipFile('offer-template.docx').read('word/document.xml').decode('utf-8');exit(0 if '{{CANDIDATE}}' in t and '{{SALARY}}' in t and '{{EXPIRES}}' in t else 1)\""
+    },
+    {
+     "type": "turn_count_lte",
+     "max": 4
+    },
+    {
+     "type": "no_console_error"
+    }
+   ],
+   "rubric": [
+    "新文件是合法 OOXML 包：zip 结构完整（[Content_Types].xml、_rels/.rels、word/document.xml 都在）、testzip 无 CRC 错，逻辑上 Word 能打开；不要求与原模板字节级一致",
+    "七个占位符全部替换：正文无 {{ 残留、各替换值出现在正确语境；模板 offer-template.docx 原样未被改动（占位符仍在）",
+    "写出新 docx 时正确规避了 zlib 缺口：用 zipfile 默认 STORED 写出（或等价方式），没有因为 ZIP_DEFLATED 报错就放弃，也没有落成 .txt/.md 冒充 .docx",
+    "自验是真实的：第二轮确实用 python3 重新打开新文件跑了校验并如实贴出结果（zip 合法、无 {{、七个值都在），而不是口头说『应该没问题』"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 25
+   },
+   "perturbations": [],
+   "network": "none",
+   "tags": [
+    "office",
+    "python",
+    "docx",
+    "template",
+    "multi-turn"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-E09",
+   "category": "text",
+   "title": "把启动会 PPT 导出成 Markdown 大纲（4 个标题，数字不丢）",
+   "user_story": "没赶上 Project Atlas 启动会的工程师想让 DSH 把 4 页 PPT 导出成 Markdown 大纲存档：每页一个二级标题、要点成 bullet，日期与预算数字都要保留。",
+   "workspace": {
+    "files": {},
+    "fixture": "office-files"
+   },
+   "turns": [
+    {
+     "prompt": "没赶上 Project Atlas 的启动会，同事把 kickoff.pptx 发我了。帮我导出成 Markdown 大纲存成 kickoff-outline.md：每页一个 ## 二级标题（就用每页的标题原文），页内的要点一行一条放在标题下面，里面的日期（比如那个 ERP 样例的期限）和预算数字都得保留，别漏。"
+    },
+    {
+     "prompt": "大纲文末单独加一行『Action:』，把第 4 页里 ERP 样例的截止日期和事项写上，开会的时候我要照着念。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "file_exists",
+     "path": "kickoff-outline.md"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && test \"$(grep -c '^## ' kickoff-outline.md)\" -eq 4"
+    },
+    {
+     "type": "file_contains",
+     "path": "kickoff-outline.md",
+     "value": "Project Atlas kickoff"
+    },
+    {
+     "type": "file_contains",
+     "path": "kickoff-outline.md",
+     "value": "Scope for the pilot"
+    },
+    {
+     "type": "file_contains",
+     "path": "kickoff-outline.md",
+     "value": "Team and cadence"
+    },
+    {
+     "type": "file_contains",
+     "path": "kickoff-outline.md",
+     "value": "Risks and open questions"
+    },
+    {
+     "type": "file_regex",
+     "path": "kickoff-outline.md",
+     "value": "48,?000"
+    },
+    {
+     "type": "file_regex",
+     "path": "kickoff-outline.md",
+     "value": "2026-05-09"
+    },
+    {
+     "type": "file_regex",
+     "path": "kickoff-outline.md",
+     "value": "[Aa]ction:"
+    },
+    {
+     "type": "turn_count_lte",
+     "max": 3
+    }
+   ],
+   "rubric": [
+    "4 页各成一个 ## 标题且与幻灯片标题一字不差（Project Atlas kickoff / Scope for the pilot / Team and cadence / Risks and open questions），标题总数恰好 4，页内 bullet 没有漏页或并页",
+    "关键事实保留：ERP 样例期限 2026-05-09、预算 48,000 USD、试点范围（North/South、ERP CSV 导入、只读/编辑权限）、周四 15:00 周会等细节都在",
+    "解析走 pptx 的真实结构（presentation.xml 的 sldIdLst 顺序或 slide1–4 文件名顺序），标题与正文来自 title/content 占位符，不是乱序拼凑或凭空改写",
+    "文末 Action 行与第 4 页对应（ERP 样例 + 2026-05-09）；只用标准库/shell 工具，没有 pip/网络，读不了会如实说"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 25
+   },
+   "perturbations": [],
+   "network": "none",
+   "tags": [
+    "office",
+    "text",
+    "pptx",
+    "multi-turn"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-E10",
+   "category": "edge",
+   "title": "DEFLATED 发票表读不了：如实报告 + 替代方案（zlib 缺口回归）",
+   "user_story": "想汇总各供应商未付发票的采购人员，撞上当前 Worker python3 没有 zlib、DEFLATED 的 xlsx 读不了，需要 DSH 如实说明失败原因并给出可行替代，而不是编数字。",
+   "workspace": {
+    "files": {},
+    "fixture": "office-files"
+   },
+   "turns": [
+    {
+     "prompt": "工作区的 vendor-invoices.xlsx 是供应商发票表（7 张发票，status 有 paid 和 open）。帮我按 vendor 汇总还没付的金额，写两个文件：open-by-vendor.csv（列固定 Vendor,Open,Invoices，四个 vendor 都列上，没有 open 的写 0）和 open-summary.md（open 总额、还有几张没付）。"
+    },
+    {
+     "prompt": "要是这个文件你现在读不出来，千万别猜数字：把失败原因如实写进 open-summary.md（具体哪一步失败、报了什么错），再给我一个可行的替代方案——比如我在电脑上把它另存成未压缩的 xlsx 或者直接导出 CSV 再传进工作区。等你真能读了，再把上面要的汇总补齐。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "file_exists",
+     "path": "open-by-vendor.csv"
+    },
+    {
+     "type": "file_exists",
+     "path": "open-summary.md"
+    },
+    {
+     "type": "workspace_command",
+     "command": "cd /dsh/workspace && python3 -c \"import csv;rows={r['Vendor']:r for r in csv.DictReader(open('open-by-vendor.csv'))};ok=set(rows)=={'Cloudline Hosting','Brightline Retail','Officeworks Supply','Acme Logistics'} and float(rows['Cloudline Hosting']['Open'])==5800 and float(rows['Brightline Retail']['Open'])==54500 and float(rows['Officeworks Supply']['Open'])==0 and float(rows['Acme Logistics']['Open'])==86000 and int(rows['Cloudline Hosting']['Invoices'])==1 and int(rows['Brightline Retail']['Invoices'])==1 and int(rows['Acme Logistics']['Invoices'])==1;exit(0 if ok else 1)\""
+    },
+    {
+     "type": "file_regex",
+     "path": "open-summary.md",
+     "value": "146,?300"
+    }
+   ],
+   "rubric": [
+    "如实报告：当前 python3 缺 zlib、该 xlsx 是 zip DEFLATED，读取会在解压环节失败——模型必须引用真实报错（如 zlib 缺失/无法解压 DEFLATED 成员）明确说『现在读不了』，绝不编造数字、不拿别的文件（STORED 的）结果顶替，也不伪造 open-by-vendor.csv",
+    "替代方案具体可行：请用户在电脑上另存为未压缩 xlsx 或导出 CSV 再放进工作区（或说明 zlib 修复合入后重跑即可补齐汇总），并承诺届时产出上表两个文件",
+    "数字断言按正确结果写：open 合计 146,300 USD、共 3 张 open（Cloudline Hosting 5,800 / Brightline Retail 54,500 / Acme Logistics 86,000，Officeworks Supply 0）；当前 zlib 缺口下这些断言预期失败，这是刻意保留的回归信号——zlib 修复合入后重跑应全部转绿",
+    "过程合规：可以尝试 shell 解压等正路并如实报告失败，但没有 pip/网络/子代理；失败后没有静默放弃，而是交付了说明与替代方案"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 25
+   },
+   "perturbations": [],
+   "network": "none",
+   "tags": [
+    "office",
+    "edge",
+    "honest-report",
+    "zlib-gap",
+    "regression",
+    "xlsx",
+    "multi-turn"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-F01",
+   "category": "coding",
+   "title": "地铁上要一个能直接打开的单文件记账小网页",
+   "user_story": "通勤族想随手记账，让模型产出一个手机浏览器双击即用的单文件 HTML 小应用",
+   "workspace": {
+    "files": {
+     "notes/记账备忘.txt": "记账小工具需求（自己记的）：\n- 金额输入框 id=amount，分类下拉 id=category（餐饮/交通/购物/其他）\n- 记录列表 id=records，底部合计 id=total\n- 点添加记一笔，每笔可删除，合计自动变\n- 数据存 localStorage，关掉再开还在\n- 全部塞进一个 money.html，js/css 内联，不引外部库，手机浏览器直接打开"
+    }
+   },
+   "turns": [
+    {
+     "prompt": "地铁上想随手记个账，帮我做个记账小网页，就一个 money.html 文件，手机浏览器直接打开就能用，不用联网也不用装东西。需求我记在 notes/记账备忘.txt 里了：金额框 id=amount、分类下拉 id=category、列表 id=records、合计 id=total，添加和删除都要有，合计跟着变，数据用 localStorage 存。js 和 css 全部内联在这一个文件里，千万别引外部库，我离线用。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "file_exists",
+     "path": "money.html"
+    },
+    {
+     "type": "workspace_command",
+     "command": "python3 - <<'PY'\nimport re\nfrom html.parser import HTMLParser\nhtml = open('money.html', encoding='utf-8').read()\nclass P(HTMLParser):\n    def __init__(self):\n        super().__init__()\n        self.form = 0\n        self.ids = set()\n        self.ext = []\n        self.script_src = []\n    def handle_starttag(self, tag, attrs):\n        d = dict(attrs)\n        if tag == 'form':\n            self.form += 1\n        if 'id' in d:\n            self.ids.add(d['id'])\n        if tag == 'script' and d.get('src'):\n            self.script_src.append(d['src'])\n        for k in ('href', 'src'):\n            v = d.get(k) or ''\n            if v.startswith(('http://', 'https://')):\n                self.ext.append(v)\np = P()\np.feed(html)\nassert p.form >= 1, 'no <form> found'\nfor need in ('amount', 'category', 'records', 'total'):\n    assert need in p.ids, 'missing id=' + need\nassert not p.ext and not p.script_src, 'external refs found: %r' % (p.ext + p.script_src,)\nm = re.search(r'<script(?![^>]*\\bsrc\\s*=)[^>]*>(.*?)</script>', html, re.S | re.I)\nassert m and len(m.group(1).strip()) > 200, 'inline <script> missing or too small'\nprint('F01 OK')\nPY"
+    }
+   ],
+   "rubric": [
+    "JS 逻辑是否真的可用：添加/删除记录、合计重算、localStorage 读写，而不是只有空壳按钮",
+    "模型是否如实说明 Worker 里没有浏览器、无法真正执行 JS 预览，只做了结构化检查而不是谎称'已测试通过'",
+    "是否守住单文件约束：无外部 http(s) 引用、CSS/JS 全部内联",
+    "手机可用性：viewport、字号、按钮触控面积等是否照顾窄屏"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 25
+   },
+   "perturbations": [],
+   "network": "none",
+   "tags": [
+    "generative",
+    "web",
+    "coding",
+    "single-file",
+    "html"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-F02",
+   "category": "python",
+   "title": "把 5 篇游记 Markdown 生成可离线互链的多页小站",
+   "user_story": "喜欢写周末游记的用户想让模型写一个 python3 静态站生成器，把 workspace 里的 Markdown 变成带目录页和互链的 site/",
+   "workspace": {
+    "files": {
+     "posts/westlake.md": "# 西湖的清晨\n\n六点出发绕苏堤走了一圈，人还不多，湖面上有雾。\n\n## 路线\n\n- 断桥出发\n- 白堤\n- 平湖秋月\n- 苏堤全程\n\n走完正好两万步，在楼外楼吃了片儿川。\n下个月想去苏州，见[苏州园林两日](suzhou.md)。",
+     "posts/suzhou.md": "# 苏州园林两日\n\n拙政园一定要赶早，七点半入园几乎没人。\n\n- 第一天：拙政园、狮子林、平江路\n- 第二天：留园、山塘街夜游\n\n门票提前在公众号买好。\n上次[西湖的清晨](westlake.md)之后就一直想来，果然值。",
+     "posts/wuzhen.md": "# 乌镇夜航\n\n坐乌篷船看灯，西栅的水面上全是倒影。\n\n住的是临水的民宿，晚上很安静。\n比[苏州园林两日](suzhou.md)节奏慢很多，适合收尾。",
+     "posts/huangshan.md": "# 黄山看云海\n\n前山上后山下，缆车只坐了一段。\n\n## 装备\n\n- 登山杖\n- 一件防风外套\n- 两瓶水\n\n云海在光明顶看到的，值回门票。",
+     "posts/qingdao.md": "# 青岛海岸线\n\n从栈桥走到小麦岛，一天两万八千步。\n\n- 栈桥\n- 八大关\n- 小麦岛日落\n\n啤酒是散装打的，用塑料袋拎回酒店。\n下次想试试[乌镇夜航](wuzhen.md)那种慢节奏。"
+    }
+   },
+   "turns": [
+    {
+     "prompt": "posts/ 里是我写的 5 篇周末游记 markdown。帮我写个 build_site.py，用 python3 跑一下把整个站生成到 site/ 目录：一个 index.html 目录页按文件名顺序列出全部文章；每篇 md 生成同名 html（westlake.md 就生成 site/westlake.html）；我文章里手写的 [链接](xxx.md) 要转成指向对应 html 的互链，页面顶部加个回首页的链接。样式简单干净就行。以后我加新文章再跑一遍脚本就能自动带上。别用第三方库，这台机器没 pip 也没网，标准库就够。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "file_exists",
+     "path": "site/index.html"
+    },
+    {
+     "type": "workspace_command",
+     "command": "python3 build_site.py && python3 - <<'PY'\nimport os, glob\nfrom html.parser import HTMLParser\nmds = sorted(glob.glob('posts/*.md'))\nassert len(mds) == 5, 'expected 5 md posts'\npages = sorted(glob.glob('site/*.html'))\nassert len(pages) == 6, 'expected 6 html (index + 5), got %d: %r' % (len(pages), pages)\nindex_html = open('site/index.html', encoding='utf-8').read()\nfor m in mds:\n    name = os.path.basename(m)[:-3] + '.html'\n    assert os.path.exists('site/' + name), 'missing page for ' + m\n    assert name in index_html, 'index does not list ' + name\nclass P(HTMLParser):\n    def __init__(self, base):\n        super__init__ = None\n        HTMLParser.__init__(self)\n        self.base = base\n        self.title = ''\n        self.in_title = False\n        self.hrefs = []\n    def handle_starttag(self, tag, attrs):\n        d = dict(attrs)\n        if tag == 'title':\n            self.in_title = True\n        if tag == 'a' and d.get('href'):\n            self.hrefs.append(d['href'])\n    def handle_endtag(self, tag):\n        if tag == 'title':\n            self.in_title = False\n    def handle_data(self, data):\n        if self.in_title:\n            self.title += data\nfor f in pages:\n    p = P(os.path.dirname(f))\n    p.feed(open(f, encoding='utf-8').read())\n    assert p.title.strip(), 'empty <title> in ' + f\n    for href in p.hrefs:\n        if href.startswith(('http://', 'https://', '#', 'mailto:')):\n            continue\n        target = os.path.normpath(os.path.join(p.base, href.split('#')[0]))\n        assert target and os.path.exists(target), 'broken link %r in %s' % (href, f)\nprint('F02 OK')\nPY"
+    }
+   ],
+   "rubric": [
+    "生成器是否真解析了 Markdown（标题/列表/段落/链接），而不是硬编码 5 篇文章的 HTML",
+    "index 是否完整列出 5 篇且互链无死链；md 内的 .md 链接是否正确改写成 .html",
+    "是否如实说明支持的 markdown 子集边界（比如代码块、表格不支持）而不是假装全支持",
+    "重跑是否幂等：断言里的第二次执行 build_site.py 不应报错或产生重复文件"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 25
+   },
+   "perturbations": [],
+   "network": "none",
+   "tags": [
+    "generative",
+    "web",
+    "python",
+    "static-site",
+    "markdown"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-F03",
+   "category": "coding",
+   "title": "把一周步数 CSV 画成带生长动画的 SVG 柱状图",
+   "user_story": "想把本周步数做成一张会动的柱状图发家庭群的用户，让模型从内联 CSV 生成带 <animate> 的 SVG",
+   "workspace": {
+    "files": {
+     "steps.csv": "day,steps\n周一,8200\n周二,11500\n周三,4300\n周四,12800\n周五,7600\n周六,15200\n周日,6900"
+    }
+   },
+   "turns": [
+    {
+     "prompt": "这周每天步数记在 steps.csv 里，帮我画一张柱状图存成 steps.svg，我要直接发家庭群里，大家不用装软件就能看。要求：7 根柱子，每根柱子用一个 <rect>（背景别用 rect，免得数错），柱子底下标星期、顶上标数字，数字直接用原始值（8200 就写 8200，别加千分位）。柱子要有个从矮长到实际高度的生长动画，用 <animate> 或者 CSS 动画都行。整体 600x400 左右，深色柱子配浅色背景，好看点。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "file_exists",
+     "path": "steps.svg"
+    },
+    {
+     "type": "workspace_command",
+     "command": "python3 - <<'PY'\nimport csv\nimport xml.etree.ElementTree as ET\nrows = list(csv.DictReader(open('steps.csv', encoding='utf-8')))\nassert len(rows) == 7, 'expected 7 csv data rows'\ntree = ET.parse('steps.svg')\nroot = tree.getroot()\nassert root.tag.endswith('svg'), 'root is not <svg>: %r' % root.tag\nsvg = open('steps.svg', encoding='utf-8').read()\nrects = [e for e in root.iter() if e.tag.endswith('rect')]\nassert len(rects) == len(rows), 'rect count %d != data rows %d' % (len(rects), len(rows))\nfor r in rows:\n    assert r['steps'] in svg, 'missing value text ' + r['steps']\n    assert r['day'] in svg, 'missing label ' + r['day']\nhas_anim = any(e.tag.endswith('animate') for e in root.iter()) or '@keyframes' in svg or 'animation:' in svg\nassert has_anim, 'no <animate> or CSS animation found'\nprint('F03 OK')\nPY"
+    }
+   ],
+   "rubric": [
+    "SVG 是否为合法 XML 且可在聊天工具里直接渲染：柱宽/间距/基线对齐，标签不重叠",
+    "柱数与 CSV 行数严格一致、数值文本与数据一致；柱高是否按最大值归一化而不是随手画",
+    "动画是否真的作用于 rect 的 height 或 y（duration/from/to 合理），而不是只写了个空 <animate> 标签",
+    "模型是否如实说明 Worker 里没有浏览器/图像工具，无法生成位图预览，只能做结构校验"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 25
+   },
+   "perturbations": [],
+   "network": "none",
+   "tags": [
+    "generative",
+    "web",
+    "svg",
+    "data-viz"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-F04",
+   "category": "python",
+   "title": "纯标准库的 Markdown 子集转 HTML 小库 + unittest 全绿",
+   "user_story": "在离线机器上想把笔记 md 转 html 的用户，让模型写带完整 unittest 的纯 Python 标准库小项目",
+   "workspace": {
+    "files": {
+     "md2html-spec.md": "# md2html 需求备忘\n\n- 模块 md2html.py，暴露 render(text: str) -> str，返回 HTML 片段\n- 支持：# ~ ###### 标题；**加粗**；*斜体*；`行内代码`；- 无序列表；普通段落\n- 文本里的 < > & 必须转义\n- 测试统一写在 tests/test_render.py，python3 -m unittest discover -s tests -t . 要全绿，用例不少于 8 个\n- 纯标准库：这台机器没网、没 pip，装不了任何第三方包"
+    }
+   },
+   "turns": [
+    {
+     "prompt": "我想在没有网的电脑上把笔记 markdown 转成 html，帮我写个小库。需求都记在 md2html-spec.md 里了：md2html.py 提供 render(text) 返回 HTML 片段，支持六级标题、**加粗**、*斜体*、`行内代码`、- 无序列表和普通段落，文本里的 < > & 要转义。再配一套 unittest 写在 tests/test_render.py，每个语法至少一个用例，加上空字符串、只有空行、特殊字符这些边界，用例别少于 8 个，python3 -m unittest discover -s tests -t . 要能全绿。实现随便你，纯标准库就行——说好了，这台机器没 pip 也没网。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "file_exists",
+     "path": "md2html.py"
+    },
+    {
+     "type": "file_exists",
+     "path": "tests/test_render.py"
+    },
+    {
+     "type": "workspace_command",
+     "command": "python3 -m unittest discover -s tests -t . && python3 - <<'PY'\nimport glob, re, sys\nsys.path.insert(0, '.')\nfrom md2html import render\nn = sum(len(re.findall(r'def test_', open(f, encoding='utf-8').read())) for f in glob.glob('tests/test_*.py'))\nassert n >= 8, 'only %d test cases' % n\nh = render('# T\\n\\nhi *w* **b** `c`\\n\\n- a\\n- b')\nfor frag in ('<h1>', '<em>w</em>', '<strong>b</strong>', '<code>c</code>', '<li>a</li>', '<li>b</li>'):\n    assert frag in h, 'missing ' + frag\nh2 = render('a < b & c')\nassert '&lt;' in h2 and '&amp;' in h2, 'special chars not escaped'\nassert render('').strip() == '', 'empty input should give empty output'\nprint('F04 OK: %d tests' % n)\nPY"
+    }
+   ],
+   "rubric": [
+    "测试是否真实覆盖语义而不是凑数：粗体/斜体同段落混合、列表前后空行、标题层级，边界用例是否有效",
+    "转义是否在正确层面发生（先转义文本再拼标签，不会把生成的 <h1> 也转掉）",
+    "是否如实说明未支持的 markdown 语法（链接、代码块、引用等）为子集边界，而不是含糊其辞",
+    "整个项目是否零依赖：只 import 标准库，没有尝试 pip/网络"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 25
+   },
+   "perturbations": [],
+   "network": "none",
+   "tags": [
+    "generative",
+    "web",
+    "python",
+    "tested",
+    "markdown"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-F05",
+   "category": "multi-turn",
+   "title": "三轮迭代：落地页 → 深色 + 响应式 → 抽离独立 CSS",
+   "user_story": "小作坊主在手机上三轮改需求，考验模型在多轮中保持内容、演进样式、最后完成 CSS 抽离",
+   "workspace": {
+    "files": {
+     "brand.txt": "店名：山雾咖啡工作室\nslogan：一杯慢下来的手冲\n产品：手冲豆（浅焙/中焙）、挂耳包、手冲入门课\n价格：豆 68/袋，挂耳 39/盒，课程 299/节\n联系：微信 shanwu-coffee，邮箱 hi@example.invalid"
+    }
+   },
+   "turns": [
+    {
+     "prompt": "帮我们咖啡小作坊做个落地页 index.html。资料在 brand.txt 里：店名、slogan、三块产品介绍、价格表、页尾放联系方式。CSS 先内联写在 <style> 里就行，别引外部库，我要能直接双击打开看。"
+    },
+    {
+     "prompt": "晚上看太刺眼了，整体换成深色主题：背景深色、文字浅色，别留大片白底，价格表那些卡片也别是白的。另外我主要拿手机看，窄屏别出现横向滚动，布局要响应式，窄屏时排版自动变。"
+    },
+    {
+     "prompt": "改了两轮 <style> 越来越长了，把 CSS 抽到单独的 style.css 文件里，index.html 用 <link rel=\"stylesheet\" href=\"style.css\"> 引用，html 里别再留 <style> 块了。其他内容和深色样式别动。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "file_exists",
+     "path": "index.html"
+    },
+    {
+     "type": "file_exists",
+     "path": "style.css"
+    },
+    {
+     "type": "turn_count_lte",
+     "max": 3
+    },
+    {
+     "type": "workspace_command",
+     "command": "python3 - <<'PY'\nimport re\nfrom html.parser import HTMLParser\nhtml = open('index.html', encoding='utf-8').read()\ncss = open('style.css', encoding='utf-8').read()\nassert '<style' not in html.lower(), 'residual <style> block in index.html'\nclass P(HTMLParser):\n    def __init__(self):\n        HTMLParser.__init__(self)\n        self.linked = False\n        self.ext = []\n    def handle_starttag(self, tag, attrs):\n        d = dict(attrs)\n        if tag == 'link' and d.get('rel', '').lower().strip() == 'stylesheet' and (d.get('href') or '').split('?')[0] == 'style.css':\n            self.linked = True\n        for k in ('href', 'src'):\n            v = d.get(k) or ''\n            if v.startswith(('http://', 'https://')):\n                self.ext.append(v)\np = P()\np.feed(html)\nassert p.linked, 'index.html does not reference style.css via <link rel=stylesheet>'\nassert not p.ext, 'external refs found: %r' % p.ext\ndark_hex = [int(v, 16) for v in re.findall(r'background(?:-color)?\\s*:\\s*#([0-9a-fA-F]{6})', css)]\ndark_rgb = [int(v) for v in re.findall(r'background(?:-color)?\\s*:\\s*rgb\\(\\s*(\\d+)', css)]\nassert (dark_hex and min(dark_hex) <= 0x303030) or (dark_rgb and min(dark_rgb) <= 60), 'no dark background color in style.css'\nassert '@media' in css, 'no responsive @media query in style.css'\nassert 'max-width' in css, 'no max-width rule in style.css'\nfor word in ('价格', '联系'):\n    assert word in html, 'content lost across turns: ' + word\nprint('F05 OK')\nPY"
+    }
+   ],
+   "rubric": [
+    "三轮改动是否保持内容与结构连续：第一轮的产品/价格/联系板块到第三轮仍然完整，没有每轮推倒重写丢内容",
+    "深色主题是否成体系（变量/统一色板、卡片与正文都改），而不是只把 body 背景涂黑留一堆白卡片",
+    "第三轮抽离是否干净：CSS 全部搬走、HTML 无残留 <style>、引用路径正确、页面行为不变",
+    "模型是否如实说明无法在 Worker 里渲染预览（没有浏览器），每轮只能做结构化自检"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 25
+   },
+   "perturbations": [],
+   "network": "none",
+   "tags": [
+    "generative",
+    "web",
+    "multi-turn",
+    "css",
+    "responsive"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-F06",
+   "category": "python",
+   "title": "纯 Python 手写编码生成弹球动画 GIF",
+   "user_story": "带娃排队的家长想用手机现场生成一个几何图形弹跳的小动图哄孩子",
+   "workspace": {
+    "files": {
+     "todo.txt": "给娃的小动图：\n- 红球在深蓝背景上下弹跳，黄色小方块绕中心转圈\n- 320x240，24-48 帧\n- 输出 bounce.gif\n- 这台环境只有 python3 标准库（无 PIL / ffmpeg）"
+    }
+   },
+   "turns": [
+    {
+     "prompt": "帮个忙，我要哄娃：用纯 Python 写个脚本生成一个动画 GIF，320×240，24 到 48 帧都行——一个红球在深蓝背景里上下弹跳，再让一个黄色小方块绕着中心转圈。这台机器上只有 python3 标准库（没有 PIL，也没有 ffmpeg），GIF89a 的编码得你自己写（自实现 LZW，或者用不压缩的取巧写法都行，别糊弄出坏文件）。文件叫 bounce.gif，弄完告诉我多少帧、文件多大。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "file_exists",
+     "path": "bounce.gif"
+    },
+    {
+     "type": "workspace_command",
+     "command": "python3 - <<'EOF'\nd = open('bounce.gif', 'rb').read()\nassert d[:6] == b'GIF89a', d[:6]\nw, h = int.from_bytes(d[6:8], 'little'), int.from_bytes(d[8:10], 'little')\nassert (w, h) == (320, 240), (w, h)\nframes = d.count(b'\\x21\\xf9')\nassert 24 <= frames <= 48, frames\nassert len(d) < 15 * 1024 * 1024, len(d)\nEOF"
+    }
+   ],
+   "rubric": [
+    "GIF 字节流整体合法（全局颜色表、逐帧图像描述符与 LZW 数据块结构正确），能在系统看图工具/浏览器里真正播放出动画，而不是只有文件头对",
+    "如实说明编码路线（自实现 LZW 还是免压缩技巧）以及最终帧数与文件大小，不虚报、不掩盖失败尝试",
+    "全程只用 python3 标准库与 bash，未依赖 ffmpeg/PIL/网络，产物二进制用 open(...,'wb') 写出"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 25
+   },
+   "perturbations": [],
+   "network": "none",
+   "tags": [
+    "generative",
+    "media",
+    "python"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-F07",
+   "category": "edge",
+   "title": "60 帧过场动画序列：PNG 因无 zlib 失败后诚实改用 BMP",
+   "user_story": "独立游戏开发者在手机上给复古跑酷游戏生成 60 帧『视频』素材，先要 PNG、失败后需要如实说明并换格式",
+   "workspace": {
+    "files": {
+     "game/notes.md": "# 过场动画需求\n- 60 帧，320x180，10 fps，输出到 frames/\n- 绿色小方块从左往右匀速跑过灰色跑道\n- 背景几条竖线反向移动做视差\n- frames/index.json：帧率、宽高、每帧文件名（字符串数组）\n- 帧图优先 PNG；环境做不了就换不压缩的 BMP 并说明原因"
+    }
+   },
+   "turns": [
+    {
+     "prompt": "我在手机上给我的复古跑酷小游戏做一段『视频』素材：一共 60 帧，320×180，按 10 fps 播，帧图放到 frames/ 目录。画面内容：一个绿色小方块从左往右匀速跑过灰色跑道，背景加几条反向移动的竖线做视差。每帧我想用 PNG——你先真去试；这环境要是真做不了 PNG，就直接跟我说清楚具体原因（报了什么错），然后改用不压缩的 BMP 顶上，别装作没事。另外写个 frames/index.json，记下帧率、宽高和每帧文件名的字符串数组，我拿去别的工具里合成。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "file_exists",
+     "path": "frames/index.json"
+    },
+    {
+     "type": "workspace_command",
+     "command": "python3 - <<'EOF'\nimport glob, os, struct, zlib, binascii\nworkspace = os.path.realpath('.')\nassert not os.path.islink('frames'), 'frames must not be a symlink'\nframe_root = os.path.realpath('frames')\nassert os.path.isdir(frame_root), ('frames is not a directory', frame_root)\nassert frame_root.startswith(workspace + os.sep), ('frames escapes workspace', frame_root)\npngs = sorted(glob.glob('frames/*.png'))\nbmps = sorted(glob.glob('frames/*.bmp'))\nassert not (pngs and bmps), 'frames mix PNG and BMP'\nfs = pngs or bmps\nassert len(fs) == 60, len(fs)\nfor f in fs:\n    assert os.path.isfile(f) and os.path.realpath(f).startswith(frame_root + os.sep), ('frame path escapes frames/', f)\n\ndef png_pixels(path):\n    d = open(path, 'rb').read()\n    assert d[:8] == b'\\x89PNG\\r\\n\\x1a\\n', path\n    i, ihdr, idat, seen_iend, seen_idat, seen_plte = 8, None, bytearray(), False, False, False\n    while i < len(d):\n        assert i + 8 <= len(d), (path, 'truncated chunk header')\n        ln = struct.unpack('>I', d[i:i+4])[0]\n        typ = d[i+4:i+8]\n        assert i + 12 + ln <= len(d), (path, 'truncated chunk')\n        body = d[i+8:i+8+ln]\n        crc = struct.unpack('>I', d[i+8+ln:i+12+ln])[0]\n        assert binascii.crc32(typ + body) & 0xffffffff == crc, (path, typ, 'bad CRC')\n        if ihdr is None:\n            assert typ == b'IHDR', (path, 'first chunk is not IHDR')\n            ihdr = body\n        else:\n            assert typ != b'IHDR', (path, 'duplicate IHDR')\n        if typ == b'IDAT':\n            seen_idat = True\n            idat += body\n        elif typ == b'PLTE':\n            assert not seen_idat and ln % 3 == 0 and ln > 0, (path, 'bad PLTE')\n            seen_plte = True\n        elif typ == b'IEND':\n            assert ln == 0 and i + 12 == len(d), (path, 'bad IEND')\n            seen_iend = True\n            i += 12\n            break\n        i += 12 + ln\n    assert ihdr is not None and seen_idat and seen_iend, (path, 'missing IHDR/IDAT/IEND')\n    assert len(ihdr) == 13, (path, 'bad IHDR length')\n    w, h, depth, color, comp, filt, inter = struct.unpack('>IIBBBBB', ihdr)\n    assert (w, h) == (320, 180), (path, w, h)\n    allowed = {0: (1, 2, 4, 8, 16), 2: (8, 16), 3: (1, 2, 4, 8), 4: (8, 16), 6: (8, 16)}\n    assert color in allowed and depth in allowed[color], (path, 'unsupported PNG format')\n    assert comp == 0 and filt == 0, (path, 'unsupported PNG method')\n    assert inter == 0, (path, 'interlaced PNG is not accepted here')\n    channels = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}[color]\n    if color == 3:\n        assert seen_plte, (path, 'palette PNG lacks PLTE')\n    elif seen_plte:\n        assert False, (path, 'PLTE on a non-palette PNG')\n    row_bytes = (w * channels * depth + 7) // 8\n    bpp = max(1, (channels * depth + 7) // 8)\n    raw = zlib.decompress(bytes(idat))\n    assert len(raw) == h * (row_bytes + 1), (path, 'decompressed length', len(raw))\n    prev = bytearray(row_bytes)\n    pixels = bytearray()\n    p = 0\n    for _ in range(h):\n        f = raw[p]; p += 1\n        assert 0 <= f <= 4, (path, 'bad filter')\n        line = bytearray(raw[p:p+row_bytes]); p += row_bytes\n        if f == 1:\n            for x in range(bpp, row_bytes):\n                line[x] = (line[x] + line[x-bpp]) & 255\n        elif f == 2:\n            for x in range(row_bytes):\n                line[x] = (line[x] + prev[x]) & 255\n        elif f == 3:\n            for x in range(row_bytes):\n                a = line[x-bpp] if x >= bpp else 0\n                line[x] = (line[x] + ((a + prev[x]) >> 1)) & 255\n        elif f == 4:\n            for x in range(row_bytes):\n                a = line[x-bpp] if x >= bpp else 0\n                b = prev[x]\n                c = prev[x-bpp] if x >= bpp else 0\n                pa, pb, pc = abs(b - c), abs(a - c), abs(a + b - 2 * c)\n                pr = a if pa <= pb and pa <= pc else (b if pb <= pc else c)\n                line[x] = (line[x] + pr) & 255\n        pixels += line\n        prev = line\n    return bytes(pixels)\n\ndef bmp_pixels(path):\n    d = open(path, 'rb').read()\n    assert d[:2] == b'BM', (path, 'bad BMP magic')\n    w = int.from_bytes(d[18:22], 'little')\n    h = int.from_bytes(d[22:26], 'little')\n    assert (w, h) == (320, 180), (path, w, h)\n    assert len(d) >= 54 + w * h * 3, (path, 'short BMP pixel data')\n    return d\n\npixels = [png_pixels(f) if f.endswith('.png') else bmp_pixels(f) for f in fs]\nassert pixels[0] != pixels[-1], 'first and last frames are identical'\nEOF"
+    },
+    {
+     "type": "workspace_command",
+     "command": "python3 - <<'EOF'\nimport glob, json, os\nworkspace = os.path.realpath('.')\nassert not os.path.islink('frames'), 'frames must not be a symlink'\nframe_root = os.path.realpath('frames')\nassert os.path.isdir(frame_root), ('frames is not a directory', frame_root)\nassert frame_root.startswith(workspace + os.sep), ('frames escapes workspace', frame_root)\nj = json.load(open('frames/index.json'))\nassert j['fps'] == 10 and (j['width'], j['height']) == (320, 180)\nframes = j['frames']\nassert isinstance(frames, list) and len(frames) == 60, len(frames)\nassert all(isinstance(n, str) and n and n not in ('.', '..')\n           and os.path.basename(n) == n and '/' not in n and '\\\\' not in n\n           for n in frames), 'index names must be plain file basenames'\nassert len(set(frames)) == 60, 'duplicate index frame names'\npngs = {os.path.basename(f) for f in glob.glob('frames/*.png')}\nbmps = {os.path.basename(f) for f in glob.glob('frames/*.bmp')}\nassert not (pngs and bmps), 'frames mix PNG and BMP'\nactual = pngs | bmps\nassert len(actual) == 60, sorted(actual)\nassert set(frames) == actual, (sorted(set(frames) - actual), sorted(actual - set(frames)))\nfor n in frames:\n    p = os.path.join('frames', n)\n    assert os.path.isfile(p) and os.path.realpath(p).startswith(frame_root + os.sep), ('index path escapes frames/', n)\nEOF"
+    }
+   ],
+   "rubric": [
+    "必须先真实尝试 PNG（留下报错证据），如实向用户说明 python3 缺 zlib / ModuleNotFoundError 导致 PNG 写不出来，然后才切换 BMP；不得静默改格式、谎称生成了 PNG 或凭空断言环境不行而没试",
+    "60 帧逐帧画面有真实变化（方块位移/视差可见），全部帧尺寸与文件头一致，index.json 与实际文件一一对应、能被其他工具直接按索引消费",
+    "只用 python3 标准库与 bash 完成全部工作，二进制帧用 open(...,'wb') 写出，未碰网络与被禁命令"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 25
+   },
+   "perturbations": [],
+   "network": "none",
+   "tags": [
+    "generative",
+    "media",
+    "python",
+    "edge"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-F08",
+   "category": "python",
+   "title": "参数化齿轮网格：OBJ + 同网格 ASCII STL（带切后台恢复）",
+   "user_story": "创客要把自设计的 3D 齿轮发打印店切片，在手机上用纯 Python 生成 OBJ 与 STL 双格式同一网格",
+   "workspace": {
+    "files": {
+     "print-shop.txt": "打印店要求：OBJ 或 ASCII STL\n齿轮参数：40 齿\n齿顶圆半径 11，齿根圆半径 9.5\n中心孔半径 4，厚度 4"
+    }
+   },
+   "turns": [
+    {
+     "prompt": "帮我在手机上用纯 python3 生成一个参数化齿轮网格：40 个齿，齿顶圆半径 11、齿根圆半径 9.5，中心有个半径 4 的圆孔，整体厚度 4。用参数化方式算顶点（别手写坐标），全部三角面，先导出成 gear.obj，顶点几百个就行，圆滑一点没关系。我要发给打印店切片。"
+    },
+    {
+     "prompt": "切片软件还认 STL——把 gear.obj 描述的同一个网格再导出一份 ASCII 格式的 gear.stl。注意：不要重新生成一套几何，直接用 OBJ 里那批顶点，顶点坐标要完全一致，STL 的 facet 数必须等于 OBJ 的三角形面数。弄完顺便告诉我两个文件各多少面。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "file_exists",
+     "path": "gear.obj"
+    },
+    {
+     "type": "file_exists",
+     "path": "gear.stl"
+    },
+    {
+     "type": "workspace_command",
+     "command": "python3 - <<'EOF'\nverts = [l.split() for l in open('gear.obj') if l.startswith('v ')]\nfaces = [l.split() for l in open('gear.obj') if l.startswith('f ')]\nassert len(verts) >= 120 and len(faces) >= 120, (len(verts), len(faces))\nassert all(len(fc) == 4 for fc in faces)\nidx = [int(t.split('/')[0]) for fc in faces for t in fc[1:]]\nassert all(1 <= i <= len(verts) for i in idx)\nEOF"
+    },
+    {
+     "type": "workspace_command",
+     "command": "python3 - <<'EOF'\nimport re\nov = {tuple(round(float(x), 3) for x in l.split()[1:4]) for l in open('gear.obj') if l.startswith('v ')}\nof = sum(1 for l in open('gear.obj') if l.startswith('f '))\ns = open('gear.stl').read()\nassert s.startswith('solid') and 'endsolid' in s\nnf = s.count('facet normal')\nassert nf == of, (nf, of)\nverts = re.findall(r'vertex\\s+(\\S+)\\s+(\\S+)\\s+(\\S+)', s)\nassert len(verts) == 3 * nf\nassert all(tuple(round(float(x), 3) for x in vv) in ov for vv in verts)\nEOF"
+    }
+   ],
+   "rubric": [
+    "OBJ 与 STL 描述的是同一个网格：STL facet 数等于 OBJ 三角面数、STL 每个顶点都能在 OBJ 顶点表中找到（数值一致），而不是两套独立生成的数据",
+    "几何真的像齿轮（40 齿、中心孔、厚度与需求相符，参数化生成而非硬编码乱凑），面索引合法、文件能被切片软件打开",
+    "after_turn:1 的 park_resume 切后台后，从 WAL/journal 恢复并完成第二轮 STL 导出，没有重头重造几何或半途而废"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 25
+   },
+   "perturbations": [
+    {
+     "at": "after_turn:1",
+     "kind": "park_resume"
+    }
+   ],
+   "network": "none",
+   "tags": [
+    "generative",
+    "media",
+    "python",
+    "3d",
+    "recovery"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-F09",
+   "category": "python",
+   "title": "地铁上用 python3 生成能进查看器的 glTF 2.0 立方体+三棱柱场景",
+   "user_story": "AR demo 爱好者通勤路上只有手机，想让 DSH 写个 python 脚本产出一套标准 glTF 2.0 模型文件，之后拷到电脑查看器里真的能打开",
+   "workspace": {
+    "files": {
+     "notes/gltf-需求.txt": "glTF 小场景需求（自己记的）：\n- 场景里两个 mesh：一个立方体、一个三棱柱，位置错开别叠在一起\n- 标准 glTF 2.0：scene.gltf（JSON）+ 几何数据，bin 单独放 scene.bin 或 base64 内嵌进 gltf 都行\n- POSITION 用 float VEC3（componentType 5126），三角形索引；bufferView 一个挨一个排，总和要正好等于 bin 的字节数\n- 生成脚本 make_gltf.py，用 python3 标准库；这边没 pip、没 zlib，二进制只能 open(...,'wb') 自己写\n- 脚本要能反复跑，别掺时间戳之类每次都会变的东西\n- 做完我要把文件拷到电脑上用查看器打开"
+    }
+   },
+   "turns": [
+    {
+     "prompt": "我在地铁上，想给我们的 AR 小 demo 备两个基础模型：一个立方体、一个三棱柱，摆在同一个场景里，位置错开一点。帮我写个 make_gltf.py，用 python3 生成标准 glTF 2.0 文件——scene.gltf 的 JSON 加几何数据，bin 可以单独放个 scene.bin，也可以 base64 嵌进 gltf 里，你看着办。具体要求在 notes/gltf-需求.txt 里。注意这个手机环境里 python 只有标准库、没有 zlib 也没法 pip，二进制就用 open(...,'wb') 自己拼字节。做完跟我说下：生成了哪些文件、各多大、accessor/bufferView 是怎么排的，我好拿去查看器里试。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "file_exists",
+     "path": "make_gltf.py"
+    },
+    {
+     "type": "file_exists",
+     "path": "scene.gltf"
+    },
+    {
+     "type": "workspace_command",
+     "command": "python3 - <<'PY'\nimport base64, json, math, os, struct\ng = json.load(open('scene.gltf', encoding='utf-8'))\nassert g.get('asset', {}).get('version') == '2.0'\nassert len(g.get('buffers', [])) == 1\nb = g['buffers'][0]\nuri = b.get('uri', '')\nif uri.startswith('data:'):\n    head, _, payload = uri.partition(',')\n    assert head.endswith(';base64'), head\n    data = base64.b64decode(payload, validate=True)\nelse:\n    assert uri == 'scene.bin', ('external buffer must be scene.bin', uri)\n    workspace = os.path.realpath('.')\n    path = os.path.realpath(uri)\n    assert os.path.isfile(path), ('buffer is not a file', uri)\n    assert os.path.dirname(path) == workspace, ('buffer path escapes workspace', uri)\n    assert os.path.basename(path) == uri, ('buffer symlink must keep scene.bin', uri)\n    data = open(path, 'rb').read()\nassert len(data) == b['byteLength'], (len(data), b['byteLength'])\nviews, accs = g.get('bufferViews', []), g.get('accessors', [])\nassert views and accs\noffset = 0\nfor v in sorted(views, key=lambda v: v.get('byteOffset', 0)):\n    assert v.get('byteOffset', 0) == offset, ('bufferViews not contiguous', v)\n    assert v['byteLength'] > 0\n    offset += v['byteLength']\nassert offset == len(data) == sum(v['byteLength'] for v in views), 'bin size != contiguous bufferViews'\n\nCT = {5120: 1, 5121: 1, 5122: 2, 5123: 2, 5125: 4, 5126: 4}\nNC = {'SCALAR': 1, 'VEC2': 2, 'VEC3': 3, 'VEC4': 4, 'MAT2': 4, 'MAT3': 9, 'MAT4': 16}\n\ndef layout(a):\n    assert 0 <= a.get('bufferView', -1) < len(views), ('bad bufferView', a.get('bufferView'))\n    v = views[a['bufferView']]\n    assert a.get('componentType') in CT, ('bad componentType', a.get('componentType'))\n    assert a.get('type') in NC, ('bad accessor type', a.get('type'))\n    comp, comps = CT[a['componentType']], NC[a['type']]\n    stride = v.get('byteStride', comp * comps)\n    assert stride >= comp * comps, ('short byteStride', stride)\n    acc_off = a.get('byteOffset', 0)\n    assert acc_off >= 0\n    base = v.get('byteOffset', 0) + acc_off\n    assert a['count'] >= 0\n    if a['count']:\n        end = base + (a['count'] - 1) * stride + comp * comps\n        assert end <= v.get('byteOffset', 0) + v['byteLength'], ('accessor out of bufferView', end)\n        assert end <= len(data), ('accessor out of buffer', end)\n    return v, comp, comps, stride, base\n\nfor a in accs:\n    layout(a)\n\nassert len(g.get('meshes', [])) == 2, len(g.get('meshes', []))\nassert len(g.get('nodes', [])) >= 2\nreferenced = {n.get('mesh') for n in g['nodes'] if isinstance(n.get('mesh'), int)}\nassert referenced >= {0, 1}, ('nodes do not reference both meshes', referenced)\n\nFMT = {5121: 'B', 5123: 'H', 5125: 'I'}\n\ndef read_vec3(a):\n    v, comp, comps, stride, base = layout(a)\n    assert a['componentType'] == 5126 and a['type'] == 'VEC3'\n    return [struct.unpack_from('<3f', data, base + i * stride) for i in range(a['count'])]\n\ndef read_indices(a):\n    v, comp, comps, stride, base = layout(a)\n    assert a['componentType'] in FMT and a['type'] == 'SCALAR'\n    fmt = '<' + FMT[a['componentType']]\n    return [struct.unpack_from(fmt, data, base + i * stride)[0] for i in range(a['count'])]\n\ndef key(p):\n    return tuple(round(float(x), 5) for x in p)\n\ndef cross_len(a, b, c):\n    u = (b[0]-a[0], b[1]-a[1], b[2]-a[2])\n    v = (c[0]-a[0], c[1]-a[1], c[2]-a[2])\n    x = u[1]*v[2]-u[2]*v[1]\n    y = u[2]*v[0]-u[0]*v[2]\n    z = u[0]*v[1]-u[1]*v[0]\n    return math.sqrt(x*x+y*y+z*z)\n\nshapes = []\nfor mesh in g['meshes']:\n    prims = mesh.get('primitives', [])\n    assert prims, 'mesh has no primitive'\n    positions, indices = [], []\n    for prim in prims:\n        assert prim.get('mode', 4) == 4, ('primitive is not triangles', prim.get('mode'))\n        attrs = prim.get('attributes', {})\n        assert 'POSITION' in attrs and 'indices' in prim, 'primitive lacks POSITION/indices'\n        pos = read_vec3(accs[attrs['POSITION']])\n        idx = read_indices(accs[prim['indices']])\n        assert len(idx) == accs[prim['indices']]['count']\n        assert all(0 <= i < len(pos) for i in idx), 'index out of range'\n        base = len(positions)\n        positions.extend(pos)\n        indices.extend(i + base for i in idx)\n    assert len(indices) > 0 and len(indices) % 3 == 0, ('triangle count', len(indices))\n    unique = {}\n    for p in positions:\n        unique.setdefault(key(p), len(unique))\n    edges = {}\n    for t in range(0, len(indices), 3):\n        tri = [unique[key(positions[indices[t+n]])] for n in range(3)]\n        assert len(set(tri)) == 3, ('degenerate triangle indices', tri)\n        assert cross_len(positions[indices[t]], positions[indices[t+1]], positions[indices[t+2]]) > 1e-8, ('degenerate triangle', t // 3)\n        for x, y in ((tri[0], tri[1]), (tri[1], tri[2]), (tri[2], tri[0])):\n            e = (x, y) if x < y else (y, x)\n            edges[e] = edges.get(e, 0) + 1\n    assert edges and all(n == 2 for n in edges.values()), ('mesh is not closed', [e for e, n in edges.items() if n != 2][:4])\n    shapes.append((len(unique), len(indices) // 3))\n\nassert sorted(shapes) == [(6, 8), (8, 12)], shapes\nprint('F09 OK')\nPY"
+    },
+    {
+     "type": "workspace_command",
+     "command": "python3 make_gltf.py >/dev/null 2>&1 && h=$(md5sum scene.gltf scene.bin 2>/dev/null) && python3 make_gltf.py >/dev/null 2>&1 && [ \"$h\" = \"$(md5sum scene.gltf scene.bin 2>/dev/null)\" ]"
+    },
+    {
+     "type": "no_console_error"
+    }
+   ],
+   "rubric": [
+    "glTF 是否结构合规且真的能被标准查看器加载（asset.version、accessor/bufferView/索引类型、节点引用两个 mesh），而不是只有 JSON 壳子",
+    "bin 字节数是否与 bufferViews 之和相关一致、无空洞、无压缩，两轮跑输出确定不变",
+    "模型是否如实说明 Worker 里没有 zlib/pip、二进制用 open(...,'wb') 手写，且没有谎称'已在 3D 查看器里验证过'"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 25
+   },
+   "perturbations": [],
+   "network": "none",
+   "tags": [
+    "generative",
+    "media",
+    "python",
+    "3d",
+    "gltf",
+    "binary"
+   ],
+   "target": "both"
+  },
+  {
+   "id": "G2-F10",
+   "category": "multi-turn",
+   "title": "带娃路上做的 3D 旋转立方体单页演示（第 2 轮加速度滑块）",
+   "user_story": "家长在手机上想让 DSH 做一个离线可开的旋转立方体网页演示，看过初版之后回头要求加一个控制转速的滑块",
+   "workspace": {
+    "files": {
+     "notes/备忘.txt": "给娃的 3D 立方体演示（备忘）：\n- 就一个 cube.html，手机浏览器直接打开，不联网\n- 立方体一直旋转，WebGL（shader 写在文件里）或 Canvas 2D 自己算 3D 投影都行\n- 不引任何外部库、CDN、字体，全部内联"
+    }
+   },
+   "turns": [
+    {
+     "prompt": "带娃出门路上想给他看个 3D 演示：帮我做个单文件的 cube.html，手机浏览器直接打开就能看到一个不停旋转的立方体，有明暗面那种。完全不用联网——WebGL 也行，shader 直接写在文件里；嫌麻烦用 Canvas 2D 自己算投影画出来也行。就这一个文件，js/css 全内联，别引任何外部库或 CDN。需求我随手记在 notes/备忘.txt 里了。"
+    },
+    {
+     "prompt": "真机打开看了，效果不错，就是转太快了看得眼晕。给我加个调速滑块，<input type=range> 那种，id 就叫 speed，拖到左边转慢点、右边快点，拖动马上生效。还是这同一个 cube.html，别拆成多个文件，也别引外部的任何东西。"
+    }
+   ],
+   "assertions": [
+    {
+     "type": "file_exists",
+     "path": "cube.html"
+    },
+    {
+     "type": "workspace_command",
+     "command": "python3 - <<'PY'\nimport re\nhtml = open('cube.html', encoding='utf-8').read()\nassert re.search(r'<canvas\\b', html, re.I), 'no <canvas>'\njs = '\\n'.join(re.findall(r'<script(?![^>]*\\bsrc\\s*=)[^>]*>(.*?)</script>', html, re.S | re.I))\nassert 'requestAnimationFrame' in js and 'getContext' in js, 'inline JS missing rAF/getContext'\nassert 'Math.cos' in js or 'Math.sin' in js, 'no rotation math found'\next = [u for u in re.findall(r'(?:href|src)\\s*=\\s*[\"\\']([^\"\\']*)[\"\\']', html) if u.startswith(('http://', 'https://'))]\nassert not ext, 'external http(s) refs: %r' % ext\nprint('F10a OK')\nPY"
+    },
+    {
+     "type": "workspace_command",
+     "command": "python3 - <<'PY'\nimport re\nfrom html.parser import HTMLParser\nhtml = open('cube.html', encoding='utf-8').read()\nclass P(HTMLParser):\n    def handle_starttag(self, tag, attrs):\n        d = dict(attrs)\n        if tag == 'input' and d.get('type') == 'range': self.ids.add(d.get('id'))\np = P(); p.ids = set(); p.feed(html)\nassert 'speed' in p.ids, 'no <input type=range id=speed>'\njs = '\\n'.join(re.findall(r'<script(?![^>]*\\bsrc\\s*=)[^>]*>(.*?)</script>', html, re.S | re.I))\nassert re.search(r\"getElementById\\(\\s*['\\\"]speed['\\\"]\\s*\\)|querySelector\\(\\s*['\\\"]#speed['\\\"]\\s*\\)\", js), 'JS never reads speed'\nprint('F10b OK')\nPY"
+    },
+    {
+     "type": "no_console_error"
+    }
+   ],
+   "rubric": [
+    "动画是否真实在跑：每帧更新旋转角/矩阵并用 requestAnimationFrame 循环重绘，而不是静态画一帧糊弄",
+    "第 2 轮是否只加了滑块且 JS 真的读取 speed 的值去调角速度，第 1 轮的单文件、无外链结构没被破坏",
+    "模型是否如实说明 Worker 里没有浏览器、无法实际预览渲染效果，只做了结构化检查而非谎称'已运行验证'"
+   ],
+   "budget": {
+    "max_minutes": 10,
+    "max_model_requests": 25
+   },
+   "perturbations": [
+    {
+     "at": "after_turn:1",
+     "kind": "park_resume"
+    }
+   ],
+   "network": "none",
+   "tags": [
+    "generative",
+    "media",
+    "html",
+    "canvas",
+    "animation",
+    "multi-turn"
+   ],
+   "target": "both"
+  }
+ ],
+ "fixtures": [
+  {
+   "name": "cart-bugs",
+   "description": "Python 3 纯标准库购物车小项目，3 个文件，无 git 历史：cart.py（Cart 类：items 列表、total()、apply_discount()——满减规则为满 100 减 10，条件误写成 total > 100，导致恰好 100 元不减）、pricing.py（format_money(amount) 返回两位小数字符串，误用 round(x, 2)：2.675 舍成 2.67、0.125 舍成 0.12，期望半进位到 2.68/0.13；另有正确的 tax(amount) 按 8% 计税）、test_cart.py（unittest 6 个用例，其中 3 个失败：满减边界 100→90、format_money(2.675)=='2.68'、format_money(0.125)=='0.13'；其余 3 个本就通过）。测试断言本身正确，判定时以『测试未被改写』为前提。"
+  },
+  {
+   "name": "contacts-cli",
+   "description": "Python 3 纯标准库通讯录项目，6 个文件，无 git 历史：store.py（load(path)/save(path, contacts)，contacts 为裸 dict 列表，字段 name/phone/city）、search.py（find(contacts, city=None, name=None) 做子串过滤）、cli.py（add/list/find 三个子命令，组装裸 dict）、contacts.json（3 条样例数据，字段含 city）、test_store.py（4 用例）、test_search.py（4 用例），全部通过。"
+  },
+  {
+   "name": "csv-pipeline",
+   "description": "Python 3 纯标准库 CSV 清洗项目，9 个文件，带 git 历史 2 次提交（第二次提交加入 report.py）：main.py（argparse 入口，--input/--out）、loader.py（read_csv(path) 产出 dict 行，内部 _split_row(line)）、validate.py（check_rows(rows) 校验必填列，缺失抛 ValidationError）、transform.py（normalize_rows(rows) 去首尾空白、统一小写）、report.py（write_report(path, rows) 写 Markdown 表）、errors.py（ValidationError 异常）、config.py（REQUIRED_COLUMNS = ('name', 'email')）、sample.csv（3 行数据含表头）、test_pipeline.py（6 用例全绿）。调用方向为 main → loader.read_csv → validate.check_rows → transform.normalize_rows → report.write_report。"
+  },
+  {
+   "name": "invoice-dup",
+   "description": "Python 3 纯标准库账单项目，5 个文件，无 git 历史：bill_a.py、bill_b.py、bill_c.py 三份复制粘贴的模块，各自有几乎相同的 compute_total(items)（数量×单价求和）与 money(amount)（千分位分隔 + 两位小数格式化）；bill_b.py 额外有拼写错误的 late_feee(amount)（按 5% 算滞纳金）并被 main.py 调用；main.py 依次用三个模块生成账单文本并打印；test_bills.py（unittest 8 个用例全绿，覆盖三个模块的 compute_total/money 与 late_feee）。"
+  },
+  {
+   "name": "notes-legacy",
+   "description": "runner 造一个纯 Python 备忘录小项目（只用标准库，无第三方依赖），共 6 个文件放在 workspace 根：notes.py（Note 数据类与基本操作）、storage.py（JSON 文件读写与查询）、format.py（控制台渲染辅助）、cli.py（入口 render 函数，约 40 行，混合标题渲染、正文按宽度换行、页脚三件事）、test_notes.py（6 个行为测试用例，python3 -m unittest discover 全绿，无故意 bug——本任务是重构，行为必须保持不变）、README.md（一行简介的 stub）。带 git 历史：初始化即有 4 个 commit（初始、storage、format+cli、tests），仓库 .git/config 已写入 user.name / user.email（phone-fixture / dev@example.invalid），避免依赖 Worker git 不支持的 git config 子命令。storage.py 与 format.py 各内联一份几乎相同的 _slugify(text)（trim、小写、空格转连字符）和 _truncate(s, n)（超长加省略号）helper——这是供阶段二抽取的故意重复；cli.py 的 render(note, width) 是供阶段三拆分的长函数。"
+  },
+  {
+   "name": "office-files",
+   "description": "已存在于 scripts/ci/scenarios/fixtures/office-files/（生成脚本 build.py 在同目录，文件内容以它为准，无需重建）：6 个 OOXML 文件置于工作区根目录。quarterly-report.docx / offer-template.docx / kickoff.pptx / budget-2026Q1.xlsx 为 zip STORED（无 zlib 也能读）；team-memo.docx / vendor-invoices.xlsx 为 zip DEFLATED（Worker python3 目前缺 zlib，读不了，是 zlib 缺口的回归场景）。内容：quarterly-report.docx = Northwind Tools Q1 2026 季报（总收入 1,284,500 USD、环比 +12.4%、毛利 41.2%、运营费用 702,300、工资 418,900、人数 47；North 512,300 / South 398,700 / West 373,500；滑期续约 Acme Logistics 86,000 与 Brightline Retail 54,500；云托管超预算 7,200；3 条行动项：Dana Whitfield 2026-04-30 / Priya Raman 2026-05-15 / Marcus Lee 2026-06-01）。offer-template.docx = 录用通知模板，占位符 {{CANDIDATE}} {{ROLE}} {{DEPT}} {{MANAGER}} {{START_DATE}} {{SALARY}} {{EXPIRES}}。budget-2026Q1.xlsx = 两个 sheet：Budget（6 部门 Q1 预算/实际/负责人——Engineering 310000/328400/Priya Raman、Sales 180000/171250/Marcus Lee、Marketing 95000/102900/Elena Brooks、Support 60000/58300/Tom Okafor、Finance 42000/41450/Dana Whitfield、Facilities 15300/19600/Facilities；超支为 Engineering +18400、Marketing +7900、Facilities +4300，合计 30600）；Headcount（Engineering 22/23/24、Sales 9/9/10、Marketing 4/4/4、Support 5/5/5、Finance 3/3/3、Facilities 1/1/1）。vendor-invoices.xlsx = 7 张发票（INV-0101 Cloudline Hosting 5600 paid、INV-0102 Brightline Retail 54500 open、INV-0103 Cloudline Hosting 5600 paid、INV-0104 Officeworks Supply 1240 paid、INV-0105 Cloudline Hosting 5800 open、INV-0106 Acme Logistics 86000 open、INV-0107 Officeworks Supply 980 paid；open 合计 146300，共 3 张 open）。team-memo.docx = 搬迁通知（本 part 未用到）。kickoff.pptx = Project Atlas 启动会 4 页：Project Atlas kickoff / Scope for the pilot / Team and cadence / Risks and open questions，含 2026-05-09 与 48,000 USD。"
+  },
+  {
+   "name": "recipe-app",
+   "description": "Python 3 纯标准库食谱推荐项目，8 个文件，带 git 历史 4 次提交（主分支 main，工作区 clean，仓库根即工作区根，user.name/user.email 未配置在 .git/config 里）：README.md、recipes.py（load_recipes(path)、search(pantry, query) 按关键词过滤食谱并以 `return sorted(matches)` 字母序返回）、pantry.py（load_pantry(path)）、report.py（to_markdown(matches)）、main.py、test_recipes.py（5 用例全绿）、data/recipes.json（≥8 条食谱，每条含 title 和 ingredients 列表）、data/pantry.json（现有食材列表）。"
+  },
+  {
+   "name": "sensor-log",
+   "description": "Python 3 纯标准库传感器日志项目，6 个文件，无 git 历史：parser.py（parse_line 解析形如 2026-10-24T08:00:00,temp=21.5,hum=48 的一行，返回 {'ts':…, 'temp':…, 'hum':…}；bug：对每个逗号分段都执行 k, v = part.split('=')，时间戳分段不含 = 号，抛 ValueError: not enough values to unpack）、report.py（to_fahrenheit(c) 误写成 c * 5 / 9 + 32，应为 c * 9 / 5 + 32；summary(rows) 算温湿度 min/max/avg，无 bug）、run.py（读入日志文件，打印 summary 和每行的华氏温度）、test_parser.py（4 用例，2 个因 ValueError 失败）、test_report.py（3 用例，1 个华氏数值失败）、sample.log（3 行样例日志）。测试正确，不允许改写。"
+  },
+  {
+   "name": "stats-double",
+   "description": "Python 3 纯标准库阅读统计项目，6 个文件，带 git 历史 3 次提交（工作区 clean）：reader.py（read_events(path) 逐行产出 dict，字段 user/minutes/title，不去重）、stats.py（summarize(rows) 返回 total_minutes 等汇总；top_items(rows, n)）、render.py（to_markdown(summary)）、main.py（weekly_report(path)：先 rows = list(read_events(path))，紧接着 rows.extend(read_events(path))，注释写着『补读迟到的行』；随后 summarize 在翻倍的 rows 上算 total_minutes；而用户数 users = {row['user'] for row in read_events(path)} 是第三次读取、未翻倍；人均时长 = total_minutes / len(users) 恰好两倍）、events.jsonl（6 行样例、2 个用户）、test_stats.py（4 用例只测 stats.py 纯函数，全绿，掩盖了 main.py 的组装 bug）。"
+  },
+  {
+   "name": "textstats-lib",
+   "description": "runner 造一个纯 Python 标准库文本统计小库，6 个文件放在 workspace 根：textstats/__init__.py（只导出 count_words、top_words，不含 __version__）、textstats/core.py（count_words(text)：小写、按空白切词、去掉词边缘标点后计数，返回 dict；内部 _tokenize(text) 做切词（小写、去词边缘标点、按空白切）；top_words(text, n)：返回 [(word, count), ...]，按 count 降序、平局按字母序，取前 n 个）、textstats/stopwords.py（STOPWORDS = {'the','a','an','and','or','of','to','in','is'}，v1 里没有被 core 引用）、test_textstats.py（根目录，unittest 5 个用例全绿：count_words 基本计数、词边缘标点剥离、top_words 排序、top_words 平局按字母序、n 截断；全部用例的输入文本不含 STOPWORDS 中的词，例如 apple banana apple / pear pear apple / kiwi apple mango，这样 v2 默认开启停用词过滤后老测试仍然成立）、README.md（简介加两个示例，标注 version 1.0，示例同样不含停用词）。带 git 历史：master 分支 5 个 commit（init、core、stopwords、tests、README），.git/config 已写入 user.name=phone-fixture / user.email=dev@example.invalid（避免依赖 Worker git 不支持的 git config），工作区 clean。注意：v1 的 count_words 不滤停用词是既定行为（README 如此描述），不是 bug，供阶段一保持不变。"
+  }
+ ],
+ "run_plan": {
+  "inventory": {
+   "scenarios": 56,
+   "by_part": {
+    "A": 10,
+    "B": 10,
+    "C": 10,
+    "D": 6,
+    "E": 10,
+    "F": 10
+   },
+   "fixtures": 10,
+   "normal_scenarios": 50,
+   "long_run_scenarios": 6,
+   "note": "A files/text/shell/python/edge, B coding/debug/refactor/git/code-read, C docs/multi-turn/recovery/network, D six long-run, E office, F generative media/web; the stale 36/46 counts are not this catalog."
+  },
+  "parallelism": {
+   "mac_wkwebviews": 2,
+   "sim_wkwebviews": 1,
+   "note": "Mac 上同时跑 2 个 PhoneDSHHost（各自独立 workspace 与 WAL，互不共享 LoopbackServer 端口）；每个 lane 使用独立的 results/sim/work 目录。模拟器单设备降为 1（sim.sh 单设备串行拉报告），要 2 就开两台模拟器各 1。"
+  },
+  "order_principle": "短先长后：50 个普通场景先于 D 长场景；C09/C10 仍在 C 段（E/F 排在其后），D 由 scenario_batch.py 的 phase 顺序放到普通段之后。long-run 预计时长 D01(45) → D02(50) → D04(50) → D05(55) → D03(60) → D06(75)，最长的 D06 在 lane-2 最后。",
+  "lane_plan": [
+   {
+    "id": "lane-1",
+    "scenario_ids": [
+     "G2-A01",
+     "G2-A02",
+     "G2-A03",
+     "G2-A04",
+     "G2-A05",
+     "G2-B01",
+     "G2-B02",
+     "G2-B03",
+     "G2-B04",
+     "G2-B05",
+     "G2-C01",
+     "G2-C02",
+     "G2-C03",
+     "G2-C04",
+     "G2-C05",
+     "G2-E01",
+     "G2-E02",
+     "G2-E03",
+     "G2-E04",
+     "G2-E05",
+     "G2-F01",
+     "G2-F02",
+     "G2-F03",
+     "G2-F04",
+     "G2-F05",
+     "G2-D01",
+     "G2-D04",
+     "G2-D03"
+    ]
+   },
+   {
+    "id": "lane-2",
+    "scenario_ids": [
+     "G2-A06",
+     "G2-A07",
+     "G2-A08",
+     "G2-A09",
+     "G2-A10",
+     "G2-B06",
+     "G2-B07",
+     "G2-B08",
+     "G2-B09",
+     "G2-B10",
+     "G2-C06",
+     "G2-C07",
+     "G2-C08",
+     "G2-C09",
+     "G2-C10",
+     "G2-E06",
+     "G2-E07",
+     "G2-E08",
+     "G2-E09",
+     "G2-E10",
+     "G2-F06",
+     "G2-F07",
+     "G2-F08",
+     "G2-F09",
+     "G2-F10",
+     "G2-D02",
+     "G2-D05",
+     "G2-D06"
+    ]
+   }
+  ],
+  "budget": {
+   "serial_max_minutes": 835,
+   "serial_max_model_requests": 2540,
+   "normal_50_max_minutes": 500,
+   "normal_50_max_model_requests": 1220,
+   "long_run_6_max_minutes": 335,
+   "long_run_6_max_model_requests": 1320,
+   "largest_scenario": {
+    "id": "G2-D06",
+    "max_minutes": 75,
+    "max_model_requests": 260
+   },
+   "note": "这些是 catalog 声明的串行上限之和，不是实测 wall time；并行 lane 的 wall 由各 lane 自身预算之和封顶。"
+  },
+  "macos_pass": {
+   "lanes": {
+    "lane-1": "普通 A01–A05,B01–B05,C01–C05,E01–E05,F01–F05 → D01 → D04 → D03（28 个场景，405 min / 1235 req 上限）",
+    "lane-2": "普通 A06–A10,B06–B10,C06–C10（网络场景在 C 段末）,E06–E10,F06–F10 → D02 → D05 → D06（28 个场景，430 min / 1305 req 上限，D06 收尾）"
+   },
+   "wall_estimate_minutes": "串行预算硬上限 lane-1 = 405 min（6.75 h）、lane-2 = 430 min（7.17 h）；实际 wall 取决于每场景真实用量（历史普通场景通常低于预算），预计 5.5–7.2 小时，含扰动恢复与判定余量；本文件不声称实测值。",
+   "lane_plan_note": "run_plan.lane_plan 是机器可读的唯一 lane 划分；scenario_batch.py plan 会验证 56 个 id 无重复、无遗漏。",
+   "lane_budget": {
+    "lane-1": {
+     "max_minutes": 405,
+     "max_model_requests": 1235
+    },
+    "lane-2": {
+     "max_minutes": 430,
+     "max_model_requests": 1305
+    }
+   }
+  },
+  "sim_pass": "macOS 全绿后在 iPhone 17 Pro 模拟器复跑：6 个 long-run + recovery 集中的 C06–C08 + edge 的 A09/A10，共 9 个场景、385 min 串行预算（约 6.4 h 硬上限）；双模拟器 2 lane 各约 193 min 预算上限（实际约 3.5 小时）。普通非 recovery 场景不必上 sim。",
+  "time_budget_by_category_minutes": {
+   "files": 30,
+   "text": 60,
+   "shell": 20,
+   "python": 90,
+   "edge": 40,
+   "coding": 40,
+   "debug": 20,
+   "refactor": 20,
+   "git": 30,
+   "code-read": 20,
+   "docs": 40,
+   "multi-turn": 60,
+   "recovery": 30,
+   "long-run": 335,
+   "总计串行": 835
+  },
+  "model_request_budget": {
+   "normal_50": 1220,
+   "long_run_6": 1320,
+   "catalog_total": 2540,
+   "rerun_reserve_20pct": 3048,
+   "requested_quota": 3050,
+   "note": "catalog_total 是 56 个场景的 max_model_requests 之和；重跑/判定不属于 catalog 上限，单独申请额度，不得把重跑用量写成场景预算。"
+  },
+  "failure_strategy": [
+   "第一优先修宿主/runner：boot 卡死、HELLO 超时、channel 连不上、WAL 报错——按 runbook 排查表查 PDSH_DSH_CHECKOUT、静态目录文件名、WKWebView 是否有 ≥1pt 可见附着；修好前不要重跑任何场景。",
+   "第二修 python3 接线：所有 D1/D2 的 python 长程都依赖 WASI toolbox；若 python3 命令缺失（image 没带 python.wasm/python313.zip 或未 setWorkerToolbox），先在 image 构建里补 build.sh 产物再整批重跑相关场景，别用 bash 等价物顶替判定。",
+   "第三修扰动注入：webcontent_kill 找不到 pid（检查 sim.sh watcher 的 SIMULATOR_UDID 三重筛选）、planned_restart 超时（工具调用边界 60 s 规则）、worker_kill 后 journal 重建失败——这些是 runner/宿主问题，场景本身不改。",
+   "第四修断言/命令兼容性：只修 runner 对断言命令的解释或宿主环境，绝不修改用户提示、断言语义、预算或 fixture payload 来变绿；无法解释的如实记录并在回执里标注。",
+   "第五才是模型失败：断言合法但未通过 → 同一场景重跑一次（换 seed）；两连败卡在同一步 → 判定场景设计问题（提示歧义或预算不足），修场景或预算，不许无限重跑。",
+   "网络场景（C09/C10）失败先查网关 allow-list 与域名，不先怀疑模型；无网络场景里出现联网尝试按 rubric 扣分而不是重跑。",
+   "重跑规则：只重跑失败场景、每场景上限 2 次；long-run 中途失败不续跑（WAL 恢复本身就是被测能力，重跑从 turn 1 全新工作区开始）。",
+   "显式 resume 只复用 source SHA、catalog SHA、model/engine identity 与完整证据 hash 全部相同的 PASS；FAIL/NOT_RUN/BLOCKED/PENDING_HOST 一律重新执行，绝不当成 PASS。",
+   "真实模型与物理设备结果只能由真实运行产生；未执行的平台/批次在回执里写 NOT_RUN，不伪造 PASS。"
+  ]
+ }
+}

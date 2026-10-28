@@ -1,0 +1,26 @@
+{
+  "name": "@phone-dsh/dsh-wasi-toolbox",
+  "version": "0.1.0",
+  "description": "WASI preview1 runtime, VFS proxy, module cache and hot-instance pool that run inside the DSH phone worker.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "dependencies": {
+    "fflate": "0.8.3"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./git": "./git/index.ts",
+    "./hot-instance": "./src/hot-instance.ts",
+    "./module-cache": "./src/module-cache.ts",
+    "./python": "./python/runtime.ts",
+    "./tool-worker": "./src/tool-worker.ts",
+    "./tool-worker-python": "./python/tool-worker-python.ts",
+    "./toolbox": "./src/toolbox.ts",
+    "./vfs-client": "./src/vfs-client.ts",
+    "./vfs-server": "./src/vfs-server.ts",
+    "./wasi": "./src/wasi-preview1.ts"
+  }
+}

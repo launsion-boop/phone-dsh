@@ -1,0 +1,17 @@
+{"cmd": "bash scripts/build.sh", "category": "script", "source": "public"}
+{"cmd": "sh scripts/build.sh", "category": "script", "source": "public"}
+{"cmd": "/bin/bash scripts/build.sh", "category": "script", "source": "public"}
+{"cmd": "/usr/bin/bash scripts/build.sh", "category": "script", "source": "public"}
+{"cmd": "/bin/sh scripts/build.sh", "category": "script", "source": "public"}
+{"cmd": "bash scripts/build.sh alpha beta", "category": "script", "source": "public"}
+{"cmd": "bash -n scripts/build.sh", "category": "script", "source": "public"}
+{"cmd": "bash --version", "category": "script", "source": "public"}
+{"cmd": "bash -c 'bash scripts/build.sh'", "category": "script", "source": "public"}
+{"cmd": "bash -e -c 'echo errexit'", "category": "script", "source": "public"}
+{"cmd": "bash -u -c 'echo nounset'", "category": "script", "source": "public"}
+{"cmd": "bash -x -c 'echo xtrace'", "category": "script", "source": "public"}
+{"cmd": "bash -eux -c 'echo combo'", "category": "script", "source": "public"}
+{"cmd": "bash -c 'printf \"0=%s 1=%s n=%s\\n\" \"$0\" \"$1\" \"$#\"' _ ARG", "category": "script", "source": "public"}
+{"cmd": "/bin/bash -c 'printf \"0=%s 1=%s n=%s\\n\" \"$0\" \"$1\" \"$#\"' _ ARG", "category": "script", "source": "public"}
+{"cmd": "find . -type f -exec sh -c 'echo \"arg=$1\"' _ {} \\;", "category": "script", "source": "public"}
+{"cmd": "find . -type f -exec sh -c 'printf \"arg=%s\\n\" \"$@\"' _ {} +", "category": "script", "source": "public"}

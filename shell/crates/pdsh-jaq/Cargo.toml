@@ -1,0 +1,17 @@
+[package]
+name = "pdsh-jaq"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "jq-compatible read-only filter accelerators (jaq, jq) for the phone-dsh phone DSH pdsh-shell."
+
+[lib]
+name = "pdsh_jaq"
+path = "src/lib.rs"
+
+[dependencies]
+pdsh-core.workspace = true
+jaq-core.workspace = true
+jaq-std.workspace = true
+jaq-json.workspace = true

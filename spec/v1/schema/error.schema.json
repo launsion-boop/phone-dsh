@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ERROR payload",
+  "description": "ERROR payload of the ordered channel. A protocol code closes the connection; VFS_REFUSED is the diagnostic resource-refusal form and does not.",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": [
+        "code",
+        "message"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "enum": [
+            "BAD_MAGIC",
+            "BAD_SEQ",
+            "BAD_MSEQ",
+            "BAD_PATH",
+            "BAD_PAYLOAD",
+            "FENCE_STALE",
+            "VFS_CONFLICT",
+            "RING_TIMEOUT",
+            "PROTO_MISMATCH"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref_seq": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 18446744073709551615
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "code",
+        "message",
+        "path",
+        "limit",
+        "reason"
+      ],
+      "properties": {
+        "code": {
+          "const": "VFS_REFUSED"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref_seq": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 18446744073709551615
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^/dsh/(home|workspace)(/[^/]+)+$"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "file-too-large",
+            "no-space",
+            "quota-exceeded"
+          ]
+        },
+        "accepted_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "mseq": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 18446744073709551615
+        }
+      },
+      "additionalProperties": false,
+      "dependentRequired": {
+        "accepted_bytes": [
+          "mseq"
+        ],
+        "mseq": [
+          "accepted_bytes"
+        ]
+      }
+    }
+  ]
+}

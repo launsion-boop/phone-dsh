@@ -1,0 +1,13 @@
+✔ copy-bundle-assets stages the python tool worker beside the entry (35.923083ms)
+✔ copy-bundle-assets fails loud when the build has no python tool worker (12.064084ms)
+✔ sim_prepare_worker_assets stages a prebuilt python tool worker into the app bundle (46.196292ms)
+✔ sim_prepare_worker_assets refuses a prebuilt bundle without the tool worker (4.21975ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 167.146209
+exit=0

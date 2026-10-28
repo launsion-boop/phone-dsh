@@ -1,0 +1,10 @@
+{
+  "type": "API_END",
+  "type_byte": 66,
+  "seq": 15,
+  "fields": {
+    "req_id": 7
+  },
+  "payload_hex": "00000007",
+  "frame_hex": "5a4c4200000000000000000f0000000400000007"
+}

@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>phone-dsh timer probe</title>
+</head>
+<body>
+<script>
+// A fixed 10 ms interval; the test reads `window.__ticks` after a wall-clock
+// window to compare timer throttling between a detached (offscreen) WKWebView
+// and a 1 pt visible one.
+window.__ticks = 0;
+window.__timer = setInterval(function () { window.__ticks += 1; }, 10);
+</script>
+</body>
+</html>

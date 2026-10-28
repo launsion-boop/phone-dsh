@@ -1,0 +1,54 @@
+{
+  "format": 1,
+  "cpython": {
+    "version": "3.13.17",
+    "url": "https://python.org/ftp/python/3.13.17/Python-3.13.17.tar.xz",
+    "sha256": "6020bd10aff3bf4821be16f088ebb1591beb7b811dcd8fab1da8f7c22a7b27e7",
+    "license": "PSF-2.0",
+    "build": "Tools/wasm (native build Python plus wasm32-unknown-wasi cross build)"
+  },
+  "wasiSdk": {
+    "version": "25.0",
+    "release": "wasi-sdk-25",
+    "license": "Apache-2.0 WITH LLVM-exception",
+    "assets": {
+      "arm64-darwin": {
+        "name": "wasi-sdk-25.0-arm64-macos.tar.gz",
+        "url": "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-25/wasi-sdk-25.0-arm64-macos.tar.gz",
+        "sha256": "e1e529ea226b1db0b430327809deae9246b580fa3cae32d31c82dfe770233587"
+      },
+      "x86_64-darwin": {
+        "name": "wasi-sdk-25.0-x86_64-macos.tar.gz",
+        "url": "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-25/wasi-sdk-25.0-x86_64-macos.tar.gz",
+        "sha256": "55e3ff3fee1a15678a16eeccba0129276c9f6be481bc9c283e7f9f65bf055c11"
+      }
+    }
+  },
+  "compression": {
+    "zlib": {
+      "version": "1.3.1",
+      "url": "https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz",
+      "sha256": "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23",
+      "dir": "zlib-1.3.1",
+      "license": "Zlib",
+      "modules": ["zlib"]
+    },
+    "bzip2": {
+      "version": "1.0.8",
+      "url": "https://github.com/python/cpython-source-deps/archive/refs/tags/bzip2-1.0.8.tar.gz",
+      "sha256": "ab8d1b0cc087c20d4c32c0e4fcf7d0c733a95da12cedc6d63b3f0a9af07427e2",
+      "dir": "cpython-source-deps-bzip2-1.0.8",
+      "license": "bzip2-1.0.6",
+      "modules": ["bz2"]
+    },
+    "xz": {
+      "version": "5.6.4",
+      "url": "https://github.com/tukaani-project/xz/releases/download/v5.6.4/xz-5.6.4.tar.gz",
+      "sha256": "269e3f2e512cbd3314849982014dc199a7b2148cf5c91cedc6db629acdf5e09b",
+      "dir": "xz-5.6.4",
+      "license": "0BSD",
+      "modules": ["lzma"],
+      "note": "liblzma only; the xz command line tools and scripts are not built"
+    }
+  }
+}

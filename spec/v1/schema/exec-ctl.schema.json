@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EXEC_CTL payload",
+  "description": "EXEC_CTL payload of the ordered channel.",
+  "type": "object",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": [
+        "exec_id",
+        "op"
+      ],
+      "properties": {
+        "exec_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._-]{1,64}$"
+        },
+        "op": {
+          "const": "cancel"
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "exec_id",
+        "op",
+        "data"
+      ],
+      "properties": {
+        "exec_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._-]{1,64}$"
+        },
+        "op": {
+          "const": "stdin"
+        },
+        "data": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  ]
+}

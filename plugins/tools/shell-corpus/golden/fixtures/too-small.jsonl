@@ -1,0 +1,1 @@
+{"name":"fixture/too-small-echo","category":"text","cmd":"echo hi","expect":{"stdout":"hi\n","exit":0}}

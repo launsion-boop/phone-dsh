@@ -1,0 +1,223 @@
+{
+  "assertions" : [
+    {
+      "detail" : "exists: sitegen/parse.py",
+      "ok" : true,
+      "type" : "file_exists"
+    },
+    {
+      "detail" : "matches def parse_page",
+      "ok" : true,
+      "type" : "file_regex"
+    },
+    {
+      "detail" : "exists: sitegen/render.py",
+      "ok" : true,
+      "type" : "file_exists"
+    },
+    {
+      "detail" : "matches def page_html",
+      "ok" : true,
+      "type" : "file_regex"
+    },
+    {
+      "detail" : "exists: build.py",
+      "ok" : true,
+      "type" : "file_exists"
+    },
+    {
+      "detail" : "exists: test_parse.py",
+      "ok" : true,
+      "type" : "file_exists"
+    },
+    {
+      "detail" : "exit -1: host process execution is not available in the iOS scenario runner (/bin/bash cannot be spawned from the simulator test process)",
+      "ok" : false,
+      "type" : "workspace_command"
+    },
+    {
+      "detail" : "exit -1: host process execution is not available in the iOS scenario runner (/bin/bash cannot be spawned from the simulator test process)",
+      "ok" : false,
+      "type" : "workspace_command"
+    },
+    {
+      "detail" : "exit -1: host process execution is not available in the iOS scenario runner (/bin/bash cannot be spawned from the simulator test process)",
+      "ok" : false,
+      "type" : "workspace_command"
+    },
+    {
+      "detail" : "exists: site/index.html",
+      "ok" : true,
+      "type" : "file_exists"
+    },
+    {
+      "detail" : "exists: site/why-we-sleep.html",
+      "ok" : true,
+      "type" : "file_exists"
+    },
+    {
+      "detail" : "exists: site/deep-work.html",
+      "ok" : true,
+      "type" : "file_exists"
+    },
+    {
+      "detail" : "exists: site/atomic-habits.html",
+      "ok" : true,
+      "type" : "file_exists"
+    },
+    {
+      "detail" : "exists: site/thinking-fast.html",
+      "ok" : true,
+      "type" : "file_exists"
+    },
+    {
+      "detail" : "matches deep-work\\.html",
+      "ok" : true,
+      "type" : "file_regex"
+    },
+    {
+      "detail" : "matches index\\.html",
+      "ok" : true,
+      "type" : "file_regex"
+    },
+    {
+      "detail" : "exit -1: host process execution is not available in the iOS scenario runner (/bin/bash cannot be spawned from the simulator test process)",
+      "ok" : false,
+      "type" : "workspace_command"
+    },
+    {
+      "detail" : "exists: README.md",
+      "ok" : true,
+      "type" : "file_exists"
+    },
+    {
+      "detail" : "matches build\\.py",
+      "ok" : true,
+      "type" : "file_regex"
+    },
+    {
+      "detail" : "exists: .gitignore",
+      "ok" : true,
+      "type" : "file_exists"
+    },
+    {
+      "detail" : "matches site",
+      "ok" : true,
+      "type" : "file_regex"
+    },
+    {
+      "detail" : "exit -1: host process execution is not available in the iOS scenario runner (/bin/bash cannot be spawned from the simulator test process)",
+      "ok" : false,
+      "type" : "workspace_command"
+    },
+    {
+      "detail" : "exit -1: host process execution is not available in the iOS scenario runner (/bin/bash cannot be spawned from the simulator test process)",
+      "ok" : false,
+      "type" : "workspace_command"
+    },
+    {
+      "detail" : "unrecovered perturbation point(s): after_turn:3 (webcontent_kill); run status completed",
+      "ok" : false,
+      "type" : "restart_recovered"
+    },
+    {
+      "detail" : "no console errors",
+      "ok" : true,
+      "type" : "no_console_error"
+    },
+    {
+      "detail" : "5 turn(s), max 5",
+      "ok" : true,
+      "type" : "turn_count_lte"
+    }
+  ],
+  "console_errors" : [
+
+  ],
+  "host_states" : [
+    "stopped->starting",
+    "controller:recovering->running",
+    "starting->running",
+    "running->draining",
+    "draining->starting",
+    "controller:running->recovering",
+    "controller:recovering->running",
+    "starting->running",
+    "running->draining",
+    "draining->starting",
+    "controller:running->recovering",
+    "controller:recovering->running",
+    "starting->running",
+    "running->draining",
+    "controller:running->draining",
+    "controller:draining->parked",
+    "draining->stopped"
+  ],
+  "id" : "G2-D06",
+  "page_visibility" : {
+    "attached_with_visible_area" : true,
+    "document_visibility_state" : "visible",
+    "is_visible" : true,
+    "window_occlusion_visible" : true
+  },
+  "perturbations" : [
+    {
+      "at" : "during_first_tool",
+      "kind" : "worker_kill",
+      "ok" : true,
+      "recovered_ms" : 324
+    },
+    {
+      "at" : "after_turn:2",
+      "kind" : "planned_restart",
+      "ok" : true,
+      "recovered_ms" : 20451
+    },
+    {
+      "at" : "after_turn:3",
+      "detail" : "not available on this runner: the simulator test process cannot signal the host WebContent process. The simulator gate's device-scoped watcher in scripts/ci/sim.sh remains the only real WebContent killer; this perturbation was not applied.",
+      "kind" : "webcontent_kill"
+    }
+  ],
+  "status" : "FAIL",
+  "turns" : [
+    {
+      "ended" : "2026-10-25T19:12:57.042Z",
+      "events" : 211,
+      "model_requests" : 8,
+      "prompt_len" : 375,
+      "started" : "2026-10-25T19:12:23.375Z",
+      "tool_calls" : 11
+    },
+    {
+      "ended" : "2026-10-25T19:13:47.506Z",
+      "events" : 279,
+      "model_requests" : 7,
+      "prompt_len" : 388,
+      "started" : "2026-10-25T19:12:57.042Z",
+      "tool_calls" : 10
+    },
+    {
+      "ended" : "2026-10-25T19:16:51.272Z",
+      "events" : 466,
+      "model_requests" : 36,
+      "prompt_len" : 400,
+      "started" : "2026-10-25T19:14:07.961Z",
+      "tool_calls" : 38
+    },
+    {
+      "ended" : "2026-10-25T19:17:07.673Z",
+      "events" : 195,
+      "model_requests" : 5,
+      "prompt_len" : 230,
+      "started" : "2026-10-25T19:16:51.272Z",
+      "tool_calls" : 6
+    }
+  ],
+  "usage" : {
+    "model_requests" : 56,
+    "upstream_bytes_in" : 0,
+    "upstream_bytes_out" : 5263238,
+    "wall_s" : 305.504
+  }
+}

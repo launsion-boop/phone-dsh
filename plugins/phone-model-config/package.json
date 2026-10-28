@@ -1,0 +1,37 @@
+{
+  "name": "@phone-dsh/dsh-phone-model-config",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Read-only projection of the host-selected model provider for the phone Worker settings tab",
+  "type": "module",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./client": "./src/client/index.ts",
+    "./remote": "./src/remote.ts",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-api-remotes",
+        "@deepseek-ai/dsh-client-modules",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-settings-plugins",
+        "@deepseek-ai/dsh-client-locale"
+      ],
+      "platform": "web"
+    }
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-typert-protocol": "0.2.1-rc.2"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "~4.0.5",
+    "react": "^18.2.0"
+  }
+}

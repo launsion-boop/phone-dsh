@@ -1,0 +1,146 @@
+From 64e8c41342d4e7f015a490c583113e9d395622c0 Mon Sep 17 00:00:00 2001
+From: Xiaozhi & Tono AI Team <noreply>
+Date: Sat, 24 Oct 2026 22:24:15 +0800
+Subject: [PATCH] feat(webworker-runtime): let createWorkerHost install a VFS
+ sink
+
+A host that mirrors the Worker's in-memory filesystem must attach its
+durable observer to the mounted MemoryVfs. The runtime already accepts a
+VfsMutationSink in MemoryVfs options, but createWorkerHost builds the
+filesystem itself, so a deployment had no seam to supply that sink before
+boot and had to reach into the mounted instance afterwards.
+
+Add `sink` to WorkerHostOptions and construct the mounted MemoryVfs with
+it. The semantics are the ones MemoryVfs already fixes: image and overlay
+seeding stay silent, every mutation committed afterwards reaches record()
+without delaying its caller, and host.vfs.flush() settles the recorded work.
+A sink that cannot persist reports the failure itself and stops mirroring
+rather than rejecting a write that already committed.
+
+Export VfsMutation, VfsMutationListener, and VfsMutationSink from the
+package root so the option's callback shape is reachable without a deep
+import.
+
+Test: packages/experimental/webworker-runtime/tests/worker-host-sink.spec.ts
+asserts the mounted filesystem carries the sink, seeding is silent, a write
+reaches record(), and flush() settles the sink.
+---
+ .../webworker-runtime/src/index.ts            |  3 +-
+ .../webworker-runtime/src/worker-host.ts      | 17 +++++-
+ .../tests/worker-host-sink.spec.ts            | 53 +++++++++++++++++++
+ 3 files changed, 71 insertions(+), 2 deletions(-)
+ create mode 100644 packages/experimental/webworker-runtime/tests/worker-host-sink.spec.ts
+
+diff --git a/packages/experimental/webworker-runtime/src/index.ts b/packages/experimental/webworker-runtime/src/index.ts
+index c8d8907d3a..821b3e8fd8 100644
+--- a/packages/experimental/webworker-runtime/src/index.ts
++++ b/packages/experimental/webworker-runtime/src/index.ts
+@@ -51,5 +51,6 @@ export { packTar, parseTar, type TarEntry } from './storage/tar.ts'
+ export { requireActiveVfs, setActiveVfs } from './storage/active.ts'
+ export {
+   type VfsDeferredArchive, type VfsDeferredFile, type VfsDir, type VfsDirent, type VfsEncoding, type VfsError,
+-  type VfsFileHandle, type VfsReadOptions, type VfsStats, type VfsWriteOptions,
++  type VfsFileHandle, type VfsMutation, type VfsMutationListener, type VfsMutationSink, type VfsReadOptions,
++  type VfsStats, type VfsWriteOptions,
+ } from './storage/types.ts'
+diff --git a/packages/experimental/webworker-runtime/src/worker-host.ts b/packages/experimental/webworker-runtime/src/worker-host.ts
+index 6efeea46a6..9974005e42 100644
+--- a/packages/experimental/webworker-runtime/src/worker-host.ts
++++ b/packages/experimental/webworker-runtime/src/worker-host.ts
+@@ -34,6 +34,7 @@ import type { RequestListener } from './transport/synthetic-http.ts'
+ import { TunnelServer, type TunnelPort } from './transport/tunnel.ts'
+ import { inflateImage, inflateImageStream } from './storage/image-gzip.ts'
+ import { loadVfsImage, loadVfsOverlay, MemoryVfs } from './storage/memory.ts'
++import type { VfsMutationSink } from './storage/types.ts'
+ import { setActiveVfs } from './storage/active.ts'
+ import { setTextViewer } from './shell/process/xdg-open.ts'
+ import {
+@@ -94,6 +95,16 @@ export interface WorkerHostOptions {
+   readonly image: Uint8Array | string
+   /** Ordered data overlays applied after the base image and before boot. */
+   readonly overlays?: readonly (Uint8Array | string)[]
++  /**
++   * Durable write-behind observer installed on the mounted VFS. Every committed
++   * mutation after the image and its overlays seeded reaches
++   * {@link VfsMutationSink.record}; image seeding is silent, and
++   * `host.vfs.flush()` settles the work recorded so far. Boot never waits on
++   * the sink: a sink reports its own persistence failures and stops mirroring
++   * rather than rejecting, because the in-memory mutation has already
++   * committed.
++   */
++  readonly sink?: VfsMutationSink
+   /** Virtual root; defaults to {@link DEFAULT_ROOT}. */
+   readonly root?: string
+   /**
+@@ -191,7 +202,11 @@ export function createWorkerHost(options: WorkerHostOptions): WorkerHost {
+         readImage(options.image),
+         Promise.all((options.overlays ?? []).map(readImage)),
+       ])
+-      const mounted = loadVfsImage(bytes, root)
++      const mounted = loadVfsImage(
++        bytes,
++        root,
++        options.sink === undefined ? undefined : new MemoryVfs({ sink: options.sink }),
++      )
+       for (const overlay of overlays) loadVfsOverlay(overlay, root, mounted)
+       // Belt and braces over the image's own empty-directory entries: a hand
+       // -built image without them still boots.
+diff --git a/packages/experimental/webworker-runtime/tests/worker-host-sink.spec.ts b/packages/experimental/webworker-runtime/tests/worker-host-sink.spec.ts
+new file mode 100644
+index 0000000000..f74f227bc9
+--- /dev/null
++++ b/packages/experimental/webworker-runtime/tests/worker-host-sink.spec.ts
+@@ -0,0 +1,53 @@
++/**
++ * The Worker host's durable-sink seam: the `sink` construction option reaches
++ * the mounted `MemoryVfs`, committed mutations reach `record`, image seeding
++ * stays silent, and `flush()` settles the work recorded so far.
++ *
++ * Boot cannot complete without the image's manifest and app-boot, so this spec
++ * observes mounting only. `createWorkerHost` assigns `host.vfs` before the
++ * manifest read that refuses the manifest-less image below.
++ */
++import { gzipSync } from 'node:zlib'
++import { afterEach, describe, expect, it } from 'vitest'
++import { packTar } from '../src/storage/tar.ts'
++import type { VfsMutation, VfsMutationSink } from '../src/storage/types.ts'
++import { createWorkerHost } from '../src/worker-host.ts'
++
++const realProcess = globalThis.process
++
++afterEach(() => {
++  ;(globalThis as { process: unknown }).process = realProcess
++})
++
++describe('worker host sink', () => {
++  it('passes the sink to the mounted VFS and settles it on flush', async () => {
++    const recorded: VfsMutation[] = []
++    let flushes = 0
++    const sink: VfsMutationSink = {
++      record: (mutation) => { recorded.push(mutation) },
++      flush: async () => { flushes += 1 },
++    }
++    const host = createWorkerHost({
++      staticModules: {},
++      requestListener: async () => { throw new Error('the tunnel is not used') },
++      image: gzipSync(packTar({ 'home/seeded.txt': new TextEncoder().encode('seeded') })),
++      channel: { postMessage: () => {} },
++      sink,
++    })
++    await expect(host.start()).rejects.toThrow(/missing, so the image records no lowering/)
++    const vfs = host.vfs
++    if (vfs === undefined) throw new Error('the host mounted no filesystem before refusing the image')
++
++    // Image seeding is silent: only mutations committed after mounting reach the sink.
++    expect(vfs.readFileSync('/dsh/home/seeded.txt', 'utf8')).toBe('seeded')
++    expect(recorded).toEqual([])
++
++    vfs.writeFileSync('/dsh/home/written.txt', 'written')
++    expect(recorded).toHaveLength(1)
++    expect(recorded[0]).toMatchObject({ kind: 'write', path: '/dsh/home/written.txt', entryChanged: true })
++
++    // `flush()` settles the sink the host installed, not a subscriber of its own.
++    await vfs.flush()
++    expect(flushes).toBe(1)
++  })
++})

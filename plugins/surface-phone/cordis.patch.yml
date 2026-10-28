@@ -1,0 +1,52 @@
+# SPDX-License-Identifier: MIT
+# Resident phone-surface layer: applied over `dsh-base` instead of a one-shot
+# surface bundle (dsh-headless). It mounts DSH's own remote/web host modules and
+# the phone-surface plugin, which
+#   - binds 127.0.0.1:<PDSH_DSH_PORT> (0 = an OS-assigned port),
+#   - authenticates `GET /?token=...` with PDSH_DSH_LAUNCH_TOKEN (page-cookie
+#     exchange, exactly what the SDK's DSHWebTransport does) and
+#     `GET /connect?token=...` for the 0.2.1 API-operator cookie,
+#   - prints `XL_DSH_READY <port>` on stdout once the tree is booted,
+#   - serves `/api/<endpoint>` and `/api/remote.mux` from the modules below.
+# The phone profile layer (profile/phone.cordis.patch.yml) is applied after this
+# one; it swaps the execution world and persistence and disables desktop rows.
+#
+# Environment (set by the host app, see Sources/XiaozhiLinkLocalDSH):
+#   PDSH_DSH_PORT            loopback port; 0 picks an ephemeral one
+#   PDSH_DSH_LAUNCH_TOKEN    launch token the app passes to DSHWebTransport
+# The phone bundle ships every package's strict Typert manifest and the entry
+# registers them before the tree mounts, because a single-file bundle has no
+# package tree for the loader's `package.json` discovery. Leaving the loader
+# mounted would try (and fail) to resolve one module per plugin at runtime.
+- id: typert-loader
+  disabled: true
+
+- insert:
+    # HTTP carrier. Port 0 is intentional: the host learns the real port from
+    # the XL_DSH_READY line, so two harness restarts never collide.
+    - id: webserver
+      name: '@deepseek-ai/dsh-host-webserver'
+      config:
+        host: 127.0.0.1
+        port: !!js Number(process.env.PDSH_DSH_PORT ?? 0)
+        compression: none
+
+    # Token/cookie authentication, /api RPC channel and the connection/request
+    # waterfall. It provides ctx.connection early enough for the gateway.
+    - id: phone-surface
+      name: '@phone-dsh/dsh-surface-phone'
+
+    # Remote BFF event source ($events stream: status, approvals, questions).
+    - id: api-remotes
+      name: '@deepseek-ai/dsh-api-remotes'
+
+    # Session commands/reads and the live follow stream over Typert Remote.
+    - id: session-controller
+      name: '@deepseek-ai/dsh-api-session-controller'
+
+    # Services session-controller injects: raw uploads and the workspace
+    # registry (a phone session's cwd is the app-container workspace).
+    - id: file-upload
+      name: '@deepseek-ai/dsh-client-file-upload'
+    - id: workspace
+      name: '@deepseek-ai/dsh-workspace'

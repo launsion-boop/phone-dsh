@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "handoff reclaim request",
+  "description": "POST /v1/handoff/reclaim request body; the token alone authorises the call, no generation is required.",
+  "type": "object",
+  "required": [
+    "reclaim_token"
+  ],
+  "properties": {
+    "reclaim_token": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    }
+  },
+  "additionalProperties": false
+}

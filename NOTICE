@@ -1,0 +1,34 @@
+Phone DSH
+Copyright (c) 2026 Xiaozhi & Tono AI Team
+
+This product is distributed under the MIT License (see LICENSE).
+
+Phone DSH runs DeepSeek Harness (DSH) unmodified inside an app. DeepSeek
+Harness is a separate project by DeepSeek, licensed under the MIT License:
+https://github.com/deepseek-ai/deepseek-harness
+
+Phone DSH is not affiliated with, endorsed by, or sponsored by DeepSeek. The
+name "DeepSeek Harness" and the DeepSeek marks belong to their owners and are
+used here only to describe what this project runs.
+
+The worker image and the iOS app bundle redistribute third-party software,
+including (non-exhaustive):
+
+  - DeepSeek Harness and its packages        MIT
+  - Cordis (cordis, cosmokit)                MIT, Shigma
+  - just-bash                                Apache-2.0
+  - QuickJS                                  MIT, Fabrice Bellard
+  - CPython (python.wasm)                    PSF-2.0
+  - wasi-sdk runtime components              Apache-2.0 WITH LLVM-exception / MIT
+  - zlib, bzip2, xz                          zlib / bzip2-1.0.6 / 0BSD
+  - the npm packages listed in plugins/THIRD_PARTY.md and each plugin's
+    THIRD_PARTY.md, and the Rust crates in shell/Cargo.lock
+
+Each component carries its own licence text inside the package that ships it (the built worker image keeps every bundled package's LICENSE file), and plugins/THIRD_PARTY.md lists the bundled npm packages with their licences.
+Every redistributed component keeps its own licence; nothing in the MIT
+licence of Phone DSH re-licenses them.
+
+Artwork: the mascot in docs/assets/logo.png and the app icon are fan artwork
+of the DeepSeek assistant character, included as project branding. They are
+not covered by the MIT licence of the source code and are not official
+DeepSeek assets.

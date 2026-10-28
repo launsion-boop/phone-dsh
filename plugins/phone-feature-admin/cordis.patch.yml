@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: MIT
+# Phone feature administration: installed plugin enablement, flat user skills
+# and the official agent-preset roster. The row is dual-face; the same package
+# also exports `./client`, which the final integration must stage as a browser
+# page asset. It installs nothing and has no package-manager dependency.
+- insert:
+    - id: feature-admin
+      name: '@phone-dsh/dsh-feature-admin'
