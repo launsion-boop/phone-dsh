@@ -1766,11 +1766,27 @@ private struct ChatMessageRow: View {
                 Spacer(minLength: 16)
                 userBubble
             }
+            .contextMenu { copyMessageButton }
         case .assistant:
             // 助手正文不套气泡,直接排在版心上。
             assistantBody
+                .contextMenu { copyMessageButton }
         case .status:
             EmptyView()
+        }
+    }
+
+    /// 长按一条消息即可复制全文。SwiftUI 的文本选择在长按后还要再拖手柄，
+    /// 单手很难点到；这里给一个直接的复制菜单。工具卡保留自己的点击展开，
+    /// 不挂这个菜单。
+    @ViewBuilder
+    private var copyMessageButton: some View {
+        if !item.text.isEmpty {
+            Button {
+                UIPasteboard.general.string = item.text
+            } label: {
+                Label("复制", systemImage: "doc.on.doc")
+            }
         }
     }
 
