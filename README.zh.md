@@ -6,6 +6,8 @@
 
 [English](README.md) · [架构说明](docs/architecture.md) · [协议规范](spec/v1/README.md)
 
+<p align="center"><img src="docs/assets/screenshot-chat.jpg" width="300" alt="原生对话：模型生成 PDF 后汇报结果"></p>
+
 > 吉祥物是 DeepSeek 助手的同人创作，作为项目形象使用；它不是 DeepSeek 官方素材，也不在 MIT 许可范围内（见 [NOTICE](NOTICE)），本项目与 DeepSeek 官方无隶属关系。
 
 

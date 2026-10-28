@@ -6,6 +6,8 @@ Run DeepSeek Harness, unmodified, inside an iOS or macOS app.
 
 [简体中文](README.zh.md) · [Architecture](docs/architecture.md) · [Protocol spec](spec/v1/README.md)
 
+<p align="center"><img src="docs/assets/screenshot-chat.jpg" width="300" alt="Phone DSH generating a PDF and reporting progress in the native chat"></p>
+
 > The mascot is fan artwork of the DeepSeek assistant character, used as project branding. It is not an official DeepSeek asset, it is not covered by the MIT licence (see [NOTICE](NOTICE)), and this project is not affiliated with DeepSeek.
 
 
