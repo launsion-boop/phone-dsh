@@ -73,6 +73,10 @@ struct ChatPage: View {
     /// without animation so history loading never leaves the view at the top.
     @State private var pendingInitialScroll = false
     @State private var userScrolledAway = false
+    /// Last measured tail offset; logged with every follow scroll so a
+    /// "keeps scrolling" report can be diagnosed from chat-status.log.
+    @State private var tailOffsetY: CGFloat = 0
+    @State private var lastScrollTrace = Date.distantPast
     @State private var pasteLimitNoticed = false
     @State private var stopping = false
     @State private var scrollToLatestTrigger = 0
@@ -805,11 +809,15 @@ struct ChatPage: View {
                     transcriptContentHeight = height
                 }
                 .onPreferenceChange(TranscriptTailPreference.self) { tailY in
-                    // A short transcript is already at the bottom: it must not
-                    // advertise "back to latest" just because it lays out once.
+                    tailOffsetY = tailY
+                    // Past the content (a blank viewport) is not "near the
+                    // bottom"; neither may a lazy estimate silently re-enable
+                    // following while the reader is far above the tail.
                     if tailY > viewport.size.height + 44 { userScrolledAway = true }
-                    nearBottom = tailY <= viewport.size.height + 44
-                    if nearBottom { userScrolledAway = false }
+                    nearBottom = tailY >= -1 && tailY <= viewport.size.height + 44
+                    if nearBottom && transcriptContentHeight <= viewport.size.height + 1 {
+                        userScrolledAway = false
+                    }
                 }
                 .onChange(of: transcriptScrollSignature) { _, _ in
                     if pendingInitialScroll, !visibleItems.isEmpty {
@@ -822,7 +830,7 @@ struct ChatPage: View {
                         scrollToTail(proxy, viewportHeight: viewport.size.height)
                         return
                     }
-                    guard nearBottom, !loadingEarlierTranscript else { return }
+                    guard nearBottom, !userScrolledAway, !loadingEarlierTranscript else { return }
                     scheduleTailScroll(proxy, viewportHeight: viewport.size.height)
                 }
                 .onChange(of: model.isTranscriptReady) { _, ready in
@@ -842,6 +850,7 @@ struct ChatPage: View {
                 }
                 .onChange(of: scrollToLatestTrigger) { _, _ in
                     nearBottom = true
+                    userScrolledAway = false
                     withAnimation(.easeOut(duration: 0.2)) {
                         scrollToTail(proxy, viewportHeight: viewport.size.height)
                     }
@@ -899,10 +908,17 @@ struct ChatPage: View {
     /// Debouncing by one short turn lets the height preference and the row
     /// frames settle, and the coalesced follow still tracks streaming.
     private func scheduleTailScroll(_ proxy: ScrollViewProxy, viewportHeight: CGFloat) {
+        guard nearBottom, !userScrolledAway else { return }
         tailScrollTask?.cancel()
         tailScrollTask = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(50))
-            guard !Task.isCancelled, nearBottom else { return }
+            guard !Task.isCancelled, nearBottom, !userScrolledAway else { return }
+            if Date().timeIntervalSince(lastScrollTrace) > 1 {
+                lastScrollTrace = Date()
+                ChatModel.appendDiagnostic(
+                    "scroll tail content=\(Int(transcriptContentHeight)) viewport=\(Int(viewportHeight)) "
+                    + "tail=\(Int(tailOffsetY)) near=\(nearBottom) away=\(userScrolledAway)")
+            }
             scrollToTail(proxy, viewportHeight: viewportHeight)
         }
     }
@@ -1517,6 +1533,11 @@ struct ChatPage: View {
                 succeeded = await model.steer(text)
             } else {
                 succeeded = await model.send(text, attachments: pendingAttachments)
+                if succeeded {
+                    nearBottom = true
+                    userScrolledAway = false
+                    scrollToLatestTrigger += 1
+                }
             }
             if succeeded {
                 let id = model.items.last(where: { if case .user = $0.kind { return true }; return false })?.id
@@ -2253,67 +2274,140 @@ private struct ChatMessageRow: View {
 
 /// One run of tool activity folded into a single row: the collapsed label
 /// reports the count and failures, and the individual lines are one tap away.
+private func toolFirstLine(_ text: String) -> String {
+    text.components(separatedBy: .newlines).first ?? text
+}
+
+/// The title a tool item shows when nothing more specific is available.
+private func toolDisplayTitle(_ item: ChatItem) -> String {
+    if case .toolCall = item.kind {
+        let name = item.title.replacingOccurrences(of: "Tool call: ", with: "")
+        return ToolWording.category(forToolName: name).rowTitle
+    }
+    switch item.title {
+    case "Tool error": return "工具错误"
+    case "Tool result": return "工具结果"
+    default:
+        if item.title.hasPrefix("Tool call: ") {
+            return "工具调用 · " + item.title.replacingOccurrences(of: "Tool call: ", with: "")
+        }
+        return item.title
+    }
+}
+
+/// One line「动作 · 参数」for a tool row; the verb comes from the call text and
+/// never says the generic「调用工具」.
+private func toolActionLine(_ item: ChatItem) -> String {
+    let raw = toolFirstLine(item.text).trimmingCharacters(in: .whitespaces)
+    guard case .toolCall = item.kind, !raw.isEmpty else { return toolDisplayTitle(item) }
+    let parts = raw.components(separatedBy: " · ")
+    let rest = parts.dropFirst().joined(separator: " · ").trimmingCharacters(in: .whitespaces)
+    let verb = parts.first?.lowercased() ?? ""
+    let action: String
+    switch true {
+    case ["read", "read_file", "filesystem_read"].contains(verb): action = "读取文件"
+    case ["write", "write_file", "edit", "apply_patch"].contains(verb): action = "改文件"
+    case ["bash", "shell", "exec"].contains(verb): action = "运行命令"
+    case ["grep", "glob", "find", "search"].contains(verb): action = "搜索"
+    default: action = toolDisplayTitle(item)
+    }
+    var parameter = rest.isEmpty ? raw : rest
+    if ["读取文件", "改文件"].contains(action) {
+        parameter = parameter.components(separatedBy: "/").last ?? parameter
+    }
+    // A command's preview is its first line, not the first whitespace token:
+    // '运行命令 · cd' hid what the command actually did.
+    parameter = parameter.trimmingCharacters(in: .whitespacesAndNewlines)
+    if parameter.isEmpty { parameter = raw }
+    if parameter.count > 48 { parameter = String(parameter.prefix(48)) + "…" }
+    return "\(action) · \(parameter)"
+}
+
 private struct ToolRunRow: View {
     let items: [ChatItem]
     var workspaceFiles: [WorkspaceFile] = []
     var onOpenFile: (String) -> Void = { _ in }
     @State private var expanded = false
+    @State private var selected = 0
 
-    private var failures: Int {
-        items.filter { item in
-            if case .toolResult(let isError) = item.kind { return isError }
-            return false
-        }.count
-    }
-
-    private var running: Bool {
-        items.last?.streaming == true
-    }
-
-    /// DSH's TurnProcessNodeView is a full-width 33pt row: tertiary label, a
-    /// trailing chevron that rotates 180° when open, and a bottom hairline.
-    /// Hover does not exist on a phone, so the chevron is always visible.
-    private var label: String { "过程 · \(items.count) 步" }
-
+    /// DSH's process row: one fixed line per run. A single tool call opens its
+    /// detail directly; several consecutive calls share one line whose preview
+    /// switches with the chevrons, and the line first opens the list.
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Button {
-                expanded.toggle()
-            } label: {
-                HStack(spacing: 6) {
-                    Text(label)
-                        .font(.system(size: 14))
-                        .foregroundStyle(ChatPage.inkSecondary)
-                        .lineLimit(1)
-                    if running {
-                        ProgressView().controlSize(.mini).scaleEffect(0.75)
-                    } else if failures > 0 {
-                        Image("DSHClose")
-                            .resizable()
-                            .renderingMode(.template)
-                            .frame(width: 12, height: 12)
-                            .foregroundStyle(Color(red: 0xC0/255, green: 0x39/255, blue: 0x2B/255))
+        if items.count == 1, let only = items.first {
+            ToolEventCard(item: only, workspaceFiles: workspaceFiles, onOpenFile: onOpenFile)
+        } else {
+            multiple
+        }
+    }
+
+    private var multiple: some View {
+        let index = min(max(selected, 0), max(items.count - 1, 0))
+        let item = items[index]
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 4) {
+                Button {
+                    expanded.toggle()
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "terminal")
+                            .font(.system(size: 13))
+                            .foregroundStyle(ChatPage.inkSecondary)
+                            .layoutPriority(1)
+                        Text(toolActionLine(item))
+                            .font(.system(size: 13))
+                            .foregroundStyle(ChatPage.inkSecondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .layoutPriority(2)
+                        Spacer(minLength: 0)
                     }
-                    Spacer(minLength: 0)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    selected = (index - 1 + items.count) % items.count
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(ChatPage.inkSecondary)
+                        .frame(width: 20, height: 28)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("上一条命令")
+                Button {
+                    selected = (index + 1) % items.count
+                } label: {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(ChatPage.inkSecondary)
+                        .frame(width: 20, height: 28)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("下一条命令")
+                Button {
+                    expanded.toggle()
+                } label: {
                     Image("DSHChevronDown")
                         .resizable()
                         .renderingMode(.template)
-                        .frame(width: 14, height: 14)
+                        .frame(width: 12, height: 12)
                         .rotationEffect(.degrees(expanded ? 180 : 0))
                         .foregroundStyle(ChatPage.inkSecondary)
+                        .frame(width: 20, height: 28)
                 }
-                .frame(height: 33)
-                .contentShape(Rectangle())
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
+            .frame(height: 33)
             Rectangle()
                 .fill(ChatPage.inkSecondary.opacity(0.18))
                 .frame(height: 0.5)
             if expanded {
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(items) { item in
-                        ToolEventCard(item: item, expanded: false,
-                                      workspaceFiles: workspaceFiles, onOpenFile: onOpenFile)
+                        ToolEventCard(item: item, workspaceFiles: workspaceFiles, onOpenFile: onOpenFile)
                     }
                 }
                 .padding(.top, 6)
@@ -2341,29 +2435,7 @@ private struct ToolEventCard: View {
     }
 
     /// 一行「动作 · 参数」,动作是动词加对象,不写「调用工具」这种笼统词。
-    private var actionLine: String {
-        let raw = firstLine(item.text).trimmingCharacters(in: .whitespaces)
-        guard case .toolCall = item.kind, !raw.isEmpty else { return displayTitle }
-        let parts = raw.components(separatedBy: " · ")
-        let rest = parts.dropFirst().joined(separator: " · ").trimmingCharacters(in: .whitespaces)
-        let verb = parts.first?.lowercased() ?? ""
-        let action: String
-        switch true {
-        case ["read", "read_file", "filesystem_read"].contains(verb): action = "读取文件"
-        case ["write", "write_file", "edit", "apply_patch"].contains(verb): action = "改文件"
-        case ["bash", "shell", "exec"].contains(verb): action = "运行命令"
-        case ["grep", "glob", "find", "search"].contains(verb): action = "搜索"
-        default: action = displayTitle
-        }
-        var parameter = rest.isEmpty ? raw : rest
-        if ["读取文件", "改文件"].contains(action) {
-            parameter = parameter.components(separatedBy: "/").last ?? parameter
-        } else if action == "运行命令" {
-            parameter = parameter.components(separatedBy: .whitespaces).first ?? parameter
-        }
-        if parameter.count > 32 { parameter = String(parameter.prefix(32)) + "…" }
-        return "\(action) · \(parameter)"
-    }
+    private var actionLine: String { toolActionLine(item) }
 
     /// 有没有可展开的详情:有内容才给箭头。
     private var hasDetails: Bool {
