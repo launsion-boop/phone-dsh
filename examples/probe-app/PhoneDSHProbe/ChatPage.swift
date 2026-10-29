@@ -1033,8 +1033,101 @@ struct ChatPage: View {
         .offset(y: downwardShift)
     }
 
+    /// DSH's GoalBar: the session's goal docked above the composer, with a
+    /// phase label, the objective and the pause/resume/clear actions (the
+    /// same `/goal` command the web client runs).
+    private func goalBar(_ goal: HarnessGoal) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "target")
+                .font(.system(size: 13))
+                .foregroundStyle(ChatPage.inkSecondary)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(goalPhaseLabel(goal.phase))
+                    .font(.system(size: 11))
+                    .foregroundStyle(ChatPage.inkSecondary)
+                Text(goal.objective)
+                    .font(.system(size: 13))
+                    .foregroundStyle(ChatPage.inkSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            Spacer(minLength: 0)
+            if goal.phase == .active {
+                Button("暂停") { runGoalCommand("pause") }
+                    .font(.system(size: 12))
+            } else if goal.phase == .paused || goal.phase == .blocked {
+                Button("继续") { runGoalCommand("resume") }
+                    .font(.system(size: 12))
+            }
+            Button {
+                runGoalCommand("clear")
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .semibold))
+            }
+            .accessibilityLabel("清除目标")
+        }
+        .foregroundStyle(ChatPage.inkSecondary)
+        .padding(.horizontal, 10)
+        .frame(height: 40)
+        .background(Color(red: 246 / 255, green: 246 / 255, blue: 248 / 255),
+                    in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    private func goalPhaseLabel(_ phase: HarnessGoal.Phase) -> String {
+        switch phase {
+        case .active: return "目标 · 进行中"
+        case .paused: return "目标 · 已暂停"
+        case .blocked: return "目标 · 已阻塞"
+        case .complete: return "目标 · 已完成"
+        }
+    }
+
+    private func runGoalCommand(_ input: String) {
+        Task {
+            await runSlashCommand(name: "goal", input: input)
+            await model.refreshGoal()
+        }
+    }
+
+    /// Messages waiting behind the running turn, docked above the input
+    /// (DSH's queue strip); the transcript's per-row label still marks the
+    /// steered/sending states.
+    private var queuedMessages: [ChatItem] {
+        model.items.filter { model.queueLabel[$0.id] == "已排队" }
+    }
+
+    private var queuedStrip: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.system(size: 12))
+                Text("排队中 \(queuedMessages.count) 条")
+                    .font(.system(size: 12))
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(ChatPage.inkSecondary)
+            ForEach(queuedMessages) { item in
+                HStack(spacing: 8) {
+                    Text(item.text.components(separatedBy: .newlines).first ?? item.text)
+                        .font(.system(size: 13))
+                        .foregroundStyle(ChatPage.inkSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 10)
+                .frame(height: 28)
+                .background(Color(red: 246 / 255, green: 246 / 255, blue: 248 / 255),
+                            in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
+        }
+    }
+
     private var composer: some View {
         VStack(spacing: 9) {
+            if let goal = model.goal { goalBar(goal) }
+            if !queuedMessages.isEmpty { queuedStrip }
             if !pendingAttachments.isEmpty { attachmentStrip }
             if let attachmentError {
                 HStack {

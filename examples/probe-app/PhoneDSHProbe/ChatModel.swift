@@ -224,6 +224,8 @@ final class ChatModel {
     private(set) var hostState = "stopped"
     private var lastPrompt: (String, [HarnessAttachment])?
     private(set) var statusLine = "Host not started"
+    /// The session's DSH goal (the input-dock GoalBar source).
+    private(set) var goal: HarnessGoal?
     private(set) var busy = false
     private(set) var turnRunning = false
     private(set) var userFacingError: String?
@@ -797,6 +799,7 @@ final class ChatModel {
             }
             transcriptReady = true
             clearError()
+            Task { await self.refreshGoal() }
             turnRunning = history.turnRunning
             startPump(harness: harness, sessionID: session.id, after: history.after)
             Task { await self.refreshAccessModes() }
@@ -1790,6 +1793,7 @@ final class ChatModel {
                 appendStatus("Turn ended: \(Self.describe(reason))")
             }
             refreshFiles()
+            Task { await self.refreshGoal() }
             if keepingAlive { Task { await self.finishBackgroundKeepAlive() } }
         case .progress(let phase, let step, let total):
             statusLine = "\(phase) step \(step)\(total.map { " of \($0)" } ?? "")"
@@ -1831,6 +1835,14 @@ final class ChatModel {
     private func appendStatus(_ text: String) {
         items.append(ChatItem(kind: .status, title: "Host", text: text))
         Self.persistStatus(text)
+    }
+
+    /// Reads the goal projection; failures keep the last known goal.
+    func refreshGoal() async {
+        guard let harness, let sessionID else { return }
+        if let next = try? await harness.goal(sessionID: sessionID) {
+            goal = next
+        }
     }
 
     // MARK: - Planned-restart policy

@@ -96,6 +96,25 @@ public actor DSHRemoteHarness: AgentHarness {
         return HarnessSession(id: id, capabilities: capabilities, lastSeq: nil)
     }
 
+    public func goal(sessionID: String) async throws -> HarnessGoal? {
+        let value = try await call("session/projections", [
+            "request": .object(["sessionId": .string(sessionID)]),
+        ])
+        guard let current = value["values"]?["goal"]?["current"],
+              current.objectValue != nil,
+              let goal = current["goal"],
+              let objective = goal["objective"]?.stringValue, !objective.isEmpty else {
+            return nil
+        }
+        let phase = HarnessGoal.Phase(rawValue: goal["phase"]?.stringValue ?? "active") ?? .active
+        return HarnessGoal(
+            objective: objective,
+            phase: phase,
+            blockedReason: goal["blockedReason"]?["message"]?.stringValue,
+            roundsStarted: current["roundsStarted"]?.intValue ?? 0,
+            maxGoalRounds: goal["maxGoalRounds"]?.intValue ?? 0)
+    }
+
     public func send(_ command: HarnessCommand, to sessionID: String) async throws {
         switch command {
         case .prompt(let text, let attachments, let requestID):
