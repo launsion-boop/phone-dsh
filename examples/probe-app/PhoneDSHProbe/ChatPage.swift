@@ -2448,90 +2448,14 @@ private struct ToolRunRow: View {
     let items: [ChatItem]
     var workspaceFiles: [WorkspaceFile] = []
     var onOpenFile: (String) -> Void = { _ in }
-    @State private var expanded = false
-    @State private var selected = 0
 
-    /// DSH's process row: one fixed line per run. A single tool call opens its
-    /// detail directly; several consecutive calls share one line whose preview
-    /// switches with the chevrons, and the line first opens the list.
+    /// DSH's process stream is one fixed line per call: every command gets its
+    /// own row (no group header, no switch arrows) and opens its detail on a
+    /// single tap.
     var body: some View {
-        if items.count == 1, let only = items.first {
-            ToolEventCard(item: only, workspaceFiles: workspaceFiles, onOpenFile: onOpenFile)
-        } else {
-            multiple
-        }
-    }
-
-    private var multiple: some View {
-        let index = min(max(selected, 0), max(items.count - 1, 0))
-        let item = items[index]
-        return VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 4) {
-                Button {
-                    expanded.toggle()
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "terminal")
-                            .font(.system(size: 13))
-                            .foregroundStyle(ChatPage.inkSecondary)
-                            .layoutPriority(1)
-                        Text(toolActionLine(item))
-                            .font(.system(size: 13))
-                            .foregroundStyle(ChatPage.inkSecondary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            .layoutPriority(2)
-                        Spacer(minLength: 0)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-
-                Button {
-                    selected = (index - 1 + items.count) % items.count
-                } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(ChatPage.inkSecondary)
-                        .frame(width: 20, height: 28)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("上一条命令")
-                Button {
-                    selected = (index + 1) % items.count
-                } label: {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(ChatPage.inkSecondary)
-                        .frame(width: 20, height: 28)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("下一条命令")
-                Button {
-                    expanded.toggle()
-                } label: {
-                    Image("DSHChevronDown")
-                        .resizable()
-                        .renderingMode(.template)
-                        .frame(width: 12, height: 12)
-                        .rotationEffect(.degrees(expanded ? 180 : 0))
-                        .foregroundStyle(ChatPage.inkSecondary)
-                        .frame(width: 20, height: 28)
-                }
-                .buttonStyle(.plain)
-            }
-            .frame(height: 33)
-            Rectangle()
-                .fill(ChatPage.inkSecondary.opacity(0.18))
-                .frame(height: 0.5)
-            if expanded {
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(items) { item in
-                        ToolEventCard(item: item, workspaceFiles: workspaceFiles, onOpenFile: onOpenFile)
-                    }
-                }
-                .padding(.top, 6)
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(items) { item in
+                ToolEventCard(item: item, workspaceFiles: workspaceFiles, onOpenFile: onOpenFile)
             }
         }
     }
