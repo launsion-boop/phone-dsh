@@ -4,6 +4,7 @@
 // 会话占一格是产品决定（高频检索）；定时任务并进会话页的第二段。
 
 import SwiftUI
+import UIKit
 
 /// The four places the native shell can be. Chat owns the composed turn;
 /// Sessions owns history + scheduled runs; Workspace owns files and the
@@ -212,6 +213,9 @@ struct NativeShell: View {
     /// 展开 0.28 秒、收回 0.22 秒,用系统那条曲线;已经开着时再点不加第二层。
     private func openDrawer() {
         guard !drawerOpen else { return }
+        // Question-card text fields also need to release the keyboard.
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),
+                                        to: nil, from: nil, for: nil)
         withAnimation(.easeInOut(duration: 0.28)) { drawerOpen = true }
     }
 
@@ -769,6 +773,7 @@ enum PreviewScreen: String, Identifiable, CaseIterable {
     case chatFailed = "chat.failed"
     case chatQueued = "chat.queued"
     case chatPermission = "chat.permission"
+    case chatQuestion = "chat.question"
     case sessionsMany = "sessions.many"
     case sessionsEmpty = "sessions.empty"
     case sessionsNothing = "sessions.nothing"
@@ -807,6 +812,7 @@ enum PreviewScreen: String, Identifiable, CaseIterable {
         case .chatAssistant: ChatPage(previewItems: PreviewChatItems.assistant)
         case .chatFailed: ChatPage(previewItems: PreviewChatItems.failed)
         case .chatQueued: ChatPage(previewItems: PreviewChatItems.queued)
+        case .chatQuestion: ChatPage(previewItems: PreviewChatItems.assistant)
         case .sessionsMany:
             DrawerPreview(sessionCount: 40)
         case .sessionsEmpty:
