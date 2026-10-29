@@ -2,6 +2,7 @@
 // phone-dsh phone DSH — PhoneDSHEngine: pdsh-page resolution, ranges and CSP.
 
 import Foundation
+import WebKit
 import XCTest
 @testable import PhoneDSHEngine
 
@@ -147,6 +148,60 @@ final class PageSchemeHandlerTests: XCTestCase {
 
     /// The shipped Web3DLib must serve every module the PAGE pages import and
     /// the demo assets; a missing file here is a blank 3D preview on a device.
+    /// The handler streams: one 1 MiB window per `didReceive`, never the whole
+    /// mapped file (spec-render-media-v1 task B).
+    func testStreamsAFileInOneMiBChunks() throws {
+        let ws = try workspace()
+        let size = 2 * 1024 * 1024 + 512 * 1024
+        let bytes = Data(repeating: 0x41, count: size)
+        try bytes.write(to: ws.appendingPathComponent("big.bin"))
+        let resolver = PDSHPageResolver(libraryRoot: try library(), workspaceRoot: { _ in ws })
+        let handler = PDSHPageSchemeHandler(resolver: resolver)
+        let task = FakeTask(url: URL(string: "pdsh-page://S/big.bin")!)
+        handler.respond(to: task)
+
+        XCTAssertNil(task.failure)
+        XCTAssertTrue(task.finished)
+        XCTAssertEqual(task.response?.statusCode, 200)
+        XCTAssertEqual(task.response?.value(forHTTPHeaderField: "Content-Length"),
+                       String(bytes.count))
+        XCTAssertEqual(task.response?.value(forHTTPHeaderField: "Accept-Ranges"), "bytes")
+        XCTAssertEqual(task.chunks.count, 3)
+        XCTAssertTrue(task.chunks.allSatisfy { $0.count <= PDSHPageSchemeHandler.chunkBytes })
+        XCTAssertEqual(task.chunks.reduce(Data(), +), bytes)
+    }
+
+    func testServesARangeWith206() throws {
+        let ws = try workspace()
+        let bytes = Data(repeating: 0x42, count: 4096)
+        try bytes.write(to: ws.appendingPathComponent("range.bin"))
+        let resolver = PDSHPageResolver(libraryRoot: try library(), workspaceRoot: { _ in ws })
+        let handler = PDSHPageSchemeHandler(resolver: resolver)
+        let task = FakeTask(url: URL(string: "pdsh-page://S/range.bin")!,
+                            range: "bytes=100-1023")
+        handler.respond(to: task)
+
+        XCTAssertNil(task.failure)
+        XCTAssertEqual(task.response?.statusCode, 206)
+        XCTAssertEqual(task.response?.value(forHTTPHeaderField: "Content-Range"),
+                       "bytes 100-1023/4096")
+        XCTAssertEqual(task.response?.value(forHTTPHeaderField: "Content-Length"), "924")
+        XCTAssertEqual(task.chunks.reduce(Data(), +), bytes.subdata(in: 100..<1024))
+    }
+
+    func testUnreadableFileFailsBeforeTheHead() throws {
+        let resolver = PDSHPageResolver(libraryRoot: try library(),
+                                        workspaceRoot: { _ in try? self.workspace() })
+        let handler = PDSHPageSchemeHandler(resolver: resolver)
+        let task = FakeTask(url: URL(string: "pdsh-page://S/missing.bin")!)
+        handler.respond(to: task)
+
+        XCTAssertNotNil(task.failure)
+        XCTAssertNil(task.response)
+        XCTAssertTrue(task.chunks.isEmpty)
+        XCTAssertFalse(task.finished)
+    }
+
     func testBundledWeb3DLibServesTheDemoAssets() throws {
         let repo = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -177,5 +232,37 @@ final class PageSchemeHandlerTests: XCTestCase {
                        "text/javascript; charset=utf-8")
         XCTAssertEqual(PDSHPageScheme.contentType(forExtension: "unknown"),
                        "application/octet-stream")
+    }
+}
+
+
+/// Minimal in-memory `WKURLSchemeTask` for the handler tests.
+private final class FakeTask: NSObject, WKURLSchemeTask {
+    let request: URLRequest
+    var response: HTTPURLResponse?
+    var chunks: [Data] = []
+    var finished = false
+    var failure: Error?
+
+    init(url: URL, range: String? = nil) {
+        var request = URLRequest(url: url)
+        if let range { request.setValue(range, forHTTPHeaderField: "Range") }
+        self.request = request
+    }
+
+    func didReceive(_ response: URLResponse) {
+        self.response = response as? HTTPURLResponse
+    }
+
+    func didReceive(_ data: Data) {
+        chunks.append(data)
+    }
+
+    func didFinish() {
+        finished = true
+    }
+
+    func didFailWithError(_ error: Error) {
+        failure = error
     }
 }

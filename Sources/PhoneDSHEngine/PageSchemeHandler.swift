@@ -238,7 +238,11 @@ public final class PDSHPageSchemeHandler: NSObject, WKURLSchemeHandler {
 
     public func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {}
 
-    private func respond(to task: WKURLSchemeTask) {
+    /// Chunk size of one `didReceive(_:)`; a 1 MiB window keeps peak memory
+    /// independent of the file size (a 200 MB `.glb` is never fully mapped).
+    static let chunkBytes = 1024 * 1024
+
+    func respond(to task: WKURLSchemeTask) {
         guard let url = task.request.url else {
             task.didFailWithError(PDSHPageResolutionError.invalidPath(""))
             return
@@ -257,51 +261,74 @@ public final class PDSHPageSchemeHandler: NSObject, WKURLSchemeHandler {
             task.didFailWithError(error)
             return
         }
-        let data: Data
+
+        // Open and read the first chunk *before* the response head: a file
+        // that vanished or is unreadable must fail the task, never produce a
+        // 200 head followed by a broken body.
+        var openedHandle: FileHandle?
+        let total: Int
+        var firstChunk: Data
         do {
-            data = try Data(contentsOf: file.url, options: [.mappedIfSafe])
+            let handle = try FileHandle(forReadingFrom: file.url)
+            openedHandle = handle
+            total = Int(try handle.seekToEnd())
+            let range = PDSHPageScheme.byteRange(
+                from: task.request.value(forHTTPHeaderField: "Range"), total: total)
+            let start = range?.start ?? 0
+            let end = range?.end ?? max(total - 1, 0)
+            try handle.seek(toOffset: UInt64(start))
+            firstChunk = try readChunk(from: handle,
+                                       limit: min(Self.chunkBytes, max(end - start + 1, 0)))
+            guard range != nil || total == 0 || !firstChunk.isEmpty else {
+                throw PDSHPageResolutionError.notFound(url.absoluteString)
+            }
+            var headers: [String: String] = [
+                "Content-Type": PDSHPageScheme.contentType(
+                    forExtension: file.url.pathExtension),
+                "Accept-Ranges": "bytes",
+                "Cache-Control": "no-store",
+            ]
+            let bodyLength = range.map { $0.end - $0.start + 1 } ?? total
+            if let range {
+                headers["Content-Range"] = "bytes \(range.start)-\(range.end)/\(total)"
+            }
+            headers["Content-Length"] = String(bodyLength)
+            if file.isHTML {
+                let tier = PDSHPageScheme.declaredTier(inHTML: firstChunk.prefix(4096))
+                headers["Content-Security-Policy"] =
+                    PDSHPageScheme.contentSecurityPolicy(for: tier)
+            }
+            guard let response = HTTPURLResponse(url: url,
+                                                 statusCode: range == nil ? 200 : 206,
+                                                 httpVersion: "HTTP/1.1",
+                                                 headerFields: headers) else {
+                throw PDSHPageResolutionError.invalidPath(url.absoluteString)
+            }
+            task.didReceive(response)
+            var sent = 0
+            while true {
+                let remaining = bodyLength - sent
+                guard remaining > 0 else { break }
+                let chunk = firstChunk.isEmpty
+                    ? try readChunk(from: handle, limit: min(Self.chunkBytes, remaining))
+                    : firstChunk
+                if chunk.isEmpty { break }
+                task.didReceive(chunk)
+                sent += chunk.count
+                firstChunk = Data()
+                if chunk.count > remaining { break }
+            }
+            try? handle.close()
+            task.didFinish()
         } catch {
+            try? openedHandle?.close()
             task.didFailWithError(error)
-            return
         }
-        var headers: [String: String] = [
-            "Content-Type": PDSHPageScheme.contentType(
-                forExtension: file.url.pathExtension),
-            "Accept-Ranges": "bytes",
-            "Cache-Control": "no-store",
-        ]
-        if file.isHTML {
-            let tier = PDSHPageScheme.declaredTier(
-                inHTML: data.prefix(4096))
-            headers["Content-Security-Policy"] =
-                PDSHPageScheme.contentSecurityPolicy(for: tier)
-        }
-        let range = PDSHPageScheme.byteRange(
-            from: task.request.value(forHTTPHeaderField: "Range"), total: data.count)
-        if let range {
-            let slice = data.subdata(in: range.start..<(range.end + 1))
-            headers["Content-Range"] =
-                "bytes \(range.start)-\(range.end)/\(data.count)"
-            headers["Content-Length"] = String(slice.count)
-            guard let response = HTTPURLResponse(url: url, statusCode: 206,
-                                                 httpVersion: "HTTP/1.1",
-                                                 headerFields: headers) else {
-                task.didFailWithError(PDSHPageResolutionError.invalidPath(url.absoluteString))
-                return
-            }
-            task.didReceive(response)
-            task.didReceive(slice)
-        } else {
-            headers["Content-Length"] = String(data.count)
-            guard let response = HTTPURLResponse(url: url, statusCode: 200,
-                                                 httpVersion: "HTTP/1.1",
-                                                 headerFields: headers) else {
-                task.didFailWithError(PDSHPageResolutionError.invalidPath(url.absoluteString))
-                return
-            }
-            task.didReceive(response)
-            task.didReceive(data)
-        }
-        task.didFinish()
+    }
+
+    /// Reads at most `limit` bytes; an empty result means EOF.
+    private func readChunk(from handle: FileHandle, limit: Int) throws -> Data {
+        guard limit > 0 else { return Data() }
+        return try handle.read(upToCount: limit) ?? Data()
     }
 }
