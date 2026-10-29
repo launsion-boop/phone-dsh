@@ -2150,6 +2150,13 @@ private struct ChatMessageRow: View {
         case .assistant:
             // 助手正文不套气泡,直接排在版心上。
             assistantBody
+                .contextMenu {
+                    if !item.text.isEmpty {
+                        Button("复制全文", systemImage: "doc.on.doc") {
+                            UIPasteboard.general.string = item.text
+                        }
+                    }
+                }
         case .reasoning:
             // The model's thinking: muted, collapsible, and never part of the
             // answer. It starts expanded while streaming, collapses when the
@@ -2163,11 +2170,13 @@ private struct ChatMessageRow: View {
     private var assistantBody: some View {
         VStack(alignment: .leading, spacing: 6) {
             if item.streaming { ProgressView().controlSize(.mini) }
-            SelectableMarkdownText(markdown: item.text.isEmpty ? "…" : item.text) { url in
-                guard let path = workspaceRelativePath(from: url) else { return false }
-                onOpenFile(path)
-                return true
-            }
+            NativeMarkdownBody(markdown: item.text.isEmpty ? "…" : item.text)
+                .font(.system(size: 17))
+                .environment(\.openURL, OpenURLAction { url in
+                    guard let path = workspaceRelativePath(from: url) else { return .systemAction }
+                    onOpenFile(path)
+                    return .handled
+                })
             WorkspaceOutputReferences(text: item.text, files: workspaceFiles, onOpenFile: onOpenFile)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -2198,12 +2207,13 @@ private struct ChatMessageRow: View {
             }
             .foregroundStyle(.secondary)
             if item.kind == .assistant {
-                SelectableMarkdownText(markdown: item.text.isEmpty ? "…" : item.text) { url in
-                    guard let path = workspaceRelativePath(from: url) else { return false }
-                    onOpenFile(path)
-                    return true
-                }
-                .padding(-16)
+                NativeMarkdownBody(markdown: item.text.isEmpty ? "…" : item.text)
+                    .padding(-16)
+                    .environment(\.openURL, OpenURLAction { url in
+                        guard let path = workspaceRelativePath(from: url) else { return .systemAction }
+                        onOpenFile(path)
+                        return .handled
+                    })
             } else {
                 Text(item.text.isEmpty ? "…" : item.text)
                     .font(.body)
@@ -2604,10 +2614,14 @@ private struct WorkspaceOutputReferences: View {
                     Button {
                         onOpenFile(file.relativePath)
                     } label: {
-                        Label("预览 \(file.relativePath)", systemImage: "doc.text.magnifyingglass")
-                            .font(.footnote)
-                            .lineLimit(1)
-                            .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
+                        HStack(spacing: 8) {
+                            FileTypeGlyph.icon(for: file.relativePath, size: 18)
+                            Text("预览 \(file.relativePath)")
+                                .font(.footnote)
+                                .lineLimit(1)
+                            Spacer(minLength: 0)
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
                     }
                     .buttonStyle(.plain)
                     .accessibilityHint("在当前 DSH 工作区中打开此文件的预览")

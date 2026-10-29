@@ -153,47 +153,66 @@ struct KeyValueLine: View {
 struct DSSCodeBlock: View {
     let source: String
     var language: String = ""
+    @State private var expanded = false
 
-    private var hasHeader: Bool { !language.isEmpty }
+    /// DSH's CodeBlock: a rounded card with a banner (language on the left,
+    /// copy on the right) over the monospaced source. The banner is what the
+    /// single-text renderer dropped, leaving ragged glyph backgrounds.
+    private var label: String { language.isEmpty ? "代码" : language.lowercased() }
+    private var lineCount: Int { source.split(separator: "\n", omittingEmptySubsequences: false).count }
+    private var isLong: Bool { lineCount > 24 || source.count > 2400 }
 
     var body: some View {
-        // 顶部行的两个元素都用绝对定位钉住(overlay + 明确的 top/leading),
-        // 不参与布局流,避免被代码文本的行带带走。
-        ScrollView(.horizontal, showsIndicators: false) {
-            Text(source)
-                .font(.system(size: 13, design: .monospaced))
-                .lineSpacing(20 - 16)
-                .textSelection(.enabled)
-                .lineLimit(nil)
-                .fixedSize(horizontal: true, vertical: false)
-        }
-        .padding(.horizontal, 12)
-        .padding(.top, hasHeader ? 44 : 12)
-        .padding(.bottom, 12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(red: 246 / 255, green: 246 / 255, blue: 248 / 255),
-                    in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(alignment: .topLeading) {
-            if hasHeader {
-                Text(language)
-                    .font(.system(size: 12))
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                Text(label)
+                    .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(ChatPage.inkSecondary)
                     .lineLimit(1)
-                    .fixedSize()
-                    .padding(.leading, 12)
-                    .padding(.top, 12)
+                Spacer(minLength: 0)
+                Button {
+                    UIPasteboard.general.string = source
+                } label: {
+                    Image("DSHCopy")
+                        .resizable()
+                        .renderingMode(.template)
+                        .frame(width: 13, height: 13)
+                        .foregroundStyle(ChatPage.inkSecondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("拷贝代码")
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 34)
+            .background(Color(red: 233 / 255, green: 233 / 255, blue: 237 / 255))
+
+            ScrollView([.horizontal, .vertical]) {
+                Text(source)
+                    .font(.system(size: 13, design: .monospaced))
+                    .lineSpacing(20 - 15)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: true, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
+            }
+            .frame(maxHeight: expanded ? nil : (isLong ? 300 : nil))
+
+            if isLong {
+                Button(expanded ? "收起" : "展开全部 \(lineCount) 行") {
+                    expanded.toggle()
+                }
+                .font(.system(size: 12))
+                .foregroundStyle(ChatPage.inkSecondary)
+                .frame(maxWidth: .infinity)
+                .frame(height: 32)
+                .background(Color(red: 246 / 255, green: 246 / 255, blue: 248 / 255))
             }
         }
-        .overlay(alignment: .topTrailing) {
-            if hasHeader {
-                Button("拷贝") { UIPasteboard.general.string = source }
-                    .font(.system(size: 13))
-                    .foregroundStyle(ChatPage.accent)
-                    .lineLimit(1)
-                    .fixedSize()
-                    .padding(.trailing, 12)
-                    .padding(.top, 11)
-            }
-        }
+        .background(Color(red: 246 / 255, green: 246 / 255, blue: 248 / 255))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .strokeBorder(Color.black.opacity(0.06)))
+        .padding(.vertical, 2)
     }
 }
+

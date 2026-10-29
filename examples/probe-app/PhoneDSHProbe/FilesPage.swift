@@ -186,9 +186,7 @@ private struct FileRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: icon)
-                .font(.title3)
-                .foregroundStyle(.tint)
+            FileTypeGlyph.icon(for: file.relativePath, size: 24)
                 .frame(width: 34, height: 38)
             VStack(alignment: .leading, spacing: 3) {
                 Text(URL(fileURLWithPath: file.relativePath).lastPathComponent)
@@ -221,13 +219,6 @@ private struct FileRow: View {
         return parent
     }
 
-    private var icon: String {
-        let ext = URL(fileURLWithPath: file.relativePath).pathExtension.lowercased()
-        if ["png", "jpg", "jpeg", "gif", "heic", "webp"].contains(ext) { return "photo" }
-        if ["pdf"].contains(ext) { return "doc.richtext" }
-        if ["zip", "tar", "gz"].contains(ext) { return "archivebox" }
-        return "doc.text"
-    }
 }
 
 private struct FilePreviewPage: View {
