@@ -2711,6 +2711,32 @@ public actor PhoneDSHHost: PhoneDSHHosting {
     }
 
     private func beginStart(userReset: Bool = false) async throws {
+        // Boot-phase timing (one line per boot in Documents/boot-timings.log).
+        // The engine has several serial phases (WAL replay, journal restore,
+        // overlay, loopback, WebContent spawn, Worker boot, HELLO); measuring
+        // them is the only way to tell which one dominates a slow start.
+        let bootClock = CFAbsoluteTimeGetCurrent()
+        var bootPhases: [(String, Double)] = []
+        func bootMark(_ phase: String) {
+            let elapsed = (CFAbsoluteTimeGetCurrent() - bootClock) * 1000
+            bootPhases.append((phase, elapsed))
+            NSLog("phone-dsh boot: %@ at %.0f ms", phase, elapsed)
+        }
+        func writeBootTimings(_ outcome: String) {
+            let line = "boot \(ISO8601DateFormatter().string(from: Date())) \(outcome) "
+                + bootPhases.map { "\($0.0)=\(Int($0.1))ms" }.joined(separator: " ") + "\n"
+            let url = configuration.workspaceRoot.deletingLastPathComponent()
+                .appendingPathComponent("boot-timings.log")
+            if let handle = try? FileHandle(forWritingTo: url) {
+                defer { try? handle.close() }
+                _ = try? handle.seekToEnd()
+                try? handle.write(contentsOf: Data(line.utf8))
+            } else {
+                try? Data(line.utf8).write(to: url)
+            }
+        }
+        var bootOutcome = "failed"
+        defer { writeBootTimings(bootOutcome) }
         // Fail closed before any WAL/manifest work if a previous generation CAS
         // is unresolved. A new process cannot distinguish "the CAS never
         // arrived" from "the remote owns it and the response was lost", so it
@@ -2752,9 +2778,14 @@ public actor PhoneDSHHost: PhoneDSHHosting {
                 workspaceBytes: Int(clamping: configuration.budgets.workspaceBytes),
                 sessionBytes: Int(clamping: configuration.budgets.sessionBytes),
                 tmpBytes: Int(clamping: configuration.budgets.tmpBytes))
-            var log = try WorkspaceLog(configuration: logConfiguration, bootID: bootData)
+            // Recovery runs inside `WorkspaceLog.init`, so the divergence
+            // fallback must wrap the init too — wrapping only `recover()` let a
+            // force-kill with an ahead materialized tree bypass the reset and
+            // fail the whole boot with WAL_CORRUPT.
+            var log: WorkspaceLog
             let recovery: WorkspaceLogRecovery
             do {
+                log = try WorkspaceLog(configuration: logConfiguration, bootID: bootData)
                 recovery = try await log.recover()
             } catch let error as LogError where error.isMaterializedDivergence {
                 // Killed after a materialized write, before the manifest
@@ -2768,6 +2799,7 @@ public actor PhoneDSHHost: PhoneDSHHosting {
                 log = try WorkspaceLog(configuration: logConfiguration, bootID: bootData)
                 recovery = try await log.recover()
             }
+            bootMark("recovery")
             let workspaceHasState = workspaceStateBeforeBoot || recovery.nextMseq > 1
             let authority = try FenceAuthority(root: configuration.workspaceRoot,
                                                owner: "phone",
@@ -2869,13 +2901,16 @@ public actor PhoneDSHHost: PhoneDSHHosting {
                                                      authority: authority,
                                                      log: log,
                                                      bootID: bootData)
+            bootMark("machine+journal")
             let overlayURL = try await log.overlay(bootID: bootID)
+            bootMark("overlay")
             let loopback = makeLoopback(log: log, authority: authority, machine: machine,
                                         coordinator: coordinator, stepMachine: stepMachine,
                                         ledger: ledger, ledgerRecorder: ledgerRecorder,
                                         gateway: gateway, bundle: bundle,
                                         overlayURL: overlayURL)
             let endpoint = try await loopback.start()
+            bootMark("loopback")
             var engineConfiguration = makeEngineConfiguration(
                 endpoint: endpoint, fence: await authority.wireFence())
             engineConfiguration.bootID = bootID
@@ -2897,6 +2932,7 @@ public actor PhoneDSHHost: PhoneDSHHosting {
             startMachineObserver(machine)
 
             let engine = try await engineFactory(engineConfiguration)
+            bootMark("webview")
             lockdownModeObserved = engine.isLockdownModeEnabled
             if var services = self.runtime {
                 services.engine = engine
@@ -2905,13 +2941,17 @@ public actor PhoneDSHHost: PhoneDSHHosting {
             startEngineObserver(engine)
             try checkEngine(engine)
             try await engine.bootWorker(engineConfiguration)
+            bootMark("worker-boot")
             let hello = try await coordinator.waitForHello(timeout: configuration.helloTimeout)
+            bootMark("hello")
             guard let services = self.runtime else {
                 throw PhoneDSHError.invalidState("the host services were released during start")
             }
             try await verifyLease(hello, runtime: services)
             try await sendOpenFrames(hello.connection, runtime: services)
             setState(.running)
+            bootMark("running")
+            bootOutcome = "ok"
             await evaluateBudget(services)
         } catch {
             if let phoneError = error as? PhoneDSHError,

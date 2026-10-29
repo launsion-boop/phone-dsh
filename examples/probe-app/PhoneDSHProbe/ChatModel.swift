@@ -703,6 +703,14 @@ final class ChatModel {
             egressAuthorizer: mcpPolicy,
             drainDeadline: ChatHostConfiguration.defaultDrainDeadline,
             helloTimeout: ChatHostConfiguration.defaultHelloTimeout)
+        // One line states what the host actually enforces. The Worker's
+        // published manifest can lag behind a rebuilt bundle; this is the
+        // number the write path uses.
+        appendStatus("Engine budgets: tier=\(configuration.deviceTier) "
+            + "workspace=\(configuration.budgets.workspaceBytes / 1_048_576) MiB "
+            + "vfs=\(configuration.budgets.vfsLogicalBytes / 1_048_576) MiB "
+            + "single=\(configuration.budgets.singleFileBytes / 1_048_576) MiB "
+            + "hot=\(configuration.budgets.wasiHotInstanceBytes / 1_048_576) MiB")
         // Publish the real read-only accelerators only when the linked Rust
         // library advertises them. Without the XCFramework `acceleratorNames`
         // is empty, so the host keeps advertising none instead of faking a

@@ -242,6 +242,11 @@ final class PageSchemeHandlerTests: XCTestCase {
         XCTAssertEqual(task.response?.value(forHTTPHeaderField: "Content-Length"),
                        String(bytes.count))
         XCTAssertEqual(task.response?.value(forHTTPHeaderField: "Accept-Ranges"), "bytes")
+        // The bundled library is a different host (pdsh-page://lib), so the
+        // page's module scripts are CORS requests; without this header WebKit
+        // reports "Cross-origin script load denied".
+        XCTAssertEqual(task.response?.value(forHTTPHeaderField: "Access-Control-Allow-Origin"), "*")
+        XCTAssertEqual(task.response?.value(forHTTPHeaderField: "Cross-Origin-Resource-Policy"), "cross-origin")
         XCTAssertEqual(task.chunks.count, 3)
         XCTAssertTrue(task.chunks.allSatisfy { $0.count <= PDSHPageSchemeHandler.chunkBytes })
         XCTAssertEqual(task.chunks.reduce(Data(), +), bytes)
