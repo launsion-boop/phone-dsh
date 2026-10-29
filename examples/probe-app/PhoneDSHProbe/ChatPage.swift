@@ -2037,59 +2037,91 @@ private struct QuestionCard: View {
     }
 }
 
-/// The model's streamed reasoning. Collapsed it is ONE line that keeps
-/// refreshing with the newest tokens (a live counter/tail); tapping it opens
-/// the full thinking text.
+/// The model's streamed reasoning, following the DSH web ReasoningRow:
+/// a 24pt disclosure row with the official Think icon (the DSH artwork),
+/// the title, and one collapsed summary line that keeps refreshing while the
+/// model thinks. Tapping opens the complete reasoning Markdown.
 private struct ThinkingBlock: View {
     let text: String
     let streaming: Bool
     @State private var expanded = false
+    @State private var shimmer = false
 
-    /// The newest 80 characters on one line, so the collapsed row visibly
-    /// refreshes while the model thinks instead of showing a static count.
-    private var preview: String {
-        let flat = text
-            .replacingOccurrences(of: "\n", with: " ")
+    /// DSH's collapsed summary: the first line when settled; while running,
+    /// the first line of the latest COMPLETED paragraph (the growing last
+    /// paragraph is skipped so the line does not jitter).
+    private var summary: String {
+        let raw: String
+        if streaming {
+            raw = Self.latestCompletedParagraphFirstLine(text)
+        } else {
+            raw = text.components(separatedBy: "\n").first ?? ""
+        }
+        return raw.replacingOccurrences(of: "**", with: "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !flat.isEmpty else { return "…" }
-        return String(flat.suffix(80))
+    }
+
+    static func latestCompletedParagraphFirstLine(_ text: String) -> String {
+        var currentFirst: String?
+        var lastCompleted: String?
+        for line in text.components(separatedBy: "\n") {
+            if line.trimmingCharacters(in: .whitespaces).isEmpty {
+                if let first = currentFirst { lastCompleted = first }
+                currentFirst = nil
+            } else if currentFirst == nil {
+                currentFirst = line
+            }
+        }
+        return lastCompleted ?? currentFirst ?? ""
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             Button {
                 expanded.toggle()
             } label: {
-                HStack(spacing: 6) {
-                    if streaming {
-                        ProgressView().controlSize(.mini)
-                    } else {
-                        Image(systemName: "brain.head.profile")
+                HStack(spacing: 8) {
+                    Image(expanded ? "DSHChevronUp" : "DSHThink")
+                        .resizable()
+                        .renderingMode(.template)
+                        .frame(width: 14, height: 14)
+                    Text("思考")
+                        .font(.system(size: 13))
+                    if !expanded, !summary.isEmpty {
+                        Rectangle()
+                            .fill(ChatPage.inkSecondary.opacity(0.35))
+                            .frame(width: 12, height: 1)
+                        Text(summary)
+                            .font(.system(size: 13))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .opacity(streaming ? (shimmer ? 1 : 0.45) : 0.85)
                     }
-                    Text(streaming ? "思考中：\(preview)" : "思考 · \(text.count) 字")
-                        .lineLimit(1)
-                        .truncationMode(.head)
                     Spacer(minLength: 0)
-                    Image(systemName: expanded ? "chevron.up" : "chevron.down")
                 }
-                .font(.system(size: 13))
                 .foregroundStyle(ChatPage.inkSecondary)
+                .frame(minHeight: 24)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             if expanded {
-                Text(text)
+                NativeMarkdownBody(markdown: text.isEmpty ? "…" : text)
                     .font(.system(size: 15))
                     .foregroundStyle(ChatPage.inkSecondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
+                    .padding(.leading, 22)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(ChatPage.inkSecondary.opacity(0.06),
-                    in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .onAppear { if streaming { startShimmer() } }
+        .onChange(of: streaming) { _, running in
+            if running { startShimmer() } else { shimmer = false }
+        }
+    }
+
+    private func startShimmer() {
+        shimmer = false
+        withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
+            shimmer = true
+        }
     }
 }
 
@@ -2247,6 +2279,23 @@ private struct ToolRunRow: View {
                     .font(.system(size: 13))
                     .foregroundStyle(ChatPage.inkSecondary)
                     .lineLimit(1)
+                if running {
+                    ProgressView().controlSize(.mini).scaleEffect(0.8)
+                } else {
+                    Image(failures > 0 ? "DSHClose" : "DSHCheck")
+                        .resizable()
+                        .renderingMode(.template)
+                        .frame(width: 12, height: 12)
+                        .foregroundStyle(failures > 0
+                            ? Color(red: 0xC0/255, green: 0x39/255, blue: 0x2B/255)
+                            : Color(red: 154/255, green: 154/255, blue: 162/255))
+                }
+                Spacer(minLength: 0)
+                Image(expanded ? "DSHChevronUp" : "DSHChevronDown")
+                    .resizable()
+                    .renderingMode(.template)
+                    .frame(width: 12, height: 12)
+                    .foregroundStyle(Color(red: 154/255, green: 154/255, blue: 162/255))
                 if failures > 0 {
                     Text("· \(failures) 失败")
                         .font(.system(size: 13))
@@ -2347,18 +2396,24 @@ private struct ToolEventCard: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 8)
-                if case .toolResult = item.kind, isError {
-                    Text("失败")
-                        .font(.system(size: 12))
-                        .foregroundStyle(Color(red: 0xC0/255, green: 0x39/255, blue: 0x2B/255))
-                } else if item.streaming {
+                if item.streaming {
                     ProgressView().controlSize(.mini).scaleEffect(0.8)
+                } else if case .toolResult = item.kind {
+                    // The DSH web tool row ends in the same status glyph.
+                    Image(isError ? "DSHClose" : "DSHCheck")
+                        .resizable()
+                        .renderingMode(.template)
+                        .frame(width: 12, height: 12)
+                        .foregroundStyle(isError
+                            ? Color(red: 0xC0/255, green: 0x39/255, blue: 0x2B/255)
+                            : Color(red: 154/255, green: 154/255, blue: 162/255))
                 }
                 if hasDetails {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 12, weight: .semibold))
+                    Image(expanded ? "DSHChevronUp" : "DSHChevronDown")
+                        .resizable()
+                        .renderingMode(.template)
+                        .frame(width: 12, height: 12)
                         .foregroundStyle(Color(red: 154/255, green: 154/255, blue: 162/255))
-                        .rotationEffect(.degrees(expanded ? 90 : 0))
                 }
             }
             .frame(height: 28)
