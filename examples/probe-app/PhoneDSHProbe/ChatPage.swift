@@ -2448,14 +2448,54 @@ private struct ToolRunRow: View {
     let items: [ChatItem]
     var workspaceFiles: [WorkspaceFile] = []
     var onOpenFile: (String) -> Void = { _ in }
+    @State private var expanded = false
 
-    /// DSH's process stream is one fixed line per call: every command gets its
-    /// own row (no group header, no switch arrows) and opens its detail on a
-    /// single tap.
+    /// Consecutive calls fold into ONE row (no switch arrows, no counter):
+    /// the row previews the latest command, a single tap opens the list and
+    /// each row then opens its own detail. A lone call stays its own row.
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            ForEach(items) { item in
-                ToolEventCard(item: item, workspaceFiles: workspaceFiles, onOpenFile: onOpenFile)
+        if items.count == 1, let only = items.first {
+            ToolEventCard(item: only, workspaceFiles: workspaceFiles, onOpenFile: onOpenFile)
+        } else if let latest = items.last {
+            VStack(alignment: .leading, spacing: 0) {
+                Button {
+                    expanded.toggle()
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "terminal")
+                            .font(.system(size: 13))
+                            .foregroundStyle(ChatPage.inkSecondary)
+                            .layoutPriority(1)
+                        Text(toolActionLine(latest))
+                            .font(.system(size: 13))
+                            .foregroundStyle(ChatPage.inkSecondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .layoutPriority(2)
+                        Spacer(minLength: 0)
+                        Image("DSHChevronDown")
+                            .resizable()
+                            .renderingMode(.template)
+                            .frame(width: 12, height: 12)
+                            .rotationEffect(.degrees(expanded ? 180 : 0))
+                            .foregroundStyle(ChatPage.inkSecondary)
+                    }
+                    .frame(height: 33)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                Rectangle()
+                    .fill(ChatPage.inkSecondary.opacity(0.18))
+                    .frame(height: 0.5)
+                if expanded {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(items) { item in
+                            ToolEventCard(item: item, workspaceFiles: workspaceFiles,
+                                          onOpenFile: onOpenFile)
+                        }
+                    }
+                    .padding(.top, 6)
+                }
             }
         }
     }
