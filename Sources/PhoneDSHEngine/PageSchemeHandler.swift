@@ -122,6 +122,46 @@ public enum PDSHPageWorkspaceMap {
     /// VFS prefix every workspace directory lives under.
     public static let vfsWorkspacePrefix = "/dsh/workspace"
 
+    /// Finds the workspace owning `relativePath` (relative to
+    /// `/dsh/workspace`) and the path inside that workspace. The longest
+    /// workspace directory wins; a workspace registered at `/dsh/workspace`
+    /// owns every path; a path outside every workspace has no owner.
+    ///
+    /// - Parameters:
+    ///   - relativePath: path relative to `/dsh/workspace`.
+    ///   - workspaces: `(path, sessionIDs)` records from `workspace/follow`.
+    /// - Returns: a session of the owning workspace and its workspace-relative
+    ///   path, or `nil` when no workspace contains the path.
+    public static func owner(
+        relativePath: String,
+        workspaces: [(path: String, sessionIDs: [String])]
+    ) -> (sessionID: String, relativePath: String)? {
+        var best: (directory: String, sessionID: String)?
+        let path = relativePath.hasPrefix("/")
+            ? String(relativePath.dropFirst())
+            : relativePath
+        for workspace in workspaces {
+            guard let sessionID = workspace.sessionIDs.first else { continue }
+            let trimmed = workspace.path.hasPrefix(vfsWorkspacePrefix)
+                ? String(workspace.path.dropFirst(vfsWorkspacePrefix.count))
+                : ""
+            let directory = trimmed.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            if directory.isEmpty {
+                if best == nil { best = ("", sessionID) }
+                continue
+            }
+            guard path == directory || path.hasPrefix(directory + "/") else { continue }
+            if best == nil || directory.count > best!.directory.count {
+                best = (directory, sessionID)
+            }
+        }
+        guard let best else { return nil }
+        let relative = best.directory.isEmpty
+            ? relativePath
+            : String(relativePath.dropFirst(best.directory.count + 1))
+        return (best.sessionID, relative)
+    }
+
     /// Builds `sessionID → directory` from the host's workspace records.
     ///
     /// Each record's `path` is the session cwd (`/dsh/workspace/<rel>`); two

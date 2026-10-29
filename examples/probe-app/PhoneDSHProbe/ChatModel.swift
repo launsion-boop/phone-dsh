@@ -557,6 +557,28 @@ final class ChatModel {
     /// PAGE surface serves from `pdsh-page://<session>/...`.
     var workspaceDirectoryURL: URL { materializedWorkspace }
 
+    /// A file's owning workspace: the page origin must be that workspace's
+    /// directory, and the path must be relative to it.
+    struct PageWorkspaceOwner {
+        let sessionID: String
+        let relativePath: String
+    }
+
+    /// Finds the workspace that owns `relativePath` (relative to
+    /// `/dsh/workspace`) and a session of it. The longest workspace directory
+    /// wins; a workspace registered at `/dsh/workspace` owns every path.
+    func pageWorkspaceOwner(for relativePath: String) -> PageWorkspaceOwner? {
+        let workspaces = DSHManagementModel.shared.workspaces.map {
+            (path: $0.path, sessionIDs: $0.sessionIDs)
+        }
+        guard let owner = PDSHPageWorkspaceMap.owner(relativePath: relativePath,
+                                                    workspaces: workspaces) else {
+            return nil
+        }
+        return PageWorkspaceOwner(sessionID: owner.sessionID,
+                                  relativePath: owner.relativePath)
+    }
+
     /// sessionID → the materialized directory its page origin serves. The
     /// host supports several workspaces (`workspace/create`, `workspace/follow`),
     /// and each record's `path` is its sessions' cwd: `/dsh/workspace/proj2`

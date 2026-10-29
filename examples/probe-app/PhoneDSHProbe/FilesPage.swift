@@ -279,6 +279,17 @@ private struct FilePreviewPage: View {
         return PDSHPageResolver(libraryRoot: library, workspaceRoot: { map[$0] })
     }
 
+    /// The workspace that owns this file, with its session segment and the
+    /// path relative to that workspace. The page origin is per workspace, so a
+    /// file under `proj-b` must not be opened with the current session and a
+    /// tree-relative path.
+    private var pageEntry: PDSHPageEntry? {
+        guard let owner = ChatModel.shared.pageWorkspaceOwner(for: file.relativePath) else {
+            return nil
+        }
+        return .workspace(sessionID: owner.sessionID, path: owner.relativePath)
+    }
+
     private var needsQuickLook: Bool {
         let ext = URL(fileURLWithPath: file.relativePath).pathExtension.lowercased()
         return !["txt", "md", "markdown", "json", "yaml", "yml", "xml", "html", "htm", "csv", "tsv", "log",
@@ -289,16 +300,13 @@ private struct FilePreviewPage: View {
         Group {
             if quickLookURL != nil {
                 ContentUnavailableView("正在打开预览…", systemImage: "doc.viewfinder")
-            } else if isHTML, let resolver = pageResolver,
-                      let sessionID = ChatModel.shared.currentSessionID {
+            } else if isHTML, let entry = pageEntry, let resolver = pageResolver {
                 // A real origin: relative scripts, textures and .glb models
                 // resolve, with the host-enforced CSP per the page's tier.
-                PDSHPageView(entry: .workspace(sessionID: sessionID,
-                                               path: file.relativePath),
-                             resolver: resolver)
+                PDSHPageView(entry: entry, resolver: resolver)
             } else if isHTML {
-                ContentUnavailableView("无法打开页面预览", systemImage: "globe",
-                                       description: Text("需要先启动一个会话；页面在 pdsh-page:// 源下运行。"))
+                ContentUnavailableView("这个页面不在任何工作区里", systemImage: "globe",
+                                       description: Text("页面预览以它所属的工作区目录为根；散落的文件请用文本或分享打开。"))
             } else if isMarkdown, let textPreview {
                 ScrollView(.vertical) { NativeMarkdownBody(markdown: textPreview) }
             } else if let textPreview {

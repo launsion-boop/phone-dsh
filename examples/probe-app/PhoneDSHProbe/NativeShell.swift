@@ -316,7 +316,8 @@ struct SessionsDrawer: View {
 /// folder opens the file list for that folder.
 struct WorkspaceFoldersPage: View {
     @State private var management = DSHManagementModel.shared
-    @State private var pickingFolder = false
+    @State private var showingNewWorkspace = false
+    @State private var newWorkspaceName = ""
 
     var body: some View {
         List {
@@ -344,12 +345,12 @@ struct WorkspaceFoldersPage: View {
                 VStack(spacing: 8) {
                     Text("还没有工作文件夹")
                         .font(.system(size: 17, weight: .semibold))
-                    Text("会话把生成的文件放在文件夹里。挑一个手机上的文件夹给它用。")
+                    Text("会话把生成的文件放在文件夹里。新建一个文件夹给它用。")
                         .font(.system(size: 13))
                         .foregroundStyle(ChatPage.inkSecondary)
                         .multilineTextAlignment(.center)
                     Button {
-                        pickingFolder = true
+                        showingNewWorkspace = true
                     } label: {
                         Text("添加工作文件夹")
                             .font(.system(size: 17, weight: .semibold))
@@ -371,16 +372,24 @@ struct WorkspaceFoldersPage: View {
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button("添加") { pickingFolder = true }
+                Button("添加") { showingNewWorkspace = true }
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(ChatPage.accent)
             }
         }
-        .fileImporter(isPresented: $pickingFolder,
-                      allowedContentTypes: [.folder],
-                      allowsMultipleSelection: false) { result in
-            guard case .success(let urls) = result, let url = urls.first else { return }
-            Task { await management.createWorkspace(at: url.path) }
+        .alert("新建工作文件夹", isPresented: $showingNewWorkspace) {
+            TextField("名字", text: $newWorkspaceName)
+                .textInputAutocapitalization(.never).autocorrectionDisabled()
+            Button("取消", role: .cancel) { newWorkspaceName = "" }
+            Button("创建") {
+                let name = newWorkspaceName
+                newWorkspaceName = ""
+                Task { _ = await management.createWorkspaceFolder(named: name) }
+            }
+        } message: {
+            // A picked host folder cannot be registered (the Worker stats the
+            // VFS); this creates the folder there first.
+            Text("会在 DSH 工作区里新建同名文件夹并登记为工作文件夹。")
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)

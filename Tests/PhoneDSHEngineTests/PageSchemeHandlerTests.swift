@@ -172,6 +172,30 @@ final class PageSchemeHandlerTests: XCTestCase {
         XCTAssertNil(PDSHPageScheme.byteRange(from: "bytes=0-10", total: 0))
     }
 
+    /// The preview must pick the owning workspace and a path relative to it,
+    /// otherwise a file under proj-b resolves against proj-a's root.
+    func testWorkspaceOwnerSelectsTheLongestPrefix() {
+        let workspaces: [(path: String, sessionIDs: [String])] = [
+            (path: "/dsh/workspace", sessionIDs: ["ROOT"]),
+            (path: "/dsh/workspace/proj-a", sessionIDs: ["A"]),
+            (path: "/dsh/workspace/proj-b/sub", sessionIDs: ["B"]),
+            (path: "/dsh/workspace/proj-b", sessionIDs: ["B2"]),
+        ]
+        XCTAssertEqual(PDSHPageWorkspaceMap.owner(relativePath: "proj-b/sub/x.glb",
+                                                  workspaces: workspaces)?.sessionID, "B")
+        XCTAssertEqual(PDSHPageWorkspaceMap.owner(relativePath: "proj-b/sub/x.glb",
+                                                  workspaces: workspaces)?.relativePath, "x.glb")
+        XCTAssertEqual(PDSHPageWorkspaceMap.owner(relativePath: "proj-a/page.html",
+                                                  workspaces: workspaces)?.sessionID, "A")
+        XCTAssertEqual(PDSHPageWorkspaceMap.owner(relativePath: "proj-a/page.html",
+                                                  workspaces: workspaces)?.relativePath, "page.html")
+        XCTAssertEqual(PDSHPageWorkspaceMap.owner(relativePath: "loose.txt",
+                                                  workspaces: workspaces)?.sessionID, "ROOT")
+        XCTAssertNil(PDSHPageWorkspaceMap.owner(relativePath: "loose.txt", workspaces: [
+            (path: "/dsh/workspace/proj-a", sessionIDs: ["A"]),
+        ]))
+    }
+
     /// Task 3: each workspace's cwd selects its own directory, so two
     /// workspaces with the same file name never read each other's bytes.
     func testWorkspacePathsSelectTheirOwnDirectories() throws {
