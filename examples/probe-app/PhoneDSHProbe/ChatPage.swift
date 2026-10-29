@@ -73,6 +73,10 @@ struct ChatPage: View {
     /// without animation so history loading never leaves the view at the top.
     @State private var pendingInitialScroll = false
     @State private var userScrolledAway = false
+    /// Last measured tail offset; logged with every follow scroll so a
+    /// "keeps scrolling" report can be diagnosed from chat-status.log.
+    @State private var tailOffsetY: CGFloat = 0
+    @State private var lastScrollTrace = Date.distantPast
     @State private var pasteLimitNoticed = false
     @State private var stopping = false
     @State private var scrollToLatestTrigger = 0
@@ -805,11 +809,15 @@ struct ChatPage: View {
                     transcriptContentHeight = height
                 }
                 .onPreferenceChange(TranscriptTailPreference.self) { tailY in
-                    // A short transcript is already at the bottom: it must not
-                    // advertise "back to latest" just because it lays out once.
+                    tailOffsetY = tailY
+                    // Past the content (a blank viewport) is not "near the
+                    // bottom"; neither may a lazy estimate silently re-enable
+                    // following while the reader is far above the tail.
                     if tailY > viewport.size.height + 44 { userScrolledAway = true }
-                    nearBottom = tailY <= viewport.size.height + 44
-                    if nearBottom { userScrolledAway = false }
+                    nearBottom = tailY >= -1 && tailY <= viewport.size.height + 44
+                    if nearBottom && transcriptContentHeight <= viewport.size.height + 1 {
+                        userScrolledAway = false
+                    }
                 }
                 .onChange(of: transcriptScrollSignature) { _, _ in
                     if pendingInitialScroll, !visibleItems.isEmpty {
@@ -822,7 +830,7 @@ struct ChatPage: View {
                         scrollToTail(proxy, viewportHeight: viewport.size.height)
                         return
                     }
-                    guard nearBottom, !loadingEarlierTranscript else { return }
+                    guard nearBottom, !userScrolledAway, !loadingEarlierTranscript else { return }
                     scheduleTailScroll(proxy, viewportHeight: viewport.size.height)
                 }
                 .onChange(of: model.isTranscriptReady) { _, ready in
@@ -842,6 +850,7 @@ struct ChatPage: View {
                 }
                 .onChange(of: scrollToLatestTrigger) { _, _ in
                     nearBottom = true
+                    userScrolledAway = false
                     withAnimation(.easeOut(duration: 0.2)) {
                         scrollToTail(proxy, viewportHeight: viewport.size.height)
                     }
@@ -899,10 +908,17 @@ struct ChatPage: View {
     /// Debouncing by one short turn lets the height preference and the row
     /// frames settle, and the coalesced follow still tracks streaming.
     private func scheduleTailScroll(_ proxy: ScrollViewProxy, viewportHeight: CGFloat) {
+        guard nearBottom, !userScrolledAway else { return }
         tailScrollTask?.cancel()
         tailScrollTask = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(50))
-            guard !Task.isCancelled, nearBottom else { return }
+            guard !Task.isCancelled, nearBottom, !userScrolledAway else { return }
+            if Date().timeIntervalSince(lastScrollTrace) > 1 {
+                lastScrollTrace = Date()
+                ChatModel.appendDiagnostic(
+                    "scroll tail content=\(Int(transcriptContentHeight)) viewport=\(Int(viewportHeight)) "
+                    + "tail=\(Int(tailOffsetY)) near=\(nearBottom) away=\(userScrolledAway)")
+            }
             scrollToTail(proxy, viewportHeight: viewportHeight)
         }
     }
@@ -1517,6 +1533,11 @@ struct ChatPage: View {
                 succeeded = await model.steer(text)
             } else {
                 succeeded = await model.send(text, attachments: pendingAttachments)
+                if succeeded {
+                    nearBottom = true
+                    userScrolledAway = false
+                    scrollToLatestTrigger += 1
+                }
             }
             if succeeded {
                 let id = model.items.last(where: { if case .user = $0.kind { return true }; return false })?.id
@@ -2293,10 +2314,12 @@ private func toolActionLine(_ item: ChatItem) -> String {
     var parameter = rest.isEmpty ? raw : rest
     if ["读取文件", "改文件"].contains(action) {
         parameter = parameter.components(separatedBy: "/").last ?? parameter
-    } else if action == "运行命令" {
-        parameter = parameter.components(separatedBy: .whitespaces).first ?? parameter
     }
-    if parameter.count > 32 { parameter = String(parameter.prefix(32)) + "…" }
+    // A command's preview is its first line, not the first whitespace token:
+    // '运行命令 · cd' hid what the command actually did.
+    parameter = parameter.trimmingCharacters(in: .whitespacesAndNewlines)
+    if parameter.isEmpty { parameter = raw }
+    if parameter.count > 48 { parameter = String(parameter.prefix(48)) + "…" }
     return "\(action) · \(parameter)"
 }
 
@@ -2330,13 +2353,16 @@ private struct ToolRunRow: View {
                         Image(systemName: "terminal")
                             .font(.system(size: 13))
                             .foregroundStyle(ChatPage.inkSecondary)
+                            .layoutPriority(1)
                         Text(toolActionLine(item))
                             .font(.system(size: 13))
                             .foregroundStyle(ChatPage.inkSecondary)
                             .lineLimit(1)
                             .truncationMode(.tail)
+                            .layoutPriority(2)
                         Spacer(minLength: 0)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -2351,10 +2377,6 @@ private struct ToolRunRow: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("上一条命令")
-                Text("\(index + 1)/\(items.count)")
-                    .font(.system(size: 11))
-                    .foregroundStyle(ChatPage.inkSecondary)
-                    .monospacedDigit()
                 Button {
                     selected = (index + 1) % items.count
                 } label: {
