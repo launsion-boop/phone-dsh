@@ -439,6 +439,12 @@ public final class PDSHPageSchemeHandler: NSObject, WKURLSchemeHandler {
                     forExtension: file.url.pathExtension),
                 "Accept-Ranges": "bytes",
                 "Cache-Control": "no-store",
+                // The bundled library lives on its own host
+                // (`pdsh-page://lib/...`), so a page's module scripts and
+                // fetch() are cross-origin; without these the WebKit load
+                // fails with "Cross-origin script load denied ...".
+                "Access-Control-Allow-Origin": "*",
+                "Cross-Origin-Resource-Policy": "cross-origin",
             ]
             let bodyLength = range.map { $0.end - $0.start + 1 } ?? total
             if let range {
