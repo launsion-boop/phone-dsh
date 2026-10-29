@@ -2778,9 +2778,14 @@ public actor PhoneDSHHost: PhoneDSHHosting {
                 workspaceBytes: Int(clamping: configuration.budgets.workspaceBytes),
                 sessionBytes: Int(clamping: configuration.budgets.sessionBytes),
                 tmpBytes: Int(clamping: configuration.budgets.tmpBytes))
-            var log = try WorkspaceLog(configuration: logConfiguration, bootID: bootData)
+            // Recovery runs inside `WorkspaceLog.init`, so the divergence
+            // fallback must wrap the init too — wrapping only `recover()` let a
+            // force-kill with an ahead materialized tree bypass the reset and
+            // fail the whole boot with WAL_CORRUPT.
+            var log: WorkspaceLog
             let recovery: WorkspaceLogRecovery
             do {
+                log = try WorkspaceLog(configuration: logConfiguration, bootID: bootData)
                 recovery = try await log.recover()
             } catch let error as LogError where error.isMaterializedDivergence {
                 // Killed after a materialized write, before the manifest
