@@ -351,10 +351,85 @@ public actor WorkspaceLog: WorkspaceLogging {
             throw LogError.corrupt("invalid boot id for the overlay name")
         }
         _ = try await materialize()
-        let url = paths.overlayURL(bootID: bootID)
-        _ = try OverlayPacker(materializedDirectory: materializer.materializedDirectory)
-            .pack(to: url)
-        return url
+        // The overlay is a gzip of the whole materialized tree. Rebuilding it
+        // on every boot made start-up O(workspace): a 100 MB workspace spent
+        // ~10 s packing the same bytes again (measured on the phone). The tree
+        // at a given materialized watermark is deterministic, so the cache is
+        // valid exactly while that watermark is unchanged.
+        let watermark = materializer.materializedUptoMseq
+        let cacheURL = Self.overlayCacheURL(root: paths.root)
+        let bootURL = paths.overlayURL(bootID: bootID)
+        if !Self.overlayCacheIsValid(root: paths.root, watermark: watermark) {
+            _ = try OverlayPacker(materializedDirectory: materializer.materializedDirectory)
+                .pack(to: cacheURL)
+            try Self.writeOverlayCacheSidecar(root: paths.root, watermark: watermark)
+        }
+        // Keep the documented per-boot name without repacking: a hard link is
+        // O(1) and the cache file is only ever replaced by an atomic rename,
+        // never modified in place.
+        try Self.materializeBootOverlay(cache: cacheURL, boot: bootURL)
+        Self.pruneBootOverlays(root: paths.root, keeping: [cacheURL, bootURL])
+        return bootURL
+    }
+
+    // MARK: - Boot overlay cache
+
+    private static let overlayCacheFileName = "overlay-cache.tar"
+    private static let overlayCacheSidecarFileName = "overlay-cache.json"
+    private static let overlayCacheFormat = 1
+
+    private struct OverlayCacheSidecar: Codable {
+        var format: Int
+        var watermark: UInt64
+        var builtAt: String
+    }
+
+    static func overlayCacheURL(root: URL) -> URL {
+        root.appendingPathComponent(overlayCacheFileName)
+    }
+
+    private static func overlayCacheIsValid(root: URL, watermark: UInt64) -> Bool {
+        let tar = overlayCacheURL(root: root)
+        guard FileManager.default.fileExists(atPath: tar.path) else { return false }
+        let sidecarURL = root.appendingPathComponent(overlayCacheSidecarFileName)
+        guard let data = try? Data(contentsOf: sidecarURL),
+              let sidecar = try? JSONDecoder().decode(OverlayCacheSidecar.self, from: data) else {
+            return false
+        }
+        return sidecar.format == overlayCacheFormat && sidecar.watermark == watermark
+    }
+
+    private static func writeOverlayCacheSidecar(root: URL, watermark: UInt64) throws {
+        let sidecar = OverlayCacheSidecar(
+            format: overlayCacheFormat,
+            watermark: watermark,
+            builtAt: ISO8601DateFormatter().string(from: Date()))
+        let data = try JSONEncoder().encode(sidecar)
+        try LogFile.atomicWrite(data,
+                                to: root.appendingPathComponent(overlayCacheSidecarFileName))
+    }
+
+    /// Gives this boot its documented `overlay-<boot_id>.tar` name by linking
+    /// the cached tar; a copy is the fallback when linking is unavailable.
+    private static func materializeBootOverlay(cache: URL, boot: URL) throws {
+        try? FileManager.default.removeItem(at: boot)
+        do {
+            try FileManager.default.linkItem(at: cache, to: boot)
+        } catch {
+            try? FileManager.default.copyItem(at: cache, to: boot)
+        }
+    }
+
+    /// Removes overlays of older boots; each one is as large as the workspace.
+    private static func pruneBootOverlays(root: URL, keeping: [URL]) {
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: root, includingPropertiesForKeys: nil) else { return }
+        let keep = Set(keeping.map(\.standardizedFileURL))
+        for file in files where file.lastPathComponent.hasPrefix("overlay-")
+            && file.pathExtension == "tar"
+            && !keep.contains(file.standardizedFileURL) {
+            try? FileManager.default.removeItem(at: file)
+        }
     }
 
     /// Re-runs the materialization pass and returns the current recovery report.
