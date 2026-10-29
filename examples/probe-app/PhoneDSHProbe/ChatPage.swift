@@ -3,6 +3,7 @@
 
 import PhoneDSHAgentCore
 import PhoneDSH
+import PhoneDSHEngine
 import SwiftUI
 import UniformTypeIdentifiers
 import UIKit
@@ -30,7 +31,10 @@ struct ChatPage: View {
     @FocusState private var inputFocused: Bool
     @State private var pendingAttachments: [HarnessAttachment] = []
     @State private var showAttachmentPicker = false
-    @State private var showCommandLauncher = false
+    /// "添加文件" imports into the workspace; images stay native attachments.
+    @State private var showFileImport = false
+    /// Status line for a workspace import (the agent reads the file by path).
+    @State private var fileImportNotice: String?
     @State private var commandExecution: NativeCommandExecution?
     @State private var showCommandResult = false
     @State private var isExecutingCommand = false
@@ -252,12 +256,6 @@ struct ChatPage: View {
             NativeConfigurationPage()
                 .presentationDragIndicator(.visible)
         }
-        .sheet(isPresented: $showCommandLauncher) {
-            CommandLauncherPage(model: model, attachments: pendingAttachments) { descriptor, input, attachments in
-                Task { await executeCommand(descriptor, input: input, attachments: attachments) }
-            }
-            .presentationDragIndicator(.visible)
-        }
         .sheet(isPresented: $showCommandResult) {
             if let commandExecution {
                 CommandExecutionResultPage(execution: commandExecution,
@@ -295,6 +293,15 @@ struct ChatPage: View {
             allowedContentTypes: Self.imageContentTypes,
             allowsMultipleSelection: true,
             onCompletion: loadAttachments
+        )
+        // DSH's prompt path accepts image attachments only; any other file is
+        // imported into the session workspace (the DSH-native way for the
+        // agent to read it) and inserted as a path reference.
+        .fileImporter(
+            isPresented: $showFileImport,
+            allowedContentTypes: [.data],
+            allowsMultipleSelection: true,
+            onCompletion: loadWorkspaceFiles
         )
         .onChange(of: model.isTranscriptReady) { _, _ in
             #if DEBUG
@@ -1004,6 +1011,18 @@ struct ChatPage: View {
                     .font(.footnote).foregroundStyle(.orange)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
+            if let fileImportNotice {
+                HStack {
+                    Text(fileImportNotice).font(.footnote).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("关闭") { self.fileImportNotice = nil }.font(.footnote)
+                }
+            }
+            // The DSH input trigger: a bare leading `/token` opens the command
+            // menu in place; picking one writes the token back into the draft.
+            if slashToken != nil {
+                slashCommandMenu
+            }
             // 输入条是一整块浅灰圆角板。板内网格:上 12、下 12、左 14、右 8;
             // 文字行 22、间距 10、工具行 32,单行合计 88。工具行靠左排,
             // 发送/停止固定板内右下(右 8、底 8),文字因此不被按钮挤窄。
@@ -1079,6 +1098,13 @@ struct ChatPage: View {
         .padding(.bottom, 8)
         // 输入区外整片纯白,不画分隔线;靠上方的间距和对话分开。
         .background(Color.white)
+        // The command catalog is pulled the first time the trigger opens, the
+        // same lazy load the DSH command directory does per session.
+        .onChange(of: slashToken) { _, token in
+            guard token != nil, model.availableCommands.isEmpty,
+                  !model.commandsLoading else { return }
+            Task { await model.loadCommands() }
+        }
     }
 
     @ViewBuilder
@@ -1141,8 +1167,8 @@ struct ChatPage: View {
         HStack(spacing: 8) {
             Menu {
                 Button("添加图片", systemImage: "photo") { showAttachmentPicker = true }
-                Button("运行 DSH 命令", systemImage: "command") {
-                    showCommandLauncher = true
+                Button("添加文件（写入工作区）", systemImage: "doc.badge.plus") {
+                    showFileImport = true
                 }
             } label: {
                 Image(systemName: "plus")
@@ -1153,7 +1179,7 @@ struct ChatPage: View {
             }
             .buttonStyle(.plain)
             .disabled(!composerEnabled)
-            .accessibilityLabel("添加图片或运行命令")
+            .accessibilityLabel("添加图片或文件")
             accessModeMenu
             modelMenu
             if model.turnRunning {
@@ -1456,6 +1482,11 @@ struct ChatPage: View {
 
     private func submitDraft() {
         let text = draft
+        if let command = Self.parseSlashCommand(text) {
+            draft = ""
+            Task { await runSlashCommand(name: command.name, input: command.input) }
+            return
+        }
         let wasRunning = model.turnRunning
         // 一按发送就清空:失败那条留在气泡里,重试原样再发,新打的字进新气泡。
         draft = ""
@@ -1625,6 +1656,203 @@ struct ChatPage: View {
                 } catch {
                     attachmentError = error.localizedDescription
                 }
+            }
+        }
+    }
+
+    // MARK: - Slash commands (the DSH input trigger)
+
+    /// The draft's leading `/token` while it is still a bare token. This is
+    /// the DSH `ui-input-trigger` shape: the menu opens for a leading trigger
+    /// and closes once the token is followed by whitespace.
+    private var slashToken: String? {
+        let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("/"),
+              !trimmed.dropFirst().contains(where: { $0.isWhitespace }) else { return nil }
+        return String(trimmed.dropFirst())
+    }
+
+    private var slashMatches: [NativeCommandDescriptor] {
+        guard let token = slashToken else { return [] }
+        let commands = model.availableCommands
+        guard !token.isEmpty else { return Array(commands.prefix(6)) }
+        return commands.filter { descriptor in
+            descriptor.name.localizedCaseInsensitiveContains(token)
+                || descriptor.description.localizedCaseInsensitiveContains(token)
+        }.prefix(6).map { $0 }
+    }
+
+    /// The in-place command menu: names and hints are the live DSH catalog.
+    @ViewBuilder
+    private var slashCommandMenu: some View {
+        let matches = slashMatches
+        VStack(alignment: .leading, spacing: 0) {
+            if model.commandsLoading && model.availableCommands.isEmpty {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.mini)
+                    Text("正在读取 DSH 命令…").font(.system(size: 13)).foregroundStyle(.secondary)
+                }
+                .padding(12)
+            } else if let error = model.commandsError, model.availableCommands.isEmpty {
+                HStack(spacing: 8) {
+                    Text(error).font(.system(size: 13)).foregroundStyle(.orange)
+                    Spacer(minLength: 0)
+                    Button("重试") { Task { await model.loadCommands() } }
+                        .font(.system(size: 13))
+                }
+                .padding(12)
+            } else if matches.isEmpty {
+                Text("没有匹配的命令").font(.system(size: 13))
+                    .foregroundStyle(.secondary).padding(12)
+            } else {
+                ForEach(matches) { descriptor in
+                    Button { pickCommand(descriptor) } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("/\(descriptor.name)")
+                                .font(.system(size: 15, weight: .semibold))
+                            Text(descriptor.description)
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(red: 0xF2 / 255, green: 0xF3 / 255, blue: 0xF5 / 255),
+                    in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private func pickCommand(_ descriptor: NativeCommandDescriptor) {
+        draft = "/\(descriptor.name) "
+        inputFocused = true
+    }
+
+    static func parseSlashCommand(_ text: String) -> (name: String, input: String)? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("/") else { return nil }
+        let body = trimmed.dropFirst()
+        let name = body.prefix { !$0.isWhitespace }
+        guard !name.isEmpty else { return nil }
+        let input = body.dropFirst(name.count)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return (String(name), input)
+    }
+
+    private func runSlashCommand(name: String, input: String) async {
+        guard let descriptor = model.availableCommands.first(where: { $0.name == name }) else {
+            attachmentError = "没有这条命令：/\(name)"
+            if draft.isEmpty { draft = "/\(name)" + (input.isEmpty ? "" : " \(input)") }
+            return
+        }
+        await executeCommand(descriptor, input: input, attachments: pendingAttachments)
+    }
+
+    // MARK: - Workspace file import (DSH file attachments)
+
+    /// Imports the picked files into the session workspace through the
+    /// Worker's `phone/import*` service (the phone DSH path for a verbatim
+    /// file: the prompt API accepts images only, budget §A.5's analogue is the
+    /// workspace), then inserts their path so the agent can read them.
+    private func loadWorkspaceFiles(_ result: Result<[URL], Error>) {
+        switch result {
+        case .failure(let error):
+            attachmentError = "无法读取所选文件：\(error.localizedDescription)"
+        case .success(let urls):
+            guard !urls.isEmpty else { return }
+            guard let sessionID = model.currentSessionID else {
+                attachmentError = "本地引擎还没启动，启动之后才能把文件放进工作区。"
+                return
+            }
+            Task { await importIntoWorkspace(urls, sessionID: sessionID) }
+        }
+    }
+
+    private func importIntoWorkspace(_ urls: [URL], sessionID: String) async {
+        // The Worker's directory-import contract: 64 MiB per file, 128 MiB and
+        // 500 files per import (plugins/phone-directory-import).
+        let maxFileBytes = 64 * 1024 * 1024
+        let maxTotalBytes = 128 * 1024 * 1024
+        let chunkBytes = 1024 * 1024
+        do {
+            var files: [WebEngineDirectoryImportFile] = []
+            var payloads: [(path: String, data: Data)] = []
+            var total = 0
+            for url in urls {
+                let hasScope = url.startAccessingSecurityScopedResource()
+                defer { if hasScope { url.stopAccessingSecurityScopedResource() } }
+                let name = url.lastPathComponent
+                guard !name.isEmpty, !name.contains("/") else {
+                    throw AttachmentImportError.unsupportedType(name)
+                }
+                let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size]
+                    as? NSNumber)?.intValue ?? 0
+                guard size > 0, size <= maxFileBytes else {
+                    throw ImportFailure.tooLarge(name, size)
+                }
+                total += size
+                guard total <= maxTotalBytes else { throw ImportFailure.totalTooLarge }
+                let data = try Data(contentsOf: url, options: .mappedIfSafe)
+                files.append(WebEngineDirectoryImportFile(path: name, size: data.count))
+                payloads.append((path: name, data: data))
+            }
+            let stamp = Self.importTimestamp()
+            let manifest = WebEngineDirectoryImportManifest(
+                sessionID: sessionID,
+                targetDirectory: "/dsh/workspace",
+                entryName: "files-\(stamp)",
+                directories: [],
+                files: files,
+                totalBytes: total)
+            let transport = try await model.transportForManagement()
+            let sink = PhoneDSHWorkspaceImportSink(transport: transport)
+            let importID = try await sink.begin(manifest)
+            for payload in payloads {
+                var offset = 0
+                while offset < payload.data.count {
+                    let end = min(offset + chunkBytes, payload.data.count)
+                    try await sink.write(importID: importID, path: payload.path,
+                                         offset: offset,
+                                         data: payload.data.subdata(in: offset..<end))
+                    offset = end
+                }
+            }
+            let result = try await sink.commit(importID: importID)
+            let reference = files.count == 1
+                ? "\(result.workspacePath)/\(files[0].path)"
+                : "\(result.workspacePath)/"
+            fileImportNotice = "已写入工作区：\(reference)"
+            let separator = draft.isEmpty ? "" : "\n"
+            draft += "\(separator)\(reference)\n"
+            inputFocused = true
+        } catch {
+            attachmentError = "导入失败：\(error.localizedDescription)"
+        }
+    }
+
+    private static func importTimestamp() -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        return formatter.string(from: Date())
+    }
+
+    private enum ImportFailure: LocalizedError {
+        case tooLarge(String, Int)
+        case totalTooLarge
+
+        var errorDescription: String? {
+            switch self {
+            case .tooLarge(let name, let size):
+                return "\(name) 超过 64 MiB（\(size) 字节）。"
+            case .totalTooLarge:
+                return "一次最多导入 128 MiB。"
             }
         }
     }
@@ -2483,106 +2711,6 @@ struct RuntimeDetailsPage: View {
             Button("停止", role: .destructive) { Task { await model.stop() } }
         } message: {
             Text("正在跑的任务会停下来。会话和文件都还在。")
-        }
-    }
-}
-
-private struct CommandLauncherPage: View {
-    @Bindable var model: ChatModel
-    let attachments: [HarnessAttachment]
-    let onRun: (NativeCommandDescriptor, String, [HarnessAttachment]) -> Void
-    @Environment(\.dismiss) private var dismiss
-    @State private var selectedCommand: NativeCommandDescriptor?
-    @State private var input = ""
-    @State private var searchText = ""
-
-    private var commands: [NativeCommandDescriptor] {
-        guard !searchText.isEmpty else { return model.availableCommands }
-        return model.availableCommands.filter {
-            $0.name.localizedCaseInsensitiveContains(searchText)
-                || $0.description.localizedCaseInsensitiveContains(searchText)
-        }
-    }
-
-    var body: some View {
-        NavigationStack {
-            List {
-                if let error = model.commandsError {
-                    Section {
-                        Label(error, systemImage: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange)
-                        Button("重试") { Task { await model.loadCommands() } }
-                    }
-                }
-                if model.commandsLoading && commands.isEmpty {
-                    Section { ProgressView("正在读取 DSH 命令…") }
-                }
-                Section("可用命令") {
-                    if commands.isEmpty && !model.commandsLoading {
-                        ContentUnavailableView("没有匹配的命令", systemImage: "command",
-                                               description: Text("这些命令由手机上的引擎提供。"))
-                    }
-                    ForEach(commands) { descriptor in
-                        Button {
-                            selectedCommand = descriptor
-                            input = ""
-                        } label: {
-                            HStack(alignment: .top, spacing: 10) {
-                                Image(systemName: selectedCommand?.id == descriptor.id ? "checkmark.circle.fill" : "command")
-                                    .foregroundStyle(selectedCommand?.id == descriptor.id ? Color.accentColor : Color.secondary)
-                                    .padding(.top, 2)
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text("/\(descriptor.name)").font(.body.weight(.semibold))
-                                    Text(descriptor.description).font(.footnote).foregroundStyle(.secondary)
-                                    if descriptor.acceptsAttachments {
-                                        Label("DSH 命令声明支持附件", systemImage: "paperclip")
-                                            .font(.caption).foregroundStyle(.secondary)
-                                    }
-                                }
-                                Spacer(minLength: 0)
-                            }
-                            .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                if let selectedCommand {
-                    Section("运行 /\(selectedCommand.name)") {
-                        if let hint = selectedCommand.inputHint, !hint.isEmpty {
-                            TextField(hint, text: $input, axis: .vertical)
-                                .lineLimit(1...5)
-                        }
-                        if !attachments.isEmpty {
-                            Label("将附带 \(attachments.count) 张图片", systemImage: "paperclip")
-                                .font(.footnote).foregroundStyle(.secondary)
-                            if !selectedCommand.acceptsAttachments {
-                                Text("此命令不接受图片。请移除附件或选择其他命令。")
-                                    .font(.footnote).foregroundStyle(.orange)
-                            }
-                        }
-                        Button("运行命令", systemImage: "play.fill") {
-                            let descriptor = selectedCommand
-                            dismiss()
-                            onRun(descriptor, input, attachments)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(model.busy || !model.canSend || (!attachments.isEmpty && !selectedCommand.acceptsAttachments))
-                    }
-                }
-            }
-            .searchable(text: $searchText, prompt: "搜索命令")
-            .navigationTitle("DSH 命令")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("完成") { dismiss() }.leadingBarText() }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { Task { await model.loadCommands() } } label: { Image(systemName: "arrow.clockwise") }
-                        .disabled(model.commandsLoading)
-                        .accessibilityLabel("刷新命令列表")
-                }
-            }
-            .task { await model.loadCommands() }
         }
     }
 }
