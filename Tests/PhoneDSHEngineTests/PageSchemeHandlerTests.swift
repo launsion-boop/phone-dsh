@@ -148,6 +148,18 @@ final class PageSchemeHandlerTests: XCTestCase {
 
     /// The shipped Web3DLib must serve every module the PAGE pages import and
     /// the demo assets; a missing file here is a blank 3D preview on a device.
+    /// P1 gap locked in (spec decision record 4): another session id is
+    /// rejected today. Cross-session reads need a session→workspace map,
+    /// which this single-workspace host does not have yet.
+    func testCrossSessionReferenceIsRejectedForNow() throws {
+        let ws = try workspace()
+        let resolver = PDSHPageResolver(libraryRoot: try library(),
+                                        workspaceRoot: { $0 == "SESSION-A" ? ws : nil })
+        XCTAssertThrowsError(try resolver.resolve(URL(string: "pdsh-page://SESSION-B/asset.png")!)) {
+            XCTAssertEqual($0 as? PDSHPageResolutionError, .unknownSession("SESSION-B"))
+        }
+    }
+
     /// The handler streams: one 1 MiB window per `didReceive`, never the whole
     /// mapped file (spec-render-media-v1 task B).
     func testStreamsAFileInOneMiBChunks() throws {
