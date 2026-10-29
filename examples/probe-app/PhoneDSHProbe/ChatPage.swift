@@ -2037,16 +2037,22 @@ private struct QuestionCard: View {
     }
 }
 
-/// The model's streamed reasoning, rendered as a muted collapsible block.
+/// The model's streamed reasoning. Collapsed it is ONE line that keeps
+/// refreshing with the newest tokens (a live counter/tail); tapping it opens
+/// the full thinking text.
 private struct ThinkingBlock: View {
     let text: String
     let streaming: Bool
-    @State private var expanded: Bool
+    @State private var expanded = false
 
-    init(text: String, streaming: Bool) {
-        self.text = text
-        self.streaming = streaming
-        _expanded = State(initialValue: streaming)
+    /// The newest 80 characters on one line, so the collapsed row visibly
+    /// refreshes while the model thinks instead of showing a static count.
+    private var preview: String {
+        let flat = text
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !flat.isEmpty else { return "…" }
+        return String(flat.suffix(80))
     }
 
     var body: some View {
@@ -2055,8 +2061,14 @@ private struct ThinkingBlock: View {
                 expanded.toggle()
             } label: {
                 HStack(spacing: 6) {
-                    Image(systemName: "brain.head.profile")
-                    Text(streaming ? "思考中…" : "思考 · \(text.count) 字")
+                    if streaming {
+                        ProgressView().controlSize(.mini)
+                    } else {
+                        Image(systemName: "brain.head.profile")
+                    }
+                    Text(streaming ? "思考中：\(preview)" : "思考 · \(text.count) 字")
+                        .lineLimit(1)
+                        .truncationMode(.head)
                     Spacer(minLength: 0)
                     Image(systemName: expanded ? "chevron.up" : "chevron.down")
                 }
@@ -2065,7 +2077,7 @@ private struct ThinkingBlock: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            if expanded || streaming {
+            if expanded {
                 Text(text)
                     .font(.system(size: 15))
                     .foregroundStyle(ChatPage.inkSecondary)
@@ -2078,9 +2090,6 @@ private struct ThinkingBlock: View {
         .padding(.vertical, 10)
         .background(ChatPage.inkSecondary.opacity(0.06),
                     in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .onChange(of: streaming) { _, isStreaming in
-            if !isStreaming { expanded = false }
-        }
     }
 }
 
