@@ -731,7 +731,8 @@ final class ChatModel {
         do {
             try await newHost.start()
         } catch {
-            reportError("引擎停了")
+            Self.appendDiagnostic("host start failed: \(error)")
+            reportError("引擎停了：\(Self.condensed(String(describing: error)))")
             hostEventTask?.cancel(); hostEventTask = nil
             return
         }
@@ -1190,7 +1191,10 @@ final class ChatModel {
                 case .stateChanged(_, let to):
                     self.hostState = "\(to)"
                 case .error(let message):
-                    self.reportError("模型服务出错了")
+                    // Keep the raw host text: the friendly summary alone made
+                    // a WAL recovery failure look like a model-service error.
+                    Self.appendDiagnostic("host error: \(message)")
+                    self.reportError("引擎报错：\(Self.condensed(message))")
                 case .webContentTerminated(let count):
                     self.appendStatus("WebContent terminated (\(count)); the host restarts the Worker")
                 case .restarted:
@@ -1795,6 +1799,15 @@ final class ChatModel {
     private func appendStatus(_ text: String) {
         items.append(ChatItem(kind: .status, title: "Host", text: text))
         Self.persistStatus(text)
+    }
+
+    /// One short line of a raw host message (the full text stays in
+    /// `chat-status.log`). Keeps the friendly UI readable without hiding the
+    /// engineering cause.
+    static func condensed(_ message: String) -> String {
+        let line = message.split(whereSeparator: { $0.isNewline }).first.map(String.init) ?? message
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        return trimmed.count > 120 ? String(trimmed.prefix(120)) + "…" : trimmed
     }
 
     /// 宿主回来的失败原话常常是英文并带接口域名,一律翻成一句中文;

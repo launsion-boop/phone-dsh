@@ -2747,8 +2747,22 @@ public actor PhoneDSHHost: PhoneDSHHosting {
             // never silently disagree with the budget table.
             var logConfiguration = configuration.log
             logConfiguration.singleFileLimitBytes = configuration.singleFileLimitBytes
-            let log = try WorkspaceLog(configuration: logConfiguration, bootID: bootData)
-            let recovery = try await log.recover()
+            var log = try WorkspaceLog(configuration: logConfiguration, bootID: bootData)
+            let recovery: WorkspaceLogRecovery
+            do {
+                recovery = try await log.recover()
+            } catch let error as LogError where error.isMaterializedDivergence {
+                // Killed after a materialized write, before the manifest
+                // watermark advanced: the materialized tree is the durable
+                // output and the retained WAL cannot prove a repair. Adopt the
+                // tree, drop the unprovable tail, and boot. Loud, not silent.
+                let watermark = try RecoveryReset.adoptMaterializedTree(
+                    root: configuration.workspaceRoot)
+                NSLog("phone-dsh: adopted the materialized tree at mseq %llu after %@",
+                      watermark, String(describing: error))
+                log = try WorkspaceLog(configuration: logConfiguration, bootID: bootData)
+                recovery = try await log.recover()
+            }
             let workspaceHasState = workspaceStateBeforeBoot || recovery.nextMseq > 1
             let authority = try FenceAuthority(root: configuration.workspaceRoot,
                                                owner: "phone",
