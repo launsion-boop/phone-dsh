@@ -33,6 +33,10 @@ import { createWorkerCommands } from '../../shell-ext/src/index.ts'
 import { SHELL_MANIFEST_PATH } from '../../shell-ext/src/contract.ts'
 import type { WorkerToolbox } from '../../wasi-toolbox/src/index.ts'
 import {
+  DEFAULT_HOT_INSTANCE_MEMORY_BYTES,
+  DEFAULT_SINGLE_FILE_LIMIT,
+} from '../../wasi-toolbox/src/limits.ts'
+import {
   startPhoneWorker,
   type PhoneWorkerHostLike,
   type PhoneWorkerRuntime,
@@ -232,6 +236,33 @@ test('the egress allow-list and the Python module list are exactly their inputs'
   assert.equal(manifest.json.limits.single_file_bytes, PHONE_V1_LIMITS.singleFileBytes)
 })
 
+test('the manifest publishes the host VFS tier quotas, not the stale priors', () => {
+  // A host that injects its BudgetTable row (the 8 GiB row here) must see the
+  // same numbers in the manifest and in the write-time quota.
+  const manifest = buildCapabilityManifest(manifestInput({
+    limits: {
+      vfsLogicalBytes: 388 * 1024 * 1024,
+      vfsWorkspaceBytes: 288 * 1024 * 1024,
+      vfsSessionsBytes: 50 * 1024 * 1024,
+      vfsTmpBytes: 50 * 1024 * 1024,
+    },
+  }))
+  assert.equal(manifest.json.limits.vfs_logical_bytes, 388 * 1024 * 1024)
+  assert.equal(manifest.json.limits.vfs_workspace_bytes, 288 * 1024 * 1024)
+  assert.equal(manifest.json.limits.vfs_sessions_bytes, 50 * 1024 * 1024)
+  assert.equal(manifest.json.limits.vfs_tmp_bytes, 50 * 1024 * 1024)
+})
+
+test('the published WASI hot-instance ceiling is the enforced one', () => {
+  // The device killed python3 at exactly 157286400 bytes (150 MiB) while this
+  // manifest already published 272629760 (260 MiB): the two owners of the row
+  // drifted and no test compared them. The spec row is budgets.md §4.
+  const manifest = buildCapabilityManifest(manifestInput())
+  assert.equal(manifest.json.limits.wasi_hot_instance_bytes, DEFAULT_HOT_INSTANCE_MEMORY_BYTES)
+  assert.equal(PHONE_V1_LIMITS.wasiHotInstanceBytes, DEFAULT_HOT_INSTANCE_MEMORY_BYTES)
+  assert.equal(PHONE_V1_LIMITS.singleFileBytes, DEFAULT_SINGLE_FILE_LIMIT)
+})
+
 test('compression comes only from the probe, never from the module list or a linked default', () => {
   // The stdlib ZIP still lists zlib, but the interpreter probe says it is
   // absent. The manifest must print "no" and must not also claim it is linked
@@ -288,8 +319,8 @@ test('AGENTS.md stays within 4 KiB and answers the environment questions', () =>
   assert.doesNotMatch(manifest.markdown, /JB-TRAP|`trap` builtin is not implemented/iu)
   assert.match(manifest.markdown, /JB-EPOCHSECONDS/u)
   assert.doesNotMatch(manifest.markdown, /trap.*not implemented/iu)
-  assert.deepEqual(manifest.json.bash.deviations.map(deviation => deviation.id), ['JB-EPOCHSECONDS'])
-  assert.deepEqual(DEFAULT_BASH_DEVIATIONS.map(deviation => deviation.id), ['JB-EPOCHSECONDS'])
+  assert.deepEqual(manifest.json.bash.deviations.map(deviation => deviation.id), ['JB-EPOCHSECONDS', 'JB-DEV0'])
+  assert.deepEqual(DEFAULT_BASH_DEVIATIONS.map(deviation => deviation.id), ['JB-EPOCHSECONDS', 'JB-DEV0'])
 })
 
 test('the boot manifest carries generic task-execution guidance, not a scenario answer', () => {

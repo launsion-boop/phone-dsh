@@ -330,9 +330,18 @@ public actor DSHRemoteHarness: AgentHarness {
             }
         case "assistant-stream":
             let frame = value["frame"] ?? .null
-            if frame["type"]?.stringValue == "chunk", frame["chunk"]?["type"]?.stringValue == "text-delta",
-               let text = frame["chunk"]?["text"]?.stringValue {
+            guard frame["type"]?.stringValue == "chunk",
+                  let chunkType = frame["chunk"]?["type"]?.stringValue,
+                  let text = frame["chunk"]?["text"]?.stringValue else { break }
+            switch chunkType {
+            case "text-delta":
                 continuation.yield(HarnessEvent(seq: nil, time: Date(), kind: .assistantDelta(text: text)))
+            case "reasoning-delta":
+                // The model's thinking arrives before the answer; forwarding it
+                // turns the silent TTFT wait into visible progress.
+                continuation.yield(HarnessEvent(seq: nil, time: Date(), kind: .reasoningDelta(text: text)))
+            default:
+                break
             }
         default:
             break

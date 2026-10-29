@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- spec-render-media-v1 §B.3.1: does fetch() reach the pdsh-page: origin? -->
+<meta name="pdsh-csp" content="local">
+<title>fetch-probe</title>
+</head>
+<body style="font:16px -apple-system,ui-sans-serif;padding:20px">
+<div id="out">PROBE RUNNING</div>
+<script>
+  fetch('pdsh-page://lib/demo/cube.glb')
+    .then(r => r.arrayBuffer())
+    .then(b => { document.getElementById('out').textContent = 'FETCH OK ' + b.byteLength })
+    .catch(e => { document.getElementById('out').textContent = 'FETCH FAIL ' + e })
+</script>
+</body>
+</html>

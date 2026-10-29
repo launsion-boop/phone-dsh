@@ -49,6 +49,11 @@ targets:
       - path: Bundle/worker
         type: folder
         buildPhase: resources
+      # Offline 3D library for the PAGE surface (three.js r170 + loaders +
+      # scaffold/demo). Served as pdsh-page://lib/... from the app bundle.
+      - path: Web3DLib
+        type: folder
+        buildPhase: resources
     dependencies:
       - target: ProbeKit
       # SwiftPM products are not re-exported: every module the app imports
@@ -60,6 +65,10 @@ targets:
       # that product explicitly instead of relying on a transitive test build.
       - package: PhoneDSH
         product: PhoneDSHLog
+      # DeviceTier/BudgetTable drive the configuration's budget row (12 GiB
+      # devices select the larger row).
+      - package: PhoneDSH
+        product: PhoneDSHController
       - package: PhoneDSH
         product: PhoneDSHEngine
       # the Chat page drives a harness session (HarnessEvent/HarnessCommand) and renders JSONValue arguments
@@ -108,6 +117,8 @@ targets:
         product: PhoneDSHWire
       - package: PhoneDSH
         product: PhoneDSHAgentCore
+      - package: PhoneDSH
+        product: PhoneDSHController
       # WebHostConfiguration assembles the linked PDSHShellProvider and its
       # runnable accelerator set for the production Web surface and the E2E.
       - package: PhoneDSH

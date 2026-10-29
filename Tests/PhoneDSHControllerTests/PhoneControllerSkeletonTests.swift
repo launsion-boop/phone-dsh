@@ -35,15 +35,15 @@ final class PhoneControllerSkeletonTests: XCTestCase {
         let budget = BudgetTable.eightGB
         // budgets.md §4: the workspace bucket holds two 64 MiB files plus
         // headroom; the VFS and heap caps cover the three buckets.
-        XCTAssertEqual(budget.engineHeapBytes, 320 * 1024 * 1024)
-        XCTAssertEqual(budget.vfsLogicalBytes, 260 * 1024 * 1024)
-        XCTAssertEqual(budget.workspaceBytes, 160 * 1024 * 1024)
+        XCTAssertEqual(budget.engineHeapBytes, 448 * 1024 * 1024)
+        XCTAssertEqual(budget.vfsLogicalBytes, 388 * 1024 * 1024)
+        XCTAssertEqual(budget.workspaceBytes, 288 * 1024 * 1024)
         XCTAssertEqual(budget.sessionBytes, 50 * 1024 * 1024)
         XCTAssertEqual(budget.tmpBytes, 50 * 1024 * 1024)
-        XCTAssertEqual(budget.singleFileBytes, 64 * 1024 * 1024)
+        XCTAssertEqual(budget.singleFileBytes, 128 * 1024 * 1024)
         XCTAssertEqual(budget.maximumSingleFileBytes, 128 * 1024 * 1024)
         XCTAssertEqual(budget.wasiHotInstanceBytes, 260 * 1024 * 1024)
-        XCTAssertEqual(budget.appProcessBytes, 150 * 1024 * 1024)
+        XCTAssertEqual(budget.appProcessBytes, 230 * 1024 * 1024)
         XCTAssertEqual(budget.maxSubAgents, 2)
         XCTAssertEqual(budget.thermalFairSubAgents, 1)
         XCTAssertEqual(budget.loopbackRoundTripP95Milliseconds, 5)

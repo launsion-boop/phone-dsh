@@ -37,12 +37,12 @@ export const MAX_MUTATION_DATA = 15 * 1024 * 1024
  * existing wire callers cannot silently start emitting oversized frames.
  */
 export const VFS_SINGLE_FILE_LIMIT = MAX_MUTATION_DATA
-/** Default single-file budget, 8 GiB tier (budgets.md §4): 64 MiB. */
-export const DEFAULT_SINGLE_FILE_LIMIT = 64 * 1024 * 1024
+/** Default single-file budget, 8 GiB tier (budgets.md §4): 128 MiB. */
+export const DEFAULT_SINGLE_FILE_LIMIT = 128 * 1024 * 1024
 /** Contract floor for a host-configured single-file limit: 16 MiB. */
 export const MIN_SINGLE_FILE_LIMIT = 16 * 1024 * 1024
-/** Absolute host maximum for a configured single-file limit: 128 MiB. */
-export const MAX_SINGLE_FILE_LIMIT = 128 * 1024 * 1024
+/** Absolute host maximum for a configured single-file limit: 256 MiB. */
+export const MAX_SINGLE_FILE_LIMIT = 256 * 1024 * 1024
 
 /** The mutation body of VFS_MUT without the leading host-allocated `mseq`. */
 export interface VfsMutationBody {

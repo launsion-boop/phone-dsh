@@ -103,7 +103,7 @@ final class JournalAndQuotaTests: XCTestCase {
     }
 
     func testLogQuotaConstantsMatchThePlan() {
-        XCTAssertEqual(LogQuota.defaultWALBytes, 256 * 1024 * 1024)
+        XCTAssertEqual(LogQuota.defaultWALBytes, 512 * 1024 * 1024)
         XCTAssertEqual(LogQuota.defaultJournalBytes, 64 * 1024 * 1024)
         let configuration = WorkspaceLogConfiguration(
             root: FileManager.default.temporaryDirectory)

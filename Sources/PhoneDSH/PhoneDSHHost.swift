@@ -2747,8 +2747,27 @@ public actor PhoneDSHHost: PhoneDSHHosting {
             // never silently disagree with the budget table.
             var logConfiguration = configuration.log
             logConfiguration.singleFileLimitBytes = configuration.singleFileLimitBytes
-            let log = try WorkspaceLog(configuration: logConfiguration, bootID: bootData)
-            let recovery = try await log.recover()
+            logConfiguration.vfsQuota = VfsQuota(
+                logicalBytes: Int(clamping: configuration.budgets.vfsLogicalBytes),
+                workspaceBytes: Int(clamping: configuration.budgets.workspaceBytes),
+                sessionBytes: Int(clamping: configuration.budgets.sessionBytes),
+                tmpBytes: Int(clamping: configuration.budgets.tmpBytes))
+            var log = try WorkspaceLog(configuration: logConfiguration, bootID: bootData)
+            let recovery: WorkspaceLogRecovery
+            do {
+                recovery = try await log.recover()
+            } catch let error as LogError where error.isMaterializedDivergence {
+                // Killed after a materialized write, before the manifest
+                // watermark advanced: the materialized tree is the durable
+                // output and the retained WAL cannot prove a repair. Adopt the
+                // tree, drop the unprovable tail, and boot. Loud, not silent.
+                let watermark = try RecoveryReset.adoptMaterializedTree(
+                    root: configuration.workspaceRoot)
+                NSLog("phone-dsh: adopted the materialized tree at mseq %llu after %@",
+                      watermark, String(describing: error))
+                log = try WorkspaceLog(configuration: logConfiguration, bootID: bootData)
+                recovery = try await log.recover()
+            }
             let workspaceHasState = workspaceStateBeforeBoot || recovery.nextMseq > 1
             let authority = try FenceAuthority(root: configuration.workspaceRoot,
                                                owner: "phone",
@@ -3153,6 +3172,24 @@ public actor PhoneDSHHost: PhoneDSHHosting {
         if environment[PhoneDSHWorkerEnvironment.singleFileLimit] == nil {
             environment[PhoneDSHWorkerEnvironment.singleFileLimit] =
                 String(configuration.singleFileLimitBytes)
+        }
+        // The 12 GiB row publishes 640 MiB hot instances; the 8 GiB default
+        // stays 260 MiB. The entry merges this into the manifest and the tool
+        // workers' memory ceiling.
+        if environment[PhoneDSHWorkerEnvironment.wasiHotInstanceBytes] == nil {
+            environment[PhoneDSHWorkerEnvironment.wasiHotInstanceBytes] =
+                String(configuration.budgets.wasiHotInstanceBytes)
+        }
+        // The capability manifest and the write-time VFS quota must publish
+        // one set of numbers; both derive from the same BudgetTable row.
+        let vfsEnvironment: [(String, Int)] = [
+            (PhoneDSHWorkerEnvironment.vfsLogicalBytes, configuration.budgets.vfsLogicalBytes),
+            (PhoneDSHWorkerEnvironment.vfsWorkspaceBytes, configuration.budgets.workspaceBytes),
+            (PhoneDSHWorkerEnvironment.vfsSessionsBytes, configuration.budgets.sessionBytes),
+            (PhoneDSHWorkerEnvironment.vfsTmpBytes, configuration.budgets.tmpBytes),
+        ]
+        for (key, value) in vfsEnvironment where environment[key] == nil {
+            environment[key] = String(value)
         }
         // The capability manifest states which hosts `curl` may reach so the
         // agent does not have to probe; the gateway still enforces the union.

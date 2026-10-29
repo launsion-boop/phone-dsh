@@ -39,6 +39,95 @@ final class BudgetMonitorTests: XCTestCase {
                        4 * 1024 * mb)
     }
 
+    /// budgets.md §4, 12 GiB row: the office/big-file tier above the 8 GiB
+    /// default. It is the only row that may publish 256 MiB files.
+    func testTwelveGiBTierRowAndSelection() {
+        let table = BudgetTable.table(for: .twelveGB)
+        XCTAssertEqual(table.engineHeapBytes, 832 * mb)
+        XCTAssertEqual(table.vfsLogicalBytes, 768 * mb)
+        XCTAssertEqual(table.workspaceBytes, 576 * mb)
+        XCTAssertEqual(table.sessionBytes, 96 * mb)
+        XCTAssertEqual(table.tmpBytes, 96 * mb)
+        XCTAssertEqual(table.singleFileBytes, 256 * mb)
+        XCTAssertEqual(table.wasiHotInstanceBytes, 640 * mb)
+        XCTAssertEqual(table.appProcessBytes, 540 * mb)
+        XCTAssertEqual(table.maximumSingleFileBytes, 256 * mb)
+        XCTAssertTrue(table.isCoherent)
+        XCTAssertEqual(DeviceTier.twelveGB.physicalMemoryBytes, 12 * 1024 * mb)
+        XCTAssertEqual(BudgetTable.absoluteMaximumSingleFileBytes, 256 * mb)
+
+        // The 12 GiB row applies only at or above 12 GiB; everything below
+        // keeps the previous row (the 8 GiB default down to 4 GiB).
+        XCTAssertEqual(DeviceTier.forPhysicalMemory(16 * 1024 * UInt64(mb)), .twelveGB)
+        XCTAssertEqual(DeviceTier.forPhysicalMemory(12 * 1024 * UInt64(mb)), .twelveGB)
+        XCTAssertEqual(DeviceTier.forPhysicalMemory(12 * 1024 * UInt64(mb) - 1), .eightGB)
+        XCTAssertEqual(DeviceTier.forPhysicalMemory(8 * 1024 * UInt64(mb)), .eightGB)
+        XCTAssertEqual(DeviceTier.forPhysicalMemory(6 * 1024 * UInt64(mb)), .sixGB)
+        XCTAssertEqual(DeviceTier.forPhysicalMemory(4 * 1024 * UInt64(mb)), .fourGB)
+        XCTAssertEqual(DeviceTier.forPhysicalMemory(3 * 1024 * UInt64(mb)), .threeGB)
+        XCTAssertEqual(DeviceTier.forPhysicalMemory(1), .threeGB)
+    }
+
+    /// spec-render-media-v1 §A.2 / §A.5: the VIDEO contract constants.
+    func testVideoBudgetRows() {
+        XCTAssertEqual(VideoBudget.nominalDurationSeconds, 60)
+        XCTAssertEqual(VideoBudget.budgetedDurationSeconds, 75)
+
+        let eight = VideoBudget.table(for: .eightGB)
+        XCTAssertEqual(eight.maximumFrames, 4500)
+        XCTAssertEqual(eight.maximumFrameBytes, 8 * mb)
+        XCTAssertEqual(eight.maximumOutputBytes, 96 * mb)
+        XCTAssertEqual(eight.maximumWidth, 1920)
+        XCTAssertEqual(eight.maximumHeight, 1080)
+        XCTAssertEqual(eight.inFlightFrames, 3)
+        XCTAssertEqual(eight.appProcessIncrementBytes, 80 * mb)
+        XCTAssertEqual(eight.storeQuotaBytes, 512 * mb)
+        XCTAssertEqual(eight.effectiveOutputBytes(for: .eightGB), 96 * mb)
+        XCTAssertEqual(BudgetTable.eightGB.appProcessBytes,
+                       VideoBudget.eightGB.appProcessIncrementBytes + 150 * mb)
+
+        let twelve = VideoBudget.table(for: .twelveGB)
+        XCTAssertEqual(twelve.maximumFrames, 4500)
+        XCTAssertEqual(twelve.maximumFrameBytes, 16 * mb)
+        XCTAssertEqual(twelve.maximumOutputBytes, 128 * mb)
+        XCTAssertEqual(twelve.maximumWidth, 3840)
+        XCTAssertEqual(twelve.inFlightFrames, 4)
+        XCTAssertEqual(twelve.appProcessIncrementBytes, 140 * mb)
+        XCTAssertEqual(twelve.effectiveOutputBytes(for: .twelveGB), 128 * mb)
+        XCTAssertEqual(BudgetTable.twelveGB.appProcessBytes,
+                       VideoBudget.twelveGB.appProcessIncrementBytes + 400 * mb)
+
+        // The 60 s / 75 s nominal budget runs at 60 fps on every row.
+        XCTAssertEqual(VideoBudget.eightGB.maximumFrames,
+                       VideoBudget.budgetedDurationSeconds * 60)
+        XCTAssertEqual(VideoBudget.twelveGB.maximumFrames,
+                       VideoBudget.budgetedDurationSeconds * 60)
+        XCTAssertEqual(VideoBudget.frames(forBudgetedSeconds: 75, maxFPS: 60), 4500)
+
+        // Smaller tiers keep the 8 GiB contract except for their `video/`
+        // store quota (384 / 256 / 192 MiB), and their single-file maximum
+        // clamps the effective output.
+        XCTAssertEqual(VideoBudget.table(for: .sixGB).storeQuotaBytes, 384 * mb)
+        // The encoder footprint must leave most of the app-process row free;
+        // 100 + 80 would exceed a 3 GiB row outright.
+        for tier in DeviceTier.allCases {
+            let video = VideoBudget.table(for: tier)
+            let table = BudgetTable.table(for: tier)
+            XCTAssertLessThanOrEqual(Double(video.appProcessIncrementBytes),
+                                     Double(table.appProcessBytes) * 0.75,
+                                     "\(tier)")
+        }
+        XCTAssertEqual(VideoBudget.table(for: .sixGB).appProcessIncrementBytes, 64 * mb)
+        XCTAssertEqual(VideoBudget.table(for: .fourGB).appProcessIncrementBytes, 48 * mb)
+        XCTAssertEqual(VideoBudget.table(for: .threeGB).appProcessIncrementBytes, 36 * mb)
+        XCTAssertEqual(VideoBudget.table(for: .fourGB).storeQuotaBytes, 256 * mb)
+        XCTAssertEqual(VideoBudget.table(for: .threeGB).storeQuotaBytes, 192 * mb)
+        XCTAssertEqual(VideoBudget.table(for: .fourGB).effectiveOutputBytes(for: .fourGB),
+                       32 * mb)
+        XCTAssertEqual(VideoBudget.table(for: .threeGB).effectiveOutputBytes(for: .threeGB),
+                       16 * mb)
+    }
+
     func testWithinBudgetReturnsNoAction() async throws {
         let monitor = BudgetMonitor(table: .eightGB)
         let decision = await monitor.evaluate(sample(workspace: 10 * mb,
@@ -129,12 +218,12 @@ final class BudgetMonitorTests: XCTestCase {
 
     func testMetricsAdapterDrivesTheMonitor() async throws {
         let monitor = BudgetMonitor(table: .eightGB)
-        let metrics = WorkspaceLogMetrics(workspaceBytes: 200 * mb)
+        let metrics = WorkspaceLogMetrics(workspaceBytes: 300 * mb)
         let decision = await monitor.evaluate(metrics: metrics,
                                               webContentTerminations: 0)
         XCTAssertEqual(decision.action, .clearTmp)
-        XCTAssertEqual(decision.vfsBytes, 200 * mb)
-        XCTAssertEqual(decision.vfsLimitBytes, 260 * mb)
+        XCTAssertEqual(decision.vfsBytes, 300 * mb)
+        XCTAssertEqual(decision.vfsLimitBytes, 388 * mb)
     }
 
     func testWorkspaceLogMetricsOverload() async throws {
@@ -152,7 +241,7 @@ final class BudgetMonitorTests: XCTestCase {
 
     func testResetClearsTheEpisode() async throws {
         let monitor = BudgetMonitor(table: .eightGB)
-        let over = sample(workspace: 200 * mb)
+        let over = sample(workspace: 300 * mb)
         _ = await monitor.evaluate(over)
         await monitor.reset()
         let taken = await monitor.actionsTaken

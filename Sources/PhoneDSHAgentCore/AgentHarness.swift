@@ -389,6 +389,8 @@ public struct HarnessToolResultDetail: Codable, Equatable, Sendable {
 public struct HarnessEvent: Codable, Equatable, Sendable {
     public enum Kind: Codable, Equatable, Sendable {
         case assistantDelta(text: String)
+        /// One streamed reasoning/thinking chunk (DSH `reasoning-delta`).
+        case reasoningDelta(text: String)
         case assistantMessage(text: String)
         case toolCall(callID: String, name: String, arguments: JSONValue)
         case toolResult(callID: String, isError: Bool, summary: String)

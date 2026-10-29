@@ -162,7 +162,7 @@ final class ErrorRefusalPayloadTests: XCTestCase {
         XCTAssertEqual(WireLimits.maxMutationDataBytes, 15 * WireLimits.mebibyte,
                        "the per-frame mutation cap is unchanged")
         XCTAssertEqual(WireLimits.defaultSingleFileLimitBytes,
-                       64 * WireLimits.mebibyte,
+                       128 * WireLimits.mebibyte,
                        "the 8 GiB tier single-file default (budgets.md §4)")
         XCTAssertGreaterThan(WireLimits.defaultSingleFileLimitBytes,
                              WireLimits.maxMutationDataBytes)

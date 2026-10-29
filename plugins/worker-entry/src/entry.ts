@@ -79,6 +79,7 @@ import {
   publishCapabilityManifest,
   workerCommandSurface,
   PHONE_V1_LIMITS,
+  type CapabilityLimits,
 } from './capabilities.ts'
 import { pythonToolboxLifecycle, readPythonModuleProbe } from './python-toolbox.ts'
 import type { PythonToolboxOptions, PythonToolboxWiring } from './python-toolbox.ts'
@@ -303,7 +304,7 @@ export interface PhoneWorkerOptions {
   readonly runtime?: PhoneWorkerRuntime
   /**
    * VFS sink policy from the host's budget table (PLAN §2.5). `maxFileBytes`
-   * is the per-device single-file bound; the sink clamps it to the 128 MiB
+   * is the per-device single-file bound; the sink clamps it to the 256 MiB
    * host maximum. Omitted, the host environment's value then the 64 MiB
    * 8 GiB-tier default applies.
    */
@@ -419,6 +420,10 @@ export async function startPhoneWorker(options: PhoneWorkerOptions): Promise<Pho
 async function startPhoneWorkerInternal(options: PhoneWorkerOptions): Promise<PhoneWorkerHandle> {
   ensurePageMessagePump()
   const normalized = normalizeOptions(options)
+  // The tier's hot-instance ceiling reaches the tool workers and the
+  // capability manifest; the single-file budget keeps its own env.
+  const hotInstanceBytes = hotInstanceBytesFromEnvironment(normalized.env)
+  const vfsLimits = vfsLimitsFromEnvironment(normalized.env)
   // The WASI VFS backends read the process-wide single-file budget rather than
   // the sink policy object; publish the same host value there before any host
   // code can write (budgets.md §4, channel.md §6).
@@ -569,7 +574,10 @@ async function startPhoneWorkerInternal(options: PhoneWorkerOptions): Promise<Ph
     // (G2-FIX-54).
     pythonWiring = normalized.python === false
       ? undefined
-      : await pythonToolboxLifecycle.bind({ ...normalized.python, vfs, writeOutcomes })
+      : await pythonToolboxLifecycle.bind({
+          ...normalized.python, vfs, writeOutcomes,
+          ...hotInstanceBytes === undefined ? {} : { memoryLimitBytes: hotInstanceBytes },
+        })
     if (pythonWiring !== undefined) {
       // Image-loaded modules have file:///dsh/... import.meta.url values. Their
       // isolated Python forks still need the real page-served tool worker,
@@ -588,7 +596,10 @@ async function startPhoneWorkerInternal(options: PhoneWorkerOptions): Promise<Ph
     }
     jqWiring = normalized.jq === false
       ? undefined
-      : await jqToolboxLifecycle.bind({ ...normalized.jq, vfs, writeOutcomes })
+      : await jqToolboxLifecycle.bind({
+          ...normalized.jq, vfs, writeOutcomes,
+          ...hotInstanceBytes === undefined ? {} : { memoryLimitBytes: hotInstanceBytes },
+        })
     // Both runtimes live in one command table; publish only what this boot
     // actually registered. Replacing the python toolbox with a composite is
     // what lets `jq` and `python3` share the one global slot.
@@ -639,10 +650,12 @@ async function startPhoneWorkerInternal(options: PhoneWorkerOptions): Promise<Ph
           },
       limits: {
         ...PHONE_V1_LIMITS,
+        ...vfsLimits,
         singleFileBytes: Math.min(
           normalized.limits.maxFileBytes ?? DEFAULT_SINGLE_FILE_LIMIT,
           MAX_SINGLE_FILE_LIMIT,
         ),
+        ...hotInstanceBytes === undefined ? {} : { wasiHotInstanceBytes: hotInstanceBytes },
       },
       egressAllow: normalized.egressAllow,
     }))
@@ -796,7 +809,7 @@ async function startPhoneWorkerInternal(options: PhoneWorkerOptions): Promise<Ph
  * @returns A disposer that unsubscribes and restores the original flush.
  */
 export interface VfsSinkLimits {
-  /** Single-file bound from the budget table; never above the 128 MiB host maximum. */
+  /** Single-file bound from the budget table; never above the 256 MiB host maximum. */
   readonly maxFileBytes?: number
   /**
    * Bound for the level-1 VFS ack wait in the wrapped `flush()`. Defaults to
@@ -1756,6 +1769,55 @@ function normalizeEgressAllow(value: readonly string[] | undefined): readonly st
  * @param env - the page-supplied Worker environment.
  * @returns the effective sink policy.
  */
+/** Host-published WASI hot-instance ceiling for tool workers (budgets.md §4). */
+const WASI_HOT_INSTANCE_ENV = 'PDSH_WASI_HOT_INSTANCE_BYTES'
+/** Contract range of a configured hot-instance ceiling: 96 MiB ... 640 MiB. */
+const MIN_HOT_INSTANCE_BYTES = 96 * 1024 * 1024
+const MAX_HOT_INSTANCE_BYTES = 640 * 1024 * 1024
+
+/**
+ * Reads the host's hot-instance ceiling. A missing, non-decimal or
+ * non-positive value yields undefined (the 8 GiB default applies); an
+ * out-of-range value is clamped, never a start failure (budgets.md §4).
+ */
+export function hotInstanceBytesFromEnvironment(
+  env: Readonly<Record<string, string>> | undefined,
+): number | undefined {
+  const raw = env?.[WASI_HOT_INSTANCE_ENV]
+  if (raw === undefined || raw === '' || !/^[0-9]+$/u.test(raw)) return undefined
+  const parsed = Number(raw)
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) return undefined
+  return Math.min(MAX_HOT_INSTANCE_BYTES, Math.max(MIN_HOT_INSTANCE_BYTES, parsed))
+}
+
+/** Environment names of the host VFS tier quotas (budgets.md §4). */
+const VFS_LIMIT_ENV = {
+  vfsLogicalBytes: 'PDSH_VFS_LOGICAL_BYTES',
+  vfsWorkspaceBytes: 'PDSH_VFS_WORKSPACE_BYTES',
+  vfsSessionsBytes: 'PDSH_VFS_SESSIONS_BYTES',
+  vfsTmpBytes: 'PDSH_VFS_TMP_BYTES',
+} as const
+
+/**
+ * Reads the host's VFS tier quotas so the published capability manifest and
+ * the host's write-time quota carry one set of numbers. A missing, non-decimal
+ * or non-positive value yields undefined and the published prior applies.
+ */
+export function vfsLimitsFromEnvironment(
+  env: Readonly<Record<string, string>> | undefined,
+): Partial<Record<'vfsLogicalBytes' | 'vfsWorkspaceBytes' | 'vfsSessionsBytes' | 'vfsTmpBytes', number>> {
+  const result: Partial<Record<'vfsLogicalBytes' | 'vfsWorkspaceBytes' | 'vfsSessionsBytes' | 'vfsTmpBytes', number>> = {}
+  const fields = ['vfsLogicalBytes', 'vfsWorkspaceBytes', 'vfsSessionsBytes', 'vfsTmpBytes'] as const
+  for (const field of fields) {
+    const raw = env?.[VFS_LIMIT_ENV[field]]
+    if (raw === undefined || raw === '' || !/^[0-9]+$/u.test(raw)) continue
+    const parsed = Number(raw)
+    if (!Number.isSafeInteger(parsed) || parsed <= 0) continue
+    result[field] = parsed
+  }
+  return result
+}
+
 function normalizeSinkLimits(
   limits: VfsSinkLimits | undefined,
   env: Readonly<Record<string, string>> | undefined,

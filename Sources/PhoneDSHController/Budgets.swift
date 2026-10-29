@@ -19,11 +19,44 @@ extension DeviceTier {
         case .fourGB: return 4 * 1024 * 1024 * 1024
         case .sixGB: return 6 * 1024 * 1024 * 1024
         case .eightGB: return 8 * 1024 * 1024 * 1024
+        case .twelveGB: return 12 * 1024 * 1024 * 1024
         }
+    }
+
+    /// The tier for a physical memory ceiling (budgets.md §4): the 8 GiB row
+    /// is the default, a lower row applies below 8 GiB, and the 12 GiB row
+    /// applies only at or above 12 GiB.
+    public static func forPhysicalMemory(_ bytes: UInt64) -> DeviceTier {
+        let gib = UInt64(1024 * 1024 * 1024)
+        if bytes >= 12 * gib { return .twelveGB }
+        if bytes >= 8 * gib { return .eightGB }
+        if bytes >= 6 * gib { return .sixGB }
+        if bytes >= 4 * gib { return .fourGB }
+        return .threeGB
     }
 }
 
 extension BudgetTable {
+    /// The 12 GiB row of budgets.md §4. Workspace = 2 × 256 MiB + 64 MiB.
+    public static let twelveGB = BudgetTable(
+        engineHeapBytes: 832 * 1024 * 1024,
+        vfsLogicalBytes: 768 * 1024 * 1024,
+        workspaceBytes: 576 * 1024 * 1024,
+        sessionBytes: 96 * 1024 * 1024,
+        tmpBytes: 96 * 1024 * 1024,
+        singleFileBytes: 256 * 1024 * 1024,
+        wasiHotInstanceBytes: 640 * 1024 * 1024,
+        appProcessBytes: 540 * 1024 * 1024,
+        peakFraction: 0.5,
+        maxSubAgents: 2,
+        thermalFairSubAgents: 1,
+        loopbackRoundTripP95Milliseconds: 5,
+        plannedRestartIntervalSeconds: 2 * 60 * 60,
+        recoveryBaseSeconds: 3,
+        recoverySecondsPerMegabyte: 0.05,
+        maximumSingleFileBytes: 256 * 1024 * 1024
+    )
+
     /// The 6 GiB row of budgets.md §4. Workspace = 2 × 48 MiB + 24 MiB.
     public static let sixGB = BudgetTable(
         engineHeapBytes: 256 * 1024 * 1024,
@@ -139,7 +172,10 @@ extension BudgetTable {
             sessionBytes: sessionBytes,
             tmpBytes: tmpBytes,
             singleFileBytes: limit,
-            wasiHotInstanceBytes: max(wasiHotInstanceBytes, requiredVFS),
+            // The WASI hot instance follows the tier row (260 MB at 8 GiB,
+            // 640 MB at 12 GiB); it is a tool-worker memory ceiling, not a
+            // mirror of the VFS, and budgets.md §4 keeps it below it.
+            wasiHotInstanceBytes: wasiHotInstanceBytes,
             appProcessBytes: appProcessBytes,
             peakFraction: peakFraction,
             maxSubAgents: maxSubAgents,

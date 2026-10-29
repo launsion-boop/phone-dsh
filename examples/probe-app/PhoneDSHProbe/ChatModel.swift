@@ -16,6 +16,7 @@ import UIKit
 import CryptoKit
 import PhoneDSHAgentCore
 import PhoneDSH
+import enum PhoneDSHController.DeviceTier
 import PhoneDSHEngine
 import PhoneDSHShell
 
@@ -54,6 +55,8 @@ struct ChatItem: Identifiable, Equatable {
         case user
         case context
         case assistant
+        /// The model's streamed reasoning for the current step.
+        case reasoning
         case toolCall
         case toolResult(isError: Bool)
         case status
@@ -552,6 +555,51 @@ final class ChatModel {
             .appendingPathComponent("workspace", isDirectory: true)
     }
 
+    /// The materialized workspace directory: what the browser lists and the
+    /// PAGE surface serves from `pdsh-page://<session>/...`.
+    var workspaceDirectoryURL: URL { materializedWorkspace }
+
+    /// A file's owning workspace: the page origin must be that workspace's
+    /// directory, and the path must be relative to it.
+    struct PageWorkspaceOwner {
+        let sessionID: String
+        let relativePath: String
+    }
+
+    /// Finds the workspace that owns `relativePath` (relative to
+    /// `/dsh/workspace`) and a session of it. The longest workspace directory
+    /// wins; a workspace registered at `/dsh/workspace` owns every path.
+    func pageWorkspaceOwner(for relativePath: String) -> PageWorkspaceOwner? {
+        let workspaces = DSHManagementModel.shared.workspaces.map {
+            (path: $0.path, sessionIDs: $0.sessionIDs)
+        }
+        guard let owner = PDSHPageWorkspaceMap.owner(relativePath: relativePath,
+                                                    workspaces: workspaces) else {
+            return nil
+        }
+        return PageWorkspaceOwner(sessionID: owner.sessionID,
+                                  relativePath: owner.relativePath)
+    }
+
+    /// sessionID → the materialized directory its page origin serves. The
+    /// host supports several workspaces (`workspace/create`, `workspace/follow`),
+    /// and each record's `path` is its sessions' cwd: `/dsh/workspace/proj2`
+    /// serves `materialized/workspace/proj2`, so two workspaces with the same
+    /// file name do not read each other's bytes. A session the host does not
+    /// list stays unmapped (the handler then refuses the URL).
+    func pageWorkspaceMap() -> [String: URL] {
+        let root = workspaceDirectoryURL
+        var map = PDSHPageWorkspaceMap.directories(
+            root: root,
+            workspaces: DSHManagementModel.shared.workspaces.map {
+                (path: $0.path, sessionIDs: $0.sessionIDs)
+            })
+        if let sessionID = currentSessionID, map[sessionID] == nil {
+            map[sessionID] = root
+        }
+        return map
+    }
+
     private var materializedHome: URL {
         workspaceRoot.appendingPathComponent("materialized", isDirectory: true)
             .appendingPathComponent("home", isDirectory: true)
@@ -644,6 +692,9 @@ final class ChatModel {
             workspaceRoot: workspaceRoot,
             token: "",
             origin: URL(string: "http://127.0.0.1:1")!,
+            // Budgets follow the device: the 12 GiB row is selected only at or
+            // above 12 GiB (budgets.md §4).
+            deviceTier: DeviceTier.forPhysicalMemory(ProcessInfo.processInfo.physicalMemory),
             bundle: bundle,
             allowedModelHosts: allowedModelHosts,
             egressAllowHosts: egressHosts,
@@ -680,7 +731,8 @@ final class ChatModel {
         do {
             try await newHost.start()
         } catch {
-            reportError("引擎停了")
+            Self.appendDiagnostic("host start failed: \(error)")
+            reportError("引擎停了：\(Self.condensed(String(describing: error)))")
             hostEventTask?.cancel(); hostEventTask = nil
             return
         }
@@ -966,6 +1018,15 @@ final class ChatModel {
     private func parkHost(_ host: PhoneDSHHost) async {
         guard !hostLifecycleTransition else { return }
         hostLifecycleTransition = true
+        // Every early return, thrown error or lost continuation must release
+        // the flag: while it is set the composer reads "处理中" and every
+        // send/session switch/park/resume is refused. The watchdog is the
+        // last resort behind the host's own 20 s drain bound.
+        let watchdog = transitionWatchdog(seconds: 60, label: "Host park")
+        defer {
+            watchdog.cancel()
+            hostLifecycleTransition = false
+        }
         appendStatus("App in background: parking the host (in-flight work gets the drain window, then the turn is cancelled)…")
         do {
             try await host.park()
@@ -980,6 +1041,7 @@ final class ChatModel {
         foregroundResumeRequested = false
         let shouldParkAgain = backgroundParkRequested
         backgroundParkRequested = false
+        // Release before the queued follow-up so it passes its own guard.
         hostLifecycleTransition = false
         if shouldResume && parked {
             await resumeHost(host)
@@ -998,6 +1060,13 @@ final class ChatModel {
     private func resumeHost(_ host: PhoneDSHHost) async {
         guard parked, !hostLifecycleTransition else { return }
         hostLifecycleTransition = true
+        // See parkHost: the flag must never stay set. A resume waits for the
+        // host's own 240 s hello timeout, so the watchdog clears only past it.
+        let watchdog = transitionWatchdog(seconds: 300, label: "Host resume")
+        defer {
+            watchdog.cancel()
+            hostLifecycleTransition = false
+        }
         do {
             try await host.resume()
             parked = false
@@ -1010,8 +1079,21 @@ final class ChatModel {
         let shouldPark = backgroundParkRequested
         foregroundResumeRequested = false
         backgroundParkRequested = false
+        // Release before the queued follow-up so it passes its own guard.
         hostLifecycleTransition = false
         if shouldPark && !parked { await parkHost(host) }
+    }
+
+    /// Releases a latched host transition after a bound the host's own
+    /// drain/hello timeouts cannot exceed, so a wedged host fails loud on the
+    /// status line instead of pinning the composer at "处理中" forever.
+    private func transitionWatchdog(seconds: UInt64, label: String) -> Task<Void, Never> {
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: seconds * 1_000_000_000)
+            guard !Task.isCancelled, let self, self.hostLifecycleTransition else { return }
+            self.hostLifecycleTransition = false
+            self.appendStatus("\(label) did not finish in time; the host transition was released")
+        }
     }
 
     /// Reconciles `turnRunning` with the host after a park/resume cycle.
@@ -1109,7 +1191,10 @@ final class ChatModel {
                 case .stateChanged(_, let to):
                     self.hostState = "\(to)"
                 case .error(let message):
-                    self.reportError("模型服务出错了")
+                    // Keep the raw host text: the friendly summary alone made
+                    // a WAL recovery failure look like a model-service error.
+                    Self.appendDiagnostic("host error: \(message)")
+                    self.reportError("引擎报错：\(Self.condensed(message))")
                 case .webContentTerminated(let count):
                     self.appendStatus("WebContent terminated (\(count)); the host restarts the Worker")
                 case .restarted:
@@ -1227,14 +1312,27 @@ final class ChatModel {
         // locked the composer and every session switch afterwards.
         dismissPendingRequests()
         guard let harness, let sessionID else { return }
-        do {
-            try await harness.send(.cancel, to: sessionID)
-            clearError()
-        } catch {
-            // A wedged Worker can also fail the cancel call itself; the local
-            // fallback below still ends the turn for the person who asked.
-            appendStatus("取消请求发送失败：\(error.localizedDescription)")
+        // The cancel RPC has no transport timeout: a busy Worker (a heavy
+        // bash step, a WebContent restart) can swallow its response and this
+        // await would never return, leaving `turnRunning` and the stop
+        // spinner locked forever. Bound it; the local fallback below always
+        // ends the turn for the person who pressed stop.
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask {
+                do {
+                    try await harness.send(.cancel, to: sessionID)
+                } catch {
+                    // A wedged Worker can also fail the cancel call itself.
+                    await MainActor.run { self.appendStatus("取消请求发送失败：\(error.localizedDescription)") }
+                }
+            }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(3))
+            }
+            await group.next()
+            group.cancelAll()
         }
+        clearError()
         // The pinned runtime journals turn/end on cancel in the normal case.
         // When the turn is already stalled (no session events at all) that
         // terminal never arrives, and the composer would stay locked; give it
@@ -1587,8 +1685,19 @@ final class ChatModel {
             clearSendingLabels()
         }
         switch event.kind {
+        case .reasoningDelta(let text):
+            clearSendingLabels()
+            if let index = items.indices.last, items[index].kind == .reasoning,
+               items[index].streaming {
+                items[index].text += text
+            } else {
+                finishStreamingReasoning()
+                items.append(ChatItem(id: eventItemID(event), kind: .reasoning,
+                                      title: "思考", text: text, streaming: true))
+            }
         case .assistantDelta(let text):
             clearSendingLabels()
+            finishStreamingReasoning()
             if let index = items.indices.last, items[index].kind == .assistant, items[index].streaming {
                 items[index].text += text
             } else {
@@ -1596,6 +1705,7 @@ final class ChatModel {
             }
         case .assistantMessage(let text):
             clearSendingLabels()
+            finishStreamingReasoning()
             if let index = items.indices.last, items[index].kind == .assistant, items[index].streaming {
                 if !text.isEmpty { items[index].text = text }
                 items[index].streaming = false
@@ -1608,6 +1718,7 @@ final class ChatModel {
             break
         case .toolCall(_, let name, let arguments):
             finishStreamingAssistant()
+            finishStreamingReasoning()
             recentToolArguments[name] = Self.flattenedArguments(arguments)
             items.append(ChatItem(id: eventItemID(event), kind: .toolCall, title: "Tool call: \(name)", text: Self.render(arguments)))
         case .toolResult(_, let isError, let summary):
@@ -1629,6 +1740,7 @@ final class ChatModel {
             statusLine = "Turn running…"
         case .turnEnded(_, let reason):
             finishStreamingAssistant()
+            finishStreamingReasoning()
             clearSendingLabels()
             turnRunning = false
             syncIdleTimer()
@@ -1672,6 +1784,12 @@ final class ChatModel {
         }
     }
 
+    private func finishStreamingReasoning() {
+        for index in items.indices where items[index].kind == .reasoning && items[index].streaming {
+            items[index].streaming = false
+        }
+    }
+
     private func eventItemID(_ event: HarnessEvent) -> String {
         guard let sessionID, let seq = event.seq else { return UUID().uuidString }
         let position = DSHEventMapper.position(of: seq)
@@ -1681,6 +1799,15 @@ final class ChatModel {
     private func appendStatus(_ text: String) {
         items.append(ChatItem(kind: .status, title: "Host", text: text))
         Self.persistStatus(text)
+    }
+
+    /// One short line of a raw host message (the full text stays in
+    /// `chat-status.log`). Keeps the friendly UI readable without hiding the
+    /// engineering cause.
+    static func condensed(_ message: String) -> String {
+        let line = message.split(whereSeparator: { $0.isNewline }).first.map(String.init) ?? message
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        return trimmed.count > 120 ? String(trimmed.prefix(120)) + "…" : trimmed
     }
 
     /// 宿主回来的失败原话常常是英文并带接口域名,一律翻成一句中文;

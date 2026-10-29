@@ -3,6 +3,7 @@
 
 import PhoneDSHAgentCore
 import PhoneDSH
+import PhoneDSHEngine
 import SwiftUI
 import UniformTypeIdentifiers
 import UIKit
@@ -30,7 +31,10 @@ struct ChatPage: View {
     @FocusState private var inputFocused: Bool
     @State private var pendingAttachments: [HarnessAttachment] = []
     @State private var showAttachmentPicker = false
-    @State private var showCommandLauncher = false
+    /// "添加文件" imports into the workspace; images stay native attachments.
+    @State private var showFileImport = false
+    /// Status line for a workspace import (the agent reads the file by path).
+    @State private var fileImportNotice: String?
     @State private var commandExecution: NativeCommandExecution?
     @State private var showCommandResult = false
     @State private var isExecutingCommand = false
@@ -62,6 +66,9 @@ struct ChatPage: View {
     @State private var isSelectingAccessMode = false
     @State private var attachmentError: String?
     @State private var nearBottom = true
+    /// Measured transcript height; the scroll helpers use it to refuse a
+    /// scroll into empty space.
+    @State private var transcriptContentHeight: CGFloat = 0
     /// Set when a session opens; the next transcript layout jumps to the tail
     /// without animation so history loading never leaves the view at the top.
     @State private var pendingInitialScroll = false
@@ -249,12 +256,6 @@ struct ChatPage: View {
             NativeConfigurationPage()
                 .presentationDragIndicator(.visible)
         }
-        .sheet(isPresented: $showCommandLauncher) {
-            CommandLauncherPage(model: model, attachments: pendingAttachments) { descriptor, input, attachments in
-                Task { await executeCommand(descriptor, input: input, attachments: attachments) }
-            }
-            .presentationDragIndicator(.visible)
-        }
         .sheet(isPresented: $showCommandResult) {
             if let commandExecution {
                 CommandExecutionResultPage(execution: commandExecution,
@@ -292,6 +293,15 @@ struct ChatPage: View {
             allowedContentTypes: Self.imageContentTypes,
             allowsMultipleSelection: true,
             onCompletion: loadAttachments
+        )
+        // DSH's prompt path accepts image attachments only; any other file is
+        // imported into the session workspace (the DSH-native way for the
+        // agent to read it) and inserted as a path reference.
+        .fileImporter(
+            isPresented: $showFileImport,
+            allowedContentTypes: [.data],
+            allowsMultipleSelection: true,
+            onCompletion: loadWorkspaceFiles
         )
         .onChange(of: model.isTranscriptReady) { _, _ in
             #if DEBUG
@@ -767,10 +777,20 @@ struct ChatPage: View {
                     // Room for the "回到最新" pill (28pt tall) so it never sits
                     // on top of the last rows.
                     .padding(.bottom, 48)
+                    .background(
+                        GeometryReader { content in
+                            Color.clear.preference(
+                                key: TranscriptContentHeightPreference.self,
+                                value: content.size.height)
+                        })
                 }
                 .coordinateSpace(name: "chat-transcript")
                 .scrollDismissesKeyboard(.interactively)
                 .defaultScrollAnchor(.bottom)
+                .scrollBounceBehavior(.basedOnSize)
+                .onPreferenceChange(TranscriptContentHeightPreference.self) { height in
+                    transcriptContentHeight = height
+                }
                 .onPreferenceChange(TranscriptTailPreference.self) { tailY in
                     // A short transcript is already at the bottom: it must not
                     // advertise "back to latest" just because it lays out once.
@@ -780,23 +800,45 @@ struct ChatPage: View {
                 }
                 .onChange(of: transcriptScrollSignature) { _, _ in
                     if pendingInitialScroll, !visibleItems.isEmpty {
+                        // Wait for the measured content height: scrolling
+                        // before the layout is known cannot prove the content
+                        // overflows, and the height change consumes this below.
+                        guard transcriptContentHeight > 0 else { return }
                         pendingInitialScroll = false
                         nearBottom = true
-                        proxy.scrollTo("transcript-tail", anchor: .bottom)
+                        scrollToTail(proxy, viewportHeight: viewport.size.height)
                         return
                     }
                     guard nearBottom, !loadingEarlierTranscript else { return }
-                    scrollToTailIfFollowing(proxy)
+                    scrollToTailIfFollowing(proxy, viewportHeight: viewport.size.height)
                 }
                 .onChange(of: model.isTranscriptReady) { _, ready in
-                    guard ready, pendingInitialScroll, !visibleItems.isEmpty else { return }
+                    guard ready, pendingInitialScroll, !visibleItems.isEmpty,
+                          transcriptContentHeight > 0 else { return }
                     pendingInitialScroll = false
                     nearBottom = true
-                    proxy.scrollTo("transcript-tail", anchor: .bottom)
+                    scrollToTail(proxy, viewportHeight: viewport.size.height)
+                }
+                .onChange(of: transcriptContentHeight) { _, height in
+                    // A freshly opened session measures its history after the
+                    // first layout; the pending jump lands here.
+                    guard height > 0, pendingInitialScroll, !visibleItems.isEmpty else { return }
+                    pendingInitialScroll = false
+                    nearBottom = true
+                    scrollToTail(proxy, viewportHeight: viewport.size.height)
                 }
                 .onChange(of: scrollToLatestTrigger) { _, _ in
                     nearBottom = true
-                    withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("transcript-tail", anchor: .bottom) }
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        scrollToTail(proxy, viewportHeight: viewport.size.height)
+                    }
+                }
+                .onChange(of: viewport.size.height) { old, new in
+                    // The keyboard and the growing composer change the
+                    // viewport. A transcript that was following re-anchors to
+                    // the tail, so no blank strip is left below the content.
+                    guard new > old, nearBottom else { return }
+                    scrollToTail(proxy, viewportHeight: new)
                 }
             }
         }
@@ -820,11 +862,28 @@ struct ChatPage: View {
         }
     }
 
-    private func scrollToTailIfFollowing(_ proxy: ScrollViewProxy) {
-        guard nearBottom else { return }
-        withAnimation(.easeOut(duration: 0.18)) {
+    /// Scrolls to the transcript's last row, and only when the content
+    /// actually overflows: scrolling a shorter transcript to a bottom anchor
+    /// overshoots into empty space (the blank page). The last row is a real,
+    /// laid-out frame; the lazy tail anchor can be scrolled past its estimate.
+    private func scrollToTail(_ proxy: ScrollViewProxy, viewportHeight: CGFloat) {
+        guard transcriptContentHeight > viewportHeight + 1 else { return }
+        // The last row may be a folded tool-run group, not the last message;
+        // scroll to the row that is actually last.
+        if let last = timelineRows.last?.id {
+            proxy.scrollTo(last, anchor: .bottom)
+        } else {
             proxy.scrollTo("transcript-tail", anchor: .bottom)
         }
+    }
+
+    /// Follow the streaming tail. No animation: a per-token animated scroll
+    /// kept racing the growing lazy stack and could leave the offset past the
+    /// last row — a blank viewport below the content until the person scrolled
+    /// again. The explicit "回到最新" pill keeps its animation.
+    private func scrollToTailIfFollowing(_ proxy: ScrollViewProxy, viewportHeight: CGFloat) {
+        guard nearBottom else { return }
+        scrollToTail(proxy, viewportHeight: viewportHeight)
     }
 
     /// 新会话空屏。三种状态互斥,同一时刻只渲染一种;三者都在滚动区里,
@@ -952,6 +1011,18 @@ struct ChatPage: View {
                     .font(.footnote).foregroundStyle(.orange)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
+            if let fileImportNotice {
+                HStack {
+                    Text(fileImportNotice).font(.footnote).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("关闭") { self.fileImportNotice = nil }.font(.footnote)
+                }
+            }
+            // The DSH input trigger: a bare leading `/token` opens the command
+            // menu in place; picking one writes the token back into the draft.
+            if slashToken != nil {
+                slashCommandMenu
+            }
             // 输入条是一整块浅灰圆角板。板内网格:上 12、下 12、左 14、右 8;
             // 文字行 22、间距 10、工具行 32,单行合计 88。工具行靠左排,
             // 发送/停止固定板内右下(右 8、底 8),文字因此不被按钮挤窄。
@@ -1027,6 +1098,13 @@ struct ChatPage: View {
         .padding(.bottom, 8)
         // 输入区外整片纯白,不画分隔线;靠上方的间距和对话分开。
         .background(Color.white)
+        // The command catalog is pulled the first time the trigger opens, the
+        // same lazy load the DSH command directory does per session.
+        .onChange(of: slashToken) { _, token in
+            guard token != nil, model.availableCommands.isEmpty,
+                  !model.commandsLoading else { return }
+            Task { await model.loadCommands() }
+        }
     }
 
     @ViewBuilder
@@ -1089,8 +1167,8 @@ struct ChatPage: View {
         HStack(spacing: 8) {
             Menu {
                 Button("添加图片", systemImage: "photo") { showAttachmentPicker = true }
-                Button("运行 DSH 命令", systemImage: "command") {
-                    showCommandLauncher = true
+                Button("添加文件（写入工作区）", systemImage: "doc.badge.plus") {
+                    showFileImport = true
                 }
             } label: {
                 Image(systemName: "plus")
@@ -1101,7 +1179,7 @@ struct ChatPage: View {
             }
             .buttonStyle(.plain)
             .disabled(!composerEnabled)
-            .accessibilityLabel("添加图片或运行命令")
+            .accessibilityLabel("添加图片或文件")
             accessModeMenu
             modelMenu
             if model.turnRunning {
@@ -1404,6 +1482,11 @@ struct ChatPage: View {
 
     private func submitDraft() {
         let text = draft
+        if let command = Self.parseSlashCommand(text) {
+            draft = ""
+            Task { await runSlashCommand(name: command.name, input: command.input) }
+            return
+        }
         let wasRunning = model.turnRunning
         // 一按发送就清空:失败那条留在气泡里,重试原样再发,新打的字进新气泡。
         draft = ""
@@ -1427,6 +1510,15 @@ struct ChatPage: View {
                 pendingAttachments.removeAll()
                 attachmentError = nil
                 inputFocused = false
+                // A send means "show me the newest turn". The composer (a
+                // TextEditor that grows to five lines) and the keyboard change
+                // the transcript viewport, which used to leave `nearBottom`
+                // false even though the person never scrolled away; the new
+                // row then stayed below the fold. Jump to the tail through the
+                // session-open path, which scrolls without animation.
+                nearBottom = true
+                userScrolledAway = false
+                pendingInitialScroll = true
             } else if draft.isEmpty {
                 // The send was refused before it produced a row (host not
                 // ready, session switching, busy): keep the text so the person
@@ -1462,7 +1554,12 @@ struct ChatPage: View {
         if !model.files.contains(where: { $0.relativePath == normalized }) {
             model.refreshFiles()
         }
+        // The tool result and the file list can disagree only in Unicode
+        // normalization (a Chinese name written NFC, listed NFD); try the
+        // canonical spelling before falling back to a unique basename.
+        let canonical = normalized.precomposedStringWithCanonicalMapping
         if let match = model.files.first(where: { $0.relativePath == normalized })
+            ?? model.files.first(where: { $0.relativePath.precomposedStringWithCanonicalMapping == canonical })
             ?? Self.uniqueBasenameMatch(normalized, in: model.files) {
             initialWorkbenchPath = match.relativePath
             showWorkbench = true
@@ -1486,12 +1583,19 @@ struct ChatPage: View {
             path = String(path.dropFirst("/dsh/workspace/".count))
         }
         if path.hasPrefix("./") { path = String(path.dropFirst(2)) }
+        // A Chinese name can arrive decomposed (NFD) from a tool result while
+        // the materialized tree lists it composed (NFC); compare in one form.
+        path = path.precomposedStringWithCanonicalMapping
         return path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
     }
 
     static func uniqueBasenameMatch(_ path: String, in files: [WorkspaceFile]) -> WorkspaceFile? {
         let name = path.split(separator: "/").last.map(String.init) ?? path
-        let matches = files.filter { $0.relativePath.split(separator: "/").last.map(String.init) == name }
+        let wanted = name.precomposedStringWithCanonicalMapping
+        let matches = files.filter { file in
+            let candidate = file.relativePath.split(separator: "/").last.map(String.init) ?? file.relativePath
+            return candidate.precomposedStringWithCanonicalMapping == wanted
+        }
         return matches.count == 1 ? matches[0] : nil
     }
 
@@ -1552,6 +1656,203 @@ struct ChatPage: View {
                 } catch {
                     attachmentError = error.localizedDescription
                 }
+            }
+        }
+    }
+
+    // MARK: - Slash commands (the DSH input trigger)
+
+    /// The draft's leading `/token` while it is still a bare token. This is
+    /// the DSH `ui-input-trigger` shape: the menu opens for a leading trigger
+    /// and closes once the token is followed by whitespace.
+    private var slashToken: String? {
+        let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("/"),
+              !trimmed.dropFirst().contains(where: { $0.isWhitespace }) else { return nil }
+        return String(trimmed.dropFirst())
+    }
+
+    private var slashMatches: [NativeCommandDescriptor] {
+        guard let token = slashToken else { return [] }
+        let commands = model.availableCommands
+        guard !token.isEmpty else { return Array(commands.prefix(6)) }
+        return commands.filter { descriptor in
+            descriptor.name.localizedCaseInsensitiveContains(token)
+                || descriptor.description.localizedCaseInsensitiveContains(token)
+        }.prefix(6).map { $0 }
+    }
+
+    /// The in-place command menu: names and hints are the live DSH catalog.
+    @ViewBuilder
+    private var slashCommandMenu: some View {
+        let matches = slashMatches
+        VStack(alignment: .leading, spacing: 0) {
+            if model.commandsLoading && model.availableCommands.isEmpty {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.mini)
+                    Text("正在读取 DSH 命令…").font(.system(size: 13)).foregroundStyle(.secondary)
+                }
+                .padding(12)
+            } else if let error = model.commandsError, model.availableCommands.isEmpty {
+                HStack(spacing: 8) {
+                    Text(error).font(.system(size: 13)).foregroundStyle(.orange)
+                    Spacer(minLength: 0)
+                    Button("重试") { Task { await model.loadCommands() } }
+                        .font(.system(size: 13))
+                }
+                .padding(12)
+            } else if matches.isEmpty {
+                Text("没有匹配的命令").font(.system(size: 13))
+                    .foregroundStyle(.secondary).padding(12)
+            } else {
+                ForEach(matches) { descriptor in
+                    Button { pickCommand(descriptor) } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("/\(descriptor.name)")
+                                .font(.system(size: 15, weight: .semibold))
+                            Text(descriptor.description)
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(red: 0xF2 / 255, green: 0xF3 / 255, blue: 0xF5 / 255),
+                    in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private func pickCommand(_ descriptor: NativeCommandDescriptor) {
+        draft = "/\(descriptor.name) "
+        inputFocused = true
+    }
+
+    static func parseSlashCommand(_ text: String) -> (name: String, input: String)? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("/") else { return nil }
+        let body = trimmed.dropFirst()
+        let name = body.prefix { !$0.isWhitespace }
+        guard !name.isEmpty else { return nil }
+        let input = body.dropFirst(name.count)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return (String(name), input)
+    }
+
+    private func runSlashCommand(name: String, input: String) async {
+        guard let descriptor = model.availableCommands.first(where: { $0.name == name }) else {
+            attachmentError = "没有这条命令：/\(name)"
+            if draft.isEmpty { draft = "/\(name)" + (input.isEmpty ? "" : " \(input)") }
+            return
+        }
+        await executeCommand(descriptor, input: input, attachments: pendingAttachments)
+    }
+
+    // MARK: - Workspace file import (DSH file attachments)
+
+    /// Imports the picked files into the session workspace through the
+    /// Worker's `phone/import*` service (the phone DSH path for a verbatim
+    /// file: the prompt API accepts images only, budget §A.5's analogue is the
+    /// workspace), then inserts their path so the agent can read them.
+    private func loadWorkspaceFiles(_ result: Result<[URL], Error>) {
+        switch result {
+        case .failure(let error):
+            attachmentError = "无法读取所选文件：\(error.localizedDescription)"
+        case .success(let urls):
+            guard !urls.isEmpty else { return }
+            guard let sessionID = model.currentSessionID else {
+                attachmentError = "本地引擎还没启动，启动之后才能把文件放进工作区。"
+                return
+            }
+            Task { await importIntoWorkspace(urls, sessionID: sessionID) }
+        }
+    }
+
+    private func importIntoWorkspace(_ urls: [URL], sessionID: String) async {
+        // The Worker's directory-import contract: 64 MiB per file, 128 MiB and
+        // 500 files per import (plugins/phone-directory-import).
+        let maxFileBytes = 64 * 1024 * 1024
+        let maxTotalBytes = 128 * 1024 * 1024
+        let chunkBytes = 1024 * 1024
+        do {
+            var files: [WebEngineDirectoryImportFile] = []
+            var payloads: [(path: String, data: Data)] = []
+            var total = 0
+            for url in urls {
+                let hasScope = url.startAccessingSecurityScopedResource()
+                defer { if hasScope { url.stopAccessingSecurityScopedResource() } }
+                let name = url.lastPathComponent
+                guard !name.isEmpty, !name.contains("/") else {
+                    throw AttachmentImportError.unsupportedType(name)
+                }
+                let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size]
+                    as? NSNumber)?.intValue ?? 0
+                guard size > 0, size <= maxFileBytes else {
+                    throw ImportFailure.tooLarge(name, size)
+                }
+                total += size
+                guard total <= maxTotalBytes else { throw ImportFailure.totalTooLarge }
+                let data = try Data(contentsOf: url, options: .mappedIfSafe)
+                files.append(WebEngineDirectoryImportFile(path: name, size: data.count))
+                payloads.append((path: name, data: data))
+            }
+            let stamp = Self.importTimestamp()
+            let manifest = WebEngineDirectoryImportManifest(
+                sessionID: sessionID,
+                targetDirectory: "/dsh/workspace",
+                entryName: "files-\(stamp)",
+                directories: [],
+                files: files,
+                totalBytes: total)
+            let transport = try await model.transportForManagement()
+            let sink = PhoneDSHWorkspaceImportSink(transport: transport)
+            let importID = try await sink.begin(manifest)
+            for payload in payloads {
+                var offset = 0
+                while offset < payload.data.count {
+                    let end = min(offset + chunkBytes, payload.data.count)
+                    try await sink.write(importID: importID, path: payload.path,
+                                         offset: offset,
+                                         data: payload.data.subdata(in: offset..<end))
+                    offset = end
+                }
+            }
+            let result = try await sink.commit(importID: importID)
+            let reference = files.count == 1
+                ? "\(result.workspacePath)/\(files[0].path)"
+                : "\(result.workspacePath)/"
+            fileImportNotice = "已写入工作区：\(reference)"
+            let separator = draft.isEmpty ? "" : "\n"
+            draft += "\(separator)\(reference)\n"
+            inputFocused = true
+        } catch {
+            attachmentError = "导入失败：\(error.localizedDescription)"
+        }
+    }
+
+    private static func importTimestamp() -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        return formatter.string(from: Date())
+    }
+
+    private enum ImportFailure: LocalizedError {
+        case tooLarge(String, Int)
+        case totalTooLarge
+
+        var errorDescription: String? {
+            switch self {
+            case .tooLarge(let name, let size):
+                return "\(name) 超过 64 MiB（\(size) 字节）。"
+            case .totalTooLarge:
+                return "一次最多导入 128 MiB。"
             }
         }
     }
@@ -1617,6 +1918,16 @@ private enum AttachmentImportError: LocalizedError {
 private struct TranscriptTailPreference: PreferenceKey {
     static var defaultValue: CGFloat = .greatestFiniteMagnitude
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
+/// Full transcript height, so a "scroll to the tail" is skipped when the
+/// content already fits the viewport: a bottom-anchored scroll on a shorter
+/// transcript overshoots into empty space and reads as a blank page.
+private struct TranscriptContentHeightPreference: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
 }
 
 private struct QuestionCard: View {
@@ -1726,6 +2037,78 @@ private struct QuestionCard: View {
     }
 }
 
+/// The model's streamed reasoning, following the DSH web ReasoningRow:
+/// a 24pt disclosure row with the official Think icon (the DSH artwork),
+/// the title, and one collapsed summary line that keeps refreshing while the
+/// model thinks. Tapping opens the complete reasoning Markdown.
+private struct ThinkingBlock: View {
+    let text: String
+    let streaming: Bool
+    @State private var expanded = false
+
+    /// DSH's collapsed summary: the first line when settled; while running,
+    /// the first line of the latest COMPLETED paragraph (the growing last
+    /// paragraph is skipped so the line does not jitter).
+    private var summary: String {
+        let raw: String
+        if streaming {
+            raw = Self.latestCompletedParagraphFirstLine(text)
+        } else {
+            raw = text.components(separatedBy: "\n").first ?? ""
+        }
+        return raw.replacingOccurrences(of: "**", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func latestCompletedParagraphFirstLine(_ text: String) -> String {
+        var currentFirst: String?
+        var lastCompleted: String?
+        for line in text.components(separatedBy: "\n") {
+            if line.trimmingCharacters(in: .whitespaces).isEmpty {
+                if let first = currentFirst { lastCompleted = first }
+                currentFirst = nil
+            } else if currentFirst == nil {
+                currentFirst = line
+            }
+        }
+        return lastCompleted ?? currentFirst ?? ""
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                expanded.toggle()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(expanded ? "DSHChevronUp" : "DSHThink")
+                        .resizable()
+                        .renderingMode(.template)
+                        .frame(width: 14, height: 14)
+                    Text("思考")
+                        .font(.system(size: 13))
+                    if !expanded, !summary.isEmpty {
+                        Rectangle()
+                            .fill(ChatPage.inkSecondary.opacity(0.35))
+                            .frame(width: 12, height: 1)
+                        ShimmerText(text: summary, active: streaming)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .foregroundStyle(ChatPage.inkSecondary)
+                .frame(minHeight: 24)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if expanded {
+                NativeMarkdownBody(markdown: text.isEmpty ? "…" : text)
+                    .font(.system(size: 15))
+                    .foregroundStyle(ChatPage.inkSecondary)
+                    .padding(.leading, 22)
+            }
+        }
+    }
+}
+
 private struct ChatMessageRow: View {
     let item: ChatItem
     var workspaceFiles: [WorkspaceFile]
@@ -1746,6 +2129,11 @@ private struct ChatMessageRow: View {
         case .assistant:
             // 助手正文不套气泡,直接排在版心上。
             assistantBody
+        case .reasoning:
+            // The model's thinking: muted, collapsible, and never part of the
+            // answer. It starts expanded while streaming, collapses when the
+            // step's answer arrives.
+            ThinkingBlock(text: item.text, streaming: item.streaming)
         case .status:
             EmptyView()
         }
@@ -1754,13 +2142,11 @@ private struct ChatMessageRow: View {
     private var assistantBody: some View {
         VStack(alignment: .leading, spacing: 6) {
             if item.streaming { ProgressView().controlSize(.mini) }
-            NativeMarkdownBody(markdown: item.text.isEmpty ? "…" : item.text)
-                .font(.system(size: 17))
-                .environment(\.openURL, OpenURLAction { url in
-                    guard let path = workspaceRelativePath(from: url) else { return .systemAction }
-                    onOpenFile(path)
-                    return .handled
-                })
+            SelectableMarkdownText(markdown: item.text.isEmpty ? "…" : item.text) { url in
+                guard let path = workspaceRelativePath(from: url) else { return false }
+                onOpenFile(path)
+                return true
+            }
             WorkspaceOutputReferences(text: item.text, files: workspaceFiles, onOpenFile: onOpenFile)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1791,13 +2177,12 @@ private struct ChatMessageRow: View {
             }
             .foregroundStyle(.secondary)
             if item.kind == .assistant {
-                NativeMarkdownBody(markdown: item.text.isEmpty ? "…" : item.text)
-                    .padding(-16)
-                    .environment(\.openURL, OpenURLAction { url in
-                        guard let path = workspaceRelativePath(from: url) else { return .systemAction }
-                        onOpenFile(path)
-                        return .handled
-                    })
+                SelectableMarkdownText(markdown: item.text.isEmpty ? "…" : item.text) { url in
+                    guard let path = workspaceRelativePath(from: url) else { return false }
+                    onOpenFile(path)
+                    return true
+                }
+                .padding(-16)
             } else {
                 Text(item.text.isEmpty ? "…" : item.text)
                     .font(.body)
@@ -1854,51 +2239,54 @@ private struct ToolRunRow: View {
         items.last?.streaming == true
     }
 
-    private var title: String {
-        items.count == 1 ? "工具 · 1 次" : "工具 · \(items.count) 次"
-    }
+    /// DSH's TurnProcessNodeView is a full-width 33pt row: tertiary label, a
+    /// trailing chevron that rotates 180° when open, and a bottom hairline.
+    /// Hover does not exist on a phone, so the chevron is always visible.
+    private var label: String { "过程 · \(items.count) 步" }
 
     var body: some View {
-        DisclosureGroup(isExpanded: $expanded) {
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(items) { item in
-                    ToolEventCard(item: item, expanded: false,
-                                  workspaceFiles: workspaceFiles, onOpenFile: onOpenFile)
-                }
-            }
-            .padding(.top, 2)
-        } label: {
-            HStack(spacing: 9) {
-                Image(systemName: failures > 0 ? "exclamationmark.triangle.fill" : "terminal")
-                    .font(.system(size: 14))
-                    .foregroundStyle(failures > 0
-                        ? Color(red: 0xC0/255, green: 0x39/255, blue: 0x2B/255)
-                        : Color(red: 154/255, green: 154/255, blue: 162/255))
-                Text(title)
-                    .font(.system(size: 13))
-                    .foregroundStyle(ChatPage.inkSecondary)
-                    .lineLimit(1)
-                if failures > 0 {
-                    Text("· \(failures) 失败")
-                        .font(.system(size: 13))
-                        .foregroundStyle(Color(red: 0xC0/255, green: 0x39/255, blue: 0x2B/255))
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                expanded.toggle()
+            } label: {
+                HStack(spacing: 6) {
+                    Text(label)
+                        .font(.system(size: 14))
+                        .foregroundStyle(ChatPage.inkSecondary)
                         .lineLimit(1)
+                    if running {
+                        ProgressView().controlSize(.mini).scaleEffect(0.75)
+                    } else if failures > 0 {
+                        Image("DSHClose")
+                            .resizable()
+                            .renderingMode(.template)
+                            .frame(width: 12, height: 12)
+                            .foregroundStyle(Color(red: 0xC0/255, green: 0x39/255, blue: 0x2B/255))
+                    }
+                    Spacer(minLength: 0)
+                    Image("DSHChevronDown")
+                        .resizable()
+                        .renderingMode(.template)
+                        .frame(width: 14, height: 14)
+                        .rotationEffect(.degrees(expanded ? 180 : 0))
+                        .foregroundStyle(ChatPage.inkSecondary)
                 }
-                Spacer(minLength: 8)
-                if running {
-                    ProgressView().controlSize(.mini).scaleEffect(0.8)
-                }
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Color(red: 154/255, green: 154/255, blue: 162/255))
-                    .rotationEffect(.degrees(expanded ? 90 : 0))
+                .frame(height: 33)
+                .contentShape(Rectangle())
             }
-            .frame(height: 28)
-            .contentShape(Rectangle())
-        }
-        .disclosureGroupStyle(FlatDisclosureStyle())
-        .contextMenu {
-            Button("展开/收起", systemImage: "chevron.down") { expanded.toggle() }
+            .buttonStyle(.plain)
+            Rectangle()
+                .fill(ChatPage.inkSecondary.opacity(0.18))
+                .frame(height: 0.5)
+            if expanded {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(items) { item in
+                        ToolEventCard(item: item, expanded: false,
+                                      workspaceFiles: workspaceFiles, onOpenFile: onOpenFile)
+                    }
+                }
+                .padding(.top, 6)
+            }
         }
     }
 }
@@ -1953,14 +2341,7 @@ private struct ToolEventCard: View {
 
     var body: some View {
         DisclosureGroup(isExpanded: $expanded) {
-            ScrollView([.horizontal, .vertical]) {
-                Text(item.text)
-                    .font(.system(.caption, design: .monospaced))
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 7)
-            }
-            .frame(maxHeight: expanded ? 280 : nil)
+            DSHJsonBlock(text: item.text)
             if case .toolResult = item.kind {
                 WorkspaceOutputReferences(text: item.text, files: workspaceFiles, onOpenFile: onOpenFile)
             }
@@ -1978,18 +2359,25 @@ private struct ToolEventCard: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 8)
-                if case .toolResult = item.kind, isError {
-                    Text("失败")
-                        .font(.system(size: 12))
-                        .foregroundStyle(Color(red: 0xC0/255, green: 0x39/255, blue: 0x2B/255))
-                } else if item.streaming {
+                if item.streaming {
                     ProgressView().controlSize(.mini).scaleEffect(0.8)
+                } else if case .toolResult = item.kind {
+                    // The DSH web tool row ends in the same status glyph.
+                    Image(isError ? "DSHClose" : "DSHCheck")
+                        .resizable()
+                        .renderingMode(.template)
+                        .frame(width: 12, height: 12)
+                        .foregroundStyle(isError
+                            ? Color(red: 0xC0/255, green: 0x39/255, blue: 0x2B/255)
+                            : Color(red: 154/255, green: 154/255, blue: 162/255))
                 }
                 if hasDetails {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 12, weight: .semibold))
+                    Image("DSHChevronDown")
+                        .resizable()
+                        .renderingMode(.template)
+                        .frame(width: 12, height: 12)
+                        .rotationEffect(.degrees(expanded ? 180 : 0))
                         .foregroundStyle(Color(red: 154/255, green: 154/255, blue: 162/255))
-                        .rotationEffect(.degrees(expanded ? 90 : 0))
                 }
             }
             .frame(height: 28)
@@ -2210,12 +2598,43 @@ private struct WorkspaceOutputReferences: View {
 }
 
 private func workspaceRelativePath(from url: URL) -> String? {
-    guard url.scheme == nil || url.scheme == "file" else { return nil }
-    guard url.host == nil || url.host?.isEmpty == true else { return nil }
-    var path = url.path.removingPercentEncoding ?? url.path
+    let scheme = url.scheme?.lowercased()
+    var path: String
+    switch scheme {
+    case nil, "file", "sandbox":
+        guard url.host == nil || url.host?.isEmpty == true else { return nil }
+        path = url.path.removingPercentEncoding ?? url.path
+    case "dsh-resource":
+        // DSH's own file address — `dsh-resource://file/session/<id>/<path>`
+        // (workspace-relative, or absolute with the leading `/` dropped) and
+        // `dsh-resource://file/absolute/<path>`. The web surface accepts
+        // these; a native message that quotes one used to fall through to the
+        // system as an unopenable URL, which read as "the file is missing".
+        guard url.host?.lowercased() == "file" else { return nil }
+        let segments = url.path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+        guard let scope = segments.first else { return nil }
+        let tail: [String]
+        switch scope {
+        case "session" where segments.count >= 3: tail = Array(segments.dropFirst(2))
+        case "absolute" where segments.count >= 2: tail = Array(segments.dropFirst())
+        default: return nil
+        }
+        var joined = tail.joined(separator: "/")
+        if joined == "dsh/workspace" { return nil }
+        if joined.hasPrefix("dsh/workspace/") {
+            joined = String(joined.dropFirst("dsh/workspace/".count))
+        } else if joined.hasPrefix("dsh/") {
+            return nil
+        }
+        path = joined
+    default:
+        return nil
+    }
     if path.hasPrefix("/dsh/workspace/") {
         path = String(path.dropFirst("/dsh/workspace/".count))
-    } else if path == "/dsh/workspace" {
+    } else if path.hasPrefix("dsh/workspace/") {
+        path = String(path.dropFirst("dsh/workspace/".count))
+    } else if path == "/dsh/workspace" || path == "dsh/workspace" {
         return nil
     } else if path.hasPrefix("/") {
         return nil
@@ -2223,7 +2642,7 @@ private func workspaceRelativePath(from url: URL) -> String? {
     path = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
     let components = path.split(separator: "/")
     guard !components.isEmpty, !components.contains("."), !components.contains("..") else { return nil }
-    return components.joined(separator: "/")
+    return components.joined(separator: "/").precomposedStringWithCanonicalMapping
 }
 
 struct RuntimeDetailsPage: View {
@@ -2353,106 +2772,6 @@ struct RuntimeDetailsPage: View {
             Button("停止", role: .destructive) { Task { await model.stop() } }
         } message: {
             Text("正在跑的任务会停下来。会话和文件都还在。")
-        }
-    }
-}
-
-private struct CommandLauncherPage: View {
-    @Bindable var model: ChatModel
-    let attachments: [HarnessAttachment]
-    let onRun: (NativeCommandDescriptor, String, [HarnessAttachment]) -> Void
-    @Environment(\.dismiss) private var dismiss
-    @State private var selectedCommand: NativeCommandDescriptor?
-    @State private var input = ""
-    @State private var searchText = ""
-
-    private var commands: [NativeCommandDescriptor] {
-        guard !searchText.isEmpty else { return model.availableCommands }
-        return model.availableCommands.filter {
-            $0.name.localizedCaseInsensitiveContains(searchText)
-                || $0.description.localizedCaseInsensitiveContains(searchText)
-        }
-    }
-
-    var body: some View {
-        NavigationStack {
-            List {
-                if let error = model.commandsError {
-                    Section {
-                        Label(error, systemImage: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange)
-                        Button("重试") { Task { await model.loadCommands() } }
-                    }
-                }
-                if model.commandsLoading && commands.isEmpty {
-                    Section { ProgressView("正在读取 DSH 命令…") }
-                }
-                Section("可用命令") {
-                    if commands.isEmpty && !model.commandsLoading {
-                        ContentUnavailableView("没有匹配的命令", systemImage: "command",
-                                               description: Text("这些命令由手机上的引擎提供。"))
-                    }
-                    ForEach(commands) { descriptor in
-                        Button {
-                            selectedCommand = descriptor
-                            input = ""
-                        } label: {
-                            HStack(alignment: .top, spacing: 10) {
-                                Image(systemName: selectedCommand?.id == descriptor.id ? "checkmark.circle.fill" : "command")
-                                    .foregroundStyle(selectedCommand?.id == descriptor.id ? Color.accentColor : Color.secondary)
-                                    .padding(.top, 2)
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text("/\(descriptor.name)").font(.body.weight(.semibold))
-                                    Text(descriptor.description).font(.footnote).foregroundStyle(.secondary)
-                                    if descriptor.acceptsAttachments {
-                                        Label("DSH 命令声明支持附件", systemImage: "paperclip")
-                                            .font(.caption).foregroundStyle(.secondary)
-                                    }
-                                }
-                                Spacer(minLength: 0)
-                            }
-                            .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                if let selectedCommand {
-                    Section("运行 /\(selectedCommand.name)") {
-                        if let hint = selectedCommand.inputHint, !hint.isEmpty {
-                            TextField(hint, text: $input, axis: .vertical)
-                                .lineLimit(1...5)
-                        }
-                        if !attachments.isEmpty {
-                            Label("将附带 \(attachments.count) 张图片", systemImage: "paperclip")
-                                .font(.footnote).foregroundStyle(.secondary)
-                            if !selectedCommand.acceptsAttachments {
-                                Text("此命令不接受图片。请移除附件或选择其他命令。")
-                                    .font(.footnote).foregroundStyle(.orange)
-                            }
-                        }
-                        Button("运行命令", systemImage: "play.fill") {
-                            let descriptor = selectedCommand
-                            dismiss()
-                            onRun(descriptor, input, attachments)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(model.busy || !model.canSend || (!attachments.isEmpty && !selectedCommand.acceptsAttachments))
-                    }
-                }
-            }
-            .searchable(text: $searchText, prompt: "搜索命令")
-            .navigationTitle("DSH 命令")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("完成") { dismiss() }.leadingBarText() }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { Task { await model.loadCommands() } } label: { Image(systemName: "arrow.clockwise") }
-                        .disabled(model.commandsLoading)
-                        .accessibilityLabel("刷新命令列表")
-                }
-            }
-            .task { await model.loadCommands() }
         }
     }
 }

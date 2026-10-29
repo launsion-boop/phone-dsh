@@ -58,7 +58,10 @@ public struct WorkspaceLogAck: Equatable, Sendable {
 public struct WorkspaceLogConfiguration: Equatable, Sendable {
     /// Quotas of PLAN §2.3; an exceeded quota compacts droppable data first and
     /// then fails loud.
-    public static let defaultWALQuotaBytes = 256 * 1024 * 1024
+    /// 512 MiB: the 12 GiB row publishes 256 MiB files, and one such file
+    /// rewritten twice would otherwise reach the former 256 MiB quota
+    /// (budgets.md §5).
+    public static let defaultWALQuotaBytes = 512 * 1024 * 1024
     public static let defaultJournalQuotaBytes = 64 * 1024 * 1024
     public static let defaultResponseLogQuotaBytes = 128 * 1024 * 1024
     /// A segment rolls before a mutation that would exceed 8 MiB (wal.md §1).
@@ -91,6 +94,9 @@ public struct WorkspaceLogConfiguration: Equatable, Sendable {
     public var groupCommitDelay: TimeInterval
     /// Bytes that force an immediate group-commit flush (256 KiB).
     public var groupCommitBytes: Int
+    /// Prefix/total caps enforced before an append (nil = only the single-file
+    /// cap; the host always supplies the device tier's values).
+    public var vfsQuota: VfsQuota?
 
     public init(root: URL,
                 walQuotaBytes: Int = WorkspaceLogConfiguration.defaultWALQuotaBytes,
@@ -100,7 +106,8 @@ public struct WorkspaceLogConfiguration: Equatable, Sendable {
                 singleFileLimitBytes: Int = WorkspaceLogConfiguration.defaultSingleFileLimitBytes,
                 epochIntervalSeconds: TimeInterval = WorkspaceLogConfiguration.defaultEpochIntervalSeconds,
                 groupCommitDelay: TimeInterval = WorkspaceLogConfiguration.defaultGroupCommitDelaySeconds,
-                groupCommitBytes: Int = WorkspaceLogConfiguration.defaultGroupCommitBytes) {
+                groupCommitBytes: Int = WorkspaceLogConfiguration.defaultGroupCommitBytes,
+                vfsQuota: VfsQuota? = nil) {
         self.root = root
         self.walQuotaBytes = walQuotaBytes
         self.journalQuotaBytes = journalQuotaBytes
@@ -110,6 +117,7 @@ public struct WorkspaceLogConfiguration: Equatable, Sendable {
         self.epochIntervalSeconds = epochIntervalSeconds
         self.groupCommitDelay = groupCommitDelay
         self.groupCommitBytes = groupCommitBytes
+        self.vfsQuota = vfsQuota
     }
 }
 

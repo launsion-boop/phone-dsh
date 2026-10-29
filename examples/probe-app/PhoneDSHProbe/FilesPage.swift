@@ -4,6 +4,7 @@
 import SwiftUI
 import QuickLook
 import WebKit
+import PhoneDSHEngine
 
 struct FilesPage: View {
     @State private var directory: String
@@ -13,17 +14,19 @@ struct FilesPage: View {
         self.initialPath = initialPath
     }
 
-    /// 分组标题只写「工作文件夹」或当前那一层文件夹名,不写手机上的整条路径。
+    /// 分组标题只写「手机工作区」或当前那一层文件夹名,不写手机上的整条路径。
+    /// 工作区在磁盘上的名字仍是 DSH 的 `default-workspace`,这里只改显示名。
     private var fileGroupTitle: String {
         let trimmed = directory.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        guard !trimmed.isEmpty else { return "工作文件夹" }
-        return trimmed.split(separator: "/").last.map(String.init) ?? "工作文件夹"
+        guard !trimmed.isEmpty else { return "手机工作区" }
+        return trimmed.split(separator: "/").last.map(String.init) ?? "手机工作区"
     }
     let initialPath: String?
     @State private var query = ""
     @State private var model = ChatModel.shared
     @State private var selectedFile: WorkspaceFile?
     @State private var didOpenInitialPath = false
+    @State private var showingDemo = false
 
     private var children: [WorkspaceFile] {
         model.files.filter { file in
@@ -45,7 +48,7 @@ struct FilesPage: View {
 
     var body: some View {
         fileList
-            .navigationTitle(directory.isEmpty ? "文件" : String(directory.dropLast()).split(separator: "/").last.map(String.init) ?? "文件")
+            .navigationTitle(directory.isEmpty ? "手机工作区" : String(directory.dropLast()).split(separator: "/").last.map(String.init) ?? "手机工作区")
             .navigationBarTitleDisplayMode(.large)
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
@@ -59,6 +62,37 @@ struct FilesPage: View {
                 }
                 .presentationDragIndicator(.visible)
             }
+            .sheet(isPresented: $showingDemo) {
+                NavigationStack {
+                    PDSHPageView(entry: .library(path: "demo/spin.html"),
+                                 resolver: FilesPage.demoResolver)
+                        .navigationTitle("3D 示例")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("完成") { showingDemo = false }
+                            }
+                        }
+                }
+                .presentationDragIndicator(.visible)
+            }
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button { showingDemo = true } label: {
+                        Label("3D 示例", systemImage: "cube")
+                    }
+                    .accessibilityLabel("打开 3D 示例")
+                }
+            }
+    }
+
+    /// The demo is served from the bundled library only; it has no session
+    /// workspace, so a `pdsh-page://<session>/` request is refused.
+    private static var demoResolver: PDSHPageResolver {
+        PDSHPageResolver(
+            libraryRoot: Bundle.main.url(forResource: "Web3DLib", withExtension: nil)
+                ?? Bundle.main.bundleURL,
+            workspaceRoot: { _ in nil })
     }
 
     /// Kept out of `body`: the grouped list expression alone is too large for
@@ -114,9 +148,16 @@ struct FilesPage: View {
             directory = String(normalized[..<slashIndex]) + "/"
         }
         var match: WorkspaceFile?
+        let canonical = normalized.precomposedStringWithCanonicalMapping
         for candidate in model.files where candidate.relativePath == normalized {
             match = candidate
             break
+        }
+        if match == nil {
+            // The list comes from the materialized tree and the requested path
+            // from a tool result; a Chinese name can differ only in Unicode
+            // normalization, which is not a missing file.
+            match = model.files.first { $0.relativePath.precomposedStringWithCanonicalMapping == canonical }
         }
         if match == nil {
             match = ChatPage.uniqueBasenameMatch(normalized, in: model.files)
@@ -193,6 +234,10 @@ private struct FilePreviewPage: View {
     /// App-side rendering budget after the host has applied its own page caps.
     private static let inlineTextPreviewLimit = 256 * 1024
     private static let inlineTextPreviewLines = 200
+    /// JSON/CSV read the materialized copy directly: the Worker read caps at
+    /// 256 KiB / 200 lines and truncated ordinary exports (spec-render-media-v1 §C.2).
+    private static let directTextExtensions: Set<String> = ["json", "csv", "tsv"]
+    private static let directTextPreviewLimit = 8 * 1024 * 1024
 
     let file: WorkspaceFile
     let workspaceRoot: URL
@@ -222,6 +267,29 @@ private struct FilePreviewPage: View {
         return candidate
     }
 
+    /// `pdsh-page:` roots for this preview: every known session's materialized
+    /// workspace (the host may own several) plus the bundled Web3DLib. The map
+    /// is a snapshot taken when the view is built; a workspace refresh re-reads
+    /// it on the next render.
+    private var pageResolver: PDSHPageResolver? {
+        guard let library = Bundle.main.url(forResource: "Web3DLib", withExtension: nil) else {
+            return nil
+        }
+        let map = ChatModel.shared.pageWorkspaceMap()
+        return PDSHPageResolver(libraryRoot: library, workspaceRoot: { map[$0] })
+    }
+
+    /// The workspace that owns this file, with its session segment and the
+    /// path relative to that workspace. The page origin is per workspace, so a
+    /// file under `proj-b` must not be opened with the current session and a
+    /// tree-relative path.
+    private var pageEntry: PDSHPageEntry? {
+        guard let owner = ChatModel.shared.pageWorkspaceOwner(for: file.relativePath) else {
+            return nil
+        }
+        return .workspace(sessionID: owner.sessionID, path: owner.relativePath)
+    }
+
     private var needsQuickLook: Bool {
         let ext = URL(fileURLWithPath: file.relativePath).pathExtension.lowercased()
         return !["txt", "md", "markdown", "json", "yaml", "yml", "xml", "html", "htm", "csv", "tsv", "log",
@@ -232,8 +300,13 @@ private struct FilePreviewPage: View {
         Group {
             if quickLookURL != nil {
                 ContentUnavailableView("正在打开预览…", systemImage: "doc.viewfinder")
-            } else if isHTML, let textPreview {
-                IsolatedHTMLPreview(html: textPreview)
+            } else if isHTML, let entry = pageEntry, let resolver = pageResolver {
+                // A real origin: relative scripts, textures and .glb models
+                // resolve, with the host-enforced CSP per the page's tier.
+                PDSHPageView(entry: entry, resolver: resolver)
+            } else if isHTML {
+                ContentUnavailableView("这个页面不在任何工作区里", systemImage: "globe",
+                                       description: Text("页面预览以它所属的工作区目录为根；散落的文件请用文本或分享打开。"))
             } else if isMarkdown, let textPreview {
                 ScrollView(.vertical) { NativeMarkdownBody(markdown: textPreview) }
             } else if let textPreview {
@@ -294,7 +367,30 @@ private struct FilePreviewPage: View {
         isHTML = ["html", "htm"].contains(ext)
         isMarkdown = ["md", "markdown"].contains(ext)
         if isHTML {
-            previewNotice = "此预览允许页面内脚本；网络请求、外部资源、文件访问与宿主桥均被禁用。"
+            previewNotice = "页面在本地 pdsh-page:// 源下运行；默认不出网。"
+            guard safeFileURL != nil else {
+                previewError = "此文件已不在安全的本机工作区快照中。请刷新工作区后重试。"
+                return
+            }
+            return
+        }
+        // HTML above; JSON/CSV come from the materialized copy (no 256 KiB /
+        // 200-line cap). The Worker read stays as the fallback for a file
+        // written but not yet materialized.
+        if Self.directTextExtensions.contains(ext), let safeFileURL {
+            do {
+                let data = try Data(contentsOf: safeFileURL)
+                textPreview = String(decoding: data.prefix(Self.directTextPreviewLimit),
+                                     as: UTF8.self)
+                if data.count > Self.directTextPreviewLimit {
+                    previewNotice = appendNotice(previewNotice,
+                                                 "文本预览限制为 8 MiB；可分享文件后用其他应用打开完整内容。")
+                }
+                return
+            } catch {
+                previewError = "读取文件失败：\(error.localizedDescription)"
+                return
+            }
         }
         if needsQuickLook {
             guard let safeFileURL else {
@@ -323,7 +419,16 @@ private struct FilePreviewPage: View {
                 previewNotice = appendNotice(previewNotice, "仅显示前 \(Self.inlineTextPreviewLines) 行；可继续使用分享功能打开完整文件。")
             }
         } catch {
-            previewError = "读取文件失败：\(error.localizedDescription)"
+            // This browser listed the file from the durable materialized copy,
+            // so a Worker read failure must not claim the file does not exist.
+            // Show the on-disk copy and name it as such; a write that is still
+            // in flight becomes visible after a workspace refresh.
+            if let url = safeFileURL, let data = try? Data(contentsOf: url) {
+                textPreview = String(decoding: data.prefix(Self.inlineTextPreviewLimit), as: UTF8.self)
+                previewNotice = appendNotice(previewNotice, "当前显示本机物化副本；若刚有写入，请稍后刷新工作区。")
+            } else {
+                previewError = "读取文件失败：\(error.localizedDescription)"
+            }
         }
     }
 
@@ -345,30 +450,3 @@ private struct FilePreviewPage: View {
     }
 }
 
-/// HTML runs only its own inline page code inside an ephemeral WebKit view.
-/// It has no native message bridge, file access, network access or navigation.
-private struct IsolatedHTMLPreview: UIViewRepresentable {
-    let html: String
-    func makeUIView(context: Context) -> WKWebView {
-        let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .nonPersistent()
-        configuration.defaultWebpagePreferences.allowsContentJavaScript = true
-        let view = WKWebView(frame: .zero, configuration: configuration)
-        view.navigationDelegate = context.coordinator
-        view.isInspectable = false
-        view.scrollView.isScrollEnabled = true
-        return view
-    }
-    func updateUIView(_ view: WKWebView, context: Context) {
-        let policy = "default-src 'none'; script-src 'unsafe-inline' blob:; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'; frame-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
-        let safe = "<meta http-equiv=\"Content-Security-Policy\" content=\"\(policy)\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">" + html
-        view.loadHTMLString(safe, baseURL: URL(string: "about:blank"))
-    }
-    func makeCoordinator() -> Coordinator { Coordinator() }
-    final class Coordinator: NSObject, WKNavigationDelegate {
-        func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
-                     decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-            decisionHandler(navigationAction.request.url?.absoluteString == "about:blank" ? .allow : .cancel)
-        }
-    }
-}

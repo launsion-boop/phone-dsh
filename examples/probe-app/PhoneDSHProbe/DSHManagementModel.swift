@@ -4,6 +4,8 @@
 import Foundation
 import Observation
 import PhoneDSHAgentCore
+import PhoneDSH
+import PhoneDSHEngine
 import PhoneDSHWire
 
 struct ManagedSession: Identifiable, Hashable {
@@ -225,6 +227,55 @@ final class DSHManagementModel {
             await refresh()
             return id
         } catch { self.error = error.localizedDescription; return nil }
+    }
+
+    /// Creates a new workspace folder inside the VFS and registers it.
+    ///
+    /// A host folder path cannot be registered: `workspace/create` stats the
+    /// path in the Worker's VFS, where only `/dsh/workspace/...` exists. The
+    /// folder is materialized through the import service and then registered,
+    /// so its cwd is a real VFS path (and the page origin can serve it).
+    func createWorkspaceFolder(named rawName: String) async -> ManagedWorkspace? {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, !name.contains("/"), name.count <= 64 else {
+            error = "名字不能为空、不能包含 /，且不超过 64 个字符。"
+            return nil
+        }
+        do {
+            if ChatModel.shared.currentSessionID == nil {
+                await ChatModel.shared.newSession()
+            }
+            guard let sessionID = ChatModel.shared.currentSessionID else {
+                throw ManagementError.noActiveSession
+            }
+            guard let transport else { throw ManagementError.notConnected }
+            let sink = PhoneDSHWorkspaceImportSink(transport: transport)
+            let manifest = WebEngineDirectoryImportManifest(
+                sessionID: sessionID,
+                targetDirectory: "/dsh/workspace",
+                entryName: name,
+                directories: [],
+                files: [],
+                totalBytes: 0)
+            let importID = try await sink.begin(manifest)
+            let result = try await sink.commit(importID: importID)
+            let path = "/dsh/workspace/" + result.workspacePath
+            let response = try await transport.call(
+                "workspace/create",
+                args: .object(["request": .object(["path": .string(path)])]))
+            let row = response["workspace"] ?? .null
+            guard let workspace = Self.decodeWorkspace(row) else {
+                throw ManagementError.invalidResponse
+            }
+            if !workspaceOrder.contains(workspace.id) { workspaceOrder.append(workspace.id) }
+            upsertWorkspace(workspace)
+            notice = "工作区已添加"
+            await refresh()
+            return workspace
+        } catch {
+            self.error = error.localizedDescription
+            return nil
+        }
     }
 
     func createWorkspace(at path: String) async -> ManagedWorkspace? {

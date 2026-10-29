@@ -82,7 +82,8 @@ struct SessionsPage: View {
     @State private var renameText = ""
     @State private var workspacePath = ""
     @State private var showingAddWorkspace = false
-    @State private var showingFolderPicker = false
+    @State private var showingNewWorkspace = false
+    @State private var newWorkspaceName = ""
     @State private var archivedToast = false
     @State private var deleteWorkspaceTarget: ManagedWorkspace?
     @State private var showArchived = false
@@ -212,8 +213,8 @@ struct SessionsPage: View {
                                 .foregroundStyle(SessionsPage.ink)
                                 .multilineTextAlignment(.center)
                                 .padding(.top, 8)
-                            Button { showingFolderPicker = true } label: {
-                                Text("选择文件夹")
+                            Button { showingNewWorkspace = true } label: {
+                                Text("新建工作文件夹")
                                     .font(.system(size: 17, weight: .semibold))
                                     .foregroundStyle(.white)
                                     .frame(maxWidth: .infinity)
@@ -261,7 +262,7 @@ struct SessionsPage: View {
                 // 全空态里已经有「选择文件夹」那颗按钮,这一行就不再出现,免得两个入口。
                 if !isCompletelyEmpty {
                     Section {
-                        Button { showingFolderPicker = true } label: {
+                        Button { showingNewWorkspace = true } label: {
                             HStack(spacing: 8) {
                                 Image(systemName: "plus")
                                     .font(.system(size: 16, weight: .medium))
@@ -363,12 +364,19 @@ struct SessionsPage: View {
                 } message: { _ in
                     Text("里面的会话会留着,只是不再放在这个文件夹里。")
                 }
-            .fileImporter(isPresented: $showingFolderPicker,
-                          allowedContentTypes: [.folder],
-                          allowsMultipleSelection: false) { result in
-                // 选文件夹用系统选择器,不再让用户手输路径。
-                guard case .success(let urls) = result, let url = urls.first else { return }
-                Task { _ = await management.createWorkspace(at: url.path) }
+            .alert("新建工作文件夹", isPresented: $showingNewWorkspace) {
+                TextField("名字", text: $newWorkspaceName)
+                    .textInputAutocapitalization(.never).autocorrectionDisabled()
+                Button("取消", role: .cancel) { newWorkspaceName = "" }
+                Button("创建") {
+                    let name = newWorkspaceName
+                    newWorkspaceName = ""
+                    Task { _ = await management.createWorkspaceFolder(named: name) }
+                }
+            } message: {
+                // A picked host folder cannot be registered (the Worker stats
+                // the VFS); this creates the folder there first.
+                Text("会在 DSH 工作区里新建同名文件夹并登记为工作文件夹。")
             }
             .alert("添加工作区", isPresented: $showingAddWorkspace) {
                 TextField("DSH Worker 中已存在的绝对路径", text: $workspacePath)

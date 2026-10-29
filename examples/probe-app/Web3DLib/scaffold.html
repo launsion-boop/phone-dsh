@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- The host enforces this tier; see spec-render-media-v1 §B.4. `local` lets
+     the page fetch() its own .glb/.json from the pdsh-page: origin. -->
+<meta name="pdsh-csp" content="local">
+<title>3D 场景</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #f2f2f4; overflow: hidden; }
+  canvas { display: block; width: 100%; height: 100%; }
+  #status { position: fixed; left: 12px; bottom: 12px; font: 12px/1.4 -apple-system, ui-sans-serif;
+            color: #6b7280; background: rgba(255,255,255,.8); padding: 4px 8px; border-radius: 6px; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "pdsh-page://lib/three.module.min.js" } }
+</script>
+</head>
+<body>
+<div id="status">加载中…</div>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'pdsh-page://lib/loaders/GLTFLoader.js';
+import { OrbitControls } from 'pdsh-page://lib/controls/OrbitControls.js';
+import { RoomEnvironment } from 'pdsh-page://lib/environments/RoomEnvironment.js';
+
+// Edit the three lines below for a new scene: title, model path, camera.
+const MODEL = 'model.glb';
+const CAMERA = { position: [2.6, 1.8, 3.2], target: [0, 0, 0] };
+
+const status = document.getElementById('status');
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, premultipliedAlpha: false });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+renderer.domElement.style.touchAction = 'none';
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+camera.position.set(...CAMERA.position);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(...CAMERA.target);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.update();
+
+// Local, offline lighting: the RoomEnvironment is bundled in the Web3DLib.
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+
+let model = null;
+new GLTFLoader().load(MODEL, (gltf) => {
+  model = gltf.scene;
+  scene.add(model);
+  status.textContent = '';
+}, undefined, (error) => {
+  status.textContent = '模型加载失败：' + (error && error.message ? error.message : error);
+});
+
+function resize() {
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize);
+
+renderer.setAnimationLoop(() => {
+  controls.update();
+  renderer.render(scene, camera);
+});
+window.addEventListener('pagehide', () => {
+  renderer.setAnimationLoop(null);
+  renderer.dispose();
+});
+</script>
+</body>
+</html>

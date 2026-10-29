@@ -18,7 +18,7 @@ final class PhoneDSHSkeletonTests: XCTestCase {
         XCTAssertEqual(configuration.loopback.host, "127.0.0.1")
         XCTAssertEqual(configuration.loopback.port, 0)
         XCTAssertEqual(configuration.engine.visibleAreaPoints, 1)
-        XCTAssertEqual(configuration.log.walQuotaBytes, 256 * 1024 * 1024)
+        XCTAssertEqual(configuration.log.walQuotaBytes, 512 * 1024 * 1024)
         XCTAssertEqual(configuration.gateway.responseLogQuotaBytes, 128 * 1024 * 1024)
     }
 

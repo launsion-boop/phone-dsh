@@ -77,7 +77,8 @@ public actor WorkspaceLog: WorkspaceLogging {
         self.logicalIndex = try VfsLogicalIndex(
             paths: paths,
             materializedUptoMseq: report.materializedUptoMseq,
-            singleFileLimitBytes: configuration.singleFileLimitBytes)
+            singleFileLimitBytes: configuration.singleFileLimitBytes,
+            quota: configuration.vfsQuota)
 
         let writer = try WALWriter(configuration: configuration,
                                    bootID: bootID,
@@ -138,11 +139,35 @@ public actor WorkspaceLog: WorkspaceLogging {
         try logicalIndex.validate(mutation)
         let result = try await appendWithQuotaRecovery(mutation)
         logicalIndex.apply(mutation)
+        if ProcessInfo.processInfo.environment["PDSH_DEBUG_VFS"] == "1" {
+            Self.debugLogVFS(mutation, total: logicalIndex.totalBytes, sizes: logicalIndex.sizes)
+        }
         // D8: append to the WAL, ack level 1, then materialize. The writer hands
         // the exact record back, so the materialization step applies that record
         // in place instead of re-reading the whole WAL from disk (G2-FIX-83).
         try await materializeAppended(result)
         return result.mseq
+    }
+
+    /// Forensic only (`PDSH_DEBUG_VFS=1`): one line per accepted mutation with
+    /// the path, the increment and the cumulative logical bytes per prefix.
+    /// This exists to settle whether a workspace quota is enforced; it is not
+    /// a policy.
+    private static func debugLogVFS(_ mutation: VfsMutationBody,
+                                    total: Int,
+                                    sizes: [String: Int]) {
+        let prefixes = ["/dsh/workspace", "/dsh/home/sessions", "/dsh/tmp"]
+        var sums: [String: Int] = [:]
+        for (path, size) in sizes {
+            guard let prefix = prefixes.first(where: { path == $0 || path.hasPrefix($0 + "/") }) else {
+                continue
+            }
+            sums[prefix, default: 0] += size
+        }
+        let parts = prefixes.map { "\($0)=\(sums[$0] ?? 0)" }.joined(separator: " ")
+        let increment = mutation.op == .write ? mutation.data.count : 0
+        let line = "[vfs] op=\(mutation.op) path=\(mutation.path) +\(increment) total=\(total) \(parts)\n"
+        FileHandle.standardError.write(Data(line.utf8))
     }
 
     /// Cumulative WAL acks. A new subscriber receives the retained recent acks

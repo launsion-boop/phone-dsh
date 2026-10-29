@@ -283,7 +283,7 @@ worker has the bytes.
 
 ## 9. Quotas and compaction
 
-- The host WAL is limited to **256 MiB**, the sum of the segment files including headers. The
+- The host WAL is limited to **512 MiB**, the sum of the segment files including headers. The
   response log (128 MiB) and the journal (64 MiB) follow the same rule — compact droppable data
   first, then fail loud — in their own components; budgets.md (W1) fixes their behaviour.
 - A segment is **droppable** only when every mutation in it has `mseq <= materialized_upto_mseq` and
@@ -293,7 +293,7 @@ worker has the bytes.
   completed, then fsyncs the materialized files and directories produced by the segments to be
   dropped, writes the shorter manifest, and unlinks whole segment files. A segment is never
   partially truncated except by the torn-tail rule of §10.
-- If the WAL still exceeds 256 MiB after compaction, the host fails loud: admission closes and the
+- If the WAL still exceeds 512 MiB after compaction, the host fails loud: admission closes and the
   state becomes `Failed`. Data is not silently evicted.
 
 ## 10. Recovery (D19)

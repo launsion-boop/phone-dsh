@@ -51,21 +51,22 @@ final class BigFileBudgetTests: XCTestCase {
                 table.engineHeapBytes, table.vfsLogicalBytes,
                 "\(tier): the VFS lives in the engine heap, so the heap cap must cover it")
         }
-        XCTAssertEqual(BudgetTable.eightGB.singleFileBytes, 64 * mib)
+        XCTAssertEqual(BudgetTable.eightGB.singleFileBytes, 128 * mib)
         XCTAssertEqual(BudgetTable.sixGB.singleFileBytes, 48 * mib)
         XCTAssertEqual(BudgetTable.fourGB.singleFileBytes, 32 * mib)
         XCTAssertEqual(BudgetTable.threeGB.singleFileBytes, 16 * mib)
-        XCTAssertGreaterThanOrEqual(BudgetTable.eightGB.workspaceBytes, 160 * mib)
+        XCTAssertGreaterThanOrEqual(BudgetTable.eightGB.workspaceBytes, 288 * mib)
     }
 
     /// The `a + k × MB` target must cover the larger file and workspace: one
-    /// 64 MiB file costs 3 + 0.05 × 64 = 6.2 s; the 260 MB VFS cap costs 16 s.
+    /// 128 MiB file costs 3 + 0.05 × 128 = 9.4 s; the 388 MB VFS cap costs
+    /// 22.4 s.
     func testRecoveryTargetCoversTheLargerFileAndWorkspace() {
         let table = BudgetTable.eightGB
-        XCTAssertEqual(table.recoveryTimeTargetSeconds(forMaterializedMegabytes: 64),
-                       6.2, accuracy: 0.0001)
-        XCTAssertEqual(table.recoveryTimeTargetSeconds(forMaterializedMegabytes: 260),
-                       16.0, accuracy: 0.0001)
+        XCTAssertEqual(table.recoveryTimeTargetSeconds(forMaterializedMegabytes: 128),
+                       9.4, accuracy: 0.0001)
+        XCTAssertEqual(table.recoveryTimeTargetSeconds(forMaterializedMegabytes: 388),
+                       22.4, accuracy: 0.0001)
     }
 
     // MARK: - Configuration, tier gate and Worker exposure
@@ -100,8 +101,29 @@ final class BigFileBudgetTests: XCTestCase {
         let defaulted = PhoneDSHConfiguration(
             workspaceRoot: root, token: "token", origin: origin,
             deviceTier: .eightGB)
-        XCTAssertEqual(defaulted.singleFileLimitBytes, 64 * mib)
+        XCTAssertEqual(defaulted.singleFileLimitBytes, 128 * mib)
         XCTAssertEqual(defaulted.budgets, BudgetTable.eightGB)
+    }
+
+    /// The 12 GiB row accepts 256 MiB files; the 8 GiB row stays capped at
+    /// its 128 MiB maximum even when the host asks for more.
+    func testTwelveGiBTierAcceptsThe256MiBLimitAndTheEightGiBRowDoesNot() throws {
+        let root = try temporaryRoot("twelve")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let origin = try XCTUnwrap(URL(string: "http://127.0.0.1:1"))
+
+        let twelve = PhoneDSHConfiguration(
+            workspaceRoot: root, token: "token", origin: origin,
+            deviceTier: .twelveGB, singleFileLimitBytes: 256 * mib)
+        XCTAssertEqual(twelve.singleFileLimitBytes, 256 * mib)
+        XCTAssertEqual(twelve.budgets.singleFileBytes, 256 * mib)
+        XCTAssertTrue(twelve.budgets.isCoherent)
+        XCTAssertEqual(twelve.budgets.workspaceBytes, 576 * mib)
+
+        let eight = PhoneDSHConfiguration(
+            workspaceRoot: root, token: "token", origin: origin,
+            deviceTier: .eightGB, singleFileLimitBytes: 256 * mib)
+        XCTAssertEqual(eight.singleFileLimitBytes, 128 * mib)
     }
 
     /// The 4 GiB and ≤3 GiB tiers must gate a larger host request instead of
