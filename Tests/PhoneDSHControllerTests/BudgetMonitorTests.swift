@@ -87,7 +87,7 @@ final class BudgetMonitorTests: XCTestCase {
                        VideoBudget.eightGB.appProcessIncrementBytes + 150 * mb)
 
         let twelve = VideoBudget.table(for: .twelveGB)
-        XCTAssertEqual(twelve.maximumFrames, 9000)
+        XCTAssertEqual(twelve.maximumFrames, 4500)
         XCTAssertEqual(twelve.maximumFrameBytes, 16 * mb)
         XCTAssertEqual(twelve.maximumOutputBytes, 128 * mb)
         XCTAssertEqual(twelve.maximumWidth, 3840)
@@ -97,9 +97,19 @@ final class BudgetMonitorTests: XCTestCase {
         XCTAssertEqual(BudgetTable.twelveGB.appProcessBytes,
                        VideoBudget.twelveGB.appProcessIncrementBytes + 400 * mb)
 
-        // The spec enumerates only the 8 / 12 GiB rows; the smaller tiers keep
-        // the 8 GiB contract clamped by their own single-file maximum.
-        XCTAssertEqual(VideoBudget.table(for: .sixGB), VideoBudget.eightGB)
+        // The 60 s / 75 s nominal budget runs at 60 fps on every row.
+        XCTAssertEqual(VideoBudget.eightGB.maximumFrames,
+                       VideoBudget.budgetedDurationSeconds * 60)
+        XCTAssertEqual(VideoBudget.twelveGB.maximumFrames,
+                       VideoBudget.budgetedDurationSeconds * 60)
+        XCTAssertEqual(VideoBudget.frames(forBudgetedSeconds: 75, maxFPS: 60), 4500)
+
+        // Smaller tiers keep the 8 GiB contract except for their `video/`
+        // store quota (384 / 256 / 192 MiB), and their single-file maximum
+        // clamps the effective output.
+        XCTAssertEqual(VideoBudget.table(for: .sixGB).storeQuotaBytes, 384 * mb)
+        XCTAssertEqual(VideoBudget.table(for: .fourGB).storeQuotaBytes, 256 * mb)
+        XCTAssertEqual(VideoBudget.table(for: .threeGB).storeQuotaBytes, 192 * mb)
         XCTAssertEqual(VideoBudget.table(for: .fourGB).effectiveOutputBytes(for: .fourGB),
                        32 * mb)
         XCTAssertEqual(VideoBudget.table(for: .threeGB).effectiveOutputBytes(for: .threeGB),

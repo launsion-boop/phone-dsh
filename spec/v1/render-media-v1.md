@@ -62,7 +62,7 @@ view.loadHTMLString(safe, baseURL: URL(string: "about:blank"))
 | 单帧上限 | 8 MiB | 16 MiB |
 | 最大分辨率 | 1920×1080 | 3840×2160 |
 | 最大时长（名义/冗余） | 60 s / 75 s | 60 s / 75 s |
-| 最大帧数 | 4500 | 9000 |
+| 最大帧数 | 4500 | 4500（75 s × 60 fps） |
 | 输出上限 | 96 MiB | 128 MiB |
 | in-flight 帧 | 3 | 4 |
 | App 进程增量 | +80 MB | +140 MB |

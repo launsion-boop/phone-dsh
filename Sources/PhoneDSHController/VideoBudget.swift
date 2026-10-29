@@ -46,9 +46,15 @@ public struct VideoBudget: Equatable, Sendable {
         self.storeQuotaBytes = storeQuotaBytes
     }
 
+    /// Frames one budgeted duration admits at `maxFPS`; both the 8 and 12 GiB
+    /// rows run 60 fps, so they both get 75 × 60 = 4500 frames.
+    public static func frames(forBudgetedSeconds seconds: Int, maxFPS: Int) -> Int {
+        seconds * maxFPS
+    }
+
     /// The 8 GiB row: 1080p30, 6 Mbps ≈ 45 MB for 60 s, 96 MiB output cap.
     public static let eightGB = VideoBudget(
-        maximumFrames: 4500,
+        maximumFrames: frames(forBudgetedSeconds: budgetedDurationSeconds, maxFPS: 60),
         maximumFrameBytes: 8 * 1024 * 1024,
         maximumOutputBytes: 96 * 1024 * 1024,
         maximumWidth: 1920,
@@ -60,7 +66,7 @@ public struct VideoBudget: Equatable, Sendable {
 
     /// The 12 GiB row: 4K, 128 MiB output cap.
     public static let twelveGB = VideoBudget(
-        maximumFrames: 9000,
+        maximumFrames: frames(forBudgetedSeconds: budgetedDurationSeconds, maxFPS: 60),
         maximumFrameBytes: 16 * 1024 * 1024,
         maximumOutputBytes: 128 * 1024 * 1024,
         maximumWidth: 3840,
@@ -70,14 +76,53 @@ public struct VideoBudget: Equatable, Sendable {
         storeQuotaBytes: 512 * 1024 * 1024
     )
 
+    /// The 6 GiB row: the 8 GiB contract with a smaller `video/` store.
+    public static let sixGB = VideoBudget(
+        maximumFrames: frames(forBudgetedSeconds: budgetedDurationSeconds, maxFPS: 60),
+        maximumFrameBytes: 8 * 1024 * 1024,
+        maximumOutputBytes: 96 * 1024 * 1024,
+        maximumWidth: 1920,
+        maximumHeight: 1080,
+        inFlightFrames: 3,
+        appProcessIncrementBytes: 80 * 1024 * 1024,
+        storeQuotaBytes: 384 * 1024 * 1024
+    )
+
+    /// The 4 GiB row: the 8 GiB contract with a smaller `video/` store; the
+    /// 32 MiB single-file cap clamps the effective output.
+    public static let fourGB = VideoBudget(
+        maximumFrames: frames(forBudgetedSeconds: budgetedDurationSeconds, maxFPS: 60),
+        maximumFrameBytes: 8 * 1024 * 1024,
+        maximumOutputBytes: 96 * 1024 * 1024,
+        maximumWidth: 1920,
+        maximumHeight: 1080,
+        inFlightFrames: 3,
+        appProcessIncrementBytes: 80 * 1024 * 1024,
+        storeQuotaBytes: 256 * 1024 * 1024
+    )
+
+    /// The ≤ 3 GiB row: the 8 GiB contract with the smallest `video/` store.
+    public static let threeGB = VideoBudget(
+        maximumFrames: frames(forBudgetedSeconds: budgetedDurationSeconds, maxFPS: 60),
+        maximumFrameBytes: 8 * 1024 * 1024,
+        maximumOutputBytes: 96 * 1024 * 1024,
+        maximumWidth: 1920,
+        maximumHeight: 1080,
+        inFlightFrames: 3,
+        appProcessIncrementBytes: 80 * 1024 * 1024,
+        storeQuotaBytes: 192 * 1024 * 1024
+    )
+
     public static let byTier: [DeviceTier: VideoBudget] = [
         .twelveGB: .twelveGB,
         .eightGB: .eightGB,
+        .sixGB: .sixGB,
+        .fourGB: .fourGB,
+        .threeGB: .threeGB,
     ]
 
-    /// The budget row for a tier. The spec enumerates the 8 GiB and 12 GiB
-    /// rows; the smaller tiers keep the 8 GiB contract, clamped by their own
-    /// single-file maximum through ``effectiveOutputBytes(for:)``.
+    /// The budget row for a tier (the 8 GiB row when unknown), clamped by the
+    /// tier's own single-file maximum through ``effectiveOutputBytes(for:)``.
     public static func table(for tier: DeviceTier) -> VideoBudget {
         byTier[tier] ?? .eightGB
     }
