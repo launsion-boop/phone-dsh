@@ -117,6 +117,42 @@ public struct PDSHPageResolver: Sendable {
     }
 }
 
+/// Maps the host's workspaces to the directories a page origin serves.
+public enum PDSHPageWorkspaceMap {
+    /// VFS prefix every workspace directory lives under.
+    public static let vfsWorkspacePrefix = "/dsh/workspace"
+
+    /// Builds `sessionID → directory` from the host's workspace records.
+    ///
+    /// Each record's `path` is the session cwd (`/dsh/workspace/<rel>`); two
+    /// workspaces with different cwds therefore serve different directories,
+    /// and a record whose path is exactly `/dsh/workspace` serves the root.
+    /// A path outside the prefix is treated as the root (the host's single
+    /// VFS tree is the only thing the browser can see).
+    ///
+    /// - Parameters:
+    ///   - root: the materialized `/dsh/workspace` directory.
+    ///   - workspaces: `(path, sessionIDs)` records from `workspace/follow`.
+    /// - Returns: session id to the directory its `pdsh-page:` origin serves.
+    public static func directories(
+        root: URL,
+        workspaces: [(path: String, sessionIDs: [String])]
+    ) -> [String: URL] {
+        var map: [String: URL] = [:]
+        for workspace in workspaces {
+            let trimmed = workspace.path.hasPrefix(vfsWorkspacePrefix)
+                ? String(workspace.path.dropFirst(vfsWorkspacePrefix.count))
+                : ""
+            let relative = trimmed.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            let directory = relative.isEmpty
+                ? root
+                : root.appendingPathComponent(relative, isDirectory: true)
+            for sessionID in workspace.sessionIDs { map[sessionID] = directory }
+        }
+        return map
+    }
+}
+
 /// The `pdsh-page:` contract constants.
 public enum PDSHPageScheme {
     public static let name = "pdsh-page"

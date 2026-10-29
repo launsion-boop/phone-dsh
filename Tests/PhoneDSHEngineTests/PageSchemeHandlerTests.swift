@@ -172,6 +172,34 @@ final class PageSchemeHandlerTests: XCTestCase {
         XCTAssertNil(PDSHPageScheme.byteRange(from: "bytes=0-10", total: 0))
     }
 
+    /// Task 3: each workspace's cwd selects its own directory, so two
+    /// workspaces with the same file name never read each other's bytes.
+    func testWorkspacePathsSelectTheirOwnDirectories() throws {
+        let ws = try workspace()
+        for name in ["proj-a", "proj-b"] {
+            try FileManager.default.createDirectory(
+                at: ws.appendingPathComponent(name), withIntermediateDirectories: true)
+        }
+        try Data("A".utf8).write(to: ws.appendingPathComponent("proj-a/foo.txt"))
+        try Data("B".utf8).write(to: ws.appendingPathComponent("proj-b/foo.txt"))
+
+        let map = PDSHPageWorkspaceMap.directories(root: ws, workspaces: [
+            (path: "/dsh/workspace/proj-a", sessionIDs: ["SESSION-A"]),
+            (path: "/dsh/workspace/proj-b", sessionIDs: ["SESSION-B"]),
+            (path: "/dsh/workspace", sessionIDs: ["SESSION-C"]),
+        ])
+        XCTAssertEqual(map["SESSION-A"]?.lastPathComponent, "proj-a")
+        XCTAssertEqual(map["SESSION-B"]?.lastPathComponent, "proj-b")
+        XCTAssertEqual(map["SESSION-C"], ws)
+
+        let resolver = PDSHPageResolver(libraryRoot: try library(),
+                                        workspaceRoot: { map[$0] })
+        let a = try resolver.resolve(URL(string: "pdsh-page://SESSION-A/foo.txt")!)
+        let b = try resolver.resolve(URL(string: "pdsh-page://SESSION-B/foo.txt")!)
+        XCTAssertEqual(try String(contentsOf: a.url, encoding: .utf8), "A")
+        XCTAssertEqual(try String(contentsOf: b.url, encoding: .utf8), "B")
+    }
+
     /// The handler streams one 1 MiB window per `didReceive`, never the whole
     /// mapped file (spec-render-media-v1 task B).
     func testStreamsAFileInOneMiBChunks() throws {
