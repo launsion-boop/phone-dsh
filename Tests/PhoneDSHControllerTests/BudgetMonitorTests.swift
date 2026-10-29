@@ -108,6 +108,18 @@ final class BudgetMonitorTests: XCTestCase {
         // store quota (384 / 256 / 192 MiB), and their single-file maximum
         // clamps the effective output.
         XCTAssertEqual(VideoBudget.table(for: .sixGB).storeQuotaBytes, 384 * mb)
+        // The encoder footprint must leave most of the app-process row free;
+        // 100 + 80 would exceed a 3 GiB row outright.
+        for tier in DeviceTier.allCases {
+            let video = VideoBudget.table(for: tier)
+            let table = BudgetTable.table(for: tier)
+            XCTAssertLessThanOrEqual(Double(video.appProcessIncrementBytes),
+                                     Double(table.appProcessBytes) * 0.75,
+                                     "\(tier)")
+        }
+        XCTAssertEqual(VideoBudget.table(for: .sixGB).appProcessIncrementBytes, 64 * mb)
+        XCTAssertEqual(VideoBudget.table(for: .fourGB).appProcessIncrementBytes, 48 * mb)
+        XCTAssertEqual(VideoBudget.table(for: .threeGB).appProcessIncrementBytes, 36 * mb)
         XCTAssertEqual(VideoBudget.table(for: .fourGB).storeQuotaBytes, 256 * mb)
         XCTAssertEqual(VideoBudget.table(for: .threeGB).storeQuotaBytes, 192 * mb)
         XCTAssertEqual(VideoBudget.table(for: .fourGB).effectiveOutputBytes(for: .fourGB),

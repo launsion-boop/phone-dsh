@@ -84,7 +84,7 @@ public struct VideoBudget: Equatable, Sendable {
         maximumWidth: 1920,
         maximumHeight: 1080,
         inFlightFrames: 3,
-        appProcessIncrementBytes: 80 * 1024 * 1024,
+        appProcessIncrementBytes: 64 * 1024 * 1024,
         storeQuotaBytes: 384 * 1024 * 1024
     )
 
@@ -97,7 +97,7 @@ public struct VideoBudget: Equatable, Sendable {
         maximumWidth: 1920,
         maximumHeight: 1080,
         inFlightFrames: 3,
-        appProcessIncrementBytes: 80 * 1024 * 1024,
+        appProcessIncrementBytes: 48 * 1024 * 1024,
         storeQuotaBytes: 256 * 1024 * 1024
     )
 
@@ -109,7 +109,7 @@ public struct VideoBudget: Equatable, Sendable {
         maximumWidth: 1920,
         maximumHeight: 1080,
         inFlightFrames: 3,
-        appProcessIncrementBytes: 80 * 1024 * 1024,
+        appProcessIncrementBytes: 36 * 1024 * 1024,
         storeQuotaBytes: 192 * 1024 * 1024
     )
 
