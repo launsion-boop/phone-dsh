@@ -292,7 +292,26 @@ final class ChatModel {
     private var restartPolicyBudget: BudgetTable?
     private var foregroundResumeRequested = false
     private var backgroundParkRequested = false
-    var canSend: Bool { harness != nil && sessionID != nil && transcriptReady && !busy && !parked && !hostLifecycleTransition }
+    private(set) var modelProviderIssue: String? = "请先配置模型服务和 API Key"
+    var canSend: Bool { modelProviderIssue == nil && harness != nil && sessionID != nil && transcriptReady && !busy && !parked && !hostLifecycleTransition }
+
+    /// Cache only readiness for the UI; recheck the Keychain before dispatching a message.
+    func refreshModelProviderReadiness() {
+        let settings = PhoneModelProviderSettings.shared
+        do {
+            guard let profile = try settings.load().selected else {
+                modelProviderIssue = "请先配置模型服务和 API Key"
+                return
+            }
+            switch try settings.apiKeyStatus(for: profile.id) {
+            case .present: modelProviderIssue = nil
+            case .missing: modelProviderIssue = "请先配置模型服务的 API Key"
+            case .unreadable: modelProviderIssue = "无法读取 API Key，请解锁设备后重试"
+            }
+        } catch {
+            modelProviderIssue = "无法读取模型服务配置，请检查设置"
+        }
+    }
     var displayStatus: String {
         if parked { return "已暂停" }
         if host == nil { return "已停止" }
@@ -303,7 +322,7 @@ final class ChatModel {
         if transcriptReady { return "运行中" }
         return "未连接"
     }
-    var canSteer: Bool { harness != nil && sessionID != nil && transcriptReady && turnRunning && !busy && !parked && !hostLifecycleTransition }
+    var canSteer: Bool { modelProviderIssue == nil && harness != nil && sessionID != nil && transcriptReady && turnRunning && !busy && !parked && !hostLifecycleTransition }
     private var pumpTask: Task<Void, Never>?
     private var hostEventTask: Task<Void, Never>?
     private var lastSeq: UInt64?
@@ -618,6 +637,7 @@ final class ChatModel {
     // MARK: Lifecycle
 
     func start() async {
+        refreshModelProviderReadiness()
         guard host == nil, !busy else { return }
         busy = true
         defer { busy = false }
@@ -905,6 +925,7 @@ final class ChatModel {
     /// fails with the provider's 401 and the app can only say "密钥不被接受".
     /// Restarting re-reads the provider document and rebinds the key.
     func reloadModelProvider() async {
+        refreshModelProviderReadiness()
         guard isStarted, !hostLifecycleTransition else {
             appendStatus("模型服务已保存；引擎下次启动时生效")
             return
@@ -993,6 +1014,7 @@ final class ChatModel {
     /// (up to `drainDeadline`, 20 s here) and cancels what is still open; a
     /// resume replays the WAL and the same session continues.
     func scenePhaseChanged(_ phase: ScenePhase) async {
+        if phase == .active { refreshModelProviderReadiness() }
         guard let host else { return }
         switch phase {
         case .background:
@@ -1275,6 +1297,7 @@ final class ChatModel {
 
     /// 重发时把 `reusing` 传进来:仍用原来那条气泡,不再长出新的一行。
     func send(_ text: String, attachments: [HarnessAttachment], reusing itemID: String? = nil) async -> Bool {
+        refreshModelProviderReadiness()
         let prompt = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard (!prompt.isEmpty || !attachments.isEmpty), canSend, let harness, let sessionID else { return false }
         busy = true
@@ -1310,6 +1333,7 @@ final class ChatModel {
     }
 
     func steer(_ text: String) async -> Bool {
+        refreshModelProviderReadiness()
         let guidance = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !guidance.isEmpty, canSteer, let harness, let sessionID else { return false }
         busy = true
@@ -2093,7 +2117,8 @@ final class ChatModel {
 
     /// 重试失败的这一轮:同一条内容重新入队。
     func retryFailedPrompt() async -> Bool {
-        guard let (text, attachments) = failedPrompt else { return false }
+        refreshModelProviderReadiness()
+        guard canSend, let (text, attachments) = failedPrompt else { return false }
         let pendingID = failedItemID
         // 重试期间那条下面只留一个状态:先把失败行摘掉、挂上「发送中…」,
         // 失败回来再把它挂回去——两行同时出现,人会以为消息发出去又没发。

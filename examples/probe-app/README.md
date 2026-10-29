@@ -1,4 +1,4 @@
-# Native iPhone DSH and development probes
+# Native iPhone and iPad DSH and development probes
 
 The shipped app opens the **native SwiftUI shell** (conversation, workspace
 drawer, composer, workbench) on top of `PhoneDSHHost`, which owns the Worker,
@@ -15,6 +15,19 @@ and its session first. The Web MCP tab and the recovery Settings page open the n
 only the exact MCP scheme/host/port/path to Worker egress, and stores header
 values in the dedicated MCP Keychain.
 The old probe pages are available only through Debug developer tools.
+
+The app targets both iPhone and iPad. iPad supports portrait, landscape and
+resizable windows at native size. Windows at least 900 points wide show a
+320-point sessions sidebar beside the conversation; the chat header can hide
+or restore it. Narrower windows use the existing drawer. Selecting a session
+keeps the wide sidebar visible, and resizing retains the conversation and draft.
+
+The native composer requires a selected model service and a readable, non-empty
+API key. Without them it shows a configuration action and disables message
+submission; the header shows an amber “待配置模型服务” status. Prompt,
+queued-message and steering dispatch recheck the key before
+calling the harness; retries use the same prompt path. The local engine can
+still start so sessions, files and model settings remain accessible.
 
 For a build linked to the real xz-shell command library, run from the repository root:
 
