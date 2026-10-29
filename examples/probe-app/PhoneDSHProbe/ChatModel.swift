@@ -2243,10 +2243,12 @@ final class ChatModel {
 extension ChatModel {
     /// Preview-only: park a message state that normally comes from a live turn
     /// so the failure and queued screens can be reviewed without a model.
-    func debugInstallPreviewState(failedItemID itemID: String?, error: String?, queue: [String: String]) {
+    func debugInstallPreviewState(failedItemID itemID: String?, error: String?, queue: [String: String],
+                                  question: HarnessQuestion? = nil) {
         failedItemID = itemID
         userFacingError = error
         queueLabel = queue
+        pendingQuestion = question
     }
 
     /// Debug-only sample conversation, opened with `-uiPreview sample`. It never
