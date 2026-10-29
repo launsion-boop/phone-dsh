@@ -319,9 +319,9 @@ exposes `deepseek-official` only when the selected model service is the official
 DeepSeek Messages endpoint the provider actually supports. With no selection,
 neither `web-search-deepseek` nor `web-deepseek-api` is mounted, so an
 arbitrary OpenAI-compatible model endpoint cannot silently claim web search. The
-native page is reachable from both the full Web surface menu and the native
-recovery settings page; saving or deleting only updates the document/Keychain
-and the existing lifecycle-gated restart applies it.
+native page is reachable from the native recovery settings page; saving or
+deleting only updates the document/Keychain and the existing lifecycle-gated
+restart applies it.
 
 The per-start loopback token is a credential too: it authenticates the page,
 the channel upgrade and the privileged routes; keep it in memory, do not log it

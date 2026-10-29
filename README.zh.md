@@ -121,7 +121,7 @@ examples/probe-app/scripts/copy-bundle-assets.sh \
   --checkout "$PDSH_DSH_CHECKOUT" --force
 ```
 
-复制步骤会构建 Worker 镜像，默认把 CPython 与 jq 的 WASI 产物一起打包（要用 `--without-python` / `--without-jq` 显式不要），校验检出与镜像来源一致，并记录 provenance。Web 发行目录放的是完整 DSH 页面；已发布的 App 原生界面不会打开它，但完整 Web 页面的模拟器套件会。
+复制步骤会构建 Worker 镜像，默认把 CPython 与 jq 的 WASI 产物一起打包（要用 `--without-python` / `--without-jq` 显式不要），校验检出与镜像来源一致，并记录 provenance。Web 发行目录放的是完整 DSH 页面，供 Worker 启动使用；App 原生界面不会打开它（完整 Web UI 已移除）。
 
 ### 3. 生成并构建 probe App
 
@@ -201,7 +201,7 @@ bash scripts/ci/scenarios.sh --upstream real
 | 物理 iPhone（签名、安装、真实 provider、后台） | NOT_RUN；没有真机证据，限流、JIT、jetsam、锁定模式和后台调度在真机上仍是 NOT_VERIFIED |
 | 远端 handoff peer | facade 与进程内测试存在；真实传输上的部署 peer NOT_RUN |
 | 托管 GitHub Actions | 因账单原因目前关闭，所以不放 CI 徽章；`.github/workflows/ci.yml` 保留，同样的门禁在本地跑 |
-| App 里的完整 DSH Web UI | 代码仍在，但未启用：没有用户可见入口，默认界面是原生 SwiftUI |
+| App 里的完整 DSH Web UI | 已移除：App 只保留原生 SwiftUI 界面；Worker 镜像里仍带 DSH 页面，那是 Worker 启动用的，不是界面 |
 | 原生加速器 | 可选：`PDSH_WITH_XZSHELL=1` 加构建好的 `shell/dist/PDSHShell.xcframework`；不链接时 SDK 不广播任何能力并大声失败 |
 | 锁定模式 | 本地 Worker 不可用并会如实上报，App 内没有绕过办法 |
 

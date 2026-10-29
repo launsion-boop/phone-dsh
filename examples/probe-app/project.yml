@@ -174,12 +174,8 @@ targets:
     platform: iOS
     sources:
       - path: PhoneDSHSimTests
-      # Compile the production lifecycle gate into the hostless suite so the
-      # failed-park/resume-wait rules the app runs are regression-tested; it
-      # has no SwiftUI/UIKit dependency and is also part of the app target.
-      - path: PhoneDSHProbe/WebSurfaceLifecycle.swift
       # The production native MCP settings model is host-agnostic (the app
-      # injects ChatModel/WebHostModel) so the simulator suite can exercise the
+      # injects ChatModel) so the simulator suite can exercise the
       # unknown-registry settlement branches against a real settings document.
       - path: PhoneDSHProbe/MCPSettingsModel.swift
       # The scripted model upstream, the smoke evidence readers (WAL
@@ -206,7 +202,7 @@ targets:
         product: PhoneDSHLoopback
       - package: PhoneDSH
         product: PhoneDSHAgentCore
-      # The full-Web suite imports the linked shell provider exposed by the
+      # The simulator suites import the linked shell provider exposed by the
       # shared WebHostConfiguration assembly.
       - package: PhoneDSH
         product: PhoneDSHShell
@@ -254,10 +250,9 @@ targets:
     sources:
       - path: PhoneDSHSimTests
       # Keep the device twin at parity with PhoneDSHSimTests: the shared
-      # WebSurfaceLifecycleSimTests file references the production lifecycle
-      # policy/gate, which has no SwiftUI/UIKit dependency and is also part of
-      # the app target. Without this the device test scheme does not compile.
-      - path: PhoneDSHProbe/WebSurfaceLifecycle.swift
+      # native MCP settings model has no SwiftUI/UIKit dependency and is also
+      # part of the app target. Without this the device test scheme does not
+      # compile.
       - path: PhoneDSHProbe/MCPSettingsModel.swift
     dependencies:
       - target: PhoneDSHProbe

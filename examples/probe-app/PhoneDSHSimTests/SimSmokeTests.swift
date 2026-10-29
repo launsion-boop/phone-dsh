@@ -225,10 +225,14 @@ final class PhoneDSHSimSmokeTests: XCTestCase {
                 ("the first model request had no tool result",
                  requests.first.map { MockModelUpstream.transcriptHasToolResult($0.body) } == false,
                  "g1_model_first_request_no_tool_result"),
-                ("the second model request carries the tool result",
-                 requests.dropFirst().first.map {
+                // The follow-up that carries the tool result is not always
+                // the second request: the pinned runtime's session-title
+                // service may issue its own model request around the same
+                // time, so wait for the property, not for an index.
+                ("a model request after the first carries the tool result",
+                 requests.dropFirst().contains {
                      MockModelUpstream.transcriptHasToolResult($0.body)
-                 } == true, "g1_model_second_request_has_tool_result"),
+                 }, "g1_model_second_request_has_tool_result"),
                 ("the host injected the credential upstream",
                  requests.allSatisfy { $0.apiKey == Self.hostAPIKey },
                  "g1_model_credential_injected"),
@@ -279,6 +283,77 @@ final class PhoneDSHSimSmokeTests: XCTestCase {
             if failedChecks.isEmpty == false {
                 throw SimError.assertion(
                     "first turn: " + failedChecks.joined(separator: "; "))
+            }
+
+            // MARK: Real WebContent kill (native surface) and recovery
+            //
+            // This is the only automated process-kill coverage: the native
+            // surface boots the same Worker page, so a real SIGKILL of the
+            // simulator's WebContent must leave the same Session, journal and
+            // materialized evidence and a working follow-up turn. Without the
+            // sim.sh watcher (a direct `xcodebuild test`) the row is present
+            // but non-gating.
+            let killStart = Date()
+            switch await requestRealWebContentKill(directory: directory) {
+            case .notRequested:
+                report.record("smoke.real_webcontent_kill", status: .info, gating: false,
+                              metrics: ["attempt": "not requested (no watcher marker)"],
+                              threshold: simInfoThreshold("real_webcontent_kill"),
+                              detail: "a direct xcodebuild run without scripts/ci/sim.sh "
+                                  + "does not attempt the kill")
+            case .unavailable(let status):
+                report.set("real_kill", ["status": status])
+                report.record("smoke.real_webcontent_kill", status: .fail, gating: true,
+                              metrics: ["attempt": status],
+                              threshold: simG1Threshold("real_webcontent_kill", measured: 0),
+                              detail: "scripts/ci/sim.sh expected the WebContent kill "
+                                  + "and the watcher did not send it")
+                throw SimError.assertion("the WebContent kill was not attempted: \(status)")
+            case .attempted(let status):
+                report.set("real_kill", ["status": status])
+                try await simWait(timeout: 120, label: "WebContent termination observed") {
+                    realEngine.terminationCount >= 1
+                }
+                try await simWait(timeout: 240, label: "host Running after WebContent kill") {
+                    await smokeHost.state == .running
+                }
+                report.addPhase("webcontent_kill_recovery",
+                                milliseconds: Self.ms(since: killStart))
+                let harnessAfterKill = try await smokeHost.harness()
+                eventLog.attach(harness: harnessAfterKill, sessionID: session.id)
+                let journalAfterKill = try simReadJournalSummary(workspace: workspace,
+                                                                 sessionID: session.id)
+                let materializedAfterKill = (try? String(contentsOf: materializedURL,
+                                                         encoding: .utf8)) ?? ""
+                let followUpMarker = "sim-after-kill-\(UUID().uuidString.lowercased())"
+                let followUpWatermark = eventLog.harnessSequenceWatermark
+                try await harnessAfterKill.send(
+                    .prompt(text: "Say ok. [\(followUpMarker)]",
+                            attachments: [], requestID: "sim-after-kill"),
+                    to: session.id)
+                let followUpReceipt = try await waitForCompletedHarnessTurn(
+                    eventLog: eventLog, after: followUpWatermark,
+                    promptMarker: followUpMarker, label: "turn after WebContent kill")
+                let killRecovered = journalAfterKill.dispatched && journalAfterKill.completed
+                    && journalAfterKill.sessionIDs == journal.sessionIDs
+                    && materializedAfterKill.contains("hi")
+                    && followUpReceipt.reason == .completed
+                report.record("smoke.real_webcontent_kill_recovery",
+                              status: killRecovered ? .pass : .fail, gating: true,
+                              metrics: ["attempt": status,
+                                        "terminations": realEngine.terminationCount,
+                                        "session_ids_after": journalAfterKill.sessionIDs.count,
+                                        "follow_up_turn": followUpReceipt.turnID],
+                              threshold: simG1Threshold("real_webcontent_kill_recovery",
+                                                        measured: killRecovered ? 1 : 0),
+                              detail: "a real SIGKILL of this simulator's WebContent was followed "
+                                  + "by the same Session, journal and materialized evidence, and a "
+                                  + "completed follow-up turn")
+                if !killRecovered {
+                    throw SimError.assertion(
+                        "WebContent kill recovery: the same Session, evidence and a "
+                            + "follow-up turn were not restored")
+                }
             }
 
             // MARK: Planned restart (D24)
@@ -332,11 +407,14 @@ final class PhoneDSHSimSmokeTests: XCTestCase {
             }
 
             // One planned restart publishes exactly one `.restarted` event.
+            // The WebContent kill earlier publishes its own
+            // `webContentTerminated` event; this assertion is about the planned
+            // restart, so it counts only that reason.
             try await simWait(timeout: 30, label: "planned restart event") {
-                eventLog.restarts.isEmpty == false
+                eventLog.restarts.contains { $0.reason == .planned }
             }
             try await Task.sleep(nanoseconds: 300_000_000)
-            let restartEvents = eventLog.restarts
+            let restartEvents = eventLog.restarts.filter { $0.reason == .planned }
             let restartEventOK = restartEvents.count == 1
                 && restartEvents.first?.reason == .planned
             report.record("smoke.restarted_event",
@@ -486,14 +564,6 @@ final class PhoneDSHSimSmokeTests: XCTestCase {
 
         // MARK: - Teardown
         eventLog.stop()
-        // The real WebContent kill is attempted only after every smoke
-        // assertion has passed and while this suite's real WKWebView is still
-        // alive: scripts/ci/sim.sh watches for the ready marker. It is
-        // INFO evidence, never a gate; a direct xcodebuild run without the
-        // script leaves no marker and skips it immediately.
-        if failure == nil {
-            await requestRealWebContentKill(report: report, directory: directory)
-        }
         if let host {
             try? await host.stop()
         }
@@ -519,8 +589,19 @@ final class PhoneDSHSimSmokeTests: XCTestCase {
         }
     }
 
+    /// How the real WebContent-kill handshake ended.
+    private enum RealKillOutcome {
+        /// No watcher marker was present: a direct `xcodebuild test` run.
+        case notRequested
+        /// The watcher SIGKILLed this run's WebContent.
+        case attempted(String)
+        /// The watcher ran but could not signal the WebContent (or did not
+        /// answer in time).
+        case unavailable(String)
+    }
+
     /// Hands this suite's live WebContent to the simulator gate's real-kill
-    /// watcher (INFO only).
+    /// watcher and returns what the watcher did.
     ///
     /// `scripts/ci/sim.sh` creates `expect-real-kill` in the report
     /// directory and runs a background watcher before the suites. This method
@@ -528,13 +609,11 @@ final class PhoneDSHSimSmokeTests: XCTestCase {
     /// alive, then waits (bounded) for the watcher's `real-kill-result.json`.
     /// The watcher selects pids by the simulator runtime path and the selected
     /// simulator's `SIMULATOR_UDID` environment, so it can never reach a host
-    /// WebContent process. The outcome is report metadata, not a PASS row: no
-    /// device behaviour is claimed. The method never throws and never gates.
-    private func requestRealWebContentKill(report: SimSuiteReport,
-                                           directory: URL) async {
+    /// WebContent process.
+    private func requestRealWebContentKill(directory: URL) async -> RealKillOutcome {
         let fileManager = FileManager.default
         let expect = directory.appendingPathComponent("expect-real-kill")
-        guard fileManager.fileExists(atPath: expect.path) else { return }
+        guard fileManager.fileExists(atPath: expect.path) else { return .notRequested }
         let ready = directory.appendingPathComponent("real-kill-ready.json")
         let result = directory.appendingPathComponent("real-kill-result.json")
         let request: [String: Any] = [
@@ -548,20 +627,19 @@ final class PhoneDSHSimSmokeTests: XCTestCase {
             try? data.write(to: ready, options: .atomic)
         }
         let deadline = Date().addingTimeInterval(15)
-        var outcome: [String: Any]?
         while Date() < deadline {
             if let data = try? Data(contentsOf: result),
                let object = try? JSONSerialization.jsonObject(with: data)
                 as? [String: Any] {
-                outcome = object
-                break
+                let status = object["status"] as? String
+                    ?? "unavailable: the watcher result has no status"
+                return status.hasPrefix("attempted:")
+                    ? .attempted(status) : .unavailable(status)
             }
             try? await Task.sleep(nanoseconds: 200_000_000)
         }
-        report.set("real_kill", outcome ?? [
-            "status": "unavailable: scripts/ci/sim.sh did not report "
-                + "the attempt within 15 s",
-        ])
+        return .unavailable("unavailable: scripts/ci/sim.sh did not report "
+            + "the attempt within 15 s")
     }
 
     /// One independent scripted-model turn whose real DSH `bash` tool runs

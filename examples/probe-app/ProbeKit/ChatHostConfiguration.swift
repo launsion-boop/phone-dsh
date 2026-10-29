@@ -2,7 +2,7 @@
 // phone-dsh phone DSH — the App's chat host assembly, shared with the
 // simulator/device E2E suites.
 //
-// The Chat page (and the full-Web surface it hosts) must use one host
+// The Chat page must use one host
 // configuration and one persistent workspace. Keeping the path and the
 // gateway/model environment here means a suite exercises the same
 // `Documents/chat-host` tree and the same `PhoneDSHConfiguration` values the

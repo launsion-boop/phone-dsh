@@ -123,7 +123,7 @@ examples/probe-app/scripts/copy-bundle-assets.sh \
   --checkout "$PDSH_DSH_CHECKOUT" --force
 ```
 
-The copy step builds the Worker image, adds the CPython and jq WASI artifacts unless you pass `--without-python` / `--without-jq`, verifies the checkout against the image source, and records provenance. The Web distribution holds the complete DSH page; the shipped app's native surface does not open it, but the full-Web simulator suite does.
+The copy step builds the Worker image, adds the CPython and jq WASI artifacts unless you pass `--without-python` / `--without-jq`, verifies the checkout against the image source, and records provenance. The Web distribution holds the complete DSH page; the app's native surface does not open it.
 
 ### 3. Build and run the probe app
 
@@ -204,7 +204,7 @@ A PASS belongs only to the source commit, built artifacts and environment named 
 | Physical iPhone (signing, install, real provider, background) | NOT_RUN; no device evidence, so throttling, JIT, jetsam, Lockdown Mode and background scheduling stay NOT_VERIFIED on device |
 | Remote handoff peer | facade and in-process tests exist; a deployed remote DSH peer over real transport is NOT_RUN |
 | Hosted GitHub Actions | currently off (billing), so no CI badge is shown; `.github/workflows/ci.yml` is kept and the same gates run locally |
-| Complete DSH Web UI in the app | present in the code base but disabled: no user-visible entry; the shipped surface is native SwiftUI |
+| Complete DSH Web UI in the app | removed: the app ships only the native SwiftUI shell; the Worker image still carries the DSH page the Worker boots from |
 | Native accelerators | opt-in: `PDSH_WITH_XZSHELL=1` plus a built `shell/dist/PDSHShell.xcframework`; without it the SDK advertises nothing and fails loud |
 | Lockdown Mode | the local Worker is disabled and reported; there is no in-app workaround |
 

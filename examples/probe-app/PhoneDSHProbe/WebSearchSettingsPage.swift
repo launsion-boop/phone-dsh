@@ -11,11 +11,7 @@ import ProbeKit
 import SwiftUI
 
 struct WebSearchSettingsPage: View {
-    /// Which one host this page may restart after a saved search change.
-    var host: ModelProviderSettingsHost = .native
-
     @State private var model = ChatModel.shared
-    @State private var web = WebHostModel.shared
     @State private var snapshot = PhoneWebSearchSnapshot()
     @State private var selectedProfile: ProviderProfile?
     @State private var mode = PhoneWebSearchMode.followModel
@@ -269,45 +265,18 @@ struct WebSearchSettingsPage: View {
             Label(restartHint, systemImage: "arrow.clockwise")
                 .font(.system(size: 13))
                 .foregroundStyle(hostRunning ? ChatPage.warning : Color.secondary)
-            switch host {
-            case .native:
-                if model.isStarted {
-                    Button("停止本地引擎") { Task { await model.stop() } }
-                        .foregroundStyle(ChatPage.danger)
-                } else {
-                    Button("启动本地引擎") { Task { await model.start() } }
-                }
-            case .web:
-                if web.isStarted {
-                    Button("重启引擎,用上新设置") {
-                        Task {
-                            if web.state == .failed {
-                                await web.start()
-                            } else {
-                                await web.restartForConfigurationChange()
-                            }
-                        }
-                    }
-                } else {
-                    Button("启动本地引擎") { Task { await web.start() } }
-                }
+            if model.isStarted {
+                Button("停止本地引擎") { Task { await model.stop() } }
+                    .foregroundStyle(ChatPage.danger)
+            } else {
+                Button("启动本地引擎") { Task { await model.start() } }
             }
         }
     }
 
-    private var hostRunning: Bool {
-        switch host {
-        case .native: return model.isStarted
-        case .web: return web.isStarted
-        }
-    }
+    private var hostRunning: Bool { model.isStarted }
 
-    private var launchWarning: String? {
-        switch host {
-        case .native: return model.searchLaunchWarning
-        case .web: return web.searchLaunchWarning
-        }
-    }
+    private var launchWarning: String? { model.searchLaunchWarning }
 
     private func launchWarningSection(_ warning: String) -> some View {
         Section {
@@ -338,12 +307,7 @@ struct WebSearchSettingsPage: View {
 
     private var restartHint: String {
         guard hostRunning else { return "下次启动本地引擎时才生效。" }
-        switch host {
-        case .native:
-            return "重启本地引擎之后生效;工作文件夹和会话都不变。"
-        case .web:
-            return "重启之后生效;工作文件夹和会话都不变。"
-        }
+        return "重启本地引擎之后生效;工作文件夹和会话都不变。"
     }
 
     private var footerSection: some View {
