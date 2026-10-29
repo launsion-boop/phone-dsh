@@ -127,6 +127,7 @@ struct ChatPage: View {
 
             HStack(spacing: 0) {
                 Button {
+                    inputFocused = false
                     openDrawer?()
                 } label: {
                     Image(systemName: "sidebar.left")
