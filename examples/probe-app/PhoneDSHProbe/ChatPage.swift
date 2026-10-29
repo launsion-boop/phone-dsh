@@ -744,6 +744,16 @@ struct ChatPage: View {
                                 .padding(12)
                                 .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
                         }
+                        if model.isShowingCachedTranscript {
+                            HStack(spacing: 6) {
+                                ProgressView().controlSize(.mini)
+                                Text("显示上次对话 · 引擎后台启动中…")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(ChatPage.inkSecondary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.vertical, 4)
+                        }
                         if visibleItems.isEmpty { emptyTimeline(viewportHeight: viewport.size.height) }
                         let rows = timelineRows
                         ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
