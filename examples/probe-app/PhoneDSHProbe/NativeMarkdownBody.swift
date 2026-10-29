@@ -100,7 +100,7 @@ struct NativeMarkdownBody: View {
     }
 }
 
-private enum NativeMarkdownBlock {
+enum NativeMarkdownBlock {
     case heading(Int, String)
     case paragraph(String)
     case list(ordered: Bool, items: [String])
@@ -108,7 +108,7 @@ private enum NativeMarkdownBlock {
     case table(header: [String], rows: [[String]])
 }
 
-private enum NativeMarkdownParser {
+enum NativeMarkdownParser {
     static func parse(_ markdown: String) -> [NativeMarkdownBlock] {
         let lines = markdown.components(separatedBy: .newlines)
         var result: [NativeMarkdownBlock] = []

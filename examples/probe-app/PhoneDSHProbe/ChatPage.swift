@@ -2101,11 +2101,9 @@ private struct ChatMessageRow: View {
                 Spacer(minLength: 16)
                 userBubble
             }
-            .contextMenu { copyMessageButton }
         case .assistant:
             // 助手正文不套气泡,直接排在版心上。
             assistantBody
-                .contextMenu { copyMessageButton }
         case .reasoning:
             // The model's thinking: muted, collapsible, and never part of the
             // answer. It starts expanded while streaming, collapses when the
@@ -2116,30 +2114,14 @@ private struct ChatMessageRow: View {
         }
     }
 
-    /// 长按一条消息即可复制全文。SwiftUI 的文本选择在长按后还要再拖手柄，
-    /// 单手很难点到；这里给一个直接的复制菜单。工具卡保留自己的点击展开，
-    /// 不挂这个菜单。
-    @ViewBuilder
-    private var copyMessageButton: some View {
-        if !item.text.isEmpty {
-            Button {
-                UIPasteboard.general.string = item.text
-            } label: {
-                Label("复制", systemImage: "doc.on.doc")
-            }
-        }
-    }
-
     private var assistantBody: some View {
         VStack(alignment: .leading, spacing: 6) {
             if item.streaming { ProgressView().controlSize(.mini) }
-            NativeMarkdownBody(markdown: item.text.isEmpty ? "…" : item.text)
-                .font(.system(size: 17))
-                .environment(\.openURL, OpenURLAction { url in
-                    guard let path = workspaceRelativePath(from: url) else { return .systemAction }
-                    onOpenFile(path)
-                    return .handled
-                })
+            SelectableMarkdownText(markdown: item.text.isEmpty ? "…" : item.text) { url in
+                guard let path = workspaceRelativePath(from: url) else { return false }
+                onOpenFile(path)
+                return true
+            }
             WorkspaceOutputReferences(text: item.text, files: workspaceFiles, onOpenFile: onOpenFile)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -2170,13 +2152,12 @@ private struct ChatMessageRow: View {
             }
             .foregroundStyle(.secondary)
             if item.kind == .assistant {
-                NativeMarkdownBody(markdown: item.text.isEmpty ? "…" : item.text)
-                    .padding(-16)
-                    .environment(\.openURL, OpenURLAction { url in
-                        guard let path = workspaceRelativePath(from: url) else { return .systemAction }
-                        onOpenFile(path)
-                        return .handled
-                    })
+                SelectableMarkdownText(markdown: item.text.isEmpty ? "…" : item.text) { url in
+                    guard let path = workspaceRelativePath(from: url) else { return false }
+                    onOpenFile(path)
+                    return true
+                }
+                .padding(-16)
             } else {
                 Text(item.text.isEmpty ? "…" : item.text)
                     .font(.body)
