@@ -407,6 +407,10 @@ final class ChatModel {
                 ?? response["commands"]?.arrayValue
                 ?? response["value"]?.arrayValue
                 ?? []
+            let parsedNames: [String] = rows.compactMap { $0["name"]?.stringValue }
+            if !parsedNames.isEmpty {
+                appendStatus("commands: \(parsedNames.count), goal=\(parsedNames.contains("goal") ? "yes" : "no")")
+            }
             availableCommands = rows.compactMap { row in
                 guard let name = row["name"]?.stringValue,
                       !name.isEmpty,
@@ -1837,11 +1841,21 @@ final class ChatModel {
         Self.persistStatus(text)
     }
 
+    private var lastLoggedGoal: String?
+
     /// Reads the goal projection; failures keep the last known goal.
     func refreshGoal() async {
         guard let harness, let sessionID else { return }
-        if let next = try? await harness.goal(sessionID: sessionID) {
+        do {
+            let next = try await harness.goal(sessionID: sessionID)
             goal = next
+            let summary = next.map { "\($0.phase.rawValue) \($0.objective.prefix(40))" } ?? "none"
+            if summary != lastLoggedGoal {
+                lastLoggedGoal = summary
+                appendStatus("goal: \(summary)")
+            }
+        } catch {
+            appendStatus("goal read failed: \(error)")
         }
     }
 
