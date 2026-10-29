@@ -55,6 +55,8 @@ struct ChatItem: Identifiable, Equatable {
         case user
         case context
         case assistant
+        /// The model's streamed reasoning for the current step.
+        case reasoning
         case toolCall
         case toolResult(isError: Bool)
         case status
@@ -1306,14 +1308,27 @@ final class ChatModel {
         // locked the composer and every session switch afterwards.
         dismissPendingRequests()
         guard let harness, let sessionID else { return }
-        do {
-            try await harness.send(.cancel, to: sessionID)
-            clearError()
-        } catch {
-            // A wedged Worker can also fail the cancel call itself; the local
-            // fallback below still ends the turn for the person who asked.
-            appendStatus("取消请求发送失败：\(error.localizedDescription)")
+        // The cancel RPC has no transport timeout: a busy Worker (a heavy
+        // bash step, a WebContent restart) can swallow its response and this
+        // await would never return, leaving `turnRunning` and the stop
+        // spinner locked forever. Bound it; the local fallback below always
+        // ends the turn for the person who pressed stop.
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask {
+                do {
+                    try await harness.send(.cancel, to: sessionID)
+                } catch {
+                    // A wedged Worker can also fail the cancel call itself.
+                    await MainActor.run { self.appendStatus("取消请求发送失败：\(error.localizedDescription)") }
+                }
+            }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(3))
+            }
+            await group.next()
+            group.cancelAll()
         }
+        clearError()
         // The pinned runtime journals turn/end on cancel in the normal case.
         // When the turn is already stalled (no session events at all) that
         // terminal never arrives, and the composer would stay locked; give it
@@ -1666,8 +1681,19 @@ final class ChatModel {
             clearSendingLabels()
         }
         switch event.kind {
+        case .reasoningDelta(let text):
+            clearSendingLabels()
+            if let index = items.indices.last, items[index].kind == .reasoning,
+               items[index].streaming {
+                items[index].text += text
+            } else {
+                finishStreamingReasoning()
+                items.append(ChatItem(id: eventItemID(event), kind: .reasoning,
+                                      title: "思考", text: text, streaming: true))
+            }
         case .assistantDelta(let text):
             clearSendingLabels()
+            finishStreamingReasoning()
             if let index = items.indices.last, items[index].kind == .assistant, items[index].streaming {
                 items[index].text += text
             } else {
@@ -1675,6 +1701,7 @@ final class ChatModel {
             }
         case .assistantMessage(let text):
             clearSendingLabels()
+            finishStreamingReasoning()
             if let index = items.indices.last, items[index].kind == .assistant, items[index].streaming {
                 if !text.isEmpty { items[index].text = text }
                 items[index].streaming = false
@@ -1687,6 +1714,7 @@ final class ChatModel {
             break
         case .toolCall(_, let name, let arguments):
             finishStreamingAssistant()
+            finishStreamingReasoning()
             recentToolArguments[name] = Self.flattenedArguments(arguments)
             items.append(ChatItem(id: eventItemID(event), kind: .toolCall, title: "Tool call: \(name)", text: Self.render(arguments)))
         case .toolResult(_, let isError, let summary):
@@ -1708,6 +1736,7 @@ final class ChatModel {
             statusLine = "Turn running…"
         case .turnEnded(_, let reason):
             finishStreamingAssistant()
+            finishStreamingReasoning()
             clearSendingLabels()
             turnRunning = false
             syncIdleTimer()
@@ -1747,6 +1776,12 @@ final class ChatModel {
 
     private func finishStreamingAssistant() {
         if let index = items.indices.last, items[index].kind == .assistant, items[index].streaming {
+            items[index].streaming = false
+        }
+    }
+
+    private func finishStreamingReasoning() {
+        for index in items.indices where items[index].kind == .reasoning && items[index].streaming {
             items[index].streaming = false
         }
     }

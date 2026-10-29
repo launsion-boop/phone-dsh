@@ -2037,6 +2037,53 @@ private struct QuestionCard: View {
     }
 }
 
+/// The model's streamed reasoning, rendered as a muted collapsible block.
+private struct ThinkingBlock: View {
+    let text: String
+    let streaming: Bool
+    @State private var expanded: Bool
+
+    init(text: String, streaming: Bool) {
+        self.text = text
+        self.streaming = streaming
+        _expanded = State(initialValue: streaming)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button {
+                expanded.toggle()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "brain.head.profile")
+                    Text(streaming ? "思考中…" : "思考 · \(text.count) 字")
+                    Spacer(minLength: 0)
+                    Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                }
+                .font(.system(size: 13))
+                .foregroundStyle(ChatPage.inkSecondary)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if expanded || streaming {
+                Text(text)
+                    .font(.system(size: 15))
+                    .foregroundStyle(ChatPage.inkSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(ChatPage.inkSecondary.opacity(0.06),
+                    in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .onChange(of: streaming) { _, isStreaming in
+            if !isStreaming { expanded = false }
+        }
+    }
+}
+
 private struct ChatMessageRow: View {
     let item: ChatItem
     var workspaceFiles: [WorkspaceFile]
@@ -2059,6 +2106,11 @@ private struct ChatMessageRow: View {
             // 助手正文不套气泡,直接排在版心上。
             assistantBody
                 .contextMenu { copyMessageButton }
+        case .reasoning:
+            // The model's thinking: muted, collapsible, and never part of the
+            // answer. It starts expanded while streaming, collapses when the
+            // step's answer arrives.
+            ThinkingBlock(text: item.text, streaming: item.streaming)
         case .status:
             EmptyView()
         }

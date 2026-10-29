@@ -453,6 +453,7 @@ public actor PhoneDSHTurnInactivitySupervisor: AgentHarness {
     private static func describe(_ kind: HarnessEvent.Kind) -> String {
         switch kind {
         case .assistantDelta: return "assistantDelta"
+        case .reasoningDelta: return "reasoningDelta"
         case .assistantMessage: return "assistantMessage"
         case .userMessage: return "userMessage"
         case .inboxSpliced: return "inboxSpliced"
