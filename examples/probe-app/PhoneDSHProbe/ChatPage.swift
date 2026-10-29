@@ -2045,7 +2045,6 @@ private struct ThinkingBlock: View {
     let text: String
     let streaming: Bool
     @State private var expanded = false
-    @State private var shimmer = false
 
     /// DSH's collapsed summary: the first line when settled; while running,
     /// the first line of the latest COMPLETED paragraph (the growing last
@@ -2091,11 +2090,7 @@ private struct ThinkingBlock: View {
                         Rectangle()
                             .fill(ChatPage.inkSecondary.opacity(0.35))
                             .frame(width: 12, height: 1)
-                        Text(summary)
-                            .font(.system(size: 13))
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            .opacity(streaming ? (shimmer ? 1 : 0.45) : 0.85)
+                        ShimmerText(text: summary, active: streaming)
                     }
                     Spacer(minLength: 0)
                 }
@@ -2110,17 +2105,6 @@ private struct ThinkingBlock: View {
                     .foregroundStyle(ChatPage.inkSecondary)
                     .padding(.leading, 22)
             }
-        }
-        .onAppear { if streaming { startShimmer() } }
-        .onChange(of: streaming) { _, running in
-            if running { startShimmer() } else { shimmer = false }
-        }
-    }
-
-    private func startShimmer() {
-        shimmer = false
-        withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
-            shimmer = true
         }
     }
 }
@@ -2255,68 +2239,54 @@ private struct ToolRunRow: View {
         items.last?.streaming == true
     }
 
-    private var title: String {
-        items.count == 1 ? "工具 · 1 次" : "工具 · \(items.count) 次"
-    }
+    /// DSH's TurnProcessNodeView is a full-width 33pt row: tertiary label, a
+    /// trailing chevron that rotates 180° when open, and a bottom hairline.
+    /// Hover does not exist on a phone, so the chevron is always visible.
+    private var label: String { "过程 · \(items.count) 步" }
 
     var body: some View {
-        DisclosureGroup(isExpanded: $expanded) {
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(items) { item in
-                    ToolEventCard(item: item, expanded: false,
-                                  workspaceFiles: workspaceFiles, onOpenFile: onOpenFile)
-                }
-            }
-            .padding(.top, 2)
-        } label: {
-            HStack(spacing: 9) {
-                Image(systemName: failures > 0 ? "exclamationmark.triangle.fill" : "terminal")
-                    .font(.system(size: 14))
-                    .foregroundStyle(failures > 0
-                        ? Color(red: 0xC0/255, green: 0x39/255, blue: 0x2B/255)
-                        : Color(red: 154/255, green: 154/255, blue: 162/255))
-                Text(title)
-                    .font(.system(size: 13))
-                    .foregroundStyle(ChatPage.inkSecondary)
-                    .lineLimit(1)
-                if running {
-                    ProgressView().controlSize(.mini).scaleEffect(0.8)
-                } else {
-                    Image(failures > 0 ? "DSHClose" : "DSHCheck")
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                expanded.toggle()
+            } label: {
+                HStack(spacing: 6) {
+                    Text(label)
+                        .font(.system(size: 14))
+                        .foregroundStyle(ChatPage.inkSecondary)
+                        .lineLimit(1)
+                    if running {
+                        ProgressView().controlSize(.mini).scaleEffect(0.75)
+                    } else if failures > 0 {
+                        Image("DSHClose")
+                            .resizable()
+                            .renderingMode(.template)
+                            .frame(width: 12, height: 12)
+                            .foregroundStyle(Color(red: 0xC0/255, green: 0x39/255, blue: 0x2B/255))
+                    }
+                    Spacer(minLength: 0)
+                    Image("DSHChevronDown")
                         .resizable()
                         .renderingMode(.template)
-                        .frame(width: 12, height: 12)
-                        .foregroundStyle(failures > 0
-                            ? Color(red: 0xC0/255, green: 0x39/255, blue: 0x2B/255)
-                            : Color(red: 154/255, green: 154/255, blue: 162/255))
+                        .frame(width: 14, height: 14)
+                        .rotationEffect(.degrees(expanded ? 180 : 0))
+                        .foregroundStyle(ChatPage.inkSecondary)
                 }
-                Spacer(minLength: 0)
-                Image(expanded ? "DSHChevronUp" : "DSHChevronDown")
-                    .resizable()
-                    .renderingMode(.template)
-                    .frame(width: 12, height: 12)
-                    .foregroundStyle(Color(red: 154/255, green: 154/255, blue: 162/255))
-                if failures > 0 {
-                    Text("· \(failures) 失败")
-                        .font(.system(size: 13))
-                        .foregroundStyle(Color(red: 0xC0/255, green: 0x39/255, blue: 0x2B/255))
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 8)
-                if running {
-                    ProgressView().controlSize(.mini).scaleEffect(0.8)
-                }
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Color(red: 154/255, green: 154/255, blue: 162/255))
-                    .rotationEffect(.degrees(expanded ? 90 : 0))
+                .frame(height: 33)
+                .contentShape(Rectangle())
             }
-            .frame(height: 28)
-            .contentShape(Rectangle())
-        }
-        .disclosureGroupStyle(FlatDisclosureStyle())
-        .contextMenu {
-            Button("展开/收起", systemImage: "chevron.down") { expanded.toggle() }
+            .buttonStyle(.plain)
+            Rectangle()
+                .fill(ChatPage.inkSecondary.opacity(0.18))
+                .frame(height: 0.5)
+            if expanded {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(items) { item in
+                        ToolEventCard(item: item, expanded: false,
+                                      workspaceFiles: workspaceFiles, onOpenFile: onOpenFile)
+                    }
+                }
+                .padding(.top, 6)
+            }
         }
     }
 }
@@ -2371,14 +2341,7 @@ private struct ToolEventCard: View {
 
     var body: some View {
         DisclosureGroup(isExpanded: $expanded) {
-            ScrollView([.horizontal, .vertical]) {
-                Text(item.text)
-                    .font(.system(.caption, design: .monospaced))
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 7)
-            }
-            .frame(maxHeight: expanded ? 280 : nil)
+            DSHJsonBlock(text: item.text)
             if case .toolResult = item.kind {
                 WorkspaceOutputReferences(text: item.text, files: workspaceFiles, onOpenFile: onOpenFile)
             }
@@ -2409,10 +2372,11 @@ private struct ToolEventCard: View {
                             : Color(red: 154/255, green: 154/255, blue: 162/255))
                 }
                 if hasDetails {
-                    Image(expanded ? "DSHChevronUp" : "DSHChevronDown")
+                    Image("DSHChevronDown")
                         .resizable()
                         .renderingMode(.template)
                         .frame(width: 12, height: 12)
+                        .rotationEffect(.degrees(expanded ? 180 : 0))
                         .foregroundStyle(Color(red: 154/255, green: 154/255, blue: 162/255))
                 }
             }
