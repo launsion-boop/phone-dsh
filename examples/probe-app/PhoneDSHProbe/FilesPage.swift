@@ -14,11 +14,12 @@ struct FilesPage: View {
         self.initialPath = initialPath
     }
 
-    /// 分组标题只写「工作文件夹」或当前那一层文件夹名,不写手机上的整条路径。
+    /// 分组标题只写「手机工作区」或当前那一层文件夹名,不写手机上的整条路径。
+    /// 工作区在磁盘上的名字仍是 DSH 的 `default-workspace`,这里只改显示名。
     private var fileGroupTitle: String {
         let trimmed = directory.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        guard !trimmed.isEmpty else { return "工作文件夹" }
-        return trimmed.split(separator: "/").last.map(String.init) ?? "工作文件夹"
+        guard !trimmed.isEmpty else { return "手机工作区" }
+        return trimmed.split(separator: "/").last.map(String.init) ?? "手机工作区"
     }
     let initialPath: String?
     @State private var query = ""
@@ -47,7 +48,7 @@ struct FilesPage: View {
 
     var body: some View {
         fileList
-            .navigationTitle(directory.isEmpty ? "文件" : String(directory.dropLast()).split(separator: "/").last.map(String.init) ?? "文件")
+            .navigationTitle(directory.isEmpty ? "手机工作区" : String(directory.dropLast()).split(separator: "/").last.map(String.init) ?? "手机工作区")
             .navigationBarTitleDisplayMode(.large)
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
