@@ -186,9 +186,7 @@ private struct FileRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: icon)
-                .font(.title3)
-                .foregroundStyle(.tint)
+            FileTypeGlyph.icon(for: file.relativePath, size: 24)
                 .frame(width: 34, height: 38)
             VStack(alignment: .leading, spacing: 3) {
                 Text(URL(fileURLWithPath: file.relativePath).lastPathComponent)
@@ -221,13 +219,6 @@ private struct FileRow: View {
         return parent
     }
 
-    private var icon: String {
-        let ext = URL(fileURLWithPath: file.relativePath).pathExtension.lowercased()
-        if ["png", "jpg", "jpeg", "gif", "heic", "webp"].contains(ext) { return "photo" }
-        if ["pdf"].contains(ext) { return "doc.richtext" }
-        if ["zip", "tar", "gz"].contains(ext) { return "archivebox" }
-        return "doc.text"
-    }
 }
 
 private struct FilePreviewPage: View {
@@ -298,8 +289,12 @@ private struct FilePreviewPage: View {
 
     var body: some View {
         Group {
-            if quickLookURL != nil {
-                ContentUnavailableView("正在打开预览…", systemImage: "doc.viewfinder")
+            if let quickLookURL {
+                // Presenting `.quickLookPreview` from inside this sheet was a
+                // second modal on top of the first: iOS silently dropped it
+                // and the placeholder stayed ("一直加载中"). An embedded
+                // QLPreviewController is a child view, not a modal.
+                EmbeddedQuickLook(url: quickLookURL)
             } else if isHTML, let entry = pageEntry, let resolver = pageResolver {
                 // A real origin: relative scripts, textures and .glb models
                 // resolve, with the host-enforced CSP per the page's tier.
@@ -354,7 +349,6 @@ private struct FilePreviewPage: View {
                     .background(.bar)
             }
         }
-        .quickLookPreview($quickLookURL)
         .task { await loadPreview() }
     }
 
@@ -450,3 +444,44 @@ private struct FilePreviewPage: View {
     }
 }
 
+
+
+/// Quick Look as a child view controller.
+///
+/// `.quickLookPreview` from a view that is already inside a sheet presented a
+/// second modal; iOS refuses nested modals silently (the preview never
+/// appears and the page keeps its placeholder). This hosts the same
+/// `QLPreviewController` inline, so every Quick Look type (images, PDF, GIF,
+/// Office) opens inside the existing sheet.
+private struct EmbeddedQuickLook: UIViewControllerRepresentable {
+    let url: URL
+
+    func makeCoordinator() -> Coordinator { Coordinator(url: url) }
+
+    func makeUIViewController(context: Context) -> QLPreviewController {
+        let controller = QLPreviewController()
+        controller.dataSource = context.coordinator
+        context.coordinator.controller = controller
+        return controller
+    }
+
+    func updateUIViewController(_ controller: QLPreviewController, context: Context) {
+        guard context.coordinator.url != url else { return }
+        context.coordinator.url = url
+        controller.reloadData()
+    }
+
+    final class Coordinator: NSObject, QLPreviewControllerDataSource {
+        var url: URL
+        weak var controller: QLPreviewController?
+
+        init(url: URL) { self.url = url }
+
+        func numberOfPreviewItems(in controller: QLPreviewController) -> Int { 1 }
+
+        func previewController(_ controller: QLPreviewController,
+                               previewItemAt index: Int) -> any QLPreviewItem {
+            url as NSURL
+        }
+    }
+}

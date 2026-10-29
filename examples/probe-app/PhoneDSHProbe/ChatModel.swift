@@ -277,6 +277,8 @@ final class ChatModel {
     var currentSessionID: String? { sessionID }
     private var transcriptReady = false
     var isTranscriptReady: Bool { transcriptReady }
+    /// The last transcript is on screen from disk while the engine boots.
+    private(set) var isShowingCachedTranscript = false
     private var transcriptThroughSeq: Int?
     private var transcriptBeforeSeq: Int?
     private var hostLifecycleTransition = false
@@ -733,6 +735,9 @@ final class ChatModel {
         let newHost = PhoneDSHHost(configuration: configuration, engineFactory: { configuration in
             await anchor.makeEngine(configuration)
         })
+        // Show the last conversation from disk immediately; the engine boots
+        // in the background and replaces it when the host history arrives.
+        restoreCachedTranscriptIfAvailable()
         statusLine = "Booting the Worker…"
         appendStatus("Booting the host (Worker bundle + image)…")
         observeHost(newHost)
@@ -772,6 +777,8 @@ final class ChatModel {
                 transcriptHasMore = history.hasMore
                 transcriptBeforeSeq = history.beforeSeq
                 transcriptThroughSeq = history.throughSeq
+                isShowingCachedTranscript = false
+                persistTranscriptSnapshot()
             } catch {
                 reportError("Session opened, but its DSH history could not be loaded: \(error)")
                 transcriptReady = false
@@ -860,6 +867,8 @@ final class ChatModel {
             UserDefaults.standard.set(session.id, forKey: Self.currentSessionDefaultsKey)
             lastSeq = history.after
             items = history.items
+            isShowingCachedTranscript = false
+            persistTranscriptSnapshot()
             transcriptHasMore = history.hasMore
             transcriptBeforeSeq = history.beforeSeq
             transcriptThroughSeq = history.throughSeq
@@ -1753,6 +1762,7 @@ final class ChatModel {
             turnRunning = false
             syncIdleTimer()
             statusLine = "Turn ended: \(Self.describe(reason))"
+            persistTranscriptSnapshot()
             if case .failed(let message) = reason {
                 reportError(Self.userFacingFailure(message))
                 failedPrompt = lastPrompt
@@ -1807,6 +1817,83 @@ final class ChatModel {
     private func appendStatus(_ text: String) {
         items.append(ChatItem(kind: .status, title: "Host", text: text))
         Self.persistStatus(text)
+    }
+
+    // MARK: - Launch transcript snapshot
+
+    private struct CachedTranscriptItem: Codable {
+        var id: String
+        var kind: String
+        var title: String
+        var text: String
+    }
+
+    private static func snapshotURL(for sessionID: String) -> URL {
+        let documents = FileManager.default.urls(for: .documentDirectory,
+                                                 in: .userDomainMask)[0]
+        return documents
+            .appendingPathComponent("transcript-snapshots", isDirectory: true)
+            .appendingPathComponent("\(sessionID).json")
+    }
+
+    private static func snapshotKindName(_ kind: ChatItem.Kind) -> String {
+        switch kind {
+        case .user: return "user"
+        case .context: return "context"
+        case .assistant: return "assistant"
+        case .reasoning: return "reasoning"
+        case .toolCall: return "toolCall"
+        case .toolResult(let isError): return isError ? "toolError" : "toolResult"
+        case .status: return "status"
+        }
+    }
+
+    private static func chatKind(from name: String) -> ChatItem.Kind? {
+        switch name {
+        case "user": return .user
+        case "context": return .context
+        case "assistant": return .assistant
+        case "reasoning": return .reasoning
+        case "toolCall": return .toolCall
+        case "toolResult": return .toolResult(isError: false)
+        case "toolError": return .toolResult(isError: true)
+        case "status": return .status
+        default: return nil
+        }
+    }
+
+    /// Renders the last session's settled items before the host is ready.
+    private func restoreCachedTranscriptIfAvailable() {
+        guard items.isEmpty,
+              let sessionID = UserDefaults.standard.string(forKey: Self.currentSessionDefaultsKey),
+              let data = try? Data(contentsOf: Self.snapshotURL(for: sessionID)),
+              let cached = try? JSONDecoder().decode([CachedTranscriptItem].self, from: data),
+              !cached.isEmpty else { return }
+        items = cached.compactMap { item in
+            guard let kind = Self.chatKind(from: item.kind) else { return nil }
+            return ChatItem(id: item.id, kind: kind, title: item.title, text: item.text)
+        }
+        guard !items.isEmpty else { return }
+        isShowingCachedTranscript = true
+        statusLine = "显示上次对话，引擎在后台启动…"
+    }
+
+    /// Saves the settled items so the next launch can paint immediately.
+    private func persistTranscriptSnapshot() {
+        guard !isShowingCachedTranscript, let sessionID else { return }
+        let settled = items.filter { !$0.streaming }.suffix(400)
+        guard !settled.isEmpty else { return }
+        let cached = settled.map { item in
+            CachedTranscriptItem(id: item.id,
+                                 kind: Self.snapshotKindName(item.kind),
+                                 title: item.title,
+                                 text: item.text)
+        }
+        guard let data = try? JSONEncoder().encode(cached) else { return }
+        let url = Self.snapshotURL(for: sessionID)
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                 withIntermediateDirectories: true)
+        try? data.write(to: url, options: .atomic)
     }
 
     /// One short line of a raw host message (the full text stays in
