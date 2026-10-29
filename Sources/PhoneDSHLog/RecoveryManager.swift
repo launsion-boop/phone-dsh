@@ -243,7 +243,17 @@ public struct RecoveryManager: Sendable {
         let hasUnclosedHistory = retained.contains { segment in
             !segment.records.isEmpty && !durableEpochs.contains(segment.epoch)
         }
-        if needsVerification || hasUnclosedHistory || !resyncPaths.isEmpty {
+        // Fast path: every retained record is at or below a fsynced
+        // materialized watermark and belongs to a durable epoch. The tree is
+        // then the checkpoint the verification would re-prove, and a full
+        // scan cannot repair anything below the watermark anyway (there is no
+        // un-materialized base). The boot after a force-kill used to spend
+        // ~18 s scanning hundreds of MB for exactly this case.
+        let fullyMaterialized = currentWatermark >= lastMseq
+        let checkpointProven = fullyMaterialized && !hasUnclosedHistory
+            && resyncPaths.isEmpty
+        if (needsVerification || hasUnclosedHistory || !resyncPaths.isEmpty)
+            && !checkpointProven {
             let report = try MaterializedInvariant.checkAndRepair(
                 paths: paths,
                 records: retainedRecords,
