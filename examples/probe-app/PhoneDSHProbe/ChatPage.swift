@@ -1640,7 +1640,10 @@ struct ChatPage: View {
                     // moment. The label describes the queue the message joined,
                     // which only exists if a turn was already running.
                     if wasRunning && busyEnterMode == "steer" { model.markSteered(itemID: id) }
-                    else if wasRunning { model.markQueued(itemID: id) }
+                    else if wasRunning {
+                        model.markQueued(itemID: id)
+                        ChatModel.appendDiagnostic("queued: \(text.prefix(40))")
+                    }
                 }
                 pendingAttachments.removeAll()
                 attachmentError = nil
@@ -2408,12 +2411,37 @@ private func toolActionLine(_ item: ChatItem) -> String {
     if ["读取文件", "改文件"].contains(action) {
         parameter = parameter.components(separatedBy: "/").last ?? parameter
     }
-    // A command's preview is its first line, not the first whitespace token:
-    // '运行命令 · cd' hid what the command actually did.
-    parameter = parameter.trimmingCharacters(in: .whitespacesAndNewlines)
-    if parameter.isEmpty { parameter = raw }
+    parameter = readableToolParameter(parameter)
+    // A streaming tool call can be a bare `{` (its arguments are still
+    // arriving): showing '执行命令 · {' with nothing after it is noise, so an
+    // unreadable parameter drops the whole preview and leaves the action.
+    if parameter.isEmpty { return action }
     if parameter.count > 48 { parameter = String(parameter.prefix(48)) + "…" }
     return "\(action) · \(parameter)"
+}
+
+/// Turns a tool argument fragment into one readable line: JSON arguments pick
+/// a human field (description/command/...); braces and quotes are stripped;
+/// an unparseable fragment yields an empty string (the caller hides it).
+private func readableToolParameter(_ raw: String) -> String {
+    var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    if text.hasPrefix("{") || text.hasPrefix("[") {
+        if let data = text.data(using: .utf8),
+           let object = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) {
+            if let dictionary = object as? [String: Any] {
+                for key in ["description", "command", "query", "path", "file_path",
+                            "pattern", "url", "name", "prompt"] {
+                    if let value = dictionary[key] as? String,
+                       !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        return value.trimmingCharacters(in: .whitespacesAndNewlines)
+                    }
+                }
+            }
+            return ""
+        }
+        text = text.trimmingCharacters(in: CharacterSet(charactersIn: "{}[]\" "))
+    }
+    return text.trimmingCharacters(in: .whitespacesAndNewlines)
 }
 
 private struct ToolRunRow: View {
