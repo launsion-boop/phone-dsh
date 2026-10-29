@@ -76,6 +76,9 @@ struct ChatPage: View {
     @State private var pasteLimitNoticed = false
     @State private var stopping = false
     @State private var scrollToLatestTrigger = 0
+    /// Coalesces follow-the-tail scrolls so one lands after the lazy stack
+    /// has laid the new rows out (see `scheduleTailScroll`).
+    @State private var tailScrollTask: Task<Void, Never>?
     @State private var loadingEarlierTrajectory = false
     @State private var loadingEarlierTranscript = false
 
@@ -810,7 +813,7 @@ struct ChatPage: View {
                         return
                     }
                     guard nearBottom, !loadingEarlierTranscript else { return }
-                    scrollToTailIfFollowing(proxy, viewportHeight: viewport.size.height)
+                    scheduleTailScroll(proxy, viewportHeight: viewport.size.height)
                 }
                 .onChange(of: model.isTranscriptReady) { _, ready in
                     guard ready, pendingInitialScroll, !visibleItems.isEmpty,
@@ -838,7 +841,7 @@ struct ChatPage: View {
                     // viewport. A transcript that was following re-anchors to
                     // the tail, so no blank strip is left below the content.
                     guard new > old, nearBottom else { return }
-                    scrollToTail(proxy, viewportHeight: new)
+                    scheduleTailScroll(proxy, viewportHeight: new)
                 }
             }
         }
@@ -877,13 +880,21 @@ struct ChatPage: View {
         }
     }
 
-    /// Follow the streaming tail. No animation: a per-token animated scroll
-    /// kept racing the growing lazy stack and could leave the offset past the
-    /// last row — a blank viewport below the content until the person scrolled
-    /// again. The explicit "回到最新" pill keeps its animation.
-    private func scrollToTailIfFollowing(_ proxy: ScrollViewProxy, viewportHeight: CGFloat) {
-        guard nearBottom else { return }
-        scrollToTail(proxy, viewportHeight: viewportHeight)
+    /// Follow the tail after the next layout pass.
+    ///
+    /// Sending a message appends a row and, in the same update, this view asks
+    /// the lazy stack to scroll to a row it has not laid out yet: the target
+    /// is an estimate, the viewport can end up past the real content (a blank
+    /// screen) and the next streamed delta snaps it back (the visible jump).
+    /// Debouncing by one short turn lets the height preference and the row
+    /// frames settle, and the coalesced follow still tracks streaming.
+    private func scheduleTailScroll(_ proxy: ScrollViewProxy, viewportHeight: CGFloat) {
+        tailScrollTask?.cancel()
+        tailScrollTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(50))
+            guard !Task.isCancelled, nearBottom else { return }
+            scrollToTail(proxy, viewportHeight: viewportHeight)
+        }
     }
 
     /// 新会话空屏。三种状态互斥,同一时刻只渲染一种;三者都在滚动区里,
