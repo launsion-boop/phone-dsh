@@ -10,6 +10,7 @@ import UIKit
 
 struct ChatPage: View {
     var openDrawer: (() -> Void)? = nil
+    var drawerExpanded = false
     #if DEBUG
     /// 预览专用:直接吃一份本地造好的消息,不订阅宿主、不等记录就绪。
     var previewItems: [ChatItem]? = nil
@@ -87,9 +88,7 @@ struct ChatPage: View {
     @State private var loadingEarlierTranscript = false
 
     private var providerNeedsKey: Bool {
-        guard let profile = (try? PhoneModelProviderSettings.shared.load())?.selected else { return true }
-        guard let status = try? PhoneModelProviderSettings.shared.apiKeyStatus(for: profile.id) else { return true }
-        return status != .present
+        model.modelProviderIssue != nil
     }
 
     private var sessionKey: String { model.currentSessionID ?? "new" }
@@ -123,7 +122,7 @@ struct ChatPage: View {
             .buttonStyle(.plain)
             .disabled(model.currentSessionID == nil)
             .accessibilityHint("点按重命名会话")
-            .padding(.horizontal, 104)
+            .padding(.horizontal, providerNeedsKey ? 144 : 104)
 
             HStack(spacing: 0) {
                 Button {
@@ -135,19 +134,21 @@ struct ChatPage: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("打开会话列表")
+                .accessibilityLabel(drawerExpanded ? "隐藏会话列表" : "打开会话列表")
 
                 Spacer(minLength: 0)
 
                 HStack(spacing: 4) {
                     Button { showRuntimeDetails = true } label: {
-                        RunStatusDot(started: model.isStarted, parked: model.parked)
+                        RunStatusDot(started: model.isStarted, parked: model.parked,
+                                     needsModelConfiguration: providerNeedsKey)
                             .fixedSize(horizontal: true, vertical: false)
                             .frame(height: 44)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("运行状态")
+                    .accessibilityValue(providerNeedsKey ? "待配置模型服务" : model.displayStatus)
                     Menu {
                         ShareLink(item: historyExport,
                                   subject: Text("对话记录"),
@@ -975,9 +976,11 @@ struct ChatPage: View {
             Text("还差一步:配好模型服务")
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(.primary)
-            Text("选一个模型服务,就能开始。")
-                .font(.system(size: 13))
-                .foregroundStyle(ChatPage.inkSecondary)
+            if let issue = model.modelProviderIssue {
+                Text(issue)
+                    .font(.system(size: 13))
+                    .foregroundStyle(ChatPage.inkSecondary)
+            }
             Button {
                 showProviderSettings = true
             } label: {
@@ -1218,7 +1221,19 @@ struct ChatPage: View {
             .disabled(!composerEnabled)
             .accessibilityLabel("添加图片或文件")
             accessModeMenu
-            modelMenu
+            if providerNeedsKey {
+                Button {
+                    showProviderSettings = true
+                } label: {
+                    Label("配置模型服务", systemImage: "key")
+                        .font(.system(size: 13))
+                        .frame(minHeight: 32)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(ChatPage.accent)
+            } else {
+                modelMenu
+            }
             if model.turnRunning {
                 ProgressView()
                     .controlSize(.small)
@@ -1518,6 +1533,8 @@ struct ChatPage: View {
     }
 
     private func submitDraft() {
+        model.refreshModelProviderReadiness()
+        guard canSubmit else { return }
         let text = draft
         if let command = Self.parseSlashCommand(text) {
             draft = ""
@@ -1642,6 +1659,7 @@ struct ChatPage: View {
     }
 
     private var composerPlaceholder: String {
+        if let issue = model.modelProviderIssue { return issue }
         if !model.turnRunning { return "发消息" }
         return busyEnterMode == "steer" ? "补充当前任务…" : "排入下一轮…"
     }

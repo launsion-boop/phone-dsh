@@ -27,6 +27,7 @@ settings:
   base:
     SWIFT_VERSION: "5.0"
     IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+    TARGETED_DEVICE_FAMILY: "1,2"
     CURRENT_PROJECT_VERSION: "1"
     MARKETING_VERSION: "0.1.0"
     CODE_SIGN_STYLE: Automatic
@@ -88,7 +89,6 @@ targets:
         # default access group; a build without this entitlement gets
         # errSecMissingEntitlement for every keychain query.
         CODE_SIGN_ENTITLEMENTS: Config/PhoneDSHProbe.entitlements
-        TARGETED_DEVICE_FAMILY: "1"
         SUPPORTS_MACCATALYST: NO
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks"
 
@@ -130,7 +130,6 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         DEFINES_MODULE: YES
         SKIP_INSTALL: YES
-        TARGETED_DEVICE_FAMILY: "1"
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @loader_path/Frameworks"
 
   # W13-SIM-SCENARIOS: the G2 catalog-driven scenario runner on the iOS
@@ -160,7 +159,6 @@ targets:
         INFOPLIST_FILE: Config/PhoneDSHScenarioSimTests-Info.plist
         GENERATE_INFOPLIST_FILE: NO
         SKIP_INSTALL: YES
-        TARGETED_DEVICE_FAMILY: "1"
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @loader_path/Frameworks"
 
   # W3-SIM: hostless XCTest target. No TEST_HOST: `xcodebuild test` launches
@@ -219,7 +217,6 @@ targets:
         INFOPLIST_FILE: Config/PhoneDSHSimTests-Info.plist
         GENERATE_INFOPLIST_FILE: NO
         SKIP_INSTALL: YES
-        TARGETED_DEVICE_FAMILY: "1"
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @loader_path/Frameworks"
 
   # Device twin of PhoneDSHScenarioSimTests: the same sources hosted by the
@@ -248,7 +245,6 @@ targets:
         INFOPLIST_FILE: Config/PhoneDSHScenarioSimTests-Info.plist
         GENERATE_INFOPLIST_FILE: NO
         SKIP_INSTALL: YES
-        TARGETED_DEVICE_FAMILY: "1"
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @loader_path/Frameworks"
 
   # Device twin of PhoneDSHSimTests (probe / smoke / kill matrix / Web surface hosted by the app).
@@ -291,7 +287,6 @@ targets:
         INFOPLIST_FILE: Config/PhoneDSHSimTests-Info.plist
         GENERATE_INFOPLIST_FILE: NO
         SKIP_INSTALL: YES
-        TARGETED_DEVICE_FAMILY: "1"
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @loader_path/Frameworks"
 
 schemes:

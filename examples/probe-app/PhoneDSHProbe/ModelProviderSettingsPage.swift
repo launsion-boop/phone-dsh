@@ -255,6 +255,7 @@ struct ModelProviderSettingsPage: View {
     }
 
     private func reload() {
+        defer { model.refreshModelProviderReadiness() }
         do {
             let loaded = try settings.load()
             snapshot = loaded
