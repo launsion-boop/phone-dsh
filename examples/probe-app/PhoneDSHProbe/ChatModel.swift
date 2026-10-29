@@ -17,6 +17,8 @@ import CryptoKit
 import PhoneDSHAgentCore
 import PhoneDSH
 import enum PhoneDSHController.DeviceTier
+import struct PhoneDSHController.BudgetTable
+import struct PhoneDSHController.RestartPolicy
 import PhoneDSHEngine
 import PhoneDSHShell
 
@@ -282,6 +284,12 @@ final class ChatModel {
     private var transcriptThroughSeq: Int?
     private var transcriptBeforeSeq: Int?
     private var hostLifecycleTransition = false
+    // Planned-restart policy (see RestartPolicy): one sample per minute,
+    // executed only at a tool-call boundary.
+    private var restartPolicyTask: Task<Void, Never>?
+    private var restartPolicyHighSamples = 0
+    private var restartPolicySawTermination = false
+    private var restartPolicyBudget: BudgetTable?
     private var foregroundResumeRequested = false
     private var backgroundParkRequested = false
     var canSend: Bool { harness != nil && sessionID != nil && transcriptReady && !busy && !parked && !hostLifecycleTransition }
@@ -751,6 +759,8 @@ final class ChatModel {
         }
         host = newHost
         startedAt = Date()
+        restartPolicyBudget = configuration.budgets
+        startRestartPolicyMonitor()
         do {
             let harness = try await newHost.harness()
             self.harness = harness
@@ -1213,8 +1223,12 @@ final class ChatModel {
                     Self.appendDiagnostic("host error: \(message)")
                     self.reportError("引擎报错：\(Self.condensed(message))")
                 case .webContentTerminated(let count):
+                    self.restartPolicySawTermination = true
                     self.appendStatus("WebContent terminated (\(count)); the host restarts the Worker")
                 case .restarted:
+                    self.restartPolicyHighSamples = 0
+                    self.restartPolicySawTermination = false
+                    self.startedAt = Date()
                     self.appendStatus("Worker restarted; the session resumes from the WAL")
                 default:
                     break
@@ -1817,6 +1831,46 @@ final class ChatModel {
     private func appendStatus(_ text: String) {
         items.append(ChatItem(kind: .status, title: "Host", text: text))
         Self.persistStatus(text)
+    }
+
+    // MARK: - Planned-restart policy
+
+    /// One sample per minute; the RestartPolicy decides whether the sample is
+    /// a reason to restart, and the restart only runs when no turn is in
+    /// flight (the tool-call boundary).
+    private func startRestartPolicyMonitor() {
+        restartPolicyTask?.cancel()
+        restartPolicyTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+                guard !Task.isCancelled, let self else { return }
+                await self.evaluateRestartPolicy()
+            }
+        }
+    }
+
+    private func evaluateRestartPolicy() async {
+        guard let host, let budget = restartPolicyBudget,
+              let startedAt, isStarted, !parked, !hostLifecycleTransition else { return }
+        let heap = await host.currentEngineHeapBytes()
+        let atToolBoundary = !turnRunning && !busy
+        let evaluation = RestartPolicy.standard.evaluate(
+            engineHeapBytes: heap,
+            heapBudgetBytes: budget.engineHeapBytes,
+            uptime: Date().timeIntervalSince(startedAt),
+            highSamples: restartPolicyHighSamples,
+            webContentTerminated: restartPolicySawTermination,
+            atToolBoundary: atToolBoundary)
+        restartPolicyHighSamples = evaluation.nextHighSamples
+        guard let trigger = evaluation.trigger else { return }
+        restartPolicyHighSamples = 0
+        restartPolicySawTermination = false
+        appendStatus("Planned restart (\(trigger.rawValue)) at the tool-call boundary")
+        do {
+            try await host.plannedRestart(reason: "restart policy: \(trigger.rawValue)")
+        } catch {
+            appendStatus("Planned restart failed: \(error.localizedDescription)")
+        }
     }
 
     // MARK: - Launch transcript snapshot

@@ -3728,6 +3728,9 @@ public actor PhoneDSHHost: PhoneDSHHosting {
     /// tier's engine heap budget drives the same clear-tmp -> planned-restart ->
     /// handoff sequence as VFS pressure, so publish-time amplification cannot
     /// hide behind a within-budget steady-state VFS.
+    /// The engine's last reported heap, for the app's restart policy.
+    public func currentEngineHeapBytes() -> Int? { engineHeapBytes }
+
     public func reportEngineHeapBytes(_ bytes: Int?) async {
         engineHeapBytes = bytes.map { max(0, $0) }
         if let runtime {

@@ -521,7 +521,7 @@ function markdownFor(document: CapabilityManifestDocument, compactCommands = fal
       + `${String(limits.execution.max_loop_iterations)}/${String(limits.execution.max_awk_iterations)}/`
       + `${String(limits.execution.max_sed_iterations)} loop/awk/sed iterations; over limit non-zero `
       + '`reason=iterations` (awk/seq/for/while/sed share the ceiling).',
-    `- <= ${String(limits.max_sub_agents)} sub-agents (1 thermal); restart every 2 h at tool-call boundary.`,
+    `- <= ${String(limits.max_sub_agents)} sub-agents (1 thermal); restart only at a tool-call boundary (heap/WebContent/24 h).`,
     '',
     '## Network',
     '- no sockets/DNS/TLS; `curl` only via App `/v1/http` proxy; no wget/nc/ssh/downloads.',
