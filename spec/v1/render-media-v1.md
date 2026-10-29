@@ -284,7 +284,7 @@ App bundle 内置 `Web3DLib/`（总计约 **800 KB**）：
 | 1 | `pdsh-page://` 是否允许跨会话 | **允许**，每个 session 段独立校验，`lib` 为保留字 | 2026-10-29 |
 | 2 | `.glb` 走 VFS 还是直读物化目录 | **物化直读优先**，VFS 分块仅作刚写入窗口的回退（§B.3.1） | 2026-10-29 |
 | 3 | 视频产物是否单独占配额 | **单独一类** `video/`，512 MiB，永不驱逐未回读会话（§A.5） | 2026-10-29 |
-| 4 | 跨会话读的实现状态 | **P1，当前只支持同会话**。`workspace_id`（`Library/xl/<workspace_id>/`）不是 `sessionID`；本 host 只有一个 workspace，跨会话读需要 session→workspace 映射，尚未接线；known-fail 测试锁定 | 2026-10-29 |
+| 4 | 跨会话读的实现状态 | **已实现**（多 workspace）：`workspace_id` 不是 `sessionID`；页面按 `sessionID` 从 `workspace/follow` 的 `sessionIds` 找到会话，Origin 为 `/dsh/workspace` 的物化树（各 workspace 目录都在其下），因此页面 A 可以直接引用页面 B 的文件；host 未列出的 session 仍拒绝 | 2026-10-29 |
 
 ## 仍待定
 

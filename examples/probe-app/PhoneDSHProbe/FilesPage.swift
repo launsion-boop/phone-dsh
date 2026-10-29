@@ -267,17 +267,16 @@ private struct FilePreviewPage: View {
         return candidate
     }
 
-    /// `pdsh-page:` roots for this preview: the current session's workspace
-    /// plus the bundled Web3DLib.
+    /// `pdsh-page:` roots for this preview: every known session's materialized
+    /// workspace (the host may own several) plus the bundled Web3DLib. The map
+    /// is a snapshot taken when the view is built; a workspace refresh re-reads
+    /// it on the next render.
     private var pageResolver: PDSHPageResolver? {
         guard let library = Bundle.main.url(forResource: "Web3DLib", withExtension: nil) else {
             return nil
         }
-        let workspace = ChatModel.shared.workspaceDirectoryURL
-        let session = ChatModel.shared.currentSessionID
-        return PDSHPageResolver(libraryRoot: library, workspaceRoot: { id in
-            id == session ? workspace : nil
-        })
+        let map = ChatModel.shared.pageWorkspaceMap()
+        return PDSHPageResolver(libraryRoot: library, workspaceRoot: { map[$0] })
     }
 
     private var needsQuickLook: Bool {

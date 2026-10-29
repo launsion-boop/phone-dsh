@@ -557,6 +557,24 @@ final class ChatModel {
     /// PAGE surface serves from `pdsh-page://<session>/...`.
     var workspaceDirectoryURL: URL { materializedWorkspace }
 
+    /// sessionID → the materialized tree its page origin serves. The host
+    /// supports several workspaces (`workspace/create`, `workspace/follow`),
+    /// and their directories all live under the one VFS `/dsh/workspace` that
+    /// the browser lists; the page origin is therefore that shared tree, and
+    /// the session segment is validated against the host's session records.
+    /// A page in one workspace may reference another session's files
+    /// (cross-session reads), and a session the host does not list stays
+    /// unmapped (the handler then refuses the URL).
+    func pageWorkspaceMap() -> [String: URL] {
+        let base = workspaceDirectoryURL
+        var map: [String: URL] = [:]
+        if let sessionID = currentSessionID { map[sessionID] = base }
+        for workspace in DSHManagementModel.shared.workspaces {
+            for sessionID in workspace.sessionIDs { map[sessionID] = base }
+        }
+        return map
+    }
+
     private var materializedHome: URL {
         workspaceRoot.appendingPathComponent("materialized", isDirectory: true)
             .appendingPathComponent("home", isDirectory: true)

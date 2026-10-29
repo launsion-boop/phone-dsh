@@ -148,15 +148,19 @@ final class PageSchemeHandlerTests: XCTestCase {
 
     /// The shipped Web3DLib must serve every module the PAGE pages import and
     /// the demo assets; a missing file here is a blank 3D preview on a device.
-    /// P1 gap locked in (spec decision record 4): another session id is
-    /// rejected today. Cross-session reads need a session→workspace map,
-    /// which this single-workspace host does not have yet.
-    func testCrossSessionReferenceIsRejectedForNow() throws {
+    /// Cross-session (spec decision record 4): a page in one session may read
+    /// another known session's files; a session the host does not list is
+    /// still refused. The app supplies the map from `workspace/follow`.
+    func testKnownSessionsResolveAndUnknownSessionsAreRejected() throws {
         let ws = try workspace()
+        try Data("asset".utf8).write(to: ws.appendingPathComponent("asset.png"))
+        let known: Set<String> = ["SESSION-A", "SESSION-B"]
         let resolver = PDSHPageResolver(libraryRoot: try library(),
-                                        workspaceRoot: { $0 == "SESSION-A" ? ws : nil })
-        XCTAssertThrowsError(try resolver.resolve(URL(string: "pdsh-page://SESSION-B/asset.png")!)) {
-            XCTAssertEqual($0 as? PDSHPageResolutionError, .unknownSession("SESSION-B"))
+                                        workspaceRoot: { known.contains($0) ? ws : nil })
+        let page = try resolver.resolve(URL(string: "pdsh-page://SESSION-B/asset.png")!)
+        XCTAssertEqual(page.url.lastPathComponent, "asset.png")
+        XCTAssertThrowsError(try resolver.resolve(URL(string: "pdsh-page://SESSION-C/asset.png")!)) {
+            XCTAssertEqual($0 as? PDSHPageResolutionError, .unknownSession("SESSION-C"))
         }
     }
 
