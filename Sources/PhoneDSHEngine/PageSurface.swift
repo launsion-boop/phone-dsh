@@ -23,6 +23,13 @@ public enum PDSHPageEntry: Equatable, Sendable {
     /// A file in the bundled Web3DLib: `pdsh-page://lib/<path>`.
     case library(path: String)
 
+    /// The path inside its root (workspace or library).
+    public var path: String {
+        switch self {
+        case .workspace(_, let path), .library(let path): return path
+        }
+    }
+
     /// The URL this entry loads. `nil` when the path cannot be encoded.
     public var url: URL? {
         var components = URLComponents()
@@ -51,10 +58,32 @@ public struct PDSHPageView: View {
         self.resolver = resolver
     }
 
+    /// Why the `.workspace` entry cannot be served yet; `nil` when it can (or
+    /// for a library entry, which the handler owns).
+    private var resolutionFailure: (title: String, detail: String)? {
+        guard case .workspace(let sessionID, let path) = entry,
+              let url = entry.url else { return nil }
+        do {
+            _ = try resolver.resolve(url)
+            return nil
+        } catch PDSHPageResolutionError.unknownSession {
+            return ("会话未就绪", "会话 \(sessionID) 还没有物化工作区；等它启动后再打开。")
+        } catch PDSHPageResolutionError.notFound {
+            return ("文件不存在", "工作区里没有 \(path)。")
+        } catch {
+            return ("无法打开这个页面。", "\(error)")
+        }
+    }
+
     public var body: some View {
         ZStack(alignment: .bottom) {
             if let url = entry.url {
-                PDSHPageWebView(url: url, resolver: resolver, failure: $failure)
+                if let reason = resolutionFailure {
+                    ContentUnavailableView(reason.title, systemImage: "globe",
+                                           description: Text(reason.detail))
+                } else {
+                    PDSHPageWebView(url: url, resolver: resolver, failure: $failure)
+                }
             } else {
                 ContentUnavailableView("无法打开这个页面。", systemImage: "doc.questionmark")
             }
@@ -92,6 +121,8 @@ public struct PDSHPageWebView: UIViewRepresentable {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+        // A page's <video> plays inline instead of taking over full screen.
+        configuration.allowsInlineMediaPlayback = true
         // The scheme handler is the only source of page bytes; no custom
         // script message handler is installed (no host bridge).
         let handler = PDSHPageSchemeHandler(resolver: resolver)
