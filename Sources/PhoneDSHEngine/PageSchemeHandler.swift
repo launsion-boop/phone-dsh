@@ -228,37 +228,98 @@ public enum PDSHPageResolutionError: Error, Equatable, Sendable {
 public final class PDSHPageSchemeHandler: NSObject, WKURLSchemeHandler {
     public let resolver: PDSHPageResolver
 
-    public init(resolver: PDSHPageResolver) {
+    /// File reads and chunk production run here; the WebKit delegate methods
+    /// stay on the main thread and return immediately (task 2).
+    private let queue = DispatchQueue(label: "dev.phone-dsh.page-scheme",
+                                      qos: .userInitiated)
+    /// Everything handed to the task runs on this queue in order; production
+    /// uses the main thread, tests inject a private serial queue.
+    private let deliveryQueue: DispatchQueue
+    private let lock = NSLock()
+    /// Tasks WebKit stopped. Delivering to one of them raises an internal
+    /// consistency exception, so a delivery is gated on this set (task 1).
+    private var stopped: Set<ObjectIdentifier> = []
+
+    public init(resolver: PDSHPageResolver,
+                deliveryQueue: DispatchQueue = .main) {
         self.resolver = resolver
+        self.deliveryQueue = deliveryQueue
+        super.init()
     }
 
     public func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
-        respond(to: urlSchemeTask)
+        start(urlSchemeTask)
     }
 
-    public func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {}
+    public func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {
+        stop(urlSchemeTask)
+    }
+
+    /// Testable entry points; the WKURLSchemeHandler methods only forward.
+    func start(_ task: WKURLSchemeTask) {
+        let id = ObjectIdentifier(task as AnyObject)
+        lock.lock()
+        stopped.remove(id)   // a reused address must not inherit an old stop
+        lock.unlock()
+        queue.async { [weak self] in self?.respond(to: task, id: id) }
+    }
+
+    func stop(_ task: WKURLSchemeTask) {
+        let id = ObjectIdentifier(task as AnyObject)
+        lock.lock()
+        stopped.insert(id)
+        lock.unlock()
+    }
+
+    private func isStopped(_ id: ObjectIdentifier) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return stopped.contains(id)
+    }
+
+    private func clearRegistration(_ id: ObjectIdentifier) {
+        lock.lock()
+        stopped.remove(id)
+        lock.unlock()
+    }
+
+    /// Runs `body` on the delivery queue only when the task is still live. The
+    /// check sits inside the block so it is serialized with `stop` on the
+    /// delivery thread (main in production).
+    private func deliverIfRunning(_ id: ObjectIdentifier,
+                                  _ body: () -> Void) -> Bool {
+        var delivered = false
+        deliveryQueue.sync {
+            guard !isStopped(id) else { return }
+            body()
+            delivered = true
+        }
+        return delivered
+    }
 
     /// Chunk size of one `didReceive(_:)`; a 1 MiB window keeps peak memory
     /// independent of the file size (a 200 MB `.glb` is never fully mapped).
     static let chunkBytes = 1024 * 1024
 
-    func respond(to task: WKURLSchemeTask) {
+    private func respond(to task: WKURLSchemeTask, id: ObjectIdentifier) {
         guard let url = task.request.url else {
-            task.didFailWithError(PDSHPageResolutionError.invalidPath(""))
+            fail(id, task, PDSHPageResolutionError.invalidPath(""))
             return
         }
         guard (task.request.httpMethod ?? "GET").uppercased() == "GET" else {
-            task.didReceive(HTTPURLResponse(url: url, statusCode: 405,
-                                            httpVersion: "HTTP/1.1",
-                                            headerFields: ["Allow": "GET"])!)
-            task.didFinish()
+            _ = deliverIfRunning(id) {
+                task.didReceive(HTTPURLResponse(url: url, statusCode: 405,
+                                                httpVersion: "HTTP/1.1",
+                                                headerFields: ["Allow": "GET"])!)
+            }
+            finish(id, task)
             return
         }
         let file: PDSHPageFile
         do {
             file = try resolver.resolve(url)
         } catch {
-            task.didFailWithError(error)
+            fail(id, task, error)
             return
         }
 
@@ -272,15 +333,30 @@ public final class PDSHPageSchemeHandler: NSObject, WKURLSchemeHandler {
             let handle = try FileHandle(forReadingFrom: file.url)
             openedHandle = handle
             total = Int(try handle.seekToEnd())
-            let range = PDSHPageScheme.byteRange(
-                from: task.request.value(forHTTPHeaderField: "Range"), total: total)
+            let requestedRange = task.request.value(forHTTPHeaderField: "Range")
+            let range = PDSHPageScheme.byteRange(from: requestedRange, total: total)
+            if requestedRange != nil, range == nil, total > 0 {
+                // Satisfiable-range protocol: an out-of-bounds or malformed
+                // Range answers 416 with the current length, not the whole
+                // file (task 5).
+                _ = deliverIfRunning(id) {
+                    task.didReceive(HTTPURLResponse(
+                        url: url, statusCode: 416, httpVersion: "HTTP/1.1",
+                        headerFields: ["Content-Range": "bytes */\(total)",
+                                       "Accept-Ranges": "bytes"])!)
+                }
+                try? handle.close()
+                finish(id, task)
+                return
+            }
             let start = range?.start ?? 0
             let end = range?.end ?? max(total - 1, 0)
             try handle.seek(toOffset: UInt64(start))
             firstChunk = try readChunk(from: handle,
                                        limit: min(Self.chunkBytes, max(end - start + 1, 0)))
-            guard range != nil || total == 0 || !firstChunk.isEmpty else {
-                throw PDSHPageResolutionError.notFound(url.absoluteString)
+            guard !isStopped(id) else {
+                try? handle.close()
+                return
             }
             var headers: [String: String] = [
                 "Content-Type": PDSHPageScheme.contentType(
@@ -304,7 +380,10 @@ public final class PDSHPageSchemeHandler: NSObject, WKURLSchemeHandler {
                                                  headerFields: headers) else {
                 throw PDSHPageResolutionError.invalidPath(url.absoluteString)
             }
-            task.didReceive(response)
+            guard deliverIfRunning(id, { task.didReceive(response) }) else {
+                try? handle.close()
+                return
+            }
             var sent = 0
             while true {
                 let remaining = bodyLength - sent
@@ -313,17 +392,30 @@ public final class PDSHPageSchemeHandler: NSObject, WKURLSchemeHandler {
                     ? try readChunk(from: handle, limit: min(Self.chunkBytes, remaining))
                     : firstChunk
                 if chunk.isEmpty { break }
-                task.didReceive(chunk)
+                guard deliverIfRunning(id, { task.didReceive(chunk) }) else {
+                    try? handle.close()
+                    return
+                }
                 sent += chunk.count
                 firstChunk = Data()
                 if chunk.count > remaining { break }
             }
             try? handle.close()
-            task.didFinish()
+            finish(id, task)
         } catch {
             try? openedHandle?.close()
-            task.didFailWithError(error)
+            fail(id, task, error)
         }
+    }
+
+    private func finish(_ id: ObjectIdentifier, _ task: WKURLSchemeTask) {
+        _ = deliverIfRunning(id) { task.didFinish() }
+        clearRegistration(id)
+    }
+
+    private func fail(_ id: ObjectIdentifier, _ task: WKURLSchemeTask, _ error: Error) {
+        _ = deliverIfRunning(id) { task.didFailWithError(error) }
+        clearRegistration(id)
     }
 
     /// Reads at most `limit` bytes; an empty result means EOF.

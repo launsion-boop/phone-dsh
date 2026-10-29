@@ -35,6 +35,16 @@ final class PageSchemeHandlerTests: XCTestCase {
         try Data(text.utf8).write(to: url)
     }
 
+    private func makeHandler(_ resolver: PDSHPageResolver) -> PDSHPageSchemeHandler {
+        PDSHPageSchemeHandler(resolver: resolver,
+                              deliveryQueue: DispatchQueue(label: "test-page-delivery"))
+    }
+
+    private func run(_ handler: PDSHPageSchemeHandler, _ task: FakeTask) {
+        handler.start(task)
+        wait(for: [task.settled], timeout: 10)
+    }
+
     func testResolvesWorkspaceAndLibraryRoots() throws {
         let ws = try workspace()
         let lib = try library()
@@ -95,6 +105,22 @@ final class PageSchemeHandlerTests: XCTestCase {
         }
     }
 
+    /// Cross-session (spec decision record 4): a page in one session may read
+    /// another known session's files; a session the host does not list is
+    /// still refused. The app supplies the map from `workspace/follow`.
+    func testKnownSessionsResolveAndUnknownSessionsAreRejected() throws {
+        let ws = try workspace()
+        try Data("asset".utf8).write(to: ws.appendingPathComponent("asset.png"))
+        let known: Set<String> = ["SESSION-A", "SESSION-B"]
+        let resolver = PDSHPageResolver(libraryRoot: try library(),
+                                        workspaceRoot: { known.contains($0) ? ws : nil })
+        let page = try resolver.resolve(URL(string: "pdsh-page://SESSION-B/asset.png")!)
+        XCTAssertEqual(page.url.lastPathComponent, "asset.png")
+        XCTAssertThrowsError(try resolver.resolve(URL(string: "pdsh-page://SESSION-C/asset.png")!)) {
+            XCTAssertEqual($0 as? PDSHPageResolutionError, .unknownSession("SESSION-C"))
+        }
+    }
+
     func testContentSecurityPolicyTiers() {
         let sandbox = PDSHPageScheme.contentSecurityPolicy(for: .sandbox)
         XCTAssertTrue(sandbox.contains("connect-src 'none'"))
@@ -146,25 +172,7 @@ final class PageSchemeHandlerTests: XCTestCase {
         XCTAssertNil(PDSHPageScheme.byteRange(from: "bytes=0-10", total: 0))
     }
 
-    /// The shipped Web3DLib must serve every module the PAGE pages import and
-    /// the demo assets; a missing file here is a blank 3D preview on a device.
-    /// Cross-session (spec decision record 4): a page in one session may read
-    /// another known session's files; a session the host does not list is
-    /// still refused. The app supplies the map from `workspace/follow`.
-    func testKnownSessionsResolveAndUnknownSessionsAreRejected() throws {
-        let ws = try workspace()
-        try Data("asset".utf8).write(to: ws.appendingPathComponent("asset.png"))
-        let known: Set<String> = ["SESSION-A", "SESSION-B"]
-        let resolver = PDSHPageResolver(libraryRoot: try library(),
-                                        workspaceRoot: { known.contains($0) ? ws : nil })
-        let page = try resolver.resolve(URL(string: "pdsh-page://SESSION-B/asset.png")!)
-        XCTAssertEqual(page.url.lastPathComponent, "asset.png")
-        XCTAssertThrowsError(try resolver.resolve(URL(string: "pdsh-page://SESSION-C/asset.png")!)) {
-            XCTAssertEqual($0 as? PDSHPageResolutionError, .unknownSession("SESSION-C"))
-        }
-    }
-
-    /// The handler streams: one 1 MiB window per `didReceive`, never the whole
+    /// The handler streams one 1 MiB window per `didReceive`, never the whole
     /// mapped file (spec-render-media-v1 task B).
     func testStreamsAFileInOneMiBChunks() throws {
         let ws = try workspace()
@@ -172,9 +180,9 @@ final class PageSchemeHandlerTests: XCTestCase {
         let bytes = Data(repeating: 0x41, count: size)
         try bytes.write(to: ws.appendingPathComponent("big.bin"))
         let resolver = PDSHPageResolver(libraryRoot: try library(), workspaceRoot: { _ in ws })
-        let handler = PDSHPageSchemeHandler(resolver: resolver)
+        let handler = makeHandler(resolver)
         let task = FakeTask(url: URL(string: "pdsh-page://S/big.bin")!)
-        handler.respond(to: task)
+        run(handler, task)
 
         XCTAssertNil(task.failure)
         XCTAssertTrue(task.finished)
@@ -192,10 +200,10 @@ final class PageSchemeHandlerTests: XCTestCase {
         let bytes = Data(repeating: 0x42, count: 4096)
         try bytes.write(to: ws.appendingPathComponent("range.bin"))
         let resolver = PDSHPageResolver(libraryRoot: try library(), workspaceRoot: { _ in ws })
-        let handler = PDSHPageSchemeHandler(resolver: resolver)
+        let handler = makeHandler(resolver)
         let task = FakeTask(url: URL(string: "pdsh-page://S/range.bin")!,
                             range: "bytes=100-1023")
-        handler.respond(to: task)
+        run(handler, task)
 
         XCTAssertNil(task.failure)
         XCTAssertEqual(task.response?.statusCode, 206)
@@ -205,12 +213,73 @@ final class PageSchemeHandlerTests: XCTestCase {
         XCTAssertEqual(task.chunks.reduce(Data(), +), bytes.subdata(in: 100..<1024))
     }
 
+    func testEmptyFileServes200WithZeroLength() throws {
+        let ws = try workspace()
+        try Data().write(to: ws.appendingPathComponent("empty.bin"))
+        let resolver = PDSHPageResolver(libraryRoot: try library(), workspaceRoot: { _ in ws })
+        let handler = makeHandler(resolver)
+        let task = FakeTask(url: URL(string: "pdsh-page://S/empty.bin")!)
+        run(handler, task)
+
+        XCTAssertNil(task.failure)
+        XCTAssertEqual(task.response?.statusCode, 200)
+        XCTAssertEqual(task.response?.value(forHTTPHeaderField: "Content-Length"), "0")
+        XCTAssertTrue(task.chunks.isEmpty)
+    }
+
+    func testOutOfBoundsRangeAnswers416() throws {
+        let ws = try workspace()
+        try Data(repeating: 0x43, count: 4096).write(to: ws.appendingPathComponent("range.bin"))
+        let resolver = PDSHPageResolver(libraryRoot: try library(), workspaceRoot: { _ in ws })
+        let handler = makeHandler(resolver)
+        let task = FakeTask(url: URL(string: "pdsh-page://S/range.bin")!,
+                            range: "bytes=999999-")
+        run(handler, task)
+
+        XCTAssertNil(task.failure)
+        XCTAssertEqual(task.response?.statusCode, 416)
+        XCTAssertEqual(task.response?.value(forHTTPHeaderField: "Content-Range"),
+                       "bytes */4096")
+        XCTAssertTrue(task.chunks.isEmpty)
+    }
+
+    /// A stopped task must never see another `didReceive`; WebKit raises an
+    /// internal consistency exception for one (task 1).
+    func testStopAfterStartSuppressesAllDelivery() throws {
+        let ws = try workspace()
+        let data = Data(repeating: 0x44, count: 4 * 1024 * 1024)
+        try data.write(to: ws.appendingPathComponent("big.bin"))
+        let lib = try library()
+        let entered = DispatchSemaphore(value: 0)
+        let gate = DispatchSemaphore(value: 0)
+        let resolver = PDSHPageResolver(libraryRoot: lib, workspaceRoot: { _ in
+            entered.signal()
+            gate.wait()
+            return ws
+        })
+        let handler = makeHandler(resolver)
+        let task = FakeTask(url: URL(string: "pdsh-page://S/big.bin")!)
+        handler.start(task)
+        XCTAssertEqual(entered.wait(timeout: .now() + 5), .success)
+        handler.stop(task)
+        gate.signal()
+        let deadline = Date().addingTimeInterval(1)
+        while Date() < deadline {
+            if !task.chunks.isEmpty || task.finished || task.failure != nil { break }
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        XCTAssertNil(task.response)
+        XCTAssertTrue(task.chunks.isEmpty)
+        XCTAssertFalse(task.finished)
+        XCTAssertNil(task.failure)
+    }
+
     func testUnreadableFileFailsBeforeTheHead() throws {
         let resolver = PDSHPageResolver(libraryRoot: try library(),
                                         workspaceRoot: { _ in try? self.workspace() })
-        let handler = PDSHPageSchemeHandler(resolver: resolver)
+        let handler = makeHandler(resolver)
         let task = FakeTask(url: URL(string: "pdsh-page://S/missing.bin")!)
-        handler.respond(to: task)
+        run(handler, task)
 
         XCTAssertNotNil(task.failure)
         XCTAssertNil(task.response)
@@ -251,14 +320,15 @@ final class PageSchemeHandlerTests: XCTestCase {
     }
 }
 
-
 /// Minimal in-memory `WKURLSchemeTask` for the handler tests.
 private final class FakeTask: NSObject, WKURLSchemeTask {
     let request: URLRequest
-    var response: HTTPURLResponse?
-    var chunks: [Data] = []
-    var finished = false
-    var failure: Error?
+    let settled = XCTestExpectation(description: "the handler settled the task")
+    private let lock = NSLock()
+    private var _response: HTTPURLResponse?
+    private var _chunks: [Data] = []
+    private var _finished = false
+    private var _failure: Error?
 
     init(url: URL, range: String? = nil) {
         var request = URLRequest(url: url)
@@ -266,19 +336,53 @@ private final class FakeTask: NSObject, WKURLSchemeTask {
         self.request = request
     }
 
+    var response: HTTPURLResponse? {
+        lock.lock()
+        defer { lock.unlock() }
+        return _response
+    }
+
+    var chunks: [Data] {
+        lock.lock()
+        defer { lock.unlock() }
+        return _chunks
+    }
+
+    var finished: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return _finished
+    }
+
+    var failure: Error? {
+        lock.lock()
+        defer { lock.unlock() }
+        return _failure
+    }
+
     func didReceive(_ response: URLResponse) {
-        self.response = response as? HTTPURLResponse
+        lock.lock()
+        _response = response as? HTTPURLResponse
+        lock.unlock()
     }
 
     func didReceive(_ data: Data) {
-        chunks.append(data)
+        lock.lock()
+        _chunks.append(data)
+        lock.unlock()
     }
 
     func didFinish() {
-        finished = true
+        lock.lock()
+        _finished = true
+        lock.unlock()
+        settled.fulfill()
     }
 
     func didFailWithError(_ error: Error) {
-        failure = error
+        lock.lock()
+        _failure = error
+        lock.unlock()
+        settled.fulfill()
     }
 }
