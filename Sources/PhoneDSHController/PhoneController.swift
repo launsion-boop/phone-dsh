@@ -248,7 +248,7 @@ public struct BudgetTable: Equatable, Sendable {
         maxSubAgents: 2,
         thermalFairSubAgents: 1,
         loopbackRoundTripP95Milliseconds: 5,
-        plannedRestartIntervalSeconds: 2 * 60 * 60,
+        plannedRestartIntervalSeconds: 24 * 60 * 60,
         recoveryBaseSeconds: 3,
         recoverySecondsPerMegabyte: 0.05,
         maximumSingleFileBytes: 128 * 1024 * 1024

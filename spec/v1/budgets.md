@@ -43,7 +43,7 @@ before the transition.
 | `Draining` | `Parked` | background drain complete, or 20 s deadline | Close the epoch (wal.md §5.2), fsync, stop the worker. A deadline ends the wait and aborts in-flight channel requests; the epoch close still runs. |
 | `Draining` | `Recovering` | restart path: planned WebContent restart, WebContent termination, or boot | Close the epoch, restart the worker, verify the lease. |
 | `Parked` | `Recovering` | scenePhase active | Boot the worker and verify the lease; admission stays closed. |
-| `Running` | `Recovering` | planned restart (2 h, §4) or WebContent termination, still foreground | Close admission, close the epoch, restart WebContent at a tool-call boundary. |
+| `Running` | `Recovering` | planned restart (policy, §4) or WebContent termination, still foreground | Close admission, close the epoch, restart WebContent at a tool-call boundary. |
 | `Recovering` | `Running` | lease verified and admission opened | Send FENCE/LIFECYCLE `open`; resume work. |
 | `Running` | `Backoff` | 429/5xx response or NWPath unsatisfied | Close admission; start the retry schedule. |
 | `Backoff` | `Running` | Retry-After elapsed, network path satisfied, one probe succeeded | Reopen admission after a lease check. |
@@ -66,7 +66,7 @@ without `Reclaiming`, and a drain deadline never reopens admission.
 | scenePhase | App lifecycle | `background` → `Draining`; `active` → `Parked`/`Recovering` and lease verification. |
 | background task expiry | iOS background task | Force the `Draining` deadline (20 s), abort in-flight requests, continue to the pending target. |
 | WebContent termination | WKWebView delegate | Count it; in the foreground `Running`/`Draining` → `Recovering`. |
-| planned restart timer | controller | Every 2 h of foreground work, restart at the next tool-call boundary (§4). |
+| planned restart timer | controller | Restart at a tool-call boundary when engine heap > 75% for 3 samples, after a WebContent termination, or after 24 h of continuous running; never mid-turn (§4). |
 | thermalState | ProcessInfo | `fair` → sub-agent cap 1; `serious`/`critical` → LIFECYCLE `pause` at the next boundary, no new sub-agents, no new parallel accelerators. |
 | battery / low power mode | ProcessInfo | Below 20 % and not charging, or Low Power Mode on → sub-agent cap 1, no optional accelerators; budgets are never raised. |
 | NWPathMonitor | Network framework | unsatisfied → `Running` → `Backoff`; satisfied → `Backoff` → `Running` after one successful probe. |
@@ -91,7 +91,7 @@ the ceiling is at least 12 GiB. `MB`/`MiB` are 1 048 576 bytes.
 | Peak | ≤ 50 % of the ceiling (6 GiB) | ≤ 50 % (4 GiB) | ≤ 50 % (3 GiB) | ≤ 50 % (2 GiB) | ≤ 50 % (1.5 GiB) |
 | Sub-agents | ≤ 2; 1 when thermal fair | ≤ 2; 1 when thermal fair | ≤ 2; 1 fair | ≤ 1 | ≤ 1 |
 | Loopback round trip | p95 < 5 ms | p95 < 5 ms | p95 < 5 ms | p95 < 5 ms | p95 < 5 ms |
-| Planned WebContent restart | every 2 h at a tool-call boundary | same | same | same | same |
+| Planned WebContent restart | policy triggers, at a tool-call boundary | same | same | same | same |
 | Recovery time target | `a + k·MB`, a ≤ 3 s, k ≤ 0.05 s/MB | same | same | same | same |
 
 - The VFS caps are logical bytes and are enforced at write time; exceeding a prefix or the total is

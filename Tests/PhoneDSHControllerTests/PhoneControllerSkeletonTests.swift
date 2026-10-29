@@ -47,7 +47,7 @@ final class PhoneControllerSkeletonTests: XCTestCase {
         XCTAssertEqual(budget.maxSubAgents, 2)
         XCTAssertEqual(budget.thermalFairSubAgents, 1)
         XCTAssertEqual(budget.loopbackRoundTripP95Milliseconds, 5)
-        XCTAssertEqual(budget.plannedRestartIntervalSeconds, 7200)
+        XCTAssertEqual(budget.plannedRestartIntervalSeconds, 24 * 60 * 60)
         XCTAssertEqual(budget.recoveryBaseSeconds, 3)
         XCTAssertEqual(budget.recoverySecondsPerMegabyte, 0.05)
         XCTAssertEqual(DeviceTier.default, .eightGB)

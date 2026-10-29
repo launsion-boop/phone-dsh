@@ -194,7 +194,8 @@ public struct PhoneDSHConfiguration: Equatable, Sendable {
     public var egressAuthorizer: (any EgressHostAuthorizing)?
     /// Loopback MCP server the Worker reaches through `/mcp*` (PLAN §2.1).
     public var mcpLoopbackURL: URL?
-    /// Planned WebContent restart interval in seconds (PLAN §2.5: 2 h). The
+    /// Maximum continuous uptime before a planned restart (24 h). Pressure and
+    /// a WebContent death trigger earlier; see `RestartPolicy`. The
     /// W2 controller owns the scheduler; the facade exposes the flag for the
     /// App's settings screen.
     public var plannedRestartInterval: TimeInterval
