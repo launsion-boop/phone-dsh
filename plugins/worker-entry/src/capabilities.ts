@@ -87,6 +87,12 @@ export interface CapabilityBashDeviation {
   readonly note: string
   /** What to do instead. */
   readonly alternative: string
+  /**
+   * Publish this limitation in `capabilities.json` only. The 4 KiB
+   * instruction budget is reserved for the deviations an agent must know
+   * before its first command; device read caps are lookup facts.
+   */
+  readonly jsonOnly?: boolean
 }
 
 /**
@@ -99,6 +105,13 @@ export const DEFAULT_BASH_DEVIATIONS: readonly CapabilityBashDeviation[] = Objec
     id: 'JB-EPOCHSECONDS',
     note: '`EPOCHSECONDS` and `EPOCHREALTIME` are unset (they expand to an empty string)',
     alternative: 'use `date +%s` for seconds or `$SECONDS` for elapsed time',
+  }),
+  Object.freeze({
+    id: 'JB-DEV0',
+    note: '`/dev/zero` and `/dev/urandom` stop after 1 MiB per open, so '
+      + '`head -c 16M /dev/zero > f` writes 1,048,576 bytes (not 16 MiB)',
+    alternative: 'write large files with `python3` or 1 MiB appends',
+    jsonOnly: true,
   }),
 ])
 
@@ -122,17 +135,17 @@ export interface CapabilityLimits {
 
 /** Default phone rows; the boot overrides `singleFileBytes` from the host. */
 export const PHONE_V1_LIMITS: CapabilityLimits = Object.freeze({
-  singleFileBytes: 64 * MIB,
+  singleFileBytes: 128 * MIB,
   shellOutputBytes: 256 * KIB,
   shellTimeoutMs: 120_000,
   requestBodyBytes: 4 * MIB,
-  vfsLogicalBytes: 260 * MIB,
-  vfsWorkspaceBytes: 160 * MIB,
+  vfsLogicalBytes: 388 * MIB,
+  vfsWorkspaceBytes: 288 * MIB,
   vfsSessionsBytes: 50 * MIB,
   vfsTmpBytes: 50 * MIB,
   wasiHotInstanceBytes: 260 * MIB,
   engineHeapBytes: 320 * MIB,
-  walBytes: 256 * MIB,
+  walBytes: 512 * MIB,
   journalBytes: 64 * MIB,
   responseLogBytes: 128 * MIB,
   maxSubAgents: 2,
@@ -523,7 +536,9 @@ function markdownFor(document: CapabilityManifestDocument, compactCommands = fal
       + 'writes outside `/dsh/{home,workspace,tmp}` fail.',
     '',
     '## Bash deviations (ENG-02 expected deviations)',
-    ...document.bash.deviations.map(deviation => `- ${deviation.id}: ${deviation.note}; ${deviation.alternative}.`),
+    ...document.bash.deviations
+      .filter(deviation => deviation.jsonOnly !== true)
+      .map(deviation => `- ${deviation.id}: ${deviation.note}; ${deviation.alternative}.`),
     '- unsupported options exit 2 with the same `pdsh-shell:` trailer; prefer POSIX spellings.',
     '',
     '## Restart and recovery',

@@ -79,6 +79,7 @@ import {
   publishCapabilityManifest,
   workerCommandSurface,
   PHONE_V1_LIMITS,
+  type CapabilityLimits,
 } from './capabilities.ts'
 import { pythonToolboxLifecycle, readPythonModuleProbe } from './python-toolbox.ts'
 import type { PythonToolboxOptions, PythonToolboxWiring } from './python-toolbox.ts'
@@ -422,6 +423,7 @@ async function startPhoneWorkerInternal(options: PhoneWorkerOptions): Promise<Ph
   // The tier's hot-instance ceiling reaches the tool workers and the
   // capability manifest; the single-file budget keeps its own env.
   const hotInstanceBytes = hotInstanceBytesFromEnvironment(normalized.env)
+  const vfsLimits = vfsLimitsFromEnvironment(normalized.env)
   // The WASI VFS backends read the process-wide single-file budget rather than
   // the sink policy object; publish the same host value there before any host
   // code can write (budgets.md §4, channel.md §6).
@@ -648,6 +650,7 @@ async function startPhoneWorkerInternal(options: PhoneWorkerOptions): Promise<Ph
           },
       limits: {
         ...PHONE_V1_LIMITS,
+        ...vfsLimits,
         singleFileBytes: Math.min(
           normalized.limits.maxFileBytes ?? DEFAULT_SINGLE_FILE_LIMIT,
           MAX_SINGLE_FILE_LIMIT,
@@ -1785,6 +1788,34 @@ export function hotInstanceBytesFromEnvironment(
   const parsed = Number(raw)
   if (!Number.isSafeInteger(parsed) || parsed <= 0) return undefined
   return Math.min(MAX_HOT_INSTANCE_BYTES, Math.max(MIN_HOT_INSTANCE_BYTES, parsed))
+}
+
+/** Environment names of the host VFS tier quotas (budgets.md §4). */
+const VFS_LIMIT_ENV = {
+  vfsLogicalBytes: 'PDSH_VFS_LOGICAL_BYTES',
+  vfsWorkspaceBytes: 'PDSH_VFS_WORKSPACE_BYTES',
+  vfsSessionsBytes: 'PDSH_VFS_SESSIONS_BYTES',
+  vfsTmpBytes: 'PDSH_VFS_TMP_BYTES',
+} as const
+
+/**
+ * Reads the host's VFS tier quotas so the published capability manifest and
+ * the host's write-time quota carry one set of numbers. A missing, non-decimal
+ * or non-positive value yields undefined and the published prior applies.
+ */
+export function vfsLimitsFromEnvironment(
+  env: Readonly<Record<string, string>> | undefined,
+): Partial<Record<'vfsLogicalBytes' | 'vfsWorkspaceBytes' | 'vfsSessionsBytes' | 'vfsTmpBytes', number>> {
+  const result: Partial<Record<'vfsLogicalBytes' | 'vfsWorkspaceBytes' | 'vfsSessionsBytes' | 'vfsTmpBytes', number>> = {}
+  const fields = ['vfsLogicalBytes', 'vfsWorkspaceBytes', 'vfsSessionsBytes', 'vfsTmpBytes'] as const
+  for (const field of fields) {
+    const raw = env?.[VFS_LIMIT_ENV[field]]
+    if (raw === undefined || raw === '' || !/^[0-9]+$/u.test(raw)) continue
+    const parsed = Number(raw)
+    if (!Number.isSafeInteger(parsed) || parsed <= 0) continue
+    result[field] = parsed
+  }
+  return result
 }
 
 function normalizeSinkLimits(

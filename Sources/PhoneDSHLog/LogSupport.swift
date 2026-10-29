@@ -47,6 +47,10 @@ public enum LogError: Error, Equatable, Sendable {
     /// budget. This is a resource refusal, not a protocol error: no mseq is
     /// consumed and nothing is appended.
     case vfsRefused(path: String, limit: Int, projected: Int)
+    /// A VFS mutation would push a prefix or the total logical VFS past its
+    /// cap (budgets.md §4). Same refusal contract as ``vfsRefused``; the peer
+    /// maps it to ENOSPC.
+    case vfsQuotaExceeded(path: String, bucket: String, limit: Int, projected: Int)
     /// A POSIX call failed; `code` is `errno`.
     case posix(operation: String, code: Int32)
 }
@@ -74,6 +78,8 @@ extension LogError: CustomStringConvertible {
             return "workspace log is closed after a write failure"
         case .vfsRefused(let path, let limit, let projected):
             return "VFS_REFUSED: \(path) would grow to \(projected) bytes, above the single-file limit of \(limit) bytes"
+        case .vfsQuotaExceeded(let path, let bucket, let limit, let projected):
+            return "VFS_QUOTA: \(path) would push \(bucket) to \(projected) bytes, above the \(bucket) quota of \(limit) bytes"
         case .posix(let operation, let code):
             return "\(operation) failed: errno \(code)"
         }
@@ -86,15 +92,24 @@ extension LogError: VFSResourceRefusalProviding {
     /// materialization I/O failure or a quota still exceeded after compaction —
     /// stays a host defect and keeps the fail-loud path of wal.md §9/§10.
     public var vfsResourceRefusal: VFSResourceRefusal? {
-        guard case .vfsRefused(let path, let limit, let projected) = self else {
+        switch self {
+        case .vfsRefused(let path, let limit, let projected):
+            return VFSResourceRefusal(
+                path: path,
+                limitBytes: UInt64(max(0, limit)),
+                projectedBytes: UInt64(max(0, projected)),
+                reason: .fileTooLarge,
+                message: description)
+        case .vfsQuotaExceeded(let path, _, let limit, let projected):
+            return VFSResourceRefusal(
+                path: path,
+                limitBytes: UInt64(max(0, limit)),
+                projectedBytes: UInt64(max(0, projected)),
+                reason: .noSpace,
+                message: description)
+        default:
             return nil
         }
-        return VFSResourceRefusal(
-            path: path,
-            limitBytes: UInt64(max(0, limit)),
-            projectedBytes: UInt64(max(0, projected)),
-            reason: .fileTooLarge,
-            message: description)
     }
 }
 

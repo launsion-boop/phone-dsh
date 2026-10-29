@@ -24,14 +24,18 @@ struct VfsLogicalIndex {
     private(set) var sizes: [String: Int] = [:]
     /// Largest permitted logical size of one file.
     let singleFileLimitBytes: Int
+    /// Prefix/total caps; nil keeps the historical single-file-only policy.
+    let quota: VfsQuota?
 
     /// Bytes of the accepted logical VFS, for diagnostics and tests.
     var totalBytes: Int { sizes.values.reduce(0, +) }
 
     init(paths: WorkspacePaths,
          materializedUptoMseq: UInt64,
-         singleFileLimitBytes: Int) throws {
+         singleFileLimitBytes: Int,
+         quota: VfsQuota? = nil) throws {
         self.singleFileLimitBytes = singleFileLimitBytes
+        self.quota = quota
         try seedFromMaterializedCopy(paths: paths)
         try replayWALTail(paths: paths, after: materializedUptoMseq)
     }
@@ -45,6 +49,34 @@ struct VfsLogicalIndex {
             throw LogError.vfsRefused(path: body.path,
                                       limit: singleFileLimitBytes,
                                       projected: projected)
+        }
+        guard let quota else { return }
+        let current = sizes[body.path] ?? 0
+        let delta = projected - current
+        guard delta > 0 else { return }
+        let bucket = VfsQuota.bucket(for: body.path)
+        if let limit = quota.limit(for: bucket) {
+            let bucketProjected = sum(of: bucket) + delta
+            guard bucketProjected <= limit else {
+                throw LogError.vfsQuotaExceeded(path: body.path,
+                                                bucket: quota.name(for: bucket),
+                                                limit: limit,
+                                                projected: bucketProjected)
+            }
+        }
+        let totalProjected = totalBytes + delta
+        guard totalProjected <= quota.logicalBytes else {
+            throw LogError.vfsQuotaExceeded(path: body.path,
+                                            bucket: "vfs",
+                                            limit: quota.logicalBytes,
+                                            projected: totalProjected)
+        }
+    }
+
+    /// Logical bytes currently held by one prefix.
+    func sum(of bucket: VfsQuota.Bucket) -> Int {
+        sizes.reduce(0) { partial, entry in
+            VfsQuota.bucket(for: entry.key) == bucket ? partial + entry.value : partial
         }
     }
 

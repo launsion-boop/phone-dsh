@@ -94,6 +94,9 @@ public struct WorkspaceLogConfiguration: Equatable, Sendable {
     public var groupCommitDelay: TimeInterval
     /// Bytes that force an immediate group-commit flush (256 KiB).
     public var groupCommitBytes: Int
+    /// Prefix/total caps enforced before an append (nil = only the single-file
+    /// cap; the host always supplies the device tier's values).
+    public var vfsQuota: VfsQuota?
 
     public init(root: URL,
                 walQuotaBytes: Int = WorkspaceLogConfiguration.defaultWALQuotaBytes,
@@ -103,7 +106,8 @@ public struct WorkspaceLogConfiguration: Equatable, Sendable {
                 singleFileLimitBytes: Int = WorkspaceLogConfiguration.defaultSingleFileLimitBytes,
                 epochIntervalSeconds: TimeInterval = WorkspaceLogConfiguration.defaultEpochIntervalSeconds,
                 groupCommitDelay: TimeInterval = WorkspaceLogConfiguration.defaultGroupCommitDelaySeconds,
-                groupCommitBytes: Int = WorkspaceLogConfiguration.defaultGroupCommitBytes) {
+                groupCommitBytes: Int = WorkspaceLogConfiguration.defaultGroupCommitBytes,
+                vfsQuota: VfsQuota? = nil) {
         self.root = root
         self.walQuotaBytes = walQuotaBytes
         self.journalQuotaBytes = journalQuotaBytes
@@ -113,6 +117,7 @@ public struct WorkspaceLogConfiguration: Equatable, Sendable {
         self.epochIntervalSeconds = epochIntervalSeconds
         self.groupCommitDelay = groupCommitDelay
         self.groupCommitBytes = groupCommitBytes
+        self.vfsQuota = vfsQuota
     }
 }
 
