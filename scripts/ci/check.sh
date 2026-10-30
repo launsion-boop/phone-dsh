@@ -24,6 +24,13 @@ CI_TMP=${CI_TMP%/}/phone-dsh-ci
 IDF_VERSION_WANT=${CI_IDF_VERSION:-5.5.2}
 IOS_RUNTIME=${CI_IOS_RUNTIME:-26.5}
 
+if [ -z "${PDSH_DSH_CHECKOUT:-}" ] && [ -f "$HOME/.config/phone-dsh/dsh-checkout" ]; then
+    PDSH_DSH_CHECKOUT=$(head -n1 "$HOME/.config/phone-dsh/dsh-checkout" | tr -d '\r')
+fi
+if [ -n "${PDSH_DSH_CHECKOUT:-}" ]; then
+    export PDSH_DSH_CHECKOUT
+fi
+
 STAGES="phone-spec phone-plugins phone-image phone-sdk phone-no-dsh-patch phone-hygiene phone-license phone-modules phone-gate-contracts phone-xcode-resolve"
 
 stage_desc() {
