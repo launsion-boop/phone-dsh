@@ -15,7 +15,7 @@
  * @module @phone-dsh/dsh-wasi-toolbox/jq/source-fingerprint
  */
 import { createHash } from 'node:crypto'
-import { existsSync, lstatSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from 'node:fs'
 import { dirname, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -151,7 +151,8 @@ export function jqSourceMismatch(report: unknown, root = JQ_SOURCE_ROOT): string
 }
 
 const invokedAsScript = process.argv[1] !== undefined
-  && resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+  && existsSync(process.argv[1])
+  && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))
 if (invokedAsScript) {
   const args = process.argv.slice(2)
   const value = (name: string): string | undefined => {

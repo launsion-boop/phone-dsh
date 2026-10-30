@@ -83,6 +83,21 @@ function withoutCargo(directory: string): NodeJS.ProcessEnv {
   return { ...process.env, HOME: home, PATH: bin }
 }
 
+test('jq source: the script entry resolves a symlinked invocation path', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'pdsh-jq-entry-'))
+  try {
+    const script = join(directory, 'source-fingerprint.ts')
+    symlinkSync(join(root, 'plugins/wasi-toolbox/jq/source-fingerprint.ts'), script)
+    const run = spawnSync(process.execPath, [
+      '--no-warnings', script, '--root', root, '--fingerprint',
+    ], { encoding: 'utf8' })
+    assert.equal(run.status, 0, run.stderr)
+    assert.equal(run.stdout.trim(), jqSourceReport(root).fingerprint)
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
 test('jq build: --check accepts a verified prebuilt artifact without cargo', () => {
   const directory = mkdtempSync(join(tmpdir(), 'pdsh-jq-check-tooling-'))
   try {
