@@ -46,7 +46,14 @@ public actor DSHRemoteHarness: AgentHarness {
                     timeZone: String? = TimeZone.current.identifier) {
             self.reconnect = reconnect
             self.pageMessages = pageMessages
-            self.timeZone = timeZone
+            self.timeZone = Self.normalizedClientTimeZone(timeZone)
+        }
+
+        static func normalizedClientTimeZone(_ identifier: String?) -> String? {
+            guard let identifier = identifier?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !identifier.isEmpty else { return nil }
+            return identifier == "UTC" || TimeZone.knownTimeZoneIdentifiers.contains(identifier)
+                ? identifier : "UTC"
         }
     }
 
