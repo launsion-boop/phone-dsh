@@ -154,13 +154,22 @@ stage_phone_sdk() {
     # the smoke/probe/kill suites), so they are listed by class here. A new unit-test class in a PhoneDSH* target must either be
     # named PhoneDSH* or be added to this filter, otherwise no gate executes it.
     sdk_filter='PhoneDSH(Wire|Log|Loopback|Gateway|Controller|Engine|Harness|Shell|AgentCore)Tests|PhoneDSHTests|PhoneDSHScenario[A-Z][A-Za-z]*Tests|PhoneDSHScenarioTestsSelectionGuard|PhoneDSHScenarioLibraryContractTests|ScenarioHostEvaluationTests|ScenarioRepositoryRootTests|ScenarioEvidenceArtifactTests|ScenarioDetailTruncationTests|PhoneDSHScenarioTestsBudgetInjection|PhoneDSHScenarioTestsWebContentKill|PhoneDSHScenarioTestsPerturbationCapabilities|ZPhoneDSHAbortStopDurabilityHostTests'
-    ( cd "$SDK" && swift test --filter "$sdk_filter" ) 2>&1 | tee "$sdk_log"
+    recovery_probe='PhoneDSHTests.BigFileBudgetTests/testHostReplayMemoryPeakForSixtyFourMiBFileIsBounded'
+    ( cd "$SDK" && swift test --filter "$sdk_filter" --skip "$recovery_probe" ) 2>&1 | tee "$sdk_log"
     rc=${PIPESTATUS[0]}
     [ "$rc" = 0 ] || { echo "swift test failed (rc=$rc)"; return 1; }
     executed=$(grep -Eo 'Executed [0-9]+ tests?' "$sdk_log" | awk '{print $2}' | sort -n | tail -1)
     [ -n "$executed" ] || { echo "no XCTest 'Executed N tests' line in $sdk_log"; return 1; }
     [ "$executed" -gt 0 ] || { echo "swift test --filter matched 0 tests"; return 1; }
     log "executed $executed test(s)"
+    recovery_log="$CI_TMP/phone-sdk-recovery-release.log"
+    # Measure the shipping artifact, not debug-code overhead. The same test
+    # retains its original memory and wall-clock budgets; it is never skipped.
+    ( cd "$SDK" && swift test -c release --filter "$recovery_probe" ) 2>&1 | tee "$recovery_log"
+    rc=${PIPESTATUS[0]}
+    [ "$rc" = 0 ] || { echo "swift release recovery test failed (rc=$rc)"; return 1; }
+    grep -Eq 'Executed 1 test,' "$recovery_log" || { echo "release recovery probe did not execute"; return 1; }
+    log "release recovery probe passed with its original budgets"
 }
 
 stage_phone_no_dsh_patch() {
