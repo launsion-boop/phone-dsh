@@ -107,7 +107,7 @@ export function systemGit(
   env: Readonly<Record<string, string | undefined>>,
   stdin?: Buffer | string,
 ): CommandResult {
-  const result = spawnSync('git', [...args], {
+  const result = spawnSync('git', ['-c', 'gc.auto=0', '-c', 'maintenance.auto=0', ...args], {
     cwd,
     env: { ...process.env, ...env },
     encoding: 'buffer',
@@ -150,8 +150,7 @@ export function copyRepository(source: string, destination: string): void {
   cpSync(source, destination, {
     recursive: true,
     preserveTimestamps: true,
-    // Node's native macOS directory fast path can fail on a newly-created
-    // destination; a filter keeps the equivalent copy on its JS code path.
+    // Keep fixture replication on one deterministic, complete copy path.
     filter: () => true,
   })
 }

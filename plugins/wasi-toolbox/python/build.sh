@@ -380,40 +380,9 @@ PY
   fi
 }
 
-if [ "$check_only" -eq 1 ]; then
-  if [ -e "$out/python.wasm" ] || [ -e "$out/python313.zip" ]; then
-    # A probe/report failure in the managed default directory is not a reason
-    # to leave the gate red: rebuild the pair from the pinned sources and probe
-    # the new one. A caller-owned explicit --out is never overwritten.
-    if ( probe_existing_artifact ); then
-      say "existing artifact: compression capabilities verified"
-      say "--check: no download and no build performed"
-      exit 0
-    fi
-    if [ "$out_explicit" -eq 1 ]; then
-      die "existing artifact in $out failed verification; rebuild with build.sh --out $out"
-    fi
-    say "the default artifact in $out is missing, stale or unverified; rebuilding it"
-    say "so the spec gate cannot pass while the compression tests have no verified interpreter"
-  elif [ "$out_explicit" -eq 1 ]; then
-    say "existing artifact: none under $out yet; compression capability is NOT verified"
-    say "build and probe one with: bash $0 --out $out"
-    say "do not pack a python artifact from a directory that has not passed this check"
-    say "--check: no download and no build performed"
-    exit 0
-  else
-    say "existing artifact: none under $out yet; building and probing one"
-    say "so the spec gate cannot pass while the compression tests have no verified interpreter"
-  fi
-  # Fall through to the build; its final verify-compression.mjs probe is the
-  # same assertion, and assert_compression_modules still fails loudly when
-  # configure cannot provide zlib/_bz2/_lzma.
-  say "--check: the default artifact needs a build; downloads and builds may run"
-fi
-
-# node --test runs files in separate processes. Serialize actual builds that
-# share these source/dependency trees; the managed-output probe above alone
-# cannot prevent two processes from configuring and making the same tree.
+# node --test runs files in separate processes. Serialize probes as well as
+# builds: an unlocked reader can otherwise observe a pair while another build
+# is replacing it and report a transient, empty compression probe failure.
 mkdir -p "$cache"
 build_lock="$cache/.build.lock"
 build_lock_owned=0
@@ -452,17 +421,35 @@ done
 printf '%s\n' "$$" > "$build_lock/pid"
 build_lock_owned=1
 
-# A waiter must not repeat the completed build it was waiting for. Reuse it
-# only after the same full report/hash/capability probe as the initial check.
-if [ "$check_only" -eq 1 ] && [ "$out_explicit" -eq 0 ]; then
+if [ "$check_only" -eq 1 ]; then
   if [ -e "$out/python.wasm" ] || [ -e "$out/python313.zip" ]; then
+    # A probe/report failure in the managed default directory is not a reason
+    # to leave the gate red: rebuild the pair from the pinned sources and probe
+    # the new one. A caller-owned explicit --out is never overwritten.
     if ( probe_existing_artifact ); then
       say "existing artifact: compression capabilities verified"
       say "--check: no download and no build performed"
       exit 0
     fi
-    say "the artifact left under $out is still unverified; rebuilding it"
+    if [ "$out_explicit" -eq 1 ]; then
+      die "existing artifact in $out failed verification; rebuild with build.sh --out $out"
+    fi
+    say "the default artifact in $out is missing, stale or unverified; rebuilding it"
+    say "so the spec gate cannot pass while the compression tests have no verified interpreter"
+  elif [ "$out_explicit" -eq 1 ]; then
+    say "existing artifact: none under $out yet; compression capability is NOT verified"
+    say "build and probe one with: bash $0 --out $out"
+    say "do not pack a python artifact from a directory that has not passed this check"
+    say "--check: no download and no build performed"
+    exit 0
+  else
+    say "existing artifact: none under $out yet; building and probing one"
+    say "so the spec gate cannot pass while the compression tests have no verified interpreter"
   fi
+  # Fall through to the build; its final verify-compression.mjs probe is the
+  # same assertion, and assert_compression_modules still fails loudly when
+  # configure cannot provide zlib/_bz2/_lzma.
+  say "--check: the default artifact needs a build; downloads and builds may run"
 fi
 
 out_parent="$(dirname "$out")"
