@@ -81,6 +81,7 @@ final class PhoneDSHSimSmokeTests: XCTestCase {
             guard visibleWindow.isAttached else {
                 throw SimError.assertion("the smoke window anchor is not attached")
             }
+            try await armRealWebContentKill(directory: directory)
             let placeholder = WebEngineConfiguration(
                 origin: URL(string: "http://127.0.0.1:1")!,
                 token: "placeholder-token")
@@ -594,6 +595,24 @@ final class PhoneDSHSimSmokeTests: XCTestCase {
         /// The watcher ran but could not signal the WebContent (or did not
         /// answer in time).
         case unavailable(String)
+    }
+
+    /// Freezes the process baseline before this suite constructs its engine.
+    /// Other suites may leave WebContent alive, so a baseline taken before the
+    /// whole test run cannot establish that a later pid belongs to this engine.
+    private func armRealWebContentKill(directory: URL) async throws {
+        let fileManager = FileManager.default
+        let expect = directory.appendingPathComponent("expect-real-kill")
+        guard fileManager.fileExists(atPath: expect.path) else { return }
+        let armed = directory.appendingPathComponent("real-kill-armed.json")
+        let result = directory.appendingPathComponent("real-kill-armed-result.json")
+        try Data("armed\n".utf8).write(to: armed, options: .atomic)
+        try await simWait(timeout: 15, label: "WebContent kill baseline") {
+            guard let data = try? Data(contentsOf: result),
+                  let object = try? JSONSerialization.jsonObject(with: data)
+                    as? [String: Any] else { return false }
+            return object["status"] as? String == "armed"
+        }
     }
 
     /// Hands this suite's live WebContent to the simulator gate's real-kill

@@ -257,8 +257,9 @@ FAIL-to-exit-status path is therefore demonstrated on every run, not only
 inspected. The complete script log, including the tail of the `xcodebuild
 test` output, is written to `$OUT/sim.log`.
 
-Reports are written by the tests into the probe app container at
-`Documents/pdsh-reports/` and copied by the script to:
+The simulator script passes a stable `PDSH_SIM_REPORTS_DIR` to the tests and
+the watcher, so an Xcode reinstall cannot migrate the evidence or substitute an
+older app container's report. It copies the same directory's files to:
 
 ```
 $OUT/probe-report.json
@@ -268,15 +269,13 @@ $OUT/kill-report.json
 
 `OUT` defaults to `${TMPDIR}/pdsh-sim`; override it with `OUT=/path`. The
 simulator run also attempts one real WebContent SIGKILL, scoped to the selected
-simulator: before the suites the script records that simulator's existing
-WebContent pids and starts a background watcher that follows the app's current
-data container to write `expect-real-kill` there. The smoke suite writes
-`real-kill-ready.json` while its real WKWebView is alive, waits (bounded) for
-the watcher's result, and then gates recovery of the same Session and a
-completed follow-up turn from that real kill. Following the container matters
-because `xcodebuild test` can reinstall the app and move
-`Documents/pdsh-reports`; a marker written only before the run would be lost. A
-candidate pid must contain the simulator's runtime path (`CoreSimulator`) and
+simulator. Before creating the smoke engine, the suite asks the watcher to
+freeze the current WebContent baseline and waits for its acknowledgement; this
+excludes other suites' Web views instead of assuming every new pid belongs to
+the smoke engine. After the first-turn evidence, the suite writes
+`real-kill-ready.json`, waits (bounded) for the watcher's result, and then
+gates recovery of the same Session and a completed follow-up turn from that
+real kill. A candidate pid must contain the simulator's runtime path (`CoreSimulator`) and
 the WebKit WebContent executable path, and carry the selected simulator's
 `SIMULATOR_UDID` in its environment; a host process — including a Safari or
 other-simulator WebContent — matches none of that and is never signalled. The

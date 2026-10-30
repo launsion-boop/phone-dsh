@@ -24,6 +24,13 @@ CI_TMP=${CI_TMP%/}/phone-dsh-ci
 IDF_VERSION_WANT=${CI_IDF_VERSION:-5.5.2}
 IOS_RUNTIME=${CI_IOS_RUNTIME:-26.5}
 
+if [ -z "${PDSH_DSH_CHECKOUT:-}" ] && [ -f "$HOME/.config/phone-dsh/dsh-checkout" ]; then
+    PDSH_DSH_CHECKOUT=$(head -n1 "$HOME/.config/phone-dsh/dsh-checkout" | tr -d '\r')
+fi
+if [ -n "${PDSH_DSH_CHECKOUT:-}" ]; then
+    export PDSH_DSH_CHECKOUT
+fi
+
 STAGES="phone-spec phone-plugins phone-image phone-sdk phone-no-dsh-patch phone-hygiene phone-license phone-modules phone-gate-contracts phone-xcode-resolve"
 
 stage_desc() {
@@ -154,13 +161,22 @@ stage_phone_sdk() {
     # the smoke/probe/kill suites), so they are listed by class here. A new unit-test class in a PhoneDSH* target must either be
     # named PhoneDSH* or be added to this filter, otherwise no gate executes it.
     sdk_filter='PhoneDSH(Wire|Log|Loopback|Gateway|Controller|Engine|Harness|Shell|AgentCore)Tests|PhoneDSHTests|PhoneDSHScenario[A-Z][A-Za-z]*Tests|PhoneDSHScenarioTestsSelectionGuard|PhoneDSHScenarioLibraryContractTests|ScenarioHostEvaluationTests|ScenarioRepositoryRootTests|ScenarioEvidenceArtifactTests|ScenarioDetailTruncationTests|PhoneDSHScenarioTestsBudgetInjection|PhoneDSHScenarioTestsWebContentKill|PhoneDSHScenarioTestsPerturbationCapabilities|ZPhoneDSHAbortStopDurabilityHostTests'
-    ( cd "$SDK" && swift test --filter "$sdk_filter" ) 2>&1 | tee "$sdk_log"
+    recovery_probe='PhoneDSHTests.BigFileBudgetTests/testHostReplayMemoryPeakForSixtyFourMiBFileIsBounded'
+    ( cd "$SDK" && swift test --disable-automatic-resolution --filter "$sdk_filter" --skip "$recovery_probe" ) 2>&1 | tee "$sdk_log"
     rc=${PIPESTATUS[0]}
     [ "$rc" = 0 ] || { echo "swift test failed (rc=$rc)"; return 1; }
     executed=$(grep -Eo 'Executed [0-9]+ tests?' "$sdk_log" | awk '{print $2}' | sort -n | tail -1)
     [ -n "$executed" ] || { echo "no XCTest 'Executed N tests' line in $sdk_log"; return 1; }
     [ "$executed" -gt 0 ] || { echo "swift test --filter matched 0 tests"; return 1; }
     log "executed $executed test(s)"
+    recovery_log="$CI_TMP/phone-sdk-recovery-release.log"
+    # Measure the shipping artifact, not debug-code overhead. The same test
+    # retains its original memory and wall-clock budgets; it is never skipped.
+    ( cd "$SDK" && swift test -c release --filter "$recovery_probe" ) 2>&1 | tee "$recovery_log"
+    rc=${PIPESTATUS[0]}
+    [ "$rc" = 0 ] || { echo "swift release recovery test failed (rc=$rc)"; return 1; }
+    grep -Eq 'Executed 1 test,' "$recovery_log" || { echo "release recovery probe did not execute"; return 1; }
+    log "release recovery probe passed with its original budgets"
 }
 
 stage_phone_no_dsh_patch() {

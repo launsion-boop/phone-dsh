@@ -134,8 +134,8 @@ enum SimEnvironment {
     ///
     /// Precedence: explicit `PDSH_SIM_REPORTS_DIR`, the probe app's
     /// `Documents/pdsh-reports` container, then the test process's own
-    /// `Documents/pdsh-reports`. `scripts/ci/sim.sh` installs the app
-    /// before the run and pulls the first path with `get_app_container`.
+    /// `Documents/pdsh-reports`. `scripts/ci/sim.sh` supplies its stable output
+    /// directory explicitly so reinstalls cannot migrate the evidence.
     static func reportsDirectory() throws -> URL {
         let directory: URL
         if let override = variables["PDSH_SIM_REPORTS_DIR"], override.isEmpty == false {
