@@ -18,11 +18,13 @@
 
 | 勾选 | ID | 场景 | 通过条件 | 证据 |
 |---|---|---|---|---|
-| [x] | P0-01 | 三项基线门禁 | `phone-modules`、`phone-hygiene`、`phone-gate-contracts` 在当前 deliverable 全部通过 | 命令与完整日志 |
-| [x] | P0-02 | Simulator smoke | Worker boot、真实工具调用、结果回填、WAL、恢复全部完成，无挂起 | simulator receipt |
-| [x] | P0-03 | 既有 Git/WAL 回归 | 现有 Git golden、WAL 和 kill-matrix 语义未削弱 | 测试报告 |
-| [x] | P0-04 | 物理 iPhone 最小 smoke | 真机完成 boot → tool → result → persist → restart/recover | device receipt |
-| [x] | P0-05 | 基线可追溯 | 首份 receipt 绑定 commit、artifact、命令、环境和结果 | 基线 receipt |
+| [x] | P0-01 | 三项基线门禁 | `phone-modules`、`phone-hygiene`、`phone-gate-contracts` 在当前 deliverable 全部通过 | 当前 commit 重跑：[`p0-lite-2026-10-31.json`](receipts/p0-lite-2026-10-31.json) |
+| [x] | P0-02 | Simulator smoke | Worker boot、真实工具调用、结果回填、WAL、恢复全部完成，无挂起 | [`p0-lite-2026-10-31.json`](receipts/p0-lite-2026-10-31.json)（probe/smoke/kill 三份报告 gate 全通过） |
+| [x] | P0-03 | 既有 Git/WAL 回归 | 现有 Git golden、WAL 和 kill-matrix 语义未削弱 | 同一 receipt 的 `phone-gate-contracts`（18 项回归）与 kill 报告 |
+| [ ] | P0-04 | 物理 iPhone 最小 smoke | 真机完成 boot → tool → result → persist → restart/recover | **BLOCKED**：当前 commit 未重跑；历史真机 PASS 绑定 `add2d9c5`，不能充当当前证据 |
+| [x] | P0-05 | 基线可追溯 | 首份 receipt 绑定 commit、artifact、命令、环境和结果 | 当前 commit 重跑：[`p0-lite-2026-10-31.json`](receipts/p0-lite-2026-10-31.json) |
+
+2026-10-31 复核：P0-01/P0-02/P0-03/P0-05 在 `b5378575` 上重跑通过，证据见上面的 receipt；P0-04 因真机签名与连接不可用改为 BLOCKED，不再沿用旧 commit 的勾选。同一次 simulator 运行中 `OfficeTests.testOfficeBridgeDoesNotAdvertiseUnsupportedContext` 仍失败，属既有的链接缺失问题（历史日志同样失败），不计入 P0 gate 判据。
 
 ## 3. A1：Daily Brief 原生竖切
 
