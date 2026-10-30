@@ -29,3 +29,19 @@ Bearer mcp-device-token-never-in-document
 password@api\.example\.com
 userinfo-password@channel\.invalid
 docs\.example\.org
+
+# public official documentation referenced by the architecture and Office research
+support\.apple\.com
+docs\.github\.com
+getlocalcode\.app
+www\.libreoffice\.org
+www\.collaboraonline\.com
+en\.wikipedia\.org
+www\.gnu\.org
+cloudconvert\.com
+developers\.google\.com
+purchase\.aspose\.com
+learn\.microsoft\.com
+
+# local app bundle name in build-evidence paths, not a network hostname
+^PhoneDSHProbe\.app$

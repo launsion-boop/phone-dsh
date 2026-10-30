@@ -305,7 +305,7 @@ export interface PhoneWorkerOptions {
   /**
    * VFS sink policy from the host's budget table (PLAN §2.5). `maxFileBytes`
    * is the per-device single-file bound; the sink clamps it to the 256 MiB
-   * host maximum. Omitted, the host environment's value then the 64 MiB
+   * host maximum. Omitted, the host environment's value then the 128 MiB
    * 8 GiB-tier default applies.
    */
   readonly limits?: VfsSinkLimits
@@ -805,7 +805,7 @@ async function startPhoneWorkerInternal(options: PhoneWorkerOptions): Promise<Ph
  * @param vfs - In-memory filesystem authority (D8).
  * @param channel - Connected ordered channel.
  * @param limits - Optional policy override; `maxFileBytes` defaults to the
- *   64 MiB 8 GiB-tier single-file budget (budgets.md §4).
+ *   128 MiB 8 GiB-tier single-file budget (budgets.md §4).
  * @returns A disposer that unsubscribes and restores the original flush.
  */
 export interface VfsSinkLimits {
@@ -1684,7 +1684,7 @@ interface NormalizedOptions {
   readonly lastMseq: bigint
   readonly socketFactory: ((url: string) => WebSocketLike) | undefined
   readonly runtime: PhoneWorkerRuntime | undefined
-  /** Budget-table sink policy; `{}` applies the host environment or the 64 MiB tier default. */
+  /** Budget-table sink policy; `{}` applies the host environment or the 128 MiB tier default. */
   readonly limits: VfsSinkLimits
   readonly python: Omit<PythonToolboxOptions, 'vfs'> | false | undefined
   readonly jq: Omit<JqToolboxOptions, 'vfs'> | false | undefined

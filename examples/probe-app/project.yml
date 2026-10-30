@@ -188,6 +188,9 @@ targets:
       # injects ChatModel) so the simulator suite can exercise the
       # unknown-registry settlement branches against a real settings document.
       - path: PhoneDSHProbe/MCPSettingsModel.swift
+      # The native Daily Brief presentation model is UI-free and lets the suite
+      # exercise add → refresh → persist → offline reload against ProbeKit.
+      - path: PhoneDSHProbe/DailyBriefModel.swift
       - path: PhoneDSHProbe/NativeConversationModels.swift
       - path: PhoneDSHProbe/NativeTranscriptProjector.swift
       - path: PhoneDSHProbe/NativeToolCallModel.swift
@@ -273,6 +276,7 @@ targets:
       # part of the app target. Without this the device test scheme does not
       # compile.
       - path: PhoneDSHProbe/MCPSettingsModel.swift
+      - path: PhoneDSHProbe/DailyBriefModel.swift
     dependencies:
       - target: PhoneDSHProbe
       - target: ProbeKit
@@ -301,6 +305,25 @@ targets:
         INFOPLIST_FILE: Config/PhoneDSHSimTests-Info.plist
         GENERATE_INFOPLIST_FILE: NO
         SKIP_INSTALL: YES
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @loader_path/Frameworks"
+
+  PhoneDSHDeviceUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: PhoneDSHDeviceUITests
+    dependencies:
+      - target: PhoneDSHProbe
+      - package: PhoneDSH
+        product: PhoneDSHHarness
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.phone-dsh.probe.deviceuitests
+        PRODUCT_NAME: PhoneDSHDeviceUITests
+        GENERATE_INFOPLIST_FILE: YES
+        SKIP_INSTALL: YES
+        TARGETED_DEVICE_FAMILY: "1"
+        TEST_TARGET_NAME: PhoneDSHProbe
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @loader_path/Frameworks"
 
 schemes:
@@ -393,6 +416,25 @@ schemes:
       config: Debug
       targets:
         - PhoneDSHDeviceTests
+    run:
+      config: Debug
+    profile:
+      config: Debug
+    analyze:
+      config: Debug
+    archive:
+      config: Debug
+
+  PhoneDSHDeviceUI:
+    build:
+      targets:
+        PhoneDSHProbe: all
+        ProbeKit: all
+        PhoneDSHDeviceUITests: [test]
+    test:
+      config: Debug
+      targets:
+        - PhoneDSHDeviceUITests
     run:
       config: Debug
     profile:

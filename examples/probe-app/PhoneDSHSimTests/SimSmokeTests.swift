@@ -16,10 +16,8 @@
 // `PhoneDSHHarness` package product.
 //
 // The report goes to the probe app container's `Documents/pdsh-reports/` as
-// `smoke-report.json`, every row carries a G1 threshold and
-// `environment: "ios-simulator"`.
-//
-// NOT_VERIFIED on an iPhone: no physical-device run exists.
+// `smoke-report.json`. Every row carries a G1 threshold and the actual
+// execution environment. Simulator and physical-device reports are separate.
 
 import Foundation
 import XCTest
@@ -220,16 +218,14 @@ final class PhoneDSHSimSmokeTests: XCTestCase {
                  "g1_journal_wire_projection"),
                 ("step machine reached journaled", steps.reachedJournaled,
                  "g1_step_machine_journaled"),
-                ("model answered the tool result with a second request",
+                ("model made a follow-up request after the first request",
                  requests.count >= 2, "g1_model_second_request"),
                 ("the first model request had no tool result",
                  requests.first.map { MockModelUpstream.transcriptHasToolResult($0.body) } == false,
                  "g1_model_first_request_no_tool_result"),
-                // The follow-up that carries the tool result is not always
-                // the second request: the pinned runtime's session-title
-                // service may issue its own model request around the same
-                // time, so wait for the property, not for an index.
-                ("a model request after the first carries the tool result",
+                // Automatic title generation can insert a model request before the
+                // tool follow-up. The contract is result delivery, not its index.
+                ("a later model request carries the tool result",
                  requests.dropFirst().contains {
                      MockModelUpstream.transcriptHasToolResult($0.body)
                  }, "g1_model_second_request_has_tool_result"),

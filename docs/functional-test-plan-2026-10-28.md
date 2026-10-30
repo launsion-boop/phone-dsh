@@ -25,7 +25,7 @@ xcrun devicectl device copy from --device <UDID> \
 `settings.plugins`、`settings.about`、`settings.runtime`、`sessions`、`sessions.schedules`、
 `workspace`、`workspace.files`、`configuration`、`chat.assistant`、`chat.failed`、`chat.queued`、
 `chat.long`、`chat.draft`、`chat.permission`、`code.block`、`sessions.many`、`sessions.empty`、
-`sessions.nothing`、`sessions.ungrouped`、`sessions.error`。
+`sessions.nothing`、`sessions.ungrouped`、`sessions.error`、`dailyBrief`。
 
 ## 测试矩阵
 
@@ -99,6 +99,7 @@ xcrun devicectl device copy from --device <UDID> \
 | E4 | 文件预览 | Markdown/代码/图片/PDF 正确渲染；不可预览类型有提示 | 交互 |
 | E5 | 工作台 | 从工具行/文件页进入；面包屑与文件内容一致 | 交互 |
 | E6 | 会话活动 | 有记录时按时间列出；无记录时空态 | 交互 |
+| E7 | 每日简报能力（无用户入口） | 抽屉与 DEBUG 页面路由均不存在；RSS/Atom 拉取、去重、完整快照、失败保留上一期与离线状态读回仍可用；已有数据不删除 | `DailyBriefTests` + `DailyBriefModelTests` + `testDailyBriefEntryIsNotExposed` |
 
 ### F. 边界与异常
 

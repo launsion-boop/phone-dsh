@@ -2,11 +2,9 @@
 // phone-dsh phone DSH — the App's chat host assembly, shared with the
 // simulator/device E2E suites.
 //
-// The Chat page must use one host
-// configuration and one persistent workspace. Keeping the path and the
-// gateway/model environment here means a suite exercises the same
-// `Documents/chat-host` tree and the same `PhoneDSHConfiguration` values the
-// installed App uses; it does not construct a parallel host for the test.
+// The Chat page uses one host configuration and persistent workspace. Tests use
+// the same App container and configuration, with an isolated root when preservation
+// is requested; they do not construct a parallel host or clear user sessions.
 
 import Foundation
 import PhoneDSH
@@ -22,18 +20,34 @@ public enum ChatHostConfiguration {
     /// gateway and never reaches the Worker.
     public static let workerPlaceholderKey = "phone-host-injects-key"
     public static let defaultDrainDeadline: TimeInterval = 20
-    public static let defaultHelloTimeout: TimeInterval = 240
-    public static let defaultBootTimeout: TimeInterval = 240
+    public static let defaultHelloTimeout: TimeInterval = 600
+    public static let defaultBootTimeout: TimeInterval = 600
+    public static let defaultTurnInactivityTimeout: TimeInterval = 1_800
+    public static let defaultShellTimeoutMs: UInt64 = 600_000
+    public static let defaultOfficeInteractionTimeout: TimeInterval = 600
 
-    /// `Documents/chat-host` for the App, or below the caller's Documents
-    /// directory in a hostless test process (the suite passes the installed
-    /// App container explicitly).
+    /// Resolves the persistent root below the App's Documents directory, or
+    /// below the caller's directory in a hostless test. DEBUG can select a
+    /// sibling test root without clearing the App's sessions.
     public static func workspaceRoot(documents: URL? = nil) -> URL {
         let documents = documents
             ?? FileManager.default.urls(for: .documentDirectory,
                                         in: .userDomainMask)[0]
-        return documents.appendingPathComponent(workspaceDirectoryName,
-                                                isDirectory: true)
+        var name = workspaceDirectoryName
+        #if DEBUG
+        if let raw = ProcessInfo.processInfo.environment["PDSH_SIM_WORKSPACE_NAME"], !raw.isEmpty {
+            let suffix = String(raw.unicodeScalars.filter {
+                CharacterSet.alphanumerics.contains($0) || $0 == "-"
+            }.prefix(80))
+            if !suffix.isEmpty { name += "-sim-\(suffix)" }
+        } else if let raw = ProcessInfo.processInfo.environment["PDSH_OFFICE_WORKSPACE_NAME"], !raw.isEmpty {
+            let suffix = String(raw.unicodeScalars.filter {
+                CharacterSet.alphanumerics.contains($0) || $0 == "-"
+            }.prefix(80))
+            if !suffix.isEmpty { name += "-office-\(suffix)" }
+        }
+        #endif
+        return documents.appendingPathComponent(name, isDirectory: true)
     }
 
     /// `scheme://host[:port]` rule the gateway uses for the model host.
@@ -74,6 +88,7 @@ public enum ChatHostConfiguration {
             credentialProvider: credentialProvider,
             drainDeadline: drainDeadline,
             helloTimeout: helloTimeout)
+        configuration.turnInactivityTimeout = defaultTurnInactivityTimeout
         configuration.engine.bootTimeout = defaultBootTimeout
         configuration.engine.environment = [
             "DEEPSEEK_BASE_URL": modelBaseURL.absoluteString,
@@ -81,6 +96,7 @@ public enum ChatHostConfiguration {
             "DEEPSEEK_API_KEY": workerPlaceholderKey,
             "DSH_TELEMETRY_DISABLED": "1",
             "PDSH_MODEL_NAME": modelName,
+            "PDSH_SHELL_TIMEOUT_MS": String(defaultShellTimeoutMs),
         ]
         return configuration
     }

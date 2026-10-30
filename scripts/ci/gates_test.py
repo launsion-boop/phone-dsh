@@ -38,6 +38,33 @@ def recalculate_summary(report):
 
 
 class GateContracts(unittest.TestCase):
+    def test_simulator_failure_replays_log_without_appending_it_to_itself(self):
+        source = (HERE / "sim.sh").read_text(encoding="utf-8")
+        setup = source[source.index("exec 3>&1"):source.index("sim_require_tools ||")]
+        failure = source[source.index('if [ "$TEST_RC" -ne 0 ]; then'):
+                         source.index('if [ "$KILL_ATTEMPT_RC" -ne 0 ]; then')]
+        # Run the production redirection, EXIT trap and failed-test branch.
+        # Bound the file size so the old self-feeding tail cannot fill disk.
+        fixture = "".join(f"fixture-{i:03d}: {'diagnostic ' * 16}\n" for i in range(100))
+        with tempfile.TemporaryDirectory(prefix="pdsh-sim-log-") as temp:
+            log = Path(temp) / "sim.log"
+            for status in (7, 124):
+                with self.subTest(exit_status=status):
+                    log.write_text(fixture, encoding="utf-8")
+                    run = subprocess.run(
+                        ["bash", "-c", 'set -euo pipefail\nulimit -f 256\n'
+                         'LOG="$1"\nTEST_RC="$2"\n' + setup + failure,
+                         "sim-log-test", str(log), str(status)],
+                        cwd=ROOT, text=True, stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT, timeout=5, check=False,
+                    )
+                    self.assertEqual(run.returncode, status, run.stdout)
+                    self.assertLess(log.stat().st_size, len(fixture.encode()) + 1024)
+                    self.assertTrue(log.read_text(encoding="utf-8").startswith(fixture))
+                    self.assertNotIn("tail:", run.stdout)
+                    self.assertIn("fixture-099:", run.stdout)
+                    self.assertIn(f"sim: the test process exited {status}", run.stdout)
+
     def gate(self, reports):
         with tempfile.TemporaryDirectory(prefix="pdsh-gate-contracts-") as temp:
             for name, report in reports.items():

@@ -59,6 +59,10 @@
 		<string>audio</string>
 		<string>processing</string>
 	</array>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>仅在你明确确认后创建日历事件；不会自动修改或删除其它日程。</string>
+	<key>NSContactsUsageDescription</key>
+	<string>仅在你发起联系人查询并授权后读取匹配的姓名、邮箱和电话。</string>
 	<!-- Connecting an MCP server on the household/corporate LAN triggers the
 	     iOS local-network prompt. The app only uses this for the exact MCP
 	     endpoint the user adds in the MCP tab; it does not browse the LAN. -->

@@ -156,6 +156,8 @@ struct ChatPage: View {
                                   preview: SharePreview("对话记录")) {
                             Label("导出对话记录", systemImage: "square.and.arrow.up")
                         }
+                        Button("子 Agent 与后台活动", systemImage: "person.2") { showActivity = true }
+                            .disabled(model.currentSessionID == nil)
                         Button("本会话设置", systemImage: "slider.horizontal.3") { showSessionSettings = true }
                     } label: {
                         Image(systemName: "ellipsis")
@@ -821,21 +823,24 @@ struct ChatPage: View {
                 }
                 .coordinateSpace(name: "chat-transcript")
                 .scrollDismissesKeyboard(.interactively)
-                .defaultScrollAnchor(.bottom)
                 .scrollBounceBehavior(.basedOnSize)
+                .simultaneousGesture(DragGesture(minimumDistance: 8).onChanged { value in
+                    if value.translation.height > 8 {
+                        userScrolledAway = true
+                    } else if value.translation.height < -8, nearBottom {
+                        userScrolledAway = false
+                    }
+                })
                 .onPreferenceChange(TranscriptContentHeightPreference.self) { height in
+                    guard height.isFinite, height >= 0 else { return }
                     transcriptContentHeight = height
                 }
                 .onPreferenceChange(TranscriptTailPreference.self) { tailY in
+                    guard tailY.isFinite else { return }
                     tailOffsetY = tailY
-                    // Past the content (a blank viewport) is not "near the
-                    // bottom"; neither may a lazy estimate silently re-enable
-                    // following while the reader is far above the tail.
-                    if tailY > viewport.size.height + 44 { userScrolledAway = true }
+                    // Only a deliberate upward drag pauses following. Content
+                    // growth must not be mistaken for the user leaving the tail.
                     nearBottom = tailY >= -1 && tailY <= viewport.size.height + 44
-                    if nearBottom && transcriptContentHeight <= viewport.size.height + 1 {
-                        userScrolledAway = false
-                    }
                 }
                 .onChange(of: transcriptScrollSignature) { _, _ in
                     if pendingInitialScroll, !visibleItems.isEmpty {
@@ -848,7 +853,7 @@ struct ChatPage: View {
                         scrollToTail(proxy, viewportHeight: viewport.size.height)
                         return
                     }
-                    guard nearBottom, !userScrolledAway, !loadingEarlierTranscript else { return }
+                    guard !userScrolledAway, !loadingEarlierTranscript else { return }
                     scheduleTailScroll(proxy, viewportHeight: viewport.size.height)
                 }
                 .onChange(of: model.isTranscriptReady) { _, ready in
@@ -877,14 +882,14 @@ struct ChatPage: View {
                     // The keyboard and the growing composer change the
                     // viewport. A transcript that was following re-anchors to
                     // the tail, so no blank strip is left below the content.
-                    guard new > old, nearBottom else { return }
+                    guard new.isFinite, new > old, !userScrolledAway else { return }
                     scheduleTailScroll(proxy, viewportHeight: new)
                 }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .overlay(alignment: .bottom) {
-            if userScrolledAway && !nearBottom && !visibleItems.isEmpty {
+            if userScrolledAway && !visibleItems.isEmpty {
                 Button { scrollToLatestTrigger += 1 } label: {
                     Label("回到最新", systemImage: "arrow.down")
                         .font(.caption.weight(.semibold))
@@ -907,7 +912,9 @@ struct ChatPage: View {
     /// overshoots into empty space (the blank page). The last row is a real,
     /// laid-out frame; the lazy tail anchor can be scrolled past its estimate.
     private func scrollToTail(_ proxy: ScrollViewProxy, viewportHeight: CGFloat) {
-        guard transcriptContentHeight > viewportHeight + 1 else { return }
+        guard transcriptContentHeight.isFinite, viewportHeight.isFinite,
+              tailOffsetY.isFinite, viewportHeight > 0,
+              transcriptContentHeight > viewportHeight + 1 else { return }
         // The last row may be a folded tool-run group, not the last message;
         // scroll to the row that is actually last.
         if let last = timelineRows.last?.id {
@@ -917,25 +924,20 @@ struct ChatPage: View {
         }
     }
 
-    /// Follow the tail after the next layout pass.
-    ///
-    /// Sending a message appends a row and, in the same update, this view asks
-    /// the lazy stack to scroll to a row it has not laid out yet: the target
-    /// is an estimate, the viewport can end up past the real content (a blank
-    /// screen) and the next streamed delta snaps it back (the visible jump).
-    /// Debouncing by one short turn lets the height preference and the row
-    /// frames settle, and the coalesced follow still tracks streaming.
+    /// Follow after the next layout pass, unless the user deliberately moved
+    /// into history. Delaying one short turn lets new row frames settle.
     private func scheduleTailScroll(_ proxy: ScrollViewProxy, viewportHeight: CGFloat) {
-        guard nearBottom, !userScrolledAway else { return }
+        guard !userScrolledAway, viewportHeight.isFinite, viewportHeight > 0 else { return }
         tailScrollTask?.cancel()
         tailScrollTask = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(50))
-            guard !Task.isCancelled, nearBottom, !userScrolledAway else { return }
+            guard !Task.isCancelled, !userScrolledAway else { return }
             if Date().timeIntervalSince(lastScrollTrace) > 1 {
                 lastScrollTrace = Date()
                 ChatModel.appendDiagnostic(
-                    "scroll tail content=\(Int(transcriptContentHeight)) viewport=\(Int(viewportHeight)) "
-                    + "tail=\(Int(tailOffsetY)) near=\(nearBottom) away=\(userScrolledAway)")
+                    "scroll tail content=\(String(describing: transcriptContentHeight)) "
+                    + "viewport=\(String(describing: viewportHeight)) "
+                    + "tail=\(String(describing: tailOffsetY)) near=\(nearBottom) away=\(userScrolledAway)")
             }
             scrollToTail(proxy, viewportHeight: viewportHeight)
         }
@@ -1644,6 +1646,7 @@ struct ChatPage: View {
     private func submitDraft() {
         model.refreshModelProviderReadiness()
         guard canSubmit else { return }
+        dismissComposerKeyboard()
         let text = draft
         if let command = Self.parseSlashCommand(text) {
             draft = ""
@@ -1659,11 +1662,6 @@ struct ChatPage: View {
                 succeeded = await model.steer(text)
             } else {
                 succeeded = await model.send(text, attachments: pendingAttachments)
-                if succeeded {
-                    nearBottom = true
-                    userScrolledAway = false
-                    scrollToLatestTrigger += 1
-                }
             }
             if succeeded {
                 let id = model.items.last(where: { if case .user = $0.kind { return true }; return false })?.id
@@ -1680,16 +1678,12 @@ struct ChatPage: View {
                 }
                 pendingAttachments.removeAll()
                 attachmentError = nil
-                inputFocused = false
-                // A send means "show me the newest turn". The composer (a
-                // TextEditor that grows to five lines) and the keyboard change
-                // the transcript viewport, which used to leave `nearBottom`
-                // false even though the person never scrolled away; the new
-                // row then stayed below the fold. Jump to the tail through the
-                // session-open path, which scrolls without animation.
+                dismissComposerKeyboard()
+                // One explicit jump shows the new turn; subsequent streaming
+                // uses the bounded follow task until the user moves into history.
                 nearBottom = true
                 userScrolledAway = false
-                pendingInitialScroll = true
+                scrollToLatestTrigger += 1
             } else if draft.isEmpty {
                 // The send was refused before it produced a row (host not
                 // ready, session switching, busy): keep the text so the person
@@ -1697,6 +1691,12 @@ struct ChatPage: View {
                 draft = text
             }
         }
+    }
+
+    private func dismissComposerKeyboard() {
+        inputFocused = false
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),
+                                        to: nil, from: nil, for: nil)
     }
 
     @MainActor

@@ -88,8 +88,8 @@ export const SHELL_DISCIPLINE_ENV: Readonly<Record<string, string>> = {
   FORCE_COLOR: '0',
 }
 
-/** Default per-command wall-clock limit (120 s). */
-export const DEFAULT_TIMEOUT_MS = 120_000
+/** Default per-command wall-clock limit (10 minutes). */
+export const DEFAULT_TIMEOUT_MS = 600_000
 
 /**
  * Default time a `stdin: 'pipe'` caller has to close its stream (30 s).

@@ -345,6 +345,27 @@ test('the boot manifest carries generic task-execution guidance, not a scenario 
   assert.doesNotMatch(TASK_EXECUTION_GUIDANCE, /scenario|G2-|F0[0-9]|budget|credential|NOT_RUN|\.md/iu)
 })
 
+test('the native office surface is visible only when the host publishes phone', () => {
+  const absent = buildCapabilityManifest(manifestInput())
+  assert.equal(absent.json.phone, undefined)
+  assert.ok(!absent.markdown.includes('Native office tools'))
+  const manifest = buildCapabilityManifest(manifestInput({ commands: ['bash', 'phone'] }))
+  assert.equal(manifest.json.phone?.command, 'phone')
+  assert.deepEqual(manifest.json.phone?.tools.map(tool => tool.name), [
+    'files.list', 'files.pick', 'doc.preview', 'share.export', 'pdf.text',
+    'pdf.render_pages', 'docx.read', 'xlsx.read', 'csv.analyze',
+    'doc.write', 'sheet.write', 'slides.write', 'chart.render', 'ocr.image',
+    'mail.compose_draft', 'calendar.create_event', 'contacts.search', 'text.translate',
+    'office.convert',
+  ])
+  assert.ok(manifest.markdown.includes('phone <tool> <json>'))
+  assert.ok(manifest.markdown.includes('actually call read_image'))
+  const here = dirname(fileURLToPath(import.meta.url))
+  const swift = readFileSync(join(here, '../../../examples/probe-app/ProbeKit/Office/OfficeToolBridge.swift'), 'utf8')
+  const routes = [...swift.matchAll(/^\s+case "([^"]+)":$/gmu)].map(match => match[1]).sort()
+  assert.deepEqual(routes, [...manifest.json.phone?.tools.map(tool => tool.name) ?? []].sort())
+})
+
 test('the production manifest fits 4 KiB with the advice and full Python/Bash facts', () => {
   const surface = workerCommandSurface({ accelerators: ['rg'], toolbox: fakeToolbox() })
   const manifest = buildCapabilityManifest(manifestInput({

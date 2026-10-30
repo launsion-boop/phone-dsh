@@ -51,15 +51,25 @@ actor PhoneDSHLedgerRecorder {
         var cwd: String
         var toolKey: String?
         var requiresMseq: UInt64
+        var bound = false
     }
 
     private let ledger: SideEffectLedger
     private let stepMachine: StepMachine
     private let onPersistenceFailure: @Sendable (String) -> Void
+    private struct PendingEvidence {
+        var toolKey: String
+        var payload: Data
+        var requiresMseq: UInt64
+        var ackedMseq: UInt64
+    }
+
     private var intents: [String: Intent] = [:]
     private var keyByExecID: [String: String] = [:]
     private var liveKeys: Set<String> = []
     private var startObserved: Set<String> = []
+    private var pendingFrames: [String: [(payload: Data, ackedMseq: UInt64)]] = [:]
+    private var pendingEvidence: [String: [PendingEvidence]] = [:]
     /// Last ledger write failure, or `nil` while every write succeeded.
     private(set) var lastPersistenceError: String?
 
@@ -84,12 +94,15 @@ actor PhoneDSHLedgerRecorder {
                                                          requiresMseq: requiresMseq)
             }
             catch {
-                do {
-                    _ = try await stepMachine.markExecPersistenceFailure(
-                        toolKey: toolKey, execID: execID,
-                        requiresMseq: requiresMseq)
-                } catch { report(error, operation: "markExecPersistenceFailure", execID: execID) }
-                report(error, operation: "bindAccelerator", execID: execID)
+                await observationFailed(error, operation: "bindAccelerator",
+                                        toolKey: toolKey, execID: execID,
+                                        requiresMseq: requiresMseq)
+            }
+        }
+        intents[execID]?.bound = true
+        if let pending = pendingFrames.removeValue(forKey: execID) {
+            for frame in pending {
+                await record(frame.payload, ackedMseq: frame.ackedMseq)
             }
         }
     }
@@ -110,6 +123,12 @@ actor PhoneDSHLedgerRecorder {
               case .string(let execID) = execValue,
               let typeValue = members["type"],
               case .string(let type) = typeValue else {
+            return
+        }
+        if intents[execID]?.bound != true {
+            if type == "start" || intents[execID] != nil {
+                pendingFrames[execID, default: []].append((payload, ackedMseq))
+            }
             return
         }
         if type == "start" {
@@ -183,25 +202,78 @@ actor PhoneDSHLedgerRecorder {
                         intent: Intent?, ackedMseq: UInt64) async {
         do {
             _ = try await ledger.appendExecEvent(idemKey: idemKey, event: payload)
-            if let intent, let toolKey = intent.toolKey {
-                _ = try await stepMachine.observeExecEvent(toolKey: toolKey,
-                                                           execID: execID,
-                                                           event: payload)
-                _ = try await stepMachine.observeAcceleratorWAL(
-                    toolKey: toolKey, execID: execID,
-                    requiresMseq: intent.requiresMseq,
-                    ackedMseq: ackedMseq)
-            }
         } catch {
             if let intent, let toolKey = intent.toolKey {
-                do {
-                    _ = try await stepMachine.markExecPersistenceFailure(
-                        toolKey: toolKey, execID: execID,
-                        requiresMseq: intent.requiresMseq)
-                } catch { report(error, operation: "markExecPersistenceFailure", execID: execID) }
+                await observationFailed(error, operation: "appendExecEvent",
+                                        toolKey: toolKey, execID: execID,
+                                        requiresMseq: intent.requiresMseq)
+            } else {
+                report(error, operation: "appendExecEvent", execID: execID)
             }
-            report(error, operation: "appendExecEvent", execID: execID)
+            return
         }
+        if let intent, let toolKey = intent.toolKey {
+            await observeEvidence(toolKey: toolKey, execID: execID,
+                                  payload: payload, requiresMseq: intent.requiresMseq,
+                                  ackedMseq: ackedMseq, awaitJournal: true)
+        }
+    }
+
+    /// Replays durable exec evidence after its journal record establishes the step.
+    /// An exec can finish before that record arrives, so this cannot depend on
+    /// the request's already-consumed intent remaining in memory.
+    func reconcile(toolKey: String) async {
+        let execIDs = pendingEvidence.filter { $0.value.contains { $0.toolKey == toolKey } }
+            .keys.sorted()
+        for execID in execIDs {
+            guard let pending = pendingEvidence[execID] else { continue }
+            let remaining = pending.filter { $0.toolKey != toolKey }
+            if remaining.isEmpty { pendingEvidence.removeValue(forKey: execID) }
+            else { pendingEvidence[execID] = remaining }
+            for evidence in pending where evidence.toolKey == toolKey {
+                await observeEvidence(toolKey: evidence.toolKey, execID: execID,
+                                      payload: evidence.payload,
+                                      requiresMseq: evidence.requiresMseq,
+                                      ackedMseq: evidence.ackedMseq,
+                                      awaitJournal: false)
+            }
+        }
+    }
+
+    private func observeEvidence(toolKey: String, execID: String, payload: Data,
+                                 requiresMseq: UInt64, ackedMseq: UInt64,
+                                 awaitJournal: Bool) async {
+        let operation = awaitJournal ? "appendExecEvent" : "reconcileExecEvidence"
+        do {
+            let binding = try await stepMachine.bindAccelerator(
+                toolKey: toolKey, execID: execID, requiresMseq: requiresMseq)
+            if binding == nil && awaitJournal {
+                pendingEvidence[execID, default: []].append(
+                    PendingEvidence(toolKey: toolKey, payload: payload,
+                                    requiresMseq: requiresMseq, ackedMseq: ackedMseq))
+                return
+            }
+            _ = try await stepMachine.observeExecEvent(toolKey: toolKey,
+                                                       execID: execID,
+                                                       event: payload)
+            _ = try await stepMachine.observeAcceleratorWAL(
+                toolKey: toolKey, execID: execID,
+                requiresMseq: requiresMseq, ackedMseq: ackedMseq)
+        } catch {
+            await observationFailed(error, operation: operation,
+                                    toolKey: toolKey, execID: execID,
+                                    requiresMseq: requiresMseq)
+        }
+    }
+
+    private func observationFailed(_ error: Error, operation: String,
+                                   toolKey: String, execID: String,
+                                   requiresMseq: UInt64) async {
+        do {
+            _ = try await stepMachine.markExecPersistenceFailure(
+                toolKey: toolKey, execID: execID, requiresMseq: requiresMseq)
+        } catch { report(error, operation: "markExecPersistenceFailure", execID: execID) }
+        report(error, operation: operation, execID: execID)
     }
 
     /// Replays only persisted evidence. Used at boot and before replaying a
@@ -324,6 +396,12 @@ actor PhoneDSHLedgerChannelHandling: ChannelHandling {
 
     func handleJournal(_ body: JournalBody) async throws {
         try await delegate.handleJournal(body)
+        if let value = try? JSONValue.parse(body.record),
+           case .object(let members) = value,
+           let keyValue = members["key"],
+           case .string(let toolKey) = keyValue {
+            await recorder.reconcile(toolKey: toolKey)
+        }
     }
 
     func handleAPIResponse(_ frame: ApiResponseFrame) async throws {

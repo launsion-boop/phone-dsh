@@ -726,15 +726,12 @@ final class ChatModel {
             + "vfs=\(configuration.budgets.vfsLogicalBytes / 1_048_576) MiB "
             + "single=\(configuration.budgets.singleFileBytes / 1_048_576) MiB "
             + "hot=\(configuration.budgets.wasiHotInstanceBytes / 1_048_576) MiB")
-        // Publish the real read-only accelerators only when the linked Rust
-        // library advertises them. Without the XCFramework `acceleratorNames`
-        // is empty, so the host keeps advertising none instead of faking a
-        // capability. `phone`/`ctx` are registered by the library but need an
-        // injected PhoneToolBridge (there is no MCP bridge in this host yet),
-        // so `channelAcceleratorNames` keeps them out of the host HELLO and the
-        // EXEC_REQ whitelist instead of advertising commands that would exit 69.
+        // Publish only accelerators the linked Rust library and the native
+        // Office bridge can actually execute.
+        let officeBridge = OfficeToolBridge(presenter: OfficePresenter())
         let shell = PDSHShellProvider(materializedWorkspace: materializedWorkspace,
-                                      materializedHome: materializedHome)
+                                      materializedHome: materializedHome,
+                                      toolBridge: officeBridge)
         if !shell.acceleratorNames.isEmpty {
             configuration.accelerators = shell
             let names = shell.channelAcceleratorNames
@@ -742,7 +739,9 @@ final class ChatModel {
                 configuration.acceleratorNames = names
             }
         }
+        configuration.turnInactivityTimeout = ChatHostConfiguration.defaultTurnInactivityTimeout
         configuration.engine.bootTimeout = ChatHostConfiguration.defaultBootTimeout
+        environment["PDSH_SHELL_TIMEOUT_MS", default: String(ChatHostConfiguration.defaultShellTimeoutMs)] = String(ChatHostConfiguration.defaultShellTimeoutMs)
         configuration.engine.environment = environment
         let anchor = self.anchor
         let newHost = PhoneDSHHost(configuration: configuration, engineFactory: { configuration in
@@ -1051,7 +1050,14 @@ final class ChatModel {
                 appendStatus("Foreground return queued until the host pause completes")
                 return
             }
-            guard parked else { return }
+            if !parked {
+                let wasRunning = turnRunning
+                await reconcileTurnStateAfterResume()
+                if wasRunning && !turnRunning {
+                    await openManagedSession(id: sessionID)
+                }
+                return
+            }
             await resumeHost(host)
         case .inactive:
             break
@@ -1690,6 +1696,7 @@ final class ChatModel {
 
     private func handle(_ event: HarnessEvent) {
         eventsHandled += 1
+        if TurnResourceCleanup.isTerminal(event.kind) { dismissPendingRequests() }
         // A queued message only needs its dispatch label until the turn shows
         // any activity. Assistant text is not the only first output: a turn
         // that starts with a tool call used to keep 发送中… forever.

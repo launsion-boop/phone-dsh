@@ -53,7 +53,7 @@ export const PHONE_SHELL_WORKER_VFS_ROOTS = Object.freeze(['/dsh/workspace', '/d
 export const PHONE_SHELL_DEFAULT_TIMEOUT_MS = 30_000
 
 /** Largest wall-clock bound a console request may ask for. */
-export const PHONE_SHELL_MAX_TIMEOUT_MS = 120_000
+export const PHONE_SHELL_MAX_TIMEOUT_MS = 600_000
 
 /** Default per-stream byte cap the console asks the collector to retain. */
 export const PHONE_SHELL_DEFAULT_MAX_OUTPUT_BYTES = 256 * 1024
