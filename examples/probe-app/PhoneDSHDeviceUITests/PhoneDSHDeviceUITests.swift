@@ -27,6 +27,35 @@ final class PhoneDSHDeviceUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["每日简报"].exists)
     }
 
+    func testDrawerOmitsUnavailableOrRemovedChrome() throws {
+        app.launchEnvironment["PDSH_OFFICE_WORKSPACE_NAME"] = "device-drawer"
+        app.launch()
+        let open = app.buttons["打开会话列表"]
+        XCTAssertTrue(open.waitForExistence(timeout: 15))
+        open.tap()
+        let schedules = app.buttons["定时任务"]
+        let settings = app.buttons["设置"]
+        XCTAssertTrue(schedules.waitForExistence(timeout: 15))
+        XCTAssertTrue(settings.exists)
+        XCTAssertFalse(app.staticTexts["会话"].exists)
+        let folderAtBottom = app.buttons.matching(NSPredicate(format: "label == %@", "工作文件夹"))
+            .allElementsBoundByIndex.contains {
+                $0.frame.minY > schedules.frame.minY && $0.frame.minY < settings.frame.minY
+            }
+        XCTAssertFalse(folderAtBottom)
+        XCTAssertFalse(app.staticTexts["未启动"].exists)
+    }
+
+    func testContextInjectionIsHiddenFromMessageFlow() throws {
+        app.launchArguments = ["-uiPreview", "chat.official"]
+        app.launch()
+        let finalAnswer = app.staticTexts.matching(NSPredicate(
+            format: "label CONTAINS %@", "原始 HTML 保持字面")).firstMatch
+        XCTAssertTrue(finalAnswer.waitForExistence(timeout: 30))
+        XCTAssertFalse(app.staticTexts["PDSH_CONTEXT_INJECTION_MUST_NOT_APPEAR"].exists)
+        XCTAssertFalse(app.staticTexts["上下文注入 · agent-instructions"].exists)
+    }
+
     func testSubagentActivityEntryOpensSessionActivity() throws {
         app.launchEnvironment["PDSH_OFFICE_WORKSPACE_NAME"] = "activity-entry"
         app.launch()
@@ -39,6 +68,55 @@ final class PhoneDSHDeviceUITests: XCTestCase {
         entry.tap()
         XCTAssertTrue(app.navigationBars["会话活动"].waitForExistence(timeout: 15))
         XCTAssertTrue(app.staticTexts["子智能体"].exists)
+    }
+
+    func testArtifactsEntryAndMoreMenuOrder() throws {
+        app.launchEnvironment["PDSH_OFFICE_WORKSPACE_NAME"] = "session-artifacts"
+        app.launch()
+        createNewSession()
+        app.buttons["更多操作"].tap()
+        let artifacts = app.buttons["产物"]
+        let activity = app.buttons["子 Agent 与后台活动"]
+        let export = app.buttons["导出对话记录"]
+        let settings = app.buttons["本会话设置"]
+        XCTAssertTrue(artifacts.waitForExistence(timeout: 10))
+        XCTAssertTrue(activity.exists && export.exists && settings.exists)
+        XCTAssertLessThan(artifacts.frame.minY, activity.frame.minY)
+        XCTAssertLessThan(activity.frame.minY, export.frame.minY)
+        XCTAssertLessThan(export.frame.minY, settings.frame.minY)
+        artifacts.tap()
+        XCTAssertTrue(app.navigationBars["本 session 产物"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.staticTexts["本 session 还没有已确认归属的产物"].waitForExistence(timeout: 15))
+    }
+
+    func testScriptedOfficeArtifactAppearsInSessionArtifacts() throws {
+        let artifactName = "native-session-artifact-\(UUID().uuidString).docx"
+        let document = #"{"fileName":"\#(artifactName)","title":"Session Artifact","blocks":[{"type":"paragraph","text":"Real artifact"}]}"#
+        let mock = MockModelUpstream()
+        mock.script = .generic(
+            command: "phone doc.write '\(document)'",
+            toolText: "Generating a real Office artifact.",
+            finalText: "PDSH_OFFICE_ARTIFACT_OK")
+        let mockURL = try mock.start()
+        defer { mock.stop() }
+        app.launchEnvironment = [
+            "PDSH_SEED_PROVIDER_KEY": "device-scripted-key",
+            "PDSH_SEED_PROVIDER_BASE": mockURL.absoluteString,
+            "PDSH_SEED_PROVIDER_MODEL": "deepseek-flash",
+            "PDSH_SEED_PROVIDER_NAME": "Device Scripted Model",
+            "PDSH_OFFICE_WORKSPACE_NAME": "scripted-session-artifact",
+            "PDSH_OFFICE_ARTIFACT_NAMESPACE": "scripted-session-artifact",
+        ]
+        app.launch()
+        createNewSession()
+        runSessionTask(prompt: "生成一个 Office 产物", marker: "PDSH_OFFICE_ARTIFACT_OK")
+        app.buttons["更多操作"].tap()
+        app.buttons["产物"].tap()
+        XCTAssertTrue(app.staticTexts[artifactName].waitForExistence(timeout: 20))
+        XCTAssertFalse(app.staticTexts["本 session 还没有已确认归属的产物"].exists)
+        app.staticTexts[artifactName].tap()
+        XCTAssertTrue(app.navigationBars[artifactName].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.buttons["分享文件"].exists)
     }
 
     func testScriptedSessionTaskFromComposer() throws {
@@ -62,6 +140,89 @@ final class PhoneDSHDeviceUITests: XCTestCase {
         XCTAssertTrue(mock.requests.dropFirst().contains {
             MockModelUpstream.transcriptHasToolResult($0.body)
         })
+    }
+
+    func testMarkdownTableUsesPhoneRowCards() throws {
+        let mock = MockModelUpstream()
+        mock.script = .generic(
+            command: "printf 'PDSH_TABLE_OK\\n'",
+            toolText: "Preparing a narrow table.",
+            finalText: "| 项目 | 金额 | 类别 | 日期 | 备注 |\n|---|---:|---|---|---|\n| 交通 | 120.50 | 交通 | 2026-10-30 | PDSH_TABLE_OK |")
+        let mockURL = try mock.start()
+        defer { mock.stop() }
+        app.launchEnvironment = [
+            "PDSH_SEED_PROVIDER_KEY": "device-scripted-key",
+            "PDSH_SEED_PROVIDER_BASE": mockURL.absoluteString,
+            "PDSH_SEED_PROVIDER_MODEL": "deepseek-flash",
+            "PDSH_SEED_PROVIDER_NAME": "Device Scripted Model",
+        ]
+        app.launch()
+        createNewSession()
+        runSessionTask(prompt: "生成费用表格", marker: "PDSH_TABLE_OK")
+        XCTAssertTrue(app.otherElements["native-markdown-table-cards"].waitForExistence(timeout: 15))
+        XCTAssertFalse(app.otherElements["native-markdown-table-grid"].exists)
+    }
+
+    func testCompactTableDoesNotOverflowPhone() throws {
+        let mock = MockModelUpstream()
+        mock.script = .generic(
+            command: "printf 'PDSH_TABLE_OK\\n'",
+            toolText: "Preparing a compact table.",
+            finalText: "| 项目 | 金额 | 备注 |\n|---|---:|---|\n| 交通 | 120.50 | PDSH_TABLE_OK |")
+        let mockURL = try mock.start()
+        defer { mock.stop() }
+        app.launchEnvironment = [
+            "PDSH_SEED_PROVIDER_KEY": "device-scripted-key",
+            "PDSH_SEED_PROVIDER_BASE": mockURL.absoluteString,
+            "PDSH_SEED_PROVIDER_MODEL": "deepseek-flash",
+            "PDSH_SEED_PROVIDER_NAME": "Device Scripted Model",
+        ]
+        app.launch()
+        createNewSession()
+        runSessionTask(prompt: "生成三列费用表格", marker: "PDSH_TABLE_OK")
+        let grid = app.otherElements["native-markdown-table-grid"]
+        let cards = app.otherElements["native-markdown-table-cards"]
+        XCTAssertTrue(grid.waitForExistence(timeout: 15) || cards.exists)
+        if grid.exists {
+            XCTAssertGreaterThanOrEqual(grid.frame.minX, app.frame.minX)
+            XCTAssertLessThanOrEqual(grid.frame.maxX, app.frame.maxX)
+        }
+    }
+
+    func testOfficialSettingsSectionsAndFontPreference() throws {
+        app.launchEnvironment["PDSH_OFFICE_WORKSPACE_NAME"] = "official-settings"
+        app.launch()
+        createNewSession()
+        app.buttons["打开会话列表"].tap()
+        app.buttons["设置"].tap()
+        XCTAssertTrue(app.staticTexts["字号大小"].waitForExistence(timeout: 15))
+        app.staticTexts["字号大小"].tap()
+        let defaultFontSize = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label CONTAINS %@", "17 px")).firstMatch
+        XCTAssertTrue(defaultFontSize.waitForExistence(timeout: 5))
+        app.buttons["模型"].tap()
+        XCTAssertTrue(app.navigationBars["模型服务"].waitForExistence(timeout: 10))
+        app.buttons["插件"].tap()
+        XCTAssertTrue(app.navigationBars["内置插件"].waitForExistence(timeout: 10))
+        app.buttons["预设"].tap()
+        XCTAssertTrue(app.navigationBars["Agent 预设"].waitForExistence(timeout: 10))
+    }
+
+    func testPhonePermissionsCenterLists23CapabilitiesWithoutStartupPrompts() throws {
+        app.launchArguments = ["-uiPreview", "settings.permissions"]
+        app.launch()
+        XCTAssertTrue(app.navigationBars["手机权限"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.staticTexts["已请求（系统不告知是否被拒）"].waitForExistence(timeout: 5))
+        for title in ["通讯录", "日历", "提醒事项", "健康", "照片", "定位", "运动与健身", "麦克风",
+                      "语音识别", "相机", "蓝牙", "本地网络", "通知", "专注模式", "面容确认", "实时活动",
+                      "快捷指令", "文件与文件夹", "剪贴板", "设备状态", "后台定位", "家庭", "音乐"] {
+            let row = app.staticTexts[title]
+            for _ in 0..<10 where !row.exists { app.swipeUp() }
+            XCTAssertTrue(row.exists, title)
+        }
+        XCTAssertTrue(app.staticTexts["常开"].exists)
+        XCTAssertFalse(app.staticTexts["允许使用这项能力？"].exists)
+        XCTAssertFalse(app.buttons["继续"].exists)
     }
 
     func testHistoryRestoreThenSendKeepsLatestMessageVisible() throws {
@@ -194,6 +355,15 @@ final class PhoneDSHDeviceUITests: XCTestCase {
         runSessionTask(
             prompt: "执行新文件生成验收，不编辑任何原件。实际调用 phone doc.write 生成 meeting-notes.docx（标题 会议纪要，含总费用 116.50 和两行费用表）；调用 phone sheet.write 生成 expense-summary.xlsx（文本与数字单元格，含 120.50、-4.00、116.50）；调用 phone slides.write 生成 weekly-review.pptx；调用 phone chart.render 生成 expense-chart.png。模型不得输出 OOXML，只传结构化 JSON IR。必须对生成的 docx/xlsx 分别调用 docx.read/xlsx.read 读回，调用 office.convert 并原样记录其状态。把四个真实 fileId、读回数字、conversionStatus 写 generation-result.json。调用 phone doc.preview 预览 meeting-notes.docx，返回后继续。不要调用 share.export。最后只回复 OFFICE_GENERATION_DONE。",
             marker: "OFFICE_GENERATION_DONE")
+        app.buttons["更多操作"].tap()
+        app.buttons["产物"].tap()
+        XCTAssertTrue(app.staticTexts["meeting-notes.docx"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.staticTexts["expense-summary.xlsx"].exists)
+        XCTAssertTrue(app.staticTexts["weekly-review.pptx"].exists)
+        XCTAssertTrue(app.staticTexts["expense-chart.png"].exists)
+        app.staticTexts["meeting-notes.docx"].tap()
+        XCTAssertTrue(app.navigationBars["meeting-notes.docx"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.buttons["分享文件"].exists)
     }
 
     func testRealOfficeSystem() throws {
@@ -224,6 +394,12 @@ final class PhoneDSHDeviceUITests: XCTestCase {
     private func createNewSession() {
         let open = app.buttons["打开会话列表"]
         XCTAssertTrue(open.waitForExistence(timeout: 240))
+        let recover = app.buttons["host-recovery-action"]
+        if recover.waitForExistence(timeout: 2) {
+            recover.tap()
+            XCTAssertTrue(waitUntil(timeout: 240) { !recover.exists },
+                          "the retained failed host did not finish explicit recovery")
+        }
         open.tap()
         let create = app.buttons["新建会话"]
         XCTAssertTrue(create.waitForExistence(timeout: 15))

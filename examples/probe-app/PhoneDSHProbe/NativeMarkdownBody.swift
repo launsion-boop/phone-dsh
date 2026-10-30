@@ -24,12 +24,13 @@ struct NativeMarkdownBody: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: variant == .compact ? 4 : 16) {
+        VStack(alignment: .leading, spacing: variant == .compact ? 4 : NativeChatTheme.messageParagraphSpacing) {
             ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
                 NativeMarkdownBlockView(block: block, variant: variant,
                                         workspaceFiles: workspaceFiles, onOpenFile: onOpenFile)
             }
         }
+        .lineSpacing(variant == .compact ? 0 : NativeChatTheme.messageLineSpacing)
         .frame(maxWidth: .infinity, alignment: .leading)
         .textSelection(.enabled)
         .onChange(of: markdown) { _, value in
@@ -57,13 +58,13 @@ private struct NativeMarkdownBlockView: View {
         case .paragraph(let content):
             NativeMarkdownInlineText(content: content, variant: variant,
                                      workspaceFiles: workspaceFiles, onOpenFile: onOpenFile)
-                .font(variant == .compact ? NativeChatTheme.secondaryFont() : NativeChatTheme.bodyFont())
+                .font(variant == .compact ? NativeChatTheme.secondaryFont() : NativeChatTheme.messageBodyFont())
                 .foregroundStyle(variant == .compact ? NativeChatTheme.tertiary : NativeChatTheme.primary)
                 .fixedSize(horizontal: false, vertical: true)
         case .list(let ordered, let start, let items):
-            VStack(alignment: .leading, spacing: variant == .compact ? 2 : 6) {
+            VStack(alignment: .leading, spacing: variant == .compact ? 2 : NativeChatTheme.messageListSpacing) {
                 ForEach(Array(items.enumerated()), id: \.offset) { index, item in
-                    HStack(alignment: .top, spacing: 8) {
+                    HStack(alignment: .top, spacing: variant == .compact ? 8 : 10) {
                         Group {
                             if let checked = item.checked {
                                 Image(systemName: checked ? "checkmark.square.fill" : "square")
@@ -71,11 +72,11 @@ private struct NativeMarkdownBlockView: View {
                                 Text(ordered ? "\(start + index)." : "•")
                             }
                         }
-                        .font(variant == .compact ? NativeChatTheme.secondaryFont() : NativeChatTheme.bodyFont())
+                        .font(variant == .compact ? NativeChatTheme.secondaryFont() : NativeChatTheme.messageBodyFont())
                         .foregroundStyle(NativeChatTheme.secondary)
-                        .frame(minWidth: ordered ? 24 : 14, alignment: .trailing)
+                        .frame(minWidth: ordered ? 24 : 18, alignment: .trailing)
                         .padding(.top, 1)
-                        VStack(alignment: .leading, spacing: variant == .compact ? 2 : 6) {
+                        VStack(alignment: .leading, spacing: variant == .compact ? 2 : NativeChatTheme.messageListSpacing) {
                             ForEach(Array(item.blocks.enumerated()), id: \.offset) { _, child in
                                 NativeMarkdownBlockView(block: child, variant: variant,
                                                         workspaceFiles: workspaceFiles, onOpenFile: onOpenFile)
@@ -84,7 +85,7 @@ private struct NativeMarkdownBlockView: View {
                     }
                 }
             }
-            .padding(.leading, 4)
+            .padding(.leading, variant == .compact ? 4 : 8)
         case .blockquote(let children):
             VStack(alignment: .leading, spacing: variant == .compact ? 4 : 12) {
                 ForEach(Array(children.enumerated()), id: \.offset) { _, child in
@@ -100,17 +101,8 @@ private struct NativeMarkdownBlockView: View {
             DSSCodeBlock(source: source.hasSuffix("\n") ? String(source.dropLast()) : source,
                          language: language)
         case .table(let header, let rows, let alignments):
-            ScrollView(.horizontal) {
-                VStack(alignment: .leading, spacing: 0) {
-                    NativeMarkdownTableRow(cells: header, header: true, variant: variant, alignments: alignments,
-                                           workspaceFiles: workspaceFiles, onOpenFile: onOpenFile)
-                    ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                        NativeMarkdownTableRow(cells: row, header: false, variant: variant, alignments: alignments,
-                                               workspaceFiles: workspaceFiles, onOpenFile: onOpenFile)
-                    }
-                }
-            }
-            .scrollIndicators(.automatic)
+            NativeMarkdownTable(header: header, rows: rows, alignments: alignments, variant: variant,
+                                workspaceFiles: workspaceFiles, onOpenFile: onOpenFile)
         case .image(let source, let alt, let title):
             NativeMarkdownImage(source: source, alt: alt, title: title)
         case .math(let latex):
@@ -137,6 +129,75 @@ private struct NativeMarkdownBlockView: View {
     }
 }
 
+struct NativeMarkdownTable: View {
+    let header: [[NativeMarkdownInline]]
+    let rows: [[[NativeMarkdownInline]]]
+    let alignments: [NativeMarkdownTableAlignment?]
+    let variant: NativeMarkdownVariant
+    let workspaceFiles: [WorkspaceFile]
+    let onOpenFile: ((String) -> Void)?
+
+    private var columnCount: Int {
+        max(header.count, rows.map(\.count).max() ?? 0)
+    }
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            grid
+            cards
+        }
+    }
+
+    private var grid: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            NativeMarkdownTableRow(cells: header, header: true, variant: variant, alignments: alignments,
+                                   workspaceFiles: workspaceFiles, onOpenFile: onOpenFile)
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                NativeMarkdownTableRow(cells: row, header: false, variant: variant, alignments: alignments,
+                                       workspaceFiles: workspaceFiles, onOpenFile: onOpenFile)
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("native-markdown-table-grid")
+    }
+
+    private var cards: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(0..<columnCount, id: \.self) { index in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(fieldTitle(index))
+                                .font(NativeChatTheme.captionFont().weight(.medium))
+                                .foregroundStyle(NativeChatTheme.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                            NativeMarkdownInlineText(content: row[safe: index] ?? [], variant: variant,
+                                                     workspaceFiles: workspaceFiles, onOpenFile: onOpenFile)
+                                .font(variant == .compact
+                                      ? NativeChatTheme.secondaryFont() : NativeChatTheme.messageBodyFont())
+                                .foregroundStyle(NativeChatTheme.primary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(NativeChatTheme.selector,
+                            in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("native-markdown-table-cards")
+    }
+
+    private func fieldTitle(_ index: Int) -> String {
+        let text = NativeMarkdownInlineText.plainText(header[safe: index] ?? [])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? "列 \(index + 1)" : text
+    }
+}
+
 private struct NativeMarkdownTableRow: View {
     let cells: [[NativeMarkdownInline]]
     let header: Bool
@@ -152,7 +213,7 @@ private struct NativeMarkdownTableRow: View {
                                          workspaceFiles: workspaceFiles, onOpenFile: onOpenFile)
                     .font(variant == .compact
                           ? NativeChatTheme.secondaryFont().weight(header ? .semibold : .regular)
-                          : NativeChatTheme.secondaryFont().weight(header ? .semibold : .regular))
+                          : NativeChatTheme.messageBodyFont().weight(header ? .semibold : .regular))
                     .multilineTextAlignment(textAlignment(index))
                     .frame(minWidth: 100, maxWidth: 320, alignment: frameAlignment(index))
                     .padding(.horizontal, variant == .compact ? 8 : 16)
@@ -204,15 +265,15 @@ private struct NativeMarkdownInlineText: View {
                 var attributed = AttributedString(value)
                 attributed.link = url
                 attributed.foregroundColor = NativeChatTheme.accent
-                attributed.font = .system(size: variant == .compact ? 13 : 12.25, design: .monospaced)
+                attributed.font = .system(size: variant == .compact ? 13 : CGFloat(NativeChatPreferences.shared.fontSize(for: .code) + 1), design: .monospaced)
                 return Text(attributed)
             }
             var attributed = AttributedString(value)
-            attributed.font = .system(size: variant == .compact ? 13 : 12.25, design: .monospaced)
+            attributed.font = .system(size: variant == .compact ? 13 : CGFloat(NativeChatPreferences.shared.fontSize(for: .code) + 1), design: .monospaced)
             attributed.backgroundColor = NativeChatTheme.inlineCode
             return Text(attributed)
         case .link(let destination, let children):
-            let label = plainText(children)
+            let label = Self.plainText(children)
             guard let url = nativeMarkdownURL(destination) else { return text(children) }
             var attributed = AttributedString(label)
             attributed.link = url
@@ -222,7 +283,7 @@ private struct NativeMarkdownInlineText: View {
         case .image(_, let alt):
             return Text(alt).italic().foregroundColor(NativeChatTheme.tertiary)
         case .math(let latex):
-            var renderer = MathImage(latex: latex, fontSize: variant == .compact ? 13 : 14,
+            var renderer = MathImage(latex: latex, fontSize: variant == .compact ? 13 : CGFloat(NativeChatPreferences.shared.fontSize(for: .text)),
                                      textColor: UIColor(NativeChatTheme.primary), labelMode: .text, textAlignment: .left)
             let (error, image, layout) = renderer.asImage()
             guard error == nil, let image else { return Text(latex) }
@@ -233,12 +294,12 @@ private struct NativeMarkdownInlineText: View {
         }
     }
 
-    private func plainText(_ inline: [NativeMarkdownInline]) -> String {
+    fileprivate static func plainText(_ inline: [NativeMarkdownInline]) -> String {
         inline.map { part in
             switch part {
             case .text(let value), .code(let value), .math(let value), .html(let value): value
-            case .strong(let children), .emphasis(let children), .delete(let children): plainText(children)
-            case .link(_, let children): plainText(children)
+            case .strong(let children), .emphasis(let children), .delete(let children): Self.plainText(children)
+            case .link(_, let children): Self.plainText(children)
             case .image(_, let alt): alt
             case .footnote(let id): "[\(id)]"
             }
@@ -268,14 +329,14 @@ private struct NativeMathView: UIViewRepresentable {
     func makeUIView(context: Context) -> MTMathUILabel {
         let view = MTMathUILabel()
         view.labelMode = display ? .display : .text
-        view.fontSize = compact ? 13 : 14
+        view.fontSize = compact ? 13 : CGFloat(NativeChatPreferences.shared.fontSize(for: .text))
         view.latex = latex
         view.displayErrorInline = false
         return view
     }
 
     func updateUIView(_ view: MTMathUILabel, context: Context) {
-        view.fontSize = compact ? 13 : 14
+        view.fontSize = compact ? 13 : CGFloat(NativeChatPreferences.shared.fontSize(for: .text))
         view.labelMode = display ? .display : .text
         view.latex = latex
         view.textColor = UIColor(NativeChatTheme.primary)

@@ -60,7 +60,7 @@ struct RunStatusDot: View {
     private var label: String {
         if needsModelConfiguration { return "待配置模型服务" }
         if parked { return "后台暂停" }
-        return started ? "运行中" : "未启动"
+        return started ? "运行中" : ""
     }
 
     var body: some View {
@@ -68,12 +68,14 @@ struct RunStatusDot: View {
             Circle()
                 .fill(color)
                 .frame(width: NativeHeaderStyle.statusDot, height: NativeHeaderStyle.statusDot)
-            Text(label)
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
+            if !label.isEmpty {
+                Text(label)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(label)
+        .accessibilityLabel(label.isEmpty ? "运行状态" : label)
         .padding(.trailing, 4)
     }
 }
@@ -91,6 +93,7 @@ struct NativeShell: View {
     @State private var drawerOpen = false
     @State private var sidebarCollapsed = false
     @State private var dragOffset: CGFloat = 0
+    @State private var preferences = NativeChatPreferences.shared
     private let drawerWidth: CGFloat = 320
     #if DEBUG
     @State private var preview = PreviewScreen.requested
@@ -162,7 +165,9 @@ struct NativeShell: View {
             }
             .ignoresSafeArea()
             // 菜单盖着状态栏那一条,那上面的字必须深色;只有抽屉开着时把外观压成浅色。
-            .preferredColorScheme(sidebarVisible || modalDrawerVisible ? .light : nil)
+            .preferredColorScheme(preferences.appearance == .system
+                                 ? (sidebarVisible || modalDrawerVisible ? .light : nil)
+                                 : preferences.appearance.colorScheme)
             .onChange(of: usesSidebar) { _, _ in
                 drawerOpen = false
                 dragOffset = 0
@@ -282,8 +287,8 @@ struct SessionsDrawerPanel: View {
     }
 }
 
-/// Sessions, scheduled tasks, work folders — and settings as its last row, so
-/// the drawer is the only map of the app.
+/// Sessions, scheduled tasks — and settings as its last row, so the drawer is
+/// the only map of the app.
 struct SessionsDrawer: View {
     @Binding var isOpen: Bool
     var topInset: CGFloat = 0
@@ -291,25 +296,11 @@ struct SessionsDrawer: View {
     var isPersistent = false
     @State private var showSettings = false
     @State private var showSchedules = false
-    @State private var showFolders = false
     @State private var management = DSHManagementModel.shared
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // One 44pt row, not a large title plus a toolbar: the drawer
-                // covers the screen, so closing must be visible, and a second
-                // control in this row would make the title ambiguous.
-                HStack(spacing: 0) {
-                    Text("会话")
-                        .font(.system(size: 17, weight: .semibold))
-                    Spacer()
-                }
-                .padding(.leading, NativeHeaderStyle.horizontalInset)
-                .frame(height: NativeHeaderStyle.barHeight)
-                // 面板贴屏幕顶;NavigationStack 自己已经让开安全区,这里只补设计的 16。
-                .padding(.top, 16)
-
                 SessionsPage(onSelect: {
                     if !isPersistent { isOpen = false }
                 })
@@ -317,14 +308,11 @@ struct SessionsDrawer: View {
 
                 Divider()
 
-                // The three global entries sit together at the bottom, out of
+                // The two global entries sit together at the bottom, out of
                 // the session list, so they read as the app's furniture.
                 VStack(spacing: 0) {
                     DrawerRow(title: "定时任务", systemImage: "clock.arrow.circlepath", badge: management.scheduleRecords.isEmpty ? nil : "\(management.scheduleRecords.count)") {
                         showSchedules = true
-                    }
-                    DrawerRow(title: "工作文件夹", systemImage: "folder", badge: management.workspaces.isEmpty ? nil : "\(management.workspaces.count)") {
-                        showFolders = true
                     }
                     DrawerRow(title: "设置", systemImage: "gearshape") {
                         showSettings = true
@@ -339,13 +327,11 @@ struct SessionsDrawer: View {
                     .presentationDragIndicator(.visible)
             }
             .navigationDestination(isPresented: $showSchedules) { NativeAutomationPage() }
-            .navigationDestination(isPresented: $showFolders) { WorkspaceFoldersPage() }
         }
     }
 }
 
-/// The folder list is its own page: from the drawer it is one row, and each
-/// folder opens the file list for that folder.
+/// The folder list remains a separate page, and each folder opens its files.
 struct WorkspaceFoldersPage: View {
     @State private var management = DSHManagementModel.shared
     @State private var showingNewWorkspace = false
@@ -763,6 +749,7 @@ enum PreviewScreen: String, Identifiable, CaseIterable {
     case settingsSearch = "settings.search"
     case settingsNetwork = "settings.network"
     case settingsPlugins = "settings.plugins"
+    case settingsPermissions = "settings.permissions"
     case settingsAbout = "settings.about"
     case settingsRuntime = "settings.runtime"
     case sessions
@@ -805,6 +792,7 @@ enum PreviewScreen: String, Identifiable, CaseIterable {
         case .settingsSearch: WebSearchSettingsPage()
         case .settingsNetwork: EgressAllowListPage()
         case .settingsPlugins: NativeConfigurationPage()
+        case .settingsPermissions: PhonePermissionsPage(preview: true)
         case .settingsAbout: SettingsAboutPage()
         case .settingsRuntime: RuntimeDetailsPage(model: ChatModel.shared)
         case .sessions: SessionsPage(onSelect: {})
@@ -861,7 +849,7 @@ enum PreviewScreen: String, Identifiable, CaseIterable {
     }
 }
 
-/// 抽屉的预览外壳:宽 320、白底、页头一行,里面就是真正的 SessionsPage。
+/// 抽屉的预览外壳:宽 320、白底,里面就是真正的 SessionsPage。
 /// 只给验收用,数据由 `installPreviewData` 造假,不碰宿主。
 struct DrawerPreview: View {
     let sessionCount: Int
@@ -871,14 +859,6 @@ struct DrawerPreview: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                Text("会话").font(.system(size: 17, weight: .semibold))
-                Spacer()
-            }
-            .padding(.leading, 16)
-            .frame(height: 44)
-            .padding(.top, 16)
-
             SessionsPage(onSelect: {})
         }
         .frame(width: 320)
@@ -933,6 +913,11 @@ enum PreviewChatItems {
         user.turn = 1
         user.timestamp = now.addingTimeInterval(-180)
         rows.append(user)
+        var context = ChatItem(id: "official-context", kind: .context,
+                               title: "DSH context · agent-instructions",
+                               text: "PDSH_CONTEXT_INJECTION_MUST_NOT_APPEAR")
+        context.turn = 1
+        rows.append(context)
         var thinking = ChatItem(id: "official-thinking", kind: .reasoning, title: "思考",
                                 text: "先对照官方事件结构。\n需要保留 thinking、工具和 Markdown 的原始顺序。\n\n再检查输入区和统计。")
         thinking.turn = 1

@@ -4,36 +4,48 @@
 import SwiftUI
 import UIKit
 
-/// One Chinese relative time for session rows: 刚刚 / n 分钟前 / n 小时前, and a
-/// plain date once it is older than a day.
+/// Relative time for session rows, followed by a plain date once it is older than a day.
 enum SessionTime {
-    private static let minutes: DateFormatter = {
+    private static let chineseDate: DateFormatter = {
         let f = DateFormatter()
         f.locale = Locale(identifier: "zh_Hans")
         f.dateFormat = "M月d日"
         return f
     }()
+    private static let englishDate: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US")
+        f.dateFormat = "MMM d"
+        return f
+    }()
 
     static func relative(_ date: Date, now: Date = Date()) -> String {
         let seconds = now.timeIntervalSince(date)
-        if seconds < 60 { return "刚刚" }
-        if seconds < 3_600 { return "\(Int(seconds / 60)) 分钟前" }
-        if seconds < 86_400 { return "\(Int(seconds / 3_600)) 小时前" }
-        return minutes.string(from: date)
+        if seconds < 60 { return NativeText("刚刚", "Just now") }
+        if seconds < 3_600 {
+            return String(format: NativeText("%d 分钟前", "%d min ago"), Int(seconds / 60))
+        }
+        if seconds < 86_400 {
+            return String(format: NativeText("%d 小时前", "%d hr ago"), Int(seconds / 3_600))
+        }
+        let format = NativeText("M月d日", "MMM d")
+        return (format == "M月d日" ? chineseDate : englishDate).string(from: date)
     }
 }
 
 
-/// 宿主给的默认标题(new conversation / workspace)不上屏:名字翻不出就用我们自己的说法,
-/// 撞名的时候从第二个起带序号。
+/// Host-provided default titles are replaced with localized names, with a
+/// sequence number from the second duplicate onward.
 enum DrawerTitles {
-    private static let defaultSessions: Set<String> = ["new conversation", "新会话", "conversation", "untitled"]
-    private static let defaultWorkspaces: Set<String> = ["workspace", "工作区", "工作文件夹", "default"]
+    private static let defaultSessions: Set<String> = ["new conversation", "new session", "新会话", "conversation", "untitled"]
+    private static let defaultWorkspaces: Set<String> = ["workspace", "workspace folder", "工作区", "工作文件夹", "default"]
 
     static func sessionTitle(_ raw: String, index: Int) -> String {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty || defaultSessions.contains(trimmed.lowercased()) {
-            return index > 1 ? "新会话 \(index)" : "新会话"
+            return index > 1
+                ? String(format: NativeText("新会话 %d", "New Session %d"), index)
+                : NativeText("新会话", "New Session")
         }
         return trimmed
     }
@@ -41,9 +53,11 @@ enum DrawerTitles {
     static func workspaceTitle(_ raw: String, index: Int) -> String {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty || defaultWorkspaces.contains(trimmed.lowercased()) {
-            return index > 1 ? "工作文件夹 \(index)" : "工作文件夹"
+            return index > 1
+                ? String(format: NativeText("工作文件夹 %d", "Workspace Folder %d"), index)
+                : NativeText("工作文件夹", "Workspace Folder")
         }
-        return lastSegmentName(trimmed, fallback: "未命名文件夹")
+        return lastSegmentName(trimmed, fallback: NativeText("未命名文件夹", "Unnamed Folder"))
     }
 
     /// 宿主只给路径时,只取最后一段当名字:半截路径比不显示更糟。
@@ -141,7 +155,7 @@ struct SessionsPage: View {
                         HStack(spacing: 8) {
                             Image(systemName: "plus")
                                 .font(.system(size: 20, weight: .regular))
-                            Text("新建会话").font(.system(size: 17))
+                            Text(NativeText("新建会话", "New Session")).font(.system(size: 17))
                             Spacer(minLength: 0)
                         }
                         .foregroundStyle(newSessionBlocked == nil
@@ -180,7 +194,7 @@ struct SessionsPage: View {
                                 .foregroundStyle(ChatPage.danger)
                                 .lineLimit(2)
                             Spacer(minLength: 8)
-                            Button("重试") {
+                            Button(NativeText("重试", "Retry")) {
                                 Task {
                                     chat.clearError()
                                     await management.refresh()
@@ -204,17 +218,17 @@ struct SessionsPage: View {
                         // 只是没有文件夹、但还有不归属文件夹的会话时,一个字都不出。
                         VStack(alignment: .center, spacing: 0) {
                             // 空态:文字落在这一栏的中线上;按钮仍是满宽,和列表同宽。
-                            Text("还没有工作文件夹")
+                            Text(NativeText("还没有工作文件夹", "No Workspace Folders Yet"))
                                 .font(.system(size: 17, weight: .semibold))
                                 .foregroundStyle(SessionsPage.dark)
                                 .multilineTextAlignment(.center)
-                            Text("选一个文件夹,会话和文件都放在里面。")
+                            Text(NativeText("选一个文件夹,会话和文件都放在里面。", "Choose a folder to keep sessions and files together."))
                                 .font(.system(size: 13))
                                 .foregroundStyle(SessionsPage.ink)
                                 .multilineTextAlignment(.center)
                                 .padding(.top, 8)
                             Button { showingNewWorkspace = true } label: {
-                                Text("新建工作文件夹")
+                                Text(NativeText("新建工作文件夹", "New Workspace Folder"))
                                     .font(.system(size: 17, weight: .semibold))
                                     .foregroundStyle(.white)
                                     .frame(maxWidth: .infinity)
@@ -241,10 +255,10 @@ struct SessionsPage: View {
                         if isWorkspaceExpanded(workspace.id) {
                             if rows.isEmpty {
                                 VStack(alignment: .leading, spacing: 8) {
-                                    Text("还没有会话")
+                                    Text(NativeText("还没有会话", "No Sessions Yet"))
                                         .font(.system(size: 17, weight: .semibold))
                                         .foregroundStyle(Color(red: 0x11 / 255, green: 0x11 / 255, blue: 0x14 / 255))
-                                    Text("点上面的「新建会话」开始。")
+                                    Text(NativeText("点上面的「新建会话」开始。", "Tap New Session above to get started."))
                                         .font(.system(size: 13))
                                         .foregroundStyle(Color(red: 0x66 / 255, green: 0x66 / 255, blue: 0x6B / 255))
                                 }
@@ -266,7 +280,7 @@ struct SessionsPage: View {
                             HStack(spacing: 8) {
                                 Image(systemName: "plus")
                                     .font(.system(size: 16, weight: .medium))
-                                Text("添加工作文件夹")
+                                Text(NativeText("添加工作文件夹", "Add Workspace Folder"))
                                     .font(.system(size: 17))
                                 Spacer(minLength: 8)
                             }
@@ -288,8 +302,8 @@ struct SessionsPage: View {
                             EmptyView()
                         } else if management.archivedSessions.isEmpty {
                             VStack(alignment: .leading, spacing: 4) {
-                                Text("没有已归档的会话").font(.body)
-                                Text("归档的会话会留在这里，随时可以恢复。")
+                                Text(NativeText("没有已归档的会话", "No Archived Sessions")).font(.body)
+                                Text(NativeText("归档的会话会留在这里，随时可以恢复。", "Archived sessions stay here and can be restored at any time."))
                                     .font(.footnote)
                                     .foregroundStyle(.secondary)
                             }
@@ -304,7 +318,7 @@ struct SessionsPage: View {
                             HStack(spacing: 6) {
                                 Image(systemName: showArchived ? "chevron.down" : "chevron.right")
                                     .font(.system(size: 11, weight: .semibold))
-                                Text("已归档")
+                                Text(NativeText("已归档", "Archived"))
                                 Spacer()
                                 Text("\(management.archivedSessions.count)")
                                     .font(.system(size: 13))
@@ -318,11 +332,11 @@ struct SessionsPage: View {
 
             }
             .listStyle(.plain)
-        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索会话")
+        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: NativeText("搜索会话", "Search sessions"))
             // 归档完那句提示:浮在列表上,不占布局(插一行会让下面的会话整体跳一下),两秒自己消失。
             .overlay(alignment: .top) {
                 if archivedToast {
-                    Text("已归档,在「已归档」里能找回来")
+                    Text(NativeText("已归档,在「已归档」里能找回来", "Archived. You can restore it from Archived."))
                         .font(.system(size: 13))
                         .foregroundStyle(SessionsPage.ink)
                         .padding(.horizontal, 12)
@@ -353,22 +367,22 @@ struct SessionsPage: View {
             // 用 alert 不用 confirmationDialog:后者在这个机型上渲染成只有一个「删除」的弹层,
             // 「取消」不出现,用户只剩删和点外面两条路。alert 两个按钮都在,一眼能看清。
             .alert(
-                deleteWorkspaceTarget.map { "删除「\(displayWorkspaceTitle($0))」?" } ?? "",
+                deleteWorkspaceTarget.map { String(format: NativeText("删除「%@」?", "Delete “%@”?"), displayWorkspaceTitle($0)) } ?? "",
                 isPresented: Binding(get: { deleteWorkspaceTarget != nil },
                                      set: { if !$0 { deleteWorkspaceTarget = nil } }),
                 presenting: deleteWorkspaceTarget) { workspace in
-                    Button("取消", role: .cancel) { deleteWorkspaceTarget = nil }
-                    Button("删除", role: .destructive) {
+                    Button(NativeText("取消", "Cancel"), role: .cancel) { deleteWorkspaceTarget = nil }
+                    Button(NativeText("删除", "Delete"), role: .destructive) {
                         Task { await management.deleteWorkspace(workspace); deleteWorkspaceTarget = nil }
                     }
                 } message: { _ in
-                    Text("里面的会话会留着,只是不再放在这个文件夹里。")
+                    Text(NativeText("里面的会话会留着,只是不再放在这个文件夹里。", "Its sessions are kept, but will no longer be in this folder."))
                 }
-            .alert("新建工作文件夹", isPresented: $showingNewWorkspace) {
-                TextField("名字", text: $newWorkspaceName)
+            .alert(NativeText("新建工作文件夹", "New Workspace Folder"), isPresented: $showingNewWorkspace) {
+                TextField(NativeText("名字", "Name"), text: $newWorkspaceName)
                     .textInputAutocapitalization(.never).autocorrectionDisabled()
-                Button("取消", role: .cancel) { newWorkspaceName = "" }
-                Button("创建") {
+                Button(NativeText("取消", "Cancel"), role: .cancel) { newWorkspaceName = "" }
+                Button(NativeText("创建", "Create")) {
                     let name = newWorkspaceName
                     newWorkspaceName = ""
                     Task { _ = await management.createWorkspaceFolder(named: name) }
@@ -376,33 +390,33 @@ struct SessionsPage: View {
             } message: {
                 // A picked host folder cannot be registered (the Worker stats
                 // the VFS); this creates the folder there first.
-                Text("会在 DSH 工作区里新建同名文件夹并登记为工作文件夹。")
+                Text(NativeText("会在 DSH 工作区里新建同名文件夹并登记为工作文件夹。", "Creates a folder with this name in the DSH workspace and adds it as a workspace folder."))
             }
-            .alert("添加工作区", isPresented: $showingAddWorkspace) {
-                TextField("DSH Worker 中已存在的绝对路径", text: $workspacePath)
+            .alert(NativeText("添加工作区", "Add Workspace"), isPresented: $showingAddWorkspace) {
+                TextField(NativeText("DSH Worker 中已存在的绝对路径", "Absolute path already present in DSH Worker"), text: $workspacePath)
                     .textInputAutocapitalization(.never).autocorrectionDisabled()
-                Button("取消", role: .cancel) { workspacePath = "" }
-                Button("添加") {
+                Button(NativeText("取消", "Cancel"), role: .cancel) { workspacePath = "" }
+                Button(NativeText("添加", "Add")) {
                     let path = workspacePath.trimmingCharacters(in: .whitespacesAndNewlines)
                     Task { _ = await management.createWorkspace(at: path); workspacePath = "" }
                 }
             } message: {
-                Text("选中的文件夹要在手机上已经存在。这里只是把它记下来,不会复制或移动里面的文件。")
+                Text(NativeText("选中的文件夹要在手机上已经存在。这里只是把它记下来,不会复制或移动里面的文件。", "The selected folder must already exist on this phone. This only registers it; no files are copied or moved."))
             }
-            .alert("重命名会话", isPresented: Binding(
+            .alert(NativeText("重命名会话", "Rename Session"), isPresented: Binding(
                 get: { renameSessionTarget != nil }, set: { if !$0 { renameSessionTarget = nil } })) {
-                    TextField("会话标题", text: $renameText)
-                    Button("取消", role: .cancel) { renameSessionTarget = nil }
-                    Button("保存") {
+                    TextField(NativeText("会话标题", "Session title"), text: $renameText)
+                    Button(NativeText("取消", "Cancel"), role: .cancel) { renameSessionTarget = nil }
+                    Button(NativeText("保存", "Save")) {
                         guard let session = renameSessionTarget else { return }
                         Task { await management.rename(session, to: renameText); renameSessionTarget = nil }
                     }
                 }
-            .alert("重命名工作文件夹", isPresented: Binding(
+            .alert(NativeText("重命名工作文件夹", "Rename Workspace Folder"), isPresented: Binding(
                 get: { renameWorkspaceTarget != nil }, set: { if !$0 { renameWorkspaceTarget = nil } })) {
-                    TextField("工作文件夹名称", text: $renameText)
-                    Button("取消", role: .cancel) { renameWorkspaceTarget = nil }
-                    Button("保存") {
+                    TextField(NativeText("工作文件夹名称", "Workspace folder name"), text: $renameText)
+                    Button(NativeText("取消", "Cancel"), role: .cancel) { renameWorkspaceTarget = nil }
+                    Button(NativeText("保存", "Save")) {
                         guard let workspace = renameWorkspaceTarget else { return }
                         Task { await management.renameWorkspace(workspace, to: renameText); renameWorkspaceTarget = nil }
                     }
@@ -426,7 +440,7 @@ struct SessionsPage: View {
                         .lineLimit(1)
                         .padding(.leading, 7)
                     if count > 0 {
-                        Text("· \(count) 个会话")
+                        Text(String(format: NativeText("· %d 个会话", "· %d sessions"), count))
                             .font(.system(size: 13))
                             .foregroundStyle(Color(red: 0x66 / 255, green: 0x66 / 255, blue: 0x6B / 255))
                             .padding(.leading, 6)
@@ -437,14 +451,14 @@ struct SessionsPage: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("\(displayWorkspaceTitle(workspace))，\(count) 个会话")
-            .accessibilityHint(isWorkspaceExpanded(workspace.id) ? "收起工作文件夹的会话" : "展开工作文件夹的会话")
+            .accessibilityLabel(String(format: NativeText("%@，%d 个会话", "%@, %d sessions"), displayWorkspaceTitle(workspace), count))
+            .accessibilityHint(isWorkspaceExpanded(workspace.id) ? NativeText("收起工作文件夹的会话", "Collapse sessions in workspace folder") : NativeText("展开工作文件夹的会话", "Expand sessions in workspace folder"))
 
             Menu {
-                Button("在这里新建会话") { createSession(in: workspace) }
-                Button("重命名") { renameWorkspaceTarget = workspace; renameText = workspace.title }
+                Button(NativeText("在这里新建会话", "New Session Here")) { createSession(in: workspace) }
+                Button(NativeText("重命名", "Rename")) { renameWorkspaceTarget = workspace; renameText = workspace.title }
                 // 只删文件夹这个分组,里面的会话留着,落回不归属文件夹那一段。
-                Button("删除工作文件夹", role: .destructive) { deleteWorkspaceTarget = workspace }
+                Button(NativeText("删除工作文件夹", "Delete Workspace Folder"), role: .destructive) { deleteWorkspaceTarget = workspace }
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 20))
@@ -452,7 +466,7 @@ struct SessionsPage: View {
                     .frame(width: 32, height: 44)
                     .contentShape(Rectangle())
             }
-            .accessibilityLabel("\(displayWorkspaceTitle(workspace)) 的选项")
+            .accessibilityLabel(String(format: NativeText("%@ 的选项", "Options for %@"), displayWorkspaceTitle(workspace)))
         }
         .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
         .listRowSeparator(.hidden)
@@ -468,25 +482,25 @@ struct SessionsPage: View {
                     Text(displayWorkspaceTitle(workspace)).font(.subheadline.weight(.semibold))
                     if count > 0 {
                         Text("·").font(.caption).foregroundStyle(.tertiary)
-                        Text("\(count) 个会话").font(.system(size: 13)).foregroundStyle(.secondary)
+                        Text(String(format: NativeText("%d 个会话", "%d sessions"), count)).font(.system(size: 13)).foregroundStyle(.secondary)
                     }
                 }
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("\(displayWorkspaceTitle(workspace))，\(count) 个会话")
-            .accessibilityHint(isWorkspaceExpanded(workspace.id) ? "收起工作文件夹的会话" : "展开工作文件夹的会话")
+            .accessibilityLabel(String(format: NativeText("%@，%d 个会话", "%@, %d sessions"), displayWorkspaceTitle(workspace), count))
+            .accessibilityHint(isWorkspaceExpanded(workspace.id) ? NativeText("收起工作文件夹的会话", "Collapse sessions in workspace folder") : NativeText("展开工作文件夹的会话", "Expand sessions in workspace folder"))
             Spacer()
             Menu {
-                Button("在这里新建会话") { createSession(in: workspace) }
-                Button("重命名工作文件夹") { renameWorkspaceTarget = workspace; renameText = workspace.title }
-                Button("复制路径") { UIPasteboard.general.string = workspace.path }
+                Button(NativeText("在这里新建会话", "New Session Here")) { createSession(in: workspace) }
+                Button(NativeText("重命名工作文件夹", "Rename Workspace Folder")) { renameWorkspaceTarget = workspace; renameText = workspace.title }
+                Button(NativeText("复制路径", "Copy Path")) { UIPasteboard.general.string = workspace.path }
             } label: {
                 Image(systemName: "ellipsis.circle")
                     .frame(width: 32, height: 30)
                     .contentShape(Rectangle())
             }
-            .accessibilityLabel("\(displayWorkspaceTitle(workspace)) 的选项")
+            .accessibilityLabel(String(format: NativeText("%@ 的选项", "Options for %@"), displayWorkspaceTitle(workspace)))
         }
         .textCase(nil)
     }
@@ -503,8 +517,8 @@ struct SessionsPage: View {
 
     /// 新建会话这一行为什么按不动,一句话说清;能按就是 nil。
     private var newSessionBlocked: String? {
-        if !chat.isStarted { return "先启动本地引擎,才能新建会话。" }
-        if chat.busy || chat.turnRunning || chat.keepingAlive { return "这一轮跑完就能新建" }
+        if !chat.isStarted { return NativeText("先启动本地引擎,才能新建会话。", "Start the local engine before creating a session.") }
+        if chat.busy || chat.turnRunning || chat.keepingAlive { return NativeText("这一轮跑完就能新建", "You can create a session when this turn finishes") }
         return nil
     }
 
@@ -557,7 +571,7 @@ struct SessionsPage: View {
                                 Circle()
                                     .fill(SessionsPage.runningInk)
                                     .frame(width: 6, height: 6)
-                                Text("运行中")
+                                Text(NativeText("运行中", "Running"))
                             }
                             .foregroundStyle(SessionsPage.runningInk)
                         }
@@ -580,9 +594,9 @@ struct SessionsPage: View {
         .buttonStyle(SessionRowButtonStyle())
         .accessibilityIdentifier("session-\(session.id)")
         .contextMenu {
-            Button("重命名会话") { renameSessionTarget = session; renameText = session.title }
+            Button(NativeText("重命名会话", "Rename Session")) { renameSessionTarget = session; renameText = session.title }
             // 引擎只有归档,没有删除(用户已在卡上选了这条):能恢复的动作不写成红字,也不弹确认窗。
-            Button("归档会话") { archiveSession(session) }
+            Button(NativeText("归档会话", "Archive Session")) { archiveSession(session) }
         }
         .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
         .listRowSeparator(.hidden)
@@ -601,7 +615,7 @@ struct SessionsPage: View {
                 Text(SessionTime.relative(session.updatedAt)).font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
-            Button("恢复") { Task { await management.unarchive(session) } }
+            Button(NativeText("恢复", "Restore")) { Task { await management.unarchive(session) } }
                 .buttonStyle(.bordered).controlSize(.small)
         }
     }
@@ -658,34 +672,34 @@ private struct SessionQueuePage: View {
     var body: some View {
         List {
             if management.queueSessionID != session.id {
-                Section { ProgressView("正在读取队列…") }
+                Section { ProgressView(NativeText("正在读取队列…", "Loading queue…")) }
             } else if management.queueItems.isEmpty {
-                ContentUnavailableView("没有在排队的消息", systemImage: "tray",
-                                       description: Text("发消息时选「排到下一轮」，它就会等在这里。"))
+                ContentUnavailableView(NativeText("没有在排队的消息", "No Queued Messages"), systemImage: "tray",
+                                       description: Text(NativeText("发消息时选「排到下一轮」，它就会等在这里。", "Choose Queue for Next Turn when sending a message and it will wait here.")))
             } else {
                 ForEach(management.queueItems) { item in
-                    Section(item.lane == "next-turn" ? "下一轮" : "当前步骤") {
-                        Text(item.text.isEmpty ? "（没有文本内容）" : item.text)
+                    Section(item.lane == "next-turn" ? NativeText("下一轮", "Next Turn") : NativeText("当前步骤", "Current Step")) {
+                        Text(item.text.isEmpty ? NativeText("（没有文本内容）", "(No text content)") : item.text)
                             .font(.body).textSelection(.enabled)
                         HStack {
-                            Button("编辑") { editingItem = item; replacement = item.text }
+                            Button(NativeText("编辑", "Edit")) { editingItem = item; replacement = item.text }
                             Spacer()
-                            Button("设为当前引导") { Task { await management.updateQueue(item, action: "steer") } }
+                            Button(NativeText("设为当前引导", "Steer Current Turn")) { Task { await management.updateQueue(item, action: "steer") } }
                             Spacer()
-                            Button("移除", role: .destructive) { Task { await management.updateQueue(item, action: "remove") } }
+                            Button(NativeText("移除", "Remove"), role: .destructive) { Task { await management.updateQueue(item, action: "remove") } }
                         }
                         .buttonStyle(.borderless)
                     }
                 }
             }
             if let error = management.error {
-                Section("错误") { Text(error).font(.footnote).foregroundStyle(.red).textSelection(.enabled) }
+                Section(NativeText("错误", "Error")) { Text(error).font(.footnote).foregroundStyle(.red).textSelection(.enabled) }
             }
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(Color.white)
-        .navigationTitle("待处理队列")
+        .navigationTitle(NativeText("待处理队列", "Pending Queue"))
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await management.refreshQueue(for: session.id) }
         .task { await management.refreshQueue(for: session.id) }
@@ -693,11 +707,11 @@ private struct SessionQueuePage: View {
             NavigationStack {
                 TextEditor(text: $replacement)
                     .padding()
-                    .navigationTitle("编辑队列消息")
+                    .navigationTitle(NativeText("编辑队列消息", "Edit Queued Message"))
                     .toolbar {
-                        ToolbarItem(placement: .cancellationAction) { Button("取消") { editingItem = nil }.leadingBarText() }
+                        ToolbarItem(placement: .cancellationAction) { Button(NativeText("取消", "Cancel")) { editingItem = nil }.leadingBarText() }
                         ToolbarItem(placement: .confirmationAction) {
-                            Button("保存") {
+                            Button(NativeText("保存", "Save")) {
                                 Task { await management.updateQueue(item, action: "edit", replacement: replacement); editingItem = nil }
                             }
                         }

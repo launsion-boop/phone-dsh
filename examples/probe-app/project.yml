@@ -198,6 +198,7 @@ targets:
       - path: PhoneDSHProbe/NativeChatFormatting.swift
       - path: PhoneDSHProbe/NativeDiffModel.swift
       - path: PhoneDSHProbe/NativeChatTheme.swift
+      - path: PhoneDSHProbe/NativeChatPreferences.swift
       # The scripted model upstream, the smoke evidence readers (WAL
       # replay/journal/step formats) and the kill-matrix support ship as the
       # regular SwiftPM target `PhoneDSHHarness`; this target links its
@@ -271,12 +272,18 @@ targets:
     platform: iOS
     sources:
       - path: PhoneDSHSimTests
-      # Keep the device twin at parity with PhoneDSHSimTests: the shared
-      # native MCP settings model has no SwiftUI/UIKit dependency and is also
-      # part of the app target. Without this the device test scheme does not
-      # compile.
+      # Keep the device twin at parity with PhoneDSHSimTests: each shared
+      # production presentation source is compiled into this test module too.
       - path: PhoneDSHProbe/MCPSettingsModel.swift
       - path: PhoneDSHProbe/DailyBriefModel.swift
+      - path: PhoneDSHProbe/NativeConversationModels.swift
+      - path: PhoneDSHProbe/NativeTranscriptProjector.swift
+      - path: PhoneDSHProbe/NativeToolCallModel.swift
+      - path: PhoneDSHProbe/NativeMarkdownModel.swift
+      - path: PhoneDSHProbe/NativeChatFormatting.swift
+      - path: PhoneDSHProbe/NativeDiffModel.swift
+      - path: PhoneDSHProbe/NativeChatTheme.swift
+      - path: PhoneDSHProbe/NativeChatPreferences.swift
     dependencies:
       - target: PhoneDSHProbe
       - target: ProbeKit

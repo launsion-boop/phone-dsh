@@ -56,7 +56,8 @@ struct NativeDisclosureRow<Content: View>: View {
 
 struct NativeThinkingRow: View {
     let item: ChatItem
-    @State private var expanded = false
+    @State private var expanded = NativeChatPreferences.shared.transcriptView == .verbose
+    @State private var preferences = NativeChatPreferences.shared
 
     private var summary: String {
         let raw = item.streaming ? Self.streamingSummary(item.text) : (item.text.components(separatedBy: "\n").first ?? "")
@@ -80,6 +81,15 @@ struct NativeThinkingRow: View {
             NativeMarkdownBody(markdown: item.text.isEmpty ? "…" : item.text, variant: .compact)
                 .padding(.leading, 22)
                 .padding(.vertical, 4)
+        }
+        .onChange(of: item.streaming) { _, streaming in
+            if !streaming && preferences.collapseTiming == .completion
+                && preferences.transcriptView != .verbose { expanded = false }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .nativeChatNewInput)) { _ in
+            if preferences.collapseTiming == .nextInput && preferences.transcriptView != .verbose {
+                expanded = false
+            }
         }
     }
 }

@@ -28,7 +28,8 @@ struct ChatPage: View {
     #endif
     @State private var previousSessionKey = ""
     @AppStorage("chat.drafts.v1") private var savedDrafts = "{}"
-    @AppStorage("phone-dsh.composer.busyEnter") private var busyEnterMode = "queue"
+    @State private var preferences = NativeChatPreferences.shared
+    private var busyEnterMode: String { preferences.busyEnterMode }
     @FocusState private var inputFocused: Bool
     @State private var pendingAttachments: [HarnessAttachment] = []
     @State private var showAttachmentPicker = false
@@ -43,12 +44,14 @@ struct ChatPage: View {
     @State private var showWorkbench = false
     @State private var initialWorkbenchPath: String?
     @State private var showSettings = false
+    @State private var showShortcuts = false
     @State private var showProviderSettings = false
     /// A path whose bytes had not arrived yet; the next file refresh retries it.
     @State private var pendingPreviewPath: String?
     @State private var showSessionList = false
     @State private var debugSheet: String?
     @State private var showConfiguration = false
+    @State private var showArtifacts = false
     @State private var showActivity = false
     @State private var showRuntimeDetails = false
     @State private var showSessionSettings = false
@@ -102,9 +105,11 @@ struct ChatPage: View {
     }
     private var visibleItems: [ChatItem] {
         #if DEBUG
-        if let previewItems { return previewItems }
+        if let previewItems {
+            return previewItems.filter { $0.kind != .status && $0.kind != .context }
+        }
         #endif
-        return model.items.filter { $0.kind != .status }
+        return model.items.filter { $0.kind != .status && $0.kind != .context }
     }
     private var transcriptScrollSignature: String {
         "\(visibleItems.map(\.id).joined(separator: ","))|\(visibleItems.last?.text ?? "")"
@@ -125,17 +130,20 @@ struct ChatPage: View {
             .padding(.horizontal, providerNeedsKey ? 144 : 104)
 
             HStack(spacing: 0) {
-                Button {
-                    inputFocused = false
-                    openDrawer?()
-                } label: {
-                    Image(systemName: "sidebar.left")
-                        .font(.system(size: 20, weight: .regular))
-                        .frame(width: 32, height: 44)
-                        .contentShape(Rectangle())
+                HStack(spacing: 4) {
+                    Button {
+                        inputFocused = false
+                        openDrawer?()
+                    } label: {
+                        Image(systemName: "sidebar.left")
+                            .font(.system(size: 20, weight: .regular))
+                            .frame(width: 32, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(drawerExpanded ? "隐藏会话列表" : "打开会话列表")
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(drawerExpanded ? "隐藏会话列表" : "打开会话列表")
+                .fixedSize(horizontal: true, vertical: false)
 
                 Spacer(minLength: 0)
 
@@ -151,13 +159,15 @@ struct ChatPage: View {
                     .accessibilityLabel("运行状态")
                     .accessibilityValue(providerNeedsKey ? "待配置模型服务" : model.displayStatus)
                     Menu {
+                        Button("产物", systemImage: "doc") { showArtifacts = true }
+                            .disabled(model.currentSessionID == nil)
+                        Button("子 Agent 与后台活动", systemImage: "person.2") { showActivity = true }
+                            .disabled(model.currentSessionID == nil)
                         ShareLink(item: historyExport,
                                   subject: Text("对话记录"),
                                   preview: SharePreview("对话记录")) {
                             Label("导出对话记录", systemImage: "square.and.arrow.up")
                         }
-                        Button("子 Agent 与后台活动", systemImage: "person.2") { showActivity = true }
-                            .disabled(model.currentSessionID == nil)
                         Button("本会话设置", systemImage: "slider.horizontal.3") { showSessionSettings = true }
                     } label: {
                         Image(systemName: "ellipsis")
@@ -202,7 +212,35 @@ struct ChatPage: View {
         // whole stack (including the title row) up under the status bar on
         // newer iOS versions.
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            composer
+            VStack(spacing: 0) {
+                if model.hostNeedsRecovery {
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(NativeText("引擎需要恢复", "Engine recovery needed"))
+                                .font(.system(size: 13, weight: .semibold))
+                            Text(NativeText("保留当前工作区和会话", "Keep this workspace and its sessions"))
+                                .font(.system(size: 11))
+                                .foregroundStyle(Self.inkSecondary)
+                        }
+                        Spacer(minLength: 0)
+                        Button {
+                            Task { await model.recoverFailedHost() }
+                        } label: {
+                            Text(model.canRecoverFailedHost
+                                 ? NativeText("恢复引擎", "Recover engine")
+                                 : NativeText("正在恢复…", "Recovering…"))
+                                .font(.system(size: 13, weight: .semibold))
+                        }
+                        .disabled(!model.canRecoverFailedHost)
+                        .accessibilityIdentifier("host-recovery-action")
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(Color(.systemBackground))
+                    Divider()
+                }
+                composer
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
             keyboardVisible = true
@@ -293,6 +331,16 @@ struct ChatPage: View {
         }
         // 系统窗里的按钮吃这层的 tint,不写就是黑的,不是我们的蓝。
         .tint(ChatPage.accent)
+        .background { shortcutCommands }
+        .sheet(isPresented: $showShortcuts) {
+            NavigationStack { NativeShortcutsPage() }
+        }
+        .sheet(isPresented: $showArtifacts) {
+            if let sessionID = model.currentSessionID {
+                NavigationStack { SessionArtifactsPage(sessionID: sessionID) }
+                    .presentationDragIndicator(.visible)
+            }
+        }
         .sheet(isPresented: $showActivity) {
             if let sessionID = model.currentSessionID {
                 NavigationStack { SessionActivityPage(sessionID: sessionID) }
@@ -656,8 +704,12 @@ struct ChatPage: View {
                 .font(.system(size: 13))
                 .foregroundStyle(ChatPage.warning)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            if model.failedPrompt != nil {
-                Button("重试") { Task { _ = await model.retryFailedPrompt() } }
+            if model.canRecoverFailedHost {
+                Button(NativeText("恢复引擎", "Recover engine")) { Task { await model.recoverFailedHost() } }
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(ChatPage.accent)
+            } else if model.failedPrompt != nil {
+                Button(NativeText("重试", "Retry")) { Task { _ = await model.retryFailedPrompt() } }
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(ChatPage.accent)
             }
@@ -809,10 +861,9 @@ struct ChatPage: View {
                         .frame(height: 1)
                         .id("transcript-tail")
                     }
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, NativeChatTheme.messageContentMargin)
                     .padding(.top, 22)
-                    // Room for the "回到最新" pill (28pt tall) so it never sits
-                    // on top of the last rows.
+                    // Room for the 36pt "回到最新" circle and its 44pt hit area.
                     .padding(.bottom, 48)
                     .background(
                         GeometryReader { content in
@@ -891,17 +942,15 @@ struct ChatPage: View {
         .overlay(alignment: .bottom) {
             if userScrolledAway && !visibleItems.isEmpty {
                 Button { scrollToLatestTrigger += 1 } label: {
-                    Label("回到最新", systemImage: "arrow.down")
-                        .font(.caption.weight(.semibold))
+                    NativeChatIcon(name: .chevronDown, size: 16)
                         .foregroundStyle(Self.accent)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        // Opaque: a translucent capsule let the row underneath
-                        // read through and looked like overlapping text.
-                        .background(Self.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .strokeBorder(Color(uiColor: .separator)))
+                        .frame(width: 36, height: 36)
+                        .background(Self.surface, in: Circle())
+                        .overlay(Circle().strokeBorder(Color(uiColor: .separator)))
+                        .frame(width: 44, height: 44)
+                        .contentShape(Circle())
                 }
+                .accessibilityLabel("回到最新")
                 .padding(.bottom, 12)
             }
         }
@@ -945,12 +994,12 @@ struct ChatPage: View {
 
     /// 新会话空屏。三种状态互斥,同一时刻只渲染一种;三者都在滚动区里,
     /// 不做覆盖层/浮层。
-    /// - A 引擎未启动(优先):`model.isStarted == false`
+    /// - A 引擎未启动或等待用户确认恢复
     /// - B 引擎已启动、模型服务没配好:`providerNeedsKey`
     /// - C 两者都好:居中两行文字
     @ViewBuilder
     private func emptyTimeline(viewportHeight: CGFloat) -> some View {
-        if !model.isStarted {
+        if model.hostNeedsRecovery || !model.isStarted {
             engineNotStartedState
                 .padding(.top, 88)
         } else if providerNeedsKey {
@@ -961,21 +1010,32 @@ struct ChatPage: View {
         }
     }
 
-    /// A:引擎还没启动。整块横向居中,文字左对齐在 338 宽的列里。
+    /// A:引擎还没启动或需要从失败状态显式恢复。
     private var engineNotStartedState: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("引擎还没启动")
+            Text(model.hostNeedsRecovery
+                 ? NativeText("引擎需要恢复", "Engine recovery needed")
+                 : NativeText("引擎还没启动", "Engine not started"))
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(Color(red: 0x11 / 255, green: 0x11 / 255, blue: 0x14 / 255))
-            Text("启动之后就能开始。")
+            Text(model.hostNeedsRecovery
+                 ? NativeText("保留当前工作区和会话，重新启动本地引擎。", "Restart the engine without deleting this workspace or its sessions.")
+                 : NativeText("启动之后就能开始。", "Start the engine to begin."))
                 .font(.system(size: 13))
                 .foregroundStyle(Self.inkSecondary)
                 .padding(.top, 8)
             Button {
                 guard !model.busy else { return }
-                Task { await model.start() }
+                Task {
+                    if model.hostNeedsRecovery { await model.recoverFailedHost() }
+                    else { await model.start() }
+                }
             } label: {
-                Text(model.busy ? "正在启动…" : "启动本地引擎")
+                Text(model.busy
+                     ? NativeText(model.hostNeedsRecovery ? "正在恢复…" : "正在启动…",
+                                  model.hostNeedsRecovery ? "Recovering…" : "Starting…")
+                     : NativeText(model.hostNeedsRecovery ? "恢复引擎" : "启动本地引擎",
+                                  model.hostNeedsRecovery ? "Recover engine" : "Start engine"))
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(width: 338, height: 50)
@@ -1253,12 +1313,31 @@ struct ChatPage: View {
         }
     }
 
+    @ViewBuilder private var shortcutCommands: some View {
+        shortcutButton(.alternate) {
+            submitDraft(overrideBusyMode: busyEnterMode == "queue" ? "steer" : "queue")
+        }
+        shortcutButton(.settings) { showSettings = true }
+        shortcutButton(.shortcuts) { showShortcuts = true }
+        shortcutButton(.latest) { scrollToLatestTrigger += 1 }
+        shortcutButton(.stop) { Task { await model.cancelTurn() } }
+    }
+
+    private func shortcutButton(_ action: NativeShortcutAction,
+                                perform: @escaping () -> Void) -> some View {
+        Button(action: perform) { EmptyView() }
+            .keyboardShortcut(preferences.shortcut(for: action).keyEquivalent,
+                              modifiers: preferences.shortcut(for: action).modifiers)
+            .hidden()
+            .accessibilityHidden(true)
+    }
+
     @ViewBuilder
     private var actionButton: some View {
         if !canSubmit && model.turnRunning {
             stopButton(diameter: 34, icon: 13)
         } else {
-            Button(action: submitDraft) {
+            Button(action: { submitDraft() }) {
                 Image(systemName: "arrow.up")
                     .font(.system(size: 15, weight: .bold))
                     .foregroundStyle(.white)
@@ -1270,6 +1349,8 @@ struct ChatPage: View {
             }
             .buttonStyle(.plain)
             .disabled(!canSubmit)
+            .keyboardShortcut(preferences.shortcut(for: .send).keyEquivalent,
+                              modifiers: preferences.shortcut(for: .send).modifiers)
             .transition(.scale(scale: 0.8).combined(with: .opacity))
             .animation(.easeOut(duration: 0.12), value: canSubmit)
             .accessibilityLabel("发送消息")
@@ -1306,6 +1387,8 @@ struct ChatPage: View {
             }
         }
         .buttonStyle(.plain)
+        .keyboardShortcut(preferences.shortcut(for: .stop).keyEquivalent,
+                          modifiers: preferences.shortcut(for: .stop).modifiers)
         .accessibilityLabel(stopping ? "正在停止" : "停止执行")
     }
 
@@ -1644,9 +1727,11 @@ struct ChatPage: View {
         return model.turnRunning ? hasText : (hasText || !pendingAttachments.isEmpty)
     }
 
-    private func submitDraft() {
+    private func submitDraft(overrideBusyMode: String? = nil) {
         model.refreshModelProviderReadiness()
         guard canSubmit else { return }
+        let mode = overrideBusyMode ?? busyEnterMode
+        guard mode != "steer" || (model.canSteer && pendingAttachments.isEmpty) else { return }
         dismissComposerKeyboard()
         let text = draft
         if let command = Self.parseSlashCommand(text) {
@@ -1659,7 +1744,7 @@ struct ChatPage: View {
         draft = ""
         Task {
             let succeeded: Bool
-            if model.turnRunning && busyEnterMode == "steer" {
+            if model.turnRunning && mode == "steer" {
                 succeeded = await model.steer(text)
             } else {
                 succeeded = await model.send(text, attachments: pendingAttachments)
@@ -1671,12 +1756,13 @@ struct ChatPage: View {
                     // an ordinary idle send used to be labelled "已排队" for a
                     // moment. The label describes the queue the message joined,
                     // which only exists if a turn was already running.
-                    if wasRunning && busyEnterMode == "steer" { model.markSteered(itemID: id) }
+                    if wasRunning && mode == "steer" { model.markSteered(itemID: id) }
                     else if wasRunning {
                         model.markQueued(itemID: id)
                         ChatModel.appendDiagnostic("queued: \(text.prefix(40))")
                     }
                 }
+                NotificationCenter.default.post(name: .nativeChatNewInput, object: nil)
                 pendingAttachments.removeAll()
                 attachmentError = nil
                 dismissComposerKeyboard()
@@ -2355,7 +2441,8 @@ private struct ChatMessageRow: View {
                     return .handled
                 })
             if isTurnClosingAssistant, let turn = item.turn {
-                if let changes = NativeTranscriptProjector.changes(forTurn: turn, in: allItems) {
+                if NativeChatPreferences.shared.developerTools,
+                   let changes = NativeTranscriptProjector.changes(forTurn: turn, in: allItems) {
                     NativeChangedFilesCard(changes: changes, onOpenFile: onOpenFile)
                 }
                 NativeMessageActions(text: Self.assistantText(forTurn: turn, in: allItems),
@@ -2746,7 +2833,19 @@ struct RuntimeDetailsPage: View {
             }
 
             Section {
-                if model.isStarted {
+                if model.hostNeedsRecovery {
+                    Button(NativeText("恢复引擎（保留会话）", "Recover engine (keep sessions)")) {
+                        Task { await model.recoverFailedHost() }
+                    }
+                        .font(.system(size: 17))
+                        .foregroundStyle(ChatPage.accent)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 16)
+                        .frame(minHeight: 44)
+                        .listRowInsets(EdgeInsets())
+                        .listRowSeparator(.hidden)
+                        .disabled(!model.canRecoverFailedHost)
+                } else if model.isStarted {
                     Button("停止本地引擎") { confirmingStop = true }
                         .font(.system(size: 17))
                         .foregroundStyle(ChatPage.danger)
@@ -2766,7 +2865,9 @@ struct RuntimeDetailsPage: View {
                         .listRowSeparator(.hidden)
                 }
             } footer: {
-                Text("停止后,正在跑的任务会停下来,不会再接着做。")
+                Text(model.hostNeedsRecovery
+                     ? NativeText("恢复只重启引擎，不删除会话或工作区文件。", "Recovery restarts the engine without deleting sessions or workspace files.")
+                     : NativeText("停止后,正在跑的任务会停下来,不会再接着做。", "Stopping the engine also stops its active work."))
                     .font(.system(size: 13))
                     .foregroundStyle(ChatPage.inkSecondary)
             }
@@ -2837,7 +2938,8 @@ private struct CommandExecutionResultPage: View {
 private struct NativeTrajectoryRow: View {
     let entry: NativeTrajectoryEntry
     let onOpenFile: (String) -> Void
-    @State private var expanded = false
+    @State private var expanded = NativeChatPreferences.shared.transcriptView == .verbose
+    @State private var preferences = NativeChatPreferences.shared
 
     private var payloadText: String {
         guard let data = try? entry.payload.encoded() else { return "无法格式化此事件的原始数据。" }
@@ -2939,6 +3041,11 @@ private struct NativeTrajectoryRow: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .onReceive(NotificationCenter.default.publisher(for: .nativeChatNewInput)) { _ in
+            if preferences.collapseTiming == .nextInput && preferences.transcriptView != .verbose {
+                expanded = false
+            }
+        }
     }
 }
 

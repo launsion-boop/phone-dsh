@@ -14,7 +14,29 @@ struct NativeComposerStats: View {
         var id: Int { hashValue }
     }
 
+    @State private var preferences = NativeChatPreferences.shared
+
     var body: some View {
+        if preferences.performanceUsage == .compact { compactView } else { detailedView }
+    }
+
+    private var compactView: some View {
+        HStack(spacing: 8) {
+            if let speed = stats?.tokensPerSecond {
+                NativeChatIcon(name: .gauge, size: 14)
+                Text("\(Int(speed.rounded())) tok/s")
+            }
+            if let hit = nativePercent(usage?.cacheHitPercent) {
+                NativeChatIcon(name: .database, size: 14)
+                Text(NativeText("缓存命中 ", "Cache hit ") + "\(hit)%")
+            }
+        }
+        .modifier(NativeStatPill())
+        .frame(maxWidth: .infinity)
+        .padding(.top, 4)
+    }
+
+    private var detailedView: some View {
         HStack(spacing: 4) {
             if let stats, stats.steps > 0 || stats.tokensPerSecond != nil {
                 Button { detail = .activity } label: {

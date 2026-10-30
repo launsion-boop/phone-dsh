@@ -22,10 +22,21 @@ enum NativeChatTheme {
     static let danger = color(light: 0xC0392B, dark: 0xF07568)
     static let warning = color(light: 0xB45309, dark: 0xE5A44E)
 
-    static func bodyFont() -> Font { .system(size: 14) }
+    static let bodySize: CGFloat = 14
+    static let messageContentMargin: CGFloat = 20
+    static let messageLineSpacing: CGFloat = 5
+    static let messageParagraphSpacing: CGFloat = 20
+    static let messageListSpacing: CGFloat = 10
+
+    static func bodyFont() -> Font { .system(size: bodySize) }
+    static func messageBodyFont() -> Font { NativeChatPreferences.shared.font(for: .text) }
     static func secondaryFont() -> Font { .system(size: 13) }
     static func captionFont() -> Font { .system(size: 12) }
-    static func codeFont(size: CGFloat = 12) -> Font { .system(size: size, design: .monospaced) }
+    static func codeFont(size: CGFloat? = nil) -> Font {
+        if let size { return .system(size: size, design: .monospaced) }
+        return NativeChatPreferences.shared.font(for: .code)
+    }
+    static func terminalFont() -> Font { NativeChatPreferences.shared.font(for: .terminal) }
 
     private static func color(light: UInt32, dark: UInt32) -> Color {
         Color(uiColor: UIColor { traits in

@@ -18,8 +18,8 @@ struct FilesPage: View {
     /// 工作区在磁盘上的名字仍是 DSH 的 `default-workspace`,这里只改显示名。
     private var fileGroupTitle: String {
         let trimmed = directory.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        guard !trimmed.isEmpty else { return "手机工作区" }
-        return trimmed.split(separator: "/").last.map(String.init) ?? "手机工作区"
+        guard !trimmed.isEmpty else { return NativeText("手机工作区", "Phone Workspace") }
+        return trimmed.split(separator: "/").last.map(String.init) ?? NativeText("手机工作区", "Phone Workspace")
     }
     let initialPath: String?
     @State private var query = ""
@@ -48,12 +48,12 @@ struct FilesPage: View {
 
     var body: some View {
         fileList
-            .navigationTitle(directory.isEmpty ? "手机工作区" : String(directory.dropLast()).split(separator: "/").last.map(String.init) ?? "手机工作区")
+            .navigationTitle(directory.isEmpty ? NativeText("手机工作区", "Phone Workspace") : String(directory.dropLast()).split(separator: "/").last.map(String.init) ?? NativeText("手机工作区", "Phone Workspace"))
             .navigationBarTitleDisplayMode(.large)
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
             .background(Color.white)
-            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索文件")
+            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: NativeText("搜索文件", "Search files"))
             .refreshable { model.refreshFiles() }
             .task { await openInitialPathIfNeeded() }
             .sheet(item: $selectedFile) { file in
@@ -66,11 +66,11 @@ struct FilesPage: View {
                 NavigationStack {
                     PDSHPageView(entry: .library(path: "demo/spin.html"),
                                  resolver: FilesPage.demoResolver)
-                        .navigationTitle("3D 示例")
+                        .navigationTitle(NativeText("3D 示例", "3D Example"))
                         .navigationBarTitleDisplayMode(.inline)
                         .toolbar {
                             ToolbarItem(placement: .cancellationAction) {
-                                Button("完成") { showingDemo = false }
+                                Button(NativeText("完成", "Done")) { showingDemo = false }
                             }
                         }
                 }
@@ -79,9 +79,9 @@ struct FilesPage: View {
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Button { showingDemo = true } label: {
-                        Label("3D 示例", systemImage: "cube")
+                        Label(NativeText("3D 示例", "3D Example"), systemImage: "cube")
                     }
-                    .accessibilityLabel("打开 3D 示例")
+                    .accessibilityLabel(NativeText("打开 3D 示例", "Open 3D example"))
                 }
             }
     }
@@ -101,9 +101,9 @@ struct FilesPage: View {
         List {
             if model.files.isEmpty {
                 VStack(spacing: 8) {
-                    Text("还没有文件")
+                    Text(NativeText("还没有文件", "No Files Yet"))
                         .font(.system(size: 17, weight: .semibold))
-                    Text("智能体做的文件会出现在这里。")
+                    Text(NativeText("智能体做的文件会出现在这里。", "Files created by the agent appear here."))
                         .font(.system(size: 13))
                         .foregroundStyle(ChatPage.inkSecondary)
                         .multilineTextAlignment(.center)
@@ -131,7 +131,7 @@ struct FilesPage: View {
                             FileRow(file: file)
                         }
                         .buttonStyle(.plain)
-                        .accessibilityHint("预览或分享此工作区文件")
+                        .accessibilityHint(NativeText("预览或分享此工作区文件", "Preview or share this workspace file"))
                     }
                 }
             }
@@ -300,8 +300,8 @@ private struct FilePreviewPage: View {
                 // resolve, with the host-enforced CSP per the page's tier.
                 PDSHPageView(entry: entry, resolver: resolver)
             } else if isHTML {
-                ContentUnavailableView("这个页面不在任何工作区里", systemImage: "globe",
-                                       description: Text("页面预览以它所属的工作区目录为根；散落的文件请用文本或分享打开。"))
+                ContentUnavailableView(NativeText("这个页面不在任何工作区里", "This page is not in a workspace"), systemImage: "globe",
+                                       description: Text(NativeText("页面预览以它所属的工作区目录为根；散落的文件请用文本或分享打开。", "Page previews use their workspace as the root. Open standalone files as text or share them.")))
             } else if isMarkdown, let textPreview {
                 ScrollView(.vertical) { NativeMarkdownBody(markdown: textPreview) }
             } else if let textPreview {
@@ -313,22 +313,22 @@ private struct FilePreviewPage: View {
                         .padding()
                 }
             } else {
-                ContentUnavailableView("这个文件已经不在了。", systemImage: "doc.questionmark",
-                                       description: Text(previewError ?? "请使用分享功能打开此文件。"))
+                ContentUnavailableView(NativeText("这个文件已经不在了。", "This file no longer exists."), systemImage: "doc.questionmark",
+                                       description: Text(previewError ?? NativeText("请使用分享功能打开此文件。", "Use Share to open this file.")))
             }
         }
         .navigationTitle(URL(fileURLWithPath: file.relativePath).lastPathComponent)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("完成") { dismiss() }.leadingBarText()
+                Button(NativeText("完成", "Done")) { dismiss() }.leadingBarText()
             }
             ToolbarItem(placement: .primaryAction) {
                 if let url = safeFileURL {
                     ShareLink(item: url) {
-                        Label("分享", systemImage: "square.and.arrow.up")
+                        Label(NativeText("分享", "Share"), systemImage: "square.and.arrow.up")
                     }
-                    .accessibilityLabel("分享文件")
+                    .accessibilityLabel(NativeText("分享文件", "Share file"))
                 }
             }
         }
@@ -341,7 +341,7 @@ private struct FilePreviewPage: View {
                     .padding(.vertical, 10)
                     .background(.bar)
             } else if safeFileURL == nil {
-                Text("此文件已不在工作区中。")
+                Text(NativeText("此文件已不在工作区中。", "This file is no longer in the workspace."))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity)
@@ -354,16 +354,16 @@ private struct FilePreviewPage: View {
 
     private func loadPreview() async {
         guard let sessionID = ChatModel.shared.currentSessionID else {
-            previewError = "没有当前会话，无法读取会话工作区。"
+            previewError = NativeText("没有当前会话，无法读取会话工作区。", "There is no current session, so the session workspace cannot be read.")
             return
         }
         let ext = URL(fileURLWithPath: file.relativePath).pathExtension.lowercased()
         isHTML = ["html", "htm"].contains(ext)
         isMarkdown = ["md", "markdown"].contains(ext)
         if isHTML {
-            previewNotice = "页面在本地 pdsh-page:// 源下运行；默认不出网。"
+            previewNotice = NativeText("页面在本地 pdsh-page:// 源下运行；默认不出网。", "The page runs on the local pdsh-page:// origin and cannot access the network by default.")
             guard safeFileURL != nil else {
-                previewError = "此文件已不在安全的本机工作区快照中。请刷新工作区后重试。"
+                previewError = NativeText("此文件已不在安全的本机工作区快照中。请刷新工作区后重试。", "This file is no longer in the safe local workspace snapshot. Refresh the workspace and try again.")
                 return
             }
             return
@@ -378,17 +378,17 @@ private struct FilePreviewPage: View {
                                      as: UTF8.self)
                 if data.count > Self.directTextPreviewLimit {
                     previewNotice = appendNotice(previewNotice,
-                                                 "文本预览限制为 8 MiB；可分享文件后用其他应用打开完整内容。")
+                                                 NativeText("文本预览限制为 8 MiB；可分享文件后用其他应用打开完整内容。", "Text preview is limited to 8 MiB. Share the file to open its full contents in another app."))
                 }
                 return
             } catch {
-                previewError = "读取文件失败：\(error.localizedDescription)"
+                previewError = String(format: NativeText("读取文件失败：%@", "Could not read the file: %@"), error.localizedDescription)
                 return
             }
         }
         if needsQuickLook {
             guard let safeFileURL else {
-                previewError = "此文件已不在安全的本机工作区快照中。请刷新工作区后重试。"
+                previewError = NativeText("此文件已不在安全的本机工作区快照中。请刷新工作区后重试。", "This file is no longer in the safe local workspace snapshot. Refresh the workspace and try again.")
                 return
             }
             // Quick Look streams the bounded, path-checked file URL; avoid
@@ -407,10 +407,10 @@ private struct FilePreviewPage: View {
             let capped = Self.utf8Prefix(received, byteLimit: Self.inlineTextPreviewLimit)
             textPreview = capped.text
             if !capped.complete {
-                previewNotice = appendNotice(previewNotice, "文本预览限制为 256 KiB。可分享文件后用其他应用打开完整内容。")
+                previewNotice = appendNotice(previewNotice, NativeText("文本预览限制为 256 KiB。可分享文件后用其他应用打开完整内容。", "Text preview is limited to 256 KiB. Share the file to open its full contents in another app."))
             }
             if response["eof"]?.boolValue == false {
-                previewNotice = appendNotice(previewNotice, "仅显示前 \(Self.inlineTextPreviewLines) 行；可继续使用分享功能打开完整文件。")
+                previewNotice = appendNotice(previewNotice, String(format: NativeText("仅显示前 %d 行；可继续使用分享功能打开完整文件。", "Only the first %d lines are shown. Share the file to open its full contents."), Self.inlineTextPreviewLines))
             }
         } catch {
             // This browser listed the file from the durable materialized copy,
@@ -419,9 +419,9 @@ private struct FilePreviewPage: View {
             // in flight becomes visible after a workspace refresh.
             if let url = safeFileURL, let data = try? Data(contentsOf: url) {
                 textPreview = String(decoding: data.prefix(Self.inlineTextPreviewLimit), as: UTF8.self)
-                previewNotice = appendNotice(previewNotice, "当前显示本机物化副本；若刚有写入，请稍后刷新工作区。")
+                previewNotice = appendNotice(previewNotice, NativeText("当前显示本机物化副本；若刚有写入，请稍后刷新工作区。", "Showing the local materialized copy. If the file was just written, refresh the workspace shortly."))
             } else {
-                previewError = "读取文件失败：\(error.localizedDescription)"
+                previewError = String(format: NativeText("读取文件失败：%@", "Could not read the file: %@"), error.localizedDescription)
             }
         }
     }
