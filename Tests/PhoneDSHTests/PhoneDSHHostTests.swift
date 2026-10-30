@@ -1039,6 +1039,34 @@ final class PhoneDSHHostTests: XCTestCase {
         try await host.stop()
     }
 
+    func testColdStartFromPersistedFailurePreservesTheOriginalReason() async throws {
+        let fixture = try FacadeFixture()
+        defer { fixture.cleanup() }
+        let firstEngine = MockEngine(worker: MockWorker(), lockdown: true)
+        let firstHost = try makeHost(fixture, engine: firstEngine)
+        do {
+            try await firstHost.start()
+            XCTFail("expected lockdownMode")
+        } catch let error as PhoneDSHError {
+            XCTAssertEqual(error, .lockdownMode)
+        }
+
+        let secondEngine = MockEngine(worker: MockWorker())
+        let secondHost = try makeHost(fixture, engine: secondEngine)
+        do {
+            try await secondHost.start()
+            XCTFail("a persisted Failed controller must refuse a plain start")
+        } catch let error as PhoneDSHError {
+            guard case .hostFailed(let detail) = error else {
+                return XCTFail("expected hostFailed, got \(error)")
+            }
+            XCTAssertEqual(detail, PhoneDSHError.lockdownMode.description)
+        }
+        XCTAssertEqual(secondEngine.bootCount, 0)
+        try? await secondHost.stop()
+        try? await firstHost.stop()
+    }
+
     func testResetAfterStoppedFailureRebuildsTheHost() async throws {
         let fixture = try FacadeFixture()
         defer { fixture.cleanup() }

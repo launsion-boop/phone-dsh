@@ -3028,7 +3028,8 @@ public actor PhoneDSHHost: PhoneDSHHosting {
             }
             return
         case .failed:
-            throw PhoneDSHError.hostFailed(lastError ?? "the controller is failed")
+            throw PhoneDSHError.hostFailed(
+                await machine.lastError ?? lastError ?? "the controller is failed")
         case .remote:
             throw PhoneDSHError.invalidState("reclaim the remote workspace before starting locally")
         default:

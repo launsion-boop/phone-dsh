@@ -247,6 +247,9 @@ final class ChatModel {
     private(set) var keepingAlive = false
 
     private var host: PhoneDSHHost?
+    private var failedHost: PhoneDSHHost?
+    var hostNeedsRecovery: Bool { failedHost != nil }
+    var canRecoverFailedHost: Bool { hostNeedsRecovery && !busy && !hostLifecycleTransition }
     private let keepAlive = SilentAudioKeepAlive()
     private var backgroundHeartbeat: Task<Void, Never>?
     /// Harness events handled so far; the background heartbeat logs the delta
@@ -623,7 +626,7 @@ final class ChatModel {
 
     func start() async {
         refreshModelProviderReadiness()
-        guard host == nil, !busy else { return }
+        guard host == nil, failedHost == nil, !busy else { return }
         busy = true
         defer { busy = false }
         guard let bundle = WorkerBundleLocator.bundle() else {
@@ -727,11 +730,13 @@ final class ChatModel {
             + "single=\(configuration.budgets.singleFileBytes / 1_048_576) MiB "
             + "hot=\(configuration.budgets.wasiHotInstanceBytes / 1_048_576) MiB")
         // Publish only accelerators the linked Rust library and the native
-        // Office bridge can actually execute.
-        let officeBridge = OfficeToolBridge(presenter: OfficePresenter())
+        // Office and phone-capability bridges can actually execute.
+        let toolBridge = CompositePhoneToolBridge(
+            office: OfficeToolBridge(presenter: OfficePresenter()),
+            phone: PhoneCapabilityBridge())
         let shell = PDSHShellProvider(materializedWorkspace: materializedWorkspace,
                                       materializedHome: materializedHome,
-                                      toolBridge: officeBridge)
+                                      toolBridge: toolBridge)
         if !shell.acceleratorNames.isEmpty {
             configuration.accelerators = shell
             let names = shell.channelAcceleratorNames
@@ -753,20 +758,53 @@ final class ChatModel {
         statusLine = "Booting the Worker…"
         appendStatus("Booting the host (Worker bundle + image)…")
         observeHost(newHost)
+        restartPolicyBudget = configuration.budgets
         do {
             try await newHost.start()
         } catch {
+            failedHost = newHost
             Self.appendDiagnostic("host start failed: \(error)")
             reportError("引擎停了：\(Self.condensed(String(describing: error)))")
-            hostEventTask?.cancel(); hostEventTask = nil
             return
         }
         host = newHost
         startedAt = Date()
-        restartPolicyBudget = configuration.budgets
         startRestartPolicyMonitor()
+        await openInitialSession(on: newHost, selectedProfile: selectedProfile)
+    }
+
+    func recoverFailedHost() async {
+        guard let host = failedHost, !busy, !hostLifecycleTransition else { return }
+        busy = true
+        hostLifecycleTransition = true
+        let watchdog = transitionWatchdog(
+            seconds: UInt64(ChatHostConfiguration.defaultResumeWatchdogTimeout),
+            label: "Host recovery")
+        defer {
+            watchdog.cancel()
+            hostLifecycleTransition = false
+            busy = false
+        }
         do {
-            let harness = try await newHost.harness()
+            try await host.userReset()
+            self.host = host
+            failedHost = nil
+            startedAt = Date()
+            startRestartPolicyMonitor()
+            let profile = (try? PhoneModelProviderSettings.shared.load())?.selected
+            await openInitialSession(on: host, selectedProfile: profile)
+        } catch {
+            reportError("引擎恢复失败：\(Self.condensed(String(describing: error)))")
+        }
+    }
+
+    private func openInitialSession(on host: PhoneDSHHost,
+                                    selectedProfile: ProviderProfile?) async {
+        let egressHosts = Set(egressAllow.split(separator: ",").map {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        }.filter { !$0.isEmpty })
+        do {
+            let harness = try await host.harness()
             self.harness = harness
             let requestedSessionID = UserDefaults.standard.string(forKey: Self.currentSessionDefaultsKey)
             let session = try await harness.openSession(HarnessSessionRequest(
@@ -775,7 +813,7 @@ final class ChatModel {
             self.sessionID = session.id
             UserDefaults.standard.set(session.id, forKey: Self.currentSessionDefaultsKey)
             lastSeq = nil
-            let transport = try await newHost.makeTransport()
+            let transport = try await host.makeTransport()
             if let selectedProfile {
                 do {
                     try await selectProviderModel(selectedProfile, sessionID: session.id, transport: transport)
@@ -838,8 +876,8 @@ final class ChatModel {
     }
 
     /// Opens a new session through DSH and makes it the active chat.
-    func newSession() async {
-        await openManagedSession(id: nil)
+    func newSession(preset: String? = nil) async {
+        await openManagedSession(id: nil, preset: preset)
     }
 
     /// Resumes an existing DSH session by its server-issued identifier.
@@ -849,7 +887,7 @@ final class ChatModel {
         await openManagedSession(id: requested)
     }
 
-    private func openManagedSession(id: String?) async {
+    private func openManagedSession(id: String?, preset: String? = nil) async {
         guard let host else { reportError("Start the host before opening a session"); return }
         guard !busy else { return }
         guard !hostLifecycleTransition else {
@@ -871,7 +909,7 @@ final class ChatModel {
                 self.harness = harness
             }
             let session = try await harness.openSession(HarnessSessionRequest(
-                sessionID: id, workspace: "/dsh/workspace"))
+                sessionID: id, preset: preset, workspace: "/dsh/workspace"))
             let transport = try await transportForManagement()
             if let profile = try? PhoneModelProviderSettings.shared.load().selected {
                 try? await selectProviderModel(profile, sessionID: session.id, transport: transport)
@@ -945,7 +983,7 @@ final class ChatModel {
     }
 
     func stop() async {
-        guard let host else { return }
+        guard let host = host ?? failedHost else { return }
         guard !busy && !hostLifecycleTransition else {
             reportError("Wait for the current host operation to finish before stopping")
             return
@@ -961,6 +999,7 @@ final class ChatModel {
         do { try await host.stop() } catch { reportError("Stop reported: \(error)") }
         hostEventTask?.cancel(); hostEventTask = nil
         self.host = nil
+        failedHost = nil
         startedAt = nil
         turnRunning = false
         parked = false
@@ -1111,9 +1150,11 @@ final class ChatModel {
     private func resumeHost(_ host: PhoneDSHHost) async {
         guard parked, !hostLifecycleTransition else { return }
         hostLifecycleTransition = true
-        // See parkHost: the flag must never stay set. A resume waits for the
-        // host's own 240 s hello timeout, so the watchdog clears only past it.
-        let watchdog = transitionWatchdog(seconds: 300, label: "Host resume")
+        // See parkHost: the flag must never stay set. The watchdog clears only
+        // after the host's configured hello timeout has had a chance to fire.
+        let watchdog = transitionWatchdog(
+            seconds: UInt64(ChatHostConfiguration.defaultResumeWatchdogTimeout),
+            label: "Host resume")
         defer {
             watchdog.cancel()
             hostLifecycleTransition = false
@@ -1241,6 +1282,8 @@ final class ChatModel {
                 switch event {
                 case .stateChanged(_, let to):
                     self.hostState = "\(to)"
+                    if to == .failed { self.failedHost = host }
+                    if to == .running { self.failedHost = nil }
                 case .error(let message):
                     // Keep the raw host text: the friendly summary alone made
                     // a WAL recovery failure look like a model-service error.

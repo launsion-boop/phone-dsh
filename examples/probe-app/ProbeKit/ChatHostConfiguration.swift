@@ -22,6 +22,7 @@ public enum ChatHostConfiguration {
     public static let defaultDrainDeadline: TimeInterval = 20
     public static let defaultHelloTimeout: TimeInterval = 600
     public static let defaultBootTimeout: TimeInterval = 600
+    public static let defaultResumeWatchdogTimeout: TimeInterval = defaultHelloTimeout + 60
     public static let defaultTurnInactivityTimeout: TimeInterval = 1_800
     public static let defaultShellTimeoutMs: UInt64 = 600_000
     public static let defaultOfficeInteractionTimeout: TimeInterval = 600
