@@ -154,11 +154,10 @@ struct DSSCodeBlock: View {
     let source: String
     var language: String = ""
     @State private var expanded = false
+    @State private var copied = false
+    @State private var wrapped = true
 
-    /// DSH's CodeBlock: a rounded card with a banner (language on the left,
-    /// copy on the right) over the monospaced source. The banner is what the
-    /// single-text renderer dropped, leaving ragged glyph backgrounds.
-    private var label: String { language.isEmpty ? "代码" : language.lowercased() }
+    private var label: String { language.isEmpty ? "" : language.lowercased() }
     private var lineCount: Int { source.split(separator: "\n", omittingEmptySubsequences: false).count }
     private var isLong: Bool { lineCount > 24 || source.count > 2400 }
 
@@ -167,31 +166,43 @@ struct DSSCodeBlock: View {
             HStack(spacing: 8) {
                 Text(label)
                     .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(ChatPage.inkSecondary)
+                    .foregroundStyle(NativeChatTheme.secondary)
                     .lineLimit(1)
                 Spacer(minLength: 0)
-                Button {
-                    UIPasteboard.general.string = source
-                } label: {
-                    Image("DSHCopy")
-                        .resizable()
-                        .renderingMode(.template)
-                        .frame(width: 13, height: 13)
-                        .foregroundStyle(ChatPage.inkSecondary)
+                Button { wrapped.toggle() } label: {
+                    Image(systemName: wrapped ? "text.alignleft" : "arrow.left.and.right")
+                        .font(.system(size: 11))
+                        .frame(width: 28, height: 28)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("拷贝代码")
+                .accessibilityLabel(wrapped ? "关闭自动换行" : "自动换行")
+                Button {
+                    UIPasteboard.general.string = source
+                    copied = true
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(1))
+                        copied = false
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        NativeChatIcon(name: copied ? .check : .copy, size: 13)
+                        Text(copied ? "已复制" : "复制").font(.system(size: 11))
+                    }
+                    .frame(minWidth: 44, minHeight: 28)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(copied ? "已复制" : "拷贝代码")
             }
+            .foregroundStyle(NativeChatTheme.secondary)
             .padding(.horizontal, 12)
             .frame(height: 34)
-            .background(Color(red: 233 / 255, green: 233 / 255, blue: 237 / 255))
+            .background(NativeChatTheme.codeBanner)
 
-            ScrollView([.horizontal, .vertical]) {
-                Text(source)
-                    .font(.system(size: 13, design: .monospaced))
-                    .lineSpacing(20 - 15)
+            ScrollView(wrapped ? [.vertical] : [.horizontal, .vertical]) {
+                Text(NativeCodeHighlighter.attributed(source, language: language))
+                    .lineSpacing(5)
                     .textSelection(.enabled)
-                    .fixedSize(horizontal: true, vertical: true)
+                    .fixedSize(horizontal: !wrapped, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(12)
             }
@@ -202,16 +213,16 @@ struct DSSCodeBlock: View {
                     expanded.toggle()
                 }
                 .font(.system(size: 12))
-                .foregroundStyle(ChatPage.inkSecondary)
+                .foregroundStyle(NativeChatTheme.secondary)
                 .frame(maxWidth: .infinity)
                 .frame(height: 32)
-                .background(Color(red: 246 / 255, green: 246 / 255, blue: 248 / 255))
+                .background(NativeChatTheme.code)
             }
         }
-        .background(Color(red: 246 / 255, green: 246 / 255, blue: 248 / 255))
+        .background(NativeChatTheme.code)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .strokeBorder(Color.black.opacity(0.06)))
+            .strokeBorder(NativeChatTheme.border, lineWidth: 0.5))
         .padding(.vertical, 2)
     }
 }

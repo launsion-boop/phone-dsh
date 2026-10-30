@@ -51,34 +51,6 @@ enum ChatSettings {
 
 // MARK: - Transcript items
 
-/// One row of the chat transcript.
-struct ChatItem: Identifiable, Equatable {
-    enum Kind: Equatable {
-        case user
-        case context
-        case assistant
-        /// The model's streamed reasoning for the current step.
-        case reasoning
-        case toolCall
-        case toolResult(isError: Bool)
-        case status
-    }
-
-    let id: String
-    let kind: Kind
-    var title: String
-    var text: String
-    var streaming = false
-
-    init(id: String = UUID().uuidString, kind: Kind, title: String, text: String, streaming: Bool = false) {
-        self.id = id
-        self.kind = kind
-        self.title = title
-        self.text = text
-        self.streaming = streaming
-    }
-}
-
 /// One server-registered command exposed by the active DSH session.
 struct NativeCommandDescriptor: Identifiable, Equatable {
     let name: String
@@ -254,6 +226,13 @@ final class ChatModel {
     private(set) var inputTokens = 0
     private(set) var outputTokens = 0
     private(set) var modelRequests = 0
+    private(set) var sessionStats: NativeSessionStats?
+    private(set) var tokenUsage: NativeTokenUsage?
+    private(set) var contextPressure: NativeContextPressure?
+    private(set) var contextBreakdown: NativeContextBreakdown?
+    private var nativeMetricsRefreshTask: Task<Void, Never>?
+    private var activeTurn: Int?
+    private var activeStep: Int?
     /// 这次引擎起来的时间点,「运行状态」第一行要报「已运行多久」;停掉就清空。
     private(set) var startedAt: Date?
     private(set) var files: [WorkspaceFile] = []
@@ -807,6 +786,7 @@ final class ChatModel {
             turnRunning = history.turnRunning
             startPump(harness: harness, sessionID: session.id, after: history.after)
             Task { await self.refreshAccessModes() }
+            Task { await self.refreshNativeMetrics() }
             Task { await self.refreshTrajectory() }
             Task { await self.loadCommands() }
             statusLine = "Session \(session.id.prefix(8)) open — type a task"
@@ -895,6 +875,7 @@ final class ChatModel {
             turnRunning = history.turnRunning
             startPump(harness: harness, sessionID: session.id, after: history.after)
             Task { await self.refreshAccessModes() }
+            Task { await self.refreshNativeMetrics() }
             Task { await self.refreshTrajectory() }
             Task { await self.loadCommands() }
             statusLine = "Session \(session.id.prefix(8)) open — type a task"
@@ -974,6 +955,14 @@ final class ChatModel {
     private func resetSessionLedgers() {
         trajectoryRefreshTask?.cancel()
         trajectoryRefreshTask = nil
+        nativeMetricsRefreshTask?.cancel()
+        nativeMetricsRefreshTask = nil
+        sessionStats = nil
+        tokenUsage = nil
+        contextPressure = nil
+        contextBreakdown = nil
+        activeTurn = nil
+        activeStep = nil
         trajectoryEntries = []
         trajectoryHasMore = false
         trajectoryError = nil
@@ -1627,44 +1616,7 @@ final class ChatModel {
     }
 
     private static func transcriptItems(from records: [JSONValue], sessionID: String) -> [ChatItem] {
-        var result: [ChatItem] = []
-        for event in records {
-            guard let seq = event["seq"]?.intValue else { continue }
-            let id = "\(sessionID):\(seq)"
-            let data = event["data"] ?? .null
-            switch event["type"]?.stringValue {
-            case "user/message":
-                let text = contentText(data["content"])
-                if !text.isEmpty {
-                    switch DSHMessageSourceClassifier.classify(data) {
-                    case .user:
-                        result.append(ChatItem(id: id, kind: .user, title: "You", text: text))
-                    case .context(let source):
-                        result.append(ChatItem(id: id, kind: .context,
-                                               title: "DSH context · \(source)", text: text))
-                    }
-                }
-            case "assistant/message":
-                let text = contentText(data["message"]?["content"])
-                if !text.isEmpty { result.append(ChatItem(id: id, kind: .assistant, title: "Assistant", text: text)) }
-            case "tool/call":
-                let raw = data["arguments"]?.stringValue
-                let arguments = raw.flatMap { try? JSONValue.parse(Data($0.utf8)) }
-                    ?? data["arguments"] ?? .null
-                let name = data["name"]?.stringValue ?? "tool"
-                result.append(ChatItem(id: id, kind: .toolCall, title: "Tool call: \(name)", text: render(arguments)))
-            case "tool/result":
-                let message = data["message"] ?? .null
-                let text = contentText(message["content"])
-                let isError = message["isError"]?.boolValue ?? (data["error"] != nil)
-                result.append(ChatItem(id: id, kind: .toolResult(isError: isError),
-                                       title: isError ? "Tool error" : "Tool result",
-                                       text: text.isEmpty ? data["error"]?["reason"]?.stringValue ?? "" : text))
-            default:
-                continue
-            }
-        }
-        return result
+        NativeTranscriptProjector.items(from: records, sessionID: sessionID)
     }
 
     private static func isTurnRunning(in records: [JSONValue]) -> Bool {
@@ -1730,8 +1682,12 @@ final class ChatModel {
                 items[index].text += text
             } else {
                 finishStreamingReasoning()
-                items.append(ChatItem(id: eventItemID(event), kind: .reasoning,
-                                      title: "思考", text: text, streaming: true))
+                var item = ChatItem(id: eventItemID(event), kind: .reasoning,
+                                    title: "思考", text: text, streaming: true)
+                item.timestamp = event.time
+                item.turn = activeTurn
+                item.step = activeStep
+                items.append(item)
             }
         case .assistantDelta(let text):
             clearSendingLabels()
@@ -1739,7 +1695,12 @@ final class ChatModel {
             if let index = items.indices.last, items[index].kind == .assistant, items[index].streaming {
                 items[index].text += text
             } else {
-                items.append(ChatItem(id: eventItemID(event), kind: .assistant, title: "Assistant", text: text, streaming: true))
+                var item = ChatItem(id: eventItemID(event), kind: .assistant,
+                                    title: "Assistant", text: text, streaming: true)
+                item.timestamp = event.time
+                item.turn = activeTurn
+                item.step = activeStep
+                items.append(item)
             }
         case .assistantMessage(let text):
             clearSendingLabels()
@@ -1748,21 +1709,49 @@ final class ChatModel {
                 if !text.isEmpty { items[index].text = text }
                 items[index].streaming = false
             } else if !text.isEmpty {
-                items.append(ChatItem(id: eventItemID(event), kind: .assistant, title: "Assistant", text: text))
+                var item = ChatItem(id: eventItemID(event), kind: .assistant, title: "Assistant", text: text)
+                item.timestamp = event.time
+                item.turn = activeTurn
+                item.step = activeStep
+                items.append(item)
             }
+            scheduleNativeMetricsRefresh()
         case .userMessage, .inboxSpliced:
             // The composer already appends the local prompt row; these durable
             // projections exist for transcript/audit consumers.
             break
-        case .toolCall(_, let name, let arguments):
+        case .toolCall(let callID, let name, let arguments):
             finishStreamingAssistant()
             finishStreamingReasoning()
             recentToolArguments[name] = Self.flattenedArguments(arguments)
-            items.append(ChatItem(id: eventItemID(event), kind: .toolCall, title: "Tool call: \(name)", text: Self.render(arguments)))
-        case .toolResult(_, let isError, let summary):
+            var item = ChatItem(id: eventItemID(event), kind: .toolCall,
+                                title: "Tool call: \(name)", text: Self.render(arguments))
+            item.timestamp = event.time
+            item.turn = activeTurn
+            item.step = activeStep
+            item.callID = callID
+            item.toolName = name
+            item.arguments = arguments
+            item.argumentsRaw = nativeJSON(arguments)
+            item.toolState = .running
+            items.append(item)
+        case .toolResult(let callID, let isError, let summary):
             let detail = event.toolResultDetail?.text ?? summary
-            items.append(ChatItem(id: eventItemID(event), kind: .toolResult(isError: isError),
-                                  title: isError ? "Tool error" : "Tool result", text: detail))
+            if let index = items.indices.last(where: { items[$0].callID == callID && items[$0].kind == .toolCall }) {
+                items[index].toolOutput = detail
+                items[index].toolState = isError ? .error : .ok
+            } else {
+                var item = ChatItem(id: eventItemID(event), kind: .toolResult(isError: isError),
+                                    title: isError ? "Tool error" : "Tool result", text: detail)
+                item.timestamp = event.time
+                item.turn = activeTurn
+                item.step = activeStep
+                item.callID = callID
+                item.toolOutput = detail
+                item.toolState = isError ? .error : .ok
+                items.append(item)
+            }
+            scheduleNativeMetricsRefresh()
             refreshFiles()
         case .permissionRequested(let request):
             pendingPermission = ChatPermission(id: request.requestID, tool: request.tool,
@@ -1771,18 +1760,31 @@ final class ChatModel {
         case .questionRequested(let question):
             pendingQuestion = question
             appendStatus("The agent asks: \(question.prompt)")
-        case .turnStarted:
+        case .turnStarted(let turnID):
+            activeTurn = Int(turnID)
+            activeStep = nil
             promoteQueuedToSending()
             turnRunning = true
             syncIdleTimer()
             statusLine = "Turn running…"
-        case .turnEnded(_, let reason):
+        case .turnEnded(let turnID, let reason):
             finishStreamingAssistant()
             finishStreamingReasoning()
             clearSendingLabels()
             turnRunning = false
             syncIdleTimer()
             statusLine = "Turn ended: \(Self.describe(reason))"
+            if case .failed = reason {
+                for index in items.indices where items[index].turn == Int(turnID) && items[index].toolState == .running {
+                    items[index].toolState = .stopped
+                }
+            }
+            if case .cancelled = reason {
+                for index in items.indices where items[index].turn == Int(turnID) && items[index].toolState == .running {
+                    items[index].toolState = .stopped
+                }
+            }
+            scheduleNativeMetricsRefresh()
             persistTranscriptSnapshot()
             if case .failed(let message) = reason {
                 reportError(Self.userFacingFailure(message))
@@ -1800,6 +1802,7 @@ final class ChatModel {
             Task { await self.refreshGoal() }
             if keepingAlive { Task { await self.finishBackgroundKeepAlive() } }
         case .progress(let phase, let step, let total):
+            if phase == "step" { activeStep = step }
             statusLine = "\(phase) step \(step)\(total.map { " of \($0)" } ?? "")"
             if phase == "step" { modelRequests += 1 }
         case .sessionStatus(let status):
@@ -1811,6 +1814,13 @@ final class ChatModel {
         case .usage(let input, let output):
             inputTokens += input
             outputTokens += output
+            if let index = items.indices.last(where: { items[$0].kind == .assistant && items[$0].turn == activeTurn }) {
+                var usage = NativeTurnUsage()
+                usage.uncachedInputTokens = input
+                usage.outputTokens = output
+                usage.totalTokens = input + output
+                items[index].turnUsage = usage
+            }
         case .exited(let reason):
             appendStatus("Agent exited: \(reason)")
             turnRunning = false
@@ -1856,6 +1866,51 @@ final class ChatModel {
             }
         } catch {
             appendStatus("goal read failed: \(error)")
+        }
+    }
+
+    private func scheduleNativeMetricsRefresh() {
+        nativeMetricsRefreshTask?.cancel()
+        nativeMetricsRefreshTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(120))
+            guard !Task.isCancelled, let self else { return }
+            await self.refreshNativeMetrics()
+        }
+    }
+
+    func refreshNativeMetrics() async {
+        guard let sessionID else { return }
+        do {
+            let transport = try await transportForManagement()
+            let response = try await transport.call("session/projections", args: .object([
+                "request": .object(["sessionId": .string(sessionID)]),
+            ]))
+            guard self.sessionID == sessionID else { return }
+            let values = response["values"]
+            sessionStats = NativeSessionStats(value: values?["sessionStats"])
+            tokenUsage = NativeTokenUsage(value: values?["tokenUsage"])
+            contextPressure = NativeContextPressure(value: values?["contextPressure"])
+            contextBreakdown = NativeContextBreakdown(value: values?["contextBreakdown"])
+        } catch {
+            appendStatus("Native conversation metrics unavailable: \(error.localizedDescription)")
+        }
+    }
+
+    @discardableResult
+    func rateMessage(_ messageID: String, positive: Bool) async -> Bool {
+        guard let sessionID else { return false }
+        do {
+            let transport = try await transportForManagement()
+            _ = try await transport.call("messageFeedback/put", args: .object([
+                "sessionId": .string(sessionID),
+                "messageId": .string(messageID),
+                "rating": .string(positive ? "positive" : "negative"),
+                "ifVersion": .null,
+            ]))
+            return true
+        } catch {
+            reportError("反馈没有提交成功，请重试。")
+            return false
         }
     }
 
@@ -1922,8 +1977,13 @@ final class ChatModel {
         case .context: return "context"
         case .assistant: return "assistant"
         case .reasoning: return "reasoning"
+        case .image: return "image"
         case .toolCall: return "toolCall"
         case .toolResult(let isError): return isError ? "toolError" : "toolResult"
+        case .systemEvent: return "systemEvent"
+        case .turnError: return "turnError"
+        case .maxTokens: return "maxTokens"
+        case .unknown: return "unknown"
         case .status: return "status"
         }
     }
@@ -1934,9 +1994,14 @@ final class ChatModel {
         case "context": return .context
         case "assistant": return .assistant
         case "reasoning": return .reasoning
+        case "image": return .image
         case "toolCall": return .toolCall
         case "toolResult": return .toolResult(isError: false)
         case "toolError": return .toolResult(isError: true)
+        case "systemEvent": return .systemEvent
+        case "turnError": return .turnError
+        case "maxTokens": return .maxTokens
+        case "unknown": return .unknown
         case "status": return .status
         default: return nil
         }
@@ -2060,6 +2125,22 @@ final class ChatModel {
     }
 
     #if DEBUG
+    func debugInstallNativeMetricsPreview() {
+        sessionStats = NativeSessionStats(value: .object([
+            "turns": .number(5), "steps": .number(17), "llmMs": .number(42_000),
+            "toolMs": .number(8_000), "ttftMs": .number(6_000), "ttftSteps": .number(5),
+            "decodeMs": .number(40_000), "decodeTokens": .number(2_160),
+        ]))
+        tokenUsage = NativeTokenUsage(uncachedInputTokens: 50_000, outputTokens: 8_000,
+                                      cacheReadTokens: 750_000, cacheWriteTokens: 200_000)
+        contextPressure = NativeContextPressure(value: .object([
+            "projectedTokens": .number(100_000), "contextWindow": .number(1_000_000),
+        ]))
+        contextBreakdown = NativeContextBreakdown(value: .object([
+            "systemTokens": .number(20_000), "toolsTokens": .number(30_000), "messageTokens": .number(50_000),
+        ]))
+    }
+
     /// 确定性状态:一条失败消息加下面那行「没发出去 · 重试」。
     func debugInjectFailure(text: String = "整理一下这周的日志") {
         let id = "debug-failure-\(UUID().uuidString.prefix(4))"

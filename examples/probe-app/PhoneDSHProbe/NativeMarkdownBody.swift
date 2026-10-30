@@ -1,235 +1,342 @@
 // SPDX-License-Identifier: MIT
+
 import SwiftUI
+import UIKit
+import SwiftMath
 
-/// A small native block renderer for the Markdown preview. Inline emphasis and
-/// links use Foundation's Markdown parser; block boundaries remain explicit so
-/// headings, paragraphs, lists, fences and tables do not collapse into one run.
 struct NativeMarkdownBody: View {
-    private let blocks: [NativeMarkdownBlock]
+    let markdown: String
+    let streaming: Bool
+    let variant: NativeMarkdownVariant
+    let workspaceFiles: [WorkspaceFile]
+    let onOpenFile: ((String) -> Void)?
 
-    init(markdown: String) {
-        blocks = NativeMarkdownParser.parse(markdown)
+    @State private var blocks: [NativeMarkdownBlock]
+
+    init(markdown: String, streaming: Bool = false, variant: NativeMarkdownVariant = .body,
+         workspaceFiles: [WorkspaceFile] = [], onOpenFile: ((String) -> Void)? = nil) {
+        self.markdown = markdown
+        self.streaming = streaming
+        self.variant = variant
+        self.workspaceFiles = workspaceFiles
+        self.onOpenFile = onOpenFile
+        _blocks = State(initialValue: NativeMarkdownParser.parse(markdown, streaming: streaming))
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: variant == .compact ? 4 : 16) {
             ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
-                render(block)
+                NativeMarkdownBlockView(block: block, variant: variant,
+                                        workspaceFiles: workspaceFiles, onOpenFile: onOpenFile)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        // 版心由外层给,这里不再自留一圈内边距(那会让正文比版心多缩 16)。
         .textSelection(.enabled)
+        .onChange(of: markdown) { _, value in
+            blocks = NativeMarkdownParser.parse(value, streaming: streaming)
+        }
+        .onChange(of: streaming) { _, value in
+            blocks = NativeMarkdownParser.parse(markdown, streaming: value)
+        }
     }
+}
 
-    @ViewBuilder
-    private func render(_ block: NativeMarkdownBlock) -> some View {
+private struct NativeMarkdownBlockView: View {
+    let block: NativeMarkdownBlock
+    let variant: NativeMarkdownVariant
+    let workspaceFiles: [WorkspaceFile]
+    let onOpenFile: ((String) -> Void)?
+
+    var body: some View {
         switch block {
-        case .heading(let level, let text):
-            inline(text)
+        case .heading(let level, let content):
+            NativeMarkdownInlineText(content: content, variant: variant, headingLevel: level,
+                                     workspaceFiles: workspaceFiles, onOpenFile: onOpenFile)
                 .font(headingFont(level))
-                .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityAddTraits(.isHeader)
-        case .paragraph(let text):
-            inline(text)
-                .font(.body)
-                .frame(maxWidth: .infinity, alignment: .leading)
+        case .paragraph(let content):
+            NativeMarkdownInlineText(content: content, variant: variant,
+                                     workspaceFiles: workspaceFiles, onOpenFile: onOpenFile)
+                .font(variant == .compact ? NativeChatTheme.secondaryFont() : NativeChatTheme.bodyFont())
+                .foregroundStyle(variant == .compact ? NativeChatTheme.tertiary : NativeChatTheme.primary)
                 .fixedSize(horizontal: false, vertical: true)
-        case .list(let ordered, let items):
-            VStack(alignment: .leading, spacing: 7) {
+        case .list(let ordered, let start, let items):
+            VStack(alignment: .leading, spacing: variant == .compact ? 2 : 6) {
                 ForEach(Array(items.enumerated()), id: \.offset) { index, item in
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text(ordered ? "\(index + 1)." : "•")
-                            .foregroundStyle(.secondary)
-                            .frame(minWidth: ordered ? 24 : 12, alignment: .trailing)
-                        inline(item)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                    HStack(alignment: .top, spacing: 8) {
+                        Group {
+                            if let checked = item.checked {
+                                Image(systemName: checked ? "checkmark.square.fill" : "square")
+                            } else {
+                                Text(ordered ? "\(start + index)." : "•")
+                            }
+                        }
+                        .font(variant == .compact ? NativeChatTheme.secondaryFont() : NativeChatTheme.bodyFont())
+                        .foregroundStyle(NativeChatTheme.secondary)
+                        .frame(minWidth: ordered ? 24 : 14, alignment: .trailing)
+                        .padding(.top, 1)
+                        VStack(alignment: .leading, spacing: variant == .compact ? 2 : 6) {
+                            ForEach(Array(item.blocks.enumerated()), id: \.offset) { _, child in
+                                NativeMarkdownBlockView(block: child, variant: variant,
+                                                        workspaceFiles: workspaceFiles, onOpenFile: onOpenFile)
+                            }
+                        }
                     }
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, 4)
+        case .blockquote(let children):
+            VStack(alignment: .leading, spacing: variant == .compact ? 4 : 12) {
+                ForEach(Array(children.enumerated()), id: \.offset) { _, child in
+                    NativeMarkdownBlockView(block: child, variant: variant,
+                                            workspaceFiles: workspaceFiles, onOpenFile: onOpenFile)
+                }
+            }
+            .padding(.leading, variant == .compact ? 8 : 14)
+            .overlay(alignment: .leading) {
+                Rectangle().fill(NativeChatTheme.caption).frame(width: 2)
+            }
         case .code(let language, let source):
-            DSSCodeBlock(source: source, language: language)
-        case .table(let header, let rows):
+            DSSCodeBlock(source: source.hasSuffix("\n") ? String(source.dropLast()) : source,
+                         language: language)
+        case .table(let header, let rows, let alignments):
             ScrollView(.horizontal) {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    tableRow(header, isHeader: true)
+                VStack(alignment: .leading, spacing: 0) {
+                    NativeMarkdownTableRow(cells: header, header: true, variant: variant, alignments: alignments,
+                                           workspaceFiles: workspaceFiles, onOpenFile: onOpenFile)
                     ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                        tableRow(row, isHeader: false)
+                        NativeMarkdownTableRow(cells: row, header: false, variant: variant, alignments: alignments,
+                                               workspaceFiles: workspaceFiles, onOpenFile: onOpenFile)
                     }
                 }
-                .fixedSize(horizontal: true, vertical: false)
             }
-            .accessibilityElement(children: .contain)
-        }
-    }
-
-    private func tableRow(_ cells: [String], isHeader: Bool) -> some View {
-        HStack(alignment: .top, spacing: 0) {
-            ForEach(Array(cells.enumerated()), id: \.offset) { _, cell in
-                inline(cell)
-                    .font(isHeader ? .subheadline.weight(.semibold) : .subheadline)
-                    .frame(minWidth: 96, maxWidth: 240, alignment: .leading)
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 7)
-                    .frame(maxHeight: .infinity, alignment: .topLeading)
-                    .overlay(alignment: .trailing) {
-                        Rectangle().fill(.quaternary).frame(width: 1)
-                    }
+            .scrollIndicators(.automatic)
+        case .image(let source, let alt, let title):
+            NativeMarkdownImage(source: source, alt: alt, title: title)
+        case .math(let latex):
+            ScrollView(.horizontal) {
+                NativeMathView(latex: latex, display: true, compact: variant == .compact)
             }
+        case .thematicBreak:
+            Rectangle()
+                .fill(NativeChatTheme.border)
+                .frame(height: 0.5)
+                .padding(.vertical, variant == .compact ? 4 : 16)
         }
-        .background(isHeader ? Color.secondary.opacity(0.12) : Color.clear)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(.quaternary).frame(height: 1)
-        }
-    }
-
-    private func inline(_ source: String) -> Text {
-        if let value = try? AttributedString(markdown: source) { return Text(value) }
-        return Text(source)
     }
 
     private func headingFont(_ level: Int) -> Font {
+        if variant == .compact { return NativeChatTheme.secondaryFont().weight(.semibold) }
         switch level {
-        case 1: .largeTitle.weight(.bold)
-        case 2: .title2.weight(.bold)
-        case 3: .title3.weight(.semibold)
-        case 4: .headline
-        default: .subheadline.weight(.semibold)
+        case 1: return .system(size: 24, weight: .bold)
+        case 2: return .system(size: 22, weight: .bold)
+        case 3: return .system(size: 20, weight: .semibold)
+        case 4: return .system(size: 17, weight: .semibold)
+        default: return NativeChatTheme.bodyFont().weight(.semibold)
         }
     }
 }
 
-enum NativeMarkdownBlock {
-    case heading(Int, String)
-    case paragraph(String)
-    case list(ordered: Bool, items: [String])
-    case code(language: String, source: String)
-    case table(header: [String], rows: [[String]])
+private struct NativeMarkdownTableRow: View {
+    let cells: [[NativeMarkdownInline]]
+    let header: Bool
+    let variant: NativeMarkdownVariant
+    let alignments: [NativeMarkdownTableAlignment?]
+    let workspaceFiles: [WorkspaceFile]
+    let onOpenFile: ((String) -> Void)?
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 0) {
+            ForEach(Array(cells.enumerated()), id: \.offset) { index, cell in
+                NativeMarkdownInlineText(content: cell, variant: variant,
+                                         workspaceFiles: workspaceFiles, onOpenFile: onOpenFile)
+                    .font(variant == .compact
+                          ? NativeChatTheme.secondaryFont().weight(header ? .semibold : .regular)
+                          : NativeChatTheme.secondaryFont().weight(header ? .semibold : .regular))
+                    .multilineTextAlignment(textAlignment(index))
+                    .frame(minWidth: 100, maxWidth: 320, alignment: frameAlignment(index))
+                    .padding(.horizontal, variant == .compact ? 8 : 16)
+                    .padding(.vertical, variant == .compact ? 4 : 10)
+                    .overlay(alignment: .bottom) { Rectangle().fill(NativeChatTheme.border).frame(height: 0.5) }
+            }
+        }
+        .background(header ? NativeChatTheme.selector : .clear)
+    }
+
+    private func textAlignment(_ index: Int) -> TextAlignment {
+        switch alignments[safe: index] ?? nil {
+        case .center: .center
+        case .right: .trailing
+        default: .leading
+        }
+    }
+
+    private func frameAlignment(_ index: Int) -> Alignment {
+        switch alignments[safe: index] ?? nil {
+        case .center: .center
+        case .right: .trailing
+        default: .leading
+        }
+    }
 }
 
-enum NativeMarkdownParser {
-    static func parse(_ markdown: String) -> [NativeMarkdownBlock] {
-        let lines = markdown.components(separatedBy: .newlines)
-        var result: [NativeMarkdownBlock] = []
-        var index = 0
+private struct NativeMarkdownInlineText: View {
+    let content: [NativeMarkdownInline]
+    let variant: NativeMarkdownVariant
+    var headingLevel: Int?
+    let workspaceFiles: [WorkspaceFile]
+    let onOpenFile: ((String) -> Void)?
 
-        while index < lines.count {
-            let line = lines[index]
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.isEmpty { index += 1; continue }
+    var body: some View { text(content) }
 
-            if let fence = fencePrefix(in: trimmed) {
-                index += 1
-                var code: [String] = []
-                while index < lines.count {
-                    let candidate = lines[index].trimmingCharacters(in: .whitespaces)
-                    if candidate.hasPrefix(fence.marker) { index += 1; break }
-                    code.append(lines[index])
-                    index += 1
-                }
-                result.append(.code(language: fence.language, source: code.joined(separator: "\n")))
-                continue
+    private func text(_ inline: [NativeMarkdownInline]) -> Text {
+        inline.reduce(Text("")) { result, part in result + render(part) }
+    }
+
+    private func render(_ part: NativeMarkdownInline) -> Text {
+        switch part {
+        case .text(let value): return Text(value)
+        case .strong(let children): return text(children).bold()
+        case .emphasis(let children): return text(children).italic()
+        case .delete(let children): return text(children).strikethrough()
+        case .code(let value):
+            if let url = nativeFileMention(value) {
+                var attributed = AttributedString(value)
+                attributed.link = url
+                attributed.foregroundColor = NativeChatTheme.accent
+                attributed.font = .system(size: variant == .compact ? 13 : 12.25, design: .monospaced)
+                return Text(attributed)
             }
-
-            if let heading = heading(in: trimmed) {
-                result.append(.heading(heading.level, heading.text))
-                index += 1
-                continue
-            }
-
-            if index + 1 < lines.count,
-               line.contains("|"),
-               let separator = tableSeparator(lines[index + 1]) {
-                let header = tableCells(line)
-                index += 2
-                var rows: [[String]] = []
-                while index < lines.count, lines[index].contains("|"), !lines[index].trimmingCharacters(in: .whitespaces).isEmpty {
-                    rows.append(padded(tableCells(lines[index]), to: header.count))
-                    index += 1
-                }
-                _ = separator // Alignment markers are syntactically validated; cells use native leading alignment.
-                result.append(.table(header: header, rows: rows))
-                continue
-            }
-
-            if let first = listItem(in: line) {
-                var items = [first.text]
-                index += 1
-                while index < lines.count, let next = listItem(in: lines[index]), next.ordered == first.ordered {
-                    items.append(next.text)
-                    index += 1
-                }
-                result.append(.list(ordered: first.ordered, items: items))
-                continue
-            }
-
-            var paragraph = [line.trimmingCharacters(in: .whitespaces)]
-            index += 1
-            while index < lines.count {
-                let next = lines[index]
-                let nextTrimmed = next.trimmingCharacters(in: .whitespaces)
-                if nextTrimmed.isEmpty || startsBlock(nextTrimmed, line: next, nextLine: lines[safe: index + 1]) { break }
-                paragraph.append(nextTrimmed)
-                index += 1
-            }
-            result.append(.paragraph(paragraph.joined(separator: " ")))
+            var attributed = AttributedString(value)
+            attributed.font = .system(size: variant == .compact ? 13 : 12.25, design: .monospaced)
+            attributed.backgroundColor = NativeChatTheme.inlineCode
+            return Text(attributed)
+        case .link(let destination, let children):
+            let label = plainText(children)
+            guard let url = nativeMarkdownURL(destination) else { return text(children) }
+            var attributed = AttributedString(label)
+            attributed.link = url
+            attributed.foregroundColor = NativeChatTheme.accent
+            attributed.underlineStyle = .single
+            return Text(attributed)
+        case .image(_, let alt):
+            return Text(alt).italic().foregroundColor(NativeChatTheme.tertiary)
+        case .math(let latex):
+            var renderer = MathImage(latex: latex, fontSize: variant == .compact ? 13 : 14,
+                                     textColor: UIColor(NativeChatTheme.primary), labelMode: .text, textAlignment: .left)
+            let (error, image, layout) = renderer.asImage()
+            guard error == nil, let image else { return Text(latex) }
+            return Text(Image(uiImage: image)).baselineOffset(-(layout?.descent ?? 0))
+        case .footnote(let identifier):
+            return Text("[\(identifier)]").font(.system(size: 9)).baselineOffset(6)
+        case .html(let value): return Text(value)
         }
-        return result
     }
 
-    private static func startsBlock(_ trimmed: String, line: String, nextLine: String?) -> Bool {
-        fencePrefix(in: trimmed) != nil || heading(in: trimmed) != nil || listItem(in: line) != nil
-            || (line.contains("|") && nextLine.map { tableSeparator($0) != nil } == true)
+    private func plainText(_ inline: [NativeMarkdownInline]) -> String {
+        inline.map { part in
+            switch part {
+            case .text(let value), .code(let value), .math(let value), .html(let value): value
+            case .strong(let children), .emphasis(let children), .delete(let children): plainText(children)
+            case .link(_, let children): plainText(children)
+            case .image(_, let alt): alt
+            case .footnote(let id): "[\(id)]"
+            }
+        }.joined()
     }
 
-    private static func heading(in line: String) -> (level: Int, text: String)? {
-        let count = line.prefix(while: { $0 == "#" }).count
-        guard (1...6).contains(count), line.dropFirst(count).first?.isWhitespace == true else { return nil }
-        let text = line.dropFirst(count).trimmingCharacters(in: .whitespaces)
-        return text.isEmpty ? nil : (count, text)
+    private func nativeFileMention(_ value: String) -> URL? {
+        let matches = workspaceFiles.filter { $0.relativePath == value || $0.relativePath.split(separator: "/").last.map(String.init) == value }
+        guard matches.count == 1 else { return nil }
+        return nativeMarkdownURL(matches[0].relativePath)
+    }
+}
+
+private func nativeMarkdownURL(_ destination: String) -> URL? {
+    guard let url = URL(string: destination) else { return nil }
+    if let scheme = url.scheme?.lowercased() {
+        return ["http", "https", "mailto", "file", "sandbox", "dsh-resource"].contains(scheme) ? url : nil
+    }
+    return destination.isEmpty ? nil : url
+}
+
+private struct NativeMathView: UIViewRepresentable {
+    let latex: String
+    let display: Bool
+    let compact: Bool
+
+    func makeUIView(context: Context) -> MTMathUILabel {
+        let view = MTMathUILabel()
+        view.labelMode = display ? .display : .text
+        view.fontSize = compact ? 13 : 14
+        view.latex = latex
+        view.displayErrorInline = false
+        return view
     }
 
-    private static func fencePrefix(in line: String) -> (marker: String, language: String)? {
-        let marker = line.hasPrefix("```") ? "```" : (line.hasPrefix("~~~") ? "~~~" : nil)
-        guard let marker else { return nil }
-        let language = line.dropFirst(marker.count).trimmingCharacters(in: .whitespaces)
-        return (marker, language)
+    func updateUIView(_ view: MTMathUILabel, context: Context) {
+        view.fontSize = compact ? 13 : 14
+        view.labelMode = display ? .display : .text
+        view.latex = latex
+        view.textColor = UIColor(NativeChatTheme.primary)
+    }
+}
+
+private struct NativeMarkdownImage: View {
+    let source: String
+    let alt: String
+    let title: String
+    @State private var presented = false
+
+    var body: some View {
+        if let url = URL(string: source), ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let image):
+                    Button { presented = true } label: {
+                        image.resizable().aspectRatio(contentMode: .fit)
+                            .frame(maxWidth: 640, maxHeight: 360)
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                case .failure: fallback
+                default: ProgressView().frame(maxWidth: .infinity, minHeight: 80)
+                }
+            }
+            .sheet(isPresented: $presented) { fullScreenRemote(url) }
+        } else if let image = localImage {
+            Button { presented = true } label: {
+                Image(uiImage: image).resizable().aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: 640, maxHeight: 360)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .sheet(isPresented: $presented) {
+                Image(uiImage: image).resizable().aspectRatio(contentMode: .fit)
+                    .ignoresSafeArea().background(.black)
+            }
+        } else { fallback }
     }
 
-    private static func listItem(in line: String) -> (ordered: Bool, text: String)? {
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
-        if let first = trimmed.first, ["-", "*", "+"].contains(first),
-           trimmed.dropFirst().first?.isWhitespace == true {
-            return (false, trimmed.dropFirst().trimmingCharacters(in: .whitespaces))
-        }
-        let digits = trimmed.prefix(while: { $0.isNumber })
-        guard !digits.isEmpty, let marker = trimmed.dropFirst(digits.count).first,
-              marker == "." || marker == ")",
-              trimmed.dropFirst(digits.count + 1).first?.isWhitespace == true else { return nil }
-        return (true, trimmed.dropFirst(digits.count + 1).trimmingCharacters(in: .whitespaces))
+    private var fallback: some View {
+        Text(alt).italic().foregroundStyle(NativeChatTheme.tertiary)
     }
 
-    private static func tableSeparator(_ line: String) -> [String]? {
-        let cells = tableCells(line)
-        guard !cells.isEmpty, cells.allSatisfy({ cell in
-            let value = cell.trimmingCharacters(in: .whitespaces)
-            return value.contains("-") && value.allSatisfy { $0 == "-" || $0 == ":" }
-        }) else { return nil }
-        return cells
+    private var localImage: UIImage? {
+        let cleaned = source.split(whereSeparator: { $0 == "?" || $0 == "#" }).map(String.init).first ?? source
+        let decoded = cleaned.removingPercentEncoding ?? cleaned
+        guard !decoded.isEmpty, !decoded.split(separator: "/").contains("..") else { return nil }
+        let relative = decoded.hasPrefix("/dsh/workspace/") ? String(decoded.dropFirst("/dsh/workspace/".count)) : decoded
+        let url = ChatModel.shared.workspaceRoot.appendingPathComponent(relative)
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return UIImage(data: data)
     }
 
-    private static func tableCells(_ line: String) -> [String] {
-        var cells = line.split(separator: "|", omittingEmptySubsequences: false).map {
-            $0.trimmingCharacters(in: .whitespaces)
-        }
-        if line.trimmingCharacters(in: .whitespaces).hasPrefix("|"), !cells.isEmpty { cells.removeFirst() }
-        if line.trimmingCharacters(in: .whitespaces).hasSuffix("|"), !cells.isEmpty { cells.removeLast() }
-        return cells
-    }
-
-    private static func padded(_ cells: [String], to count: Int) -> [String] {
-        Array(cells.prefix(count)) + Array(repeating: "", count: max(0, count - cells.count))
+    private func fullScreenRemote(_ url: URL) -> some View {
+        AsyncImage(url: url) { image in
+            image.resizable().aspectRatio(contentMode: .fit)
+        } placeholder: { ProgressView() }
+        .ignoresSafeArea().background(.black)
     }
 }
 

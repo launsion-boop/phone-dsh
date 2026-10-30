@@ -4,6 +4,7 @@
 // 会话占一格是产品决定（高频检索）；定时任务并进会话页的第二段。
 
 import SwiftUI
+import PhoneDSHAgentCore
 
 /// The four places the native shell can be. Chat owns the composed turn;
 /// Sessions owns history + scheduled runs; Workspace owns files and the
@@ -739,6 +740,7 @@ enum PreviewScreen: String, Identifiable, CaseIterable {
     case workspaceFiles = "workspace.files"
     case configuration
     case chatAssistant = "chat.assistant"
+    case chatOfficial = "chat.official"
     case chatFailed = "chat.failed"
     case chatQueued = "chat.queued"
     case chatPermission = "chat.permission"
@@ -778,6 +780,7 @@ enum PreviewScreen: String, Identifiable, CaseIterable {
         case .workspaceFiles: FilesPage()
         case .configuration: PDSHShellPage()
         case .chatAssistant: ChatPage(previewItems: PreviewChatItems.assistant)
+        case .chatOfficial: ChatPage(previewItems: PreviewChatItems.official)
         case .chatFailed: ChatPage(previewItems: PreviewChatItems.failed)
         case .chatQueued: ChatPage(previewItems: PreviewChatItems.queued)
         case .sessionsMany:
@@ -887,6 +890,84 @@ enum PreviewChatItems {
 
     接下来我会把这一段改动落到 `ChatPage.swift`,然后重新编译验证。
     """)
+
+    static var official: [ChatItem] {
+        let now = Date()
+        var rows: [ChatItem] = []
+        var user = ChatItem(id: "official-user", kind: .user, title: "You",
+                            text: "请把官方 DSH 的消息结构完整适配到 iOS 原生。")
+        user.turn = 1
+        user.timestamp = now.addingTimeInterval(-180)
+        rows.append(user)
+        var thinking = ChatItem(id: "official-thinking", kind: .reasoning, title: "思考",
+                                text: "先对照官方事件结构。\n需要保留 thinking、工具和 Markdown 的原始顺序。\n\n再检查输入区和统计。")
+        thinking.turn = 1
+        rows.append(thinking)
+        var bash = ChatItem(id: "official-bash", kind: .toolCall, title: "Tool call: bash", text: "")
+        bash.turn = 1
+        bash.callID = "official-bash-call"
+        bash.toolName = "bash"
+        bash.argumentsRaw = #"{"command":"xcodebuild test","description":"运行原生回归测试"}"#
+        bash.arguments = .object(["command": .string("xcodebuild test"), "description": .string("运行原生回归测试")])
+        bash.toolOutput = "12 tests passed"
+        bash.toolMetadata = .object(["exitCode": .number(0)])
+        bash.toolState = .ok
+        rows.append(bash)
+        let paths = ["DESIGN.md", "PRD.md", "app-map.md", "states.md", "NativeChat.swift", "NativeMarkdown.swift"]
+        for (index, path) in paths.enumerated() {
+            var edit = ChatItem(id: "official-edit-\(index)", kind: .toolCall, title: "Tool call: edit", text: "")
+            edit.turn = 1
+            edit.callID = "official-edit-call-\(index)"
+            edit.toolName = "edit"
+            edit.argumentsRaw = #"{"file_path":"docs/design/phone-dsh-app/\#(path)"}"#
+            edit.arguments = .object([
+                "file_path": .string("docs/design/phone-dsh-app/\(path)"),
+                "old_string": .string("旧结构"),
+                "new_string": .string("官方原生结构"),
+            ])
+            edit.toolOutput = "Updated"
+            edit.toolState = .ok
+            rows.append(edit)
+        }
+        var answer = ChatItem(id: "official-answer", kind: .assistant, title: "Assistant", text: """
+        ## 官方消息结构
+
+        正文支持 **粗体**、*斜体*、~~删除线~~、`Package.swift` 和 [安全链接](https://github.com/deepseek-ai/deepseek-harness)。
+
+        - [x] thinking 与工具调用
+        - [ ] iOS 原生 Markdown
+
+        > 消息、过程和输入区使用同一套官方结构。
+
+        | 模块 | 状态 |
+        |:--|--:|
+        | Markdown | 原生 |
+        | TeX | $x^2 + y^2 = z^2$ |
+
+        ```swift
+        struct NativeChat: View {
+            let official = true
+        }
+        ```
+
+        $$
+        E = mc^2
+        $$
+
+        原始 HTML 保持字面：<b>不会执行</b>。[^note]
+
+        [^note]: 流式与历史恢复使用同一事件投影。
+        """)
+        answer.turn = 1
+        answer.timestamp = now
+        answer.messageID = "official-message"
+        answer.turnUsage = NativeTurnUsage(value: .object([
+            "inputTokens": .number(48_000), "outputTokens": .number(2_160),
+            "cacheReadTokens": .number(150_000), "cacheWriteTokens": .number(0),
+        ]))
+        rows.append(answer)
+        return rows
+    }
 
     /// 一条很长的用户消息 + 一条长回答,用来验正文不折叠、行高不炸。
     static let longThread: [ChatItem] = [

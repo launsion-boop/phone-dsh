@@ -329,7 +329,11 @@ struct ChatPage: View {
             // The native surface owns the one host now, so a cold launch
             // starts it directly instead of waiting for a tap.
             if !model.isStarted, !model.busy {
+                #if DEBUG
+                if previewItems == nil && PreviewScreen.requested == nil { Task { await model.start() } }
+                #else
                 Task { await model.start() }
+                #endif
             }
             // Device-test automation (PDSH_CHAT_AUTOSTART / PDSH_CHAT_AUTOPROMPT).
             model.autostartIfRequested()
@@ -607,6 +611,9 @@ struct ChatPage: View {
             case "chat.queued":
                 model.debugInstallPreviewState(failedItemID: nil, error: nil,
                                                queue: ["p-u3": "已排队"])
+            case "chat.official":
+                draft = ""
+                model.debugInstallNativeMetricsPreview()
             default:
                 break
             }
@@ -765,7 +772,7 @@ struct ChatPage: View {
                             switch row {
                             case .item(let item):
                                 VStack(alignment: .leading, spacing: 0) {
-                                    ChatMessageRow(item: item, workspaceFiles: model.files,
+                                    ChatMessageRow(item: item, allItems: visibleItems, workspaceFiles: model.files,
                                                    onOpenFile: openWorkspaceResult)
                                     queueLine(for: item)
                                     failureLineIfNeeded(for: item)
@@ -1150,42 +1157,35 @@ struct ChatPage: View {
             }
             // The DSH input trigger: a bare leading `/token` opens the command
             // menu in place; picking one writes the token back into the draft.
-            if slashToken != nil {
-                slashCommandMenu
-            }
-            // 输入条是一整块浅灰圆角板。板内网格:上 12、下 12、左 14、右 8;
-            // 文字行 22、间距 10、工具行 32,单行合计 88。工具行靠左排,
-            // 发送/停止固定板内右下(右 8、底 8),文字因此不被按钮挤窄。
+            if slashToken != nil { slashCommandMenu }
+            if referenceToken != nil { referenceMenu }
+            // Official InputBar: one elevated card, a 14-line text scrollport,
+            // and the control row docked inside its lower edge.
             VStack(spacing: 0) {
-                // Composer per the design spec: 17pt text, 22pt line,
-                // 1–5 lines then it scrolls inside.
-                // TextEditor, not a vertical TextField: past five lines a
-                // TextField clips the last visible line instead of scrolling,
-                // which made a long draft impossible to read or edit. The
-                // editor scrolls inside its five-line frame.
                 ZStack(alignment: .topLeading) {
                     if draft.isEmpty {
                         Text(composerPlaceholder)
-                            .font(.system(size: 17))
-                            .foregroundStyle(ChatPage.inkSecondary)
+                            .font(NativeChatTheme.bodyFont())
+                            .foregroundStyle(NativeChatTheme.caption)
+                            .lineLimit(1)
                             .padding(.leading, 5)
                             .padding(.top, 8)
                             .allowsHitTesting(false)
                     }
                     TextEditor(text: $draft)
                         .scrollContentBackground(.hidden)
-                        .font(.system(size: 17))
-                        .lineSpacing(2)
+                        .font(NativeChatTheme.bodyFont())
+                        .lineSpacing(24 - 17)
                         .focused($inputFocused)
                         .disabled(!composerEnabled)
-                        .frame(minHeight: 22, maxHeight: 118)
+                        .frame(minHeight: 36, maxHeight: 336)
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityLabel(composerPlaceholder)
                 }
                 .padding(.leading, 14)
                 .padding(.trailing, 8)
-                .frame(minHeight: 22)
-                .padding(.top, 6)
+                .frame(minHeight: 36)
+                .padding(.top, 4)
                     .onChange(of: draft) { _, value in
                         if value.count > 8_000 {
                             draft = String(value.prefix(8_000))
@@ -1206,28 +1206,28 @@ struct ChatPage: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            // 发送键/停止键独占板内右下:32 圆到板右、板底各 8。
-            // 44 是触控区,圆形 32 居中,所以外框再各收 2。
             .overlay(alignment: .bottomTrailing) {
                 HStack(spacing: 8) {
                     if model.turnRunning, canSubmit {
                         stopButton(diameter: 24, icon: 9)
                     }
-                    if canSubmit || model.turnRunning {
-                        actionButton
-                    }
+                    actionButton
                 }
                 .padding(.trailing, 2)
                 .padding(.bottom, 2)
             }
-            .background(Color(red: 0xF2 / 255, green: 0xF3 / 255, blue: 0xF5 / 255),
+            .background(NativeChatTheme.input,
                         in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .strokeBorder(NativeChatTheme.borderLight, lineWidth: 0.5))
+            .shadow(color: .black.opacity(0.06), radius: 12, y: 3)
+            NativeComposerStats(stats: model.sessionStats, usage: model.tokenUsage,
+                                pressure: model.contextPressure, breakdown: model.contextBreakdown)
         }
         .padding(.horizontal, 16)
         .padding(.top, 12)
         .padding(.bottom, 8)
-        // 输入区外整片纯白,不画分隔线;靠上方的间距和对话分开。
-        .background(Color.white)
+        .background(NativeChatTheme.background)
         // The command catalog is pulled the first time the trigger opens, the
         // same lazy load the DSH command directory does per session.
         .onChange(of: slashToken) { _, token in
@@ -1240,18 +1240,20 @@ struct ChatPage: View {
     @ViewBuilder
     private var actionButton: some View {
         if !canSubmit && model.turnRunning {
-            stopButton(diameter: 32, icon: 13)
-        } else if canSubmit {
+            stopButton(diameter: 34, icon: 13)
+        } else {
             Button(action: submitDraft) {
                 Image(systemName: "arrow.up")
                     .font(.system(size: 15, weight: .bold))
                     .foregroundStyle(.white)
-                    .frame(width: 32, height: 32)
-                    .background(ChatPage.accent, in: Circle())
+                    .frame(width: 34, height: 34)
+                    .background(NativeChatTheme.accent, in: Circle())
+                    .opacity(canSubmit ? 1 : 0.4)
                     .frame(width: 44, height: 44)
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
+            .disabled(!canSubmit)
             .transition(.scale(scale: 0.8).combined(with: .opacity))
             .animation(.easeOut(duration: 0.12), value: canSubmit)
             .accessibilityLabel("发送消息")
@@ -1292,25 +1294,33 @@ struct ChatPage: View {
     }
 
     private var composerControls: some View {
-        // 外框按板内网格:左 14 起,按钮热区 32×32、相邻间隔 8(中心距 40);
-        // 图标 17、文字 13,控件左右内边距 4,保持既有“墨迹约 20”的验收。
         HStack(spacing: 8) {
             Menu {
+                Button("调用指令", systemImage: "slash.square") {
+                    draft = "/"
+                    inputFocused = true
+                }
+                Button("引用文件或对话", systemImage: "at") {
+                    draft = "@"
+                    inputFocused = true
+                }
                 Button("添加图片", systemImage: "photo") { showAttachmentPicker = true }
                 Button("添加文件（写入工作区）", systemImage: "doc.badge.plus") {
                     showFileImport = true
                 }
             } label: {
                 Image(systemName: "plus")
-                    .font(.system(size: 17, weight: .regular))
-                    .foregroundStyle(ChatPage.inkSecondary)
-                    .frame(width: 32, height: 32)
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(NativeChatTheme.primary)
+                    .frame(width: 28, height: 28)
+                    .background(NativeChatTheme.selector, in: Circle())
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(!composerEnabled)
-            .accessibilityLabel("添加图片或文件")
+            .accessibilityLabel("添加指令、引用或附件")
             accessModeMenu
+            Spacer(minLength: 8)
             modelMenu
             if model.turnRunning {
                 ProgressView()
@@ -1388,20 +1398,13 @@ struct ChatPage: View {
                 }
             }
         } label: {
-            // 只留图标和字:图标 17、文字 13,热区高 32。
-            // 宽度跟着字走,不预留:预留的空白会把这一格撑宽,
-            // 和下一格之间就出现一段看不见的空隙(墨迹间距对不上)。
             HStack(spacing: 4) {
-                Image(systemName: "lock.shield")
-                    .font(.system(size: 17))
-                Text(accessModeTitle)
-                    .font(.system(size: 13))
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
+                NativeChatIcon(name: .shield, size: 17)
+                NativeChatIcon(name: .chevronDown, size: 12)
             }
-            .foregroundStyle(ChatPage.inkSecondary)
+            .foregroundStyle(NativeChatTheme.secondary)
             .padding(.horizontal, 5)
-            .frame(height: 32)
+            .frame(height: 28)
         }
         .disabled(!model.canSend || model.turnRunning || model.pendingQuestion != nil || model.pendingPermission != nil || isSelectingAccessMode)
         .accessibilityLabel("权限：\(accessModeTitle)")
@@ -1491,17 +1494,20 @@ struct ChatPage: View {
 
     private var modelNameBlock: some View {
         HStack(spacing: 4) {
-            Image(systemName: "cpu")
-                .font(.system(size: 17))
             Text(modelDisplayName)
-                .font(.system(size: 13))
+                .font(NativeChatTheme.secondaryFont())
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .fixedSize(horizontal: true, vertical: false)
+            if let effort = reasoningEffortTitle {
+                Text(effort)
+                    .font(NativeChatTheme.secondaryFont())
+                    .lineLimit(1)
+            }
+            NativeChatIcon(name: .chevronDown, size: 12)
         }
         .foregroundStyle(modelControlTint)
         .padding(.horizontal, 5)
-        .frame(height: 32)
+        .frame(height: 28)
         .layoutPriority(1)
     }
 
@@ -1738,7 +1744,7 @@ struct ChatPage: View {
     }
 
     private var composerPlaceholder: String {
-        if !model.turnRunning { return "发消息" }
+        if !model.turnRunning { return "发消息或创建任务，/ 调用指令，@ 文件或对话" }
         return busyEnterMode == "steer" ? "补充当前任务…" : "排入下一轮…"
     }
 
@@ -1870,6 +1876,68 @@ struct ChatPage: View {
     private func pickCommand(_ descriptor: NativeCommandDescriptor) {
         draft = "/\(descriptor.name) "
         inputFocused = true
+    }
+
+    private var referenceToken: String? {
+        let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("@"), !trimmed.dropFirst().contains(where: { $0.isWhitespace }) else { return nil }
+        return String(trimmed.dropFirst())
+    }
+
+    private var referenceFiles: [WorkspaceFile] {
+        guard let token = referenceToken else { return [] }
+        return model.files.filter { token.isEmpty || $0.relativePath.localizedCaseInsensitiveContains(token) }.prefix(6).map { $0 }
+    }
+
+    private var referenceSessions: [ManagedSession] {
+        guard let token = referenceToken, !token.isEmpty else { return [] }
+        return management.sessions.filter { $0.title.localizedCaseInsensitiveContains(token) }.prefix(3).map { $0 }
+    }
+
+    @ViewBuilder
+    private var referenceMenu: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if referenceFiles.isEmpty && referenceSessions.isEmpty {
+                Text("没有匹配的文件或对话")
+                    .font(NativeChatTheme.secondaryFont())
+                    .foregroundStyle(NativeChatTheme.secondary)
+                    .padding(12)
+            } else {
+                ForEach(referenceFiles) { file in
+                    Button {
+                        draft = file.relativePath + " "
+                        inputFocused = true
+                    } label: {
+                        HStack(spacing: 10) {
+                            FileTypeGlyph.icon(for: file.relativePath, size: 20)
+                            Text(file.relativePath).lineLimit(1)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 12).padding(.vertical, 8)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+                ForEach(referenceSessions) { session in
+                    Button {
+                        draft = "@\(session.title) "
+                        inputFocused = true
+                    } label: {
+                        HStack(spacing: 10) {
+                            NativeChatIcon(name: .branch, size: 16)
+                            Text(session.title).lineLimit(1)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 12).padding(.vertical, 8)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .font(NativeChatTheme.secondaryFont())
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(NativeChatTheme.selector, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     static func parseSlashCommand(_ text: String) -> (name: String, input: String)? {
@@ -2175,97 +2243,28 @@ private struct QuestionCard: View {
     }
 }
 
-/// The model's streamed reasoning, following the DSH web ReasoningRow:
-/// a 24pt disclosure row with the official Think icon (the DSH artwork),
-/// the title, and one collapsed summary line that keeps refreshing while the
-/// model thinks. Tapping opens the complete reasoning Markdown.
-private struct ThinkingBlock: View {
-    let text: String
-    let streaming: Bool
-    @State private var expanded = false
-
-    /// DSH's collapsed summary: the first line when settled; while running,
-    /// the first line of the latest COMPLETED paragraph (the growing last
-    /// paragraph is skipped so the line does not jitter).
-    private var summary: String {
-        let raw: String
-        if streaming {
-            raw = Self.latestCompletedParagraphFirstLine(text)
-        } else {
-            raw = text.components(separatedBy: "\n").first ?? ""
-        }
-        return raw.replacingOccurrences(of: "**", with: "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    static func latestCompletedParagraphFirstLine(_ text: String) -> String {
-        var currentFirst: String?
-        var lastCompleted: String?
-        for line in text.components(separatedBy: "\n") {
-            if line.trimmingCharacters(in: .whitespaces).isEmpty {
-                if let first = currentFirst { lastCompleted = first }
-                currentFirst = nil
-            } else if currentFirst == nil {
-                currentFirst = line
-            }
-        }
-        return lastCompleted ?? currentFirst ?? ""
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Button {
-                expanded.toggle()
-            } label: {
-                HStack(spacing: 8) {
-                    Image(expanded ? "DSHChevronUp" : "DSHThink")
-                        .resizable()
-                        .renderingMode(.template)
-                        .frame(width: 14, height: 14)
-                    Text("思考")
-                        .font(.system(size: 13))
-                    if !expanded, !summary.isEmpty {
-                        Rectangle()
-                            .fill(ChatPage.inkSecondary.opacity(0.35))
-                            .frame(width: 12, height: 1)
-                        ShimmerText(text: summary, active: streaming)
-                    }
-                    Spacer(minLength: 0)
-                }
-                .foregroundStyle(ChatPage.inkSecondary)
-                .frame(minHeight: 24)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            if expanded {
-                NativeMarkdownBody(markdown: text.isEmpty ? "…" : text)
-                    .font(.system(size: 15))
-                    .foregroundStyle(ChatPage.inkSecondary)
-                    .padding(.leading, 22)
-            }
-        }
-    }
-}
-
 private struct ChatMessageRow: View {
     let item: ChatItem
+    let allItems: [ChatItem]
     var workspaceFiles: [WorkspaceFile]
     var onOpenFile: (String) -> Void
 
     var body: some View {
         switch item.kind {
         case .toolCall, .toolResult:
-            ToolEventCard(item: item, expanded: false, workspaceFiles: workspaceFiles, onOpenFile: onOpenFile)
+            NativeToolCallRow(item: item, onOpenFile: onOpenFile)
         case .context:
             ContextInjectionCard(item: item)
         case .user:
-            // 用户消息才用底色块:靠右、宽跟字走、上限 296;不再有「你」那层。
-            HStack(alignment: .top, spacing: 0) {
-                Spacer(minLength: 16)
-                userBubble
+            VStack(alignment: .trailing, spacing: 4) {
+                HStack(alignment: .top, spacing: 0) {
+                    Spacer(minLength: 16)
+                    userBubble
+                }
+                if !item.attachments.isEmpty { NativeAttachmentList(attachments: item.attachments, onOpenFile: onOpenFile) }
+                NativeMessageActions(text: item.text, timestamp: item.timestamp)
             }
         case .assistant:
-            // 助手正文不套气泡,直接排在版心上。
             assistantBody
                 .contextMenu {
                     if !item.text.isEmpty {
@@ -2275,10 +2274,13 @@ private struct ChatMessageRow: View {
                     }
                 }
         case .reasoning:
-            // The model's thinking: muted, collapsible, and never part of the
-            // answer. It starts expanded while streaming, collapses when the
-            // step's answer arrives.
-            ThinkingBlock(text: item.text, streaming: item.streaming)
+            NativeThinkingRow(item: item)
+        case .image:
+            NativeAttachmentList(attachments: item.attachments, onOpenFile: onOpenFile)
+        case .systemEvent, .turnError, .maxTokens:
+            NativeSystemEventRow(item: item)
+        case .unknown:
+            DSHJsonBlock(text: item.text)
         case .status:
             EmptyView()
         }
@@ -2287,312 +2289,73 @@ private struct ChatMessageRow: View {
     private var assistantBody: some View {
         VStack(alignment: .leading, spacing: 6) {
             if item.streaming { ProgressView().controlSize(.mini) }
-            NativeMarkdownBody(markdown: item.text.isEmpty ? "…" : item.text)
-                .font(.system(size: 17))
+            NativeMarkdownBody(markdown: item.text.isEmpty ? "…" : item.text,
+                               streaming: item.streaming, workspaceFiles: workspaceFiles,
+                               onOpenFile: onOpenFile)
+                .font(NativeChatTheme.bodyFont())
                 .environment(\.openURL, OpenURLAction { url in
                     guard let path = workspaceRelativePath(from: url) else { return .systemAction }
                     onOpenFile(path)
                     return .handled
                 })
-            WorkspaceOutputReferences(text: item.text, files: workspaceFiles, onOpenFile: onOpenFile)
+            if isTurnClosingAssistant, let turn = item.turn {
+                if let changes = NativeTranscriptProjector.changes(forTurn: turn, in: allItems) {
+                    NativeChangedFilesCard(changes: changes, onOpenFile: onOpenFile)
+                }
+                NativeMessageActions(text: Self.assistantText(forTurn: turn, in: allItems),
+                                     timestamp: item.timestamp,
+                                     usage: NativeTranscriptProjector.usage(forTurn: turn, in: allItems),
+                                     onFeedback: feedbackAction)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var isTurnClosingAssistant: Bool {
+        guard let turn = item.turn, !item.streaming else { return false }
+        return allItems.last(where: { $0.turn == turn && $0.kind == .assistant })?.id == item.id
+    }
+
+    private static func assistantText(forTurn turn: Int, in items: [ChatItem]) -> String {
+        items.filter { $0.turn == turn && $0.kind == .assistant }.map(\.text).joined(separator: "\n\n")
+    }
+
+    private var feedbackAction: ((Bool) -> Void)? {
+        guard let messageID = item.messageID else { return nil }
+        return { positive in
+            Task { await ChatModel.shared.rateMessage(messageID, positive: positive) }
+        }
     }
 
     /// 贴字优先:能一行放下就用自然宽度,放不下才在 296 内换行。
     private var userBubble: some View {
         let body = Text(item.text.isEmpty ? "…" : item.text)
-            .font(.system(size: 17))
-            .lineSpacing(24 - 21)
+            .font(NativeChatTheme.bodyFont())
+            .lineSpacing(24 - 17)
             .textSelection(.enabled)
         return ViewThatFits(in: .horizontal) {
             body.fixedSize(horizontal: true, vertical: true)
             body
         }
         .padding(12)
-        .background(Color(red: 232 / 255, green: 233 / 255, blue: 237 / 255),
+        .background(NativeChatTheme.selector,
                     in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         .frame(maxWidth: 296, alignment: .trailing)
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
 
-    private func messageCard(tint: Color) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 9) {
-                Text(displayTitle).font(.caption.weight(.semibold))
-                if item.streaming { ProgressView().controlSize(.mini) }
-            }
-            .foregroundStyle(.secondary)
-            if item.kind == .assistant {
-                NativeMarkdownBody(markdown: item.text.isEmpty ? "…" : item.text)
-                    .padding(-16)
-                    .environment(\.openURL, OpenURLAction { url in
-                        guard let path = workspaceRelativePath(from: url) else { return .systemAction }
-                        onOpenFile(path)
-                        return .handled
-                    })
-            } else {
-                Text(item.text.isEmpty ? "…" : item.text)
-                    .font(.body)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .foregroundStyle(tint)
-            }
-            WorkspaceOutputReferences(text: item.text, files: workspaceFiles, onOpenFile: onOpenFile)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contextMenu {
-            Button("复制", systemImage: "doc.on.doc") {
-                UIPasteboard.general.string = item.text
-            }
-        }
-    }
-
-    private var displayTitle: String {
-        switch item.title {
-        case "You": return "你"
-        case "You (steering)": return "你 · 补充说明"
-        case "Assistant": return "DSH"
-        case let title where title.hasPrefix("DSH context · "):
-            return NativeSourceName.chinese(title.replacingOccurrences(of: "DSH context · ", with: ""))
-                .map { "上下文注入 · \($0)" } ?? "上下文注入"
-        case "Tool result": return "工具结果"
-        case "Tool error": return "工具错误"
-        default:
-            if item.title.hasPrefix("Tool call: ") {
-                return "工具调用 · " + item.title.replacingOccurrences(of: "Tool call: ", with: "")
-            }
-            return item.title
-        }
-    }
-}
-
-/// One run of tool activity folded into a single row: the collapsed label
-/// reports the count and failures, and the individual lines are one tap away.
-private func toolFirstLine(_ text: String) -> String {
-    text.components(separatedBy: .newlines).first ?? text
-}
-
-/// The title a tool item shows when nothing more specific is available.
-private func toolDisplayTitle(_ item: ChatItem) -> String {
-    if case .toolCall = item.kind {
-        let name = item.title.replacingOccurrences(of: "Tool call: ", with: "")
-        return ToolWording.category(forToolName: name).rowTitle
-    }
-    switch item.title {
-    case "Tool error": return "工具错误"
-    case "Tool result": return "工具结果"
-    default:
-        if item.title.hasPrefix("Tool call: ") {
-            return "工具调用 · " + item.title.replacingOccurrences(of: "Tool call: ", with: "")
-        }
-        return item.title
-    }
-}
-
-/// One line「动作 · 参数」for a tool row; the verb comes from the call text and
-/// never says the generic「调用工具」.
-private func toolActionLine(_ item: ChatItem) -> String {
-    let raw = toolFirstLine(item.text).trimmingCharacters(in: .whitespaces)
-    guard case .toolCall = item.kind, !raw.isEmpty else { return toolDisplayTitle(item) }
-    let parts = raw.components(separatedBy: " · ")
-    let rest = parts.dropFirst().joined(separator: " · ").trimmingCharacters(in: .whitespaces)
-    let verb = parts.first?.lowercased() ?? ""
-    let action: String
-    switch true {
-    case ["read", "read_file", "filesystem_read"].contains(verb): action = "读取文件"
-    case ["write", "write_file", "edit", "apply_patch"].contains(verb): action = "改文件"
-    case ["bash", "shell", "exec"].contains(verb): action = "运行命令"
-    case ["grep", "glob", "find", "search"].contains(verb): action = "搜索"
-    default: action = toolDisplayTitle(item)
-    }
-    var parameter = rest.isEmpty ? raw : rest
-    if ["读取文件", "改文件"].contains(action) {
-        parameter = parameter.components(separatedBy: "/").last ?? parameter
-    }
-    parameter = readableToolParameter(parameter)
-    // A streaming tool call can be a bare `{` (its arguments are still
-    // arriving): showing '执行命令 · {' with nothing after it is noise, so an
-    // unreadable parameter drops the whole preview and leaves the action.
-    if parameter.isEmpty { return action }
-    if parameter.count > 48 { parameter = String(parameter.prefix(48)) + "…" }
-    return "\(action) · \(parameter)"
-}
-
-/// Turns a tool argument fragment into one readable line: JSON arguments pick
-/// a human field (description/command/...); braces and quotes are stripped;
-/// an unparseable fragment yields an empty string (the caller hides it).
-private func readableToolParameter(_ raw: String) -> String {
-    var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-    if text.hasPrefix("{") || text.hasPrefix("[") {
-        if let data = text.data(using: .utf8),
-           let object = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) {
-            if let dictionary = object as? [String: Any] {
-                for key in ["description", "command", "query", "path", "file_path",
-                            "pattern", "url", "name", "prompt"] {
-                    if let value = dictionary[key] as? String,
-                       !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        return value.trimmingCharacters(in: .whitespacesAndNewlines)
-                    }
-                }
-            }
-            return ""
-        }
-        text = text.trimmingCharacters(in: CharacterSet(charactersIn: "{}[]\" "))
-    }
-    return text.trimmingCharacters(in: .whitespacesAndNewlines)
 }
 
 private struct ToolRunRow: View {
     let items: [ChatItem]
     var workspaceFiles: [WorkspaceFile] = []
     var onOpenFile: (String) -> Void = { _ in }
-    @State private var expanded = false
-
-    /// Consecutive calls fold into ONE row (no switch arrows, no counter):
-    /// the row previews the latest command, a single tap opens the list and
-    /// each row then opens its own detail. A lone call stays its own row.
-    var body: some View {
-        if items.count == 1, let only = items.first {
-            ToolEventCard(item: only, workspaceFiles: workspaceFiles, onOpenFile: onOpenFile)
-        } else if let latest = items.last {
-            VStack(alignment: .leading, spacing: 0) {
-                Button {
-                    expanded.toggle()
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "terminal")
-                            .font(.system(size: 13))
-                            .foregroundStyle(ChatPage.inkSecondary)
-                            .layoutPriority(1)
-                        Text(toolActionLine(latest))
-                            .font(.system(size: 13))
-                            .foregroundStyle(ChatPage.inkSecondary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            .layoutPriority(2)
-                        Spacer(minLength: 0)
-                        Image("DSHChevronDown")
-                            .resizable()
-                            .renderingMode(.template)
-                            .frame(width: 12, height: 12)
-                            .rotationEffect(.degrees(expanded ? 180 : 0))
-                            .foregroundStyle(ChatPage.inkSecondary)
-                    }
-                    .frame(height: 33)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                Rectangle()
-                    .fill(ChatPage.inkSecondary.opacity(0.18))
-                    .frame(height: 0.5)
-                if expanded {
-                    VStack(alignment: .leading, spacing: 2) {
-                        ForEach(items) { item in
-                            ToolEventCard(item: item, workspaceFiles: workspaceFiles,
-                                          onOpenFile: onOpenFile)
-                        }
-                    }
-                    .padding(.top, 6)
-                }
-            }
-        }
-    }
-}
-
-private struct ToolEventCard: View {
-    let item: ChatItem
-    var workspaceFiles: [WorkspaceFile] = []
-    var onOpenFile: (String) -> Void = { _ in }
-    @State private var expanded: Bool
-
-    init(item: ChatItem, expanded: Bool = false, workspaceFiles: [WorkspaceFile] = [], onOpenFile: @escaping (String) -> Void = { _ in }) {
-        self.item = item
-        self.workspaceFiles = workspaceFiles
-        self.onOpenFile = onOpenFile
-        _expanded = State(initialValue: expanded)
-    }
-
-    private var isError: Bool {
-        if case .toolResult(let isError) = item.kind { return isError }
-        return false
-    }
-
-    /// 一行「动作 · 参数」,动作是动词加对象,不写「调用工具」这种笼统词。
-    private var actionLine: String { toolActionLine(item) }
-
-    /// 有没有可展开的详情:有内容才给箭头。
-    private var hasDetails: Bool {
-        !item.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
 
     var body: some View {
-        DisclosureGroup(isExpanded: $expanded) {
-            DSHJsonBlock(text: item.text)
-            if case .toolResult = item.kind {
-                WorkspaceOutputReferences(text: item.text, files: workspaceFiles, onOpenFile: onOpenFile)
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(items) { item in
+                NativeToolCallRow(item: item, onOpenFile: onOpenFile)
             }
-        } label: {
-            // 工具行是过程,不是内容:一行 28,图标 14 单色次要墨,文字 13,
-            // 不加底色、边框、圆角;右边只在能点开时给一个小箭头。
-            HStack(spacing: 9) {
-                Image(systemName: isError ? "exclamationmark.triangle.fill" : "terminal")
-                    .font(.system(size: 14))
-                    .foregroundStyle(isError ? Color(red: 0xC0/255, green: 0x39/255, blue: 0x2B/255)
-                                             : Color(red: 154/255, green: 154/255, blue: 162/255))
-                Text(actionLine)
-                    .font(.system(size: 13))
-                    .foregroundStyle(isError ? Color(red: 0xC0/255, green: 0x39/255, blue: 0x2B/255) : ChatPage.inkSecondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Spacer(minLength: 8)
-                if item.streaming {
-                    ProgressView().controlSize(.mini).scaleEffect(0.8)
-                } else if case .toolResult = item.kind {
-                    // The DSH web tool row ends in the same status glyph.
-                    Image(isError ? "DSHClose" : "DSHCheck")
-                        .resizable()
-                        .renderingMode(.template)
-                        .frame(width: 12, height: 12)
-                        .foregroundStyle(isError
-                            ? Color(red: 0xC0/255, green: 0x39/255, blue: 0x2B/255)
-                            : Color(red: 154/255, green: 154/255, blue: 162/255))
-                }
-                if hasDetails {
-                    Image("DSHChevronDown")
-                        .resizable()
-                        .renderingMode(.template)
-                        .frame(width: 12, height: 12)
-                        .rotationEffect(.degrees(expanded ? 180 : 0))
-                        .foregroundStyle(Color(red: 154/255, green: 154/255, blue: 162/255))
-                }
-            }
-            .frame(height: 28)
-            .contentShape(Rectangle())
-        }
-        // 系统展开箭头会占住右侧一条;换成自己的箭头,位置才归版心管。
-        .disclosureGroupStyle(FlatDisclosureStyle())
-        .contextMenu {
-            Button("复制详情", systemImage: "doc.on.doc") { UIPasteboard.general.string = item.text }
-        }
-    }
-
-    private func firstLine(_ text: String) -> String { text.components(separatedBy: .newlines).first ?? text }
-
-    private var displayTitle: String {
-        if case .toolCall = item.kind {
-            let name = item.title.replacingOccurrences(of: "Tool call: ", with: "")
-            return ToolWording.category(forToolName: name).rowTitle
-        }
-        switch item.title {
-        case "Tool error": return "工具错误"
-        case "Tool result": return "工具结果"
-        default:
-            if item.title.hasPrefix("Tool call: ") {
-                return "工具调用 · " + item.title.replacingOccurrences(of: "Tool call: ", with: "")
-            }
-            return item.title
         }
     }
 }
