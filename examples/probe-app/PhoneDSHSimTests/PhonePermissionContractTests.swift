@@ -106,4 +106,15 @@ final class PhonePermissionContractTests: XCTestCase {
             XCTAssertNotNil(data[key], key)
         }
     }
+
+    /// A bridge that declares a capability-gated tool must have a route for it and must
+    /// advertise it; otherwise the composite would dispatch it without authorization.
+    @MainActor
+    func testEveryCapabilityGatedToolHasARouteAndIsAdvertised() throws {
+        let gated = OfficeToolBridge.capabilityGatedTools
+        XCTAssertFalse(gated.isEmpty)
+        XCTAssertTrue(Set(PhoneCapabilityBridge.legacyRoutes.keys).isSuperset(of: gated),
+                      "gated tools without a route fail closed: \(gated.subtracting(PhoneCapabilityBridge.legacyRoutes.keys))")
+        XCTAssertTrue(OfficeToolBridge().handles.isSuperset(of: gated))
+    }
 }

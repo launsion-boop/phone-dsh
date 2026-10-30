@@ -18,13 +18,23 @@ public struct CompositePhoneToolBridge: PhoneToolBridge {
         self.init(bridges: [office, phone])
     }
 
+    private var phoneBridge: PhoneCapabilityBridge? {
+        bridges.compactMap { $0 as? PhoneCapabilityBridge }.first
+    }
+
     public func callTool(name: String, arguments: String) async throws -> String {
         let tool = name.hasPrefix("phone.") ? String(name.dropFirst("phone.".count)) : name
         guard let bridge = bridges.first(where: { $0.handles.contains(tool) }) else {
             return try PhoneToolEnvelope.failure(tool: tool, error: .unknownTool(tool))
         }
-        if let phone = bridges.compactMap({ $0 as? PhoneCapabilityBridge }).first,
-           ["contacts.search", "calendar.create_event"].contains(tool) {
+        // Any bridge can declare a tool as capability-gated. The declaration drives the
+        // gate, so a tool added later cannot be dispatched without authorization.
+        if let gated = bridge as? any CapabilityGatedToolBridge,
+           gated.capabilityGatedTools.contains(tool) {
+            guard let phone = phoneBridge else {
+                return try PhoneToolEnvelope.failure(tool: tool, error: .unavailable(
+                    nil, "能力门禁未接入；未执行任何系统操作"))
+            }
             do {
                 try await phone.authorizeLegacyTool(tool)
             } catch let error as PhoneToolError {

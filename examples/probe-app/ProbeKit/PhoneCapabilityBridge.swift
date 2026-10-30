@@ -3,7 +3,23 @@
 import Foundation
 import PhoneDSHShell
 
+/// A bridge whose tools live outside ``PhoneCapabilityBridge`` but still have to pass
+/// this app's capability gate. Declaring them keeps the gate a data dependency instead
+/// of an inline name list that a newly added tool can silently miss.
+public protocol CapabilityGatedToolBridge: PhoneToolBridge {
+    /// Every tool this bridge exposes that must be authorized by the capability gate.
+    var capabilityGatedTools: Set<String> { get }
+}
+
 public final class PhoneCapabilityBridge: PhoneToolBridge, @unchecked Sendable {
+    /// Routes for tools implemented by another bridge. This table is the single source
+    /// of truth: a tool declared gated without a route fails closed with `unknownTool`.
+    public static let legacyRoutes: [String: PhoneToolRoute] = [
+        "contacts.search": PhoneToolRoute(capability: .contacts, scope: "contacts.read"),
+        "calendar.create_event": PhoneToolRoute(capability: .calendar,
+                                                scope: "calendar.write", writes: true),
+    ]
+
     public let supportsContext = false
     public let handles = Set(PhoneToolCatalog.routes.keys)
     private let engine: PhoneCapabilityEngine
@@ -56,13 +72,9 @@ private final class PhoneCapabilityEngine {
     }
 
     func authorizeLegacyTool(_ tool: String) async throws {
-        guard tool == "contacts.search" || tool == "calendar.create_event" else {
+        guard let route = PhoneCapabilityBridge.legacyRoutes[tool] else {
             throw PhoneToolError.unknownTool(tool)
         }
-        let route = PhoneToolRoute(
-            capability: tool == "contacts.search" ? .contacts : .calendar,
-            scope: tool == "contacts.search" ? "contacts.read" : "calendar.write",
-            writes: tool == "calendar.create_event")
         try await gate.authorize(tool: tool, route: route)
     }
 
