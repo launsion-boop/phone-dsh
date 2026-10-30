@@ -1196,6 +1196,7 @@ struct ChatPage: View {
                         .frame(minHeight: 36, maxHeight: 336)
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityLabel(composerPlaceholder)
+                        .accessibilityIdentifier("消息输入")
                 }
                 .padding(.leading, 14)
                 .padding(.trailing, 8)

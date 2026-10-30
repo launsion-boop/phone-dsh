@@ -83,7 +83,7 @@ final class PhoneDSHDeviceUITests: XCTestCase {
         app.launch()
         createNewSession()
         let send: (String) -> Void = { prompt in
-            let editor = self.app.textViews["发消息"]
+            let editor = self.app.textViews["消息输入"]
             XCTAssertTrue(editor.waitForExistence(timeout: 60))
             XCTAssertTrue(self.waitUntil(timeout: 60) { editor.isEnabled })
             editor.tap()
@@ -142,7 +142,7 @@ final class PhoneDSHDeviceUITests: XCTestCase {
         ]
         app.launch()
         createNewSession()
-        let editor = app.textViews["发消息"]
+        let editor = app.textViews["消息输入"]
         XCTAssertTrue(editor.waitForExistence(timeout: 60))
         XCTAssertTrue(waitUntil(timeout: 60) { editor.isEnabled })
         editor.tap()
@@ -229,12 +229,12 @@ final class PhoneDSHDeviceUITests: XCTestCase {
         XCTAssertTrue(create.waitForExistence(timeout: 15))
         XCTAssertTrue(waitUntil(timeout: 240) { create.isEnabled }, "new session did not become available")
         create.tap()
-        XCTAssertTrue(app.textViews["发消息"].waitForExistence(timeout: 60))
+        XCTAssertTrue(app.textViews["消息输入"].waitForExistence(timeout: 60))
     }
 
     private func runSessionTask(prompt: String? = nil, marker: String = "PDSH_SESSION_OK",
                                 saveAndPick: String? = nil) {
-        let editor = app.textViews["发消息"]
+        let editor = app.textViews["消息输入"]
         XCTAssertTrue(editor.waitForExistence(timeout: 240))
         XCTAssertTrue(waitUntil(timeout: 120) { editor.isEnabled }, "session composer did not become ready")
         editor.tap()
