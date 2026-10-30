@@ -47,7 +47,7 @@ set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 lock="$here/lockfile.json"
-repo_root="$(cd "$here/../../../.." && pwd -P)"
+repo_root="$(cd "$here/../../.." && pwd -P)"
 
 cache="${PDSH_PYTHON_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/pdsh-python-wasi}"
 cache_explicit=0
@@ -411,6 +411,60 @@ if [ "$check_only" -eq 1 ]; then
   say "--check: the default artifact needs a build; downloads and builds may run"
 fi
 
+# node --test runs files in separate processes. Serialize actual builds that
+# share these source/dependency trees; the managed-output probe above alone
+# cannot prevent two processes from configuring and making the same tree.
+mkdir -p "$cache"
+build_lock="$cache/.build.lock"
+build_lock_owned=0
+release_build_lock() {
+  if [ "$build_lock_owned" -eq 1 ]; then
+    rm -f "$build_lock/pid"
+    rmdir "$build_lock" 2>/dev/null || true
+  fi
+}
+trap release_build_lock EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+lock_wait_announced=0
+while ! mkdir "$build_lock" 2>/dev/null; do
+  if [ "$lock_wait_announced" -eq 0 ]; then
+    say "waiting for another build using $cache"
+    lock_wait_announced=1
+  fi
+  lock_pid="$(cat "$build_lock/pid" 2>/dev/null || true)"
+  case "$lock_pid" in
+    ''|*[!0-9]*) ;;
+    *)
+      if ! kill -0 "$lock_pid" 2>/dev/null; then
+        # Do not remove a lock that changed owners after the liveness check.
+        if [ "$(cat "$build_lock/pid" 2>/dev/null || true)" = "$lock_pid" ]; then
+          rm -f "$build_lock/pid"
+          rmdir "$build_lock" 2>/dev/null || true
+        fi
+      fi
+      ;;
+  esac
+  sleep 1
+done
+printf '%s\n' "$$" > "$build_lock/pid"
+build_lock_owned=1
+
+# A waiter must not repeat the completed build it was waiting for. Reuse it
+# only after the same full report/hash/capability probe as the initial check.
+if [ "$check_only" -eq 1 ] && [ "$out_explicit" -eq 0 ]; then
+  if [ -e "$out/python.wasm" ] || [ -e "$out/python313.zip" ]; then
+    if ( probe_existing_artifact ); then
+      say "existing artifact: compression capabilities verified"
+      say "--check: no download and no build performed"
+      exit 0
+    fi
+    say "the artifact left under $out is still unverified; rebuilding it"
+  fi
+fi
+
 out_parent="$(dirname "$out")"
 mkdir -p "$out_parent"
 out_real="$(cd "$out_parent" && pwd -P)/$(basename "$out")"
@@ -605,7 +659,11 @@ if [ ! -x "$build_dir/python.exe" ] && [ ! -x "$build_dir/python" ]; then
   mkdir -p "$build_dir"
   (
     cd "$build_dir"
-    ../../configure -C
+    # The build Python only supports the cross-build; host OpenSSL modules are
+    # optional and can mismatch the runner's headers and dynamic libraries.
+    ac_cv_working_openssl_ssl=no \
+    ac_cv_working_openssl_hashlib=no \
+      ../../configure -C
     make -s -j "$jobs" all
   )
 fi

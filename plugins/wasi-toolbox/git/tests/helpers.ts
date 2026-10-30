@@ -147,7 +147,13 @@ export function tempDirectory(): { path: string; cleanup: () => void } {
 
 /** Copy a fixture repository so two implementations can run independently. */
 export function copyRepository(source: string, destination: string): void {
-  cpSync(source, destination, { recursive: true, preserveTimestamps: true })
+  cpSync(source, destination, {
+    recursive: true,
+    preserveTimestamps: true,
+    // Node's native macOS directory fast path can fail on a newly-created
+    // destination; a filter keeps the equivalent copy on its JS code path.
+    filter: () => true,
+  })
 }
 
 /** A write helper that also sets the executable bit. */
