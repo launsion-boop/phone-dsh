@@ -9,12 +9,9 @@
 #   * `sim.sh` smoke handshake: create `expect-real-kill` in the app's current
 #     report container, then wait for `real-kill-ready.json` written by the
 #     smoke suite while its real WKWebView is alive; SIGKILL the selected
-#     simulator's WebContent process and write `real-kill-result.json`
-#     (INFO evidence; never a device measurement).
-#   * `sim.sh` full-Web handshake: the same device-scoped kill for the complete
-#     DSH Web suite, using `expect-web-kill` / `web-kill-ready.json` /
-#     `web-kill-result.json`; the suite gates recovery of the same Session after
-#     that real kill. Both expectation markers are written after every
+#     simulator's WebContent process and write `real-kill-result.json`. The
+#     smoke suite then gates recovery of the same Session and a follow-up turn
+#     after that real kill. The expectation marker is written after every
 #     `resolve_directory`, so an xcodebuild reinstall that migrates the data
 #     container cannot leave the handshake in the old path.
 #   * scenario handshake: `scenarios.sh --run-on sim` starts this watcher next
@@ -32,7 +29,6 @@
 #
 # Usage:
 #   webcontent-watch.sh smoke    --udid <UDID> --directory <report-dir> [--bundle-id <id>]
-#   webcontent-watch.sh web      --udid <UDID> --directory <report-dir> [--bundle-id <id>]
 #   webcontent-watch.sh scenario --udid <UDID> --directory <handshake-dir>
 #
 # Exit: 0 after the smoke result was written; the scenario mode runs until the
@@ -52,7 +48,7 @@ usage() {
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    smoke|web|scenario)
+    smoke|scenario)
       MODE="$1"; shift ;;
     --udid)
       [ "$#" -ge 2 ] || { echo "webcontent-watch: --udid needs a value" >&2; exit 2; }
@@ -131,16 +127,10 @@ kill_new_webcontent() {
 BASELINE_PIDS="$(webcontent_pids | tr '\n' ' ')"
 log "baseline (selected simulator): ${BASELINE_PIDS:-none}"
 
-if [ "$MODE" = "smoke" ] || [ "$MODE" = "web" ]; then
-  if [ "$MODE" = "web" ]; then
-    READY_NAME="web-kill-ready.json"
-    RESULT_NAME="web-kill-result.json"
-    EXPECT_NAME="expect-web-kill"
-  else
-    READY_NAME="real-kill-ready.json"
-    RESULT_NAME="real-kill-result.json"
-    EXPECT_NAME="expect-real-kill"
-  fi
+if [ "$MODE" = "smoke" ]; then
+  READY_NAME="real-kill-ready.json"
+  RESULT_NAME="real-kill-result.json"
+  EXPECT_NAME="expect-real-kill"
   # The expectation marker belongs to the directory this watcher currently
   # resolves, not to the path captured by `sim.sh` before `xcodebuild test`
   # installed the app. A hosted test run can move the data container; writing

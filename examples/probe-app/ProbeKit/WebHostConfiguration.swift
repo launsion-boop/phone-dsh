@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT
-// phone-dsh phone DSH — ProbeKit: the App's complete-Web host assembly.
+// phone-dsh phone DSH — ProbeKit: the shared complete-page host assembly.
 //
-// The production Web surface (`WebHostModel`) and the simulator full-Web E2E
-// must boot the same host, not two near-copies. This file owns the values that
-// make the App's Web surface work across a park/resume:
+// The app's Web surface was removed; the simulator suites (MCP production,
+// worker capability SSE, WebContent kill) still boot the same host assembly
+// the app used, not near-copies. This file owns the values that made the
+// complete page work across a park/resume:
 //
 //   * the explicit complete-page route (`/static/web/index.html`), so the
 //     native default (`/static/index.html`) is never changed globally;
@@ -26,7 +27,7 @@ import PhoneDSHAgentCore
 import PhoneDSHEngine
 import PhoneDSHShell
 
-/// Host assembly shared by the App's Web surface and the full-Web E2E suite.
+/// Host assembly shared by the simulator suites that boot the complete page.
 public enum WebHostConfiguration {
     /// Integration contract: the complete DSH Web page served by the bundle.
     public static let pagePath = "/static/web/index.html"
@@ -92,8 +93,8 @@ public enum WebHostConfiguration {
         -> Assembly {
         // The chat assembly needs a concrete URL only to derive its default
         // host rule and environment. A caller that supplies the launch plan
-        // (the App's WebHostModel) overrides both below; the loopback
-        // placeholder never becomes a reachable model route.
+        // overrides both below; the loopback placeholder never becomes a
+        // reachable model route.
         let modelBaseURL = modelURL ?? URL(string: "http://127.0.0.1:1")!
         var configuration = ChatHostConfiguration.make(
             workspaceRoot: workspaceRoot,

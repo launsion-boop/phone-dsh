@@ -19,37 +19,14 @@ struct MCPSettingsPage: View {
     private let draft: MCPControlDraft?
 
     @MainActor
-    init(host: MCPConfigurationHost,
-         draft: MCPControlDraft? = nil,
+    init(draft: MCPControlDraft? = nil,
          settings: PhoneMCPAccessSettings = .shared) {
         self.draft = draft
         _model = State(initialValue: MCPSettingsModel(
-            host: host,
             settings: settings,
-            isHostRunning: { MCPSettingsPage.hostIsRunning(host) },
-            makeTransport: { try await MCPSettingsPage.makeTransport(host: host) },
-            refreshPolicy: { MCPSettingsPage.refreshHostPolicy(host: host) }))
-    }
-
-    private static func hostIsRunning(_ host: MCPConfigurationHost) -> Bool {
-        switch host {
-        case .native: return ChatModel.shared.isStarted
-        case .web: return WebHostModel.shared.isStarted
-        }
-    }
-
-    private static func makeTransport(host: MCPConfigurationHost) async throws -> any DSHRemoteTransport {
-        switch host {
-        case .native: return try await ChatModel.shared.transportForManagement()
-        case .web: return try await WebHostModel.shared.makeTransportForPage()
-        }
-    }
-
-    private static func refreshHostPolicy(host: MCPConfigurationHost) {
-        switch host {
-        case .native: ChatModel.shared.refreshMCPAccessPolicy()
-        case .web: WebHostModel.shared.refreshMCPAccessPolicy()
-        }
+            isHostRunning: { ChatModel.shared.isStarted },
+            makeTransport: { try await ChatModel.shared.transportForManagement() },
+            refreshPolicy: { ChatModel.shared.refreshMCPAccessPolicy() }))
     }
 
     var body: some View {

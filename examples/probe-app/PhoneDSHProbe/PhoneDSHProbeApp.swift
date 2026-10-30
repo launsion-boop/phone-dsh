@@ -34,10 +34,6 @@ struct PhoneDSHProbeApp: App {
                 .environment(model)
                 .onChange(of: scenePhase) { _, newPhase in
                     Task { await model.scenePhaseChanged(newPhase) }
-                    // One surface owns the one host. WebHostModel parks and
-                    // resumes the Web host; only in explicit native recovery
-                    // mode does it forward the same phase to ChatModel (D14).
-                    Task { await WebHostModel.shared.scenePhaseChanged(newPhase) }
                 }
                 .task {
                     model.refreshLockdown()

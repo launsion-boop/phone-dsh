@@ -35,6 +35,13 @@
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
 	</array>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
 	<!-- The 20 s background drain may use a BGContinuedProcessingTask window on
 	     iOS 26 (PhoneDSH Background). iOS requires the concrete
 	     identifier family in BGTaskSchedulerPermittedIdentifiers; the runtime

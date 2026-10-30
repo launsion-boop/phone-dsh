@@ -1393,7 +1393,7 @@ final class CapabilityTestHost {
         let visibleWindow = SimVisibleWindow(size: CGSize(width: 430, height: 932))
         window = visibleWindow
         guard visibleWindow.isAttached else {
-            throw SimError.assertion("the full-Web window anchor is not attached")
+            throw SimError.assertion("the simulator window anchor is not attached")
         }
         let anchor = VisibleEngineAnchor()
         visibleWindow.anchor.addSubview(anchor.view)

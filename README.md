@@ -24,7 +24,6 @@ Without this split, the official DSH plugin tree (model adapters, tools, sub-age
 - **One loopback origin.** Page, static assets, image and overlay shards, the ordered WebSocket, `/v1/http` and the MCP endpoint share one `127.0.0.1` origin. The Worker uses ordinary same-origin `fetch` and a normal WebSocket; there is no custom URL scheme and no second server.
 - **Durable workspace writes.** Every mutation the model makes is numbered with a persistent `mseq`, appended to a write-ahead log and acknowledged before it counts as durable. After a reconnect or restart the Worker replays from the last acknowledged number. Level 1 survives a process kill; level 2 (epoch close, `F_FULLFSYNC`, atomic manifest) puts an epoch on stable storage, so a power loss costs at most the unclosed epoch.
 - **The API key never enters the Worker.** The model gateway asks the app's `CredentialProvider` for a credential scoped to the exact upstream host and path, injects it on the host side, and first strips inbound `authorization`, `proxy-authorization` and `x-pdsh-*` headers. The Worker only ever holds a placeholder. A redirect is re-credentialed only within the same scope.
-- **Background running.** Switching to another app does not stop a running turn: while a turn is in flight the app holds a silent audio session (the `audio` background mode is declared) and keeps the host and its event pump alive. An idle host is parked instead, so an idle session costs no battery, and a turn that finishes while hidden releases the session and parks the host. If iOS interrupts the audio session (a call, another app taking audio), the host drains the in-flight work and the session resumes from the WAL when you come back.
 - **Lifecycle the OS can interrupt.** Planned restarts at tool-call boundaries, background park/drain/resume with a 20 s drain window, memory and thermal budgets, and a handoff/reclaim facade backed by a durable non-secret intent. The host state machine fails loud and never silently reopens admission.
 - **Self-built accelerators: xz-shell.** The read-only accelerators are our own Rust workspace (`shell/`), not a bundled external binary: ripgrep-compatible search, jq-compatible filters, tree-sitter parse/query and the `phone`/`ctx` host bridge, behind a hand-written C ABI (`include/xzshell.h`) that is linked as `PDSHShell.xcframework`. The same workspace also produces the WASI jq engine the Worker runs. Every command is read-only by construction (a mount-table sandbox rejects anything outside `/dsh/workspace` and `/dsh/home`), bounded in output, and cancellable.
 - **Executor inversion.** `bash`, `git`, `python3` and the file tools run inside the Worker on the in-memory VFS, so their writes are ordinary workspace mutations. Only read-only accelerators (`rg`, `jaq`/`jq`, `ts-parse`, `ts-query`, and `phone`/`ctx` when a bridge exists) cross into the app process, and only when the host advertised them.
@@ -123,7 +122,7 @@ examples/probe-app/scripts/copy-bundle-assets.sh \
   --checkout "$PDSH_DSH_CHECKOUT" --force
 ```
 
-The copy step builds the Worker image, adds the CPython and jq WASI artifacts unless you pass `--without-python` / `--without-jq`, verifies the checkout against the image source, and records provenance. The Web distribution holds the complete DSH page; the shipped app's native surface does not open it, but the full-Web simulator suite does.
+The copy step builds the Worker image, adds the CPython and jq WASI artifacts unless you pass `--without-python` / `--without-jq`, verifies the checkout against the image source, and records provenance. The Web distribution holds the complete DSH page; the app's native surface does not open it.
 
 ### 3. Build and run the probe app
 
@@ -204,7 +203,7 @@ A PASS belongs only to the source commit, built artifacts and environment named 
 | Physical iPhone (signing, install, real provider, background) | NOT_RUN; no device evidence, so throttling, JIT, jetsam, Lockdown Mode and background scheduling stay NOT_VERIFIED on device |
 | Remote handoff peer | facade and in-process tests exist; a deployed remote DSH peer over real transport is NOT_RUN |
 | Hosted GitHub Actions | currently off (billing), so no CI badge is shown; `.github/workflows/ci.yml` is kept and the same gates run locally |
-| Complete DSH Web UI in the app | present in the code base but disabled: no user-visible entry; the shipped surface is native SwiftUI |
+| Complete DSH Web UI in the app | removed: the app ships only the native SwiftUI shell; the Worker image still carries the DSH page the Worker boots from |
 | Native accelerators | opt-in: `PDSH_WITH_XZSHELL=1` plus a built `shell/dist/PDSHShell.xcframework`; without it the SDK advertises nothing and fails loud |
 | Lockdown Mode | the local Worker is disabled and reported; there is no in-app workaround |
 

@@ -1,20 +1,29 @@
-# Native iPhone DSH and development probes
+# Native iPhone and iPad DSH and development probes
 
 The shipped app opens the **native SwiftUI shell** (conversation, workspace
 drawer, composer, workbench) on top of `PhoneDSHHost`, which owns the Worker,
 VFS, model gateway and native `PDSHShellProvider`. The complete DSH Web UI is
-still built and served from the local loopback origin
-(`/static/web/index.html`), but in the current release it has **no user-facing
-entry**: `WebHostModel.mode` starts in the native recovery surface and the Web
-surface stays switched off until that entry is restored. When it is enabled it
-loads edge-to-edge in the same host, with no Safari view controller or toolbar;
-file input, downloads/share and external links use the system
-pickers/sheets/opener, and switching back to the native shell stops the Web host
-and its session first. The Web MCP tab and the recovery Settings page open the native
+**removed**: the Worker image still carries the DSH page it boots from
+(`/static/web/index.html`), but the app no longer has a Web surface, and its
+lifecycle/tests were deleted with it. The worker page stays a Worker input,
+not an app surface. The recovery Settings page opens the native
 **MCP 网络与密钥** sheet, which keeps the one Worker `mcp.json` registry, adds
 only the exact MCP scheme/host/port/path to Worker egress, and stores header
 values in the dedicated MCP Keychain.
 The old probe pages are available only through Debug developer tools.
+
+The app targets both iPhone and iPad. iPad supports portrait, landscape and
+resizable windows at native size. Windows at least 900 points wide show a
+320-point sessions sidebar beside the conversation; the chat header can hide
+or restore it. Narrower windows use the existing drawer. Selecting a session
+keeps the wide sidebar visible, and resizing retains the conversation and draft.
+
+The native composer requires a selected model service and a readable, non-empty
+API key. Without them it shows a configuration action and disables message
+submission; the header shows an amber “待配置模型服务” status. Prompt,
+queued-message and steering dispatch recheck the key before
+calling the harness; retries use the same prompt path. The local engine can
+still start so sessions, files and model settings remain accessible.
 
 For a build linked to the real xz-shell command library, run from the repository root:
 
@@ -65,7 +74,7 @@ documented Apple platform facts.
 |---|---|
 | `project.yml` | XcodeGen project. Bundle id placeholder `dev.phone-dsh.probe`; change it for device signing. |
 | `PhoneDSHProbe/` | SwiftUI app: `Probes`, `Memory`, `Background`, `Screen`, `Export`. |
-| `ProbeKit/` | Library target: the iOS port of the W3-PROBES suite, the report model, the host session, the shared complete-Web host assembly (`WebHostConfiguration`), the synthetic-overlay writer and the memory/background runners. |
+| `ProbeKit/` | Library target: the iOS port of the W3-PROBES suite, the report model, the host session, the shared complete-page host assembly (`WebHostConfiguration`, used by the simulator suites), the synthetic-overlay writer and the memory/background runners. |
 | `PhoneDSHSimTests/` | Hostless XCTest target for the W3-SIM simulator gate: probes via `ProbeKit`, the end-to-end smoke, the kill matrix and the shared report/window/bundle discovery. |
 | `Bundle/worker/` | Build-time copy of the packed Worker assets. Not committed; filled by `scripts/copy-bundle-assets.sh`. |
 | `Config/PhoneDSHProbe-Info.plist` | Local-network ATS exception, `processing` background mode, `BGTaskSchedulerPermittedIdentifiers` family. |
@@ -122,8 +131,8 @@ Before staging and again afterwards, `sim.sh` audits the same-source records:
 match `image.tar.gz`; `probe-bundle.json` must record the pack-image source
 and JavaScriptCore prelude. A missing record is never synthesized for a
 prebuilt page — the gate fails instead of stamping an older Web dist with the
-current pin. The full-Web test repeats the same comparison on the installed
-app bundle.
+current pin. `sim.sh` repeats the same comparison on the staged bundle before
+any suite starts.
 
 ```bash
 # From the repository root. DSH is resolved from PDSH_DSH_CHECKOUT or the
@@ -143,7 +152,6 @@ the MCP production and Web→native bridge suites (the former writes its own
 | Phase 0 probes through the same `ProbeKit` implementation the Probes page runs | `probe-report.json` | G0 |
 | One real model tool call (`bash -c` writing `a.txt`), WAL/materialized/journal/step-machine assertions, one D24 planned restart, resumed session | `smoke-report.json` | G1 |
 | 20 seeded kills over `worker-terminate` and `webcontent-restart` × the four W3-KILL timings, each with acked-prefix/VFS/reconcile assertions | `kill-report.json` | G1 |
-| Complete DSH Web page in a real WKWebView: a fresh nonce names this run's text file, PNG bytes/tEXt chunk, bash PNG-write marker and assistant message; page-created Session, real Worker `bash` writing those files, Web tool row/result/assistant text, `session/page` + materialized session JSONL agreement, text/PNG previews, background park → new engine resume, WebContent-kill recovery and a same-Session planned restart | `web-surface-report.json` | G1 |
 
 Every row carries its G0/G1 threshold (or an explicit `n/a`), a
 PASS/FAIL/INFO status and `"environment": "ios-simulator"`. The script prints
@@ -169,25 +177,24 @@ Reports are written by the tests into the probe app container at
 $OUT/probe-report.json
 $OUT/smoke-report.json
 $OUT/kill-report.json
-$OUT/web-surface-report.json
 ```
 
 `OUT` defaults to `${TMPDIR}/pdsh-sim`; override it with `OUT=/path`. The
 simulator run also attempts one real WebContent SIGKILL, scoped to the selected
 simulator: before the suites the script records that simulator's existing
-WebContent pids, and background watchers follow the app's current data
-container to write `expect-real-kill` / `expect-web-kill` there. The watched
-suites write their `*-kill-ready.json` marker while the real WKWebView is
-still alive, then wait (bounded) for the watcher's result. Following the
-container matters because `xcodebuild test` can reinstall the app and move
-`Documents/pdsh-reports`; a marker written only before the run would be lost
-and the full-Web kill gate would degrade to NOT_RUN. A
+WebContent pids and starts a background watcher that follows the app's current
+data container to write `expect-real-kill` there. The smoke suite writes
+`real-kill-ready.json` while its real WKWebView is alive, waits (bounded) for
+the watcher's result, and then gates recovery of the same Session and a
+completed follow-up turn from that real kill. Following the container matters
+because `xcodebuild test` can reinstall the app and move
+`Documents/pdsh-reports`; a marker written only before the run would be lost. A
 candidate pid must contain the simulator's runtime path (`CoreSimulator`) and
 the WebKit WebContent executable path, and carry the selected simulator's
 `SIMULATOR_UDID` in its environment; a host process — including a Safari or
 other-simulator WebContent — matches none of that and is never signalled. The
-attempt is logged and recorded as an INFO row, never as a PASS that would imply
-a measured device kill. If the harness forbids the pseudo-terminal
+attempt is logged and recorded as an INFO row; the recovery row after it is
+the gate, so a run that never attempted the SIGKILL cannot pass. If the harness forbids the pseudo-terminal
 `xcodebuild test` needs, the script falls back to launching the same XCTest
 bundle with `simctl spawn` (same suites, same reports) and says so in its log.
 

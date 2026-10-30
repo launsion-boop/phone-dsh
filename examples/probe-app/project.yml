@@ -33,6 +33,7 @@ settings:
   base:
     SWIFT_VERSION: "5.0"
     IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+    TARGETED_DEVICE_FAMILY: "1,2"
     CURRENT_PROJECT_VERSION: "1"
     MARKETING_VERSION: "0.1.0"
     CODE_SIGN_STYLE: Automatic
@@ -98,7 +99,6 @@ targets:
         # default access group; a build without this entitlement gets
         # errSecMissingEntitlement for every keychain query.
         CODE_SIGN_ENTITLEMENTS: Config/PhoneDSHProbe.entitlements
-        TARGETED_DEVICE_FAMILY: "1"
         SUPPORTS_MACCATALYST: NO
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks"
 
@@ -140,7 +140,6 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         DEFINES_MODULE: YES
         SKIP_INSTALL: YES
-        TARGETED_DEVICE_FAMILY: "1"
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @loader_path/Frameworks"
 
   # W13-SIM-SCENARIOS: the G2 catalog-driven scenario runner on the iOS
@@ -170,7 +169,6 @@ targets:
         INFOPLIST_FILE: Config/PhoneDSHScenarioSimTests-Info.plist
         GENERATE_INFOPLIST_FILE: NO
         SKIP_INSTALL: YES
-        TARGETED_DEVICE_FAMILY: "1"
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @loader_path/Frameworks"
 
   # W3-SIM: hostless XCTest target. No TEST_HOST: `xcodebuild test` launches
@@ -186,12 +184,8 @@ targets:
     platform: iOS
     sources:
       - path: PhoneDSHSimTests
-      # Compile the production lifecycle gate into the hostless suite so the
-      # failed-park/resume-wait rules the app runs are regression-tested; it
-      # has no SwiftUI/UIKit dependency and is also part of the app target.
-      - path: PhoneDSHProbe/WebSurfaceLifecycle.swift
       # The production native MCP settings model is host-agnostic (the app
-      # injects ChatModel/WebHostModel) so the simulator suite can exercise the
+      # injects ChatModel) so the simulator suite can exercise the
       # unknown-registry settlement branches against a real settings document.
       - path: PhoneDSHProbe/MCPSettingsModel.swift
       - path: PhoneDSHProbe/NativeConversationModels.swift
@@ -225,7 +219,7 @@ targets:
         product: PhoneDSHLoopback
       - package: PhoneDSH
         product: PhoneDSHAgentCore
-      # The full-Web suite imports the linked shell provider exposed by the
+      # The simulator suites import the linked shell provider exposed by the
       # shared WebHostConfiguration assembly.
       - package: PhoneDSH
         product: PhoneDSHShell
@@ -238,7 +232,6 @@ targets:
         INFOPLIST_FILE: Config/PhoneDSHSimTests-Info.plist
         GENERATE_INFOPLIST_FILE: NO
         SKIP_INSTALL: YES
-        TARGETED_DEVICE_FAMILY: "1"
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @loader_path/Frameworks"
 
   # Device twin of PhoneDSHScenarioSimTests: the same sources hosted by the
@@ -267,7 +260,6 @@ targets:
         INFOPLIST_FILE: Config/PhoneDSHScenarioSimTests-Info.plist
         GENERATE_INFOPLIST_FILE: NO
         SKIP_INSTALL: YES
-        TARGETED_DEVICE_FAMILY: "1"
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @loader_path/Frameworks"
 
   # Device twin of PhoneDSHSimTests (probe / smoke / kill matrix / Web surface hosted by the app).
@@ -277,10 +269,9 @@ targets:
     sources:
       - path: PhoneDSHSimTests
       # Keep the device twin at parity with PhoneDSHSimTests: the shared
-      # WebSurfaceLifecycleSimTests file references the production lifecycle
-      # policy/gate, which has no SwiftUI/UIKit dependency and is also part of
-      # the app target. Without this the device test scheme does not compile.
-      - path: PhoneDSHProbe/WebSurfaceLifecycle.swift
+      # native MCP settings model has no SwiftUI/UIKit dependency and is also
+      # part of the app target. Without this the device test scheme does not
+      # compile.
       - path: PhoneDSHProbe/MCPSettingsModel.swift
     dependencies:
       - target: PhoneDSHProbe
@@ -310,7 +301,6 @@ targets:
         INFOPLIST_FILE: Config/PhoneDSHSimTests-Info.plist
         GENERATE_INFOPLIST_FILE: NO
         SKIP_INSTALL: YES
-        TARGETED_DEVICE_FAMILY: "1"
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @loader_path/Frameworks"
 
 schemes:

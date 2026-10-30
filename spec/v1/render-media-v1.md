@@ -283,7 +283,7 @@ App bundle 内置 `Web3DLib/`（总计约 **800 KB**）：
 - [ ] **跨会话**：页面 A 引用页面 B 的贴图成功，且 A 不能借此写到 B 的目录
 - [ ] **Range**：`Range: bytes=0-1023` 返回 206 + 正确分片；200 MB 的 `.glb` 首帧不等待完整下载
 - [ ] `spinning-cube` demo 在真机上 60 fps，首帧 < 300 ms
-- [ ] `online` 档未勾选时，`fetch('https://example.com')` 被 CSP 拦下且页面不崩
+- [ ] `online` 档未勾选时，`fetch('https://example.invalid')` 被 CSP 拦下且页面不崩
 - [ ] 10 MB 的 HTML 不再被截断（走文件，不内联）
 - [ ] `video/begin` 接受 60000 ms，75 s 时返回 `EBUDGET`
 - [ ] **未回读的视频会话不被回收**：塞满 512 MiB 后新的 `end` 返回 `EBUDGET`，旧会话产物仍在

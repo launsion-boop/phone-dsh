@@ -10,6 +10,7 @@ import UIKit
 
 struct ChatPage: View {
     var openDrawer: (() -> Void)? = nil
+    var drawerExpanded = false
     #if DEBUG
     /// 预览专用:直接吃一份本地造好的消息,不订阅宿主、不等记录就绪。
     var previewItems: [ChatItem]? = nil
@@ -87,9 +88,7 @@ struct ChatPage: View {
     @State private var loadingEarlierTranscript = false
 
     private var providerNeedsKey: Bool {
-        guard let profile = (try? PhoneModelProviderSettings.shared.load())?.selected else { return true }
-        guard let status = try? PhoneModelProviderSettings.shared.apiKeyStatus(for: profile.id) else { return true }
-        return status != .present
+        model.modelProviderIssue != nil
     }
 
     private var sessionKey: String { model.currentSessionID ?? "new" }
@@ -123,10 +122,11 @@ struct ChatPage: View {
             .buttonStyle(.plain)
             .disabled(model.currentSessionID == nil)
             .accessibilityHint("点按重命名会话")
-            .padding(.horizontal, 104)
+            .padding(.horizontal, providerNeedsKey ? 144 : 104)
 
             HStack(spacing: 0) {
                 Button {
+                    inputFocused = false
                     openDrawer?()
                 } label: {
                     Image(systemName: "sidebar.left")
@@ -135,19 +135,21 @@ struct ChatPage: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("打开会话列表")
+                .accessibilityLabel(drawerExpanded ? "隐藏会话列表" : "打开会话列表")
 
                 Spacer(minLength: 0)
 
                 HStack(spacing: 4) {
                     Button { showRuntimeDetails = true } label: {
-                        RunStatusDot(started: model.isStarted, parked: model.parked)
+                        RunStatusDot(started: model.isStarted, parked: model.parked,
+                                     needsModelConfiguration: providerNeedsKey)
                             .fixedSize(horizontal: true, vertical: false)
                             .frame(height: 44)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("运行状态")
+                    .accessibilityValue(providerNeedsKey ? "待配置模型服务" : model.displayStatus)
                     Menu {
                         ShareLink(item: historyExport,
                                   subject: Text("对话记录"),
@@ -205,7 +207,7 @@ struct ChatPage: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
             keyboardVisible = false
-            cardsExpanded = false
+            if model.pendingQuestion == nil { cardsExpanded = false }
         }
         .background(Color(.systemBackground))
         .navigationTitle({
@@ -474,9 +476,8 @@ struct ChatPage: View {
         return rows
     }
 
-    /// The card area never takes more than 40% of the screen, scrolls inside
-    /// itself when it has more, and folds to one line while the keyboard is up
-    /// so the conversation stays visible.
+    /// Cards share a bounded area. Each card owns its scrolling so question
+    /// actions remain visible while the options scroll or the keyboard opens.
     private var pendingCardCount: Int {
         (model.pendingPermission == nil ? 0 : 1) + (model.pendingQuestion == nil ? 0 : 1)
     }
@@ -484,7 +485,7 @@ struct ChatPage: View {
     @ViewBuilder
     private var cardsRegion: some View {
         if pendingCardCount > 0 {
-            if keyboardVisible && !cardsExpanded {
+            if keyboardVisible && !cardsExpanded && model.pendingQuestion == nil {
                 Button {
                     cardsExpanded = true
                 } label: {
@@ -505,44 +506,46 @@ struct ChatPage: View {
                 }
                 .buttonStyle(.plain)
             } else {
-                ScrollView {
-                    VStack(spacing: 0) {
-                        // One card at a time: permission wins, and the other one
-                        // folds into a line above it.
-                        if model.pendingPermission != nil, model.pendingQuestion != nil {
-                            Button { cardsExpanded.toggle() } label: {
-                                HStack(spacing: 9) {
-                                    Image(systemName: "exclamationmark.circle")
-                                        .font(.system(size: 12))
-                                    Text("还有 1 个待确认")
-                                        .font(.system(size: 12))
-                                    Spacer()
-                                    Image(systemName: cardsExpanded ? "chevron.up" : "chevron.down")
-                                        .font(.system(size: 12, weight: .semibold))
-                                }
-                                .foregroundStyle(Self.inkSecondary)
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 6)
-                                .contentShape(Rectangle())
+                VStack(spacing: 0) {
+                    // One card at a time: permission wins, and the other one
+                    // folds into a line above it.
+                    if model.pendingPermission != nil, model.pendingQuestion != nil {
+                        Button { cardsExpanded.toggle() } label: {
+                            HStack(spacing: 9) {
+                                Image(systemName: "exclamationmark.circle")
+                                    .font(.system(size: 12))
+                                Text("还有 1 个待确认")
+                                    .font(.system(size: 12))
+                                Spacer()
+                                Image(systemName: cardsExpanded ? "chevron.up" : "chevron.down")
+                                    .font(.system(size: 12, weight: .semibold))
                             }
-                            .buttonStyle(.plain)
+                            .foregroundStyle(Self.inkSecondary)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 6)
+                            .contentShape(Rectangle())
                         }
-                        if let permission = model.pendingPermission {
+                        .buttonStyle(.plain)
+                    }
+                    if let permission = model.pendingPermission {
+                        ScrollView {
                             permissionCard(permission)
-                        } else if let question = model.pendingQuestion {
-                            QuestionCard(question: question) { answer in
-                                Task { await model.respondToQuestion(answer: answer) }
-                            }
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
                         }
-                        if cardsExpanded, model.pendingPermission != nil, let question = model.pendingQuestion {
-                            QuestionCard(question: question) { answer in
-                                Task { await model.respondToQuestion(answer: answer) }
-                            }
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
+                    } else if let question = model.pendingQuestion {
+                        QuestionCard(question: question) { answer in
+                            Task { await model.respondToQuestion(answer: answer) }
                         }
+                        .id(question.requestID)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                    }
+                    if cardsExpanded, model.pendingPermission != nil, let question = model.pendingQuestion {
+                        QuestionCard(question: question) { answer in
+                            Task { await model.respondToQuestion(answer: answer) }
+                        }
+                        .id(question.requestID)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
                     }
                 }
                 .frame(maxHeight: UIScreen.main.bounds.height * 0.4)
@@ -614,6 +617,14 @@ struct ChatPage: View {
             case "chat.official":
                 draft = ""
                 model.debugInstallNativeMetricsPreview()
+            case "chat.question":
+                model.debugInstallPreviewState(failedItemID: nil, error: nil, queue: [:],
+                    question: HarnessQuestion(requestID: "preview-question", prompt: "请选择处理方式", questions: [
+                        HarnessQuestionItem(id: "scope", prompt: "这次需要处理哪些内容？",
+                            options: ["修复当前页面布局", "检查其他页面的按钮", "兼容小屏幕手机", "检查键盘弹出时的布局", "支持较大的系统字体", "保留已有聊天记录", "验证多选问题", "完成后重新安装"], multiple: true),
+                        HarnessQuestionItem(id: "validation", prompt: "修复完成后如何验证？",
+                            options: ["在手机上验证", "先检查构建结果"])
+                    ]))
             default:
                 break
             }
@@ -982,9 +993,11 @@ struct ChatPage: View {
             Text("还差一步:配好模型服务")
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(.primary)
-            Text("选一个模型服务,就能开始。")
-                .font(.system(size: 13))
-                .foregroundStyle(ChatPage.inkSecondary)
+            if let issue = model.modelProviderIssue {
+                Text(issue)
+                    .font(.system(size: 13))
+                    .foregroundStyle(ChatPage.inkSecondary)
+            }
             Button {
                 showProviderSettings = true
             } label: {
@@ -1321,7 +1334,19 @@ struct ChatPage: View {
             .accessibilityLabel("添加指令、引用或附件")
             accessModeMenu
             Spacer(minLength: 8)
-            modelMenu
+            if providerNeedsKey {
+                Button {
+                    showProviderSettings = true
+                } label: {
+                    Label("配置模型服务", systemImage: "key")
+                        .font(.system(size: 13))
+                        .frame(minHeight: 32)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(ChatPage.accent)
+            } else {
+                modelMenu
+            }
             if model.turnRunning {
                 ProgressView()
                     .controlSize(.small)
@@ -1617,6 +1642,8 @@ struct ChatPage: View {
     }
 
     private func submitDraft() {
+        model.refreshModelProviderReadiness()
+        guard canSubmit else { return }
         let text = draft
         if let command = Self.parseSlashCommand(text) {
             draft = ""
@@ -1744,6 +1771,7 @@ struct ChatPage: View {
     }
 
     private var composerPlaceholder: String {
+        if let issue = model.modelProviderIssue { return issue }
         if !model.turnRunning { return "发消息或创建任务，/ 调用指令，@ 文件或对话" }
         return busyEnterMode == "steer" ? "补充当前任务…" : "排入下一轮…"
     }
@@ -2161,21 +2189,48 @@ private struct QuestionCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Label("需要你的回答", systemImage: "questionmark.circle.fill")
-                .font(.headline)
-            if let items = question.questions, !items.isEmpty, !question.prompt.isEmpty {
-                Text(question.prompt).font(.footnote).foregroundStyle(.secondary)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) {
+                    questionHeading
+                    Spacer(minLength: 0)
+                    submitButton
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    questionHeading
+                    submitButton
+                }
             }
-            ForEach(questions) { item in
-                questionControl(item)
+            .fixedSize(horizontal: false, vertical: true)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    if let items = question.questions, !items.isEmpty, !question.prompt.isEmpty {
+                        Text(question.prompt).font(.footnote).foregroundStyle(.secondary)
+                    }
+                    ForEach(questions) { item in
+                        questionControl(item)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            Button("提交回答", systemImage: "arrow.up") { submitAnswers() }
-                .buttonStyle(.borderedProminent)
-                .disabled(!canSubmit)
+            .scrollDismissesKeyboard(.interactively)
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.accentColor.opacity(0.09))
+    }
+
+    private var questionHeading: some View {
+        Label("需要你的回答", systemImage: "questionmark.circle.fill")
+            .font(.headline)
+            .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var submitButton: some View {
+        Button("提交回答", systemImage: "arrow.up") { submitAnswers() }
+            .buttonStyle(.borderedProminent)
+            .frame(minHeight: 44)
+            .fixedSize(horizontal: true, vertical: false)
+            .disabled(!canSubmit)
     }
 
     @ViewBuilder

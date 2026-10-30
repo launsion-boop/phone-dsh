@@ -24,7 +24,6 @@ DSH 版本钉在 [`plugins/dsh-pin.json`](plugins/dsh-pin.json)：`0.2.1-rc.2`�
 - **单一回环源。** 页面、静态资源、镜像与 overlay 分片、有序 WebSocket、`/v1/http` 和 MCP 端点共用同一个 `127.0.0.1` 源。Worker 用普通的同源 `fetch` 和 WebSocket 即可，不需要自定义 URL scheme，也没有第二个服务器。
 - **工作区写入是持久的。** 模型做出的每一次改动都带持久 `mseq` 编号写入预写日志，确认后才算持久；重连或重启后，Worker 从最后确认的编号开始重放。一级确认能扛进程被杀；二级确认（epoch 关闭、`F_FULLFSYNC`、原子写 manifest）把 epoch 落到稳定存储，所以断电最多丢最后一个未关闭的 epoch。
 - **API key 不进 Worker。** 模型网关按精确的上游 host 与路径向 App 的 `CredentialProvider` 取凭据，在宿主侧注入，并先剥掉入站的 `authorization`、`proxy-authorization` 和 `x-pdsh-*` 头。Worker 手里只有占位符；重定向只有在同一作用域内才会重新带上凭据。
-- **后台运行。** 切到别的 App 不会打断正在跑的回合：回合进行中，App 保持一个静音音频会话（已声明 `audio` 后台模式），宿主和事件泵继续工作；空闲时宿主自动 park，不白耗电；回合在后台结束时释放音频会话并 park。若 iOS 中断了音频会话（来电、别的 App 抢占音频），宿主会排空在跑的工作，回到前台后从 WAL 继续。
 - **生命周期扛得住系统打断。** 在工具调用边界做计划内重启；后台 park/drain/resume，排空窗口 20 秒；内存与温度预算；带持久非秘密 intent 的交接/收回 facade。宿主状态机出错就大声失败，不会悄悄重新放行。
 - **自研加速器 xz-shell。** 宿主侧的只读加速器是我们自己的 Rust workspace（`shell/`），不是打包的第三方二进制：ripgrep 兼容搜索、jq 兼容过滤、tree-sitter 解析/查询，以及 `phone`/`ctx` 宿主桥，统一走手写 C ABI（`include/xzshell.h`），链接为 `PDSHShell.xcframework`。同一个 workspace 还产出 Worker 里运行的 WASI jq 引擎。每个命令在构造上只读（mount table 沙箱拒绝 `/dsh/workspace`、`/dsh/home` 之外的一切）、输出有上限、可取消。
 - **执行器倒置。** `bash`、`git`、`python3` 和文件工具都在 Worker 内的内存 VFS 上运行，写入就是普通的工作区变更。只有宿主广播过的只读加速器（`rg`、`jaq`/`jq`、`ts-parse`、`ts-query`，以及有 bridge 时的 `phone`/`ctx`）才会跨进 App 进程。
@@ -121,7 +120,7 @@ examples/probe-app/scripts/copy-bundle-assets.sh \
   --checkout "$PDSH_DSH_CHECKOUT" --force
 ```
 
-复制步骤会构建 Worker 镜像，默认把 CPython 与 jq 的 WASI 产物一起打包（要用 `--without-python` / `--without-jq` 显式不要），校验检出与镜像来源一致，并记录 provenance。Web 发行目录放的是完整 DSH 页面；已发布的 App 原生界面不会打开它，但完整 Web 页面的模拟器套件会。
+复制步骤会构建 Worker 镜像，默认把 CPython 与 jq 的 WASI 产物一起打包（要用 `--without-python` / `--without-jq` 显式不要），校验检出与镜像来源一致，并记录 provenance。Web 发行目录放的是完整 DSH 页面，供 Worker 启动使用；App 原生界面不会打开它（完整 Web UI 已移除）。
 
 ### 3. 生成并构建 probe App
 
@@ -201,7 +200,7 @@ bash scripts/ci/scenarios.sh --upstream real
 | 物理 iPhone（签名、安装、真实 provider、后台） | NOT_RUN；没有真机证据，限流、JIT、jetsam、锁定模式和后台调度在真机上仍是 NOT_VERIFIED |
 | 远端 handoff peer | facade 与进程内测试存在；真实传输上的部署 peer NOT_RUN |
 | 托管 GitHub Actions | 因账单原因目前关闭，所以不放 CI 徽章；`.github/workflows/ci.yml` 保留，同样的门禁在本地跑 |
-| App 里的完整 DSH Web UI | 代码仍在，但未启用：没有用户可见入口，默认界面是原生 SwiftUI |
+| App 里的完整 DSH Web UI | 已移除：App 只保留原生 SwiftUI 界面；Worker 镜像里仍带 DSH 页面，那是 Worker 启动用的，不是界面 |
 | 原生加速器 | 可选：`PDSH_WITH_XZSHELL=1` 加构建好的 `shell/dist/PDSHShell.xcframework`；不链接时 SDK 不广播任何能力并大声失败 |
 | 锁定模式 | 本地 Worker 不可用并会如实上报，App 内没有绕过办法 |
 

@@ -5,6 +5,7 @@
 
 import SwiftUI
 import PhoneDSHAgentCore
+import UIKit
 
 /// The four places the native shell can be. Chat owns the composed turn;
 /// Sessions owns history + scheduled runs; Workspace owns files and the
@@ -42,20 +43,22 @@ enum NativeHeaderStyle {
     static let statusDot: CGFloat = 8
 }
 
-/// The one status indicator: green means the host is running, amber means it is
-/// parked in the background, grey means stopped.
+/// Green means the configured host is running; amber marks missing model
+/// configuration or a parked host, and grey means stopped.
 struct RunStatusDot: View {
     let started: Bool
     let parked: Bool
+    let needsModelConfiguration: Bool
 
     private var color: Color {
-        if parked { return Color(red: 0xC7 / 255, green: 0x77 / 255, blue: 0) }
+        if needsModelConfiguration || parked { return Color(red: 0xC7 / 255, green: 0x77 / 255, blue: 0) }
         return started
             ? Color(red: 0x0E / 255, green: 0x9F / 255, blue: 0x6E / 255)
             : Color(uiColor: .tertiaryLabel)
     }
 
     private var label: String {
+        if needsModelConfiguration { return "待配置模型服务" }
         if parked { return "后台暂停" }
         return started ? "运行中" : "未启动"
     }
@@ -75,9 +78,8 @@ struct RunStatusDot: View {
     }
 }
 
-/// The app is one screen: the conversation. Everything else is reached from the
-/// sessions drawer in the top-left, the way phone coding clients do it. There is
-/// deliberately no bottom tab bar.
+/// Wide windows keep sessions beside the conversation; compact windows use a
+/// push-aside drawer. Both layouts retain the same conversation view and draft.
 struct NativeShell: View {
     init() {
         // 页面底全 App 纯白:分组列表默认那层 #F2F2F7 会和白卡片叠出接缝,
@@ -87,6 +89,7 @@ struct NativeShell: View {
     }
 
     @State private var drawerOpen = false
+    @State private var sidebarCollapsed = false
     @State private var dragOffset: CGFloat = 0
     private let drawerWidth: CGFloat = 320
     #if DEBUG
@@ -94,24 +97,39 @@ struct NativeShell: View {
     #endif
 
     var body: some View {
-        // 推走式:菜单在下层,固定不动;当前页面整体右移 320 把菜单让出来,
-        // 中间没有遮罩。点页面、在页面上左滑、转子里的「关闭会话列表」都能收回。
         GeometryReader { proxy in
+            // Leave at least 580 points for the conversation beside the sidebar.
+            let usesSidebar = proxy.size.width >= drawerWidth + 580
+            let sidebarVisible = usesSidebar && !sidebarCollapsed
+            let modalDrawerVisible = !usesSidebar && drawerOpen
+            let pageOffset = sidebarVisible ? drawerWidth : (usesSidebar ? 0 : contentOffset)
+            let panelOpen = usesSidebar
+                ? Binding(get: { !sidebarCollapsed }, set: { sidebarCollapsed = !$0 })
+                : $drawerOpen
+
             ZStack(alignment: .topLeading) {
-                SessionsDrawerPanel(isOpen: $drawerOpen,
+                SessionsDrawerPanel(isOpen: panelOpen,
                                     topInset: proxy.safeAreaInsets.top,
-                                    bottomInset: proxy.safeAreaInsets.bottom)
-                    .allowsHitTesting(drawerOpen)
-                    .accessibilityHidden(!drawerOpen)
+                                    bottomInset: proxy.safeAreaInsets.bottom,
+                                    isPersistent: usesSidebar)
+                    .allowsHitTesting(sidebarVisible || modalDrawerVisible)
+                    .accessibilityHidden(!sidebarVisible && !modalDrawerVisible)
 
                 NavigationStack {
-                    ChatPage(openDrawer: { openDrawer() })
+                    ChatPage(openDrawer: {
+                        if usesSidebar {
+                            withAnimation(.easeInOut(duration: 0.22)) { sidebarCollapsed.toggle() }
+                        } else {
+                            openDrawer()
+                        }
+                    }, drawerExpanded: sidebarVisible)
                 }
+                .frame(width: max(0, proxy.size.width - (sidebarVisible ? drawerWidth : 0)))
                 // 白对白时阴影不够用,再加一条 0.5 的断线:#D5D4DB,只贴页面左缘、只在抽屉开着时出现。
                 // 它挂在页面自己身上(所以在 offset 之前),跟着页面走;0.5 宽不参与布局,
                 // 也不随内容滚动。阴影保持原深度,两样一起加深会变成一道黑边。
                 .overlay(alignment: .leading) {
-                    if drawerOpen {
+                    if sidebarVisible || modalDrawerVisible {
                         Rectangle()
                             .fill(Color(red: 0xD5 / 255, green: 0xD4 / 255, blue: 0xDB / 255))
                             .frame(width: 0.5)
@@ -119,16 +137,16 @@ struct NativeShell: View {
                             .accessibilityHidden(true)
                     }
                 }
-                .offset(x: contentOffset)
+                .offset(x: pageOffset)
                 // 页面左缘一条柔和阴影,让它看得出压在菜单上面。
-                .shadow(color: .black.opacity(contentOffset > 0 ? 0.18 : 0), radius: 16, x: -8)
-                .accessibilityHidden(drawerOpen)
+                .shadow(color: .black.opacity(modalDrawerVisible ? 0.18 : 0), radius: 16, x: -8)
+                .accessibilityHidden(modalDrawerVisible)
 
                 // 「点页面任意处收回」只盖页面露出来的那块,不盖抽屉。
                 // 这一层必须靠布局定位(左边让出 contentOffset),不能挂在被 offset 的页面上:
                 // overlay 的命中区停在改写前的 0..402,抽屉那 320 点整块被它吃掉,
                 // 于是抽屉里所有控件都点不动。
-                if drawerOpen {
+                if modalDrawerVisible {
                     HStack(spacing: 0) {
                         Color.clear
                             .frame(width: max(0, min(drawerWidth, contentOffset)))
@@ -144,7 +162,11 @@ struct NativeShell: View {
             }
             .ignoresSafeArea()
             // 菜单盖着状态栏那一条,那上面的字必须深色;只有抽屉开着时把外观压成浅色。
-            .preferredColorScheme(drawerOpen ? .light : nil)
+            .preferredColorScheme(sidebarVisible || modalDrawerVisible ? .light : nil)
+            .onChange(of: usesSidebar) { _, _ in
+                drawerOpen = false
+                dragOffset = 0
+            }
         }
         #if DEBUG
         // `-uiPreview <screen>` lands straight on one screen, so review passes
@@ -192,6 +214,9 @@ struct NativeShell: View {
     /// 展开 0.28 秒、收回 0.22 秒,用系统那条曲线;已经开着时再点不加第二层。
     private func openDrawer() {
         guard !drawerOpen else { return }
+        // Question-card text fields also need to release the keyboard.
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),
+                                        to: nil, from: nil, for: nil)
         withAnimation(.easeInOut(duration: 0.28)) { drawerOpen = true }
     }
 
@@ -225,28 +250,31 @@ struct SessionsDrawerPanel: View {
     @Binding var isOpen: Bool
     var topInset: CGFloat
     var bottomInset: CGFloat = 0
+    var isPersistent = false
     private let width: CGFloat = 320
 
     var body: some View {
-        SessionsDrawer(isOpen: $isOpen, topInset: topInset, bottomInset: bottomInset)
+        SessionsDrawer(isOpen: $isOpen, topInset: topInset, bottomInset: bottomInset,
+                       isPersistent: isPersistent)
             .frame(width: width)
             .frame(maxHeight: .infinity)
             // 面板是白纸,不跟系统深色走:盖到状态栏下面时,状态栏的字必须是深色。
             .background(Color.white)
             .environment(\.colorScheme, .light)
             .clipShape(UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: 0,
-                                              bottomTrailingRadius: 22, topTrailingRadius: 22,
+                                              bottomTrailingRadius: isPersistent ? 0 : 22,
+                                              topTrailingRadius: isPersistent ? 0 : 22,
                                               style: .continuous))
 
             // 读屏:整页设成模态,焦点进面板。三条退路并存——点遮罩、面板左滑、
             // 转子里的「关闭会话列表」;两指手势(escape)也留着。
             .accessibilityElement(children: .contain)
             .accessibilityLabel("会话列表")
-            .accessibilityAddTraits(.isModal)
+            .accessibilityAddTraits(isPersistent ? [] : .isModal)
             .accessibilityAction(.escape) { close() }
             .accessibilityAction(named: Text("关闭会话列表")) { close() }
             // 这句会念出来,也让这条退路在无障碍树里查得到:自定义动作本身不进 describe-ui。
-            .accessibilityHint("两指画 Z 或从转子里选「关闭会话列表」都能收回。")
+            .accessibilityHint(isPersistent ? "" : "两指画 Z 或从转子里选「关闭会话列表」都能收回。")
     }
 
     private func close() {
@@ -260,6 +288,7 @@ struct SessionsDrawer: View {
     @Binding var isOpen: Bool
     var topInset: CGFloat = 0
     var bottomInset: CGFloat = 0
+    var isPersistent = false
     @State private var showSettings = false
     @State private var showSchedules = false
     @State private var showFolders = false
@@ -281,7 +310,9 @@ struct SessionsDrawer: View {
                 // 面板贴屏幕顶;NavigationStack 自己已经让开安全区,这里只补设计的 16。
                 .padding(.top, 16)
 
-                SessionsPage(onSelect: { isOpen = false })
+                SessionsPage(onSelect: {
+                    if !isPersistent { isOpen = false }
+                })
                     .toolbar(.hidden, for: .navigationBar)
 
                 Divider()
@@ -744,6 +775,7 @@ enum PreviewScreen: String, Identifiable, CaseIterable {
     case chatFailed = "chat.failed"
     case chatQueued = "chat.queued"
     case chatPermission = "chat.permission"
+    case chatQuestion = "chat.question"
     case sessionsMany = "sessions.many"
     case sessionsEmpty = "sessions.empty"
     case sessionsNothing = "sessions.nothing"
@@ -783,6 +815,7 @@ enum PreviewScreen: String, Identifiable, CaseIterable {
         case .chatOfficial: ChatPage(previewItems: PreviewChatItems.official)
         case .chatFailed: ChatPage(previewItems: PreviewChatItems.failed)
         case .chatQueued: ChatPage(previewItems: PreviewChatItems.queued)
+        case .chatQuestion: ChatPage(previewItems: PreviewChatItems.assistant)
         case .sessionsMany:
             DrawerPreview(sessionCount: 40)
         case .sessionsEmpty:

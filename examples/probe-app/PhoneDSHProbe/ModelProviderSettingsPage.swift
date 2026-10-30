@@ -11,14 +11,6 @@ import PhoneDSH
 import SwiftUI
 import UIKit
 
-/// Which one host this configuration sheet may restart. The native recovery
-/// page and the complete Web page share the same provider document and
-/// Keychain, but only one PhoneDSHHost exists at a time.
-enum ModelProviderSettingsHost {
-    case native
-    case web
-}
-
 /// 强度的四档中文说法;认不出的那档不显示。
 enum ProviderWording {
     static func effortTitle(_ raw: String) -> String {
@@ -35,10 +27,7 @@ enum ProviderWording {
 }
 
 struct ModelProviderSettingsPage: View {
-    var host: ModelProviderSettingsHost = .native
-
     @State private var model = ChatModel.shared
-    @State private var web = WebHostModel.shared
     @State private var snapshot = ModelProviderSettingsSnapshot()
     @State private var keyStatuses: [String: ModelProviderAPIKeyStatus] = [:]
     @State private var errorText: String?
@@ -209,52 +198,26 @@ struct ModelProviderSettingsPage: View {
         }
     }
 
-    private var hostRunning: Bool {
-        switch host {
-        case .native: return model.isStarted
-        case .web: return web.isStarted
-        }
-    }
+    private var hostRunning: Bool { model.isStarted }
 
     private var restartSection: some View {
         Section("生效方式") {
             Label(restartHint, systemImage: "arrow.clockwise")
                 .font(.footnote)
                 .foregroundStyle(hostRunning ? Color.orange : Color.secondary)
-            switch host {
-            case .native:
-                if !model.isStarted {
-                    Button("启动本地引擎") { Task { await model.start() } }
-                }
-            case .web:
-                if web.isStarted {
-                    Button("重启 Web 主机以应用配置") {
-                        Task {
-                            if web.state == .failed {
-                                await web.start()   // serialized userReset path
-                            } else {
-                                await web.restartForConfigurationChange()
-                            }
-                        }
-                    }
-                } else {
-                    Button("启动 Web 主机") { Task { await web.start() } }
-                }
+            if !model.isStarted {
+                Button("启动本地引擎") { Task { await model.start() } }
             }
         }
     }
 
     private var restartHint: String {
         guard hostRunning else { return "配置会在下次启动主机时生效。" }
-        switch host {
-        case .native:
-            return "保存后需要停止并重新启动主机，新的服务和模型才会用于后续请求。"
-        case .web:
-            return "保存后重启本地引擎就生效;工作文件夹、会话记录都不受影响。"
-        }
+        return "保存后需要停止并重新启动主机，新的服务和模型才会用于后续请求。"
     }
 
     private func reload() {
+        defer { model.refreshModelProviderReadiness() }
         do {
             let loaded = try settings.load()
             snapshot = loaded
