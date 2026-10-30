@@ -386,7 +386,11 @@ PY
 mkdir -p "$cache"
 build_lock="$cache/.build.lock"
 build_lock_owned=0
+artifact_staging=""
 release_build_lock() {
+  if [ -n "$artifact_staging" ] && [ -d "$artifact_staging" ]; then
+    rm -rf "$artifact_staging" || true
+  fi
   if [ "$build_lock_owned" -eq 1 ]; then
     rm -f "$build_lock/pid"
     rmdir "$build_lock" 2>/dev/null || true
@@ -458,6 +462,14 @@ out_real="$(cd "$out_parent" && pwd -P)/$(basename "$out")"
 case "$out_real/" in
   "$repo_root"/*) die "--out must be outside the repository (artifacts are never committed): $out_real" ;;
 esac
+# Other processes read this directory without taking our build lock. Keep the
+# previous pair and reports intact until the replacement passes every probe.
+final_out="$out"
+if [ "$out_explicit" -eq 0 ]; then
+  artifact_staging="${out}.staging.$$"
+  rm -rf "$artifact_staging"
+  out="$artifact_staging"
+fi
 mkdir -p "$out" "$cache/downloads" "$cache/src"
 
 fetch() {
@@ -811,6 +823,16 @@ with open(target, 'w', encoding='utf-8') as handle:
 PY
 mv -f "$out/.compression.json.tmp" "$out/compression.json"
 mv -f "$out/.sizes.json.tmp" "$out/sizes.json"
+
+if [ "$out_explicit" -eq 0 ]; then
+  previous_out="${final_out}.previous.$$"
+  rm -rf "$previous_out"
+  if [ -e "$final_out" ]; then mv "$final_out" "$previous_out"; fi
+  mv "$out" "$final_out"
+  out="$final_out"
+  rm -rf "$previous_out"
+  artifact_staging=""
+fi
 
 say "done"
 printf '  python.wasm      %s bytes  sha256 %s\n' "$wasm_bytes" "$wasm_sha"
