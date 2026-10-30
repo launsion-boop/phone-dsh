@@ -733,7 +733,7 @@ export class XlSubprocessRuntime extends SubprocessRuntime {
       revision: () => bridge.lastMseq,
       // The console's foreground deadline is the host EXEC_REQ deadline; the
       // termination grace only bounds cancel/force settlement.
-      ...extended.timeoutMs === undefined ? {} : { deadlineMs: extended.timeoutMs },
+      deadlineMs: extended.timeoutMs ?? shellTimeoutFromEnv(process.env),
       ...extended.idempotencyKey === undefined ? {} : { idempotencyKey: extended.idempotencyKey },
       graceMs: spec.graceMs,
     })

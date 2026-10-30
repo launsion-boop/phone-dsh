@@ -77,7 +77,7 @@ struct PDSHShellPage: View {
                 Section("输出") {
                     if let error { Text(error).foregroundStyle(.red) }
                     Text(output.isEmpty ? "运行结果会显示在这里。" : output)
-                        .font(.system(.footnote, design: .monospaced))
+                        .font(NativeChatTheme.terminalFont())
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }

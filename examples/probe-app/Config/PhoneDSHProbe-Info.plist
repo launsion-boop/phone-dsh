@@ -53,17 +53,56 @@
 	</array>
 	<!-- `audio`: the Chat page keeps a silent, mixWithOthers playback session
 	     while a turn is running in the background so the agent is not
-	     suspended mid-task (see BackgroundKeepAlive.swift). -->
+	     suspended mid-task (see BackgroundKeepAlive.swift). `location` is used
+	     only after explicit geofence confirmation and Always authorization;
+	     no region monitoring starts at App launch. -->
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>
 		<string>processing</string>
+		<string>location</string>
+	</array>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>读取你选择时间范围内的日程，并仅在明确确认后创建日历事件。</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>读取提醒事项，并仅在明确确认后创建或完成提醒。</string>
+	<key>NSContactsUsageDescription</key>
+	<string>仅在你发起联系人查询并授权后读取匹配的姓名、邮箱和电话；默认脱敏。</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>仅读取你明确授权的健康摘要与指标；不写入健康数据，且读取授权状态不会显示为已允许。</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>仅在你查询时读取可访问照片的元数据，用于最近照片和日期搜索。</string>
+	<key>NSCameraUsageDescription</key>
+	<string>仅在你明确发起拍摄或文稿扫描时使用相机。</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>仅在你明确发起录音时采集音频。</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>仅在设备端将你选择的录音转换为文字，不上传音频。</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>仅在你明确查询时获取一次当前位置。</string>
+	<key>NSMotionUsageDescription</key>
+	<string>仅读取你指定时间范围内的运动活动和步数。</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>仅在你明确发起扫描时发现附近蓝牙设备。</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>启用生物识别确认后，在敏感写操作前验证是你本人。</string>
+	<key>NSFocusStatusUsageDescription</key>
+	<string>仅在你查询时读取系统 FocusStatus 的专注状态。</string>
+	<key>NSHomeKitUsageDescription</key>
+	<string>仅在你授权后读取家庭和配件，并在明确确认后写入指定特征。</string>
+	<key>NSAppleMusicUsageDescription</key>
+	<string>通过 MusicKit 播放你明确选择的音乐目录项目。</string>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_pdsh._tcp.</string>
 	</array>
 	<!-- Connecting an MCP server on the household/corporate LAN triggers the
-	     iOS local-network prompt. The app only uses this for the exact MCP
-	     endpoint the user adds in the MCP tab; it does not browse the LAN. -->
+	     iOS local-network prompt. NWBrowser is used only for the explicit
+	     local-network test and browses the declared _pdsh._tcp service. -->
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>用于连接你明确添加的局域网 Streamable HTTP MCP 服务器；不会扫描或浏览局域网中的其它设备。</string>
+	<string>用于连接你明确添加的局域网 MCP 服务器，以及仅在你点击测试时发现 _pdsh._tcp 服务。</string>
 	<!-- The probe origin is plain HTTP on 127.0.0.1; NSAllowsLocalNetworking
 	     also permits a user-added plain-HTTP MCP endpoint on the local network.
 	     No arbitrary-loads or remote-HTTP exception is declared. -->

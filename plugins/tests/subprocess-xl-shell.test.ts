@@ -11,6 +11,7 @@ import { Context } from '@deepseek-ai/cordis'
 import type { SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
 import { FrameType } from '../channel/src/index.ts'
 import { XlExecBridge, deriveIdemKey, toolCallStorage } from '../exec-bridge/src/index.ts'
+import { acceleratorExecID } from '../shell-ext/src/index.ts'
 import { AdmissionClosedError, ExecutionGovernor, XlSubprocessRuntime } from '../subprocess-xl/src/index.ts'
 import type { XlWorkerSpawnSpec } from '../subprocess-xl/src/index.ts'
 import { MockChannel, eventually, jsonPayload } from './test-channel.ts'
@@ -19,6 +20,7 @@ const roots: string[] = []
 const SAVED_ENV = {
   PDSH_SHELL: process.env.PDSH_SHELL,
   PDSH_VFS_ROOT: process.env.PDSH_VFS_ROOT,
+  PDSH_SHELL_TIMEOUT_MS: process.env.PDSH_SHELL_TIMEOUT_MS,
   PDSH_THERMAL_STATE: process.env.PDSH_THERMAL_STATE,
 }
 
@@ -202,6 +204,31 @@ test('dispatch: an accelerator inside bash -c reaches 0x20 with requires_mseq an
   }
 })
 
+test('dispatch: an accelerator default deadline follows the command budget, not cancel grace', async () => {
+  const root = virtualRoot()
+  const h = await harness({ caps: ['accelerator:rg'], env: {
+    PDSH_VFS_ROOT: root,
+    PDSH_SHELL_TIMEOUT_MS: '45000',
+  } })
+  const key = 'xl1-command-budget-deadline'
+  try {
+    const started = Date.now()
+    const handle = await toolCallStorage().run(
+      { sessionId: 's', callId: 'c', key, turnId: '1', stepId: '1', spawns: 0 },
+      () => h.subprocess.spawn(spec('/dsh/workspace', ['bash', '-c', 'rg --json needle'])),
+    )
+    await eventually(() => h.mock.framesOf(FrameType.EXEC_REQ).length === 1)
+    const request = jsonPayload(h.mock.framesOf(FrameType.EXEC_REQ)[0]!)
+    assert.equal(request.grace_ms, 3_000)
+    assert.ok(Number(request.deadline) >= started + 44_000)
+    assert.ok(Number(request.deadline) <= Date.now() + 45_000)
+    complete(h.mock, String(request.exec_id), 'match\n')
+    assert.deepEqual(await handle.done, { exitCode: 0, signal: null })
+  } finally {
+    await h.dispose()
+  }
+})
+
 test('dispatch: the console deadline is the host deadline and an exported key cannot pick the identity', async () => {
   const root = virtualRoot()
   const h = await harness({ caps: ['accelerator:rg'], nextMseq: 49n, env: { PDSH_VFS_ROOT: root } })
@@ -228,7 +255,7 @@ test('dispatch: the console deadline is the host deadline and an exported key ca
       request.env as Record<string, string>,
       { key: consoleId },
     ))
-    assert.equal(request.exec_id, `${consoleId}-a0`)
+    assert.equal(request.exec_id, acceleratorExecID(request.idem_key!, 0))
     assert.equal(request.grace_ms, 250)
     assert.ok(Number(request.deadline) >= started + 4_000, 'the EXEC_REQ deadline is the requested 5 s, not graceMs')
     complete(h.mock, String(request.exec_id), 'match\n')

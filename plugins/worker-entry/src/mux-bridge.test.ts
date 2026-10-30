@@ -306,6 +306,31 @@ test('server frames are canonical JSON (sorted keys, no whitespace)', async () =
   }
 })
 
+test('mux projection rounds llm retry delayMs without admitting other fractions', () => {
+  const encoded = encodeMuxFrameLine({
+    type: 'item', streamId: 's1', value: {
+      type: 'llm/retry', seq: 18, time: 1793276504702,
+      data: { delayMs: 528.0336662194833, policyKey: '[0.1]' },
+    },
+  })
+  assert.equal(
+    decodeUtf8(encoded),
+    '{"streamId":"s1","type":"item","value":{"data":{"delayMs":528,"policyKey":"[0.1]"},"seq":18,"time":1793276504702,"type":"llm/retry"}}\n',
+  )
+  for (const value of [
+    { type: 'event', event: { type: 'llm/retry', data: { delayMs: 528.0336662194833 } } },
+    { type: 'snapshot', records: [{ event: { type: 'llm/retry', data: { delayMs: 528.0336662194833 } } }] },
+  ]) {
+    assert.match(decodeUtf8(encodeMuxFrameLine({ type: 'item', streamId: 's1', value })), /"delayMs":528/)
+  }
+  assert.throws(
+    () => encodeMuxFrameLine({
+      type: 'item', streamId: 's1', value: { type: 'other/event', data: { delayMs: 0.5 } },
+    }),
+    /integers only/,
+  )
+})
+
 test('parseMuxClientFrame mirrors the gateway stream-protocol exact-key rules', () => {
   assert.deepEqual(
     parseMuxClientFrame('{"type":"open","streamId":"s","endpoint":"e","payload":{"a":1}}'),

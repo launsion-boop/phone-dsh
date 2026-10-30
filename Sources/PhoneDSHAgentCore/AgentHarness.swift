@@ -453,6 +453,29 @@ public struct HarnessEvent: Codable, Equatable, Sendable {
     public var isDurable: Bool { seq != nil }
 }
 
+/// The session's durable goal (`dsh-goal`'s `goal` projection), as the
+/// input-dock GoalBar shows it.
+public struct HarnessGoal: Equatable, Sendable {
+    public enum Phase: String, Equatable, Sendable {
+        case active, paused, blocked, complete
+    }
+
+    public var objective: String
+    public var phase: Phase
+    public var blockedReason: String?
+    public var roundsStarted: Int
+    public var maxGoalRounds: Int
+
+    public init(objective: String, phase: Phase, blockedReason: String? = nil,
+                roundsStarted: Int = 0, maxGoalRounds: Int = 0) {
+        self.objective = objective
+        self.phase = phase
+        self.blockedReason = blockedReason
+        self.roundsStarted = roundsStarted
+        self.maxGoalRounds = maxGoalRounds
+    }
+}
+
 /// A harness backend.
 public protocol AgentHarness: Sendable {
     /// Static capabilities of this backend (a session may narrow them).
@@ -470,10 +493,14 @@ public protocol AgentHarness: Sendable {
     /// which the caller re-subscribes from its last durable seq.
     func events(sessionID: String, after seq: UInt64?) -> AsyncThrowingStream<HarnessEvent, Error>
 
+    /// The session's current goal projection, or nil when it has no goal.
+    func goal(sessionID: String) async throws -> HarnessGoal?
+
     /// Releases client-side resources; does not delete the remote session.
     func closeSession(_ sessionID: String) async
 }
 
 public extension AgentHarness {
     func closeSession(_ sessionID: String) async {}
+    func goal(sessionID: String) async throws -> HarnessGoal? { nil }
 }

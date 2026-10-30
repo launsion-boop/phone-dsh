@@ -27,6 +27,9 @@ ALLOWED_HOSTS = {
     "npmjs.com",
     "deepseek.com",
     "docs.rs",
+    "example.com",
+    "example.org",
+    "example.net",
     "crates.io",
     "python.org",
     "modelcontextprotocol.io",
@@ -95,6 +98,9 @@ def allowed(patterns, rel, number, line, matched):
 
 def host_allowed(host):
     host = host.lower().rstrip(".")
+    # The fixed native tool name is an API identifier, not a private hostname.
+    if host == "notify.local":
+        return True
     if host in ALLOWED_HOSTS:
         return True
     if host.rsplit(":", 1)[-1].isdigit() and host.count(":") == 1:

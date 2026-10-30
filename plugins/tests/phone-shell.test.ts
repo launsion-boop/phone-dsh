@@ -15,6 +15,7 @@ import { Context } from '@deepseek-ai/cordis'
 import type { SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
 import { remoteMethods } from '@deepseek-ai/dsh-typert-protocol'
 import { FrameType } from '../channel/src/index.ts'
+import { acceleratorExecID } from '../shell-ext/src/index.ts'
 import { XlExecBridge } from '../exec-bridge/src/index.ts'
 import type { ExecTransportKind } from '../exec-bridge/src/index.ts'
 import { XlSubprocessRuntime } from '../subprocess-xl/src/index.ts'
@@ -228,7 +229,7 @@ test('caps comes from the live hello and printf writes the real Worker VFS', asy
 
 test('a real HTTP hello projects its provider, mounts and limits; channel placeholders do not', () => {
   const limits = {
-    timeoutMs: 30_000, maxTimeoutMs: 120_000, maxOutputBytes: 256 * 1024,
+    timeoutMs: 30_000, maxTimeoutMs: 600_000, maxOutputBytes: 256 * 1024,
     maxCommandBytes: 64 * 1024, maxArgv: 256,
   }
   const hostCaps = capsFromHello({
@@ -719,7 +720,7 @@ test('invalid argv, cwd, timeout and exec id are rejected before spawn', async (
     await assert.rejects(h.service.run({ command: 'echo', timeoutMs: 0 }), /positive integer/u)
     await assert.rejects(h.service.run({ command: 'echo', timeoutMs: -1 }), /positive integer/u)
     await assert.rejects(h.service.run({ command: 'echo', timeoutMs: 1.5 }), /positive integer/u)
-    await assert.rejects(h.service.run({ command: 'echo', timeoutMs: 121_000 }), /must not exceed/u)
+    await assert.rejects(h.service.run({ command: 'echo', timeoutMs: 600_001 }), /must not exceed/u)
     await assert.rejects(h.service.run({ command: 'echo', execId: 'bad id' }), /execId/u)
     await assert.rejects(h.service.run({ command: 'echo', execId: 'bad:id' }), /execId/u)
     await assert.rejects(h.service.run({ command: 'echo', execId: 'a'.repeat(62) }), /execId/u)
@@ -795,7 +796,7 @@ test('the browser helper sends the documented phone/shell endpoints and args env
   const calls: Array<{ channel: string; endpoint: string; payload: unknown }> = []
   const caps = {
     linked: true, provider: 'pdsh-shell', accelerators: ['rg'], mounts: [], limits: {
-      timeoutMs: 30_000, maxTimeoutMs: 120_000, maxOutputBytes: 1_048_576, maxCommandBytes: 65_536, maxArgv: 256,
+      timeoutMs: 30_000, maxTimeoutMs: 600_000, maxOutputBytes: 1_048_576, maxCommandBytes: 65_536, maxArgv: 256,
     }, transportSupported: true, factsSource: 'exec-bridge-hello', shell: 'just-bash', readOnlyAccelerators: true, terminal: false, pty: false, note: '',
   } as const
   const client = createPhoneShellClient({
@@ -838,10 +839,10 @@ test('an advertised rg typed into the command box crosses bash -c with the conso
     const result = await pending
     assert.equal(result.exitCode, 0)
     assert.equal(result.stdout, 'needle\n')
-    assert.match(hostExecId, /^console-rg-command-1-a\d+$/u)
     const frames = h.mock.framesOf(FrameType.EXEC_REQ)
     assert.equal(frames.length, 1)
     const body = jsonPayload(frames[0]!)
+    assert.equal(hostExecId, acceleratorExecID(String(body['idem_key']), 0))
     assert.deepEqual(body['argv'], ['rg', 'needle', '/dsh/workspace/notes.txt'])
     assert.equal((body['env'] as Record<string, string>)['XL_IDEMPOTENCY_KEY'], 'console-rg-command-1')
     assert.ok(Number(body['deadline']) >= started + 4_000, 'bash -c accelerator gets the requested deadline too')
@@ -850,7 +851,7 @@ test('an advertised rg typed into the command box crosses bash -c with the conso
   }
 })
 
-test('a 61-character exec id leaves the -aN suffix inside the D6 64-character bound', async () => {
+test('a sha256-derived exec id keeps the -aN suffix inside the D6 64-character bound', async () => {
   const h = await harness({ caps: ['accelerator:rg'] })
   const execId = 'a'.repeat(61)
   try {
@@ -862,7 +863,8 @@ test('a 61-character exec id leaves the -aN suffix inside the D6 64-character bo
     })
     const hostExecId = await answerHostRun(h.mock, ['rg', 'needle', '/dsh/workspace/notes.txt'], 'needle\n')
     assert.equal((await pending).exitCode, 0)
-    assert.equal(hostExecId, `${execId}-a0`)
+    const request = jsonPayload(h.mock.framesOf(FrameType.EXEC_REQ)[0]!)
+    assert.equal(hostExecId, acceleratorExecID(String(request['idem_key']), 0))
     assert.equal(hostExecId.length, 64)
     assert.match(hostExecId, /^[A-Za-z0-9._-]{1,64}$/u)
   } finally {

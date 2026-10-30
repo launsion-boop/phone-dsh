@@ -28,7 +28,8 @@ struct ChatPage: View {
     #endif
     @State private var previousSessionKey = ""
     @AppStorage("chat.drafts.v1") private var savedDrafts = "{}"
-    @AppStorage("phone-dsh.composer.busyEnter") private var busyEnterMode = "queue"
+    @State private var preferences = NativeChatPreferences.shared
+    private var busyEnterMode: String { preferences.busyEnterMode }
     @FocusState private var inputFocused: Bool
     @State private var pendingAttachments: [HarnessAttachment] = []
     @State private var showAttachmentPicker = false
@@ -43,12 +44,14 @@ struct ChatPage: View {
     @State private var showWorkbench = false
     @State private var initialWorkbenchPath: String?
     @State private var showSettings = false
+    @State private var showShortcuts = false
     @State private var showProviderSettings = false
     /// A path whose bytes had not arrived yet; the next file refresh retries it.
     @State private var pendingPreviewPath: String?
     @State private var showSessionList = false
     @State private var debugSheet: String?
     @State private var showConfiguration = false
+    @State private var showArtifacts = false
     @State private var showActivity = false
     @State private var showRuntimeDetails = false
     @State private var showSessionSettings = false
@@ -102,9 +105,11 @@ struct ChatPage: View {
     }
     private var visibleItems: [ChatItem] {
         #if DEBUG
-        if let previewItems { return previewItems }
+        if let previewItems {
+            return previewItems.filter { $0.kind != .status && $0.kind != .context }
+        }
         #endif
-        return model.items.filter { $0.kind != .status }
+        return model.items.filter { $0.kind != .status && $0.kind != .context }
     }
     private var transcriptScrollSignature: String {
         "\(visibleItems.map(\.id).joined(separator: ","))|\(visibleItems.last?.text ?? "")"
@@ -125,17 +130,20 @@ struct ChatPage: View {
             .padding(.horizontal, providerNeedsKey ? 144 : 104)
 
             HStack(spacing: 0) {
-                Button {
-                    inputFocused = false
-                    openDrawer?()
-                } label: {
-                    Image(systemName: "sidebar.left")
-                        .font(.system(size: 20, weight: .regular))
-                        .frame(width: 32, height: 44)
-                        .contentShape(Rectangle())
+                HStack(spacing: 4) {
+                    Button {
+                        inputFocused = false
+                        openDrawer?()
+                    } label: {
+                        Image(systemName: "sidebar.left")
+                            .font(.system(size: 20, weight: .regular))
+                            .frame(width: 32, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(drawerExpanded ? "隐藏会话列表" : "打开会话列表")
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(drawerExpanded ? "隐藏会话列表" : "打开会话列表")
+                .fixedSize(horizontal: true, vertical: false)
 
                 Spacer(minLength: 0)
 
@@ -151,6 +159,10 @@ struct ChatPage: View {
                     .accessibilityLabel("运行状态")
                     .accessibilityValue(providerNeedsKey ? "待配置模型服务" : model.displayStatus)
                     Menu {
+                        Button("产物", systemImage: "doc") { showArtifacts = true }
+                            .disabled(model.currentSessionID == nil)
+                        Button("子 Agent 与后台活动", systemImage: "person.2") { showActivity = true }
+                            .disabled(model.currentSessionID == nil)
                         ShareLink(item: historyExport,
                                   subject: Text("对话记录"),
                                   preview: SharePreview("对话记录")) {
@@ -200,7 +212,35 @@ struct ChatPage: View {
         // whole stack (including the title row) up under the status bar on
         // newer iOS versions.
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            composer
+            VStack(spacing: 0) {
+                if model.hostNeedsRecovery {
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(NativeText("引擎需要恢复", "Engine recovery needed"))
+                                .font(.system(size: 13, weight: .semibold))
+                            Text(NativeText("保留当前工作区和会话", "Keep this workspace and its sessions"))
+                                .font(.system(size: 11))
+                                .foregroundStyle(Self.inkSecondary)
+                        }
+                        Spacer(minLength: 0)
+                        Button {
+                            Task { await model.recoverFailedHost() }
+                        } label: {
+                            Text(model.canRecoverFailedHost
+                                 ? NativeText("恢复引擎", "Recover engine")
+                                 : NativeText("正在恢复…", "Recovering…"))
+                                .font(.system(size: 13, weight: .semibold))
+                        }
+                        .disabled(!model.canRecoverFailedHost)
+                        .accessibilityIdentifier("host-recovery-action")
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(Color(.systemBackground))
+                    Divider()
+                }
+                composer
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
             keyboardVisible = true
@@ -291,6 +331,16 @@ struct ChatPage: View {
         }
         // 系统窗里的按钮吃这层的 tint,不写就是黑的,不是我们的蓝。
         .tint(ChatPage.accent)
+        .background { shortcutCommands }
+        .sheet(isPresented: $showShortcuts) {
+            NavigationStack { NativeShortcutsPage() }
+        }
+        .sheet(isPresented: $showArtifacts) {
+            if let sessionID = model.currentSessionID {
+                NavigationStack { SessionArtifactsPage(sessionID: sessionID) }
+                    .presentationDragIndicator(.visible)
+            }
+        }
         .sheet(isPresented: $showActivity) {
             if let sessionID = model.currentSessionID {
                 NavigationStack { SessionActivityPage(sessionID: sessionID) }
@@ -331,7 +381,11 @@ struct ChatPage: View {
             // The native surface owns the one host now, so a cold launch
             // starts it directly instead of waiting for a tap.
             if !model.isStarted, !model.busy {
+                #if DEBUG
+                if previewItems == nil && PreviewScreen.requested == nil { Task { await model.start() } }
+                #else
                 Task { await model.start() }
+                #endif
             }
             // Device-test automation (PDSH_CHAT_AUTOSTART / PDSH_CHAT_AUTOPROMPT).
             model.autostartIfRequested()
@@ -610,6 +664,9 @@ struct ChatPage: View {
             case "chat.queued":
                 model.debugInstallPreviewState(failedItemID: nil, error: nil,
                                                queue: ["p-u3": "已排队"])
+            case "chat.official":
+                draft = ""
+                model.debugInstallNativeMetricsPreview()
             case "chat.question":
                 model.debugInstallPreviewState(failedItemID: nil, error: nil, queue: [:],
                     question: HarnessQuestion(requestID: "preview-question", prompt: "请选择处理方式", questions: [
@@ -647,8 +704,12 @@ struct ChatPage: View {
                 .font(.system(size: 13))
                 .foregroundStyle(ChatPage.warning)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            if model.failedPrompt != nil {
-                Button("重试") { Task { _ = await model.retryFailedPrompt() } }
+            if model.canRecoverFailedHost {
+                Button(NativeText("恢复引擎", "Recover engine")) { Task { await model.recoverFailedHost() } }
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(ChatPage.accent)
+            } else if model.failedPrompt != nil {
+                Button(NativeText("重试", "Retry")) { Task { _ = await model.retryFailedPrompt() } }
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(ChatPage.accent)
             }
@@ -776,7 +837,7 @@ struct ChatPage: View {
                             switch row {
                             case .item(let item):
                                 VStack(alignment: .leading, spacing: 0) {
-                                    ChatMessageRow(item: item, workspaceFiles: model.files,
+                                    ChatMessageRow(item: item, allItems: visibleItems, workspaceFiles: model.files,
                                                    onOpenFile: openWorkspaceResult)
                                     queueLine(for: item)
                                     failureLineIfNeeded(for: item)
@@ -800,10 +861,9 @@ struct ChatPage: View {
                         .frame(height: 1)
                         .id("transcript-tail")
                     }
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, NativeChatTheme.messageContentMargin)
                     .padding(.top, 22)
-                    // Room for the "回到最新" pill (28pt tall) so it never sits
-                    // on top of the last rows.
+                    // Room for the 36pt "回到最新" circle and its 44pt hit area.
                     .padding(.bottom, 48)
                     .background(
                         GeometryReader { content in
@@ -814,21 +874,24 @@ struct ChatPage: View {
                 }
                 .coordinateSpace(name: "chat-transcript")
                 .scrollDismissesKeyboard(.interactively)
-                .defaultScrollAnchor(.bottom)
                 .scrollBounceBehavior(.basedOnSize)
+                .simultaneousGesture(DragGesture(minimumDistance: 8).onChanged { value in
+                    if value.translation.height > 8 {
+                        userScrolledAway = true
+                    } else if value.translation.height < -8, nearBottom {
+                        userScrolledAway = false
+                    }
+                })
                 .onPreferenceChange(TranscriptContentHeightPreference.self) { height in
+                    guard height.isFinite, height >= 0 else { return }
                     transcriptContentHeight = height
                 }
                 .onPreferenceChange(TranscriptTailPreference.self) { tailY in
+                    guard tailY.isFinite else { return }
                     tailOffsetY = tailY
-                    // Past the content (a blank viewport) is not "near the
-                    // bottom"; neither may a lazy estimate silently re-enable
-                    // following while the reader is far above the tail.
-                    if tailY > viewport.size.height + 44 { userScrolledAway = true }
+                    // Only a deliberate upward drag pauses following. Content
+                    // growth must not be mistaken for the user leaving the tail.
                     nearBottom = tailY >= -1 && tailY <= viewport.size.height + 44
-                    if nearBottom && transcriptContentHeight <= viewport.size.height + 1 {
-                        userScrolledAway = false
-                    }
                 }
                 .onChange(of: transcriptScrollSignature) { _, _ in
                     if pendingInitialScroll, !visibleItems.isEmpty {
@@ -841,7 +904,7 @@ struct ChatPage: View {
                         scrollToTail(proxy, viewportHeight: viewport.size.height)
                         return
                     }
-                    guard nearBottom, !userScrolledAway, !loadingEarlierTranscript else { return }
+                    guard !userScrolledAway, !loadingEarlierTranscript else { return }
                     scheduleTailScroll(proxy, viewportHeight: viewport.size.height)
                 }
                 .onChange(of: model.isTranscriptReady) { _, ready in
@@ -870,26 +933,24 @@ struct ChatPage: View {
                     // The keyboard and the growing composer change the
                     // viewport. A transcript that was following re-anchors to
                     // the tail, so no blank strip is left below the content.
-                    guard new > old, nearBottom else { return }
+                    guard new.isFinite, new > old, !userScrolledAway else { return }
                     scheduleTailScroll(proxy, viewportHeight: new)
                 }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .overlay(alignment: .bottom) {
-            if userScrolledAway && !nearBottom && !visibleItems.isEmpty {
+            if userScrolledAway && !visibleItems.isEmpty {
                 Button { scrollToLatestTrigger += 1 } label: {
-                    Label("回到最新", systemImage: "arrow.down")
-                        .font(.caption.weight(.semibold))
+                    NativeChatIcon(name: .chevronDown, size: 16)
                         .foregroundStyle(Self.accent)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        // Opaque: a translucent capsule let the row underneath
-                        // read through and looked like overlapping text.
-                        .background(Self.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .strokeBorder(Color(uiColor: .separator)))
+                        .frame(width: 36, height: 36)
+                        .background(Self.surface, in: Circle())
+                        .overlay(Circle().strokeBorder(Color(uiColor: .separator)))
+                        .frame(width: 44, height: 44)
+                        .contentShape(Circle())
                 }
+                .accessibilityLabel("回到最新")
                 .padding(.bottom, 12)
             }
         }
@@ -900,7 +961,9 @@ struct ChatPage: View {
     /// overshoots into empty space (the blank page). The last row is a real,
     /// laid-out frame; the lazy tail anchor can be scrolled past its estimate.
     private func scrollToTail(_ proxy: ScrollViewProxy, viewportHeight: CGFloat) {
-        guard transcriptContentHeight > viewportHeight + 1 else { return }
+        guard transcriptContentHeight.isFinite, viewportHeight.isFinite,
+              tailOffsetY.isFinite, viewportHeight > 0,
+              transcriptContentHeight > viewportHeight + 1 else { return }
         // The last row may be a folded tool-run group, not the last message;
         // scroll to the row that is actually last.
         if let last = timelineRows.last?.id {
@@ -910,25 +973,20 @@ struct ChatPage: View {
         }
     }
 
-    /// Follow the tail after the next layout pass.
-    ///
-    /// Sending a message appends a row and, in the same update, this view asks
-    /// the lazy stack to scroll to a row it has not laid out yet: the target
-    /// is an estimate, the viewport can end up past the real content (a blank
-    /// screen) and the next streamed delta snaps it back (the visible jump).
-    /// Debouncing by one short turn lets the height preference and the row
-    /// frames settle, and the coalesced follow still tracks streaming.
+    /// Follow after the next layout pass, unless the user deliberately moved
+    /// into history. Delaying one short turn lets new row frames settle.
     private func scheduleTailScroll(_ proxy: ScrollViewProxy, viewportHeight: CGFloat) {
-        guard nearBottom, !userScrolledAway else { return }
+        guard !userScrolledAway, viewportHeight.isFinite, viewportHeight > 0 else { return }
         tailScrollTask?.cancel()
         tailScrollTask = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(50))
-            guard !Task.isCancelled, nearBottom, !userScrolledAway else { return }
+            guard !Task.isCancelled, !userScrolledAway else { return }
             if Date().timeIntervalSince(lastScrollTrace) > 1 {
                 lastScrollTrace = Date()
                 ChatModel.appendDiagnostic(
-                    "scroll tail content=\(Int(transcriptContentHeight)) viewport=\(Int(viewportHeight)) "
-                    + "tail=\(Int(tailOffsetY)) near=\(nearBottom) away=\(userScrolledAway)")
+                    "scroll tail content=\(String(describing: transcriptContentHeight)) "
+                    + "viewport=\(String(describing: viewportHeight)) "
+                    + "tail=\(String(describing: tailOffsetY)) near=\(nearBottom) away=\(userScrolledAway)")
             }
             scrollToTail(proxy, viewportHeight: viewportHeight)
         }
@@ -936,12 +994,12 @@ struct ChatPage: View {
 
     /// 新会话空屏。三种状态互斥,同一时刻只渲染一种;三者都在滚动区里,
     /// 不做覆盖层/浮层。
-    /// - A 引擎未启动(优先):`model.isStarted == false`
+    /// - A 引擎未启动或等待用户确认恢复
     /// - B 引擎已启动、模型服务没配好:`providerNeedsKey`
     /// - C 两者都好:居中两行文字
     @ViewBuilder
     private func emptyTimeline(viewportHeight: CGFloat) -> some View {
-        if !model.isStarted {
+        if model.hostNeedsRecovery || !model.isStarted {
             engineNotStartedState
                 .padding(.top, 88)
         } else if providerNeedsKey {
@@ -952,21 +1010,32 @@ struct ChatPage: View {
         }
     }
 
-    /// A:引擎还没启动。整块横向居中,文字左对齐在 338 宽的列里。
+    /// A:引擎还没启动或需要从失败状态显式恢复。
     private var engineNotStartedState: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("引擎还没启动")
+            Text(model.hostNeedsRecovery
+                 ? NativeText("引擎需要恢复", "Engine recovery needed")
+                 : NativeText("引擎还没启动", "Engine not started"))
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(Color(red: 0x11 / 255, green: 0x11 / 255, blue: 0x14 / 255))
-            Text("启动之后就能开始。")
+            Text(model.hostNeedsRecovery
+                 ? NativeText("保留当前工作区和会话，重新启动本地引擎。", "Restart the engine without deleting this workspace or its sessions.")
+                 : NativeText("启动之后就能开始。", "Start the engine to begin."))
                 .font(.system(size: 13))
                 .foregroundStyle(Self.inkSecondary)
                 .padding(.top, 8)
             Button {
                 guard !model.busy else { return }
-                Task { await model.start() }
+                Task {
+                    if model.hostNeedsRecovery { await model.recoverFailedHost() }
+                    else { await model.start() }
+                }
             } label: {
-                Text(model.busy ? "正在启动…" : "启动本地引擎")
+                Text(model.busy
+                     ? NativeText(model.hostNeedsRecovery ? "正在恢复…" : "正在启动…",
+                                  model.hostNeedsRecovery ? "Recovering…" : "Starting…")
+                     : NativeText(model.hostNeedsRecovery ? "恢复引擎" : "启动本地引擎",
+                                  model.hostNeedsRecovery ? "Recover engine" : "Start engine"))
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(width: 338, height: 50)
@@ -1046,8 +1115,101 @@ struct ChatPage: View {
         .offset(y: downwardShift)
     }
 
+    /// DSH's GoalBar: the session's goal docked above the composer, with a
+    /// phase label, the objective and the pause/resume/clear actions (the
+    /// same `/goal` command the web client runs).
+    private func goalBar(_ goal: HarnessGoal) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "target")
+                .font(.system(size: 13))
+                .foregroundStyle(ChatPage.inkSecondary)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(goalPhaseLabel(goal.phase))
+                    .font(.system(size: 11))
+                    .foregroundStyle(ChatPage.inkSecondary)
+                Text(goal.objective)
+                    .font(.system(size: 13))
+                    .foregroundStyle(ChatPage.inkSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            Spacer(minLength: 0)
+            if goal.phase == .active {
+                Button("暂停") { runGoalCommand("pause") }
+                    .font(.system(size: 12))
+            } else if goal.phase == .paused || goal.phase == .blocked {
+                Button("继续") { runGoalCommand("resume") }
+                    .font(.system(size: 12))
+            }
+            Button {
+                runGoalCommand("clear")
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .semibold))
+            }
+            .accessibilityLabel("清除目标")
+        }
+        .foregroundStyle(ChatPage.inkSecondary)
+        .padding(.horizontal, 10)
+        .frame(height: 40)
+        .background(Color(red: 246 / 255, green: 246 / 255, blue: 248 / 255),
+                    in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    private func goalPhaseLabel(_ phase: HarnessGoal.Phase) -> String {
+        switch phase {
+        case .active: return "目标 · 进行中"
+        case .paused: return "目标 · 已暂停"
+        case .blocked: return "目标 · 已阻塞"
+        case .complete: return "目标 · 已完成"
+        }
+    }
+
+    private func runGoalCommand(_ input: String) {
+        Task {
+            await runSlashCommand(name: "goal", input: input)
+            await model.refreshGoal()
+        }
+    }
+
+    /// Messages waiting behind the running turn, docked above the input
+    /// (DSH's queue strip); the transcript's per-row label still marks the
+    /// steered/sending states.
+    private var queuedMessages: [ChatItem] {
+        model.items.filter { model.queueLabel[$0.id] == "已排队" }
+    }
+
+    private var queuedStrip: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.system(size: 12))
+                Text("排队中 \(queuedMessages.count) 条")
+                    .font(.system(size: 12))
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(ChatPage.inkSecondary)
+            ForEach(queuedMessages) { item in
+                HStack(spacing: 8) {
+                    Text(item.text.components(separatedBy: .newlines).first ?? item.text)
+                        .font(.system(size: 13))
+                        .foregroundStyle(ChatPage.inkSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 10)
+                .frame(height: 28)
+                .background(Color(red: 246 / 255, green: 246 / 255, blue: 248 / 255),
+                            in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
+        }
+    }
+
     private var composer: some View {
         VStack(spacing: 9) {
+            if let goal = model.goal { goalBar(goal) }
+            if !queuedMessages.isEmpty { queuedStrip }
             if !pendingAttachments.isEmpty { attachmentStrip }
             if let attachmentError {
                 HStack {
@@ -1070,42 +1232,36 @@ struct ChatPage: View {
             }
             // The DSH input trigger: a bare leading `/token` opens the command
             // menu in place; picking one writes the token back into the draft.
-            if slashToken != nil {
-                slashCommandMenu
-            }
-            // 输入条是一整块浅灰圆角板。板内网格:上 12、下 12、左 14、右 8;
-            // 文字行 22、间距 10、工具行 32,单行合计 88。工具行靠左排,
-            // 发送/停止固定板内右下(右 8、底 8),文字因此不被按钮挤窄。
+            if slashToken != nil { slashCommandMenu }
+            if referenceToken != nil { referenceMenu }
+            // Official InputBar: one elevated card, a 14-line text scrollport,
+            // and the control row docked inside its lower edge.
             VStack(spacing: 0) {
-                // Composer per the design spec: 17pt text, 22pt line,
-                // 1–5 lines then it scrolls inside.
-                // TextEditor, not a vertical TextField: past five lines a
-                // TextField clips the last visible line instead of scrolling,
-                // which made a long draft impossible to read or edit. The
-                // editor scrolls inside its five-line frame.
                 ZStack(alignment: .topLeading) {
                     if draft.isEmpty {
                         Text(composerPlaceholder)
-                            .font(.system(size: 17))
-                            .foregroundStyle(ChatPage.inkSecondary)
+                            .font(NativeChatTheme.bodyFont())
+                            .foregroundStyle(NativeChatTheme.caption)
+                            .lineLimit(1)
                             .padding(.leading, 5)
                             .padding(.top, 8)
                             .allowsHitTesting(false)
                     }
                     TextEditor(text: $draft)
                         .scrollContentBackground(.hidden)
-                        .font(.system(size: 17))
-                        .lineSpacing(2)
+                        .font(NativeChatTheme.bodyFont())
+                        .lineSpacing(24 - 17)
                         .focused($inputFocused)
                         .disabled(!composerEnabled)
-                        .frame(minHeight: 22, maxHeight: 118)
+                        .frame(minHeight: 36, maxHeight: 336)
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityLabel(composerPlaceholder)
+                        .accessibilityIdentifier("消息输入")
                 }
                 .padding(.leading, 14)
                 .padding(.trailing, 8)
-                .frame(minHeight: 22)
-                .padding(.top, 6)
+                .frame(minHeight: 36)
+                .padding(.top, 4)
                     .onChange(of: draft) { _, value in
                         if value.count > 8_000 {
                             draft = String(value.prefix(8_000))
@@ -1126,28 +1282,28 @@ struct ChatPage: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            // 发送键/停止键独占板内右下:32 圆到板右、板底各 8。
-            // 44 是触控区,圆形 32 居中,所以外框再各收 2。
             .overlay(alignment: .bottomTrailing) {
                 HStack(spacing: 8) {
                     if model.turnRunning, canSubmit {
                         stopButton(diameter: 24, icon: 9)
                     }
-                    if canSubmit || model.turnRunning {
-                        actionButton
-                    }
+                    actionButton
                 }
                 .padding(.trailing, 2)
                 .padding(.bottom, 2)
             }
-            .background(Color(red: 0xF2 / 255, green: 0xF3 / 255, blue: 0xF5 / 255),
+            .background(NativeChatTheme.input,
                         in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .strokeBorder(NativeChatTheme.borderLight, lineWidth: 0.5))
+            .shadow(color: .black.opacity(0.06), radius: 12, y: 3)
+            NativeComposerStats(stats: model.sessionStats, usage: model.tokenUsage,
+                                pressure: model.contextPressure, breakdown: model.contextBreakdown)
         }
         .padding(.horizontal, 16)
         .padding(.top, 12)
         .padding(.bottom, 8)
-        // 输入区外整片纯白,不画分隔线;靠上方的间距和对话分开。
-        .background(Color.white)
+        .background(NativeChatTheme.background)
         // The command catalog is pulled the first time the trigger opens, the
         // same lazy load the DSH command directory does per session.
         .onChange(of: slashToken) { _, token in
@@ -1157,21 +1313,44 @@ struct ChatPage: View {
         }
     }
 
+    @ViewBuilder private var shortcutCommands: some View {
+        shortcutButton(.alternate) {
+            submitDraft(overrideBusyMode: busyEnterMode == "queue" ? "steer" : "queue")
+        }
+        shortcutButton(.settings) { showSettings = true }
+        shortcutButton(.shortcuts) { showShortcuts = true }
+        shortcutButton(.latest) { scrollToLatestTrigger += 1 }
+        shortcutButton(.stop) { Task { await model.cancelTurn() } }
+    }
+
+    private func shortcutButton(_ action: NativeShortcutAction,
+                                perform: @escaping () -> Void) -> some View {
+        Button(action: perform) { EmptyView() }
+            .keyboardShortcut(preferences.shortcut(for: action).keyEquivalent,
+                              modifiers: preferences.shortcut(for: action).modifiers)
+            .hidden()
+            .accessibilityHidden(true)
+    }
+
     @ViewBuilder
     private var actionButton: some View {
         if !canSubmit && model.turnRunning {
-            stopButton(diameter: 32, icon: 13)
-        } else if canSubmit {
-            Button(action: submitDraft) {
+            stopButton(diameter: 34, icon: 13)
+        } else {
+            Button(action: { submitDraft() }) {
                 Image(systemName: "arrow.up")
                     .font(.system(size: 15, weight: .bold))
                     .foregroundStyle(.white)
-                    .frame(width: 32, height: 32)
-                    .background(ChatPage.accent, in: Circle())
+                    .frame(width: 34, height: 34)
+                    .background(NativeChatTheme.accent, in: Circle())
+                    .opacity(canSubmit ? 1 : 0.4)
                     .frame(width: 44, height: 44)
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
+            .disabled(!canSubmit)
+            .keyboardShortcut(preferences.shortcut(for: .send).keyEquivalent,
+                              modifiers: preferences.shortcut(for: .send).modifiers)
             .transition(.scale(scale: 0.8).combined(with: .opacity))
             .animation(.easeOut(duration: 0.12), value: canSubmit)
             .accessibilityLabel("发送消息")
@@ -1208,29 +1387,39 @@ struct ChatPage: View {
             }
         }
         .buttonStyle(.plain)
+        .keyboardShortcut(preferences.shortcut(for: .stop).keyEquivalent,
+                          modifiers: preferences.shortcut(for: .stop).modifiers)
         .accessibilityLabel(stopping ? "正在停止" : "停止执行")
     }
 
     private var composerControls: some View {
-        // 外框按板内网格:左 14 起,按钮热区 32×32、相邻间隔 8(中心距 40);
-        // 图标 17、文字 13,控件左右内边距 4,保持既有“墨迹约 20”的验收。
         HStack(spacing: 8) {
             Menu {
+                Button("调用指令", systemImage: "slash.square") {
+                    draft = "/"
+                    inputFocused = true
+                }
+                Button("引用文件或对话", systemImage: "at") {
+                    draft = "@"
+                    inputFocused = true
+                }
                 Button("添加图片", systemImage: "photo") { showAttachmentPicker = true }
                 Button("添加文件（写入工作区）", systemImage: "doc.badge.plus") {
                     showFileImport = true
                 }
             } label: {
                 Image(systemName: "plus")
-                    .font(.system(size: 17, weight: .regular))
-                    .foregroundStyle(ChatPage.inkSecondary)
-                    .frame(width: 32, height: 32)
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(NativeChatTheme.primary)
+                    .frame(width: 28, height: 28)
+                    .background(NativeChatTheme.selector, in: Circle())
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(!composerEnabled)
-            .accessibilityLabel("添加图片或文件")
+            .accessibilityLabel("添加指令、引用或附件")
             accessModeMenu
+            Spacer(minLength: 8)
             if providerNeedsKey {
                 Button {
                     showProviderSettings = true
@@ -1320,20 +1509,13 @@ struct ChatPage: View {
                 }
             }
         } label: {
-            // 只留图标和字:图标 17、文字 13,热区高 32。
-            // 宽度跟着字走,不预留:预留的空白会把这一格撑宽,
-            // 和下一格之间就出现一段看不见的空隙(墨迹间距对不上)。
             HStack(spacing: 4) {
-                Image(systemName: "lock.shield")
-                    .font(.system(size: 17))
-                Text(accessModeTitle)
-                    .font(.system(size: 13))
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
+                NativeChatIcon(name: .shield, size: 17)
+                NativeChatIcon(name: .chevronDown, size: 12)
             }
-            .foregroundStyle(ChatPage.inkSecondary)
+            .foregroundStyle(NativeChatTheme.secondary)
             .padding(.horizontal, 5)
-            .frame(height: 32)
+            .frame(height: 28)
         }
         .disabled(!model.canSend || model.turnRunning || model.pendingQuestion != nil || model.pendingPermission != nil || isSelectingAccessMode)
         .accessibilityLabel("权限：\(accessModeTitle)")
@@ -1423,17 +1605,20 @@ struct ChatPage: View {
 
     private var modelNameBlock: some View {
         HStack(spacing: 4) {
-            Image(systemName: "cpu")
-                .font(.system(size: 17))
             Text(modelDisplayName)
-                .font(.system(size: 13))
+                .font(NativeChatTheme.secondaryFont())
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .fixedSize(horizontal: true, vertical: false)
+            if let effort = reasoningEffortTitle {
+                Text(effort)
+                    .font(NativeChatTheme.secondaryFont())
+                    .lineLimit(1)
+            }
+            NativeChatIcon(name: .chevronDown, size: 12)
         }
         .foregroundStyle(modelControlTint)
         .padding(.horizontal, 5)
-        .frame(height: 32)
+        .frame(height: 28)
         .layoutPriority(1)
     }
 
@@ -1542,9 +1727,12 @@ struct ChatPage: View {
         return model.turnRunning ? hasText : (hasText || !pendingAttachments.isEmpty)
     }
 
-    private func submitDraft() {
+    private func submitDraft(overrideBusyMode: String? = nil) {
         model.refreshModelProviderReadiness()
         guard canSubmit else { return }
+        let mode = overrideBusyMode ?? busyEnterMode
+        guard mode != "steer" || (model.canSteer && pendingAttachments.isEmpty) else { return }
+        dismissComposerKeyboard()
         let text = draft
         if let command = Self.parseSlashCommand(text) {
             draft = ""
@@ -1556,15 +1744,10 @@ struct ChatPage: View {
         draft = ""
         Task {
             let succeeded: Bool
-            if model.turnRunning && busyEnterMode == "steer" {
+            if model.turnRunning && mode == "steer" {
                 succeeded = await model.steer(text)
             } else {
                 succeeded = await model.send(text, attachments: pendingAttachments)
-                if succeeded {
-                    nearBottom = true
-                    userScrolledAway = false
-                    scrollToLatestTrigger += 1
-                }
             }
             if succeeded {
                 let id = model.items.last(where: { if case .user = $0.kind { return true }; return false })?.id
@@ -1573,21 +1756,21 @@ struct ChatPage: View {
                     // an ordinary idle send used to be labelled "已排队" for a
                     // moment. The label describes the queue the message joined,
                     // which only exists if a turn was already running.
-                    if wasRunning && busyEnterMode == "steer" { model.markSteered(itemID: id) }
-                    else if wasRunning { model.markQueued(itemID: id) }
+                    if wasRunning && mode == "steer" { model.markSteered(itemID: id) }
+                    else if wasRunning {
+                        model.markQueued(itemID: id)
+                        ChatModel.appendDiagnostic("queued: \(text.prefix(40))")
+                    }
                 }
+                NotificationCenter.default.post(name: .nativeChatNewInput, object: nil)
                 pendingAttachments.removeAll()
                 attachmentError = nil
-                inputFocused = false
-                // A send means "show me the newest turn". The composer (a
-                // TextEditor that grows to five lines) and the keyboard change
-                // the transcript viewport, which used to leave `nearBottom`
-                // false even though the person never scrolled away; the new
-                // row then stayed below the fold. Jump to the tail through the
-                // session-open path, which scrolls without animation.
+                dismissComposerKeyboard()
+                // One explicit jump shows the new turn; subsequent streaming
+                // uses the bounded follow task until the user moves into history.
                 nearBottom = true
                 userScrolledAway = false
-                pendingInitialScroll = true
+                scrollToLatestTrigger += 1
             } else if draft.isEmpty {
                 // The send was refused before it produced a row (host not
                 // ready, session switching, busy): keep the text so the person
@@ -1595,6 +1778,12 @@ struct ChatPage: View {
                 draft = text
             }
         }
+    }
+
+    private func dismissComposerKeyboard() {
+        inputFocused = false
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),
+                                        to: nil, from: nil, for: nil)
     }
 
     @MainActor
@@ -1670,7 +1859,7 @@ struct ChatPage: View {
 
     private var composerPlaceholder: String {
         if let issue = model.modelProviderIssue { return issue }
-        if !model.turnRunning { return "发消息" }
+        if !model.turnRunning { return "发消息或创建任务，/ 调用指令，@ 文件或对话" }
         return busyEnterMode == "steer" ? "补充当前任务…" : "排入下一轮…"
     }
 
@@ -1802,6 +1991,68 @@ struct ChatPage: View {
     private func pickCommand(_ descriptor: NativeCommandDescriptor) {
         draft = "/\(descriptor.name) "
         inputFocused = true
+    }
+
+    private var referenceToken: String? {
+        let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("@"), !trimmed.dropFirst().contains(where: { $0.isWhitespace }) else { return nil }
+        return String(trimmed.dropFirst())
+    }
+
+    private var referenceFiles: [WorkspaceFile] {
+        guard let token = referenceToken else { return [] }
+        return model.files.filter { token.isEmpty || $0.relativePath.localizedCaseInsensitiveContains(token) }.prefix(6).map { $0 }
+    }
+
+    private var referenceSessions: [ManagedSession] {
+        guard let token = referenceToken, !token.isEmpty else { return [] }
+        return management.sessions.filter { $0.title.localizedCaseInsensitiveContains(token) }.prefix(3).map { $0 }
+    }
+
+    @ViewBuilder
+    private var referenceMenu: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if referenceFiles.isEmpty && referenceSessions.isEmpty {
+                Text("没有匹配的文件或对话")
+                    .font(NativeChatTheme.secondaryFont())
+                    .foregroundStyle(NativeChatTheme.secondary)
+                    .padding(12)
+            } else {
+                ForEach(referenceFiles) { file in
+                    Button {
+                        draft = file.relativePath + " "
+                        inputFocused = true
+                    } label: {
+                        HStack(spacing: 10) {
+                            FileTypeGlyph.icon(for: file.relativePath, size: 20)
+                            Text(file.relativePath).lineLimit(1)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 12).padding(.vertical, 8)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+                ForEach(referenceSessions) { session in
+                    Button {
+                        draft = "@\(session.title) "
+                        inputFocused = true
+                    } label: {
+                        HStack(spacing: 10) {
+                            NativeChatIcon(name: .branch, size: 16)
+                            Text(session.title).lineLimit(1)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 12).padding(.vertical, 8)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .font(NativeChatTheme.secondaryFont())
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(NativeChatTheme.selector, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     static func parseSlashCommand(_ text: String) -> (name: String, input: String)? {
@@ -2134,97 +2385,28 @@ private struct QuestionCard: View {
     }
 }
 
-/// The model's streamed reasoning, following the DSH web ReasoningRow:
-/// a 24pt disclosure row with the official Think icon (the DSH artwork),
-/// the title, and one collapsed summary line that keeps refreshing while the
-/// model thinks. Tapping opens the complete reasoning Markdown.
-private struct ThinkingBlock: View {
-    let text: String
-    let streaming: Bool
-    @State private var expanded = false
-
-    /// DSH's collapsed summary: the first line when settled; while running,
-    /// the first line of the latest COMPLETED paragraph (the growing last
-    /// paragraph is skipped so the line does not jitter).
-    private var summary: String {
-        let raw: String
-        if streaming {
-            raw = Self.latestCompletedParagraphFirstLine(text)
-        } else {
-            raw = text.components(separatedBy: "\n").first ?? ""
-        }
-        return raw.replacingOccurrences(of: "**", with: "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    static func latestCompletedParagraphFirstLine(_ text: String) -> String {
-        var currentFirst: String?
-        var lastCompleted: String?
-        for line in text.components(separatedBy: "\n") {
-            if line.trimmingCharacters(in: .whitespaces).isEmpty {
-                if let first = currentFirst { lastCompleted = first }
-                currentFirst = nil
-            } else if currentFirst == nil {
-                currentFirst = line
-            }
-        }
-        return lastCompleted ?? currentFirst ?? ""
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Button {
-                expanded.toggle()
-            } label: {
-                HStack(spacing: 8) {
-                    Image(expanded ? "DSHChevronUp" : "DSHThink")
-                        .resizable()
-                        .renderingMode(.template)
-                        .frame(width: 14, height: 14)
-                    Text("思考")
-                        .font(.system(size: 13))
-                    if !expanded, !summary.isEmpty {
-                        Rectangle()
-                            .fill(ChatPage.inkSecondary.opacity(0.35))
-                            .frame(width: 12, height: 1)
-                        ShimmerText(text: summary, active: streaming)
-                    }
-                    Spacer(minLength: 0)
-                }
-                .foregroundStyle(ChatPage.inkSecondary)
-                .frame(minHeight: 24)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            if expanded {
-                NativeMarkdownBody(markdown: text.isEmpty ? "…" : text)
-                    .font(.system(size: 15))
-                    .foregroundStyle(ChatPage.inkSecondary)
-                    .padding(.leading, 22)
-            }
-        }
-    }
-}
-
 private struct ChatMessageRow: View {
     let item: ChatItem
+    let allItems: [ChatItem]
     var workspaceFiles: [WorkspaceFile]
     var onOpenFile: (String) -> Void
 
     var body: some View {
         switch item.kind {
         case .toolCall, .toolResult:
-            ToolEventCard(item: item, expanded: false, workspaceFiles: workspaceFiles, onOpenFile: onOpenFile)
+            NativeToolCallRow(item: item, onOpenFile: onOpenFile)
         case .context:
             ContextInjectionCard(item: item)
         case .user:
-            // 用户消息才用底色块:靠右、宽跟字走、上限 296;不再有「你」那层。
-            HStack(alignment: .top, spacing: 0) {
-                Spacer(minLength: 16)
-                userBubble
+            VStack(alignment: .trailing, spacing: 4) {
+                HStack(alignment: .top, spacing: 0) {
+                    Spacer(minLength: 16)
+                    userBubble
+                }
+                if !item.attachments.isEmpty { NativeAttachmentList(attachments: item.attachments, onOpenFile: onOpenFile) }
+                NativeMessageActions(text: item.text, timestamp: item.timestamp)
             }
         case .assistant:
-            // 助手正文不套气泡,直接排在版心上。
             assistantBody
                 .contextMenu {
                     if !item.text.isEmpty {
@@ -2234,10 +2416,13 @@ private struct ChatMessageRow: View {
                     }
                 }
         case .reasoning:
-            // The model's thinking: muted, collapsible, and never part of the
-            // answer. It starts expanded while streaming, collapses when the
-            // step's answer arrives.
-            ThinkingBlock(text: item.text, streaming: item.streaming)
+            NativeThinkingRow(item: item)
+        case .image:
+            NativeAttachmentList(attachments: item.attachments, onOpenFile: onOpenFile)
+        case .systemEvent, .turnError, .maxTokens:
+            NativeSystemEventRow(item: item)
+        case .unknown:
+            DSHJsonBlock(text: item.text)
         case .status:
             EmptyView()
         }
@@ -2246,323 +2431,74 @@ private struct ChatMessageRow: View {
     private var assistantBody: some View {
         VStack(alignment: .leading, spacing: 6) {
             if item.streaming { ProgressView().controlSize(.mini) }
-            NativeMarkdownBody(markdown: item.text.isEmpty ? "…" : item.text)
-                .font(.system(size: 17))
+            NativeMarkdownBody(markdown: item.text.isEmpty ? "…" : item.text,
+                               streaming: item.streaming, workspaceFiles: workspaceFiles,
+                               onOpenFile: onOpenFile)
+                .font(NativeChatTheme.bodyFont())
                 .environment(\.openURL, OpenURLAction { url in
                     guard let path = workspaceRelativePath(from: url) else { return .systemAction }
                     onOpenFile(path)
                     return .handled
                 })
-            WorkspaceOutputReferences(text: item.text, files: workspaceFiles, onOpenFile: onOpenFile)
+            if isTurnClosingAssistant, let turn = item.turn {
+                if NativeChatPreferences.shared.developerTools,
+                   let changes = NativeTranscriptProjector.changes(forTurn: turn, in: allItems) {
+                    NativeChangedFilesCard(changes: changes, onOpenFile: onOpenFile)
+                }
+                NativeMessageActions(text: Self.assistantText(forTurn: turn, in: allItems),
+                                     timestamp: item.timestamp,
+                                     usage: NativeTranscriptProjector.usage(forTurn: turn, in: allItems),
+                                     onFeedback: feedbackAction)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var isTurnClosingAssistant: Bool {
+        guard let turn = item.turn, !item.streaming else { return false }
+        return allItems.last(where: { $0.turn == turn && $0.kind == .assistant })?.id == item.id
+    }
+
+    private static func assistantText(forTurn turn: Int, in items: [ChatItem]) -> String {
+        items.filter { $0.turn == turn && $0.kind == .assistant }.map(\.text).joined(separator: "\n\n")
+    }
+
+    private var feedbackAction: ((Bool) -> Void)? {
+        guard let messageID = item.messageID else { return nil }
+        return { positive in
+            Task { await ChatModel.shared.rateMessage(messageID, positive: positive) }
+        }
     }
 
     /// 贴字优先:能一行放下就用自然宽度,放不下才在 296 内换行。
     private var userBubble: some View {
         let body = Text(item.text.isEmpty ? "…" : item.text)
-            .font(.system(size: 17))
-            .lineSpacing(24 - 21)
+            .font(NativeChatTheme.bodyFont())
+            .lineSpacing(24 - 17)
             .textSelection(.enabled)
         return ViewThatFits(in: .horizontal) {
             body.fixedSize(horizontal: true, vertical: true)
             body
         }
         .padding(12)
-        .background(Color(red: 232 / 255, green: 233 / 255, blue: 237 / 255),
+        .background(NativeChatTheme.selector,
                     in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         .frame(maxWidth: 296, alignment: .trailing)
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
 
-    private func messageCard(tint: Color) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 9) {
-                Text(displayTitle).font(.caption.weight(.semibold))
-                if item.streaming { ProgressView().controlSize(.mini) }
-            }
-            .foregroundStyle(.secondary)
-            if item.kind == .assistant {
-                NativeMarkdownBody(markdown: item.text.isEmpty ? "…" : item.text)
-                    .padding(-16)
-                    .environment(\.openURL, OpenURLAction { url in
-                        guard let path = workspaceRelativePath(from: url) else { return .systemAction }
-                        onOpenFile(path)
-                        return .handled
-                    })
-            } else {
-                Text(item.text.isEmpty ? "…" : item.text)
-                    .font(.body)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .foregroundStyle(tint)
-            }
-            WorkspaceOutputReferences(text: item.text, files: workspaceFiles, onOpenFile: onOpenFile)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contextMenu {
-            Button("复制", systemImage: "doc.on.doc") {
-                UIPasteboard.general.string = item.text
-            }
-        }
-    }
-
-    private var displayTitle: String {
-        switch item.title {
-        case "You": return "你"
-        case "You (steering)": return "你 · 补充说明"
-        case "Assistant": return "DSH"
-        case let title where title.hasPrefix("DSH context · "):
-            return NativeSourceName.chinese(title.replacingOccurrences(of: "DSH context · ", with: ""))
-                .map { "上下文注入 · \($0)" } ?? "上下文注入"
-        case "Tool result": return "工具结果"
-        case "Tool error": return "工具错误"
-        default:
-            if item.title.hasPrefix("Tool call: ") {
-                return "工具调用 · " + item.title.replacingOccurrences(of: "Tool call: ", with: "")
-            }
-            return item.title
-        }
-    }
-}
-
-/// One run of tool activity folded into a single row: the collapsed label
-/// reports the count and failures, and the individual lines are one tap away.
-private func toolFirstLine(_ text: String) -> String {
-    text.components(separatedBy: .newlines).first ?? text
-}
-
-/// The title a tool item shows when nothing more specific is available.
-private func toolDisplayTitle(_ item: ChatItem) -> String {
-    if case .toolCall = item.kind {
-        let name = item.title.replacingOccurrences(of: "Tool call: ", with: "")
-        return ToolWording.category(forToolName: name).rowTitle
-    }
-    switch item.title {
-    case "Tool error": return "工具错误"
-    case "Tool result": return "工具结果"
-    default:
-        if item.title.hasPrefix("Tool call: ") {
-            return "工具调用 · " + item.title.replacingOccurrences(of: "Tool call: ", with: "")
-        }
-        return item.title
-    }
-}
-
-/// One line「动作 · 参数」for a tool row; the verb comes from the call text and
-/// never says the generic「调用工具」.
-private func toolActionLine(_ item: ChatItem) -> String {
-    let raw = toolFirstLine(item.text).trimmingCharacters(in: .whitespaces)
-    guard case .toolCall = item.kind, !raw.isEmpty else { return toolDisplayTitle(item) }
-    let parts = raw.components(separatedBy: " · ")
-    let rest = parts.dropFirst().joined(separator: " · ").trimmingCharacters(in: .whitespaces)
-    let verb = parts.first?.lowercased() ?? ""
-    let action: String
-    switch true {
-    case ["read", "read_file", "filesystem_read"].contains(verb): action = "读取文件"
-    case ["write", "write_file", "edit", "apply_patch"].contains(verb): action = "改文件"
-    case ["bash", "shell", "exec"].contains(verb): action = "运行命令"
-    case ["grep", "glob", "find", "search"].contains(verb): action = "搜索"
-    default: action = toolDisplayTitle(item)
-    }
-    var parameter = rest.isEmpty ? raw : rest
-    if ["读取文件", "改文件"].contains(action) {
-        parameter = parameter.components(separatedBy: "/").last ?? parameter
-    }
-    // A command's preview is its first line, not the first whitespace token:
-    // '运行命令 · cd' hid what the command actually did.
-    parameter = parameter.trimmingCharacters(in: .whitespacesAndNewlines)
-    if parameter.isEmpty { parameter = raw }
-    if parameter.count > 48 { parameter = String(parameter.prefix(48)) + "…" }
-    return "\(action) · \(parameter)"
 }
 
 private struct ToolRunRow: View {
     let items: [ChatItem]
     var workspaceFiles: [WorkspaceFile] = []
     var onOpenFile: (String) -> Void = { _ in }
-    @State private var expanded = false
-    @State private var selected = 0
-
-    /// DSH's process row: one fixed line per run. A single tool call opens its
-    /// detail directly; several consecutive calls share one line whose preview
-    /// switches with the chevrons, and the line first opens the list.
-    var body: some View {
-        if items.count == 1, let only = items.first {
-            ToolEventCard(item: only, workspaceFiles: workspaceFiles, onOpenFile: onOpenFile)
-        } else {
-            multiple
-        }
-    }
-
-    private var multiple: some View {
-        let index = min(max(selected, 0), max(items.count - 1, 0))
-        let item = items[index]
-        return VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 4) {
-                Button {
-                    expanded.toggle()
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "terminal")
-                            .font(.system(size: 13))
-                            .foregroundStyle(ChatPage.inkSecondary)
-                            .layoutPriority(1)
-                        Text(toolActionLine(item))
-                            .font(.system(size: 13))
-                            .foregroundStyle(ChatPage.inkSecondary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            .layoutPriority(2)
-                        Spacer(minLength: 0)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-
-                Button {
-                    selected = (index - 1 + items.count) % items.count
-                } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(ChatPage.inkSecondary)
-                        .frame(width: 20, height: 28)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("上一条命令")
-                Button {
-                    selected = (index + 1) % items.count
-                } label: {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(ChatPage.inkSecondary)
-                        .frame(width: 20, height: 28)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("下一条命令")
-                Button {
-                    expanded.toggle()
-                } label: {
-                    Image("DSHChevronDown")
-                        .resizable()
-                        .renderingMode(.template)
-                        .frame(width: 12, height: 12)
-                        .rotationEffect(.degrees(expanded ? 180 : 0))
-                        .foregroundStyle(ChatPage.inkSecondary)
-                        .frame(width: 20, height: 28)
-                }
-                .buttonStyle(.plain)
-            }
-            .frame(height: 33)
-            Rectangle()
-                .fill(ChatPage.inkSecondary.opacity(0.18))
-                .frame(height: 0.5)
-            if expanded {
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(items) { item in
-                        ToolEventCard(item: item, workspaceFiles: workspaceFiles, onOpenFile: onOpenFile)
-                    }
-                }
-                .padding(.top, 6)
-            }
-        }
-    }
-}
-
-private struct ToolEventCard: View {
-    let item: ChatItem
-    var workspaceFiles: [WorkspaceFile] = []
-    var onOpenFile: (String) -> Void = { _ in }
-    @State private var expanded: Bool
-
-    init(item: ChatItem, expanded: Bool = false, workspaceFiles: [WorkspaceFile] = [], onOpenFile: @escaping (String) -> Void = { _ in }) {
-        self.item = item
-        self.workspaceFiles = workspaceFiles
-        self.onOpenFile = onOpenFile
-        _expanded = State(initialValue: expanded)
-    }
-
-    private var isError: Bool {
-        if case .toolResult(let isError) = item.kind { return isError }
-        return false
-    }
-
-    /// 一行「动作 · 参数」,动作是动词加对象,不写「调用工具」这种笼统词。
-    private var actionLine: String { toolActionLine(item) }
-
-    /// 有没有可展开的详情:有内容才给箭头。
-    private var hasDetails: Bool {
-        !item.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
 
     var body: some View {
-        DisclosureGroup(isExpanded: $expanded) {
-            DSHJsonBlock(text: item.text)
-            if case .toolResult = item.kind {
-                WorkspaceOutputReferences(text: item.text, files: workspaceFiles, onOpenFile: onOpenFile)
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(items) { item in
+                NativeToolCallRow(item: item, onOpenFile: onOpenFile)
             }
-        } label: {
-            // 工具行是过程,不是内容:一行 28,图标 14 单色次要墨,文字 13,
-            // 不加底色、边框、圆角;右边只在能点开时给一个小箭头。
-            HStack(spacing: 9) {
-                Image(systemName: isError ? "exclamationmark.triangle.fill" : "terminal")
-                    .font(.system(size: 14))
-                    .foregroundStyle(isError ? Color(red: 0xC0/255, green: 0x39/255, blue: 0x2B/255)
-                                             : Color(red: 154/255, green: 154/255, blue: 162/255))
-                Text(actionLine)
-                    .font(.system(size: 13))
-                    .foregroundStyle(isError ? Color(red: 0xC0/255, green: 0x39/255, blue: 0x2B/255) : ChatPage.inkSecondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Spacer(minLength: 8)
-                if item.streaming {
-                    ProgressView().controlSize(.mini).scaleEffect(0.8)
-                } else if case .toolResult = item.kind {
-                    // The DSH web tool row ends in the same status glyph.
-                    Image(isError ? "DSHClose" : "DSHCheck")
-                        .resizable()
-                        .renderingMode(.template)
-                        .frame(width: 12, height: 12)
-                        .foregroundStyle(isError
-                            ? Color(red: 0xC0/255, green: 0x39/255, blue: 0x2B/255)
-                            : Color(red: 154/255, green: 154/255, blue: 162/255))
-                }
-                if hasDetails {
-                    Image("DSHChevronDown")
-                        .resizable()
-                        .renderingMode(.template)
-                        .frame(width: 12, height: 12)
-                        .rotationEffect(.degrees(expanded ? 180 : 0))
-                        .foregroundStyle(Color(red: 154/255, green: 154/255, blue: 162/255))
-                }
-            }
-            .frame(height: 28)
-            .contentShape(Rectangle())
-        }
-        // 系统展开箭头会占住右侧一条;换成自己的箭头,位置才归版心管。
-        .disclosureGroupStyle(FlatDisclosureStyle())
-        .contextMenu {
-            Button("复制详情", systemImage: "doc.on.doc") { UIPasteboard.general.string = item.text }
-        }
-    }
-
-    private func firstLine(_ text: String) -> String { text.components(separatedBy: .newlines).first ?? text }
-
-    private var displayTitle: String {
-        if case .toolCall = item.kind {
-            let name = item.title.replacingOccurrences(of: "Tool call: ", with: "")
-            return ToolWording.category(forToolName: name).rowTitle
-        }
-        switch item.title {
-        case "Tool error": return "工具错误"
-        case "Tool result": return "工具结果"
-        default:
-            if item.title.hasPrefix("Tool call: ") {
-                return "工具调用 · " + item.title.replacingOccurrences(of: "Tool call: ", with: "")
-            }
-            return item.title
         }
     }
 }
@@ -2897,7 +2833,19 @@ struct RuntimeDetailsPage: View {
             }
 
             Section {
-                if model.isStarted {
+                if model.hostNeedsRecovery {
+                    Button(NativeText("恢复引擎（保留会话）", "Recover engine (keep sessions)")) {
+                        Task { await model.recoverFailedHost() }
+                    }
+                        .font(.system(size: 17))
+                        .foregroundStyle(ChatPage.accent)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 16)
+                        .frame(minHeight: 44)
+                        .listRowInsets(EdgeInsets())
+                        .listRowSeparator(.hidden)
+                        .disabled(!model.canRecoverFailedHost)
+                } else if model.isStarted {
                     Button("停止本地引擎") { confirmingStop = true }
                         .font(.system(size: 17))
                         .foregroundStyle(ChatPage.danger)
@@ -2917,7 +2865,9 @@ struct RuntimeDetailsPage: View {
                         .listRowSeparator(.hidden)
                 }
             } footer: {
-                Text("停止后,正在跑的任务会停下来,不会再接着做。")
+                Text(model.hostNeedsRecovery
+                     ? NativeText("恢复只重启引擎，不删除会话或工作区文件。", "Recovery restarts the engine without deleting sessions or workspace files.")
+                     : NativeText("停止后,正在跑的任务会停下来,不会再接着做。", "Stopping the engine also stops its active work."))
                     .font(.system(size: 13))
                     .foregroundStyle(ChatPage.inkSecondary)
             }
@@ -2988,7 +2938,8 @@ private struct CommandExecutionResultPage: View {
 private struct NativeTrajectoryRow: View {
     let entry: NativeTrajectoryEntry
     let onOpenFile: (String) -> Void
-    @State private var expanded = false
+    @State private var expanded = NativeChatPreferences.shared.transcriptView == .verbose
+    @State private var preferences = NativeChatPreferences.shared
 
     private var payloadText: String {
         guard let data = try? entry.payload.encoded() else { return "无法格式化此事件的原始数据。" }
@@ -3090,6 +3041,11 @@ private struct NativeTrajectoryRow: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .onReceive(NotificationCenter.default.publisher(for: .nativeChatNewInput)) { _ in
+            if preferences.collapseTiming == .nextInput && preferences.transcriptView != .verbose {
+                expanded = false
+            }
+        }
     }
 }
 

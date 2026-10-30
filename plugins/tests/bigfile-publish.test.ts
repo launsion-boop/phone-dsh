@@ -252,7 +252,7 @@ test('ENG-07: a VFS_RESYNC for a 60 MiB file is re-sent in chunks and keeps the 
 })
 
 test('ENG-07: the read cap is the single-file budget and an over-cap read has a chunk hint', async () => {
-  assert.equal(MAX_FILE_SIZE, 64 * MIB, 'the default 8 GiB tier single-file budget')
+  assert.equal(MAX_FILE_SIZE, 128 * MIB, 'the default 8 GiB tier single-file budget')
   assert.equal(MAX_FILE_READ_SIZE, MAX_FILE_SIZE, 'the read cap follows the single-file budget')
   assert.ok(MAX_FILE_SIZE > MAX_MUTATION_DATA, 'the file cap is not the per-mutation cap')
 
@@ -279,8 +279,8 @@ test('ENG-07: the read cap is the single-file budget and an over-cap read has a 
         const message = (error as Error).message
         assert.equal((error as { code?: string }).code, 'EFBIG')
         assert.match(message, /File too large/)
-        assert.equal(message.includes(String(MAX_FILE_SIZE)), true, 'the message names the 64 MiB byte limit')
-        assert.match(message, /67108864 bytes \(64 MiB\)/)
+        assert.equal(message.includes(String(MAX_FILE_SIZE)), true, 'the message names the 128 MiB byte limit')
+        assert.match(message, /134217728 bytes \(128 MiB\)/)
         const trailer = parseShellTrailer(message.trimEnd().split('\n').at(-1) as string)
         assert.equal(trailer?.reason, 'limit-refused', 'the read refusal carries a contract trailer')
         assert.equal(trailer?.program, 'vfs')

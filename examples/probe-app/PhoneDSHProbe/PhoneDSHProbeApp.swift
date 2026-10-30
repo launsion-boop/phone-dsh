@@ -55,8 +55,15 @@ extension PhoneDSHProbeApp {
         let name = env["PDSH_SEED_PROVIDER_NAME"] ?? "DeepSeek"
         let store = PhoneModelProviderSettings.shared
         let profile = ProviderProfile(id: "deepseek", displayName: name, baseURL: base, model: model)
-        _ = try? store.upsert(profile, apiKey: key)
-        try? store.select(id: profile.id)
+        do {
+            try store.upsert(profile, apiKey: key)
+            try store.select(id: profile.id)
+            let status = try store.apiKeyStatus(for: profile.id)
+            ChatModel.appendDiagnostic(
+                "provider seed: \(profile.id), model=\(profile.model), key=\(String(describing: status))")
+        } catch {
+            ChatModel.appendDiagnostic("provider seed failed: \(error)")
+        }
     }
 }
 #endif

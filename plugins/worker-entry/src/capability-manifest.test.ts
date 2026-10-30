@@ -21,7 +21,7 @@
  *  - a second boot with unchanged content emits no `VFS_MUT`.
  */
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
@@ -49,6 +49,7 @@ import {
   AGENTS_MD_PATH,
   CAPABILITIES_JSON_PATH,
   DEFAULT_BASH_DEVIATIONS,
+  PHONE_TOOL_CAPABILITIES,
   PHONE_V1_LIMITS,
   TASK_EXECUTION_GUIDANCE,
   buildCapabilityManifest,
@@ -343,6 +344,55 @@ test('the boot manifest carries generic task-execution guidance, not a scenario 
   // The advice must remain general: no scenario id, file name, budget change
   // or tool/safety exception can hide in the text.
   assert.doesNotMatch(TASK_EXECUTION_GUIDANCE, /scenario|G2-|F0[0-9]|budget|credential|NOT_RUN|\.md/iu)
+})
+
+test('the native office and phone surfaces match both Swift dispatch tables and handles', () => {
+  const absent = buildCapabilityManifest(manifestInput())
+  assert.equal(absent.json.phone, undefined)
+  assert.ok(!absent.markdown.includes('Native office tools'))
+  const manifest = buildCapabilityManifest(manifestInput({ commands: ['bash', 'phone'] }))
+  assert.equal(manifest.json.phone?.command, 'phone')
+  assert.deepEqual(manifest.json.phone?.tools, PHONE_TOOL_CAPABILITIES)
+  assert.ok(manifest.markdown.includes('phone <tool> <json>'))
+  assert.ok(manifest.markdown.includes('actually call read_image'))
+  const here = dirname(fileURLToPath(import.meta.url))
+  const root = join(here, '../../../examples/probe-app/ProbeKit')
+  const office = readFileSync(join(root, 'Office/OfficeToolBridge.swift'), 'utf8')
+  const phone = readFileSync(join(root, 'PhoneCapabilityBridge.swift'), 'utf8')
+  const catalog = readFileSync(join(root, 'Capabilities/PhoneCapabilityGate.swift'), 'utf8')
+  const composite = readFileSync(join(root, 'CompositePhoneToolBridge.swift'), 'utf8')
+  const cases = (source: string): string[] => [...source.matchAll(/^\s+case "([^"]+)":$/gmu)].map(match => match[1]!).sort()
+  const officeHandlesBlock = /public let handles: Set<String> = \[([\s\S]*?)\]/u.exec(office)?.[1]
+  assert.ok(officeHandlesBlock !== undefined, 'OfficeToolBridge publishes a literal handles table')
+  const officeHandles = [...officeHandlesBlock.matchAll(/"([^"]+)"/gu)].map(match => match[1]).sort()
+  assert.deepEqual(officeHandles, cases(office), 'Office handles covers exactly the legacy routes')
+  const catalogTools = [...catalog.matchAll(/^\s+"([^"]+)": PhoneToolRoute\(/gmu)].map(match => match[1]).sort()
+  assert.deepEqual(catalogTools, cases(phone), 'capability handles source and dispatch table cannot drift')
+  assert.ok(phone.includes('Set(PhoneToolCatalog.routes.keys)'), 'PhoneCapabilityBridge handles uses the verified catalog')
+  assert.ok(composite.includes('$0.handles.contains(tool)'), 'composite dispatch is limited to advertised handles')
+  assert.ok(composite.includes('.unknownTool(tool)'), 'unknown composite tools fail closed')
+  assert.deepEqual([...cases(office), ...cases(phone)].sort(), PHONE_TOOL_CAPABILITIES.map(tool => tool.name).sort())
+  for (const required of ['location.geofence', 'focus.status', 'home.list', 'home.set', 'music.play', 'activity.start', 'activity.update', 'shortcuts.run']) {
+    assert.ok(PHONE_TOOL_CAPABILITIES.some(tool => tool.name === required), `${required} has a real dispatch and permission gate`)
+  }
+})
+
+test('system authorization APIs stay inside the permission requester and its extended controller', () => {
+  const here = dirname(fileURLToPath(import.meta.url))
+  const root = join(here, '../../../examples/probe-app/ProbeKit')
+  const swiftFiles = (directory: string): string[] => readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
+    const path = join(directory, entry.name)
+    return entry.isDirectory() ? swiftFiles(path) : entry.name.endsWith('.swift') ? [path] : []
+  })
+  const request = /\b(?:requestAccess|requestFullAccessToEvents|requestFullAccessToReminders|requestAuthorization|requestWhenInUseAuthorization|requestAlwaysAuthorization|requestRecordPermission|evaluatePolicy)\s*\(/u
+  const offenders = [...swiftFiles(join(root, 'Permissions')), ...swiftFiles(join(root, 'Capabilities'))]
+    .filter(path => !path.endsWith('PhonePermissionRequester.swift'))
+    .filter(path => !path.endsWith('PhoneExtendedPermissions.swift'))
+    .filter(path => request.test(readFileSync(path, 'utf8')))
+  assert.deepEqual(offenders, [], 'tools and views must return permission_required instead of prompting')
+  const requester = readFileSync(join(root, 'Permissions/PhonePermissionRequester.swift'), 'utf8')
+  assert.match(requester, /case \.unnecessary: return \.requested/u, 'Health read request completion is not mislabeled granted')
+  assert.match(requester, /toShare: \[\], read: Self\.healthReadTypes/u, 'HealthKit never requests write access')
 })
 
 test('the production manifest fits 4 KiB with the advice and full Python/Bash facts', () => {

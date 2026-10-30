@@ -107,7 +107,7 @@ export function systemGit(
   env: Readonly<Record<string, string | undefined>>,
   stdin?: Buffer | string,
 ): CommandResult {
-  const result = spawnSync('git', [...args], {
+  const result = spawnSync('git', ['-c', 'gc.auto=0', '-c', 'maintenance.auto=0', ...args], {
     cwd,
     env: { ...process.env, ...env },
     encoding: 'buffer',
@@ -147,7 +147,12 @@ export function tempDirectory(): { path: string; cleanup: () => void } {
 
 /** Copy a fixture repository so two implementations can run independently. */
 export function copyRepository(source: string, destination: string): void {
-  cpSync(source, destination, { recursive: true, preserveTimestamps: true })
+  cpSync(source, destination, {
+    recursive: true,
+    preserveTimestamps: true,
+    // Keep fixture replication on one deterministic, complete copy path.
+    filter: () => true,
+  })
 }
 
 /** A write helper that also sets the executable bit. */

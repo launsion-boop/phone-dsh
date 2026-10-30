@@ -8,6 +8,7 @@
 // tool bridge expose.
 
 import Foundation
+import PhoneDSHAgentCore
 
 /// Read-only accelerator names of PLAN §2.4 (D12).
 ///
@@ -186,6 +187,19 @@ public struct PDSHShellHelloCapabilities: Equatable, Sendable {
     }
 }
 
+extension PDSHShellError: ExecProviderFailure {
+    public var code: String {
+        switch self {
+        case .notLinked: return "not_linked"
+        case .notConfigured: return "not_configured"
+        case .unsupportedCommand: return "unsupported"
+        case .invalidRequest: return "invalid_request"
+        }
+    }
+
+    public var message: String { localizedDescription }
+}
+
 /// Host tool bridge for the `phone` and `ctx` accelerators (D12).
 ///
 /// The Rust side never talks to the network: it calls back into the host, and
@@ -193,7 +207,16 @@ public struct PDSHShellHelloCapabilities: Equatable, Sendable {
 /// the JSON object the command received (`{}` when omitted); the result must be
 /// a JSON document, printed unchanged by the accelerator.
 public protocol PhoneToolBridge: Sendable {
+    var supportsContext: Bool { get }
+    var handles: Set<String> { get }
     func callTool(name: String, arguments: String) async throws -> String
+}
+
+public extension PhoneToolBridge {
+    /// Generic hosts keep their existing ctx support. A limited bridge must
+    /// explicitly decline it instead of advertising an unimplemented tool.
+    var supportsContext: Bool { true }
+    var handles: Set<String> { [] }
 }
 
 /// Closure-backed ``PhoneToolBridge`` for the facade and for tests.

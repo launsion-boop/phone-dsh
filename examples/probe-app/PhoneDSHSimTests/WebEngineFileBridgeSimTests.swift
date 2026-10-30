@@ -22,8 +22,8 @@
 // The document picker and activity sheet themselves are system UI and are not
 // automated here; the bridge invokes its injectable picker/share seams. The
 // production defaults still present `UIDocumentPickerViewController` and
-// `UIActivityViewController`. This is simulator evidence, never device
-// evidence. NOT_VERIFIED on a physical iPhone.
+// `UIActivityViewController`. The device twin executes the same fixtures and
+// records its own result; simulator evidence never substitutes for it.
 
 import Foundation
 import Network
@@ -392,13 +392,19 @@ final class WebEngineFileBridgeSimTests: XCTestCase {
                                     timeout: TimeInterval) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if let state = try? await javaScript(webView, "document.readyState"),
-               (state as? String) == "complete" {
+            if webView.url?.path == "/index.html",
+               let state = try? await javaScript(webView, "document.readyState"),
+               (state as? String) == "complete",
+               let elementsReady = try? await javaScript(
+                webView,
+                "document.getElementById('external') !== null && "
+                    + "document.getElementById('file') !== null"),
+               (elementsReady as? Bool) == true {
                 return
             }
             try await Task.sleep(nanoseconds: 50_000_000)
         }
-        throw SimError.timeout("fixture page did not finish loading")
+        throw SimError.timeout("fixture page and its bridge elements did not finish loading")
     }
 
     private static func waitForJavaScript(

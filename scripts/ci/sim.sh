@@ -38,6 +38,10 @@
 #        PDSH_WEB_DIST       prebuilt complete Web page (optional)
 #        OUT               output directory (default ${TMPDIR:-/tmp}/pdsh-sim)
 #        PDSH_SIM_TIMEOUT    overall build/test timeout in seconds (default 1800)
+#        PDSH_SIM_PRESERVE_DATA 1
+#                           install without uninstalling the app; unset resets data for CI
+#        PDSH_SIM_WORKSPACE_NAME
+#                           DEBUG test root suffix; preserve mode generates a unique one
 #
 # The pinned checkout is never modified. Worker assets are built into the
 # app's `Bundle/worker/` through the documented copy script, exactly as a
@@ -171,6 +175,10 @@ if [ -n "$SOURCE_COMMIT" ]; then
   export TEST_RUNNER_PDSH_DSH_SOURCE_VERSION="$SOURCE_VERSION"
 else
   unset TEST_RUNNER_PDSH_DSH_SOURCE_COMMIT TEST_RUNNER_PDSH_DSH_SOURCE_VERSION
+fi
+if [ "${PDSH_SIM_PRESERVE_DATA:-0}" = "1" ]; then
+  export TEST_RUNNER_PDSH_SIM_WORKSPACE_NAME="${PDSH_SIM_WORKSPACE_NAME:-sim-preserve-$(date +%s)}"
+  log "preserve-data test workspace: $TEST_RUNNER_PDSH_SIM_WORKSPACE_NAME"
 fi
 
 # Build the complete Web page with the selected pair when one is explicit.
@@ -374,8 +382,8 @@ TEST_BUNDLE="$PRODUCTS/PhoneDSHSimTests.xctest"
 
 # 6. Install the app: its bundle is what the smoke test loads (the same
 #    Bundle/worker a device build serves) and its data container receives the
-#    reports. Uninstall first so a stale data container cannot shadow the new
-#    one or contribute old reports.
+#    reports. Default CI uninstalls first; preserve mode retains the container
+#    and uses an isolated test workspace. Both paths clear only stale reports.
 log "installing $BUNDLE_ID"
 CONTAINER="$(sim_install_probe_app "$UDID" "$APP")" \
   || fail "cannot install the probe app or resolve its data container"
@@ -469,6 +477,7 @@ elif grep -qE "Pseudo Terminal Setup Error|sandbox_apply: Operation not permitte
   SIMCTL_CHILD_PDSH_DSH_CANONICAL_VERSION="$PIN_VERSION" \
   SIMCTL_CHILD_PDSH_DSH_SOURCE_COMMIT="${SOURCE_COMMIT:-}" \
   SIMCTL_CHILD_PDSH_DSH_SOURCE_VERSION="${SOURCE_VERSION:-}" \
+  SIMCTL_CHILD_PDSH_SIM_WORKSPACE_NAME="${TEST_RUNNER_PDSH_SIM_WORKSPACE_NAME:-}" \
   SIMCTL_CHILD_OBJC_PRINT_DUPLICATE_CLASSES=NO \
     xcrun simctl spawn "$UDID" "$XCTEST_AGENT" "$TEST_BUNDLE" \
     > "$OUT/xctest.log" 2>&1 || TEST_RC=$?
@@ -522,7 +531,7 @@ PY
 )"
 fi
 # Drop the handshake markers from the container (the results were already read;
-# reports are untouched). The next run uninstalls the app anyway.
+# reports and other preserved app data are untouched).
 container_remove "$REAL_KILL_EXPECT" "$REAL_KILL_READY"
 
 # 8. Pull the reports. Every suite writes into the app container; the fallback
@@ -599,8 +608,7 @@ python3 "$HERE/sim_gate.py" "$OUT"
 
 if [ "$TEST_RC" -ne 0 ]; then
   log "the test process exited $TEST_RC"
-  echo "--- last 50 lines of the xcodebuild/xctest log ---"
-  tail -50 "$LOG" || true
+  # finish() replays the log to fd 3; stdout here still appends to LOG.
   exit "$TEST_RC"
 fi
 if [ "$KILL_ATTEMPT_RC" -ne 0 ]; then

@@ -4,6 +4,7 @@
 // 会话占一格是产品决定（高频检索）；定时任务并进会话页的第二段。
 
 import SwiftUI
+import PhoneDSHAgentCore
 import UIKit
 
 /// The four places the native shell can be. Chat owns the composed turn;
@@ -59,7 +60,7 @@ struct RunStatusDot: View {
     private var label: String {
         if needsModelConfiguration { return "待配置模型服务" }
         if parked { return "后台暂停" }
-        return started ? "运行中" : "未启动"
+        return started ? "运行中" : ""
     }
 
     var body: some View {
@@ -67,12 +68,14 @@ struct RunStatusDot: View {
             Circle()
                 .fill(color)
                 .frame(width: NativeHeaderStyle.statusDot, height: NativeHeaderStyle.statusDot)
-            Text(label)
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
+            if !label.isEmpty {
+                Text(label)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(label)
+        .accessibilityLabel(label.isEmpty ? "运行状态" : label)
         .padding(.trailing, 4)
     }
 }
@@ -90,6 +93,7 @@ struct NativeShell: View {
     @State private var drawerOpen = false
     @State private var sidebarCollapsed = false
     @State private var dragOffset: CGFloat = 0
+    @State private var preferences = NativeChatPreferences.shared
     private let drawerWidth: CGFloat = 320
     #if DEBUG
     @State private var preview = PreviewScreen.requested
@@ -161,7 +165,9 @@ struct NativeShell: View {
             }
             .ignoresSafeArea()
             // 菜单盖着状态栏那一条,那上面的字必须深色;只有抽屉开着时把外观压成浅色。
-            .preferredColorScheme(sidebarVisible || modalDrawerVisible ? .light : nil)
+            .preferredColorScheme(preferences.appearance == .system
+                                 ? (sidebarVisible || modalDrawerVisible ? .light : nil)
+                                 : preferences.appearance.colorScheme)
             .onChange(of: usesSidebar) { _, _ in
                 drawerOpen = false
                 dragOffset = 0
@@ -281,8 +287,8 @@ struct SessionsDrawerPanel: View {
     }
 }
 
-/// Sessions, scheduled tasks, work folders — and settings as its last row, so
-/// the drawer is the only map of the app.
+/// Sessions, scheduled tasks — and settings as its last row, so the drawer is
+/// the only map of the app.
 struct SessionsDrawer: View {
     @Binding var isOpen: Bool
     var topInset: CGFloat = 0
@@ -290,25 +296,11 @@ struct SessionsDrawer: View {
     var isPersistent = false
     @State private var showSettings = false
     @State private var showSchedules = false
-    @State private var showFolders = false
     @State private var management = DSHManagementModel.shared
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // One 44pt row, not a large title plus a toolbar: the drawer
-                // covers the screen, so closing must be visible, and a second
-                // control in this row would make the title ambiguous.
-                HStack(spacing: 0) {
-                    Text("会话")
-                        .font(.system(size: 17, weight: .semibold))
-                    Spacer()
-                }
-                .padding(.leading, NativeHeaderStyle.horizontalInset)
-                .frame(height: NativeHeaderStyle.barHeight)
-                // 面板贴屏幕顶;NavigationStack 自己已经让开安全区,这里只补设计的 16。
-                .padding(.top, 16)
-
                 SessionsPage(onSelect: {
                     if !isPersistent { isOpen = false }
                 })
@@ -316,14 +308,11 @@ struct SessionsDrawer: View {
 
                 Divider()
 
-                // The three global entries sit together at the bottom, out of
+                // The two global entries sit together at the bottom, out of
                 // the session list, so they read as the app's furniture.
                 VStack(spacing: 0) {
                     DrawerRow(title: "定时任务", systemImage: "clock.arrow.circlepath", badge: management.scheduleRecords.isEmpty ? nil : "\(management.scheduleRecords.count)") {
                         showSchedules = true
-                    }
-                    DrawerRow(title: "工作文件夹", systemImage: "folder", badge: management.workspaces.isEmpty ? nil : "\(management.workspaces.count)") {
-                        showFolders = true
                     }
                     DrawerRow(title: "设置", systemImage: "gearshape") {
                         showSettings = true
@@ -338,13 +327,11 @@ struct SessionsDrawer: View {
                     .presentationDragIndicator(.visible)
             }
             .navigationDestination(isPresented: $showSchedules) { NativeAutomationPage() }
-            .navigationDestination(isPresented: $showFolders) { WorkspaceFoldersPage() }
         }
     }
 }
 
-/// The folder list is its own page: from the drawer it is one row, and each
-/// folder opens the file list for that folder.
+/// The folder list remains a separate page, and each folder opens its files.
 struct WorkspaceFoldersPage: View {
     @State private var management = DSHManagementModel.shared
     @State private var showingNewWorkspace = false
@@ -762,6 +749,7 @@ enum PreviewScreen: String, Identifiable, CaseIterable {
     case settingsSearch = "settings.search"
     case settingsNetwork = "settings.network"
     case settingsPlugins = "settings.plugins"
+    case settingsPermissions = "settings.permissions"
     case settingsAbout = "settings.about"
     case settingsRuntime = "settings.runtime"
     case sessions
@@ -770,6 +758,7 @@ enum PreviewScreen: String, Identifiable, CaseIterable {
     case workspaceFiles = "workspace.files"
     case configuration
     case chatAssistant = "chat.assistant"
+    case chatOfficial = "chat.official"
     case chatFailed = "chat.failed"
     case chatQueued = "chat.queued"
     case chatPermission = "chat.permission"
@@ -794,6 +783,7 @@ enum PreviewScreen: String, Identifiable, CaseIterable {
         return PreviewScreen(rawValue: value)
     }
 
+    @MainActor
     @ViewBuilder
     var body: some View {
         switch self {
@@ -802,6 +792,7 @@ enum PreviewScreen: String, Identifiable, CaseIterable {
         case .settingsSearch: WebSearchSettingsPage()
         case .settingsNetwork: EgressAllowListPage()
         case .settingsPlugins: NativeConfigurationPage()
+        case .settingsPermissions: PhonePermissionsPage(preview: true)
         case .settingsAbout: SettingsAboutPage()
         case .settingsRuntime: RuntimeDetailsPage(model: ChatModel.shared)
         case .sessions: SessionsPage(onSelect: {})
@@ -810,6 +801,7 @@ enum PreviewScreen: String, Identifiable, CaseIterable {
         case .workspaceFiles: FilesPage()
         case .configuration: PDSHShellPage()
         case .chatAssistant: ChatPage(previewItems: PreviewChatItems.assistant)
+        case .chatOfficial: ChatPage(previewItems: PreviewChatItems.official)
         case .chatFailed: ChatPage(previewItems: PreviewChatItems.failed)
         case .chatQueued: ChatPage(previewItems: PreviewChatItems.queued)
         case .chatQuestion: ChatPage(previewItems: PreviewChatItems.assistant)
@@ -857,7 +849,7 @@ enum PreviewScreen: String, Identifiable, CaseIterable {
     }
 }
 
-/// 抽屉的预览外壳:宽 320、白底、页头一行,里面就是真正的 SessionsPage。
+/// 抽屉的预览外壳:宽 320、白底,里面就是真正的 SessionsPage。
 /// 只给验收用,数据由 `installPreviewData` 造假,不碰宿主。
 struct DrawerPreview: View {
     let sessionCount: Int
@@ -867,14 +859,6 @@ struct DrawerPreview: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                Text("会话").font(.system(size: 17, weight: .semibold))
-                Spacer()
-            }
-            .padding(.leading, 16)
-            .frame(height: 44)
-            .padding(.top, 16)
-
             SessionsPage(onSelect: {})
         }
         .frame(width: 320)
@@ -920,6 +904,89 @@ enum PreviewChatItems {
 
     接下来我会把这一段改动落到 `ChatPage.swift`,然后重新编译验证。
     """)
+
+    static var official: [ChatItem] {
+        let now = Date()
+        var rows: [ChatItem] = []
+        var user = ChatItem(id: "official-user", kind: .user, title: "You",
+                            text: "请把官方 DSH 的消息结构完整适配到 iOS 原生。")
+        user.turn = 1
+        user.timestamp = now.addingTimeInterval(-180)
+        rows.append(user)
+        var context = ChatItem(id: "official-context", kind: .context,
+                               title: "DSH context · agent-instructions",
+                               text: "PDSH_CONTEXT_INJECTION_MUST_NOT_APPEAR")
+        context.turn = 1
+        rows.append(context)
+        var thinking = ChatItem(id: "official-thinking", kind: .reasoning, title: "思考",
+                                text: "先对照官方事件结构。\n需要保留 thinking、工具和 Markdown 的原始顺序。\n\n再检查输入区和统计。")
+        thinking.turn = 1
+        rows.append(thinking)
+        var bash = ChatItem(id: "official-bash", kind: .toolCall, title: "Tool call: bash", text: "")
+        bash.turn = 1
+        bash.callID = "official-bash-call"
+        bash.toolName = "bash"
+        bash.argumentsRaw = #"{"command":"xcodebuild test","description":"运行原生回归测试"}"#
+        bash.arguments = .object(["command": .string("xcodebuild test"), "description": .string("运行原生回归测试")])
+        bash.toolOutput = "12 tests passed"
+        bash.toolMetadata = .object(["exitCode": .number(0)])
+        bash.toolState = .ok
+        rows.append(bash)
+        let paths = ["DESIGN.md", "PRD.md", "app-map.md", "states.md", "NativeChat.swift", "NativeMarkdown.swift"]
+        for (index, path) in paths.enumerated() {
+            var edit = ChatItem(id: "official-edit-\(index)", kind: .toolCall, title: "Tool call: edit", text: "")
+            edit.turn = 1
+            edit.callID = "official-edit-call-\(index)"
+            edit.toolName = "edit"
+            edit.argumentsRaw = #"{"file_path":"docs/design/phone-dsh-app/\#(path)"}"#
+            edit.arguments = .object([
+                "file_path": .string("docs/design/phone-dsh-app/\(path)"),
+                "old_string": .string("旧结构"),
+                "new_string": .string("官方原生结构"),
+            ])
+            edit.toolOutput = "Updated"
+            edit.toolState = .ok
+            rows.append(edit)
+        }
+        var answer = ChatItem(id: "official-answer", kind: .assistant, title: "Assistant", text: """
+        ## 官方消息结构
+
+        正文支持 **粗体**、*斜体*、~~删除线~~、`Package.swift` 和 [安全链接](https://github.com/deepseek-ai/deepseek-harness)。
+
+        - [x] thinking 与工具调用
+        - [ ] iOS 原生 Markdown
+
+        > 消息、过程和输入区使用同一套官方结构。
+
+        | 模块 | 状态 |
+        |:--|--:|
+        | Markdown | 原生 |
+        | TeX | $x^2 + y^2 = z^2$ |
+
+        ```swift
+        struct NativeChat: View {
+            let official = true
+        }
+        ```
+
+        $$
+        E = mc^2
+        $$
+
+        原始 HTML 保持字面：<b>不会执行</b>。[^note]
+
+        [^note]: 流式与历史恢复使用同一事件投影。
+        """)
+        answer.turn = 1
+        answer.timestamp = now
+        answer.messageID = "official-message"
+        answer.turnUsage = NativeTurnUsage(value: .object([
+            "inputTokens": .number(48_000), "outputTokens": .number(2_160),
+            "cacheReadTokens": .number(150_000), "cacheWriteTokens": .number(0),
+        ]))
+        rows.append(answer)
+        return rows
+    }
 
     /// 一条很长的用户消息 + 一条长回答,用来验正文不折叠、行高不炸。
     static let longThread: [ChatItem] = [
