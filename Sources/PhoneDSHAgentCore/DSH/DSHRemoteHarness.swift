@@ -52,8 +52,9 @@ public actor DSHRemoteHarness: AgentHarness {
         static func normalizedClientTimeZone(_ identifier: String?) -> String? {
             guard let identifier = identifier?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !identifier.isEmpty else { return nil }
-            return identifier == "UTC" || TimeZone.knownTimeZoneIdentifiers.contains(identifier)
-                ? identifier : "UTC"
+            let isAreaLocation = identifier.contains("/")
+                && TimeZone.knownTimeZoneIdentifiers.contains(identifier)
+            return identifier == "UTC" || isAreaLocation ? identifier : "UTC"
         }
     }
 
