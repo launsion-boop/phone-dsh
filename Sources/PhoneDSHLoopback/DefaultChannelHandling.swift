@@ -252,7 +252,10 @@ public actor DefaultChannelHandling: ChannelHandling {
         }
 
         if payload.requiresMseq > 0 {
-            let waitDeadline = Date().addingTimeInterval(30)
+            let waitDeadline = min(Date().addingTimeInterval(300),
+                                   body.deadline.map {
+                                       Date(timeIntervalSince1970: Double($0) / 1000)
+                                   } ?? Date().addingTimeInterval(300))
             while await outbound.currentAckedMseq() < payload.requiresMseq {
                 if await admissionProvider() == .closed {
                     await emitTerminalError(execID: body.execID, code: "admission_closed",
@@ -366,10 +369,21 @@ public actor DefaultChannelHandling: ChannelHandling {
             }
         } catch {
             guard !record.terminal else { return }
-            await appendEvent(record, ErrorEvent(execID: record.execID,
-                                                 seq: record.nextSeq(),
-                                                 code: "internal",
-                                                 message: "provider failure"))
+            if let failure = error as? ExecProviderFailure {
+                await appendEvent(record, ErrorEvent(execID: record.execID,
+                                                     seq: record.nextSeq(),
+                                                     code: failure.code,
+                                                     message: failure.message))
+            } else {
+                let cancelled = error is CancellationError
+                await appendEvent(record, ErrorEvent(
+                    execID: record.execID,
+                    seq: record.nextSeq(),
+                    code: cancelled ? "cancelled" : "provider_unavailable",
+                    message: cancelled
+                        ? "the provider call was cancelled"
+                        : "the exec provider failed without a typed error"))
+            }
             await finish(record)
         }
     }

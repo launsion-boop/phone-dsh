@@ -549,13 +549,15 @@ final class ChannelServerTests: XCTestCase {
     private func execRequestFrame(seq: UInt64, execID: String, argv: [String],
                                   cwd: String = "/dsh/workspace",
                                   idemKey: String = String(repeating: "a", count: 64),
-                                  requiresMseq: UInt64 = 0) throws -> Data {
-        let bodyObject: [String: Any] = [
+                                  requiresMseq: UInt64 = 0,
+                                  deadline: Int64? = nil) throws -> Data {
+        var bodyObject: [String: Any] = [
             "exec_id": execID,
             "argv": argv,
             "cwd": cwd,
             "tier": "interactive",
         ]
+        if let deadline { bodyObject["deadline"] = deadline }
         let bodyData = try JSONSerialization.data(withJSONObject: bodyObject,
                                                   options: [.sortedKeys])
         let payload = try ExecRequestPayload(body: bodyData,
@@ -629,6 +631,37 @@ final class ChannelServerTests: XCTestCase {
         let events = try decodedEvents(harness.socket.sentFrames())
         XCTAssertEqual(events[0]["type"] as? String, "error")
         XCTAssertEqual(events[0]["code"] as? String, "admission_closed")
+        XCTAssertEqual(provider.runCount, 0)
+    }
+
+    func testExecProviderFailureKeepsTypedDetails() async throws {
+        struct Failure: ExecProviderFailure {
+            let code: String
+            let message: String
+        }
+        let provider = ScriptedExecProvider(events: [], error: Failure(
+            code: "not_configured", message: "mount unavailable"))
+        let harness = try await start(execProvider: provider, accelerators: ["rg"], defaultHandler: true)
+        _ = try await sendHello(harness, ChannelHostState())
+        harness.socket.push(try execRequestFrame(seq: 2, execID: "xl1-typed-provider", argv: ["rg", "x"]))
+        _ = try await harness.socket.waitForFrames(count: 3)
+        let events = try decodedEvents(harness.socket.sentFrames())
+        XCTAssertEqual(events.last?["code"] as? String, "not_configured")
+        XCTAssertEqual(events.last?["message"] as? String, "mount unavailable")
+    }
+
+    func testRequiresMseqUsesCallerDeadline() async throws {
+        let provider = ScriptedExecProvider(events: [])
+        let harness = try await start(execProvider: provider, accelerators: ["rg"], defaultHandler: true)
+        _ = try await sendHello(harness, ChannelHostState())
+        let started = Date()
+        let deadline = Int64(started.addingTimeInterval(0.05).timeIntervalSince1970 * 1000)
+        harness.socket.push(try execRequestFrame(seq: 2, execID: "xl1-short-deadline",
+                                                 argv: ["rg", "x"], requiresMseq: 99, deadline: deadline))
+        _ = try await harness.socket.waitForFrames(count: 2)
+        let events = try decodedEvents(harness.socket.sentFrames())
+        XCTAssertEqual(events.last?["code"] as? String, "deadline_exceeded")
+        XCTAssertLessThan(Date().timeIntervalSince(started), 2)
         XCTAssertEqual(provider.runCount, 0)
     }
 

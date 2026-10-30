@@ -1,8 +1,9 @@
 # Runbook: phone-DSH probe package and smoke
 
-Status: the procedures below are the landed macOS tooling plus the iOS
-Simulator gates. Simulator behaviour is not device evidence and stays
-`NOT_VERIFIED` for an iPhone.
+Status: the procedures below cover the landed macOS tooling, iOS Simulator
+gates and selected physical-iPhone Phase 0/A1 evidence. Simulator behaviour is
+never device evidence. The selected physical smoke, probes and kill matrix have
+run; the full physical-device suite is not green.
 
 This runbook covers:
 
@@ -190,7 +191,11 @@ iPhone 17 Pro simulator, builds the packed Worker assets and the app, runs
 PASS/FAIL/INFO table; any FAIL row, a missing report or a failed test process
 exits non-zero. Environment: `PDSH_DSH_CHECKOUT` (or the per-machine checkout
 file), optional `PDSH_DSH_WWW` / `PDSH_DSH_IMAGE` for prebuilt assets, `OUT`
-(default `${TMPDIR:-/tmp}/pdsh-sim`), `PDSH_SIM_TIMEOUT`. Every row carries
+(default `${TMPDIR:-/tmp}/pdsh-sim`), `PDSH_SIM_TIMEOUT`. The default install
+uninstalls the app and resets its data container for CI. To keep existing sessions,
+use `PDSH_SIM_PRESERVE_DATA=1 bash scripts/ci/sim.sh`, which installs without
+uninstalling and creates an isolated `chat-host-sim-*` test workspace. Override its
+suffix with `PDSH_SIM_WORKSPACE_NAME`; assertions are unchanged. Every row carries
 `environment: "ios-simulator"`: the procedures above prove macOS behaviour, the
 gate proves simulator behaviour, and neither is device evidence.
 
@@ -199,7 +204,7 @@ harness: embed the static directory and image from
 [Build the artifacts](#build-the-artifacts), create a `PhoneDSHHost` with a
 `PhoneDSHBundleLocation`, and attach the `WebEngine` view to a window with at
 least one visible point before `start()` (see
-[docs/architecture.md](phone-dsh.md#ui-attachment-requirement)). The probe set to
+[docs/architecture.md](architecture.md#ui-attachment-requirement)). The probe set to
 run on the device is the same probe package listed above; a device report must
 carry a device environment and cannot be replaced by the macOS report.
 
@@ -290,17 +295,18 @@ placeholder is empty on purpose. The driver installs the signed app with
 the destination, and pulls `Documents/pdsh-scenarios/results` back with
 `devicectl device copy from`.
 
-This device branch is **NOT_VERIFIED**: there is no physical-device run in this
-repository. Before relying on it, confirm on the Mac that `devicectl list
-devices` sees the iPhone and that the app installs; on the phone, check the
-per-scenario `report.json` environment and the perturbation rows the same way
-as the simulator output. A device report is its own evidence and does not
-replace or extend the simulator report.
+Selected `PhoneDSHDevice` Phase 0/A1 tests have run on a physical iPhone:
+minimal smoke, G0 probes, 20 kill-matrix iterations and Daily Brief tests pass.
+The full physical-device suite is not green: full-Web and file-bridge failures
+remain open. Before relying on a new run, confirm on the Mac that `devicectl
+list devices` sees the iPhone and that the app installs; on the phone, check
+each report's environment and perturbation rows. A device report is its own
+evidence and never replaces or extends a simulator report.
 
-On-device expectations that remain unmeasured: WKWebView `Worker` startup and
-timer throttling under a one-point attachment, JIT versus JavaScriptCore
-performance, WebContent memory and jetsam, Lockdown Mode, and background
-scheduling. Each is `NOT_VERIFIED` until a device run produces evidence.
+On-device expectations that remain unmeasured: timer throttling under a
+one-point attachment, JIT versus JavaScriptCore performance, WebContent memory
+and jetsam, Lockdown Mode, and background scheduling. Each is `NOT_VERIFIED`
+until a device run produces evidence.
 
 ## Reading `probe-report.json` against G0
 

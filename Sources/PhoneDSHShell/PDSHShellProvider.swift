@@ -132,18 +132,18 @@ public struct PDSHShellProvider: ExecProvider, Equatable, Sendable {
     /// bridge configuration.
     ///
     /// `pdsh_caps_json` also registers `phone` and `ctx`, but those commands
-    /// call back into an injected ``PhoneToolBridge``; without one the Rust
-    /// worker exits 69. They are therefore filtered out of the host HELLO and
-    /// the `EXEC_REQ` whitelist until the App injects a bridge. The raw
-    /// ``acceleratorNames`` and ``helloCapabilities`` keep republishing the
-    /// library registry verbatim for diagnostics.
+    /// call back into an injected ``PhoneToolBridge``. They are filtered out
+    /// without a bridge, and `ctx` additionally requires explicit support from
+    /// the bridge. Raw library capabilities remain available for diagnostics.
     public var channelAcceleratorNames: [String] {
         let names = acceleratorNames
-        guard toolBridge == nil else { return names }
-        return names.filter {
-            $0 != PDSHShellAccelerator.phone.rawValue
-                && $0 != PDSHShellAccelerator.ctx.rawValue
+        guard let toolBridge else {
+            return names.filter {
+                $0 != PDSHShellAccelerator.phone.rawValue
+                    && $0 != PDSHShellAccelerator.ctx.rawValue
+            }
         }
+        return names.filter { $0 != PDSHShellAccelerator.ctx.rawValue || toolBridge.supportsContext }
     }
 
     /// Host HELLO `caps[]` entries (`accelerator:<name>`) for the commands this

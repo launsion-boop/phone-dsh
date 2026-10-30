@@ -794,6 +794,7 @@ enum PreviewScreen: String, Identifiable, CaseIterable {
         return PreviewScreen(rawValue: value)
     }
 
+    @MainActor
     @ViewBuilder
     var body: some View {
         switch self {

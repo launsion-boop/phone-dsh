@@ -1,0 +1,227 @@
+{
+  "schema": "pdsh-upgrade-receipt/1",
+  "stage": "B1+B2+B3-simulator-office",
+  "sourceCommit": "add2d9c59b3b86cfb1c065dd13b4a2876ce73454",
+  "sourceTree": {
+    "dirty": true,
+    "description": "The commit is the base, not a clean commit containing this work. No commit was created.",
+    "changedFilesManifest": "/tmp/pdsh-office-evidence/source-manifest-office-final.json",
+    "manifestAlgorithm": "SHA-256 per changed tracked and untracked source file",
+    "pathVariables": {
+      "PDSH_REPO": "repository root on the verification host",
+      "PDSH_DSH_CHECKOUT": "pinned upstream checkout selected for the test",
+      "SIMULATOR_CONTAINER": "current dev.phone-dsh.probe data container at verification time"
+    },
+    "historicalRuns": "The office fixes were exercised in successive dirty-tree runs. Exact per-run source manifests were not retained for every intermediate run; the final manifest and simulator hashes below describe the final deliverable, not a claim that every historical binary was identical."
+  },
+  "artifactHashAlgorithm": "SHA-256; app directories use sorted relative paths, entry types and contents",
+  "artifactHashes": {
+    "preserveBaselineApp": {
+      "path": "/tmp/pdsh-office-preserve-sim-v3/DerivedData/Build/Products/Debug-iphonesimulator/PhoneDSHProbe.app",
+      "sha256": "b6de4d807daaeee3537bb8cdbf52d91998e54ee09bce7bd0d3662c1169cfc543",
+      "signing": "CODE_SIGNING_ALLOWED=NO for the simulator gate"
+    },
+    "signedOfficeUIAppV47": {
+      "path": "/tmp/pdsh-phone-sim-derived/Build/Products/Debug-iphonesimulator/PhoneDSHProbe.app",
+      "sha256": "489227a31dd0ed0885f8b23452f346c698fa4491364fd07adbb0d32eda41f0bc",
+      "signing": "codesign --verify --deep --strict passed for the UI-test build"
+    },
+    "workerImage": {
+      "path": "${PDSH_REPO}/examples/probe-app/Bundle/worker/image.tar.gz",
+      "sha256": "ac620e68bd93b0dff11d6f69b89350c01c650de542e9d2a23f0780ca3000fa14",
+      "bytes": 25226463
+    },
+    "workerEntry": {
+      "path": "${PDSH_REPO}/examples/probe-app/Bundle/worker/worker-entry.js",
+      "sha256": "81ada9bd2aa1d94c2d63d3894b17e295a4aaa0a419268d898a10cf2b4479cdf0",
+      "bytes": 3780432
+    }
+  },
+  "artifactHashEvidence": "/tmp/pdsh-office-pdf/final-artifact-hashes.json",
+  "environment": {
+    "kind": "ios-simulator and macOS test host",
+    "macOS": "26.3.1 arm64",
+    "xcode": "26.5 (17F42)",
+    "simulator": "iPhone 17 Pro, iOS 26.5, arm64",
+    "simulatorUDID": "7140630D-F62D-4B99-B68C-394E654C0640",
+    "appBundleID": "dev.phone-dsh.probe",
+    "appDisplayName": "Phone DSH",
+    "realAgentModel": "deepseek-chat",
+    "credentialHandling": "Existing host gateway/Keychain configuration was used. No credential is recorded here or in the changed source.",
+    "webKillEvidence": "Real simulator WebContent SIGKILL and same-session recovery; this is not a physical-iPhone measurement."
+  },
+  "result": "PARTIAL",
+  "resultMeaning": "The implemented simulator office slice and final regression gates pass. Vision input, system translation and cloud conversion are BLOCKED. Physical-iPhone office acceptance, flight mode and the later architecture stages are not delivered by this slice.",
+  "commands": [
+    {
+      "command": "bash scripts/ci/check.sh --only phone-no-dsh-patch,phone-hygiene,phone-license,phone-modules,phone-gate-contracts,phone-xcode-resolve",
+      "result": "PASS",
+      "evidencePaths": ["/tmp/pdsh-office-pdf/static-final-v2.log"]
+    },
+    {
+      "command": "bash scripts/ci/check.sh --only phone-no-dsh-patch,phone-hygiene,phone-license,phone-modules,phone-gate-contracts",
+      "result": "PASS after the preserve-mode changes",
+      "evidencePaths": ["/tmp/pdsh-office-pdf/static-after-workspace.log"]
+    },
+    {
+      "command": "bash scripts/ci/check.sh --only phone-sdk",
+      "result": "PASS",
+      "testsExecuted": 1431,
+      "testsSkipped": 8,
+      "failures": 0,
+      "evidencePaths": ["/tmp/pdsh-office-pdf/phone-sdk-final-v2.log"]
+    },
+    {
+      "command": "PDSH_DSH_CHECKOUT=${PDSH_DSH_CHECKOUT} PDSH_PYTHON_ARTIFACTS=\"${TMPDIR:-/tmp}/pdsh-python-wasi\" npm test",
+      "workingDirectory": "${PDSH_REPO}/plugins",
+      "result": "PASS",
+      "testsDiscovered": 2231,
+      "testsPassed": 2212,
+      "testsSkipped": 19,
+      "failures": 0,
+      "evidencePaths": ["/tmp/pdsh-office-pdf/plugins-office-v23.log"]
+    },
+    {
+      "command": "PDSH_WITH_XZSHELL=1 PDSH_WITH_SHELL=1 OUT=/tmp/pdsh-office-final-sim bash scripts/ci/sim.sh",
+      "result": "PASS",
+      "testsExecuted": 85,
+      "testsSkipped": 2,
+      "failures": 0,
+      "officeTests": "6 passed; the external scan-fixture XCTest skipped. Real-Agent scan rendering was exercised separately.",
+      "evidencePaths": ["/tmp/pdsh-office-final-sim/sim.log", "/tmp/pdsh-office-final-sim/xcodebuild-test.log"]
+    },
+    {
+      "command": "PDSH_WITH_XZSHELL=1 PDSH_WITH_SHELL=1 PDSH_SIM_PRESERVE_DATA=1 OUT=/tmp/pdsh-office-preserve-sim-v3 bash scripts/ci/sim.sh",
+      "result": "PASS",
+      "testsExecuted": 85,
+      "testsSkipped": 2,
+      "failures": 0,
+      "reportRows": "probe 7, smoke 27, kill 20, web 28 PASS; no FAIL rows",
+      "testWorkspace": "chat-host-sim-sim-preserve-1793311975",
+      "evidencePaths": ["/tmp/pdsh-office-preserve-sim-v3/sim.log", "/tmp/pdsh-office-preserve-sim-v3/xcodebuild-test.log"]
+    },
+    {
+      "command": "PDSH_WITH_XZSHELL=1 PDSH_WITH_SHELL=1 TEST_RUNNER_PDSH_OFFICE_FIXTURE_DIR=/tmp/pdsh-office-fixtures-v45 TEST_RUNNER_PDSH_OFFICE_RUN_ID=v45 xcodebuild -quiet -project examples/probe-app/PhoneDSHProbe.xcodeproj -scheme PhoneDSHDeviceUI -configuration Debug -destination 'platform=iOS Simulator,id=7140630D-F62D-4B99-B68C-394E654C0640' -derivedDataPath /tmp/pdsh-phone-sim-derived -resultBundlePath /tmp/pdsh-office-pdf/office-matrix-v45.xcresult DEVELOPMENT_TEAM=KC5NZ8GRQ9 CODE_SIGNING_ALLOWED=YES -allowProvisioningUpdates -only-testing:PhoneDSHDeviceUITests/PhoneDSHDeviceUITests/testRealOfficePDF -only-testing:PhoneDSHDeviceUITests/PhoneDSHDeviceUITests/testRealOfficeRead -only-testing:PhoneDSHDeviceUITests/PhoneDSHDeviceUITests/testRealOfficeGeneration -only-testing:PhoneDSHDeviceUITests/PhoneDSHDeviceUITests/testRealOfficeSystem -only-testing:PhoneDSHDeviceUITests/PhoneDSHDeviceUITests/testRealOfficeShareAndPick test",
+      "result": "PARTIAL: PDF, Read, Generation and System passed; ShareAndPick failed and was fixed/retried separately in v47",
+      "testsExecuted": 5,
+      "testsPassed": 4,
+      "failures": 1,
+      "evidencePaths": ["/tmp/pdsh-office-pdf/office-matrix-v45.xcresult", "/tmp/pdsh-office-pdf/office-matrix-v45-tests.json"]
+    },
+    {
+      "command": "PDSH_WITH_XZSHELL=1 PDSH_WITH_SHELL=1 TEST_RUNNER_PDSH_OFFICE_FIXTURE_DIR=/tmp/pdsh-office-fixtures-v47 TEST_RUNNER_PDSH_OFFICE_RUN_ID=v47 xcodebuild -quiet -project examples/probe-app/PhoneDSHProbe.xcodeproj -scheme PhoneDSHDeviceUI -configuration Debug -destination 'platform=iOS Simulator,id=7140630D-F62D-4B99-B68C-394E654C0640' -derivedDataPath /tmp/pdsh-phone-sim-derived -resultBundlePath /tmp/pdsh-office-pdf/office-share-v47.xcresult DEVELOPMENT_TEAM=KC5NZ8GRQ9 CODE_SIGNING_ALLOWED=YES -allowProvisioningUpdates -only-testing:PhoneDSHDeviceUITests/PhoneDSHDeviceUITests/testRealOfficeShareAndPick test",
+      "result": "PASS",
+      "testsExecuted": 1,
+      "testsSkipped": 0,
+      "failures": 0,
+      "evidencePaths": ["/tmp/pdsh-office-pdf/office-share-v47.xcresult", "/tmp/pdsh-office-pdf/office-share-v47-tests.json", "/tmp/pdsh-office-evidence/v47-share/check.json"]
+    }
+  ],
+  "realAgentScenarios": [
+    {
+      "id": "electronic-pdf",
+      "result": "PASS",
+      "observed": "PDFKit text returned two pages with amount 120.50, correct page references and 未找到 for a missing clause.",
+      "evidencePaths": ["/tmp/pdsh-office-pdf/office-matrix-v45-tests.json", "/tmp/pdsh-office-evidence/v45-matrix/session-evidence-extract.json"]
+    },
+    {
+      "id": "scan-rendering",
+      "result": "PASS",
+      "observed": "The scanned PDF was rendered to a real bounded PNG and the Agent called read_image.",
+      "evidencePaths": ["/tmp/pdsh-office-pdf/office-matrix-v45-tests.json", "/tmp/pdsh-office-evidence/v45-matrix/session-evidence-extract.json"]
+    },
+    {
+      "id": "multimodal-vision",
+      "result": "BLOCKED",
+      "observed": "deepseek-chat does not declare image input. usedImage=false, visualStatus=BLOCKED and observedText=未找到. OCR was not substituted for visual understanding.",
+      "evidencePaths": ["/tmp/pdsh-office-evidence/v45-matrix/session-evidence-extract.json"]
+    },
+    {
+      "id": "contract-and-expense-read",
+      "result": "PASS",
+      "observed": "DOCX noticeDays=30 at paragraph 1 and fee=120.50 at table row 1. CSV total=116.50 with the negative value at physical row 3. XLSX Expenses!B4 exposes SUM(B2:B3) and its cached value 116.50, not a recalculation.",
+      "evidencePaths": ["/tmp/pdsh-office-pdf/office-matrix-v45-tests.json", "/tmp/pdsh-office-evidence/v45-matrix/session-evidence-extract.json"]
+    },
+    {
+      "id": "new-document-and-chart-generation",
+      "result": "PASS",
+      "observed": "Structured IR generated new DOCX/XLSX/PPTX/PNG files. Independent ZIP/CRC, text, cell, hash and image checks passed; the chart is 960x640 and totals are 120.50, -4.00 and 116.50. Original files were not edited.",
+      "evidencePaths": ["/tmp/pdsh-office-pdf/generation-verify-v45.json", "/tmp/pdsh-office-evidence/v45-matrix/session-evidence-extract.json"]
+    },
+    {
+      "id": "preview-share-pick",
+      "result": "PASS in v47 after earlier failures",
+      "observed": "Preview dismissal preceded share completion. System Save to Files and DocumentPicker returned art_F0394E30-43EC-4578-9CC5-24A333F72992, a 988-byte PDF whose SHA-256 is 1ec0a0f112c653fa39f40fcf8b30f5d0eeef51159a330055316b52a8625a45eb, identical to the source. Nine steps are journaled and nine Artifact hashes verify.",
+      "evidencePaths": ["/tmp/pdsh-office-pdf/office-share-v47-tests.json", "/tmp/pdsh-office-evidence/v47-share/check.json", "/tmp/pdsh-office-evidence/v47-share/share-pick-result.json"]
+    },
+    {
+      "id": "ocr-mail-contacts-calendar",
+      "result": "PASS for the implemented operations",
+      "observed": "Apple Vision OCR returned Amount 42.00 at image[0].line[1]. Mail generated a verified .eml with sent=false. Contacts returned an authorized empty result. Calendar returned created followed by already_created/idempotent=true with the same eventId.",
+      "evidencePaths": ["/tmp/pdsh-office-pdf/office-matrix-v45-tests.json", "/tmp/pdsh-office-evidence/v34-system/system-result.json", "/tmp/pdsh-office-evidence/v34-system/artifact-verify.json"]
+    },
+    {
+      "id": "system-translation",
+      "result": "BLOCKED",
+      "observed": "The simulator system translation capability was unavailable. No translation was fabricated.",
+      "evidencePaths": ["/tmp/pdsh-office-evidence/v34-system/system-result.json"]
+    },
+    {
+      "id": "cloud-office-conversion",
+      "result": "BLOCKED",
+      "observed": "No cloud LibreOffice service is configured. Quick Look was not treated as delivery-grade conversion.",
+      "evidencePaths": ["/tmp/pdsh-office-evidence/v45-matrix/session-evidence-extract.json", "examples/probe-app/ProbeKit/Office/OfficeToolBridge.swift"]
+    }
+  ],
+  "dataPreservation": {
+    "incident": "The first full simulator baseline invoked the existing uninstall step and deleted the old App data container, including the default Documents/chat-host and the unarchived v45 isolated workspace.",
+    "originalSessionsRestored": false,
+    "currentSentinelRestoresUserData": false,
+    "fix": "PDSH_SIM_PRESERVE_DATA=1 avoids uninstall, generates an isolated test workspace and clears only test reports. Preserve diagnostics go to stderr so command substitution captures only the container path. The simctl XCTest fallback forwards the isolated workspace name too.",
+    "verified": "The v3 preserve run passed all 85 tests and retained the new sentinel across container migration.",
+    "sentinelPath": "${SIMULATOR_CONTAINER}/Documents/pdsh-preserve-sentinel.txt",
+    "sentinelSHA256": "3fdb3cf2acc49d854703b5b4bda9d28fbf8515c02dac0f176be83f6c2c558a65",
+    "sentinelMeaning": "A newly created integration sentinel only; it is not a recovered user session."
+  },
+  "historicalFailures": [
+    {
+      "id": "v45-share-and-pick",
+      "result": "FAIL",
+      "reason": "Foreground projection/interaction lifecycle prevented the original matrix from completing; v47 passed after the fix.",
+      "evidencePaths": ["/tmp/pdsh-office-pdf/office-matrix-v45-tests.json", "/tmp/pdsh-office-pdf/office-share-v47-tests.json"]
+    },
+    {
+      "id": "preserve-v1-shared-workspace",
+      "result": "FAIL",
+      "reason": "Inherited test state affected full-Web; isolation was added rather than deleting the test.",
+      "evidencePaths": ["/tmp/pdsh-office-pdf/sim-preserve-office.log"]
+    },
+    {
+      "id": "preserve-v2-stale-kill-marker",
+      "result": "FAIL",
+      "reason": "Preserve diagnostics contaminated the captured container path, so stale report/kill markers were not cleared and WebContent was killed before readiness. v3 corrected the output channel and passed the same full gate.",
+      "evidencePaths": ["/tmp/pdsh-office-preserve-sim-v2/sim.log", "/tmp/pdsh-office-preserve-sim-v3/sim.log"]
+    }
+  ],
+  "failureClassification": {
+    "implementedSimulatorOfficeAndFinalRegression": "PASS",
+    "visionInput": "BLOCKED",
+    "systemTranslation": "BLOCKED",
+    "cloudOfficeConversion": "BLOCKED",
+    "physicalIPhoneOfficeAndFlightMode": "NOT_RUN",
+    "personalAppRuntimeAndGitHubVerticalSlices": "NOT_RUN",
+    "meetingSourceExtractionAndCitation": "NOT_RUN",
+    "physicalResourceAndMemoryAcceptance": "NOT_RUN"
+  },
+  "scopeBoundaries": [
+    "This is a native office vertical slice on the existing Phone DSH app, not the Personal App Runtime, an App Store distribution system or a second app.",
+    "The upstream DSH checkout and its Agent loop were not patched.",
+    "The 19 phone tools cover ArtifactStore, file selection/listing, PDF text/page rendering, OOXML/CSV reads, new-file generation, charts, preview/share, optional OCR and bounded system integrations.",
+    "The current tools do not promise arbitrary Office editing, formula recalculation, full-fidelity Office conversion, general web scraping or universal document support.",
+    "Derived-page caching across tasks, read-only projection/eviction, bounded IR self-repair telemetry, large-file physical-device memory and physical-device flight mode still require separate acceptance.",
+    "GitHub coding, cloud build sandboxes, CRM write-back and Personal App skills/runtime are architecture stages, not capabilities claimed by this receipt.",
+    "Generic sk-<token> scans over the tracked workspace and textual simulator evidence returned no matches; this is not a claim that arbitrary untracked private files were inspected."
+  ],
+  "operator": "Kimi Code",
+  "date": "2026-10-30T06:17:58+08:00"
+}

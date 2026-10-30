@@ -46,6 +46,63 @@ The current XCFramework simulator slice is arm64 (Apple Silicon); an Intel simul
 The environment flag must also be present during Xcode's Swift package resolution.
 Without it the SDK intentionally uses an unlinked provider, and the Shell page reports
 that status. Device signing and iOS 27 validation require the corresponding local tools.
+Use `PDSH_WITH_XZSHELL=1` (or the historical `PDSH_WITH_SHELL=1`) on every package
+resolution/build, not only on the initial `xcodegen` invocation. `phone` is absent
+from `capabilities.json` when the linked provider is not installed.
+
+## Office tools in the native conversation
+
+The native `OfficeToolBridge` exposes a fixed `phone <tool> [json-object]` surface
+through the linked Shell; it does not modify DSH's session loop, VFS or WAL.
+`files.list` returns opaque `fileId` references. Original bytes live in the bounded,
+immutable `OfficeArtifactStore`, outside the workspace VFS; tools page text and render
+budgeted page images rather than materializing original documents in the VFS.
+
+- P0/P1: file selection/listing, Quick Look, system share, PDF text/page images,
+  DOCX/XLSX cell and paragraph locators, and code-computed CSV analysis.
+- Generation: `doc.write`, `sheet.write`, `slides.write` and `chart.render` accept
+  only bounded JSON IR (see `spec/v1/office-ir-v1.json`). They create new artifacts;
+  they do not edit imported Word/Excel/PowerPoint files and do not accept raw OOXML.
+- Optional integrations: Vision OCR, `.eml`/mail drafts, explicit-confirmation
+  EventKit creation with an idempotency key, permission-gated Contacts search,
+  and Apple Translation. Mail is never sent by the tool itself.
+- `office.convert` returns `BLOCKED` until a real cloud LibreOffice service is
+  configured. Quick Look is preview fidelity and is never counted as Office-to-PDF
+  conversion. The current `deepseek-chat` route rejects image input; scan summaries
+  must record `usedImage=false` and `visualStatus=BLOCKED` rather than inventing OCR
+  or visual observations.
+
+Malformed arguments return bounded JSON errors (`ok: false`) without native paths
+or internal error details. Document contents remain untrusted input. Tool results
+are capped at 256 KiB; ZIP parsing checks paths, CRC, compression and Zip64 bounds.
+Native interactive UI waits at most 600 seconds and settles its continuation on
+completion, dismissal, timeout or cancellation. A preview returns after dismissal,
+so a subsequent share cannot race a disappearing preview controller. The Worker host deadline follows
+`PDSH_SHELL_TIMEOUT_MS` (600 seconds by default); `grace_ms` only bounds cancel
+settlement and is not the execution deadline. The turn inactivity deadline is
+1800 seconds, and readiness waits also respect the caller's earlier deadline.
+
+Provider failures use structured errors: `admission_closed` means the call did not
+start and may be retried after host recovery/foreground return. `provider_timeout`
+allows retry only for read-only tools; artifact-producing writes report an unknown
+outcome and are not automatically retried. The office bridge does not advertise
+`ctx`. The session menu opens `SessionActivityPage` for subagents and background jobs.
+
+The real-Agent UI cases live in `PhoneDSHDeviceUITests`. They require a provisioned
+model and a test fixture directory. `PDSH_OFFICE_FIXTURE_DIR` stages local fixtures;
+`PDSH_OFFICE_RUN_ID` isolates the DEBUG artifact namespace per acceptance run. These
+switches are test-only, never reset production artifacts. Simulator evidence is not
+physical-device or flight-mode evidence.
+
+## Daily Brief capability without a user entry
+
+The RSS/Atom transport, parser, deduplication, snapshot persistence and
+`DailyBriefModel` remain available for native composition and their existing
+model/pipeline tests. The sidebar and DEBUG page routes are removed, and there
+is no Daily Brief background scheduler. Existing local snapshot/source state is
+not deleted. `PhoneDSHDeviceUITests.testDailyBriefEntryIsNotExposed` checks the
+absent entry; `DailyBriefTests` and `DailyBriefModelTests` cover the retained
+capability rather than a user-facing page.
 
 The following sections retain the original probe/test runbook.
 
@@ -62,11 +119,12 @@ This is the PLAN W3-APP deliverable (`examples/probe-app/**`). The
 app links the landed phone-DSH modules directly from `../..`; it adds no
 protocol behaviour.
 
-Status: **builds for the iOS Simulator** (Xcode 26.5) and has **not run on an
-iPhone**. Every device-only number in the report is empty / `NOT_VERIFIED`
-until an operator runs the pages on a device and exports the report. Statements
-about iOS/WebKit behaviour in this directory are `NOT_VERIFIED` unless they are
-documented Apple platform facts.
+Status: the app builds for the iOS Simulator and a physical iPhone. Selected
+Phase 0/A1 tests have passed on an iPhone Air (iPhone18,4, iOS 27.0), including
+the minimal smoke, G0 probes and 20 kill-matrix iterations. The full
+`PhoneDSHDevice` suite is not green: full-Web and file-bridge failures remain.
+Unmeasured device-only values stay `NOT_VERIFIED`; simulator reports never
+replace physical-device evidence.
 
 ## Layout
 
@@ -140,6 +198,13 @@ any suite starts.
 export PDSH_DSH_CHECKOUT="${PDSH_DSH_CHECKOUT:-$(cat "$HOME/.config/phone-dsh/dsh-checkout")}"
 bash scripts/ci/sim.sh
 ```
+
+The default flow uninstalls the app before installing it, which resets its data
+container for a clean CI run. When testing against existing sessions, use
+`PDSH_SIM_PRESERVE_DATA=1 bash scripts/ci/sim.sh` to install without uninstalling.
+Preserve mode also creates an isolated `chat-host-sim-*` test workspace so inherited
+sessions cannot change full-Web acceptance. `PDSH_SIM_WORKSPACE_NAME` can override
+its suffix; the install step and assertions are otherwise unchanged.
 
 The `PhoneDSHSim` scheme has one hostless test target, `PhoneDSHSimTests`; it
 builds the app because the tests load the same `Bundle/worker/` a device build
@@ -571,8 +636,9 @@ the document and on every probe row; do not treat it as an iPhone measurement.
 - **No app model upstream.** The Memory page's scripted session is a lifecycle
   workload; it does not drive model turns. The W3-SIM smoke does drive one
   scripted model turn through a loopback HTTP server inside its test process.
-- Device behaviour listed under "Run on a device" is `NOT_VERIFIED` until the
-  user runs the app and exports the JSON.
+- Selected physical-device tests pass, but the full `PhoneDSHDevice` suite is
+  not green: full-Web and file-bridge failures remain. Other device behaviour
+  listed under "Run on a device" stays `NOT_VERIFIED` until measured.
 
 ## License
 
