@@ -162,7 +162,7 @@ stage_phone_sdk() {
     # named PhoneDSH* or be added to this filter, otherwise no gate executes it.
     sdk_filter='PhoneDSH(Wire|Log|Loopback|Gateway|Controller|Engine|Harness|Shell|AgentCore)Tests|PhoneDSHTests|PhoneDSHScenario[A-Z][A-Za-z]*Tests|PhoneDSHScenarioTestsSelectionGuard|PhoneDSHScenarioLibraryContractTests|ScenarioHostEvaluationTests|ScenarioRepositoryRootTests|ScenarioEvidenceArtifactTests|ScenarioDetailTruncationTests|PhoneDSHScenarioTestsBudgetInjection|PhoneDSHScenarioTestsWebContentKill|PhoneDSHScenarioTestsPerturbationCapabilities|ZPhoneDSHAbortStopDurabilityHostTests'
     recovery_probe='PhoneDSHTests.BigFileBudgetTests/testHostReplayMemoryPeakForSixtyFourMiBFileIsBounded'
-    ( cd "$SDK" && swift test --filter "$sdk_filter" --skip "$recovery_probe" ) 2>&1 | tee "$sdk_log"
+    ( cd "$SDK" && swift test --disable-automatic-resolution --filter "$sdk_filter" --skip "$recovery_probe" ) 2>&1 | tee "$sdk_log"
     rc=${PIPESTATUS[0]}
     [ "$rc" = 0 ] || { echo "swift test failed (rc=$rc)"; return 1; }
     executed=$(grep -Eo 'Executed [0-9]+ tests?' "$sdk_log" | awk '{print $2}' | sort -n | tail -1)
