@@ -286,6 +286,112 @@ final class OfficeTests: XCTestCase {
         XCTAssertTrue(provider.channelAcceleratorNames.contains("phone"), "\(provider.channelAcceleratorNames)")
     }
 
+    func testCapabilityStatusTextAndInteractionAreExhaustive() {
+        let cases: [(CapabilityStatus, String, Bool, Bool, Bool, Bool)] = [
+            (.notDetermined, "未请求", false, false, true, false),
+            (.authorized, "已允许", true, false, false, false),
+            (.limited(12), "部分允许（12）", true, false, false, false),
+            (.denied, "已拒绝", false, false, false, true),
+            (.restricted, "受系统限制", false, true, false, false),
+            (.requested, "已请求（系统不告知是否被拒）", true, false, false, false),
+            (.unavailable, "当前设备不可用", false, true, false, false),
+        ]
+        for (status, text, permitsUse, blocked, canRequest, canOpenSettings) in cases {
+            XCTAssertEqual(status.text, text)
+            XCTAssertEqual(status.permitsUse, permitsUse)
+            XCTAssertEqual(status.blocksInteraction, blocked)
+            XCTAssertEqual(status.canRequest, canRequest)
+            XCTAssertEqual(status.canOpenSettings, canOpenSettings)
+        }
+        XCTAssertEqual(CapabilityStatus.limited(-2).text, "部分允许（0）")
+    }
+
+    @MainActor
+    func testPermissionStoreDefaultsAndPersistence() throws {
+        let suite = "PhonePermissionStoreTests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        var store = PhonePermissionStore(defaults: defaults)
+        for capability in PhoneCapability.allCases {
+            XCTAssertEqual(store.isEnabled(capability), capability == .device, capability.rawValue)
+        }
+        store.setEnabled(true, for: .contacts)
+        store.setEnabled(false, for: .device)
+        XCTAssertTrue(store.isEnabled(.device))
+        XCTAssertTrue(store.isEnabled(.contacts))
+        XCTAssertTrue(PhonePermissionStore.key(for: .contacts).hasPrefix("phone-dsh.permissions."))
+        store = PhonePermissionStore(defaults: defaults)
+        XCTAssertTrue(store.isEnabled(.contacts))
+        XCTAssertFalse(store.isEnabled(.camera))
+        let persistedKeys = defaults.dictionaryRepresentation().keys.filter {
+            $0.hasPrefix(PhonePermissionStore.keyPrefix)
+        }
+        XCTAssertEqual(Set(persistedKeys), [PhonePermissionStore.key(for: .contacts)])
+    }
+
+    func testCapabilityAuditIsMetadataOnlyAndBounded() async {
+        let audit = PhoneCapabilityAudit()
+        for index in 0..<205 {
+            await audit.record(PhoneCapabilityAuditRecord(
+                capability: .device, tool: "tool-\(index)", outcome: "success"))
+        }
+        let records = await audit.recent()
+        XCTAssertEqual(records.count, 200)
+        XCTAssertEqual(records.first?.tool, "tool-204")
+        XCTAssertEqual(records.last?.tool, "tool-5")
+        let labels = Mirror(reflecting: PhoneCapabilityAuditRecord(
+            capability: .device, tool: "device.status", outcome: "success")).children.map(\.label)
+        XCTAssertEqual(Set(labels), ["capability", "tool", "at", "egress", "outcome"])
+        let empty = await audit.recent(limit: 0)
+        XCTAssertEqual(empty.count, 0)
+    }
+
+    @MainActor
+    func testPhoneCapabilityBridgeErrorsAndMainThreadDeviceStatus() async throws {
+        let suite = "PhoneCapabilityBridgeTests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let bridge = PhoneCapabilityBridge(
+            permissionStore: PhonePermissionStore(defaults: defaults),
+            requester: PhonePermissionRequester(), audit: PhoneCapabilityAudit())
+        func object(_ text: String) throws -> [String: Any] {
+            try XCTUnwrap(JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
+        }
+        let disabled = try object(await bridge.callTool(name: "contacts.get", arguments: #"{"id":"abc"}"#))
+        XCTAssertEqual((disabled["error"] as? [String: Any])?["code"] as? String, "capability_disabled")
+        let permission = try object(PhoneToolEnvelope.failure(
+            tool: "camera.capture", error: .permissionRequired(.camera)))
+        XCTAssertEqual((permission["error"] as? [String: Any])?["code"] as? String, "permission_required")
+        let denied = try object(PhoneToolEnvelope.failure(
+            tool: "camera.capture", error: .permissionDenied(.camera)))
+        XCTAssertEqual((denied["error"] as? [String: Any])?["settings_url"] as? String,
+                       UIApplication.openSettingsURLString)
+        XCTAssertThrowsError(try PhoneToolEnvelope.integer(
+            ["limit": 51], "limit", default: 20, minimum: 1, maximum: 50))
+
+        let composite = CompositePhoneToolBridge(office: OfficeToolBridge(), phone: bridge)
+        XCTAssertEqual(composite.handles.count, 51)
+        XCTAssertTrue(composite.handles.contains("files.list"))
+        XCTAssertTrue(composite.handles.contains("device.status"))
+        let unknown = try object(await composite.callTool(name: "phone.not.real", arguments: "{}"))
+        XCTAssertEqual((unknown["error"] as? [String: Any])?["code"] as? String, "unknown_tool")
+        let status = try object(await bridge.callTool(name: "device.status", arguments: "{}"))
+        XCTAssertEqual(status["ok"] as? Bool, true)
+        XCTAssertEqual(status["egress"] as? String, "model")
+        XCTAssertEqual(status["tool"] as? String, "device.status")
+        XCTAssertNotNil(status["data"])
+
+        let background = try await Task.detached {
+            try await bridge.callTool(name: "device.status", arguments: "{}")
+        }.value
+        XCTAssertEqual((try object(background)["error"] as? [String: Any])?["code"] as? String,
+                       "unavailable")
+        let forwarded = try await Task.detached {
+            try await composite.callTool(name: "device.status", arguments: "{}")
+        }.value
+        XCTAssertEqual(try object(forwarded)["ok"] as? Bool, true)
+    }
+
     private func makePDF(texts: [String]) throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("OfficeFixture-\(UUID().uuidString).pdf")

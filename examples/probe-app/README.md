@@ -52,13 +52,24 @@ from `capabilities.json` when the linked provider is not installed.
 
 ## Office tools in the native conversation
 
-The native `OfficeToolBridge` exposes a fixed `phone <tool> [json-object]` surface
-through the linked Shell; it does not modify DSH's session loop, VFS or WAL.
-`files.list` returns opaque `fileId` references. Original bytes live in the bounded,
-immutable `OfficeArtifactStore`, outside the workspace VFS; tools page text and render
+The native `CompositePhoneToolBridge` exposes 51 fixed `phone <tool> [json-object]`
+routes through the linked Shell; it does not modify DSH's session loop, VFS or WAL.
+The original 19 Office tools keep their response shapes. `files.list` returns opaque
+`fileId` references. Original bytes live in the bounded, immutable
+`OfficeArtifactStore`, outside the workspace VFS; tools page text and render
 budgeted page images rather than materializing original documents in the VFS.
 
-- P0/P1: file selection/listing, Quick Look, system share, PDF text/page images,
+**Settings → 通用设置 → 手机权限** contains 23 capability switches. A row requests
+system authorization only when the user activates it, never at App startup or from
+a background tool call. The switch is app-local and does not revoke system access.
+Health reads report “已请求”, never a fictitious granted state; limited photo/contact
+access reports the actual count. Denied access offers the system Settings link.
+`permission_required`, `permission_denied`, `capability_disabled`, `no_data` and
+`invalid_arguments` are structured errors. The existing Contacts search and calendar
+creation tools pass through the same app-local permission gate before their legacy
+implementations, without changing their response contracts.
+
+- P0/P1 Office: file selection/listing, Quick Look, system share, PDF text/page images,
   DOCX/XLSX cell and paragraph locators, and code-computed CSV analysis.
 - Generation: `doc.write`, `sheet.write`, `slides.write` and `chart.render` accept
   only bounded JSON IR (see `spec/v1/office-ir-v1.json`). They create new artifacts;
@@ -66,6 +77,15 @@ budgeted page images rather than materializing original documents in the VFS.
 - Optional integrations: Vision OCR, `.eml`/mail drafts, explicit-confirmation
   EventKit creation with an idempotency key, permission-gated Contacts search,
   and Apple Translation. Mail is never sent by the tool itself.
+- Personal/device tools: contacts, calendars, reminders, HealthKit aggregation,
+  recent photo metadata, camera/document capture, on-device recording/transcription,
+  current location, local notifications, bounded clipboard, device state, and
+  security-scoped folder bookmarks with measured file counts.
+- P1 tools: motion/activity, Bluetooth and local-network discovery, geofence
+  registration, FocusStatus, HomeKit reads/writes, MusicKit playback, ActivityKit
+  start/update, and Shortcuts deep links. A geofence call reports registration, not
+  a later background event. A Shortcuts call reports `opened` and
+  `completion=not_observed`; it never claims the shortcut completed.
 - `office.convert` returns `BLOCKED` until a real cloud LibreOffice service is
   configured. Quick Look is preview fidelity and is never counted as Office-to-PDF
   conversion. The current `deepseek-chat` route rejects image input; scan summaries
@@ -75,9 +95,11 @@ budgeted page images rather than materializing original documents in the VFS.
 Malformed arguments return bounded JSON errors (`ok: false`) without native paths
 or internal error details. Document contents remain untrusted input. Tool results
 are capped at 256 KiB; ZIP parsing checks paths, CRC, compression and Zip64 bounds.
-Native interactive UI waits at most 600 seconds and settles its continuation on
-completion, dismissal, timeout or cancellation. A preview returns after dismissal,
-so a subsequent share cannot race a disappearing preview controller. The Worker host deadline follows
+The audit ring stores 200 metadata-only records in `Caches/permissions-audit.json`,
+not tool arguments or document content. Native interactive UI waits at most 600
+seconds and settles its continuation on completion, dismissal, timeout or
+cancellation. A preview returns after dismissal, so a subsequent share cannot race
+a disappearing preview controller. The Worker host deadline follows
 `PDSH_SHELL_TIMEOUT_MS` (600 seconds by default); `grace_ms` only bounds cancel
 settlement and is not the execution deadline. The turn inactivity deadline is
 1800 seconds, and readiness waits also respect the caller's earlier deadline.
@@ -85,7 +107,7 @@ settlement and is not the execution deadline. The turn inactivity deadline is
 Provider failures use structured errors: `admission_closed` means the call did not
 start and may be retried after host recovery/foreground return. `provider_timeout`
 allows retry only for read-only tools; artifact-producing writes report an unknown
-outcome and are not automatically retried. The office bridge does not advertise
+outcome and are not automatically retried. The combined bridge does not advertise
 `ctx`. The session menu opens `SessionActivityPage` for subagents and background jobs.
 
 The real-Agent UI cases live in `PhoneDSHDeviceUITests`. They require a provisioned

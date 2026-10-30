@@ -5,6 +5,12 @@ import PhoneDSHShell
 
 public final class OfficeToolBridge: PhoneToolBridge, @unchecked Sendable {
     public let supportsContext = false
+    public let handles: Set<String> = [
+        "files.list", "files.pick", "doc.preview", "share.export", "pdf.text",
+        "pdf.render_pages", "docx.read", "xlsx.read", "csv.analyze", "doc.write",
+        "sheet.write", "slides.write", "chart.render", "ocr.image", "mail.compose_draft",
+        "calendar.create_event", "contacts.search", "text.translate", "office.convert",
+    ]
 
     private let store: OfficeArtifactStore
     private let presenter: (any OfficePresenting)?

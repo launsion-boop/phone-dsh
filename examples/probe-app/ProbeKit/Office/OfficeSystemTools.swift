@@ -96,26 +96,32 @@ public struct OfficeSystemTools: Sendable {
     public func searchContacts(object: [String: Any]) async throws -> [String: Any] {
         let query = try OfficeJSON.string(object, "query") ?? ""
         try OfficeIR.text(query, limit: 100, label: "query")
-        let contactStore = CNContactStore()
-        guard try await Self.contactAccess(contactStore) else {
-            throw OfficeToolError.unavailable("未获得通讯录读取权限")
+        let cursor = try OfficeJSON.int(object, "cursor", default: 0, minimum: 0, maximum: 100_000)
+        let limit = try OfficeJSON.int(object, "limit", default: 20, minimum: 1, maximum: 50)
+        let reveal = object["reveal"] as? Bool ?? false
+        guard object["reveal"] == nil || object["reveal"] is Bool else {
+            throw OfficeToolError.invalidArguments("reveal 必须是布尔值")
         }
-        let keys: [CNKeyDescriptor] = [CNContactGivenNameKey as CNKeyDescriptor,
-                                       CNContactFamilyNameKey as CNKeyDescriptor,
-                                       CNContactOrganizationNameKey as CNKeyDescriptor,
-                                       CNContactEmailAddressesKey as CNKeyDescriptor,
-                                       CNContactPhoneNumbersKey as CNKeyDescriptor]
-        let contacts = try contactStore.unifiedContacts(matching: CNContact.predicateForContacts(matchingName: query),
-                                                        keysToFetch: keys)
-        let items = contacts.prefix(20).map { contact in
-            [
-                "name": "\(contact.givenName) \(contact.familyName)".trimmingCharacters(in: .whitespaces),
-                "organization": contact.organizationName,
-                "emails": contact.emailAddresses.map { $0.value as String },
-                "phones": contact.phoneNumbers.map { $0.value.stringValue },
-            ]
+        let authorization = CNContactStore.authorizationStatus(for: .contacts)
+        var allowed = authorization == .authorized
+        if #available(iOS 18.0, *) { allowed = allowed || authorization == .limited }
+        guard allowed else {
+            throw OfficeToolError.unavailable("请先在手机权限中心完成通讯录授权")
         }
-        return ["items": items, "count": items.count, "notFound": items.isEmpty]
+        let contacts = try CNContactStore().unifiedContacts(
+            matching: CNContact.predicateForContacts(matchingName: query),
+            keysToFetch: PhoneContactSerializer.keys)
+        guard cursor <= contacts.count else { throw OfficeToolError.invalidRange("cursor 超出结果范围") }
+        let items = contacts.dropFirst(cursor).prefix(limit).map {
+            PhoneContactSerializer.dictionary($0, reveal: reveal)
+        }
+        let next = cursor + items.count
+        let data: [String: Any] = ["items": items, "count": items.count, "notFound": items.isEmpty]
+        return [
+            "ok": true, "tool": "contacts.search", "egress": false, "scope": "contacts.read",
+            "data": data, "items": items, "count": items.count, "notFound": items.isEmpty,
+            "nextCursor": next < contacts.count ? next : NSNull(), "truncated": next < contacts.count,
+        ]
     }
 
     public func translate(object: [String: Any]) async throws -> [String: Any] {
@@ -139,16 +145,6 @@ public struct OfficeSystemTools: Sendable {
         if EKEventStore.authorizationStatus(for: .event) == .fullAccess { return true }
         return try await withCheckedThrowingContinuation { continuation in
             store.requestFullAccessToEvents { granted, error in
-                if let error { continuation.resume(throwing: error) }
-                else { continuation.resume(returning: granted) }
-            }
-        }
-    }
-
-    private static func contactAccess(_ store: CNContactStore) async throws -> Bool {
-        if CNContactStore.authorizationStatus(for: .contacts) == .authorized { return true }
-        return try await withCheckedThrowingContinuation { continuation in
-            store.requestAccess(for: .contacts) { granted, error in
                 if let error { continuation.resume(throwing: error) }
                 else { continuation.resume(returning: granted) }
             }

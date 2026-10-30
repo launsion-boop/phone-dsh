@@ -69,6 +69,22 @@ test('phone timeout distinguishes read-only retry from unknown write outcome', (
   assert.equal(write.retryable, false)
   assert.equal(write.foreground_required, false)
   assert.equal(write.outcome, 'unknown')
+  for (const tool of [
+    'contacts.get', 'calendar.list', 'reminders.list', 'health.summary', 'health.query',
+    'photos.recent', 'photos.search', 'audio.transcribe', 'location.current',
+    'clipboard.read', 'files.list_roots', 'device.status', 'motion.activity',
+    'motion.steps', 'bluetooth.scan', 'network.browse',
+  ]) {
+    const result = JSON.parse(phoneProviderFailure(tool, { exitCode: 124 })!).error
+    assert.equal(result.retryable, true, `${tool} is read-only and safe to retry after a timeout`)
+  }
+  for (const tool of [
+    'reminders.create', 'reminders.complete', 'camera.capture', 'camera.scan_document',
+    'audio.record', 'notify.local', 'clipboard.write', 'files.grant_folder',
+  ]) {
+    const result = JSON.parse(phoneProviderFailure(tool, { exitCode: 124 })!).error
+    assert.equal(result.retryable, false, `${tool} has an unknown write outcome and must not auto-retry`)
+  }
 })
 
 test('phone command emits structured provider errors with the original exit code', async () => {

@@ -208,6 +208,7 @@ extension PDSHShellError: ExecProviderFailure {
 /// a JSON document, printed unchanged by the accelerator.
 public protocol PhoneToolBridge: Sendable {
     var supportsContext: Bool { get }
+    var handles: Set<String> { get }
     func callTool(name: String, arguments: String) async throws -> String
 }
 
@@ -215,6 +216,7 @@ public extension PhoneToolBridge {
     /// Generic hosts keep their existing ctx support. A limited bridge must
     /// explicitly decline it instead of advertising an unimplemented tool.
     var supportsContext: Bool { true }
+    var handles: Set<String> { [] }
 }
 
 /// Closure-backed ``PhoneToolBridge`` for the facade and for tests.

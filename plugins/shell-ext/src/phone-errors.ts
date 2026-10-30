@@ -9,6 +9,22 @@ const READ_ONLY_PHONE_TOOLS = new Set([
   'csv.analyze',
   'ocr.image',
   'contacts.search',
+  'contacts.get',
+  'calendar.list',
+  'reminders.list',
+  'health.summary',
+  'health.query',
+  'photos.recent',
+  'photos.search',
+  'audio.transcribe',
+  'location.current',
+  'clipboard.read',
+  'files.list_roots',
+  'device.status',
+  'motion.activity',
+  'motion.steps',
+  'bluetooth.scan',
+  'network.browse',
 ])
 
 interface ProviderFailureInput {
