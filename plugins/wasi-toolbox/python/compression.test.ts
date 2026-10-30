@@ -99,6 +99,26 @@ interface Fixture {
   readonly cleanup: () => Promise<void>
 }
 
+function fixtureFs(workspace: string, scratch: string): NodeFsPromisesLike {
+  const map = (path: string): string => {
+    if (path === '/dsh/workspace') return workspace
+    if (path.startsWith('/dsh/workspace/')) return `${workspace}${path.slice('/dsh/workspace'.length)}`
+    if (path === '/dsh/tmp') return scratch
+    if (path.startsWith('/dsh/tmp/')) return `${scratch}${path.slice('/dsh/tmp'.length)}`
+    return path
+  }
+  return new Proxy(fsPromises, {
+    get(target, property) {
+      const value = Reflect.get(target, property) as unknown
+      if (typeof value !== 'function') return value
+      return (...args: unknown[]) => {
+        const mapped = args.map((argument, index) => index < 2 && typeof argument === 'string' ? map(argument) : argument)
+        return (value as (...args: unknown[]) => unknown).apply(target, mapped)
+      }
+    },
+  }) as NodeFsPromisesLike
+}
+
 async function fixture(pair: RealArtifacts): Promise<Fixture> {
   const root = await mkdtemp(join(tmpdir(), 'pdsh-python-compression-'))
   const workspace = join(root, 'workspace')
@@ -108,10 +128,10 @@ async function fixture(pair: RealArtifacts): Promise<Fixture> {
   const runtime = new PythonRuntime({
     wasm: readFileSync(pair.wasm),
     stdlib: readFileSync(pair.stdlib),
-    backend: new NodeFsBackend(fsPromises as unknown as NodeFsPromisesLike),
+    backend: new NodeFsBackend(fixtureFs(workspace, scratch)),
     preopens: [
-      { guestPath: '/workspace', hostPath: workspace },
-      { guestPath: '/tmp', hostPath: scratch },
+      { guestPath: '/workspace', hostPath: '/dsh/workspace' },
+      { guestPath: '/tmp', hostPath: '/dsh/tmp' },
     ],
     cwd: '/workspace',
     crossOriginIsolated: true,
