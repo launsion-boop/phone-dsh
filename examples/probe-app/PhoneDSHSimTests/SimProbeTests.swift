@@ -5,7 +5,7 @@
 // `PhoneDSHProbeTests` target use: ``ProbeSuiteRunner`` from ProbeKit. This
 // target adds no probe code. It only attaches the probe WebViews to a
 // one-point visible window (a hostless XCTest has no App scene), writes
-// `probe-report.json` into the probe app container's `Documents/pdsh-reports/`.
+// `probe-report.json` into `SimEnvironment.reportsDirectory()`.
 // ProbeKit labels each row with the actual execution environment. Simulator and
 // physical-device reports remain separate evidence and are never interchanged.
 

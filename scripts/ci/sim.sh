@@ -5,8 +5,8 @@
 #
 # Boots (or reuses) the iPhone 17 Pro simulator, builds the packed Worker
 # assets and the probe app, installs the app, runs the hostless
-# `PhoneDSHSimTests` target with `xcodebuild test -scheme PhoneDSHSim`, pulls
-# the four JSON reports from the app container's Documents/pdsh-reports, and
+# `PhoneDSHSimTests` target with `xcodebuild test-without-building`, pulls
+# the three JSON reports from its stable output directory, and
 # prints one PASS/FAIL/INFO table. Any FAIL row (gating or informational), a
 # missing report or a test process failure exits non-zero.
 #
@@ -348,10 +348,15 @@ RUNTIME="${REST%%|*}"
 STATE="${REST##*|}"
 log "simulator $SIM_NAME ($UDID), runtime $RUNTIME, state $STATE"
 
-# 5. Generate and build the Xcode project. CFFIXED_USER_HOME keeps SwiftPM's
-#    manifest cache inside $OUT (the CI harness may not allow writes to the
-#    runner's home); -disable-sandbox stops SwiftPM/the macro plugin server from
-#    nesting a second sandbox inside the harness sandbox.
+# 5. Generate and build the Xcode project. The real phone accelerator is a
+#    required part of this gate, not the pure-Swift not-linked stub.
+log "building the native read-only shell"
+run_with_timeout "$TIMEOUT" "shell build" \
+  bash "$ROOT/shell/build-apple.sh" || fail "the native shell build failed (see $LOG)"
+export PDSH_WITH_XZSHELL=1 PDSH_WITH_SHELL=1
+# CFFIXED_USER_HOME keeps SwiftPM's manifest cache inside $OUT (the CI harness
+# may not allow writes to the runner's home); -disable-sandbox stops SwiftPM/the
+# macro plugin server from nesting a second sandbox inside the harness sandbox.
 log "generating the Xcode project"
 sim_generate_project "$EXAMPLE"
 DESTINATION="platform=iOS Simulator,name=$DEVICE_NAME"
@@ -381,34 +386,29 @@ TEST_BUNDLE="$PRODUCTS/PhoneDSHSimTests.xctest"
 [ -d "$TEST_BUNDLE" ] || fail "the test bundle was not built at $TEST_BUNDLE"
 
 # 6. Install the app: its bundle is what the smoke test loads (the same
-#    Bundle/worker a device build serves) and its data container receives the
-#    reports. Default CI uninstalls first; preserve mode retains the container
-#    and uses an isolated test workspace. Both paths clear only stale reports.
+#    Bundle/worker a device build serves). Default CI uninstalls first;
+#    preserve mode retains the container and uses an isolated test workspace.
+#    Reports live outside the app container so Xcode reinstalls cannot move or
+#    replace them, and the watcher reads exactly the suite's output directory.
 log "installing $BUNDLE_ID"
 CONTAINER="$(sim_install_probe_app "$UDID" "$APP")" \
   || fail "cannot install the probe app or resolve its data container"
-log "reports container (udid $UDID): $CONTAINER"
-REPORT_DIR="$CONTAINER/Documents/pdsh-reports"
+log "app container (udid $UDID): $CONTAINER"
+REPORT_DIR="$OUT/reports"
 
-# Clear stale reports so a crash cannot leave an old PASS table behind. The
-# app container is outside this shell's writable sandbox, so container writes
-# go through the selected simulator's launchd (the tests read the same files
-# from inside the container).
+# Clear stale reports so a crash cannot leave an old PASS table behind.
 xcrun simctl spawn "$UDID" /bin/rm -rf "$REPORT_DIR" 2>/dev/null || true
 
 # 6b. Real WebContent kill handshakes.
 #
 # The hostless test process cannot signal the WebEngine's WebContent itself.
-# Before the suites start this script records the WebContent pids that already
-# belong to the selected simulator and starts two watchers. Each watcher
-# follows the app's current data container (bundle id) and writes its own
-# `expect-*-kill` marker there, so an xcodebuild reinstall that migrates the
-# container cannot strand the expectation in the old path. The smoke suite
-# creates `real-kill-ready.json` at the end of its run (INFO evidence), while
-# the smoke suite creates `real-kill-ready.json` after its first-turn evidence
-# passes. The watcher then SIGKILLs the simulator's WebContent pid(s) and writes
-# the result file; the suite gates recovery of the same Session and a follow-up
-# turn from that real kill.
+# This script starts one watcher in the suite's stable report directory and
+# writes `expect-real-kill` there. Before creating its engine, the smoke suite
+# asks the watcher to freeze the current WebContent baseline and waits for
+# `real-kill-armed-result.json`. It writes `real-kill-ready.json` only after its
+# first-turn evidence passes. The watcher then SIGKILLs the new WebContent
+# pid(s) and writes the result file; the suite gates recovery of the same
+# Session and a follow-up turn from that real kill.
 #
 # Every pid is selected three times: its command must contain the simulator
 # runtime path (`CoreSimulator`) and the WebKit WebContent executable path, and
@@ -416,8 +416,8 @@ xcrun simctl spawn "$UDID" /bin/rm -rf "$REPORT_DIR" 2>/dev/null || true
 # runtime lets `simctl spawn /bin/ps` see the host process table, but host
 # processes (Safari, another simulator, another user app) carry neither the
 # CoreSimulator runtime path nor this simulator's UDID, so they are never
-# matched. Pids already alive before the suites are excluded, which keeps the
-# attempts on the WebContent this test run created.
+# matched. The acknowledged pre-engine baseline keeps unrelated Web views from
+# the rest of the suite out of the smoke kill.
 REAL_KILL_EXPECT="$REPORT_DIR/expect-real-kill"
 REAL_KILL_READY="$REPORT_DIR/real-kill-ready.json"
 REAL_KILL_RESULT="$REPORT_DIR/real-kill-result.json"
@@ -425,42 +425,42 @@ REAL_KILL_PREFLIGHT="unavailable (xcrun simctl spawn is not usable here)"
 
 # The pid selection, the expectation marker and the SIGKILL handshake live in
 # webcontent-watch.sh; the scenario runner uses the same script in its scenario
-# mode. This file starts the watchers and records their results.
+# mode. This file starts the smoke watcher and records its result.
 container_remove() {
   xcrun simctl spawn "$UDID" /bin/rm -f "$@" 2>/dev/null || true
 }
 
 if xcrun simctl spawn "$UDID" /bin/ps -A -o pid= >/dev/null 2>&1; then
   REAL_KILL_PREFLIGHT="available (device-scoped; attempted while the smoke WebContent is live)"
-  # The watchers own the expectation marker and create it in the directory they
-  # resolve on every poll. `xcodebuild test` may reinstall the app and migrate
-  # its data container after this point; a marker written here would be left in
-  # the old container and the suites would silently skip the real kill.
   if xcrun simctl spawn "$UDID" /bin/mkdir -p "$REPORT_DIR" 2>/dev/null; then
     (
       exec 3>&-
       exec bash "$HERE/webcontent-watch.sh" smoke --udid "$UDID" \
-        --directory "$REPORT_DIR" --bundle-id "$BUNDLE_ID"
+        --directory "$REPORT_DIR"
     ) &
     REAL_KILL_WATCHER_PID=$!
   else
-    REAL_KILL_PREFLIGHT="unavailable (cannot create the report directory in the app container)"
+    REAL_KILL_PREFLIGHT="unavailable (cannot create the report directory)"
     log "real WebContent kill handshake: unavailable (cannot create the report directory)"
   fi
 fi
 log "real WebContent kill preflight: $REAL_KILL_PREFLIGHT"
-# 7. Run the contract command:
-#      xcodebuild test -scheme PhoneDSHSim \
+# 7. Run the contract command against the app just built and installed above.
+#      xcodebuild test-without-building -scheme PhoneDSHSim \
 #        -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
 #        CODE_SIGNING_ALLOWED=NO
-#    If the harness forbids the pseudo-terminal the test runner needs, fall
-#    back to the same XCTest bundle launched through `simctl spawn` (still the
-#    built app container, same suites, same reports).
+#    Use the built bundle and installed data container, plus a stable report
+#    directory that no app reinstall can migrate. If the harness forbids the
+#    pseudo-terminal the test runner needs, fall back to the same XCTest bundle
+#    launched through `simctl spawn`.
+export TEST_RUNNER_PDSH_SIM_APP_DATA="$CONTAINER"
+export TEST_RUNNER_PDSH_SIM_APP_BUNDLE="$APP"
+export TEST_RUNNER_PDSH_SIM_REPORTS_DIR="$REPORT_DIR"
 TEST_LOG="$OUT/xcodebuild-test.log"
 TEST_RC=0
-log "running xcodebuild test -scheme PhoneDSHSim"
-run_with_timeout "$TIMEOUT" "xcodebuild test" \
-  xcodebuild test -scheme PhoneDSHSim "${COMMON[@]}" > "$TEST_LOG" 2>&1 || TEST_RC=$?
+log "running xcodebuild test-without-building -scheme PhoneDSHSim"
+run_with_timeout "$TIMEOUT" "xcodebuild test-without-building" \
+  xcodebuild test-without-building -scheme PhoneDSHSim "${COMMON[@]}" > "$TEST_LOG" 2>&1 || TEST_RC=$?
 if [ "$TEST_RC" -eq 0 ]; then
   tail -n 50 "$TEST_LOG" >> "$LOG" 2>/dev/null || true
 elif grep -qE "Pseudo Terminal Setup Error|sandbox_apply: Operation not permitted|Failed to install or launch the test runner" "$TEST_LOG"; then
@@ -472,6 +472,9 @@ elif grep -qE "Pseudo Terminal Setup Error|sandbox_apply: Operation not permitte
   TEST_RC=0
   SIMCTL_CHILD_DYLD_FRAMEWORK_PATH="$PRODUCTS:$PLATFORM/Developer/Library/Frameworks" \
   SIMCTL_CHILD_DYLD_LIBRARY_PATH="$PRODUCTS:$PLATFORM/Developer/usr/lib" \
+  SIMCTL_CHILD_PDSH_SIM_APP_DATA="$CONTAINER" \
+  SIMCTL_CHILD_PDSH_SIM_APP_BUNDLE="$APP" \
+  SIMCTL_CHILD_PDSH_SIM_REPORTS_DIR="$REPORT_DIR" \
   SIMCTL_CHILD_PDSH_SIM_REAL_KILL="$REAL_KILL_PREFLIGHT" \
   SIMCTL_CHILD_PDSH_DSH_CANONICAL_COMMIT="$PIN_COMMIT" \
   SIMCTL_CHILD_PDSH_DSH_CANONICAL_VERSION="$PIN_VERSION" \
@@ -494,22 +497,18 @@ else
   tail -n 100 "$TEST_LOG" >> "$LOG" 2>/dev/null || true
 fi
 
-# A hosted test run (`xcodebuild test` with the suites hosted in the probe app)
-# reinstalls the app, and iOS may migrate its data container to a new path.
-# Re-resolve the container before reading reports or handshake results.
-if NEW_CONTAINER="$(sim_app_container "$UDID" 2>/dev/null)" && [ -n "$NEW_CONTAINER" ] \
-   && [ "$NEW_CONTAINER" != "$CONTAINER" ]; then
-  log "app data container moved to $NEW_CONTAINER (the test run reinstalled the app)"
-  CONTAINER="$NEW_CONTAINER"
-  REPORT_DIR="$CONTAINER/Documents/pdsh-reports"
-  REAL_KILL_EXPECT="$REPORT_DIR/expect-real-kill"
-  REAL_KILL_READY="$REPORT_DIR/real-kill-ready.json"
-  REAL_KILL_RESULT="$REPORT_DIR/real-kill-result.json"
+if [ "$TEST_RC" -eq 0 ]; then
+  log "running hosted UIWindowScene tests -scheme PhoneDSHDevice"
+  run_with_timeout "$TIMEOUT" "xcodebuild hosted UIWindowScene tests" \
+    xcodebuild test -scheme PhoneDSHDevice "${COMMON[@]}" \
+    -only-testing:PhoneDSHDeviceTests/TranscriptScrollViewTests \
+    > "$OUT/xcodebuild-hosted-scene.log" 2>&1 || TEST_RC=$?
 fi
 
 # The suites are over: stop the real-kill watcher so it cannot write a result
 # after this point, then read the smoke handshake outcome (INFO row; the smoke
-# suite itself gates recovery).
+# suite itself gates recovery). The hosted run may migrate the app container;
+# it cannot change this independent report and handshake directory.
 if [ -n "$REAL_KILL_WATCHER_PID" ]; then
   kill "$REAL_KILL_WATCHER_PID" 2>/dev/null || true
   wait "$REAL_KILL_WATCHER_PID" 2>/dev/null || true
@@ -530,13 +529,11 @@ except Exception:
 PY
 )"
 fi
-# Drop the handshake markers from the container (the results were already read;
-# reports and other preserved app data are untouched).
-container_remove "$REAL_KILL_EXPECT" "$REAL_KILL_READY"
+container_remove "$REAL_KILL_EXPECT" "$REAL_KILL_READY" \
+  "$REPORT_DIR/real-kill-armed.json" "$REPORT_DIR/real-kill-armed-result.json"
 
-# 8. Pull the reports. Every suite writes into the app container; the fallback
-#    for an older run (or a hostless runner without the app installed) is the
-#    test process's own Documents directory.
+# 8. Pull exactly this run's reports; never substitute a file from a runner's
+#    global home or an older app container.
 rm -f "$OUT/probe-report.json" "$OUT/smoke-report.json" "$OUT/kill-report.json"
 PULLED=0
 if [ -d "$REPORT_DIR" ]; then
@@ -546,17 +543,6 @@ if [ -d "$REPORT_DIR" ]; then
       PULLED=$(( PULLED + 1 ))
     fi
   done
-fi
-if [ "$PULLED" -lt 4 ]; then
-  RUNNER_HOME="$(xcrun simctl getenv "$UDID" HOME 2>/dev/null || true)"
-  if [ -n "$RUNNER_HOME" ] && [ -d "$RUNNER_HOME/Documents/pdsh-reports" ]; then
-    for name in probe-report.json smoke-report.json kill-report.json; do
-      if [ ! -f "$OUT/$name" ] && [ -f "$RUNNER_HOME/Documents/pdsh-reports/$name" ]; then
-        cp "$RUNNER_HOME/Documents/pdsh-reports/$name" "$OUT/$name"
-        PULLED=$(( PULLED + 1 ))
-      fi
-    done
-  fi
 fi
 [ "$PULLED" -eq 3 ] || fail "only $PULLED/3 reports were written (see $LOG)"
 

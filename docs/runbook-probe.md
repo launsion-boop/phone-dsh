@@ -185,9 +185,10 @@ an XcodeGen project (`project.yml`) with the SwiftUI app (`Probes`, `Memory`,
 `Background`, `Screen`, `Export` pages), the `ProbeKit` library (the iOS port of
 the probe suite and the report model) and the hostless `PhoneDSHSimTests`
 target. The simulator gate is `scripts/ci/sim.sh`: it boots or reuses the
-iPhone 17 Pro simulator, builds the packed Worker assets and the app, runs
-`xcodebuild test -scheme PhoneDSHSim`, pulls `probe-report.json`,
-`smoke-report.json` and `kill-report.json` from the app container and prints one
+iPhone 17 Pro simulator, builds the native shell, packed Worker assets and app,
+then runs `xcodebuild test-without-building -scheme PhoneDSHSim`. It pulls
+`probe-report.json`, `smoke-report.json` and `kill-report.json` from its stable
+report output directory (never an older app container) and prints one
 PASS/FAIL/INFO table; any FAIL row, a missing report or a failed test process
 exits non-zero. Environment: `PDSH_DSH_CHECKOUT` (or the per-machine checkout
 file), optional `PDSH_DSH_WWW` / `PDSH_DSH_IMAGE` for prebuilt assets, `OUT`

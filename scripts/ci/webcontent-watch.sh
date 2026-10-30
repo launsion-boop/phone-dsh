@@ -6,14 +6,14 @@
 # The sandboxed simulator test process cannot signal a host process. This
 # script is the one watcher implementation used by both simulator flows:
 #
-#   * `sim.sh` smoke handshake: create `expect-real-kill` in the app's current
-#     report container, then wait for `real-kill-ready.json` written by the
-#     smoke suite while its real WKWebView is alive; SIGKILL the selected
-#     simulator's WebContent process and write `real-kill-result.json`. The
-#     smoke suite then gates recovery of the same Session and a follow-up turn
-#     after that real kill. The expectation marker is written after every
-#     `resolve_directory`, so an xcodebuild reinstall that migrates the data
-#     container cannot leave the handshake in the old path.
+#   * `sim.sh` smoke handshake: create `expect-real-kill` in the suite's stable
+#     report directory, acknowledge `real-kill-armed.json` before the smoke
+#     suite creates its engine, then wait for `real-kill-ready.json` while its
+#     real WKWebView is alive; SIGKILL the selected simulator's WebContent
+#     process and write `real-kill-result.json`. The smoke suite then gates
+#     recovery of the same Session and a follow-up turn after that real kill.
+#     The optional bundle-id mode follows an app's current report container for
+#     callers that still store reports there.
 #   * scenario handshake: `scenarios.sh --run-on sim` starts this watcher next
 #     to the catalog run; the runner writes `<token>.request` into the results
 #     tree for a `webcontent_kill` perturbation and waits for `<token>.result`.
@@ -24,8 +24,9 @@
 # the `CoreSimulator` runtime path and the WebKit WebContent executable path,
 # and the process environment must carry `SIMULATOR_UDID=<selected udid>`.
 # Host processes (Safari, other simulators, other users' apps) carry neither.
-# Pids already alive when the watcher starts are excluded so only the test
-# run's own WebContent process can be signalled.
+# The smoke flow acknowledges a pre-engine baseline; the scenario flow takes
+# its baseline when the watcher starts. Only later WebContent pids can be
+# signalled.
 #
 # Usage:
 #   webcontent-watch.sh smoke    --udid <UDID> --directory <report-dir> [--bundle-id <id>]
@@ -128,6 +129,8 @@ BASELINE_PIDS="$(webcontent_pids | tr '\n' ' ')"
 log "baseline (selected simulator): ${BASELINE_PIDS:-none}"
 
 if [ "$MODE" = "smoke" ]; then
+  ARM_NAME="real-kill-armed.json"
+  ARM_RESULT_NAME="real-kill-armed-result.json"
   READY_NAME="real-kill-ready.json"
   RESULT_NAME="real-kill-result.json"
   EXPECT_NAME="expect-real-kill"
@@ -144,7 +147,12 @@ if [ "$MODE" = "smoke" ]; then
   while :; do
     resolve_directory
     write_expectation
-    if [ -f "$DIRECTORY/$READY_NAME" ]; then
+    if [ ! -f "$DIRECTORY/$ARM_RESULT_NAME" ] && [ -f "$DIRECTORY/$ARM_NAME" ]; then
+      BASELINE_PIDS="$(webcontent_pids | tr '\n' ' ')"
+      container_write "$DIRECTORY/$ARM_RESULT_NAME" '{"status":"armed"}'
+      log "armed before creating the smoke engine: ${BASELINE_PIDS:-none}"
+    fi
+    if [ -f "$DIRECTORY/$ARM_RESULT_NAME" ] && [ -f "$DIRECTORY/$READY_NAME" ]; then
       kill_new_webcontent
       if [ -n "${SENT// /}" ]; then
         status="attempted: SIGKILL sent to selected-simulator WebContent pid(s)$SENT"

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-"""Self-test for the phone-DSH static checkers.
+"""Self-tests for the phone-DSH static checkers and WebContent watcher.
 
 For every checker the test builds a passing tree and a failing tree in a
 temporary directory outside the repository, initialises each tree as a git
@@ -18,6 +18,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -766,6 +767,84 @@ class ProductionScanTests(unittest.TestCase):
             self.assertIn(
                 "plugins/channel/package.json:1: package-license:", result.stdout
             )
+
+
+class WebContentWatchTests(unittest.TestCase):
+    def test_smoke_baseline_is_acknowledged_before_new_engine_is_killed(self):
+        with tempfile.TemporaryDirectory(prefix="pdsh-webcontent-watch-") as temp:
+            root = Path(temp)
+            reports = root / "Documents/pdsh-reports"
+            reports.mkdir(parents=True)
+            executable = root / "bin/xcrun"
+            executable.parent.mkdir()
+            executable.write_text(
+                """#!/usr/bin/env python3
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+root = Path(os.environ['WATCH_FIXTURE'])
+args = sys.argv[1:]
+if args[:3] == ['simctl', 'spawn', 'device'] and args[3] == '/bin/ps':
+    command = '/Library/Developer/CoreSimulator/iOS.simruntime/WebContentExtension.appex/com.apple.WebKit.WebContent'
+    print('1001', command, 'SIMULATOR_UDID=device')
+    if (root / 'ready').exists():
+        print('1002', command, 'SIMULATOR_UDID=device')
+elif args[:3] == ['simctl', 'spawn', 'device'] and args[3] == '/bin/sh':
+    raise SystemExit(subprocess.run(args[3:]).returncode)
+elif args[:3] == ['simctl', 'spawn', 'device'] and args[3] == '/bin/kill':
+    (root / 'killed').write_text(args[-1], encoding='utf-8')
+elif args[:2] == ['simctl', 'get_app_container']:
+    print(root)
+else:
+    raise SystemExit('unexpected xcrun arguments: ' + repr(args))
+""",
+                encoding="utf-8",
+            )
+            executable.chmod(0o755)
+            environment = dict(os.environ)
+            environment["PATH"] = str(executable.parent) + os.pathsep + environment["PATH"]
+            environment["WATCH_FIXTURE"] = str(root)
+            process = subprocess.Popen(
+                [
+                    "bash",
+                    str(PHONE_DIR / "webcontent-watch.sh"),
+                    "smoke",
+                    "--udid",
+                    "device",
+                    "--directory",
+                    str(reports),
+                    "--bundle-id",
+                    "test.app",
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                env=environment,
+            )
+            try:
+                (reports / "real-kill-armed.json").write_text("armed\n", encoding="utf-8")
+                deadline = time.monotonic() + 5
+                while not (reports / "real-kill-armed-result.json").exists():
+                    self.assertLess(time.monotonic(), deadline, "baseline was not acknowledged")
+                    time.sleep(0.02)
+                self.assertFalse(
+                    (root / "killed").exists(),
+                    "a signal before the engine exists cannot establish its ownership",
+                )
+                (root / "ready").touch()
+                (reports / "real-kill-ready.json").write_text("{}\n", encoding="utf-8")
+                output, _ = process.communicate(timeout=5)
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                    process.communicate()
+            self.assertEqual(process.returncode, 0, output)
+            self.assertEqual((root / "killed").read_text(encoding="utf-8"), "1002")
+            result = json.loads((reports / "real-kill-result.json").read_text(encoding="utf-8"))
+            self.assertEqual(result["pids"], "1002")
+            self.assertTrue(result["status"].startswith("attempted:"))
 
 
 if __name__ == "__main__":
