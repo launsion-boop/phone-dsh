@@ -24,7 +24,7 @@ struct FilesPage: View {
     let initialPath: String?
     @State private var query = ""
     @State private var model = ChatModel.shared
-    @State private var selectedFile: WorkspaceFile?
+    @State private var previewTarget: PreviewTarget?
     @State private var didOpenInitialPath = false
     @State private var showingDemo = false
 
@@ -52,15 +52,12 @@ struct FilesPage: View {
             .navigationBarTitleDisplayMode(.large)
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
-            .background(Color.white)
+            .background(NativePagePalette.page)
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: NativeText("搜索文件", "Search files"))
             .refreshable { model.refreshFiles() }
             .task { await openInitialPathIfNeeded() }
-            .sheet(item: $selectedFile) { file in
-                NavigationStack {
-                    FilePreviewPage(file: file, workspaceRoot: model.workspaceRoot)
-                }
-                .presentationDragIndicator(.visible)
+            .navigationDestination(item: $previewTarget) { target in
+                PreviewSurface(target: target, isModal: false)
             }
             .sheet(isPresented: $showingDemo) {
                 NavigationStack {
@@ -126,7 +123,7 @@ struct FilesPage: View {
                             // Always open the preview page: it either shows the
                             // file, Quick Look, or says why it cannot, instead
                             // of a tap that silently does nothing.
-                            selectedFile = file
+                            previewTarget = .workspaceFile(file.relativePath)
                         } label: {
                             FileRow(file: file)
                         }
@@ -163,7 +160,7 @@ struct FilesPage: View {
             match = ChatPage.uniqueBasenameMatch(normalized, in: model.files)
         }
         if let match {
-            selectedFile = match
+            previewTarget = .workspaceFile(match.relativePath)
         }
     }
 
@@ -219,269 +216,4 @@ private struct FileRow: View {
         return parent
     }
 
-}
-
-private struct FilePreviewPage: View {
-    /// App-side rendering budget after the host has applied its own page caps.
-    private static let inlineTextPreviewLimit = 256 * 1024
-    private static let inlineTextPreviewLines = 200
-    /// JSON/CSV read the materialized copy directly: the Worker read caps at
-    /// 256 KiB / 200 lines and truncated ordinary exports (spec-render-media-v1 §C.2).
-    private static let directTextExtensions: Set<String> = ["json", "csv", "tsv"]
-    private static let directTextPreviewLimit = 8 * 1024 * 1024
-
-    let file: WorkspaceFile
-    let workspaceRoot: URL
-    @Environment(\.dismiss) private var dismiss
-    @State private var quickLookURL: URL?
-    @State private var textPreview: String?
-    @State private var previewError: String?
-    @State private var isHTML = false
-    @State private var isMarkdown = false
-    @State private var previewNotice: String?
-
-    private var workspaceURL: URL {
-        workspaceRoot
-            .appendingPathComponent("materialized", isDirectory: true)
-            .appendingPathComponent("workspace", isDirectory: true)
-            .resolvingSymlinksInPath()
-    }
-
-    /// Reject absolute paths and `..` components before offering any file operation.
-    private var safeFileURL: URL? {
-        let root = workspaceURL
-        guard !file.relativePath.hasPrefix("/"),
-              !file.relativePath.split(separator: "/").contains("..") else { return nil }
-        let candidate = root.appendingPathComponent(file.relativePath).resolvingSymlinksInPath()
-        guard candidate.path.hasPrefix(root.path + "/"),
-              (try? candidate.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else { return nil }
-        return candidate
-    }
-
-    /// `pdsh-page:` roots for this preview: every known session's materialized
-    /// workspace (the host may own several) plus the bundled Web3DLib. The map
-    /// is a snapshot taken when the view is built; a workspace refresh re-reads
-    /// it on the next render.
-    private var pageResolver: PDSHPageResolver? {
-        guard let library = Bundle.main.url(forResource: "Web3DLib", withExtension: nil) else {
-            return nil
-        }
-        let map = ChatModel.shared.pageWorkspaceMap()
-        return PDSHPageResolver(libraryRoot: library, workspaceRoot: { map[$0] })
-    }
-
-    /// The workspace that owns this file, with its session segment and the
-    /// path relative to that workspace. The page origin is per workspace, so a
-    /// file under `proj-b` must not be opened with the current session and a
-    /// tree-relative path.
-    private var pageEntry: PDSHPageEntry? {
-        guard let owner = ChatModel.shared.pageWorkspaceOwner(for: file.relativePath) else {
-            return nil
-        }
-        return .workspace(sessionID: owner.sessionID, path: owner.relativePath)
-    }
-
-    private var needsQuickLook: Bool {
-        let ext = URL(fileURLWithPath: file.relativePath).pathExtension.lowercased()
-        return !["txt", "md", "markdown", "json", "yaml", "yml", "xml", "html", "htm", "csv", "tsv", "log",
-                 "swift", "py", "js", "ts", "sh", "toml", "ini", "patch", "diff", "css", "c", "h", "go", "rs"].contains(ext)
-    }
-
-    var body: some View {
-        Group {
-            if let quickLookURL {
-                // Presenting `.quickLookPreview` from inside this sheet was a
-                // second modal on top of the first: iOS silently dropped it
-                // and the placeholder stayed ("一直加载中"). An embedded
-                // QLPreviewController is a child view, not a modal.
-                EmbeddedQuickLook(url: quickLookURL)
-            } else if isHTML, let entry = pageEntry, let resolver = pageResolver {
-                // A real origin: relative scripts, textures and .glb models
-                // resolve, with the host-enforced CSP per the page's tier.
-                PDSHPageView(entry: entry, resolver: resolver)
-            } else if isHTML {
-                ContentUnavailableView(NativeText("这个页面不在任何工作区里", "This page is not in a workspace"), systemImage: "globe",
-                                       description: Text(NativeText("页面预览以它所属的工作区目录为根；散落的文件请用文本或分享打开。", "Page previews use their workspace as the root. Open standalone files as text or share them.")))
-            } else if isMarkdown, let textPreview {
-                ScrollView(.vertical) { NativeMarkdownBody(markdown: textPreview) }
-            } else if let textPreview {
-                ScrollView([.vertical, .horizontal]) {
-                    Text(textPreview)
-                        .font(.system(.body, design: .monospaced))
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding()
-                }
-            } else {
-                ContentUnavailableView(NativeText("这个文件已经不在了。", "This file no longer exists."), systemImage: "doc.questionmark",
-                                       description: Text(previewError ?? NativeText("请使用分享功能打开此文件。", "Use Share to open this file.")))
-            }
-        }
-        .navigationTitle(URL(fileURLWithPath: file.relativePath).lastPathComponent)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button(NativeText("完成", "Done")) { dismiss() }.leadingBarText()
-            }
-            ToolbarItem(placement: .primaryAction) {
-                if let url = safeFileURL {
-                    ShareLink(item: url) {
-                        Label(NativeText("分享", "Share"), systemImage: "square.and.arrow.up")
-                    }
-                    .accessibilityLabel(NativeText("分享文件", "Share file"))
-                }
-            }
-        }
-        .safeAreaInset(edge: .bottom) {
-            if let previewNotice {
-                Text(previewNotice)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(.bar)
-            } else if safeFileURL == nil {
-                Text(NativeText("此文件已不在工作区中。", "This file is no longer in the workspace."))
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(.bar)
-            }
-        }
-        .task { await loadPreview() }
-    }
-
-    private func loadPreview() async {
-        guard let sessionID = ChatModel.shared.currentSessionID else {
-            previewError = NativeText("没有当前会话，无法读取会话工作区。", "There is no current session, so the session workspace cannot be read.")
-            return
-        }
-        let ext = URL(fileURLWithPath: file.relativePath).pathExtension.lowercased()
-        isHTML = ["html", "htm"].contains(ext)
-        isMarkdown = ["md", "markdown"].contains(ext)
-        if isHTML {
-            previewNotice = NativeText("页面在本地 pdsh-page:// 源下运行；默认不出网。", "The page runs on the local pdsh-page:// origin and cannot access the network by default.")
-            guard safeFileURL != nil else {
-                previewError = NativeText("此文件已不在安全的本机工作区快照中。请刷新工作区后重试。", "This file is no longer in the safe local workspace snapshot. Refresh the workspace and try again.")
-                return
-            }
-            return
-        }
-        // HTML above; JSON/CSV come from the materialized copy (no 256 KiB /
-        // 200-line cap). The Worker read stays as the fallback for a file
-        // written but not yet materialized.
-        if Self.directTextExtensions.contains(ext), let safeFileURL {
-            do {
-                let data = try Data(contentsOf: safeFileURL)
-                textPreview = String(decoding: data.prefix(Self.directTextPreviewLimit),
-                                     as: UTF8.self)
-                if data.count > Self.directTextPreviewLimit {
-                    previewNotice = appendNotice(previewNotice,
-                                                 NativeText("文本预览限制为 8 MiB；可分享文件后用其他应用打开完整内容。", "Text preview is limited to 8 MiB. Share the file to open its full contents in another app."))
-                }
-                return
-            } catch {
-                previewError = String(format: NativeText("读取文件失败：%@", "Could not read the file: %@"), error.localizedDescription)
-                return
-            }
-        }
-        if needsQuickLook {
-            guard let safeFileURL else {
-                previewError = NativeText("此文件已不在安全的本机工作区快照中。请刷新工作区后重试。", "This file is no longer in the safe local workspace snapshot. Refresh the workspace and try again.")
-                return
-            }
-            // Quick Look streams the bounded, path-checked file URL; avoid
-            // copying large PDFs, Office files, archives or images into Data.
-            quickLookURL = safeFileURL
-            return
-        }
-        do {
-            let transport = try await ChatModel.shared.transportForManagement()
-            let response = try await transport.call("workspaceFiles/read", args: .object([
-                "workspaceFileScopeId": .string(sessionID),
-                "path": .string(file.relativePath),
-                "range": .object(["offset": .number(1), "limit": .number(Double(Self.inlineTextPreviewLines))])
-            ]))
-            let received = response["text"]?.stringValue ?? ""
-            let capped = Self.utf8Prefix(received, byteLimit: Self.inlineTextPreviewLimit)
-            textPreview = capped.text
-            if !capped.complete {
-                previewNotice = appendNotice(previewNotice, NativeText("文本预览限制为 256 KiB。可分享文件后用其他应用打开完整内容。", "Text preview is limited to 256 KiB. Share the file to open its full contents in another app."))
-            }
-            if response["eof"]?.boolValue == false {
-                previewNotice = appendNotice(previewNotice, String(format: NativeText("仅显示前 %d 行；可继续使用分享功能打开完整文件。", "Only the first %d lines are shown. Share the file to open its full contents."), Self.inlineTextPreviewLines))
-            }
-        } catch {
-            // This browser listed the file from the durable materialized copy,
-            // so a Worker read failure must not claim the file does not exist.
-            // Show the on-disk copy and name it as such; a write that is still
-            // in flight becomes visible after a workspace refresh.
-            if let url = safeFileURL, let data = try? Data(contentsOf: url) {
-                textPreview = String(decoding: data.prefix(Self.inlineTextPreviewLimit), as: UTF8.self)
-                previewNotice = appendNotice(previewNotice, NativeText("当前显示本机物化副本；若刚有写入，请稍后刷新工作区。", "Showing the local materialized copy. If the file was just written, refresh the workspace shortly."))
-            } else {
-                previewError = String(format: NativeText("读取文件失败：%@", "Could not read the file: %@"), error.localizedDescription)
-            }
-        }
-    }
-
-    private func appendNotice(_ current: String?, _ next: String) -> String {
-        guard let current, !current.isEmpty else { return next }
-        return current + " " + next
-    }
-
-    private static func utf8Prefix(_ text: String, byteLimit: Int) -> (text: String, complete: Bool) {
-        var scalars = String.UnicodeScalarView()
-        var usedBytes = 0
-        for scalar in text.unicodeScalars {
-            let scalarBytes = scalar.utf8.count
-            guard usedBytes + scalarBytes <= byteLimit else { return (String(scalars), false) }
-            scalars.append(scalar)
-            usedBytes += scalarBytes
-        }
-        return (String(scalars), true)
-    }
-}
-
-
-
-/// Quick Look as a child view controller.
-///
-/// `.quickLookPreview` from a view that is already inside a sheet presented a
-/// second modal; iOS refuses nested modals silently (the preview never
-/// appears and the page keeps its placeholder). This hosts the same
-/// `QLPreviewController` inline, so every Quick Look type (images, PDF, GIF,
-/// Office) opens inside the existing sheet.
-private struct EmbeddedQuickLook: UIViewControllerRepresentable {
-    let url: URL
-
-    func makeCoordinator() -> Coordinator { Coordinator(url: url) }
-
-    func makeUIViewController(context: Context) -> QLPreviewController {
-        let controller = QLPreviewController()
-        controller.dataSource = context.coordinator
-        context.coordinator.controller = controller
-        return controller
-    }
-
-    func updateUIViewController(_ controller: QLPreviewController, context: Context) {
-        guard context.coordinator.url != url else { return }
-        context.coordinator.url = url
-        controller.reloadData()
-    }
-
-    final class Coordinator: NSObject, QLPreviewControllerDataSource {
-        var url: URL
-        weak var controller: QLPreviewController?
-
-        init(url: URL) { self.url = url }
-
-        func numberOfPreviewItems(in controller: QLPreviewController) -> Int { 1 }
-
-        func previewController(_ controller: QLPreviewController,
-                               previewItemAt index: Int) -> any QLPreviewItem {
-            url as NSURL
-        }
-    }
 }

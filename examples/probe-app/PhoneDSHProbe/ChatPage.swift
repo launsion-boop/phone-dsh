@@ -12,6 +12,8 @@ import UIKit
 struct ChatPage: View {
     var openDrawer: (() -> Void)? = nil
     var drawerExpanded: Bool = false
+    /// Optional deep entry used by the preview router/debug route.
+    var initialPreviewTarget: PreviewTarget? = nil
     #if DEBUG
     /// 预览专用:直接吃一份本地造好的消息,不订阅宿主、不等记录就绪。
     var previewItems: [ChatItem]? = nil
@@ -69,6 +71,7 @@ struct ChatPage: View {
     @State private var showSessions = false
     @State private var showWorkbench = false
     @State private var initialWorkbenchPath: String?
+    @State private var previewTarget: PreviewTarget?
     @State private var showSettings = false
     @State private var showProviderSettings = false
     /// A path whose bytes had not arrived yet; the next file refresh retries it.
@@ -383,6 +386,11 @@ struct ChatPage: View {
             NativeWorkbenchPage(sessionID: model.currentSessionID, initialPath: initialWorkbenchPath)
                 .presentationDragIndicator(.visible)
         }
+        .fullScreenCover(item: $previewTarget) { target in
+            NavigationStack {
+                PreviewSurface(target: target)
+            }
+        }
         .sheet(item: Binding(get: { debugSheet.map(DebugSheetToken.init) }, set: { debugSheet = $0?.value })) { token in
             if token.value == "provider" {
                 NavigationStack { ModelProviderSettingsPage() }
@@ -526,6 +534,9 @@ struct ChatPage: View {
             #endif
         }
         .onAppear {
+            if let initialPreviewTarget, previewTarget == nil {
+                previewTarget = initialPreviewTarget
+            }
             #if DEBUG
             if debugChatState != nil { debugInjectIfReady() }
             #endif
@@ -640,8 +651,7 @@ struct ChatPage: View {
                 ?? Self.uniqueBasenameMatch(pending, in: files) else { return }
             pendingPreviewPath = nil
             attachmentError = nil
-            initialWorkbenchPath = match.relativePath
-            showWorkbench = true
+            previewTarget = .workspaceFile(match.relativePath)
         }
         .task(id: model.currentSessionID) {
             guard let id = model.currentSessionID else { return }
@@ -2538,15 +2548,16 @@ struct ChatPage: View {
         let canonical = normalized.precomposedStringWithCanonicalMapping
         if let match = model.files.first(where: { $0.relativePath == normalized })
             ?? model.files.first(where: { $0.relativePath.precomposedStringWithCanonicalMapping == canonical })
-            ?? Self.uniqueBasenameMatch(normalized, in: model.files) {
-            initialWorkbenchPath = match.relativePath
-            showWorkbench = true
+            ?? (normalized.contains("/") ? nil : Self.uniqueBasenameMatch(normalized, in: model.files)) {
+            // One tap: open the preview directly. The preview model owns the
+            // write-in-flight wait, so no Workbench hop is needed here.
+            previewTarget = .workspaceFile(match.relativePath)
             return
         }
-        // The write may still be in flight: keep the path and tell the person
-        // to retry instead of claiming the file does not exist.
+        // The write may still be in flight. Let the preview surface show the
+        // waiting state and retry in place; never bounce through Workbench.
+        previewTarget = .workspaceFile(normalized)
         pendingPreviewPath = normalized
-        attachmentError = "文件还在写入或同步中，请稍后重试预览。"
     }
 
     /// Accepts the shapes a tool result or markdown link can produce:

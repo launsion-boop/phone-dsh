@@ -388,8 +388,8 @@ private struct NativeMarkdownImage: View {
         let decoded = cleaned.removingPercentEncoding ?? cleaned
         guard !decoded.isEmpty, !decoded.split(separator: "/").contains("..") else { return nil }
         let relative = decoded.hasPrefix("/dsh/workspace/") ? String(decoded.dropFirst("/dsh/workspace/".count)) : decoded
-        let url = ChatModel.shared.workspaceRoot.appendingPathComponent(relative)
-        guard let data = try? Data(contentsOf: url) else { return nil }
+        guard let url = PreviewPathResolver.fileURL(for: relative),
+              let data = try? Data(contentsOf: url) else { return nil }
         return UIImage(data: data)
     }
 

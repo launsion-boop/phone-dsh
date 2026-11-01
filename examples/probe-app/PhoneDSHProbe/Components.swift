@@ -241,7 +241,7 @@ enum NativePagePalette {
     /// lists that draw their own 16pt rows set `listRowBackground(.clear)` so
     /// dark stays one flat sheet with separators, exactly like the light
     /// design's "layering by spacing and separators, not by background".
-    static let page = Color(.systemBackground)
+    static let page = NativeParityTokens.color(light: 0xFFFFFF, dark: 0x000000)
     static let ink = NativeParityTokens.color(light: 0x111114, dark: 0xF9FAFB)
     /// Same value as `ChatPage.inkSecondary` in light, legible in dark.
     static let inkSecondary = NativeParityTokens.color(light: 0x66666B, dark: 0xCFD3D6)
