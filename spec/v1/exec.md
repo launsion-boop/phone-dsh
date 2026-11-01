@@ -133,8 +133,11 @@ Only read-only **accelerators** advertised in the host HELLO caps may travel as 
   requested mode. A request with `confine.mode = "workspace-write"` — the canonical
   `golden/frames/exec-req-1.json` sends it with `rg` — is executed, never rejected, and the effective
   confinement is read-only, not negotiated with the worker. The requested `confine`, `tier` and
-  transport fields are not part of the identity or conflict check (§2). Only an `argv[0]` that is not
-  an advertised accelerator is `unsupported`.
+  transport fields are not part of the identity or conflict check (§2). `unsupported` answers a request the host cannot
+  honour: an `argv[0]` that is not an advertised accelerator, **or a request shape the host cannot
+  express** — a `stdin.mode` it has no channel for, a request the tool's protocol refuses. A tool that
+  ran and failed is `tool_failed`, never `unsupported`. The distinction is what lets the Worker tell
+  "the host never ran this" from "it ran and lost".
 - Accelerators never write the workspace. Their effects are reads; a write attempt fails. `exit`
   carries **no change manifest**: VFS changes of a worker-local command travel as ordinary VFS_MUT
   frames at their own mseq and are journaled independently of the exec event stream.

@@ -1,0 +1,44 @@
+{
+  "id": "gw-redir-003",
+  "rule": "redirect-scope",
+  "kind": "redirect-chain",
+  "source": "Sources/PhoneDSHGateway/GatewaySession.swift:373",
+  "references": [
+    "Tests/PhoneDSHGatewayTests/ModelGatewayTests.swift:1289"
+  ],
+  "note": "The same host on a different path is a different credential scope: refusing the hop is what keeps the model key off the same-host MCP path.",
+  "input": {
+    "method": "POST",
+    "url": "https://api.example.invalid/v1/messages",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "allowlist": [
+      "https://api.example.invalid"
+    ],
+    "credential": {
+      "kind": "api-key",
+      "header": "x-api-key",
+      "value": "sk-HOST-API-KEY-PLACEHOLDER"
+    },
+    "redirects": [
+      {
+        "status": 307,
+        "location": "https://api.example.invalid/mcp"
+      }
+    ]
+  },
+  "expect": {
+    "dispatch": "deny",
+    "outbound_headers": {
+      "content-type": "application/json",
+      "x-api-key": "sk-HOST-API-KEY-PLACEHOLDER"
+    },
+    "stripped": [],
+    "outbound_url": "https://api.example.invalid/v1/messages",
+    "deny_reason": "redirect_scope_mismatch",
+    "redirects_followed": 0,
+    "final_url": "https://api.example.invalid/mcp",
+    "status": 307
+  }
+}

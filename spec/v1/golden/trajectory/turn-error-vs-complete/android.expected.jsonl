@@ -1,0 +1,4 @@
+{"data":{"step":0,"text":"deploy","turn":1},"requestId":"req-0030","schemaVersion":"trajectory/1","seq":1,"sessionID":"sess-004","turnID":"turn-0001","type":"user/message"}
+{"data":{"arguments":"{\"cmd\":\"deploy\"}","callId":"call-3","name":"exec","path":"/dsh/workspace"},"requestId":"req-0031","schemaVersion":"trajectory/1","seq":2,"sessionID":"sess-004","turnID":"turn-0001","type":"tool/call"}
+{"data":{"bytes":17,"callId":"call-3","durationMs":10,"output":"permission denied"},"requestId":"req-0032","schemaVersion":"trajectory/1","seq":3,"sessionID":"sess-004","turnID":"turn-0001","type":"tool/result"}
+{"data":{"reason":{"kind":"completed"}},"requestId":"req-0033","schemaVersion":"trajectory/1","seq":4,"sessionID":"sess-004","turnID":"turn-0001","type":"turn/end"}

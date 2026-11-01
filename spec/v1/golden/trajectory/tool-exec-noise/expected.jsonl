@@ -1,0 +1,4 @@
+{"data":{"arguments":"{\"cmd\":\"ls /dsh/workspace\"}","callId":"call-9","name":"exec","path":"/dsh/workspace"},"requestId":"req-0011","schemaVersion":"trajectory/1","seq":1,"sessionID":"sess-002","turnID":"turn-0002","type":"tool/call"}
+{"data":{"bytes":1536,"callId":"call-9","durationMs":10,"meta":{"percent":50.041,"score":0.123456},"output":"a.md\nb.md"},"requestId":"req-0012","schemaVersion":"trajectory/1","seq":2,"sessionID":"sess-002","turnID":"turn-0002","type":"tool/result"}
+{"data":{"text":"listed 2 files","usage":{"inputTokens":20,"outputTokens":5}},"requestId":"req-0013","schemaVersion":"trajectory/1","seq":3,"sessionID":"sess-002","turnID":"turn-0002","type":"assistant/message"}
+{"data":{"reason":{"kind":"completed"}},"requestId":"req-0014","schemaVersion":"trajectory/1","seq":4,"sessionID":"sess-002","turnID":"turn-0002","type":"turn/end"}

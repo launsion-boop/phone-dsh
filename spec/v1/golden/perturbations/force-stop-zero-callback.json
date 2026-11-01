@@ -1,0 +1,108 @@
+{
+  "id": "force-stop-zero-callback",
+  "verb": "force_stop_zero_callback",
+  "title": "User force stop: zero callbacks, no drain, no epoch close; the next launch reports the last checkpoint",
+  "preconditions": {
+    "host_state": "Running",
+    "admission": "open",
+    "epoch_open": true,
+    "acked_mseq": 3,
+    "open_steps": 1,
+    "journaled_steps": 0,
+    "exec_in_flight": false,
+    "persisted_state": "Running",
+    "worker_channel": "open",
+    "notes": "A task-manager stop is a SIGKILL plus a scheduling block: no lifecycle callback, no drain window and no epoch close can run, and the platform will not restart the process on its own."
+  },
+  "timeline": [
+    {
+      "at": 0,
+      "event": "three writes acked; one step open",
+      "expect_state": "Running",
+      "source": "Tests/PhoneDSHKillTests/Phase0KillMatrixTests.swift:111-123"
+    },
+    {
+      "at": 5,
+      "event": "user force stop",
+      "detail": "uncatchable and zero-callback: no Draining edge, no epoch close, no manifest rewrite, and no reschedule",
+      "source": "Tests/PhoneDSHKillTests/Phase0KillMatrixTests.swift:456-460"
+    },
+    {
+      "at": 10,
+      "event": "nothing runs until the user opens the app again",
+      "detail": "the platform blocks automatic restart after a task-manager stop",
+      "source": "NEW"
+    },
+    {
+      "at": 20,
+      "event": "user opens the app",
+      "detail": "the persisted Running state maps to Recovering, boot disposition crash_recovery, admission closed",
+      "expect_state": "Recovering",
+      "source": "Tests/PhoneDSHControllerTests/HostStateMachineTests.swift:66-88"
+    },
+    {
+      "at": 30,
+      "event": "WAL scan and replay of the acked prefix",
+      "detail": "every acked mseq is still present with the identical mutation",
+      "source": "Sources/PhoneDSHHarness/KillSupport.swift:301-314"
+    },
+    {
+      "at": 40,
+      "event": "lease verified",
+      "expect_state": "Running",
+      "source": "Tests/PhoneDSHKillTests/Phase0KillMatrixTests.swift:158"
+    },
+    {
+      "at": 50,
+      "event": "the interrupted epoch is reported to the user",
+      "detail": "the Android runner must surface the interrupted step or turn on the next launch; the iOS baseline has no such surface, so this step is the Android equivalent added here",
+      "source": "NEW"
+    }
+  ],
+  "expected": {
+    "state": "Running",
+    "state_path": [
+      "Running",
+      "Recovering",
+      "Running"
+    ],
+    "durability_level": "level_1",
+    "wal_tail": "intact_open_epoch",
+    "journal_gap": "step_open",
+    "surfaced_to_user": "boot_recovery_report",
+    "admission": "open",
+    "acked_prefix_preserved": true,
+    "materialized_equals_replay": true,
+    "steps_open": 1,
+    "steps_abandoned": 0,
+    "settlement_reason": "absent",
+    "no_drain_before_kill": true,
+    "boot_disposition": "crash_recovery",
+    "field_evidence": {
+      "state": "swift-test",
+      "state_path": "swift-test",
+      "durability_level": "swift-test",
+      "wal_tail": "swift-test",
+      "journal_gap": "swift-test",
+      "surfaced_to_user": "NEW",
+      "admission": "swift-test",
+      "acked_prefix_preserved": "swift-test",
+      "materialized_equals_replay": "swift-test",
+      "steps_open": "swift-test",
+      "steps_abandoned": "swift-test",
+      "settlement_reason": "swift-test",
+      "no_drain_before_kill": "swift-test",
+      "boot_disposition": "swift-test"
+    }
+  },
+  "evidence_level": "NEW",
+  "source": "NEW",
+  "related_sources": [
+    "Tests/PhoneDSHKillTests/Phase0KillMatrixTests.swift:456-487",
+    "Tests/PhoneDSHControllerTests/HostStateMachineTests.swift:66-88",
+    "Sources/PhoneDSHHarness/KillSupport.swift:301-352",
+    "spec/v1/budgets.md:40"
+  ],
+  "new_reason": "Only surfaced_to_user is new: the iOS baseline has no user-visible report after a zero-callback stop (a killed process cannot publish, and no source path emits one on the next launch). The next-launch report is the Android equivalent required by the port plan, so the runner asserts it against this fixture, not against a Swift behaviour.",
+  "notes": "Every durability expectation here is the same as kill-9; the reason the case exists separately is the scheduling block and the user-visible report. The Android free-stop path is SIGKILL, so nothing in this fixture may depend on a handler running."
+}

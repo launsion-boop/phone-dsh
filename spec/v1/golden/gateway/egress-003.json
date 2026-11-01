@@ -1,0 +1,30 @@
+{
+  "id": "gw-egress-003",
+  "rule": "egress-classification",
+  "kind": "request",
+  "source": "Sources/PhoneDSHGateway/ModelGateway.swift:148",
+  "references": [
+    "Tests/PhoneDSHGatewayTests/ModelGatewayEgressClassificationTests.swift:140"
+  ],
+  "note": "A local/private address class buys no exemption: the URL is denied because no entry matches, exactly like a public host.",
+  "input": {
+    "method": "GET",
+    "url": "http://127.0.0.1:7861/v1/file",
+    "headers": {
+      "accept": "application/json"
+    },
+    "allowlist": [
+      "https://api.example.invalid"
+    ],
+    "credential": {
+      "kind": "none"
+    }
+  },
+  "expect": {
+    "dispatch": "deny",
+    "outbound_headers": {},
+    "stripped": [],
+    "outbound_url": "",
+    "deny_reason": "host_not_allowed"
+  }
+}

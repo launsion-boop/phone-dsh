@@ -926,7 +926,13 @@ mod tests {
 
     fn run(argv: &[&str], limits: XzLimits) -> (i32, Capture) {
         let tree = TestTree::new("run");
-        let fixture = RequestFixture::new(&tree, argv, limits);
+        run_in(&tree, argv, limits)
+    }
+
+    /// Run one request against an existing tree, the way the host does: one
+    /// `pdsh_run` behind the C ABI, the same mount table and the same VFS.
+    fn run_in(tree: &TestTree, argv: &[&str], limits: XzLimits) -> (i32, Capture) {
+        let fixture = RequestFixture::new(tree, argv, limits);
         let capture = Capture::default();
         let callbacks = callbacks(None);
         let handle = unsafe {
@@ -999,6 +1005,109 @@ mod tests {
         assert_eq!(*capture.stdout.lock().unwrap(), b"hello ffi\n");
         assert!(capture.stderr.lock().unwrap().is_empty());
         assert_eq!(*capture.exit.lock().unwrap(), Some(0));
+    }
+
+    /// The captured stdout as text.
+    fn captured_stdout(capture: &Capture) -> String {
+        String::from_utf8(capture.stdout.lock().unwrap().clone()).unwrap()
+    }
+
+    /// The captured stderr as text.
+    fn captured_stderr(capture: &Capture) -> String {
+        String::from_utf8(capture.stderr.lock().unwrap().clone()).unwrap()
+    }
+
+    /// A home mount with real secrets under all three DSH-internal roots and the
+    /// readable capability manifest.
+    fn seed_internal_home(tree: &TestTree) {
+        for (relative, contents) in [
+            ("sessions/project/session.v4.jsonl", "{\"secret\":true}\n"),
+            ("storages/store.json", "{\"secret\":true}\n"),
+            ("tool-journal/tool.jsonl", "{\"secret\":true}\n"),
+            ("capabilities.json", "{\"capabilities\":true}\n"),
+            ("AGENTS.md", "public notes\n"),
+        ] {
+            let path = tree.home().join(relative);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, contents).unwrap();
+        }
+    }
+
+    /// `channel.md` §6 at the C ABI: the same EXEC_REQ the device sends must
+    /// answer `EACCES` + the one remediation sentence and print no bytes.
+    #[test]
+    fn ffi_accelerators_cannot_read_dsh_internal_state() {
+        use pdsh_core::exec_read_denied_message;
+        use std::path::Path;
+
+        let tree = TestTree::new("internal-roots");
+        seed_internal_home(&tree);
+        for root in [
+            "/dsh/home/sessions",
+            "/dsh/home/storages",
+            "/dsh/home/tool-journal",
+        ] {
+            let sentence = format!(
+                "EACCES: {}",
+                exec_read_denied_message(Path::new(root), root)
+            );
+            let (code, capture) = run_in(&tree, &["rg", "-n", "secret", root], limits());
+            assert_eq!(code, 2, "{root}: stderr: {}", captured_stderr(&capture));
+            assert_eq!(captured_stdout(&capture), "", "{root}: rg printed bytes");
+            let stderr = captured_stderr(&capture);
+            assert_eq!(
+                stderr.matches("EACCES: session-internal").count(),
+                1,
+                "{root}: one denial line: {stderr}"
+            );
+            assert!(stderr.contains(&sentence), "{root}: {stderr}");
+
+            let (code, capture) = run_in(&tree, &["jaq", ".secret", root], limits());
+            assert_ne!(code, 0, "{root}: jaq must fail");
+            assert_eq!(captured_stdout(&capture), "", "{root}: jaq printed bytes");
+            assert!(
+                captured_stderr(&capture).contains(&sentence),
+                "{root}: {}",
+                captured_stderr(&capture)
+            );
+        }
+
+        // A file operand is the same refusal as its directory.
+        for file in [
+            "/dsh/home/sessions/project/session.v4.jsonl",
+            "/dsh/home/storages/store.json",
+            "/dsh/home/tool-journal/tool.jsonl",
+        ] {
+            let (code, capture) = run_in(&tree, &["rg", "-n", "secret", file], limits());
+            assert_eq!(code, 2, "{file}: {}", captured_stderr(&capture));
+            assert_eq!(captured_stdout(&capture), "", "{file}: rg printed bytes");
+        }
+
+        // `rg --files /dsh/home` may list readable home files but must not walk
+        // into an internal root.
+        let (code, capture) = run_in(&tree, &["rg", "--files", "/dsh/home"], limits());
+        assert_eq!(code, 2, "stderr: {}", captured_stderr(&capture));
+        let listing = captured_stdout(&capture);
+        assert!(!listing.contains("/dsh/home/sessions"), "{listing}");
+        assert!(!listing.contains("/dsh/home/storages"), "{listing}");
+        assert!(!listing.contains("/dsh/home/tool-journal"), "{listing}");
+        assert!(listing.contains("/dsh/home/capabilities.json"), "{listing}");
+
+        // The capability manifest is not DSH-internal state.
+        let (code, capture) = run_in(
+            &tree,
+            &["rg", "-n", "capabilities", "/dsh/home/capabilities.json"],
+            limits(),
+        );
+        assert_eq!(code, 0, "stderr: {}", captured_stderr(&capture));
+        assert!(captured_stdout(&capture).contains("{\"capabilities\":true}"));
+        let (code, capture) = run_in(
+            &tree,
+            &["jaq", ".capabilities", "/dsh/home/capabilities.json"],
+            limits(),
+        );
+        assert_eq!(code, 0, "stderr: {}", captured_stderr(&capture));
+        assert_eq!(captured_stdout(&capture), "true\n");
     }
 
     #[test]

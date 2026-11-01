@@ -1,0 +1,50 @@
+{
+  "id": "gw-redir-004",
+  "rule": "redirect-scope",
+  "kind": "redirect-chain",
+  "source": "Sources/PhoneDSHGateway/GatewaySession.swift:373",
+  "references": [
+    "Tests/PhoneDSHGatewayTests/ModelGatewayTests.swift:1314",
+    "Tests/PhoneDSHGatewayTests/ModelGatewayTests.swift:1316"
+  ],
+  "note": "A cross-host hop in the middle of a chain is refused even when the target is on the allow-list, because the credential scope is the origin it was resolved for.",
+  "input": {
+    "method": "POST",
+    "url": "https://api.example.invalid/v1/messages",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "allowlist": [
+      "https://api.example.invalid",
+      "https://internal.example.invalid"
+    ],
+    "credential": {
+      "kind": "api-key",
+      "header": "x-api-key",
+      "value": "sk-HOST-API-KEY-PLACEHOLDER"
+    },
+    "redirects": [
+      {
+        "status": 302,
+        "location": "https://api.example.invalid/v1/messages"
+      },
+      {
+        "status": 302,
+        "location": "https://internal.example.invalid/mcp"
+      }
+    ]
+  },
+  "expect": {
+    "dispatch": "deny",
+    "outbound_headers": {
+      "content-type": "application/json",
+      "x-api-key": "sk-HOST-API-KEY-PLACEHOLDER"
+    },
+    "stripped": [],
+    "outbound_url": "https://api.example.invalid/v1/messages",
+    "deny_reason": "redirect_scope_mismatch",
+    "redirects_followed": 1,
+    "final_url": "https://internal.example.invalid/mcp",
+    "status": 302
+  }
+}

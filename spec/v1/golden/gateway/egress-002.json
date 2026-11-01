@@ -1,0 +1,30 @@
+{
+  "id": "gw-egress-002",
+  "rule": "egress-classification",
+  "kind": "request",
+  "source": "Sources/PhoneDSHGateway/ModelGateway.swift:580",
+  "references": [
+    "Tests/PhoneDSHGatewayTests/ModelGatewayEgressClassificationTests.swift:140"
+  ],
+  "note": "Default deny: a public host with no matching allow-list entry is rejected before any connection.",
+  "input": {
+    "method": "GET",
+    "url": "https://other.example.invalid/v1/x",
+    "headers": {
+      "accept": "application/json"
+    },
+    "allowlist": [
+      "https://api.example.invalid"
+    ],
+    "credential": {
+      "kind": "none"
+    }
+  },
+  "expect": {
+    "dispatch": "deny",
+    "outbound_headers": {},
+    "stripped": [],
+    "outbound_url": "",
+    "deny_reason": "host_not_allowed"
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "id": "malformed-sse-chunk",
+  "model": "deepseek-flash",
+  "title": "Malformed SSE payloads are forwarded byte for byte; the gateway neither parses nor repairs them",
+  "request_match": {
+    "method": "POST",
+    "path_suffix": "/v1/messages"
+  },
+  "script": [
+    {
+      "status": 200,
+      "headers": {
+        "content-type": "text/event-stream"
+      },
+      "frames": "chunked",
+      "malformed": true,
+      "body_chunks": [
+        "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"hal",
+        "f\"}}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\" \"end_turn\"}}\n\n",
+        "data: [DONE"
+      ],
+      "closes": true
+    }
+  ],
+  "expected": {
+    "caller_visible": "bytes_passed_through_unchanged",
+    "retry": {
+      "retried": false,
+      "attempts": 1,
+      "trigger": "none"
+    },
+    "provider_error": "none",
+    "client_outcome": "unmeasured",
+    "field_evidence": {
+      "caller_visible": "swift-source",
+      "retry": "swift-test",
+      "provider_error": "swift-source"
+    }
+  },
+  "evidence_level": "swift-source",
+  "source": "Sources/PhoneDSHGateway/ModelGateway.swift:739-740",
+  "related_sources": [
+    "Tests/PhoneDSHGatewayTests/ModelGatewayTests.swift:288-328",
+    "Sources/PhoneDSHGateway/ModelGateway.swift:820-830",
+    "Sources/PhoneDSHGateway/SensitiveResponseBody.swift:158-179"
+  ],
+  "notes": "Three malformed shapes in one body: an SSE event split across two transfer chunks, an event whose data is not valid JSON (a missing colon), and a final unterminated event. An ordinary model egress is byte-transparent: the gateway forwards the chunks in order and raises nothing. client_outcome is unmeasured because the Worker's model-client parser is not covered by any Swift test. The one path that rewrites malformed events is the host-managed credential row (the sensitive SSE sanitizer), out of scope here."
+}

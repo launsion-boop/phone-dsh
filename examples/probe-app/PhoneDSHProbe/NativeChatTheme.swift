@@ -4,39 +4,57 @@ import SwiftUI
 import UIKit
 
 // Native equivalents of the pinned DSH light/dark design tokens.
+// NativeParityTokens is the source of truth; this facade keeps existing call
+// sites compiling while the session page migrates to the official values.
 enum NativeChatTheme {
-    static let primary = color(light: 0x111114, dark: 0xF4F4F5)
-    static let secondary = color(light: 0x66666B, dark: 0xA1A1AA)
-    static let tertiary = color(light: 0x9A9AA2, dark: 0x81858C)
-    static let caption = color(light: 0xADB2B8, dark: 0x81858C)
+    static let primary = NativeParityTokens.labelPrimary
+    static let secondary = NativeParityTokens.labelSecondary
+    static let tertiary = NativeParityTokens.labelTertiary
+    static let caption = NativeParityTokens.labelCaption
     static let background = Color(.systemBackground)
-    static let input = color(light: 0xFFFFFF, dark: 0x242426)
-    static let selector = color(light: 0xF2F3F5, dark: 0x343437)
-    static let code = color(light: 0xF6F6F8, dark: 0x1D1D20)
-    static let codeBanner = color(light: 0xE9E9ED, dark: 0x2C2C30)
-    static let inlineCode = color(light: 0xF0F0F3, dark: 0x303034)
-    static let border = color(light: 0xE4E4E8, dark: 0x3A3A3E)
-    static let borderLight = color(light: 0xEEEFF1, dark: 0x303034)
-    static let accent = color(light: 0x3964FE, dark: 0x679EFE)
-    static let success = color(light: 0x27865A, dark: 0x55B986)
-    static let danger = color(light: 0xC0392B, dark: 0xF07568)
-    static let warning = color(light: 0xB45309, dark: 0xE5A44E)
+    static let input = NativeParityTokens.input
+    static let selector = NativeParityTokens.selector
+    static let code = NativeParityTokens.codeBlock
+    static let codeBanner = NativeParityTokens.codeBanner
+    static let inlineCode = NativeParityTokens.inlineCode
+    static let border = NativeParityTokens.borderL2
+    static let borderLight = NativeParityTokens.borderL1
+    static let accent = NativeParityTokens.accent
+    static let success = NativeParityTokens.success
+    static let danger = NativeParityTokens.error
+    static let warning = NativeParityTokens.warning
+    static let bubble = NativeParityTokens.userBubble
+    static let planChipBG = NativeParityTokens.planChipBG
+    static let planChipInk = NativeParityTokens.planChipInk
+    static let deepDiving = NativeParityTokens.deepDiving
 
-    static let bodySize: CGFloat = 14
-    static let messageContentMargin: CGFloat = 20
-    static let messageLineSpacing: CGFloat = 5
-    static let messageParagraphSpacing: CGFloat = 20
-    static let messageListSpacing: CGFloat = 10
-
-    static func bodyFont() -> Font { .system(size: bodySize) }
+    static func bodyFont() -> Font { NativeChatPreferences.shared.font(for: .text) }
     static func messageBodyFont() -> Font { NativeChatPreferences.shared.font(for: .text) }
-    static func secondaryFont() -> Font { .system(size: 13) }
-    static func captionFont() -> Font { .system(size: 12) }
+    static func secondaryFont() -> Font { .system(size: NativeParityTokens.secondarySize) }
+    static func captionFont() -> Font { .system(size: NativeParityTokens.captionSize) }
     static func codeFont(size: CGFloat? = nil) -> Font {
         if let size { return .system(size: size, design: .monospaced) }
         return NativeChatPreferences.shared.font(for: .code)
     }
     static func terminalFont() -> Font { NativeChatPreferences.shared.font(for: .terminal) }
+
+    static var bodyLineSpacing: CGFloat {
+        let size = CGFloat(NativeChatPreferences.shared.textFontSize)
+        return max(0, NativeParityTokens.bodyLineHeight - UIFont.systemFont(ofSize: size).lineHeight)
+    }
+
+    // PR11 phone typography: the message body uses an explicit paragraph,
+    // list and line spacing instead of the web card's 24pt line box alone.
+    static let messageContentMargin: CGFloat = 20
+    static let messageParagraphSpacing: CGFloat = 20
+    static let messageListSpacing: CGFloat = 10
+    /// Keep the message body on the official 24pt line box at every preferred
+    /// text size. A fixed 5pt is only right for the 17pt phone default; at the
+    /// 402pt baseline (14pt) it leaves a 22pt line and tool rows drift.
+    static var messageLineSpacing: CGFloat {
+        let size = CGFloat(NativeChatPreferences.shared.textFontSize)
+        return max(0, NativeParityTokens.bodyLineHeight - UIFont.systemFont(ofSize: size).lineHeight)
+    }
 
     private static func color(light: UInt32, dark: UInt32) -> Color {
         Color(uiColor: UIColor { traits in

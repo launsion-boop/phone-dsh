@@ -1,0 +1,14 @@
+{
+  "name": "oneway-cancel",
+  "direction": "page-to-host",
+  "schema": "bridge-message.schema.json",
+  "instance": {
+    "v": 1,
+    "kind": "oneway",
+    "method": "bridge.cancel",
+    "params": {
+      "requestId": "d02c9b48-7f13-4e6a-8b25-9c4d0e1f7a63"
+    }
+  },
+  "notes": "bridge.md §7; cancel is never a request so it creates no pending entry. The behaviour exists as action 'cancel', Sources/PhoneDSHEngine/WebEngineDirectoryImport.swift:933-936 and plugins/phone-directory-import/src/client/index.ts:219-231; the method name is new."
+}

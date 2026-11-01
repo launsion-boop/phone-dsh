@@ -1,0 +1,132 @@
+{
+  "schema": "pdsh-upgrade-receipt/1",
+  "stage": "P0-android-port-conformance",
+  "sourceCommit": "2716f550f6cbf16e3511230c25ceef168ec5943b",
+  "sourceTree": {
+    "dirty": true,
+    "description": "The commit is the base, not a clean commit containing this work. No commit was created for this stage: the branch feat/native-official-chat-ui already carried unrelated untracked work (20 tracked files modified, 285 untracked files at the end of the stage).",
+    "changedFilesManifest": "/tmp/p0-manifest.json",
+    "manifestAlgorithm": "SHA-256 per changed tracked and untracked repository file; 305 files (20 tracked modified, 285 untracked)"
+  },
+  "scope": {
+    "type": "host-independent static evidence only",
+    "claim": "The Android-port P0 contract trees, fixtures and gates exist and pass on the host. No device, simulator, emulator or power-cut rig was used, so no device-scope claim is made. Per plan §1 discipline, host-independent evidence never substitutes for device evidence."
+  },
+  "environment": {
+    "host": "arm64 macOS, Xcode 26.5, Swift 6.3.2",
+    "python": "3.9.6 (system); the checkers are stdlib-only by design",
+    "node": "v22.22.1 (homebrew node@22, not on the default PATH; PDSH_NODE supported by check.sh)",
+    "rust": "cargo/rustc 1.99.1",
+    "androidToolchain": "absent: no Gradle, no Android SDK platform, no emulator; NDK 30 present. The android/ tree is structure only and its build is BLOCKED(host)."
+  },
+  "result": "PASS",
+  "gates": [
+    {
+      "command": "python3 spec/v1/tools/spec_golden.py --full",
+      "result": "PASS",
+      "detail": "73 files checked, 0 error(s). Before this stage the same command failed: budgets.md lacked the superseded tokens '320 MB', '160 / 50 / 50 MB' and '2 h'."
+    },
+    {
+      "command": "python3 -m unittest discover -s spec/v1/tools -p 'test_*.py'",
+      "result": "PASS",
+      "detail": "161 tests. This suite ran in no CI stage before the stage; the three pre-existing failures were the same budgets drift."
+    },
+    {
+      "command": "bash scripts/ci/check.sh --only phone-spec",
+      "result": "PASS",
+      "detail": "Upgraded from the non-full mode to --full plus the spec tool unit tests."
+    },
+    {
+      "command": "bash scripts/ci/check.sh --only phone-p0-conformance",
+      "result": "PASS",
+      "detail": "New stage. Runs catalog_check (56 scenarios, 475 assertions, 8 assertion kinds cross-checked against the Swift dispatch table), bridge_check (13 files), gateway_check (22 vectors, six rule classes), fixture_check (23 fixtures, 10/10 perturbation verbs), host_check (38 files), platform_check (20 whitelist entries, 13/13 §3.2 primitives, 6/6 extensions), ui_check (81 tokens, 13 contrast pairs, 6 signature surfaces fully tokenised) and the trajectory golden replay (5/5 cases, one deliberate real difference preserved)."
+    },
+    {
+      "command": "bash scripts/ci/check.sh --only phone-compat",
+      "result": "PASS",
+      "detail": "New stage. 404 files / 117,583 lines in 88 ms. Judgement is by Chromium milestone, not ES year, after the first classification over-flagged four APIs that M99 already has (at 92, hasOwn 93, findLast 97, structuredClone 98). It reports blocking 0, warnings 6 (test-only), notes 125 (inside the baseline). Getting there required remediating 15 production uses of Promise.withResolvers (Chromium 119) in five packages; see findings[2] for what that defect actually was."
+    },
+    {
+      "command": "bash scripts/ci/check.sh --only phone-hygiene",
+      "result": "PASS",
+      "detail": "Was FAIL at the start of the stage with 49 findings. Fixed by: adding example.com (RFC 2606) to the allowed hosts, relocating three planning documents to the planning repository, neutralising internal codenames in seven design documents, and three scoped allow-list entries for legitimate provenance paths and one receipt false positive."
+    },
+    {
+      "command": "bash scripts/ci/check.sh --only phone-modules",
+      "result": "PASS",
+      "detail": "Was FAIL: Sources/PhoneDSHEngine/WebEngineDirectoryImport.swift has seven @MainActor uses. Per the owner decision the gate now carries an explicit, expiring, reason-bearing exception list (scripts/ci/modules-main-actor-allow.txt) instead of a code change to the iOS baseline."
+    },
+    {
+      "command": "bash scripts/ci/check.sh --only phone-gate-contracts",
+      "result": "PASS",
+      "detail": "Was FAIL with two failures since the initial commit: the hygiene fixture asserted two spellings BANNED_WORD_RE deliberately allows, and the production-scan test was polluted by the untracked docs tree. Both fixed."
+    },
+    {
+      "command": "bash scripts/ci/check.sh --only phone-no-dsh-patch,phone-license",
+      "result": "PASS",
+      "detail": "Unchanged gates, re-verified after the new roots were added to the scan set. The licence gate now also covers .kt and .kts."
+    },
+    {
+      "command": "cd shell && cargo test -p pdsh-wire",
+      "result": "PASS",
+      "detail": "61 tests, including 33 golden frame vectors reproduced byte-for-byte (payload_hex and frame_hex), the CRC32C known answer, and a JSON-variant test that re-encodes three legal JSON spellings back to the golden bytes. clippy --all-targets is clean."
+    },
+    {
+      "command": "cd shell && cargo test -p pdsh-wal",
+      "result": "PASS",
+      "detail": "86 tests, including both WAL golden segments reproduced byte-for-byte, 18 tail-tear classifications covering D19, 33 recovery plans covering D11 and 8 D9 replay cases. Zero third-party dependencies, no unsafe, clippy clean. Combined with pdsh-wire: 147 tests passing."
+    },
+    {
+      "command": "python3 android/tools/structure_check.py --root .",
+      "result": "PASS",
+      "detail": "8/8 checks: 10 Gradle modules match settings, 11 Swift modules mapped exactly once to Kotlin packages, minSdk 26 / targetSdk 35 on :app and :lib, 14 Kotlin files contain only package/import/comments, 8 version pins marked unverified."
+    },
+    {
+      "command": "cd plugins && ./node_modules/.bin/tsc -p tsconfig.json --noEmit",
+      "result": "FAIL_PRE_EXISTING",
+      "detail": "One error, shell-ext/src/bridge.test.ts(5,10): no exported member 'acceleratorExecID'. That file is uncommitted in-progress work outside this stage; the error count did not change while the M99 remediation touched five other packages."
+    },
+    {
+      "command": "python3 spec/tools/cross_check.py --root .",
+      "result": "7_OF_8_INVARIANTS",
+      "detail": "New advisory gate, NOT wired into scripts/ci yet. 7 of 8 cross-tree invariants pass after four fixes made in this stage: a dangling spec/v1/video.md reference, a placeholder path in the platform README, the tool-row token composition drift between tokens.json and the UI README, and the stale platform entry that still called the bridge unfinalised and named addJavascriptInterface as the mechanism (it now points at bridge.md §9 and addWebMessageListener). The remaining failure is the event-kind vocabulary mismatch in knownGaps."
+    }
+  ],
+  "delivered": {
+    "spec/host/v1": "41 files, 3570 lines: host contract README (owner, versioning, unknown-field rule), 10 JSON Schemas, 28 goldens including two event sequences, host_check.py plus 18 mutation tests",
+    "spec/platform": "11 files, 1594 lines: machine-readable divergence whitelist (20 entries), two schemas, five goldens, platform_check.py plus 17 mutation tests",
+    "spec/ui/v1": "7 files, 2473 lines: interaction spec v1, 81 tokens (18 colours, 12 type styles, 33 geometry tokens, 6 signature surfaces fully tokenised), WCAG checker plus 23 mutation tests",
+    "spec/v1 additions": "three normative documents (bridge.md 199, gateway-security.md 199, trajectory.md 180), eight new schemas, four new golden directories, five new checkers and their mutation tests",
+    "android": "35 files, 1227 lines: structure-only Gradle skeleton (10 modules), 14 package markers, structure checker and its 10 mutation tests, android.yml CI skeleton, module map",
+    "rust": "pdsh-wire 3436 lines (33/33 frame goldens) and pdsh-wal 4734 lines (2/2 WAL goldens, 86 tests, zero third-party dependencies). WAL keeps the D18 fsync order, the epoch close and the atomic manifest replace in the per-OS layer: only the format and the recovery planner are shared.",
+    "scripts/ci": "two new stages (phone-p0-conformance, phone-compat), phone-spec upgraded to --full plus unit tests, three new scan roots (spec/host, spec/platform, spec/ui, android), Kotlin extensions in the licence gate, an expiring @MainActor exception list",
+    "docs": "security-checklist-2026-10-31.md (10 threats), android-module-map-2026-10-31.md, and the root README repository map rewritten to the three-zone (baseline / shared / adaptation) form required by the plan's §5.2"
+  },
+  "decisionsApplied": [
+    "D1: minSdk 26 / targetSdk 35, side-load first; Play compliance designed for but not claimed",
+    "D2a: no power-cut rig this stage; level-2 durability stays NOT_VERIFIED and no product copy may claim power-loss safety",
+    "D2b: Huawei and AOSP devices exist, so P2 device work is unblocked",
+    "D5: Rust Wire/WAL started in parallel; no Kotlin Wire/WAL written",
+    "D6: @MainActor gate exception recorded with reason and expiry instead of touching the iOS baseline",
+    "D7: planning documents relocated to the planning repository; design documents cleaned in place"
+  ],
+  "findings": [
+    "The baseline was not green: three of the six host-independent static gates failed, and spec_golden.py --full plus three of its mutation tests had been failing since the budgets table was revised. 'The gates are already green' was an assumption, not a fact.",
+    "phone-gate-contracts had been red since the initial commit because a hygiene fixture asserted two spellings the checker deliberately allows.",
+    "The M99 gate found 15 production uses of Promise.withResolvers (Chromium 119) across subprocess-xl, tool-journal, phone-shell, wasi-toolbox and the feature-admin plugin. Corrected reading after checking the worker prelude: entry.ts and boot.ts import jsc-compat.ts, which feature-detects and installs that exact polyfill, so these sites were not necessarily a crash on Huawei. The real defect was a boot-order dependency — the code silently required the prelude to have run first. The remediation removed the dependency rather than freezing the finding in an allow-list.",
+    "Six three-way divergences between spec/v1/channel.md, the Swift codec and the TypeScript codec were found by the Rust implementation: duplicate JSON members, the API_RES body cap, jseq=0 on decode, seq=0 on encode, integers above 2^53, and which layer owns §6/§8 validation.",
+    "The iOS gateway has no egress IP classification, strips headers by denylist, and only treats header-shaped credentials as sensitive; scalar bearer/apiKey MCP credentials are neither redacted nor excluded from the response log.",
+    "Four iOS baseline observations recorded from the UI extraction: SessionActivityPage is wired but unreachable, DailyBriefPage has no entry point, NativeTab's four-tab enum is dead code, and ChatPage carries its own accent/hairline/surface values that disagree with the theme layer.",
+    "A cross-tree audit found that the host contract, the trajectory specification and the UI specification name the same events three different ways: host kinds are snake_case (turn_started, permission_requested), the trajectory fixtures use slash types (session/start, permission/request), and the UI state machine uses a third set (turn/started) plus two families (llm/retry*, compaction/*) that the host contract does not define at all. Without a normative mapping the Kotlin host would invent one, and the UI's turn/started branch could never fire.",
+    "The WAL work surfaced 11 places where spec/v1/wal.md and the Swift implementation disagree or the document is silent: which layer owns the §10 step 1 versus step 2 overlap on a listed segment, the newest-segment torn header tolerance that exists only in Swift, the attested-tail equality versus overlay tolerance, stale segment retention (spec says unlink, Swift keeps with needsVerification), when a full reconcile is required, the missing rule tying a manifest range to the real file range, the undefined mflags bit 0, whether a deleted segment's epoch still counts, and the JSON decoder discipline conflict between manifest.schema.json additionalProperties:false and README's ignore-unknown-members rule."
+  ],
+  "knownGaps": [
+    "P0-blocked: engine spike numbers, power-cut rig, worker image size, device matrix. Devices exist (D2b) but the platform toolchain does not.",
+    "PLAY/OL: the android/ tree cannot be built on this host; its Gradle pins are marked unverified and its manifest/resources are deferred to P1.",
+    "docs/acceptance-matrix-personal-apps-2026-10-29.md, docs/architecture-upgrade-personal-apps-2026-10-29.md and docs/implementation-plan-personal-apps-2026-10-29.md are still planning documents inside the product repository; they do not fail any gate, and relocating them is a follow-up.",
+    "The relocated prompt document still self-references the relocated research document by its old relative path.",
+    "M99 gate scans plugins/*/src and plugins/tests only; the DSH upstream bundles (node_modules, dist) are outside the scan surface, which is where the R14 'upgrade drags in a newer API' risk mostly lives.",
+    "Holdout mechanism (plan R17) undecided; no holdout exists yet.",
+    "Event-kind vocabulary mapping (host snake_case vs trajectory slash types vs UI names) is undecided; it is the one failing cross-tree invariant and the reason cross_check.py is not wired into CI yet. Proposal: a spec/v1/event-kinds.md with an explicit mapping plus synthetic/dropped markers, then compare against it."
+  ]
+}

@@ -10,25 +10,37 @@ struct NativeToolCallRow: View {
     private var model: NativeToolCallModel { NativeToolCallModel(item: item) }
 
     var body: some View {
-        NativeDisclosureRow(icon: model.icon, title: model.title, summary: model.summary,
-                            running: model.state == .running || model.state == .preparing,
-                            expandable: model.hasDetails, showsSummaryWhenExpanded: true,
-                            expanded: $expanded) {
-            VStack(alignment: .leading, spacing: 6) {
-                if let path = model.filePath {
-                    Button { onOpenFile(path) } label: {
-                        Label(path, systemImage: "arrow.up.right.square")
-                            .font(NativeChatTheme.captionFont())
-                            .lineLimit(1)
-                            .truncationMode(.middle)
+        Group {
+            if let subagent = model.subagentRowData {
+                NativeSubagentToolRow(data: subagent)
+            } else {
+                NativeDisclosureRow(icon: model.icon, title: model.title, summary: model.summary,
+                                    running: model.state == .running || model.state == .preparing,
+                                    expandable: model.hasDetails, showsSummaryWhenExpanded: true,
+                                    expanded: $expanded) {
+                    if let askContent = model.askContent {
+                        NativeAskQuestionCard(content: askContent)
+                            .padding(.leading, 4)
+                            .padding(.vertical, 4)
+                    } else {
+                        VStack(alignment: .leading, spacing: 6) {
+                            if let path = model.filePath {
+                                Button { onOpenFile(path) } label: {
+                                    Label(path, systemImage: "arrow.up.right.square")
+                                        .font(NativeChatTheme.captionFont())
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                }
+                                .buttonStyle(.plain)
+                                .foregroundStyle(NativeChatTheme.accent)
+                            }
+                            NativeToolDetails(model: model, onOpenFile: onOpenFile)
+                        }
+                        .padding(.leading, 4)
+                        .padding(.vertical, 4)
                     }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(NativeChatTheme.accent)
                 }
-                NativeToolDetails(model: model)
             }
-            .padding(.leading, 4)
-            .padding(.vertical, 4)
         }
         .accessibilityValue(model.state == .error ? "失败" : model.state == .stopped ? "已停止" : model.state == .running ? "运行中" : "已完成")
     }
@@ -36,12 +48,16 @@ struct NativeToolCallRow: View {
 
 private struct NativeToolDetails: View {
     let model: NativeToolCallModel
+    var onOpenFile: (String) -> Void = { _ in }
 
     var body: some View {
-        switch model.variant {
-        case .bash:
-            NativeTerminalCard(command: model.argumentsObject?["command"]?.stringValue ?? model.input ?? "",
-                               output: model.output ?? "", exitCode: model.item.toolMetadata?["exitCode"]?.intValue
+        if let details = model.detailsModel {
+            NativeToolDetailsCard(model: details) { path, _ in onOpenFile(path) }
+        } else {
+            switch model.variant {
+            case .bash:
+                NativeTerminalCard(command: model.argumentsObject?["command"]?.stringValue ?? model.input ?? "",
+                                   output: model.output ?? "", exitCode: model.item.toolMetadata?["exitCode"]?.intValue
                                 ?? model.item.toolMetadata?["exit_code"]?.intValue)
         case .read where model.name == "read", .read where model.name == "read_image":
             if let lines = model.item.toolMetadata?["lines"]?.arrayValue {
@@ -66,6 +82,7 @@ private struct NativeToolDetails: View {
             }
         default:
             NativeIOCard(input: model.input, output: model.output, isError: model.state == .error)
+        }
         }
     }
 }

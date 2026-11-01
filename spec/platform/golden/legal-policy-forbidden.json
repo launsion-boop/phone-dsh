@@ -1,0 +1,16 @@
+{
+  "intent": "legal",
+  "note": "合法例：动态下发不可信 JS 被分发政策禁止，属 policy-forbidden，不是 OS 能力缺失，所以 android_mechanism 仍要给出替代机制。",
+  "entry": {
+    "id": "golden.bundled-js-only",
+    "capability": "engine.js-delivery",
+    "ios": "Worker 资产从 App bundle 加载，页面脚本来源可枚举",
+    "android": "Play 政策把 webview 加 JS 接口加不可信内容列为违规组合，脚本只能内置或来自可验证来源",
+    "divergence_class": "policy-forbidden",
+    "rationale": "方案 §7.6 的红线：动态下发 JS 的念头必须过政策审查；引擎 JS 内置或以可验证来源分发。本条的差异由分发渠道政策造成，OS 本身并未禁止，因此不改变任何引擎语义。",
+    "spec_ref": "spec/v1/render-media-v1.md §B.4",
+    "android_mechanism": "WebViewAssetLoader",
+    "evidence_level": "spec-only",
+    "baseline": "Sources/PhoneDSHEngine/WebEngineScripts.swift"
+  }
+}

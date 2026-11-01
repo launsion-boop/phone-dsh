@@ -17,6 +17,7 @@ import PhoneDSH
 struct PhoneDSHProbeApp: App {
     @Environment(\.scenePhase) private var scenePhase
     @State private var model = AppModel()
+    @State private var preferences = NativeChatPreferences.shared
 
     init() {
         #if DEBUG
@@ -30,7 +31,7 @@ struct PhoneDSHProbeApp: App {
                 // The native shell is a light design (hard-coded ink and
                 // surface colors); without this the system's dark appearance
                 // turns the page background black under a light layout.
-                .preferredColorScheme(.light)
+                .preferredColorScheme(preferences.appearance.colorScheme)
                 .environment(model)
                 .onChange(of: scenePhase) { _, newPhase in
                     Task { await model.scenePhaseChanged(newPhase) }

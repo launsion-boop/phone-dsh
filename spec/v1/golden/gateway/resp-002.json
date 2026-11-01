@@ -1,0 +1,60 @@
+{
+  "id": "gw-resp-002",
+  "rule": "response-redaction",
+  "kind": "response",
+  "source": "Sources/PhoneDSHGateway/SensitiveResponseBody.swift:135",
+  "references": [
+    "Tests/PhoneDSHGatewayTests/MCPEgressPolicyTests.swift:254"
+  ],
+  "note": "A 2xx JSON body is parsed and rewritten, not concatenated: the exact injected values (including the credential part after a standard scheme) become [redacted] and the JSON-RPC id survives.",
+  "input": {
+    "method": "POST",
+    "url": "https://internal.example.invalid/mcp",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "allowlist": [
+      "https://internal.example.invalid"
+    ],
+    "credential": {
+      "kind": "headers",
+      "headers": {
+        "authorization": "Bearer mcp-device-placeholder"
+      }
+    },
+    "response": {
+      "status": 200,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": "{\"jsonrpc\":\"2.0\",\"id\":42,\"result\":{\"isError\":true,\"content\":[{\"type\":\"text\",\"text\":\"echo Bearer mcp-device-placeholder\"}]}}"
+    }
+  },
+  "expect": {
+    "dispatch": "allow",
+    "outbound_headers": {
+      "cache-control": "no-store",
+      "content-type": "application/json"
+    },
+    "stripped": [],
+    "outbound_url": "https://internal.example.invalid/mcp",
+    "body_json": {
+      "jsonrpc": "2.0",
+      "id": 42,
+      "result": {
+        "isError": true,
+        "content": [
+          {
+            "type": "text",
+            "text": "echo [redacted]"
+          }
+        ]
+      }
+    },
+    "body_withheld": false,
+    "log": {
+      "recorded": false,
+      "reason": "sensitive_credential"
+    }
+  }
+}

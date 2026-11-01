@@ -56,12 +56,17 @@ import {
   WorkerShell,
   createExecBridgeAccelerators,
   createWorkerCommands,
+  execReadDenialForRequest,
+  guardExecClient,
   isShellInvocation,
   isWorkerShellProgram,
+  refusedExecStream,
   resolveShellMode,
   shellTimeoutFromEnv,
   workerShellIdentity,
+  WORKER_WRITABLE_ROOTS,
 } from '@phone-dsh/dsh-shell-ext'
+import { withResolvers } from './deferred.ts'
 import { CONFINE_MARKER } from './marker.ts'
 import { LocalWorkerProcess } from './local.ts'
 import { ShellWorkerProcess } from './shell-process.ts'
@@ -257,9 +262,9 @@ class BridgeProcess implements SubprocessHandle {
   private readonly err = new PassThrough()
   private readonly collectors: Partial<Record<'stdout' | 'stderr', OutputCollector>> = {}
   private readonly lifetime = new AbortController()
-  private readonly opened = Promise.withResolvers<void>()
-  private readonly quiet = Promise.withResolvers<void>()
-  private readonly exited = Promise.withResolvers<SubprocessOutcome>()
+  private readonly opened = withResolvers<void>()
+  private readonly quiet = withResolvers<void>()
+  private readonly exited = withResolvers<SubprocessOutcome>()
   private stream: EventStream | undefined
   private lastSeq = -1
   private exit: ExitEvent | undefined
@@ -376,6 +381,16 @@ class BridgeProcess implements SubprocessHandle {
 
   /** Open the execution; an `exec_id` the provider retains for a different request is re-keyed once. */
   private async openStream(): Promise<EventStream> {
+    // Worker-side fallback for the execution read policy (channel.md §6): a
+    // request that names DSH-internal state is answered here and never leaves
+    // the Worker. The host accelerator's VFS is the authoritative layer; this
+    // one keeps an older or regressed host from being the only guard. The
+    // node:http transport is the desktop reference world, which has no DSH
+    // home mount, so the phone policy does not apply there.
+    if (this.bridge.transport.kind !== 'node-http') {
+      const refusal = execReadDenialForRequest(this.request)
+      if (refusal !== undefined) return refusedExecStream(this.request.exec_id, refusal)
+    }
     try {
       return await this.bridge.client.exec(this.request, this.lifetime.signal)
     } catch (error) {
@@ -471,7 +486,7 @@ class BridgeProcess implements SubprocessHandle {
   async waitForExit(signal?: AbortSignal): Promise<boolean> {
     if (this.quiescent) return true
     if (signal?.aborted) return false
-    const aborted = Promise.withResolvers<false>()
+    const aborted = withResolvers<false>()
     const onAbort = (): void => { aborted.resolve(false) }
     signal?.addEventListener('abort', onAbort, { once: true })
     try {
@@ -728,7 +743,11 @@ export class XlSubprocessRuntime extends SubprocessRuntime {
   private createWorkerShell(bridge: XlExecBridge, spec: SubprocessSpawnSpec): WorkerShell {
     const extended = spec as XlWorkerSpawnSpec
     const accelerators = createExecBridgeAccelerators({
-      client: bridge.client,
+      // The Worker half of the execution read policy: `rg`/`jaq` operands are
+      // checked before the bridge builds an EXEC_REQ, so a refused read is
+      // answered with the contract's EACCES sentence without crossing the
+      // channel. The host VFS is still the authoritative layer.
+      client: guardExecClient(bridge.client),
       hello: bridge.hello,
       revision: () => bridge.lastMseq,
       // The console's foreground deadline is the host EXEC_REQ deadline; the
@@ -738,7 +757,13 @@ export class XlSubprocessRuntime extends SubprocessRuntime {
       graceMs: spec.graceMs,
     })
     return new WorkerShell({
-      fs: new VfsFileSystem({ root: process.env.PDSH_VFS_ROOT ?? '/' }),
+      fs: new VfsFileSystem({
+        root: process.env.PDSH_VFS_ROOT ?? '/',
+        // The write policy is the Worker's contract. A shell whose cwd is a
+        // host path is running in the desktop/inversion mode, not under the
+        // Worker root table, so a host scratch file is not refused.
+        writePolicy: WORKER_WRITABLE_ROOTS.some(root => spec.cwd === root || spec.cwd.startsWith(`${root}/`)),
+      }),
       commands: createWorkerCommands({ accelerators }),
     })
   }

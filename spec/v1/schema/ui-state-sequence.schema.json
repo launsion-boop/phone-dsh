@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "UiState projected node",
+  "description": "One node of a flat pre-order UiState sequence (ui-state/1). Geometry, colors, frames and screenshots are deliberately not members; pixel comparison uses a separate screenshot artifact.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "sessionID",
+    "turnID",
+    "seq",
+    "nodeID",
+    "parentID",
+    "kind",
+    "surface",
+    "props"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "ui-state/1"
+    },
+    "platform": {
+      "enum": [
+        "ios",
+        "android"
+      ]
+    },
+    "sessionID": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._-]{1,64}$"
+    },
+    "turnID": {
+      "type": "string",
+      "pattern": "^(?:-|turn-[0-9]{4})$"
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000000
+    },
+    "nodeID": {
+      "type": "string",
+      "maxLength": 512,
+      "pattern": "^(?:root|session/[A-Za-z0-9._-]{1,64}(?:/turn/(?:-|turn-[0-9]{4})(?:/event/[1-9][0-9]{0,5}(?:/[a-z][a-z0-9-]{0,63})?)?)?)$"
+    },
+    "parentID": {
+      "type": "string",
+      "maxLength": 512,
+      "pattern": "^(?:root|session/[A-Za-z0-9._-]{1,64}(?:/turn/(?:-|turn-[0-9]{4})(?:/event/[1-9][0-9]{0,5}(?:/[a-z][a-z0-9-]{0,63})?)?)?)$"
+    },
+    "kind": {
+      "enum": [
+        "root",
+        "session",
+        "turn",
+        "turn-event",
+        "bubble",
+        "context",
+        "tool-row",
+        "thinking-pill",
+        "approval-card",
+        "composer",
+        "fail-loud-banner",
+        "status"
+      ]
+    },
+    "surface": {
+      "enum": [
+        "none",
+        "bubble",
+        "tool-row",
+        "thinking-pill",
+        "approval-card",
+        "composer",
+        "fail-loud-banner"
+      ]
+    },
+    "text": {
+      "type": "string",
+      "maxLength": 20000
+    },
+    "props": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

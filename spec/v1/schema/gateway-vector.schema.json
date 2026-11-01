@@ -1,0 +1,345 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gateway-vector.schema.json",
+  "title": "phone-dsh-v1 gateway security vector",
+  "description": "One language-independent gateway request/response/redirect-chain vector. Checked by tools/gateway_check.py; semantic rules are normative in gateway-security.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "rule", "kind", "input", "expect", "source"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "gw-[a-z]+-[0-9]{3}"
+    },
+    "rule": {
+      "type": "string",
+      "enum": [
+        "credential-injection",
+        "header-strip",
+        "redirect-scope",
+        "egress-classification",
+        "response-redaction",
+        "failure-surface"
+      ]
+    },
+    "kind": {
+      "type": "string",
+      "enum": ["request", "response", "redirect-chain"]
+    },
+    "source": {
+      "type": "string",
+      "pattern": "(Sources|Tests|spec)/[A-Za-z0-9_./-]+:[1-9][0-9]{0,5}"
+    },
+    "references": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": {
+        "type": "string",
+        "pattern": "(Sources|Tests|spec)/[A-Za-z0-9_./-]+:[1-9][0-9]{0,5}"
+      }
+    },
+    "note": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 400
+    },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method", "url", "headers", "allowlist", "credential"],
+      "properties": {
+        "method": {
+          "type": "string",
+          "enum": ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"]
+        },
+        "url": {
+          "type": "string",
+          "pattern": "https?://[A-Za-z0-9.:\\[\\]-]+/[^\\s\"'<>]*"
+        },
+        "headers": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "maxLength": 512
+          }
+        },
+        "allowlist": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 16,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "mcp": {
+          "type": "boolean",
+          "description": "True when the exact URL is admitted by the host's per-request MCP egress grant. Such a call takes the sensitive response path regardless of the credential kind."
+        },
+        "credential": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "dependentRequired": {"header": ["value"]},
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": ["none", "unavailable", "bearer", "api-key", "headers"]
+            },
+            "header": {
+              "type": "string",
+              "pattern": "[a-z0-9][a-z0-9-]{0,63}"
+            },
+            "value": {
+              "type": "string",
+              "maxLength": 256
+            },
+            "headers": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string",
+                "maxLength": 256
+              }
+            }
+          }
+        },
+        "redirects": {
+          "type": "array",
+          "maxItems": 5,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["status", "location"],
+            "properties": {
+              "status": {
+                "type": "integer",
+                "enum": [301, 302, 303, 307, 308]
+              },
+              "location": {
+                "type": "string",
+                "pattern": "https?://[A-Za-z0-9.:\\[\\]-]+/[^\\s\"'<>]*"
+              }
+            }
+          }
+        },
+        "response": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "headers"],
+          "properties": {
+            "status": {
+              "type": "integer",
+              "minimum": 100,
+              "maximum": 599
+            },
+            "headers": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string",
+                "maxLength": 512
+              }
+            },
+            "body": {
+              "type": "string",
+              "maxLength": 4096
+            },
+            "body_bytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1073741824
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          }
+        },
+        "quota_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1073741824
+        },
+        "transport_failure": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "description": "Scripted transport-level failure: the transport throws this reason instead of returning a response. The gateway maps it to the transport_failure surface and bounds the surfaced reason to 256 newline-free characters."
+        }
+      }
+    },
+    "expect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dispatch", "outbound_headers", "stripped", "outbound_url"],
+      "dependentRequired": {"response_headers": ["status"]},
+      "properties": {
+        "dispatch": {
+          "type": "string",
+          "enum": ["allow", "deny"]
+        },
+        "outbound_headers": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "maxLength": 512
+          }
+        },
+        "stripped": {
+          "type": "array",
+          "maxItems": 24,
+          "items": {
+            "type": "string",
+            "pattern": "[a-z0-9][a-z0-9-]{0,63}"
+          }
+        },
+        "outbound_url": {
+          "type": "string",
+          "maxLength": 512
+        },
+        "deny_reason": {
+          "type": "string",
+          "enum": [
+            "invalid_request",
+            "host_not_allowed",
+            "credential_unavailable",
+            "shutting_down",
+            "redirect_target_not_allowed",
+            "redirect_scope_mismatch",
+            "transport_failure",
+            "upstream_status",
+            "upstream_failed"
+          ]
+        },
+        "redirects_followed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5
+        },
+        "final_url": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "status": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 599,
+          "description": "The status handed to the Worker. A refused redirect yields the refused hop's own 3xx, not a failure status; an allowed chain yields the status of its final response."
+        },
+        "response_headers": {
+          "type": "object",
+          "description": "Subset of the response header map handed to the Worker (lowercased, filtered). On a refused redirect it pins the headers of the original 3xx, such as location.",
+          "additionalProperties": {
+            "type": "string",
+            "maxLength": 512
+          }
+        },
+        "upstream_contacts": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 6,
+          "description": "Transport calls the exchange made. A refused hop is never contacted, so on a redirect chain it is redirects_followed + 1: the refusal is not re-sent."
+        },
+        "body": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "body_json": {
+          "type": ["object", "array"]
+        },
+        "body_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "SHA-256 of the exact UTF-8 body bytes handed to the Worker. With body_json the checker canonicalises using sorted keys and no insignificant whitespace."
+        },
+        "body_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1073741824
+        },
+        "body_withheld": {
+          "type": "boolean"
+        },
+        "log": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["recorded"],
+          "dependentRequired": {"retained_bytes": ["body_bytes"]},
+          "properties": {
+            "recorded": {
+              "type": "boolean"
+            },
+            "reason": {
+              "type": "string",
+              "enum": [
+                "recorded_ok",
+                "quota_exceeded",
+                "transport_truncated",
+                "sensitive_credential"
+              ]
+            },
+            "body_bytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1073741824
+            },
+            "retained_bytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1073741824
+            }
+          }
+        },
+        "failure": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "proxy_status", "proxy_error", "upstream_contacts"],
+          "properties": {
+            "code": {
+              "type": "string",
+              "enum": [
+                "host_not_allowed",
+                "invalid_request",
+                "credential_unavailable",
+                "shutting_down",
+                "transport_failure",
+                "upstream_status",
+                "upstream_failed"
+              ]
+            },
+            "proxy_status": {
+              "type": "integer",
+              "enum": [400, 403, 502]
+            },
+            "proxy_error": {
+              "type": "string",
+              "enum": [
+                "forbidden",
+                "bad_request",
+                "credential_unavailable",
+                "upstream",
+                "shutting_down"
+              ]
+            },
+            "upstream_contacts": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 5
+            },
+            "host": {
+              "type": "string",
+              "maxLength": 255
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "The bounded, newline-free diagnostic the caller sees for a sent failure. For a transport failure it is derived from input.transport_failure."
+            }
+          }
+        }
+      }
+    }
+  }
+}

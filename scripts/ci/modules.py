@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import re
 import sys
+from datetime import date
 from pathlib import Path
 
 import common
@@ -331,7 +332,47 @@ def check_test_targets(text, entries, findings):
         )
 
 
+MAIN_ACTOR_ALLOW = "scripts/ci/modules-main-actor-allow.txt"
+MAIN_ACTOR_EXPIRES_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def load_main_actor_allow(root, findings):
+    """Read the ``@MainActor`` exception list.
+
+    One ``path | expires | reason`` entry per line.  The list is a record of a
+    debt, not a switch: an entry only silences the findings of that path, it
+    must carry an expiry date and a reason, and an entry that no longer matches
+    anything is itself a finding.  A missing file means "no exceptions".
+    """
+
+    path = Path(root) / MAIN_ACTOR_ALLOW
+    if not path.is_file():
+        return []
+    entries = []
+    for number, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = [part.strip() for part in line.split("|")]
+        if len(parts) < 3 or not parts[0] or not parts[2]:
+            findings.append(
+                (MAIN_ACTOR_ALLOW, number, "allow-list", "expected path | expires | reason")
+            )
+            continue
+        rel, expires, reason = parts[0], parts[1], parts[2]
+        if not MAIN_ACTOR_EXPIRES_RE.match(expires):
+            findings.append(
+                (MAIN_ACTOR_ALLOW, number, "allow-list", f"expires is not YYYY-MM-DD: {expires}")
+            )
+            continue
+        entries.append((rel, expires, reason, number))
+    return entries
+
+
 def check_main_actor(root, findings):
+    allow = load_main_actor_allow(root, findings)
+    today = date.today().isoformat()
+    used = set()
     for module in PHONE_MODULES:
         rel_root = f"Sources/{module}"
         for rel in common.scan_files(root, [rel_root]):
@@ -339,8 +380,42 @@ def check_main_actor(root, findings):
             if lines is None:
                 continue
             for number, line in enumerate(lines, start=1):
-                if "@MainActor" in line:
+                if "@MainActor" not in line:
+                    continue
+                hit = None
+                for allowed_rel, expires, _reason, _entry_line in allow:
+                    if rel == allowed_rel or rel.startswith(allowed_rel.rstrip("/") + "/"):
+                        hit = (allowed_rel, expires)
+                        break
+                if hit is None:
                     findings.append((rel, number, "main-actor", line.strip()))
+                    continue
+                used.add(hit[0])
+                if hit[1] < today:
+                    findings.append(
+                        (
+                            rel,
+                            number,
+                            "main-actor-expired",
+                            f"exception expired on {hit[1]}: {line.strip()}",
+                        )
+                    )
+    for allowed_rel, expires, reason, entry_line in allow:
+        if allowed_rel not in used:
+            findings.append(
+                (
+                    MAIN_ACTOR_ALLOW,
+                    entry_line,
+                    "allow-list",
+                    f"stale entry (nothing matched): {allowed_rel} until {expires}",
+                )
+            )
+    if allow and not findings:
+        print(
+            "NOTE: {} @MainActor exception(s) registered; see {}".format(
+                len(allow), MAIN_ACTOR_ALLOW
+            )
+        )
 
 
 def run(root):

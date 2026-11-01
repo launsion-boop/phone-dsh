@@ -6,7 +6,7 @@ import ProbeKit
 import SwiftUI
 
 enum NativeSettingsTab: String, CaseIterable, Identifiable {
-    case general, models, plugins, presets
+    case general, models, plugins, permissions, presets
 
     var id: String { rawValue }
     var title: String {
@@ -14,6 +14,7 @@ enum NativeSettingsTab: String, CaseIterable, Identifiable {
         case .general: NativeText("通用设置", "General")
         case .models: NativeText("模型", "Models")
         case .plugins: NativeText("内置插件", "Built-in Plugins")
+        case .permissions: NativeText("手机权限", "Phone Permissions")
         case .presets: NativeText("Agent 预设", "Agent Presets")
         }
     }
@@ -22,6 +23,7 @@ enum NativeSettingsTab: String, CaseIterable, Identifiable {
         case .general: NativeText("通用", "General")
         case .models: NativeText("模型", "Models")
         case .plugins: NativeText("插件", "Plugins")
+        case .permissions: NativeText("手机权限", "Permissions")
         case .presets: NativeText("预设", "Presets")
         }
     }
@@ -30,6 +32,7 @@ enum NativeSettingsTab: String, CaseIterable, Identifiable {
         case .general: "gearshape"
         case .models: "cylinder"
         case .plugins: "slider.horizontal.3"
+        case .permissions: "hand.raised"
         case .presets: "person.2"
         }
     }
@@ -39,7 +42,10 @@ struct SettingsPage: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var tab: NativeSettingsTab? = .general
-    @State private var showDocument = false
+
+    init(initialTab: NativeSettingsTab = .general) {
+        _tab = State(initialValue: initialTab)
+    }
 
     var body: some View {
         Group {
@@ -67,15 +73,9 @@ struct SettingsPage: View {
             }
         }
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Button(NativeText("配置文件", "Config")) { showDocument = true }
-            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button(NativeText("完成", "Done")) { dismiss() }
             }
-        }
-        .sheet(isPresented: $showDocument) {
-            NavigationStack { NativeSettingsDocumentPage() }
         }
     }
 
@@ -84,6 +84,7 @@ struct SettingsPage: View {
         case .general: NativeGeneralSettingsPage()
         case .models: ModelProviderSettingsPage()
         case .plugins: NativePluginInventoryPage()
+        case .permissions: PhonePermissionsPage(embedded: true)
         case .presets: NativeAgentPresetsPage()
         }
     }
@@ -102,9 +103,6 @@ private struct NativeGeneralSettingsPage: View {
                 }
                 Text(NativeText("选择新会话的默认权限模式", "Default permission for new sessions"))
                     .font(.footnote).foregroundStyle(.secondary)
-                NavigationLink { PhonePermissionsPage() } label: {
-                    LabeledContent(NativeText("手机权限", "Phone permissions"), value: phonePermissionSummary)
-                }
             }
 
             Section {

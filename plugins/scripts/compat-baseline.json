@@ -1,0 +1,154 @@
+{
+  "$comment": "M99 build-time compatibility baseline. The verdict comes from `sinceChromium` only: <= 99 means the Huawei M99 engine already ships it (recorded as a note, never blocking), > 99 blocks, and \"unverified\" warns unless --strict. `since` is the ES edition or proposal status and explains the history; it never decides. `allow[]` paths are prefixed to the scan root and matched by prefix; `expires` is an ISO date and a stale entry fails the gate. Workflow: plugins/COMPAT.md.",
+  "target": "huawei-webview-m99",
+  "esVersion": "ES2022",
+  "forbiddenApis": [
+    {
+      "name": "Array.prototype.at",
+      "pattern": "\\.at\\s*\\(",
+      "since": "ES2022",
+      "sinceChromium": 92,
+      "note": "ES2022 is the edition, Chromium 92 is the engine: inside M99. An ES-year threshold would have flagged 52 call sites that need no change."
+    },
+    {
+      "name": "Array.prototype.findLast",
+      "pattern": "\\.findLast\\s*\\(",
+      "since": "ES2023",
+      "sinceChromium": 97,
+      "note": "ES2023 edition, Chromium 97 engine: inside M99."
+    },
+    {
+      "name": "Array.prototype.findLastIndex",
+      "pattern": "\\.findLastIndex\\s*\\(",
+      "since": "ES2023",
+      "sinceChromium": 97,
+      "note": "ES2023 edition, Chromium 97 engine: inside M99."
+    },
+    {
+      "name": "Array.prototype.toSorted",
+      "pattern": "\\.toSorted\\s*\\(",
+      "since": "ES2023",
+      "sinceChromium": 110
+    },
+    {
+      "name": "Array.prototype.toReversed",
+      "pattern": "\\.toReversed\\s*\\(",
+      "since": "ES2023",
+      "sinceChromium": 110
+    },
+    {
+      "name": "Array.prototype.toSpliced",
+      "pattern": "\\.toSpliced\\s*\\(",
+      "since": "ES2023",
+      "sinceChromium": 110
+    },
+    {
+      "name": "Array.prototype.with",
+      "pattern": "(?<!this)\\.with\\s*\\(\\s*(?!\\{)",
+      "since": "ES2023",
+      "sinceChromium": 110,
+      "note": "Excludes the fluent builder form `this.with({ ... })`; a plain `x.with(i, v)` call is the array method."
+    },
+    {
+      "name": "Object.hasOwn",
+      "pattern": "\\bObject\\.hasOwn\\s*\\(",
+      "since": "ES2022",
+      "sinceChromium": 93,
+      "note": "ES2022 edition, Chromium 93 engine: inside M99."
+    },
+    {
+      "name": "Object.groupBy",
+      "pattern": "\\bObject\\.groupBy(?:<[^<>]*>)?\\s*\\(",
+      "since": "ES2024",
+      "sinceChromium": 117
+    },
+    {
+      "name": "Map.groupBy",
+      "pattern": "\\bMap\\.groupBy(?:<[^<>]*>)?\\s*\\(",
+      "since": "ES2024",
+      "sinceChromium": 117
+    },
+    {
+      "name": "Promise.withResolvers",
+      "pattern": "\\bPromise\\.withResolvers(?:<[^<>]*>)?\\s*\\(",
+      "since": "ES2024",
+      "sinceChromium": 119
+    },
+    {
+      "name": "Array.fromAsync",
+      "pattern": "\\bArray\\.fromAsync(?:<[^<>]*>)?\\s*\\(",
+      "since": "ES2025",
+      "sinceChromium": 121
+    },
+    {
+      "name": "structuredClone",
+      "pattern": "\\bstructuredClone\\s*\\(",
+      "since": "Chromium 98",
+      "sinceChromium": 98,
+      "note": "Web API, not an ES feature: Chromium 98, so the Worker baseline includes it."
+    },
+    {
+      "name": "RegExp.escape",
+      "pattern": "\\bRegExp\\.escape\\s*\\(",
+      "since": "ES2025",
+      "sinceChromium": 136,
+      "note": "Milestone approximate (V8 13.6 train); the verdict only needs a value above the 99 threshold."
+    },
+    {
+      "name": "RegExp v flag",
+      "pattern": "new\\s+RegExp\\s*\\([^)\\n]*['\\\"`][dgimsuvy]*v[dgimsuvy]*['\\\"`]|(?:^|[=(:;,{}!&|?\\[\\]\\s])\\/[^\\n\\/]+\\/v[dgimsuvy]*(?![\\w$])",
+      "since": "ES2024",
+      "sinceChromium": 112,
+      "note": "Heuristic: the constructor form requires only valid flag characters, the literal form requires the opening slash to follow an operator or bracket."
+    }
+  ],
+  "forbiddenSyntax": [
+    {
+      "name": "Logical assignment (??=)",
+      "pattern": "\\?\\?=",
+      "since": "ES2021",
+      "sinceChromium": 85,
+      "note": "ES2021 edition, Chromium 85 engine: inside M99, recorded so the family stays covered."
+    },
+    {
+      "name": "Logical assignment (||=)",
+      "pattern": "\\|\\|=",
+      "since": "ES2021",
+      "sinceChromium": 85
+    },
+    {
+      "name": "Logical assignment (&&=)",
+      "pattern": "&&=",
+      "since": "ES2021",
+      "sinceChromium": 85
+    },
+    {
+      "name": "Decorator",
+      "pattern": "^\\s*@[A-Za-z_$][\\w$]*(?:\\.[A-Za-z_$][\\w$]*)*",
+      "since": "stage-3 proposal (no shipped engine)",
+      "sinceChromium": "unverified",
+      "note": "No Chromium version ships decorators natively, so there is no milestone to pin: warns by default, blocks under --strict, and `erasableSyntaxOnly` in tsconfig.json already rejects the transform."
+    },
+    {
+      "name": "using / await using",
+      "pattern": "(?:^|[;{}()])\\s*(?:await\\s+)?using\\s+[A-Za-z_$][\\w$]*\\s*[:=]",
+      "since": "stage-4 (explicit resource management)",
+      "sinceChromium": 134
+    },
+    {
+      "name": "import attributes (with { type: })",
+      "pattern": "\\b(?:import|export)\\b[^\\n]*\\bwith\\s*\\{\\s*type\\s*:",
+      "since": "ES2025",
+      "sinceChromium": 123
+    },
+    {
+      "name": "import assertions (assert { type: })",
+      "pattern": "\\b(?:import|export)\\b[^\\n]*\\bassert\\s*\\{\\s*type\\s*:",
+      "since": "withdrawn (renamed to attributes)",
+      "sinceChromium": "unverified",
+      "note": "The assertion form shipped, was renamed to attributes and no longer parses; whether the Huawei build accepts it is unconfirmed, so it warns and blocks only under --strict."
+    }
+  ],
+  "polyfills": [],
+  "allow": []
+}

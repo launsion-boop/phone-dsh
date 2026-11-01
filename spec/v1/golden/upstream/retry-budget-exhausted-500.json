@@ -1,0 +1,53 @@
+{
+  "id": "retry-budget-exhausted-500",
+  "model": "any",
+  "title": "Every attempt answers 500: the budget ends after five attempts and the caller sees the last response",
+  "request_match": {
+    "method": "POST",
+    "path_suffix": "/v1/chat/completions"
+  },
+  "script": [
+    {
+      "status": 500,
+      "headers": {
+        "content-type": "text/plain"
+      },
+      "frames": "content_length",
+      "declared_content_length": 3,
+      "body_chunks": [
+        "err"
+      ],
+      "closes": true
+    }
+  ],
+  "expected": {
+    "caller_visible": "status_and_body",
+    "retry": {
+      "retried": true,
+      "attempts": 5,
+      "trigger": "budget_exhausted",
+      "delays_ms": [
+        1000,
+        2000,
+        4000,
+        8000
+      ],
+      "jitter_disabled": true
+    },
+    "provider_error": "none",
+    "client_outcome": "ok",
+    "field_evidence": {
+      "caller_visible": "swift-test",
+      "retry": "swift-test",
+      "provider_error": "swift-test",
+      "client_outcome": "swift-test"
+    }
+  },
+  "evidence_level": "swift-test",
+  "source": "Tests/PhoneDSHGatewayTests/ModelGatewayTests.swift:940-955",
+  "related_sources": [
+    "Sources/PhoneDSHGateway/ModelGateway.swift:24-40",
+    "Sources/PhoneDSHGateway/ModelGateway.swift:689-699"
+  ],
+  "notes": "The retry budget is five attempts including the first, so four retries with delays 1, 2, 4 and 8 s; maximumAttempts is total attempts, not retries. `retry` script entries repeat from the last entry, which is why one entry models five identical 500s. A plain tool egress forwards the final 500 status and body unchanged (no ModelGatewayError), which is why provider_error is none even though the call failed for the caller. client_outcome describes the gateway stream, not the model result: the stream completes with a 500 that the caller must treat as a failure."
+}

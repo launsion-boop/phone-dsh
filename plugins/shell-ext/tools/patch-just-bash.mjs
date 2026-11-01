@@ -1,7 +1,16 @@
 // SPDX-License-Identifier: MIT
 /**
- * Apply the phone-DSH terminal-state seam to the installed just-bash 3.6.0
- * browser bundle.
+ * Apply the phone-DSH engine seam to the installed just-bash 3.6.0 browser
+ * bundle.
+ *
+ * The seam has two parts:
+ *
+ * 1. **Terminal state** — the `__pdshTerminal*` helpers and their call sites
+ *    make the engine's own root status, cwd and pipeline record authoritative.
+ * 2. **Two output budgets** — a file redirection is a file write, so its bytes
+ *    are bounded by the single-file budget (`EFBIG` at the filesystem) and not
+ *    by `executionLimits.maxOutputSize`, which bounds bytes captured into the
+ *    command result (`spec/v1/channel.md:265-272`, `spec/v1/budgets.md:104`).
  *
  * just-bash is Apache-2.0 and is consumed as an ordinary npm dependency
  * (`just-bash/browser`), not vendored. The published browser bundle is
@@ -33,7 +42,7 @@ const bundleFile = join(packageRoot, 'dist', 'bundle', 'browser.js')
 /** The exact npm image this patch was written against. */
 const ORIGINAL_SHA256 = '38f1ad1e3283980ecdf68cede8a4eed028c6dff6e8c31793dec1e0af529c446e'
 /** The deterministic result of applying every replacement below. */
-const PATCHED_SHA256 = '124182d76319a5a7c542f4014362f0eba7aa66af9f0a1665574594f0c628e018'
+const PATCHED_SHA256 = 'a93d71b3ba9a1703f2412272ba22081ba4187ece8a910fd017e7fe83fe265bbf'
 /** Marker that must exist exactly once in a patched bundle. */
 const PATCH_MARKER = 'const __pdshTerminalFormat="just-bash-terminal/1";'
 
@@ -172,6 +181,19 @@ function patchBundle(source) {
   text = replace(text, 'drop the per-stage env/array restore', 'if(A&&(e.state.env=A,e.state.arrays=I??new Map),R=e.executionScope.accountResult', 'if(R=e.executionScope.accountResult')
 
   text = replace(text, 'record the last completed pipeline', 'i=e.executionScope.accountResult(i,"pipeline");let{internalPipeStatusOverride:g,...b}=i;return b}', 'e.state[__pdshPipelineKey]={statuses:[...l],status:i.exitCode,negated:t.negated===!0};i=e.executionScope.accountResult(i,"pipeline");let{internalPipeStatusOverride:g,...b}=i;return b}')
+
+  // A file redirection is a file write, not captured output. The engine
+  // charged the command's whole result against `maxOutputSize` *before*
+  // writing it to the redirect target, so a legal 128 MiB file also consumed
+  // the captured-output budget: `cat /dev/zero >> file` tripped
+  // `total output size exceeded (>maxOutputSize)` one chunk before the file
+  // budget could refuse it with `EFBIG`, and the model saw a shell output
+  // ceiling instead of the contract's file refusal. Redirect-target bytes are
+  // bounded by the single-file budget at the filesystem, and the post-write
+  // accounting below already charges exactly the bytes that stay on
+  // stdout/stderr. Removing the pre-write charge splits the two budgets:
+  // `maxOutputSize` bounds captured output only, the fs bounds the file.
+  text = replace(text, 'do not charge a redirect target against the output budget', 'n.length>0&&(t=e.executionScope.accountResult(t,"redirection"));', '/*pdsh:redirect-target-bytes-are-file-budget*/')
 
   // Producer-owned output facts travel with the result object and are folded
   // only into builders whose bytes really reach the final stream. User text

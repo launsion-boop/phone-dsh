@@ -375,7 +375,9 @@ test('errors: a write outside the writable roots fails loud and names the usable
   const { root, fs, shell } = fixture({ workerPaths: true })
   const result = await shell.run(['bash', '-c', 'echo nope > /var/x'], { cwd: '/dsh/workspace' })
   assert.notEqual(result.exitCode, 0)
-  assert.match(result.stderr, /ENOENT/)
+  // P13/G2-B: the write policy answers first, with the contract's EACCES
+  // sentence; the backend's ENOENT was the unguarded path.
+  assert.match(result.stderr, /EACCES: permission denied, open '\/var\/x'/)
   for (const writable of WRITABLE_ROOTS) assert.match(result.stderr, new RegExp(writable.replace(/[/]/g, '\\/')))
   assert.match(result.stderr, /TMPDIR/)
   assert.equal(existsSync(join(root, 'var')), false, 'the target path is never rewritten')
@@ -384,7 +386,7 @@ test('errors: a write outside the writable roots fails loud and names the usable
     const coded = error as { code?: string; path?: string; message?: string }
     assert.equal(coded.code, 'ENOENT')
     assert.equal(coded.path, '/var/y')
-    assert.match(String(coded.message), /writable roots are \/dsh\/workspace, \/dsh\/home, \/dsh\/tmp/)
+    assert.match(String(coded.message), /writable roots are \/dsh\/workspace, \/dsh\/home, \/tmp, \/dsh\/tmp, \/dev\/null/)
     return true
   })
 })

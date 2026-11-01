@@ -18,6 +18,7 @@ const EMPTY_MODULE = new WebAssembly.Module(new Uint8Array([0x00, 0x61, 0x73, 0x
 const VALID_SNAPSHOT = {
   roots: ['/dsh/workspace'],
   missing: [],
+  denied: [],
   entries: [
     { path: '/dsh/workspace', kind: 'directory' as const, mode: 0o755, mtimeMs: 1, ino: 1 },
     {
@@ -72,6 +73,46 @@ test('isVfsSnapshot accepts a captured snapshot and rejects malformed bodies', (
   }), false)
   assert.equal(isVfsSnapshot({ ...VALID_SNAPSHOT, bytes: '6' }), false)
   assert.equal(isVfsSnapshot({ ...VALID_SNAPSHOT, truncated: 'no' }), false)
+  // A denial is what keeps a refused path from becoming the guest's ENOENT, so
+  // a body that cannot carry one (missing field, bad shape) is malformed rather
+  // than "a snapshot with nothing denied".
+  assert.equal(isVfsSnapshot({ ...VALID_SNAPSHOT, denied: undefined }), false)
+  assert.equal(isVfsSnapshot({ ...VALID_SNAPSHOT, denied: {} }), false)
+  assert.equal(isVfsSnapshot({ ...VALID_SNAPSHOT, denied: [{ path: 'dsh/home/sessions', code: 'EACCES', message: 'x' }] }), false)
+  assert.equal(isVfsSnapshot({ ...VALID_SNAPSHOT, denied: [{ path: '/dsh/home/sessions', code: 'ENOENT', message: 'x' }] }), false)
+  assert.equal(isVfsSnapshot({ ...VALID_SNAPSHOT, denied: [{ path: '/dsh/home/sessions', code: 'EACCES', message: '' }] }), false)
+  assert.equal(isVfsSnapshot({
+    ...VALID_SNAPSHOT,
+    denied: [{ path: '/dsh/home/sessions', code: 'EACCES', message: 'session-internal state under /dsh/home/sessions' }],
+  }), true)
+})
+
+test('the denial record survives the thread boundary the other entries cross', () => {
+  const fake = fakeScope()
+  const dispose = installToolWorker(fake.scope)
+  const denial = {
+    path: '/dsh/home/sessions',
+    code: 'EACCES' as const,
+    message: 'session-internal state under /dsh/home/sessions',
+  }
+  try {
+    fake.send({
+      type: 'init',
+      program: 'tool',
+      module: EMPTY_MODULE,
+      preopens: [],
+      snapshot: { ...VALID_SNAPSHOT, denied: [denial] },
+    })
+    assert.ok(fake.posted.some(message => (message as { type?: unknown }).type === 'ready'))
+    fake.posted.length = 0
+    fake.send({ type: 'snapshot', snapshot: { ...VALID_SNAPSHOT, denied: [denial] } })
+    assert.ok(
+      !fake.posted.some(message => (message as { type?: unknown }).type === 'error'),
+      'a denial list is valid on the refresh message too',
+    )
+  } finally {
+    dispose()
+  }
 })
 
 test('the generic tool worker rejects a malformed snapshot message', () => {

@@ -1,0 +1,11 @@
+{
+  "name": "device-receipt-failed-expired",
+  "schema": "schema/device-receipt.schema.json",
+  "instance": {
+    "id": "cmd-002",
+    "status": "failed",
+    "code": "expired",
+    "data": {}
+  },
+  "notes": "Sources: docs/design/device-adapter-contract-draft.md:58-75 (§4: minimum error set unsupported, invalid_args, expired, busy, unauthorized, internal, timeout; an unknown code is treated as internal and must never be swallowed). An expired command is not executed (draft §4 rules), and a state report without an id can never complete a command (device-connector-2026-10-31.md:158-163 §4.3)."
+}

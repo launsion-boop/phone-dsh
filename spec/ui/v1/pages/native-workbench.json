@@ -1,0 +1,175 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "NativeWorkbenchPage",
+  "pageId": "native-workbench",
+  "structure": "swiftui-view",
+  "sectionModel": "single-region",
+  "sectionNote": "NavigationStack/VStack: a segmented mode switch over two embedded pages; no group header",
+  "title": {
+    "text": "工作区",
+    "provenance": "NativeWorkbenchPage.swift:29",
+    "anchor": ".navigationTitle(\"工作区\")"
+  },
+  "source": {
+    "file": "NativeWorkbenchPage.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/NativeWorkbenchPage.swift",
+    "lines": 40,
+    "structLine": 6,
+    "renderedFrom": [
+      "body"
+    ],
+    "sectionOrder": "declaration order inside the page struct"
+  },
+  "android": {
+    "screen": "NativeWorkbenchPage",
+    "file": "android/lib/src/main/kotlin/com/phonedsh/ui/page/NativeWorkbenchPage.kt",
+    "match": "composable"
+  },
+  "sections": [
+    {
+      "id": "single-region-6",
+      "kind": "single-region",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleSource": "absent",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "工作面板",
+          "label": "工作面板",
+          "labelExpr": null,
+          "kind": "control",
+          "value": "工作面板 | 文件 | 命令",
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "NativeWorkbenchPage.swift:16",
+          "anchor": "Picker(\"工作面板\", selection: $section) {",
+          "extraction": "syntax"
+        },
+        {
+          "id": "custom-24",
+          "label": null,
+          "labelExpr": "FilesPage",
+          "kind": "custom",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "section == 0",
+          "provenance": "NativeWorkbenchPage.swift:24",
+          "anchor": "FilesPage(initialPath: initialPath)",
+          "extraction": "manual",
+          "template": "FilesPage"
+        },
+        {
+          "id": "custom-26",
+          "label": null,
+          "labelExpr": "PDSHShellPage",
+          "kind": "custom",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "!(section == 0)",
+          "provenance": "NativeWorkbenchPage.swift:26",
+          "anchor": "PDSHShellPage()",
+          "extraction": "manual",
+          "template": "PDSHShellPage"
+        }
+      ],
+      "provenance": "NativeWorkbenchPage.swift:6",
+      "anchor": "struct NativeWorkbenchPage: View {",
+      "criterion": {
+        "kind": "single-region"
+      },
+      "extraction": "manual",
+      "note": "NavigationStack/VStack: a segmented mode switch over two embedded pages; no group header"
+    }
+  ],
+  "actions": [
+    {
+      "id": "完成",
+      "label": "完成",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "toolbar",
+      "semantic": "{ onClose?(); dismiss()",
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "NativeWorkbenchPage.swift:33",
+      "anchor": "Button(\"完成\") { onClose?(); dismiss() }.leadingBarText()",
+      "extraction": "syntax"
+    },
+    {
+      "id": "工作面板",
+      "label": "工作面板",
+      "labelExpr": null,
+      "kind": "picker",
+      "trigger": "tap",
+      "semantic": null,
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "NativeWorkbenchPage.swift:16",
+      "anchor": "Picker(\"工作面板\", selection: $section) {",
+      "extraction": "syntax",
+      "items": [
+        "工作面板",
+        "文件",
+        "命令"
+      ],
+      "style": "default"
+    }
+  ],
+  "presentations": [],
+  "states": {
+    "advisory": true,
+    "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
+    "sites": {
+      "empty": [],
+      "data": [
+        {
+          "renders": "untitled section at 6",
+          "when": null,
+          "provenance": "NativeWorkbenchPage.swift:6",
+          "anchor": "struct NativeWorkbenchPage: View {",
+          "note": "structural default: the sections above, when no condition overrides them"
+        }
+      ],
+      "failure": [],
+      "unknown": [],
+      "loading": []
+    },
+    "absent": [
+      "empty",
+      "failure",
+      "unknown",
+      "loading"
+    ],
+    "coverage": {
+      "empty": 0,
+      "data": 1,
+      "failure": 0,
+      "unknown": 0,
+      "loading": 0
+    }
+  },
+  "subpages": [],
+  "unreachable": [],
+  "extraction": {
+    "tool": "extract_ios_pages.py",
+    "mode": "syntax",
+    "sectionKeywordsInPage": 0,
+    "regionsExtracted": 0,
+    "sectionsExtracted": 1,
+    "warnings": []
+  }
+}

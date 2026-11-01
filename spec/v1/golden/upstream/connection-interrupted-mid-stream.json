@@ -1,0 +1,50 @@
+{
+  "id": "connection-interrupted-mid-stream",
+  "model": "any",
+  "title": "The body is cut after the head: the caller sees a truncated stream and a transport failure, and nothing is retried",
+  "request_match": {
+    "method": "POST",
+    "path_suffix": "/v1/chat/completions"
+  },
+  "script": [
+    {
+      "status": 200,
+      "headers": {
+        "content-type": "text/event-stream"
+      },
+      "frames": "content_length",
+      "declared_content_length": 100,
+      "truncated": true,
+      "body_chunks": [
+        "data: hello\n\n"
+      ],
+      "closes": true
+    }
+  ],
+  "expected": {
+    "caller_visible": "truncated_stream_then_error",
+    "retry": {
+      "retried": false,
+      "attempts": 1,
+      "trigger": "none"
+    },
+    "provider_error": "transport_failure",
+    "response_log": "aborted",
+    "client_outcome": "error",
+    "field_evidence": {
+      "caller_visible": "swift-test",
+      "retry": "swift-test",
+      "provider_error": "swift-test",
+      "response_log": "swift-test",
+      "client_outcome": "swift-test"
+    }
+  },
+  "evidence_level": "swift-test",
+  "source": "Tests/PhoneDSHGatewayTests/ModelGatewayTests.swift:1112-1126",
+  "related_sources": [
+    "Tests/PhoneDSHGatewayTests/ModelGatewayTests.swift:861-878",
+    "Sources/PhoneDSHGateway/ModelGateway.swift:820-830",
+    "Sources/PhoneDSHGateway/ModelGateway.swift:854-866"
+  ],
+  "notes": "The declared length is 100 bytes while only the 13 bytes of `data: hello` plus its blank line are written; the server then closes, so the caller observes a body short of the declared length. Because the head already went out, the transport failure is not retried and the caller receives the stream error; the response log recording is aborted, so a replay of the same request must miss (the test asserts a nil replay)."
+}

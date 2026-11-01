@@ -1,0 +1,39 @@
+{
+  "id": "gw-hop-002",
+  "rule": "header-strip",
+  "kind": "request",
+  "source": "Sources/PhoneDSHGateway/ModelGateway.swift:1037",
+  "references": [
+    "Tests/PhoneDSHGatewayTests/ModelGatewayTests.swift:153",
+    "Tests/PhoneDSHGatewayTests/ModelGatewayTests.swift:154"
+  ],
+  "note": "The loopback launch cookie and the loopback Referer authenticate the local origin, not the upstream, so both are always dropped.",
+  "input": {
+    "method": "GET",
+    "url": "http://127.0.0.1:7861/v1/file",
+    "headers": {
+      "cookie": "xl_launch_token=loopback-sentinel",
+      "cookie2": "legacy=loopback-sentinel",
+      "referer": "http://127.0.0.1:7861/?token=loopback-sentinel",
+      "user-agent": "worker"
+    },
+    "allowlist": [
+      "127.0.0.1:7861"
+    ],
+    "credential": {
+      "kind": "none"
+    }
+  },
+  "expect": {
+    "dispatch": "allow",
+    "outbound_headers": {
+      "user-agent": "worker"
+    },
+    "stripped": [
+      "cookie",
+      "cookie2",
+      "referer"
+    ],
+    "outbound_url": "http://127.0.0.1:7861/v1/file"
+  }
+}

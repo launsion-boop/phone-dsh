@@ -1,0 +1,148 @@
+{
+  "kind": "tokens",
+  "version": 1,
+  "note": "Schema 示例实例,不是规范来源。规范值在 ../../tokens.json(单一来源)。本文件只证明 tokens 文档的形状能被 schema 接受:未测的色值写 null,对比度配对只保留可计算的四对。",
+  "colors": {
+    "primary": {"light": "#111114", "dark": "#F4F4F5"},
+    "secondary": {"light": "#66666B", "dark": "#A1A1AA"},
+    "tertiary": {"light": null, "dark": null},
+    "caption": {"light": null, "dark": null},
+    "background": {"light": null, "dark": null},
+    "input": {"light": "#FFFFFF", "dark": "#242426"},
+    "selector": {"light": "#F2F3F5", "dark": "#343437"},
+    "code": {"light": "#F6F6F8", "dark": "#1D1D20"},
+    "codeBanner": {"light": "#E9E9ED", "dark": "#2C2C30"},
+    "inlineCode": {"light": null, "dark": null},
+    "border": {"light": null, "dark": null},
+    "borderLight": {"light": null, "dark": null},
+    "accent": {"light": null, "dark": null},
+    "success": {"light": null, "dark": null},
+    "danger": {"light": null, "dark": null},
+    "warning": {"light": null, "dark": null},
+    "onAccent": {"light": "#FFFFFF", "dark": "#FFFFFF"}
+  },
+  "typography": {
+    "scale": {
+      "mode": "system",
+      "unit": "pt",
+      "drivers": {"ios": "dynamic-type", "android": "font-scale"},
+      "rule": "渲染字号 = baseSize × 平台缩放系数;示例只声明系数来源,不写任何绝对像素值"
+    },
+    "styles": {
+      "body": {"baseSize": 14, "weight": 400, "mono": false, "role": "body"},
+      "secondary": {"baseSize": 13, "weight": 400, "mono": false, "role": "body"},
+      "code": {"baseSize": 12, "weight": 400, "mono": true, "role": "code"}
+    }
+  },
+  "spacing": {"iconText": 6, "cardInset": 12},
+  "radius": {"card": 12},
+  "stroke": {"hairline": 0.5},
+  "motion": {
+    "disclosure": {"durationMs": 160, "curve": "easeOut", "repeat": "once"}
+  },
+  "signatureSurfaces": {
+    "bubble": {
+      "surface": "bubble",
+      "parity": "pixel",
+      "typographyUnmeasured": false,
+      "tokens": ["colors.selector", "typography.body", "radius.card", "geometry.bubblePadding"],
+      "unmeasured": ["示例未测"]
+    },
+    "toolRow": {
+      "surface": "toolRow",
+      "parity": "pixel",
+      "typographyUnmeasured": false,
+      "tokens": ["colors.code", "typography.code", "geometry.disclosureRowHeight"],
+      "unmeasured": ["示例未测"]
+    },
+    "thinkingPill": {
+      "surface": "thinkingPill",
+      "parity": "pixel",
+      "typographyUnmeasured": false,
+      "tokens": ["colors.secondary", "typography.secondary", "geometry.disclosureRowHeight"],
+      "unmeasured": ["示例未测"]
+    },
+    "approvalCard": {
+      "surface": "approvalCard",
+      "parity": "pixel",
+      "typographyUnmeasured": false,
+      "tokens": ["colors.onAccent", "radius.card", "typography.body", "geometry.bubblePadding"],
+      "unmeasured": ["示例未测"]
+    },
+    "composer": {
+      "surface": "composer",
+      "parity": "pixel",
+      "typographyUnmeasured": false,
+      "tokens": ["colors.input", "typography.body", "geometry.bubblePadding"],
+      "unmeasured": ["示例未测"]
+    },
+    "failLoudBanner": {
+      "surface": "failLoudBanner",
+      "parity": "pixel",
+      "typographyUnmeasured": false,
+      "tokens": ["colors.codeBanner", "typography.secondary", "geometry.bubblePadding"],
+      "unmeasured": ["示例未测"]
+    }
+  },
+  "contrast": {
+    "roles": {"body": 4.5, "large": 3.0, "nonText": 3.0},
+    "pairs": [
+      {
+        "id": "onInput/input",
+        "foreground": "primary",
+        "background": "input",
+        "role": "body",
+        "required": true,
+        "sites": ["ChatPage.swift:1219"]
+      },
+      {
+        "id": "onSelector/selector",
+        "foreground": "primary",
+        "background": "selector",
+        "role": "body",
+        "required": true,
+        "sites": ["ChatPage.swift:1316"]
+      },
+      {
+        "id": "onCode/code",
+        "foreground": "secondary",
+        "background": "code",
+        "role": "body",
+        "required": true,
+        "sites": ["NativeToolDetailCards.swift:109"]
+      },
+      {
+        "id": "onCodeBanner/codeBanner",
+        "foreground": "secondary",
+        "background": "codeBanner",
+        "role": "body",
+        "required": true,
+        "sites": ["Components.swift:199"]
+      }
+    ],
+    "exempt": []
+  },
+  "provenance": {
+    "colors.primary": {"source": "NativeChatTheme.swift:8", "tier": "theme"},
+    "colors.secondary": {"source": "NativeChatTheme.swift:9", "tier": "theme"},
+    "colors.input": {"source": "NativeChatTheme.swift:13", "tier": "theme"},
+    "colors.selector": {"source": "NativeChatTheme.swift:14", "tier": "theme"},
+    "colors.code": {"source": "NativeChatTheme.swift:15", "tier": "theme"},
+    "colors.codeBanner": {"source": "NativeChatTheme.swift:16", "tier": "theme"},
+    "colors.onAccent": {"source": "system:SwiftUI .white", "tier": "system"},
+    "typography.body": {"source": "NativeChatTheme.swift:25", "tier": "theme"},
+    "typography.secondary": {"source": "NativeChatTheme.swift:26", "tier": "theme"},
+    "typography.code": {"source": "NativeChatTheme.swift:28", "tier": "theme"},
+    "spacing.iconText": {"source": "Components.swift:16", "tier": "component"},
+    "spacing.cardInset": {"source": "Components.swift:128", "tier": "component"},
+    "radius.card": {"source": "Components.swift:129", "tier": "component"},
+    "stroke.hairline": {"source": "Components.swift:225", "tier": "component"},
+    "motion.disclosure": {"source": "NativeMessageRows.swift:19", "tier": "page"},
+    "geometry.bubblePadding": {"source": "ChatPage.swift:2340", "tier": "page"},
+    "geometry.disclosureRowHeight": {"source": "NativeMessageRows.swift:43", "tier": "page"}
+  },
+  "geometry": {
+    "bubblePadding": {"value": 12, "unit": "pt", "scalesWith": null},
+    "disclosureRowHeight": {"value": 24, "unit": "pt", "scalesWith": null}
+  }
+}

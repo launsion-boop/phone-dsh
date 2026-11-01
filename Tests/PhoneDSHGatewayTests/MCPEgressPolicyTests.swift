@@ -6,7 +6,7 @@
 
 import Foundation
 import XCTest
-import PhoneDSHGateway
+@testable import PhoneDSHGateway
 import PhoneDSHAgentCore
 
 final class MCPEgressPolicyTests: XCTestCase {
@@ -41,6 +41,19 @@ final class MCPEgressPolicyTests: XCTestCase {
         func invalidate(_ credential: Credential, for scope: CredentialScope) async {}
     }
 
+    /// A provider for the scalar `.bearer` / `.apiKey` MCP credential shape.
+    /// The host still knows the URL is an MCP endpoint; the credential kind
+    /// must not decide whether the response is sensitive.
+    private struct FixedCredentialProvider: CredentialProvider {
+        let fixed: Credential
+
+        func credential(for scope: CredentialScope) async throws -> Credential {
+            fixed
+        }
+
+        func invalidate(_ credential: Credential, for scope: CredentialScope) async {}
+    }
+
     private final class SetAuthorizer: EgressHostAuthorizing, @unchecked Sendable {
         let urls: Set<URL>
 
@@ -58,7 +71,8 @@ final class MCPEgressPolicyTests: XCTestCase {
                              credentialHeaders: [String: String] = [
                                 "authorization": "Bearer mcp-token",
                                 "x-mcp-token": "mcp-value",
-                             ]) -> ModelGateway {
+                             ],
+                             credential: Credential? = nil) -> ModelGateway {
         let configuration = ModelGatewayConfiguration(
             allowedUpstreamHosts: [],
             responseLogQuotaBytes: 1_000_000,
@@ -68,9 +82,12 @@ final class MCPEgressPolicyTests: XCTestCase {
                                                jitterFraction: 0,
                                                maximumAttempts: 1),
             upstreamRequestTimeout: 10)
+        let provider: any CredentialProvider = credential
+            .map(FixedCredentialProvider.init(fixed:))
+            ?? HeaderCredentialProvider(headers: credentialHeaders)
         let gateway = ModelGateway(
             configuration: configuration,
-            credentialProvider: HeaderCredentialProvider(headers: credentialHeaders),
+            credentialProvider: provider,
             responseLog: responseLog,
             egressAuthorizer: authorizer)
         addTeardownBlock {
@@ -208,8 +225,8 @@ final class MCPEgressPolicyTests: XCTestCase {
         XCTAssertNotNil(try? JSONSerialization.jsonObject(with: response.body),
                         "the controlled diagnostic is valid JSON")
         let echoedHeader = try XCTUnwrap(response.headers["x-echo"])
-        XCTAssertTrue(echoedHeader.contains("[redacted]"),
-                      "response headers are redacted before forwarding")
+        XCTAssertEqual(echoedHeader, "[redacted]",
+                       "a diagnostic header echo is replaced whole, not substring-rewritten")
         XCTAssertFalse(echoedHeader.contains(token))
         let key = ResponseLog.cacheKey(method: "POST",
                                        url: target,
@@ -220,6 +237,114 @@ final class MCPEgressPolicyTests: XCTestCase {
         XCTAssertNil(replayed, "a host-managed MCP response is not replayable from disk")
         XCTAssertEqual(try filesContaining(token, under: root), [],
                        "an upstream echo of the injected header never reaches the response log")
+    }
+
+    func testScalarBearerMCPResponseIsRedactedAndExcludedFromTheResponseLog() async throws {
+        // Regression for gw-resp-004: the exact-URL MCP grant admits the call,
+        // but the provider returns a scalar bearer instead of a header map.
+        // Credential kind must not decide sensitivity.
+        let token = "resp-scalar-token"
+        let upstream = "{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"isError\":true,\"content\":[{\"type\":\"text\",\"text\":\"echo Bearer \(token)\"}]}}"
+        let server = try MockUpstreamServer { _ in
+            .full(status: 200,
+                  headers: ["content-type": "application/json",
+                            "x-echo": "server saw Bearer \(token)"],
+                  body: Data(upstream.utf8))
+        }
+        let port = try await server.start()
+        addTeardownBlock { server.stop() }
+        let target = URL(string: "http://127.0.0.1:\(port)/mcp")!
+        let headers = ["content-type": "application/json"]
+        let body = Data("{}".utf8)
+        let (gateway, log, root) = try makeLoggedGateway(
+            url: target,
+            credential: Credential(kind: .bearer, value: token))
+
+        let response = try await collectGatewayResponse(
+            gateway.handle(GatewayRequest(method: "POST",
+                                          url: target,
+                                          headers: headers,
+                                          body: body)))
+        XCTAssertEqual(response.status, 200)
+        XCTAssertEqual(server.requests.first?.headers["authorization"], "Bearer \(token)",
+                       "the scalar bearer is still injected for the MCP call")
+        let text = String(decoding: response.body, as: UTF8.self)
+        XCTAssertFalse(text.contains(token),
+                       "a scalar bearer MCP credential is redacted like a header map")
+        XCTAssertTrue(text.contains("[redacted]"))
+        let object = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: response.body) as? [String: Any])
+        XCTAssertEqual(object["id"] as? Int, 7, "the JSON-RPC id survives the rewrite")
+        let echoedHeader = try XCTUnwrap(response.headers["x-echo"])
+        XCTAssertFalse(echoedHeader.contains(token))
+        XCTAssertEqual(echoedHeader, "[redacted]")
+
+        let key = ResponseLog.cacheKey(method: "POST",
+                                       url: target,
+                                       headers: headers,
+                                       body: body,
+                                       headerAllowList: ["accept", "content-type"])
+        let replayed = await log.replay(key: key)
+        XCTAssertNil(replayed, "an MCP response is not replayable from disk")
+        XCTAssertEqual(try filesContaining(token, under: root), [],
+                       "a scalar MCP credential never reaches the response log")
+    }
+
+    func testScalarAPIKeyMCPNon2xxBodyIsWithheldAndNotLogged() async throws {
+        // The `.apiKey` scalar form must take the same controlled non-2xx
+        // path as a `.headers` map; the status is the diagnostic.
+        let secret = "sk-scalar-mcp-key"
+        let server = try MockUpstreamServer { _ in
+            .full(status: 401,
+                  headers: ["content-type": "text/plain",
+                            "x-echo": secret],
+                  body: Data("rejected \(secret)".utf8))
+        }
+        let port = try await server.start()
+        addTeardownBlock { server.stop() }
+        let target = URL(string: "http://127.0.0.1:\(port)/mcp")!
+        let (gateway, log, root) = try makeLoggedGateway(
+            url: target,
+            credential: Credential(kind: .apiKey(header: "x-api-key"), value: secret))
+
+        let response = try await collectGatewayResponse(
+            gateway.handle(GatewayRequest(method: "POST",
+                                          url: target,
+                                          body: Data("{}".utf8))))
+        XCTAssertEqual(response.status, 401)
+        XCTAssertEqual(server.requests.first?.headers["x-api-key"], secret)
+        let text = String(decoding: response.body, as: UTF8.self)
+        XCTAssertFalse(text.contains(secret))
+        XCTAssertFalse(text.contains("rejected"),
+                       "the upstream error body is replaced, not passed through")
+        XCTAssertTrue(text.contains("withheld"))
+        XCTAssertEqual(response.headers["content-type"], "application/json; charset=utf-8")
+
+        let key = ResponseLog.cacheKey(method: "POST",
+                                       url: target,
+                                       headers: [:],
+                                       body: Data("{}".utf8),
+                                       headerAllowList: ["accept", "content-type"])
+        let replayed = await log.replay(key: key)
+        XCTAssertNil(replayed)
+        XCTAssertEqual(try filesContaining(secret, under: root), [])
+    }
+
+    func testSanitizedBufferedJSONIsSortedAndByteStable() throws {
+        // Regression for gw-resp-005: `.sortedKeys` makes the redacted JSON
+        // bytes reproducible. The input deliberately lists keys out of order;
+        // without the option Foundation's dictionary order would vary.
+        let input = Data(#"{"jsonrpc":"2.0","id":7,"result":{"isError":true,"content":[{"type":"text","text":"echo Bearer resp-scalar-token"}],"z":1,"a":2}}"#.utf8)
+        let secrets = ["resp-scalar-token", "Bearer resp-scalar-token"]
+        let first = SensitiveResponseBody.sanitizeBufferedBody(input, secrets: secrets)
+        let second = SensitiveResponseBody.sanitizeBufferedBody(input, secrets: secrets)
+        XCTAssertEqual(first, second, "the same input must always yield the same bytes")
+        let expected = #"{"id":7,"jsonrpc":"2.0","result":{"a":2,"content":[{"text":"echo [redacted]","type":"text"}],"isError":true,"z":1}}"#
+        XCTAssertEqual(String(decoding: first, as: UTF8.self), expected,
+                       "keys are sorted, not left in Foundation's iteration order")
+        XCTAssertEqual(GatewaySHA256.hexDigest(first),
+                       "b8c0bc82c8598dccca596f40cfaca4c93fb5cc7e4b642ebe8e571078996528bb",
+                       "the golden vector pins exactly these bytes")
     }
 
     func testHostManagedJSONRPCErrorBodyRedactsInjectedValuesAndKeepsID() async throws {
@@ -259,7 +384,7 @@ final class MCPEgressPolicyTests: XCTestCase {
         XCTAssertTrue(message.contains("[redacted]"))
         let echoedHeader = try XCTUnwrap(response.headers["x-echo"])
         XCTAssertFalse(echoedHeader.contains(token))
-        XCTAssertTrue(echoedHeader.contains("[redacted]"))
+        XCTAssertEqual(echoedHeader, "[redacted]")
 
         let key = ResponseLog.cacheKey(method: "POST",
                                        url: target,
@@ -696,8 +821,8 @@ final class MCPEgressPolicyTests: XCTestCase {
             XCTAssertEqual(response.headers["mcp-session-id"], "session-xyz",
                            "a secret-free MCP session transport header stays intact")
             let echo = try XCTUnwrap(response.headers["x-echo"])
-            XCTAssertTrue(echo.contains("[redacted]"),
-                          "an arbitrary diagnostic header echo is still redacted")
+            XCTAssertEqual(echo, "[redacted]",
+                           "an arbitrary diagnostic header echo is replaced whole")
             XCTAssertFalse(echo.contains("server saw a"))
             let text = String(decoding: response.body, as: UTF8.self)
             XCTAssertTrue(text.contains("[redacted]"))
@@ -968,11 +1093,11 @@ final class MCPEgressPolicyTests: XCTestCase {
         XCTAssertNil(response.headers["mcp-session-id"],
                      "a protocol header exactly equal to the injected credential is withheld")
         let etag = try XCTUnwrap(response.headers["etag"])
-        XCTAssertTrue(etag.contains("[redacted]"))
+        XCTAssertEqual(etag, "[redacted]")
         XCTAssertFalse(etag.contains(token),
                        "ETag is diagnostic metadata and must not echo the credential")
         let lastModified = try XCTUnwrap(response.headers["last-modified"])
-        XCTAssertTrue(lastModified.contains("[redacted]"))
+        XCTAssertEqual(lastModified, "[redacted]")
         XCTAssertFalse(lastModified.contains(token),
                        "Last-Modified is diagnostic metadata and must not echo the credential")
         XCTAssertEqual(response.body, body)
@@ -1015,16 +1140,19 @@ final class MCPEgressPolicyTests: XCTestCase {
                      "a prefixed/suffixed injected value withholds the protocol header")
         let echo = try XCTUnwrap(response.headers["x-echo"])
         XCTAssertFalse(echo.contains(token))
-        XCTAssertTrue(echo.contains("[redacted]"))
+        XCTAssertEqual(echo, "[redacted]")
         XCTAssertEqual(response.body, body)
     }
 
-    private func makeLoggedGateway(url: URL) throws -> (ModelGateway, ResponseLog, URL) {
+    private func makeLoggedGateway(url: URL,
+                                   credential: Credential? = nil) throws
+        -> (ModelGateway, ResponseLog, URL) {
         let root = try makeTemporaryDirectory()
         addTeardownBlock { try? FileManager.default.removeItem(at: root) }
         let log = try ResponseLog(root: root, quotaBytes: 1_000_000)
         let gateway = makeGateway(authorizer: SetAuthorizer(urls: [url]),
-                                  responseLog: log)
+                                  responseLog: log,
+                                  credential: credential)
         return (gateway, log, root)
     }
 

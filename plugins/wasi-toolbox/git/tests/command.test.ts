@@ -129,8 +129,9 @@ test('the command runs inside the Worker shell core (just-bash)', { skip }, asyn
     mkdirSync(repository)
     // VfsFileSystem with an empty root maps virtual paths to the real paths the
     // Worker's node:fs would present, which is exactly the production layout.
+    // The paths here are host temp paths, so the Worker write policy is off.
     const shell = new WorkerShell({
-      fs: new VfsFileSystem({ root: '' }),
+      fs: new VfsFileSystem({ root: '', writePolicy: false }),
       commands: [createGitCommand()],
     })
     const init = await shell.run(['bash', '-c', 'git init -b main && echo one > a.txt && git add -A && git status --porcelain'], {

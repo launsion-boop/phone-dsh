@@ -10,5 +10,8 @@
  * @module @phone-dsh/dsh-worker-entry/boot
  */
 import './jsc-compat.ts'
+import './es2023-compat.ts'
+import './abort-signal-compat.ts'
+import './scheduler-compat.ts'
 
 export * from './entry.ts'

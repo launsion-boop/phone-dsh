@@ -500,13 +500,14 @@ empty on every read, including `cp`.
 
 `writeFile` and `appendFile` enforce the configured single-file budget before
 `node:fs` runs. The budget is the shared value owned by the WASI toolbox's
-`src/limits.ts`: 64 MiB by default, the host's `PDSH_SINGLE_FILE_LIMIT_BYTES`
+`src/limits.ts`: 128 MiB by default (`spec/v1/budgets.md:104`, the 8 GiB tier),
+the host's `PDSH_SINGLE_FILE_LIMIT_BYTES`
 (clamped to 16–128 MiB) when present, or an explicit `maxFileSize`. A complete write above the limit, or an append whose
 post-write size would exceed it, throws an `EFBIG` whose message names the
 target, the would-be size and the limit:
 
 ```
-EFBIG: File too large: /dsh/workspace/big.bin would be 33554432 bytes; a file is limited to 67108864 bytes (64 MiB)
+EFBIG: File too large: /dsh/workspace/big.bin would be 134217729 bytes; a file is limited to 134217728 bytes (128 MiB)
 ```
 
 The byte count and the MiB label are rendered from the same enforced value by
@@ -622,7 +623,7 @@ bridge, and the VFS adapter.
 | `src/corpus.ts` | Explicit coverage stubs and the `which` helper (coverage only). |
 | `coverage/just-bash.mjs` | Runner for `tools/shell-corpus/coverage.mjs`. |
 | `tools/ensure-deps.mjs` | `pretypecheck`/`pretest` bootstrap for `just-bash` and the workspace links. |
-| `tools/patch-just-bash.mjs` | Byte-guarded, idempotent terminal-state seam for the installed just-bash 3.6.0 browser bundle (also run by `postinstall` and the image packer). |
+| `tools/patch-just-bash.mjs` | Byte-guarded, idempotent engine seam for the installed just-bash 3.6.0 browser bundle: terminal state plus the split between the file budget (`EFBIG`) and `maxOutputSize` (also run by `postinstall` and the image packer). |
 
 ## Tests
 

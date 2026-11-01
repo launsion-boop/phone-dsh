@@ -1,0 +1,21 @@
+{
+  "name": "harness-event-inbox-spliced",
+  "schema": "schema/harness-event.schema.json",
+  "instance": {
+    "session_id": "sess-2f7c",
+    "seq": 9,
+    "time_ms": 1793400126000,
+    "kind": "inbox_spliced",
+    "messages": [
+      {
+        "text": "Check the changelog for the pinned commit.",
+        "source": "goal"
+      },
+      {
+        "text": "Then open a draft pull request.",
+        "source": "goal"
+      }
+    ]
+  },
+  "notes": "Sources/PhoneDSHAgentCore/AgentHarness.swift:400-403 and 338-355: one splice event carries the user-role messages it inserted, in insertion order, each with the producer-declared source (user, goal, webhook, ...; unknown when the journal carries no readable source). DSH agent/inbox/spliced drops blocks with empty text and emits nothing for an empty splice (DSHEventMapper.swift:67-73, 128-130)."
+}

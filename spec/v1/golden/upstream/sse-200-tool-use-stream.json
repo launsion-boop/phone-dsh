@@ -1,0 +1,53 @@
+{
+  "id": "sse-200-tool-use-stream",
+  "model": "deepseek-flash",
+  "title": "A complete Messages SSE stream with a thinking block and one tool_use block",
+  "request_match": {
+    "method": "POST",
+    "path_suffix": "/v1/messages"
+  },
+  "script": [
+    {
+      "status": 200,
+      "headers": {
+        "content-type": "text/event-stream"
+      },
+      "frames": "chunked",
+      "body_chunks": [
+        "event: message_start\ndata: {\"message\":{\"content\":[],\"id\":\"msg_mock_1\",\"model\":\"deepseek-flash\",\"role\":\"assistant\",\"stop_reason\":null,\"stop_sequence\":null,\"type\":\"message\",\"usage\":{\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":2048,\"input_tokens\":165,\"output_tokens\":0,\"service_tier\":\"standard\"}},\"type\":\"message_start\"}\n\nevent: content_block_start\ndata: {\"content_block\":{\"signature\":\"\",\"thinking\":\"\",\"type\":\"thinking\"},\"index\":0,\"type\":\"content_block_start\"}\n\nevent: ping\ndata: {\"type\":\"ping\"}\n\n",
+        "event: content_block_delta\ndata: {\"delta\":{\"thinking\":\"Plan\",\"type\":\"thinking_delta\"},\"index\":0,\"type\":\"content_block_delta\"}\n\nevent: content_block_delta\ndata: {\"delta\":{\"thinking\":\" the fixed command\",\"type\":\"thinking_delta\"},\"index\":0,\"type\":\"content_block_delta\"}\n\n",
+        "event: content_block_delta\ndata: {\"delta\":{\"signature\":\"msg_mock_1\",\"type\":\"signature_delta\"},\"index\":0,\"type\":\"content_block_delta\"}\n\nevent: content_block_stop\ndata: {\"index\":0,\"type\":\"content_block_stop\"}\n\n",
+        "event: content_block_start\ndata: {\"content_block\":{\"id\":\"toolu_mock_1\",\"input\":{},\"name\":\"bash\",\"type\":\"tool_use\"},\"index\":1,\"type\":\"content_block_start\"}\n\nevent: content_block_delta\ndata: {\"delta\":{\"partial_json\":\"{\\\"command\\\":\\\"echo scenario > a.txt && cat a.txt\\\",\\\"description\\\":\\\"Run the scenario's fixed command\\\"}\",\"type\":\"input_json_delta\"},\"index\":1,\"type\":\"content_block_delta\"}\n\nevent: content_block_stop\ndata: {\"index\":1,\"type\":\"content_block_stop\"}\n\n",
+        "event: message_delta\ndata: {\"delta\":{\"stop_reason\":\"tool_use\",\"stop_sequence\":null},\"type\":\"message_delta\",\"usage\":{\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":2048,\"input_tokens\":165,\"output_tokens\":120,\"service_tier\":\"standard\"}}\n\n",
+        "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+      ],
+      "closes": true
+    }
+  ],
+  "expected": {
+    "caller_visible": "sse_stream_passthrough",
+    "retry": {
+      "retried": false,
+      "attempts": 1,
+      "trigger": "none"
+    },
+    "provider_error": "none",
+    "response_log": "committed",
+    "client_outcome": "ok",
+    "field_evidence": {
+      "caller_visible": "swift-test",
+      "retry": "swift-test",
+      "provider_error": "swift-test",
+      "response_log": "swift-source",
+      "client_outcome": "swift-test"
+    }
+  },
+  "evidence_level": "swift-source",
+  "source": "Tests/PhoneDSHGatewayTests/ModelGatewayTests.swift:288-328",
+  "related_sources": [
+    "Sources/PhoneDSHScenario/ScenarioMockUpstream.swift:485-597",
+    "Tests/PhoneDSHGatewayTests/MockUpstreamServer.swift:212-236",
+    "Sources/PhoneDSHGateway/ModelGateway.swift:739-740"
+  ],
+  "notes": "The body is the same shape the scenario mock generates: message_start, a thinking block, an optional tool_use block, message_delta with usage and message_stop. The caller must receive the head before the last chunk (a streaming assertion), every byte in order and no reordering. input_tokens 165 is 128 + 37 and output_tokens 120 is 96 + 24 for the tool-call reply; those are the mock's constants, not provider measurements."
+}

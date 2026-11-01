@@ -1,0 +1,12 @@
+{
+  "name": "harness-command-cancel-with-cause-budget",
+  "schema": "schema/harness-command.schema.json",
+  "instance": {
+    "kind": "cancel_with_cause",
+    "cause": {
+      "kind": "budget",
+      "detail": "step budget exhausted after 40 steps"
+    }
+  },
+  "notes": "Sources/PhoneDSHAgentCore/AgentHarness.swift:191-246 (four cause kinds: user, hook, budget(detail), timeout(detail)) and 255-258. The DSH projection is nested and is the only encoding: user is {\"kind\":\"user\"}, hook is {\"kind\":\"hook\",\"reason\":{\"kind\":\"hook\"}}, budget(d) is {\"kind\":\"hook\",\"reason\":{\"kind\":\"budget\",\"detail\":d}}, timeout(d) is {\"kind\":\"hook\",\"reason\":{\"kind\":\"timeout\",\"detail\":d}} (AgentHarness.swift:219-245; sent at DSHRemoteHarness.swift:126-133). A backend that cannot carry a cause may treat the command as cancel (AgentHarness.swift:255-257)."
+}

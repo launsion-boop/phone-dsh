@@ -1,0 +1,43 @@
+{
+  "id": "gw-redir-002",
+  "rule": "redirect-scope",
+  "kind": "redirect-chain",
+  "source": "Sources/PhoneDSHGateway/GatewaySession.swift:384",
+  "references": [
+    "Tests/PhoneDSHGatewayTests/ModelGatewayTests.swift:1364",
+    "Tests/PhoneDSHGatewayTests/ModelGatewayTests.swift:1366"
+  ],
+  "note": "A redirect inside the exact scheme/host/effective-port/normalized-path scope is followed and the host credential is re-applied.",
+  "input": {
+    "method": "POST",
+    "url": "https://api.example.invalid/v1/messages",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "allowlist": [
+      "https://api.example.invalid"
+    ],
+    "credential": {
+      "kind": "api-key",
+      "header": "x-api-key",
+      "value": "sk-HOST-API-KEY-PLACEHOLDER"
+    },
+    "redirects": [
+      {
+        "status": 307,
+        "location": "https://api.example.invalid/v1/messages"
+      }
+    ]
+  },
+  "expect": {
+    "dispatch": "allow",
+    "outbound_headers": {
+      "content-type": "application/json",
+      "x-api-key": "sk-HOST-API-KEY-PLACEHOLDER"
+    },
+    "stripped": [],
+    "outbound_url": "https://api.example.invalid/v1/messages",
+    "redirects_followed": 1,
+    "final_url": "https://api.example.invalid/v1/messages"
+  }
+}

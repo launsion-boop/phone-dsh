@@ -253,7 +253,11 @@ test('devices: a path outside the fixed set still fails loud and creates nothing
   const result = await shell.run(['bash', '-c', 'echo nope > /dev/nonexistent; echo unreachable'], { cwd: '/dsh/workspace' })
   assert.notEqual(result.exitCode, 0)
   assert.equal(result.stdout.includes('unreachable'), false)
-  assert.match(result.stderr, /ENOENT|No such file/)
+  // `/dev/nonexistent` is not one of the five roots, so the write policy's
+  // answer is EACCES plus the one remediation line (P13/G2-B), not the
+  // backend's ENOENT.
+  assert.match(result.stderr, /EACCES: permission denied, open '\/dev\/nonexistent'/)
+  assert.match(result.stderr, /pdsh-shell: writable roots are /)
   assert.equal(existsSync(join(root, 'dev/nonexistent')), false)
   assert.equal(existsSync(join(root, 'dev')), false)
 })

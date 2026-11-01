@@ -1,0 +1,63 @@
+{
+  "id": "retry-500-then-200",
+  "model": "deepseek-flash",
+  "title": "A 5xx head before any forwarded byte is retried, then the caller sees only the 200 stream",
+  "request_match": {
+    "method": "POST",
+    "path_suffix": "/v1/messages"
+  },
+  "script": [
+    {
+      "status": 500,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "frames": "content_length",
+      "declared_content_length": 52,
+      "body_chunks": [
+        "{\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\"}}"
+      ],
+      "closes": true
+    },
+    {
+      "status": 200,
+      "headers": {
+        "content-type": "text/event-stream"
+      },
+      "frames": "chunked",
+      "body_chunks": [
+        "event: message_start\ndata: {\"message\":{\"content\":[],\"id\":\"msg_mock_2\",\"model\":\"deepseek-flash\",\"role\":\"assistant\"},\"type\":\"message_start\"}\n\n",
+        "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+      ],
+      "closes": true
+    }
+  ],
+  "expected": {
+    "caller_visible": "final_status_and_body",
+    "retry": {
+      "retried": true,
+      "attempts": 2,
+      "trigger": "upstream_status",
+      "delays_ms": [
+        1000
+      ],
+      "jitter_disabled": true
+    },
+    "provider_error": "none",
+    "client_outcome": "ok",
+    "field_evidence": {
+      "caller_visible": "swift-test",
+      "retry": "swift-test",
+      "provider_error": "swift-test",
+      "client_outcome": "swift-test"
+    }
+  },
+  "evidence_level": "swift-test",
+  "source": "Tests/PhoneDSHGatewayTests/ModelGatewayTests.swift:880-898",
+  "related_sources": [
+    "Sources/PhoneDSHGateway/ModelGateway.swift:689-699",
+    "Sources/PhoneDSHGateway/ModelGateway.swift:1269-1271",
+    "Tests/PhoneDSHGatewayTests/ModelGatewayTests.swift:900-916"
+  ],
+  "notes": "Retry happens on the 429/5xx HEAD, before the head is forwarded, and only for a replay-safe model endpoint (a POST to a configured standard model endpoint; an ordinary egress POST is single-shot). The 58-byte length is the exact length of the error body above. delays_ms is the configured schedule with jitterFraction 0; the production default jitters each delay into [0.8x, 1x], so a runner must compare the attempt count, not the exact delay, unless it also disables jitter. A 429 with Retry-After wins over the exponential schedule (ModelGatewayTests:900-916)."
+}

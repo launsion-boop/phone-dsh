@@ -1,0 +1,72 @@
+{
+  "title": "HarnessSession",
+  "description": "The value openSession returns. capabilities is the session's (possibly narrowed) capability set; last_seq is the highest durable event seq the backend reported at open time and is optional because a backend may not know it.",
+  "type": "object",
+  "required": [
+    "id",
+    "capabilities"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "last_seq": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "capabilities": {
+      "type": "object",
+      "required": [
+        "cancel",
+        "steer",
+        "resume",
+        "permission",
+        "client_tools",
+        "tool_visibility",
+        "runs_while_app_suspended"
+      ],
+      "properties": {
+        "cancel": {
+          "type": "boolean"
+        },
+        "steer": {
+          "type": "boolean"
+        },
+        "resume": {
+          "type": "string",
+          "enum": [
+            "native",
+            "replay",
+            "none"
+          ]
+        },
+        "permission": {
+          "type": "string",
+          "enum": [
+            "native",
+            "relay",
+            "none"
+          ]
+        },
+        "client_tools": {
+          "type": "string",
+          "enum": [
+            "native",
+            "bridge",
+            "none"
+          ]
+        },
+        "tool_visibility": {
+          "type": "boolean"
+        },
+        "runs_while_app_suspended": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

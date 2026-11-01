@@ -1,0 +1,332 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "WorkspaceFoldersPage",
+  "pageId": "workspace-folders",
+  "structure": "swiftui-view",
+  "sectionModel": "single-region",
+  "sectionNote": "flat List: one NavigationLink per workspace + one empty-state block; no group header",
+  "title": {
+    "text": "工作文件夹",
+    "provenance": "NativeShell.swift:372",
+    "anchor": ".navigationTitle(\"工作文件夹\")"
+  },
+  "source": {
+    "file": "NativeShell.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/NativeShell.swift",
+    "lines": 996,
+    "structLine": 318,
+    "renderedFrom": [
+      "body"
+    ],
+    "sectionOrder": "declaration order inside the page struct"
+  },
+  "android": {
+    "screen": "WorkspaceFoldersPage",
+    "file": "android/lib/src/main/kotlin/com/phonedsh/ui/page/WorkspaceFoldersPage.kt",
+    "match": "composable"
+  },
+  "sections": [
+    {
+      "id": "single-region-318",
+      "kind": "single-region",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleSource": "absent",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "navigation-326",
+          "label": null,
+          "labelExpr": "Self.displayName(workspace)",
+          "kind": "navigation",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": "FilesPage",
+          "writes": false,
+          "condition": null,
+          "provenance": "NativeShell.swift:326",
+          "anchor": "NavigationLink {",
+          "extraction": "manual",
+          "collection": "management.workspaces"
+        },
+        {
+          "id": "还没有工作文件夹",
+          "label": "还没有工作文件夹",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "management.workspaces.isEmpty",
+          "provenance": "NativeShell.swift:347",
+          "anchor": "Text(\"还没有工作文件夹\")",
+          "extraction": "syntax"
+        },
+        {
+          "id": "会话把生成的文件放在文件夹里-新建一个文件夹给它用",
+          "label": "会话把生成的文件放在文件夹里。新建一个文件夹给它用。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "management.workspaces.isEmpty",
+          "provenance": "NativeShell.swift:349",
+          "anchor": "Text(\"会话把生成的文件放在文件夹里。新建一个文件夹给它用。\")",
+          "extraction": "syntax"
+        },
+        {
+          "id": "添加工作文件夹",
+          "label": "添加工作文件夹",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": "management.workspaces.isEmpty",
+          "provenance": "NativeShell.swift:356",
+          "anchor": "Text(\"添加工作文件夹\")",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "NativeShell.swift:318",
+      "anchor": "struct WorkspaceFoldersPage: View {",
+      "criterion": {
+        "kind": "single-region"
+      },
+      "extraction": "manual",
+      "note": "flat List: one NavigationLink per workspace + one empty-state block; no group header"
+    }
+  ],
+  "actions": [
+    {
+      "id": "添加工作文件夹",
+      "label": "添加工作文件夹",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ showingNewWorkspace = true",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "NativeShell.swift:356",
+      "anchor": "Text(\"添加工作文件夹\")",
+      "extraction": "syntax",
+      "presents": "alert-381"
+    },
+    {
+      "id": "添加",
+      "label": "添加",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "toolbar",
+      "semantic": "{ showingNewWorkspace = true",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "NativeShell.swift:376",
+      "anchor": "Button(\"添加\") { showingNewWorkspace = true }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "取消",
+      "label": "取消",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "alert-button",
+      "semantic": "{ newWorkspaceName = \"\"",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "NativeShell.swift:384",
+      "anchor": "Button(\"取消\", role: .cancel) { newWorkspaceName = \"\" }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "创建",
+      "label": "创建",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "alert-button",
+      "semantic": "{ let name = newWorkspaceName newWorkspaceName = \"\" Task { _ = await management.createWorkspaceFolder(named: name) }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "NativeShell.swift:385",
+      "anchor": "Button(\"创建\") {",
+      "extraction": "syntax"
+    },
+    {
+      "id": "navigation-326",
+      "label": null,
+      "labelExpr": "Self.displayName(workspace)",
+      "kind": "navigation",
+      "trigger": "tap",
+      "semantic": "navigate:FilesPage",
+      "writes": false,
+      "destination": "FilesPage",
+      "condition": null,
+      "provenance": "NativeShell.swift:326",
+      "anchor": "NavigationLink {",
+      "extraction": "manual"
+    },
+    {
+      "id": "切换",
+      "label": "切换",
+      "labelExpr": null,
+      "kind": "action",
+      "trigger": "tap",
+      "semantic": null,
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "extraction": "manual",
+      "androidOnly": {
+        "reason": {
+          "baselineLacks": "the baseline makes the current folder implicit: creating a session inside a folder is the only switch",
+          "androidNeeds": "README §1 makes switching this page's duty, and Android's session creation lives on another page, so the switch has to be explicit here",
+          "withoutIt": "switching folders requires detouring through the sessions page and creating a throwaway session"
+        },
+        "owner": "android-ui",
+        "reviewBy": "2027-01-31"
+      }
+    },
+    {
+      "id": "删除",
+      "label": "删除",
+      "labelExpr": null,
+      "kind": "action",
+      "trigger": "tap",
+      "semantic": null,
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "extraction": "manual",
+      "androidOnly": {
+        "reason": {
+          "baselineLacks": "the baseline deletes a workspace from the drawer's `⋯` menu (SessionsPage.swift:447), not from this page",
+          "androidNeeds": "README §1 gives this page the add/remove duty, and the Android drawer has no workspace menu, so removal must live here",
+          "withoutIt": "a folder created by mistake can only be removed by going back to the drawer, which does not offer the action"
+        },
+        "owner": "android-ui",
+        "reviewBy": "2027-01-31"
+      }
+    },
+    {
+      "id": "重试",
+      "label": "重试",
+      "labelExpr": null,
+      "kind": "action",
+      "trigger": "tap",
+      "semantic": null,
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "extraction": "manual",
+      "androidOnly": {
+        "reason": {
+          "baselineLacks": "the iOS list reads local state and cannot fail, so it has no retry affordance",
+          "androidNeeds": "the Android workspace list comes from a host snapshot and can fail, and this page is the only place to recover",
+          "withoutIt": "a failed list read is a dead page: no folders, no way to retry"
+        },
+        "owner": "android-ui",
+        "reviewBy": "2027-01-31"
+      }
+    }
+  ],
+  "presentations": [
+    {
+      "id": "alert-381",
+      "kind": "alert",
+      "title": "新建工作文件夹",
+      "destination": null,
+      "triggerBindings": [
+        "showingNewWorkspace"
+      ],
+      "span": [
+        381,
+        390
+      ],
+      "provenance": "NativeShell.swift:381",
+      "anchor": ".alert(\"新建工作文件夹\", isPresented: $showingNewWorkspace) {",
+      "triggered": true
+    }
+  ],
+  "states": {
+    "advisory": true,
+    "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
+    "sites": {
+      "empty": [
+        {
+          "renders": "还没有工作文件夹",
+          "when": "management.workspaces.isEmpty",
+          "provenance": "NativeShell.swift:347",
+          "anchor": "Text(\"还没有工作文件夹\")"
+        }
+      ],
+      "data": [
+        {
+          "renders": "untitled section at 318",
+          "when": null,
+          "provenance": "NativeShell.swift:318",
+          "anchor": "struct WorkspaceFoldersPage: View {",
+          "note": "structural default: the sections above, when no condition overrides them"
+        }
+      ],
+      "failure": [],
+      "unknown": [],
+      "loading": []
+    },
+    "absent": [
+      "failure",
+      "unknown",
+      "loading"
+    ],
+    "coverage": {
+      "empty": 1,
+      "data": 1,
+      "failure": 0,
+      "unknown": 0,
+      "loading": 0
+    }
+  },
+  "subpages": [
+    {
+      "name": "EgressAllowListPage",
+      "line": 443,
+      "private": false,
+      "sections": [
+        {
+          "title": "地址",
+          "provenance": "NativeShell.swift:473"
+        }
+      ],
+      "provenance": "NativeShell.swift:443"
+    },
+    {
+      "name": "SettingsAboutPage",
+      "line": 861,
+      "private": false,
+      "sections": [],
+      "provenance": "NativeShell.swift:861"
+    }
+  ],
+  "unreachable": [],
+  "extraction": {
+    "tool": "extract_ios_pages.py",
+    "mode": "syntax",
+    "sectionKeywordsInPage": 0,
+    "regionsExtracted": 0,
+    "sectionsExtracted": 1,
+    "warnings": []
+  }
+}

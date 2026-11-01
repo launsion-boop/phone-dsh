@@ -640,6 +640,11 @@ public actor ModelGateway {
         let requestMayRetry = Self.isReplaySafeRequest(
             method: method, url: url, replaySafeModelEndpoints: configuration.replaySafeModelEndpoints)
         var logSequence: UInt64 = 0
+        // The per-request egress authorizer is the host's exact-URL MCP grant:
+        // it admits an MCP endpoint the user explicitly added without widening
+        // the static allow-list. Capture the admission once per exchange; a
+        // revoked grant must not turn an in-flight response ordinary.
+        let admittedByMCPGrant = egressAuthorizer?.allowsEgressHost(url) ?? false
 
         while true {
             attemptNumber += 1
@@ -652,17 +657,19 @@ public actor ModelGateway {
                 return
             }
 
-            // A host-managed MCP credential is the only authentication the
-            // upstream sees. A malicious or misconfigured MCP server can echo
-            // it in an error body/header, so this response must not enter the
-            // on-disk response log. The body is also rewritten before it can
-            // reach the Worker: a non-2xx body is replaced by a controlled
-            // status diagnostic, while a 2xx JSON/SSE body is inspected and
-            // exact injected values (including the credential part of a
-            // standard Authorization scheme) are redacted; JSON structure and
-            // the JSON-RPC id are preserved. This is intentionally not a full
-            // response pass-through.
-            let sensitive = Self.usesHostInjectedCredential(request, credential)
+            // MCP is a property of the call, not of the credential kind. A
+            // scalar `.bearer`/`.apiKey` MCP credential leaks exactly like a
+            // header map when the upstream echoes it, so every MCP response
+            // (admitted by the exact-URL grant, or carrying the Worker's
+            // host-managed placeholder) takes the same sensitive path. The
+            // credential kind only decides which exact values are redacted.
+            // A non-2xx body is replaced by a controlled status diagnostic,
+            // while a 2xx JSON/SSE body is inspected and exact injected values
+            // (including the credential part of a standard Authorization
+            // scheme) are redacted; JSON structure and the JSON-RPC id are
+            // preserved. This is intentionally not a full pass-through.
+            let sensitive = Self.isSensitiveMCPResponse(
+                request, credential: credential, admittedByMCPGrant: admittedByMCPGrant)
             let redactedValues = Self.credentialSecretValues(credential)
             let upstreamRequest = makeURLRequest(request, method: method, url: url, credential: credential)
             metricsStore.addRequestBytes(request.body.count)
@@ -1189,18 +1196,26 @@ public actor ModelGateway {
         return isValidContentTypeToken(value)
     }
 
-    /// True when this request is authenticated by a host-injected MCP header
-    /// map (or still carries its non-secret placeholder). Such responses are
-    /// excluded from the on-disk response log and their body is rewritten by
-    /// ``SensitiveResponseBody`` before it reaches the Worker.
-    private nonisolated static func usesHostInjectedCredential(
+    /// True when this exchange must take the sensitive response path. MCP is a
+    /// property of the call, not of the credential kind: the exact-URL egress
+    /// grant and the Worker's placeholder are the primary markers, so a scalar
+    /// `.bearer`/`.apiKey` MCP credential is just as sensitive as a `.headers`
+    /// map. The non-empty map stays a defensive fallback because the scoped MCP
+    /// credential router is its only producer today; the credential kind alone
+    /// never decides.
+    private nonisolated static func isSensitiveMCPResponse(
         _ request: GatewayRequest,
-        _ credential: Credential
+        credential: Credential,
+        admittedByMCPGrant: Bool
     ) -> Bool {
+        if admittedByMCPGrant { return true }
+        if request.headers.values.contains(where: { $0 == hostManagedHeaderPlaceholder }) {
+            return true
+        }
         if case .headers(let headers) = credential.kind, !headers.isEmpty {
             return true
         }
-        return request.headers.values.contains { $0 == hostManagedHeaderPlaceholder }
+        return false
     }
 
     /// Whether this credential applied real header material to the request.
@@ -1218,29 +1233,47 @@ public actor ModelGateway {
         }
     }
 
+    /// Exact values this credential injected, longest first. Redaction must not
+    /// depend on the credential kind either: a scalar bearer is injected as
+    /// `Authorization: Bearer <value>`, so both the complete header value and
+    /// its credential part are candidates for an upstream echo.
     private nonisolated static func credentialSecretValues(_ credential: Credential) -> [String] {
-        guard case .headers(let headers) = credential.kind else { return [] }
-        var values: [String] = []
-        for (name, value) in headers where !value.isEmpty {
-            values.append(value)
-            // A server that echoes only the credential part of a standard
-            // Authorization value (for example "mcp-token" from
-            // "Bearer mcp-token") is still echoing the exact injected secret.
-            // Derive that part from the header the host actually injected;
-            // this is not a guessed token-shape regex.
-            guard Self.schemeBearingCredentialHeaders.contains(name.lowercased()),
-                  let separator = value.firstIndex(where: { $0 == " " || $0 == "\t" }) else {
-                continue
+        switch credential.kind {
+        case .none:
+            return []
+        case .headers(let headers):
+            var values: [String] = []
+            for (name, value) in headers where !value.isEmpty {
+                values.append(value)
+                // A server that echoes only the credential part of a standard
+                // Authorization value (for example "mcp-token" from
+                // "Bearer mcp-token") is still echoing the exact injected
+                // secret. Derive that part from the header the host actually
+                // injected; this is not a guessed token-shape regex.
+                guard Self.schemeBearingCredentialHeaders.contains(name.lowercased()),
+                      let separator = value.firstIndex(where: { $0 == " " || $0 == "\t" }) else {
+                    continue
+                }
+                let scheme = value[..<separator].lowercased()
+                guard Self.standardAuthorizationSchemes.contains(scheme) else { continue }
+                let remainder = value[value.index(after: separator)...]
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !remainder.isEmpty {
+                    values.append(remainder)
+                }
             }
-            let scheme = value[..<separator].lowercased()
-            guard Self.standardAuthorizationSchemes.contains(scheme) else { continue }
-            let remainder = value[value.index(after: separator)...]
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            if !remainder.isEmpty {
-                values.append(remainder)
-            }
+            return sortedSecretValues(values)
+        case .bearer:
+            guard !credential.value.isEmpty else { return [] }
+            return sortedSecretValues([credential.value, "Bearer \(credential.value)"])
+        case .apiKey:
+            guard !credential.value.isEmpty else { return [] }
+            return [credential.value]
         }
-        return Array(Set(values))
+    }
+
+    private nonisolated static func sortedSecretValues(_ values: [String]) -> [String] {
+        Array(Set(values))
             .sorted { lhs, rhs in
                 lhs.count == rhs.count ? lhs < rhs : lhs.count > rhs.count
             }
@@ -1259,11 +1292,13 @@ public actor ModelGateway {
 
     private nonisolated static func redactingSecrets(_ text: String,
                                                      in secrets: [String]) -> String {
-        var result = text
-        for secret in secrets where !secret.isEmpty {
-            result = result.replacingOccurrences(of: secret, with: "[redacted]")
-        }
-        return result
+        // gw-resp-004: a diagnostic header has no protocol meaning, so a value
+        // that contains any injected secret is replaced whole. A substring
+        // rewrite would forward attacker-shaped text around a placeholder and
+        // is harder to judge at a glance.
+        secrets.contains(where: { !$0.isEmpty && text.contains($0) })
+            ? "[redacted]"
+            : text
     }
 
     private nonisolated static func isRetryableStatus(_ status: Int) -> Bool {

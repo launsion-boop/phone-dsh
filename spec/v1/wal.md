@@ -202,7 +202,8 @@ JSON, UTF-8, validated by [schema/manifest.schema.json](schema/manifest.schema.j
 `first_mseq` equals the header's `first_mseq`, `last_mseq` is the highest mutation mseq in the segment
 (0 when none). A manifest rewrite lists every segment that holds at least one record (a mutation or an
 epoch-close record) at the time of the write, including an open-epoch segment that already received a
-mutation. A header-only segment holds no record; it is legal on disk and is **not** listed. A listed
+mutation. A header-only segment holds no record; it is legal on disk and is **not** listed. A
+zero-length segment holds neither a header nor a record; §7.2 allows it to be dropped. A listed
 segment is therefore not necessarily epoch-closed: `last_durable_epoch` remains the sole marker of the
 most recently closed (level-2 durable) epoch. A listed segment that is not epoch-closed is retained as
 recorded; its epoch becomes durable only when a close record is present. Every present file that is not
@@ -227,28 +228,47 @@ applied position that the materialized copy has not reached.
   - *listed and missing*: dropped silently only when all of its recorded mutations have
     `mseq <= materialized_upto_mseq`; otherwise `WAL_CORRUPT` → `Failed`;
   - *unlisted and no mutation above the watermark*: replayed as usual (its records are already
-    applied, so replay is a no-op) and then **stale** — unless a newer epoch-close (filename epoch >
-    `last_durable_epoch`) is adopted to repair the durable point, in which case it is retained and
-    re-listed at the next manifest write; otherwise recovery unlinks it after the durable manifest
-    and fsyncs `wal/`;
+    applied, so replay is a no-op) and then **stale**. A stale segment is **retained and re-listed**
+    at the next manifest write, and the materialized copy is verified against it; recovery MUST NOT
+    unlink it. Unlinking a stale segment is what silently lost the G2-A09 class of acknowledged
+    writes — the manifest had lagged, the records were real, and the unlisted segment was the only
+    surviving history. A newer epoch-close (filename epoch > `last_durable_epoch`) is retained and
+    adopted on the same rules;
   - *unlisted with a mutation above the watermark*: **adopted tail**; its first mutation must equal
     the attested tail + 1, where the attested tail is `max(last_mseq, highest listed mutation mseq,
-    materialized_upto_mseq)`, and recovery adds it to `segments[]` at the next manifest write and
-    replays the tail (open epoch or close/manifest crash);
+    materialized_upto_mseq)`; later segments of the same epoch must continue it (only the first is
+    bounded by `materialized_upto_mseq + 1`), and recovery re-lists and replays the whole tail;
   - unlisted header/CRC failure, mseq hole, or a record above the watermark that cannot continue
     the attested tail: `WAL_CORRUPT` → `Failed`.
+- **Zero-length segment.** A `wal/*.xlwal` of length 0 has no header and no record. Unlisted,
+  recovery **drops it** after the manifest that omits it is durable and logs
+  `WAL_EMPTY_SEGMENT_DROPPED segment=<n>` (`<n>` = the segment file name); it is never
+  `WAL_CORRUPT`. Listed, its recorded mutations are gone and the listed-and-missing rule above
+  applies: dropped only when every recorded mutation has `mseq <= materialized_upto_mseq`, otherwise
+  `WAL_CORRUPT`. A non-zero segment whose header magic, format, reserved, length or CRC is wrong is
+  **not** this case: its header may have been overwritten, so `WAL_CORRUPT` stands.
 - **Tail below materialized.** After truncation the retained WAL tail may be **below**
   `materialized_upto_mseq`; that is legal. The effective tail is
   `max(last_mseq, highest mutation mseq in the retained WAL)`. Host HELLO carries `acked_mseq` =
   effective tail and `next_mseq` = `max(last_mseq, WAL tail) + 1` (D17); mseq is never reused.
-- **Staged reconcile.** Reconcile runs only when the manifest and the WAL tail disagree, when the
-  marker exists, when the manifest is missing/corrupt, or after a `Failed` close left an unrepaired
-  base mismatch. Its inputs are the **materialized copy plus the WAL tail — never the WAL alone**.
+- **Manifest range versus file range.** A segment file may hold fewer records than `segments[]`
+  records for it only when all three hold: it is the newest segment, recovery truncated it under
+  D19, and the recorded range lies at or below `materialized_upto_mseq`. A short file in any other
+  position means records above the watermark are gone: `WAL_CORRUPT` → `Failed`.
+- **Staged reconcile.** Reconcile runs only on a §10 damage condition: the marker exists, the
+  manifest is missing/corrupt, a **listed** segment is missing above the watermark, or a `Failed`
+  close left an unrepaired base mismatch. A manifest that merely trails the WAL tail is **not** a
+  trigger — that is the ordinary crash-before-manifest case, repaired by replaying the tail onto
+  the materialized copy and verifying it. Reading this rule as "any disagreement" turns every
+  unclean shutdown into a full staging copy for a case the tail replay already handles.
+  Its inputs are the **materialized copy plus the WAL tail — never the WAL alone**.
   Steps: write `reconcile.inprogress` (with boot id, target tail and materialized position; fsync) →
   copy the materialized tree to `materialized.staging/` → replay the tail → fsync staging → exchange
   `materialized/` and `materialized.staging/` by rename → write the manifest with the effective tail
   → delete the marker; a boot that sees it redoes the reconcile.
-- **Missing-manifest rule.** If `manifest.json` is missing, unreadable or schema-invalid: when the
+- **Missing-manifest rule.** If `manifest.json` is missing, unreadable or schema-invalid — and
+  "schema-invalid" here means a **required member is missing or a known member is out of range**,
+  never "an unknown member appeared", which README §2 requires a decoder to ignore —: when the
   earliest retained segment has `first_mseq == 1`, rebuild from the empty tree by replaying the
   whole WAL and write a fresh manifest whose `last_mseq` is the WAL tail; else (a truncation must
   have happened) recovery is `Failed` and the worker must provide a fresh full snapshot before
@@ -296,15 +316,45 @@ worker has the bytes.
 - If the WAL still exceeds 512 MiB after compaction, the host fails loud: admission closes and the
   state becomes `Failed`. Data is not silently evicted.
 
+**Readings the wording leaves open, decided here** (a port stopped on each of these):
+
+- "runs only after the D18 close order has completed" applies **per segment that is dropped**, not to
+  the whole log: a segment may be dropped while another epoch is still open, provided that segment's
+  own epoch is durable and listed. §7.1 already allows rewriting `manifest.json` "before a segment is
+  deleted", and §7 allows listing an open epoch's segments — so a global "only at an epoch boundary"
+  reading would contradict both.
+- "the newest epoch-close segment" means the segment holding the newest close record among the
+  segments that stay. Because it is never dropped, it is always the close segment of
+  `last_durable_epoch`.
+- "its epoch is durable (closed in the D18 order, `F_FULLFSYNC`ed, listed)" is proven by
+  `last_durable_epoch` plus `segments[]` in the manifest — §7 calls `last_durable_epoch` the one
+  marker D18 step 5 writes. Keeping the newest close record readable is a backstop, not a second
+  requirement.
+- For a path the epoch removed, there is no file to fsync: fsync its **parent directory**, the same
+  rule D18 step 1 uses for removes.
+- The close record itself is **not** charged against the limit before it is written. Refusing to close
+  an epoch to save 33 bytes would trade the D18 order for a byte count, which is the wrong trade; the
+  next append enforces the limit instead.
+- "Compact droppable data first" means **drop oldest first and stop as soon as
+  `used + reserve <= limit`**. Deleting every droppable segment would discard history that still has
+  value for a number that is already under the limit.
+- The 512 MiB limit is **per workspace log** (one `manifest.json`), not a sum over every workspace on
+  the host.
 ## 10. Recovery (D19)
 
-1. Read the manifest; parse and place every segment — listed, missing or unlisted — by §7.2. A listed
-   segment whose header magic, format, reserved, length or CRC is wrong follows the missing-segment
-   rule using its recorded mseq range; an unlisted unreadable segment is `WAL_CORRUPT`.
+1. Read the manifest; parse and place every segment — listed, missing or unlisted — by §7.2.
+   Classify each present file by its own bytes before applying the placement rule: **length 0** is
+   §7.2's zero-length case (no header, no record; dropped and logged, never `WAL_CORRUPT`); **a
+   complete 40-byte header whose record region fails only at the tail** is step 2's torn tail; **a
+   non-zero file whose header magic, format, reserved, length or CRC is wrong** is header damage. A
+   listed segment with header damage follows the missing-segment rule using its recorded mseq range;
+   an unlisted one is `WAL_CORRUPT`.
 2. Verify every record's `len` and `crc32c` in mseq order. A **torn tail** — an incomplete or
    mismatching `len`/`crc32c` with no complete record after it — is **truncated to the last complete
    record and the truncation is logged** (boot id, segment, byte offset, dropped bytes); it is not an
-   error, because power loss may lose the open epoch. A CRC failure that is **not at the tail**, or an
+   error, because power loss may lose the open epoch. A legal record cut short whose declared length
+   agrees with its body header is a torn tail regardless of size; for it, a tail-search work budget
+   is not evidence of a record after it. A CRC failure that is **not at the tail**, or an
    invalid record followed by a valid one, is `WAL_CORRUPT` → `Failed` with admission closed.
    Acknowledged level-1 records are never truncated.
 3. Replay mutations with `mseq > materialized_upto_mseq` in ascending order using §6. A base

@@ -1,0 +1,41 @@
+{
+  "id": "gw-redir-005",
+  "rule": "redirect-scope",
+  "kind": "redirect-chain",
+  "source": "Sources/PhoneDSHGateway/GatewaySession.swift:63",
+  "references": [
+    "Tests/PhoneDSHGatewayTests/GatewayHostRuleWildcardTests.swift:25"
+  ],
+  "note": "`https://*` widens the host check only. The rule's scheme still requires https, so an http downgrade is not allow-listed and the 3xx is returned.",
+  "input": {
+    "method": "GET",
+    "url": "https://api.example.invalid/v1/forecast",
+    "headers": {
+      "accept": "application/json"
+    },
+    "allowlist": [
+      "https://*"
+    ],
+    "credential": {
+      "kind": "none"
+    },
+    "redirects": [
+      {
+        "status": 302,
+        "location": "http://api.example.invalid/v1/forecast"
+      }
+    ]
+  },
+  "expect": {
+    "dispatch": "deny",
+    "outbound_headers": {
+      "accept": "application/json"
+    },
+    "stripped": [],
+    "outbound_url": "https://api.example.invalid/v1/forecast",
+    "deny_reason": "redirect_target_not_allowed",
+    "redirects_followed": 0,
+    "final_url": "http://api.example.invalid/v1/forecast",
+    "status": 302
+  }
+}

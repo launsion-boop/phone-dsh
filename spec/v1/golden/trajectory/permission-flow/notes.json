@@ -1,0 +1,9 @@
+{
+  "kind": "equivalent",
+  "title": "permission flow: runtime log noise around a semantic allow",
+  "expected": {
+    "ios": "expected.jsonl",
+    "android": "expected.jsonl"
+  },
+  "reason": "Timestamps, pids, ports, UUIDs, iOS mach time, JVM frames, thread labels and CRLF differ. Stage 3 substitutes them; the permission decision and the tool result stay identical."
+}

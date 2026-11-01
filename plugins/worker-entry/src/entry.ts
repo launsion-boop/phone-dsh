@@ -23,11 +23,18 @@
  *  7. forward console lines, mirror LIFECYCLE/FENCE and post `pdsh-ready`.
  * @module @phone-dsh/dsh-worker-entry
  */
-// First, before the entry graph evaluates: JavaScriptCore lacks the
-// explicit-resource-management symbols and ReadableStream async iteration that
-// DSH 0.2.1's lowered code needs. Idempotent and feature-detected; see
-// `jsc-compat.ts`.
+// First, before the entry graph evaluates: the preludes below fill the platform
+// gaps DSH 0.2.1's lowered code and its npm dependencies hit. All are
+// feature-detected and idempotent.
+//   jsc-compat.ts          Symbol.dispose / ReadableStream async iteration,
+//                          Promise.withResolvers, Node's `global` (WKWebView)
+//   es2023-compat.ts       Array/String ES2023 helpers (Chromium <110-111)
+//   abort-signal-compat.ts AbortSignal.any (Chromium <116)
+//   scheduler-compat.ts    scheduler.yield (Chromium <129)
 import './jsc-compat.ts'
+import './es2023-compat.ts'
+import './abort-signal-compat.ts'
+import './scheduler-compat.ts'
 import {
   acceleratorsFromCaps,
   canonicalStringify, decodeApiAbort, decodeApiEnd, decodeApiRequest, decodeUtf8, decodeVfsAck,
@@ -72,12 +79,14 @@ import {
   redactBootFailureDetail,
   type BootTransportFrame,
 } from './boot-redaction.ts'
+import { installModelRouteGuard, modelRouteOf } from './model-route.ts'
 import { installNamespaceAuthority, type NamespaceRuntimeHooks } from './namespace-boot.ts'
 import { createPhoneProfileOverlay } from './profile-overlay.ts'
 import {
   buildCapabilityManifest,
   publishCapabilityManifest,
   workerCommandSurface,
+  workerUnavailableCommands,
   PHONE_V1_LIMITS,
   type CapabilityLimits,
 } from './capabilities.ts'
@@ -306,7 +315,7 @@ export interface PhoneWorkerOptions {
    * VFS sink policy from the host's budget table (PLAN §2.5). `maxFileBytes`
    * is the per-device single-file bound; the sink clamps it to the 256 MiB
    * host maximum. Omitted, the host environment's value then the 128 MiB
-   * 8 GiB-tier default applies.
+   * 8 GiB-tier default applies (`spec/v1/budgets.md:104`).
    */
   readonly limits?: VfsSinkLimits
   /**
@@ -506,6 +515,16 @@ async function startPhoneWorkerInternal(options: PhoneWorkerOptions): Promise<Ph
     for (const pending of pendingPageFrames.splice(0)) host.handleMessage(pending)
     await host.start()
     hostStarted = true
+    // P27: arm the model-route refusal **after** the tree booted. `llm-bridge`
+    // may replace `globalThis.fetch` with its own transport while the plugins
+    // activate (`plugins/llm-bridge/src/index.ts`), and a guard installed before
+    // it would wrap the transport that is about to be replaced. The guard only
+    // fires when the host declared `PDSH_MODEL_ROUTE=none`: a launch with a
+    // route keeps the platform fetch untouched (the disposer is a no-op), and
+    // an undeclared route is not refused by omission.
+    const modelRoute = modelRouteOf(normalized.env)
+    if (modelRoute.notice !== undefined) console.warn(modelRoute.notice)
+    disposers.push(installModelRouteGuard({ decision: modelRoute }))
     if (host.vfs === undefined) throw new Error('worker entry: the DSH host started without a VFS')
     // G2-D05/G2-D01: install the single path authority before the first
     // API_REQ. Every node:fs caller — DSH tools, the Worker shell, the WASI
@@ -620,6 +639,16 @@ async function startPhoneWorkerInternal(options: PhoneWorkerOptions): Promise<Ph
     await publishCapabilityManifest(vfs, buildCapabilityManifest({
       commands: surface.commands,
       accelerators: surface.accelerators,
+      // A command the table carries but this boot cannot run is not a
+      // capability: `curl` needs the host `/v1/http` origin *and* token, and
+      // the Android engine injects only the origin. The row keeps the reason
+      // in the manifest instead of declaring a command that cannot execute.
+      unavailable: workerUnavailableCommands({
+        PDSH_CHANNEL_ORIGIN: process.env.PDSH_CHANNEL_ORIGIN,
+        PDSH_EXEC_BRIDGE_URL: process.env.PDSH_EXEC_BRIDGE_URL,
+        PDSH_CHANNEL_TOKEN: process.env.PDSH_CHANNEL_TOKEN,
+        PDSH_EXEC_BRIDGE_TOKEN: process.env.PDSH_EXEC_BRIDGE_TOKEN,
+      }),
       hostCaps: channel.hostHello?.caps ?? [],
       pythonModules,
       ...jqWiring === undefined ? {} : {
@@ -805,7 +834,7 @@ async function startPhoneWorkerInternal(options: PhoneWorkerOptions): Promise<Ph
  * @param vfs - In-memory filesystem authority (D8).
  * @param channel - Connected ordered channel.
  * @param limits - Optional policy override; `maxFileBytes` defaults to the
- *   128 MiB 8 GiB-tier single-file budget (budgets.md §4).
+ *   128 MiB 8 GiB-tier single-file budget (`spec/v1/budgets.md:104`).
  * @returns A disposer that unsubscribes and restores the original flush.
  */
 export interface VfsSinkLimits {

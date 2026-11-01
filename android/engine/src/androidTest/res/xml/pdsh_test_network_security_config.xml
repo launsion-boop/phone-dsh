@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: MIT -->
+<!--
+  The engine's only cleartext host: 127.0.0.1. Everything else keeps the platform
+  default (cleartext denied), so this file widens exactly one origin.
+  :app (D3) is expected to ship the same domain-config for the demo build; the
+  engine's own instrumented APK needs it to boot the page.
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+    </domain-config>
+</network-security-config>

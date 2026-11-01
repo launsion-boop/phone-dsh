@@ -36,6 +36,7 @@ import { installExecFsPolicy, type VfsNamespace } from '../../wasi-toolbox/src/i
 import {
   APP_BOOT_SPECIFIER, createAppBootShim, loadPinnedModule, type AppBootModule,
 } from './fs-read-state.ts'
+import { FS_DENIAL_PLUGIN } from './fs-denial-diagnostics.ts'
 import {
   NODE_MODULE_SPECIFIERS, PHONE_STATIC_MODULE_OVERRIDES, composePhoneStaticModules, type StaticModuleFactory,
 } from './static-modules.ts'
@@ -135,6 +136,12 @@ export function createPhoneWorkerHost(options: PhoneRuntimeHostOptions): ReturnT
     appBootModule ??= (options.wrapAppBoot ?? ((module: AppBootModule): AppBootModule => module))(
       createAppBootShim(
         loadPinnedModule(loader, process.cwd(), APP_BOOT_SPECIFIER, 'boot') as unknown as AppBootModule,
+        // P24: the pinned tool layer replaces a sandbox refusal's reason with two
+        // fixed decorations, so the model never learns the path, the rule or the
+        // way out. This plugin appends those facts beside the decorations through
+        // `tools/post-execute`; it is mounted here because a profile row would be
+        // a DSH-side change and this is a phone-owned host seam.
+        [FS_DENIAL_PLUGIN],
       ),
     )
     return appBootModule

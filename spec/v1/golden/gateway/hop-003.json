@@ -1,0 +1,33 @@
+{
+  "id": "gw-hop-003",
+  "rule": "header-strip",
+  "kind": "request",
+  "source": "Sources/PhoneDSHGateway/ModelGateway.swift:1031",
+  "references": [
+    "Tests/PhoneDSHGatewayTests/ModelGatewayTests.swift:1029"
+  ],
+  "note": "Idempotency-Key is caller-owned: it is forwarded verbatim and never synthesized, rewritten or stripped by the gateway.",
+  "input": {
+    "method": "POST",
+    "url": "https://api.example.invalid/v1/payments",
+    "headers": {
+      "content-type": "application/json",
+      "idempotency-key": "caller-supplied-1"
+    },
+    "allowlist": [
+      "https://api.example.invalid"
+    ],
+    "credential": {
+      "kind": "none"
+    }
+  },
+  "expect": {
+    "dispatch": "allow",
+    "outbound_headers": {
+      "content-type": "application/json",
+      "idempotency-key": "caller-supplied-1"
+    },
+    "stripped": [],
+    "outbound_url": "https://api.example.invalid/v1/payments"
+  }
+}

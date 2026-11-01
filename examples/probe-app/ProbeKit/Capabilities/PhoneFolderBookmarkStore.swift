@@ -1,100 +1,57 @@
 // SPDX-License-Identifier: MIT
+// Lightweight persistence for user-granted folders. The full capability stack
+// uses security-scoped bookmarks; the session baseline only needs the phone
+// permission center to remember a picked folder across launches.
 
 import Foundation
 
-@MainActor
 enum PhoneFolderBookmarkStore {
-    private static let key = "phone-dsh.folder-grants.v1"
+    struct Restored {
+        let roots: [PhoneFolderRoot]
+        let error: String?
+    }
 
     private struct Record: Codable {
         let id: String
         let name: String
-        let bookmark: Data
+        let kind: String
+        let path: String
     }
 
-    static func load(defaults: UserDefaults) -> (roots: [PhoneFolderRoot], error: String?) {
-        guard let data = defaults.data(forKey: key) else { return ([], nil) }
+    private static let key = "phone-dsh.folder-grants.v1"
+
+    static func load(defaults: UserDefaults) -> Restored {
+        guard let data = defaults.data(forKey: key) else { return Restored(roots: [], error: nil) }
         do {
             let records = try JSONDecoder().decode([Record].self, from: data)
-            var roots: [PhoneFolderRoot] = []
-            var skipped = 0
-            for record in records {
-                do {
-                    var stale = false
-                    let url = try URL(resolvingBookmarkData: record.bookmark,
-                                      options: [], relativeTo: nil,
-                                      bookmarkDataIsStale: &stale)
-                    if stale { skipped += 1; continue }
-                    roots.append(PhoneFolderRoot(id: record.id, name: record.name,
-                                                 kind: "security-scoped", url: url))
-                } catch {
-                    skipped += 1
-                }
+            let roots = records.map { record in
+                PhoneFolderRoot(id: record.id, name: record.name, kind: record.kind,
+                                url: URL(fileURLWithPath: record.path))
             }
-            return (roots, skipped > 0 ? "有 \(skipped) 个文件夹授权需要重新选择" : nil)
+            return Restored(roots: roots, error: nil)
         } catch {
-            return ([], "无法读取已保存的文件夹授权")
+            return Restored(roots: [], error: error.localizedDescription)
         }
     }
 
-    static func save(_ root: PhoneFolderRoot, existing: [PhoneFolderRoot],
-                     defaults: UserDefaults) throws {
-        guard let url = root.url else { throw PhoneToolError.invalidArguments("文件夹授权缺少 URL") }
+    static func save(_ root: PhoneFolderRoot, existing: [PhoneFolderRoot], defaults: UserDefaults) throws {
         var roots = existing.filter { $0.id != root.id }
         roots.append(root)
-        guard roots.count <= 9 else { throw PhoneToolError.invalidArguments("最多保存 9 个授权文件夹") }
-        let records = try roots.map { root -> Record in
-            guard let url = root.url else { throw PhoneToolError.invalidArguments("文件夹授权缺少 URL") }
-            return try Record(id: root.id, name: root.name,
-                              bookmark: url.bookmarkData(options: []))
+        let records = roots.compactMap { root -> Record? in
+            guard let url = root.url else { return nil }
+            return Record(id: root.id, name: root.name, kind: root.kind, path: url.path)
         }
         defaults.set(try JSONEncoder().encode(records), forKey: key)
     }
 
     static func isAccessible(_ root: PhoneFolderRoot) -> Bool {
         guard let url = root.url else { return false }
-        let accessing = url.startAccessingSecurityScopedResource()
-        if accessing { url.stopAccessingSecurityScopedResource() }
-        return accessing
+        return FileManager.default.fileExists(atPath: url.path)
     }
 
     static func metadata(for root: PhoneFolderRoot) -> [String: Any] {
-        var result: [String: Any] = [
-            "rootId": root.id,
-            "id": root.id,
-            "name": root.name,
-            "kind": root.kind,
-            "persistent": true,
-        ]
-        guard let url = root.url else {
-            result["available"] = true
-            return result
-        }
-        let accessing = url.startAccessingSecurityScopedResource()
-        guard accessing else {
-            result["available"] = false
-            return result
-        }
-        defer { url.stopAccessingSecurityScopedResource() }
-        var count = 0
-        var truncated = false
-        if let enumerator = FileManager.default.enumerator(
-            at: url, includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles, .skipsPackageDescendants]) {
-            for case let child as URL in enumerator {
-                guard let values = try? child.resourceValues(forKeys: [.isRegularFileKey]),
-                      values.isRegularFile == true else { continue }
-                count += 1
-                if count >= 10_000 {
-                    truncated = true
-                    break
-                }
-            }
-        }
-        result["available"] = true
-        result["fileCount"] = count
-        result["truncated"] = truncated
-        result["lastScanAt"] = PhoneToolEnvelope.iso8601(Date())
+        var result: [String: Any] = ["id": root.id, "name": root.name, "kind": root.kind]
+        if let url = root.url { result["path"] = url.path }
         return result
     }
 }

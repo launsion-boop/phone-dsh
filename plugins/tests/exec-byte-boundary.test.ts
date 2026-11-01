@@ -270,8 +270,11 @@ test('git stdout over a CJK path keeps every byte in a redirection', async () =>
   const root = mkdtempSync(join(tmpdir(), 'pdsh-byte-git-'))
   roots.push(root)
   mkdirSync(join(root, 'repo'))
+  // The empty root addresses the real host paths this git integration test
+  // needs; that is a desktop mode, not the Worker's virtual root, so the write
+  // policy is off explicitly (a Worker root would refuse a host path).
   const shell = new WorkerShell({
-    fs: new VfsFileSystem({ root: '' }),
+    fs: new VfsFileSystem({ root: '', writePolicy: false }),
     commands: [createGitCommand()],
   })
   const repo = join(root, 'repo')

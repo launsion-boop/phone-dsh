@@ -13,6 +13,7 @@ use std::time::UNIX_EPOCH;
 
 use crate::error::VfsError;
 use crate::mount::MountTable;
+use crate::policy;
 
 /// The kind of a directory entry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -99,7 +100,51 @@ impl StdFsVfs {
     }
 
     fn host(&self, path: &Path) -> Result<PathBuf, VfsError> {
-        self.mounts.resolve(path).map_err(VfsError::Sandbox)
+        let host = self.mounts.resolve(path).map_err(VfsError::Sandbox)?;
+        self.confine_to_policy(&host)?;
+        Ok(host)
+    }
+
+    /// The guest spelling of a host path inside one of the mounts.
+    ///
+    /// [`MountTable::resolve`] already confined `host` to a mount; the longest
+    /// host prefix wins so two mounts nested on the host side still map back to
+    /// the most specific guest root.
+    fn guest_of(&self, host: &Path) -> Option<PathBuf> {
+        let mut best: Option<(usize, PathBuf)> = None;
+        for (guest, host_root) in self.mounts.iter() {
+            let Ok(relative) = host.strip_prefix(host_root) else {
+                continue;
+            };
+            let candidate = if relative.as_os_str().is_empty() {
+                guest.to_path_buf()
+            } else {
+                guest.join(relative)
+            };
+            let depth = host_root.components().count();
+            if best
+                .as_ref()
+                .map_or(true, |(best_depth, _)| depth > *best_depth)
+            {
+                best = Some((depth, candidate));
+            }
+        }
+        best.map(|(_, guest)| guest)
+    }
+
+    /// The read policy at the data outlet: no `Vfs` read may hand out bytes
+    /// (or even metadata) from a DSH-internal subtree, whichever command asks.
+    fn confine_to_policy(&self, host: &Path) -> Result<(), VfsError> {
+        let Some(guest) = self.guest_of(host) else {
+            return Ok(());
+        };
+        match policy::exec_read_denial(&guest) {
+            Some((root, refused)) => Err(VfsError::ExecReadDenied {
+                path: refused.display().to_string(),
+                root: root.to_string(),
+            }),
+            None => Ok(()),
+        }
     }
 }
 
@@ -151,9 +196,17 @@ impl Vfs for StdFsVfs {
     }
 
     fn canonicalize(&self, path: &Path) -> Result<PathBuf, VfsError> {
-        self.mounts
+        let guest = self
+            .mounts
             .canonical_guest(path)
-            .map_err(VfsError::Sandbox)
+            .map_err(VfsError::Sandbox)?;
+        if let Some((root, refused)) = policy::exec_read_denial(&guest) {
+            return Err(VfsError::ExecReadDenied {
+                path: refused.display().to_string(),
+                root: root.to_string(),
+            });
+        }
+        Ok(guest)
     }
 }
 
@@ -268,6 +321,131 @@ mod tests {
         assert!(matches!(
             vfs.metadata(Path::new("/etc/passwd")),
             Err(VfsError::Sandbox(_))
+        ));
+    }
+
+    /// The tree the read-policy tests share: one internal root with a real
+    /// secret, one readable home file and the capability manifest.
+    fn policy_tree(tag: &str) -> (TestTree, StdFsVfs) {
+        let tree = TestTree::new(tag);
+        fs::create_dir_all(tree.home().join("sessions/project")).unwrap();
+        fs::write(
+            tree.home().join("sessions/project/session.v4.jsonl"),
+            b"{\"secret\":true}\n",
+        )
+        .unwrap();
+        fs::create_dir_all(tree.home().join("storages")).unwrap();
+        fs::write(tree.home().join("storages/store.json"), b"{\"secret\":true}").unwrap();
+        fs::create_dir_all(tree.home().join("tool-journal")).unwrap();
+        fs::write(
+            tree.home().join("tool-journal/tool.jsonl"),
+            b"{\"secret\":true}\n",
+        )
+        .unwrap();
+        fs::write(
+            tree.home().join("capabilities.json"),
+            b"{\"capabilities\":true}\n",
+        )
+        .unwrap();
+        let vfs = StdFsVfs::for_root(&tree.root).unwrap();
+        (tree, vfs)
+    }
+
+    #[test]
+    fn every_internal_root_is_refused_at_the_read_boundary() {
+        let (tree, vfs) = policy_tree("vfs-policy-roots");
+        assert!(tree.home().join("sessions").is_dir());
+        let cases = [
+            ("/dsh/home/sessions", "/dsh/home/sessions"),
+            ("/dsh/home/sessions/project", "/dsh/home/sessions"),
+            (
+                "/dsh/home/sessions/project/session.v4.jsonl",
+                "/dsh/home/sessions",
+            ),
+            ("/dsh/home/storages", "/dsh/home/storages"),
+            ("/dsh/home/storages/store.json", "/dsh/home/storages"),
+            ("/dsh/home/tool-journal", "/dsh/home/tool-journal"),
+            (
+                "/dsh/home/tool-journal/tool.jsonl",
+                "/dsh/home/tool-journal",
+            ),
+        ];
+        for (path, root) in cases {
+            let expected = crate::policy::exec_read_denied_message(Path::new(path), root);
+            for error in [
+                vfs.metadata(Path::new(path)).unwrap_err(),
+                vfs.read_dir(Path::new(path)).unwrap_err(),
+                vfs.canonicalize(Path::new(path)).unwrap_err(),
+            ] {
+                assert!(
+                    matches!(error, VfsError::ExecReadDenied { .. }),
+                    "{path}: expected ExecReadDenied, got {error:?}"
+                );
+                assert_eq!(error.to_string(), format!("EACCES: {expected}"));
+            }
+            match vfs.open_read(Path::new(path)) {
+                Err(VfsError::ExecReadDenied { .. }) => {}
+                Err(other) => panic!("{path}: expected ExecReadDenied, got {other:?}"),
+                Ok(_) => panic!("{path}: the VFS opened DSH-internal state"),
+            }
+        }
+    }
+
+    #[test]
+    fn dot_segments_and_relative_names_cannot_smuggle_a_read() {
+        let (_tree, vfs) = policy_tree("vfs-policy-dots");
+        for path in [
+            "/dsh/home/./sessions",
+            "/dsh/home/notes/../sessions",
+            "/dsh/home/sessions/../sessions/project/session.v4.jsonl",
+        ] {
+            assert!(
+                matches!(
+                    vfs.metadata(Path::new(path)),
+                    Err(VfsError::ExecReadDenied { .. })
+                ),
+                "{path} must be refused"
+            );
+        }
+    }
+
+    #[test]
+    fn the_rest_of_home_stays_readable() {
+        let (_tree, vfs) = policy_tree("vfs-policy-allowed");
+        let capability = vfs
+            .open_read(Path::new("/dsh/home/capabilities.json"))
+            .expect("the capability manifest is not DSH-internal state");
+        drop(capability);
+        assert!(vfs.metadata(Path::new("/dsh/home/capabilities.json")).unwrap().is_file());
+        // The names of the internal roots are not bytes: a listing of their
+        // parent still shows them, exactly like the Worker's `ls /dsh/home`.
+        let names: Vec<String> = vfs
+            .read_dir(Path::new("/dsh/home"))
+            .unwrap()
+            .into_iter()
+            .map(|entry| entry.name)
+            .collect();
+        assert!(names.contains(&"sessions".to_string()));
+        assert!(names.contains(&"capabilities.json".to_string()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_that_resolves_into_an_internal_root_is_refused() {
+        use std::os::unix::fs::symlink;
+        let (tree, vfs) = policy_tree("vfs-policy-symlink");
+        symlink(
+            tree.home().join("sessions"),
+            tree.home().join("public-link"),
+        )
+        .unwrap();
+        assert!(matches!(
+            vfs.metadata(Path::new("/dsh/home/public-link/project/session.v4.jsonl")),
+            Err(VfsError::ExecReadDenied { .. })
+        ));
+        assert!(matches!(
+            vfs.canonicalize(Path::new("/dsh/home/public-link")),
+            Err(VfsError::ExecReadDenied { .. })
         ));
     }
 }

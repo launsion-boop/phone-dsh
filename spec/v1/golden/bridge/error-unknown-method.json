@@ -1,0 +1,34 @@
+{
+  "name": "error-unknown-method",
+  "direction": "sequence",
+  "schema": "bridge-message.schema.json",
+  "instance": [
+    {
+      "direction": "page-to-host",
+      "instance": {
+        "v": 1,
+        "kind": "request",
+        "requestId": "f15b8c30-2d94-4a7e-9c61-3b0e5d8a2f46",
+        "method": "preview.publish",
+        "params": {
+          "sessionId": "sess-8f21c4"
+        }
+      }
+    },
+    {
+      "direction": "host-to-page",
+      "instance": {
+        "v": 1,
+        "kind": "error",
+        "requestId": "f15b8c30-2d94-4a7e-9c61-3b0e5d8a2f46",
+        "method": "preview.publish",
+        "error": {
+          "code": "BRIDGE_METHOD_UNKNOWN",
+          "message": "unknown bridge method",
+          "retryable": false
+        }
+      }
+    }
+  ],
+  "notes": "bridge.md §5, §11; the analogue is the default branch that refuses an unknown action, Sources/PhoneDSHEngine/WebEngineDirectoryImport.swift:937-938. The error echoes the refused method so the page can correlate without trusting arrival order."
+}

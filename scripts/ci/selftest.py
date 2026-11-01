@@ -35,8 +35,21 @@ CHECKERS = {
 }
 
 def banned_words_sample():
-    # Composed at run time so this checker's own source stays clean.
-    return "\n".join(["Tono" + "AI", "Tono" + "Team", "Tono" + "Live", "to" + "no token"]) + "\n"
+    # Composed at run time so this checker's own source stays clean. The four
+    # spellings are exactly the set BANNED_WORD_RE forbids; the sanctioned
+    # attribution phrase and the bare org spelling are deliberately allowed by
+    # ATTRIBUTION_PHRASE_RE, so they are not part of this fixture.
+    return (
+        "\n".join(
+            [
+                "Tono" + "AI",
+                "Tono" + "Fleet",
+                "Tono" + "Live",
+                "xiaozhi" + "-link",
+            ]
+        )
+        + "\n"
+    )
 
 
 def email_sample():

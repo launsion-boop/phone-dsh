@@ -1,0 +1,126 @@
+{
+  "title": "HarnessSessionRequest",
+  "description": "Parameters for opening a new harness session (session_id absent) or resuming an existing one (session_id present). Every member is optional: an empty object opens a default session.",
+  "type": "object",
+  "required": [],
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "preset": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "workspace": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "instructions": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 65536
+    },
+    "client_tools": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "transport"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "transport": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "type",
+                  "url"
+                ],
+                "properties": {
+                  "type": {
+                    "const": "streamable_http"
+                  },
+                  "url": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  },
+                  "headers": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": [
+                  "type",
+                  "relay_id"
+                ],
+                "properties": {
+                  "type": {
+                    "const": "relay"
+                  },
+                  "relay_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": [
+                  "type",
+                  "name"
+                ],
+                "properties": {
+                  "type": {
+                    "const": "in_process"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
+          },
+          "allowed_tools": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "maxLength": 1024
+      }
+    }
+  },
+  "additionalProperties": false
+}

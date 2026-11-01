@@ -157,7 +157,12 @@ which policy" for every execution surface. The table is fixed by
   `git` with `EACCES` and one remediation line. The runtime's own services keep
   reading them. A WASI errno cannot carry text, so the WASI host also writes
   the line to the command's stderr (the same mechanism the `EFBIG` refusal
-  uses).
+  uses). `execEntryVisible()` is the listing half of the same policy: a
+  `readdir` of `/dsh/home` never names those three roots, so `ls`, `find`,
+  `du`, `tree`, `compgen` and a glob cannot discover them. The two predicates
+  are deliberately separate — hiding a name does not make an explicit
+  `stat`/read of it succeed, and refusing the read does not put the name back
+  in a listing.
 - `join(base, pattern)` is the single base+relative-pattern join for search
   surfaces (glob, grep), preserving a leading `!`.
 - `preopens()` is the identity preopen table generated from the roots;
@@ -202,6 +207,14 @@ applied locally and written back through the async proxy before the command's
 exit is reported. A truncated capture or a missed required root fails loud
 instead of serving a partial view. Toolboxes without the option keep the
 `ENOTCAPABLE` answer — the toolbox never fakes file I/O.
+
+The capture also carries the exec read policy's `EACCES` answer. A denied
+subtree stays out of `entries` (a listing must not name it), but the snapshot
+records one `denied` entry per refused path; naming one explicitly, or anything
+below it, answers `EACCES` with the policy's own remediation sentence, exactly
+as the shell renders it. Without that record the guest's local resolver would
+find no entry and print `No such file or directory` for a path that exists —
+the guest's `ENOENT` is not the host's answer.
 
 The snapshot is **recaptured from the live VFS before every dispatch** when
 `refreshSnapshotOnRun` is on (the default whenever `snapshotFallback` is on),
@@ -284,8 +297,9 @@ refusal) has no host outcome and settles immediately, so `/tmp` writes and the
 existing `EFBIG` pre-check keep their fast path. The in-memory
 `MemoryVfsBackend` has no sink and no tracker; it stays a test double.
 
-Both backends enforce the configured single-file budget (`MAX_FILE_SIZE`, 64 MiB
-by default; the host's `PDSH_SINGLE_FILE_LIMIT_BYTES` is clamped to 16–256 MiB and
+Both backends enforce the configured single-file budget (`MAX_FILE_SIZE`, 128 MiB
+by default — `spec/v1/budgets.md:104`, the 8 GiB tier; the host's
+`PDSH_SINGLE_FILE_LIMIT_BYTES` is clamped to 16–256 MiB and
 applied by `configureSingleFileLimit`) before they touch the runtime filesystem:
 a whole write, an append whose post-write file would exceed it, or a `truncate`
 that would grow the file past it fails with `EFBIG: File too large: <path>

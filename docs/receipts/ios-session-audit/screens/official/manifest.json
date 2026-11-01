@@ -1,0 +1,2546 @@
+{
+  "schemaVersion": 1,
+  "kind": "dsh-official-web-golden",
+  "generatedAt": "2026-11-01T06:56:12Z",
+  "official": {
+    "repo": "/Users/leilangsheng/Documents/Codex/2026-08-14/https-github-com-deepseek-ai-deepseek/deepseek-harness",
+    "commit": "7be5505b0be06009d74891c869063c9cf19a0df0",
+    "commitVerifiedByReadingGitHead": true,
+    "version": "0.2.1-rc.2"
+  },
+  "environment": {
+    "node": "v22.22.1",
+    "chrome": "Google Chrome 156.0.8078.79",
+    "platform": "darwin-arm64"
+  },
+  "server": {
+    "command": "node apps/cli/lib/bin.js --profile web --no-open --host 127.0.0.1 --port 0 (cwd: /Users/leilangsheng/Documents/Codex/2026-08-14/https-github-com-deepseek-ai-deepseek/deepseek-harness, DSH_HOME=<temp pristine>)",
+    "host": "127.0.0.1",
+    "port": 56230,
+    "url": "http://127.0.0.1:56230/?token=<redacted>",
+    "profile": "web",
+    "dshHome": "temporary pristine DSH_HOME, removed after capture (never the user profile)",
+    "logTail": [
+      "dsh web: http://127.0.0.1:56230/?token=<redacted>"
+    ],
+    "sessionServer": {
+      "url": "http://127.0.0.1:56316/?token=<redacted>",
+      "port": 56316,
+      "dshHome": "temporary copy of the source DSH_HOME (source read-only), removed after capture",
+      "logTail": [
+        "dsh web: http://127.0.0.1:56316/?token=<redacted>"
+      ]
+    }
+  },
+  "capture": {
+    "tool": "scripts/ios-parity/golden/cdp-capture.mjs",
+    "protocol": "Chrome DevTools Protocol (headless=new)",
+    "viewport": {
+      "width": 402,
+      "height": 874
+    },
+    "deviceScaleFactor": 3,
+    "expectedPng": {
+      "width": 1206,
+      "height": 2622
+    },
+    "mobileEmulation": true,
+    "colorScheme": "light",
+    "onboardingDismissals": [
+      "PWA install banner: button[aria-label=\"关闭提示\"]",
+      "preview notice: button with text 继续",
+      "get-started dialog: button[aria-label=\"关闭\"] (hero capture only)"
+    ],
+    "sessionOpenPath": [
+      "drawer: button[aria-label=\"菜单\"]",
+      "workspace group (ungrouped): [data-row-key=\"workspace:\"]",
+      "overflow: [data-row-key=\"overflow:\"] (only when the row is past the list cap)",
+      "session row: [data-row-key=\"session:<id>\"]",
+      "close drawer: button[aria-label=\"关闭面板\"]",
+      "open assertion: [data-conversation-session] === <id>",
+      "transcript assertion: [data-chat-node-key] rows with a data-chat-flow-kind=\"user\" row",
+      "rich session only: [data-chat-node-key] must also contain visible assistant-step and tool-call rows",
+      "rich session disclosures: button[data-turn-process] -> [data-chat-group-key] > div > button[aria-expanded] -> div[data-sample=\"bash\"]",
+      "question capture: [data-chat-node-key] must contain a visible [data-tool=\"ask_user_question\"]; the expanded card must show the recorded custom answer text; no user-flow row is required beyond the fixture prompt",
+      "plan capture: [data-chat-node-key] must contain a visible [data-plan-card] with the plan title; required flow kinds are command + tool-call + turn-tail (this turn opened through /plan, so there is no user row)",
+      "subagent capture: the session header must show the logged catalog as a visible button[aria-haspopup=\"tree\"] whose text/aria-label is 1 个子智能体, and [data-chat-node-key] must contain a visible [data-tool=\"subagent\"] row; required flow kinds are user + assistant-step + tool-call",
+      "parallel-subagent capture: same assertions with a 2 个子智能体 header count and two [data-tool=\"subagent\"] rows in one process group",
+      "new question/plan/subagent captures: --fail-on-console-error makes any console error or uncaught exception fail the capture",
+      "two subagent captures: --fail-on-network-error makes any Network.loadingFailed (non-canceled) or HTTP >= 400 response fail the capture"
+    ]
+  },
+  "sessionFixture": {
+    "enabled": true,
+    "sourceDshHome": "/Users/leilangsheng/.dsh",
+    "handling": "copied into a separate temporary DSH_HOME and served by its own dsh web process; the source is only read (opening a V3 session migrates it in place, so no server ever runs against the real home)",
+    "shortSessionId": "session-ca5b4ecd-da54-488a-b11b-2df2dcae94f2",
+    "longSessionId": "session-d81de3d6-526a-4894-b3aa-1520db906f62",
+    "toolSessionId": "session-4f117741-269b-464e-a2cc-4c121c50531c",
+    "questionSessionId": "session-08d252dc-f487-42c1-9b87-68467f70f1e2",
+    "planSessionId": "session-1b0222d8-77f1-40b2-9ff4-13ee4a69164c",
+    "subagentSessionId": "session-ff9414c5-36db-4327-955e-84d7fa18547c",
+    "subagentParallelSessionId": "session-d6126d5c-82a0-4de9-9f58-14205fcc27fb",
+    "sessionTitles": [
+      {
+        "id": "session-ca5b4ecd-da54-488a-b11b-2df2dcae94f2",
+        "title": "reply with the single word"
+      },
+      {
+        "id": "session-d81de3d6-526a-4894-b3aa-1520db906f62",
+        "title": "You are the evidence-reading and"
+      },
+      {
+        "id": "session-4f117741-269b-464e-a2cc-4c121c50531c",
+        "title": "Use the bash tool to"
+      },
+      {
+        "id": "session-08d252dc-f487-42c1-9b87-68467f70f1e2",
+        "title": "Use the ask_user_question tool to"
+      },
+      {
+        "id": "session-1b0222d8-77f1-40b2-9ff4-13ee4a69164c",
+        "title": "Plan a small change: add"
+      },
+      {
+        "id": "session-ff9414c5-36db-4327-955e-84d7fa18547c",
+        "title": "Use the subagent tool exactly"
+      },
+      {
+        "id": "session-d6126d5c-82a0-4de9-9f58-14205fcc27fb",
+        "title": "Use the subagent tool TWICE"
+      }
+    ],
+    "seededFixture": {
+      "id": "bash-tool-turn",
+      "seeder": "scripts/ios-parity/golden/seed-official-session.mjs",
+      "persistence": "official @deepseek-ai/dsh-session-persistence-jsonl: new Context + plugin({root}) + create(meta) + append(events) + close()",
+      "fixture": "/Users/leilangsheng/Documents/Codex/2026-08-14/https-github-com-deepseek-ai-deepseek/deepseek-harness/snapshots/session/bash-tool-turn/session.v4.jsonl",
+      "fixtureSha256": "38b8cbd68dae0d5e9d0331e412a73d0101775d073c44dfe7bf7ff6aae56327a5",
+      "fixtureRows": 24,
+      "fixturePresentationPlaceholdersKeptLiteral": [],
+      "replacedSessionId": "session-4f117741-269b-464e-a2cc-4c121c50531c",
+      "replacedSessionCwd": "/Users/leilangsheng/Documents/Codex/2026-08-14/https-github-com-deepseek-ai-deepseek/deepseek-harness",
+      "replacedSessionCwdSource": "header:session.v3.jsonl.zstd",
+      "replacedLogsInCopy": [
+        "session.v3.jsonl.zstd"
+      ],
+      "createdAtSource": "fixture-header",
+      "title": "Use the bash tool to",
+      "assistantText": [
+        "DONE"
+      ],
+      "toolCalls": [
+        {
+          "name": "bash",
+          "callId": "call_00_fkbBRJsUrGKd1pWVc4Gn8233",
+          "hasResult": true,
+          "resultText": "TERMINAL_OK\n"
+        }
+      ],
+      "turnEnd": {
+        "type": "turn/end",
+        "reason": "completed"
+      },
+      "header": {
+        "version": 4,
+        "id": "session-4f117741-269b-464e-a2cc-4c121c50531c",
+        "createdAt": 1783352050748,
+        "isSeeded": false,
+        "cwd": "/Users/leilangsheng/Documents/Codex/2026-08-14/https-github-com-deepseek-ai-deepseek/deepseek-harness",
+        "delegationDepth": 0
+      },
+      "events": {
+        "parsed": 23,
+        "stored": 23,
+        "byType": {
+          "permission/preset": 1,
+          "sandbox/mode": 1,
+          "approval/policy": 1,
+          "agent/inbox/spliced": 2,
+          "turn/start": 1,
+          "step/start": 2,
+          "system/message": 1,
+          "user/message": 2,
+          "request/header": 1,
+          "request/context": 1,
+          "session/title": 1,
+          "assistant/message": 2,
+          "tool/call": 1,
+          "job/registered": 1,
+          "job/settled": 1,
+          "tool/result": 1,
+          "step/end": 2,
+          "turn/end": 1
+        },
+        "firstSeq": 0,
+        "lastSeq": 22,
+        "firstTime": 1783352050748,
+        "lastTime": 1783352050772
+      },
+      "seededLog": {
+        "file": "session.v4.jsonl.zstd",
+        "sha256": "bb7c420d59c1b2aabe65cf51150a32d409a85ffb3919e22d7b194bbe33631029",
+        "bytes": 2523,
+        "listStatus": "current"
+      },
+      "state": {
+        "rendered": "settled",
+        "settledToolCall": {
+          "name": "bash",
+          "hasResult": true,
+          "resultText": "TERMINAL_OK\n"
+        },
+        "expectedStateFile": null,
+        "pendingStateFileNotRendered": null
+      }
+    },
+    "seededFixtures": [
+      {
+        "id": "bash-tool-turn",
+        "seeder": "scripts/ios-parity/golden/seed-official-session.mjs",
+        "persistence": "official @deepseek-ai/dsh-session-persistence-jsonl: new Context + plugin({root}) + create(meta) + append(events) + close()",
+        "fixture": "/Users/leilangsheng/Documents/Codex/2026-08-14/https-github-com-deepseek-ai-deepseek/deepseek-harness/snapshots/session/bash-tool-turn/session.v4.jsonl",
+        "fixtureSha256": "38b8cbd68dae0d5e9d0331e412a73d0101775d073c44dfe7bf7ff6aae56327a5",
+        "fixtureRows": 24,
+        "fixturePresentationPlaceholdersKeptLiteral": [],
+        "replacedSessionId": "session-4f117741-269b-464e-a2cc-4c121c50531c",
+        "replacedSessionCwd": "/Users/leilangsheng/Documents/Codex/2026-08-14/https-github-com-deepseek-ai-deepseek/deepseek-harness",
+        "replacedSessionCwdSource": "header:session.v3.jsonl.zstd",
+        "replacedLogsInCopy": [
+          "session.v3.jsonl.zstd"
+        ],
+        "createdAtSource": "fixture-header",
+        "title": "Use the bash tool to",
+        "assistantText": [
+          "DONE"
+        ],
+        "toolCalls": [
+          {
+            "name": "bash",
+            "callId": "call_00_fkbBRJsUrGKd1pWVc4Gn8233",
+            "hasResult": true,
+            "resultText": "TERMINAL_OK\n"
+          }
+        ],
+        "turnEnd": {
+          "type": "turn/end",
+          "reason": "completed"
+        },
+        "header": {
+          "version": 4,
+          "id": "session-4f117741-269b-464e-a2cc-4c121c50531c",
+          "createdAt": 1783352050748,
+          "isSeeded": false,
+          "cwd": "/Users/leilangsheng/Documents/Codex/2026-08-14/https-github-com-deepseek-ai-deepseek/deepseek-harness",
+          "delegationDepth": 0
+        },
+        "events": {
+          "parsed": 23,
+          "stored": 23,
+          "byType": {
+            "permission/preset": 1,
+            "sandbox/mode": 1,
+            "approval/policy": 1,
+            "agent/inbox/spliced": 2,
+            "turn/start": 1,
+            "step/start": 2,
+            "system/message": 1,
+            "user/message": 2,
+            "request/header": 1,
+            "request/context": 1,
+            "session/title": 1,
+            "assistant/message": 2,
+            "tool/call": 1,
+            "job/registered": 1,
+            "job/settled": 1,
+            "tool/result": 1,
+            "step/end": 2,
+            "turn/end": 1
+          },
+          "firstSeq": 0,
+          "lastSeq": 22,
+          "firstTime": 1783352050748,
+          "lastTime": 1783352050772
+        },
+        "seededLog": {
+          "file": "session.v4.jsonl.zstd",
+          "sha256": "bb7c420d59c1b2aabe65cf51150a32d409a85ffb3919e22d7b194bbe33631029",
+          "bytes": 2523,
+          "listStatus": "current"
+        },
+        "state": {
+          "rendered": "settled",
+          "settledToolCall": {
+            "name": "bash",
+            "hasResult": true,
+            "resultText": "TERMINAL_OK\n"
+          },
+          "expectedStateFile": null,
+          "pendingStateFileNotRendered": null
+        }
+      },
+      {
+        "id": "question-composer-answered",
+        "seeder": "scripts/ios-parity/golden/seed-official-session.mjs",
+        "persistence": "official @deepseek-ai/dsh-session-persistence-jsonl: new Context + plugin({root}) + create(meta) + append(events) + close()",
+        "fixture": "/Users/leilangsheng/Documents/Codex/2026-08-14/https-github-com-deepseek-ai-deepseek/deepseek-harness/snapshots/web/question-composer/session.v4.jsonl",
+        "fixtureSha256": "b63acbe065e1cd582b7ad44ed0e38ae116572fa1a552912d066ad4784e232a0b",
+        "fixtureRows": 23,
+        "fixturePresentationPlaceholdersKeptLiteral": [
+          "clientTimeZone",
+          "sourceRoot",
+          "webUrl",
+          "timeContextTimestamp",
+          "elapsed"
+        ],
+        "replacedSessionId": "session-08d252dc-f487-42c1-9b87-68467f70f1e2",
+        "replacedSessionCwd": "/Users/leilangsheng/Documents/Codex/2026-08-14/https-github-com-deepseek-ai-deepseek/deepseek-harness",
+        "replacedSessionCwdSource": "projcache",
+        "replacedLogsInCopy": [
+          "session.v3.jsonl.zstd"
+        ],
+        "createdAtSource": "fixture-header",
+        "title": "Use the ask_user_question tool to",
+        "assistantText": [
+          "DONE"
+        ],
+        "toolCalls": [
+          {
+            "name": "ask_user_question",
+            "callId": "call_00_Cijldc88LYmVPCXYUsRq1617",
+            "hasResult": true,
+            "resultText": "{\"answers\":[{\"id\":\"color\",\"selected\":[\"Blue\"],\"custom\":\"Include accessibility notes\"}]}"
+          }
+        ],
+        "turnEnd": {
+          "type": "turn/end",
+          "reason": "completed"
+        },
+        "header": {
+          "version": 4,
+          "id": "session-08d252dc-f487-42c1-9b87-68467f70f1e2",
+          "createdAt": 1788240617068,
+          "isSeeded": false,
+          "cwd": "/Users/leilangsheng/Documents/Codex/2026-08-14/https-github-com-deepseek-ai-deepseek/deepseek-harness",
+          "delegationDepth": 0
+        },
+        "events": {
+          "parsed": 22,
+          "stored": 22,
+          "byType": {
+            "permission/preset": 1,
+            "sandbox/mode": 1,
+            "approval/policy": 1,
+            "agent/inbox/spliced": 2,
+            "turn/start": 1,
+            "step/start": 2,
+            "system/message": 1,
+            "user/message": 3,
+            "request/header": 1,
+            "request/context": 1,
+            "session/title": 1,
+            "assistant/message": 2,
+            "tool/call": 1,
+            "tool/result": 1,
+            "step/end": 2,
+            "turn/end": 1
+          },
+          "firstSeq": 0,
+          "lastSeq": 21,
+          "firstTime": 1788240617068,
+          "lastTime": 1788240619578
+        },
+        "seededLog": {
+          "file": "session.v4.jsonl.zstd",
+          "sha256": "5263eb065222bb0622fe540c01855c4b455504441bd6737865b06fca17aa3437",
+          "bytes": 3304,
+          "listStatus": "current"
+        },
+        "state": {
+          "rendered": "settled",
+          "settledToolCall": {
+            "name": "ask_user_question",
+            "hasResult": true,
+            "resultText": "{\"answers\":[{\"id\":\"color\",\"selected\":[\"Blue\"],\"custom\":\"Include accessibility notes\"}]}"
+          },
+          "expectedStateFile": {
+            "file": "/Users/leilangsheng/Documents/Codex/2026-08-14/https-github-com-deepseek-ai-deepseek/deepseek-harness/snapshots/web/question-composer/answered-expanded.expected.md",
+            "exists": true,
+            "sha256": "759e7d7deef0cd13bfa201f9b709f3c4629f9b62535c2b8bfe2a3c8ab0494a1a"
+          },
+          "pendingStateFileNotRendered": {
+            "file": "/Users/leilangsheng/Documents/Codex/2026-08-14/https-github-com-deepseek-ai-deepseek/deepseek-harness/snapshots/web/question-composer/ui.expected.md",
+            "exists": true,
+            "sha256": "48705e915128823e0f827d6c6b233b132bba29d44a83777ef377d176444743c2"
+          }
+        }
+      },
+      {
+        "id": "plan-review-approved",
+        "seeder": "scripts/ios-parity/golden/seed-official-session.mjs",
+        "persistence": "official @deepseek-ai/dsh-session-persistence-jsonl: new Context + plugin({root}) + create(meta) + append(events) + close()",
+        "fixture": "/Users/leilangsheng/Documents/Codex/2026-08-14/https-github-com-deepseek-ai-deepseek/deepseek-harness/snapshots/web/plan-review/session.v4.jsonl",
+        "fixtureSha256": "531d6d9c6495fc4021d47d7d6d534cb8a5a372207056df31dbb95639b82ac73d",
+        "fixtureRows": 29,
+        "fixturePresentationPlaceholdersKeptLiteral": [
+          "sourceRoot",
+          "webUrl",
+          "timeContextTimestamp",
+          "clientTimeZone",
+          "elapsed"
+        ],
+        "replacedSessionId": "session-1b0222d8-77f1-40b2-9ff4-13ee4a69164c",
+        "replacedSessionCwd": "/Users/leilangsheng/Documents/Codex/2026-08-14/https-github-com-deepseek-ai-deepseek/deepseek-harness",
+        "replacedSessionCwdSource": "header:session.v3.jsonl.zstd",
+        "replacedLogsInCopy": [
+          "session.v3.jsonl.zstd"
+        ],
+        "createdAtSource": "argument",
+        "title": "Plan a small change: add",
+        "assistantText": [
+          "Since the user has explicitly asked me not to read or write any files and to go straight to planning, I'll proceed with `exit_plan_mode`.",
+          "DONE"
+        ],
+        "toolCalls": [
+          {
+            "name": "exit_plan_mode",
+            "callId": "call_00_TPh5fH8x5kRezK115kgx8155",
+            "hasResult": true,
+            "resultText": "Plan approved — plan mode exited; carry out the plan starting with your next step."
+          }
+        ],
+        "turnEnd": {
+          "type": "turn/end",
+          "reason": "completed"
+        },
+        "header": {
+          "version": 4,
+          "id": "session-1b0222d8-77f1-40b2-9ff4-13ee4a69164c",
+          "createdAt": 1788240594856,
+          "isSeeded": false,
+          "cwd": "/Users/leilangsheng/Documents/Codex/2026-08-14/https-github-com-deepseek-ai-deepseek/deepseek-harness",
+          "delegationDepth": 0
+        },
+        "events": {
+          "parsed": 28,
+          "stored": 28,
+          "byType": {
+            "permission/preset": 1,
+            "sandbox/mode": 1,
+            "approval/policy": 1,
+            "command/run": 1,
+            "plan/mode": 2,
+            "agent/inbox/spliced": 2,
+            "turn/start": 1,
+            "command/done": 1,
+            "step/start": 2,
+            "system/message": 2,
+            "user/message": 3,
+            "request/header": 2,
+            "request/context": 1,
+            "session/title": 1,
+            "assistant/message": 2,
+            "tool/call": 1,
+            "tool/result": 1,
+            "step/end": 2,
+            "turn/end": 1
+          },
+          "firstSeq": 0,
+          "lastSeq": 27,
+          "firstTime": 1788240594856,
+          "lastTime": 1788240600176
+        },
+        "seededLog": {
+          "file": "session.v4.jsonl.zstd",
+          "sha256": "f11254190d51c0d2588f62c07125fbea14e7e97a42a77ac60e1de3b625fc47dd",
+          "bytes": 4276,
+          "listStatus": "current"
+        },
+        "state": {
+          "rendered": "settled",
+          "settledToolCall": {
+            "name": "exit_plan_mode",
+            "hasResult": true,
+            "resultText": "Plan approved — plan mode exited; carry out the plan starting with your next step."
+          },
+          "expectedStateFile": {
+            "file": "/Users/leilangsheng/Documents/Codex/2026-08-14/https-github-com-deepseek-ai-deepseek/deepseek-harness/snapshots/web/plan-review/approved.expected.md",
+            "exists": true,
+            "sha256": "c95fd99e8b7b9d5fd303b21c30a3a2a69f3bd72a3fa5245fe23c95eadcfd8939"
+          },
+          "pendingStateFileNotRendered": {
+            "file": "/Users/leilangsheng/Documents/Codex/2026-08-14/https-github-com-deepseek-ai-deepseek/deepseek-harness/snapshots/web/plan-review/review.expected.md",
+            "exists": true,
+            "sha256": "e20e38b075254c95ea06bfc3bfcd26355777927df59463a898ab6d513bc1e312"
+          }
+        }
+      },
+      {
+        "id": "subagent-spawn-in-process",
+        "seeder": "scripts/ios-parity/golden/seed-official-session.mjs",
+        "persistence": "official @deepseek-ai/dsh-session-persistence-jsonl: new Context + plugin({root}) + create(meta) + append(events) + close()",
+        "fixture": "/Users/leilangsheng/Documents/Codex/2026-08-14/https-github-com-deepseek-ai-deepseek/deepseek-harness/snapshots/session/subagent-spawn-in-process/session.v4.jsonl",
+        "fixtureSha256": "28e34c235d2f6bc55360fbd11abb0a2e9a9ab012977b3c0cdfc88e48c1f782bf",
+        "fixtureRows": 31,
+        "fixturePresentationPlaceholdersKeptLiteral": [],
+        "replacedSessionId": "session-ff9414c5-36db-4327-955e-84d7fa18547c",
+        "replacedSessionCwd": "/private/tmp/swarm-cwdtest.YQvc",
+        "replacedSessionCwdSource": "projcache",
+        "replacedLogsInCopy": [
+          "session.v4.jsonl.zstd"
+        ],
+        "createdAtSource": "fixture-header",
+        "title": "Use the subagent tool exactly",
+        "assistantText": [
+          "PARENT_DONE",
+          "PARENT_DONE"
+        ],
+        "toolCalls": [
+          {
+            "name": "subagent",
+            "callId": "call_00_gVbLWC12Qu8JheZpVRRz8749",
+            "hasResult": true,
+            "resultText": "started subagent session-ff9414c5-36db-4327-955e-84d7fa18547c-child-2"
+          }
+        ],
+        "turnEnd": {
+          "type": "turn/end",
+          "reason": "completed"
+        },
+        "header": {
+          "version": 4,
+          "id": "session-ff9414c5-36db-4327-955e-84d7fa18547c",
+          "createdAt": 1783352119267,
+          "isSeeded": false,
+          "cwd": "/private/tmp/swarm-cwdtest.YQvc",
+          "delegationDepth": 0
+        },
+        "events": {
+          "parsed": 30,
+          "stored": 30,
+          "byType": {
+            "permission/preset": 1,
+            "sandbox/mode": 1,
+            "approval/policy": 1,
+            "agent/inbox/spliced": 4,
+            "turn/start": 2,
+            "step/start": 3,
+            "system/message": 1,
+            "user/message": 3,
+            "request/header": 1,
+            "request/context": 1,
+            "session/title": 1,
+            "assistant/message": 3,
+            "tool/call": 1,
+            "subagent/catalog": 1,
+            "tool/result": 1,
+            "step/end": 3,
+            "turn/end": 2
+          },
+          "firstSeq": 0,
+          "lastSeq": 29,
+          "firstTime": 1783352119267,
+          "lastTime": 1783352119297
+        },
+        "seededLog": {
+          "file": "session.v4.jsonl.zstd",
+          "sha256": "7260f78ca533a9ef82f63b66cdd484cd2ffee157c939113d4f11584b2ef71e9c",
+          "bytes": 2867,
+          "listStatus": "current"
+        },
+        "state": {
+          "rendered": "settled",
+          "settledToolCall": {
+            "name": "subagent",
+            "hasResult": true,
+            "resultText": "started subagent session-ff9414c5-36db-4327-955e-84d7fa18547c-child-2"
+          },
+          "expectedStateFile": null,
+          "pendingStateFileNotRendered": null
+        }
+      },
+      {
+        "id": "subagent-parallel",
+        "seeder": "scripts/ios-parity/golden/seed-official-session.mjs",
+        "persistence": "official @deepseek-ai/dsh-session-persistence-jsonl: new Context + plugin({root}) + create(meta) + append(events) + close()",
+        "fixture": "/Users/leilangsheng/Documents/Codex/2026-08-14/https-github-com-deepseek-ai-deepseek/deepseek-harness/snapshots/session/subagent-parallel/session.v4.jsonl",
+        "fixtureSha256": "c4cceb414831cecd3286f9a14573c68a6d1781efd5fa0da8e428c4e3f85334fe",
+        "fixtureRows": 31,
+        "fixturePresentationPlaceholdersKeptLiteral": [],
+        "replacedSessionId": "session-d6126d5c-82a0-4de9-9f58-14205fcc27fb",
+        "replacedSessionCwd": "/private/var/folders/c3/3ztcq8l52sbfmgpjxc3398bh0000gn/T/swarm-doctor-mGDtoE",
+        "replacedSessionCwdSource": "projcache",
+        "replacedLogsInCopy": [
+          "session.v4.jsonl.zstd"
+        ],
+        "createdAtSource": "fixture-header",
+        "title": "Use the subagent tool TWICE",
+        "assistantText": [
+          "PARENT_DONE"
+        ],
+        "toolCalls": [
+          {
+            "name": "subagent",
+            "callId": "call_parallel_alpha_1",
+            "hasResult": true,
+            "resultText": "started subagent session-d6126d5c-82a0-4de9-9f58-14205fcc27fb-child-2"
+          },
+          {
+            "name": "subagent",
+            "callId": "call_parallel_alpha_2",
+            "hasResult": true,
+            "resultText": "started subagent session-d6126d5c-82a0-4de9-9f58-14205fcc27fb-child-3"
+          }
+        ],
+        "turnEnd": {
+          "type": "turn/end",
+          "reason": "completed"
+        },
+        "header": {
+          "version": 4,
+          "id": "session-d6126d5c-82a0-4de9-9f58-14205fcc27fb",
+          "createdAt": 1783352126000,
+          "isSeeded": false,
+          "cwd": "/private/var/folders/c3/3ztcq8l52sbfmgpjxc3398bh0000gn/T/swarm-doctor-mGDtoE",
+          "delegationDepth": 0
+        },
+        "events": {
+          "parsed": 30,
+          "stored": 30,
+          "byType": {
+            "permission/preset": 1,
+            "sandbox/mode": 1,
+            "approval/policy": 1,
+            "agent/inbox/spliced": 5,
+            "turn/start": 1,
+            "step/start": 2,
+            "system/message": 1,
+            "user/message": 4,
+            "request/header": 1,
+            "request/context": 1,
+            "session/title": 1,
+            "assistant/message": 2,
+            "tool/call": 2,
+            "subagent/catalog": 2,
+            "tool/result": 2,
+            "step/end": 2,
+            "turn/end": 1
+          },
+          "firstSeq": 0,
+          "lastSeq": 29,
+          "firstTime": 1783352126000,
+          "lastTime": 1783352126030
+        },
+        "seededLog": {
+          "file": "session.v4.jsonl.zstd",
+          "sha256": "e57c860183b196d00839469907f2b225894ac5e3e46d08feab51a8df50161af6",
+          "bytes": 2373,
+          "listStatus": "current"
+        },
+        "state": {
+          "rendered": "settled",
+          "settledToolCall": {
+            "name": "subagent",
+            "hasResult": true,
+            "resultText": "started subagent session-d6126d5c-82a0-4de9-9f58-14205fcc27fb-child-2"
+          },
+          "expectedStateFile": null,
+          "pendingStateFileNotRendered": null
+        }
+      }
+    ]
+  },
+  "screenshots": [
+    {
+      "id": "hero-sessionless",
+      "file": "official-hero-sessionless-402x874-dpr3.png",
+      "state": "官方 Web UI 会话空态（hero）：未登录、未配置模型、无会话；已按用户操作关闭 PWA 安装提示、预览版说明、开始使用弹窗",
+      "stateEn": "sessionless hero: not signed in, no model selected, no session; first-run overlays dismissed by user clicks",
+      "width": 1206,
+      "height": 2622,
+      "deviceScaleFactor": 3,
+      "cssViewport": {
+        "width": 402,
+        "height": 874,
+        "dpr": 3
+      },
+      "colorScheme": "light",
+      "bytes": 90508,
+      "sha256": "9020fa013ff662a92e423b3474d4b57c2bf6165d8cbac988c7a43c4e93e5bda0",
+      "capturedAt": "2026-11-01T06:54:05.544Z",
+      "finalUrl": "http://127.0.0.1:56230/?token=<redacted>",
+      "runtimeViewport": {
+        "innerWidth": 402,
+        "innerHeight": 874,
+        "dpr": 3,
+        "visualWidth": 402,
+        "visualHeight": 874
+      },
+      "interactions": [
+        {
+          "pass": 1,
+          "kind": "pwa-install-banner-close",
+          "requested": {
+            "type": "selector",
+            "value": "button[aria-label=\"关闭提示\"]"
+          },
+          "clicked": {
+            "tag": "BUTTON",
+            "text": "关闭提示",
+            "rect": {
+              "x": 346,
+              "y": 23,
+              "width": 32,
+              "height": 32
+            }
+          },
+          "ok": true
+        },
+        {
+          "pass": 1,
+          "kind": "preview-notice-continue",
+          "requested": {
+            "type": "text",
+            "value": "继续"
+          },
+          "clicked": {
+            "tag": "BUTTON",
+            "text": "继续",
+            "rect": {
+              "x": 48,
+              "y": 593,
+              "width": 306,
+              "height": 36
+            }
+          },
+          "ok": true
+        },
+        {
+          "pass": 1,
+          "kind": "get-started-dialog-close",
+          "requested": {
+            "type": "selector",
+            "value": "button[aria-label=\"关闭\"]"
+          },
+          "clicked": {
+            "tag": "BUTTON",
+            "text": "关闭",
+            "rect": {
+              "x": 325,
+              "y": 366,
+              "width": 28,
+              "height": 28
+            }
+          },
+          "ok": true
+        }
+      ],
+      "requiredText": null,
+      "observedBodyTextHead": "探索未至之境\n预览版\n默认工作区\n标准模式\n描述你想要构建的内容, / 调用指令, @ 文件或对话\n请选择模型",
+      "console": {
+        "errorCount": 0,
+        "exceptionCount": 0,
+        "warningCount": 0,
+        "errors": [],
+        "exceptions": [],
+        "warnings": []
+      },
+      "network": {
+        "failureCount": 0,
+        "httpErrorCount": 0,
+        "failures": [],
+        "httpErrors": []
+      },
+      "reportFile": "reports/official-hero-sessionless-402x874-dpr3.json",
+      "probe": null,
+      "session": null
+    },
+    {
+      "id": "auth-gate",
+      "file": "official-auth-gate-402x874-dpr3.png",
+      "state": "官方 Web UI 首次使用认证闸门：开始使用弹窗（登录 DeepSeek 账号 / 添加 API Key）",
+      "stateEn": "first-use auth gate: get-started dialog (sign in to DeepSeek or add an API key)",
+      "width": 1206,
+      "height": 2622,
+      "deviceScaleFactor": 3,
+      "cssViewport": {
+        "width": 402,
+        "height": 874,
+        "dpr": 3
+      },
+      "colorScheme": "light",
+      "bytes": 145619,
+      "sha256": "1806a5d7c3d838dbbf3379120c0f2950bbd338a87a5a0aac3340661c971c428d",
+      "capturedAt": "2026-11-01T06:54:16.115Z",
+      "finalUrl": "http://127.0.0.1:56230/?token=<redacted>",
+      "runtimeViewport": {
+        "innerWidth": 402,
+        "innerHeight": 874,
+        "dpr": 3,
+        "visualWidth": 402,
+        "visualHeight": 874
+      },
+      "interactions": [
+        {
+          "kind": "explicit",
+          "requested": {
+            "type": "selector",
+            "value": "button[aria-label=\"关闭提示\"]"
+          },
+          "clicked": {
+            "tag": "BUTTON",
+            "text": "关闭提示",
+            "rect": {
+              "x": 346,
+              "y": 23,
+              "width": 32,
+              "height": 32
+            }
+          },
+          "ok": true
+        },
+        {
+          "kind": "explicit",
+          "requested": {
+            "type": "text",
+            "value": "继续"
+          },
+          "clicked": null,
+          "ok": false
+        }
+      ],
+      "requiredText": {
+        "text": "开始使用",
+        "found": true
+      },
+      "observedBodyTextHead": "探索未至之境\n预览版\n默认工作区\n标准模式\n描述你想要构建的内容, / 调用指令, @ 文件或对话\n请选择模型\n开始使用\n\n登录 DeepSeek 账号，或添加 API Key，即可开始使用。你的项目和文件保存在本地。\n\n添加 API Key\n登录",
+      "console": {
+        "errorCount": 0,
+        "exceptionCount": 0,
+        "warningCount": 0,
+        "errors": [],
+        "exceptions": [],
+        "warnings": []
+      },
+      "network": {
+        "failureCount": 0,
+        "httpErrorCount": 0,
+        "failures": [],
+        "httpErrors": []
+      },
+      "reportFile": "reports/official-auth-gate-402x874-dpr3.json",
+      "probe": null,
+      "session": null
+    },
+    {
+      "id": "session-chat",
+      "file": "official-session-chat-402x874-dpr3.png",
+      "state": "官方 Web UI 已打开的记录会话（真实 chat）：短 user 气泡 + 时间戳 + 本轮运行失败（MISSING_CREDENTIAL）+ composer；抽屉、分组、会话行均为真实点击",
+      "stateEn": "opened recorded session (real chat): short user bubble + timestamp + failed turn (MISSING_CREDENTIAL) + composer; drawer/group/session row opened by real clicks",
+      "width": 1206,
+      "height": 2622,
+      "deviceScaleFactor": 3,
+      "cssViewport": {
+        "width": 402,
+        "height": 874,
+        "dpr": 3
+      },
+      "colorScheme": "light",
+      "bytes": 170866,
+      "sha256": "1d0aabf77e7b8d993b781c0f8fdbbe5fc149903ba01ba95cd45a93b6bd65b4f9",
+      "capturedAt": "2026-11-01T06:54:29.270Z",
+      "finalUrl": "http://127.0.0.1:56316/?token=<redacted>",
+      "runtimeViewport": {
+        "innerWidth": 402,
+        "innerHeight": 874,
+        "dpr": 3,
+        "visualWidth": 402,
+        "visualHeight": 874
+      },
+      "interactions": [
+        {
+          "pass": 1,
+          "kind": "pwa-install-banner-close",
+          "requested": {
+            "type": "selector",
+            "value": "button[aria-label=\"关闭提示\"]"
+          },
+          "clicked": {
+            "tag": "BUTTON",
+            "text": "关闭提示",
+            "rect": {
+              "x": 346,
+              "y": 23,
+              "width": 32,
+              "height": 32
+            }
+          },
+          "ok": true
+        },
+        {
+          "pass": 1,
+          "kind": "get-started-dialog-close",
+          "requested": {
+            "type": "selector",
+            "value": "button[aria-label=\"关闭\"]"
+          },
+          "clicked": {
+            "tag": "BUTTON",
+            "text": "关闭",
+            "rect": {
+              "x": 325,
+              "y": 366,
+              "width": 28,
+              "height": 28
+            }
+          },
+          "ok": true
+        }
+      ],
+      "requiredText": null,
+      "observedBodyTextHead": "reply with the single word\n对话\n轨迹\nreply with the single word ok\n10月21日 11:02\n处理失败\n处理失败\n本轮运行失败llm-deepseek: no API key for provider route \"deepseek-official\"; store DEEPSEEK_API_KEY through the credentials service (the web Models page writes it), or export DEEPSEEK_API_KEY in the launching environment\nMISSING_CREDENTIAL\n发消息或创建任务, / 调用指令, @ 文件或对话\n请选择模型\n1 轮 1 步",
+      "console": {
+        "errorCount": 0,
+        "exceptionCount": 0,
+        "warningCount": 0,
+        "errors": [],
+        "exceptions": [],
+        "warnings": []
+      },
+      "network": {
+        "failureCount": 0,
+        "httpErrorCount": 0,
+        "failures": [],
+        "httpErrors": []
+      },
+      "reportFile": "reports/official-session-chat-402x874-dpr3.json",
+      "probe": null,
+      "session": {
+        "requestedId": "session-ca5b4ecd-da54-488a-b11b-2df2dcae94f2",
+        "openedId": "session-ca5b4ecd-da54-488a-b11b-2df2dcae94f2",
+        "title": "reply with the single word",
+        "documentTitle": "reply with the single word — DSH 本地构建",
+        "drawerClosedOverConversation": true,
+        "followedTail": {
+          "scrollTop": 0,
+          "scrollHeight": 792,
+          "clientHeight": 792
+        },
+        "scrolledToSelector": null,
+        "requiredSelectors": [],
+        "steps": [
+          {
+            "kind": "open-drawer",
+            "selector": "button[aria-label=\"菜单\"]",
+            "ok": true,
+            "clicked": {
+              "tag": "BUTTON",
+              "text": "菜单",
+              "rect": {
+                "x": 12,
+                "y": 12,
+                "width": 36,
+                "height": 36
+              }
+            }
+          },
+          {
+            "kind": "expand-group",
+            "selector": "[data-row-key=\"workspace:\"]",
+            "ok": true,
+            "clicked": {
+              "tag": "DIV",
+              "text": "未分组",
+              "rect": {
+                "x": 12,
+                "y": 246,
+                "width": 256,
+                "height": 34
+              }
+            }
+          },
+          {
+            "kind": "open-session",
+            "selector": "[data-row-key=\"session:session-ca5b4ecd-da54-488a-b11b-2df2dcae94f2\"]",
+            "ok": true,
+            "clicked": {
+              "tag": "DIV",
+              "text": "reply with the single word\n11天",
+              "rect": {
+                "x": 12,
+                "y": 282,
+                "width": 256,
+                "height": 32
+              }
+            }
+          },
+          {
+            "kind": "close-drawer",
+            "selector": "button[aria-label=\"关闭面板\"]",
+            "ok": true,
+            "clicked": {
+              "tag": "BUTTON",
+              "text": "关闭面板",
+              "rect": {
+                "x": 0,
+                "y": 0,
+                "width": 402,
+                "height": 874
+              }
+            }
+          }
+        ],
+        "transcript": {
+          "rows": 4,
+          "flowKinds": [
+            "user",
+            "turn-process",
+            "turn-error",
+            "turn-tail"
+          ],
+          "visibleFlowKinds": [
+            "user",
+            "turn-process",
+            "turn-error"
+          ],
+          "turns": [
+            "1"
+          ],
+          "keys": [
+            "13:input-messageec616e5c-5f43-4452-b54a-8148882abfe5",
+            "12:turn-process1",
+            "10:turn-error1",
+            "9:turn-tail1"
+          ]
+        },
+        "consoleGate": null,
+        "networkGate": null
+      }
+    },
+    {
+      "id": "session-chat-long-user-turn",
+      "file": "official-session-chat-long-user-turn-402x874-dpr3.png",
+      "state": "官方 Web UI 已打开的长 prompt 会话（滚动到 turn tail）：长文本/代码块 user 气泡 + 时间戳 + 本轮运行失败 + composer",
+      "stateEn": "opened recorded long-user-prompt session scrolled to its turn tail: long/code user bubble + timestamp + failed turn + composer",
+      "width": 1206,
+      "height": 2622,
+      "deviceScaleFactor": 3,
+      "cssViewport": {
+        "width": 402,
+        "height": 874,
+        "dpr": 3
+      },
+      "colorScheme": "light",
+      "bytes": 254627,
+      "sha256": "108a9bad03153cf78e7e7030ee7976cadad0437872d7151d2769bf78ae35e07f",
+      "capturedAt": "2026-11-01T06:54:42.587Z",
+      "finalUrl": "http://127.0.0.1:56316/?token=<redacted>",
+      "runtimeViewport": {
+        "innerWidth": 402,
+        "innerHeight": 874,
+        "dpr": 3,
+        "visualWidth": 402,
+        "visualHeight": 874
+      },
+      "interactions": [
+        {
+          "pass": 1,
+          "kind": "pwa-install-banner-close",
+          "requested": {
+            "type": "selector",
+            "value": "button[aria-label=\"关闭提示\"]"
+          },
+          "clicked": {
+            "tag": "BUTTON",
+            "text": "关闭提示",
+            "rect": {
+              "x": 346,
+              "y": 23,
+              "width": 32,
+              "height": 32
+            }
+          },
+          "ok": true
+        },
+        {
+          "pass": 1,
+          "kind": "get-started-dialog-close",
+          "requested": {
+            "type": "selector",
+            "value": "button[aria-label=\"关闭\"]"
+          },
+          "clicked": {
+            "tag": "BUTTON",
+            "text": "关闭",
+            "rect": {
+              "x": 325,
+              "y": 366,
+              "width": 28,
+              "height": 28
+            }
+          },
+          "ok": true
+        }
+      ],
+      "requiredText": null,
+      "observedBodyTextHead": "You are the evidence-reading and\n对话\n轨迹\nYou are the evidence-reading and proposal stage of the TonoLive technical-intelligence pipeline.\n\nYour job is not to summarize AI news. Your job is to read the supplied source material completely and skeptically, determine what it actually proves, compare it with the current TonoLive repository and the supplied `gap_evidence_registry`, and propose only transfer mechanisms that can be tested. A fluent abstract-level paraphrase is a failure: extract the real mechanism, experiment, result, boundary condition, and missing evidence. You are not the final verifier and cannot create product, architecture, hardware, Runtime, Work, Canvas, Connection, release, or TODO decisions.\n\n## Required reading protocol\n\nPerform these passes in order before writing JSON:\n\n1. **Source sufficiency.** Identify whether the packet contains full text, an abstract, release notes, a blog excerpt, or only a trigger. Do not claim to have read sections that are absent. An abstract-only packet cannot support details that are not in the abstract.\n2. **Source facts.** Extract the method, experimental subject, baselines, metrics, limitations, and material claims. Every material ",
+      "console": {
+        "errorCount": 0,
+        "exceptionCount": 0,
+        "warningCount": 0,
+        "errors": [],
+        "exceptions": [],
+        "warnings": []
+      },
+      "network": {
+        "failureCount": 0,
+        "httpErrorCount": 0,
+        "failures": [],
+        "httpErrors": []
+      },
+      "reportFile": "reports/official-session-chat-long-user-turn-402x874-dpr3.json",
+      "probe": null,
+      "session": {
+        "requestedId": "session-d81de3d6-526a-4894-b3aa-1520db906f62",
+        "openedId": "session-d81de3d6-526a-4894-b3aa-1520db906f62",
+        "title": "You are the evidence-reading and",
+        "documentTitle": "You are the evidence-reading and — DSH 本地构建",
+        "drawerClosedOverConversation": true,
+        "followedTail": {
+          "scrollTop": 143845,
+          "scrollHeight": 144637,
+          "clientHeight": 792
+        },
+        "scrolledToSelector": null,
+        "requiredSelectors": [],
+        "steps": [
+          {
+            "kind": "open-drawer",
+            "selector": "button[aria-label=\"菜单\"]",
+            "ok": true,
+            "clicked": {
+              "tag": "BUTTON",
+              "text": "菜单",
+              "rect": {
+                "x": 12,
+                "y": 12,
+                "width": 36,
+                "height": 36
+              }
+            }
+          },
+          {
+            "kind": "expand-group",
+            "selector": "[data-row-key=\"workspace:\"]",
+            "ok": true,
+            "clicked": {
+              "tag": "DIV",
+              "text": "未分组",
+              "rect": {
+                "x": 12,
+                "y": 246,
+                "width": 256,
+                "height": 34
+              }
+            }
+          },
+          {
+            "kind": "open-session",
+            "selector": "[data-row-key=\"session:session-d81de3d6-526a-4894-b3aa-1520db906f62\"]",
+            "ok": true,
+            "clicked": {
+              "tag": "DIV",
+              "text": "未命名\n1个月",
+              "rect": {
+                "x": 12,
+                "y": 350,
+                "width": 256,
+                "height": 32
+              }
+            }
+          },
+          {
+            "kind": "close-drawer",
+            "selector": "button[aria-label=\"关闭面板\"]",
+            "ok": true,
+            "clicked": {
+              "tag": "BUTTON",
+              "text": "关闭面板",
+              "rect": {
+                "x": 0,
+                "y": 0,
+                "width": 402,
+                "height": 874
+              }
+            }
+          }
+        ],
+        "transcript": {
+          "rows": 4,
+          "flowKinds": [
+            "user",
+            "turn-process",
+            "turn-error",
+            "turn-tail"
+          ],
+          "visibleFlowKinds": [
+            "user",
+            "turn-process",
+            "turn-error"
+          ],
+          "turns": [
+            "1"
+          ],
+          "keys": [
+            "13:input-message5eab29e8-2a6a-49b8-9ac3-4564679c8e0d",
+            "12:turn-process1",
+            "10:turn-error1",
+            "9:turn-tail1"
+          ]
+        },
+        "consoleGate": null,
+        "networkGate": null
+      }
+    },
+    {
+      "id": "session-chat-tool",
+      "file": "official-session-chat-tool-402x874-dpr3.png",
+      "state": "官方 Web UI 富会话（官方记录 fixture 经 JsonlSessionPersistence 播种）：assistant 文本 `DONE` + 展开的 turn process / 工具组 / bash 工具卡（cwd + `echo TERMINAL_OK` + 输出 `TERMINAL_OK`）+ composer；所有展开均为真实点击",
+      "stateEn": "rich chat from an official recorded fixture seeded through JsonlSessionPersistence: assistant text `DONE` + expanded turn process / tool group / bash tool card (cwd + `echo TERMINAL_OK` + `TERMINAL_OK` output) + composer; every disclosure opened by a real click",
+      "width": 1206,
+      "height": 2622,
+      "deviceScaleFactor": 3,
+      "cssViewport": {
+        "width": 402,
+        "height": 874,
+        "dpr": 3
+      },
+      "colorScheme": "light",
+      "bytes": 207792,
+      "sha256": "6a9263ff685a2d8d6572b7304d6229398cf7923dbf404bfb3908e2bfa7deb699",
+      "capturedAt": "2026-11-01T06:54:56.429Z",
+      "finalUrl": "http://127.0.0.1:56316/?token=<redacted>",
+      "runtimeViewport": {
+        "innerWidth": 402,
+        "innerHeight": 874,
+        "dpr": 3,
+        "visualWidth": 402,
+        "visualHeight": 874
+      },
+      "interactions": [
+        {
+          "pass": 1,
+          "kind": "pwa-install-banner-close",
+          "requested": {
+            "type": "selector",
+            "value": "button[aria-label=\"关闭提示\"]"
+          },
+          "clicked": {
+            "tag": "BUTTON",
+            "text": "关闭提示",
+            "rect": {
+              "x": 346,
+              "y": 23,
+              "width": 32,
+              "height": 32
+            }
+          },
+          "ok": true
+        },
+        {
+          "pass": 1,
+          "kind": "get-started-dialog-close",
+          "requested": {
+            "type": "selector",
+            "value": "button[aria-label=\"关闭\"]"
+          },
+          "clicked": {
+            "tag": "BUTTON",
+            "text": "关闭",
+            "rect": {
+              "x": 325,
+              "y": 366,
+              "width": 28,
+              "height": 28
+            }
+          },
+          "ok": true
+        }
+      ],
+      "requiredText": null,
+      "observedBodyTextHead": "Use the bash tool to\n对话\n轨迹\nUse the bash tool to run exactly: echo TERMINAL_OK. Then reply with the single word DONE and stop.\n7月6日 23:34\n已完成\n已完成，用时 1秒\n执行了命令\n思考\nThe user wants me to run a simple bash command and then reply with \"DONE\".\n运行命令\nEcho TERMINAL_OK to verify terminal access\n已完成\ndeepseek-harness\necho TERMINAL_OK\n复制\nTERMINAL_OK\n查看\n思考\nThe command ran successfully and output \"TERMINAL_OK\". I should now reply with just \"DONE\".\n\nDONE\n\n7月6日 23:34\n发消息或创建任务, / 调用指令, @ 文件或对话\n请选择模型\n1 轮 2 步\n6K tok·缓存命中 48%",
+      "console": {
+        "errorCount": 0,
+        "exceptionCount": 0,
+        "warningCount": 0,
+        "errors": [],
+        "exceptions": [],
+        "warnings": []
+      },
+      "network": {
+        "failureCount": 0,
+        "httpErrorCount": 0,
+        "failures": [],
+        "httpErrors": []
+      },
+      "reportFile": "reports/official-session-chat-tool-402x874-dpr3.json",
+      "probe": null,
+      "session": {
+        "requestedId": "session-4f117741-269b-464e-a2cc-4c121c50531c",
+        "openedId": "session-4f117741-269b-464e-a2cc-4c121c50531c",
+        "title": "Use the bash tool to",
+        "documentTitle": "Use the bash tool to — DSH 本地构建",
+        "drawerClosedOverConversation": true,
+        "followedTail": {
+          "scrollTop": 0,
+          "scrollHeight": 792,
+          "clientHeight": 792
+        },
+        "scrolledToSelector": null,
+        "requiredSelectors": [],
+        "steps": [
+          {
+            "kind": "open-drawer",
+            "selector": "button[aria-label=\"菜单\"]",
+            "ok": true,
+            "clicked": {
+              "tag": "BUTTON",
+              "text": "菜单",
+              "rect": {
+                "x": 12,
+                "y": 12,
+                "width": 36,
+                "height": 36
+              }
+            }
+          },
+          {
+            "kind": "expand-group",
+            "selector": "[data-row-key=\"workspace:\"]",
+            "ok": true,
+            "clicked": {
+              "tag": "DIV",
+              "text": "未分组",
+              "rect": {
+                "x": 12,
+                "y": 246,
+                "width": 256,
+                "height": 34
+              }
+            }
+          },
+          {
+            "kind": "expand-overflow",
+            "selector": "[data-row-key=\"overflow:\"]",
+            "ok": true,
+            "clicked": {
+              "tag": "BUTTON",
+              "text": "展开其余 3 个会话",
+              "rect": {
+                "x": 12,
+                "y": 450,
+                "width": 256,
+                "height": 28
+              }
+            }
+          },
+          {
+            "kind": "open-session",
+            "selector": "[data-row-key=\"session:session-4f117741-269b-464e-a2cc-4c121c50531c\"]",
+            "ok": true,
+            "clicked": {
+              "tag": "DIV",
+              "text": "未命名\n3个月",
+              "rect": {
+                "x": 12,
+                "y": 520,
+                "width": 256,
+                "height": 32
+              }
+            }
+          },
+          {
+            "kind": "close-drawer",
+            "selector": "button[aria-label=\"关闭面板\"]",
+            "ok": true,
+            "clicked": {
+              "tag": "BUTTON",
+              "text": "关闭面板",
+              "rect": {
+                "x": 0,
+                "y": 0,
+                "width": 402,
+                "height": 874
+              }
+            }
+          },
+          {
+            "kind": "expand-transcript",
+            "selector": "button[data-turn-process]",
+            "ok": true,
+            "clicked": {
+              "tag": "BUTTON",
+              "text": "已完成，用时 1秒",
+              "rect": {
+                "x": 32,
+                "y": 234,
+                "width": 331,
+                "height": 33
+              }
+            }
+          },
+          {
+            "kind": "expand-transcript",
+            "selector": "[data-chat-group-key] > div > button[aria-expanded]",
+            "ok": true,
+            "clicked": {
+              "tag": "BUTTON",
+              "text": "执行了命令",
+              "rect": {
+                "x": 32,
+                "y": 283,
+                "width": 92,
+                "height": 20
+              }
+            }
+          },
+          {
+            "kind": "expand-transcript",
+            "selector": "div[data-sample=\"bash\"]",
+            "ok": true,
+            "clicked": {
+              "tag": "DIV",
+              "text": "运行命令\nEcho TERMINAL_OK to verify terminal access",
+              "rect": {
+                "x": 32,
+                "y": 341,
+                "width": 326,
+                "height": 24
+              }
+            }
+          }
+        ],
+        "transcript": {
+          "rows": 7,
+          "flowKinds": [
+            "user",
+            "turn-process",
+            "assistant-step",
+            "tool-call",
+            "turn-tail"
+          ],
+          "visibleFlowKinds": [
+            "user",
+            "turn-process",
+            "assistant-step",
+            "tool-call",
+            "turn-tail"
+          ],
+          "turns": [
+            "1"
+          ],
+          "keys": [
+            "13:input-message3fb820c3-857d-4b22-82a0-01558f60a05b",
+            "12:turn-process1",
+            "14:assistant-step1:1",
+            "9:tool-callcall_00_fkbBRJsUrGKd1pWVc4Gn8233",
+            "14:assistant-step1:2",
+            "14:assistant-step1:2",
+            "9:turn-tail1"
+          ]
+        },
+        "consoleGate": null,
+        "networkGate": null
+      }
+    },
+    {
+      "id": "session-question-answered",
+      "file": "official-session-question-402x874-dpr3.png",
+      "state": "官方问答卡（fixture 已作答态）：展开 turn process → 提问组 → 提问行后，`提问 · 1/1 已回答` 卡显示问题 `Which color do you prefer?` 与录音答案 `Blue` + 自定义回答 `Include accessibility notes`；**不是**待回答的 composer 提问面板（日志里没有未结算的 ask_user_question）",
+      "stateEn": "answered ask_user_question card from an official recorded fixture: after expanding turn process -> questions group -> question row, the `1/1 answered` card shows `Which color do you prefer?` with the recorded `Blue` plus custom `Include accessibility notes` answer; NOT the pending composer question panel (the log has no unsettled ask_user_question)",
+      "width": 1206,
+      "height": 2622,
+      "deviceScaleFactor": 3,
+      "cssViewport": {
+        "width": 402,
+        "height": 874,
+        "dpr": 3
+      },
+      "colorScheme": "light",
+      "bytes": 263170,
+      "sha256": "c9adc5f8255d1cf6a9b7b7d7d7a07313defae69296a9fe10433036038bd76e0b",
+      "capturedAt": "2026-11-01T06:55:12.554Z",
+      "finalUrl": "http://127.0.0.1:56316/?token=<redacted>",
+      "runtimeViewport": {
+        "innerWidth": 402,
+        "innerHeight": 874,
+        "dpr": 3,
+        "visualWidth": 402,
+        "visualHeight": 874
+      },
+      "interactions": [
+        {
+          "pass": 1,
+          "kind": "pwa-install-banner-close",
+          "requested": {
+            "type": "selector",
+            "value": "button[aria-label=\"关闭提示\"]"
+          },
+          "clicked": {
+            "tag": "BUTTON",
+            "text": "关闭提示",
+            "rect": {
+              "x": 346,
+              "y": 23,
+              "width": 32,
+              "height": 32
+            }
+          },
+          "ok": true
+        },
+        {
+          "pass": 1,
+          "kind": "get-started-dialog-close",
+          "requested": {
+            "type": "selector",
+            "value": "button[aria-label=\"关闭\"]"
+          },
+          "clicked": {
+            "tag": "BUTTON",
+            "text": "关闭",
+            "rect": {
+              "x": 325,
+              "y": 366,
+              "width": 28,
+              "height": 28
+            }
+          },
+          "ok": true
+        }
+      ],
+      "requiredText": {
+        "text": "Include accessibility notes",
+        "found": true
+      },
+      "observedBodyTextHead": "Use the ask_user_question tool to\n对话\n轨迹\nUse the ask_user_question tool to ask me exactly one multi-select question with id \"color\", question \"Which color do you prefer?\", header \"Pick one\", and two options: label \"Blue\" with description \"A cool recessive hue that reads as calm and trustworthy in long reading sessions and dense dashboards.\", and label \"Green\" with description \"A restful mid-spectrum hue with the highest perceived brightness, easiest on the eye over long sessions.\" Set multi_select to true. After I answer, reply with the single word DONE and stop.\n9月1日 13:30\n已完成\n已完成，用时 2秒\n向用户提出了问题\n思考\nThe user wants me to use the ask_user_question tool with specific parameters. Let me do exactly that.\n提问\n1/1 已回答\nWhich color do you prefer?\nBlue\nInclude accessibility notes\n查看\n思考\nThe user answered \"Blue\". I should now reply with the single word DONE and stop.\n\nDONE\n\n9月1日 13:30\n发消息或创建任务, / 调用指令, @ 文件或对话\n请选择模型\n1 轮 2 步·73 tok/s\n8.8K tok·缓存命中 95%\n3%",
+      "console": {
+        "errorCount": 0,
+        "exceptionCount": 0,
+        "warningCount": 0,
+        "errors": [],
+        "exceptions": [],
+        "warnings": []
+      },
+      "network": {
+        "failureCount": 0,
+        "httpErrorCount": 0,
+        "failures": [],
+        "httpErrors": []
+      },
+      "reportFile": "reports/official-session-question-402x874-dpr3.json",
+      "probe": null,
+      "session": {
+        "requestedId": "session-08d252dc-f487-42c1-9b87-68467f70f1e2",
+        "openedId": "session-08d252dc-f487-42c1-9b87-68467f70f1e2",
+        "title": "Use the ask_user_question tool to",
+        "documentTitle": "Use the ask_user_question tool to — DSH 本地构建",
+        "drawerClosedOverConversation": true,
+        "followedTail": null,
+        "scrolledToSelector": {
+          "selector": "[data-tool=\"ask_user_question\"]",
+          "scrollTop": 175,
+          "scrollHeight": 967,
+          "clientHeight": 792,
+          "rect": {
+            "x": 32,
+            "y": 452,
+            "width": 326,
+            "height": 168
+          }
+        },
+        "requiredSelectors": [
+          {
+            "selector": "[data-chat-node-key] [data-tool=\"ask_user_question\"]",
+            "count": 1,
+            "visibleCount": 1,
+            "text": "提问\n1/1 已回答\nWhich color do you prefer?\nBlue\nInclude accessibility notes\n查看",
+            "ariaLabel": null,
+            "rect": {
+              "x": 32,
+              "y": 452,
+              "width": 326,
+              "height": 168
+            },
+            "scrollTop": 175
+          }
+        ],
+        "steps": [
+          {
+            "kind": "open-drawer",
+            "selector": "button[aria-label=\"菜单\"]",
+            "ok": true,
+            "clicked": {
+              "tag": "BUTTON",
+              "text": "菜单",
+              "rect": {
+                "x": 12,
+                "y": 12,
+                "width": 36,
+                "height": 36
+              }
+            }
+          },
+          {
+            "kind": "expand-group",
+            "selector": "[data-row-key=\"workspace:\"]",
+            "ok": true,
+            "clicked": {
+              "tag": "DIV",
+              "text": "未分组",
+              "rect": {
+                "x": 12,
+                "y": 246,
+                "width": 256,
+                "height": 34
+              }
+            }
+          },
+          {
+            "kind": "open-session",
+            "selector": "[data-row-key=\"session:session-08d252dc-f487-42c1-9b87-68467f70f1e2\"]",
+            "ok": true,
+            "clicked": {
+              "tag": "DIV",
+              "text": "未命名\n2个月",
+              "rect": {
+                "x": 12,
+                "y": 384,
+                "width": 256,
+                "height": 32
+              }
+            }
+          },
+          {
+            "kind": "close-drawer",
+            "selector": "button[aria-label=\"关闭面板\"]",
+            "ok": true,
+            "clicked": {
+              "tag": "BUTTON",
+              "text": "关闭面板",
+              "rect": {
+                "x": 0,
+                "y": 0,
+                "width": 402,
+                "height": 874
+              }
+            }
+          },
+          {
+            "kind": "expand-transcript",
+            "selector": "button[data-turn-process]",
+            "ok": true,
+            "clicked": {
+              "tag": "BUTTON",
+              "text": "已完成，用时 2秒",
+              "rect": {
+                "x": 32,
+                "y": 520,
+                "width": 331,
+                "height": 33
+              }
+            }
+          },
+          {
+            "kind": "expand-transcript",
+            "selector": "button[data-process-activity=\"questions\"]",
+            "ok": true,
+            "clicked": {
+              "tag": "BUTTON",
+              "text": "向用户提出了问题",
+              "rect": {
+                "x": 32,
+                "y": 569,
+                "width": 134,
+                "height": 20
+              }
+            }
+          },
+          {
+            "kind": "expand-transcript",
+            "selector": "[data-tool=\"ask_user_question\"] [data-disclosure-row]",
+            "ok": true,
+            "clicked": {
+              "tag": "DIV",
+              "text": "提问\n1/1 已回答",
+              "rect": {
+                "x": 32,
+                "y": 596,
+                "width": 326,
+                "height": 24
+              }
+            }
+          }
+        ],
+        "transcript": {
+          "rows": 7,
+          "flowKinds": [
+            "user",
+            "turn-process",
+            "assistant-step",
+            "tool-call",
+            "turn-tail"
+          ],
+          "visibleFlowKinds": [
+            "user",
+            "turn-process",
+            "assistant-step",
+            "tool-call",
+            "turn-tail"
+          ],
+          "turns": [
+            "1"
+          ],
+          "keys": [
+            "13:input-message3fb820c3-857d-4b22-82a0-01558f60a05b",
+            "12:turn-process1",
+            "14:assistant-step1:1",
+            "9:tool-callcall_00_Cijldc88LYmVPCXYUsRq1617",
+            "14:assistant-step1:2",
+            "14:assistant-step1:2",
+            "9:turn-tail1"
+          ]
+        },
+        "consoleGate": {
+          "enabled": true,
+          "errorCount": 0,
+          "exceptionCount": 0
+        },
+        "networkGate": null
+      }
+    },
+    {
+      "id": "session-plan-approved",
+      "file": "official-session-plan-402x874-dpr3.png",
+      "state": "官方计划卡（fixture 已批准态）：turn tail 中的计划卡 `Add `--greeting` flag to CLI` / `计划 · Markdown` / `打开`（`data-plan-card`），turn process 保持默认折叠；**不是**待审批的 `Plan review`（Approve / Request changes）接管面板",
+      "stateEn": "approved exit_plan_mode plan card from an official recorded fixture: the turn-tail plan card `Add `--greeting` flag to CLI` / `Plan · Markdown` / `Open` (`data-plan-card`) with the turn process left collapsed; NOT the pending `Plan review` (Approve / Request changes) takeover",
+      "width": 1206,
+      "height": 2622,
+      "deviceScaleFactor": 3,
+      "cssViewport": {
+        "width": 402,
+        "height": 874,
+        "dpr": 3
+      },
+      "colorScheme": "light",
+      "bytes": 211508,
+      "sha256": "d22a81394d2c414cf565c3b84461b4b42da85ec6903a4c9bd6f4efce736d400a",
+      "capturedAt": "2026-11-01T06:55:27.659Z",
+      "finalUrl": "http://127.0.0.1:56316/?token=<redacted>",
+      "runtimeViewport": {
+        "innerWidth": 402,
+        "innerHeight": 874,
+        "dpr": 3,
+        "visualWidth": 402,
+        "visualHeight": 874
+      },
+      "interactions": [
+        {
+          "pass": 1,
+          "kind": "pwa-install-banner-close",
+          "requested": {
+            "type": "selector",
+            "value": "button[aria-label=\"关闭提示\"]"
+          },
+          "clicked": {
+            "tag": "BUTTON",
+            "text": "关闭提示",
+            "rect": {
+              "x": 346,
+              "y": 23,
+              "width": 32,
+              "height": 32
+            }
+          },
+          "ok": true
+        },
+        {
+          "pass": 1,
+          "kind": "get-started-dialog-close",
+          "requested": {
+            "type": "selector",
+            "value": "button[aria-label=\"关闭\"]"
+          },
+          "clicked": {
+            "tag": "BUTTON",
+            "text": "关闭",
+            "rect": {
+              "x": 325,
+              "y": 366,
+              "width": 28,
+              "height": 28
+            }
+          },
+          "ok": true
+        }
+      ],
+      "requiredText": {
+        "text": "Add `--greeting` flag to CLI",
+        "found": true
+      },
+      "observedBodyTextHead": "Plan a small change: add\n对话\n轨迹\nplan\nPlan mode on. Use /plan off to leave.\nPlan a small change: add a --greeting flag to a CLI. Do not read or write any files. Call exit_plan_mode with a short plan of at most five bullet points. Once the plan is approved, reply with the single word DONE and stop.\n9月1日 13:29\n已完成\n已完成，用时 5秒\n\nDONE\n\nAdd `--greeting` flag to CLI\n计划 · Markdown\n打开\n9月1日 13:30\n发消息或创建任务, / 调用指令, @ 文件或对话\n请选择模型\n1 轮 2 步·66 tok/s\n10.6K tok·缓存命中 51%\n4%",
+      "console": {
+        "errorCount": 0,
+        "exceptionCount": 0,
+        "warningCount": 0,
+        "errors": [],
+        "exceptions": [],
+        "warnings": []
+      },
+      "network": {
+        "failureCount": 0,
+        "httpErrorCount": 0,
+        "failures": [],
+        "httpErrors": []
+      },
+      "reportFile": "reports/official-session-plan-402x874-dpr3.json",
+      "probe": null,
+      "session": {
+        "requestedId": "session-1b0222d8-77f1-40b2-9ff4-13ee4a69164c",
+        "openedId": "session-1b0222d8-77f1-40b2-9ff4-13ee4a69164c",
+        "title": "Plan a small change: add",
+        "documentTitle": "Plan a small change: add — DSH 本地构建",
+        "drawerClosedOverConversation": true,
+        "followedTail": {
+          "scrollTop": 0,
+          "scrollHeight": 792,
+          "clientHeight": 792
+        },
+        "scrolledToSelector": null,
+        "requiredSelectors": [
+          {
+            "selector": "[data-chat-node-key] [data-plan-card]",
+            "count": 1,
+            "visibleCount": 1,
+            "text": "Add `--greeting` flag to CLI\n计划 · Markdown\n打开",
+            "ariaLabel": "打开计划：Add `--greeting` flag to CLI",
+            "rect": {
+              "x": 32,
+              "y": 437,
+              "width": 331,
+              "height": 60
+            },
+            "scrollTop": 0
+          }
+        ],
+        "steps": [
+          {
+            "kind": "open-drawer",
+            "selector": "button[aria-label=\"菜单\"]",
+            "ok": true,
+            "clicked": {
+              "tag": "BUTTON",
+              "text": "菜单",
+              "rect": {
+                "x": 12,
+                "y": 12,
+                "width": 36,
+                "height": 36
+              }
+            }
+          },
+          {
+            "kind": "expand-group",
+            "selector": "[data-row-key=\"workspace:\"]",
+            "ok": true,
+            "clicked": {
+              "tag": "DIV",
+              "text": "未分组",
+              "rect": {
+                "x": 12,
+                "y": 246,
+                "width": 256,
+                "height": 34
+              }
+            }
+          },
+          {
+            "kind": "open-session",
+            "selector": "[data-row-key=\"session:session-1b0222d8-77f1-40b2-9ff4-13ee4a69164c\"]",
+            "ok": true,
+            "clicked": {
+              "tag": "DIV",
+              "text": "未命名\n2个月",
+              "rect": {
+                "x": 12,
+                "y": 418,
+                "width": 256,
+                "height": 32
+              }
+            }
+          },
+          {
+            "kind": "close-drawer",
+            "selector": "button[aria-label=\"关闭面板\"]",
+            "ok": true,
+            "clicked": {
+              "tag": "BUTTON",
+              "text": "关闭面板",
+              "rect": {
+                "x": 0,
+                "y": 0,
+                "width": 402,
+                "height": 874
+              }
+            }
+          }
+        ],
+        "transcript": {
+          "rows": 9,
+          "flowKinds": [
+            "command",
+            "steering",
+            "turn-process",
+            "assistant-step",
+            "tool-call",
+            "turn-tail"
+          ],
+          "visibleFlowKinds": [
+            "command",
+            "steering",
+            "turn-process",
+            "assistant-step",
+            "turn-tail"
+          ],
+          "turns": [
+            "1"
+          ],
+          "keys": [
+            "7:command53d487fa-4214-414e-85b6-a7f20439eca7",
+            "13:input-message3fb820c3-857d-4b22-82a0-01558f60a05b",
+            "12:turn-process1",
+            "14:assistant-step1:1",
+            "14:assistant-step1:1",
+            "9:tool-callcall_00_TPh5fH8x5kRezK115kgx8155",
+            "14:assistant-step1:2",
+            "14:assistant-step1:2",
+            "9:turn-tail1"
+          ]
+        },
+        "consoleGate": {
+          "enabled": true,
+          "errorCount": 0,
+          "exceptionCount": 0
+        },
+        "networkGate": null
+      }
+    },
+    {
+      "id": "session-subagent-spawn",
+      "file": "official-session-subagent-402x874-dpr3.png",
+      "state": "官方子智能体态（fixture 经 JsonlSessionPersistence 播种）：会话头把日志里的 `subagent/catalog` 投影成 **`1 个子智能体`** 计数按钮（`button[aria-haspopup=\"tree\"]`，aria-label 同为 `1 个子智能体`）；展开 turn process → `已协调子智能体` 过程组 → `subagent` 工具行后，行卡显示 `创建子智能体` / `调用结果` / prompt 文本 / `● 已启动` / `智能体 ID`（`<sessionId>-child-2`）；另有 `思考` 推理行、`PARENT_DONE`、`子任务状态更新` turn trigger 卡、composer；所有展开均为真实点击",
+      "stateEn": "subagent state from an official recorded fixture seeded through JsonlSessionPersistence: the session header projects the logged `subagent/catalog` into a **`1 个子智能体`** count button (`button[aria-haspopup=\"tree\"]`, same aria-label); after expanding the turn process -> `已协调子智能体` process group -> the `subagent` tool row, the card shows `创建子智能体` / `调用结果` / the prompt text / `● 已启动` / `智能体 ID` (`<sessionId>-child-2`), alongside reasoning rows, `PARENT_DONE`, the `子任务状态更新` turn trigger card and the composer; every disclosure opened by a real click",
+      "width": 1206,
+      "height": 2622,
+      "deviceScaleFactor": 3,
+      "cssViewport": {
+        "width": 402,
+        "height": 874,
+        "dpr": 3
+      },
+      "colorScheme": "light",
+      "bytes": 256739,
+      "sha256": "40d61bcbe9c946f75d9515ed2e7c4602a44444cdad7094e918fa67c7c6455d5a",
+      "capturedAt": "2026-11-01T06:55:40.895Z",
+      "finalUrl": "http://127.0.0.1:56316/?token=<redacted>",
+      "runtimeViewport": {
+        "innerWidth": 402,
+        "innerHeight": 874,
+        "dpr": 3,
+        "visualWidth": 402,
+        "visualHeight": 874
+      },
+      "interactions": [
+        {
+          "pass": 1,
+          "kind": "pwa-install-banner-close",
+          "requested": {
+            "type": "selector",
+            "value": "button[aria-label=\"关闭提示\"]"
+          },
+          "clicked": {
+            "tag": "BUTTON",
+            "text": "关闭提示",
+            "rect": {
+              "x": 346,
+              "y": 23,
+              "width": 32,
+              "height": 32
+            }
+          },
+          "ok": true
+        },
+        {
+          "pass": 1,
+          "kind": "get-started-dialog-close",
+          "requested": {
+            "type": "selector",
+            "value": "button[aria-label=\"关闭\"]"
+          },
+          "clicked": {
+            "tag": "BUTTON",
+            "text": "关闭",
+            "rect": {
+              "x": 325,
+              "y": 366,
+              "width": 28,
+              "height": 28
+            }
+          },
+          "ok": true
+        }
+      ],
+      "requiredText": {
+        "text": "1 个子智能体",
+        "found": true
+      },
+      "observedBodyTextHead": "Use the subagent tool exactly\n1 个子智能体\n对话\n轨迹\nUse the subagent tool exactly once to delegate this subtask to a child agent: 'Reply with exactly the word CHILD_OK and nothing else.' After the subagent returns, reply with the single word PARENT_DONE and stop. Do not use the bash tool.\n7月6日 23:35\n已完成\n已完成，用时 1秒\n已协调子智能体\n思考\nThe user wants me to:\n创建子智能体\nReply with exactly the word CHILD_OK and nothing else.\n调用结果\nReply with exactly the word CHILD_OK and nothing else.\n已启动\n智能体 ID\nsession-ff9414c5-36db-4327-955e-84d7fa18547c-child-2\n查看\n思考\nThe subagent returned \"CHILD_OK\" as expected. Now I need to reply with the single word \"PARENT_DONE\" and stop.\n\nPARENT_DONE\n\n7月6日 23:35\n子任务状态更新\n7月6日 23:35\n已完成\n已完成，用时 1秒\n\nPARENT_DONE\n\n7月6日 23:35\n发消息或创建任务, / 调用指令, @ 文件或对话\n请选择模型\n2 轮 3 步·181000 tok/s\n6.2K tok·缓存命中 49%",
+      "console": {
+        "errorCount": 0,
+        "exceptionCount": 0,
+        "warningCount": 0,
+        "errors": [],
+        "exceptions": [],
+        "warnings": []
+      },
+      "network": {
+        "failureCount": 0,
+        "httpErrorCount": 0,
+        "failures": [],
+        "httpErrors": []
+      },
+      "reportFile": "reports/official-session-subagent-402x874-dpr3.json",
+      "probe": null,
+      "session": {
+        "requestedId": "session-ff9414c5-36db-4327-955e-84d7fa18547c",
+        "openedId": "session-ff9414c5-36db-4327-955e-84d7fa18547c",
+        "title": "Use the subagent tool exactly",
+        "documentTitle": "Use the subagent tool exactly — DSH 本地构建",
+        "drawerClosedOverConversation": true,
+        "followedTail": {
+          "scrollTop": 170,
+          "scrollHeight": 962,
+          "clientHeight": 792
+        },
+        "scrolledToSelector": null,
+        "requiredSelectors": [
+          {
+            "selector": "[data-chat-node-key] [data-tool=\"subagent\"]",
+            "count": 1,
+            "visibleCount": 1,
+            "text": "创建子智能体\nReply with exactly the word CHILD_OK and nothing else.\n调用结果\nReply with exactly the word CHILD_OK and nothing else.\n已启动\n智能体 ID\nsession-ff9414c5-36db-4327-955e-84d7fa18547c-child-2\n查看",
+            "ariaLabel": null,
+            "rect": {
+              "x": 32,
+              "y": 259,
+              "width": 326,
+              "height": 176
+            },
+            "scrollTop": 170
+          },
+          {
+            "selector": "button[aria-haspopup=\"tree\"]",
+            "count": 1,
+            "visibleCount": 1,
+            "text": "1 个子智能体",
+            "ariaLabel": "1 个子智能体",
+            "rect": {
+              "x": 164,
+              "y": 14,
+              "width": 91,
+              "height": 28
+            },
+            "scrollTop": 170
+          }
+        ],
+        "steps": [
+          {
+            "kind": "open-drawer",
+            "selector": "button[aria-label=\"菜单\"]",
+            "ok": true,
+            "clicked": {
+              "tag": "BUTTON",
+              "text": "菜单",
+              "rect": {
+                "x": 12,
+                "y": 12,
+                "width": 36,
+                "height": 36
+              }
+            }
+          },
+          {
+            "kind": "expand-group",
+            "selector": "[data-row-key=\"workspace:\"]",
+            "ok": true,
+            "clicked": {
+              "tag": "DIV",
+              "text": "未分组",
+              "rect": {
+                "x": 12,
+                "y": 246,
+                "width": 256,
+                "height": 34
+              }
+            }
+          },
+          {
+            "kind": "expand-overflow",
+            "selector": "[data-row-key=\"overflow:\"]",
+            "ok": true,
+            "clicked": {
+              "tag": "BUTTON",
+              "text": "展开其余 3 个会话",
+              "rect": {
+                "x": 12,
+                "y": 450,
+                "width": 256,
+                "height": 28
+              }
+            }
+          },
+          {
+            "kind": "open-session",
+            "selector": "[data-row-key=\"session:session-ff9414c5-36db-4327-955e-84d7fa18547c\"]",
+            "ok": true,
+            "clicked": {
+              "tag": "DIV",
+              "text": "未命名\n3个月",
+              "rect": {
+                "x": 12,
+                "y": 486,
+                "width": 256,
+                "height": 32
+              }
+            }
+          },
+          {
+            "kind": "close-drawer",
+            "selector": "button[aria-label=\"关闭面板\"]",
+            "ok": true,
+            "clicked": {
+              "tag": "BUTTON",
+              "text": "关闭面板",
+              "rect": {
+                "x": 0,
+                "y": 0,
+                "width": 402,
+                "height": 874
+              }
+            }
+          },
+          {
+            "kind": "expand-transcript",
+            "selector": "button[data-turn-process]",
+            "ok": true,
+            "clicked": {
+              "tag": "BUTTON",
+              "text": "已完成，用时 1秒",
+              "rect": {
+                "x": 32,
+                "y": 322,
+                "width": 331,
+                "height": 33
+              }
+            }
+          },
+          {
+            "kind": "expand-transcript",
+            "selector": "[data-chat-group-key] > div > button[aria-expanded]",
+            "ok": true,
+            "clicked": {
+              "tag": "BUTTON",
+              "text": "已协调子智能体",
+              "rect": {
+                "x": 32,
+                "y": 371,
+                "width": 120,
+                "height": 20
+              }
+            }
+          },
+          {
+            "kind": "expand-transcript",
+            "selector": "[data-tool=\"subagent\"] [data-disclosure-row]",
+            "ok": true,
+            "clicked": {
+              "tag": "DIV",
+              "text": "创建子智能体\nReply with exactly the word CHILD_OK and nothing else. · 已启动",
+              "rect": {
+                "x": 32,
+                "y": 411,
+                "width": 326,
+                "height": 24
+              }
+            }
+          }
+        ],
+        "transcript": {
+          "rows": 11,
+          "flowKinds": [
+            "user",
+            "turn-process",
+            "assistant-step",
+            "tool-call",
+            "turn-tail",
+            "turn-trigger"
+          ],
+          "visibleFlowKinds": [
+            "user",
+            "turn-process",
+            "assistant-step",
+            "tool-call",
+            "turn-tail",
+            "turn-trigger"
+          ],
+          "turns": [
+            "1",
+            "2"
+          ],
+          "keys": [
+            "13:input-message3fb820c3-857d-4b22-82a0-01558f60a05b",
+            "12:turn-process1",
+            "14:assistant-step1:1",
+            "9:tool-callcall_00_gVbLWC12Qu8JheZpVRRz8749",
+            "14:assistant-step1:2",
+            "14:assistant-step1:2",
+            "9:turn-tail1",
+            "13:input-message18abfff4-c151-4b6e-807b-9272f1745475",
+            "12:turn-process2",
+            "14:assistant-step2:1",
+            "9:turn-tail2"
+          ]
+        },
+        "consoleGate": {
+          "enabled": true,
+          "errorCount": 0,
+          "exceptionCount": 0
+        },
+        "networkGate": {
+          "enabled": true,
+          "failureCount": 0,
+          "httpErrorCount": 0
+        }
+      }
+    },
+    {
+      "id": "session-subagent-parallel",
+      "file": "official-session-subagent-parallel-402x874-dpr3.png",
+      "state": "官方并行子智能体态（同一 fixture 家族的 `subagent-parallel` 录音）：日志里有两条 `subagent/catalog`，同一会话头因此渲染 **`2 个子智能体`**；同一个 `已协调子智能体` 过程组里有两张 `subagent` 工具行（第一张展开显示 `智能体 ID …-child-2`，第二张保持折叠摘要），另有 `PARENT_DONE` 与 composer。与 `session-subagent-spawn` 只差 catalog 事件，用来证明头部计数是从日志派生的、不是写死的标签",
+      "stateEn": "parallel-subagent state from the official `subagent-parallel` recording: two logged `subagent/catalog` events make the same session header render **`2 个子智能体`**; one `已协调子智能体` process group holds two `subagent` tool rows (the first expanded with `智能体 ID …-child-2`, the second left as a collapsed summary), plus `PARENT_DONE` and the composer. It differs from `session-subagent-spawn` only in its catalog events, which is the evidence that the header count is derived from the log rather than a hardcoded label",
+      "width": 1206,
+      "height": 2622,
+      "deviceScaleFactor": 3,
+      "cssViewport": {
+        "width": 402,
+        "height": 874,
+        "dpr": 3
+      },
+      "colorScheme": "light",
+      "bytes": 304623,
+      "sha256": "e1ce41be38603eb87f1fd90721e313447b69830e28561e1c5b9a57119e6e6d2d",
+      "capturedAt": "2026-11-01T06:55:56.596Z",
+      "finalUrl": "http://127.0.0.1:56316/?token=<redacted>",
+      "runtimeViewport": {
+        "innerWidth": 402,
+        "innerHeight": 874,
+        "dpr": 3,
+        "visualWidth": 402,
+        "visualHeight": 874
+      },
+      "interactions": [
+        {
+          "pass": 1,
+          "kind": "pwa-install-banner-close",
+          "requested": {
+            "type": "selector",
+            "value": "button[aria-label=\"关闭提示\"]"
+          },
+          "clicked": {
+            "tag": "BUTTON",
+            "text": "关闭提示",
+            "rect": {
+              "x": 346,
+              "y": 23,
+              "width": 32,
+              "height": 32
+            }
+          },
+          "ok": true
+        },
+        {
+          "pass": 1,
+          "kind": "get-started-dialog-close",
+          "requested": {
+            "type": "selector",
+            "value": "button[aria-label=\"关闭\"]"
+          },
+          "clicked": {
+            "tag": "BUTTON",
+            "text": "关闭",
+            "rect": {
+              "x": 325,
+              "y": 366,
+              "width": 28,
+              "height": 28
+            }
+          },
+          "ok": true
+        }
+      ],
+      "requiredText": {
+        "text": "2 个子智能体",
+        "found": true
+      },
+      "observedBodyTextHead": "Use the subagent tool TWICE\n2 个子智能体\n对话\n轨迹\nUse the subagent tool TWICE in the SAME assistant message (two parallel tool calls in one response), each delegating the identical subtask: 'Reply with exactly the word ALPHA and nothing else.' Give both calls the description 'Say the word ALPHA'. After both subagents return, reply with the single word PARENT_DONE and stop. Do not use the bash tool.\n7月6日 23:35\n已完成\n已完成，用时 1秒\n已协调子智能体\n创建子智能体\nReply with exactly the word ALPHA and nothing else.\n调用结果\nReply with exactly the word ALPHA and nothing else.\n已启动\n智能体 ID\nsession-d6126d5c-82a0-4de9-9f58-14205fcc27fb-child-2\n查看\n创建子智能体\nReply with exactly the word ALPHA and nothing else. · 已启动\n\nPARENT_DONE\n\n7月6日 23:35\n发消息或创建任务, / 调用指令, @ 文件或对话\n请选择模型\n1 轮 2 步",
+      "console": {
+        "errorCount": 0,
+        "exceptionCount": 0,
+        "warningCount": 0,
+        "errors": [],
+        "exceptions": [],
+        "warnings": []
+      },
+      "network": {
+        "failureCount": 0,
+        "httpErrorCount": 0,
+        "failures": [],
+        "httpErrors": []
+      },
+      "reportFile": "reports/official-session-subagent-parallel-402x874-dpr3.json",
+      "probe": null,
+      "session": {
+        "requestedId": "session-d6126d5c-82a0-4de9-9f58-14205fcc27fb",
+        "openedId": "session-d6126d5c-82a0-4de9-9f58-14205fcc27fb",
+        "title": "Use the subagent tool TWICE",
+        "documentTitle": "Use the subagent tool TWICE — DSH 本地构建",
+        "drawerClosedOverConversation": true,
+        "followedTail": {
+          "scrollTop": 43,
+          "scrollHeight": 835,
+          "clientHeight": 792
+        },
+        "scrolledToSelector": null,
+        "requiredSelectors": [
+          {
+            "selector": "[data-chat-node-key] [data-tool=\"subagent\"]",
+            "count": 2,
+            "visibleCount": 2,
+            "text": "创建子智能体\nReply with exactly the word ALPHA and nothing else.\n调用结果\nReply with exactly the word ALPHA and nothing else.\n已启动\n智能体 ID\nsession-d6126d5c-82a0-4de9-9f58-14205fcc27fb-child-2\n查看",
+            "ariaLabel": null,
+            "rect": {
+              "x": 32,
+              "y": 444,
+              "width": 326,
+              "height": 176
+            },
+            "scrollTop": 43
+          },
+          {
+            "selector": "button[aria-haspopup=\"tree\"]",
+            "count": 1,
+            "visibleCount": 1,
+            "text": "2 个子智能体",
+            "ariaLabel": "2 个子智能体",
+            "rect": {
+              "x": 162,
+              "y": 14,
+              "width": 93,
+              "height": 28
+            },
+            "scrollTop": 43
+          }
+        ],
+        "steps": [
+          {
+            "kind": "open-drawer",
+            "selector": "button[aria-label=\"菜单\"]",
+            "ok": true,
+            "clicked": {
+              "tag": "BUTTON",
+              "text": "菜单",
+              "rect": {
+                "x": 12,
+                "y": 12,
+                "width": 36,
+                "height": 36
+              }
+            }
+          },
+          {
+            "kind": "expand-group",
+            "selector": "[data-row-key=\"workspace:\"]",
+            "ok": true,
+            "clicked": {
+              "tag": "DIV",
+              "text": "未分组",
+              "rect": {
+                "x": 12,
+                "y": 246,
+                "width": 256,
+                "height": 34
+              }
+            }
+          },
+          {
+            "kind": "expand-overflow",
+            "selector": "[data-row-key=\"overflow:\"]",
+            "ok": true,
+            "clicked": {
+              "tag": "BUTTON",
+              "text": "展开其余 3 个会话",
+              "rect": {
+                "x": 12,
+                "y": 450,
+                "width": 256,
+                "height": 28
+              }
+            }
+          },
+          {
+            "kind": "open-session",
+            "selector": "[data-row-key=\"session:session-d6126d5c-82a0-4de9-9f58-14205fcc27fb\"]",
+            "ok": true,
+            "clicked": {
+              "tag": "DIV",
+              "text": "未命名\n3个月",
+              "rect": {
+                "x": 12,
+                "y": 452,
+                "width": 256,
+                "height": 32
+              }
+            }
+          },
+          {
+            "kind": "close-drawer",
+            "selector": "button[aria-label=\"关闭面板\"]",
+            "ok": true,
+            "clicked": {
+              "tag": "BUTTON",
+              "text": "关闭面板",
+              "rect": {
+                "x": 0,
+                "y": 0,
+                "width": 402,
+                "height": 874
+              }
+            }
+          },
+          {
+            "kind": "expand-transcript",
+            "selector": "button[data-turn-process]",
+            "ok": true,
+            "clicked": {
+              "tag": "BUTTON",
+              "text": "已完成，用时 1秒",
+              "rect": {
+                "x": 32,
+                "y": 410,
+                "width": 331,
+                "height": 33
+              }
+            }
+          },
+          {
+            "kind": "expand-transcript",
+            "selector": "[data-chat-group-key] > div > button[aria-expanded]",
+            "ok": true,
+            "clicked": {
+              "tag": "BUTTON",
+              "text": "已协调子智能体",
+              "rect": {
+                "x": 32,
+                "y": 459,
+                "width": 120,
+                "height": 20
+              }
+            }
+          },
+          {
+            "kind": "expand-transcript",
+            "selector": "[data-tool=\"subagent\"] [data-disclosure-row]",
+            "ok": true,
+            "clicked": {
+              "tag": "DIV",
+              "text": "创建子智能体\nReply with exactly the word ALPHA and nothing else. · 已启动",
+              "rect": {
+                "x": 32,
+                "y": 487,
+                "width": 326,
+                "height": 24
+              }
+            }
+          }
+        ],
+        "transcript": {
+          "rows": 6,
+          "flowKinds": [
+            "user",
+            "turn-process",
+            "tool-call",
+            "assistant-step",
+            "turn-tail"
+          ],
+          "visibleFlowKinds": [
+            "user",
+            "turn-process",
+            "tool-call",
+            "assistant-step",
+            "turn-tail"
+          ],
+          "turns": [
+            "1"
+          ],
+          "keys": [
+            "13:input-message3fb820c3-857d-4b22-82a0-01558f60a05b",
+            "12:turn-process1",
+            "9:tool-callcall_parallel_alpha_1",
+            "9:tool-callcall_parallel_alpha_2",
+            "14:assistant-step1:2",
+            "9:turn-tail1"
+          ]
+        },
+        "consoleGate": {
+          "enabled": true,
+          "errorCount": 0,
+          "exceptionCount": 0
+        },
+        "networkGate": {
+          "enabled": true,
+          "failureCount": 0,
+          "httpErrorCount": 0
+        }
+      }
+    }
+  ],
+  "consoleErrorsTotal": 0,
+  "limitations": [
+    "会话截图来自**真实本地 DSH_HOME 的副本**（源目录只读，临时副本在截图后删除）：打开 V3 会话会在原地迁移成 V4，所以服务端从不指向真实 ~/.dsh。",
+    "`session-chat-tool` 的 assistant 文本 / 工具卡**不是本机实时模型运行**产生的：它来自官方仓记录 fixture `snapshots/session/bash-tool-turn/session.v4.jsonl`，由 `seed-official-session.mjs` 通过官方格式读取器（`prepareSessionSnapshotFixtureForComparison` + `parseSessionLog`）和官方 `JsonlSessionPersistence.create/append/close` 写入副本；副本里被替换的是一个单轮 `MISSING_CREDENTIAL` 失败会话。",
+    "该 fixture 的 `{{tools}}` 工具 schema 侧车没有被记录，官方读取器按 web e2e 的同一口径省略了 `request/header` 的 `tools`；工具行本身来自录音里的 `tool/call` + `tool/result` 事件，不是伪造的 DOM。",
+    "本地其余记录会话都是**单轮**且以 `MISSING_CREDENTIAL` 失败结束；turn trigger 的其他形态 / 深色 仍没有官方像素。",
+    "`session-subagent-spawn` 与 `session-subagent-parallel` 的子智能体内容**不是**本机实时运行：它们来自官方仓记录 fixture `snapshots/session/subagent-spawn-in-process/session.v4.jsonl` 与 `snapshots/session/subagent-parallel/session.v4.jsonl`，经官方格式读取器与官方 `JsonlSessionPersistence` 播种进临时 DSH_HOME 副本。",
+    "两个 subagent fixture 的子会话 id 是**占位符实现**：`realizeSeedFixture` 把 `{{session:2}}` / `{{session:3}}` 展开成 `<sessionId>-child-2` / `-child-3`，而副本里并不存在这些子会话目录。因此截图证明的是**父会话头部计数 + 父转录里的 subagent 工具行**（`已启动` 的已结算状态），**不是**子会话转录；行内 `查看` 按钮对应的子会话在本地存储中不可打开，本轮没有点击它。",
+    "头部计数是官方 projection 的产物：`subagent/catalog` 事件经 `subagentCatalog` projection 变成 `button[aria-haspopup=\"tree\"]` 的 `N 个子智能体` 文案；计数断言（`1 个子智能体` / `2 个子智能体`）依赖当前中文界面，若 Web UI 切到英文会变成 `N subagent(s)`。",
+    "两个 subagent 截图**没有打开**头部的 catalog 下拉树（`role=\"tree\"` 子智能体会话面板）：截图证明的是计数按钮存在且可见，该下拉面板本身没有对应像素，也未伪造。",
+    "子智能体截图里出现的 `已启动` / `智能体 ID` 卡片来自 fixture 的 `tool/result` 文本 `started subagent <childId>`；`turn/end` 为 `completed`，所以是**已结算**的工具行，不是运行中的 pending 行。",
+    "`session-question-answered` 与 `session-plan-approved` 是**已结算**状态，不是 pending 接管态：官方 web fixture 的 `ask_user_question` / `exit_plan_mode` 都带 `tool/result`（已作答 / 已批准），因此只能证明已作答问答卡与已批准计划卡。待审批的 `Plan review`（Approve / Request changes）与待回答的 composer 提问面板没有对应的官方录制日志，**未截图，也未伪造**。",
+    "`session-plan-approved` 的 turn process 保持默认折叠：`exit_plan_mode` 工具行位于折叠组内，截图证明的是 turn tail 的计划卡本身；`review.expected.md` 描述的待审批接管不在该日志中。",
+    "两个 web fixture 里的 `{{timeContextTimestamp}}` / `{{clientTimeZone}}` / `{{elapsed}}` / `{{sourceRoot}}` / `{{webUrl}}` 是官方快照保留的展示占位符（官方 `realizeSeedFixture` 同样不替换），位于被折叠的 context 行，不出现在截图的卡片画面中。",
+    "plan fixture 的 v4 header `createdAt` 在迁移时被重置为 0；播种时固定为同一 scenario 官方 v2 fixture 记录的 `1788240594856`，保证重复运行时转录时间戳与 PNG 一致。",
+    "仍未登录：`data-signed-out=\"true\"`，composer 显示「请选择模型」；首次使用弹窗必须先被真实关闭，才能进入会话列表。",
+    "网页截图不含 iOS 状态栏（09:41/信号/电量）；状态栏属于 iOS 侧叠加层，不是 Web UI 的一部分。",
+    "视口为 CSS 402×874、DPR3、light、mobile；截图是 1206×2622 物理像素，没有按 @3x 再乘一次。",
+    "截图由无头 Chrome（DevTools Protocol）生成，字体回退到 macOS 系统栈（-apple-system / PingFang），与 iPhone 真机字形可能有细微差异。"
+  ]
+}

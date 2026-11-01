@@ -1,0 +1,39 @@
+{
+  "id": "gw-cred-003",
+  "rule": "credential-injection",
+  "kind": "request",
+  "source": "Sources/PhoneDSHGateway/ModelGateway.swift:1013",
+  "references": [
+    "Tests/PhoneDSHGatewayTests/MCPEgressPolicyTests.swift:106",
+    "Tests/PhoneDSHGatewayTests/MCPEgressPolicyTests.swift:108"
+  ],
+  "note": "A host-managed header map is injected whole; the Worker placeholder value is dropped per value, so the header name stays in outbound_headers and is not listed in stripped.",
+  "input": {
+    "method": "POST",
+    "url": "https://internal.example.invalid/mcp",
+    "headers": {
+      "content-type": "application/json",
+      "x-mcp-token": "phone-host-injects-mcp-key"
+    },
+    "allowlist": [
+      "https://internal.example.invalid"
+    ],
+    "credential": {
+      "kind": "headers",
+      "headers": {
+        "authorization": "Bearer mcp-device-placeholder",
+        "x-mcp-token": "mcp-header-placeholder"
+      }
+    }
+  },
+  "expect": {
+    "dispatch": "allow",
+    "outbound_headers": {
+      "authorization": "Bearer mcp-device-placeholder",
+      "content-type": "application/json",
+      "x-mcp-token": "mcp-header-placeholder"
+    },
+    "stripped": [],
+    "outbound_url": "https://internal.example.invalid/mcp"
+  }
+}

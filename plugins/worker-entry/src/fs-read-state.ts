@@ -232,9 +232,15 @@ const READ_STATE_PLUGIN = {
  * compatibility preflight and the image loader still resolve every pinned
  * package normally.
  * @param real - the pinned `@deepseek-ai/dsh-app-boot` module.
+ * @param beforePrepare - further host plugins to mount beside the read-state
+ *   replay, before the launcher's prepare step: the phone surface's other
+ *   pre-tree seams (the fs-denial diagnostics, P24).
  * @returns a module whose `boot()` installs the replay first.
  */
-export function createAppBootShim(real: AppBootModule): AppBootModule {
+export function createAppBootShim(
+  real: AppBootModule,
+  beforePrepare: readonly unknown[] = [],
+): AppBootModule {
   return {
     ...real,
     boot(
@@ -249,7 +255,9 @@ export function createAppBootShim(real: AppBootModule): AppBootModule {
         // the prepended intent listeners must precede the real policy's
         // single-slot deciders, and the resume listener must exist before the
         // first agent can be created.
-        await (ctx as unknown as { plugin(plugin: unknown): Promise<unknown> }).plugin(READ_STATE_PLUGIN)
+        const scope = ctx as unknown as { plugin(plugin: unknown): Promise<unknown> }
+        await scope.plugin(READ_STATE_PLUGIN)
+        for (const plugin of beforePrepare) await scope.plugin(plugin)
         await prepare?.(ctx)
       }
       return real.boot(binName, configPath, patches, prepareWithReadState, bareModuleBaseUrl)

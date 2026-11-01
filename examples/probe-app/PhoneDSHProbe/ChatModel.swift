@@ -57,6 +57,13 @@ struct NativeCommandDescriptor: Identifiable, Equatable {
     let description: String
     let inputHint: String?
     let acceptsAttachments: Bool
+    /// DSH `definitionId`. The official composer menu keys its localized face
+    /// on this identity, never on the display copy.
+    var definitionID: String? = nil
+    /// Parsed from the catalog's `input` object: official clients only claim
+    /// arguments from a command that declares an input shape; a bare pick of
+    /// every other row executes the command directly.
+    var hasInput: Bool = false
     var id: String { name }
 }
 
@@ -67,6 +74,162 @@ struct NativeCommandExecution: Identifiable, Equatable {
     let line: String
     let kind: String
     let text: String?
+}
+
+/// One row of the composer's localized command face.
+struct NativeCommandFace: Equatable {
+    let title: String
+    let description: String
+    /// Localized input spelling written into the draft (official `claimToken`).
+    let token: String
+    /// SF Symbol standing in for the official icon asset.
+    let icon: String
+}
+
+/// The composer menu's command vocabulary: the localized face of the
+/// first-party DSH commands plus the token/alias resolution the web client
+/// performs before it executes a typed line.
+///
+/// The Host catalog carries English descriptors (`compact`, `Compact older
+/// conversation history`). Official clients replace the six built-ins with the
+/// `command` locale namespace (`packages/client/ui-commands/src/client/`:
+/// `presentation.ts`, `locales.ts`, `resolution.ts`) and keep the catalog text
+/// for every other row. The phone has no locale seat for that namespace, so the
+/// same table is carried here, keyed by `definitionId` first and by canonical
+/// name for hosts that omit it.
+enum NativeCommandCatalog {
+    private static let facesByDefinition: [String: NativeCommandFace] = [
+        "@deepseek-ai/dsh-command-goal":
+            NativeCommandFace(title: "目标", description: "设置或查看长期任务目标",
+                              token: "目标", icon: "target"),
+        "@deepseek-ai/dsh-plan-mode":
+            NativeCommandFace(title: "计划", description: "进入或退出计划模式",
+                              token: "计划", icon: "list.bullet.rectangle"),
+        "@deepseek-ai/dsh-command-feedback":
+            NativeCommandFace(title: "反馈", description: "发送关于当前会话的反馈",
+                              token: "反馈", icon: "paperplane"),
+        "@deepseek-ai/dsh-command-compact":
+            NativeCommandFace(title: "压缩", description: "压缩以上对话内容",
+                              token: "压缩", icon: "rectangle.compress.vertical"),
+        "@deepseek-ai/dsh-permission-presets":
+            NativeCommandFace(title: "权限", description: "切换权限预设（沙箱模式与审批策略）",
+                              token: "权限", icon: "lock.shield"),
+        "@deepseek-ai/dsh-session-log-export":
+            NativeCommandFace(title: "下载日志", description: "将当前会话内容导出为 ZIP",
+                              token: "导出", icon: "square.and.arrow.down"),
+    ]
+
+    /// Canonical catalog name → definition id, used when the phone Host's
+    /// descriptor carries no `definitionId`.
+    private static let definitionByCommandName: [String: String] = [
+        "goal": "@deepseek-ai/dsh-command-goal",
+        "plan": "@deepseek-ai/dsh-plan-mode",
+        "feedback": "@deepseek-ai/dsh-command-feedback",
+        "compact": "@deepseek-ai/dsh-command-compact",
+        "permission": "@deepseek-ai/dsh-permission-presets",
+        "export": "@deepseek-ai/dsh-session-log-export",
+    ]
+
+    /// Typed spellings official `TOKEN_ALIASES` resolves, plus the canonical
+    /// English names. Keys are lowercased; Chinese tokens are unaffected.
+    private static let commandNameByToken: [String: String] = [
+        "goal": "goal", "目标": "goal",
+        "plan": "plan", "计划": "plan",
+        "feedback": "feedback", "反馈": "feedback",
+        "compact": "compact", "压缩": "compact",
+        "permission": "permission", "权限": "permission",
+        "export": "export", "导出": "export",
+    ]
+
+    static func definitionID(for descriptor: NativeCommandDescriptor) -> String? {
+        if let id = descriptor.definitionID, !id.isEmpty { return id }
+        return definitionByCommandName[descriptor.name.lowercased()]
+    }
+
+    /// The localized menu face for a first-party descriptor; nil for any other
+    /// row, which keeps its catalog name and description.
+    static func face(for descriptor: NativeCommandDescriptor) -> NativeCommandFace? {
+        definitionID(for: descriptor).flatMap { facesByDefinition[$0] }
+    }
+
+    static func title(for descriptor: NativeCommandDescriptor) -> String {
+        face(for: descriptor)?.title ?? descriptor.name
+    }
+
+    static func description(for descriptor: NativeCommandDescriptor) -> String {
+        face(for: descriptor)?.description ?? descriptor.description
+    }
+
+    static func icon(for descriptor: NativeCommandDescriptor) -> String {
+        face(for: descriptor)?.icon ?? "terminal"
+    }
+
+    /// Resolve a typed token (with or without the leading slash) against the
+    /// live catalog, the way official `resolveCommand` does: the registered
+    /// name first, then the localized spelling of a known definition. Case is
+    /// folded so a phone keyboard's autocapitalized `Compact` still resolves.
+    static func resolve(_ typed: String, in commands: [NativeCommandDescriptor]) -> NativeCommandDescriptor? {
+        let token = typed.hasPrefix("/") ? String(typed.dropFirst()) : typed
+        let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if let exact = commands.first(where: { $0.name == trimmed }) { return exact }
+        if let folded = commands.first(where: { $0.name.lowercased() == trimmed.lowercased() }) { return folded }
+        guard let canonical = commandNameByToken[trimmed.lowercased()] else { return nil }
+        return commands.first { descriptor in
+            descriptor.name.lowercased() == canonical
+                || definitionID(for: descriptor) == definitionByCommandName[canonical]
+        }
+    }
+
+    /// Official `/command 不接受附件` refusal, surfaced before a line is sent.
+    static func attachmentRefusal(for name: String) -> String {
+        "/\(name) 不接受附件，请先移除附件"
+    }
+}
+
+/// Compaction wording and marker assembly shared by the live stream and the
+/// durable projection, so one compaction always reads as one row.
+///
+/// Official strings come from `packages/client/ui-chat/src/client/locale.ts`
+/// (`message.compaction*`) and the marker shape from
+/// `chat/CompactionItem.tsx`: title 上下文已压缩, one collapsed summary line,
+/// the summary itself behind a disclosure (not modelled by the phone row yet).
+enum NativeCompaction {
+    static let title = "上下文已压缩"
+    static let running = "正在压缩…"
+    static let expand = "点击查看压缩摘要"
+    static let unavailable = "压缩摘要不可用"
+    /// Official `message.compaction.commandTitle` for a manual `/compact`.
+    static let manualTitle = "compact"
+
+    static func completed(items: Int, tokens: Int) -> String {
+        "已压缩 \(items) 条历史记录（约 \(tokens) tokens）"
+    }
+
+    /// Durable facts cited by one replacement checkpoint.
+    struct Facts: Equatable {
+        var itemCount: Int?
+        var tokenCount: Int?
+        var summary: String?
+        /// Settlement text of the manual command that produced the checkpoint.
+        var commandText: String?
+    }
+
+    /// The row's single summary line, in official precedence: structured
+    /// counts, then the manual command settlement, then the disclosure hint
+    /// and finally the unavailable note.
+    static func summaryLine(for facts: Facts) -> String {
+        if let items = facts.itemCount, let tokens = facts.tokenCount {
+            return completed(items: items, tokens: tokens)
+        }
+        if let text = facts.commandText, !text.isEmpty { return text }
+        if let summary = facts.summary, !summary.isEmpty { return expand }
+        return unavailable
+    }
+
+    static func summaryLine(forSummary summary: String) -> String {
+        summary.isEmpty ? unavailable : summary
+    }
 }
 
 /// One durable DSH session journal record shown in the native trajectory ledger.
@@ -230,9 +393,104 @@ final class ChatModel {
     private(set) var tokenUsage: NativeTokenUsage?
     private(set) var contextPressure: NativeContextPressure?
     private(set) var contextBreakdown: NativeContextBreakdown?
+    /// Raw `session/projections` values from the last refresh. The session
+    /// page consumes `todos/plan/inbox/userQuestions/subagentCatalog/goal/title`
+    /// from this one snapshot instead of making a separate call per surface.
+    private(set) var projectionValues: JSONValue?
+    var projectedTodos: JSONValue? { projectionValues?["todos"] }
+    var projectedPlan: JSONValue? { projectionValues?["plan"] }
+    var projectedInbox: JSONValue? { projectionValues?["inbox"] }
+    var projectedQuestions: JSONValue? { projectionValues?["userQuestions"] }
+    var projectedSubagents: JSONValue? { projectionValues?["subagentCatalog"] }
+    var projectedGoal: JSONValue? { projectionValues?["goal"] }
+    var projectedTitle: String? { projectionValues?["title"]?.stringValue }
+    /// Session projection `agentPreset` is a recorded preset identity; the
+    /// header shows it as a read-only label (the picker lives in settings).
+    var projectedAgentPreset: String? {
+        projectionValues?["agentPreset"]?.stringValue
+            .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
+    }
+
+    /// `agentPresets/list` display names keyed by preset id; the header falls
+    /// back to the recorded id until the roster arrives.
+    private(set) var agentPresetNames: [String: String] = [:]
+    var agentPresetLabel: String? {
+        guard let id = projectedAgentPreset else { return nil }
+        return agentPresetNames[id] ?? id
+    }
+
+    func refreshAgentPresetNames() async {
+        guard agentPresetNames.isEmpty else { return }
+        do {
+            let transport = try await transportForManagement()
+            let response = try await transport.call("agentPresets/list", args: .object([:]))
+            var names: [String: String] = [:]
+            for row in response["presets"]?.arrayValue ?? [] {
+                guard let id = row["id"]?.stringValue else { continue }
+                names[id] = row["name"]?.stringValue ?? id
+            }
+            agentPresetNames = names
+        } catch {
+            // The read-only label keeps the id if the roster is unavailable.
+        }
+    }
+
+    /// Host-declared image attachment limits; fall back to the deployment
+    /// defaults when the projection is absent.
+    var imageLimits: NativeImageLimits {
+        guard let limits = projectionValues?["imageLimits"] else { return .fallback }
+        return NativeImageLimits(
+            maxImagesPerMessage: limits["maxImagesPerMessage"]?.intValue ?? 20,
+            maxImageBytes: limits["maxImageBytes"]?.intValue ?? 20 * 1024 * 1024,
+            maxMessageImageBytes: limits["maxMessageImageBytes"]?.intValue ?? 200 * 1024 * 1024)
+    }
+
+    /// Closed-Turn control state. `nil` for the open Turn (official renders no
+    /// control row while running).
+    func turnProcessState(for turn: Int) -> NativeTurnProcessState? {
+        guard let reason = turnEndReasons[turn] else { return nil }
+        let elapsed = turnStartTimes[turn].flatMap { start in
+            turnEndTimes[turn].map { max(0, $0.timeIntervalSince(start)) }
+        }
+        return NativeTurnProcessState.resolve(endReasonKind: reason, elapsed: elapsed)
+    }
+
+    /// Official `todos` projection → the dock's view model. Unknown statuses are
+    /// dropped rather than guessed; an empty projection renders no dock.
+    var todoDockItems: [NativeTodoItem] {
+        (projectedTodos?.arrayValue ?? []).compactMap { row in
+            guard let content = row["content"]?.stringValue,
+                  let status = NativeTodoItem.Status(wireValue: row["status"]?.stringValue ?? "")
+            else { return nil }
+            return NativeTodoItem(content: content, status: status)
+        }
+    }
+
+    /// Official `plan` projection → the composer chip. Absent/null means the
+    /// capability or the session state is absent.
+    var planModeState: NativePlanModeState? {
+        guard let plan = projectedPlan, plan.objectValue != nil else { return nil }
+        return NativePlanModeState(active: plan["active"]?.boolValue ?? false,
+                                   pending: plan["pending"]?.boolValue ?? false)
+    }
+
+    /// `/plan off` through the live command registry, then refresh the folded
+    /// projection so the chip disappears only when the host confirms it.
+    func exitPlanMode() async {
+        _ = await executeCommand(name: "plan", input: "off")
+        await refreshNativeMetrics()
+    }
     private var nativeMetricsRefreshTask: Task<Void, Never>?
     private var activeTurn: Int?
     private var activeStep: Int?
+    /// `turn/start` time for the open Turn, driving the transcript running
+    /// clock (distinct from the host `startedAt`).
+    private(set) var activeTurnStartedAt: Date?
+    /// Durable per-Turn facts for the closed-Turn control row. History replay
+    /// needs its own projector facts; live turns fill these from the events.
+    private(set) var turnStartTimes: [Int: Date] = [:]
+    private(set) var turnEndReasons: [Int: String] = [:]
+    private(set) var turnEndTimes: [Int: Date] = [:]
     /// 这次引擎起来的时间点,「运行状态」第一行要报「已运行多久」;停掉就清空。
     private(set) var startedAt: Date?
     private(set) var files: [WorkspaceFile] = []
@@ -247,9 +505,6 @@ final class ChatModel {
     private(set) var keepingAlive = false
 
     private var host: PhoneDSHHost?
-    private var failedHost: PhoneDSHHost?
-    var hostNeedsRecovery: Bool { failedHost != nil }
-    var canRecoverFailedHost: Bool { hostNeedsRecovery && !busy && !hostLifecycleTransition }
     private let keepAlive = SilentAudioKeepAlive()
     private var backgroundHeartbeat: Task<Void, Never>?
     /// Harness events handled so far; the background heartbeat logs the delta
@@ -276,10 +531,9 @@ final class ChatModel {
     private var restartPolicyBudget: BudgetTable?
     private var foregroundResumeRequested = false
     private var backgroundParkRequested = false
+    var canSend: Bool { harness != nil && sessionID != nil && transcriptReady && !busy && !parked && !hostLifecycleTransition }
     private(set) var modelProviderIssue: String? = "请先配置模型服务和 API Key"
-    var canSend: Bool { modelProviderIssue == nil && harness != nil && sessionID != nil && transcriptReady && !busy && !parked && !hostLifecycleTransition }
 
-    /// Cache only readiness for the UI; recheck the Keychain before dispatching a message.
     func refreshModelProviderReadiness() {
         let settings = PhoneModelProviderSettings.shared
         do {
@@ -296,6 +550,7 @@ final class ChatModel {
             modelProviderIssue = "无法读取模型服务配置，请检查设置"
         }
     }
+
     var displayStatus: String {
         if parked { return "已暂停" }
         if host == nil { return "已停止" }
@@ -306,7 +561,7 @@ final class ChatModel {
         if transcriptReady { return "运行中" }
         return "未连接"
     }
-    var canSteer: Bool { modelProviderIssue == nil && harness != nil && sessionID != nil && transcriptReady && turnRunning && !busy && !parked && !hostLifecycleTransition }
+    var canSteer: Bool { harness != nil && sessionID != nil && transcriptReady && turnRunning && !busy && !parked && !hostLifecycleTransition }
     private var pumpTask: Task<Void, Never>?
     private var hostEventTask: Task<Void, Never>?
     private var lastSeq: UInt64?
@@ -316,6 +571,10 @@ final class ChatModel {
     private(set) var lastCommandExecution: NativeCommandExecution?
 
     func clearError() { userFacingError = nil }
+
+    /// The composer surfaces this text in its own notice row; the page-level
+    /// banner must not repeat it.
+    func dismissCommandsError() { commandsError = nil }
 
     /// Read the active Worker catalog and this Session's durable permission fold.
     /// Missing Remote support stays explicit instead of being replaced by a local default.
@@ -334,6 +593,7 @@ final class ChatModel {
             ]))
             let (catalog, projections) = try await (catalogCall, projectionCall)
             guard self.sessionID == sessionID else { return }
+            projectionValues = projections["values"]
             availableAccessModes = (catalog["options"]?.arrayValue ?? []).compactMap { option in
                 guard let id = option["value"]?.stringValue,
                       let name = option["name"]?.stringValue else { return nil }
@@ -416,9 +676,15 @@ final class ChatModel {
                 guard let name = row["name"]?.stringValue,
                       !name.isEmpty,
                       let description = row["description"]?.stringValue else { return nil }
+                // `input` present means the command claims arguments; official
+                // clients read `desc.input !== undefined` to decide claim vs a
+                // bare detached execution on a menu pick.
+                let input = row["input"].flatMap { $0 == .null ? nil : $0 }
                 return NativeCommandDescriptor(name: name, description: description,
-                                               inputHint: row["input"]?["hint"]?.stringValue,
-                                               acceptsAttachments: row["input"]?["attachments"]?.boolValue ?? false)
+                                               inputHint: input?["hint"]?.stringValue,
+                                               acceptsAttachments: input?["attachments"]?.boolValue ?? false,
+                                               definitionID: row["definitionId"]?.stringValue,
+                                               hasInput: input != nil)
             }
             commandsError = nil
         } catch {
@@ -435,12 +701,12 @@ final class ChatModel {
     func executeCommand(name: String, input: String = "",
                         attachments: [HarnessAttachment] = []) async -> NativeCommandExecution? {
         guard let sessionID, !parked, !hostLifecycleTransition,
-              let descriptor = availableCommands.first(where: { $0.name == name }) else {
+              let descriptor = NativeCommandCatalog.resolve(name, in: availableCommands) else {
             commandsError = "这条命令现在用不了。"
             return nil
         }
         guard attachments.isEmpty || descriptor.acceptsAttachments else {
-            commandsError = "这条命令不能带附件。"
+            commandsError = NativeCommandCatalog.attachmentRefusal(for: descriptor.name)
             return nil
         }
         let line = "/\(descriptor.name)" + (input.isEmpty ? "" : " \(input)")
@@ -625,8 +891,7 @@ final class ChatModel {
     // MARK: Lifecycle
 
     func start() async {
-        refreshModelProviderReadiness()
-        guard host == nil, failedHost == nil, !busy else { return }
+        guard host == nil, !busy else { return }
         busy = true
         defer { busy = false }
         guard let bundle = WorkerBundleLocator.bundle() else {
@@ -729,8 +994,13 @@ final class ChatModel {
             + "vfs=\(configuration.budgets.vfsLogicalBytes / 1_048_576) MiB "
             + "single=\(configuration.budgets.singleFileBytes / 1_048_576) MiB "
             + "hot=\(configuration.budgets.wasiHotInstanceBytes / 1_048_576) MiB")
-        // Publish only accelerators the linked Rust library and the native
-        // Office and phone-capability bridges can actually execute.
+        // Publish the real read-only accelerators only when the linked Rust
+        // library advertises them. Without the XCFramework `acceleratorNames`
+        // is empty, so the host keeps advertising none instead of faking a
+        // capability. `phone`/`ctx` are registered by the library but need an
+        // injected PhoneToolBridge (there is no MCP bridge in this host yet),
+        // so `channelAcceleratorNames` keeps them out of the host HELLO and the
+        // EXEC_REQ whitelist instead of advertising commands that would exit 69.
         let toolBridge = CompositePhoneToolBridge(
             office: OfficeToolBridge(presenter: OfficePresenter()),
             phone: PhoneCapabilityBridge())
@@ -744,9 +1014,7 @@ final class ChatModel {
                 configuration.acceleratorNames = names
             }
         }
-        configuration.turnInactivityTimeout = ChatHostConfiguration.defaultTurnInactivityTimeout
         configuration.engine.bootTimeout = ChatHostConfiguration.defaultBootTimeout
-        environment["PDSH_SHELL_TIMEOUT_MS", default: String(ChatHostConfiguration.defaultShellTimeoutMs)] = String(ChatHostConfiguration.defaultShellTimeoutMs)
         configuration.engine.environment = environment
         let anchor = self.anchor
         let newHost = PhoneDSHHost(configuration: configuration, engineFactory: { configuration in
@@ -758,62 +1026,35 @@ final class ChatModel {
         statusLine = "Booting the Worker…"
         appendStatus("Booting the host (Worker bundle + image)…")
         observeHost(newHost)
-        restartPolicyBudget = configuration.budgets
         do {
             try await newHost.start()
         } catch {
-            failedHost = newHost
             Self.appendDiagnostic("host start failed: \(error)")
             reportError("引擎停了：\(Self.condensed(String(describing: error)))")
+            hostEventTask?.cancel(); hostEventTask = nil
             return
         }
         host = newHost
         startedAt = Date()
+        restartPolicyBudget = configuration.budgets
         startRestartPolicyMonitor()
-        await openInitialSession(on: newHost, selectedProfile: selectedProfile)
-    }
-
-    func recoverFailedHost() async {
-        guard let host = failedHost, !busy, !hostLifecycleTransition else { return }
-        busy = true
-        hostLifecycleTransition = true
-        let watchdog = transitionWatchdog(
-            seconds: UInt64(ChatHostConfiguration.defaultResumeWatchdogTimeout),
-            label: "Host recovery")
-        defer {
-            watchdog.cancel()
-            hostLifecycleTransition = false
-            busy = false
-        }
         do {
-            try await host.userReset()
-            self.host = host
-            failedHost = nil
-            startedAt = Date()
-            startRestartPolicyMonitor()
-            let profile = (try? PhoneModelProviderSettings.shared.load())?.selected
-            await openInitialSession(on: host, selectedProfile: profile)
-        } catch {
-            reportError("引擎恢复失败：\(Self.condensed(String(describing: error)))")
-        }
-    }
-
-    private func openInitialSession(on host: PhoneDSHHost,
-                                    selectedProfile: ProviderProfile?) async {
-        let egressHosts = Set(egressAllow.split(separator: ",").map {
-            $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        }.filter { !$0.isEmpty })
-        do {
-            let harness = try await host.harness()
+            let harness = try await newHost.harness()
             self.harness = harness
-            let requestedSessionID = UserDefaults.standard.string(forKey: Self.currentSessionDefaultsKey)
+            let persistedSessionID = UserDefaults.standard.string(forKey: Self.currentSessionDefaultsKey)
+            let requestedSessionID = persistedSessionID.flatMap {
+                DeviceSessionCoordinator.shared.isDeviceSession($0) ? nil : $0
+            }
+            if persistedSessionID != nil && requestedSessionID == nil {
+                UserDefaults.standard.removeObject(forKey: Self.currentSessionDefaultsKey)
+            }
             let session = try await harness.openSession(HarnessSessionRequest(
                 sessionID: requestedSessionID, workspace: "/dsh/workspace"))
             resetSessionLedgers()
             self.sessionID = session.id
             UserDefaults.standard.set(session.id, forKey: Self.currentSessionDefaultsKey)
             lastSeq = nil
-            let transport = try await host.makeTransport()
+            let transport = try await newHost.makeTransport()
             if let selectedProfile {
                 do {
                     try await selectProviderModel(selectedProfile, sessionID: session.id, transport: transport)
@@ -826,6 +1067,9 @@ final class ChatModel {
                 history = try await loadSessionHistory(sessionID: session.id,
                                                         transport: transport)
                 items = history.items
+            turnStartTimes = history.turnFacts.starts
+            turnEndReasons = history.turnFacts.endReasons
+            turnEndTimes = history.turnFacts.ends
                 transcriptHasMore = history.hasMore
                 transcriptBeforeSeq = history.beforeSeq
                 transcriptThroughSeq = history.throughSeq
@@ -876,8 +1120,15 @@ final class ChatModel {
     }
 
     /// Opens a new session through DSH and makes it the active chat.
-    func newSession(preset: String? = nil) async {
-        await openManagedSession(id: nil, preset: preset)
+    func newSession() async {
+        await openManagedSession(id: nil)
+    }
+
+    func newSession(preset: String) async {
+        // The authenticated host selects the preset from its own catalog; the
+        // phone only needs to open a fresh session for the creator flow.
+        _ = preset
+        await openManagedSession(id: nil)
     }
 
     /// Resumes an existing DSH session by its server-issued identifier.
@@ -887,7 +1138,11 @@ final class ChatModel {
         await openManagedSession(id: requested)
     }
 
-    private func openManagedSession(id: String?, preset: String? = nil) async {
+    private func openManagedSession(id: String?) async {
+        if let id, DeviceSessionCoordinator.shared.isDeviceSession(id) {
+            reportError("设备会话只能以只读监视方式打开")
+            return
+        }
         guard let host else { reportError("Start the host before opening a session"); return }
         guard !busy else { return }
         guard !hostLifecycleTransition else {
@@ -909,7 +1164,7 @@ final class ChatModel {
                 self.harness = harness
             }
             let session = try await harness.openSession(HarnessSessionRequest(
-                sessionID: id, preset: preset, workspace: "/dsh/workspace"))
+                sessionID: id, workspace: "/dsh/workspace"))
             let transport = try await transportForManagement()
             if let profile = try? PhoneModelProviderSettings.shared.load().selected {
                 try? await selectProviderModel(profile, sessionID: session.id, transport: transport)
@@ -921,6 +1176,9 @@ final class ChatModel {
             UserDefaults.standard.set(session.id, forKey: Self.currentSessionDefaultsKey)
             lastSeq = history.after
             items = history.items
+            turnStartTimes = history.turnFacts.starts
+            turnEndReasons = history.turnFacts.endReasons
+            turnEndTimes = history.turnFacts.ends
             isShowingCachedTranscript = false
             persistTranscriptSnapshot()
             transcriptHasMore = history.hasMore
@@ -950,7 +1208,6 @@ final class ChatModel {
     /// fails with the provider's 401 and the app can only say "密钥不被接受".
     /// Restarting re-reads the provider document and rebinds the key.
     func reloadModelProvider() async {
-        refreshModelProviderReadiness()
         guard isStarted, !hostLifecycleTransition else {
             appendStatus("模型服务已保存；引擎下次启动时生效")
             return
@@ -983,7 +1240,7 @@ final class ChatModel {
     }
 
     func stop() async {
-        guard let host = host ?? failedHost else { return }
+        guard let host else { return }
         guard !busy && !hostLifecycleTransition else {
             reportError("Wait for the current host operation to finish before stopping")
             return
@@ -999,7 +1256,6 @@ final class ChatModel {
         do { try await host.stop() } catch { reportError("Stop reported: \(error)") }
         hostEventTask?.cancel(); hostEventTask = nil
         self.host = nil
-        failedHost = nil
         startedAt = nil
         turnRunning = false
         parked = false
@@ -1020,8 +1276,13 @@ final class ChatModel {
         tokenUsage = nil
         contextPressure = nil
         contextBreakdown = nil
+        projectionValues = nil
         activeTurn = nil
         activeStep = nil
+        activeTurnStartedAt = nil
+        turnStartTimes = [:]
+        turnEndReasons = [:]
+        turnEndTimes = [:]
         trajectoryEntries = []
         trajectoryHasMore = false
         trajectoryError = nil
@@ -1048,7 +1309,6 @@ final class ChatModel {
     /// (up to `drainDeadline`, 20 s here) and cancels what is still open; a
     /// resume replays the WAL and the same session continues.
     func scenePhaseChanged(_ phase: ScenePhase) async {
-        if phase == .active { refreshModelProviderReadiness() }
         guard let host else { return }
         switch phase {
         case .background:
@@ -1089,14 +1349,7 @@ final class ChatModel {
                 appendStatus("Foreground return queued until the host pause completes")
                 return
             }
-            if !parked {
-                let wasRunning = turnRunning
-                await reconcileTurnStateAfterResume()
-                if wasRunning && !turnRunning {
-                    await openManagedSession(id: sessionID)
-                }
-                return
-            }
+            guard parked else { return }
             await resumeHost(host)
         case .inactive:
             break
@@ -1150,11 +1403,9 @@ final class ChatModel {
     private func resumeHost(_ host: PhoneDSHHost) async {
         guard parked, !hostLifecycleTransition else { return }
         hostLifecycleTransition = true
-        // See parkHost: the flag must never stay set. The watchdog clears only
-        // after the host's configured hello timeout has had a chance to fire.
-        let watchdog = transitionWatchdog(
-            seconds: UInt64(ChatHostConfiguration.defaultResumeWatchdogTimeout),
-            label: "Host resume")
+        // See parkHost: the flag must never stay set. A resume waits for the
+        // host's own 240 s hello timeout, so the watchdog clears only past it.
+        let watchdog = transitionWatchdog(seconds: 300, label: "Host resume")
         defer {
             watchdog.cancel()
             hostLifecycleTransition = false
@@ -1206,7 +1457,7 @@ final class ChatModel {
             finishStreamingAssistant()
             turnRunning = false
             syncIdleTimer()
-            queueLabel.removeAll()
+            clearQueueLines()
             statusLine = "已恢复：上一次回合在后台被取消"
             appendStatus("Turn was cancelled while the app was in the background; state cleared")
         } catch {
@@ -1282,8 +1533,6 @@ final class ChatModel {
                 switch event {
                 case .stateChanged(_, let to):
                     self.hostState = "\(to)"
-                    if to == .failed { self.failedHost = host }
-                    if to == .running { self.failedHost = nil }
                 case .error(let message):
                     // Keep the raw host text: the friendly summary alone made
                     // a WAL recovery failure look like a model-service error.
@@ -1342,7 +1591,6 @@ final class ChatModel {
 
     /// 重发时把 `reusing` 传进来:仍用原来那条气泡,不再长出新的一行。
     func send(_ text: String, attachments: [HarnessAttachment], reusing itemID: String? = nil) async -> Bool {
-        refreshModelProviderReadiness()
         let prompt = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard (!prompt.isEmpty || !attachments.isEmpty), canSend, let harness, let sessionID else { return false }
         busy = true
@@ -1369,6 +1617,7 @@ final class ChatModel {
             syncIdleTimer()
             clearError()
             lastPrompt = (prompt, attachments)
+            lastPromptRequestID = requestID
             return true
         } catch {
             syncIdleTimer()
@@ -1378,7 +1627,6 @@ final class ChatModel {
     }
 
     func steer(_ text: String) async -> Bool {
-        refreshModelProviderReadiness()
         let guidance = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !guidance.isEmpty, canSteer, let harness, let sessionID else { return false }
         busy = true
@@ -1404,6 +1652,13 @@ final class ChatModel {
     /// proceed while a card is on screen instead of being refused forever.
     func dismissPendingRequests() {
         pendingPermission = nil
+        pendingQuestion = nil
+    }
+
+    /// Close the question seat without touching an unrelated approval card.
+    /// The host waterfall is not cancelled (the remote has no client-side
+    /// cancellation command); a re-delivery still reopens the card.
+    func dismissQuestion() {
         pendingQuestion = nil
     }
 
@@ -1445,7 +1700,7 @@ final class ChatModel {
         finishStreamingAssistant()
         turnRunning = false
         syncIdleTimer()
-        queueLabel.removeAll()
+        clearQueueLines()
         clearError()
         statusLine = "已停止（运行时未确认）"
         appendStatus("已停止（运行时未确认）。若之后没有响应，请在 ⋯ 菜单里停止主机再重新启动。")
@@ -1482,6 +1737,15 @@ final class ChatModel {
         var hasMore: Bool
         var beforeSeq: Int?
         var throughSeq: Int?
+        var turnFacts: TurnFacts
+    }
+
+    /// Durable turn/start + turn/end facts, kept beside (not inside) ChatItem so
+    /// history replay can draw the same closed-Turn control row as live events.
+    private struct TurnFacts {
+        var starts: [Int: Date] = [:]
+        var endReasons: [Int: String] = [:]
+        var ends: [Int: Date] = [:]
     }
 
     /// Reads DSH's durable event log directly so user prompts, which are not
@@ -1533,7 +1797,8 @@ final class ChatModel {
         return SessionHistory(items: Self.transcriptItems(from: records, sessionID: sessionID), after: after,
                               turnRunning: running ?? Self.isTurnRunning(in: records),
                               hasMore: hasMore, beforeSeq: beforeSeq,
-                              throughSeq: cursor >= 0 ? cursor : nil)
+                              throughSeq: cursor >= 0 ? cursor : nil,
+                              turnFacts: Self.turnFacts(in: records))
     }
 
     /// Loads one older message-aligned page and prepends unseen durable events.
@@ -1560,6 +1825,10 @@ final class ChatModel {
             let existingIDs = Set(items.map(\.id))
             let older = Self.transcriptItems(from: events, sessionID: sessionID)
                 .filter { !existingIDs.contains($0.id) }
+            let facts = Self.turnFacts(in: events)
+            turnStartTimes.merge(facts.starts) { _, new in new }
+            turnEndReasons.merge(facts.endReasons) { _, new in new }
+            turnEndTimes.merge(facts.ends) { _, new in new }
             items = older + items
             transcriptBeforeSeq = nextBeforeSeq
             transcriptHasMore = page["hasMore"]?.boolValue ?? false
@@ -1689,7 +1958,145 @@ final class ChatModel {
     }
 
     private static func transcriptItems(from records: [JSONValue], sessionID: String) -> [ChatItem] {
-        NativeTranscriptProjector.items(from: records, sessionID: sessionID)
+        let markers = compactionMarkers(in: records, sessionID: sessionID)
+        guard !markers.isEmpty else {
+            return NativeTranscriptProjector.items(from: records, sessionID: sessionID)
+        }
+        let projector = NativeTranscriptProjector.items(from: records, sessionID: sessionID)
+        // Replace the projector's context row for a checkpoint with its
+        // 上下文已压缩 marker, in place, so the marker keeps the checkpoint's
+        // position in the transcript.
+        var output: [ChatItem] = []
+        output.reserveCapacity(projector.count + 1)
+        var emitted = Set<Int>()
+        for item in projector {
+            if let seq = transcriptSeq(of: item.id, sessionID: sessionID),
+               let marker = markers[seq], !emitted.contains(seq) {
+                emitted.insert(seq)
+                output.append(marker)
+                continue
+            }
+            output.append(item)
+        }
+        // The projector drops a replacement whose content has no text; its
+        // marker still belongs at that seq, so merge the leftovers by order.
+        let missing = markers.keys.filter { !emitted.contains($0) }.sorted()
+        guard !missing.isEmpty else { return output }
+        var pending = missing.compactMap { markers[$0] }
+        var merged: [ChatItem] = []
+        for item in output {
+            let seq = transcriptSeq(of: item.id, sessionID: sessionID) ?? Int.max
+            while let marker = pending.first {
+                guard let markerSeq = transcriptSeq(of: marker.id, sessionID: sessionID),
+                      markerSeq <= seq else { break }
+                merged.append(marker)
+                pending.removeFirst()
+            }
+            merged.append(item)
+        }
+        merged.append(contentsOf: pending)
+        return merged
+    }
+
+    /// Seq carried by a projected item id (`<sessionID>:<seq>` or
+    /// `<sessionID>:<seq>:block-N`).
+    private static func transcriptSeq(of id: String, sessionID: String) -> Int? {
+        let prefix = "\(sessionID):"
+        guard id.hasPrefix(prefix) else { return nil }
+        let rest = id.dropFirst(prefix.count)
+        let digits = rest.prefix { $0.isNumber }
+        return digits.isEmpty ? nil : Int(digits)
+    }
+
+    /// One durable compaction (start → summary → end → replacement
+    /// `user/message`) folded into the single official marker row.
+    ///
+    /// Official derives the row from the replacement checkpoint and cites the
+    /// summary record for its counts (`ui-chat/src/client/conversation-nodes/command.ts`).
+    /// The generic projector instead emits 上下文已整理 per lifecycle event and
+    /// shows the replacement as injected context, which is neither one row nor
+    /// the truth; this fold replaces it. Keyed by the checkpoint's seq.
+    private static func compactionMarkers(in records: [JSONValue], sessionID: String) -> [Int: ChatItem] {
+        struct SummaryFacts {
+            var summary: String?
+            var itemCount: Int?
+            var tokenCount: Int?
+        }
+        var factsByCompaction: [String: SummaryFacts] = [:]
+        var commandText: [String: String] = [:]
+        var checkpoints: [(seq: Int, data: JSONValue, time: Date?)] = []
+
+        for record in records {
+            guard let seq = record["seq"]?.intValue, let type = record["type"]?.stringValue else { continue }
+            let data = record["data"] ?? .null
+            switch type {
+            case "compaction/summary":
+                guard let id = data["compactionId"]?.stringValue else { continue }
+                let summary = (data["summary"]?.arrayValue ?? []).compactMap { block -> String? in
+                    guard block["type"]?.stringValue == "text" else { return nil }
+                    return block["text"]?.stringValue
+                }.joined()
+                let seqs = data["shadowedSeqs"]?.arrayValue?.compactMap(\.intValue)
+                factsByCompaction[id] = SummaryFacts(
+                    summary: summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : summary,
+                    itemCount: seqs?.isEmpty == false ? seqs?.count : nil,
+                    tokenCount: data["shadowedTokenCount"]?.intValue)
+            case "command/done":
+                guard let id = data["commandId"]?.stringValue,
+                      let text = data["text"]?.stringValue else { continue }
+                commandText[id] = text
+            case "user/message":
+                guard data["source"]?["kind"]?.stringValue == "compact-checkpoint" else { continue }
+                checkpoints.append((seq: seq, data: data,
+                                    time: record["time"]?.numberValue.map {
+                                        Date(timeIntervalSince1970: $0 / 1_000)
+                                    }))
+            default:
+                break
+            }
+        }
+        guard !checkpoints.isEmpty else { return [:] }
+
+        var markers: [Int: ChatItem] = [:]
+        for checkpoint in checkpoints {
+            let source = checkpoint.data["source"] ?? .null
+            let compactionID = source["compactionId"]?.stringValue ?? ""
+            let facts = factsByCompaction[compactionID] ?? SummaryFacts()
+            let line = NativeCompaction.summaryLine(for: .init(
+                itemCount: facts.itemCount,
+                tokenCount: facts.tokenCount,
+                summary: facts.summary,
+                commandText: source["sourceCommandId"]?.stringValue.flatMap { commandText[$0] }))
+            var marker = ChatItem(id: "\(sessionID):\(checkpoint.seq)", kind: .systemEvent,
+                                  title: NativeCompaction.title, text: line)
+            marker.timestamp = checkpoint.time
+            marker.turn = checkpoint.data["turn"]?.intValue
+            marker.step = checkpoint.data["step"]?.intValue
+            marker.sourceKind = "compaction"
+            marker.sourceSummary = facts.summary
+            markers[checkpoint.seq] = marker
+        }
+        return markers
+    }
+
+    private static func turnFacts(in records: [JSONValue]) -> TurnFacts {
+        var facts = TurnFacts()
+        for event in records {
+            guard let type = event["type"]?.stringValue else { continue }
+            let data = event["data"] ?? .null
+            guard let turn = data["turn"]?.intValue else { continue }
+            let time = event["time"]?.numberValue.map { Date(timeIntervalSince1970: $0 / 1_000) }
+            switch type {
+            case "turn/start":
+                if let time { facts.starts[turn] = time }
+            case "turn/end":
+                if let time { facts.ends[turn] = time }
+                facts.endReasons[turn] = data["reason"]?["kind"]?.stringValue ?? "completed"
+            default:
+                break
+            }
+        }
+        return facts
     }
 
     private static func isTurnRunning(in records: [JSONValue]) -> Bool {
@@ -1739,7 +2146,6 @@ final class ChatModel {
 
     private func handle(_ event: HarnessEvent) {
         eventsHandled += 1
-        if TurnResourceCleanup.isTerminal(event.kind) { dismissPendingRequests() }
         // A queued message only needs its dispatch label until the turn shows
         // any activity. Assistant text is not the only first output: a turn
         // that starts with a tool call used to keep 发送中… forever.
@@ -1790,10 +2196,26 @@ final class ChatModel {
                 items.append(item)
             }
             scheduleNativeMetricsRefresh()
-        case .userMessage, .inboxSpliced:
-            // The composer already appends the local prompt row; these durable
-            // projections exist for transcript/audit consumers.
-            break
+        case .userMessage(let text, let source):
+            // Human prompts are already appended optimistically by the
+            // composer. Every non-human producer (subagent-settled, goal,
+            // schedule, tool-jobs, webhook, plugin) must still surface; it is
+            // rendered as a turn-trigger/context row, never as a user bubble.
+            // A compaction's replacement message is not input at all: the
+            // 上下文已压缩 marker above already represents it (official hides
+            // the checkpoint row).
+            guard source != "user", source != "compact-checkpoint", !text.isEmpty else { break }
+            appendIncoming(text: text, source: source, event: event)
+        case .inboxSpliced(let messages):
+            // One splice can carry several admitted messages. Keep their order
+            // and give each a stable id suffix; human steering is already in
+            // the local transcript, so only non-human producers are added here.
+            for (index, message) in messages.enumerated()
+            where message.source != "user" && message.source != "compact-checkpoint"
+                && !message.text.isEmpty {
+                appendIncoming(text: message.text, source: message.source,
+                               event: event, idSuffix: "inbox-\(index)")
+            }
         case .toolCall(let callID, let name, let arguments):
             finishStreamingAssistant()
             finishStreamingReasoning()
@@ -1811,9 +2233,14 @@ final class ChatModel {
             items.append(item)
         case .toolResult(let callID, let isError, let summary):
             let detail = event.toolResultDetail?.text ?? summary
+            let state: NativeToolState = isError
+                ? (event.toolResultErrorCode == "interrupted" ? .stopped : .error)
+                : .ok
             if let index = items.indices.last(where: { items[$0].callID == callID && items[$0].kind == .toolCall }) {
                 items[index].toolOutput = detail
-                items[index].toolState = isError ? .error : .ok
+                items[index].toolMetadata = event.toolResultMeta
+                items[index].toolErrorCode = event.toolResultErrorCode
+                items[index].toolState = state
             } else {
                 var item = ChatItem(id: eventItemID(event), kind: .toolResult(isError: isError),
                                     title: isError ? "Tool error" : "Tool result", text: detail)
@@ -1822,7 +2249,9 @@ final class ChatModel {
                 item.step = activeStep
                 item.callID = callID
                 item.toolOutput = detail
-                item.toolState = isError ? .error : .ok
+                item.toolMetadata = event.toolResultMeta
+                item.toolErrorCode = event.toolResultErrorCode
+                item.toolState = state
                 items.append(item)
             }
             scheduleNativeMetricsRefresh()
@@ -1835,8 +2264,11 @@ final class ChatModel {
             pendingQuestion = question
             appendStatus("The agent asks: \(question.prompt)")
         case .turnStarted(let turnID):
-            activeTurn = Int(turnID)
+            let turnNumber = Int(turnID) ?? activeTurn ?? 0
+            activeTurn = turnNumber
             activeStep = nil
+            activeTurnStartedAt = event.time
+            turnStartTimes[turnNumber] = event.time
             promoteQueuedToSending()
             turnRunning = true
             syncIdleTimer()
@@ -1846,6 +2278,10 @@ final class ChatModel {
             finishStreamingReasoning()
             clearSendingLabels()
             turnRunning = false
+            activeTurnStartedAt = nil
+            let finishedTurn = Int(turnID) ?? activeTurn ?? 0
+            turnEndReasons[finishedTurn] = event.rawTurnEndKind ?? Self.rawTurnEndKind(reason)
+            turnEndTimes[finishedTurn] = event.time
             syncIdleTimer()
             statusLine = "Turn ended: \(Self.describe(reason))"
             if case .failed = reason {
@@ -1865,11 +2301,11 @@ final class ChatModel {
                 failedPrompt = lastPrompt
                 failedItemID = items.last(where: { if case .user = $0.kind { return true }; return false })?.id
                 // 失败和「发送中…」互斥:同一条下面只留失败那行。
-                if let id = failedItemID { queueLabel[id] = nil }
+                if let id = failedItemID { clearQueueLine(itemID: id) }
             } else {
                 // A finished turn has no queued or dispatching message left;
                 // "已并入当前任务" used to stay under the message forever.
-                queueLabel.removeAll()
+                clearQueueLines()
                 appendStatus("Turn ended: \(Self.describe(reason))")
             }
             refreshFiles()
@@ -1879,6 +2315,21 @@ final class ChatModel {
             if phase == "step" { activeStep = step }
             statusLine = "\(phase) step \(step)\(total.map { " of \($0)" } ?? "")"
             if phase == "step" { modelRequests += 1 }
+        case .compaction(let summary):
+            // Official renders one marker per compaction. The live stream only
+            // carries the summary text (counts arrive with the journal record,
+            // see `transcriptItems`), so the collapsed line is the summary the
+            // event already delivered; the checkpoint `user/message` that
+            // follows is suppressed in the `.userMessage` branch.
+            var item = ChatItem(id: eventItemID(event), kind: .systemEvent,
+                                title: NativeCompaction.title,
+                                text: NativeCompaction.summaryLine(forSummary: summary))
+            item.timestamp = event.time
+            item.turn = activeTurn
+            item.step = activeStep
+            item.sourceSummary = summary
+            item.sourceKind = "compaction"
+            items.append(item)
         case .sessionStatus(let status):
             if status.lowercased().hasPrefix("error:") {
                 reportError("Session: \(status)")
@@ -1918,6 +2369,33 @@ final class ChatModel {
         guard let sessionID, let seq = event.seq else { return UUID().uuidString }
         let position = DSHEventMapper.position(of: seq)
         return "\(sessionID):\(position.dshSeq):part-\(position.part)"
+    }
+
+    private func appendIncoming(text: String, source: String, event: HarnessEvent,
+                                idSuffix: String? = nil) {
+        let base = eventItemID(event)
+        var item = ChatItem(id: idSuffix.map { "\(base):\($0)" } ?? base,
+                            kind: .context, title: Self.incomingTitle(for: source), text: text)
+        item.timestamp = event.time
+        item.turn = activeTurn
+        item.step = activeStep
+        item.sourceKind = source
+        items.append(item)
+    }
+
+    static func incomingTitle(for source: String) -> String {
+        switch source {
+        case "subagent-settled": return "子任务状态更新"
+        case "goal": return "继续执行目标"
+        case "schedule": return "自动化任务"
+        case "tool-jobs": return "后台任务状态更新"
+        case "agent-message": return "收到任务消息"
+        case "team-message": return "收到团队消息"
+        case "webhook": return "收到外部事件"
+        case "cordis-host-runner": return "插件状态更新"
+        case "user-question-reply": return "回答先前等待中的问题"
+        default: return "收到执行请求"
+        }
     }
 
     private func appendStatus(_ text: String) {
@@ -1961,6 +2439,7 @@ final class ChatModel {
             ]))
             guard self.sessionID == sessionID else { return }
             let values = response["values"]
+            projectionValues = values
             sessionStats = NativeSessionStats(value: values?["sessionStats"])
             tokenUsage = NativeTokenUsage(value: values?["tokenUsage"])
             contextPressure = NativeContextPressure(value: values?["contextPressure"])
@@ -2177,25 +2656,76 @@ final class ChatModel {
     /// 失败行挂在产生它的那一条下面,不是永远挂在最后一条。
     var failedItemID: String?
 
-    /// 排队那三种结局只出一条:已排队 → 发送中…,或被并入当前任务。
-    var queueLabel: [String: String] = [:]
+    /// One local queue line per optimistically appended user message: the
+    /// states official `QueueDock` distinguishes before a durable inbox row
+    /// carries the submission (`queue/sending` plus its live/mutable row).
+    enum NativeQueueLine: String, Equatable {
+        case queued = "已排队"
+        case sending = "发送中…"
+        case steered = "已并入当前任务"
+    }
 
-    func markQueued(itemID: String) { queueLabel[itemID] = "已排队" }
-    func markSteered(itemID: String) { queueLabel[itemID] = "已并入当前任务" }
+    /// Local queue lines keyed by `ChatItem.id`, in submission order. The Host
+    /// admits one queued input per turn, so only the oldest queued line becomes
+    /// `sending` when its turn starts (see `promoteQueuedToSending`).
+    private(set) var queueLines: [String: NativeQueueLine] = [:]
+    private(set) var queueLineOrder: [String] = []
+    /// Prompt RPC identity of each local queue line. Official `QueueDock`
+    /// dedupes a local submission echo against the durable inbox row by this
+    /// id; carrying it here lets the phone do the same when the projection
+    /// exposes `source.rpcId`.
+    private(set) var queueLineRequests: [String: String] = [:]
+    /// Prompt RPC identity of the most recent successful `send`. The composer
+    /// uses it to tie the local row to the durable queue/inbox row the same way
+    /// official `QueueDock` ties `pendingSubmissions` by rpcId.
+    private(set) var lastPromptRequestID: String?
+
+    /// Read-only string view kept for previews and status logging.
+    var queueLabel: [String: String] { queueLines.mapValues(\.rawValue) }
+
+    func markQueued(itemID: String, requestID: String? = nil) {
+        queueLines[itemID] = .queued
+        if !queueLineOrder.contains(itemID) { queueLineOrder.append(itemID) }
+        if let requestID, !requestID.isEmpty { queueLineRequests[itemID] = requestID }
+    }
+
+    func markSteered(itemID: String) {
+        queueLines[itemID] = .steered
+        if !queueLineOrder.contains(itemID) { queueLineOrder.append(itemID) }
+    }
+
+    /// Drop every local queue line (session switch, turn end, cancel).
+    func clearQueueLines() {
+        guard !queueLines.isEmpty else { return }
+        queueLines.removeAll()
+        queueLineOrder.removeAll()
+        queueLineRequests.removeAll()
+    }
+
+    private func clearQueueLine(itemID: String) {
+        queueLines[itemID] = nil
+        queueLineOrder.removeAll { $0 == itemID }
+        queueLineRequests[itemID] = nil
+    }
 
     /// 回复一旦开始流式输出,这条消息就已经送达:「发送中…」必须收掉,
     /// 否则它会一直挂在用户消息下面(线上反馈)。
     private func clearSendingLabels() {
-        for id in queueLabel.keys where queueLabel[id] == "发送中…" {
-            queueLabel[id] = nil
+        for id in queueLineOrder where queueLines[id] == .sending {
+            queueLines[id] = nil
+            queueLineRequests[id] = nil
         }
+        queueLineOrder.removeAll { queueLines[$0] == nil }
     }
 
     /// 宿主真正开始处理这一条时,把「已排队」换成「发送中…」。
+    ///
+    /// A turn admits exactly one queued input, so promoting every label turned
+    /// three queued messages into three simultaneous 「发送中…」 rows (the
+    /// duplicate-pending-row report). Only the oldest queued line advances.
     private func promoteQueuedToSending() {
-        for id in queueLabel.keys where queueLabel[id] == "已排队" {
-            queueLabel[id] = "发送中…"
-        }
+        guard let next = queueLineOrder.first(where: { queueLines[$0] == .queued }) else { return }
+        queueLines[next] = .sending
     }
 
     #if DEBUG
@@ -2268,24 +2798,24 @@ final class ChatModel {
     func debugInjectQueued(text: String = "把这周的日志按天归档") {
         let id = "debug-queued-\(UUID().uuidString.prefix(4))"
         items.append(ChatItem(id: id, kind: .user, title: "You", text: text))
-        queueLabel[id] = "已排队"
+        markQueued(itemID: id)
     }
     #endif
 
     /// 重试失败的这一轮:同一条内容重新入队。
     func retryFailedPrompt() async -> Bool {
-        refreshModelProviderReadiness()
-        guard canSend, let (text, attachments) = failedPrompt else { return false }
+        guard let (text, attachments) = failedPrompt else { return false }
         let pendingID = failedItemID
         // 重试期间那条下面只留一个状态:先把失败行摘掉、挂上「发送中…」,
         // 失败回来再把它挂回去——两行同时出现,人会以为消息发出去又没发。
         if let pendingID {
             failedItemID = nil
-            queueLabel[pendingID] = "发送中…"
+            queueLines[pendingID] = .sending
+            if !queueLineOrder.contains(pendingID) { queueLineOrder.append(pendingID) }
         }
         clearError()
         let ok = await send(text, attachments: attachments, reusing: pendingID)
-        if let pendingID { queueLabel[pendingID] = nil }
+        if let pendingID { clearQueueLine(itemID: pendingID) }
         failedItemID = ok ? nil : pendingID
         if ok { failedPrompt = nil } else { failedPrompt = (text, attachments) }
         return ok
@@ -2377,6 +2907,17 @@ final class ChatModel {
         }
     }
 
+    /// The wire `turn/end.reason.kind` used by the official turn-process row.
+    /// Fallbacks only matter for backends that do not preserve the raw kind.
+    private static func rawTurnEndKind(_ reason: HarnessTurnEnd) -> String {
+        switch reason {
+        case .completed: return "completed"
+        case .cancelled: return "aborted"
+        case .failed: return "error"
+        case .budgetExhausted: return "max-tokens"
+        }
+    }
+
     // MARK: Workspace files
 
     func refreshFiles() {
@@ -2425,12 +2966,15 @@ final class ChatModel {
 extension ChatModel {
     /// Preview-only: park a message state that normally comes from a live turn
     /// so the failure and queued screens can be reviewed without a model.
-    func debugInstallPreviewState(failedItemID itemID: String?, error: String?, queue: [String: String],
-                                  question: HarnessQuestion? = nil) {
+    func debugInstallPreviewState(failedItemID itemID: String?, error: String?, queue: [String: String]) {
         failedItemID = itemID
         userFacingError = error
-        queueLabel = queue
-        pendingQuestion = question
+        clearQueueLines()
+        for (id, label) in queue {
+            let line = NativeQueueLine(rawValue: label) ?? .queued
+            queueLines[id] = line
+            if !queueLineOrder.contains(id) { queueLineOrder.append(id) }
+        }
     }
 
     /// Debug-only sample conversation, opened with `-uiPreview sample`. It never

@@ -1,0 +1,51 @@
+{
+  "id": "gw-hop-001",
+  "rule": "header-strip",
+  "kind": "request",
+  "source": "Sources/PhoneDSHGateway/ModelGateway.swift:1031",
+  "references": [
+    "Tests/PhoneDSHGatewayTests/ModelGatewayTests.swift:128",
+    "Tests/PhoneDSHGatewayTests/ModelGatewayTests.swift:129"
+  ],
+  "note": "Hop-by-hop framing headers, Host and every X-PDSH-* internal header are removed by name before the credential is applied.",
+  "input": {
+    "method": "GET",
+    "url": "https://api.example.invalid/v1/models",
+    "headers": {
+      "accept": "application/json",
+      "connection": "keep-alive",
+      "content-length": "3",
+      "host": "spoofed.example.invalid",
+      "proxy-connection": "keep-alive",
+      "te": "trailers",
+      "transfer-encoding": "chunked",
+      "upgrade": "h2c",
+      "x-pdsh-proxy-trace": "abc",
+      "x-pdsh-target-url": "https://internal.example.invalid/other"
+    },
+    "allowlist": [
+      "https://api.example.invalid"
+    ],
+    "credential": {
+      "kind": "none"
+    }
+  },
+  "expect": {
+    "dispatch": "allow",
+    "outbound_headers": {
+      "accept": "application/json"
+    },
+    "stripped": [
+      "connection",
+      "content-length",
+      "host",
+      "proxy-connection",
+      "te",
+      "transfer-encoding",
+      "upgrade",
+      "x-pdsh-proxy-trace",
+      "x-pdsh-target-url"
+    ],
+    "outbound_url": "https://api.example.invalid/v1/models"
+  }
+}

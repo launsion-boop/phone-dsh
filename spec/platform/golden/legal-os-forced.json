@@ -1,0 +1,16 @@
+{
+  "intent": "legal",
+  "note": "合法例：renderer 死亡是 Android 侧显式可观测的 OS 事件，语义按 D14 的 Running 到 Recovering 边对齐，不改状态机。",
+  "entry": {
+    "id": "golden.renderer-gone-rebuild",
+    "capability": "engine.renderer-gone",
+    "ios": "WebKit 通过 webContentProcessDidTerminate 回调暴露内容进程死亡",
+    "android": "WebViewClient.onRenderProcessGone 回收并重建 WebView，按 D14 走 Running 到 Recovering，准入保持关闭",
+    "divergence_class": "os-forced",
+    "rationale": "Android 的 renderer 死亡是显式事件且可发生在前台，必须与 D14 的 Running 到 Recovering 边对齐；本条只登记分歧，不改变任何状态机语义，也不新增状态。",
+    "spec_ref": "spec/v1/budgets.md §2",
+    "android_mechanism": "WebViewClient.onRenderProcessGone",
+    "evidence_level": "device-gate",
+    "baseline": "Sources/PhoneDSHEngine/WebEngine.swift"
+  }
+}

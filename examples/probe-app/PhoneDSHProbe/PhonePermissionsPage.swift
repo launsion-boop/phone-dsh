@@ -13,20 +13,28 @@ struct PhonePermissionsPage: View {
     @State private var disableNotice: PhoneCapability?
     @State private var audit: [PhoneCapabilityAuditRecord] = []
     private let preview: Bool
+    private let embedded: Bool
 
-    init(preview: Bool = false) {
+    init(preview: Bool = false, embedded: Bool = false) {
         self.preview = preview
+        self.embedded = embedded
     }
 
     var body: some View {
-        permissionList
-            .navigationTitle("手机权限")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("完成") { dismiss() }
-                }
+        Group {
+            if embedded {
+                permissionList
+            } else {
+                permissionList
+                    .navigationTitle("手机权限")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("完成") { dismiss() }
+                        }
+                    }
             }
+        }
             .task { await refresh() }
             .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
                 Task { await refresh() }
@@ -51,22 +59,12 @@ struct PhonePermissionsPage: View {
 
     private var permissionList: some View {
         List {
-            introductionSection
             capabilitySections
             auditSection
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
-        .background(Color.white)
-    }
-
-    private var introductionSection: some View {
-        Section {
-            Text("开关只控制 Phone DSH 是否使用能力，不会撤销系统权限。系统授权只在你点击对应项目并确认用途后请求。")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .listRowBackground(Color.white)
-        }
+        .background(NativePagePalette.page)
     }
 
     private var capabilitySections: some View {
@@ -75,8 +73,8 @@ struct PhonePermissionsPage: View {
                 ForEach(group.capabilities) { capability in
                     row(capability)
                         .opacity(status(capability).blocksInteraction ? 0.4 : 1)
-                        .listRowSeparatorTint(ChatPage.hairline)
-                        .listRowBackground(Color.white)
+                        .listRowSeparatorTint(NativePagePalette.hairline)
+                        .listRowBackground(NativePagePalette.page)
                 }
             }
         }
@@ -88,7 +86,7 @@ struct PhonePermissionsPage: View {
             if audit.isEmpty {
                 Text("暂无使用记录")
                     .foregroundStyle(.secondary)
-                    .listRowBackground(Color.white)
+                    .listRowBackground(NativePagePalette.page)
             } else {
                 ForEach(Array(audit.prefix(20).enumerated()), id: \.offset) { _, record in
                     PhoneCapabilityAuditRow(record: record)
@@ -108,7 +106,7 @@ struct PhonePermissionsPage: View {
                     HStack(alignment: .top, spacing: 12) {
                         Image(systemName: capability.systemImage)
                             .font(.title3)
-                            .foregroundStyle(ChatPage.accent)
+                            .foregroundStyle(NativePagePalette.accent)
                             .frame(width: 28, height: 28)
                         VStack(alignment: .leading, spacing: 4) {
                             Text(capability.title)
@@ -118,9 +116,12 @@ struct PhonePermissionsPage: View {
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
-                            Text(statusText(capability, status: current))
-                                .font(.caption.weight(.medium))
-                                .foregroundStyle(statusColor(current))
+                            let statusLabel = statusText(capability, status: current)
+                            if !statusLabel.isEmpty {
+                                Text(statusLabel)
+                                    .font(.caption.weight(.medium))
+                                    .foregroundStyle(statusColor(current))
+                            }
                         }
                         Spacer(minLength: 4)
                     }
@@ -182,6 +183,9 @@ struct PhonePermissionsPage: View {
         if capability == .localNetwork, status == .notDetermined { return "未验证 · 点击测试" }
         if capability == .localNetwork, status == .denied { return "可能已拒绝" }
         if capability == .biometrics, status == .authorized { return "已允许 · 写操作前确认" }
+        // An untouched capability does not need a label; the toggle and the
+        // purpose copy already say it is available.
+        if status == .notDetermined { return "" }
         return status.text
     }
 
@@ -189,7 +193,7 @@ struct PhonePermissionsPage: View {
         switch status {
         case .authorized: return .green
         case .limited, .notDetermined, .requested: return ChatPage.warning
-        case .denied: return ChatPage.danger
+        case .denied: return NativePagePalette.danger
         case .restricted, .unavailable: return .secondary
         }
     }
@@ -260,8 +264,8 @@ private struct PhoneCapabilityAuditRow: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
-        .listRowSeparatorTint(ChatPage.hairline)
-        .listRowBackground(Color.white)
+        .listRowSeparatorTint(NativePagePalette.hairline)
+        .listRowBackground(NativePagePalette.page)
     }
 }
 

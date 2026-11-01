@@ -30,6 +30,7 @@
     "pretest": "node shell-ext/tools/ensure-deps.mjs && node shell-ext/tools/patch-just-bash.mjs && node wasi-toolbox/tools/ensure-dev-deps.mjs",
     "test": "node scripts/run-tests.mjs \"tests/*.test.ts\" \"channel/src/*.test.ts\" \"worker-entry/src/*.test.ts\" \"shell-ext/src/*.test.ts\" \"shell-ext/test/*.test.ts\" \"wasi-toolbox/**/*.test.ts\" \"scripts/*.test.mjs\" \"tools/shell-corpus/*.test.mjs\"",
     "typecheck": "tsc -p tsconfig.json",
+    "compat": "node scripts/compat-gate.mjs",
     "contract": "node contract-tests/src/cli.ts",
     "contract:diff": "node contract-tests/src/diff.ts",
     "bundle": "node bundle/build.mjs",

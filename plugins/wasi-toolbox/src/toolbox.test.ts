@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 import assert from 'node:assert/strict'
 import * as fsPromises from 'node:fs/promises'
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rm, truncate, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { readFileSync } from 'node:fs'
@@ -9,6 +9,7 @@ import { test } from 'node:test'
 import { Worker } from 'node:worker_threads'
 import { workerTransport } from './message-endpoint.ts'
 import type { ToolWorkerTransport, WorkerLike } from './message-endpoint.ts'
+import { MAX_FILE_SIZE } from './limits.ts'
 import { NodeFsBackend } from './vfs-backends.ts'
 import type { NodeFsPromisesLike } from './vfs-backends.ts'
 import { WasiToolbox } from './toolbox.ts'
@@ -232,6 +233,44 @@ test('toolbox: without crossOriginIsolated the sync channel is absent and file I
     assert.notEqual(result.exitCode, 0)
     assert.equal(stderr.text(), 'fd-echo: error\n')
     assert.equal(setup.toolbox.stats().hotInstances, 1)
+  } finally {
+    await setup.cleanup()
+  }
+})
+
+test('toolbox: a truncated snapshot refuses the dispatch instead of serving a partial view', {
+  timeout: 20_000,
+}, async () => {
+  // The jq engine is the caller with no `requiredPreopens` at all (only
+  // python3 names its durable roots). Before the truncation check existed, a
+  // capture that hit its limit left `missing` empty for that toolbox, so the
+  // dispatch ran against a partial tree: `jq` would read a missing operand as
+  // "no such file" and report a normal answer over bytes it never saw. The
+  // refusal must not depend on which roots a caller happened to declare.
+  const setup = await fixture({
+    crossOriginIsolated: false,
+    snapshotFallback: true,
+    requiredPreopens: [],
+  })
+  try {
+    // The capture flags a file larger than the single-file budget as
+    // truncating before it reads any bytes, so a sparse file is enough and
+    // `in.txt` (which sorts after `big.bin`) never enters the snapshot.
+    await writeFile(join(setup.workspace, 'big.bin'), '')
+    await truncate(join(setup.workspace, 'big.bin'), MAX_FILE_SIZE + 1)
+    const stderr = collect()
+    const result = await setup.toolbox.run({
+      program: 'fd-echo',
+      argv: ['in.txt', 'out.txt'],
+      onStderr: chunk => stderr.chunks.push(chunk),
+    })
+    // The host refuses; the guest never runs, so it never answers 0 over the
+    // file it cannot see and never writes `out.txt`.
+    assert.equal(result.exitCode, 134)
+    assert.match(stderr.text(), /the WASI file view cannot resolve/)
+    assert.match(stderr.text(), /snapshot capture hit its limit/)
+    assert.match(stderr.text(), /the guest file view would be incomplete/)
+    await assert.rejects(readFile(join(setup.workspace, 'out.txt')), /ENOENT/)
   } finally {
     await setup.cleanup()
   }

@@ -1,0 +1,9 @@
+{
+  "kind": "equivalent",
+  "title": "ordering window: same events, different arrival order",
+  "expected": {
+    "ios": "expected.jsonl",
+    "android": "expected.jsonl"
+  },
+  "reason": "Android delivered the same seven rows out of seq order; every displacement is below the window of 16. Stage 2 restores the same total order."
+}

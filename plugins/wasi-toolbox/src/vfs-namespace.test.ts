@@ -5,11 +5,13 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
+  ENGINE_RESERVED_ROOTS,
   EXEC_INTERNAL_ROOTS,
   LEGACY_ROOT_ALIASES,
   WORKER_ROOTS,
   WORKER_VFS_NAMESPACE,
   VfsNamespace,
+  engineReservedRoot,
   normalizeVirtualPath,
   wrapFsPromises,
   installExecFsPolicy,
@@ -26,6 +28,29 @@ test('namespace: the fixed root table is durable home/workspace, volatile tmp an
   assert.throws(() => new VfsNamespace([]), /cannot be empty/)
   assert.throws(() => new VfsNamespace([{ path: '/tmp/', kind: 'volatile', sink: false, budgetBucket: 'tmp' }]), /canonical/)
   assert.throws(() => new VfsNamespace([{ path: '/', kind: 'durable', sink: true, budgetBucket: 'workspace' }]), /cannot be a root/)
+})
+
+test('namespace: /dev/fd is engine-reserved and never a writable root', () => {
+  // The shell engine mounts its private process-substitution filesystem at
+  // `/dev/fd` after its descriptor write through the base VFS fails; the base
+  // answer must be a plain `ENOENT`, so the path must not be a root and must
+  // not appear in the writable-roots sentence.
+  assert.deepEqual([...ENGINE_RESERVED_ROOTS], ['/dev/fd'])
+  assert.equal(engineReservedRoot('/dev/fd/63'), '/dev/fd')
+  assert.equal(engineReservedRoot('/dev/fd/63/../64'), '/dev/fd')
+  assert.equal(engineReservedRoot('/dev/fd'), undefined, 'the mount point itself stays an ordinary image path')
+  assert.equal(engineReservedRoot('/dev/null'), undefined)
+  assert.equal(engineReservedRoot('/dev/fdx/1'), undefined)
+  assert.equal(engineReservedRoot('relative'), undefined)
+  assert.equal(WORKER_VFS_NAMESPACE.writable('/dev/fd/63'), false)
+  assert.equal(WORKER_VFS_NAMESPACE.writeDenial('/dev/fd/63') !== undefined, true, 'still outside the table')
+  assert.deepEqual([...WORKER_VFS_NAMESPACE.writeRoots()], [
+    '/dsh/workspace', '/dsh/home', '/tmp', '/dsh/tmp', '/dev/null',
+  ])
+  assert.equal(
+    WORKER_VFS_NAMESPACE.writableRootsLine(),
+    'pdsh-shell: writable roots are /dsh/workspace, /dsh/home, /tmp, /dsh/tmp, /dev/null (TMPDIR=/dsh/tmp)',
+  )
 })
 
 test('namespace: classify answers sink/writable/read/budget for every root', () => {
@@ -98,6 +123,61 @@ test('namespace: exec read policy covers the three internal subtrees exactly', (
   assert.equal(WORKER_VFS_NAMESPACE.execReadable('/dsh/home/notes/a.md'), true)
   assert.equal(WORKER_VFS_NAMESPACE.execReadable('/dsh/workspace/sessions'), true)
   assert.doesNotThrow(() => WORKER_VFS_NAMESPACE.assertExecReadable('/dsh/home/notes/a.md'))
+})
+
+test('namespace: a listing hides the internal roots without changing the read answer', () => {
+  // The visibility rule answers for exactly the three names, in exactly the
+  // parent directory, under every spelling of that directory.
+  const visible = (directory: string, name: string): boolean => WORKER_VFS_NAMESPACE.execEntryVisible(directory, name)
+  for (const root of EXEC_INTERNAL_ROOTS) {
+    const name = root.slice('/dsh/home/'.length)
+    for (const spelling of ['/dsh/home', '/dsh/home/', '/dsh/home/./', '/dsh/home/../../home', '/home']) {
+      assert.equal(visible(spelling, name), false, `${spelling} must hide ${name}`)
+      assert.equal(visible(spelling, `${name}-archive`), true, `${spelling} must keep ${name}-archive`)
+      assert.equal(visible(spelling, `.${name}`), true, `${spelling} must keep .${name}`)
+    }
+    // Another parent is another answer: the rule is one directory deep.
+    assert.equal(visible('/dsh', name), true, `'/dsh' must keep ${name}`)
+    assert.equal(visible('/', name), true, `'/' must keep ${name}`)
+    assert.equal(visible('/dsh/workspace', name), true, `workspace must keep ${name}`)
+  }
+  assert.equal(visible('/dsh/home', 'notes'), true)
+  assert.equal(visible('/dsh/home', 'AGENTS.md'), true)
+  assert.equal(visible('/dsh/home', ''), true)
+  assert.equal(visible('relative', 'sessions'), true)
+  // The two halves are independent: hiding a name never makes it readable, and
+  // refusing the read never makes it visible.
+  assert.equal(WORKER_VFS_NAMESPACE.execReadable('/dsh/home/sessions'), false)
+  assert.equal(WORKER_VFS_NAMESPACE.execEntryVisible('/dsh/home', 'sessions'), false)
+})
+
+test('namespace: the fs face filters readdir and still refuses explicit reads', async () => {
+  const entries = ['AGENTS.md', 'notes', 'sessions', 'sessions-archive', 'storages', 'tool-journal']
+  const face = {
+    async readdir(path: string, options?: { withFileTypes?: boolean }) {
+      assert.equal(path, '/dsh/home')
+      return options?.withFileTypes === true
+        ? entries.map(name => ({ name, isFile: () => false, isDirectory: () => true, isSymbolicLink: () => false }))
+        : [...entries]
+    },
+    async stat(path: string) { return { path } },
+    async readFile(path: string) { return path },
+  }
+  const wrapped = wrapFsPromises(face, WORKER_VFS_NAMESPACE)
+  assert.deepEqual([...await wrapped.readdir('/dsh/home')], ['AGENTS.md', 'notes', 'sessions-archive'])
+  assert.deepEqual(
+    [...await wrapped.readdir('/dsh/home', { withFileTypes: true })]
+      .map(entry => (typeof entry === 'string' ? entry : entry.name)),
+    ['AGENTS.md', 'notes', 'sessions-archive'],
+  )
+  // A listing is filtered; an explicit access is not widened.
+  await assert.rejects(wrapped.stat('/dsh/home/sessions'), (error: unknown) => (error as { code?: string }).code === 'EACCES')
+  await assert.rejects(wrapped.readdir('/dsh/home/sessions'), (error: unknown) => (error as { code?: string }).code === 'EACCES')
+  // The canonicalisation-only wrapper (`createNamespaceVfs`) is not a policy
+  // face: the host's own view of its tree keeps every entry.
+  const { createNamespaceVfs } = await import('./index.ts')
+  const hostView = createNamespaceVfs({ promises: face }, WORKER_VFS_NAMESPACE).promises as typeof face
+  assert.deepEqual([...await hostView.readdir('/dsh/home')], entries)
 })
 
 test('namespace: join unifies a base path and a relative search pattern', () => {

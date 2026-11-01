@@ -1,0 +1,83 @@
+{
+  "schema": "pdsh.ui.page-structure-android-only-items/1",
+  "note": "Items Android MUST have although the iOS baseline has no counterpart. Not a platform difference (that is _whitelist.json) and not an unknown (that is _unrecognized.json): these are deliberate additions caused by a different data source or a different responsibility split. The extractor merges them into the page contract with an `androidOnly` object; the checker counts them as expected on Android, lists them in the report, and fails when `reason` does not answer the three questions, when `reviewBy` is past, or when the item no longer matches anything on the Android page (stale).",
+  "reasonShape": {
+    "baselineLacks": "why the iOS baseline does not need this item",
+    "androidNeeds": "why Android cannot do without it",
+    "withoutIt": "what breaks for the user if it is not there"
+  },
+  "entries": [
+    {
+      "page": "egress-allow-list",
+      "kind": "action",
+      "label": "重试",
+      "reason": {
+        "baselineLacks": "iOS reads its egress rules synchronously from local UserDefaults, so the read cannot fail and needs no retry",
+        "androidNeeds": "Android reads a host snapshot across a process boundary, so the read can fail and the page must offer recovery without leaving and re-entering",
+        "withoutIt": "a failed read leaves the allow list blank with no way back except killing the app, and a blank list silently means deny-all"
+      },
+      "owner": "android-ui",
+      "reviewBy": "2027-01-31"
+    },
+    {
+      "page": "egress-allow-list",
+      "kind": "action",
+      "label": "关闭",
+      "reason": {
+        "baselineLacks": "the iOS page has no failure line at all, so it has nothing to dismiss",
+        "androidNeeds": "the Android failure line is dismissible so the user can clear a stale error and keep reading the rules",
+        "withoutIt": "the error occupies the page after it stops being true, and the user cannot tell it apart from a current failure"
+      },
+      "owner": "android-ui",
+      "reviewBy": "2027-01-31"
+    },
+    {
+      "page": "egress-allow-list",
+      "kind": "section",
+      "title": "规则语法",
+      "reason": {
+        "baselineLacks": "the baseline scatters the matching grammar across an input placeholder and a validation sentence, so it has no syntax section",
+        "androidNeeds": "the Android page edits a host-owned list where an empty table means deny-all, so the `*.suffix` / port / scheme rules must be stated once, on the page",
+        "withoutIt": "a mistyped rule silently cuts the network and the user has no on-page reference to correct it"
+      },
+      "owner": "android-ui",
+      "reviewBy": "2027-01-31"
+    },
+    {
+      "page": "workspace-folders",
+      "kind": "action",
+      "label": "切换",
+      "reason": {
+        "baselineLacks": "the baseline makes the current folder implicit: creating a session inside a folder is the only switch",
+        "androidNeeds": "README §1 makes switching this page's duty, and Android's session creation lives on another page, so the switch has to be explicit here",
+        "withoutIt": "switching folders requires detouring through the sessions page and creating a throwaway session"
+      },
+      "owner": "android-ui",
+      "reviewBy": "2027-01-31"
+    },
+    {
+      "page": "workspace-folders",
+      "kind": "action",
+      "label": "删除",
+      "reason": {
+        "baselineLacks": "the baseline deletes a workspace from the drawer's `⋯` menu (SessionsPage.swift:447), not from this page",
+        "androidNeeds": "README §1 gives this page the add/remove duty, and the Android drawer has no workspace menu, so removal must live here",
+        "withoutIt": "a folder created by mistake can only be removed by going back to the drawer, which does not offer the action"
+      },
+      "owner": "android-ui",
+      "reviewBy": "2027-01-31"
+    },
+    {
+      "page": "workspace-folders",
+      "kind": "action",
+      "label": "重试",
+      "reason": {
+        "baselineLacks": "the iOS list reads local state and cannot fail, so it has no retry affordance",
+        "androidNeeds": "the Android workspace list comes from a host snapshot and can fail, and this page is the only place to recover",
+        "withoutIt": "a failed list read is a dead page: no folders, no way to retry"
+      },
+      "owner": "android-ui",
+      "reviewBy": "2027-01-31"
+    }
+  ]
+}

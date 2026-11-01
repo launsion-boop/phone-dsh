@@ -1,0 +1,34 @@
+{
+  "name": "error-result-too-large",
+  "direction": "sequence",
+  "schema": "bridge-message.schema.json",
+  "instance": [
+    {
+      "direction": "page-to-host",
+      "instance": {
+        "v": 1,
+        "kind": "request",
+        "requestId": "e93c5a70-8b14-4d2f-9a6e-7c0b1d3f5a82",
+        "method": "file.read",
+        "params": {
+          "path": "artifacts/large.bin"
+        }
+      }
+    },
+    {
+      "direction": "host-to-page",
+      "instance": {
+        "v": 1,
+        "kind": "error",
+        "requestId": "e93c5a70-8b14-4d2f-9a6e-7c0b1d3f5a82",
+        "method": "file.read",
+        "error": {
+          "code": "BRIDGE_RESULT_TOO_LARGE",
+          "message": "the result exceeds the 1 MiB bridge cap",
+          "retryable": false
+        }
+      }
+    }
+  ],
+  "notes": "bridge.md §4; a result over 1 MiB serialised is replaced by this error and never sent truncated, so the vector on the wire is small while the refused value is not. Neither side has a cap today: new rule."
+}

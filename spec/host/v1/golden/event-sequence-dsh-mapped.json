@@ -1,0 +1,46 @@
+{
+  "name": "event-sequence-dsh-mapped",
+  "schema": "schema/harness-event.schema.json",
+  "seq_rule": "sparse",
+  "resume": {
+    "after_seq": 1,
+    "expect_next_seq": 8
+  },
+  "instance": [
+    {
+      "session_id": "sess-2f7c",
+      "seq": 0,
+      "time_ms": 1793400120000,
+      "kind": "assistant_message",
+      "text": "Done."
+    },
+    {
+      "session_id": "sess-2f7c",
+      "seq": 1,
+      "time_ms": 1793400120000,
+      "kind": "usage",
+      "input_tokens": 1200,
+      "output_tokens": 80
+    },
+    {
+      "session_id": "sess-2f7c",
+      "seq": 8,
+      "time_ms": 1793400124000,
+      "kind": "turn_ended",
+      "turn_id": "0",
+      "reason": {
+        "kind": "completed"
+      },
+      "raw_turn_end_kind": "completed"
+    },
+    {
+      "session_id": "sess-2f7c",
+      "seq": 16,
+      "time_ms": 1793400128000,
+      "kind": "user_message",
+      "text": "Next: bump the changelog.",
+      "source": "user"
+    }
+  ],
+  "notes": "Sparse fixture proving the mapping rule of DSHEventMapper.swift:25-33: harness seq = dsh seq * 8 + part, so durable seq starts at 0 and leaves gaps whenever one DSH event carries fewer parts than the slot width. Resuming after harness seq 1 re-maps DSH event 0 and skips its parts 0 and 1, so the next delivered seq is 8 (DSHEventMapper.swift:5-8, AgentHarness.swift:490-494). A host MUST therefore treat seq as an ordinal cursor, never as a count of events."
+}

@@ -1,0 +1,32 @@
+{
+  "title": "HarnessError",
+  "description": "The error classes a harness operation or event stream reports. retryable is not a member: it is derived from code (unavailable and rate_limited are retryable, every other code is not).",
+  "type": "object",
+  "required": [
+    "code"
+  ],
+  "properties": {
+    "code": {
+      "type": "string",
+      "enum": [
+        "unsupported",
+        "unauthorized",
+        "unavailable",
+        "rate_limited",
+        "invalid_request",
+        "invalid_response",
+        "cancelled",
+        "conflict"
+      ]
+    },
+    "message": {
+      "type": "string",
+      "maxLength": 65536
+    },
+    "retry_after_ms": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false
+}

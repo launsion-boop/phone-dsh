@@ -1,0 +1,81 @@
+{
+  "id": "sigterm-runner-guard",
+  "verb": "sigterm",
+  "title": "SIGTERM is recorded and the run fails loudly; the process and the WAL are untouched",
+  "preconditions": {
+    "host_state": "Running",
+    "admission": "open",
+    "epoch_open": true,
+    "acked_mseq": 2,
+    "open_steps": 1,
+    "journaled_steps": 0,
+    "exec_in_flight": false,
+    "persisted_state": "Running",
+    "worker_channel": "open",
+    "notes": "A scenario batch is running; the SIGNAL GUARD (SIGTERM/SIGINT/SIGHUP) is installed, which is a runner facility and not a product code path."
+  },
+  "timeline": [
+    {
+      "at": 0,
+      "event": "run in progress",
+      "detail": "two writes acked, one step open",
+      "expect_state": "Running",
+      "source": "Sources/PhoneDSHScenario/ScenarioProcessSignals.swift:70-84"
+    },
+    {
+      "at": 5,
+      "event": "SIGTERM delivered to the runner process",
+      "detail": "the async-signal-safe handler stores one int32 and returns; the default action never runs",
+      "expect_state": "Running",
+      "source": "Tests/PhoneDSHScenarioTests/PhoneDSHScenarioProcessSignalGuardTests.swift:55-61"
+    },
+    {
+      "at": 10,
+      "event": "the next long wait observes the request",
+      "detail": "the run throws a reportable error naming the signal instead of letting the log stop mid-suite",
+      "expect_state": "Running",
+      "source": "Tests/PhoneDSHScenarioTests/PhoneDSHScenarioProcessSignalGuardTests.swift:83-98"
+    },
+    {
+      "at": 15,
+      "event": "the record is consumed once",
+      "detail": "one request fails one run, not every later run in the batch",
+      "expect_state": "Running",
+      "source": "Tests/PhoneDSHScenarioTests/PhoneDSHScenarioProcessSignalGuardTests.swift:102-108"
+    }
+  ],
+  "expected": {
+    "state": "Running",
+    "state_path": [
+      "Running"
+    ],
+    "durability_level": "level_1",
+    "wal_tail": "unchanged",
+    "journal_gap": "none",
+    "surfaced_to_user": "scenario_run_failure",
+    "admission": "open",
+    "acked_prefix_preserved": true,
+    "steps_open": 1,
+    "steps_abandoned": 0,
+    "field_evidence": {
+      "state": "swift-test",
+      "state_path": "swift-test",
+      "durability_level": "swift-source",
+      "wal_tail": "swift-source",
+      "journal_gap": "swift-source",
+      "surfaced_to_user": "swift-test",
+      "admission": "swift-source",
+      "acked_prefix_preserved": "swift-test",
+      "steps_open": "swift-source",
+      "steps_abandoned": "swift-source"
+    }
+  },
+  "evidence_level": "swift-source",
+  "source": "Tests/PhoneDSHScenarioTests/PhoneDSHScenarioProcessSignalGuardTests.swift:55-78",
+  "related_sources": [
+    "Sources/PhoneDSHScenario/ScenarioProcessSignals.swift:47-63",
+    "Sources/PhoneDSHScenario/ScenarioProcessSignals.swift:106-113",
+    "Sources/PhoneDSHScenario/ScenarioProcessSignals.swift:163-167"
+  ],
+  "notes": "This fixture deliberately asserts NO durability event: SIGTERM is a runner stop request, not a persistence point, and the handler writes no WAL byte. Android must not rely on a SIGTERM handler running before a SIGKILL; the durability contract there is the same level-1 write path the kill_9 fixtures assert."
+}

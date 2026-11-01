@@ -1,0 +1,48 @@
+{
+  "id": "gw-fail-004",
+  "rule": "failure-surface",
+  "kind": "request",
+  "source": "Sources/PhoneDSHGateway/ModelGateway.swift:1342",
+  "references": [
+    "Tests/PhoneDSHGatewayTests/ModelGatewayEgressClassificationTests.swift:206",
+    "spec/v1/gateway-security.md:171"
+  ],
+  "note": "A transport failure after the credential was injected is a sent failure, not a pre-flight deny: transport_failure, 502/upstream, one upstream contact, and a bounded newline-free reason. The scripted reason is 262 characters with a newline, so the vector pins the 256-character, newline-free surface instead of just naming it.",
+  "input": {
+    "method": "POST",
+    "url": "https://api.example.invalid/v1/messages",
+    "headers": {
+      "authorization": "Bearer sk-SENTINEL-DO-NOT-USE",
+      "content-type": "application/json"
+    },
+    "allowlist": [
+      "https://api.example.invalid"
+    ],
+    "credential": {
+      "kind": "api-key",
+      "header": "x-api-key",
+      "value": "sk-HOST-API-KEY-PLACEHOLDER"
+    },
+    "transport_failure": "connection refused\nretry budget exhausted before the response head; the dialer reported no further detail for api.example.invalid after the injected credential was applied and the socket was closed without a status line and no response bytes were received at all"
+  },
+  "expect": {
+    "dispatch": "deny",
+    "outbound_headers": {
+      "content-type": "application/json",
+      "x-api-key": "sk-HOST-API-KEY-PLACEHOLDER"
+    },
+    "stripped": [
+      "authorization"
+    ],
+    "outbound_url": "https://api.example.invalid/v1/messages",
+    "deny_reason": "transport_failure",
+    "failure": {
+      "code": "transport_failure",
+      "proxy_status": 502,
+      "proxy_error": "upstream",
+      "upstream_contacts": 1,
+      "reason": "upstream transport failed: connection refused retry budget exhausted before the response head; the dialer reported no further detail for api.example.invalid after the injected credential was applied and the socket was closed without a status line and no re"
+    },
+    "body": "{\"error\":{\"code\":\"transport_failure\",\"message\":\"upstream transport failed: connection refused retry budget exhausted before the response head; the dialer reported no further detail for api.example.invalid after the injected credential was applied and the socket was closed without a status line and no re\"}}"
+  }
+}

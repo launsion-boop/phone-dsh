@@ -124,13 +124,39 @@ FRAME_SCHEMAS = {
     0x60: "console.schema.json",
 }
 
-# Document line caps (D16).
+# Document line caps (D16). The three Android-port documents carry their own cap so the
+# "short normative, long explanatory" discipline survives outside the original five.
 LINE_CAPS = {
-    "channel.md": 350,
-    "wal.md": 320,
-    "exec.md": 220,
+    # D16 amendment: the VFS_ACK level-2 rule was scoped and JOURNAL_ACK's level
+    # clarified. Both were silent ambiguities a port had to resolve, and resolving
+    # them per implementation is how two hosts end up disagreeing on the wire.
+    "channel.md": 365,
+    # D16 amendment (2026-10-31): the WAL recovery rules had drifted behind the
+    # reference implementation in three places (stale-segment retention, the
+    # reconcile trigger, the manifest-range rule). Writing them down needs lines;
+    # the cap moves 320 -> 340 rather than leaving the document wrong.
+    # D16 amendment: the seven readings a port had to infer for §9 (compaction timing,
+    # which segment is "the newest close", what proves an epoch durable, the fsync for a
+    # removed path, whether the close record is charged, how much to drop, and whether
+    # the 512 MiB is per workspace) are contract text now.
+    "wal.md": 370,
+    # D16 amendment: `unsupported` was defined as "only an unadvertised argv[0]", but the
+    # host also refuses request shapes it cannot honour (no stdin channel, protocol-level
+    # refusal). The implementation and the spec disagreed; the spec was the narrower one.
+    "exec.md": 232,
     "handoff.md": 200,
     "budgets.md": 200,
+    "bridge.md": 200,
+    # D16 amendment: the two release-blocking rules move from "known gap" to
+    # "enforced", which needs lines to say what is now required.
+    # D16 amendment: the redirect, refusal-surface and number-rendering rules the
+    # Kotlin port had to infer are now written down.
+    "gateway-security.md": 240,
+    # D16 amendment (2026-10-31): the UiState `kind` vocabulary gained `context`
+    # (an injected user-role block). A new legal kind needs one sentence saying
+    # what it carries and which member names the injector; the alternative is a
+    # kind no reader can interpret. The cap moves 180 -> 182.
+    "trajectory.md": 182,
 }
 
 REQUIRED_DOCS = ("README.md", "channel.md")
@@ -1936,6 +1962,14 @@ WAL_DOC_TOKENS = (
     "truncated to the last complete",
     "the truncation is logged",
     "not at the tail",
+    # BUG-1: a zero-length segment has no header and no record; it is dropped with a
+    # diagnostic, never promoted to WAL_CORRUPT. Header damage in a non-zero file still fails.
+    "WAL_EMPTY_SEGMENT_DROPPED segment=<n>",
+    "zero-length segment",
+    # BUG-1 shapes 2 and 3: a legal large record cut short is a torn tail, and an
+    # adopted epoch may span several unlisted segments of the same epoch.
+    "a tail-search work budget",
+    "only the first is",
     # D11: the materialized copy plus the WAL tail are the reconcile inputs.
     "never the WAL alone",
     "all of its recorded mutations have",
@@ -2040,16 +2074,22 @@ BUDGETS_DOC_TOKENS = (
     "NWPathMonitor",
     "WebContent termination",
     # The §4 tier rows are the budget-derived constants; keep this list in step
-    # with the normative table. The superseded 50/50/50 MB row is history in the
-    # §6 revision note and is not required contract text.
-    "320 MB",
+    # with the normative table. The superseded rows (engine heap 320 MB, VFS
+    # split 160 / 50 / 50 MB, fixed 2 h planned restart) are history in the §6
+    # revision note and in the restart-policy revision; they are not required
+    # contract text, and the rows that replaced them are pinned instead.
+    "832 MB",
+    "448 MB",
+    "388 MB",
+    "540 MB",
+    "230 MB",
     "256 MB",
     "192 MB",
     "144 MB",
     "260 MB",
     "200 MB",
     "96 MB",
-    "160 / 50 / 50 MB",
+    "288 / 50 / 50 MB",
     "120 / 40 / 40 MB",
     "80 / 32 / 32 MB",
     "48 / 24 / 24 MB",
@@ -2066,9 +2106,13 @@ BUDGETS_DOC_TOKENS = (
     "≤ 2",
     "thermal fair",
     "p95 < 5 ms",
-    "2 h",
+    "policy triggers, at a tool-call boundary",
     "0.05 s/MB",
     "256 MiB",
+    # §5 pins the WAL quota row itself, not just the value: the same number also
+    # appears in the revision note, so a bare "512 MiB" token cannot tell the
+    # normative quota row from its history.
+    "| WAL segments | 512 MiB |",
     "ENOSPC",
 )
 

@@ -3,6 +3,7 @@
 
 import PhoneDSHAgentCore
 import PhoneDSH
+import ProbeKit
 import PhoneDSHEngine
 import SwiftUI
 import UniformTypeIdentifiers
@@ -10,7 +11,7 @@ import UIKit
 
 struct ChatPage: View {
     var openDrawer: (() -> Void)? = nil
-    var drawerExpanded = false
+    var drawerExpanded: Bool = false
     #if DEBUG
     /// 预览专用:直接吃一份本地造好的消息,不订阅宿主、不等记录就绪。
     var previewItems: [ChatItem]? = nil
@@ -28,9 +29,22 @@ struct ChatPage: View {
     #endif
     @State private var previousSessionKey = ""
     @AppStorage("chat.drafts.v1") private var savedDrafts = "{}"
-    @State private var preferences = NativeChatPreferences.shared
     private var busyEnterMode: String { preferences.busyEnterMode }
-    @FocusState private var inputFocused: Bool
+    /// Official default is completion-time folding; the `On next message`
+    /// option is the iOS adaptation exposed in the header `...` menu.
+    @State private var preferences = NativeChatPreferences.shared
+    private var collapseOnNextMessage: Bool { preferences.collapseTiming == .nextInput }
+    private var collapseTimingBinding: Binding<Bool> {
+        Binding(get: { preferences.collapseTiming == .nextInput },
+                set: { preferences.setCollapseTiming($0 ? .nextInput : .completion) })
+    }
+    /// The composer's own responder owns focus: a `UITextView` wrapper is the
+    /// only way to hand the software keyboard a 发送 return key and to
+    /// intercept Return before it inserts a newline.
+    @State private var inputFocused = false
+    /// Restore the keyboard after a command-result sheet closes if the
+    /// composer had focus when the command was submitted.
+    @State private var restoreComposerFocus = false
     @State private var pendingAttachments: [HarnessAttachment] = []
     @State private var showAttachmentPicker = false
     /// "添加文件" imports into the workspace; images stay native attachments.
@@ -40,19 +54,49 @@ struct ChatPage: View {
     @State private var commandExecution: NativeCommandExecution?
     @State private var showCommandResult = false
     @State private var isExecutingCommand = false
+    /// One composer notice (official `InputBar` notice channel): command
+    /// settlement and refusals land here instead of a silent banner.
+    @State private var composerNotice: ComposerNotice?
+    /// Highlighted row of the slash-command menu (`↑`/`↓`, `Tab`/`Enter`).
+    @State private var slashHighlight = 0
+    /// Esc closes the menu without deleting the typed token; the next edit
+    /// re-opens it (official `dismissPopup` keeps the draft).
+    @State private var slashMenuDismissed = false
+    /// Measured height of the composer's editable surface (36…336).
+    @State private var composerHeight: CGFloat = 36
+    /// The command currently in flight, so `/compact` can say 正在压缩…
+    @State private var executingCommandName: String?
     @State private var showSessions = false
     @State private var showWorkbench = false
     @State private var initialWorkbenchPath: String?
     @State private var showSettings = false
-    @State private var showShortcuts = false
     @State private var showProviderSettings = false
     /// A path whose bytes had not arrived yet; the next file refresh retries it.
     @State private var pendingPreviewPath: String?
     @State private var showSessionList = false
     @State private var debugSheet: String?
     @State private var showConfiguration = false
-    @State private var showArtifacts = false
     @State private var showActivity = false
+    @State private var showSubagentCatalog = false
+    @State private var showJobList = false
+    @State private var showArtifacts = false
+    @State private var showDeviceConnections = false
+    @State private var deviceCoordinator = DeviceSessionCoordinator.shared
+    @State private var showScheduleList = false
+    @State private var previewPlan: NativePlanPreview?
+    @State private var foldedTurns: Set<Int> = []
+    @State private var autoFoldedTurns: Set<Int> = []
+    /// Turns the person opened by hand: a later auto-fold must never close
+    /// one of them again, in either folding-timing mode.
+    @State private var manuallyExpandedTurns: Set<Int> = []
+    @State private var tailUsage: NativeTurnUsage?
+    @State private var copiedTurn: Int?
+    @State private var queueExpanded = false
+    @State private var queueEditItem: ManagedQueueItem?
+    @State private var queueEditText = ""
+    /// The queue row whose edit/remove/steer RPC is in flight; every queue
+    /// action is disabled while it runs (official `busy` in `QueueDock`).
+    @State private var queueActionBusyID: String?
     @State private var showRuntimeDetails = false
     @State private var showSessionSettings = false
     @State private var cardsExpanded = false
@@ -87,11 +131,12 @@ struct ChatPage: View {
     /// Coalesces follow-the-tail scrolls so one lands after the lazy stack
     /// has laid the new rows out (see `scheduleTailScroll`).
     @State private var tailScrollTask: Task<Void, Never>?
-    @State private var loadingEarlierTrajectory = false
     @State private var loadingEarlierTranscript = false
 
     private var providerNeedsKey: Bool {
-        model.modelProviderIssue != nil
+        guard let profile = (try? PhoneModelProviderSettings.shared.load())?.selected else { return true }
+        guard let status = try? PhoneModelProviderSettings.shared.apiKeyStatus(for: profile.id) else { return true }
+        return status != .present
     }
 
     private var sessionKey: String { model.currentSessionID ?? "new" }
@@ -105,83 +150,157 @@ struct ChatPage: View {
     }
     private var visibleItems: [ChatItem] {
         #if DEBUG
-        if let previewItems {
-            return previewItems.filter { $0.kind != .status && $0.kind != .context }
-        }
+        if let previewItems { return previewItems }
         #endif
-        return model.items.filter { $0.kind != .status && $0.kind != .context }
+        return model.items.filter { $0.kind != .status }
+    }
+    /// A running turn or a live subagent/background job puts a small spinner
+    /// on the consolidated settings button.
+    private var headerActivityRunning: Bool {
+        if model.turnRunning { return true }
+        if subagentEntries.contains(where: { $0.activity == .running }) { return true }
+        return management.jobs.contains { ($0.status ?? "").lowercased() == "running" }
+    }
+
+    /// Official `subagentCatalog` projection → the header catalog view model.
+    /// Running state comes from the session list row (`running`), because the
+    /// catalog itself only carries identity/label/mode.
+    private var subagentEntries: [NativeSubagentCatalogEntry] {
+        (model.projectedSubagents?.arrayValue ?? []).compactMap { row in
+            guard let id = row["id"]?.stringValue else { return nil }
+            let mode = NativeSubagentMode(rawValue: row["mode"]?.stringValue ?? "") ?? .unknown
+            let running = management.sessions.first(where: { $0.id == id })?.running == true
+            return NativeSubagentCatalogEntry(
+                id: id,
+                label: row["label"]?.stringValue,
+                mode: mode,
+                activity: running ? .running : .inactive,
+                parentID: row["parentSessionId"]?.stringValue,
+                children: [])
+        }
+    }
+
+    /// Official `.runningDivider` is hidden when the preceding visible row is
+    /// an input/trigger; a status row never draws a line between input and state.
+    private var showsRunningDivider: Bool {
+        guard let last = visibleItems.last else { return false }
+        return last.kind != .user && last.kind != .context
     }
     private var transcriptScrollSignature: String {
         "\(visibleItems.map(\.id).joined(separator: ","))|\(visibleItems.last?.text ?? "")"
     }
-    /// 自绘页头:左抽屉、中标题(可点改名)、右更多。行高 44,左右 16。
+    /// 自绘页头:左抽屉、中标题(可点改名)、右 gear。移动端不展示轨迹 tab。
     private var chatHeader: some View {
+        chatHeaderTitleRow
+            .frame(height: NativeParityTokens.headerHeight)
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(NativeParityTokens.borderL3)
+                    .frame(height: 0.5)
+            }
+    }
+
+    private var chatHeaderTitleRow: some View {
         ZStack {
             Button { beginRename() } label: {
                 Text(sessionTitle)
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(Color(red: 0x11 / 255, green: 0x11 / 255, blue: 0x14 / 255))
+                    .font(.system(size: NativeParityTokens.headerTitleSize,
+                                  weight: NativeParityTokens.headerTitleWeight))
+                    .foregroundStyle(NativeChatTheme.primary)
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
             .buttonStyle(.plain)
             .disabled(model.currentSessionID == nil)
             .accessibilityHint("点按重命名会话")
-            .padding(.horizontal, providerNeedsKey ? 144 : 104)
+            .padding(.horizontal, 104)
 
             HStack(spacing: 0) {
-                HStack(spacing: 4) {
-                    Button {
-                        inputFocused = false
-                        openDrawer?()
-                    } label: {
-                        Image(systemName: "sidebar.left")
-                            .font(.system(size: 20, weight: .regular))
-                            .frame(width: 32, height: 44)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(drawerExpanded ? "隐藏会话列表" : "打开会话列表")
+                Button {
+                    openDrawer?()
+                } label: {
+                    Image(systemName: "sidebar.left")
+                        .font(.system(size: 20, weight: .regular))
+                        .frame(width: 32, height: 44)
+                        .contentShape(Rectangle())
                 }
-                .fixedSize(horizontal: true, vertical: false)
+                .buttonStyle(.plain)
+                .accessibilityLabel("打开会话列表")
 
                 Spacer(minLength: 0)
 
                 HStack(spacing: 4) {
-                    Button { showRuntimeDetails = true } label: {
-                        RunStatusDot(started: model.isStarted, parked: model.parked,
-                                     needsModelConfiguration: providerNeedsKey)
-                            .fixedSize(horizontal: true, vertical: false)
-                            .frame(height: 44)
+                    Button { showDeviceConnections = true } label: {
+                        NativeDeviceEntryIcon(online: deviceCoordinator.hasOnlineDevices)
+                            .frame(width: 36, height: 44)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("运行状态")
-                    .accessibilityValue(providerNeedsKey ? "待配置模型服务" : model.displayStatus)
+                    .accessibilityLabel(deviceCoordinator.hasOnlineDevices ? "Device，有在线设备" : "Device")
                     Menu {
-                        Button("产物", systemImage: "doc") { showArtifacts = true }
-                            .disabled(model.currentSessionID == nil)
-                        Button("子 Agent 与后台活动", systemImage: "person.2") { showActivity = true }
-                            .disabled(model.currentSessionID == nil)
+                        if !subagentEntries.isEmpty {
+                            Button("子智能体（\(subagentEntries.count)）", systemImage: "person.2") {
+                                showSubagentCatalog = true
+                            }
+                        }
+                        if !management.jobs.isEmpty {
+                            Button("后台任务（\(management.jobs.count)）", systemImage: "list.bullet") {
+                                showJobList = true
+                            }
+                        }
+                        if !management.scheduleRecords.isEmpty {
+                            Button("定时任务（\(management.scheduleRecords.count)）", systemImage: "calendar.badge.clock") {
+                                showScheduleList = true
+                            }
+                        }
+                        Button("产物", systemImage: "shippingbox") {
+                            showArtifacts = true
+                        }
+                        if model.currentSessionID != nil {
+                            Button("右侧边栏", systemImage: "sidebar.right") {
+                                showWorkbench = true
+                            }
+                        }
+                        Divider()
                         ShareLink(item: historyExport,
                                   subject: Text("对话记录"),
                                   preview: SharePreview("对话记录")) {
                             Label("导出对话记录", systemImage: "square.and.arrow.up")
                         }
+                        Button("运行状态", systemImage: "waveform.path.ecg") { showRuntimeDetails = true }
                         Button("本会话设置", systemImage: "slider.horizontal.3") { showSessionSettings = true }
+                        if let preset = model.agentPresetLabel {
+                            Divider()
+                            Text("Agent 预设：\(preset)")
+                        }
+                        Divider()
+                        // Official `On next message` collapse timing, as a menu
+                        // pair on the phone (no DSH settings page here).
+                        Picker("折叠时机", selection: collapseTimingBinding) {
+                            Text("完成时").tag(false)
+                            Text("下一条消息").tag(true)
+                        }
                     } label: {
-                        Image(systemName: "ellipsis")
-                            .font(.system(size: 20))
-                            .frame(width: 44, height: 44)
-                            .contentShape(Rectangle())
-                            .accessibilityLabel("更多操作")
+                        ZStack(alignment: .topTrailing) {
+                            Image(systemName: "ellipsis")
+                                .font(.system(size: 20, weight: .regular))
+                                .foregroundStyle(NativeParityTokens.labelSecondary)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                            if headerActivityRunning {
+                                ProgressView()
+                                    .controlSize(.mini)
+                                    .offset(x: -5, y: 8)
+                            }
+                        }
+                        .accessibilityLabel("更多")
                     }
                 }
                 .fixedSize(horizontal: true, vertical: false)
             }
         }
         .padding(.horizontal, 16)
-        .frame(height: 44)
+        .frame(height: NativeParityTokens.headerHeight)
     }
 
     private var latestToolFailure: ChatItem? {
@@ -212,33 +331,9 @@ struct ChatPage: View {
         // whole stack (including the title row) up under the status bar on
         // newer iOS versions.
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            VStack(spacing: 0) {
-                if model.hostNeedsRecovery {
-                    HStack(spacing: 12) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(NativeText("引擎需要恢复", "Engine recovery needed"))
-                                .font(.system(size: 13, weight: .semibold))
-                            Text(NativeText("保留当前工作区和会话", "Keep this workspace and its sessions"))
-                                .font(.system(size: 11))
-                                .foregroundStyle(Self.inkSecondary)
-                        }
-                        Spacer(minLength: 0)
-                        Button {
-                            Task { await model.recoverFailedHost() }
-                        } label: {
-                            Text(model.canRecoverFailedHost
-                                 ? NativeText("恢复引擎", "Recover engine")
-                                 : NativeText("正在恢复…", "Recovering…"))
-                                .font(.system(size: 13, weight: .semibold))
-                        }
-                        .disabled(!model.canRecoverFailedHost)
-                        .accessibilityIdentifier("host-recovery-action")
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(Color(.systemBackground))
-                    Divider()
-                }
+            if let question = model.pendingQuestion {
+                questionTakeover(question)
+            } else {
                 composer
             }
         }
@@ -247,7 +342,7 @@ struct ChatPage: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
             keyboardVisible = false
-            if model.pendingQuestion == nil { cardsExpanded = false }
+            cardsExpanded = false
         }
         .background(Color(.systemBackground))
         .navigationTitle({
@@ -262,6 +357,10 @@ struct ChatPage: View {
         // 我们的页头,接点击的却是它,左上角那个按钮就是这么点不开的。
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden(true)
+        // The keyboard's own 发送 key replaced the custom toolbar: the
+        // composer text view sets `returnKeyType = .send` and intercepts
+        // Return, so a second button above the keyboard would be the only
+        // send affordance that is *not* what the web bar does.
         .alert("重命名会话", isPresented: Binding(
             get: { renameTarget != nil },
             set: { if !$0 { renameTarget = nil } })) {
@@ -313,6 +412,75 @@ struct ChatPage: View {
             }
         }
         .sheet(isPresented: $showRuntimeDetails) { RuntimeDetailsPage(model: model) }
+        .sheet(isPresented: $showSubagentCatalog) {
+            VStack(spacing: 0) {
+                NativeSubagentCatalogSheet(
+                    entries: subagentEntries,
+                    currentSessionID: model.currentSessionID,
+                    availableSize: CGSize(width: 402, height: 740),
+                    onOpenSession: { entry in
+                        showSubagentCatalog = false
+                        Task { await model.selectSession(entry.id) }
+                    },
+                    onOpenAside: { entry in
+                        showSubagentCatalog = false
+                        Task { await model.selectSession(entry.id) }
+                    })
+                    .padding(.horizontal, 16)
+                    .padding(.top, 16)
+                Spacer(minLength: 0)
+            }
+            .background(NativeChatTheme.background)
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showJobList) {
+            NativeJobListSheet(jobs: management.jobs) {
+                guard let id = model.currentSessionID else { return }
+                Task { await management.refreshActivity(sessionID: id) }
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showScheduleList) {
+            NativeScheduleListSheet(schedules: management.scheduleRecords) {
+                guard let id = model.currentSessionID else { return }
+                Task { await management.refreshActivity(sessionID: id) }
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showArtifacts) {
+            if let sessionID = model.currentSessionID {
+                NavigationStack { SessionArtifactsPage(sessionID: sessionID) }
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
+            }
+        }
+        .sheet(isPresented: $showDeviceConnections) {
+            NavigationStack { NativeDeviceConnectionPage() }
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(item: $previewPlan) { plan in
+            NavigationStack {
+                ScrollView {
+                    NativeMarkdownBody(markdown: plan.markdown, streaming: false,
+                                       workspaceFiles: model.files, onOpenFile: openWorkspaceResult)
+                        .font(NativeChatTheme.bodyFont())
+                        .lineSpacing(NativeChatTheme.bodyLineSpacing)
+                        .padding(NativeParityTokens.transcriptSide)
+                }
+                .navigationTitle(plan.title)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("关闭") { previewPlan = nil }
+                    }
+                }
+            }
+            .presentationDragIndicator(.visible)
+        }
         // 「完全权限」是唯一会改掉未来的开关:点它不直接生效,先弹系统的确认窗。
         // 标题里的名字和菜单项一字不差;开着的时候点同一项不用再问。
         .alert(accessModeConfirmationTitle, isPresented: Binding(
@@ -331,16 +499,6 @@ struct ChatPage: View {
         }
         // 系统窗里的按钮吃这层的 tint,不写就是黑的,不是我们的蓝。
         .tint(ChatPage.accent)
-        .background { shortcutCommands }
-        .sheet(isPresented: $showShortcuts) {
-            NavigationStack { NativeShortcutsPage() }
-        }
-        .sheet(isPresented: $showArtifacts) {
-            if let sessionID = model.currentSessionID {
-                NavigationStack { SessionArtifactsPage(sessionID: sessionID) }
-                    .presentationDragIndicator(.visible)
-            }
-        }
         .sheet(isPresented: $showActivity) {
             if let sessionID = model.currentSessionID {
                 NavigationStack { SessionActivityPage(sessionID: sessionID) }
@@ -390,6 +548,11 @@ struct ChatPage: View {
             // Device-test automation (PDSH_CHAT_AUTOSTART / PDSH_CHAT_AUTOPROMPT).
             model.autostartIfRequested()
 #if DEBUG
+            // A deterministic composer draft for screenshot passes
+            // (`PDSH_DEBUG_DRAFT=/c` renders the command menu without typing).
+            if let seeded = ProcessInfo.processInfo.environment["PDSH_DEBUG_DRAFT"], draft.isEmpty {
+                draft = seeded
+            }
             if ProcessInfo.processInfo.environment["PDSH_DEBUG_TOOLRUN"] == "1", model.items.isEmpty {
                 model.debugInjectToolRun()
             }
@@ -429,6 +592,9 @@ struct ChatPage: View {
             // Close from the observed source of truth as well, so restoring a
             // real session never leaves the user stranded in the sidebar.
             showSessions = false
+            foldedTurns = []
+            autoFoldedTurns = []
+            manuallyExpandedTurns = []
             persistDraft(draft, for: previousSessionKey)
             previousSessionKey = sessionKey
             draft = savedDraft(for: sessionKey)
@@ -446,6 +612,22 @@ struct ChatPage: View {
             Task { await management.refresh() }
         }
         .onChange(of: draft) { _, value in persistDraft(value, for: sessionKey) }
+        // Folding timing. `false` keeps the official completion-time default:
+        // every eligible closed Turn folds as soon as it ends. `true` is the
+        // iOS adaptation of `On next message`: a closed Turn folds only after
+        // a later user/steering/trigger input exists, so the latest exchange
+        // stays open. Either way a manual expand is remembered and never
+        // overridden by a later auto-fold.
+        .onChange(of: model.turnEndReasons) { _, _ in
+            autoFoldClosedTurns()
+        }
+        .onChange(of: collapseOnNextMessage) { _, _ in
+            autoFoldClosedTurns()
+        }
+        .onChange(of: inputRowSignature) { _, _ in
+            guard collapseOnNextMessage else { return }
+            autoFoldClosedTurns()
+        }
         .onChange(of: showWorkbench) { _, isPresented in
             if !isPresented { initialWorkbenchPath = nil }
         }
@@ -461,6 +643,12 @@ struct ChatPage: View {
             initialWorkbenchPath = match.relativePath
             showWorkbench = true
         }
+        .task(id: model.currentSessionID) {
+            guard let id = model.currentSessionID else { return }
+            await management.refreshActivity(sessionID: id)
+            await management.refreshQueue(for: id)
+            await model.refreshAgentPresetNames()
+        }
         .task(id: model.turnRunning) {
             guard model.turnRunning else { return }
             while !Task.isCancelled, model.turnRunning {
@@ -470,50 +658,73 @@ struct ChatPage: View {
         }
     }
 
-    /// 同人 12、换人 20、状态行贴消息 6、工具行 8。
+    /// Official `--dsh-chat-flow-gap`: 6pt between process rows, 12pt around
+    /// an Assistant response (`ChatView.module.css`), 16pt around the turn
+    /// control row. The old 20/12/8 table diverged from the web flow.
     static func spacing(before index: Int, in rows: [NativeTranscriptRow]) -> CGFloat {
         guard index > 0, index < rows.count else { return 0 }
-        func kind(_ row: NativeTranscriptRow) -> ChatItem.Kind? {
-            switch row {
-            case .item(let item): return item.kind
-            case .tools: return .toolCall
-            case .contexts: return nil
+        if case .turnProcess = rows[index] { return 16 }
+        if case .turnProcess = rows[index - 1] { return 16 }
+        if case .turnTail = rows[index] {
+            if case .item(let previous) = rows[index - 1], previous.kind == .assistant {
+                return 12
             }
+            return 6
         }
-        let current = kind(rows[index]), previous = kind(rows[index - 1])
-        if current == .status { return 6 }
-        if let current {
-            switch current {
-            case .toolCall, .toolResult: return 8
-            case .status: return 6
-            default: break
-            }
+        func isAssistant(_ row: NativeTranscriptRow) -> Bool {
+            if case .item(let item) = row { return item.kind == .assistant }
+            return false
         }
-        if current == .context || current == nil { return 8 }
-        if let current, let previous, current == previous { return 12 }
-        return 20
+        return isAssistant(rows[index]) || isAssistant(rows[index - 1]) ? 12 : 6
     }
 
-    /// Tool calls and tool results share the grouped process row.
-    private static func isToolKind(_ kind: ChatItem.Kind) -> Bool {
+    /// Reasoning, tool calls and tool results share one process-group row.
+    private static func isProcessKind(_ kind: ChatItem.Kind) -> Bool {
         switch kind {
-        case .toolCall, .toolResult: return true
+        case .reasoning, .toolCall, .toolResult: return true
         default: return false
         }
     }
 
     private var timelineRows: [NativeTranscriptRow] {
         var rows: [NativeTranscriptRow] = []
-        for item in visibleItems {
+        var lastTurn: Int?
+        var pendingTurnControl: Int?
+        let answerIDs: [Int: String] = Dictionary(
+            grouping: visibleItems.filter { $0.turn != nil && $0.kind == .assistant },
+            by: { $0.turn! }).compactMapValues { $0.last?.id }
+        let rowItems = visibleItems.filter { item in
+            guard let turn = item.turn, foldedTurns.contains(turn),
+                  let answerID = answerIDs[turn] else { return true }
+            if item.kind == .user || item.kind == .context { return true }
+            return item.id == answerID
+        }
+        for item in rowItems {
+            if let turn = item.turn, turn != lastTurn {
+                if let previous = lastTurn, previous != turn,
+                   model.turnProcessState(for: previous) != nil {
+                    rows.append(.turnTail(previous))
+                }
+                lastTurn = turn
+                pendingTurnControl = model.turnProcessState(for: turn) != nil ? turn : nil
+            }
+            // The official control row sits after the Turn's input and before
+            // its process (controlAnchorSeq - 0.1), so defer it past user /
+            // trigger rows instead of placing it above the prompt.
+            if let pending = pendingTurnControl,
+               item.kind != .user, item.kind != .context {
+                rows.append(.turnProcess(pending))
+                pendingTurnControl = nil
+            }
             if item.kind == .context {
                 if case .contexts(let previous)? = rows.last {
                     rows[rows.count - 1] = .contexts(previous + [item])
                 } else {
                     rows.append(.contexts([item]))
                 }
-            } else if Self.isToolKind(item.kind) {
-                // A turn's tool activity is process, not content: one row for
-                // the whole run, opened on demand.
+            } else if Self.isProcessKind(item.kind) {
+                // A turn's reasoning/tool activity is process, not content: one
+                // row for the whole run, opened on demand.
                 if case .tools(let previous)? = rows.last {
                     rows[rows.count - 1] = .tools(previous + [item])
                 } else {
@@ -523,19 +734,116 @@ struct ChatPage: View {
                 rows.append(.item(item))
             }
         }
+        if let lastTurn, model.turnProcessState(for: lastTurn) != nil {
+            rows.append(.turnTail(lastTurn))
+        }
         return rows
     }
 
-    /// Cards share a bounded area. Each card owns its scrolling so question
-    /// actions remain visible while the options scroll or the keyboard opens.
+    /// Official turn-tail: the action row is anchored after every content and
+    /// process row of the Turn, independent of which assistant message closes it.
+    @ViewBuilder
+    private func turnTailRow(_ turn: Int) -> some View {
+        let closing = visibleItems.last { $0.turn == turn && $0.kind == .assistant }
+        let text = visibleItems.filter { $0.turn == turn && $0.kind == .assistant }
+            .map(\.text).joined(separator: "\n\n")
+        let usage = NativeTranscriptProjector.usage(forTurn: turn, in: visibleItems)
+        if let closing {
+            NativeTurnTail(
+                time: model.turnEndTimes[turn] ?? closing.timestamp,
+                isCopied: copiedTurn == turn,
+                isBranchAvailable: false,
+                showsUsage: usage != nil,
+                onCopy: {
+                    UIPasteboard.general.string = text
+                    copiedTurn = turn
+                    Task {
+                        try? await Task.sleep(for: .seconds(1))
+                        if copiedTurn == turn { copiedTurn = nil }
+                    }
+                },
+                onFeedback: { feedback in
+                    guard let messageID = closing.messageID else { return }
+                    Task { _ = await model.rateMessage(messageID, positive: feedback == .like) }
+                },
+                onUsage: { tailUsage = usage })
+                .sheet(isPresented: Binding(
+                    get: { tailUsage != nil },
+                    set: { if !$0 { tailUsage = nil } }
+                )) {
+                    if let usage = tailUsage { NativeTurnUsageDetails(usage: usage) }
+                }
+        }
+    }
+
+    /// A closed Turn is foldable only when it has both a final answer and at
+    /// least one process row that would be hidden.
+    private func turnHasProcess(_ turn: Int) -> Bool {
+        guard let answerID = visibleItems.last(where: {
+            $0.turn == turn && $0.kind == .assistant
+        })?.id else { return false }
+        return visibleItems.contains { item in
+            item.turn == turn && item.id != answerID
+                && item.kind != .user && item.kind != .context
+        }
+    }
+
+    /// Folds the closed Turns the current timing mode allows. Completion-time
+    /// takes every eligible Turn at once; on-next-message waits until an input
+    /// stands after the Turn. Stopped/failed Turns are never auto-folded, and
+    /// a Turn the person expanded by hand is never (re-)folded automatically.
+    private func autoFoldClosedTurns() {
+        let eligible = model.turnEndReasons.filter {
+            !["aborted", "interrupted", "error"].contains($0.value)
+        }
+        guard !eligible.isEmpty else { return }
+        for turn in eligible.keys {
+            guard !autoFoldedTurns.contains(turn),
+                  !manuallyExpandedTurns.contains(turn) else { continue }
+            if collapseOnNextMessage {
+                guard hasInputAfterTurn(turn) else { continue }
+            }
+            autoFoldedTurns.insert(turn)
+            foldedTurns.insert(turn)
+        }
+    }
+
+    /// The `On next message` test: does an input row stand after everything
+    /// this Turn produced? A steering or trigger row delivered while the Turn
+    /// ran belongs to it and does not count as the next message; a prompt the
+    /// composer just appended has no Turn number yet and does. When both ends
+    /// carry an event time, the end time is the tie-breaker.
+    private func hasInputAfterTurn(_ turn: Int) -> Bool {
+        guard let lastIndex = visibleItems.lastIndex(where: { $0.turn == turn }) else {
+            return false
+        }
+        let endedAt = model.turnEndTimes[turn]
+        return visibleItems[(lastIndex + 1)...].contains { item in
+            guard item.kind == .user || item.kind == .context else { return false }
+            if let time = item.timestamp, let endedAt { return time > endedAt }
+            return item.turn == nil || (item.turn ?? -1) > turn
+        }
+    }
+
+    /// Identity of the user/steering/trigger inputs. Appending one (a send, a
+    /// steer, or a producer trigger) is what lets on-next-message folding run;
+    /// streamed assistant deltas must not re-run it.
+    private var inputRowSignature: String {
+        let inputs = visibleItems.filter { $0.kind == .user || $0.kind == .context }
+        return "\(inputs.count)|\(inputs.last?.id ?? "-")"
+    }
+
+    /// The card area never takes more than 40% of the screen, scrolls inside
+    /// itself when it has more, and folds to one line while the keyboard is up
+    /// so the conversation stays visible.
     private var pendingCardCount: Int {
-        (model.pendingPermission == nil ? 0 : 1) + (model.pendingQuestion == nil ? 0 : 1)
+        model.pendingPermission == nil ? 0 : 1
     }
 
     @ViewBuilder
     private var cardsRegion: some View {
         if pendingCardCount > 0 {
-            if keyboardVisible && !cardsExpanded && model.pendingQuestion == nil {
+            if keyboardVisible && !cardsExpanded {
                 Button {
                     cardsExpanded = true
                 } label: {
@@ -556,46 +864,14 @@ struct ChatPage: View {
                 }
                 .buttonStyle(.plain)
             } else {
-                VStack(spacing: 0) {
-                    // One card at a time: permission wins, and the other one
-                    // folds into a line above it.
-                    if model.pendingPermission != nil, model.pendingQuestion != nil {
-                        Button { cardsExpanded.toggle() } label: {
-                            HStack(spacing: 9) {
-                                Image(systemName: "exclamationmark.circle")
-                                    .font(.system(size: 12))
-                                Text("还有 1 个待确认")
-                                    .font(.system(size: 12))
-                                Spacer()
-                                Image(systemName: cardsExpanded ? "chevron.up" : "chevron.down")
-                                    .font(.system(size: 12, weight: .semibold))
-                            }
-                            .foregroundStyle(Self.inkSecondary)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 6)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    if let permission = model.pendingPermission {
-                        ScrollView {
+                ScrollView {
+                    VStack(spacing: 0) {
+                        // The question now takes over the composer seat (the
+                        // official `conversation.composer` chain); the page-top
+                        // region keeps only the approval card.
+                        if let permission = model.pendingPermission {
                             permissionCard(permission)
                         }
-                    } else if let question = model.pendingQuestion {
-                        QuestionCard(question: question) { answer in
-                            Task { await model.respondToQuestion(answer: answer) }
-                        }
-                        .id(question.requestID)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                    }
-                    if cardsExpanded, model.pendingPermission != nil, let question = model.pendingQuestion {
-                        QuestionCard(question: question) { answer in
-                            Task { await model.respondToQuestion(answer: answer) }
-                        }
-                        .id(question.requestID)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
                     }
                 }
                 .frame(maxHeight: UIScreen.main.bounds.height * 0.4)
@@ -605,7 +881,10 @@ struct ChatPage: View {
 
     @ViewBuilder
     private func queueLine(for item: ChatItem) -> some View {
-        if let label = model.queueLabel[item.id] {
+        // 「发送中…」now has an independent row above the composer (see
+        // `pendingSubmissionRow`); keeping it here would print it twice under
+        // the same message. The two settled labels stay on the message.
+        if let label = model.queueLabel[item.id], label != "发送中…" {
             Text(label)
                 .font(.system(size: 13))
                 .foregroundStyle(ChatPage.inkSecondary)
@@ -667,14 +946,6 @@ struct ChatPage: View {
             case "chat.official":
                 draft = ""
                 model.debugInstallNativeMetricsPreview()
-            case "chat.question":
-                model.debugInstallPreviewState(failedItemID: nil, error: nil, queue: [:],
-                    question: HarnessQuestion(requestID: "preview-question", prompt: "请选择处理方式", questions: [
-                        HarnessQuestionItem(id: "scope", prompt: "这次需要处理哪些内容？",
-                            options: ["修复当前页面布局", "检查其他页面的按钮", "兼容小屏幕手机", "检查键盘弹出时的布局", "支持较大的系统字体", "保留已有聊天记录", "验证多选问题", "完成后重新安装"], multiple: true),
-                        HarnessQuestionItem(id: "validation", prompt: "修复完成后如何验证？",
-                            options: ["在手机上验证", "先检查构建结果"])
-                    ]))
             default:
                 break
             }
@@ -704,12 +975,8 @@ struct ChatPage: View {
                 .font(.system(size: 13))
                 .foregroundStyle(ChatPage.warning)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            if model.canRecoverFailedHost {
-                Button(NativeText("恢复引擎", "Recover engine")) { Task { await model.recoverFailedHost() } }
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(ChatPage.accent)
-            } else if model.failedPrompt != nil {
-                Button(NativeText("重试", "Retry")) { Task { _ = await model.retryFailedPrompt() } }
+            if model.failedPrompt != nil {
+                Button("重试") { Task { _ = await model.retryFailedPrompt() } }
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(ChatPage.accent)
             }
@@ -838,7 +1105,11 @@ struct ChatPage: View {
                             case .item(let item):
                                 VStack(alignment: .leading, spacing: 0) {
                                     ChatMessageRow(item: item, allItems: visibleItems, workspaceFiles: model.files,
-                                                   onOpenFile: openWorkspaceResult)
+                                                   onOpenFile: openWorkspaceResult,
+                                                   onOpenPlan: { plan, markdown in
+                                                       previewPlan = NativePlanPreview(
+                                                           id: plan.id, title: plan.title, markdown: markdown)
+                                                   })
                                     queueLine(for: item)
                                     failureLineIfNeeded(for: item)
                                 }
@@ -850,9 +1121,34 @@ struct ChatPage: View {
                                 ToolRunRow(items: items, workspaceFiles: model.files,
                                            onOpenFile: openWorkspaceResult)
                                     .id("tool-run-\(items.first?.id ?? "empty")")
+                            case .turnProcess(let turn):
+                                if let state = model.turnProcessState(for: turn) {
+                                    NativeTurnProcessRow(
+                                        state: state,
+                                        isOpen: !foldedTurns.contains(turn),
+                                        isFoldable: turnHasProcess(turn)) {
+                                            if foldedTurns.contains(turn) {
+                                                foldedTurns.remove(turn)
+                                                // Remember the hand-opened Turn:
+                                                // no later auto-fold closes it.
+                                                manuallyExpandedTurns.insert(turn)
+                                            } else {
+                                                foldedTurns.insert(turn)
+                                                manuallyExpandedTurns.remove(turn)
+                                            }
+                                        }
+                                }
+                            case .turnTail(let turn):
+                                turnTailRow(turn)
                             }
                             }
                             .padding(.top, Self.spacing(before: index, in: rows))
+                        }
+                        if model.turnRunning, !visibleItems.isEmpty {
+                            NativeRunningStatus(startedAt: model.activeTurnStartedAt,
+                                                showsDivider: showsRunningDivider)
+                                .padding(.top, NativeParityTokens.responseGap)
+                                .id("running-status")
                         }
                         GeometryReader { tail in
                             Color.clear.preference(key: TranscriptTailPreference.self,
@@ -861,9 +1157,12 @@ struct ChatPage: View {
                         .frame(height: 1)
                         .id("transcript-tail")
                     }
-                    .padding(.horizontal, NativeChatTheme.messageContentMargin)
-                    .padding(.top, 22)
-                    // Room for the 36pt "回到最新" circle and its 44pt hit area.
+                    // Official transcript column: 402 - 2 * (16 composer
+                    // clearance + 16) = 338; the inline card is 32pt wider.
+                    .padding(.horizontal, NativeParityTokens.transcriptSide)
+                    .padding(.top, 16)
+                    // Room for the "回到最新" pill (28pt tall) so it never sits
+                    // on top of the last rows.
                     .padding(.bottom, 48)
                     .background(
                         GeometryReader { content in
@@ -874,24 +1173,21 @@ struct ChatPage: View {
                 }
                 .coordinateSpace(name: "chat-transcript")
                 .scrollDismissesKeyboard(.interactively)
+                .defaultScrollAnchor(.bottom)
                 .scrollBounceBehavior(.basedOnSize)
-                .simultaneousGesture(DragGesture(minimumDistance: 8).onChanged { value in
-                    if value.translation.height > 8 {
-                        userScrolledAway = true
-                    } else if value.translation.height < -8, nearBottom {
-                        userScrolledAway = false
-                    }
-                })
                 .onPreferenceChange(TranscriptContentHeightPreference.self) { height in
-                    guard height.isFinite, height >= 0 else { return }
                     transcriptContentHeight = height
                 }
                 .onPreferenceChange(TranscriptTailPreference.self) { tailY in
-                    guard tailY.isFinite else { return }
                     tailOffsetY = tailY
-                    // Only a deliberate upward drag pauses following. Content
-                    // growth must not be mistaken for the user leaving the tail.
+                    // Past the content (a blank viewport) is not "near the
+                    // bottom"; neither may a lazy estimate silently re-enable
+                    // following while the reader is far above the tail.
+                    if tailY > viewport.size.height + 44 { userScrolledAway = true }
                     nearBottom = tailY >= -1 && tailY <= viewport.size.height + 44
+                    if nearBottom && transcriptContentHeight <= viewport.size.height + 1 {
+                        userScrolledAway = false
+                    }
                 }
                 .onChange(of: transcriptScrollSignature) { _, _ in
                     if pendingInitialScroll, !visibleItems.isEmpty {
@@ -904,7 +1200,7 @@ struct ChatPage: View {
                         scrollToTail(proxy, viewportHeight: viewport.size.height)
                         return
                     }
-                    guard !userScrolledAway, !loadingEarlierTranscript else { return }
+                    guard nearBottom, !userScrolledAway, !loadingEarlierTranscript else { return }
                     scheduleTailScroll(proxy, viewportHeight: viewport.size.height)
                 }
                 .onChange(of: model.isTranscriptReady) { _, ready in
@@ -933,24 +1229,26 @@ struct ChatPage: View {
                     // The keyboard and the growing composer change the
                     // viewport. A transcript that was following re-anchors to
                     // the tail, so no blank strip is left below the content.
-                    guard new.isFinite, new > old, !userScrolledAway else { return }
+                    guard new > old, nearBottom else { return }
                     scheduleTailScroll(proxy, viewportHeight: new)
                 }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .overlay(alignment: .bottom) {
-            if userScrolledAway && !visibleItems.isEmpty {
+            if userScrolledAway && !nearBottom && !visibleItems.isEmpty {
                 Button { scrollToLatestTrigger += 1 } label: {
-                    NativeChatIcon(name: .chevronDown, size: 16)
+                    Label("回到最新", systemImage: "arrow.down")
+                        .font(.caption.weight(.semibold))
                         .foregroundStyle(Self.accent)
-                        .frame(width: 36, height: 36)
-                        .background(Self.surface, in: Circle())
-                        .overlay(Circle().strokeBorder(Color(uiColor: .separator)))
-                        .frame(width: 44, height: 44)
-                        .contentShape(Circle())
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        // Opaque: a translucent capsule let the row underneath
+                        // read through and looked like overlapping text.
+                        .background(Self.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .strokeBorder(Color(uiColor: .separator)))
                 }
-                .accessibilityLabel("回到最新")
                 .padding(.bottom, 12)
             }
         }
@@ -961,9 +1259,7 @@ struct ChatPage: View {
     /// overshoots into empty space (the blank page). The last row is a real,
     /// laid-out frame; the lazy tail anchor can be scrolled past its estimate.
     private func scrollToTail(_ proxy: ScrollViewProxy, viewportHeight: CGFloat) {
-        guard transcriptContentHeight.isFinite, viewportHeight.isFinite,
-              tailOffsetY.isFinite, viewportHeight > 0,
-              transcriptContentHeight > viewportHeight + 1 else { return }
+        guard transcriptContentHeight > viewportHeight + 1 else { return }
         // The last row may be a folded tool-run group, not the last message;
         // scroll to the row that is actually last.
         if let last = timelineRows.last?.id {
@@ -973,20 +1269,25 @@ struct ChatPage: View {
         }
     }
 
-    /// Follow after the next layout pass, unless the user deliberately moved
-    /// into history. Delaying one short turn lets new row frames settle.
+    /// Follow the tail after the next layout pass.
+    ///
+    /// Sending a message appends a row and, in the same update, this view asks
+    /// the lazy stack to scroll to a row it has not laid out yet: the target
+    /// is an estimate, the viewport can end up past the real content (a blank
+    /// screen) and the next streamed delta snaps it back (the visible jump).
+    /// Debouncing by one short turn lets the height preference and the row
+    /// frames settle, and the coalesced follow still tracks streaming.
     private func scheduleTailScroll(_ proxy: ScrollViewProxy, viewportHeight: CGFloat) {
-        guard !userScrolledAway, viewportHeight.isFinite, viewportHeight > 0 else { return }
+        guard nearBottom, !userScrolledAway else { return }
         tailScrollTask?.cancel()
         tailScrollTask = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(50))
-            guard !Task.isCancelled, !userScrolledAway else { return }
+            guard !Task.isCancelled, nearBottom, !userScrolledAway else { return }
             if Date().timeIntervalSince(lastScrollTrace) > 1 {
                 lastScrollTrace = Date()
                 ChatModel.appendDiagnostic(
-                    "scroll tail content=\(String(describing: transcriptContentHeight)) "
-                    + "viewport=\(String(describing: viewportHeight)) "
-                    + "tail=\(String(describing: tailOffsetY)) near=\(nearBottom) away=\(userScrolledAway)")
+                    "scroll tail content=\(Int(transcriptContentHeight)) viewport=\(Int(viewportHeight)) "
+                    + "tail=\(Int(tailOffsetY)) near=\(nearBottom) away=\(userScrolledAway)")
             }
             scrollToTail(proxy, viewportHeight: viewportHeight)
         }
@@ -994,12 +1295,12 @@ struct ChatPage: View {
 
     /// 新会话空屏。三种状态互斥,同一时刻只渲染一种;三者都在滚动区里,
     /// 不做覆盖层/浮层。
-    /// - A 引擎未启动或等待用户确认恢复
+    /// - A 引擎未启动(优先):`model.isStarted == false`
     /// - B 引擎已启动、模型服务没配好:`providerNeedsKey`
     /// - C 两者都好:居中两行文字
     @ViewBuilder
     private func emptyTimeline(viewportHeight: CGFloat) -> some View {
-        if model.hostNeedsRecovery || !model.isStarted {
+        if !model.isStarted {
             engineNotStartedState
                 .padding(.top, 88)
         } else if providerNeedsKey {
@@ -1010,32 +1311,21 @@ struct ChatPage: View {
         }
     }
 
-    /// A:引擎还没启动或需要从失败状态显式恢复。
+    /// A:引擎还没启动。整块横向居中,文字左对齐在 338 宽的列里。
     private var engineNotStartedState: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(model.hostNeedsRecovery
-                 ? NativeText("引擎需要恢复", "Engine recovery needed")
-                 : NativeText("引擎还没启动", "Engine not started"))
+            Text("引擎还没启动")
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(Color(red: 0x11 / 255, green: 0x11 / 255, blue: 0x14 / 255))
-            Text(model.hostNeedsRecovery
-                 ? NativeText("保留当前工作区和会话，重新启动本地引擎。", "Restart the engine without deleting this workspace or its sessions.")
-                 : NativeText("启动之后就能开始。", "Start the engine to begin."))
+            Text("启动之后就能开始。")
                 .font(.system(size: 13))
                 .foregroundStyle(Self.inkSecondary)
                 .padding(.top, 8)
             Button {
                 guard !model.busy else { return }
-                Task {
-                    if model.hostNeedsRecovery { await model.recoverFailedHost() }
-                    else { await model.start() }
-                }
+                Task { await model.start() }
             } label: {
-                Text(model.busy
-                     ? NativeText(model.hostNeedsRecovery ? "正在恢复…" : "正在启动…",
-                                  model.hostNeedsRecovery ? "Recovering…" : "Starting…")
-                     : NativeText(model.hostNeedsRecovery ? "恢复引擎" : "启动本地引擎",
-                                  model.hostNeedsRecovery ? "Recover engine" : "Start engine"))
+                Text(model.busy ? "正在启动…" : "启动本地引擎")
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(width: 338, height: 50)
@@ -1055,11 +1345,9 @@ struct ChatPage: View {
             Text("还差一步:配好模型服务")
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(.primary)
-            if let issue = model.modelProviderIssue {
-                Text(issue)
-                    .font(.system(size: 13))
-                    .foregroundStyle(ChatPage.inkSecondary)
-            }
+            Text("选一个模型服务,就能开始。")
+                .font(.system(size: 13))
+                .foregroundStyle(ChatPage.inkSecondary)
             Button {
                 showProviderSettings = true
             } label: {
@@ -1174,42 +1462,332 @@ struct ChatPage: View {
 
     /// Messages waiting behind the running turn, docked above the input
     /// (DSH's queue strip); the transcript's per-row label still marks the
-    /// steered/sending states.
+    /// steered state.
     private var queuedMessages: [ChatItem] {
-        model.items.filter { model.queueLabel[$0.id] == "已排队" }
+        visibleItems.filter { model.queueLines[$0.id] == .queued }
     }
 
-    private var queuedStrip: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 6) {
-                Image(systemName: "clock.arrow.circlepath")
-                    .font(.system(size: 12))
-                Text("排队中 \(queuedMessages.count) 条")
-                    .font(.system(size: 12))
-                Spacer(minLength: 0)
+    /// Submissions the host accepted but has not begun: they own a pending row
+    /// above the composer instead of a label under the user bubble.
+    private var sendingMessages: [ChatItem] {
+        visibleItems.filter { model.queueLines[$0.id] == .sending }
+    }
+
+    /// First line of a message, used by the queue and pending rows.
+    private func firstLine(of text: String) -> String {
+        text.components(separatedBy: .newlines).first ?? text
+    }
+
+    /// One dock row: a durable `session/projections.inbox` item, or a local
+    /// line whose durable row has not landed yet.
+    private struct ComposerQueueRow: Identifiable {
+        enum State: Equatable { case queued, sending }
+        let id: String
+        let text: String
+        let state: State
+        /// Present for a durable inbox row; the queue RPC needs it.
+        var item: ManagedQueueItem?
+        var editable: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+
+    /// The one queue list above the composer: durable inbox rows first, then
+    /// local lines the projection has not echoed yet, exactly the shape of
+    /// official `QueueDock` (`queue` + `pendingQueue`, `QueueDock.tsx:105-125`).
+    ///
+    /// Official dedupes by `source.rpcId`. The phone inbox projection drops
+    /// that id (`ManagedQueueItem` keeps only id/lane/text), so the pairing is
+    /// count-preserving instead: one local line consumes at most one durable
+    /// row with the same text, and a message the person queued twice still
+    /// renders twice.
+    private var composerQueueRows: [ComposerQueueRow] {
+        var rows: [ComposerQueueRow] = management.queueItems
+            .filter { $0.sessionID == model.currentSessionID }
+            .map { ComposerQueueRow(id: "durable:\($0.id)", text: $0.text, state: .queued, item: $0) }
+        let local: [(id: String, text: String, state: ComposerQueueRow.State)] = model.queueLineOrder.compactMap { id in
+            guard let state = model.queueLines[id] else { return nil }
+            guard state == .queued || state == .sending else { return nil }
+            guard let item = visibleItems.first(where: { $0.id == id }) else { return nil }
+            return (id, item.text, state == .sending ? .sending : .queued)
+        }
+        var unmatched: [ComposerQueueRow] = []
+        for line in local {
+            let key = Self.queueTextKey(line.text)
+            if let index = rows.firstIndex(where: { Self.queueTextKey($0.text) == key }) {
+                rows.remove(at: index)
             }
-            .foregroundStyle(ChatPage.inkSecondary)
-            ForEach(queuedMessages) { item in
+            unmatched.append(ComposerQueueRow(id: "local:\(line.id)", text: line.text,
+                                              state: line.state, item: nil))
+        }
+        // A local `sending` line owns the independent pending row above the
+        // composer (B1); the dock never repeats it as a second 发送中… row.
+        rows.append(contentsOf: unmatched.filter { $0.state == .queued })
+        return rows
+    }
+
+    private static func queueTextKey(_ text: String) -> String {
+        text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    }
+
+    /// Official `QueueDock` geometry: one row renders without a header; two or
+    /// more collapse behind the `{n} 条排队消息` header by default. An open
+    /// editor or an in-flight queue action keeps the list expanded.
+    @ViewBuilder
+    private var queueDock: some View {
+        let rows = composerQueueRows
+        let editing = queueEditItem != nil
+        let expanded = queueExpanded || editing || queueActionBusyID != nil
+        let showsLeadingGlyph = rows.count == 1
+        VStack(alignment: .leading, spacing: 4) {
+            if rows.count > 1 {
+                Button {
+                    withAnimation(.easeOut(duration: 0.16)) { queueExpanded.toggle() }
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "list.bullet.rectangle")
+                            .font(.system(size: 14))
+                        Text("\(rows.count) 条排队消息")
+                            .font(.system(size: 13, weight: .medium))
+                        Spacer(minLength: 0)
+                        // The dock expands upward, so the collapsed state
+                        // points up (official chevron pair).
+                        Image(systemName: expanded ? "chevron.down" : "chevron.up")
+                            .font(.system(size: 12, weight: .semibold))
+                    }
+                    .foregroundStyle(ChatPage.inkSecondary)
+                    .frame(height: 32)
+                    .padding(.horizontal, 10)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(queueActionBusyID != nil)
+                .accessibilityLabel("\(rows.count) 条排队消息")
+                .accessibilityValue(expanded ? "已展开" : "已折叠")
+            }
+            if rows.count == 1 || expanded {
+                ForEach(rows) { row in
+                    queueRow(row, showsLeadingGlyph: showsLeadingGlyph)
+                    if row.id != rows.last?.id {
+                        Divider().opacity(0.4).padding(.leading, showsLeadingGlyph ? 38 : 10)
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 2)
+        .background(NativeParityTokens.menu,
+                    in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .alert("编辑排队消息", isPresented: Binding(
+            get: { queueEditItem != nil },
+            set: { if !$0 { queueEditItem = nil } }
+        )) {
+            TextField("消息内容", text: $queueEditText)
+            Button("取消", role: .cancel) { queueEditItem = nil }
+            Button("保存") {
+                guard let item = queueEditItem else { return }
+                let text = queueEditText.trimmingCharacters(in: .whitespacesAndNewlines)
+                queueEditItem = nil
+                guard !text.isEmpty else { return }
+                Task { await updateQueueItem(item, action: "edit", replacement: text) }
+            }
+        }
+    }
+
+    /// One queue line. The state word and the disabled actions are the official
+    /// `queue.sending` row; a durable row offers edit / remove / steer with the
+    /// official disabled reasons.
+    private func queueRow(_ row: ComposerQueueRow, showsLeadingGlyph: Bool) -> some View {
+        HStack(spacing: 8) {
+            if showsLeadingGlyph {
+                Image(systemName: "list.bullet.rectangle")
+                    .font(.system(size: 12))
+                    .foregroundStyle(NativeChatTheme.tertiary)
+                    .frame(width: 16)
+            }
+            Text(firstLine(of: row.text))
+                .font(.system(size: 13))
+                .foregroundStyle(ChatPage.inkSecondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if row.state == .sending {
+                Text("发送中…")
+                    .font(.system(size: 12))
+                    .foregroundStyle(NativeChatTheme.tertiary)
+                ForEach(["pencil", "trash", "paperplane"], id: \.self) { symbol in
+                    Image(systemName: symbol)
+                        .font(.system(size: 13))
+                        .foregroundStyle(NativeChatTheme.tertiary.opacity(0.5))
+                        .frame(width: 28, height: 28)
+                        .accessibilityHidden(true)
+                }
+            } else {
+                queueRowAction(symbol: "pencil", label: "编辑排队消息",
+                               reason: row.item == nil ? "这条排队消息还没有落盘，暂时不能编辑"
+                                   : (row.editable ? nil : "包含非文本内容，暂不支持编辑")) {
+                    guard let item = row.item, row.editable else { return }
+                    queueEditText = item.text
+                    queueEditItem = item
+                }
+                queueRowAction(symbol: "trash", label: "删除排队消息", reason: nil) {
+                    guard let item = row.item else { return }
+                    Task { await updateQueueItem(item, action: "remove") }
+                }
+                queueRowAction(symbol: "paperplane", label: "插话发送",
+                               reason: model.turnRunning ? nil : "仅运行中可插话发送") {
+                    guard let item = row.item, model.turnRunning else { return }
+                    Task { await updateQueueItem(item, action: "steer") }
+                }
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(minHeight: 36)
+    }
+
+    /// One 28pt icon action with a 44pt target and the official disabled reason.
+    private func queueRowAction(symbol: String, label: String, reason: String?,
+                                action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 13))
+                .foregroundStyle(reason == nil ? NativeChatTheme.secondary : NativeChatTheme.tertiary.opacity(0.5))
+                .frame(width: 28, height: 28)
+                .frame(width: 34, height: 36)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(reason != nil || queueActionBusyID != nil)
+        .accessibilityLabel(label)
+        .help(reason ?? label)
+    }
+
+    @MainActor
+    private func updateQueueItem(_ item: ManagedQueueItem, action: String, replacement: String? = nil) async {
+        queueActionBusyID = item.id
+        defer { queueActionBusyID = nil }
+        await management.updateQueue(item, action: action, replacement: replacement)
+    }
+
+    /// Independent pending row above the composer: spinner + 「发送中…」+ the
+    /// message's first line, in the queue strip's geometry. It is one row per
+    /// dispatching submission, and it never doubles as a label under the
+    /// bubble (see `queueLine`).
+    private var pendingSubmissionRow: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(sendingMessages) { item in
                 HStack(spacing: 8) {
-                    Text(item.text.components(separatedBy: .newlines).first ?? item.text)
+                    ProgressView()
+                        .controlSize(.mini)
+                    Text("发送中…")
                         .font(.system(size: 13))
                         .foregroundStyle(ChatPage.inkSecondary)
+                    Text(firstLine(of: item.text))
+                        .font(.system(size: 13))
+                        .foregroundStyle(NativeChatTheme.tertiary)
                         .lineLimit(1)
                         .truncationMode(.tail)
                     Spacer(minLength: 0)
                 }
                 .padding(.horizontal, 10)
                 .frame(height: 28)
-                .background(Color(red: 246 / 255, green: 246 / 255, blue: 248 / 255),
+                .background(NativeParityTokens.menu,
                             in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("发送中：\(firstLine(of: item.text))")
             }
         }
     }
 
+    /// Official `conversation.composer` takeover: while a question is pending,
+    /// the card replaces the composer instead of floating above the transcript.
+    @ViewBuilder
+    private func questionTakeover(_ question: HarnessQuestion) -> some View {
+        if let (review, item) = planReview(from: question) {
+            NativePlanReviewCard(
+                review: review,
+                onApprove: { submitPlanApproval(item) },
+                onRequestChanges: { model.dismissQuestion() })
+                .padding(.horizontal, NativeParityTokens.composerSide)
+                .padding(.bottom, 8)
+                .background(NativeChatTheme.background)
+        } else {
+            NativeQuestionComposer(
+                questions: nativeQuestionItems(question),
+                requestKey: question.requestID,
+                isSubmitting: false,
+                channelAvailable: true,
+                viewportHeight: UIScreen.main.bounds.height,
+                onSubmit: { submitQuestion($0) },
+                onDiscard: { model.dismissQuestion() },
+                onClose: { model.dismissQuestion() })
+                .padding(.horizontal, NativeParityTokens.composerSide)
+                .padding(.bottom, 8)
+                .background(NativeChatTheme.background)
+        }
+    }
+
+    /// Official `planReviewOf`: exactly one question carrying a plan detail and
+    /// an `intent.kind == "plan-review"` with the named approve option.
+    private func planReview(from question: HarnessQuestion) -> (NativePlanReviewData, HarnessQuestionItem)? {
+        guard let items = question.questions, items.count == 1,
+              let item = items.first,
+              item.intentKind == "plan-review",
+              let detail = item.detail, !detail.isEmpty,
+              item.approve != nil else { return nil }
+        return (NativePlanReviewData(question: item.prompt, markdown: detail), item)
+    }
+
+    private func submitPlanApproval(_ item: HarnessQuestionItem) {
+        guard let approve = item.approve else { return }
+        let values = [item.id: [approve]]
+        guard JSONSerialization.isValidJSONObject(values),
+              let data = try? JSONSerialization.data(withJSONObject: values, options: [.sortedKeys]),
+              let encoded = String(data: data, encoding: .utf8) else { return }
+        Task { await model.respondToQuestion(answer: encoded) }
+    }
+
+    private func nativeQuestionItems(_ question: HarnessQuestion) -> [NativeQuestionItem] {
+        let items = question.questions
+            ?? [HarnessQuestionItem(id: "answer", prompt: question.prompt, options: question.options)]
+        return items.map { item in
+            NativeQuestionItem(
+                id: item.id,
+                header: item.header,
+                question: item.prompt,
+                detail: item.detail,
+                options: item.options.map { NativeQuestionOption(label: $0, description: nil) },
+                multiSelect: item.multiple)
+        }
+    }
+
+    private func submitQuestion(_ batch: NativeQuestionAnswerBatch) {
+        var values: [String: Any] = [:]
+        for answer in batch.answers {
+            if answer.skipped {
+                values[answer.id] = [String]()
+                continue
+            }
+            var selected = answer.selected
+            if let custom = answer.custom?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !custom.isEmpty {
+                selected.append(custom)
+            }
+            values[answer.id] = selected
+        }
+        guard JSONSerialization.isValidJSONObject(values),
+              let data = try? JSONSerialization.data(withJSONObject: values, options: [.sortedKeys]),
+              let encoded = String(data: data, encoding: .utf8) else { return }
+        Task { await model.respondToQuestion(answer: encoded) }
+    }
+
     private var composer: some View {
-        VStack(spacing: 9) {
+        VStack(spacing: NativeParityTokens.flowGap) {
+            if !model.todoDockItems.isEmpty {
+                NativeTodoDock(todos: model.todoDockItems, width: NativeParityTokens.contentWidth)
+            }
             if let goal = model.goal { goalBar(goal) }
-            if !queuedMessages.isEmpty { queuedStrip }
+            if !composerQueueRows.isEmpty { queueDock }
+            // B1: the dispatching submission is its own row, not a label
+            // under the user bubble.
+            if !sendingMessages.isEmpty { pendingSubmissionRow }
             if !pendingAttachments.isEmpty { attachmentStrip }
             if let attachmentError {
                 HStack {
@@ -1230,9 +1808,16 @@ struct ChatPage: View {
                     Button("关闭") { self.fileImportNotice = nil }.font(.footnote)
                 }
             }
+            // Official `InputBar` notice channel: command settlement and the
+            // attachment refusal land above the card instead of a page banner.
+            if let composerNotice { composerNoticeRow(composerNotice) }
+            if isExecutingCommand, let executingCommandName, executingCommandName == "compact" {
+                composingStatusRow(NativeCompaction.running)
+            }
             // The DSH input trigger: a bare leading `/token` opens the command
-            // menu in place; picking one writes the token back into the draft.
-            if slashToken != nil { slashCommandMenu }
+            // menu in place; picking one writes the token back into the draft
+            // (or executes a command that declares no input).
+            if slashMenuVisible { slashCommandMenu }
             if referenceToken != nil { referenceMenu }
             // Official InputBar: one elevated card, a 14-line text scrollport,
             // and the control row docked inside its lower edge.
@@ -1240,28 +1825,31 @@ struct ChatPage: View {
                 ZStack(alignment: .topLeading) {
                     if draft.isEmpty {
                         Text(composerPlaceholder)
-                            .font(NativeChatTheme.bodyFont())
+                            .font(.system(size: NativeParityTokens.composerFontSize))
                             .foregroundStyle(NativeChatTheme.caption)
                             .lineLimit(1)
                             .padding(.leading, 5)
                             .padding(.top, 8)
                             .allowsHitTesting(false)
                     }
-                    TextEditor(text: $draft)
-                        .scrollContentBackground(.hidden)
-                        .font(NativeChatTheme.bodyFont())
-                        .lineSpacing(24 - 17)
-                        .focused($inputFocused)
-                        .disabled(!composerEnabled)
-                        .frame(minHeight: 36, maxHeight: 336)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityLabel(composerPlaceholder)
-                        .accessibilityIdentifier("消息输入")
+                    NativeComposerTextView(
+                        text: $draft,
+                        isFocused: $inputFocused,
+                        isEditable: composerEnabled,
+                        fontSize: NativeParityTokens.composerFontSize,
+                        lineSpacing: NativeParityTokens.composerLineSpacing,
+                        maxHeight: 336,
+                        menuOpen: slashMenuVisible,
+                        accessibilityLabel: composerPlaceholder,
+                        onReturn: { handleComposerReturn(accelerated: $0) },
+                        onMenuKey: { handleComposerMenuKey($0) },
+                        onHeightChange: { composerHeight = $0 })
+                        .frame(height: composerHeight)
                 }
                 .padding(.leading, 14)
                 .padding(.trailing, 8)
                 .frame(minHeight: 36)
-                .padding(.top, 4)
+                .padding(.top, 8)
                     .onChange(of: draft) { _, value in
                         if value.count > 8_000 {
                             draft = String(value.prefix(8_000))
@@ -1278,7 +1866,7 @@ struct ChatPage: View {
                     .padding(.trailing, 40)
                     .frame(height: 32)
                     .padding(.top, 10)
-                    .padding(.bottom, 12)
+                    .padding(.bottom, 8)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1293,43 +1881,80 @@ struct ChatPage: View {
                 .padding(.bottom, 2)
             }
             .background(NativeChatTheme.input,
-                        in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .strokeBorder(NativeChatTheme.borderLight, lineWidth: 0.5))
-            .shadow(color: .black.opacity(0.06), radius: 12, y: 3)
+                        in: RoundedRectangle(cornerRadius: NativeParityTokens.radiusPanel, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: NativeParityTokens.radiusPanel, style: .continuous)
+                .strokeBorder(NativeParityTokens.borderL2, lineWidth: 0.5))
+            .shadow(color: .black.opacity(0.03), radius: 16, y: 4)
+            .shadow(color: .black.opacity(0.03), radius: 24, y: 0)
             NativeComposerStats(stats: model.sessionStats, usage: model.tokenUsage,
                                 pressure: model.contextPressure, breakdown: model.contextBreakdown)
         }
         .padding(.horizontal, 16)
         .padding(.top, 12)
-        .padding(.bottom, 8)
+        // Keep the stats line close to the home-indicator safe area instead of
+        // stacking an 8pt card inset on top of it.
+        .padding(.bottom, 0)
         .background(NativeChatTheme.background)
         // The command catalog is pulled the first time the trigger opens, the
         // same lazy load the DSH command directory does per session.
         .onChange(of: slashToken) { _, token in
+            slashMenuDismissed = false
+            slashHighlight = 0
             guard token != nil, model.availableCommands.isEmpty,
                   !model.commandsLoading else { return }
             Task { await model.loadCommands() }
         }
-    }
-
-    @ViewBuilder private var shortcutCommands: some View {
-        shortcutButton(.alternate) {
-            submitDraft(overrideBusyMode: busyEnterMode == "queue" ? "steer" : "queue")
+        // A command-result sheet takes the keyboard; hand it back to the
+        // composer when the sheet closes (the bar owned focus before the sheet
+        // opened, exactly like the web composer never losing it).
+        .onChange(of: showCommandResult) { _, showing in
+            guard !showing, restoreComposerFocus else { return }
+            restoreComposerFocus = false
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(120))
+                inputFocused = true
+            }
         }
-        shortcutButton(.settings) { showSettings = true }
-        shortcutButton(.shortcuts) { showShortcuts = true }
-        shortcutButton(.latest) { scrollToLatestTrigger += 1 }
-        shortcutButton(.stop) { Task { await model.cancelTurn() } }
     }
 
-    private func shortcutButton(_ action: NativeShortcutAction,
-                                perform: @escaping () -> Void) -> some View {
-        Button(action: perform) { EmptyView() }
-            .keyboardShortcut(preferences.shortcut(for: action).keyEquivalent,
-                              modifiers: preferences.shortcut(for: action).modifiers)
-            .hidden()
-            .accessibilityHidden(true)
+    /// Official `InputBar` notice: one 12pt status line above the card, info or
+    /// error, dismissible.
+    private func composerNoticeRow(_ notice: ComposerNotice) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: notice.level == .error ? "exclamationmark.circle" : "info.circle")
+                .font(.system(size: 12))
+            Text(notice.text)
+                .font(.system(size: 12))
+                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+            Button {
+                composerNotice = nil
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .semibold))
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("关闭提示")
+        }
+        .foregroundStyle(notice.level == .error ? Color.red : NativeChatTheme.secondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 4)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isStaticText)
+    }
+
+    /// A running long command's own status line (`/compact` → 正在压缩…).
+    private func composingStatusRow(_ text: String) -> some View {
+        HStack(spacing: 6) {
+            ProgressView().controlSize(.mini)
+            Text(text).font(.system(size: 12)).foregroundStyle(NativeChatTheme.secondary)
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 4)
     }
 
     @ViewBuilder
@@ -1337,7 +1962,7 @@ struct ChatPage: View {
         if !canSubmit && model.turnRunning {
             stopButton(diameter: 34, icon: 13)
         } else {
-            Button(action: { submitDraft() }) {
+            Button { submitDraft() } label: {
                 Image(systemName: "arrow.up")
                     .font(.system(size: 15, weight: .bold))
                     .foregroundStyle(.white)
@@ -1349,8 +1974,6 @@ struct ChatPage: View {
             }
             .buttonStyle(.plain)
             .disabled(!canSubmit)
-            .keyboardShortcut(preferences.shortcut(for: .send).keyEquivalent,
-                              modifiers: preferences.shortcut(for: .send).modifiers)
             .transition(.scale(scale: 0.8).combined(with: .opacity))
             .animation(.easeOut(duration: 0.12), value: canSubmit)
             .accessibilityLabel("发送消息")
@@ -1387,8 +2010,6 @@ struct ChatPage: View {
             }
         }
         .buttonStyle(.plain)
-        .keyboardShortcut(preferences.shortcut(for: .stop).keyEquivalent,
-                          modifiers: preferences.shortcut(for: .stop).modifiers)
         .accessibilityLabel(stopping ? "正在停止" : "停止执行")
     }
 
@@ -1419,25 +2040,13 @@ struct ChatPage: View {
             .disabled(!composerEnabled)
             .accessibilityLabel("添加指令、引用或附件")
             accessModeMenu
+            if let plan = model.planModeState, plan.isPlanTarget {
+                NativePlanChip(mode: plan,
+                               isLocked: model.pendingQuestion != nil || model.pendingPermission != nil,
+                               onExit: { Task { await model.exitPlanMode() } })
+            }
             Spacer(minLength: 8)
-            if providerNeedsKey {
-                Button {
-                    showProviderSettings = true
-                } label: {
-                    Label("配置模型服务", systemImage: "key")
-                        .font(.system(size: 13))
-                        .frame(minHeight: 32)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(ChatPage.accent)
-            } else {
-                modelMenu
-            }
-            if model.turnRunning {
-                ProgressView()
-                    .controlSize(.small)
-                    .accessibilityLabel("正在执行")
-            }
+            modelMenu
         }
     }
 
@@ -1727,27 +2336,45 @@ struct ChatPage: View {
         return model.turnRunning ? hasText : (hasText || !pendingAttachments.isEmpty)
     }
 
-    private func submitDraft(overrideBusyMode: String? = nil) {
-        model.refreshModelProviderReadiness()
-        guard canSubmit else { return }
-        let mode = overrideBusyMode ?? busyEnterMode
-        guard mode != "steer" || (model.canSteer && pendingAttachments.isEmpty) else { return }
-        dismissComposerKeyboard()
+    /// Official `resolveSubmitMode`: plain Enter (and the Send button) uses the
+    /// busy-Enter preference; the ⌘/Ctrl+Enter accelerator takes the opposite
+    /// delivery. Outside a running turn, or when this transport cannot steer,
+    /// every gesture queues.
+    private func usesSteerDelivery(accelerated: Bool) -> Bool {
+        guard model.turnRunning, model.canSteer else { return false }
+        let preferred = busyEnterMode == "steer"
+        return accelerated ? !preferred : preferred
+    }
+
+    private func submitDraft(accelerated: Bool = false) {
         let text = draft
         if let command = Self.parseSlashCommand(text) {
             draft = ""
+            slashMenuDismissed = false
             Task { await runSlashCommand(name: command.name, input: command.input) }
+            return
+        }
+        let steer = usesSteerDelivery(accelerated: accelerated)
+        if steer, !pendingAttachments.isEmpty {
+            composerNotice = ComposerNotice(level: .error,
+                                            text: "补充说明不支持附带图片；请先移除图片，或改用排队发送。")
             return
         }
         let wasRunning = model.turnRunning
         // 一按发送就清空:失败那条留在气泡里,重试原样再发,新打的字进新气泡。
         draft = ""
+        slashMenuDismissed = false
         Task {
             let succeeded: Bool
-            if model.turnRunning && mode == "steer" {
+            if steer {
                 succeeded = await model.steer(text)
             } else {
                 succeeded = await model.send(text, attachments: pendingAttachments)
+                if succeeded {
+                    nearBottom = true
+                    userScrolledAway = false
+                    scrollToLatestTrigger += 1
+                }
             }
             if succeeded {
                 let id = model.items.last(where: { if case .user = $0.kind { return true }; return false })?.id
@@ -1756,21 +2383,28 @@ struct ChatPage: View {
                     // an ordinary idle send used to be labelled "已排队" for a
                     // moment. The label describes the queue the message joined,
                     // which only exists if a turn was already running.
-                    if wasRunning && mode == "steer" { model.markSteered(itemID: id) }
-                    else if wasRunning {
-                        model.markQueued(itemID: id)
+                    if wasRunning && steer {
+                        model.markSteered(itemID: id)
+                    } else if wasRunning {
+                        model.markQueued(itemID: id, requestID: model.lastPromptRequestID)
                         ChatModel.appendDiagnostic("queued: \(text.prefix(40))")
                     }
                 }
-                NotificationCenter.default.post(name: .nativeChatNewInput, object: nil)
                 pendingAttachments.removeAll()
                 attachmentError = nil
-                dismissComposerKeyboard()
-                // One explicit jump shows the new turn; subsequent streaming
-                // uses the bounded follow task until the user moves into history.
+                // Official keeps the composer focused after a submit (the
+                // editor is the combobox); the phone keyboard therefore stays
+                // up, exactly like the web bar. Focus is only released by the
+                // person (scroll/tap away) or a sheet.
+                //
+                // A send means "show me the newest turn": the composer and the
+                // keyboard change the transcript viewport, which used to leave
+                // `nearBottom` false even though the person never scrolled
+                // away; the new row then stayed below the fold. Jump to the
+                // tail through the session-open path (no animation).
                 nearBottom = true
                 userScrolledAway = false
-                scrollToLatestTrigger += 1
+                pendingInitialScroll = true
             } else if draft.isEmpty {
                 // The send was refused before it produced a row (host not
                 // ready, session switching, busy): keep the text so the person
@@ -1780,23 +2414,109 @@ struct ChatPage: View {
         }
     }
 
-    private func dismissComposerKeyboard() {
-        inputFocused = false
-        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),
-                                        to: nil, from: nil, for: nil)
+    /// Plain Return / the keyboard's 发送 key. Returns true when consumed: a
+    /// menu pick, a submitted draft, or a refused submit (official keymap
+    /// never inserts a newline on a bare Enter).
+    private func handleComposerReturn(accelerated: Bool) -> Bool {
+        let matches = slashMatches
+        if slashMenuVisible, !matches.isEmpty {
+            pickCommand(matches[min(slashHighlight, matches.count - 1)])
+            return true
+        }
+        guard canSubmit else { return true }
+        submitDraft(accelerated: accelerated)
+        return true
+    }
+
+    /// Hardware-key arbitration for the open slash menu (`↑`/`↓`/`Tab`/`Esc`).
+    private func handleComposerMenuKey(_ key: ComposerMenuKey) -> Bool {
+        let matches = slashMatches
+        switch key {
+        case .up:
+            guard slashMenuVisible, !matches.isEmpty else { return false }
+            slashHighlight = max(0, slashHighlight - 1)
+            return true
+        case .down:
+            guard slashMenuVisible, !matches.isEmpty else { return false }
+            slashHighlight = min(matches.count - 1, slashHighlight + 1)
+            return true
+        case .tab:
+            guard slashMenuVisible, !matches.isEmpty else { return false }
+            pickCommand(matches[min(slashHighlight, matches.count - 1)])
+            return true
+        case .escape:
+            if slashMenuVisible {
+                // Official Escape layering closes the menu and keeps the
+                // draft; the next keystroke re-opens it.
+                slashMenuDismissed = true
+                return true
+            }
+            if model.turnRunning {
+                stopRun()
+                return true
+            }
+            inputFocused = false
+            return true
+        }
+    }
+
+    private func stopRun() {
+        guard !stopping else { return }
+        stopping = true
+        Task {
+            await model.cancelTurn()
+            stopping = false
+        }
     }
 
     @MainActor
     private func executeCommand(_ descriptor: NativeCommandDescriptor, input: String,
                                 attachments: [HarnessAttachment]) async {
         guard !isExecutingCommand else { return }
-        isExecutingCommand = true
-        defer { isExecutingCommand = false }
-        if let result = await model.executeCommand(name: descriptor.name, input: input, attachments: attachments) {
-            if result.kind == "success" { pendingAttachments.removeAll() }
-            commandExecution = result
-            showCommandResult = true
+        guard attachments.isEmpty || descriptor.acceptsAttachments else {
+            composerNotice = ComposerNotice(level: .error,
+                                            text: NativeCommandCatalog.attachmentRefusal(for: descriptor.name))
+            return
         }
+        isExecutingCommand = true
+        executingCommandName = descriptor.name
+        // A sheet takes the keyboard; remember to hand it back afterwards.
+        restoreComposerFocus = inputFocused
+        defer {
+            isExecutingCommand = false
+            executingCommandName = nil
+        }
+        guard let result = await model.executeCommand(name: descriptor.name, input: input,
+                                                      attachments: attachments) else {
+            let message = model.commandsError ?? "没执行成功，再试一次。"
+            model.dismissCommandsError()
+            composerNotice = ComposerNotice(level: .error, text: message)
+            restoreComposerFocus = false
+            return
+        }
+        if result.kind == "success" {
+            pendingAttachments.removeAll()
+            attachmentError = nil
+        }
+        let settlement = result.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        // Official surfaces the command settlement as a composer notice; the
+        // durable command/done record is the transcript's copy. A manual
+        // compaction is folded into its 上下文已压缩 marker, so the phone does
+        // not open the result sheet for it (the marker already carries the
+        // count the text repeats).
+        if result.name == "compact" || result.kind != "success" {
+            model.dismissCommandsError()
+            composerNotice = ComposerNotice(
+                level: result.kind == "success" ? .info : .error,
+                text: settlement.isEmpty
+                    ? (result.kind == "success" ? "已完成 /\(result.name)" : "命令执行失败")
+                    : settlement)
+            restoreComposerFocus = false
+            if result.kind == "success" { showCommandResult = false }
+            return
+        }
+        commandExecution = result
+        showCommandResult = true
     }
 
     private func openWorkspaceResult(_ path: String) {
@@ -1858,7 +2578,6 @@ struct ChatPage: View {
     }
 
     private var composerPlaceholder: String {
-        if let issue = model.modelProviderIssue { return issue }
         if !model.turnRunning { return "发消息或创建任务，/ 调用指令，@ 文件或对话" }
         return busyEnterMode == "steer" ? "补充当前任务…" : "排入下一轮…"
     }
@@ -1880,22 +2599,27 @@ struct ChatPage: View {
             guard !urls.isEmpty else { return }
             let existingCount = pendingAttachments.count
             let existingBytes = pendingAttachments.reduce(0) { $0 + $1.data.count }
+            let limits = model.imageLimits
             Task {
                 do {
                     let attachments = try await Task.detached(priority: .userInitiated) {
-                        guard existingCount + urls.count <= 20 else { throw AttachmentImportError.tooMany }
+                        guard existingCount + urls.count <= limits.maxImagesPerMessage else {
+                            throw AttachmentImportError.tooMany(limits.maxImagesPerMessage)
+                        }
                         var totalBytes = existingBytes
                         for url in urls {
                             let hasScope = url.startAccessingSecurityScopedResource()
                             defer { if hasScope { url.stopAccessingSecurityScopedResource() } }
                             let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
                             let size = (attributes[.size] as? NSNumber)?.intValue ?? 0
-                            guard size <= 20 * 1024 * 1024 else {
-                                throw AttachmentImportError.tooLarge(url.lastPathComponent)
+                            guard size <= limits.maxImageBytes else {
+                                throw AttachmentImportError.tooLarge(url.lastPathComponent, limits.maxImageBytes)
                             }
                             totalBytes += size
                         }
-                        guard totalBytes <= 200 * 1024 * 1024 else { throw AttachmentImportError.totalTooLarge }
+                        guard totalBytes <= limits.maxMessageImageBytes else {
+                            throw AttachmentImportError.totalTooLarge(limits.maxMessageImageBytes)
+                        }
                         return try urls.map { url -> HarnessAttachment in
                             let hasScope = url.startAccessingSecurityScopedResource()
                             defer { if hasScope { url.stopAccessingSecurityScopedResource() } }
@@ -1931,17 +2655,64 @@ struct ChatPage: View {
         return String(trimmed.dropFirst())
     }
 
+    /// Esc dismissed the menu but the token is still in the draft; any edit
+    /// re-opens it (official `dismissPopup` never deletes the typed line).
+    private var slashMenuVisible: Bool { slashToken != nil && !slashMenuDismissed }
+
+    /// Official `rankByName`: case-insensitive subsequence match over the row's
+    /// registered name and its localized label, ranked by prefix, word
+    /// boundary and adjacency; the catalog's descriptions never match.
     private var slashMatches: [NativeCommandDescriptor] {
         guard let token = slashToken else { return [] }
+        let query = token.trimmingCharacters(in: .whitespacesAndNewlines)
         let commands = model.availableCommands
-        guard !token.isEmpty else { return Array(commands.prefix(6)) }
-        return commands.filter { descriptor in
-            descriptor.name.localizedCaseInsensitiveContains(token)
-                || descriptor.description.localizedCaseInsensitiveContains(token)
-        }.prefix(6).map { $0 }
+        guard !query.isEmpty else { return Array(commands.prefix(8)) }
+        let ranked: [(score: Int, index: Int, descriptor: NativeCommandDescriptor)] = commands.enumerated().compactMap { index, descriptor in
+            let scores = [
+                Self.commandMatchScore(query, descriptor.name),
+                Self.commandMatchScore(query, NativeCommandCatalog.title(for: descriptor)),
+            ].compactMap { $0 }
+            guard let best = scores.max() else { return nil }
+            return (best, index, descriptor)
+        }
+        return ranked.sorted { $0.score == $1.score ? $0.index < $1.index : $0.score > $1.score }
+            .prefix(8).map(\.descriptor)
     }
 
-    /// The in-place command menu: names and hints are the live DSH catalog.
+    /// 0 when the query is not a subsequence; otherwise the alignment score
+    /// (prefix > separator boundary > adjacency > gap).
+    static func commandMatchScore(_ query: String, _ candidate: String) -> Int? {
+        let needle = Array(query.lowercased())
+        let haystack = Array(candidate.lowercased())
+        guard !needle.isEmpty else { return 0 }
+        var score = 0
+        var cursor = 0
+        var previous: Int?
+        var matchedFirst = false
+        for character in needle {
+            var found: Int?
+            while cursor < haystack.count {
+                if haystack[cursor] == character { found = cursor; break }
+                cursor += 1
+            }
+            guard let index = found else { return nil }
+            if !matchedFirst {
+                matchedFirst = true
+                if index == 0 { score += 100 }
+            }
+            if index == 0 || !haystack[index - 1].isLetter && !haystack[index - 1].isNumber {
+                score += 10
+            }
+            if let previous, index == previous + 1 { score += 5 }
+            score -= index - (previous.map { $0 + 1 } ?? 0)
+            previous = index
+            cursor = index + 1
+        }
+        return score
+    }
+
+    /// The command menu: one 指令 section of live catalog rows, each with the
+    /// official localized face, its alias and the right-aligned description.
     @ViewBuilder
     private var slashCommandMenu: some View {
         let matches = slashMatches
@@ -1964,33 +2735,99 @@ struct ChatPage: View {
                 Text("没有匹配的命令").font(.system(size: 13))
                     .foregroundStyle(.secondary).padding(12)
             } else {
-                ForEach(matches) { descriptor in
-                    Button { pickCommand(descriptor) } label: {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("/\(descriptor.name)")
-                                .font(.system(size: 15, weight: .semibold))
-                            Text(descriptor.description)
-                                .font(.system(size: 12))
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
+                Text("指令")
+                    .font(.system(size: 11))
+                    .foregroundStyle(NativeChatTheme.tertiary)
+                    .padding(.horizontal, 8)
+                    .padding(.top, 5)
+                    .padding(.bottom, 2)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            ForEach(Array(matches.enumerated()), id: \.element.id) { index, descriptor in
+                                slashCommandRow(descriptor, highlighted: index == slashHighlight)
+                                    .id(descriptor.id)
+                            }
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .frame(maxHeight: 280)
+                    .scrollIndicators(.hidden)
+                    .onChange(of: slashHighlight) { _, value in
+                        guard value < matches.count else { return }
+                        withAnimation(.easeOut(duration: 0.12)) {
+                            proxy.scrollTo(matches[value].id, anchor: .center)
+                        }
+                    }
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(red: 0xF2 / 255, green: 0xF3 / 255, blue: 0xF5 / 255),
                     in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("指令")
+        .onChange(of: slashToken) { _, _ in
+            slashHighlight = 0
+        }
     }
 
+    /// One menu row: icon, localized title, the registered alias when the title
+    /// is a translation, and the description right-aligned (official
+    /// `MenuView.tsx` row anatomy).
+    private func slashCommandRow(_ descriptor: NativeCommandDescriptor, highlighted: Bool) -> some View {
+        let title = NativeCommandCatalog.title(for: descriptor)
+        return Button {
+            pickCommand(descriptor)
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: NativeCommandCatalog.icon(for: descriptor))
+                    .font(.system(size: 14))
+                    .foregroundStyle(highlighted ? NativeChatTheme.secondary : NativeChatTheme.tertiary)
+                    .frame(width: 16)
+                Text(title)
+                    .font(.system(size: 13))
+                    .foregroundStyle(NativeChatTheme.primary)
+                    .lineLimit(1)
+                if descriptor.name.lowercased() != title.lowercased() {
+                    Text(descriptor.name)
+                        .font(.system(size: 12))
+                        .foregroundStyle(NativeChatTheme.tertiary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 8)
+                Text(NativeCommandCatalog.description(for: descriptor))
+                    .font(.system(size: 12))
+                    .foregroundStyle(NativeChatTheme.tertiary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .frame(minHeight: 34)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .background(highlighted ? NativeChatTheme.selector : Color.clear,
+                        in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(title) /\(descriptor.name)")
+        .accessibilityHint(NativeCommandCatalog.description(for: descriptor))
+    }
+
+    /// Official menu pick: a command that declares an input claim writes its
+    /// localized token into the draft and waits for arguments; every other
+    /// command runs detached on the bare pick.
     private func pickCommand(_ descriptor: NativeCommandDescriptor) {
-        draft = "/\(descriptor.name) "
-        inputFocused = true
+        slashMenuDismissed = true
+        slashHighlight = 0
+        if descriptor.hasInput {
+            let token = NativeCommandCatalog.face(for: descriptor)?.token ?? descriptor.name
+            draft = "/\(token) "
+            inputFocused = true
+            return
+        }
+        draft = ""
+        Task { await executeCommand(descriptor, input: "", attachments: pendingAttachments) }
     }
 
     private var referenceToken: String? {
@@ -2066,10 +2903,20 @@ struct ChatPage: View {
         return (String(name), input)
     }
 
+    /// Resolve a typed line the way official `resolveCommand` does (registered
+    /// name, then the localized spelling of a known definition) and execute the
+    /// canonical command. A refusal keeps the line in the draft for correction.
     private func runSlashCommand(name: String, input: String) async {
-        guard let descriptor = model.availableCommands.first(where: { $0.name == name }) else {
-            attachmentError = "没有这条命令：/\(name)"
-            if draft.isEmpty { draft = "/\(name)" + (input.isEmpty ? "" : " \(input)") }
+        let line = "/\(name)" + (input.isEmpty ? "" : " \(input)")
+        guard let descriptor = NativeCommandCatalog.resolve(name, in: model.availableCommands) else {
+            composerNotice = ComposerNotice(level: .error, text: "没有这条命令：/\(name)")
+            if draft.isEmpty { draft = line }
+            return
+        }
+        guard pendingAttachments.isEmpty || descriptor.acceptsAttachments else {
+            composerNotice = ComposerNotice(level: .error,
+                                            text: NativeCommandCatalog.attachmentRefusal(for: descriptor.name))
+            if draft.isEmpty { draft = line }
             return
         }
         await executeCommand(descriptor, input: input, attachments: pendingAttachments)
@@ -2224,15 +3071,311 @@ struct ChatPage: View {
 private enum AttachmentImportError: LocalizedError {
     case unsupportedType(String)
     case tooLarge(String)
-    case tooMany
-    case totalTooLarge
+    case tooMany(Int)
+    case tooLarge(String, Int)
+    case totalTooLarge(Int)
     var errorDescription: String? {
         switch self {
         case .unsupportedType(let name): return "不支持的图片格式：\(name)。请选 PNG、JPEG、GIF 或 WebP。"
-        case .tooLarge(let name): return "图片过大：\(name) 超过单张 20 MB 的上限。"
-        case .tooMany: return "一次最多添加 20 张图片。"
-        case .totalTooLarge: return "所选图片合计超过 200 MB，请分批发送。"
+        case .tooLarge(let name, let bytes):
+            return "图片过大：\(name) 超过单张 \(Self.megabytes(bytes)) MB 的上限。"
+        case .tooMany(let count): return "一次最多添加 \(count) 张图片。"
+        case .totalTooLarge(let bytes): return "所选图片合计超过 \(Self.megabytes(bytes)) MB，请分批发送。"
         }
+    }
+    private static func megabytes(_ bytes: Int) -> Int {
+        max(1, (bytes + 1024 * 1024 - 1) / (1024 * 1024))
+    }
+}
+
+/// One composer notice line (official `InputBar` notice channel).
+private struct ComposerNotice: Equatable {
+    enum Level: Equatable { case info, error }
+    let level: Level
+    let text: String
+}
+
+/// A hardware-keyboard gesture the slash menu arbitrates.
+private enum ComposerMenuKey {
+    case up, down, tab, escape
+}
+
+/// The composer's editable surface.
+///
+/// A `TextEditor` can only insert a newline on Return: the phone keyboard shows
+/// "return", Return never sends, ⌘/Ctrl+Return cannot be told apart, and Esc/
+/// arrow keys never reach the open command menu. The official composer sends on
+/// Return, keeps Shift+Return as a line break, uses ⌘/Ctrl+Return for the
+/// opposite busy-Enter delivery and routes ↑/↓/Tab/Esc to the menu
+/// (`ui-conversation/src/client/input/editor/keymap.ts:77-158`), which on iOS
+/// only exists below SwiftUI in a `UITextView`.
+private struct NativeComposerTextView: UIViewRepresentable {
+    @Binding var text: String
+    @Binding var isFocused: Bool
+    var isEditable: Bool
+    var fontSize: CGFloat
+    var lineSpacing: CGFloat
+    var maxHeight: CGFloat
+    var menuOpen: Bool
+    var accessibilityLabel: String
+    /// Return/Enter; `accelerated` is ⌘/Ctrl+Return. True consumes the gesture,
+    /// false lets a newline through.
+    var onReturn: (_ accelerated: Bool) -> Bool
+    /// ↑/↓/Tab/Esc arbitration; true consumes the key.
+    var onMenuKey: (_ key: ComposerMenuKey) -> Bool
+    var onHeightChange: (_ height: CGFloat) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeUIView(context: Context) -> ComposerUITextView {
+        let view = ComposerUITextView()
+        view.delegate = context.coordinator
+        view.backgroundColor = .clear
+        // Scrolling stays on for the view's whole life: a non-scrolling
+        // UITextView reports its *content* height as its intrinsic size, which
+        // SwiftUI then lays out past the card. The composer measures the laid
+        // out text and hands SwiftUI the clamped height instead (official
+        // InputBar caps the scrollport at 336 and scrolls inside).
+        view.clipsToBounds = true
+        view.isScrollEnabled = true
+        view.textContainerInset = UIEdgeInsets(top: 8, left: 0, bottom: 8, right: 0)
+        view.textContainer.lineFragmentPadding = 5
+        // The software keyboard's action key says 发送, like `enterkeyhint=send`
+        // on the web bar (`ui-mobile/src/client/mobile-enter-send.ts`).
+        view.returnKeyType = .send
+        view.keyboardDismissMode = .interactive
+        view.autocapitalizationType = .sentences
+        view.text = text
+        view.font = UIFont.systemFont(ofSize: fontSize)
+        view.accessibilityLabel = accessibilityLabel
+        let coordinator = context.coordinator
+        coordinator.attach(view)
+        view.onMenuKey = { [weak coordinator] key in coordinator?.parent.onMenuKey(key) ?? false }
+        view.onAcceleratedReturn = { [weak coordinator] in coordinator?.parent.onReturn(true) ?? false }
+        view.onLineBreak = { [weak coordinator] in coordinator?.insertLineBreak() ?? false }
+        view.onLayout = { [weak coordinator] in coordinator?.reportHeight() }
+        return view
+    }
+
+    /// SwiftUI asks the representable for its size; without this it would use
+    /// the text view's content-driven intrinsic height and the composer would
+    /// grow past the card.
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: ComposerUITextView, context: Context) -> CGSize? {
+        let width = proposal.width ?? uiView.bounds.width
+        guard width > 0 else { return nil }
+        return CGSize(width: width, height: context.coordinator.measuredHeight(for: width))
+    }
+
+    func updateUIView(_ uiView: ComposerUITextView, context: Context) {
+        context.coordinator.parent = self
+        let coordinator = context.coordinator
+        if uiView.text != text, !coordinator.isApplyingText {
+            coordinator.isApplyingText = true
+            uiView.text = text
+            // An external edit (menu pick, import path, restored draft) puts
+            // the caret at the end; a local keystroke never reaches this path.
+            let end = uiView.endOfDocument
+            uiView.selectedTextRange = uiView.textRange(from: end, to: end)
+            coordinator.isApplyingText = false
+        }
+        uiView.isEditable = isEditable
+        uiView.returnKeyType = .send
+        uiView.menuOpen = menuOpen
+        uiView.accessibilityLabel = accessibilityLabel
+        if uiView.font?.pointSize != fontSize {
+            uiView.font = UIFont.systemFont(ofSize: fontSize)
+        }
+        coordinator.applyTypingAttributes(lineSpacing: lineSpacing)
+        if isFocused, !uiView.isFirstResponder, uiView.window != nil {
+            DispatchQueue.main.async { [weak uiView] in
+                guard let uiView, !uiView.isFirstResponder else { return }
+                uiView.becomeFirstResponder()
+            }
+        } else if !isFocused, uiView.isFirstResponder {
+            uiView.resignFirstResponder()
+        }
+        coordinator.reportHeight()
+    }
+
+    final class Coordinator: NSObject, UITextViewDelegate {
+        var parent: NativeComposerTextView
+        var isApplyingText = false
+        private var lastHeight: CGFloat = 0
+        /// Set while a Shift+Return newline is being inserted through the key
+        /// command, so the delegate lets that one newline through.
+        private var insertingLineBreak = false
+
+        init(_ parent: NativeComposerTextView) {
+            self.parent = parent
+        }
+
+        func textViewDidChange(_ textView: UITextView) {
+            guard !isApplyingText else { return }
+            parent.text = textView.text
+            reportHeight()
+        }
+
+        func textViewDidBeginEditing(_ textView: UITextView) {
+            if !parent.isFocused { parent.isFocused = true }
+        }
+
+        func textViewDidEndEditing(_ textView: UITextView) {
+            if parent.isFocused { parent.isFocused = false }
+        }
+
+        func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange,
+                      replacementText text: String) -> Bool {
+            guard text == "\n" || text == "\r" else { return true }
+            if insertingLineBreak {
+                insertingLineBreak = false
+                return true
+            }
+            // An IME candidate pick is not a submit (official guards the
+            // composition-close Enter).
+            if textView.markedTextRange != nil { return true }
+            return !parent.onReturn(false)
+        }
+
+        func insertLineBreak() -> Bool {
+            guard let textView = lastTextView else { return false }
+            insertingLineBreak = true
+            textView.insertText("\n")
+            // `insertText` may not consult the delegate on every OS; never
+            // leave the flag latched.
+            DispatchQueue.main.async { [weak self] in self?.insertingLineBreak = false }
+            return true
+        }
+
+        /// The view is owned by SwiftUI; the coordinator only observes it so a
+        /// key command or a text edit can measure it.
+        private weak var lastTextView: ComposerUITextView?
+
+        func attach(_ textView: ComposerUITextView) { lastTextView = textView }
+
+        private var lastTyping: (fontSize: CGFloat, lineSpacing: CGFloat)?
+
+        /// Apply the composer's paragraph style once per font/spacing change;
+        /// SwiftUI re-runs `updateUIView` on every keystroke.
+        func applyTypingAttributes(lineSpacing: CGFloat) {
+            guard let textView = lastTextView else { return }
+            let fontSize = parent.fontSize
+            if let last = lastTyping, last.fontSize == fontSize, last.lineSpacing == lineSpacing { return }
+            lastTyping = (fontSize, lineSpacing)
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.lineSpacing = max(0, lineSpacing)
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: fontSize),
+                .paragraphStyle: paragraph,
+                .foregroundColor: UIColor.label,
+            ]
+            textView.typingAttributes = attributes
+            guard textView.textStorage.length > 0 else { return }
+            textView.textStorage.beginEditing()
+            textView.textStorage.setAttributes(attributes,
+                                               range: NSRange(location: 0, length: textView.textStorage.length))
+            textView.textStorage.endEditing()
+        }
+
+        /// Height of the laid-out text plus the composer's text insets, clamped
+        /// to the official 36…336 scrollport.
+        func measuredHeight(for width: CGFloat) -> CGFloat {
+            guard let textView = lastTextView else { return 36 }
+            let container = textView.textContainer
+            container.size = CGSize(width: max(0, width - 2 * textView.textContainerInset.left),
+                                    height: .greatestFiniteMagnitude)
+            let layout = textView.layoutManager
+            layout.ensureLayout(for: container)
+            let used = layout.usedRect(for: container).height
+            let content = used + textView.textContainerInset.top + textView.textContainerInset.bottom
+            return min(max(ceil(content), 36), parent.maxHeight)
+        }
+
+        func reportHeight() {
+            guard let textView = lastTextView else { return }
+            let width = textView.bounds.width
+            guard width > 0 else { return }
+            let height = measuredHeight(for: width)
+            guard abs(height - lastHeight) > 0.5 else { return }
+            lastHeight = height
+            DispatchQueue.main.async { [weak self] in
+                self?.parent.onHeightChange(height)
+            }
+        }
+    }
+}
+
+/// `UITextView` with the composer's key commands: Return is intercepted by the
+/// delegate; ⌘/Ctrl+Return asks for the accelerated delivery; Shift+Return
+/// inserts a line break; ↑/↓/Tab are menu keys only while the menu is open, so
+/// they keep their native meaning otherwise; Esc always routes (menu first,
+/// then stop).
+private final class ComposerUITextView: UITextView {
+    var onMenuKey: ((ComposerMenuKey) -> Bool)?
+    var onAcceleratedReturn: (() -> Bool)?
+    var onLineBreak: (() -> Bool)?
+    var onLayout: (() -> Void)?
+    var menuOpen = false
+
+    private var lastWidth: CGFloat = 0
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        if abs(bounds.width - lastWidth) > 0.5 {
+            lastWidth = bounds.width
+            onLayout?()
+        }
+    }
+
+    /// Never let the text content drive the view's size: the composer
+    /// measures it and hands SwiftUI the clamped height.
+    override var intrinsicContentSize: CGSize {
+        CGSize(width: UIView.noIntrinsicMetric, height: UIView.noIntrinsicMetric)
+    }
+
+    override var keyCommands: [UIKeyCommand]? {
+        var commands: [UIKeyCommand] = []
+        let accelerated = UIKeyCommand(input: "\r", modifierFlags: .command,
+                                       action: #selector(handleAcceleratedReturn))
+        accelerated.wantsPriorityOverSystemBehavior = true
+        let control = UIKeyCommand(input: "\r", modifierFlags: .control,
+                                   action: #selector(handleAcceleratedReturn))
+        control.wantsPriorityOverSystemBehavior = true
+        let shift = UIKeyCommand(input: "\r", modifierFlags: .shift,
+                                 action: #selector(handleShiftReturn))
+        shift.wantsPriorityOverSystemBehavior = true
+        let escape = UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [],
+                                  action: #selector(handleMenuKeyCommand(_:)))
+        escape.wantsPriorityOverSystemBehavior = true
+        commands.append(contentsOf: [accelerated, control, shift, escape])
+        if menuOpen {
+            for input in [UIKeyCommand.inputUpArrow, UIKeyCommand.inputDownArrow, "\t"] {
+                let command = UIKeyCommand(input: input, modifierFlags: [],
+                                           action: #selector(handleMenuKeyCommand(_:)))
+                command.wantsPriorityOverSystemBehavior = true
+                commands.append(command)
+            }
+        }
+        return commands
+    }
+
+    @objc private func handleAcceleratedReturn() {
+        _ = onAcceleratedReturn?()
+    }
+
+    @objc private func handleShiftReturn() {
+        _ = onLineBreak?()
+    }
+
+    @objc private func handleMenuKeyCommand(_ command: UIKeyCommand) {
+        let key: ComposerMenuKey
+        switch command.input {
+        case UIKeyCommand.inputUpArrow: key = .up
+        case UIKeyCommand.inputDownArrow: key = .down
+        case "\t": key = .tab
+        case UIKeyCommand.inputEscape: key = .escape
+        default: return
+        }
+        _ = onMenuKey?(key)
     }
 }
 
@@ -2276,48 +3419,21 @@ private struct QuestionCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 12) {
-                    questionHeading
-                    Spacer(minLength: 0)
-                    submitButton
-                }
-                VStack(alignment: .leading, spacing: 8) {
-                    questionHeading
-                    submitButton
-                }
+            Label("需要你的回答", systemImage: "questionmark.circle.fill")
+                .font(.headline)
+            if let items = question.questions, !items.isEmpty, !question.prompt.isEmpty {
+                Text(question.prompt).font(.footnote).foregroundStyle(.secondary)
             }
-            .fixedSize(horizontal: false, vertical: true)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    if let items = question.questions, !items.isEmpty, !question.prompt.isEmpty {
-                        Text(question.prompt).font(.footnote).foregroundStyle(.secondary)
-                    }
-                    ForEach(questions) { item in
-                        questionControl(item)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+            ForEach(questions) { item in
+                questionControl(item)
             }
-            .scrollDismissesKeyboard(.interactively)
+            Button("提交回答", systemImage: "arrow.up") { submitAnswers() }
+                .buttonStyle(.borderedProminent)
+                .disabled(!canSubmit)
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.accentColor.opacity(0.09))
-    }
-
-    private var questionHeading: some View {
-        Label("需要你的回答", systemImage: "questionmark.circle.fill")
-            .font(.headline)
-            .fixedSize(horizontal: true, vertical: false)
-    }
-
-    private var submitButton: some View {
-        Button("提交回答", systemImage: "arrow.up") { submitAnswers() }
-            .buttonStyle(.borderedProminent)
-            .frame(minHeight: 44)
-            .fixedSize(horizontal: true, vertical: false)
-            .disabled(!canSubmit)
     }
 
     @ViewBuilder
@@ -2385,18 +3501,144 @@ private struct QuestionCard: View {
     }
 }
 
+private struct NativeScheduleListSheet: View {
+    let schedules: [ManagedSchedule]
+    var onRefresh: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if schedules.isEmpty {
+                    ContentUnavailableView("没有定时任务",
+                                           systemImage: "calendar.badge.clock",
+                                           description: Text("这个会话暂时没有定时任务。"))
+                        .listRowSeparator(.hidden)
+                }
+                ForEach(schedules) { schedule in
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text(schedule.title)
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundStyle(NativeChatTheme.primary)
+                            Spacer(minLength: 8)
+                            Text(schedule.status)
+                                .font(.system(size: 12))
+                                .foregroundStyle(NativeChatTheme.secondary)
+                        }
+                        Text(schedule.detail)
+                            .font(.system(size: 12))
+                            .foregroundStyle(NativeChatTheme.tertiary)
+                        Text(schedule.prompt)
+                            .font(.system(size: 13))
+                            .foregroundStyle(NativeChatTheme.secondary)
+                            .lineLimit(2)
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+            .navigationTitle("定时任务")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("刷新", systemImage: "arrow.clockwise") { onRefresh() }
+                }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("关闭") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
+private struct NativeJobListSheet: View {
+    let jobs: [ActivityRow]
+    var onRefresh: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if jobs.isEmpty {
+                    ContentUnavailableView("没有后台任务",
+                                           systemImage: "list.bullet",
+                                           description: Text("这个会话暂时没有后台任务。"))
+                        .listRowSeparator(.hidden)
+                }
+                ForEach(jobs) { job in
+                    HStack(alignment: .top, spacing: 10) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(job.title)
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundStyle(NativeChatTheme.primary)
+                            Text(job.detail)
+                                .font(.system(size: 12))
+                                .foregroundStyle(NativeChatTheme.tertiary)
+                                .lineLimit(1)
+                        }
+                        Spacer(minLength: 8)
+                        if let status = job.status {
+                            Text(status)
+                                .font(.system(size: 12))
+                                .foregroundStyle(NativeChatTheme.secondary)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+            .navigationTitle("后台任务")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("刷新", systemImage: "arrow.clockwise") { onRefresh() }
+                }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("关闭") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
+private struct NativePlanPreview: Identifiable {
+    let id: String
+    let title: String
+    let markdown: String
+}
+
 private struct ChatMessageRow: View {
     let item: ChatItem
     let allItems: [ChatItem]
     var workspaceFiles: [WorkspaceFile]
     var onOpenFile: (String) -> Void
+    var onOpenPlan: (NativePlanCardData, String) -> Void = { _, _ in }
 
     var body: some View {
         switch item.kind {
         case .toolCall, .toolResult:
             NativeToolCallRow(item: item, onOpenFile: onOpenFile)
         case .context:
-            ContextInjectionCard(item: item)
+            if item.sourceKind == "user-question-reply" {
+                // Late reply to a continued ask_user_question: the official
+                // right-aligned question-reply bubble, not a raw trigger row.
+                NativeQuestionReplyBubble(reply: NativeQuestionReply(
+                    id: item.id,
+                    callID: item.callID ?? "",
+                    time: item.timestamp ?? Date(),
+                    questions: [],
+                    answers: [],
+                    fallbackText: item.text))
+            } else if let source = item.sourceKind {
+                // A non-human producer that surfaced through user/message or
+                // inbox/spliced: the official turn-trigger notice, not a raw
+                // context injection.
+                NativeTurnTriggerRow(data: NativeTurnTriggerData(
+                    source: NativeTurnTriggerSource.resolve(kind: source),
+                    time: item.timestamp,
+                    content: item.text))
+            } else {
+                ContextInjectionCard(item: item)
+            }
         case .user:
             VStack(alignment: .trailing, spacing: 4) {
                 HStack(alignment: .top, spacing: 0) {
@@ -2430,25 +3672,32 @@ private struct ChatMessageRow: View {
 
     private var assistantBody: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if item.streaming { ProgressView().controlSize(.mini) }
             NativeMarkdownBody(markdown: item.text.isEmpty ? "…" : item.text,
                                streaming: item.streaming, workspaceFiles: workspaceFiles,
                                onOpenFile: onOpenFile)
                 .font(NativeChatTheme.bodyFont())
+                // Official assistant body is 14/24; SwiftUI's default leading
+                // is ~17, so add the official 10px leading delta explicitly.
+                .lineSpacing(NativeChatTheme.bodyLineSpacing)
                 .environment(\.openURL, OpenURLAction { url in
                     guard let path = workspaceRelativePath(from: url) else { return .systemAction }
                     onOpenFile(path)
                     return .handled
                 })
             if isTurnClosingAssistant, let turn = item.turn {
-                if NativeChatPreferences.shared.developerTools,
-                   let changes = NativeTranscriptProjector.changes(forTurn: turn, in: allItems) {
+                if let changes = NativeTranscriptProjector.changes(forTurn: turn, in: allItems) {
                     NativeChangedFilesCard(changes: changes, onOpenFile: onOpenFile)
                 }
-                NativeMessageActions(text: Self.assistantText(forTurn: turn, in: allItems),
-                                     timestamp: item.timestamp,
-                                     usage: NativeTranscriptProjector.usage(forTurn: turn, in: allItems),
-                                     onFeedback: feedbackAction)
+                if !submittedPlans.isEmpty {
+                    VStack(alignment: .leading, spacing: NativePlanCard.stackSpacing) {
+                        ForEach(submittedPlans, id: \.0.id) { plan, markdown in
+                            NativePlanCard(plan: plan) {
+                                onOpenPlan(plan, markdown)
+                            }
+                        }
+                    }
+                    .padding(.top, 6)
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -2459,31 +3708,38 @@ private struct ChatMessageRow: View {
         return allItems.last(where: { $0.turn == turn && $0.kind == .assistant })?.id == item.id
     }
 
+    /// Official `submitted-plan` nodes: every `exit_plan_mode` call whose args
+    /// carry a `# ` headed plan, in invocation order for this Turn.
+    private var submittedPlans: [(NativePlanCardData, String)] {
+        guard let turn = item.turn else { return [] }
+        return allItems.compactMap { row in
+            guard row.turn == turn, row.toolName == "exit_plan_mode",
+                  let markdown = row.arguments?["plan"]?.stringValue,
+                  let plan = NativePlanCardData(id: row.callID ?? row.id, markdown: markdown)
+            else { return nil }
+            return (plan, markdown)
+        }
+    }
+
     private static func assistantText(forTurn turn: Int, in items: [ChatItem]) -> String {
         items.filter { $0.turn == turn && $0.kind == .assistant }.map(\.text).joined(separator: "\n\n")
     }
 
-    private var feedbackAction: ((Bool) -> Void)? {
-        guard let messageID = item.messageID else { return nil }
-        return { positive in
-            Task { await ChatModel.shared.rateMessage(messageID, positive: positive) }
-        }
-    }
-
-    /// 贴字优先:能一行放下就用自然宽度,放不下才在 296 内换行。
+    /// 贴字优先:能一行放下就用自然宽度,放不下才在官方 277pt 内换行。
     private var userBubble: some View {
         let body = Text(item.text.isEmpty ? "…" : item.text)
             .font(NativeChatTheme.bodyFont())
-            .lineSpacing(24 - 17)
+            .lineSpacing(NativeParityTokens.userBubbleLineSpacing)
             .textSelection(.enabled)
         return ViewThatFits(in: .horizontal) {
             body.fixedSize(horizontal: true, vertical: true)
             body
         }
-        .padding(12)
-        .background(NativeChatTheme.selector,
-                    in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .frame(maxWidth: 296, alignment: .trailing)
+        .padding(.vertical, 10)
+        .padding(.horizontal, 16)
+        .background(NativeChatTheme.bubble,
+                    in: RoundedRectangle(cornerRadius: NativeParityTokens.radiusXL, style: .continuous))
+        .frame(maxWidth: NativeParityTokens.userBubbleMaxWidth, alignment: .trailing)
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
 
@@ -2493,13 +3749,122 @@ private struct ToolRunRow: View {
     let items: [ChatItem]
     var workspaceFiles: [WorkspaceFile] = []
     var onOpenFile: (String) -> Void = { _ in }
+    @State private var expanded = true
+    @State private var scrollMetrics = ProcessScrollMetrics()
+    @State private var displayedTitle = ""
+    @State private var titleTask: Task<Void, Never>?
+
+    private var targetTitle: String {
+        NativeProcessGroupModel.title(for: categories, running: isRunning)
+    }
+
+    private var processViewport: CGFloat {
+        min(400, UIScreen.main.bounds.height * 0.5)
+    }
+
+    private var showTopFade: Bool { scrollMetrics.offset < -4 }
+    private var showBottomFade: Bool {
+        scrollMetrics.contentHeight + scrollMetrics.offset > processViewport + 4
+    }
+
+    private var categories: [NativeProcessCategory] {
+        items.map {
+            $0.kind == .reasoning ? .thinking : NativeProcessCategory.forTool($0.toolName ?? "")
+        }
+    }
+
+    private var isRunning: Bool {
+        items.contains { $0.toolState == .running || $0.toolState == .preparing }
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ForEach(items) { item in
-                NativeToolCallRow(item: item, onOpenFile: onOpenFile)
+        // The official group header already carries the 8pt expanded gap;
+        // its body members own the 6pt flow gap. Do not add a VStack gap
+        // between the header and the first member (that would make 14pt).
+        VStack(alignment: .leading, spacing: 0) {
+            if items.count > 1 {
+                NativeProcessGroupHeader(
+                    title: displayedTitle.isEmpty ? targetTitle : displayedTitle,
+                    glyph: categories.first?.glyph ?? .tools,
+                    isRunning: isRunning,
+                    isExpanded: expanded) {
+                        withAnimation(.easeOut(duration: 0.16)) { expanded.toggle() }
+                    }
+            }
+            if expanded || items.count == 1 {
+                if items.count > 4 {
+                    ScrollView {
+                        processRows
+                            .background(GeometryReader { geometry in
+                                Color.clear.preference(
+                                    key: ProcessScrollMetricsKey.self,
+                                    value: ProcessScrollMetrics(
+                                        offset: geometry.frame(in: .named("process-scroll")).minY,
+                                        contentHeight: geometry.size.height))
+                            })
+                    }
+                    .coordinateSpace(name: "process-scroll")
+                    .onPreferenceChange(ProcessScrollMetricsKey.self) { scrollMetrics = $0 }
+                    .scrollIndicators(.visible)
+                    .frame(maxHeight: processViewport)
+                    .overlay(alignment: .top) {
+                        if showTopFade { processFade(top: true) }
+                    }
+                    .overlay(alignment: .bottom) {
+                        if showBottomFade { processFade(top: false) }
+                    }
+                } else {
+                    processRows
+                }
             }
         }
+        .onAppear { displayedTitle = targetTitle }
+        .onChange(of: targetTitle) { _, next in
+            titleTask?.cancel()
+            if isRunning {
+                titleTask = Task {
+                    try? await Task.sleep(for: .milliseconds(150))
+                    guard !Task.isCancelled else { return }
+                    displayedTitle = next
+                }
+            } else {
+                displayedTitle = next
+            }
+        }
+        .onDisappear { titleTask?.cancel() }
+    }
+
+    private var processRows: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(items) { item in
+                if item.kind == .reasoning {
+                    NativeThinkingRow(item: item)
+                } else {
+                    NativeToolCallRow(item: item, onOpenFile: onOpenFile)
+                }
+            }
+        }
+    }
+
+    private func processFade(top: Bool) -> some View {
+        LinearGradient(
+            colors: [NativeChatTheme.background, NativeChatTheme.background.opacity(0)],
+            startPoint: top ? .top : .bottom,
+            endPoint: top ? .bottom : .top)
+            .frame(height: 24)
+            .allowsHitTesting(false)
+    }
+}
+
+private struct ProcessScrollMetrics: Equatable {
+    var offset: CGFloat = 0
+    var contentHeight: CGFloat = 0
+}
+
+private struct ProcessScrollMetricsKey: PreferenceKey {
+    static var defaultValue = ProcessScrollMetrics()
+    static func reduce(value: inout ProcessScrollMetrics, nextValue: () -> ProcessScrollMetrics) {
+        value = nextValue()
     }
 }
 
@@ -2823,7 +4188,7 @@ struct RuntimeDetailsPage: View {
                 // 组标题已经说了「最近出错」,行里不再重复一个同名标签,只放那句话。
                 Text(model.userFacingError ?? "最近没有出错")
                     .font(.system(size: 17))
-                    .foregroundStyle(model.userFacingError == nil ? ChatPage.inkSecondary : ChatPage.danger)
+                    .foregroundStyle(model.userFacingError == nil ? NativePagePalette.inkSecondary : NativePagePalette.danger)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .frame(minHeight: 44)
                     .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
@@ -2833,22 +4198,10 @@ struct RuntimeDetailsPage: View {
             }
 
             Section {
-                if model.hostNeedsRecovery {
-                    Button(NativeText("恢复引擎（保留会话）", "Recover engine (keep sessions)")) {
-                        Task { await model.recoverFailedHost() }
-                    }
-                        .font(.system(size: 17))
-                        .foregroundStyle(ChatPage.accent)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 16)
-                        .frame(minHeight: 44)
-                        .listRowInsets(EdgeInsets())
-                        .listRowSeparator(.hidden)
-                        .disabled(!model.canRecoverFailedHost)
-                } else if model.isStarted {
+                if model.isStarted {
                     Button("停止本地引擎") { confirmingStop = true }
                         .font(.system(size: 17))
-                        .foregroundStyle(ChatPage.danger)
+                        .foregroundStyle(NativePagePalette.danger)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 16)
                         .frame(minHeight: 44)
@@ -2857,7 +4210,7 @@ struct RuntimeDetailsPage: View {
                 } else {
                     Button("启动本地引擎") { Task { await model.start() } }
                         .font(.system(size: 17))
-                        .foregroundStyle(ChatPage.accent)
+                        .foregroundStyle(NativePagePalette.accent)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 16)
                         .frame(minHeight: 44)
@@ -2865,20 +4218,19 @@ struct RuntimeDetailsPage: View {
                         .listRowSeparator(.hidden)
                 }
             } footer: {
-                Text(model.hostNeedsRecovery
-                     ? NativeText("恢复只重启引擎，不删除会话或工作区文件。", "Recovery restarts the engine without deleting sessions or workspace files.")
-                     : NativeText("停止后,正在跑的任务会停下来,不会再接着做。", "Stopping the engine also stops its active work."))
+                Text("停止后,正在跑的任务会停下来,不会再接着做。")
                     .font(.system(size: 13))
-                    .foregroundStyle(ChatPage.inkSecondary)
+                    .foregroundStyle(NativePagePalette.inkSecondary)
             }
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
-        .background(Color.white)
+        // 运行状态/支持页:浅色仍是纯白,深色跟系统底走,别在深色里留一张白纸。
+        .background(NativePagePalette.page)
         .environment(\.defaultMinListRowHeight, 44)
         .navigationTitle("运行状态")
         .navigationBarTitleDisplayMode(.large)
-        .tint(ChatPage.accent)
+        .tint(NativePagePalette.accent)
         .confirmationDialog("停止本地引擎?", isPresented: $confirmingStop, titleVisibility: .visible) {
             Button("取消", role: .cancel) {}
             Button("停止", role: .destructive) { Task { await model.stop() } }
@@ -2938,8 +4290,7 @@ private struct CommandExecutionResultPage: View {
 private struct NativeTrajectoryRow: View {
     let entry: NativeTrajectoryEntry
     let onOpenFile: (String) -> Void
-    @State private var expanded = NativeChatPreferences.shared.transcriptView == .verbose
-    @State private var preferences = NativeChatPreferences.shared
+    @State private var expanded = false
 
     private var payloadText: String {
         guard let data = try? entry.payload.encoded() else { return "无法格式化此事件的原始数据。" }
@@ -3041,11 +4392,6 @@ private struct NativeTrajectoryRow: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
-        .onReceive(NotificationCenter.default.publisher(for: .nativeChatNewInput)) { _ in
-            if preferences.collapseTiming == .nextInput && preferences.transcriptView != .verbose {
-                expanded = false
-            }
-        }
     }
 }
 
@@ -3085,7 +4431,7 @@ struct PermissionCardView: View {
             if let detail {
                 Text(detail)
                     .font(.system(size: 15, design: category == .execute ? .monospaced : .default))
-                    .foregroundStyle(ChatPage.inkSecondary)
+                    .foregroundStyle(NativeChatTheme.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .textSelection(.enabled)
@@ -3099,7 +4445,7 @@ struct PermissionCardView: View {
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
                     .frame(height: 48)
-                    .background(ChatPage.accent, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .background(NativeChatTheme.accent, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
             .buttonStyle(.plain)
             .disabled(isBusy)
@@ -3109,7 +4455,7 @@ struct PermissionCardView: View {
             } label: {
                 Text("拒绝")
                     .font(.system(size: 15))
-                    .foregroundStyle(ChatPage.inkSecondary)
+                    .foregroundStyle(NativeChatTheme.secondary)
                     .frame(maxWidth: .infinity)
                     .frame(height: 44)
             }
@@ -3118,7 +4464,7 @@ struct PermissionCardView: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(ChatPage.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(NativeChatTheme.selector, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
     }

@@ -1,0 +1,24 @@
+{
+  "name": "harness-session-request-client-tools",
+  "schema": "schema/harness-session-request.schema.json",
+  "instance": {
+    "session_id": "sess-2f7c",
+    "client_tools": [
+      {
+        "name": "phone-tools",
+        "transport": {
+          "type": "streamable_http",
+          "url": "http://127.0.0.1:7300/mcp",
+          "headers": {
+            "x-pdsh-device": "esp32-8c4f1a"
+          }
+        },
+        "allowed_tools": [
+          "device.say",
+          "device.control"
+        ]
+      }
+    ]
+  },
+  "notes": "Sources/PhoneDSHAgentCore/AgentHarness.swift:79-107 (MCPServerReference: name, transport, allowed_tools; empty allowed_tools means every tool the server lists) and 110-144. A backend whose client_tools capability is none MUST reject the request with unsupported instead of silently dropping the servers (AgentHarness.swift:15-16, DSHRemoteHarness.swift:71-74)."
+}

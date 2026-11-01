@@ -1,0 +1,36 @@
+{
+  "name": "request-response-directory",
+  "direction": "sequence",
+  "schema": "bridge-message.schema.json",
+  "instance": [
+    {
+      "direction": "page-to-host",
+      "instance": {
+        "v": 1,
+        "kind": "request",
+        "requestId": "8b2d4f60-1c3a-4d5e-8f9a-0b1c2d3e4f50",
+        "method": "directory.pick",
+        "params": {
+          "sessionId": "sess-8f21c4",
+          "targetDirectory": "/dsh/workspace/imports"
+        }
+      }
+    },
+    {
+      "direction": "host-to-page",
+      "instance": {
+        "v": 1,
+        "kind": "response",
+        "requestId": "8b2d4f60-1c3a-4d5e-8f9a-0b1c2d3e4f50",
+        "method": "directory.pick",
+        "result": {
+          "workspacePath": "imports/2026-10-31",
+          "absolutePath": "/dsh/workspace/imports/2026-10-31",
+          "fileCount": 2,
+          "totalBytes": 8192
+        }
+      }
+    }
+  ],
+  "notes": "bridge.md §2, §11; the request mirrors Sources/PhoneDSHEngine/WebEngineDirectoryImport.swift:921-927 (pick needs sessionId and an absolute targetDirectory) and the result reuses the CustomEvent detail of WebEngineDirectoryImport.swift:825 under params instead of a top-level action field."
+}

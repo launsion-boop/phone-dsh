@@ -1,0 +1,149 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "SettingsAboutPage",
+  "pageId": "settings-about",
+  "structure": "swiftui-view",
+  "sectionModel": "single-region",
+  "sectionNote": "flat List: one version row + one sentence; no group header",
+  "title": {
+    "text": "关于",
+    "provenance": "NativeShell.swift:869",
+    "anchor": ".navigationTitle(\"关于\")"
+  },
+  "source": {
+    "file": "NativeShell.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/NativeShell.swift",
+    "lines": 996,
+    "structLine": 861,
+    "renderedFrom": [
+      "body"
+    ],
+    "sectionOrder": "declaration order inside the page struct"
+  },
+  "android": {
+    "screen": "AboutPage",
+    "file": "android/lib/src/main/kotlin/com/phonedsh/ui/page/AboutPage.kt",
+    "match": "alias"
+  },
+  "sections": [
+    {
+      "id": "single-region-861",
+      "kind": "single-region",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleSource": "absent",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "版本",
+          "label": "版本",
+          "labelExpr": null,
+          "kind": "info",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "NativeShell.swift:864",
+          "anchor": "LabeledContent(\"版本\", value: Bundle.main.infoDictionary?[\"CFBundleShortVersionStr",
+          "extraction": "syntax"
+        },
+        {
+          "id": "会话记录和文件都保存在这台手机上",
+          "label": "会话记录和文件都保存在这台手机上。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "NativeShell.swift:865",
+          "anchor": "Text(\"会话记录和文件都保存在这台手机上。\")",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "NativeShell.swift:861",
+      "anchor": "struct SettingsAboutPage: View {",
+      "criterion": {
+        "kind": "single-region"
+      },
+      "extraction": "manual",
+      "note": "flat List: one version row + one sentence; no group header"
+    }
+  ],
+  "actions": [],
+  "presentations": [],
+  "states": {
+    "advisory": true,
+    "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
+    "sites": {
+      "empty": [],
+      "data": [
+        {
+          "renders": "untitled section at 861",
+          "when": null,
+          "provenance": "NativeShell.swift:861",
+          "anchor": "struct SettingsAboutPage: View {",
+          "note": "structural default: the sections above, when no condition overrides them"
+        }
+      ],
+      "failure": [],
+      "unknown": [
+        {
+          "renders": "—",
+          "when": null,
+          "provenance": "NativeShell.swift:864",
+          "anchor": "LabeledContent(\"版本\", value: Bundle.main.infoDictionary?[\"CFBundleShortVersionStr"
+        }
+      ],
+      "loading": []
+    },
+    "absent": [
+      "empty",
+      "failure",
+      "loading"
+    ],
+    "coverage": {
+      "empty": 0,
+      "data": 1,
+      "failure": 0,
+      "unknown": 1,
+      "loading": 0
+    }
+  },
+  "subpages": [
+    {
+      "name": "WorkspaceFoldersPage",
+      "line": 318,
+      "private": false,
+      "sections": [],
+      "provenance": "NativeShell.swift:318"
+    },
+    {
+      "name": "EgressAllowListPage",
+      "line": 443,
+      "private": false,
+      "sections": [
+        {
+          "title": "地址",
+          "provenance": "NativeShell.swift:473"
+        }
+      ],
+      "provenance": "NativeShell.swift:443"
+    }
+  ],
+  "unreachable": [],
+  "extraction": {
+    "tool": "extract_ios_pages.py",
+    "mode": "syntax",
+    "sectionKeywordsInPage": 0,
+    "regionsExtracted": 0,
+    "sectionsExtracted": 1,
+    "warnings": []
+  }
+}

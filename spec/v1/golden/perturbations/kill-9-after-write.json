@@ -1,0 +1,96 @@
+{
+  "id": "kill-9-after-write",
+  "verb": "kill_9",
+  "title": "SIGKILL after two level-1 acked writes, with one tool step still open",
+  "preconditions": {
+    "host_state": "Running",
+    "admission": "open",
+    "epoch_open": true,
+    "acked_mseq": 2,
+    "open_steps": 1,
+    "journaled_steps": 0,
+    "exec_in_flight": false,
+    "persisted_state": "Running",
+    "worker_channel": "open",
+    "notes": "A dispatched journal record is acked, then two workspace writes are acked at mseq 1 and 2. No epoch-close record exists yet."
+  },
+  "timeline": [
+    {
+      "at": 0,
+      "event": "journal dispatched acked; two writes acked",
+      "detail": "acked_mseq is 2, one step is open and the newest epoch has no close record",
+      "expect_state": "Running",
+      "source": "Tests/PhoneDSHKillTests/Phase0KillMatrixTests.swift:111-123"
+    },
+    {
+      "at": 10,
+      "event": "SIGKILL",
+      "detail": "uncatchable: no drain, no epoch close, no manifest rewrite, no WAL fsync",
+      "source": "Tests/PhoneDSHKillTests/Phase0KillMatrixTests.swift:456-460"
+    },
+    {
+      "at": 20,
+      "event": "process start",
+      "detail": "the persisted Running state maps to Recovering with admission closed and boot disposition crash_recovery",
+      "expect_state": "Recovering",
+      "source": "Tests/PhoneDSHControllerTests/HostStateMachineTests.swift:66-88"
+    },
+    {
+      "at": 30,
+      "event": "WAL scan and replay",
+      "detail": "every acked mseq is present with the identical mutation, the materialized copy equals the replay, no torn tail is truncated",
+      "source": "Sources/PhoneDSHHarness/KillSupport.swift:301-333"
+    },
+    {
+      "at": 40,
+      "event": "lease verified",
+      "detail": "admission opens only in Running (budgets.md section 1)",
+      "expect_state": "Running",
+      "source": "Tests/PhoneDSHKillTests/Phase0KillMatrixTests.swift:158"
+    },
+    {
+      "at": 50,
+      "event": "step reconcile",
+      "detail": "reconcile lists exactly the interrupted step and abandons none",
+      "source": "Sources/PhoneDSHHarness/KillSupport.swift:335-352"
+    }
+  ],
+  "expected": {
+    "state": "Running",
+    "state_path": [
+      "Running",
+      "Recovering",
+      "Running"
+    ],
+    "durability_level": "level_1",
+    "wal_tail": "intact_open_epoch",
+    "journal_gap": "step_open",
+    "surfaced_to_user": "unmeasured",
+    "admission": "open",
+    "acked_prefix_preserved": true,
+    "materialized_equals_replay": true,
+    "steps_open": 1,
+    "steps_abandoned": 0,
+    "settlement_reason": "absent",
+    "field_evidence": {
+      "state": "swift-test",
+      "state_path": "swift-test",
+      "durability_level": "swift-test",
+      "wal_tail": "swift-test",
+      "journal_gap": "swift-test",
+      "admission": "swift-test",
+      "acked_prefix_preserved": "swift-test",
+      "materialized_equals_replay": "swift-test",
+      "steps_open": "swift-test",
+      "steps_abandoned": "swift-test",
+      "settlement_reason": "swift-test"
+    }
+  },
+  "evidence_level": "swift-test",
+  "source": "Tests/PhoneDSHKillTests/Phase0KillMatrixTests.swift:456-487",
+  "related_sources": [
+    "Sources/PhoneDSHHarness/KillSupport.swift:301-352",
+    "Tests/PhoneDSHControllerTests/HostStateMachineTests.swift:66-88"
+  ],
+  "notes": "The acked prefix is the only safe assertion bound: a record appended without an ACK may exist and is replayed, but the fixture does not require it (see write-without-ack). surfaced_to_user is unmeasured because no source or test fixes a user-visible surface for a step left open by a process kill; the Android tombstone notification is a plan-level addition, not a Swift behaviour."
+}

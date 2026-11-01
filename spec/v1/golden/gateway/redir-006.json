@@ -1,0 +1,41 @@
+{
+  "id": "gw-redir-006",
+  "rule": "redirect-scope",
+  "kind": "redirect-chain",
+  "source": "Sources/PhoneDSHGateway/GatewaySession.swift:372",
+  "references": [
+    "Tests/PhoneDSHGatewayTests/ModelGatewayTests.swift:1107",
+    "Tests/PhoneDSHGatewayTests/ModelGatewayTests.swift:1109"
+  ],
+  "note": "Only a request that carries a host credential is pinned to its scope; an anonymous request may cross hosts when both are allow-listed.",
+  "input": {
+    "method": "GET",
+    "url": "https://api.example.invalid/start",
+    "headers": {
+      "accept": "application/json"
+    },
+    "allowlist": [
+      "https://api.example.invalid",
+      "https://internal.example.invalid"
+    ],
+    "credential": {
+      "kind": "none"
+    },
+    "redirects": [
+      {
+        "status": 302,
+        "location": "https://internal.example.invalid/final"
+      }
+    ]
+  },
+  "expect": {
+    "dispatch": "allow",
+    "outbound_headers": {
+      "accept": "application/json"
+    },
+    "stripped": [],
+    "outbound_url": "https://internal.example.invalid/final",
+    "redirects_followed": 1,
+    "final_url": "https://internal.example.invalid/final"
+  }
+}

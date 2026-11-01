@@ -1,0 +1,307 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "ExportPage",
+  "pageId": "export",
+  "structure": "swiftui-view",
+  "sectionModel": "regions",
+  "sectionNote": null,
+  "title": {
+    "text": "导出诊断",
+    "provenance": "ExportPage.swift:64",
+    "anchor": ".navigationTitle(\"导出诊断\")"
+  },
+  "source": {
+    "file": "ExportPage.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/ExportPage.swift",
+    "lines": 84,
+    "structLine": 11,
+    "renderedFrom": [
+      "body"
+    ],
+    "sectionOrder": "declaration order inside the page struct"
+  },
+  "android": {
+    "screen": "ExportPage",
+    "file": "android/lib/src/main/kotlin/com/phonedsh/ui/page/ExportPage.kt",
+    "match": "composable"
+  },
+  "sections": [
+    {
+      "id": "报告",
+      "kind": "region",
+      "title": "报告",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleSource": "literal",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "custom-21",
+          "label": null,
+          "labelExpr": "KeyValueLine",
+          "kind": "custom",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "ExportPage.swift:21",
+          "anchor": "KeyValueLine(key: \"状态\", value: model.store.status)",
+          "extraction": "manual",
+          "template": "KeyValueLine"
+        },
+        {
+          "id": "custom-22",
+          "label": null,
+          "labelExpr": "KeyValueLine",
+          "kind": "custom",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "ExportPage.swift:22",
+          "anchor": "KeyValueLine(key: \"环境\", value: model.store.environment)",
+          "extraction": "manual",
+          "template": "KeyValueLine"
+        },
+        {
+          "id": "custom-23",
+          "label": null,
+          "labelExpr": "KeyValueLine",
+          "kind": "custom",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "ExportPage.swift:23",
+          "anchor": "KeyValueLine(key: \"设备\",",
+          "extraction": "manual",
+          "template": "KeyValueLine"
+        },
+        {
+          "id": "1",
+          "label": "1",
+          "labelExpr": null,
+          "kind": "custom",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "ExportPage.swift:25",
+          "anchor": "KeyValueLine(key: \"格式版本\", value: \"1\")",
+          "extraction": "syntax",
+          "template": "KeyValueLine"
+        },
+        {
+          "id": "custom-27",
+          "label": null,
+          "labelExpr": "KeyValueLine",
+          "kind": "custom",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "let exportURL",
+          "provenance": "ExportPage.swift:27",
+          "anchor": "KeyValueLine(key: \"文件\",",
+          "extraction": "manual",
+          "template": "KeyValueLine"
+        },
+        {
+          "id": "还没写",
+          "label": "还没写",
+          "labelExpr": null,
+          "kind": "custom",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "!(let exportURL)",
+          "provenance": "ExportPage.swift:30",
+          "anchor": "KeyValueLine(key: \"文件\", value: \"还没写\")",
+          "extraction": "syntax",
+          "template": "KeyValueLine"
+        },
+        {
+          "id": "写好的文件放进仓库的验收目录-文件名用日期和设备名",
+          "label": "写好的文件放进仓库的验收目录,文件名用日期和设备名。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "ExportPage.swift:32",
+          "anchor": "Text(\"写好的文件放进仓库的验收目录,文件名用日期和设备名。\")",
+          "extraction": "syntax"
+        },
+        {
+          "id": "写报告",
+          "label": "写报告",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "ExportPage.swift:39",
+          "anchor": "Label(\"写报告\", systemImage: \"square.and.arrow.down\")",
+          "extraction": "syntax"
+        },
+        {
+          "id": "custom-43",
+          "label": null,
+          "labelExpr": "ShareLink",
+          "kind": "custom",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "let exportURL",
+          "provenance": "ExportPage.swift:43",
+          "anchor": "ShareLink(item: exportURL) {",
+          "extraction": "manual",
+          "template": "ShareLink"
+        },
+        {
+          "id": "text-50",
+          "label": null,
+          "labelExpr": "errorText",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "let errorText",
+          "provenance": "ExportPage.swift:50",
+          "anchor": "Text(errorText)",
+          "extraction": "manual"
+        }
+      ],
+      "provenance": "ExportPage.swift:20",
+      "anchor": "PageSection(\"报告\") {",
+      "extraction": "syntax",
+      "template": "PageSection"
+    },
+    {
+      "id": "预览",
+      "kind": "region",
+      "title": "预览",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleSource": "literal",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "text-56",
+          "label": null,
+          "labelExpr": "preview",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "ExportPage.swift:56",
+          "anchor": "Text(preview)",
+          "extraction": "manual"
+        }
+      ],
+      "provenance": "ExportPage.swift:55",
+      "anchor": "PageSection(\"预览\") {",
+      "extraction": "syntax",
+      "template": "PageSection"
+    }
+  ],
+  "actions": [
+    {
+      "id": "写报告",
+      "label": "写报告",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ write()",
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "ExportPage.swift:39",
+      "anchor": "Label(\"写报告\", systemImage: \"square.and.arrow.down\")",
+      "extraction": "syntax"
+    },
+    {
+      "id": "分享文件",
+      "label": "分享文件",
+      "labelExpr": null,
+      "kind": "share",
+      "trigger": "tap",
+      "semantic": null,
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "ExportPage.swift:44",
+      "anchor": "Label(\"分享文件\", systemImage: \"square.and.arrow.up\")",
+      "extraction": "syntax"
+    }
+  ],
+  "presentations": [],
+  "states": {
+    "advisory": true,
+    "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
+    "sites": {
+      "empty": [],
+      "data": [
+        {
+          "renders": "报告 | 预览",
+          "when": null,
+          "provenance": "ExportPage.swift:11",
+          "anchor": "struct ExportPage: View {",
+          "note": "structural default: the sections above, when no condition overrides them"
+        }
+      ],
+      "failure": [],
+      "unknown": [],
+      "loading": []
+    },
+    "absent": [
+      "empty",
+      "failure",
+      "unknown",
+      "loading"
+    ],
+    "coverage": {
+      "empty": 0,
+      "data": 1,
+      "failure": 0,
+      "unknown": 0,
+      "loading": 0
+    }
+  },
+  "subpages": [],
+  "unreachable": [],
+  "extraction": {
+    "tool": "extract_ios_pages.py",
+    "mode": "syntax",
+    "sectionKeywordsInPage": 0,
+    "regionsExtracted": 2,
+    "sectionsExtracted": 2,
+    "warnings": []
+  }
+}

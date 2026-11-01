@@ -1,0 +1,31 @@
+{
+  "id": "gw-egress-004",
+  "rule": "egress-classification",
+  "kind": "request",
+  "source": "Sources/PhoneDSHGateway/GatewaySession.swift:78",
+  "references": [
+    "Tests/PhoneDSHGatewayTests/GatewayHostRuleWildcardTests.swift:24"
+  ],
+  "note": "`https://*` admits every https host on any port. It does not authorize a credential: the provider still decides per scope.",
+  "input": {
+    "method": "GET",
+    "url": "https://api.example.invalid/v1/forecast",
+    "headers": {
+      "accept": "application/json"
+    },
+    "allowlist": [
+      "https://*"
+    ],
+    "credential": {
+      "kind": "none"
+    }
+  },
+  "expect": {
+    "dispatch": "allow",
+    "outbound_headers": {
+      "accept": "application/json"
+    },
+    "stripped": [],
+    "outbound_url": "https://api.example.invalid/v1/forecast"
+  }
+}

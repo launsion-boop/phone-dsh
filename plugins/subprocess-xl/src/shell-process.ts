@@ -22,6 +22,7 @@ import { OutputCollector } from '@deepseek-ai/dsh-subprocess-local/output'
 import type { ManagedProcessBinding } from '@deepseek-ai/dsh-subprocess-local/output'
 import { stdinEofTimeoutFromEnv } from '@phone-dsh/dsh-shell-ext'
 import type { WorkerShell } from '@phone-dsh/dsh-shell-ext'
+import { withResolvers } from './deferred.ts'
 import { localEnvironment } from './local.ts'
 import { flushWorkerVfs } from './durability.ts'
 import { isTimeoutReason } from './signal.ts'
@@ -52,10 +53,10 @@ export class ShellWorkerProcess implements SubprocessHandle {
   private readonly err = new PassThrough()
   private readonly input = new PassThrough()
   private readonly inputChunks: Buffer[] = []
-  private readonly inputClosed = Promise.withResolvers<void>()
+  private readonly inputClosed = withResolvers<void>()
   private readonly collectors: Partial<Record<'stdout' | 'stderr', OutputCollector>> = {}
-  private readonly exited = Promise.withResolvers<SubprocessOutcome>()
-  private readonly quiet = Promise.withResolvers<void>()
+  private readonly exited = withResolvers<SubprocessOutcome>()
+  private readonly quiet = withResolvers<void>()
   private readonly detachAbort: () => void
   private readonly stdinEofTimeoutMs: number
   private readonly lifetime = new AbortController()
@@ -439,7 +440,7 @@ export class ShellWorkerProcess implements SubprocessHandle {
   async waitForExit(signal?: AbortSignal): Promise<boolean> {
     if (this.quiescent) return true
     if (signal?.aborted) return false
-    const aborted = Promise.withResolvers<false>()
+    const aborted = withResolvers<false>()
     const onAbort = (): void => { aborted.resolve(false) }
     signal?.addEventListener('abort', onAbort, { once: true })
     try {

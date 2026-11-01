@@ -1,0 +1,36 @@
+{
+  "name": "error-timeout",
+  "direction": "sequence",
+  "schema": "bridge-message.schema.json",
+  "instance": [
+    {
+      "direction": "page-to-host",
+      "instance": {
+        "v": 1,
+        "kind": "request",
+        "requestId": "5a8e2f71-9c34-4b06-8d5f-1e7a3c9b0d24",
+        "method": "directory.pick",
+        "params": {
+          "sessionId": "sess-8f21c4",
+          "targetDirectory": "/dsh/workspace/imports"
+        },
+        "timeoutMs": 20000
+      }
+    },
+    {
+      "direction": "host-to-page",
+      "instance": {
+        "v": 1,
+        "kind": "error",
+        "requestId": "5a8e2f71-9c34-4b06-8d5f-1e7a3c9b0d24",
+        "method": "directory.pick",
+        "error": {
+          "code": "BRIDGE_TIMEOUT",
+          "message": "the host deadline expired before the page deadline",
+          "retryable": true
+        }
+      }
+    }
+  ],
+  "notes": "bridge.md §6; the host answers BRIDGE_TIMEOUT before timeoutMs instead of dropping the request, which is what keeps the Promise from hanging. The existing per-feature deadline is 15 s at Sources/PhoneDSHEngine/WebEngineNativePreview.swift:563 with the page's 20 s at plugins/phone-native-preview/src/protocol.ts:216-223."
+}

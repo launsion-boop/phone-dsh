@@ -1,0 +1,49 @@
+{
+  "id": "gw-resp-003",
+  "rule": "response-redaction",
+  "kind": "response",
+  "source": "Sources/PhoneDSHGateway/ResponseLog.swift:130",
+  "references": [
+    "Tests/PhoneDSHGatewayTests/ResponseLogTests.swift:294"
+  ],
+  "note": "The response log stores complete bodies or nothing: a body larger than the whole quota is dropped, never truncated, and the caller still receives it.",
+  "input": {
+    "method": "POST",
+    "url": "https://api.example.invalid/v1/messages",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "allowlist": [
+      "https://api.example.invalid"
+    ],
+    "credential": {
+      "kind": "api-key",
+      "header": "x-api-key",
+      "value": "sk-HOST-API-KEY-PLACEHOLDER"
+    },
+    "response": {
+      "status": 200,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body_bytes": 131072
+    },
+    "quota_bytes": 65536
+  },
+  "expect": {
+    "dispatch": "allow",
+    "outbound_headers": {
+      "cache-control": "no-store",
+      "content-type": "application/json"
+    },
+    "stripped": [],
+    "outbound_url": "https://api.example.invalid/v1/messages",
+    "body_bytes": 131072,
+    "log": {
+      "recorded": false,
+      "reason": "quota_exceeded",
+      "body_bytes": 131072,
+      "retained_bytes": 0
+    }
+  }
+}

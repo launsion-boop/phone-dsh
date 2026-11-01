@@ -1,0 +1,151 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "phone-dsh scenario assertion",
+  "description": "One assertion of the normative scenario-catalog vocabulary. The eight variants are the assertion types used by scripts/ci/scenarios/catalog.json and evaluated by the macOS and iOS Simulator runners; a Kotlin third runner consumes the same vocabulary. Each variant is a closed object (additionalProperties: false) because the runner rejects unknown assertion keys per type: a misspelled optional bound such as a mistyped max would otherwise decode to nil and turn the check into a silent no-op. Runner self-test-only types (model_requests_lte, worker_command, session_error) are deliberately outside this catalog vocabulary.",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": [
+        "type",
+        "path",
+        "value"
+      ],
+      "properties": {
+        "type": {
+          "const": "file_contains"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024,
+          "pattern": "^(?!/).+$"
+        },
+        "value": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "type",
+        "path"
+      ],
+      "properties": {
+        "type": {
+          "const": "file_exists"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024,
+          "pattern": "^(?!/).+$"
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "type",
+        "path",
+        "value"
+      ],
+      "properties": {
+        "type": {
+          "const": "file_regex"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024,
+          "pattern": "^(?!/).+$"
+        },
+        "value": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "const": "no_console_error"
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "type",
+        "path"
+      ],
+      "properties": {
+        "type": {
+          "const": "no_file"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024,
+          "pattern": "^(?!/).+$"
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "const": "restart_recovered"
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "type",
+        "max"
+      ],
+      "properties": {
+        "type": {
+          "const": "turn_count_lte"
+        },
+        "max": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "type",
+        "command"
+      ],
+      "properties": {
+        "type": {
+          "const": "workspace_command"
+        },
+        "command": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    }
+  ]
+}

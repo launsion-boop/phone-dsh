@@ -1,0 +1,94 @@
+{
+  "id": "kill-9-during-checkpoint",
+  "verb": "kill_9",
+  "title": "SIGKILL in the middle of a 100-file materialization burst",
+  "preconditions": {
+    "host_state": "Running",
+    "admission": "open",
+    "epoch_open": true,
+    "acked_mseq": 3,
+    "open_steps": 1,
+    "journaled_steps": 0,
+    "exec_in_flight": false,
+    "persisted_state": "Running",
+    "worker_channel": "open",
+    "notes": "The process appends a burst of 100 workspace writes in mseq order; the kill lands after at least 3 acks, so the materialized copy lags the WAL when the process dies."
+  },
+  "timeline": [
+    {
+      "at": 0,
+      "event": "journal dispatched acked; burst of 100 writes starts",
+      "detail": "each write is acked as soon as its WAL write() returns (wal.md section 5 step 3)",
+      "expect_state": "Running",
+      "source": "Tests/PhoneDSHKillTests/Phase0KillMatrixTests.swift:388-397"
+    },
+    {
+      "at": 5,
+      "event": "SIGKILL between two burst records",
+      "detail": "the materialized copy may be arbitrarily behind the acked WAL tail",
+      "source": "Tests/PhoneDSHKillTests/Phase0KillMatrixTests.swift:440-460"
+    },
+    {
+      "at": 15,
+      "event": "process start",
+      "expect_state": "Recovering",
+      "source": "Tests/PhoneDSHControllerTests/HostStateMachineTests.swift:66-88"
+    },
+    {
+      "at": 25,
+      "event": "replay of the whole retained tail",
+      "detail": "no ghost write and no missing write: the materialized tree equals the replay of every retained record",
+      "source": "Sources/PhoneDSHHarness/KillSupport.swift:316-333"
+    },
+    {
+      "at": 35,
+      "event": "lease verified",
+      "expect_state": "Running",
+      "source": "Tests/PhoneDSHKillTests/Phase0KillMatrixTests.swift:158"
+    },
+    {
+      "at": 45,
+      "event": "step reconcile",
+      "detail": "reconcile lists exactly the interrupted step",
+      "source": "Sources/PhoneDSHHarness/KillSupport.swift:335-344"
+    }
+  ],
+  "expected": {
+    "state": "Running",
+    "state_path": [
+      "Running",
+      "Recovering",
+      "Running"
+    ],
+    "durability_level": "level_1",
+    "wal_tail": "intact_open_epoch",
+    "journal_gap": "step_open",
+    "surfaced_to_user": "unmeasured",
+    "admission": "open",
+    "acked_prefix_preserved": true,
+    "materialized_equals_replay": true,
+    "steps_open": 1,
+    "steps_abandoned": 0,
+    "settlement_reason": "absent",
+    "field_evidence": {
+      "state": "swift-test",
+      "state_path": "swift-test",
+      "durability_level": "swift-test",
+      "wal_tail": "swift-test",
+      "journal_gap": "swift-test",
+      "admission": "swift-test",
+      "acked_prefix_preserved": "swift-test",
+      "materialized_equals_replay": "swift-test",
+      "steps_open": "swift-test",
+      "steps_abandoned": "swift-test",
+      "settlement_reason": "swift-test"
+    }
+  },
+  "evidence_level": "swift-test",
+  "source": "Tests/PhoneDSHKillTests/Phase0KillMatrixTests.swift:388-397",
+  "related_sources": [
+    "Tests/PhoneDSHKillTests/Phase0KillMatrixTests.swift:440-472",
+    "Sources/PhoneDSHHarness/KillSupport.swift:301-352"
+  ],
+  "notes": "This cell is the one that separates 'the WAL is the authority' from 'the materialized copy is the authority': a recovery that trusts a stale materialized tree here loses the whole burst."
+}

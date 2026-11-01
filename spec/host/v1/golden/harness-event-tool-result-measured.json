@@ -1,0 +1,20 @@
+{
+  "name": "harness-event-tool-result-measured",
+  "schema": "schema/harness-event.schema.json",
+  "instance": {
+    "session_id": "sess-6b03",
+    "seq": 6,
+    "time_ms": 1793400123000,
+    "kind": "tool_result",
+    "call_id": "call-9",
+    "is_error": false,
+    "summary": "a.md, b.md",
+    "bytes": 1536,
+    "duration_ms": 10,
+    "meta": {
+      "score": 0.123456,
+      "percent": 50.041
+    }
+  },
+  "notes": "Sources/PhoneDSHAgentCore/DSHEventMapper.swift:162-195 builds the tool/result row; the trajectory fixture tool-exec-noise/expected.jsonl line 2 is the projected shape with bytes 1536, durationMs 10 and meta. The three measurement members are optional, so the bounded-and-audit golden stays valid without them (event-kinds.md §1.2: absent means not measured, never zero)."
+}

@@ -1,0 +1,8 @@
+{
+  "name": "harness-command-shutdown",
+  "schema": "schema/harness-command.schema.json",
+  "instance": {
+    "kind": "shutdown"
+  },
+  "notes": "Sources/PhoneDSHAgentCore/AgentHarness.swift:261. Backends without a remote shutdown reject it with unsupported (DSHRemoteHarness.swift:146-147). Closing a session on the host side is closeSession, not a command, and has no wire form (AgentHarness.swift:499-504)."
+}

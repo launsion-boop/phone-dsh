@@ -1,0 +1,20 @@
+{
+  "name": "harness-event-tool-result-bounded-and-audit",
+  "schema": "schema/harness-event.schema.json",
+  "instance": {
+    "session_id": "sess-2f7c",
+    "seq": 6,
+    "time_ms": 1793400123000,
+    "kind": "tool_result",
+    "call_id": "call-42",
+    "is_error": false,
+    "summary": "pytest: 12 passed, 1 failed",
+    "tool_result_detail": {
+      "text": "pytest: 12 passed, 1 failed\nFAILED tests/test_math.py::test_parse_iso8601_rejects_zulu",
+      "truncated": false,
+      "event_seq": 3,
+      "session_log_path": "/dsh/home/sessions/*/sess-2f7c/session.*.jsonl"
+    }
+  },
+  "notes": "Sources/PhoneDSHAgentCore/AgentHarness.swift:396-397, 357-386. Two projections of one tool result: summary is the bounded single-line UI text (flattened, 280 characters, DSHEventMapper.swift:162-165) and tool_result_detail keeps newlines up to a 64 KiB UTF-8 audit bound; over the bound text is cut and a spill marker names the session log and the DSH event seq (DSHEventMapper.swift:40, 167-195)."
+}

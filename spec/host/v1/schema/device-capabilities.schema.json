@@ -1,0 +1,386 @@
+{
+  "title": "DeviceCapabilities",
+  "description": "The capability manifest a paired device declares, as the host consumes it. This schema is the sole authority for the capability vocabulary; the design documents are input material. A capability the manifest does not declare is unavailable. Capability value objects are open (extra members are ignored) because they carry protocol-specific detail. vehicle.* is present only when granted by the device vendor; vendor.<name>.* is passed through unparsed. A capability with no instance under golden/device-*.json is marked provisional: true; tools/host_check.py fails on an unmarked one and on a stale marker. display.text is the legacy spelling of the render.* family (a text-capable renderer); it stays declared for compatibility. light.effect.set is a command, not a capability, and must not be added here.",
+  "type": "object",
+  "required": [
+    "schema",
+    "device_id",
+    "protocol",
+    "capabilities",
+    "limits",
+    "auth"
+  ],
+  "properties": {
+    "schema": {
+      "const": "pdsh-device-caps/1"
+    },
+    "device_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9:._-]{0,127}$"
+    },
+    "protocol": {
+      "type": "object",
+      "required": [
+        "id",
+        "version"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "capabilities": {
+      "type": "object",
+      "properties": {
+        "audio.tts": {
+          "type": "object",
+          "required": [
+            "codec",
+            "rate"
+          ],
+          "properties": {
+            "codec": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "rate": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "audio.asr": {
+          "type": "object",
+          "required": [
+            "rate"
+          ],
+          "properties": {
+            "rate": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "audio.mic.stream": {
+          "type": "object",
+          "required": [
+            "codec",
+            "rate",
+            "frame_ms"
+          ],
+          "properties": {
+            "codec": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "rate": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "frame_ms": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "max_minutes": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "display.text": {
+          "type": "object",
+          "required": [
+            "max_chars"
+          ],
+          "properties": {
+            "max_chars": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "light.effect": {
+          "type": "object",
+          "required": [
+            "effects"
+          ],
+          "properties": {
+            "effects": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              }
+            }
+          }
+        },
+        "speaker.volume": {
+          "type": "object",
+          "required": [
+            "range"
+          ],
+          "properties": {
+            "range": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {
+                "type": "integer"
+              }
+            }
+          }
+        },
+        "control.gpio": {
+          "type": "object",
+          "required": [
+            "pins"
+          ],
+          "properties": {
+            "pins": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        },
+        "call.ble": {
+          "type": "object",
+          "required": [
+            "uplink",
+            "codec"
+          ],
+          "properties": {
+            "uplink": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "codec": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          }
+        },
+        "call.hfp": {
+          "provisional": true,
+          "type": "object",
+          "required": [
+            "profile",
+            "codec"
+          ],
+          "properties": {
+            "profile": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "codec": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          }
+        },
+        "call.uac": {
+          "provisional": true,
+          "type": "object",
+          "required": [
+            "telephony",
+            "codec"
+          ],
+          "properties": {
+            "telephony": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "codec": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          }
+        },
+        "render.light": {
+          "provisional": true,
+          "type": "object",
+          "required": [
+            "effects"
+          ],
+          "properties": {
+            "effects": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              }
+            }
+          }
+        },
+        "render.pixel": {
+          "type": "object",
+          "required": [
+            "w",
+            "h",
+            "format"
+          ],
+          "properties": {
+            "w": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "h": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "format": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "fps": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "render.epaper": {
+          "provisional": true,
+          "type": "object",
+          "required": [
+            "w",
+            "h",
+            "format"
+          ],
+          "properties": {
+            "w": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "h": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "format": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "refresh": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            }
+          }
+        },
+        "render.screen": {
+          "provisional": true,
+          "type": "object",
+          "required": [
+            "w",
+            "h",
+            "formats"
+          ],
+          "properties": {
+            "w": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "h": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "formats": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 32
+              }
+            }
+          }
+        },
+        "vehicle.*": {
+          "provisional": true,
+          "type": "object",
+          "required": [
+            "granted_by"
+          ],
+          "properties": {
+            "granted_by": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          }
+        }
+      },
+      "additionalProperties": {
+        "type": "object"
+      }
+    },
+    "limits": {
+      "type": "object",
+      "required": [
+        "max_frame_bytes"
+      ],
+      "properties": {
+        "max_frame_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65536
+        },
+        "text_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "audio_kbps": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "auth": {
+      "type": "object",
+      "required": [
+        "pairing",
+        "replay"
+      ],
+      "properties": {
+        "pairing": {
+          "type": "string",
+          "enum": [
+            "code",
+            "ble-passkey",
+            "cert"
+          ]
+        },
+        "replay": {
+          "const": "counter+ttl"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

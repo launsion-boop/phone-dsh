@@ -1,0 +1,45 @@
+{
+  "id": "gw-redir-008",
+  "rule": "redirect-scope",
+  "kind": "redirect-chain",
+  "source": "Sources/PhoneDSHGateway/GatewaySession.swift:369",
+  "references": [
+    "Tests/PhoneDSHGatewayTests/ModelGatewayTests.swift:1269"
+  ],
+  "note": "A permanent 301 outside the allow-list is not followed either. The caller gets the 301 itself with its Location intact, and exactly one contact happened: the refused hop is never re-sent.",
+  "input": {
+    "method": "POST",
+    "url": "https://api.example.invalid/v1/messages",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "allowlist": [
+      "https://api.example.invalid"
+    ],
+    "credential": {
+      "kind": "none"
+    },
+    "redirects": [
+      {
+        "status": 301,
+        "location": "https://mcp.example.invalid/v1/messages"
+      }
+    ]
+  },
+  "expect": {
+    "dispatch": "deny",
+    "outbound_headers": {
+      "content-type": "application/json"
+    },
+    "stripped": [],
+    "outbound_url": "https://api.example.invalid/v1/messages",
+    "deny_reason": "redirect_target_not_allowed",
+    "redirects_followed": 0,
+    "final_url": "https://mcp.example.invalid/v1/messages",
+    "status": 301,
+    "response_headers": {
+      "location": "https://mcp.example.invalid/v1/messages"
+    },
+    "upstream_contacts": 1
+  }
+}

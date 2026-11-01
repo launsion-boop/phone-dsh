@@ -1,0 +1,13 @@
+# @MainActor exceptions for the eight phone-DSH modules.
+#
+# One entry per line: path | expires | reason
+#
+# An entry is a recorded debt, not a switch. It only silences the
+# "main-actor" findings of that path, it must carry an expiry date, and it
+# must say why the main actor is genuinely required. An entry that no longer
+# matches a live finding is itself a finding, so this file cannot rot
+# silently. The rule it relaxes is in modules.py: the phone runtime modules
+# must stay usable off the main actor, because the engine and the controller
+# keep working while no view is on screen.
+
+Sources/PhoneDSHEngine/WebEngineDirectoryImport.swift | 2027-03-31 | WebKit directory-import calls (WKWebView / UIDocumentPicker bridging) are main-actor bound and the import path runs on the WebView's view thread, which is the main thread. This file is the one place where the Engine module has to touch a main-actor API. Replaced when the directory import moves behind the platform EngineHost SPI (Android port P1, plan B6), which is the seam that keeps this out of the engine core. Tracked debt; do not extend to other files.

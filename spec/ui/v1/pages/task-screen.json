@@ -1,0 +1,259 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "TaskScreenPage",
+  "pageId": "task-screen",
+  "structure": "swiftui-view",
+  "sectionModel": "regions",
+  "sectionNote": null,
+  "title": {
+    "text": "Screen",
+    "provenance": "TaskScreenPage.swift:60",
+    "anchor": ".navigationTitle(\"Screen\")"
+  },
+  "source": {
+    "file": "TaskScreenPage.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/TaskScreenPage.swift",
+    "lines": 86,
+    "structLine": 12,
+    "renderedFrom": [
+      "body"
+    ],
+    "sectionOrder": "declaration order inside the page struct"
+  },
+  "android": {
+    "screen": "TaskScreenPage",
+    "file": "android/lib/src/main/kotlin/com/phonedsh/ui/page/TaskScreenPage.kt",
+    "match": "composable"
+  },
+  "sections": [
+    {
+      "id": "task-screen",
+      "kind": "region",
+      "title": "Task screen",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleSource": "literal",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "opens-a-pure-black-low-brightness-screen-from",
+          "label": "Opens a pure-black, low-brightness screen from ",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "TaskScreenPage.swift:23",
+          "anchor": "Text(\"Opens a pure-black, low-brightness screen from \"",
+          "extraction": "syntax"
+        },
+        {
+          "id": "status-line",
+          "label": "Status line",
+          "labelExpr": null,
+          "kind": "input",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "TaskScreenPage.swift:29",
+          "anchor": "TextField(\"Status line\", text: $statusLine)",
+          "extraction": "syntax"
+        },
+        {
+          "id": "minimum-brightness-string-format",
+          "label": "Minimum brightness: \\(String(format:",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "TaskScreenPage.swift:32",
+          "anchor": "Text(\"Minimum brightness: \\(String(format: \"%.2f\", minimumBrightness))\")",
+          "extraction": "manual",
+          "dynamicLabel": true
+        },
+        {
+          "id": "custom-34",
+          "label": null,
+          "labelExpr": "Slider",
+          "kind": "custom",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "TaskScreenPage.swift:34",
+          "anchor": "Slider(value: $minimumBrightness, in: 0...0.5)",
+          "extraction": "manual",
+          "template": "Slider"
+        },
+        {
+          "id": "show-black-task-screen",
+          "label": "Show black task screen",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "TaskScreenPage.swift:39",
+          "anchor": "Label(\"Show black task screen\", systemImage: \"moon.fill\")",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "TaskScreenPage.swift:22",
+      "anchor": "PageSection(\"Task screen\") {",
+      "extraction": "syntax",
+      "template": "PageSection"
+    },
+    {
+      "id": "report",
+      "kind": "region",
+      "title": "Report",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleSource": "literal",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "presented",
+          "label": "presented",
+          "labelExpr": null,
+          "kind": "custom",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "TaskScreenPage.swift:46",
+          "anchor": "key: \"presented\",",
+          "extraction": "syntax",
+          "template": "KeyValueLine"
+        },
+        {
+          "id": "minimum-brightness",
+          "label": "minimum brightness",
+          "labelExpr": null,
+          "kind": "custom",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "TaskScreenPage.swift:49",
+          "anchor": "key: \"minimum brightness\",",
+          "extraction": "syntax",
+          "template": "KeyValueLine"
+        },
+        {
+          "id": "the-screen-brightness-api-is-best-effort-and-global",
+          "label": "The screen brightness API is best effort and global; ",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "TaskScreenPage.swift:52",
+          "anchor": "Text(\"The screen brightness API is best effort and global; \"",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "TaskScreenPage.swift:44",
+      "anchor": "PageSection(\"Report\") {",
+      "extraction": "syntax",
+      "template": "PageSection"
+    }
+  ],
+  "actions": [
+    {
+      "id": "show-black-task-screen",
+      "label": "Show black task screen",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ presenting = true",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "TaskScreenPage.swift:39",
+      "anchor": "Label(\"Show black task screen\", systemImage: \"moon.fill\")",
+      "extraction": "syntax"
+    },
+    {
+      "id": "button-69",
+      "label": null,
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ presenting = false",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "TaskScreenPage.swift:69",
+      "anchor": "Button {",
+      "extraction": "manual"
+    }
+  ],
+  "presentations": [],
+  "states": {
+    "advisory": true,
+    "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
+    "sites": {
+      "empty": [],
+      "data": [
+        {
+          "renders": "Task screen | Report",
+          "when": null,
+          "provenance": "TaskScreenPage.swift:12",
+          "anchor": "struct TaskScreenPage: View {",
+          "note": "structural default: the sections above, when no condition overrides them"
+        }
+      ],
+      "failure": [],
+      "unknown": [],
+      "loading": []
+    },
+    "absent": [
+      "empty",
+      "failure",
+      "unknown",
+      "loading"
+    ],
+    "coverage": {
+      "empty": 0,
+      "data": 1,
+      "failure": 0,
+      "unknown": 0,
+      "loading": 0
+    }
+  },
+  "subpages": [],
+  "unreachable": [],
+  "extraction": {
+    "tool": "extract_ios_pages.py",
+    "mode": "syntax",
+    "sectionKeywordsInPage": 0,
+    "regionsExtracted": 2,
+    "sectionsExtracted": 2,
+    "warnings": []
+  }
+}

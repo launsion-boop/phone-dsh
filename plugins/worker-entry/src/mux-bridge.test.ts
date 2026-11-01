@@ -306,29 +306,106 @@ test('server frames are canonical JSON (sorted keys, no whitespace)', async () =
   }
 })
 
-test('mux projection rounds llm retry delayMs without admitting other fractions', () => {
-  const encoded = encodeMuxFrameLine({
-    type: 'item', streamId: 's1', value: {
-      type: 'llm/retry', seq: 18, time: 1793276504702,
-      data: { delayMs: 528.0336662194833, policyKey: '[0.1]' },
-    },
+test('a jittered retry reaches the phone instead of aborting the turn', async () => {
+  // Field regression: one retry with a fractional wait used to make the whole
+  // receive fail with
+  //   API_ABORT reason=canonical JSON accepts integers only
+  // and the App reported APP_TURN_FAILED reason=api_aborted. The 429's
+  // `retry-after: 1.005` makes both carriers fractional: the failed attempt's
+  // embedded stream (appended first, seq 16) and the retry event (seq 17).
+  const factory = createFakeFactory()
+  const pair = connectPair()
+  const bridge = new WorkerEntryMuxBridge({ createSession: factory.createSession })
+  const dispose = serveApiRequests(pair.worker, async () => () => {}, {
+    synthesize: mustNotSynthesize,
+    mux: bridge,
   })
-  assert.equal(
-    decodeUtf8(encoded),
-    '{"streamId":"s1","type":"item","value":{"data":{"delayMs":528,"policyKey":"[0.1]"},"seq":18,"time":1793276504702,"type":"llm/retry"}}\n',
-  )
-  for (const value of [
-    { type: 'event', event: { type: 'llm/retry', data: { delayMs: 528.0336662194833 } } },
-    { type: 'snapshot', records: [{ event: { type: 'llm/retry', data: { delayMs: 528.0336662194833 } } }] },
-  ]) {
-    assert.match(decodeUtf8(encodeMuxFrameLine({ type: 'item', streamId: 's1', value })), /"delayMs":528/)
+  try {
+    await collectRequest(pair, muxHead(MUX_A, 'send'), sendFrame({
+      type: 'open', streamId: 'follow', endpoint: 'session/follow', payload: {},
+    }))
+    const session = factory.sessions.get(MUX_A)!
+    const receive = collectRequest(pair, muxHead(MUX_A, 'receive'))
+    await settle()
+    // 1) the failed attempt records the exact failure, retry-after included.
+    session.emit({
+      type: 'item',
+      streamId: 'follow',
+      value: {
+        type: 'event',
+        event: {
+          type: 'assistant/attempt',
+          seq: 16,
+          time: 1761933600000,
+          data: {
+            turn: 0,
+            step: 0,
+            stream: [{
+              type: 'chunk',
+              time: 1761933600000,
+              chunk: {
+                type: 'finish',
+                reason: {
+                  kind: 'error',
+                  failure: {
+                    message: 'DeepSeek Messages request failed (429)',
+                    code: 'RATE_LIMIT',
+                    status: 429,
+                    providerRetryAfterMs: 1004.9999999999999,
+                  },
+                },
+              },
+            }],
+          },
+        },
+      },
+    })
+    await settle()
+    // 2) the retry event carries the jittered local wait.
+    session.emit({
+      type: 'item',
+      streamId: 'follow',
+      value: {
+        type: 'event',
+        event: {
+          type: 'llm/retry',
+          seq: 17,
+          time: 1761933600000,
+          data: {
+            retryId: 'retry-1',
+            turn: 0,
+            step: 0,
+            provider: 'deepseek-official',
+            mode: 'normal',
+            policyKey: 'policy',
+            retry: 1,
+            maxRetries: 8,
+            delayMs: 481.7056,
+            failure: { message: 'DeepSeek Messages request failed (429)', code: 'RATE_LIMIT', status: 429 },
+          },
+        },
+      },
+    })
+    await settle()
+    await collectRequest(pair, muxHead(MUX_A, 'close'))
+    // Without the projection this await rejects with a ChannelRequestError
+    // whose reason is 'canonical JSON accepts integers only'.
+    const chunks = await receive
+    assert.equal(statusOf(chunks), 200)
+    const lines = linesOf(chunks)
+    assert.equal(lines.length, 2, 'both the attempt and the retry event reached the phone')
+    const attempt = JSON.parse(lines[0]!)
+    assert.equal(
+      attempt.value.event.data.stream[0].chunk.reason.failure.providerRetryAfterMs,
+      1005,
+      'the failed attempt stream is rounded too',
+    )
+    const retry = JSON.parse(lines[1]!)
+    assert.equal(retry.value.event.data.delayMs, 482, 'the wait is rounded to whole milliseconds')
+    for (const line of lines) assert.equal(canonicalStringify(JSON.parse(line)), line, 'still canonical JSON')
+  } finally {
+    dispose()
   }
-  assert.throws(
-    () => encodeMuxFrameLine({
-      type: 'item', streamId: 's1', value: { type: 'other/event', data: { delayMs: 0.5 } },
-    }),
-    /integers only/,
-  )
 })
 
 test('parseMuxClientFrame mirrors the gateway stream-protocol exact-key rules', () => {

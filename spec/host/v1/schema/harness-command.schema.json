@@ -1,0 +1,229 @@
+{
+  "title": "HarnessCommand",
+  "description": "One command the host sends to one harness session. The session id is carried by the send operation, not by this object. kind is the only discriminator; each variant is closed so exactly one variant matches.",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": [
+        "kind",
+        "text",
+        "request_id"
+      ],
+      "properties": {
+        "kind": {
+          "const": "prompt"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1048576
+        },
+        "request_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9:._-]{0,127}$"
+        },
+        "attachments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "mime_type",
+              "data_base64"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 255
+              },
+              "mime_type": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 255
+              },
+              "data_base64": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9+/]*={0,2}$"
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "kind",
+        "text",
+        "request_id"
+      ],
+      "properties": {
+        "kind": {
+          "const": "steer"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1048576
+        },
+        "request_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9:._-]{0,127}$"
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "const": "cancel"
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "kind",
+        "cause"
+      ],
+      "properties": {
+        "kind": {
+          "const": "cancel_with_cause"
+        },
+        "cause": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": [
+                "kind"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "user"
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": [
+                "kind"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "hook"
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": [
+                "kind",
+                "detail"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "budget"
+                },
+                "detail": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": [
+                "kind",
+                "detail"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "timeout"
+                },
+                "detail": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "kind",
+        "request_id",
+        "decision"
+      ],
+      "properties": {
+        "kind": {
+          "const": "permission_response"
+        },
+        "request_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9:._-]{0,127}$"
+        },
+        "decision": {
+          "type": "string",
+          "enum": [
+            "allow_once",
+            "allow_always",
+            "deny"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "kind",
+        "request_id",
+        "answer"
+      ],
+      "properties": {
+        "kind": {
+          "const": "question_response"
+        },
+        "request_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9:._-]{0,127}$"
+        },
+        "answer": {
+          "type": "string",
+          "maxLength": 65536
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "const": "shutdown"
+        }
+      },
+      "additionalProperties": false
+    }
+  ]
+}

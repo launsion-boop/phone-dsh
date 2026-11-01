@@ -35,7 +35,50 @@ ALLOWED_HOSTS = {
     "modelcontextprotocol.io",
     "localhost",
     "127.0.0.1",
+    # RFC 2606 reserves example.com (and its subdomains) for documentation, so
+    # it names no real service. The CSP conformance checklist in
+    # spec/v1/render-media-v1.md fetches it on purpose, and the subdomain form
+    # is already covered by RESERVED_HOST_SUFFIXES below.
+    "example.com",
+    # The Gradle wrapper's own `distributionUrl`. Like nodejs.org and npmjs.com
+    # above, it names the public distribution host a toolchain fetch needs; the
+    # wrapper regenerates that line, so it cannot be rewritten by hand.
+    "services.gradle.org",
 }
+
+# A dotted Java/Kotlin/Android package name is not a hostname, even though its
+# last component may look like a TLD (`java.io`, `androidx.test.platform.app`).
+# Matching them was a false positive on ordinary Kotlin KDoc and imports.
+PACKAGE_PATH_PREFIXES = (
+    "java.",
+    "javax.",
+    "kotlin.",
+    "kotlinx.",
+    "android.",
+    "androidx.",
+    "dalvik.",
+    "com.android.",
+    "org.jetbrains.",
+    "org.jetbrains.kotlin.",
+    "org.junit.",
+    "org.w3c.",
+    "org.xml.",
+    "org.xmlpull.",
+    "sun.",
+    "jdk.",
+)
+
+
+def looks_like_package_path(candidate):
+    lowered = candidate.lower()
+    if any(lowered.startswith(prefix) for prefix in PACKAGE_PATH_PREFIXES):
+        return True
+    # `Dispatchers.IO`, `Locale.US`: an all-caps right-hand side is an object or an
+    # enum constant, never a top-level domain. Every real TLD is at least partially
+    # lower case in source.
+    tail = candidate.rsplit(".", 1)[-1]
+    return tail.isalpha() and tail.isupper() and len(tail) <= 5
+
 
 RESERVED_HOST_SUFFIXES = (
     ".example",
@@ -145,6 +188,10 @@ def scan_line(rel, number, line, patterns, findings):
     for _start, _end, host in url_spans:
         if host.lower() in seen_hosts:
             continue
+        # A string template, not a host: "http://$LOOPBACK_HOST:$port/",
+        # "https://${host}/". There is no literal host to judge.
+        if "$" in host or "{" in host or "}" in host or "%" in host:
+            continue
         seen_hosts.add(host.lower())
         if not host_allowed(host):
             add_finding(findings, patterns, rel, number, line, "hostname", host)
@@ -153,6 +200,8 @@ def scan_line(rel, number, line, patterns, findings):
             continue
         host = match.group(1)
         if host.lower() in seen_hosts:
+            continue
+        if looks_like_package_path(host):
             continue
         seen_hosts.add(host.lower())
         if not host_allowed(host):

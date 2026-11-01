@@ -1,0 +1,521 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Perturbation fixture (kill-replay matrix)",
+  "description": "One language-neutral kill-replay case: a perturbation verb, the host preconditions it is applied to, a logical-clock timeline and the state the host must be observed in afterwards. The fixture is the oracle; the runner may be Swift, Kotlin or anything else. Semantics are fixed by spec/v1/budgets.md section 1-2 (the nine host states and the D14 transition table) and spec/v1/wal.md section 5 and 10 (level 1 level 2 durability, torn-tail truncation, recovery). Field vocabulary and the assertion algorithm are documented in spec/v1/golden/perturbations/README.md.",
+  "type": "object",
+  "required": [
+    "id",
+    "verb",
+    "preconditions",
+    "timeline",
+    "expected",
+    "evidence_level",
+    "source"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "minLength": 3,
+      "maxLength": 80
+    },
+    "verb": {
+      "description": "The perturbation verb. One verb per fixture; the runner table in the README maps each verb to the platform mechanism.",
+      "enum": [
+        "kill_9",
+        "sigterm",
+        "drain_timeout",
+        "system_reclaim",
+        "power_loss_torn_tail",
+        "renderer_terminate",
+        "force_stop_zero_callback",
+        "planned_restart",
+        "cold_start_after_reboot",
+        "write_without_ack",
+        "stop_seal_failure"
+      ]
+    },
+    "title": {
+      "type": "string",
+      "minLength": 4,
+      "maxLength": 200
+    },
+    "preconditions": {
+      "type": "object",
+      "required": [
+        "host_state",
+        "admission",
+        "epoch_open"
+      ],
+      "properties": {
+        "host_state": {
+          "description": "The host state the perturbation is applied in (budgets.md section 1).",
+          "enum": [
+            "Running",
+            "Draining",
+            "Parked",
+            "Recovering",
+            "Backoff",
+            "HandingOff",
+            "Remote",
+            "Reclaiming",
+            "Failed"
+          ]
+        },
+        "admission": {
+          "enum": [
+            "open",
+            "closed"
+          ]
+        },
+        "epoch_open": {
+          "description": "true when the newest WAL epoch has no epoch-close record yet.",
+          "type": "boolean"
+        },
+        "acked_mseq": {
+          "description": "Highest level-1 acknowledged mutation mseq at the perturbation point; 0 when none.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000
+        },
+        "open_steps": {
+          "description": "Tool-journal steps whose last record is not terminal at the perturbation point.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000
+        },
+        "journaled_steps": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000
+        },
+        "exec_in_flight": {
+          "type": "boolean"
+        },
+        "persisted_state": {
+          "description": "The state host-state.json holds at the perturbation point; absent when the workspace has no persisted host state.",
+          "enum": [
+            "Running",
+            "Draining",
+            "Parked",
+            "Recovering",
+            "Backoff",
+            "HandingOff",
+            "Remote",
+            "Reclaiming",
+            "Failed",
+            "absent"
+          ]
+        },
+        "worker_channel": {
+          "enum": [
+            "open",
+            "closed",
+            "absent"
+          ]
+        },
+        "notes": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 400
+        }
+      },
+      "additionalProperties": false
+    },
+    "timeline": {
+      "description": "Ordered events on a logical clock. at is milliseconds since the fixture started and MUST NOT be a wall-clock timestamp.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 40,
+      "items": {
+        "type": "object",
+        "required": [
+          "at",
+          "event"
+        ],
+        "properties": {
+          "at": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 3600000
+          },
+          "event": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 160
+          },
+          "detail": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 400
+          },
+          "expect_state": {
+            "description": "The host state that must be observable once this step has been applied.",
+            "enum": [
+              "Running",
+              "Draining",
+              "Parked",
+              "Recovering",
+              "Backoff",
+              "HandingOff",
+              "Remote",
+              "Reclaiming",
+              "Failed"
+            ]
+          },
+          "source": {
+            "description": "The Swift anchor for this step, or NEW when the step exists only for the Android runner.",
+            "type": "string",
+            "pattern": "^(NEW|(Tests|Sources|scripts|spec)/[A-Za-z0-9_./-]+\\.(swift|json|md):[0-9]+(-[0-9]+)?)$"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "expected": {
+      "type": "object",
+      "required": [
+        "state",
+        "durability_level",
+        "wal_tail",
+        "journal_gap",
+        "surfaced_to_user"
+      ],
+      "properties": {
+        "state": {
+          "description": "The terminal host state the runner must observe when the timeline has been replayed.",
+          "enum": [
+            "Running",
+            "Draining",
+            "Parked",
+            "Recovering",
+            "Backoff",
+            "HandingOff",
+            "Remote",
+            "Reclaiming",
+            "Failed"
+          ]
+        },
+        "state_path": {
+          "description": "Every host state the runner must observe, in order. The last element must equal state.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 12,
+          "items": {
+            "enum": [
+              "Running",
+              "Draining",
+              "Parked",
+              "Recovering",
+              "Backoff",
+              "HandingOff",
+              "Remote",
+              "Reclaiming",
+              "Failed"
+            ]
+          }
+        },
+        "durability_level": {
+          "description": "The strongest durability promise the fixture asserts. level_1 survives process death (wal.md section 5 step 3); level_2 survives power loss (wal.md section 5.2 step 5).",
+          "enum": [
+            "level_1",
+            "level_2",
+            "none",
+            "unmeasured"
+          ]
+        },
+        "wal_tail": {
+          "description": "Shape of the newest retained WAL segment after recovery. intact_open_epoch: every record complete, no epoch-close record. truncated_to_last_complete: a torn tail was truncated (wal.md section 10 step 2). closed_epoch: an epoch-close record is present. unchanged: the perturbation wrote no WAL byte.",
+          "enum": [
+            "intact_open_epoch",
+            "truncated_to_last_complete",
+            "closed_epoch",
+            "unchanged",
+            "unmeasured"
+          ]
+        },
+        "journal_gap": {
+          "description": "What the tool journal of the affected session must show after recovery. step_open: exactly the interrupted step is still non-terminal. step_abandoned: a terminal abandonment record owns it. step_reconciled: a resolved record from the Worker's write-open owns it.",
+          "enum": [
+            "none",
+            "step_open",
+            "step_abandoned",
+            "step_reconciled",
+            "unmeasured"
+          ]
+        },
+        "surfaced_to_user": {
+          "enum": [
+            "none",
+            "orphan_step_settlement",
+            "boot_recovery_report",
+            "stop_error_to_caller",
+            "scenario_run_failure",
+            "unmeasured"
+          ]
+        },
+        "admission": {
+          "enum": [
+            "open",
+            "closed",
+            "unmeasured"
+          ]
+        },
+        "acked_prefix_preserved": {
+          "description": "Every level-1 acked mseq must still be present in the WAL with the identical mutation.",
+          "type": "boolean"
+        },
+        "unacked_records_retained": {
+          "description": "A record appended to the WAL without a level-1 ack must still survive and replay.",
+          "type": "boolean"
+        },
+        "truncated_torn_tail": {
+          "type": "boolean"
+        },
+        "materialized_equals_replay": {
+          "description": "The materialized copy must equal the WAL replay of the retained records, byte for byte.",
+          "type": "boolean"
+        },
+        "steps_open": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000
+        },
+        "steps_abandoned": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000
+        },
+        "settlement_reason": {
+          "description": "The terminal settlement reason recorded on the affected step; absent when no step was settled.",
+          "enum": [
+            "worker-terminated",
+            "planned-restart",
+            "absent",
+            "unmeasured"
+          ]
+        },
+        "late_completion_does_not_advance": {
+          "description": "A late journal completion record must not turn a settled or unproven step into a success.",
+          "type": "boolean"
+        },
+        "no_drain_before_kill": {
+          "description": "The perturbation reached the host with no Draining transition and no epoch-close record.",
+          "type": "boolean"
+        },
+        "worker_rehello": {
+          "description": "The replacement Worker must send a HELLO after recovery (boot id changes).",
+          "type": "boolean"
+        },
+        "boot_disposition": {
+          "description": "The boot disposition the next process start must report.",
+          "enum": [
+            "cold_start",
+            "crash_recovery",
+            "parked_resume",
+            "user_reset",
+            "unmeasured"
+          ]
+        },
+        "fence_and_lifecycle_resent": {
+          "description": "true when the post-recovery FENCE and LIFECYCLE open frames must be sent; false when the recovery failed and admission stayed closed.",
+          "type": "boolean"
+        },
+        "field_evidence": {
+          "description": "Evidence for each asserted member of expected. The top-level evidence_level must equal the weakest value here.",
+          "type": "object",
+          "properties": {
+            "state": {
+              "enum": [
+                "swift-test",
+                "swift-source",
+                "spec-only",
+                "NEW"
+              ]
+            },
+            "state_path": {
+              "enum": [
+                "swift-test",
+                "swift-source",
+                "spec-only",
+                "NEW"
+              ]
+            },
+            "durability_level": {
+              "enum": [
+                "swift-test",
+                "swift-source",
+                "spec-only",
+                "NEW"
+              ]
+            },
+            "wal_tail": {
+              "enum": [
+                "swift-test",
+                "swift-source",
+                "spec-only",
+                "NEW"
+              ]
+            },
+            "journal_gap": {
+              "enum": [
+                "swift-test",
+                "swift-source",
+                "spec-only",
+                "NEW"
+              ]
+            },
+            "surfaced_to_user": {
+              "enum": [
+                "swift-test",
+                "swift-source",
+                "spec-only",
+                "NEW"
+              ]
+            },
+            "admission": {
+              "enum": [
+                "swift-test",
+                "swift-source",
+                "spec-only",
+                "NEW"
+              ]
+            },
+            "acked_prefix_preserved": {
+              "enum": [
+                "swift-test",
+                "swift-source",
+                "spec-only",
+                "NEW"
+              ]
+            },
+            "unacked_records_retained": {
+              "enum": [
+                "swift-test",
+                "swift-source",
+                "spec-only",
+                "NEW"
+              ]
+            },
+            "truncated_torn_tail": {
+              "enum": [
+                "swift-test",
+                "swift-source",
+                "spec-only",
+                "NEW"
+              ]
+            },
+            "materialized_equals_replay": {
+              "enum": [
+                "swift-test",
+                "swift-source",
+                "spec-only",
+                "NEW"
+              ]
+            },
+            "steps_open": {
+              "enum": [
+                "swift-test",
+                "swift-source",
+                "spec-only",
+                "NEW"
+              ]
+            },
+            "steps_abandoned": {
+              "enum": [
+                "swift-test",
+                "swift-source",
+                "spec-only",
+                "NEW"
+              ]
+            },
+            "settlement_reason": {
+              "enum": [
+                "swift-test",
+                "swift-source",
+                "spec-only",
+                "NEW"
+              ]
+            },
+            "late_completion_does_not_advance": {
+              "enum": [
+                "swift-test",
+                "swift-source",
+                "spec-only",
+                "NEW"
+              ]
+            },
+            "no_drain_before_kill": {
+              "enum": [
+                "swift-test",
+                "swift-source",
+                "spec-only",
+                "NEW"
+              ]
+            },
+            "worker_rehello": {
+              "enum": [
+                "swift-test",
+                "swift-source",
+                "spec-only",
+                "NEW"
+              ]
+            },
+            "boot_disposition": {
+              "enum": [
+                "swift-test",
+                "swift-source",
+                "spec-only",
+                "NEW"
+              ]
+            },
+            "fence_and_lifecycle_resent": {
+              "enum": [
+                "swift-test",
+                "swift-source",
+                "spec-only",
+                "NEW"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "evidence_level": {
+      "enum": [
+        "swift-test",
+        "swift-source",
+        "spec-only",
+        "NEW"
+      ]
+    },
+    "source": {
+      "description": "The primary anchor: a Swift test or source location, or NEW when no Swift anchor exists.",
+      "type": "string",
+      "pattern": "^(NEW|(Tests|Sources|scripts|spec)/[A-Za-z0-9_./-]+\\.(swift|json|md):[0-9]+(-[0-9]+)?)$"
+    },
+    "related_sources": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": {
+        "type": "string",
+        "pattern": "^(NEW|(Tests|Sources|scripts|spec)/[A-Za-z0-9_./-]+\\.(swift|json|md):[0-9]+(-[0-9]+)?)$"
+      }
+    },
+    "new_reason": {
+      "description": "Why an Android-equivalent fixture has no Swift assertion. Required when evidence_level is NEW.",
+      "type": "string",
+      "minLength": 20,
+      "maxLength": 400
+    },
+    "notes": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 600
+    }
+  },
+  "additionalProperties": false
+}

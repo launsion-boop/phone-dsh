@@ -178,22 +178,6 @@ struct NativeShell: View {
         // never depend on taps or swipes. Names match docs/screen-inventory.md.
         .fullScreenCover(item: $preview) { screen in
             NavigationStack { screen.body }
-                // The review cover has no way back by construction (each screen
-                // is the root of its own stack); this dismiss button keeps the
-                // screenshot pass from looking like a set of dead ends.
-                .overlay(alignment: .topLeading) {
-                    Button {
-                        preview = nil
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 22))
-                            .symbolRenderingMode(.hierarchical)
-                            .foregroundStyle(.secondary)
-                            .frame(width: 44, height: 44)
-                            .contentShape(Circle())
-                    }
-                    .accessibilityLabel("关闭预览")
-                }
         }
         #endif
         #if DEBUG
@@ -750,6 +734,7 @@ enum PreviewScreen: String, Identifiable, CaseIterable {
     case settingsNetwork = "settings.network"
     case settingsPlugins = "settings.plugins"
     case settingsPermissions = "settings.permissions"
+    case settingsPermissionsTab = "settings.permissions.tab"
     case settingsAbout = "settings.about"
     case settingsRuntime = "settings.runtime"
     case sessions
@@ -793,6 +778,7 @@ enum PreviewScreen: String, Identifiable, CaseIterable {
         case .settingsNetwork: EgressAllowListPage()
         case .settingsPlugins: NativeConfigurationPage()
         case .settingsPermissions: PhonePermissionsPage(preview: true)
+        case .settingsPermissionsTab: SettingsPage(initialTab: .permissions)
         case .settingsAbout: SettingsAboutPage()
         case .settingsRuntime: RuntimeDetailsPage(model: ChatModel.shared)
         case .sessions: SessionsPage(onSelect: {})

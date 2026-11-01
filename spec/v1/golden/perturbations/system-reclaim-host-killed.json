@@ -1,0 +1,99 @@
+{
+  "id": "system-reclaim-host-killed",
+  "verb": "system_reclaim",
+  "title": "The OS reclaims the process with zero callbacks: the next start is a crash recovery of the acked prefix",
+  "preconditions": {
+    "host_state": "Running",
+    "admission": "open",
+    "epoch_open": true,
+    "acked_mseq": 4,
+    "open_steps": 1,
+    "journaled_steps": 0,
+    "exec_in_flight": false,
+    "persisted_state": "Running",
+    "worker_channel": "open",
+    "notes": "A memory-pressure reclaim (jetsam on iOS, LMK or the cached-app freezer on Android) sends an uncatchable kill: no lifecycle callback, no drain, no epoch close."
+  },
+  "timeline": [
+    {
+      "at": 0,
+      "event": "four writes acked; one step open",
+      "expect_state": "Running",
+      "source": "Tests/PhoneDSHKillTests/Phase0KillMatrixTests.swift:111-123"
+    },
+    {
+      "at": 10,
+      "event": "OS reclaims the process",
+      "detail": "uncatchable kill, zero callbacks: no Draining edge and no epoch-close record",
+      "source": "Tests/PhoneDSHKillTests/Phase0KillMatrixTests.swift:456-460"
+    },
+    {
+      "at": 20,
+      "event": "process start",
+      "detail": "the persisted Running state maps to Recovering, boot disposition crash_recovery, boot reason persisted_running, admission closed",
+      "expect_state": "Recovering",
+      "source": "Tests/PhoneDSHControllerTests/HostStateMachineTests.swift:66-88"
+    },
+    {
+      "at": 30,
+      "event": "WAL scan and replay",
+      "detail": "every acked mseq present and identical; the materialized copy equals the replay",
+      "source": "Sources/PhoneDSHHarness/KillSupport.swift:301-333"
+    },
+    {
+      "at": 40,
+      "event": "lease verified",
+      "expect_state": "Running",
+      "source": "Tests/PhoneDSHKillTests/Phase0KillMatrixTests.swift:158"
+    },
+    {
+      "at": 50,
+      "event": "step reconcile",
+      "detail": "reconcile lists exactly the interrupted step",
+      "source": "Sources/PhoneDSHHarness/KillSupport.swift:335-344"
+    }
+  ],
+  "expected": {
+    "state": "Running",
+    "state_path": [
+      "Running",
+      "Recovering",
+      "Running"
+    ],
+    "durability_level": "level_1",
+    "wal_tail": "intact_open_epoch",
+    "journal_gap": "step_open",
+    "surfaced_to_user": "unmeasured",
+    "admission": "open",
+    "acked_prefix_preserved": true,
+    "materialized_equals_replay": true,
+    "steps_open": 1,
+    "steps_abandoned": 0,
+    "settlement_reason": "absent",
+    "no_drain_before_kill": true,
+    "boot_disposition": "crash_recovery",
+    "field_evidence": {
+      "state": "swift-test",
+      "state_path": "swift-test",
+      "durability_level": "swift-test",
+      "wal_tail": "swift-test",
+      "journal_gap": "swift-test",
+      "admission": "swift-test",
+      "acked_prefix_preserved": "swift-test",
+      "materialized_equals_replay": "swift-test",
+      "steps_open": "swift-test",
+      "steps_abandoned": "swift-test",
+      "settlement_reason": "swift-test",
+      "no_drain_before_kill": "swift-test",
+      "boot_disposition": "swift-test"
+    }
+  },
+  "evidence_level": "swift-test",
+  "source": "Tests/PhoneDSHControllerTests/HostStateMachineTests.swift:66-88",
+  "related_sources": [
+    "Tests/PhoneDSHKillTests/Phase0KillMatrixTests.swift:456-487",
+    "Sources/PhoneDSHHarness/KillSupport.swift:301-352",
+    "spec/v1/wal.md:299-320"
+  ],
+  "notes": "This is the same durability path as kill-9; the difference the runner must keep is the boot report: the disposition is crash_recovery with reason persisted_running, not cold_start, because a persisted Running host was found at process start. The Android freezer variant additionally cuts TCP sockets, which no fixture here asserts."
+}

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: MIT -->
+<!-- Small icon for the turn notifications. Notification small icons are drawn as
+     an alpha mask, so the fill colour is only a fallback for readers. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M12,2A10,10 0 1,0 22,12h-2A8,8 0 1,1 12,4z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M11,1h2v9h-9v-2h7z" />
+</vector>

@@ -271,7 +271,7 @@ App bundle 内置 `Web3DLib/`（总计约 **800 KB**）：
 | 4 | 打包 `Web3DLib/`（three + loaders + scaffold） | `examples/probe-app/project.yml` 资源段 | 0.5 h |
 | 5 | 生成一个 demo 页面验证 3D | `workspace/spin.html` + `model.glb` | 0.5 h |
 | 6 | VIDEO 预算常量：60 s / 75 s / 96 MiB | `Budgets.swift`、`budgets.md`、`limits.ts` | 0.5 h |
-| 7 | VIDEO 协议骨架（`begin/frame/end` 的空实现 + 测试） | `Sources/PhoneDSHVideo/`、`spec/v1/video.md` | 2 h |
+| 7 | VIDEO 协议骨架（`begin/frame/end` 的空实现 + 测试） | `Sources/PhoneDSHVideo/`、VIDEO 协议文档（计划中） | 2 h |
 
 **今晚的目标是 1–5 全绿 + 6 完成**；第 7 步能起个头就不错。
 

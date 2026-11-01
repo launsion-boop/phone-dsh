@@ -1,0 +1,105 @@
+{
+  "id": "renderer-terminated-during-exec",
+  "verb": "renderer_terminate",
+  "title": "Renderer terminated while an accelerator runs: no exit evidence, so the step is abandoned and a late completion cannot revive it",
+  "preconditions": {
+    "host_state": "Running",
+    "admission": "open",
+    "epoch_open": true,
+    "acked_mseq": 2,
+    "open_steps": 1,
+    "journaled_steps": 0,
+    "exec_in_flight": true,
+    "persisted_state": "Running",
+    "worker_channel": "open",
+    "notes": "A non-idempotent exec request with requires_mseq is journaled and the accelerator has started; the kill leaves no exit or checkpoint evidence, so the outcome is unprovable."
+  },
+  "timeline": [
+    {
+      "at": 0,
+      "event": "exec input write acked; exec request journaled",
+      "detail": "the request carries the exec id, the idempotency key, the step key and requires_mseq",
+      "expect_state": "Running",
+      "source": "Tests/PhoneDSHKillTests/Phase0KillMatrixTests.swift:124-133"
+    },
+    {
+      "at": 10,
+      "event": "renderer / WebContent terminated",
+      "expect_state": "Recovering",
+      "source": "Tests/PhoneDSHControllerTests/HostStateMachineTests.swift:270-278"
+    },
+    {
+      "at": 20,
+      "event": "replacement Worker sends HELLO with a new boot id",
+      "expect_state": "Recovering",
+      "source": "Tests/PhoneDSHKillTests/Phase0KillMatrixTests.swift:159-161"
+    },
+    {
+      "at": 30,
+      "event": "bounded write-open reconcile cannot prove the outcome",
+      "detail": "no exit status, no checkpoint record, no WAL evidence of a completed accelerator",
+      "source": "Tests/PhoneDSHKillTests/Phase0KillMatrixTests.swift:164-175"
+    },
+    {
+      "at": 40,
+      "event": "terminal abandonment recorded",
+      "detail": "state abandoned with the terminal reason; no fabricated success and no journaled accelerator",
+      "source": "Tests/PhoneDSHKillTests/Phase0KillMatrixTests.swift:187-200"
+    },
+    {
+      "at": 50,
+      "event": "late completed journal record arrives",
+      "detail": "the abandoned record is terminal and immutable: the late completion must not turn it into journaled success",
+      "source": "Tests/PhoneDSHKillTests/Phase0KillMatrixTests.swift:217-228"
+    },
+    {
+      "at": 60,
+      "event": "lease verified",
+      "expect_state": "Running",
+      "source": "Tests/PhoneDSHKillTests/Phase0KillMatrixTests.swift:158"
+    }
+  ],
+  "expected": {
+    "state": "Running",
+    "state_path": [
+      "Running",
+      "Recovering",
+      "Running"
+    ],
+    "durability_level": "level_1",
+    "wal_tail": "intact_open_epoch",
+    "journal_gap": "step_abandoned",
+    "surfaced_to_user": "orphan_step_settlement",
+    "admission": "open",
+    "acked_prefix_preserved": true,
+    "materialized_equals_replay": true,
+    "steps_open": 0,
+    "steps_abandoned": 1,
+    "settlement_reason": "worker-terminated",
+    "late_completion_does_not_advance": true,
+    "worker_rehello": true,
+    "field_evidence": {
+      "state": "swift-test",
+      "state_path": "swift-test",
+      "durability_level": "swift-test",
+      "wal_tail": "swift-test",
+      "journal_gap": "swift-test",
+      "surfaced_to_user": "swift-test",
+      "admission": "swift-test",
+      "acked_prefix_preserved": "swift-test",
+      "materialized_equals_replay": "swift-test",
+      "steps_open": "swift-test",
+      "steps_abandoned": "swift-test",
+      "settlement_reason": "swift-test",
+      "late_completion_does_not_advance": "swift-test",
+      "worker_rehello": "swift-test"
+    }
+  },
+  "evidence_level": "swift-test",
+  "source": "Tests/PhoneDSHKillTests/Phase0KillMatrixTests.swift:124-239",
+  "related_sources": [
+    "Tests/PhoneDSHKillTests/Phase0KillMatrixTests.swift:164-175",
+    "Tests/PhoneDSHKillTests/PhoneDSHScenarioOrphanStepTests.swift:305-358"
+  ],
+  "notes": "The engine heap and tool-boundary rules mean a restart normally waits for a boundary; a budget restart may interrupt one (budgets.md section 4). The runner must never synthesize a success result for the interrupted call (the planned-restart fixture's resolved(unknown) case is the other legal outcome)."
+}

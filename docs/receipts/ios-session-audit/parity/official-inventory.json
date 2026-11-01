@@ -1,0 +1,1120 @@
+{
+  "chat_node_kinds": {
+    "tool-call": [
+      "packages/client/ui-chat/src/client/conversation-nodes/tool.ts"
+    ],
+    "unknown": [
+      "packages/client/ui-chat/src/client/conversation-nodes/fallback.ts"
+    ],
+    "system-prompt": [
+      "packages/client/ui-chat/src/client/conversation-nodes/request-prompt.ts"
+    ],
+    "compaction": [
+      "packages/client/ui-chat/src/client/conversation-nodes/compaction.ts"
+    ],
+    "turn-max-tokens": [
+      "packages/client/ui-chat/src/client/conversation-nodes/turn-max-tokens.ts"
+    ],
+    "model-retry": [
+      "packages/client/ui-chat/src/client/conversation-nodes/retry.ts"
+    ],
+    "turn-error": [
+      "packages/client/ui-chat/src/client/conversation-nodes/turn-error.ts"
+    ],
+    "context": [
+      "packages/client/ui-chat/src/client/conversation-nodes/message.ts"
+    ],
+    "steering": [
+      "packages/client/ui-chat/src/client/conversation-nodes/message.ts"
+    ],
+    "turn-trigger": [
+      "packages/client/ui-chat/src/client/conversation-nodes/message.ts"
+    ],
+    "user": [
+      "packages/client/ui-chat/src/client/conversation-nodes/message.ts"
+    ],
+    "assistant-step": [
+      "packages/client/ui-chat/src/client/conversation-nodes/assistant.ts"
+    ],
+    "turn-process": [
+      "packages/client/ui-chat/src/client/conversation-nodes/turn-process.ts"
+    ],
+    "command": [
+      "packages/client/ui-chat/src/client/conversation-nodes/command.ts"
+    ],
+    "manual-compaction": [
+      "packages/client/ui-chat/src/client/conversation-nodes/command.ts"
+    ],
+    "turn-tail": [
+      "packages/client/ui-chat/src/client/conversation-nodes/turn-tail.ts"
+    ],
+    "submitted-plan": [
+      "packages/client/ui-plan/src/client/plan-definition.ts"
+    ],
+    "workflow-run": [
+      "packages/client/ui-workflow-run/src/client/workflow-definition.ts"
+    ],
+    "question-reply": [
+      "packages/client/ui-user-questions/src/client/question-reply.ts"
+    ],
+    "command-input": [
+      "packages/client/ui-goal/src/client/goal-command-input.ts"
+    ]
+  },
+  "toolview_keys": {
+    "cordis_define": [
+      "packages/extensions/ui-cordis/src/client/index.ts"
+    ],
+    "cordis_run": [
+      "packages/extensions/ui-cordis/src/client/index.ts"
+    ],
+    "cordis_stop": [
+      "packages/extensions/ui-cordis/src/client/index.ts"
+    ],
+    "cordis_undefine": [
+      "packages/extensions/ui-cordis/src/client/index.ts"
+    ],
+    "skill": [
+      "packages/client/ui-skill/src/client/index.ts"
+    ],
+    "present": [
+      "packages/client/ui-deliverables/src/client/index.ts"
+    ],
+    "grep": [
+      "packages/client/ui-tool/src/client/tool/toolviews/search-row.tsx"
+    ],
+    "glob": [
+      "packages/client/ui-tool/src/client/tool/toolviews/search-row.tsx"
+    ],
+    "bash": [
+      "packages/client/ui-tool/src/client/tool/toolviews/bash-sample.tsx"
+    ],
+    "ask_user_question": [
+      "packages/client/ui-tool/src/client/tool/toolviews/ask-question-row.tsx"
+    ],
+    "edit": [
+      "packages/client/ui-tool/src/client/tool/toolviews/file-mutation-row.tsx"
+    ],
+    "write": [
+      "packages/client/ui-tool/src/client/tool/toolviews/file-mutation-row.tsx"
+    ],
+    "read_image": [
+      "packages/client/ui-tool/src/client/tool/toolviews/read-image-row.tsx"
+    ],
+    "create_goal": [
+      "packages/client/ui-tool/src/client/tool/toolviews/details-row.tsx"
+    ],
+    "get_goal": [
+      "packages/client/ui-tool/src/client/tool/toolviews/details-row.tsx"
+    ],
+    "update_goal": [
+      "packages/client/ui-tool/src/client/tool/toolviews/details-row.tsx"
+    ],
+    "schedule_create": [
+      "packages/client/ui-tool/src/client/tool/toolviews/details-row.tsx"
+    ],
+    "schedule_list": [
+      "packages/client/ui-tool/src/client/tool/toolviews/details-row.tsx"
+    ],
+    "schedule_delete": [
+      "packages/client/ui-tool/src/client/tool/toolviews/details-row.tsx"
+    ],
+    "schedule_update": [
+      "packages/client/ui-tool/src/client/tool/toolviews/details-row.tsx"
+    ],
+    "cordis_inspect_list": [
+      "packages/client/ui-tool/src/client/tool/toolviews/details-row.tsx"
+    ],
+    "cordis_inspect_query": [
+      "packages/client/ui-tool/src/client/tool/toolviews/details-row.tsx"
+    ],
+    "cordis_inspect_self": [
+      "packages/client/ui-tool/src/client/tool/toolviews/details-row.tsx"
+    ],
+    "workflow": [
+      "packages/client/ui-tool/src/client/tool/toolviews/details-row.tsx"
+    ],
+    "ralph": [
+      "packages/client/ui-tool/src/client/tool/toolviews/details-row.tsx"
+    ],
+    "session_event_read": [
+      "packages/client/ui-tool/src/client/tool/toolviews/details-row.tsx"
+    ],
+    "session_event_search": [
+      "packages/client/ui-tool/src/client/tool/toolviews/details-row.tsx"
+    ],
+    "session_event_trace": [
+      "packages/client/ui-tool/src/client/tool/toolviews/details-row.tsx"
+    ],
+    "session_search": [
+      "packages/client/ui-tool/src/client/tool/toolviews/details-row.tsx"
+    ],
+    "session_trace": [
+      "packages/client/ui-tool/src/client/tool/toolviews/details-row.tsx"
+    ],
+    "list_subagent_models": [
+      "packages/client/ui-tool/src/client/tool/toolviews/details-row.tsx"
+    ],
+    "subagent": [
+      "packages/client/ui-tool/src/client/tool/toolviews/details-row.tsx"
+    ],
+    "list_agents": [
+      "packages/client/ui-tool/src/client/tool/toolviews/details-row.tsx"
+    ],
+    "send_message": [
+      "packages/client/ui-tool/src/client/tool/toolviews/details-row.tsx"
+    ],
+    "interrupt_agent": [
+      "packages/client/ui-tool/src/client/tool/toolviews/details-row.tsx"
+    ],
+    "job_list": [
+      "packages/client/ui-tool/src/client/tool/toolviews/details-row.tsx"
+    ],
+    "job_output": [
+      "packages/client/ui-tool/src/client/tool/toolviews/details-row.tsx"
+    ],
+    "job_kill": [
+      "packages/client/ui-tool/src/client/tool/toolviews/details-row.tsx"
+    ],
+    "terminal_open": [
+      "packages/client/ui-tool/src/client/tool/toolviews/details-row.tsx"
+    ],
+    "terminal_read": [
+      "packages/client/ui-tool/src/client/tool/toolviews/details-row.tsx"
+    ],
+    "terminal_list": [
+      "packages/client/ui-tool/src/client/tool/toolviews/details-row.tsx"
+    ],
+    "terminal_signal": [
+      "packages/client/ui-tool/src/client/tool/toolviews/details-row.tsx"
+    ],
+    "terminal_close": [
+      "packages/client/ui-tool/src/client/tool/toolviews/details-row.tsx"
+    ],
+    "lsp": [
+      "packages/client/ui-tool/src/client/tool/toolviews/details-row.tsx"
+    ],
+    "spawn_teammate": [
+      "packages/client/ui-tool/src/client/tool/toolviews/details-row.tsx"
+    ],
+    "team_task_create": [
+      "packages/client/ui-tool/src/client/tool/toolviews/details-row.tsx"
+    ],
+    "team_task_get": [
+      "packages/client/ui-tool/src/client/tool/toolviews/details-row.tsx"
+    ],
+    "team_task_update": [
+      "packages/client/ui-tool/src/client/tool/toolviews/details-row.tsx"
+    ],
+    "team_task_list": [
+      "packages/client/ui-tool/src/client/tool/toolviews/details-row.tsx"
+    ],
+    "wait_agent": [
+      "packages/client/ui-tool/src/client/tool/toolviews/details-row.tsx"
+    ],
+    "read": [
+      "packages/client/ui-tool/src/client/tool/toolviews/read-row.tsx"
+    ],
+    "todo_write": [
+      "packages/client/ui-tool/src/client/tool/toolviews/todo-row.tsx"
+    ],
+    "web_search": [
+      "packages/client/ui-tool/src/client/tool/toolviews/web-row.tsx"
+    ],
+    "web_fetch": [
+      "packages/client/ui-tool/src/client/tool/toolviews/web-row.tsx"
+    ]
+  },
+  "slots": {
+    "conversation.chat.reasoning.body": [
+      "packages/client/ui-chat/src/client/chat/register-node-renderers.ts",
+      "packages/experimental/client-ui-cot-translation/src/client/mount.ts"
+    ],
+    "conversation.input.activity": [
+      "packages/experimental/client-ui-voice-input/src/client/mount.ts"
+    ],
+    "conversation.session.header.actions": [
+      "packages/client/ui-agent-preset/src/client/index.ts",
+      "packages/client/ui-jobs/src/client/index.ts",
+      "packages/client/ui-mobile/src/client/index.ts",
+      "packages/client/ui-sidebar-terminal/src/client/index.ts",
+      "packages/client/ui-subagent/src/client/index.ts",
+      "packages/experimental/client-ui-agent-team/src/client/mount.ts"
+    ],
+    "conversation.input.dock": [
+      "packages/client/ui-conversation/src/client/queue/QueueDock.tsx",
+      "packages/client/ui-conversation/src/client/skeleton/TodoPanel.tsx",
+      "packages/client/ui-goal/src/client/index.ts",
+      "packages/experimental/client-ui-claude-code-mods/src/client/mount.ts"
+    ],
+    "conversation.composer.dock": [
+      "packages/client/ui-chat/src/client/apply.ts",
+      "packages/preset/agent-preset/skills/cordis-plugin-development/templates/decoration/client.js"
+    ],
+    "conversation.session.header.utilities": [
+      "packages/client/ui-open-in-app/src/client/index.ts",
+      "packages/client/ui-schedule/src/client/index.ts",
+      "packages/session-query/session-log-export/src/client/index.ts"
+    ],
+    "conversation.input.model.label": [
+      "packages/client/ui-deepseek-model-label-1017/src/client/index.ts"
+    ],
+    "conversation.user.text.node": [
+      "packages/client/ui-conversation/src/client/apply.ts",
+      "packages/client/ui-goal/src/client/index.ts",
+      "packages/client/ui-reference/src/client/index.ts",
+      "packages/client/ui-secret-mask/src/client/index.ts",
+      "packages/client/ui-skill/src/client/index.ts"
+    ],
+    "conversation.chat.user.content": [
+      "packages/client/ui-chat/src/client/apply.ts"
+    ],
+    "conversation.chat.flow": [
+      "packages/client/ui-chat/src/client/apply.ts"
+    ],
+    "conversation.view": [
+      "packages/client/ui-chat/src/client/apply.ts",
+      "packages/client/ui-trajectory/src/client/index.ts"
+    ],
+    "conversation.approval.detail": [
+      "packages/client/ui-chat/src/client/apply.ts"
+    ],
+    "conversation.chat.reasoning.content": [
+      "packages/client/ui-chat/src/client/chat/register-node-renderers.ts"
+    ],
+    "conversation.chat.node": [
+      "packages/client/ui-chat/src/client/chat/register-node-renderers.ts",
+      "packages/client/ui-goal/src/client/index.ts",
+      "packages/client/ui-tool/src/client/apply.ts",
+      "packages/client/ui-user-questions/src/client/index.ts",
+      "packages/client/ui-workflow-run/src/client/index.ts"
+    ],
+    "conversation.input.model": [
+      "packages/client/ui-model-selection/src/client/index.ts"
+    ],
+    "conversation.plan-review.actions": [
+      "packages/client/ui-plan/src/client/index.ts"
+    ],
+    "conversation.input.plan": [
+      "packages/client/ui-plan/src/client/index.ts"
+    ],
+    "conversation.input.overlay": [
+      "packages/client/ui-commands/src/client/index.ts",
+      "packages/client/ui-input-trigger/src/client/index.ts",
+      "packages/client/ui-message-feedback/src/client/index.ts"
+    ],
+    "conversation.images.content": [
+      "packages/client/ui-attachment/src/client/index.ts"
+    ],
+    "conversation.input.attachments": [
+      "packages/client/ui-attachment/src/client/index.ts"
+    ],
+    "conversation.chat.message.images": [
+      "packages/client/ui-attachment/src/client/index.ts"
+    ],
+    "conversation.chat.user.images": [
+      "packages/client/ui-attachment/src/client/index.ts"
+    ],
+    "conversation.trajectory.images": [
+      "packages/client/ui-attachment/src/client/index.ts"
+    ],
+    "conversation.session.header.lineage": [
+      "packages/client/ui-subagent/src/client/index.ts"
+    ],
+    "conversation.composer": [
+      "packages/client/ui-approval/src/client/index.ts",
+      "packages/client/ui-subagent/src/client/index.ts",
+      "packages/client/ui-user-questions/src/client/index.ts"
+    ],
+    "conversation.hero.workspace": [
+      "packages/client/ui-workspace/src/client/index.ts"
+    ],
+    "conversation.user.text": [
+      "packages/client/ui-conversation/src/client/apply.ts"
+    ],
+    "conversation.content": [
+      "packages/client/ui-conversation/src/client/apply.ts"
+    ],
+    "conversation.session": [
+      "packages/client/ui-conversation/src/client/apply.ts"
+    ],
+    "conversation.header": [
+      "packages/client/ui-conversation/src/client/apply.ts"
+    ],
+    "conversation.session.header": [
+      "packages/client/ui-conversation/src/client/apply.ts"
+    ],
+    "conversation.composer.bar": [
+      "packages/client/ui-conversation/src/client/apply.ts"
+    ],
+    "conversation.input.permission": [
+      "packages/client/ui-permission-presets/src/client/index.ts"
+    ],
+    "conversation.session.header.corner": [
+      "packages/client/ui-sidebar-right/src/client/index.ts"
+    ],
+    "conversation.chat.assistant-actions": [
+      "packages/client/ui-message-feedback/src/client/index.ts"
+    ]
+  },
+  "projection_keys": [
+    "agentPreset",
+    "agentTeam",
+    "contextBreakdown",
+    "contextPressure",
+    "goal",
+    "harnessDevLegacyPrompt",
+    "imageLimits",
+    "inbox",
+    "llmRetry",
+    "modelSelection",
+    "permissions",
+    "plan",
+    "sandboxMode",
+    "sessionListMetadata",
+    "sessionStats",
+    "subagent",
+    "subagentCatalog",
+    "subagentModelSelectionPolicy",
+    "subagentTiming",
+    "timeContext",
+    "title",
+    "titleInput",
+    "tmuxContext",
+    "todos",
+    "tokenUsage",
+    "turnBoundary",
+    "turnOutline",
+    "userQuestions",
+    "workingDirectory"
+  ],
+  "contributions": [
+    {
+      "slot": "conversation.chat.reasoning.body",
+      "id": "",
+      "key": "@deepseek-ai/dsh-experimental-cot-translation-bundle",
+      "label": "",
+      "file": "packages/experimental/client-ui-cot-translation/src/client/mount.ts"
+    },
+    {
+      "slot": "conversation.input.activity",
+      "id": "",
+      "key": "@deepseek-ai/dsh-experimental-voice-input-bundle",
+      "label": "",
+      "file": "packages/experimental/client-ui-voice-input/src/client/mount.ts"
+    },
+    {
+      "slot": "conversation.session.header.actions",
+      "id": "agent-team",
+      "key": "",
+      "label": "",
+      "file": "packages/experimental/client-ui-agent-team/src/client/mount.ts"
+    },
+    {
+      "slot": "conversation.input.dock",
+      "id": "claude-code-mods",
+      "key": "",
+      "label": "",
+      "file": "packages/experimental/client-ui-claude-code-mods/src/client/mount.ts"
+    },
+    {
+      "slot": "conversation.composer.dock",
+      "id": "my-decoration",
+      "key": "",
+      "label": "",
+      "file": "packages/preset/agent-preset/skills/cordis-plugin-development/templates/decoration/client.js"
+    },
+    {
+      "slot": "conversation.session.header.utilities",
+      "id": "session-log-download",
+      "key": "",
+      "label": "",
+      "file": "packages/session-query/session-log-export/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.session.header.utilities",
+      "id": "open-in-app",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-open-in-app/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.session.header.actions",
+      "id": "",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-sidebar-terminal/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.input.model.label",
+      "id": "",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-deepseek-model-label-1017/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.user.text.node",
+      "id": "",
+      "key": "file",
+      "label": "",
+      "file": "packages/client/ui-reference/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.user.text.node",
+      "id": "",
+      "key": "folder",
+      "label": "",
+      "file": "packages/client/ui-reference/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.chat.user.content",
+      "id": "performance-usage",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-chat/src/client/apply.ts"
+    },
+    {
+      "slot": "conversation.chat.flow",
+      "id": "chat",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-chat/src/client/apply.ts"
+    },
+    {
+      "slot": "conversation.view",
+      "id": "chat",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-chat/src/client/apply.ts"
+    },
+    {
+      "slot": "conversation.composer.dock",
+      "id": "activity",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-chat/src/client/apply.ts"
+    },
+    {
+      "slot": "conversation.composer.dock",
+      "id": "usage",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-chat/src/client/apply.ts"
+    },
+    {
+      "slot": "conversation.approval.detail",
+      "id": "",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-chat/src/client/apply.ts"
+    },
+    {
+      "slot": "conversation.chat.reasoning.content",
+      "id": "",
+      "key": "user",
+      "label": "",
+      "file": "packages/client/ui-chat/src/client/chat/register-node-renderers.ts"
+    },
+    {
+      "slot": "conversation.chat.reasoning.body",
+      "id": "",
+      "key": "user",
+      "label": "",
+      "file": "packages/client/ui-chat/src/client/chat/register-node-renderers.ts"
+    },
+    {
+      "slot": "conversation.chat.node",
+      "id": "",
+      "key": "user",
+      "label": "",
+      "file": "packages/client/ui-chat/src/client/chat/register-node-renderers.ts"
+    },
+    {
+      "slot": "conversation.chat.node",
+      "id": "",
+      "key": "steering",
+      "label": "",
+      "file": "packages/client/ui-chat/src/client/chat/register-node-renderers.ts"
+    },
+    {
+      "slot": "conversation.chat.node",
+      "id": "",
+      "key": "context",
+      "label": "",
+      "file": "packages/client/ui-chat/src/client/chat/register-node-renderers.ts"
+    },
+    {
+      "slot": "conversation.chat.node",
+      "id": "",
+      "key": "turn-trigger",
+      "label": "",
+      "file": "packages/client/ui-chat/src/client/chat/register-node-renderers.ts"
+    },
+    {
+      "slot": "conversation.chat.node",
+      "id": "",
+      "key": "system-prompt",
+      "label": "",
+      "file": "packages/client/ui-chat/src/client/chat/register-node-renderers.ts"
+    },
+    {
+      "slot": "conversation.chat.node",
+      "id": "",
+      "key": "assistant-step",
+      "label": "",
+      "file": "packages/client/ui-chat/src/client/chat/register-node-renderers.ts"
+    },
+    {
+      "slot": "conversation.chat.node",
+      "id": "",
+      "key": "command",
+      "label": "",
+      "file": "packages/client/ui-chat/src/client/chat/register-node-renderers.ts"
+    },
+    {
+      "slot": "conversation.chat.node",
+      "id": "",
+      "key": "manual-compaction",
+      "label": "",
+      "file": "packages/client/ui-chat/src/client/chat/register-node-renderers.ts"
+    },
+    {
+      "slot": "conversation.chat.node",
+      "id": "",
+      "key": "compaction",
+      "label": "",
+      "file": "packages/client/ui-chat/src/client/chat/register-node-renderers.ts"
+    },
+    {
+      "slot": "conversation.chat.node",
+      "id": "",
+      "key": "model-retry",
+      "label": "",
+      "file": "packages/client/ui-chat/src/client/chat/register-node-renderers.ts"
+    },
+    {
+      "slot": "conversation.chat.node",
+      "id": "",
+      "key": "turn-error",
+      "label": "",
+      "file": "packages/client/ui-chat/src/client/chat/register-node-renderers.ts"
+    },
+    {
+      "slot": "conversation.chat.node",
+      "id": "",
+      "key": "turn-max-tokens",
+      "label": "",
+      "file": "packages/client/ui-chat/src/client/chat/register-node-renderers.ts"
+    },
+    {
+      "slot": "conversation.chat.node",
+      "id": "",
+      "key": "turn-process",
+      "label": "",
+      "file": "packages/client/ui-chat/src/client/chat/register-node-renderers.ts"
+    },
+    {
+      "slot": "conversation.chat.node",
+      "id": "",
+      "key": "turn-tail",
+      "label": "",
+      "file": "packages/client/ui-chat/src/client/chat/register-node-renderers.ts"
+    },
+    {
+      "slot": "conversation.chat.node",
+      "id": "",
+      "key": "unknown",
+      "label": "",
+      "file": "packages/client/ui-chat/src/client/chat/register-node-renderers.ts"
+    },
+    {
+      "slot": "conversation.input.model",
+      "id": "",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-model-selection/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.plan-review.actions",
+      "id": "",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-plan/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.input.plan",
+      "id": "",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-plan/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.user.text.node",
+      "id": "",
+      "key": "secret",
+      "label": "",
+      "file": "packages/client/ui-secret-mask/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.view",
+      "id": "trajectory",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-trajectory/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.input.overlay",
+      "id": "slash-menu",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-input-trigger/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.session.header.utilities",
+      "id": "schedule-catalog",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-schedule/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.images.content",
+      "id": "",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-attachment/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.input.attachments",
+      "id": "",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-attachment/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.chat.message.images",
+      "id": "",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-attachment/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.chat.user.images",
+      "id": "",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-attachment/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.trajectory.images",
+      "id": "",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-attachment/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.session.header.lineage",
+      "id": "subagent-catalog",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-subagent/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.session.header.actions",
+      "id": "subagent-catalog",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-subagent/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.composer",
+      "id": "",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-subagent/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.hero.workspace",
+      "id": "workspace.row-toast",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-workspace/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.composer",
+      "id": "",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-approval/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.user.text",
+      "id": "",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-conversation/src/client/apply.ts"
+    },
+    {
+      "slot": "conversation.user.text.node",
+      "id": "",
+      "key": "text",
+      "label": "",
+      "file": "packages/client/ui-conversation/src/client/apply.ts"
+    },
+    {
+      "slot": "conversation.user.text.node",
+      "id": "composer-enter",
+      "key": "session",
+      "label": "",
+      "file": "packages/client/ui-conversation/src/client/apply.ts"
+    },
+    {
+      "slot": "conversation.content",
+      "id": "",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-conversation/src/client/apply.ts"
+    },
+    {
+      "slot": "conversation.session",
+      "id": "",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-conversation/src/client/apply.ts"
+    },
+    {
+      "slot": "conversation.header",
+      "id": "",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-conversation/src/client/apply.ts"
+    },
+    {
+      "slot": "conversation.session.header",
+      "id": "",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-conversation/src/client/apply.ts"
+    },
+    {
+      "slot": "conversation.composer.bar",
+      "id": "",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-conversation/src/client/apply.ts"
+    },
+    {
+      "slot": "conversation.input.dock",
+      "id": "todo",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-conversation/src/client/skeleton/TodoPanel.tsx"
+    },
+    {
+      "slot": "conversation.input.dock",
+      "id": "queue",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-conversation/src/client/queue/QueueDock.tsx"
+    },
+    {
+      "slot": "conversation.input.overlay",
+      "id": "command-popup",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-commands/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.session.header.actions",
+      "id": "mobile-menu",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-mobile/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.input.permission",
+      "id": "permission",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-permission-presets/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.user.text.node",
+      "id": "",
+      "key": "skill",
+      "label": "",
+      "file": "packages/client/ui-skill/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.session.header.actions",
+      "id": "agent-preset",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-agent-preset/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.chat.node",
+      "id": "",
+      "key": "workflow-run",
+      "label": "",
+      "file": "packages/client/ui-workflow-run/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.session.header.actions",
+      "id": "job-list",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-jobs/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.composer",
+      "id": "",
+      "key": "question-reply",
+      "label": "",
+      "file": "packages/client/ui-user-questions/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.chat.node",
+      "id": "",
+      "key": "question-reply",
+      "label": "",
+      "file": "packages/client/ui-user-questions/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.session.header.corner",
+      "id": "",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-sidebar-right/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.chat.assistant-actions",
+      "id": "feedback",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-message-feedback/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.input.overlay",
+      "id": "feedback-dialog",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-message-feedback/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.chat.node",
+      "id": "",
+      "key": "tool-call",
+      "label": "",
+      "file": "packages/client/ui-tool/src/client/apply.ts"
+    },
+    {
+      "slot": "conversation.user.text.node",
+      "id": "",
+      "key": "command",
+      "label": "",
+      "file": "packages/client/ui-goal/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.chat.node",
+      "id": "",
+      "key": "command-input",
+      "label": "",
+      "file": "packages/client/ui-goal/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.input.dock",
+      "id": "goal",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-goal/src/client/index.ts"
+    }
+  ],
+  "view_tabs": [
+    {
+      "slot": "conversation.view",
+      "id": "chat",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-chat/src/client/apply.ts"
+    },
+    {
+      "slot": "conversation.view",
+      "id": "trajectory",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-trajectory/src/client/index.ts"
+    }
+  ],
+  "header_contributions": [
+    {
+      "slot": "conversation.session.header.actions",
+      "id": "agent-team",
+      "key": "",
+      "label": "",
+      "file": "packages/experimental/client-ui-agent-team/src/client/mount.ts"
+    },
+    {
+      "slot": "conversation.session.header.utilities",
+      "id": "session-log-download",
+      "key": "",
+      "label": "",
+      "file": "packages/session-query/session-log-export/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.session.header.utilities",
+      "id": "open-in-app",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-open-in-app/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.session.header.actions",
+      "id": "",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-sidebar-terminal/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.session.header.utilities",
+      "id": "schedule-catalog",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-schedule/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.session.header.lineage",
+      "id": "subagent-catalog",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-subagent/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.session.header.actions",
+      "id": "subagent-catalog",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-subagent/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.session.header.actions",
+      "id": "mobile-menu",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-mobile/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.session.header.actions",
+      "id": "agent-preset",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-agent-preset/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.session.header.actions",
+      "id": "job-list",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-jobs/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.session.header.corner",
+      "id": "",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-sidebar-right/src/client/index.ts"
+    }
+  ],
+  "dock_contributions": [
+    {
+      "slot": "conversation.input.dock",
+      "id": "claude-code-mods",
+      "key": "",
+      "label": "",
+      "file": "packages/experimental/client-ui-claude-code-mods/src/client/mount.ts"
+    },
+    {
+      "slot": "conversation.composer.dock",
+      "id": "my-decoration",
+      "key": "",
+      "label": "",
+      "file": "packages/preset/agent-preset/skills/cordis-plugin-development/templates/decoration/client.js"
+    },
+    {
+      "slot": "conversation.composer.dock",
+      "id": "activity",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-chat/src/client/apply.ts"
+    },
+    {
+      "slot": "conversation.composer.dock",
+      "id": "usage",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-chat/src/client/apply.ts"
+    },
+    {
+      "slot": "conversation.input.overlay",
+      "id": "slash-menu",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-input-trigger/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.composer",
+      "id": "",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-subagent/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.composer",
+      "id": "",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-approval/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.input.dock",
+      "id": "todo",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-conversation/src/client/skeleton/TodoPanel.tsx"
+    },
+    {
+      "slot": "conversation.input.dock",
+      "id": "queue",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-conversation/src/client/queue/QueueDock.tsx"
+    },
+    {
+      "slot": "conversation.input.overlay",
+      "id": "command-popup",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-commands/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.composer",
+      "id": "",
+      "key": "question-reply",
+      "label": "",
+      "file": "packages/client/ui-user-questions/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.input.overlay",
+      "id": "feedback-dialog",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-message-feedback/src/client/index.ts"
+    },
+    {
+      "slot": "conversation.input.dock",
+      "id": "goal",
+      "key": "",
+      "label": "",
+      "file": "packages/client/ui-goal/src/client/index.ts"
+    }
+  ]
+}

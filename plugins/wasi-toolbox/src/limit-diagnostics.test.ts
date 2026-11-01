@@ -4,7 +4,8 @@
  * human-readable MiB label from the same configured limit as its byte count.
  *
  * The defect: `NodeFsBackend`/`MemoryVfsBackend` read the enforced bound from
- * the configurable budget (`MAX_FILE_SIZE`, 64 MiB by default after ENG-07)
+ * the configurable budget (`MAX_FILE_SIZE`, 128 MiB by default after ENG-07 —
+ * `spec/v1/budgets.md:104`)
  * but rendered the label from a hard-coded `(15 MiB)` literal. A 64 MiB
  * refusal therefore said "limited to 67108864 bytes (15 MiB)" and every model
  * or user reading the tool result got a wrong unit magnitude. The fix routes

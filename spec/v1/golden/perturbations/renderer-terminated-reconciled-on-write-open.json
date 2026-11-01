@@ -1,0 +1,102 @@
+{
+  "id": "renderer-terminated-reconciled-on-write-open",
+  "verb": "renderer_terminate",
+  "title": "Renderer terminated, but the replacement Worker resolves the step in response to the host's write-open",
+  "preconditions": {
+    "host_state": "Running",
+    "admission": "open",
+    "epoch_open": true,
+    "acked_mseq": 1,
+    "open_steps": 1,
+    "journaled_steps": 0,
+    "exec_in_flight": false,
+    "persisted_state": "Running",
+    "worker_channel": "open",
+    "notes": "The replacement Worker is scripted so the resolved record does not exist until the host opens the affected session for writing; a host that merely waits or reads history cannot pass."
+  },
+  "timeline": [
+    {
+      "at": 0,
+      "event": "write acked; journal dispatched acked",
+      "expect_state": "Running",
+      "source": "Tests/PhoneDSHKillTests/PhoneDSHScenarioOrphanStepTests.swift:239-256"
+    },
+    {
+      "at": 10,
+      "event": "renderer / WebContent terminated",
+      "expect_state": "Recovering",
+      "source": "Tests/PhoneDSHControllerTests/HostStateMachineTests.swift:270-278"
+    },
+    {
+      "at": 20,
+      "event": "replacement Worker sends HELLO with a new boot id",
+      "expect_state": "Recovering",
+      "source": "Tests/PhoneDSHKillTests/PhoneDSHScenarioOrphanStepTests.swift:262-268"
+    },
+    {
+      "at": 30,
+      "event": "host opens the affected session for writing",
+      "detail": "the recovery write-open is the only trigger; session/follow history reads are not a reconcile trigger",
+      "source": "Tests/PhoneDSHKillTests/PhoneDSHScenarioOrphanStepTests.swift:280-283"
+    },
+    {
+      "at": 40,
+      "event": "Worker writes the terminal resolved record",
+      "detail": "the step becomes journaled with no settled reason and the reconcile set is empty",
+      "source": "Tests/PhoneDSHKillTests/PhoneDSHScenarioOrphanStepTests.swift:271-277"
+    },
+    {
+      "at": 50,
+      "event": "no settlement event",
+      "detail": "a reconciled step must not publish an abandonment event",
+      "source": "Tests/PhoneDSHKillTests/PhoneDSHScenarioOrphanStepTests.swift:278-279"
+    },
+    {
+      "at": 60,
+      "event": "lease verified",
+      "expect_state": "Running",
+      "source": "Tests/PhoneDSHKillTests/PhoneDSHScenarioOrphanStepTests.swift:270"
+    }
+  ],
+  "expected": {
+    "state": "Running",
+    "state_path": [
+      "Running",
+      "Recovering",
+      "Running"
+    ],
+    "durability_level": "level_1",
+    "wal_tail": "intact_open_epoch",
+    "journal_gap": "step_reconciled",
+    "surfaced_to_user": "none",
+    "admission": "open",
+    "acked_prefix_preserved": true,
+    "materialized_equals_replay": true,
+    "steps_open": 0,
+    "steps_abandoned": 0,
+    "settlement_reason": "absent",
+    "worker_rehello": true,
+    "field_evidence": {
+      "state": "swift-test",
+      "state_path": "swift-test",
+      "durability_level": "swift-test",
+      "wal_tail": "swift-test",
+      "journal_gap": "swift-test",
+      "surfaced_to_user": "swift-test",
+      "admission": "swift-test",
+      "acked_prefix_preserved": "swift-test",
+      "materialized_equals_replay": "swift-test",
+      "steps_open": "swift-test",
+      "steps_abandoned": "swift-test",
+      "settlement_reason": "swift-test",
+      "worker_rehello": "swift-test"
+    }
+  },
+  "evidence_level": "swift-test",
+  "source": "Tests/PhoneDSHKillTests/PhoneDSHScenarioOrphanStepTests.swift:227-284",
+  "related_sources": [
+    "Tests/PhoneDSHKillTests/PhoneDSHScenarioOrphanStepTests.swift:168-225",
+    "Sources/PhoneDSHHarness/KillSupport.swift:301-333"
+  ],
+  "notes": "The pair 'abandoned' and 'reconciled' is the whole point of the settlement policy: the host must try the write-open first and may only abandon when the replacement cannot prove the outcome. surfaced_to_user is none here because no settlement event is published, which the test asserts explicitly."
+}

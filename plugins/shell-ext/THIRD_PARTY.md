@@ -14,7 +14,7 @@ package is installed for this package.
 `just-bash` is imported as a normal npm dependency through its `browser`
 entry (`just-bash/browser`), which excludes the Node-only command chunks and
 the native optional dependencies. The package is not vendored; the controlled
-terminal-state seam described below is the only local byte patch.
+engine seam described below is the only local byte patch.
 
 ## Controlled patch to just-bash 3.6.0 (Apache-2.0)
 
@@ -31,7 +31,7 @@ source.
 | Licence | Apache-2.0 (upstream `LICENSE` is retained unmodified) |
 | Patched file | `dist/bundle/browser.js` only |
 | Pristine SHA-256 | `38f1ad1e3283980ecdf68cede8a4eed028c6dff6e8c31793dec1e0af529c446e` |
-| Patched SHA-256 | `124182d76319a5a7c542f4014362f0eba7aa66af9f0a1665574594f0c628e018` |
+| Patched SHA-256 | `a93d71b3ba9a1703f2412272ba22081ba4187ece8a910fd017e7fe83fe265bbf` |
 | Installer | `shell-ext/tools/patch-just-bash.mjs` |
 | Guards | exact package name/version/licence, pristine or patched hash, exact occurrence count per replacement, result hash before atomic write |
 
@@ -59,7 +59,12 @@ the root handler runs). Producer-owned truncation facts travel on results under
 `Symbol.for('@phone-dsh/just-bash/output-truncation/v1')`, are forwarded by the
 statement and compound output builders and by byte-normalised pass-through
 pipeline stages, and are folded only into bytes that reach the final live
-stream, never inferred from marker-like user text. It is applied by `npm ci`
+stream, never inferred from marker-like user text. The same seam also splits
+the engine's two output budgets: a file redirection's bytes are a file write
+and are bounded by the single-file budget at the filesystem (`EFBIG`), so the
+engine no longer charges them against `executionLimits.maxOutputSize`, which
+stays the bound on bytes captured into the command result
+(`spec/v1/channel.md:265-272`, `spec/v1/budgets.md:104`). It is applied by `npm ci`
 (postinstall), by `pretypecheck`/`pretest`, by the direct image-packer path and
 by `bundle/build.mjs`.
 A wrong version, licence or byte image is refused, and a second run is

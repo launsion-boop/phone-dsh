@@ -597,12 +597,19 @@ export class WasiToolbox {
     }
     let free = false
     void previous.then(() => { free = true }, () => { free = true })
-    const aborted = Promise.withResolvers<false>()
-    const onAbort = (): void => { aborted.resolve(false) }
+    // `Promise.withResolvers` is Chromium 119 and is absent from the Huawei
+    // M99 engine (Chromium 99); every WASI dispatch waits through this race.
+    let resolveAborted!: (value: false) => void
+    let rejectAborted!: (reason?: unknown) => void
+    const aborted = new Promise<false>((resolve, reject) => {
+      resolveAborted = resolve
+      rejectAborted = reject
+    })
+    const onAbort = (): void => { resolveAborted(false) }
     signal.addEventListener('abort', onAbort, { once: true })
     if (signal.aborted) onAbort()
     try {
-      const result = await Promise.race([previous.then(() => true as const), aborted.promise])
+      const result = await Promise.race([previous.then(() => true as const), aborted])
       if (result === true) return true
       // The abort won the race. When the previous dispatch had already
       // released the queue, the caller must still take the normal release
@@ -1453,11 +1460,37 @@ function defaultSpawnWorker(url: URL | string): ToolWorkerTransport {
   return workerTransport(worker)
 }
 
-/** The file view a captured snapshot gives the guest. */
+/**
+ * The file view a captured snapshot gives the guest.
+ *
+ * In snapshot-fallback mode this view is the guest's *only* file system, so a
+ * capture that hit its byte/entry limit must fail the dispatch no matter which
+ * roots the caller marked required. Letting it through would run the program
+ * against a partial tree: `jq -f filter.jq data.json` would read a missing
+ * `data.json` as "no such file" (or an empty stream) while the real file sits
+ * in the live VFS, and the command would report a normal answer over bytes it
+ * never saw. `requiredPreopens` remains the owner of the *ungated* case — a
+ * volatile root such as `/dsh/tmp` may legitimately be absent — but truncation
+ * is not a missing optional root: every root is incomplete at once.
+ *
+ * Truncation is reported separately from absence (`unresolved` carries both,
+ * `detail` names the limit), so the caller's message can say which one
+ * happened.
+ * @param snapshot - the captured view.
+ * @param required - host paths whose absence fails the dispatch even when the
+ *   capture is complete.
+ * @returns the guest-visible view summary.
+ */
 function snapshotFileView(snapshot: VfsSnapshot, required: readonly string[]): ToolboxFileView {
   const unresolved = [...snapshot.missing]
   if (snapshot.truncated) unresolved.push(...snapshot.roots)
-  const missing = unresolved.filter(root => required.includes(root))
+  // A truncated capture is unusable for every root, including a toolbox that
+  // declared no `requiredPreopens` at all (the jq engine does not: it only
+  // needs a working view, not a named durable root). Treat every root as
+  // missing so the dispatch refuses instead of serving the partial tree.
+  const missing = snapshot.truncated
+    ? [...new Set([...snapshot.roots, ...required])]
+    : unresolved.filter(root => required.includes(root))
   return {
     present: snapshot.roots.filter(root => !unresolved.includes(root)),
     missing,

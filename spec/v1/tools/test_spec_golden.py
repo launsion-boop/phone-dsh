@@ -15,6 +15,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+
+import spec_golden
 from pathlib import Path
 
 SPEC_DIR = Path(__file__).resolve().parents[1]
@@ -186,10 +188,15 @@ class GoldenCheckerTests(unittest.TestCase):
         self.assert_fails(completed, "core schema file is missing")
 
     def test_file_over_line_cap_fails(self) -> None:
+        # The cap comes from LINE_CAPS, not a literal: D16 amendments move it, and a
+        # hard-coded number here silently stops testing the rule the moment it moves
+        # (this test failed with "364 not less than or equal to 350" after an
+        # amendment, which is the test being wrong rather than the checker).
         path = self.copy / "channel.md"
         original = path.read_text(encoding="utf-8")
-        self.assertLessEqual(len(original.splitlines()), 350)
-        path.write_text(original + ("\n" * 40), encoding="utf-8")
+        cap = spec_golden.LINE_CAPS["channel.md"]
+        self.assertLessEqual(len(original.splitlines()), cap)
+        path.write_text(original + ("\n" * (cap + 1)), encoding="utf-8")
         completed = run_checker(self.copy)
         self.assert_fails(completed, "D16 cap")
 
@@ -289,11 +296,15 @@ class GoldenCheckerTests(unittest.TestCase):
         self.assert_fails(completed, "manifest schema properties must be exactly")
 
     def test_wal_over_line_cap_fails(self) -> None:
+        # Read the cap from LINE_CAPS rather than restating it: D16 amendments are
+        # allowed (spec/v1/README.md §5.2), and a hard-coded number here turns a
+        # legitimate cap change into a red test.
+        cap = load_checker(self.copy).LINE_CAPS["wal.md"]
         path = self.copy / "wal.md"
         self.assertTrue(path.is_file())
         original = path.read_text(encoding="utf-8")
-        self.assertLessEqual(len(original.splitlines()), 320)
-        path.write_text(original + ("\n" * 40), encoding="utf-8")
+        self.assertLessEqual(len(original.splitlines()), cap)
+        path.write_text(original + ("\n" * (cap + 10)), encoding="utf-8")
         completed = run_checker(self.copy)
         self.assert_fails(completed, "D16 cap")
 

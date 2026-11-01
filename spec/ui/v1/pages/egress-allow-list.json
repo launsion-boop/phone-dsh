@@ -1,0 +1,378 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "EgressAllowListPage",
+  "pageId": "egress-allow-list",
+  "structure": "swiftui-view",
+  "sectionModel": "section",
+  "sectionNote": null,
+  "title": {
+    "text": "网络访问",
+    "provenance": "NativeShell.swift:540",
+    "anchor": ".navigationTitle(\"网络访问\")"
+  },
+  "source": {
+    "file": "NativeShell.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/NativeShell.swift",
+    "lines": 996,
+    "structLine": 443,
+    "renderedFrom": [
+      "body",
+      "addDialog"
+    ],
+    "sectionOrder": "declaration order inside the page struct"
+  },
+  "android": {
+    "screen": "EgressAllowListPage",
+    "file": "android/lib/src/main/kotlin/com/phonedsh/ui/page/EgressAllowListPage.kt",
+    "match": "composable"
+  },
+  "sections": [
+    {
+      "id": "section-465",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "absent",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "允许连任何网站",
+          "label": "允许连任何网站",
+          "labelExpr": null,
+          "kind": "control",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "NativeShell.swift:466",
+          "anchor": "Toggle(\"允许连任何网站\", isOn: allowAllBinding)",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "NativeShell.swift:465",
+      "anchor": "Section {",
+      "extraction": "syntax",
+      "criterion": {
+        "kind": "first-clickable-row",
+        "label": "允许连任何网站",
+        "provenance": "NativeShell.swift:466"
+      },
+      "footer": {
+        "text": "打开之后,下面这些地址就不起作用了。",
+        "labelExpr": null,
+        "provenance": "NativeShell.swift:470",
+        "anchor": "Text(\"打开之后,下面这些地址就不起作用了。\")"
+      }
+    },
+    {
+      "id": "地址",
+      "title": "地址",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "header",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "现在全部能连",
+          "label": "现在全部能连。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "hosts.isEmpty",
+          "provenance": "NativeShell.swift:475",
+          "anchor": "Text(allowAll ? \"现在全部能连。\" : \"还没有地址,现在连不出去。\")",
+          "extraction": "syntax"
+        },
+        {
+          "id": "恢复成默认的",
+          "label": "恢复成默认的",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": false,
+          "condition": "hosts.isEmpty",
+          "provenance": "NativeShell.swift:482",
+          "anchor": "Text(\"恢复成默认的\")",
+          "extraction": "syntax"
+        },
+        {
+          "id": "text-489",
+          "label": null,
+          "labelExpr": "host",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "!(hosts.isEmpty)",
+          "provenance": "NativeShell.swift:489",
+          "anchor": "Text(host)",
+          "extraction": "manual",
+          "collection": "hosts, id: \\.self"
+        },
+        {
+          "id": "添加地址",
+          "label": "添加地址",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": "!allowAll",
+          "provenance": "NativeShell.swift:512",
+          "anchor": "Text(\"添加地址\")",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "NativeShell.swift:521",
+      "anchor": "Text(\"地址\")",
+      "extraction": "syntax",
+      "hasHeader": true
+    },
+    {
+      "id": "规则语法",
+      "kind": "section",
+      "title": "规则语法",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleSource": "literal",
+      "condition": null,
+      "collection": null,
+      "rows": [],
+      "extraction": "manual",
+      "androidOnly": {
+        "reason": {
+          "baselineLacks": "the baseline scatters the matching grammar across an input placeholder and a validation sentence, so it has no syntax section",
+          "androidNeeds": "the Android page edits a host-owned list where an empty table means deny-all, so the `*.suffix` / port / scheme rules must be stated once, on the page",
+          "withoutIt": "a mistyped rule silently cuts the network and the user has no on-page reference to correct it"
+        },
+        "owner": "android-ui",
+        "reviewBy": "2027-01-31"
+      }
+    }
+  ],
+  "actions": [
+    {
+      "id": "允许连任何网站",
+      "label": "允许连任何网站",
+      "labelExpr": null,
+      "kind": "toggle",
+      "trigger": "tap",
+      "semantic": null,
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "NativeShell.swift:466",
+      "anchor": "Toggle(\"允许连任何网站\", isOn: allowAllBinding)",
+      "extraction": "syntax"
+    },
+    {
+      "id": "恢复成默认的",
+      "label": "恢复成默认的",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ restoreDefaults()",
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "NativeShell.swift:482",
+      "anchor": "Text(\"恢复成默认的\")",
+      "extraction": "syntax",
+      "labelAlternatives": []
+    },
+    {
+      "id": "添加地址",
+      "label": "添加地址",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ draft = \"\" addProblem = nil adding = true",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "NativeShell.swift:512",
+      "anchor": "Text(\"添加地址\")",
+      "extraction": "syntax",
+      "labelAlternatives": []
+    },
+    {
+      "id": "gesture-651",
+      "label": null,
+      "labelExpr": null,
+      "kind": "gesture",
+      "trigger": "tap",
+      "semantic": null,
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "NativeShell.swift:651",
+      "anchor": ".onTapGesture { adding = false }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "删除这个地址",
+      "label": "删除这个地址",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "long-press",
+      "semantic": "{ delete(host)",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "NativeShell.swift:496",
+      "anchor": "Button(\"删除这个地址\", role: .destructive) {",
+      "extraction": "syntax"
+    },
+    {
+      "id": "取消",
+      "label": "取消",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ adding = false",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "NativeShell.swift:667",
+      "anchor": "Button(\"取消\") { adding = false }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "添加",
+      "label": "添加",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ submitDraft()",
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "NativeShell.swift:670",
+      "anchor": "Button(\"添加\") { submitDraft() }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "重试",
+      "label": "重试",
+      "labelExpr": null,
+      "kind": "action",
+      "trigger": "tap",
+      "semantic": null,
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "extraction": "manual",
+      "androidOnly": {
+        "reason": {
+          "baselineLacks": "iOS reads its egress rules synchronously from local UserDefaults, so the read cannot fail and needs no retry",
+          "androidNeeds": "Android reads a host snapshot across a process boundary, so the read can fail and the page must offer recovery without leaving and re-entering",
+          "withoutIt": "a failed read leaves the allow list blank with no way back except killing the app, and a blank list silently means deny-all"
+        },
+        "owner": "android-ui",
+        "reviewBy": "2027-01-31"
+      }
+    },
+    {
+      "id": "关闭",
+      "label": "关闭",
+      "labelExpr": null,
+      "kind": "action",
+      "trigger": "tap",
+      "semantic": null,
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "extraction": "manual",
+      "androidOnly": {
+        "reason": {
+          "baselineLacks": "the iOS page has no failure line at all, so it has nothing to dismiss",
+          "androidNeeds": "the Android failure line is dismissible so the user can clear a stale error and keep reading the rules",
+          "withoutIt": "the error occupies the page after it stops being true, and the user cannot tell it apart from a current failure"
+        },
+        "owner": "android-ui",
+        "reviewBy": "2027-01-31"
+      }
+    }
+  ],
+  "presentations": [],
+  "states": {
+    "advisory": true,
+    "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
+    "sites": {
+      "empty": [
+        {
+          "renders": "还没有地址,现在连不出去。",
+          "when": "hosts.isEmpty",
+          "provenance": "NativeShell.swift:475",
+          "anchor": "Text(allowAll ? \"现在全部能连。\" : \"还没有地址,现在连不出去。\")"
+        }
+      ],
+      "data": [
+        {
+          "renders": "untitled section at 465 | 地址",
+          "when": null,
+          "provenance": "NativeShell.swift:443",
+          "anchor": "struct EgressAllowListPage: View {",
+          "note": "structural default: the sections above, when no condition overrides them"
+        }
+      ],
+      "failure": [],
+      "unknown": [],
+      "loading": []
+    },
+    "absent": [
+      "failure",
+      "unknown",
+      "loading"
+    ],
+    "coverage": {
+      "empty": 1,
+      "data": 1,
+      "failure": 0,
+      "unknown": 0,
+      "loading": 0
+    }
+  },
+  "subpages": [
+    {
+      "name": "WorkspaceFoldersPage",
+      "line": 318,
+      "private": false,
+      "sections": [],
+      "provenance": "NativeShell.swift:318"
+    },
+    {
+      "name": "SettingsAboutPage",
+      "line": 861,
+      "private": false,
+      "sections": [],
+      "provenance": "NativeShell.swift:861"
+    }
+  ],
+  "unreachable": [],
+  "extraction": {
+    "tool": "extract_ios_pages.py",
+    "mode": "syntax",
+    "sectionKeywordsInPage": 2,
+    "regionsExtracted": 0,
+    "sectionsExtracted": 2,
+    "warnings": []
+  }
+}

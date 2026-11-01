@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: MIT -->
+<!--
+  Auto Backup / device-transfer exclusions for Android 12+ (API 31+), where
+  `android:fullBackupContent` is ignored and `android:dataExtractionRules` is the
+  only file the platform reads.
+
+  Both sections must exist: `<cloud-backup>` covers Google Drive backup, and
+  `<device-transfer>` covers cable / Quick Share device-to-device migration. The
+  exclusions mirror res/xml/backup_rules.xml one-for-one so the two API eras
+  cannot drift; see that file for the code path behind every entry.
+
+  `android:allowBackup="false"` still turns both flows off today. This file is the
+  defence-in-depth required by security-checklist S5 / plan R11, not the primary
+  switch.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="database" path="phonedsh-domain.db" />
+        <exclude domain="database" path="phonedsh-domain.db-wal" />
+        <exclude domain="database" path="phonedsh-domain.db-shm" />
+        <exclude domain="database" path="phonedsh-domain.db-journal" />
+
+        <exclude domain="file" path="xl" />
+        <exclude domain="file" path="worker" />
+        <exclude domain="file" path="worker.version" />
+
+        <exclude domain="root" path="no_backup/secure-store" />
+    </cloud-backup>
+
+    <device-transfer>
+        <exclude domain="database" path="phonedsh-domain.db" />
+        <exclude domain="database" path="phonedsh-domain.db-wal" />
+        <exclude domain="database" path="phonedsh-domain.db-shm" />
+        <exclude domain="database" path="phonedsh-domain.db-journal" />
+
+        <exclude domain="file" path="xl" />
+        <exclude domain="file" path="worker" />
+        <exclude domain="file" path="worker.version" />
+
+        <exclude domain="root" path="no_backup/secure-store" />
+    </device-transfer>
+</data-extraction-rules>

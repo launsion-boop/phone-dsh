@@ -37,6 +37,7 @@ import {
   WORKER_VFS_NAMESPACE,
   WORKER_VFS_PREOPENS,
   createNamespaceVfs,
+  execReadDeniedMessage,
   wrapFsPromises,
   type WorkerLike,
 } from '../wasi-toolbox/src/index.ts'
@@ -355,4 +356,43 @@ test('namespace: python3 stderr carries the EACCES guidance, not just an errno',
     setWorkerToolbox(undefined)
     await toolbox.dispose()
   }
+})
+
+test('namespace: ls answers a denied subtree with the same EACCES sentence as python3', async () => {
+  // `channel.md` §VFS states one answer for DSH-internal state. The measured
+  // defect: `ls /dsh/home/sessions` printed "No such file or directory" (the
+  // built-in's hardcoded wording for every read failure) while `python3` on the
+  // same path answered EACCES. Both spellings of `ls` must agree with python3.
+  const { base, vfs } = fixture()
+  vfs.mkdirSync('/dsh/home/sessions/project', { recursive: true })
+  vfs.writeFileSync('/dsh/home/sessions/project/transcript.jsonl', '{"secret":true}')
+  const fs = new VfsFileSystem({ nodeFs: wrapFsPromises(base.promises) as never, root: '', workerPaths: true })
+  const shell = new WorkerShell({ fs, commands: createWorkerCommands({ git: false, curl: false }) })
+
+  // The adapter and the WASI policy share one message builder, so the shell's
+  // sentence is the same one `assertExecReadable` throws for python3/jq.
+  const path = '/dsh/home/sessions/project/transcript.jsonl'
+  assert.equal(fs.execReadDenial(path), `EACCES: ${execReadDeniedMessage(path, '/dsh/home/sessions')}`)
+  assert.equal(fs.execReadDenial('/dsh/workspace/file.txt'), undefined)
+  // A real-directory root (desktop simulation, unit tests) keeps POSIX
+  // behaviour: the policy only exists in the Worker's virtual root.
+  assert.equal(new VfsFileSystem({ root: '/tmp' }).execReadDenial('/dsh/home/sessions'), undefined)
+
+  for (const spelling of ['ls /dsh/home/sessions', 'ls -1 /dsh/home/sessions', 'ls -l /dsh/home/sessions']) {
+    const result = await shell.run(['bash', '-c', spelling], { cwd: '/dsh/workspace' })
+    assert.equal(result.exitCode, 2, `${spelling}: exit code`)
+    assert.match(result.stderr, /EACCES/, `${spelling}: code`)
+    assert.match(result.stderr, /session-internal state/, `${spelling}: remediation line`)
+    assert.match(result.stderr, /\/dsh\/workspace/, `${spelling}: remediation target`)
+    assert.equal(result.stdout, '', `${spelling}: no bytes from the denied tree`)
+  }
+
+  // A denied operand among readable ones still reports the denial and fails the
+  // command (GNU `ls` semantics), instead of mislabelling the path as absent.
+  const mixed = await shell.run(
+    ['bash', '-c', 'ls /dsh/workspace /dsh/home/sessions'],
+    { cwd: '/dsh/workspace' },
+  )
+  assert.equal(mixed.exitCode, 2)
+  assert.match(mixed.stderr, /EACCES/)
 })

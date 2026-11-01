@@ -15,6 +15,8 @@ WKWebView page ── one loopback HTTP origin ── App process (Swift host)
 This directory fixes the byte-level contract between the two. It contains no DSH source and no DSH
 patch. DSH is consumed only from its pinned checkout (0.2.1-rc.2, commit `7be5505`). iOS and WebKit
 behaviour is **NOT_VERIFIED** until measured on a device; this document only fixes the wire contract.
+A second host implementation (the Android adaptation tree) conforms to this directory; it does not
+fork it, and a disagreement is settled here, not in either host's source.
 
 Binary fields are big-endian (network byte order) everywhere. CRC32C is Castagnoli (reflected
 polynomial `0x82F63B78`, init and xorout `0xFFFFFFFF`; known answer
@@ -59,6 +61,9 @@ polynomial `0x82F63B78`, init and xorout `0xFFFFFFFF`; known answer
 | [exec.md](exec.md) | Two idempotency keys, dedup and replay, executor inversion, step machine, MCP header. | landed |
 | [handoff.md](handoff.md) | Fence token, admission, handoff order, reclaim token, applier rules, endpoint bodies. | landed |
 | [budgets.md](budgets.md) | Host state machine, transition table, driving signals, budget constants. | landed |
+| [bridge.md](bridge.md) | Page↔host message bridge (not the WebSocket channel): envelope, requestId lifetime, return-value semantics, error codes, timeout, scope, per-OS mapping. | landed |
+| [gateway-security.md](gateway-security.md) | Credential injection, header stripping, redirect scope, egress classification, response redaction, failure surface. | landed |
+| [trajectory.md](trajectory.md) | The five-stage normalisation pipeline shared by behaviour traces and UiState sequences, plus the re-escalation thresholds. | landed |
 | [schema/hello.schema.json](schema/hello.schema.json) | HELLO host/worker variants (`oneOf`). | landed |
 | [schema/exec-req.schema.json](schema/exec-req.schema.json) | EXEC_REQ JSON. | landed |
 | [schema/exec-ctl.schema.json](schema/exec-ctl.schema.json) | EXEC_CTL JSON. | landed |
@@ -78,12 +83,35 @@ polynomial `0x82F63B78`, init and xorout `0xFFFFFFFF`; known answer
 | [schema/handoff-reclaim-request.schema.json](schema/handoff-reclaim-request.schema.json) | `/v1/handoff/reclaim` request. | landed |
 | [schema/handoff-reclaim-response.schema.json](schema/handoff-reclaim-response.schema.json) | `/v1/handoff/reclaim` metadata. | landed |
 | [schema/handoff-error.schema.json](schema/handoff-error.schema.json) | Handoff error envelope. | landed |
+| [schema/bridge-message.schema.json](schema/bridge-message.schema.json) | Bridge request / oneway / response / error envelope. | landed |
+| [schema/gateway-vector.schema.json](schema/gateway-vector.schema.json) | One gateway security vector. | landed |
+| [schema/perturbation.schema.json](schema/perturbation.schema.json) | One kill/recovery perturbation fixture: verb, logical timeline, expected state and durability, per-field evidence. | landed |
+| [schema/upstream-script.schema.json](schema/upstream-script.schema.json) | One scripted model-upstream fixture. | landed |
+| [schema/scenario-catalog.schema.json](schema/scenario-catalog.schema.json) | The scenario catalog document, as used by both `catalog.json` and `selftest.json`. | landed |
+| [schema/scenario-assertion.schema.json](schema/scenario-assertion.schema.json) | The eight assertion kinds of a catalog entry. | landed |
+| [schema/trajectory.schema.json](schema/trajectory.schema.json) | One normalised behaviour-trace line. | landed |
+| [schema/ui-state-sequence.schema.json](schema/ui-state-sequence.schema.json) | One projected UiState node of a sequence. | landed |
 | [golden/README.md](golden/README.md) | Golden vector format and `*_hex` convention. | landed |
 | `golden/frames/<type-name>-<n>.json` | One frame each: `{type, type_byte, seq, fields, payload_hex, frame_hex}`. | landed |
 | `golden/wal/<name>.json` | Complete WAL segments: header, records, `file_hex`. | landed |
+| `golden/bridge/*.json` | Bridge vectors: request/response, oneway, error, timeout, oversize result, scope denial. | landed |
+| `golden/gateway/*.json` | Gateway security vectors: credential injection, header stripping, redirect scope, egress, redaction, failure. | landed |
+| `golden/trajectory/<case>/` | Per case: `ios.jsonl` and `android.jsonl` input, `expected.jsonl`, optional per-platform expected, notes. One case is a deliberate real difference. | landed |
+| `golden/perturbations/*.json` | Kill/recovery fixtures: verb, logical timeline, expected state, durability level, per-field evidence. | landed |
+| `golden/upstream/*.json` | Scripted upstream fixtures: SSE, 5xx retry, budget exhaustion, truncation, stall, malformed stream. | landed |
 | [tools/spec_golden.py](tools/spec_golden.py) | Independent encoder and conformance checker (Python standard library only). | landed |
 | [tools/test_spec_golden.py](tools/test_spec_golden.py) | Mutation tests for the checker. | landed |
 | [tools/test_handoff_budgets.py](tools/test_handoff_budgets.py) | Mutation tests for the handoff schemas, the caps and the D14–D16 references. | landed |
+| [tools/catalog_check.py](tools/catalog_check.py) | Validates the catalog and selftest documents and cross-checks every assertion kind against the runner dispatch table. | landed |
+| [tools/bridge_check.py](tools/bridge_check.py) | Validates the bridge vectors and their requestId, method and terminal-state invariants. | landed |
+| [tools/gateway_check.py](tools/gateway_check.py) | Validates the gateway vectors, the six rule classes and the credential-leak invariant. | landed |
+| [tools/trajectory_norm.py](tools/trajectory_norm.py) | The normaliser, plus the golden replay behind `--check-golden`. | landed |
+| [tools/fixture_check.py](tools/fixture_check.py) | Validates every perturbation and upstream fixture and prints the verb coverage matrix. | landed |
+| [tools/test_catalog_check.py](tools/test_catalog_check.py) | Mutation tests for the catalog checker. | landed |
+| [tools/test_bridge_check.py](tools/test_bridge_check.py) | Mutation tests for the bridge checker. | landed |
+| [tools/test_gateway_check.py](tools/test_gateway_check.py) | Mutation tests for the gateway checker. | landed |
+| [tools/test_trajectory_norm.py](tools/test_trajectory_norm.py) | Mutation tests for the normaliser. | landed |
+| [tools/test_fixture_check.py](tools/test_fixture_check.py) | Mutation tests for the fixture checker. | landed |
 
 `--full` additionally requires `wal.md`, `exec.md`, `handoff.md`, `budgets.md`,
 `schema/manifest.schema.json` and the `golden/wal` vectors, and checks that the documents still
@@ -107,6 +135,7 @@ disagrees with a row is a defect.
 | D3 | mseq 由宿主分配、全局持久、严格连续。 host 的 HELLO 带 `next_mseq`（= WAL 尾 + 1）与 `acked_mseq`；worker 从 `next_mseq` 起为每条 VFS_MUT 连续编号。重连后 worker 用新连接重发所有 `mseq > acked_mseq` 的 VFS_MUT（保留原 mseq）；host 只接受 mseq == 期望值的变更，其它 `BAD_MSEQ`。worker 侧未确认变更缓冲上限 32 MiB：达到上限即**等待 ack（流控）**，等待超过 30 s 才 fail loud 关准入。 *(This decision predates D17, which amends the formula to `next_mseq = max(last_mseq, WAL tail) + 1`.)* | channel.md §4.1, §8, §9; wal.md §7.2 |
 | D4 | sink 只发 `/dsh/home/**` 与 `/dsh/workspace/**`。 `/dsh/tmp/**` 与其它根不发送、不持久化（tmp 是易失的，重启后为空）。路径语法 `^/dsh/(home\|workspace)(/[^/]+)+$`，分量不得为 `.`、`..`、空；`/dsh`、`/dsh/home`、`/dsh/workspace` 本身不是合法变更目标；单个文件 ≤ 15 MiB（超出 VFS 侧 `EFBIG`；帧载荷上限 16 MiB，因此一条整文件 write 总能装进一帧）。因为 tmp 变更根本不发送，mseq 序列没有空洞。 *(Amended by the large-file budget revision of budgets.md §6: the single-file cap now follows the host `single_file_limit` and the §4 tier table — 64 / 48 / 32 / 16 MiB, host-configurable up to 256 MiB — and the 15 MiB value above survives only as the per-mutation VFS_MUT bound of channel.md §6.)* | budgets.md §4, §6; channel.md §6, §8 |
 | D5 | 规范化 JSON 用于所有 JSON 载荷：UTF-8、无多余空白、键按码点排序、不转义斜杠、只用整数、无重复键。金标中的 JSON 帧 hex 是规范化形式；解码方须接受任意合法 JSON。二进制字段在金标里写成 `*_hex`。 | channel.md §5 |
+| D5a | **`additionalProperties: false` 约束编码方，不约束解码方。** schema 里每个 closed 对象（根、`protocol`、`limits`、`auth`）都是「写出去的文档不含未命名成员」的承诺；解码方仍然忽略未知成员（D5）。代价明说：未知成员**不会**在一次 decode/re-encode 往返后存活。 | 见 `spec/host/v1/schema/device-capabilities.schema.json` 与 `DeviceManifest.parse` 的 KDoc |
 | D6 | 标识符语法。 `exec_id`、`session_id`、`workspace_id`、`req_id`（字符串形式）匹配 `^[A-Za-z0-9._-]{1,64}$`；`boot_id` 为 32 位小写 hex；宿主把任何标识符用于路径前必须校验。 | channel.md §6 |
 | D7 | 纪元关闭记录 `op 0xFF`，体 = `wall_ms u64` · `durable_upto u64`；它的 mseq 字段 = durable_upto = 关闭时刻全局最大已写入 mseq（与段无关，可小于本段 first_mseq）；不是变更、不推进 materialized_upto。`first_mseq` = 段创建时的 next_mseq（段内第一条变更将获得的 mseq），只含纪元记录的段也如此。纪元：每 30–60 s、进后台、交接前、计划内重启前关闭一次，对本纪元内写过的**每个**段 fd 做 `F_FULLFSYNC`，再 fsync 目录；ack level 2 只在此时发出。level 1 的承诺是"进程被杀不丢"（页缓存）；掉电最多丢最后一个纪元，那时 Worker 内存也已丢失、无可重发，tool-journal 能看出缺了哪些步。 | wal.md §4 |
 | D8 | 结构校验 → WAL 追加 → ack → 物化；水位严格连续。 host 收到 VFS_MUT 只做结构校验（D4 路径与范围、mseq == 期望值、长度上限、mode/op 合法）；通过即 append 进 WAL 并 ack level 1——WAL 忠实记录 VFS 发生过的每条变更；再按 mseq 顺序应用到物化副本。`materialized_upto_mseq` 是**严格连续水位**：只有 ≤ 它的全部变更都已应用才推进。物化时 appended 变更基底不符（不满足 D9 两种情形）说明宿主副本与 WAL 流失配：host 立即发 0x13 VFS_RESYNC（Worker 的内存 VFS 在存活期间是权威），Worker 以下一个 mseq 发整文件 write；水位停在失配变更之前，直到该路径的整文件 write 应用后越过它；若到下一次纪元关闭仍未收到修复（Worker 已死或不回应）→ 状态机进 Failed，启动时做全树对账。manifest 不持久化 needs-resync 集合。结构校验失败才是协议错误：`BAD_PATH`/`BAD_MSEQ`/`BAD_PAYLOAD` 关闭连接。物化 I/O 失败是宿主缺陷 → Failed（fail loud）。 | channel.md §8; wal.md §5.1, §5.2 |
@@ -141,3 +170,66 @@ Run:
 python3 spec/v1/tools/spec_golden.py --full
 python3 -m unittest discover -s spec/v1/tools -p 'test_*.py'
 ```
+
+### 5.1 The per-asset checkers
+
+`spec_golden.py` judges the byte contract. The other assets of this directory have their own judges,
+and each of them is mandatory in the `phone-spec` and `phone-p0-conformance` CI stages — a
+specification asset without a gate is prose:
+
+| Asset | Judge | What it refuses |
+|---|---|---|
+| `scenarios/catalog.json` (kept in `scripts/ci/scenarios/`) | `catalog_check.py` | duplicate scenario ids, an assertion kind the runner cannot dispatch, absolute or `..` paths, budget drift |
+| `golden/bridge/` | `bridge_check.py` | a response whose method differs from its request, `result` and `error` together, a reused requestId inside one sequence, a oneway that gets a response |
+| `golden/gateway/` | `gateway_check.py` | a `deny` without a reason, an `allow` that carries the caller's credential sentinel, a header that is both stripped and outbound, a vector whose `source` does not resolve |
+| `golden/trajectory/` | `trajectory_norm.py --check-golden` | two platforms that normalise differently on a case declared equivalent, or a declared real difference that the normaliser washed away (non-determinism fails too) |
+| `golden/perturbations/`, `golden/upstream/` | `fixture_check.py` | an unknown perturbation verb, a state outside D14, an `expected` with nothing machine-checkable, an evidence level stronger than its weakest field |
+| `spec/host/v1/` | `host_check.py` | a golden that does not match its schema, a non-monotonic or gapped event sequence declared dense, an undeclared capability |
+| `spec/platform/` | `platform_check.py` | a stale `spec_ref`, a missing §3.2 primitive, a `not-applicable` entry without justification, evidence and approver |
+| `spec/ui/v1/` | `ui_check.py` | a signature surface referencing an absent token, a required contrast pair below its role's threshold, a divergence missing from the whitelist |
+
+The line caps extend to the three port documents (`bridge.md` 200, `gateway-security.md` 200,
+`trajectory.md` 182); `LINE_CAPS` in `spec_golden.py` enforces them.
+
+### 5.2 Amending a document cap (D16)
+
+D16 fixes a cap per document, and `spec_golden.py --full` enforces it. A cap can be raised, but only
+by an amendment that says why the extra lines are contract text rather than prose. The amendment
+lives in the same commit as the change and names the rule it corrects.
+
+- **2026-10-31 — `wal.md` 320 → 340.** Three recovery rules had drifted behind the reference
+  implementation: a stale unlisted segment was to be **unlinked** (that is what silently lost
+  acknowledged writes), the staged reconcile fired on *any* manifest/tail disagreement (turning
+  every unclean shutdown into a full staging copy), and the rule tying a manifest range to the real
+  file range was missing entirely. The reference implementation already behaves correctly, so the
+  document was wrong, not the code. Writing the three rules down costs eleven lines.
+- **2026-10-31 — `gateway-security.md` 200 → 215.** Two items moved from "known baseline gap" to
+  "enforced": a scalar `bearer`/`apiKey` MCP credential must enter the sensitive-response path, and
+  the redaction re-encode must be byte-reproducible. A gap that becomes a requirement is contract
+  text and needs the lines to say so.
+- **2026-10-31 — `exec.md` 220 → 232.** §3 said "**Only** an `argv[0]` that is not an advertised
+  accelerator is `unsupported`", but the host has a second legitimate refusal: a request shape it
+  cannot honour (a `stdin.mode` with no channel behind it). The implementation already answered
+  `unsupported` there; the spec was the narrower of the two. `unsupported` now means "the host never
+  ran this", and `tool_failed` stays "it ran and lost".
+- **2026-10-31 — `channel.md` 350 → 365.** §3.6 said "ack level 2 is emitted only at an epoch close" and
+  `exec.md` said a journal record is durable "level 1; level 2 at the next checkpoint or epoch close".
+  Read together, a journal implementation could not tell whether it was allowed to answer level 2 after
+  fsyncing the record — which it can, and should, because for a journal record that fsync *is* the
+  durability event. The rule is now scoped to VFS_ACK.
+- **2026-10-31 — `wal.md` 340 → 370.** §9's compaction clauses each admitted two readings, and the
+  port had to pick one per clause: when compaction may run, which segment is "the newest close",
+  what proves an epoch durable, what to fsync for a path the epoch removed, whether the close record
+  is charged against the limit, whether to drop every droppable segment or stop at the limit, and
+  whether 512 MiB is per workspace or per host. Seven readings written down once beats seven guesses
+  per implementation.
+- **2026-10-31 — `gateway-security.md` 215 → 240.** The Kotlin implementation had to *infer* four
+  rules the document never stated: what a refused redirect returns to the caller, whether a hop keeps
+  its method and body, that `stripped` is sorted, and that response-header redaction replaces the
+  whole value. Inferred rules are the ones two ports implement differently, so they are written down.
+- **2026-10-31 — `trajectory.md` 180 → 182.** The UiState `kind` vocabulary gained `context`: an
+  injected user-role block (a file read, an approval, a command result the harness folded into the
+  prompt), projected from a host `user_message` whose `source` is not `user`. A new legal kind needs
+  one sentence saying what it carries and which member names the injector — otherwise it is a `kind`
+  no reader can interpret. The two lines also pin that `unknown` (no source reported) reads as a user
+  message, which is what keeps every legacy fixture's main prompt a bubble.

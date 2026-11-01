@@ -20,7 +20,8 @@ or copies it.
 | `src/promise-compat.ts` | Feature-detected `Promise.withResolvers` fallback for the iOS 17.0 deployment floor |
 | `src/namespace-boot.ts` | One path authority: `/tmp` ↔ `/dsh/tmp`, root seeding, the exec read policy and the bounded opener hook |
 | `src/bounded-opendir.ts` | Capture-only bounded opener beside a transparent virtual `node:fs.promises.opendir`; counts `usage()` plus lazy registrations before a Worker command capture can materialise an oversized directory |
-| `src/capabilities.ts` | Boot-time environment priors: `AGENTS.md` + `capabilities.json`, enumerated commands, limits, egress, idempotent publish |
+| `src/capabilities.ts` | Boot-time environment priors: `AGENTS.md` + `capabilities.json`, enumerated commands, limits, egress, idempotent publish, explicit truncation note |
+| `src/fs-denial-diagnostics.ts` | Model-facing facts beside a `write`/`edit` refusal (denied path, writable roots, next step) for `FS_SANDBOX_DENIED`, `FS_NOT_FOUND` and `FS_NOT_OBSERVED` |
 | `src/profile-overlay.ts` | Minimal profile-manifest overlay that keeps app-boot from skipping the absent `dsh-web-app` bundle |
 | `src/python-toolbox.ts` | Production wiring of the W7 CPython-on-WASI runtime: reads the image artifacts, builds `PythonRuntime`, publishes the toolbox |
 | `src/runtime-binding.ts` | The single module that imports the pinned webworker runtime |
@@ -341,7 +342,8 @@ the plugin tests.
 ## Environment priors (G2-ENG-05)
 
 Before the first `API_REQ` the entry publishes two files into the persisted
-home: `/dsh/home/AGENTS.md` (≤ 4 KiB) and `/dsh/home/capabilities.json`
+home: `/dsh/home/AGENTS.md` (≤ 6 KiB; the full production document is 5538 B and an
+overflow names the dropped sections) and `/dsh/home/capabilities.json`
 (`schema: pdsh-capabilities/1`). The upstream `agent-instructions` row — inherited
 unchanged from `dsh-base` — injects `$DSH_HOME/AGENTS.md` as the user-global
 instruction chain, so the model starts with the command table, Python modules
@@ -487,6 +489,67 @@ cannot collide. No DSH source is copied or patched.
 WebKit/on-device behaviour of this bridge remains `NOT_VERIFIED`; the unit
 tests run under Node with the in-memory channel and a fake mux server.
 
+## Refusal diagnostics for `write` / `edit` (P24)
+
+The pinned tool layer replaces a `FS_SANDBOX_DENIED` message with two fixed
+decorations (`[sandbox: file access denied under <mode> mode]` plus the
+same-turn escalation hint) and keeps the provider's reason only as a `cause`
+the model never receives. This package mounts
+`src/fs-denial-diagnostics.ts` through the same app-boot shim as the read-state
+replay and appends the missing facts beside those decorations via
+`tools/post-execute`: the refused path, the one writable-roots sentence bash
+already prints, and a next step that can work. The same answer covers
+`FS_NOT_FOUND` and `FS_NOT_OBSERVED`, because those arrive *before* the fence:
+on a fenced path their stock advice ("read the file, then retry") describes a
+step that cannot succeed.
+
+Two fence shapes are reported honestly rather than merged: `/dsh/home` and
+`/dev/null` are writable roots of the VFS root table but outside
+`dsh-fs-sandbox`'s writable set, so `write`/`edit` cannot reach them and only
+`bash` can. That difference is a contract gap recorded in the P24 report, not
+something this package hides.
+
+## Running a real model on a device (probe app)
+
+The key facts and the endpoint facts are independent. `ProbeLaunchConfig.workerEnvironment()`
+always publishes `DEEPSEEK_API_KEY` (the host placeholder) and `PDSH_MODEL_KEY_STATE`
+(`configured` / `absent` / `invalid`, straight from `ApiKeyStore.activeState()`); only the
+endpoint members (`DEEPSEEK_BASE_URL`, `PDSH_MODEL_NAME`, `DSH_TELEMETRY_DISABLED`) are gated
+on `base != null`.
+
+A launch without `pdsh.deepseek.baseUrl` therefore no longer degrades to
+`llm-deepseek: no API key` — the key state is reported honestly (P25). It also publishes a
+**model route** (`PDSH_MODEL_ROUTE`, plus `PDSH_MODEL_ROUTE_MISSING` when the route is `none`;
+`:dsh`'s `ModelRouteFact`), and this entry **refuses model requests locally** on `none`
+(`src/model-route.ts`): `globalThis.fetch` is wrapped after the tree boots and a Messages /
+Files protocol request is answered with a local `400` whose message names the missing input.
+That is what keeps the pinned `llm-deepseek` resolver from filling the missing endpoint with
+`PUBLIC_BASE_URL` and sending the placeholder credential to api.deepseek.com — a real request
+and a 401 that blamed the key, measured 2026-11-01 before P27. Nothing leaves the device, and
+the failure says `pdsh.deepseek.baseUrl was not supplied`. Always pass the base URL for a
+real-model run:
+
+```sh
+adb shell am start -W -n com.phonedsh.probe/.MainActivity \
+  --es pdsh.deepseek.baseUrl "https://api.deepseek.com/anthropic" \
+  --es pdsh.prompt "\"<your prompt>\""
+```
+
+The key itself never travels through an intent. A **debug** build imports it
+from `<files>/import-key.txt` at start and deletes that plaintext file
+(`ApiKeyStore.importDevelopmentKey`), which is the documented way to seed a
+device without putting a credential on a command line:
+
+```sh
+adb push <local-key-file> /data/local/tmp/import-key.txt
+adb shell 'run-as com.phonedsh.probe sh -c "cat /data/local/tmp/import-key.txt \
+  > /data/user/0/com.phonedsh.probe/files/import-key.txt"'
+```
+
+A scripted-upstream launch (`--ez pdsh.model.proxy false --es pdsh.deepseek.baseUrl
+http://127.0.0.1:<port>` plus `adb reverse`) still needs the base URL extra for
+the same reason, even though the fixture serves the requests.
+
 ## Tests and checks
 
 ```sh
@@ -497,7 +560,8 @@ npm test
 
 `npm test` runs `src/entry.test.ts`, `src/web-boot.test.ts`,
 `src/jsc-compat.test.ts`, `src/profile-overlay.test.ts`,
-`src/bounded-opendir.test.ts` and the workspace suites, including
+`src/bounded-opendir.test.ts`, `src/fs-denial-diagnostics.test.ts`,
+`src/capabilities-truncation.test.ts` and the workspace suites, including
 `tests/sharp-shim.test.ts` (image decode regression),
 `tests/worker-command-bounded-opendir.test.ts` (real pinned MemoryVfs and
 runtime-fs integration) and the pack-image seam tests. The mux suite

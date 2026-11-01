@@ -1,0 +1,71 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "WebSurfacePage",
+  "pageId": "web-surface",
+  "structure": "ui-representable",
+  "sectionModel": "representable",
+  "sectionNote": null,
+  "title": null,
+  "source": {
+    "file": "WebSurfacePage.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/WebSurfacePage.swift",
+    "lines": 100,
+    "structLine": 14,
+    "renderedFrom": [
+      "body"
+    ],
+    "sectionOrder": "declaration order inside the page struct"
+  },
+  "android": {
+    "screen": "WebSurfacePage",
+    "file": "android/lib/src/main/kotlin/com/phonedsh/ui/page/WebSurfacePage.kt",
+    "match": "composable"
+  },
+  "sections": [],
+  "actions": [],
+  "presentations": [],
+  "states": {
+    "advisory": true,
+    "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
+    "sites": {
+      "empty": [],
+      "data": [
+        {
+          "renders": "page body",
+          "when": null,
+          "provenance": "WebSurfacePage.swift:14",
+          "anchor": "struct WebSurfacePage: UIViewRepresentable {",
+          "note": "structural default: the sections above, when no condition overrides them"
+        }
+      ],
+      "failure": [],
+      "unknown": [],
+      "loading": []
+    },
+    "absent": [
+      "empty",
+      "failure",
+      "unknown",
+      "loading"
+    ],
+    "coverage": {
+      "empty": 0,
+      "data": 1,
+      "failure": 0,
+      "unknown": 0,
+      "loading": 0
+    }
+  },
+  "subpages": [],
+  "unreachable": [],
+  "extraction": {
+    "tool": "extract_ios_pages.py",
+    "mode": "syntax",
+    "sectionKeywordsInPage": 0,
+    "regionsExtracted": 0,
+    "sectionsExtracted": 0,
+    "warnings": [
+      "no SwiftUI `body`: the page is a UIKit representable, so it owns no Section/row tree; states and provenance still apply"
+    ]
+  }
+}

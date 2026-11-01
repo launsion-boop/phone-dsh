@@ -10,27 +10,29 @@ struct NativeAutomationPage: View {
     @State private var creating = false
     @State private var editing: ManagedSchedule?
     @State private var deleting: ManagedSchedule?
+    /// 「新建任务」是定高 50 的主按钮:字号放大时按钮跟着长,字不会被压扁。
+    @ScaledMetric(relativeTo: .body) private var primaryButtonHeight: CGFloat = 50
 
     var body: some View {
         List {
             if management.scheduleRecords.isEmpty {
                 VStack(spacing: 8) {
                     Text("还没有定时任务")
-                        .font(.system(size: 17, weight: .semibold))
+                        .font(.body.weight(.semibold))
                         .foregroundStyle(.primary)
                     Text("到点让它自己跑,结果回到原会话。")
-                        .font(.system(size: 13))
-                        .foregroundStyle(ChatPage.inkSecondary)
+                        .font(.footnote)
+                        .foregroundStyle(NativePagePalette.inkSecondary)
                         .multilineTextAlignment(.center)
                     Button {
                         creating = true
                     } label: {
                         Text("新建任务")
-                            .font(.system(size: 17, weight: .semibold))
+                            .font(.body.weight(.semibold))
                             .foregroundStyle(.white)
                             .frame(maxWidth: .infinity)
-                            .frame(height: 50)
-                            .background(ChatPage.accent, in: RoundedRectangle(cornerRadius: 12))
+                            .frame(minHeight: primaryButtonHeight)
+                            .background(NativePagePalette.accentFill, in: RoundedRectangle(cornerRadius: 12))
                     }
                     .padding(.horizontal, 16)
                     .padding(.top, 8)
@@ -38,7 +40,7 @@ struct NativeAutomationPage: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 24)
                 .listRowInsets(EdgeInsets())
-                .listRowBackground(Color(uiColor: .systemBackground))
+                .listRowBackground(NativePagePalette.page)
                 .listRowSeparator(.hidden)
             } else {
                 ForEach(management.scheduleRecords) { schedule in
@@ -70,7 +72,7 @@ struct NativeAutomationPage: View {
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
-        .background(Color.white)
+        .background(NativePagePalette.page)
         .navigationTitle("定时任务")
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
@@ -79,8 +81,8 @@ struct NativeAutomationPage: View {
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button("新建") { creating = true }
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(ChatPage.accent)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(NativePagePalette.accent)
                     .accessibilityLabel("新建")
                     .disabled(ChatModel.shared.currentSessionID == nil)
             }

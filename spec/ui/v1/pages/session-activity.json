@@ -1,0 +1,1099 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "SessionActivityPage",
+  "pageId": "session-activity",
+  "structure": "swiftui-view",
+  "sectionModel": "section",
+  "sectionNote": null,
+  "title": {
+    "text": "会话活动",
+    "provenance": "SessionActivityPage.swift:153",
+    "anchor": ".navigationTitle(\"会话活动\")"
+  },
+  "source": {
+    "file": "SessionActivityPage.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/SessionActivityPage.swift",
+    "lines": 251,
+    "structLine": 6,
+    "renderedFrom": [
+      "body"
+    ],
+    "sectionOrder": "declaration order inside the page struct"
+  },
+  "android": {
+    "screen": "SessionActivityPage",
+    "file": "android/lib/src/main/kotlin/com/phonedsh/ui/page/SessionActivityPage.kt",
+    "match": "composable"
+  },
+  "sections": [
+    {
+      "id": "会话",
+      "title": "会话",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "literal",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "查看此会话的计划-待办-目标和后台活动",
+          "label": "查看此会话的计划、待办、目标和后台活动。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "SessionActivityPage.swift:17",
+          "anchor": "Text(\"查看此会话的计划、待办、目标和后台活动。\")",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "SessionActivityPage.swift:16",
+      "anchor": "Section(\"会话\") {",
+      "extraction": "syntax"
+    },
+    {
+      "id": "计划",
+      "title": "计划",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "literal",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "模式",
+          "label": "模式",
+          "labelExpr": null,
+          "kind": "info",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "let active = management.planActive",
+          "provenance": "SessionActivityPage.swift:23",
+          "anchor": "LabeledContent(\"模式\", value: active ? \"已启用\" : \"未启用\")",
+          "extraction": "syntax"
+        },
+        {
+          "id": "正在应用模式变更",
+          "label": "正在应用模式变更",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "management.planPending",
+          "provenance": "SessionActivityPage.swift:24",
+          "anchor": "if management.planPending { Label(\"正在应用模式变更\", systemImage: \"clock\") }",
+          "extraction": "syntax"
+        },
+        {
+          "id": "此会话尚未启用计划模式",
+          "label": "此会话尚未启用计划模式。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "!(let active = management.planActive)",
+          "provenance": "SessionActivityPage.swift:26",
+          "anchor": "Text(\"此会话尚未启用计划模式。\")",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "SessionActivityPage.swift:21",
+      "anchor": "Section(\"计划\") {",
+      "extraction": "syntax"
+    },
+    {
+      "id": "待办",
+      "title": "待办",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "literal",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "当前会话还没有待办事项",
+          "label": "当前会话还没有待办事项。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "management.todos.isEmpty",
+          "provenance": "SessionActivityPage.swift:33",
+          "anchor": "Text(\"当前会话还没有待办事项。\")",
+          "extraction": "syntax"
+        },
+        {
+          "id": "text-40",
+          "label": null,
+          "labelExpr": "row.title",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "SessionActivityPage.swift:40",
+          "anchor": "Text(row.title)",
+          "extraction": "manual",
+          "collection": "management.todos"
+        },
+        {
+          "id": "text-42",
+          "label": null,
+          "labelExpr": "todoLabel(row.status)",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "SessionActivityPage.swift:42",
+          "anchor": "Text(todoLabel(row.status)).font(.caption).foregroundStyle(.secondary)",
+          "extraction": "manual",
+          "collection": "management.todos"
+        }
+      ],
+      "provenance": "SessionActivityPage.swift:31",
+      "anchor": "Section(\"待办\") {",
+      "extraction": "syntax"
+    },
+    {
+      "id": "目标",
+      "title": "目标",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "literal",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "text-49",
+          "label": null,
+          "labelExpr": "goal.objective",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "let goal = management.goal",
+          "provenance": "SessionActivityPage.swift:49",
+          "anchor": "Text(goal.objective).font(.body)",
+          "extraction": "manual"
+        },
+        {
+          "id": "阶段",
+          "label": "阶段",
+          "labelExpr": null,
+          "kind": "info",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "let goal = management.goal",
+          "provenance": "SessionActivityPage.swift:50",
+          "anchor": "LabeledContent(\"阶段\", value: goalPhaseLabel(goal.phase))",
+          "extraction": "syntax"
+        },
+        {
+          "id": "轮次",
+          "label": "轮次",
+          "labelExpr": null,
+          "kind": "info",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "let goal = management.goal",
+          "provenance": "SessionActivityPage.swift:51",
+          "anchor": "LabeledContent(\"轮次\", value: \"\\(goal.roundsStarted) / \\(goal.maxGoalRounds)\")",
+          "extraction": "syntax"
+        },
+        {
+          "id": "暂停目标",
+          "label": "暂停目标",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": "goal.phase == \"active\"",
+          "provenance": "SessionActivityPage.swift:53",
+          "anchor": "Button(\"暂停目标\") { confirmGoal = \"pause\" }",
+          "extraction": "syntax"
+        },
+        {
+          "id": "恢复目标",
+          "label": "恢复目标",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": "[\"paused\", \"blocked\"].contains(goal.phase)",
+          "provenance": "SessionActivityPage.swift:55",
+          "anchor": "Button(\"恢复目标\") { confirmGoal = \"resume\" }",
+          "extraction": "syntax"
+        },
+        {
+          "id": "标记完成",
+          "label": "标记完成",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": "goal.phase != \"complete\"",
+          "provenance": "SessionActivityPage.swift:58",
+          "anchor": "Button(\"标记完成\", role: .destructive) { confirmGoal = \"complete\" }",
+          "extraction": "syntax"
+        },
+        {
+          "id": "当前会话没有进行中的目标",
+          "label": "当前会话没有进行中的目标。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "!(let goal = management.goal)",
+          "provenance": "SessionActivityPage.swift:61",
+          "anchor": "Text(\"当前会话没有进行中的目标。\")",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "SessionActivityPage.swift:47",
+      "anchor": "Section(\"目标\") {",
+      "extraction": "syntax"
+    },
+    {
+      "id": "子智能体",
+      "title": "子智能体",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "literal",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "当前会话没有子智能体",
+          "label": "当前会话没有子智能体。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "management.subagents.isEmpty",
+          "provenance": "SessionActivityPage.swift:68",
+          "anchor": "Text(\"当前会话没有子智能体。\")",
+          "extraction": "syntax"
+        },
+        {
+          "id": "text-73",
+          "label": null,
+          "labelExpr": "row.title",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "SessionActivityPage.swift:73",
+          "anchor": "Text(row.title).font(.body.weight(.medium))",
+          "extraction": "manual",
+          "collection": "management.subagents"
+        },
+        {
+          "id": "text-74",
+          "label": null,
+          "labelExpr": "row.detail",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "SessionActivityPage.swift:74",
+          "anchor": "Text(row.detail).font(.caption).foregroundStyle(.secondary).textSelection(.enabl",
+          "extraction": "manual",
+          "collection": "management.subagents"
+        },
+        {
+          "id": "中断子智能体",
+          "label": "中断子智能体",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": "row.status == \"continuable\"",
+          "provenance": "SessionActivityPage.swift:76",
+          "anchor": "Button(\"中断子智能体\", role: .destructive) { confirmSubagent = row }",
+          "extraction": "syntax",
+          "collection": "management.subagents"
+        }
+      ],
+      "provenance": "SessionActivityPage.swift:66",
+      "anchor": "Section(\"子智能体\") {",
+      "extraction": "syntax"
+    },
+    {
+      "id": "计划任务",
+      "title": "计划任务",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "literal",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "当前会话没有计划任务",
+          "label": "当前会话没有计划任务。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "management.schedules.isEmpty",
+          "provenance": "SessionActivityPage.swift:84",
+          "anchor": "Text(\"当前会话没有计划任务。\")",
+          "extraction": "syntax"
+        },
+        {
+          "id": "text-90",
+          "label": null,
+          "labelExpr": "row.title",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "SessionActivityPage.swift:90",
+          "anchor": "Text(row.title).font(.body.weight(.medium))",
+          "extraction": "manual",
+          "collection": "management.schedules"
+        },
+        {
+          "id": "text-92",
+          "label": null,
+          "labelExpr": "statusLabel(row.status)",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "SessionActivityPage.swift:92",
+          "anchor": "Text(statusLabel(row.status)).font(.caption).foregroundStyle(.secondary)",
+          "extraction": "manual",
+          "collection": "management.schedules"
+        },
+        {
+          "id": "text-94",
+          "label": null,
+          "labelExpr": "row.detail",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "SessionActivityPage.swift:94",
+          "anchor": "Text(row.detail).font(.caption).foregroundStyle(.secondary).textSelection(.enabl",
+          "extraction": "manual",
+          "collection": "management.schedules"
+        },
+        {
+          "id": "删除计划任务",
+          "label": "删除计划任务",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "SessionActivityPage.swift:95",
+          "anchor": "Button(\"删除计划任务\", role: .destructive) { confirmSchedule = row }",
+          "extraction": "syntax",
+          "collection": "management.schedules"
+        }
+      ],
+      "provenance": "SessionActivityPage.swift:82",
+      "anchor": "Section(\"计划任务\") {",
+      "extraction": "syntax"
+    },
+    {
+      "id": "后台作业",
+      "title": "后台作业",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "literal",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "当前会话没有后台作业",
+          "label": "当前会话没有后台作业。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "management.jobs.isEmpty",
+          "provenance": "SessionActivityPage.swift:102",
+          "anchor": "Text(\"当前会话没有后台作业。\")",
+          "extraction": "syntax"
+        },
+        {
+          "id": "text-108",
+          "label": null,
+          "labelExpr": "row.title",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "SessionActivityPage.swift:108",
+          "anchor": "Text(row.title).font(.body.weight(.medium))",
+          "extraction": "manual",
+          "collection": "management.jobs"
+        },
+        {
+          "id": "text-110",
+          "label": null,
+          "labelExpr": "statusLabel(row.status)",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "SessionActivityPage.swift:110",
+          "anchor": "Text(statusLabel(row.status)).font(.caption).foregroundStyle(.secondary)",
+          "extraction": "manual",
+          "collection": "management.jobs"
+        },
+        {
+          "id": "text-112",
+          "label": null,
+          "labelExpr": "row.detail",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "SessionActivityPage.swift:112",
+          "anchor": "Text(row.detail).font(.caption).foregroundStyle(.secondary)",
+          "extraction": "manual",
+          "collection": "management.jobs"
+        },
+        {
+          "id": "停止后台作业",
+          "label": "停止后台作业",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": "[\"running\", \"stopping\"].contains(row.status ?? \"\")",
+          "provenance": "SessionActivityPage.swift:114",
+          "anchor": "Button(\"停止后台作业\", role: .destructive) { confirmJob = row }",
+          "extraction": "syntax",
+          "collection": "management.jobs"
+        }
+      ],
+      "provenance": "SessionActivityPage.swift:100",
+      "anchor": "Section(\"后台作业\") {",
+      "extraction": "syntax"
+    },
+    {
+      "id": "技能目录",
+      "title": "技能目录",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "literal",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "当前没有可用的技能信息",
+          "label": "当前没有可用的技能信息。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "management.skills.isEmpty",
+          "provenance": "SessionActivityPage.swift:122",
+          "anchor": "Text(\"当前没有可用的技能信息。\")",
+          "extraction": "syntax"
+        },
+        {
+          "id": "text-128",
+          "label": null,
+          "labelExpr": "row.title",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "SessionActivityPage.swift:128",
+          "anchor": "Text(row.title).font(.body.weight(.medium))",
+          "extraction": "manual",
+          "collection": "management.skills"
+        },
+        {
+          "id": "text-132",
+          "label": null,
+          "labelExpr": "statusLabel(status)",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "let status = row.status, statusLabel(status) != status",
+          "provenance": "SessionActivityPage.swift:132",
+          "anchor": "Text(statusLabel(status)).font(.caption).foregroundStyle(.secondary)",
+          "extraction": "manual",
+          "collection": "management.skills"
+        },
+        {
+          "id": "text-135",
+          "label": null,
+          "labelExpr": "row.detail",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "SessionActivityPage.swift:135",
+          "anchor": "Text(row.detail).font(.caption).foregroundStyle(.secondary).textSelection(.enabl",
+          "extraction": "manual",
+          "collection": "management.skills"
+        }
+      ],
+      "provenance": "SessionActivityPage.swift:120",
+      "anchor": "Section(\"技能目录\") {",
+      "extraction": "syntax"
+    },
+    {
+      "id": "暂不可用",
+      "title": "暂不可用",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "literal",
+      "condition": "let value = management.activityErrors[key]",
+      "collection": "management.activityErrors.keys.sorted(), id: \\.self",
+      "rows": [
+        {
+          "id": "key-的详细原因",
+          "label": "{key}的详细原因",
+          "labelExpr": null,
+          "kind": "custom",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "SessionActivityPage.swift:143",
+          "anchor": "DisclosureGroup(\"\\(key)的详细原因\") {",
+          "extraction": "manual",
+          "template": "DisclosureGroup",
+          "dynamicLabel": true
+        }
+      ],
+      "provenance": "SessionActivityPage.swift:142",
+      "anchor": "Section(\"暂不可用\") {",
+      "extraction": "syntax"
+    }
+  ],
+  "actions": [
+    {
+      "id": "暂停目标",
+      "label": "暂停目标",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ confirmGoal = \"pause\"",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionActivityPage.swift:53",
+      "anchor": "Button(\"暂停目标\") { confirmGoal = \"pause\" }",
+      "extraction": "syntax",
+      "labelAlternatives": [],
+      "presents": "confirmationDialog-158"
+    },
+    {
+      "id": "恢复目标",
+      "label": "恢复目标",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ confirmGoal = \"resume\"",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionActivityPage.swift:55",
+      "anchor": "Button(\"恢复目标\") { confirmGoal = \"resume\" }",
+      "extraction": "syntax",
+      "labelAlternatives": []
+    },
+    {
+      "id": "标记完成",
+      "label": "标记完成",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ confirmGoal = \"complete\"",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionActivityPage.swift:58",
+      "anchor": "Button(\"标记完成\", role: .destructive) { confirmGoal = \"complete\" }",
+      "extraction": "syntax",
+      "labelAlternatives": []
+    },
+    {
+      "id": "中断子智能体",
+      "label": "中断子智能体",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ confirmSubagent = row",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionActivityPage.swift:76",
+      "anchor": "Button(\"中断子智能体\", role: .destructive) { confirmSubagent = row }",
+      "extraction": "syntax",
+      "labelAlternatives": [],
+      "presents": "confirmationDialog-182"
+    },
+    {
+      "id": "删除计划任务",
+      "label": "删除计划任务",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ confirmSchedule = row",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionActivityPage.swift:95",
+      "anchor": "Button(\"删除计划任务\", role: .destructive) { confirmSchedule = row }",
+      "extraction": "syntax",
+      "labelAlternatives": [],
+      "presents": "confirmationDialog-166"
+    },
+    {
+      "id": "停止后台作业",
+      "label": "停止后台作业",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ confirmJob = row",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionActivityPage.swift:114",
+      "anchor": "Button(\"停止后台作业\", role: .destructive) { confirmJob = row }",
+      "extraction": "syntax",
+      "labelAlternatives": [],
+      "presents": "confirmationDialog-174"
+    },
+    {
+      "id": "gesture-156",
+      "label": null,
+      "labelExpr": null,
+      "kind": "gesture",
+      "trigger": "pull-to-refresh",
+      "semantic": "refresh",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionActivityPage.swift:156",
+      "anchor": ".refreshable { await management.refreshActivity(sessionID: sessionID) }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "刷新",
+      "label": "刷新",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "toolbar",
+      "semantic": "{ Task { await management.refreshActivity(sessionID: sessionID) }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionActivityPage.swift:155",
+      "anchor": ".toolbar { ToolbarItem(placement: .topBarTrailing) { Button(\"刷新\") { Task { await",
+      "extraction": "syntax"
+    },
+    {
+      "id": "button-160",
+      "label": null,
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ guard let action = confirmGoal, let goal = management.goal else { return } Task { await management.mutateGoal(action, sessionID: sessionID, goal: goal); confirmGoal = nil }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionActivityPage.swift:160",
+      "anchor": "Button(goalActionLabel, role: confirmGoal == \"complete\" ? .destructive : nil) {",
+      "extraction": "manual"
+    },
+    {
+      "id": "取消",
+      "label": "取消",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ confirmGoal = nil",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionActivityPage.swift:164",
+      "anchor": "Button(\"取消\", role: .cancel) { confirmGoal = nil }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "删除计划任务",
+      "label": "删除计划任务",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ guard let row = confirmSchedule else { return } Task { await management.deleteSchedule(row, sessionID: sessionID); confirmSchedule = nil }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionActivityPage.swift:168",
+      "anchor": "Button(\"删除计划任务\", role: .destructive) {",
+      "extraction": "syntax"
+    },
+    {
+      "id": "取消",
+      "label": "取消",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ confirmSchedule = nil",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionActivityPage.swift:172",
+      "anchor": "Button(\"取消\", role: .cancel) { confirmSchedule = nil }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "停止作业",
+      "label": "停止作业",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ guard let row = confirmJob else { return } Task { await management.killJob(row, sessionID: sessionID); confirmJob = nil }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionActivityPage.swift:176",
+      "anchor": "Button(\"停止作业\", role: .destructive) {",
+      "extraction": "syntax"
+    },
+    {
+      "id": "取消",
+      "label": "取消",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ confirmJob = nil",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionActivityPage.swift:180",
+      "anchor": "Button(\"取消\", role: .cancel) { confirmJob = nil }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "中断",
+      "label": "中断",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ guard let row = confirmSubagent else { return } Task { await management.interruptSubagent(row, parentSessionID: sessionID); confirmSubagent = nil }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionActivityPage.swift:184",
+      "anchor": "Button(\"中断\", role: .destructive) {",
+      "extraction": "syntax"
+    },
+    {
+      "id": "取消",
+      "label": "取消",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ confirmSubagent = nil",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionActivityPage.swift:188",
+      "anchor": "Button(\"取消\", role: .cancel) { confirmSubagent = nil }",
+      "extraction": "syntax"
+    }
+  ],
+  "presentations": [
+    {
+      "id": "confirmationDialog-158",
+      "kind": "confirmationDialog",
+      "title": null,
+      "destination": null,
+      "triggerBindings": [
+        "confirmGoal"
+      ],
+      "span": [
+        158,
+        165
+      ],
+      "provenance": "SessionActivityPage.swift:158",
+      "anchor": ".confirmationDialog(goalConfirmationTitle, isPresented: Binding(",
+      "triggered": true
+    },
+    {
+      "id": "confirmationDialog-166",
+      "kind": "confirmationDialog",
+      "title": "删除此计划任务？",
+      "destination": null,
+      "triggerBindings": [
+        "confirmSchedule"
+      ],
+      "span": [
+        166,
+        173
+      ],
+      "provenance": "SessionActivityPage.swift:166",
+      "anchor": ".confirmationDialog(\"删除此计划任务？\", isPresented: Binding(",
+      "triggered": true
+    },
+    {
+      "id": "confirmationDialog-174",
+      "kind": "confirmationDialog",
+      "title": "停止此后台作业？",
+      "destination": null,
+      "triggerBindings": [
+        "confirmJob"
+      ],
+      "span": [
+        174,
+        181
+      ],
+      "provenance": "SessionActivityPage.swift:174",
+      "anchor": ".confirmationDialog(\"停止此后台作业？\", isPresented: Binding(",
+      "triggered": true
+    },
+    {
+      "id": "confirmationDialog-182",
+      "kind": "confirmationDialog",
+      "title": "中断此子 Agent？",
+      "destination": null,
+      "triggerBindings": [
+        "confirmSubagent"
+      ],
+      "span": [
+        182,
+        189
+      ],
+      "provenance": "SessionActivityPage.swift:182",
+      "anchor": ".confirmationDialog(\"中断此子 Agent？\", isPresented: Binding(",
+      "triggered": true
+    }
+  ],
+  "states": {
+    "advisory": true,
+    "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
+    "sites": {
+      "empty": [
+        {
+          "renders": "当前会话还没有待办事项。",
+          "when": "management.todos.isEmpty",
+          "provenance": "SessionActivityPage.swift:33",
+          "anchor": "Text(\"当前会话还没有待办事项。\")"
+        },
+        {
+          "renders": "当前会话没有进行中的目标。",
+          "when": null,
+          "provenance": "SessionActivityPage.swift:61",
+          "anchor": "Text(\"当前会话没有进行中的目标。\")"
+        },
+        {
+          "renders": "当前会话没有子智能体。",
+          "when": "management.subagents.isEmpty",
+          "provenance": "SessionActivityPage.swift:68",
+          "anchor": "Text(\"当前会话没有子智能体。\")"
+        },
+        {
+          "renders": "当前会话没有计划任务。",
+          "when": "management.schedules.isEmpty",
+          "provenance": "SessionActivityPage.swift:84",
+          "anchor": "Text(\"当前会话没有计划任务。\")"
+        },
+        {
+          "renders": "当前会话没有后台作业。",
+          "when": "management.jobs.isEmpty",
+          "provenance": "SessionActivityPage.swift:102",
+          "anchor": "Text(\"当前会话没有后台作业。\")"
+        },
+        {
+          "renders": "当前没有可用的技能信息。",
+          "when": "management.skills.isEmpty",
+          "provenance": "SessionActivityPage.swift:122",
+          "anchor": "Text(\"当前没有可用的技能信息。\")"
+        }
+      ],
+      "data": [
+        {
+          "renders": "会话 | 计划 | 待办 | 目标 | 子智能体 | 计划任务 | 后台作业 | 技能目录 | 暂不可用",
+          "when": null,
+          "provenance": "SessionActivityPage.swift:6",
+          "anchor": "struct SessionActivityPage: View {",
+          "note": "structural default: the sections above, when no condition overrides them"
+        }
+      ],
+      "failure": [
+        {
+          "renders": "失败",
+          "when": null,
+          "provenance": "SessionActivityPage.swift:232",
+          "anchor": "case \"failed\": \"失败\""
+        },
+        {
+          "renders": "失败",
+          "when": null,
+          "provenance": "SessionActivityPage.swift:244",
+          "anchor": "case \"failed\", \"error\": \"失败\""
+        }
+      ],
+      "unknown": [
+        {
+          "renders": "状态未知",
+          "when": null,
+          "provenance": "SessionActivityPage.swift:247",
+          "anchor": "case \"unknown\", nil: \"状态未知\""
+        },
+        {
+          "renders": "状态未知",
+          "when": null,
+          "provenance": "SessionActivityPage.swift:248",
+          "anchor": "default: status ?? \"状态未知\""
+        }
+      ],
+      "loading": [
+        {
+          "renders": "正在应用模式变更",
+          "when": "management.planPending",
+          "provenance": "SessionActivityPage.swift:24",
+          "anchor": "if management.planPending { Label(\"正在应用模式变更\", systemImage: \"clock\") }"
+        },
+        {
+          "renders": "等待中",
+          "when": null,
+          "provenance": "SessionActivityPage.swift:240",
+          "anchor": "case \"pending\": \"等待中\""
+        },
+        {
+          "renders": "正在停止",
+          "when": null,
+          "provenance": "SessionActivityPage.swift:242",
+          "anchor": "case \"stopping\": \"正在停止\""
+        }
+      ]
+    },
+    "absent": [],
+    "coverage": {
+      "empty": 6,
+      "data": 1,
+      "failure": 2,
+      "unknown": 2,
+      "loading": 3
+    }
+  },
+  "subpages": [],
+  "unreachable": [],
+  "extraction": {
+    "tool": "extract_ios_pages.py",
+    "mode": "syntax",
+    "sectionKeywordsInPage": 9,
+    "regionsExtracted": 0,
+    "sectionsExtracted": 9,
+    "warnings": []
+  }
+}

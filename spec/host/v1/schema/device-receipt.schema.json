@@ -1,0 +1,63 @@
+{
+  "title": "DeviceReceipt",
+  "description": "The receipt of one downlink command. applied means the device executed it and data carries the resulting state revision; failed carries one code from the minimum error set. A receipt always reflects the real outcome: a device must not answer applied before executing.",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": [
+        "id",
+        "status",
+        "code"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9:._-]{0,127}$"
+        },
+        "status": {
+          "const": "applied"
+        },
+        "code": {
+          "const": "ok"
+        },
+        "data": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "id",
+        "status",
+        "code"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9:._-]{0,127}$"
+        },
+        "status": {
+          "const": "failed"
+        },
+        "code": {
+          "type": "string",
+          "enum": [
+            "unsupported",
+            "invalid_args",
+            "expired",
+            "busy",
+            "unauthorized",
+            "internal",
+            "timeout"
+          ]
+        },
+        "data": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
+    }
+  ]
+}

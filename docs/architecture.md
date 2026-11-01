@@ -364,7 +364,7 @@ caps (`accelerator:<name>`) is sent to the app process as an `EXEC_REQ` frame.
 The model does not get to discover the runtime by trial and error. Before the
 first API request the Worker entry publishes two files into its persisted home:
 
-- `/dsh/home/AGENTS.md` — a summary capped at **4 KiB**: the command surface,
+- `/dsh/home/AGENTS.md` — a summary capped at **5 KiB**: the command surface,
   Python capability and gaps, file/output/request budgets, the egress
   allow-list, `/tmp` and `/dsh/tmp` semantics, the recorded non-GNU bash
   deviations and the restart rules. The unmodified upstream
@@ -430,7 +430,7 @@ is the host's clamped value (128 MiB at the 8 GiB tier, up to 256 MiB when the
 tier allows) with the same number reported to the model.
 
 Acceptance is covered by `plugins/worker-entry/src/capability-manifest.test.ts`
-(command-table two-way diff, allow-list and Python list equality, 4 KiB cap,
+(command-table two-way diff, allow-list and Python list equality, 5 KiB cap,
 the real upstream loader picking the file up, and the second-boot no-`VFS_MUT`
 check) and by `plugins/scripts/pack-image.test.mjs` (module probe and the
 profile/roster assertion). The jq wiring has its own Node suite
@@ -792,7 +792,7 @@ nothing about a deployed remote peer.
 | WKWebView Worker boot and one real `bash` tool call | historical macOS gate | `scripts/ci/smoke.sh` → `PhoneDSHSmokeTests`; phases `boot_and_hello`, `first_tool_turn` |
 | Planned restart, WAL and session resume | historical macOS gate | the same smoke; phases `planned_restart`, `resumed_turn` |
 | Worker shell executor inversion (`bash -c` and workspace writes stay in the Worker) | historical macOS gate | the smoke's `bash -c` call (`echo hi > a.txt && cat a.txt`); `plugins/shell-ext` Node suites |
-| Boot capability manifest (`AGENTS.md` ≤ 4 KiB + `capabilities.json`) read by the unmodified instruction loader; command-table truth and no-`VFS_MUT` second boot | unit-tested (Node capability suite) | `plugins/worker-entry/src/capability-manifest.test.ts` (8 tests passed in this task, including the upstream loader); `scripts/pack-image.test.mjs` covers the module probe and profile assertion but was not run here |
+| Boot capability manifest (`AGENTS.md` ≤ 5 KiB + `capabilities.json`) read by the unmodified instruction loader; command-table truth and no-`VFS_MUT` second boot | unit-tested (Node capability suite) | `plugins/worker-entry/src/capability-manifest.test.ts` (8 tests passed in this task, including the upstream loader); `scripts/pack-image.test.mjs` covers the module probe and profile assertion but was not run here |
 | Read-only native accelerators through linked pdsh-shell (`rg`, `jaq`/`jq`, `ts-parse`, `ts-query`, `phone`/`ctx` with a bridge) | implemented; linked acceptance required | Rust registry/C-ABI tests, `bash shell/build-apple.sh` (iOS, iOS Simulator, macOS), then `PDSH_WITH_XZSHELL=1` linked provider, bridge-safety and Host suites. Physical-device acceleration remains NOT_VERIFIED |
 | Probe package: Worker channel, timer throttling, JIT benchmark, 100-file checkpoint | historical macOS gate | `scripts/ci/probes.sh` → `PhoneDSHProbeTests` (5 tests, G0 gating clean in that run) |
 | Kill matrix: 20 seeded kills, WAL/materialized/step consistency after recovery | historical macOS gate | `scripts/ci/probes.sh` → `PhoneDSHKillTests` (20/20 iterations in that run) |

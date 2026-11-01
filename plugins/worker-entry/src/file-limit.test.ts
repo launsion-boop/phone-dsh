@@ -243,7 +243,10 @@ function vfsMutations(frames: readonly Frame[]): ReturnType<typeof decodeVfsMuta
 }
 
 test('G2-FIX-29: an append past the single-file budget fails as the command error, not as a channel close', async () => {
-  assert.equal(MAX_FILE_SIZE, 128 * 1024 * 1024, 'the write cap is the 8 GiB tier single-file budget')
+  // One owner for the number: spec/v1/budgets.md:104 — "| Single file | … |
+  // ≤ 128 MiB | …", the 8 GiB (default) column this build targets. The test
+  // used to assert 64 MiB, a value no row of that table contains.
+  assert.equal(MAX_FILE_SIZE, 128 * 1024 * 1024, 'the write cap is the 8 GiB tier single-file budget (spec/v1/budgets.md:104)')
   const { vfs, pair, frames, dispose } = fixture()
   try {
     // A file already at the exact single-file limit; one more byte must be refused.

@@ -1,0 +1,52 @@
+{
+  "id": "gw-resp-001",
+  "rule": "response-redaction",
+  "kind": "response",
+  "source": "Sources/PhoneDSHGateway/SensitiveResponseBody.swift:66",
+  "references": [
+    "Tests/PhoneDSHGatewayTests/MCPEgressPolicyTests.swift:201",
+    "Tests/PhoneDSHGatewayTests/MCPEgressPolicyTests.swift:205"
+  ],
+  "note": "For a host-managed MCP credential a non-2xx body is never forwarded: the status is the diagnostic, the body is one controlled JSON-RPC error, and the response is excluded from the disk log.",
+  "input": {
+    "method": "POST",
+    "url": "https://internal.example.invalid/mcp",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "allowlist": [
+      "https://internal.example.invalid"
+    ],
+    "credential": {
+      "kind": "headers",
+      "headers": {
+        "authorization": "Bearer mcp-device-placeholder",
+        "x-mcp-token": "mcp-header-placeholder"
+      }
+    },
+    "response": {
+      "status": 401,
+      "headers": {
+        "content-type": "text/plain",
+        "x-echo": "Bearer mcp-device-placeholder"
+      },
+      "body": "rejected: Bearer mcp-device-placeholder"
+    }
+  },
+  "expect": {
+    "dispatch": "allow",
+    "outbound_headers": {
+      "cache-control": "no-store",
+      "content-type": "application/json; charset=utf-8",
+      "x-echo": "[redacted]"
+    },
+    "stripped": [],
+    "outbound_url": "https://internal.example.invalid/mcp",
+    "body": "{\"error\":{\"code\":-32000,\"message\":\"MCP upstream returned HTTP 401; response body withheld\"},\"id\":null,\"jsonrpc\":\"2.0\"}",
+    "body_withheld": true,
+    "log": {
+      "recorded": false,
+      "reason": "sensitive_credential"
+    }
+  }
+}

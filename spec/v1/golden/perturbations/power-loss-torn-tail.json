@@ -1,0 +1,104 @@
+{
+  "id": "power-loss-torn-tail",
+  "verb": "power_loss_torn_tail",
+  "title": "Power loss while the epoch-close record is written: the torn tail is truncated, every acked record stays",
+  "preconditions": {
+    "host_state": "Running",
+    "admission": "open",
+    "epoch_open": true,
+    "acked_mseq": 4,
+    "open_steps": 1,
+    "journaled_steps": 0,
+    "exec_in_flight": false,
+    "persisted_state": "Running",
+    "worker_channel": "open",
+    "notes": "Four writes are level-1 acked and the epoch close has started: a 24-byte length prefix is on disk followed by only six body bytes, so the newest record has no complete len/crc32c (wal.md section 10 step 2)."
+  },
+  "timeline": [
+    {
+      "at": 0,
+      "event": "four writes acked; one step open",
+      "expect_state": "Running",
+      "source": "Tests/PhoneDSHKillTests/Phase0KillMatrixTests.swift:398-403"
+    },
+    {
+      "at": 5,
+      "event": "power loss during the epoch-close record write",
+      "detail": "a complete length prefix and a short body: the record cannot be parsed and nothing follows it",
+      "source": "Tests/PhoneDSHKillTests/Phase0KillMatrixTests.swift:512-526"
+    },
+    {
+      "at": 15,
+      "event": "process start",
+      "detail": "every process start is a cold recovery (wal.md section 10 step 4)",
+      "expect_state": "Recovering",
+      "source": "Tests/PhoneDSHControllerTests/HostStateMachineTests.swift:66-88"
+    },
+    {
+      "at": 25,
+      "event": "torn tail truncated",
+      "detail": "truncation stops at the last complete record and is logged with boot id, segment, byte offset and dropped bytes; it is not an error",
+      "source": "Tests/PhoneDSHKillTests/Phase0KillMatrixTests.swift:476-480"
+    },
+    {
+      "at": 35,
+      "event": "replay of the retained prefix",
+      "detail": "every acked mseq is still present with the identical mutation and the materialized copy equals the replay",
+      "source": "Sources/PhoneDSHHarness/KillSupport.swift:301-333"
+    },
+    {
+      "at": 45,
+      "event": "lease verified",
+      "expect_state": "Running",
+      "source": "Tests/PhoneDSHKillTests/Phase0KillMatrixTests.swift:158"
+    },
+    {
+      "at": 55,
+      "event": "step reconcile",
+      "detail": "reconcile lists exactly the interrupted step of the pre-kill snapshot",
+      "source": "Tests/PhoneDSHKillTests/Phase0KillMatrixTests.swift:469-472"
+    }
+  ],
+  "expected": {
+    "state": "Running",
+    "state_path": [
+      "Running",
+      "Recovering",
+      "Running"
+    ],
+    "durability_level": "level_1",
+    "wal_tail": "truncated_to_last_complete",
+    "journal_gap": "step_open",
+    "surfaced_to_user": "unmeasured",
+    "admission": "open",
+    "acked_prefix_preserved": true,
+    "truncated_torn_tail": true,
+    "materialized_equals_replay": true,
+    "steps_open": 1,
+    "steps_abandoned": 0,
+    "settlement_reason": "absent",
+    "field_evidence": {
+      "state": "swift-test",
+      "state_path": "swift-test",
+      "durability_level": "swift-test",
+      "wal_tail": "swift-test",
+      "journal_gap": "swift-test",
+      "admission": "swift-test",
+      "acked_prefix_preserved": "swift-test",
+      "truncated_torn_tail": "swift-test",
+      "materialized_equals_replay": "swift-test",
+      "steps_open": "swift-test",
+      "steps_abandoned": "swift-test",
+      "settlement_reason": "swift-test"
+    }
+  },
+  "evidence_level": "swift-test",
+  "source": "Tests/PhoneDSHKillTests/Phase0KillMatrixTests.swift:398-408",
+  "related_sources": [
+    "Tests/PhoneDSHKillTests/Phase0KillMatrixTests.swift:476-480",
+    "Tests/PhoneDSHKillTests/Phase0KillMatrixTests.swift:508-526",
+    "Tests/PhoneDSHLogTests/WALReaderTests.swift:95-112",
+    "spec/v1/wal.md:299-310"
+  ],
+  "notes": "The distinction the runner must implement: a torn record at the TAIL is truncated and logged; a CRC failure that is not at the tail, or an invalid record followed by a valid one, is WAL_CORRUPT and the host enters Failed. The fixture asserts the first case only; the second has no fixture in the Swift suite and is therefore not lifted here."
+}

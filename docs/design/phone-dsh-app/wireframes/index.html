@@ -1,0 +1,434 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>PhoneDSH · 黑白结构原型</title>
+  <style>
+    :root{--bg:#f6f6f6;--panel:#fff;--ink:#171717;--muted:#686868;--faint:#969696;--line:#d7d7d7;--soft:#ebebeb;--soft2:#f0f0f0;--black:#171717}
+    *{box-sizing:border-box}
+    html,body{margin:0;min-height:100%;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue",Arial,sans-serif;color:var(--ink);background:#dedede}
+    body{display:flex;justify-content:center;align-items:center;min-height:100vh}
+    button,input,textarea{font:inherit}button{cursor:pointer}button:disabled{cursor:not-allowed;opacity:.42}a{color:inherit}
+    .phone{position:relative;width:390px;height:844px;max-width:100vw;max-height:100vh;max-height:100dvh;background:var(--bg);border:1px solid #bcbcbc;overflow:hidden}
+    .statusbar{height:26px;padding:6px 18px 0;display:flex;justify-content:space-between;font-size:11px;font-weight:600}
+    .mockbar{height:36px;padding:0 16px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);font-size:11px;color:var(--muted)}
+    .mockbar button{border:0;background:none;min-height:32px;color:var(--ink);text-decoration:underline;text-underline-offset:3px}
+    .page{height:calc(100% - 62px);overflow-y:auto;padding:14px 16px 120px;scrollbar-width:thin}.page.no-dock{padding-bottom:36px}
+    h1{font-size:34px;line-height:1.15;margin:8px 0 12px;letter-spacing:-.5px}h2{font-size:22px;line-height:1.25;margin:20px 0 10px}h3{font-size:16px;line-height:1.35;margin:0 0 8px}p{font-size:15px;line-height:1.55;margin:0 0 12px}
+    .small{font-size:12px;line-height:1.45;color:var(--muted)}.micro{font-size:11px;line-height:1.4;color:var(--muted)}.strong{font-weight:650}.muted{color:var(--muted)}.right{text-align:right}.center{text-align:center}.nowrap{white-space:nowrap}.break{overflow-wrap:anywhere}
+    .row{display:flex;align-items:center;gap:10px}.between{justify-content:space-between}.top{align-items:flex-start}.wrap{flex-wrap:wrap}.grow{flex:1;min-width:0}.stack{display:grid;gap:12px}.section{margin-top:22px}.divider{height:1px;background:var(--line);margin:14px 0}
+    .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px;margin-bottom:12px}.card.flat{background:var(--soft2)}.card.selected{outline:2px solid var(--ink);outline-offset:-2px}.clickable{cursor:pointer}.clickable:focus-visible,.btn:focus-visible,.dock button:focus-visible,.tile:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+    .btn{min-height:44px;border:1px solid var(--ink);border-radius:12px;padding:10px 14px;background:var(--panel);color:var(--ink);font-weight:600;display:inline-flex;align-items:center;justify-content:center;gap:7px;text-decoration:none}.btn.primary{background:var(--black);color:#fff}.btn.ghost{border-color:var(--line);font-weight:500}.btn.danger{border-style:dashed}.btn.full{width:100%}.btn.smallbtn{min-height:36px;padding:6px 10px;font-size:12px;border-radius:10px}.btn svg{width:18px;height:18px}
+    .icon{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}.iconbox{width:40px;height:40px;border:1px solid var(--line);border-radius:12px;display:grid;place-items:center;background:var(--panel);flex:none}
+    .badge{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:999px;padding:4px 8px;font-size:11px;line-height:1.2;color:var(--muted);background:var(--panel);white-space:nowrap}.badge.solid{background:var(--ink);color:#fff;border-color:var(--ink)}.badge.dashed{border-style:dashed}
+    .dot{width:8px;height:8px;border:1px solid var(--ink);border-radius:50%;display:inline-block;flex:none}.dot.fill{background:var(--ink)}.dot.hollow{background:#fff}.statusline{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--muted)}
+    .header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px}.header .title{font-size:30px;font-weight:700;letter-spacing:-.4px}.back{border:0;background:none;padding:8px 0;min-height:40px;color:var(--ink);font-size:14px;text-decoration:underline;text-underline-offset:3px}
+    .message{padding:12px 14px;border-radius:16px;margin-bottom:12px;font-size:15px;line-height:1.55}.message.user{background:#e5e5e5;margin-left:46px}.message.agent{background:transparent;padding-left:0;padding-right:0}.process{border-left:2px solid var(--ink);padding-left:12px;margin:10px 0 14px}.step{display:flex;gap:10px;align-items:flex-start;font-size:13px;line-height:1.45;margin:9px 0}.stepnum{width:22px;height:22px;border:1px solid var(--ink);border-radius:50%;display:grid;place-items:center;font-size:11px;flex:none}.step.pending{color:var(--faint)}.step.pending .stepnum{border-color:var(--line)}
+    .progress{height:6px;background:#e2e2e2;border-radius:99px;overflow:hidden;margin:10px 0}.progress span{display:block;height:100%;background:var(--ink)}
+    .asr{display:flex;align-items:center;gap:8px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:10px 2px;margin:10px 0;font-size:12px;color:var(--muted);cursor:pointer}.asr .cursor{width:6px;height:14px;background:var(--ink);flex:none}
+    .composer{display:flex;align-items:flex-end;gap:8px;border:1px solid var(--ink);border-radius:18px;padding:8px;background:var(--panel);margin-top:10px}.composer textarea{border:0;resize:none;outline:0;background:transparent;flex:1;min-height:38px;max-height:96px;padding:9px 4px;font-size:14px;line-height:1.35}.composer .send{width:40px;height:40px;border-radius:50%;background:var(--ink);color:#fff;border:0;display:grid;place-items:center;flex:none}.composer .plus{width:36px;height:40px;border:0;background:none;font-size:24px;font-weight:300}
+    .chips{display:flex;gap:7px;overflow-x:auto;padding:4px 0 8px}.chip{border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:7px 10px;font-size:12px;white-space:nowrap;min-height:34px}.chip.active{background:var(--ink);color:#fff;border-color:var(--ink)}
+    .dock{position:absolute;left:14px;right:14px;bottom:12px;display:flex;gap:8px;align-items:flex-end;z-index:10}.dock-chat{flex:none;width:62px;height:62px;border-radius:50%;background:var(--panel);border:1px solid var(--ink);display:grid;place-items:center;color:var(--ink)}.dock-chat.active{background:var(--ink);color:#fff}.dock-rest{height:62px;flex:1;display:grid;background:var(--panel);border:1px solid var(--ink);border-radius:32px;overflow:hidden}.dock-item{border:0;background:transparent;color:var(--muted);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:10px;padding:4px 1px;position:relative}.dock-item.active{color:var(--ink);font-weight:700;background:#e8e8e8}.dock-item .icon{width:19px;height:19px}.dock-badge{position:absolute;top:6px;right:13px;border:1px solid var(--ink);background:var(--panel);border-radius:8px;padding:0 3px;font-size:9px;line-height:12px}
+    .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.tile{min-height:88px;border:1px solid var(--line);border-radius:14px;background:var(--panel);padding:10px 5px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;text-align:center;font-size:11px;color:var(--ink)}.tile .icon{width:24px;height:24px}
+    .rings{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:12px 0 18px}.ringwrap{text-align:center}.ring{--p:0deg;width:82px;height:82px;border-radius:50%;margin:0 auto 8px;display:grid;place-items:center;background:conic-gradient(var(--ink) 0deg var(--p),#e3e3e3 var(--p) 360deg);position:relative}.ring:before{content:"";position:absolute;inset:7px;border-radius:50%;background:var(--bg)}.ringvalue{position:relative;font-size:23px;font-weight:650}.ringlabel{font-size:11px;color:var(--muted)}
+    .tabs{display:flex;gap:6px;border-bottom:1px solid var(--line);margin-bottom:14px;overflow-x:auto}.tab{border:0;background:none;padding:10px 8px;font-size:13px;color:var(--muted);white-space:nowrap;border-bottom:2px solid transparent}.tab.active{color:var(--ink);border-bottom-color:var(--ink);font-weight:650}
+    .input,.select{width:100%;min-height:46px;border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:11px 12px;color:var(--ink);outline:none}.input:focus,.select:focus{border-color:var(--ink)}.inputrow{display:flex;gap:8px}.inputrow .input{flex:1}
+    .list{padding:0;margin:0;list-style:none}.list li{padding:12px 0;border-bottom:1px solid var(--line)}.list li:last-child{border-bottom:0}
+    .toast{position:absolute;left:22px;right:22px;bottom:86px;z-index:30;background:var(--ink);color:#fff;border:1px solid var(--ink);border-radius:13px;padding:11px 13px;font-size:12px;display:flex;align-items:center;justify-content:space-between;gap:10px}.toast button{border:0;background:none;color:#fff;text-decoration:underline;min-height:28px}
+    .backdrop{position:absolute;inset:0;z-index:40;background:rgba(0,0,0,.28);display:flex;align-items:flex-end}.sheet{width:100%;max-height:74%;overflow-y:auto;background:var(--panel);border:1px solid var(--ink);border-bottom:0;border-radius:22px 22px 0 0;padding:18px 16px 24px}.sheet h2{margin-top:0}.sheetclose{float:right;border:0;background:none;font-size:20px;min-width:36px;min-height:36px}
+    .timeline{border-left:1px solid var(--ink);margin-left:7px;padding-left:17px}.timeline .card{position:relative}.timeline .card:before{content:"";position:absolute;left:-22px;top:20px;width:7px;height:7px;border:1px solid var(--ink);border-radius:50%;background:#fff}
+    .speaker{border-left:3px solid var(--ink);padding-left:10px;margin-bottom:14px}.speaker .time{font-size:11px;color:var(--muted)}
+    .audio-dock{position:absolute;left:0;right:0;bottom:82px;z-index:9;padding:8px 16px 10px;background:var(--bg);border-top:1px solid var(--line)}
+    .empty{border:1px dashed var(--faint);border-radius:16px;padding:26px 18px;text-align:center;margin:20px 0}.empty h3{margin-bottom:8px}.empty p{color:var(--muted);font-size:13px}
+    .notice{border:1px dashed var(--faint);border-radius:12px;padding:10px 12px;font-size:12px;line-height:1.45;color:var(--muted);margin-bottom:12px}.notice strong{color:var(--ink)}
+    .mocktag{font-size:10px;border:1px solid var(--faint);padding:2px 5px;border-radius:5px;color:var(--muted);vertical-align:middle}
+    .setup-hero{padding-top:34px}.setup-hero .mark{width:52px;height:52px;border:2px solid var(--ink);border-radius:15px;display:grid;place-items:center;font-size:19px;font-weight:800;margin-bottom:20px}.setup-hero h1{font-size:30px}.setup-hero p{font-size:16px;line-height:1.6}
+    @media(max-width:390px){.phone{border:0}.page{padding-left:14px;padding-right:14px}.dock{left:10px;right:10px}.dock-chat{width:58px;height:58px}.dock-rest{height:58px}.ring{width:74px;height:74px}}
+    @media(min-width:700px){.phone{border-radius:28px;box-shadow:0 0 0 1px #c4c4c4}}
+    @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
+  </style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+const icons = {
+  chat:'<path d="M20 11.5a7.5 7.5 0 0 1-8 7.5 9 9 0 0 1-4-.9L3 20l1.7-4.4A7.5 7.5 0 1 1 20 11.5Z"/><path d="M8 11.5h.01M12 11.5h.01M16 11.5h.01"/>',
+  book:'<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H11v16H6.5A2.5 2.5 0 0 0 4 21.5Z"/><path d="M20 5.5A2.5 2.5 0 0 0 17.5 3H13v16h4.5a2.5 2.5 0 0 1 2.5 2.5Z"/>',
+  memory:'<path d="M9 4.5A3.5 3.5 0 0 0 5.5 8c0 .6.2 1.2.5 1.7A4.4 4.4 0 0 0 4 13.3c0 1.2.5 2.3 1.4 3.1A4.6 4.6 0 0 0 9 20.5c1.2 0 2.3-.5 3-1.3V4.5Z"/><path d="M15 4.5A3.5 3.5 0 0 1 18.5 8c0 .6-.2 1.2-.5 1.7a4.4 4.4 0 0 1 2 3.6c0 1.2-.5 2.3-1.4 3.1A4.6 4.6 0 0 1 15 20.5c-1.2 0-2.3-.5-3-1.3V4.5Z"/><path d="M8 10h4M12 14h4M15 8h3"/>',
+  task:'<path d="M9 5h6M9 5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2H9Z"/><path d="M9 5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2M8 11l2 2 4-4M8 18l2 2 4-4"/>',
+  grid:'<rect x="4" y="4" width="5" height="5" rx="1"/><rect x="15" y="4" width="5" height="5" rx="1"/><rect x="4" y="15" width="5" height="5" rx="1"/><rect x="15" y="15" width="5" height="5" rx="1"/>',
+  device:'<rect x="5" y="7" width="14" height="12" rx="3"/><path d="M9 7V4h6v3M9 19v2M15 19v2M9 12h.01M15 12h.01M12 15h.01"/>',
+  settings:'<circle cx="12" cy="12" r="3"/><path d="M19 13.5v-3l-2-.7a6 6 0 0 0-.7-1.7l.9-1.9-2.1-2.1-1.9.9a6 6 0 0 0-1.7-.7L10.5 2h-3l-.7 2a6 6 0 0 0-1.7.7L3.2 3.8 1.1 5.9 2 7.8a6 6 0 0 0-.7 1.7L-1 10v3l2 .7a6 6 0 0 0 .7 1.7l-.9 1.9 2.1 2.1 1.9-.9a6 6 0 0 0 1.7.7l.7 2h3l.7-2a6 6 0 0 0 1.7-.7l1.9.9 2.1-2.1-.9-1.9a6 6 0 0 0 .7-1.7Z" transform="translate(2 0) scale(.85)"/>',
+  file:'<path d="M6 2h8l4 4v16H6Z"/><path d="M14 2v5h5M9 12h6M9 16h6"/>',
+  send:'<path d="m3 3 18 9-18 9 4-9Z"/><path d="M7 12h14"/>',
+  search:'<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>',
+  plus:'<path d="M12 4v16M4 12h16"/>',
+  mic:'<rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M8 21h8"/>',
+  back:'<path d="m14 5-7 7 7 7M7 12h14"/>',
+  download:'<path d="M12 3v12M7 10l5 5 5-5M4 20h16"/>',
+  link:'<path d="M10 14a5 5 0 0 0 7.5.5l2-2a5 5 0 0 0-7-7l-1 1"/><path d="M14 10a5 5 0 0 0-7.5-.5l-2 2a5 5 0 0 0 7 7l1-1"/>',
+  check:'<path d="m5 12 4 4L19 6"/>',
+  x:'<path d="m6 6 12 12M18 6 6 18"/>',
+  pause:'<path d="M8 5v14M16 5v14"/>',
+  home:'<path d="m3 11 9-8 9 8M5 10v11h14V10M9 21v-7h6v7"/>',
+  computer:'<rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/>',
+  shield:'<path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6Z"/><path d="m9 12 2 2 4-4"/>',
+  wallet:'<path d="M4 6h14a2 2 0 0 1 2 2v11H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h12v3"/><path d="M16 12h6v5h-6a2 2 0 0 1-2-2v-1a2 2 0 0 1 2-2Z"/>',
+  phone:'<rect x="6" y="2" width="12" height="20" rx="3"/><path d="M10 18h4"/>',
+  info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/>',
+  play:'<path d="m8 5 11 7-11 7Z"/>',
+  edit:'<path d="m4 16-1 5 5-1L19 9l-4-4Z"/><path d="m13 7 4 4"/>',
+  user:'<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+  pin:'<path d="m9 4 6 0 1 5 3 3-4 2-3 7-3-7-4-2 3-3Z"/>',
+  sidebar:'<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16M13 9h4M13 13h4"/>',
+  more:'<path d="M5 12h.01M12 12h.01M19 12h.01"/>'
+};
+function icon(name, cls='icon'){return `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true">${icons[name]||icons.info}</svg>`}
+function esc(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function clone(value){return JSON.parse(JSON.stringify(value))}
+const seed = {
+  tasks:[
+    {id:'hardware-plan',title:'硬件接入评审纪要与待办',status:'running',step:2,total:3,progress:66,source:'今天 10:00–10:42 · 硬件接入评审',cost:'用量待同步',artifact:null},
+    {id:'send-feishu',title:'发送评审摘要到飞书',status:'waitingApproval',step:1,total:2,progress:50,source:'由硬件接入评审纪要触发',cost:'预估 36 Credits',artifact:null},
+    {id:'daily-recap',title:'今日 AI日记整理',status:'completed',step:3,total:3,progress:100,source:'今日录音与 Agent 工作',cost:'实际用量待同步',artifact:'今日 AI日记'}
+  ],
+  memories:[
+    {id:'local-first',text:'重要原始资料优先保存在手机本地，云模型只接收当次必要片段',type:'约束',status:'candidate',version:1,source:'今天 10:18 · 硬件接入评审'},
+    {id:'short-answer',text:'语音回答保持简短，详细内容放到手机里查看',type:'偏好',status:'candidate',version:1,source:'今天 11:06 · 你亲口所说'},
+    {id:'ble-priority',text:'优先验证自有 link 设备的 BLE 接入与录音补传',type:'工作进展',status:'active',version:2,source:'昨天 16:40 · 你确认过'}
+  ]
+};
+const state = {
+  agentConfigured:false,agentName:'小P',ownerName:'Leo',provider:'byok',providerConfigured:false,engine:'ready',dshStarted:false,
+  device:{name:'小智 Link',online:true,revision:3,capabilities:['麦克风','唤醒','LED 控制']},recording:true,
+  tasks:clone(seed.tasks),memories:clone(seed.memories),diary:true,scenario:'未配置',sheet:null,toast:null,undo:null,
+  taskFilter:'all',memoryTab:'pending',memoryQuery:'',minuteTab:'summary',highlightEvidence:false,
+  audioPlaying:false,audioPosition:618,audioRate:1,
+  draft:'',userPrompt:'把今天的硬件接入评审整理成纪要，提取待办并保存到本地',receipt:null,pairStage:'scan',pairSelected:false
+};
+function toast(text,undo=null){state.toast=text;state.undo=undo;render();const current=text;setTimeout(()=>{if(state.toast===current){state.toast=null;state.undo=null;render()}},5000)}
+function go(route){state.sheet=null;if(location.hash==='#'+route){render()}else{location.hash=route}}
+function route(){return (location.hash||'#dsh').slice(1)}
+function engineLabel(){return state.engine==='ready'?'本地运行':state.engine==='starting'?'正在准备本地引擎':state.engine==='parked'?'后台已暂停':'引擎需要处理'}
+function deviceReady(){return state.device&&state.device.online}
+function engineHeader(){
+  const deviceText=state.device?`${state.device.name} · ${state.device.online?'已连接':'离线'}`:'未连接设备';
+  return `<div class="card flat" style="padding:11px 12px"><div class="row between"><button class="back" data-go="settings" style="text-decoration:none"><span class="statusline"><span class="dot ${state.engine==='ready'?'fill':'hollow'}"></span>${engineLabel()}</span></button><button class="back" data-go="devices" style="text-decoration:none;font-size:12px">${deviceText} ›</button></div></div>`
+}
+function pageTitle(title,action=''){return `<div class="header"><div class="title">${title}</div><div>${action}</div></div>`}
+function back(label,path){return `<button class="back" data-go="${path}">‹ ${label}</button>`}
+function dock(active){
+  const pending=state.tasks.filter(t=>t.status==='waitingApproval').length;
+  const items=state.agentConfigured?[['recap','AI日记','book'],['dsh','DSH','task'],['discover','发现','grid'],['personal','个人','user']]:[['dsh','DSH','task'],['discover','发现','grid'],['personal','个人','user']];
+  return `<nav class="dock" aria-label="主导航"><button class="dock-chat ${active==='chat'?'active':''}" data-go="chat" aria-label="Personal Agent Chat">${icon('chat')}</button><div class="dock-rest" style="grid-template-columns:repeat(${items.length},1fr)">${items.map(([id,label,ico])=>`<button class="dock-item ${active===id?'active':''}" data-go="${id}" aria-label="${label}">${icon(ico)}<span>${label}</span>${id==='dsh'&&pending?`<span class="dock-badge">${pending}</span>`:''}</button>`).join('')}</div></nav>`
+}
+function mockbar(){return `<div class="mockbar"><span>黑白结构原型 · 全部 Mock</span><button data-action="scenario">场景：${state.scenario} ▾</button></div>`}
+function shell(content,active,withDock=true,bottom=''){return `<div class="phone"><div class="statusbar"><span>9:41</span><span>PhoneDSH</span></div>${mockbar()}<main class="page ${withDock?'':'no-dock'}">${content}</main>${bottom}${withDock?dock(active):''}${state.toast?`<div class="toast"><span>${esc(state.toast)}</span>${state.undo?'<button data-action="undo">撤销</button>':'<button data-action="dismiss-toast">知道了</button>'}</div>`:''}${renderSheet()}</div>`}
+function button(label,action,cls='btn',value=''){return `<button class="${cls}" data-action="${action}" data-value="${esc(value)}">${label}</button>`}
+function goButton(label,path,cls='btn'){return `<button class="${cls}" data-go="${path}">${label}</button>`}
+function taskCard(task){
+  const status={running:'执行中',waitingApproval:'等待确认',completed:'已完成',failed:'失败',cancelled:'已取消',outcomeUnknown:'结果待对账'}[task.status]||task.status;
+  const path=task.id==='hardware-plan'?'task-hardware-plan':task.id==='send-feishu'?'approval-feishu':task.id==='daily-recap'?'minutes-hardware-review':'dsh';
+  return `<article class="card clickable" data-go="${path}"><div class="row between top"><div><span class="badge">${status}</span><h3 style="margin-top:9px">${esc(task.title)}</h3></div><span class="micro">›</span></div><p class="small">${esc(task.source)}</p>${task.status==='running'?`<div class="progress"><span style="width:${task.progress}%"></span></div><p class="micro">第 ${task.step}/${task.total} 步 · 点击查看当前状态</p>`:''}${task.status==='waitingApproval'?`<div class="row between"><span class="small">需要本人决定后才能继续</span><span class="btn smallbtn primary">去确认</span></div>`:''}${task.status==='completed'?`<p class="small">产物与回执已保存到本地</p>`:''}${task.status==='outcomeUnknown'?`<p class="small">先对账，不自动重试</p>`:''}</article>`
+}
+function dshHeader(){
+  const title=state.dshStarted?'硬件接入评审':'新会话';
+  return `<div class="row between" style="height:44px;margin-bottom:10px"><button class="back" data-action="sessions" aria-label="打开会话列表" style="text-decoration:none">${icon('sidebar')}</button><strong>${title}</strong><div class="row" style="gap:4px"><button class="back" data-go="settings" aria-label="运行状态" style="text-decoration:none"><span class="dot ${state.engine==='ready'?'fill':'hollow'}"></span></button><button class="back" data-action="dsh-more" aria-label="更多操作" style="text-decoration:none">${icon('more')}</button></div></div>`
+}
+function dsh(){
+  const first=state.tasks.find(t=>t.id==='hardware-plan');
+  const approval=state.tasks.find(t=>t.id==='send-feishu');
+  if(!state.dshStarted){
+    return shell(`${dshHeader()}<section style="padding-top:56px"><h2>引擎还没启动</h2><p class="muted">启动之后就能开始。</p>${button('启动本地引擎','start-dsh','btn primary full')}</section><div class="composer"><button class="plus" data-action="attachments" aria-label="添加附件">+</button><textarea id="dsh-composer" aria-label="新建 DSH 会话" placeholder="发消息">${esc(state.draft)}</textarea><button class="send" data-action="send-dsh" aria-label="发送" ${state.engine!=='ready'?'disabled':''}>${icon('send')}</button></div>`,'dsh')
+  }
+  return shell(`${dshHeader()}<section><div class="message user">${esc(state.userPrompt)}</div><div class="message agent">已创建 TaskRun，并把转写、执行记录和产物关联到当前会话。</div>${first?taskCard(first):approval&&approval.status==='waitingApproval'?taskCard(approval):`<div class="empty"><h3>开始一个新的 DSH 会话</h3><p>输入一个复杂目标，执行过程和产物会保留在当前工作区。</p></div>`}<div class="composer"><button class="plus" data-action="attachments" aria-label="添加附件">+</button><textarea id="dsh-composer" aria-label="继续 DSH 会话" placeholder="继续这个 DSH 会话…">${esc(state.draft)}</textarea><button class="send" data-action="send-dsh" aria-label="发送" ${state.engine!=='ready'?'disabled':''}>${icon('send')}</button></div><div class="row between"><span class="micro">本地运行 · 输入先保存，再执行</span><button class="back" data-action="voice" style="font-size:12px">语音输入（Mock）</button></div></section>`,'dsh')
+}
+function chat(){
+  if(!state.agentConfigured){
+    return shell(`<section class="setup-hero"><div class="mark">PA</div><h1>配置你的<br>Personal Agent</h1><p>它不是另一个通用聊天框。配置后，它会记住你的名字、偏好和每天发生的事，并在需要时调用 DSH。</p></section><div class="card"><span class="badge">needsApiKey</span><h3 style="margin-top:10px">先配置模型与 API key</h3><p class="small">不登录也能使用。完成 key 配置后，再为 Agent 和你自己命名。</p>${goButton('配置 API key','agent-setup','btn primary full')}${goButton('先去 DSH','dsh','btn ghost full')}</div><div class="card"><div class="row top"><div class="iconbox">${icon('device')}</div><div class="grow"><h3>也可以先连接设备</h3><p class="small">设备配对不依赖 Personal Agent 配置；通用能力仍然可用。</p>${goButton('查看设备','devices','btn ghost full')}</div></div></div>`,'chat')
+  }
+  const first=state.tasks.find(t=>t.id==='hardware-plan');
+  const approval=state.tasks.find(t=>t.id==='send-feishu');
+  return shell(`${engineHeader()}<div class="row between"><div><h1 style="margin-bottom:0">${esc(state.agentName)}</h1><p class="small">Personal Agent · 为 ${esc(state.ownerName)} 工作</p></div><span class="badge">已配置</span></div><section class="section"><div class="message agent">${esc(state.ownerName)}，我会用本地记忆理解你的目标，需要复杂执行时再交给 DSH。</div><div class="message user">${esc(state.userPrompt)}</div><div class="message agent">我会先读取今天的评审转写，再整理纪要和待办。已创建本地任务，你可以随时查看进度。</div>${first?taskCard(first):''}${approval&&approval.status==='waitingApproval'?`<div class="card"><span class="badge">下一步需要本人决定</span><h3 style="margin-top:9px">把评审摘要发到飞书？</h3><p class="small">先核对目标、正文、数据范围和费用，再决定是否发送。</p>${goButton('查看确认卡','approval-feishu','btn ghost full')}</div>`:''}${state.receipt?`<div class="notice"><strong>Mock 回执</strong><br>${esc(state.receipt)}</div>`:''}${deviceReady()&&state.recording?`<div class="asr" data-go="recap"><span class="dot fill"></span><span class="grow">小智 Link 正在听 · “下一步先验证 BLE 接入”</span><span class="cursor"></span></div>`:''}<div class="chips"><button class="chip" data-action="suggest" data-value="整理今天的硬件接入评审">整理今天的评审</button><button class="chip" data-action="suggest" data-value="帮我记一下：优先验证 BLE 接入">记一下优先事项</button><button class="chip" data-go="devices">连接设备</button></div><div class="composer"><button class="plus" data-action="attachments" aria-label="添加附件">+</button><textarea id="composer" aria-label="给 Personal Agent 输入任务" placeholder="和 ${esc(state.agentName)} 说点什么…">${esc(state.draft)}</textarea><button class="send" data-action="send" aria-label="发送" ${state.engine!=='ready'?'disabled':''}>${icon('send')}</button></div><div class="row between"><button class="back" data-action="voice" style="font-size:12px">语音输入（Mock）</button><span class="micro">${state.engine!=='ready'?'引擎恢复前不能新建任务':'输入先保存，再决定执行路径'}</span></div></section>`,'chat')
+}
+function agentSetup(){
+  const providers=[['tono','Tono 托管','手机 → Tono Inference Gateway。密钥在服务端，按 Credits 结算。'],['byok','自有 Provider（BYOK）','手机直连自己的模型服务。Key 只存此手机 Keychain，不上传 Tono。'],['selfhost','自建端点','连接 LAN / VPN / 公网自建服务，按你的部署与网络策略工作。']];
+  return shell(`${back('Personal Agent','chat')}<h1>配置 API key</h1><p class="muted">先让 Personal Agent 有模型可用，再进行首次命名。此页不会上传或回显真实密钥。</p><div class="section">${providers.map(([id,title,desc])=>`<button class="card clickable ${state.provider===id?'selected':''}" style="width:100%;text-align:left" data-action="provider" data-value="${id}"><div class="row between"><h3>${title}</h3><span class="dot ${state.provider===id?'fill':'hollow'}"></span></div><p class="small">${desc}</p></button>`).join('')}</div><label class="small" for="api-key">API key（仅 Mock）</label><input id="api-key" class="input" value="demo-key-not-secret" autocomplete="off" aria-label="Mock API key"><p class="micro">这是演示字符串，不是有效凭据。正式实现只在系统 Keychain 中保存。</p><div class="notice"><strong>本地引擎不等于本地模型。</strong><br>使用云推理时，只发送当次必要内容；长期录音、日记和 Memory 默认保存在手机本地。</div><div class="section">${button('验证并继续（Mock）','validate-key','btn primary full')}${goButton('先去 DSH','dsh','btn ghost full')}</div>`,'chat',false)
+}
+function agentName(){
+  return shell(`${back('Provider 配置','agent-setup')}<h1>给你的 Agent<br>起个名字</h1><p class="muted">这个名字会出现在 Chat、AI日记和任务来源里。语音唤醒名与显示名可以不同。</p><label class="small" for="agent-name">Agent 名</label><input id="agent-name" class="input" value="${esc(state.agentName)}" aria-label="Agent 名"><div class="chips"><button class="chip" data-action="name-suggestion" data-value="小P">小P</button><button class="chip" data-action="name-suggestion" data-value="Tono">Tono</button><button class="chip" data-action="name-suggestion" data-value="助手">助手</button></div><div class="section">${button('继续','save-agent-name','btn primary full')}</div>`,'chat',false)
+}
+function ownerName(){
+  return shell(`${back('Agent 名','agent-name')}<h1>它应该怎么<br>称呼你？</h1><p class="muted">这只是本地个人资料，不需要登录账号。以后可以在“个人”里修改。</p><label class="small" for="owner-name">你的称呼</label><input id="owner-name" class="input" value="${esc(state.ownerName)}" aria-label="主人称呼"><div class="notice">完成后，Personal Agent 正式启用，底部导航会增加 <strong>AI日记</strong>。录音设备可以稍后再连接。</div><div class="section">${button('完成并进入 Chat','save-owner-name','btn primary full')}</div>`,'chat',false)
+}
+function taskDetail(){
+  const t=state.tasks.find(t=>t.id==='hardware-plan');
+  if(!t){return shell(`${back('DSH','dsh')}<div class="empty"><h3>没有这个任务</h3><p>它可能已被清理，或当前是空数据场景。</p>${goButton('返回 DSH','dsh','btn primary')}</div>`,'dsh')}
+  const steps=[['读取并核对评审转写','原始转写与修订已关联到同一证据'],['整理会议纪要与待办','正在生成结构化结果并检查来源'],['保存本地产物并投影到日记','完成后可离线查看与分享']];
+  return shell(`${back('DSH','dsh')}<div class="row between top"><div><span class="badge">${t.status==='running'?'执行中':t.status==='completed'?'已完成':t.status==='outcomeUnknown'?'结果待对账':'已取消'}</span><h1 style="font-size:27px">${esc(t.title)}</h1></div><span class="mocktag">Mock</span></div><p class="muted">${esc(t.source)}</p><div class="card"><div class="row between"><h3>执行进度</h3><span class="small">第 ${t.step}/${t.total} 步</span></div><div class="progress"><span style="width:${t.progress}%"></span></div>${steps.map(([title,desc],i)=>`<div class="step ${i+1>t.step?'pending':''}"><span class="stepnum">${i+1<t.step?icon('check'):i+1}</span><div><strong>${title}</strong><p class="small">${i+1<=t.step?desc:'等待前一步完成'}</p></div></div>`).join('')}</div><div class="card"><h3>来源与成本</h3><p class="small">来源：今天的硬件接入评审转写与 Agent 工作记录</p><p class="small">模型用量：${esc(t.cost)}；没有用量时不显示精确费用。</p></div>${t.status==='completed'?`<div class="card clickable" data-go="minutes-hardware-review"><div class="row top"><div class="iconbox">${icon('file')}</div><div class="grow"><h3>硬件接入评审纪要</h3><p class="small">包含关键决策、待办和原话引用 · 已保存到本地</p></div><span>›</span></div></div>`:''}${t.status==='running'?`<div class="stack">${button('推进到完成（Mock）','advance-task','btn primary full')}${button('模拟提交后结果未知','unknown-task','btn ghost full')}${button('请求取消任务','cancel-task','btn danger full')}</div>`:''}${t.status==='outcomeUnknown'?`${button('按原任务对账（Mock）','reconcile-task','btn primary full')}<p class="small">不会新建任务，也不会重复外部动作。</p>`:''}${t.status==='cancelled'?`<div class="notice">取消已记录。原检查点保留，未提交的步骤没有继续执行。</div>`:''}`,'dsh')
+}
+function approval(){
+  const t=state.tasks.find(t=>t.id==='send-feishu');
+  if(!t||t.status!=='waitingApproval'){
+    return shell(`${back('Chat','chat')}<h1>外部动作回执</h1><div class="card"><span class="badge">Mock 回执</span><h3 style="margin-top:10px">${state.receipt?esc(state.receipt):'该动作已被拒绝或取消'}</h3><p class="small">没有真实网络请求发生。此页只验证完成与取消后的导航。</p></div>${goButton('回到 Chat','chat','btn primary full')}`,'chat')
+  }
+  return shell(`${back('DSH','dsh')}<span class="badge">需要本人确认</span><h1>发送评审摘要<br>到飞书？</h1><p class="muted">这是外部动作。只有允许一次后才会进入提交与对账流程。</p><div class="card"><h3>目标</h3><p>飞书群「PDSH 硬件接入」</p><h3>正文</h3><p class="small">今天确定优先验证 BLE 接入与录音补传；通用小智先走局域网 WS。下一步：完成配对、一次唤醒问答和反向音量控制。</p><h3>数据与费用</h3><p class="small">包含会议纪要摘要，不包含完整录音。预估 36 Credits；实际以结算回执为准。</p><h3>幂等与恢复</h3><p class="small">冻结同一份预览。提交结果未知时按原动作对账，不自动重发。</p></div><div class="stack">${button('允许一次（Mock）','approve-send','btn primary full')}${button('拒绝，不发送','deny-send','btn ghost full')}</div><p class="micro">没有默认“以后都允许”。每次外部动作都要重新确认。</p>`,'dsh')
+}
+function recap(){
+  if(!state.agentConfigured){
+    return shell(`${pageTitle('AI日记')}<div class="empty"><h3>完成 Personal Agent 后开启</h3><p>AI日记会围绕你的录音、个性化 Agent 工作和本地记忆整理。配置前不会生成伪造的个人历史。</p>${goButton('去配置 Personal Agent','agent-setup','btn primary')}${goButton('先用 DSH','dsh','btn ghost')}</div>`,'recap')
+  }
+  if(!state.diary){return shell(`${pageTitle('AI日记')}<div class="empty"><h3>这一天还没有可整理的内容</h3><p>连接录音设备、导入一段音频，或先完成一个 Agent 任务。</p>${goButton('添加麦克风','devices','btn primary')}${goButton('去 DSH 发起任务','dsh','btn ghost')}</div>`,'recap')}
+  const highlights=[
+    '优先验证自有 link 设备的 BLE 接入与录音补传。',
+    '通用小智先走局域网 WebSocket，不需要云端绕行。',
+    '所有外部动作先预览、确认，再按真实回执交付。'
+  ];
+  return shell(`
+    <div class="row between" style="height:42px">
+      <div class="row" style="gap:3px">
+        <button class="back" data-action="previous-day" aria-label="前一天">‹</button>
+        <button class="back" data-action="calendar" aria-label="选择日期">${icon('book')}</button>
+        <button class="back" aria-label="后一天" disabled>›</button>
+      </div>
+      <button class="btn smallbtn ghost" data-go="devices" aria-label="管理录音来源">●</button>
+    </div>
+    <h1 style="margin-top:12px">今天</h1>
+    <div class="rings">
+      <div class="ringwrap"><div class="ring" style="--p:126deg"><span class="ringvalue">2.8<span class="micro" style="display:block;text-align:center">小时</span></span></div><div class="ringlabel">记录</div></div>
+      <div class="ringwrap"><div class="ring" style="--p:216deg"><span class="ringvalue">6</span></div><div class="ringlabel">对话</div></div>
+      <div class="ringwrap"><div class="ring" style="--p:216deg"><span class="ringvalue">3</span></div><div class="ringlabel">要点</div></div>
+    </div>
+    <div style="padding:6px 0 12px">
+      <div class="row between"><div class="statusline"><span class="dot ${deviceReady()&&state.recording?'fill':'hollow'}"></span>${deviceReady()&&state.recording?'持续记录中':'当前未在记录'}</div><span class="badge dashed">状态待接</span></div>
+      <button class="back" data-go="devices" style="text-decoration:none;padding-bottom:0"><span class="small">${state.device?`${state.device.name} · 管理录音来源 ›`:'添加麦克风或导入音频 ›'}</span></button>
+    </div>
+    <div class="row between"><h2 style="font-size:16px">今日要点</h2><span class="micro">随讨论更新</span></div>
+    <div class="card" style="padding:5px 12px">${highlights.map((text,index)=>`<button class="back" data-action="highlight-trail" data-value="${index}" style="display:flex;gap:10px;width:100%;text-align:left;text-decoration:none;border-bottom:${index<2?'1px solid var(--line)':'0'};padding:12px 0"><span class="badge">${index+1}</span><span class="small grow" style="color:var(--ink)">${text}</span><span>›</span></button>`).join('')}</div>
+    <div class="row between"><h2 style="font-size:16px">今日 AI 日记</h2><span class="micro">从 08:00 起</span></div>
+    <article class="card clickable" data-go="minutes-hardware-review"><div class="row between top"><h3>硬件接入评审</h3><span class="badge">会议纪要</span></div><p class="micro">10:00–10:42 · 3 人</p><p class="small">确定 PhoneDSH 的本地执行与硬件接入边界，形成 3 项待办。</p></article>
+    <div style="border-left:1px solid var(--line);padding-left:14px;margin:4px 0 16px"><h3 style="font-size:13px">讨论硬件接入和隐私边界 <span class="micro nowrap" style="float:right">10:44–11:06</span></h3><p class="small">· 原始资料优先保存在手机本地，云模型只接收当次必要片段。</p><button class="back" data-action="dialogue" style="font-size:12px">查看对话与原话 ›</button></div>
+    <article class="card flat clickable" data-go="task-hardware-plan"><div class="row between top"><h3>生成评审纪要与待办</h3><span class="badge">Agent 工作</span></div><p class="small">TaskRun · 同一任务的进度、产物和回执</p><span class="small strong">查看任务 ›</span></article>
+    <div class="notice">11:20–11:25 的录音仍在补传，当前内容不代表完整一天。</div>
+    <h2 style="font-size:16px">当日总结</h2><p class="small">今天确定了本地执行与硬件接入的边界，优先验证 BLE 与录音补传。相关纪要、待办与原始证据保存在手机本地。</p>
+    <p class="micro center">AI 生成内容可能有误，请结合原话核对</p>`,'recap')
+}
+function minutes(){
+  const tabs=[['summary','会议纪要'],['board','画板'],['transcript','逐字稿']];
+  let body='';
+  if(state.minuteTab==='summary') body=`
+    <div class="card"><h3>确定本地执行与硬件接入边界</h3><p class="small">优先跑通自有 link 设备的 BLE 接入与录音补传，通用小智走局域网 WS；所有外部动作先确认再执行。</p><p class="small">· 小智 Link 优先验证 BLE<br>· 通用小智先走局域网<br>· 原始资料留在手机本地</p></div>
+    <h2 style="font-size:18px">关键决策</h2>
+    <div class="card"><span class="badge">接入路径</span><h3 style="margin-top:10px">BLE 优先验证自有 link 设备</h3><p class="small">复用现有录音与补传能力，不为平台重写一套设备协议。</p><button class="back" data-action="evidence" data-value="10:18">查看来龙去脉 ›</button></div>
+    <div class="card"><span class="badge">通用设备</span><h3 style="margin-top:10px">通用小智先走局域网 WS</h3><p class="small">手机直接终止协议，无需小智云或电脑 Harness。</p><button class="back" data-action="evidence" data-value="10:12">查看原话 ›</button></div>
+    <h2 style="font-size:18px">待办</h2>
+    <div class="card"><p class="small">1. 完成一次 BLE 配对与唤醒问答。<br>2. 验证录音断连补传与去重。<br>3. 验证一次反向音量控制及真实回执。</p></div>
+    <div class="notice">复核覆盖当前已提交内容；11:20–11:25 的材料仍在补传。</div>
+    ${goButton('打开关联 TaskRun','task-hardware-plan','btn ghost full')}`;
+  else if(state.minuteTab==='board') body=`
+    <div class="card"><div class="row between"><span class="small">第 1 / 1 页</span><span class="micro">只读 · Mock</span></div><div class="divider"></div>
+      ${[['10:12','保留小智已有协议与工具',720],['10:18','先验证 BLE 与录音补传',1080],['10:26','断连后按序号补传，手机持久化再 ACK',1560]].map(([time,text,position])=>`<button class="back" data-action="audio-seek-to" data-value="${position}" style="display:flex;gap:16px;width:100%;text-align:left;text-decoration:none;padding:12px 0"><span class="micro nowrap">${time}</span><span class="small" style="color:var(--ink)">${text}</span></button>`).join('')}
+    </div><p class="micro center">手写笔记由 AI 按会议纪要写成；点击条目，从对应原话开始听</p>`;
+  else body=`
+    <div class="row between"><span class="micro">○ 已结束 · 10:00 开始</span><span class="micro">3 人</span></div>
+    <div class="card flat"><div class="row between"><span class="micro">谁在哪个方向</span><span class="badge dashed">方向与发言时长待接</span></div><p class="small" style="margin-top:10px">你 · 产品 · 固件</p><p class="micro">当前只确认说话人，不伪造方位或测量结果。</p></div>
+    <div class="speaker"><div class="time">10:12 · 产品</div><p>小智本身的协议和工具可以保留，不需要为平台再写一套。</p><div class="row"><button class="back" data-action="speaker-name">命名说话人</button><button class="back" data-action="quote-line" data-value="小智本身的协议和工具可以保留，不需要为平台再写一套。">引用到 Chat</button></div></div>
+    <div class="speaker" style="${state.highlightEvidence?'outline:2px solid #171717;outline-offset:-2px;border-radius:12px;padding:10px':''}"><div class="time">10:18 · 你 <span class="badge">机主</span></div><p>那我们就先把 BLE 接入和录音补传跑通，原始资料优先留在手机本地。</p><button class="back" data-action="quote-line" data-value="那我们就先把 BLE 接入和录音补传跑通，原始资料优先留在手机本地。">引用到 Chat</button></div>
+    <div class="speaker"><div class="time">10:26 · 固件</div><p>可以。断连的时候先按序号补，手机持久化以后再给连续前缀 ACK。</p><button class="back" data-action="quote-line" data-value="可以。断连的时候先按序号补，手机持久化以后再给连续前缀 ACK。">引用到 Chat</button></div>`;
+  const minutes=Math.floor(state.audioPosition/60),seconds=String(state.audioPosition%60).padStart(2,'0');
+  const audio=`<div class="audio-dock"><div class="row" style="gap:6px"><button class="btn smallbtn" data-action="audio-toggle" aria-label="${state.audioPlaying?'暂停':'播放'}">${icon(state.audioPlaying?'pause':'play')}</button><span class="small grow">${minutes}:${seconds} / 42:16 <span class="micro">Mock</span></span><button class="back" data-action="audio-seek" data-value="-5">−5s</button><button class="back" data-action="audio-seek" data-value="5">+5s</button><button class="back" data-action="audio-rate" aria-label="切换倍速">${state.audioRate}×</button></div><div class="progress"><span style="width:${Math.min(100,state.audioPosition/2536*100)}%"></span></div></div>`;
+  return shell(`<div style="display:grid;grid-template-columns:44px 1fr 44px;align-items:center;min-height:44px"><button class="back" data-go="recap" aria-label="返回日记">‹</button><strong style="text-align:center;font-size:15px">硬件接入评审</strong><button class="back" data-action="minutes-more" aria-label="纪要更多操作">${icon('more')}</button></div><div class="tabs">${tabs.map(([id,label])=>`<button class="tab grow ${state.minuteTab===id?'active':''}" data-action="minute-tab" data-value="${id}">${label}</button>`).join('')}</div>${state.minuteTab==='summary'?`<div class="row"><span class="micro nowrap">10:00–10:42</span><div class="chips"><span class="chip">● 你</span><span class="chip">● 产品</span><span class="chip">● 固件</span></div></div>`:''}${body}`,'recap',true,audio)
+}
+function discover(){
+  const groups=[['硬件设备',[['硬件设备','device','devices'],['麦克风产品','mic','recap'],['通用小智','device','devices'],['TonoCard','phone','pending']]],['连接器',[['我的电脑','computer','pending'],['飞书','send','pending'],['Home Assistant','home','pending'],['Gmail','file','pending']]],['服务应用',[['录音整理','book','recap'],['定时任务','task','pending'],['翻译','chat','pending'],['关于 PhoneDSH','info','pending']]]];
+  return shell(`${pageTitle('发现',`<span class="badge">统一目录</span>`)}<p class="muted">硬件、连接器和服务应用统一收纳。场景快捷入口与这里的设备状态保持一致。</p>${groups.map(([title,tiles])=>`<section class="section"><h2>${title}</h2><div class="grid4">${tiles.map(([label,ico,path])=>`<button class="tile" ${path==='pending'?`data-action="pending-service" data-value="${label}"`:`data-go="${path}"`}>${icon(ico)}<span>${label}</span></button>`).join('')}</div></section>`).join('')}`,'discover')
+}
+function personal(){
+  const pending=state.memories.filter(m=>m.status==='candidate').length;
+  return shell(`${pageTitle('个人',`<span class="badge">无需登录</span>`)}<div class="card"><div class="row top"><div class="iconbox">${icon('user')}</div><div class="grow"><h3>${state.agentConfigured?esc(state.agentName):'还没配置 Personal Agent'}</h3><p class="small">${state.agentConfigured?`为 ${esc(state.ownerName)} 工作 · 已启用个性化 Chat 和 AI日记`:'配置 key 和首次命名后开启，不影响 DSH 使用'}</p></div></div>${goButton(state.agentConfigured?'修改名字与称呼':'配置 Personal Agent',state.agentConfigured?'agent-name':'agent-setup','btn ghost full')}</div><div class="grid4"><button class="tile" data-go="agent-setup">${icon('settings')}<span>API key</span></button><button class="tile" data-go="memory">${icon('memory')}<span>Memory ${pending||''}</span></button><button class="tile" data-go="privacy">${icon('shield')}<span>隐私与数据</span></button><button class="tile" data-go="settings">${icon('wallet')}<span>Provider</span></button></div><div class="section"><div class="card"><h3>本地引擎</h3><div class="row between"><span class="badge">${engineLabel()}</span><button class="back" data-action="recover-engine">恢复 ›</button></div><p class="small">本地工作区、WAL、AI日记和 Memory。恢复不会删除历史。</p></div><div class="card"><h3>设备与连接器</h3><p class="small">查看当前设备、连接器和服务应用，不重复配对。</p>${goButton('打开发现','discover','btn ghost full')}</div></div>`,'personal')
+}
+function memoryList(items){return items.length?items.map(m=>`<article class="card clickable" data-go="memory-local-first" data-id="${m.id}"><div class="row between top"><span class="badge">${m.status==='candidate'?'待确认':m.status==='active'?'已确认':m.status==='rejected'?'已驳回':'已归档'}</span><span class="micro">${m.type}</span></div><p style="margin-top:9px">${esc(m.text)}</p><p class="micro">${esc(m.source)}</p></article>`).join(''):`<div class="empty"><h3>这里还没有记忆</h3><p>新的候选会先等你确认，不会直接用于回答。</p></div>`}
+function memory(){
+  const tabs=[['today','今天'],['pending',`待确认 ${state.memories.filter(m=>m.status==='candidate').length}`],['about','关于我'],['todos','待办'],['privacy','隐私']];
+  let content='';
+  if(state.memoryTab==='privacy'){return privacy()}
+  const query=state.memoryQuery.trim().toLowerCase();
+  const filtered=state.memories.filter(m=>!query||m.text.toLowerCase().includes(query)||m.type.toLowerCase().includes(query));
+  if(state.memoryTab==='pending') content=memoryList(filtered.filter(m=>m.status==='candidate'));
+  else if(state.memoryTab==='about') content=memoryList(filtered.filter(m=>m.status==='active'));
+  else if(state.memoryTab==='todos') content=`<div class="card"><span class="badge">工作进展</span><h3 style="margin-top:8px">验证 BLE 配对与录音补传</h3><p class="small">下一步，不代表任务已经完成。关联真实 TaskRun 后才更新执行状态。</p>${goButton('查看关联任务','task-hardware-plan','btn ghost full')}</div>`;
+  else content=`<div class="card"><h3>今天的记忆变更</h3><p class="small">2 条待确认 · 1 条已确认 · 0 条被遗忘</p></div>${memoryList(filtered)}`;
+  return shell(`${back('个人','personal')}<div class="row between"><h1>Memory</h1><span class="badge">本地</span></div><div class="inputrow"><input id="memory-search" class="input" aria-label="搜索记忆" placeholder="搜索内容、类型或来源" value="${esc(state.memoryQuery)}"><button class="btn" data-action="memory-search" aria-label="搜索">${icon('search')}</button></div><div class="tabs section">${tabs.map(([id,label])=>`<button class="tab ${state.memoryTab===id?'active':''}" data-action="memory-tab" data-value="${id}">${label}</button>`).join('')}</div><div class="notice">候选只有经过你确认后，才会用于新的回答。遗忘不等于声称所有历史副本已经消失。</div>${content}`,'personal')
+}
+function memoryDetail(){
+  const m=state.memories.find(m=>m.id==='local-first')||state.memories[0];
+  if(!m){return shell(`${back('Memory','memory')}<div class="empty"><h3>没有这个记忆条目</h3><p>当前可能处于空数据场景。</p>${goButton('返回 Memory','memory','btn primary')}</div>`,'personal')}
+  return shell(`${back('Memory','memory')}<div class="row between"><span class="badge">${m.status==='candidate'?'待确认':m.status==='active'?'已确认':m.status==='forgotten'?'已遗忘':m.status}</span><span class="micro">v${m.version}</span></div><h1 style="font-size:26px">${esc(m.text)}</h1><div class="card"><h3>类型与来源</h3><p class="small">类型：${m.type}</p><p class="small">来源：${esc(m.source)}</p>${goButton('回到原话','minutes-hardware-review','btn ghost full')}</div><div class="card"><h3>修订历史</h3><p class="small">v${m.version} · 当前版本。确认后才进入新的模型上下文；历史交付记录不伪造改写。</p></div>${m.status!=='forgotten'?`<div class="stack">${m.status==='candidate'?button('确认这条记忆','confirm-memory','btn primary full'):''}${button('修改内容与来源','edit-memory','btn ghost full')}${m.status==='candidate'?button('驳回这条候选','reject-memory','btn ghost full'):''}${button('彻底忘记','forget-memory','btn danger full')}</div>`:`<div class="notice"><strong>已停止用于新回答。</strong><br>当前显示的是 Mock 清理回执；真实实现还需要按来源、共享引用和备份范围分别结算。</div>`}`,'personal')
+}
+function devices(){
+  return shell(`${back('发现','discover')}${pageTitle('硬件设备',goButton('添加','pair-xiaozhi','btn smallbtn ghost'))}${state.device?`<div class="card"><div class="row between top"><div><span class="badge">${state.device.online?'Ready':'离线'}</span><h2 style="margin-top:8px">${state.device.name}</h2></div><div class="iconbox">${icon('device')}</div></div><p class="small">状态 revision ${state.device.revision} · BLE · 已授权麦克风、唤醒与 LED 控制</p><div class="chips">${state.device.capabilities.map(c=>`<span class="chip">${c}</span>`).join('')}</div><div class="divider"></div><h3>反向控制示例</h3><p class="small">切换 LED 后按 Mock 回执更新状态。真实实现必须区分 accepted、applied 与 outcome_unknown。</p>${button('切换 LED（Mock）','toggle-led','btn primary full')}${button('模拟断线','device-offline','btn ghost full')}${button('解绑设备','unpair','btn danger full')}</div>`:`<div class="empty"><div class="iconbox" style="margin:0 auto 12px">${icon('device')}</div><h3>还没有硬件设备</h3><p>接入后，小智和其他 BLE 硬件可以直接使用手机里的 Agent。</p>${goButton('添加第一台设备','pair-xiaozhi','btn primary')}</div>`}<div class="notice">手机发出命令不等于设备已经执行。离线时保留状态，但禁止发起控制。</div>`,'discover')
+}
+function pairing(){
+  const steps=['scan','confirm','capabilities','success'];
+  const idx=steps.indexOf(state.pairStage);
+  let body='';
+  if(state.pairStage==='scan') body=`<h1>发现附近设备</h1><p class="muted">先核对设备，再决定是否配对。扫描结果不会自动绑定。</p><button class="card clickable ${state.pairSelected?'selected':''}" style="width:100%;text-align:left" data-action="pair-select"><div class="row between"><div class="row"><div class="iconbox">${icon('device')}</div><div><h3>小智 Link</h3><p class="small">ESP32-S3 · 麦克风 / 唤醒 / LED</p></div></div><span class="dot ${state.pairSelected?'fill':'hollow'}"></span></div></button>${button('核对这台设备','pair-next','btn primary full')}${button('模拟未发现设备','pair-fail','btn ghost full')}`;
+  else if(state.pairStage==='confirm') body=`<h1>确认配对与授权</h1><p class="muted">请在设备配对窗口内确认。BLE 加密和绑定本身不代表这台设备属于你。</p><div class="card"><h3>小智 Link</h3><p class="small">本次允许：麦克风、唤醒事件、LED 控制。</p><p class="small">不允许：读取其他账号数据、自动执行外部动作、后台永久监听。</p></div>${button('确认并读取能力','pair-next','btn primary full')}${button('取消配对','pair-cancel','btn ghost full')}`;
+  else if(state.pairStage==='capabilities') body=`<h1>设备能力已读取</h1><p class="muted">只开放设备实际声明的能力。</p><div class="card"><div class="chips"><span class="chip">麦克风</span><span class="chip">唤醒</span><span class="chip">LED 控制</span></div><p class="small">不包含真实电话音频、任意手机 UI 控制或云端账号。</p></div>${button('完成配对','pair-complete','btn primary full')}`;
+  else if(state.pairStage==='success') body=`<div class="empty"><div class="iconbox" style="margin:0 auto 12px">${icon('check')}</div><h1>设备已 Ready</h1><p>小智 Link 现在可以发送录音与唤醒事件，也可以接收经过授权的控制。</p>${goButton('查看设备','devices','btn primary')}${goButton('去 Chat 试一句','chat','btn ghost')}</div>`;
+  else body=`<div class="empty"><h1>暂时未能配对</h1><p>${state.device&&!state.device.online?'当前处于离线场景，蓝牙或网络不可用。':'没有收到设备回应。请让设备进入配对窗口并靠近手机后重试。'}</p>${button('重新扫描','pair-retry','btn primary')}${goButton('稍后再试','devices','btn ghost')}</div>`;
+  return shell(`${back('设备','devices')}<div class="chips"><span class="chip ${idx>=0?'active':''}">1 选择</span><span class="chip ${idx>=1?'active':''}">2 确认</span><span class="chip ${idx>=2?'active':''}">3 能力</span></div><section class="section">${body}</section>`,'discover')
+}
+function settings(){
+  const paths={tono:['Tono 托管','手机 → Tono Inference Gateway；平台密钥在服务端，Credits 计量。'],byok:['自有 Provider（BYOK）','手机直连你的 Provider；Key 只存此手机 Keychain，不上传 Tono。'],selfhost:['自建端点','手机 → 你的 LAN / VPN / 公网自建服务。']};
+  return shell(`${back('个人','personal')}<h1>Provider 与 Credits</h1><div class="section">${Object.entries(paths).map(([id,[title,desc]])=>`<button class="card clickable ${state.provider===id?'selected':''}" style="width:100%;text-align:left" data-action="provider" data-value="${id}"><div class="row between"><h3>${title}</h3><span class="dot ${state.provider===id?'fill':'hollow'}"></span></div><p class="small">${desc}</p></button>`).join('')}</div><div class="card"><div class="row between"><h3>本地引擎</h3><span class="badge">${engineLabel()}</span></div><p class="small">工作区、WAL、日记和 Memory 保存在本地。恢复不会删除历史。</p>${button('模拟恢复本地引擎','recover-engine','btn ghost full')}</div><div class="card"><div class="row between"><h3>Credits</h3><span class="badge">Mock</span></div><p class="small">当前仅显示计量结构，没有真实余额。Provider 用量未知时显示“待同步”，不伪造精确账单。</p></div><div class="stack">${goButton('录音、隐私与数据','privacy','btn ghost full')}${goButton('硬件设备','devices','btn ghost full')}</div>`,'personal')
+}
+function privacy(){
+  return shell(`${back('个人','personal')}<h1>录音、隐私与数据</h1><div class="card"><div class="row between"><div><h3>持续录音</h3><p class="small">${state.recording?'允许已配对设备采集并保存音频':'已暂停新的音频采集，历史仍可阅读'}</p></div><button class="btn smallbtn" data-action="toggle-recording">${state.recording?'暂停':'恢复'}</button></div></div><div class="card"><h3>本地数据</h3><p class="small">原始证据、转写、TaskRun、AI日记和 Memory 都围绕同一 DomainStore。DSH workspace 不作为长期记忆库。</p><p class="small">当前 Provider：${state.provider==='byok'?'BYOK，手机直连':state.provider==='tono'?'Tono 托管':'自建端点'}。云模型只接收当次必要内容。</p></div><div class="card"><h3>导出</h3><p class="small">下载一份不含真实个人信息的 Mock JSON，验证导出结构。</p>${button('导出 Mock 数据','export-data','btn primary full')}</div><div class="card"><h3>遗忘</h3><p class="small">彻底清除要按来源、共享引用、派生索引和备份分别结算，不能只隐藏页面条目。</p>${button('管理遗忘示例','forget-all','btn danger full')}</div>`,'personal')
+}
+function renderSheet(){
+  if(!state.sheet)return '';
+  let content='';
+  if(state.sheet==='scenario'){
+    content=`<h2>Mock 场景</h2><p class="small">只改变原型视图，不代表真实系统测试。</p><div class="stack">${['未配置','默认','无设备','离线','引擎失败','空数据'].map(name=>`<button class="btn ${state.scenario===name?'primary':''}" data-action="set-scenario" data-value="${name}">${name}</button>`).join('')}</div>`;
+  }else if(state.sheet==='sessions'){
+    content=`<h2>会话与工作区</h2><p class="small">沿用当前 PhoneDSH 的会话抽屉：会话、定时任务、工作区和设置。</p><div class="stack">${goButton('硬件接入评审','task-hardware-plan','btn ghost full')}${goButton('定时任务与待确认','approval-feishu','btn ghost full')}${goButton('工作区与文件产物','minutes-hardware-review','btn ghost full')}${goButton('会话与引擎设置','settings','btn ghost full')}</div>`;
+  }else if(state.sheet==='dsh-more'){
+    content=`<h2>当前会话</h2><div class="stack">${goButton('子 Agent 与后台活动','task-hardware-plan','btn ghost full')}${goButton('本会话设置','settings','btn ghost full')}${button('导出对话记录（Mock）','export-data','btn ghost full')}</div>`;
+  }else if(state.sheet==='pending'){
+    content=`<h2>能力接入边界</h2><p>这个入口用于验证服务架构，首版没有真实连接。</p><div class="notice">实现时需要：正式 Provider、最小权限、OAuth/配对、事件游标、撤销和真实回执。不会点击后伪造 connected。</div>${goButton('查看相关设置','settings','btn primary full')}`;
+  }else if(state.sheet==='attachments'){
+    content=`<h2>添加材料（Mock）</h2><p class="small">选择已有材料只会预填输入，不自动创建任务。</p>${button('使用“硬件接入评审”转写','use-attachment','btn primary full')}${button('改用本地文件说明','file-help','btn ghost full')}`;
+  }else if(state.sheet==='calendar'){
+    content=`<h2>选择日期</h2><div class="stack">${button('今天','day-today','btn primary full')}${button('昨天（空日记示例）','day-yesterday','btn ghost full')}${button('返回今天','day-today','btn ghost full')}</div>`;
+  }else if(state.sheet==='minutes-more'){
+    content=`<h2>纪要操作</h2>${button('复制会议纪要（Mock）','copy-minutes','btn primary full')}<p class="micro" style="margin-top:12px">引用到 Chat 在逐字稿中按原话操作；这里不自动执行任务。</p>`;
+  }else if(state.sheet==='highlight-trail'){
+    content=`<h2>来龙去脉</h2><p>优先验证 BLE 接入与录音补传。</p><div class="card flat"><h3>${esc(state.agentName)} 的判断</h3><p class="small">讨论中先比较了接入路径，再确定先在自有 link 设备上验证 BLE 和断连补传。</p></div><span class="badge">10:18 · 原话</span><p class="small" style="margin-top:10px">那我们就先把 BLE 接入和录音补传跑通，原始资料优先留在手机本地。</p><div class="stack">${button('打开关联纪要与原话','dialogue','btn primary full')}${button('引用到 Chat','quote-chat','btn ghost full')}</div>`;
+  }else if(state.sheet==='forget'){
+    content=`<h2>彻底忘记这条记忆？</h2><p>将停止用于新的回答，并按来源和引用生成清理回执。历史交付记录不会被伪造改写。</p><div class="stack">${button('确认忘记（Mock）','confirm-forget','btn primary full')}${button('取消','close-sheet','btn ghost full')}</div>`;
+  }else if(state.sheet==='forget-all'){
+    content=`<h2>遗忘管理示例</h2><p>此操作只清理原型中的候选记忆，用于检查二次确认与撤销，不触碰真实数据。</p><div class="stack">${button('清理全部候选（Mock）','confirm-forget-all','btn primary full')}${button('取消','close-sheet','btn ghost full')}</div>`;
+  }
+  return `<div class="backdrop" data-action="close-sheet"><section class="sheet" data-action="stop-propagation"><button class="sheetclose" data-action="close-sheet" aria-label="关闭">×</button>${content}</section></div>`
+}
+function applyScenario(name){
+  state.scenario=name;state.sheet=null;state.receipt=null;state.pairStage='scan';state.pairSelected=false;
+  if(name==='默认'){
+    Object.assign(state,{dshStarted:true,agentConfigured:true,agentName:'小P',ownerName:'Leo',provider:'byok',providerConfigured:true,engine:'ready',device:{name:'小智 Link',online:true,revision:3,capabilities:['麦克风','唤醒','LED 控制']},recording:true,tasks:clone(seed.tasks),memories:clone(seed.memories),diary:true});
+  }else if(name==='未配置'){
+    Object.assign(state,{dshStarted:false,agentConfigured:false,providerConfigured:false,engine:'ready',device:{name:'小智 Link',online:true,revision:3,capabilities:['麦克风','唤醒','LED 控制']},recording:true,tasks:clone(seed.tasks),memories:clone(seed.memories),diary:true});
+  }else if(name==='无设备'){
+    Object.assign(state,{dshStarted:true,agentConfigured:true,engine:'ready',device:null,recording:false,tasks:clone(seed.tasks),memories:clone(seed.memories),diary:true});
+  }else if(name==='离线'){
+    Object.assign(state,{dshStarted:true,agentConfigured:true,engine:'ready',device:{name:'小智 Link',online:false,revision:3,capabilities:['麦克风','唤醒','LED 控制']},recording:false,tasks:clone(seed.tasks),memories:clone(seed.memories),diary:true});
+  }else if(name==='引擎失败'){
+    Object.assign(state,{dshStarted:true,agentConfigured:true,engine:'failed',device:{name:'小智 Link',online:true,revision:3,capabilities:['麦克风','唤醒','LED 控制']},recording:false,tasks:clone(seed.tasks),memories:clone(seed.memories),diary:true});
+  }else if(name==='空数据'){
+    Object.assign(state,{dshStarted:true,agentConfigured:true,engine:'ready',device:null,recording:false,tasks:[],memories:[],diary:false});
+  }
+}
+function undo(){
+  if(!state.undo)return;
+  const u=state.undo;state.undo=null;
+  if(u.type==='memory'){const m=state.memories.find(m=>m.id===u.id);if(m)m.status=u.status}
+  if(u.type==='memories'){for(const m of state.memories){if(u.ids.includes(m.id))m.status='candidate'}}
+  toast('已撤销上一步操作');
+}
+function handle(action,value,el){
+  if(action==='scenario'){state.sheet='scenario';render();return}
+  if(action==='close-sheet'){state.sheet=null;render();return}
+  if(action==='stop-propagation'){return}
+  if(action==='dismiss-toast'){state.toast=null;state.undo=null;render();return}
+  if(action==='undo'){undo();return}
+  if(action==='set-scenario'){applyScenario(value);render();return}
+  if(action==='provider'){state.provider=value;render();return}
+  if(action==='validate-key'){const key=document.getElementById('api-key')?.value.trim();if(!key){toast('请输入 Mock API key');return}state.providerConfigured=true;go('agent-name');return}
+  if(action==='name-suggestion'){state.agentName=value;render();return}
+  if(action==='save-agent-name'){const name=document.getElementById('agent-name')?.value.trim();if(!name){toast('先给 Agent 起个名字');return}state.agentName=name;if(state.agentConfigured){go('personal')}else{go('owner-name')}return}
+  if(action==='save-owner-name'){const name=document.getElementById('owner-name')?.value.trim();if(!name){toast('请输入你的称呼');return}state.ownerName=name;state.agentConfigured=true;state.scenario='默认';toast('Personal Agent 已启用，AI日记已加入导航');go('chat');return}
+  if(action==='recover-engine'){state.engine='ready';toast('本地引擎已恢复（Mock）');return}
+  if(action==='suggest'){state.draft=value;render();document.getElementById('composer')?.focus();return}
+  if(action==='voice'){state.draft='把刚才的讨论整理成纪要，提取待办并保存到本地';toast('已填入 Mock 听写内容');return}
+  if(action==='sessions'){state.sheet='sessions';render();return}
+  if(action==='dsh-more'){state.sheet='dsh-more';render();return}
+  if(action==='attachments'){state.sheet='attachments';render();return}
+  if(action==='use-attachment'){state.draft='分析附件中的硬件接入评审，生成纪要并提取待办';state.sheet=null;go('dsh');return}
+  if(action==='file-help'){state.sheet=null;toast('正式实现将使用系统文件选择器');return}
+  if(action==='start-dsh'){state.engine='ready';state.dshStarted=true;render();return}
+  if(action==='send'||action==='send-dsh'){
+    if(action==='send'&&!state.agentConfigured){go('agent-setup');return}
+    const input=document.getElementById(action==='send'?'composer':'dsh-composer');const text=(input?.value||state.draft||'把今天的硬件接入评审整理成纪要').trim();if(!text){toast('先输入一件想完成的事');return}
+    state.dshStarted=true;state.userPrompt=text;state.draft='';
+    if(!state.tasks.find(t=>t.id==='hardware-plan'))state.tasks.unshift(clone(seed.tasks[0]));
+    const t=state.tasks.find(t=>t.id==='hardware-plan');t.status='running';t.step=2;t.progress=66;t.title=text.length>28?text.slice(0,28)+'…':text;
+    toast('已创建 Mock 任务并保存到本地');return;
+  }
+  if(action==='task-filter'){state.taskFilter=value;render();return}
+  if(action==='advance-task'){const t=state.tasks.find(t=>t.id==='hardware-plan');t.status='completed';t.step=t.total;t.progress=100;t.artifact='硬件接入评审纪要';toast('任务已完成，产物已保存（Mock）');return}
+  if(action==='unknown-task'){const t=state.tasks.find(t=>t.id==='hardware-plan');t.status='outcomeUnknown';toast('已模拟结果未知，不会自动重试');return}
+  if(action==='reconcile-task'){const t=state.tasks.find(t=>t.id==='hardware-plan');t.status='completed';t.step=t.total;t.progress=100;toast('对账完成：原任务已完成（Mock）');return}
+  if(action==='cancel-task'){const t=state.tasks.find(t=>t.id==='hardware-plan');t.status='cancelled';toast('已记录取消，保留检查点');return}
+  if(action==='approve-send'){const t=state.tasks.find(t=>t.id==='send-feishu');t.status='completed';t.step=2;t.progress=100;state.receipt='飞书消息已发送（Mock） · 回执 F-001';render();return}
+  if(action==='deny-send'){const t=state.tasks.find(t=>t.id==='send-feishu');t.status='cancelled';state.receipt='已拒绝，未执行外部动作';go('chat');return}
+  if(action==='calendar'){state.sheet='calendar';render();return}
+  if(action==='day-today'){state.diary=true;state.sheet=null;go('recap');return}
+  if(action==='day-yesterday'){state.diary=false;state.sheet=null;go('recap');return}
+  if(action==='previous-day'){state.diary=false;go('recap');return}
+  if(action==='highlight-trail'){state.sheet='highlight-trail';render();return}
+  if(action==='dialogue'){state.minuteTab='transcript';state.highlightEvidence=false;go('minutes-hardware-review');return}
+  if(action==='minute-tab'){state.minuteTab=value;state.highlightEvidence=false;render();return}
+  if(action==='evidence'){state.minuteTab='transcript';state.highlightEvidence=true;render();return}
+  if(action==='quote-chat'){state.draft='请继续核对“硬件接入评审”中的待办和原话引用';go('chat');return}
+  if(action==='speaker-name'){toast('说话人命名入口（Mock），命名后可回溯修订');return}
+  if(action==='quote-line'){state.draft=value;go('chat');return}
+  if(action==='audio-toggle'){state.audioPlaying=!state.audioPlaying;render();return}
+  if(action==='audio-seek'){state.audioPosition=Math.max(0,Math.min(2536,state.audioPosition+Number(value)));render();return}
+  if(action==='audio-seek-to'){state.audioPosition=Math.max(0,Math.min(2536,Number(value)));state.audioPlaying=true;render();return}
+  if(action==='minutes-more'){state.sheet='minutes-more';render();return}
+  if(action==='copy-minutes'){state.sheet=null;toast('已复制 Mock 纪要，不包含真实录音或个人数据');return}
+  if(action==='audio-rate'){state.audioRate=state.audioRate===1?1.5:state.audioRate===1.5?2:1;render();return}
+  if(action==='memory-tab'){state.memoryTab=value;render();return}
+  if(action==='memory-search'){state.memoryQuery=document.getElementById('memory-search')?.value||'';render();return}
+  if(action==='confirm-memory'){const m=state.memories.find(m=>m.id==='local-first');m.status='active';state.undo={type:'memory',id:m.id,status:'candidate'};toast('已确认，后续回答可以使用（Mock）',state.undo);return}
+  if(action==='reject-memory'){const m=state.memories.find(m=>m.id==='local-first');m.status='rejected';state.undo={type:'memory',id:m.id,status:'candidate'};toast('候选已驳回，不用于后续回答',state.undo);return}
+  if(action==='edit-memory'){state.sheet=null;state.draft='请把这条记忆改得更准确：'+state.memories.find(m=>m.id==='local-first').text;go('chat');return}
+  if(action==='forget-memory'){state.sheet='forget';render();return}
+  if(action==='confirm-forget'){const m=state.memories.find(m=>m.id==='local-first');m.status='forgotten';state.sheet=null;state.undo={type:'memory',id:m.id,status:'candidate'};toast('已停止用于新回答（Mock）',state.undo);return}
+  if(action==='pending-service'){state.sheet='pending';render();return}
+  if(action==='toggle-led'){if(!deviceReady()){toast('设备离线，不能执行控制');return}state.device.revision+=1;toast(`LED 已切换（Mock） · revision ${state.device.revision}`);return}
+  if(action==='device-offline'){state.device.online=false;render();return}
+  if(action==='unpair'){state.device=null;toast('已解绑（Mock），历史数据保留');return}
+  if(action==='pair-select'){state.pairSelected=true;render();return}
+  if(action==='pair-next'){
+    if(!state.pairSelected){toast('先选择一台设备');return}
+    if(state.device&&!state.device.online){state.pairStage='fail'}else state.pairStage=state.pairStage==='scan'?'confirm':'capabilities';render();return;
+  }
+  if(action==='pair-complete'){state.device={name:'小智 Link',online:true,revision:1,capabilities:['麦克风','唤醒','LED 控制']};state.pairStage='success';state.recording=true;render();return}
+  if(action==='pair-cancel'){state.pairStage='scan';state.pairSelected=false;go('devices');return}
+  if(action==='pair-fail'){state.pairStage='fail';render();return}
+  if(action==='pair-retry'){state.pairStage='scan';state.pairSelected=false;if(state.device)state.device.online=true;render();return}
+  if(action==='toggle-recording'){state.recording=!state.recording;toast(state.recording?'已恢复录音（Mock）':'已暂停新的音频采集');return}
+  if(action==='export-data'){
+    const data={mock:true,product:'PhoneDSH structure prototype',agentConfigured:state.agentConfigured,provider:state.provider,tasks:state.tasks,memories:state.memories};
+    const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='pdsh-mock-export.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('已生成 Mock 导出文件');return;
+  }
+  if(action==='forget-all'){state.sheet='forget-all';render();return}
+  if(action==='confirm-forget-all'){const ids=state.memories.filter(m=>m.status==='candidate').map(m=>m.id);for(const m of state.memories){if(ids.includes(m.id))m.status='forgotten'}state.sheet=null;state.undo={type:'memories',ids};toast('候选已清理（Mock）',state.undo);return}
+}
+document.addEventListener('click',event=>{
+  const path=event.target.closest('[data-go]');if(path){event.preventDefault();go(path.dataset.go);return}
+  const el=event.target.closest('[data-action]');if(!el)return;event.preventDefault();event.stopPropagation();handle(el.dataset.action,el.dataset.value,el);
+});
+document.addEventListener('input',event=>{if(event.target.id==='composer'||event.target.id==='dsh-composer')state.draft=event.target.value;if(event.target.id==='memory-search')state.memoryQuery=event.target.value;if(event.target.id==='agent-name')state.agentName=event.target.value;if(event.target.id==='owner-name')state.ownerName=event.target.value});
+window.addEventListener('hashchange',()=>{state.sheet=null;render()});
+function render(){
+  const r=route();
+  const pages={dsh,chat,'agent-setup':agentSetup,'agent-name':agentName,'owner-name':ownerName,'task-hardware-plan':taskDetail,'approval-feishu':approval,recap,'minutes-hardware-review':minutes,discover,personal,memory,'memory-local-first':memoryDetail,devices,'pair-xiaozhi':pairing,settings,privacy,welcome:dsh,setup:agentSetup,tasks:dsh,services:discover};
+  const page=pages[r]||dsh;document.getElementById('app').innerHTML=page();
+}
+render();
+</script>
+</body>
+</html>

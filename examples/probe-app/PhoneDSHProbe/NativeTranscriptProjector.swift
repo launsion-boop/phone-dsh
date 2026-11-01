@@ -90,11 +90,14 @@ enum NativeTranscriptProjector {
                 let callID = message["toolCallId"]?.stringValue ?? message["source"]?["callId"]?.stringValue ?? ""
                 let output = nativeToolResultText(message["content"], error: data["error"])
                 let isError = message["isError"]?.boolValue ?? (data["error"] != nil)
+                let errorCode = data["error"]?["code"]?.stringValue
+                    ?? message["error"]?["code"]?.stringValue
                 if let index = calls[callID] {
                     result[index].toolOutput = output
                     result[index].toolMetadata = data["meta"]
+                    result[index].toolErrorCode = errorCode
                     result[index].toolState = isError ? .error : .ok
-                    if data["error"]?["code"]?.stringValue == "interrupted" { result[index].toolState = .stopped }
+                    if errorCode == "interrupted" { result[index].toolState = .stopped }
                 } else {
                     var item = ChatItem(id: id, kind: .toolResult(isError: isError),
                                         title: isError ? "Tool error" : "Tool result", text: output)
@@ -105,6 +108,7 @@ enum NativeTranscriptProjector {
                     item.toolName = message["source"]?["name"]?.stringValue
                     item.toolOutput = output
                     item.toolMetadata = data["meta"]
+                    item.toolErrorCode = errorCode
                     item.toolState = isError ? .error : .ok
                     result.append(item)
                 }

@@ -1,0 +1,115 @@
+{
+  "title": "PDSH platform divergence whitelist",
+  "description": "Root schema of spec/platform/whitelist.json: an array of divergence entries. Self-contained on purpose: no $ref, no $defs, no anyOf/allOf. Only the keywords supported by spec/v1/tools/spec_golden.py validate_json are used. Conditional rules that JSON Schema cannot express cheaply (baseline: not-applicable requires three extra members, os-forced requires android_mechanism) are enforced by spec/platform/tools/platform_check.py and are listed in spec/platform/README.md.",
+  "type": "array",
+  "minItems": 1,
+  "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "id",
+      "capability",
+      "ios",
+      "android",
+      "divergence_class",
+      "rationale",
+      "spec_ref",
+      "evidence_level",
+      "baseline"
+    ],
+    "properties": {
+      "id": {
+        "description": "稳定标识，形如 platform.fsync-epoch-close；一经引用不得改名。",
+        "type": "string",
+        "minLength": 6,
+        "maxLength": 64,
+        "pattern": "^[a-z][a-z0-9-]*(\\.[a-z0-9-]+){1,4}$"
+      },
+      "capability": {
+        "description": "能力名，按 <域>.<能力> 命名；同一能力可以有多条分歧（例如秘密存储与它的降级链）。",
+        "type": "string",
+        "minLength": 6,
+        "maxLength": 64,
+        "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*){1,4}$"
+      },
+      "ios": {
+        "description": "iOS 基线的机制与所在位置；必须点名具体 API 或文件角色，不能只写 iOS 原生。",
+        "type": "string",
+        "minLength": 12,
+        "maxLength": 500
+      },
+      "android": {
+        "description": "Android 映射及其语义约束；可以点名多个 API，但必须能落到 android_mechanism 上。",
+        "type": "string",
+        "minLength": 12,
+        "maxLength": 500
+      },
+      "divergence_class": {
+        "description": "三类合法分歧之一，定义见 divergence-class.schema.json。",
+        "type": "string",
+        "enum": [
+          "os-forced",
+          "hardware-absent",
+          "policy-forbidden"
+        ]
+      },
+      "rationale": {
+        "description": "为什么这条差异合法、语义等价声明是什么、哪些行为不允许被放宽；not-verified 条目必须写明按未验证处理。",
+        "type": "string",
+        "minLength": 40,
+        "maxLength": 1000
+      },
+      "spec_ref": {
+        "description": "仓库内真实存在的文件加节号，形如 spec/v1/wal.md §5.2；该节号必须能作为标题找到。",
+        "type": "string",
+        "minLength": 10,
+        "maxLength": 140,
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]*\\.md §[A-Za-z0-9]+(\\.[0-9]+)*$"
+      },
+      "android_mechanism": {
+        "description": "具体 Android API 名（ASCII）。os-forced 条目必须给出；空话或待定占位会被 checker 拒绝。",
+        "type": "string",
+        "minLength": 3,
+        "maxLength": 140
+      },
+      "evidence_level": {
+        "description": "证据等级：device-gate（真机 gate）、emulator-probe（模拟器/CI 探针）、spec-only（仓库规范即可判）、not-verified（无来源，不得作为承诺依据）。",
+        "type": "string",
+        "enum": [
+          "device-gate",
+          "emulator-probe",
+          "spec-only",
+          "not-verified"
+        ]
+      },
+      "baseline": {
+        "description": "Swift 基线实现：仓库相对路径；Swift 侧无法承载的机制写 not-applicable 并补齐三个例外字段。",
+        "type": "string",
+        "minLength": 4,
+        "maxLength": 200
+      },
+      "justification_class": {
+        "description": "仅 baseline: not-applicable 允许出现：例外的类别。",
+        "type": "string",
+        "enum": [
+          "os-mechanism-absent",
+          "hardware-absent",
+          "distribution-policy"
+        ]
+      },
+      "evidence": {
+        "description": "仅 baseline: not-applicable 允许出现：为什么 Swift 侧无法承载，以及可核对的仓库锚点。",
+        "type": "string",
+        "minLength": 20,
+        "maxLength": 500
+      },
+      "approved_by": {
+        "description": "仅 baseline: not-applicable 允许出现：批准该例外的角色或工作包标识；不写个人姓名、不写邮箱。",
+        "type": "string",
+        "minLength": 3,
+        "maxLength": 60,
+        "pattern": "^[A-Za-z0-9._-]{3,60}$"
+      }
+    }
+  }
+}

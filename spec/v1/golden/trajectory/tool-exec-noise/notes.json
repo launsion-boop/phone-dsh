@@ -1,0 +1,9 @@
+{
+  "kind": "equivalent",
+  "title": "tool execution: units, durations and scheduler samples",
+  "expected": {
+    "ios": "expected.jsonl",
+    "android": "expected.jsonl"
+  },
+  "reason": "Durations, byte units, ratios, clock domains and ports differ. Stage 4 maps them to one decimal representation; stage 1 removes the clock and port samples."
+}

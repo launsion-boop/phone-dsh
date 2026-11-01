@@ -1,0 +1,12 @@
+{
+  "name": "harness-goal-blocked",
+  "schema": "schema/harness-goal.schema.json",
+  "instance": {
+    "objective": "Ship the host contract tree for the Android port",
+    "phase": "blocked",
+    "blocked_reason": "the device protocol is not frozen yet",
+    "rounds_started": 3,
+    "max_goal_rounds": 5
+  },
+  "notes": "Sources/PhoneDSHAgentCore/AgentHarness.swift:456-477 (objective, phase active|paused|blocked|complete, blocked_reason, rounds_started, max_goal_rounds). A backend without goals answers nil and the host must render no goal bar (AgentHarness.swift:496-505); the DSH projection is derived from session/projections and defaults an unknown phase to active (DSHRemoteHarness.swift:99-116)."
+}

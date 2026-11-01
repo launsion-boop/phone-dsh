@@ -1,0 +1,10 @@
+{
+  "name": "harness-command-question-response",
+  "schema": "schema/harness-command.schema.json",
+  "instance": {
+    "kind": "question_response",
+    "request_id": "ev-9a1",
+    "answer": "{\"q1\":[\"b\"]}"
+  },
+  "notes": "Sources/PhoneDSHAgentCore/AgentHarness.swift:260 and 297-327 (question items: id, prompt, options, multiple). answer is a string: when it parses as a JSON object it maps question ids to selections, otherwise the whole string is the free-text answer (DSHRemoteHarness.swift:205-227). Answering a request the backend no longer holds is invalid_request, never a silent drop (DSHRemoteHarness.swift:138-141, 188-195)."
+}

@@ -187,19 +187,6 @@ public struct PDSHShellHelloCapabilities: Equatable, Sendable {
     }
 }
 
-extension PDSHShellError: ExecProviderFailure {
-    public var code: String {
-        switch self {
-        case .notLinked: return "not_linked"
-        case .notConfigured: return "not_configured"
-        case .unsupportedCommand: return "unsupported"
-        case .invalidRequest: return "invalid_request"
-        }
-    }
-
-    public var message: String { localizedDescription }
-}
-
 /// Host tool bridge for the `phone` and `ctx` accelerators (D12).
 ///
 /// The Rust side never talks to the network: it calls back into the host, and
@@ -217,6 +204,19 @@ public extension PhoneToolBridge {
     /// explicitly decline it instead of advertising an unimplemented tool.
     var supportsContext: Bool { true }
     var handles: Set<String> { [] }
+}
+
+extension PDSHShellError: ExecProviderFailure {
+    public var code: String {
+        switch self {
+        case .notLinked: return "not_linked"
+        case .notConfigured: return "not_configured"
+        case .unsupportedCommand: return "unsupported"
+        case .invalidRequest: return "invalid_request"
+        }
+    }
+
+    public var message: String { localizedDescription }
 }
 
 /// Closure-backed ``PhoneToolBridge`` for the facade and for tests.

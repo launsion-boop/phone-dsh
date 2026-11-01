@@ -1,0 +1,506 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "PDSHShellPage",
+  "pageId": "pdsh-shell",
+  "structure": "swiftui-view",
+  "sectionModel": "section",
+  "sectionNote": null,
+  "title": {
+    "text": "命令",
+    "provenance": "PDSHShellPage.swift:92",
+    "anchor": ".navigationTitle(\"命令\")"
+  },
+  "source": {
+    "file": "PDSHShellPage.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/PDSHShellPage.swift",
+    "lines": 120,
+    "structLine": 8,
+    "renderedFrom": [
+      "body"
+    ],
+    "sectionOrder": "declaration order inside the page struct"
+  },
+  "android": {
+    "screen": null,
+    "file": "android/lib/src/main/kotlin/com/phonedsh/ui/page/ToolsPage.kt",
+    "match": "kdoc-mention"
+  },
+  "sections": [
+    {
+      "id": "这台手机",
+      "title": "这台手机",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "literal",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "状态",
+          "label": "状态",
+          "labelExpr": null,
+          "kind": "info",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "PDSHShellPage.swift:24",
+          "anchor": "LabeledContent(\"状态\", value: commands.isEmpty ? \"未链接或未配置\" : provider.capabilities",
+          "extraction": "syntax"
+        },
+        {
+          "id": "网络",
+          "label": "网络",
+          "labelExpr": null,
+          "kind": "info",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "PDSHShellPage.swift:25",
+          "anchor": "LabeledContent(\"网络\", value: \"不可用\")",
+          "extraction": "syntax"
+        },
+        {
+          "id": "工作区",
+          "label": "工作区",
+          "labelExpr": null,
+          "kind": "info",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "PDSHShellPage.swift:27",
+          "anchor": "LabeledContent(\"工作区\", value: provider.helloMounts.isEmpty",
+          "extraction": "syntax"
+        },
+        {
+          "id": "这些命令在这台手机上跑-只能读不能写",
+          "label": "这些命令在这台手机上跑,只能读不能写。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "PDSHShellPage.swift:30",
+          "anchor": "Text(\"这些命令在这台手机上跑,只能读不能写。\")",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "PDSHShellPage.swift:23",
+      "anchor": "Section(\"这台手机\") {",
+      "extraction": "syntax"
+    },
+    {
+      "id": "section-34",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "absent",
+      "condition": "commands.isEmpty",
+      "collection": null,
+      "rows": [
+        {
+          "id": "还没接上命令",
+          "label": "还没接上命令",
+          "labelExpr": null,
+          "kind": "empty",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "PDSHShellPage.swift:35",
+          "anchor": "ContentUnavailableView(\"还没接上命令\", systemImage: \"terminal\",",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "PDSHShellPage.swift:34",
+      "anchor": "Section {",
+      "extraction": "syntax",
+      "criterion": {
+        "kind": "first-row",
+        "label": "还没接上命令",
+        "provenance": "PDSHShellPage.swift:35"
+      }
+    },
+    {
+      "id": "运行命令",
+      "title": "运行命令",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "literal",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "命令",
+          "label": "命令",
+          "labelExpr": null,
+          "kind": "control",
+          "value": "命令",
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "PDSHShellPage.swift:40",
+          "anchor": "Picker(\"命令\", selection: $command) {",
+          "extraction": "syntax"
+        },
+        {
+          "id": "这个命令要连上-app-才能跑-现在跑不了",
+          "label": "这个命令要连上 App 才能跑,现在跑不了。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "[\"phone\", \"ctx\"].contains(command)",
+          "provenance": "PDSHShellPage.swift:44",
+          "anchor": "Text(\"这个命令要连上 App 才能跑,现在跑不了。\")",
+          "extraction": "syntax"
+        },
+        {
+          "id": "工作目录",
+          "label": "工作目录",
+          "labelExpr": null,
+          "kind": "input",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "PDSHShellPage.swift:47",
+          "anchor": "StrictASCIITextField(\"工作目录\", text: $workingDirectory)",
+          "extraction": "syntax"
+        },
+        {
+          "id": "参数-每行一个",
+          "label": "参数,每行一个",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "PDSHShellPage.swift:50",
+          "anchor": "Text(\"参数,每行一个\")",
+          "extraction": "syntax"
+        },
+        {
+          "id": "input-53",
+          "label": null,
+          "labelExpr": null,
+          "kind": "input",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "PDSHShellPage.swift:53",
+          "anchor": "StrictASCIITextView(text: $arguments)",
+          "extraction": "manual"
+        },
+        {
+          "id": "例如-help-文件名",
+          "label": "例如:--help\n文件名",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "arguments.isEmpty",
+          "provenance": "PDSHShellPage.swift:55",
+          "anchor": "Text(\"例如:--help\\n文件名\")",
+          "extraction": "syntax"
+        },
+        {
+          "id": "运行",
+          "label": "运行",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "PDSHShellPage.swift:68",
+          "anchor": "Button(\"运行\", systemImage: \"play.fill\") { Task { await run() } }",
+          "extraction": "syntax"
+        },
+        {
+          "id": "取消",
+          "label": "取消",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": "let runningID",
+          "provenance": "PDSHShellPage.swift:71",
+          "anchor": "Button(\"取消\", systemImage: \"stop.fill\", role: .destructive) {",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "PDSHShellPage.swift:39",
+      "anchor": "Section(\"运行命令\") {",
+      "extraction": "syntax"
+    },
+    {
+      "id": "输出",
+      "title": "输出",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "literal",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "text-78",
+          "label": null,
+          "labelExpr": "error",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "let error",
+          "provenance": "PDSHShellPage.swift:78",
+          "anchor": "if let error { Text(error).foregroundStyle(.red) }",
+          "extraction": "manual"
+        },
+        {
+          "id": "运行结果会显示在这里",
+          "label": "运行结果会显示在这里。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "PDSHShellPage.swift:79",
+          "anchor": "Text(output.isEmpty ? \"运行结果会显示在这里。\" : output)",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "PDSHShellPage.swift:77",
+      "anchor": "Section(\"输出\") {",
+      "extraction": "syntax"
+    },
+    {
+      "id": "限制",
+      "title": "限制",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "literal",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "超时",
+          "label": "超时",
+          "labelExpr": null,
+          "kind": "info",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "PDSHShellPage.swift:85",
+          "anchor": "LabeledContent(\"超时\", value: \"\\(provider.limits.timeoutMilliseconds / 1000) 秒\")",
+          "extraction": "syntax"
+        },
+        {
+          "id": "输出上限",
+          "label": "输出上限",
+          "labelExpr": null,
+          "kind": "info",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "PDSHShellPage.swift:86",
+          "anchor": "LabeledContent(\"输出上限\", value: ByteCountFormatter.string(fromByteCount: Int64(pro",
+          "extraction": "syntax"
+        },
+        {
+          "id": "文件数上限",
+          "label": "文件数上限",
+          "labelExpr": null,
+          "kind": "info",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "PDSHShellPage.swift:87",
+          "anchor": "LabeledContent(\"文件数上限\", value: \"\\(provider.limits.maxFiles)\")",
+          "extraction": "syntax"
+        },
+        {
+          "id": "单文件上限",
+          "label": "单文件上限",
+          "labelExpr": null,
+          "kind": "info",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "PDSHShellPage.swift:88",
+          "anchor": "LabeledContent(\"单文件上限\", value: ByteCountFormatter.string(fromByteCount: Int64(pr",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "PDSHShellPage.swift:84",
+      "anchor": "Section(\"限制\") {",
+      "extraction": "syntax"
+    }
+  ],
+  "actions": [
+    {
+      "id": "命令",
+      "label": "命令",
+      "labelExpr": null,
+      "kind": "picker",
+      "trigger": "tap",
+      "semantic": null,
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "PDSHShellPage.swift:40",
+      "anchor": "Picker(\"命令\", selection: $command) {",
+      "extraction": "syntax",
+      "items": [
+        "命令"
+      ],
+      "style": "default"
+    },
+    {
+      "id": "运行",
+      "label": "运行",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ Task { await run() }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "PDSHShellPage.swift:68",
+      "anchor": "Button(\"运行\", systemImage: \"play.fill\") { Task { await run() } }",
+      "extraction": "syntax",
+      "labelAlternatives": []
+    },
+    {
+      "id": "取消",
+      "label": "取消",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ Task { await provider.cancel(execID: runningID) }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "PDSHShellPage.swift:71",
+      "anchor": "Button(\"取消\", systemImage: \"stop.fill\", role: .destructive) {",
+      "extraction": "syntax",
+      "labelAlternatives": []
+    }
+  ],
+  "presentations": [],
+  "states": {
+    "advisory": true,
+    "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
+    "sites": {
+      "empty": [
+        {
+          "renders": "未链接或未配置",
+          "when": null,
+          "provenance": "PDSHShellPage.swift:24",
+          "anchor": "LabeledContent(\"状态\", value: commands.isEmpty ? \"未链接或未配置\" : provider.capabilities"
+        },
+        {
+          "renders": "ContentUnavailableView",
+          "when": "commands.isEmpty",
+          "provenance": "PDSHShellPage.swift:35",
+          "anchor": "ContentUnavailableView(\"还没接上命令\", systemImage: \"terminal\","
+        }
+      ],
+      "data": [
+        {
+          "renders": "这台手机 | untitled section at 34 | 运行命令 | 输出 | 限制",
+          "when": null,
+          "provenance": "PDSHShellPage.swift:8",
+          "anchor": "struct PDSHShellPage: View {",
+          "note": "structural default: the sections above, when no condition overrides them"
+        }
+      ],
+      "failure": [],
+      "unknown": [
+        {
+          "renders": "未设置",
+          "when": null,
+          "provenance": "PDSHShellPage.swift:28",
+          "anchor": "? \"未设置\""
+        }
+      ],
+      "loading": []
+    },
+    "absent": [
+      "failure",
+      "loading"
+    ],
+    "coverage": {
+      "empty": 2,
+      "data": 1,
+      "failure": 0,
+      "unknown": 1,
+      "loading": 0
+    }
+  },
+  "subpages": [],
+  "unreachable": [],
+  "extraction": {
+    "tool": "extract_ios_pages.py",
+    "mode": "syntax",
+    "sectionKeywordsInPage": 5,
+    "regionsExtracted": 0,
+    "sectionsExtracted": 5,
+    "warnings": []
+  }
+}

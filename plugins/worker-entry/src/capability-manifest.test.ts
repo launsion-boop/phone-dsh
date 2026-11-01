@@ -15,13 +15,13 @@
  *    two-way difference, so a new command cannot be missing from the answer;
  *  - the egress list and the Python module list are exactly the inputs, not a
  *    hand-written approximation;
- *  - the Markdown stays inside the 4 KiB budget;
+ *  - the Markdown stays inside the AGENTS_MD_MAX_BYTES budget;
  *  - the real upstream instruction loader injects the generated file from
  *    `$DSH_HOME/AGENTS.md` (the mechanism the fix relies on);
  *  - a second boot with unchanged content emits no `VFS_MUT`.
  */
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
@@ -48,13 +48,14 @@ import {
   AGENTS_MD_MAX_BYTES,
   AGENTS_MD_PATH,
   CAPABILITIES_JSON_PATH,
+  CURL_NO_HOST_ROUTE_REASON,
   DEFAULT_BASH_DEVIATIONS,
-  PHONE_TOOL_CAPABILITIES,
   PHONE_V1_LIMITS,
   TASK_EXECUTION_GUIDANCE,
   buildCapabilityManifest,
   publishCapabilityManifest,
   workerCommandSurface,
+  workerUnavailableCommands,
   type CapabilityManifestInput,
 } from './capabilities.ts'
 
@@ -218,6 +219,70 @@ test('manifest.commands has an empty two-way difference with the production comm
   assert.deepEqual(stale, [], 'the manifest names no command the shell cannot run')
 })
 
+test('workerUnavailableCommands marks curl only when the host /v1/http route is incomplete', () => {
+  // The same four keys shell-ext's resolveHostProxy reads: an origin alone
+  // builds no request, so the boot must not declare curl.
+  const origin = 'http://127.0.0.1:41234'
+  assert.deepEqual(workerUnavailableCommands({ PDSH_CHANNEL_ORIGIN: origin, PDSH_CHANNEL_TOKEN: 't0ken' }), [])
+  assert.deepEqual(
+    workerUnavailableCommands({ PDSH_EXEC_BRIDGE_URL: origin, PDSH_EXEC_BRIDGE_TOKEN: 't0ken' }),
+    [],
+    'the bridge spellings are the same route',
+  )
+  assert.deepEqual(workerUnavailableCommands({}), [{ command: 'curl', reason: CURL_NO_HOST_ROUTE_REASON }])
+  assert.deepEqual(
+    workerUnavailableCommands({ PDSH_CHANNEL_ORIGIN: origin }),
+    [{ command: 'curl', reason: CURL_NO_HOST_ROUTE_REASON }],
+    'an origin with no token is not a route',
+  )
+  assert.deepEqual(
+    workerUnavailableCommands({ PDSH_CHANNEL_TOKEN: 't0ken', PDSH_CHANNEL_ORIGIN: '' }),
+    [{ command: 'curl', reason: CURL_NO_HOST_ROUTE_REASON }],
+    'an empty origin is not a route',
+  )
+})
+
+test('every declared command has an implementation branch or an explicit unavailable row', () => {
+  // The truth gate the capability surface was missing: a name may appear in
+  // `commands` only when a real implementation answers it, and a registered
+  // program this boot cannot run must carry a reason in `unavailable` instead
+  // of being declared. A table row that is neither is the defect.
+  const toolbox = fakeToolbox()
+  const accelerators = ['rg', 'jaq']
+  const surface = workerCommandSurface({ accelerators, toolbox })
+  const table = createWorkerCommands({
+    accelerators: { names: accelerators, exec: async () => { throw new Error('not run') } },
+    toolbox,
+  })
+  const implemented = new Set([...getCommandNames(), ...table.map(command => command.name)])
+  const manifest = buildCapabilityManifest(manifestInput({
+    commands: surface.commands,
+    accelerators: surface.accelerators,
+    unavailable: [{ command: 'curl', reason: CURL_NO_HOST_ROUTE_REASON }],
+  }))
+
+  assert.deepEqual(
+    manifest.json.commands.filter(name => !implemented.has(name)),
+    [],
+    'every declared command has an implementation branch',
+  )
+  assert.ok(!manifest.json.commands.includes('curl'), 'an unavailable command is never declared runnable')
+  assert.deepEqual(manifest.json.unavailable, [{ command: 'curl', reason: CURL_NO_HOST_ROUTE_REASON }])
+  for (const row of manifest.json.unavailable) {
+    assert.ok(row.reason.trim().length > 0, `${row.command} carries a reason`)
+    assert.ok(implemented.has(row.command), `${row.command} is a real table program, not a phantom row`)
+  }
+  const accounted = new Set([...manifest.json.commands, ...manifest.json.unavailable.map(row => row.command)])
+  assert.deepEqual(
+    [...implemented].filter(name => !accounted.has(name)).sort(),
+    [],
+    'no table command is neither declared nor explicitly unavailable',
+  )
+  // The summary tells the model, not only the machine-readable file.
+  assert.match(manifest.markdown, /Not runnable in this boot: `curl`/u)
+  assert.match(manifest.markdown, /unavailable\[\]/u)
+})
+
 test('the egress allow-list and the Python module list are exactly their inputs', () => {
   const egress = ['gateway.example.test', 'api.example.test']
   const modules = ['zlib', 'json', 're', 'pathlib']
@@ -298,7 +363,7 @@ test('compression comes only from the probe, never from the module list or a lin
   assert.doesNotMatch(unprobed.markdown, /zlib yes/)
 })
 
-test('AGENTS.md stays within 4 KiB and answers the environment questions', () => {
+test('AGENTS.md stays within its byte budget and answers the environment questions', () => {
   const commands = Array.from({ length: 200 }, (_, index) => `program-${String(index)}`)
   const modules = Array.from({ length: 200 }, (_, index) => `module_${String(index)}`)
   const egress = Array.from({ length: 40 }, (_, index) => `host-${String(index)}.example.test`)
@@ -324,6 +389,40 @@ test('AGENTS.md stays within 4 KiB and answers the environment questions', () =>
   assert.deepEqual(DEFAULT_BASH_DEVIATIONS.map(deviation => deviation.id), ['JB-EPOCHSECONDS', 'JB-DEV0'])
 })
 
+test('the phone section publishes only the tool the host really implements', () => {
+  const withPhone = buildCapabilityManifest(manifestInput({
+    commands: ['bash', 'phone'],
+    accelerators: ['phone'],
+    hostCaps: ['accelerator:phone', 'exec/1'],
+  }))
+  // `phone info` is the one subcommand the Android host accepts; it is the only
+  // row the manifest may publish.
+  assert.deepEqual(withPhone.json.phone?.tools.map(tool => tool.name), ['info'])
+  assert.equal(withPhone.json.phone?.command, 'phone')
+  assert.equal(withPhone.json.phone?.tool_catalog, 'host-owned')
+  assert.match(withPhone.jsonText, /"usage": "phone info"/u)
+  assert.match(withPhone.markdown, /phone info/u)
+  assert.match(withPhone.markdown, /not available and executes nothing/u)
+  // The hard-coded Apple Office surface must never come back. Every one of
+  // those rows answered `unsupported` on the device while the manifest claimed
+  // it — the capability lie this test pins shut.
+  for (const fake of [
+    'files.list', 'files.pick', 'doc.preview', 'share.export', 'pdf.text', 'pdf.render_pages',
+    'docx.read', 'xlsx.read', 'csv.analyze', 'doc.write', 'sheet.write', 'slides.write',
+    'chart.render', 'ocr.image', 'mail.compose_draft', 'calendar.create_event',
+    'contacts.search', 'text.translate', 'office.convert',
+  ]) {
+    assert.ok(!withPhone.jsonText.includes(fake), `the manifest must not claim the unverified tool ${fake}`)
+  }
+
+  // A host that never advertised `accelerator:phone` gets no section at all:
+  // the block is a host fact, not a constant of the Worker.
+  const withoutPhone = buildCapabilityManifest(manifestInput())
+  assert.equal(withoutPhone.json.phone, undefined)
+  assert.ok(!withoutPhone.jsonText.includes('"phone"'), 'no phone key in a host without the accelerator')
+  assert.doesNotMatch(withoutPhone.markdown, /## Host phone tools/u)
+})
+
 test('the boot manifest carries generic task-execution guidance, not a scenario answer', () => {
   const manifest = buildCapabilityManifest(manifestInput())
   assert.ok(manifest.markdown.includes(TASK_EXECUTION_GUIDANCE), 'the rendered file contains the advice verbatim')
@@ -346,56 +445,7 @@ test('the boot manifest carries generic task-execution guidance, not a scenario 
   assert.doesNotMatch(TASK_EXECUTION_GUIDANCE, /scenario|G2-|F0[0-9]|budget|credential|NOT_RUN|\.md/iu)
 })
 
-test('the native office and phone surfaces match both Swift dispatch tables and handles', () => {
-  const absent = buildCapabilityManifest(manifestInput())
-  assert.equal(absent.json.phone, undefined)
-  assert.ok(!absent.markdown.includes('Native office tools'))
-  const manifest = buildCapabilityManifest(manifestInput({ commands: ['bash', 'phone'] }))
-  assert.equal(manifest.json.phone?.command, 'phone')
-  assert.deepEqual(manifest.json.phone?.tools, PHONE_TOOL_CAPABILITIES)
-  assert.ok(manifest.markdown.includes('phone <tool> <json>'))
-  assert.ok(manifest.markdown.includes('actually call read_image'))
-  const here = dirname(fileURLToPath(import.meta.url))
-  const root = join(here, '../../../examples/probe-app/ProbeKit')
-  const office = readFileSync(join(root, 'Office/OfficeToolBridge.swift'), 'utf8')
-  const phone = readFileSync(join(root, 'PhoneCapabilityBridge.swift'), 'utf8')
-  const catalog = readFileSync(join(root, 'Capabilities/PhoneCapabilityGate.swift'), 'utf8')
-  const composite = readFileSync(join(root, 'CompositePhoneToolBridge.swift'), 'utf8')
-  const cases = (source: string): string[] => [...source.matchAll(/^\s+case "([^"]+)":$/gmu)].map(match => match[1]!).sort()
-  const officeHandlesBlock = /public let handles: Set<String> = \[([\s\S]*?)\]/u.exec(office)?.[1]
-  assert.ok(officeHandlesBlock !== undefined, 'OfficeToolBridge publishes a literal handles table')
-  const officeHandles = [...officeHandlesBlock.matchAll(/"([^"]+)"/gu)].map(match => match[1]).sort()
-  assert.deepEqual(officeHandles, cases(office), 'Office handles covers exactly the legacy routes')
-  const catalogTools = [...catalog.matchAll(/^\s+"([^"]+)": PhoneToolRoute\(/gmu)].map(match => match[1]).sort()
-  assert.deepEqual(catalogTools, cases(phone), 'capability handles source and dispatch table cannot drift')
-  assert.ok(phone.includes('Set(PhoneToolCatalog.routes.keys)'), 'PhoneCapabilityBridge handles uses the verified catalog')
-  assert.ok(composite.includes('$0.handles.contains(tool)'), 'composite dispatch is limited to advertised handles')
-  assert.ok(composite.includes('.unknownTool(tool)'), 'unknown composite tools fail closed')
-  assert.deepEqual([...cases(office), ...cases(phone)].sort(), PHONE_TOOL_CAPABILITIES.map(tool => tool.name).sort())
-  for (const required of ['location.geofence', 'focus.status', 'home.list', 'home.set', 'music.play', 'activity.start', 'activity.update', 'shortcuts.run']) {
-    assert.ok(PHONE_TOOL_CAPABILITIES.some(tool => tool.name === required), `${required} has a real dispatch and permission gate`)
-  }
-})
-
-test('system authorization APIs stay inside the permission requester and its extended controller', () => {
-  const here = dirname(fileURLToPath(import.meta.url))
-  const root = join(here, '../../../examples/probe-app/ProbeKit')
-  const swiftFiles = (directory: string): string[] => readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
-    const path = join(directory, entry.name)
-    return entry.isDirectory() ? swiftFiles(path) : entry.name.endsWith('.swift') ? [path] : []
-  })
-  const request = /\b(?:requestAccess|requestFullAccessToEvents|requestFullAccessToReminders|requestAuthorization|requestWhenInUseAuthorization|requestAlwaysAuthorization|requestRecordPermission|evaluatePolicy)\s*\(/u
-  const offenders = [...swiftFiles(join(root, 'Permissions')), ...swiftFiles(join(root, 'Capabilities'))]
-    .filter(path => !path.endsWith('PhonePermissionRequester.swift'))
-    .filter(path => !path.endsWith('PhoneExtendedPermissions.swift'))
-    .filter(path => request.test(readFileSync(path, 'utf8')))
-  assert.deepEqual(offenders, [], 'tools and views must return permission_required instead of prompting')
-  const requester = readFileSync(join(root, 'Permissions/PhonePermissionRequester.swift'), 'utf8')
-  assert.match(requester, /case \.unnecessary: return \.requested/u, 'Health read request completion is not mislabeled granted')
-  assert.match(requester, /toShare: \[\], read: Self\.healthReadTypes/u, 'HealthKit never requests write access')
-})
-
-test('the production manifest fits 4 KiB with the advice and full Python/Bash facts', () => {
+test('the production manifest fits its byte budget with the advice and full Python/Bash facts', () => {
   const surface = workerCommandSurface({ accelerators: ['rg'], toolbox: fakeToolbox() })
   const manifest = buildCapabilityManifest(manifestInput({
     commands: surface.commands,
@@ -412,13 +462,36 @@ test('the production manifest fits 4 KiB with the advice and full Python/Bash fa
   assert.ok(bytes <= AGENTS_MD_MAX_BYTES, `AGENTS.md is ${String(bytes)} B; the budget is ${String(AGENTS_MD_MAX_BYTES)} B`)
   assert.doesNotMatch(manifest.markdown, /shortened to fit/u, 'the budget fallback keeps the whole document')
   assert.ok(manifest.markdown.includes(TASK_EXECUTION_GUIDANCE))
-  // The production command/egress surface uses the existing compact summary,
-  // with the exact lists still in the JSON document.
+  // Under the 5 KiB budget the production surface fits the full bounded command
+  // list, so the compact summary is the over-budget fallback rather than the
+  // normal shape. Both spellings keep the exact lists in the JSON document; the
+  // fallback itself is pinned by the over-budget case below.
   assert.ok(
-    manifest.markdown.includes(`Commands: ${String(surface.commands.length)} (e.g.`),
-    'the production command table uses the compact summary',
+    manifest.markdown.includes('Commands (') || manifest.markdown.includes(`Commands: ${String(surface.commands.length)} (e.g.`),
+    'the production command table is published in one of the two documented shapes',
   )
-  assert.ok(manifest.markdown.includes('full sorted list in /dsh/home/capabilities.json'))
+  // Both shapes keep the JSON document as the exact answer; the compact one
+  // names it per list, the full one in the header.
+  assert.ok(manifest.markdown.includes('/dsh/home/capabilities.json'))
+  // An over-budget surface still falls back to the count-plus-example summary,
+  // which is what keeps the document inside the hard cap. The command names are
+  // padded: the bounded list carries up to 120 of them, so the full rendering
+  // exceeds the cap only when the names themselves are long (P24 raised the cap
+  // to 6144, and a 400-name list of short names now fits the full shape).
+  const overBudget = buildCapabilityManifest(manifestInput({
+    commands: Array.from({ length: 400 }, (_, index) => `program-${String(index)}-${'x'.repeat(20)}`),
+    pythonModules: Array.from({ length: 400 }, (_, index) => `module_${String(index)}`),
+    python: { available: true, version: '3.13' },
+    egressAllow: Array.from({ length: 80 }, (_, index) => `host-${String(index)}.example.test`),
+  }))
+  assert.ok(
+    overBudget.markdown.includes('Commands: 400'),
+    'an over-budget surface uses the compact command summary',
+  )
+  assert.ok(
+    Buffer.byteLength(overBudget.markdown, 'utf8') <= AGENTS_MD_MAX_BYTES,
+    'the over-budget fallback still honors the cap',
+  )
   assert.deepEqual(manifest.json.commands, surface.commands)
   assert.deepEqual(manifest.json.network.egress_allow, PRODUCTION_EGRESS)
   assert.deepEqual(manifest.json.python_modules, [...PRODUCTION_PYTHON_MODULES].sort())
@@ -427,6 +500,40 @@ test('the production manifest fits 4 KiB with the advice and full Python/Bash fa
   assert.ok(manifest.markdown.includes('Missing: pip/ensurepip (the image is stdlib-only; no package installs);'))
   assert.ok(manifest.markdown.includes('`subprocess` is a shim: `Popen` runs another `python3`'))
   assert.ok(manifest.markdown.includes('`EPOCHSECONDS` and `EPOCHREALTIME` are unset'))
+})
+
+test('a refusal outside the writable roots is final: no escalation advice survives in the instructions', () => {
+  // P21: DSH decorates a sandbox refusal with `[sandbox: escalation available —
+  // retry this exact command once with sandbox_permissions ...]` whenever a
+  // confining provider is mounted (dsh-tool-bash's `escalationModes` is
+  // `ctx.shell.sandboxMode` alone — the approval policy is never consulted).
+  // The phone has no approval channel (`approval.policy: never`) and no mode
+  // that widens the VFS root table, so that line can only burn a turn. The DSH
+  // side is pinned, so the instruction file has to say what the refusal means.
+  const surface = workerCommandSurface({ accelerators: ['rg'], toolbox: fakeToolbox() })
+  const manifest = buildCapabilityManifest(manifestInput({
+    commands: surface.commands,
+    accelerators: surface.accelerators,
+    pythonModules: [...PRODUCTION_PYTHON_MODULES],
+    python: { available: true, version: '3.13' },
+    egressAllow: [...PRODUCTION_EGRESS],
+  }))
+  // The rule names the exact marker the model will see, so no inference is needed.
+  assert.ok(manifest.markdown.includes('`[sandbox: escalation available ...]`'))
+  assert.ok(manifest.markdown.includes('`sandbox_permissions` cannot widen them'))
+  assert.ok(manifest.markdown.includes('no approval prompt'))
+  // The remedy is a path rewrite, not a retry.
+  assert.ok(manifest.markdown.includes('Rewrite the path under a'))
+  // And the file must never *recommend* escalation itself.
+  assert.doesNotMatch(manifest.markdown, /retry this exact|the approval prompt asks/iu)
+  // It must survive on the real surface: no truncation may cut the rule.
+  assert.doesNotMatch(manifest.markdown, /shortened to fit/u)
+  assert.ok(
+    Buffer.byteLength(manifest.markdown, 'utf8') <= AGENTS_MD_MAX_BYTES,
+    'the rule and the whole document fit the budget',
+  )
+  // The rule belongs with the path facts it explains.
+  assert.ok(manifest.markdown.indexOf('## Paths and /tmp') < manifest.markdown.indexOf('`[sandbox: escalation available ...]`'))
 })
 
 test('the recorded A05/A06 capability questions are answered before the first request', () => {

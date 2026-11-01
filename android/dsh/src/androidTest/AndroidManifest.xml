@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: MIT -->
+<!--
+  Self-instrumenting test APK. It inherits the library manifest (permissions and
+  components under test) and adds the no-op activity used to make the process a
+  visible app, which is the real precondition for starting a foreground service
+  (Android 12+) and for scheduling a UIDT job (Android 14+).
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <activity
+            android:name="com.phonedsh.dsh.background.BackgroundTestActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+    </application>
+
+</manifest>

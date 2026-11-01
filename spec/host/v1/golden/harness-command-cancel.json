@@ -1,0 +1,8 @@
+{
+  "name": "harness-command-cancel",
+  "schema": "schema/harness-command.schema.json",
+  "instance": {
+    "kind": "cancel"
+  },
+  "notes": "Sources/PhoneDSHAgentCore/AgentHarness.swift:254. A bare cancel carries no cause; the DSH projection sends session/cancel without a cause member (DSHRemoteHarness.swift:124-125). Use cancel_with_cause when the cause must survive into the journal."
+}
