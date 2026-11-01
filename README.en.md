@@ -22,6 +22,8 @@ Phone DSH is an **unofficial** host for DeepSeek Harness. The goal is not to wra
 
 These goals drive the split: **the native host owns phone resources and the security boundary, the Worker keeps DSH unmodified, and connectors bring devices into the same session.**
 
+If DeepSeek ships an official phone DSH in the future, the host- and connector-layer capabilities built here are retained and plugged into that official baseline: fixed device Session mapping, origin-aware messages, read-only monitoring, the capability gate and the BLE/LAN adapter contract are independent of the current UI and do not need to be rewritten with it.
+
 
 ## What this is
 

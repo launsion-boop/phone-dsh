@@ -22,6 +22,8 @@ Phone DSH 是一个**非官方**的 DeepSeek Harness 宿主实现。目标不是
 
 这三件事共同决定了当前架构：**原生宿主掌握手机资源与安全边界，Worker 保持 DSH 原样，连接器把外设接进同一个会话**。
 
+如果官方未来推出手机端 DSH，本仓库在宿主层和连接器层构建的能力会保留，并接入官方基线：设备固定 Session 映射、origin 区分、只读监视、能力门禁和 BLE/局域网适配器都独立于当前页面实现，不需要随 UI 重写。
+
 ## 这是什么
 
 DeepSeek Harness（DSH）自带 `webworker-runtime`，让 harness 在 Web Worker 里执行。Phone DSH 做的是宿主这一侧：一个 Swift SDK，把 Worker 启动在系统 WebKit（WKWebView）里，并提供手机真正能提供的服务。WebView 保不住的东西都留在 App 进程：日志、回环源、凭据和生命周期。
