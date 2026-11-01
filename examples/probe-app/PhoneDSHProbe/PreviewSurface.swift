@@ -253,8 +253,12 @@ struct PreviewSurface: View {
                     ProgressView("正在读取…")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if let error = model.error {
-                    ContentUnavailableView("无法预览", systemImage: "doc.questionmark",
-                                           description: Text(error))
+                    VStack(spacing: 16) {
+                        ContentUnavailableView("无法预览", systemImage: "doc.questionmark",
+                                               description: Text(error))
+                        Button("重试") { model.reload() }
+                            .buttonStyle(.borderedProminent)
+                    }
                 } else {
                     body(for: model.kind)
                 }
@@ -679,6 +683,28 @@ extension PreviewDebugFixtures {
         let url = root.appendingPathComponent((path as NSString).lastPathComponent)
         try? data.write(to: url)
         ChatModel.shared.refreshFiles()
+    }
+}
+#endif
+
+#if DEBUG
+struct PreviewDebugOffice: View {
+    let path: String
+    @State private var installed = false
+    var body: some View {
+        PreviewSurface(target: .workspaceFile(path), isModal: false)
+            .task {
+                guard !installed else { return }
+                installed = true
+                PreviewDebugFixtures.installOffice(path: path)
+            }
+    }
+}
+
+extension PreviewDebugFixtures {
+    static func installOffice(path: String) {
+        let rtf = #"{\rtf1\ansi\ansicpg1252\cocoartf2761{\fonttbl\f0\fswiss\fcharset0 Helvetica;}\f0\fs36 \cf2 Phone DSH Office Preview\par \fs24 This RTF file is opened by Quick Look inside the native preview surface.\par}"#
+        install(path: path, text: rtf)
     }
 }
 #endif

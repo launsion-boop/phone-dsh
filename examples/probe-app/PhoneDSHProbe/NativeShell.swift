@@ -745,6 +745,7 @@ enum PreviewScreen: String, Identifiable, CaseIterable {
     case filesPreviewLong = "files.preview.long"
     case filesPreviewPDF = "files.preview.pdf"
     case filesPreviewImage = "files.preview.image"
+    case filesPreviewOffice = "files.preview.office"
     case sessions
     case sessionsSchedules = "sessions.schedules"
     case workspace
@@ -808,6 +809,8 @@ enum PreviewScreen: String, Identifiable, CaseIterable {
             PreviewDebugPDF(path: "preview-fixtures/sample.pdf")
         case .filesPreviewImage:
             PreviewDebugImage(path: "preview-fixtures/sample.png")
+        case .filesPreviewOffice:
+            PreviewDebugOffice(path: "preview-fixtures/sample.rtf")
         case .sessions: SessionsPage(onSelect: {})
         case .sessionsSchedules: NativeAutomationPage()
         case .workspace: WorkspaceFoldersPage()
