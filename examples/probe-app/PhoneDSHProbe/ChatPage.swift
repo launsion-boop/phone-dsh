@@ -1866,7 +1866,7 @@ struct ChatPage: View {
                     .padding(.trailing, 40)
                     .frame(height: 32)
                     .padding(.top, 10)
-                    .padding(.bottom, 12)
+                    .padding(.bottom, 8)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1891,7 +1891,9 @@ struct ChatPage: View {
         }
         .padding(.horizontal, 16)
         .padding(.top, 12)
-        .padding(.bottom, 8)
+        // Keep the stats line close to the home-indicator safe area instead of
+        // stacking an 8pt card inset on top of it.
+        .padding(.bottom, 0)
         .background(NativeChatTheme.background)
         // The command catalog is pulled the first time the trigger opens, the
         // same lazy load the DSH command directory does per session.

@@ -33,7 +33,7 @@ struct NativeComposerStats: View {
         }
         .modifier(NativeStatPill())
         .frame(maxWidth: .infinity)
-        .padding(.top, 4)
+        .padding(.top, 2)
     }
 
     private var detailedView: some View {
@@ -75,7 +75,7 @@ struct NativeComposerStats: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(.top, 4)
+        .padding(.top, 2)
         .sheet(item: $detail) { selected in
             NavigationStack {
                 List {
