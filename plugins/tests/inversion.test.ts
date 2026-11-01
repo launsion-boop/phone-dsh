@@ -129,6 +129,39 @@ test('inversion: an advertised accelerator goes to the host with requires_mseq a
   }
 })
 
+test('inversion: an accelerator read of DSH-internal state is refused in the Worker without an EXEC_REQ', async () => {
+  const h = await harness(['channel/1', 'wal/1', 'exec/1', 'accelerator:rg', 'accelerator:jaq'])
+  try {
+    // The Worker answers locally: the host never sees a request for a path the
+    // Worker already knows is internal (`channel.md` §6).
+    const rg = h.subprocess.spawn(spec('/dsh/workspace', ['rg', '-n', 'session_', '/dsh/home/sessions']))
+    assert.deepEqual(await rg.done, { exitCode: 2, signal: null })
+    assert.match(
+      rg.collected.stderr?.readFrom(0).text ?? '',
+      /^rg: \/dsh\/home\/sessions: EACCES: session-internal state under \/dsh\/home\/sessions is not readable from an execution surface; /u,
+    )
+    const jaq = h.subprocess.spawn(spec('/dsh/workspace', ['jaq', '.x', '/dsh/home/storages/s.json']))
+    assert.deepEqual(await jaq.done, { exitCode: 5, signal: null })
+    assert.match(
+      jaq.collected.stderr?.readFrom(0).text ?? '',
+      /^jaq: \/dsh\/home\/storages\/s\.json: EACCES: session-internal state under \/dsh\/home\/storages /u,
+    )
+    assert.equal(h.mock.framesOf(0x20).length, 0, 'a refused read must not reach the host')
+
+    // The positive control still crosses the channel: the guard is a root
+    // table, not "refuse every accelerator request".
+    const allowed = await toolCallStorage().run(
+      { sessionId: 's', callId: 'allow', key: 'xl1-allow', spawns: 0 },
+      () => h.subprocess.spawn(spec('/dsh/workspace', ['rg', '-n', 'x', '/dsh/home/capabilities.json'])),
+    )
+    await eventually(() => h.mock.framesOf(0x20).length === 1)
+    complete(h.mock, jsonPayload(h.mock.framesOf(0x20)[0] as never).exec_id as string, 'match\n')
+    await allowed.done
+  } finally {
+    await h.dispose()
+  }
+})
+
 test('inversion: idem_key falls back to session_id, turn_id and step_id', async () => {
   const h = await harness(['accelerator:rg'], 3n)
   try {

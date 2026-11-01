@@ -1,0 +1,225 @@
+{
+  "kind": "surface-projection",
+  "version": 1,
+  "note": "签名面投影例:同一串 Harness 事件在两个平台上必须投影出同一行序列(数值比较,不比截图)。一行 = 一个可见行;surface 指向 6 个签名面之一;颜色/字号引用 ../../tokens.json 的 token 名。投影行只列该面声明的 token 的子集(部分投影合法),清单外的 token 由 ui_check 规则 10 判失败。",
+  "events": [
+    {
+      "seq": 1,
+      "type": "user/message",
+      "data": {
+        "turn": 1,
+        "content": [
+          {
+            "type": "text",
+            "text": "把这周的日志按天归档"
+          }
+        ]
+      }
+    },
+    {
+      "seq": 2,
+      "type": "assistant/message",
+      "data": {
+        "turn": 1,
+        "message": {
+          "id": "m1",
+          "content": [
+            {
+              "type": "reasoning",
+              "text": "先看目录结构。\n再决定归档方式。"
+            },
+            {
+              "type": "text",
+              "text": "我先看一下工作区。"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "seq": 3,
+      "type": "tool/call",
+      "data": {
+        "turn": 1,
+        "step": 1,
+        "callId": "c1",
+        "name": "bash",
+        "arguments": "{\"command\":\"ls -R logs\"}"
+      }
+    },
+    {
+      "seq": 4,
+      "type": "tool/result",
+      "data": {
+        "turn": 1,
+        "step": 1,
+        "message": {
+          "toolCallId": "c1",
+          "content": [
+            {
+              "type": "text",
+              "text": "logs/2026-10-30.log"
+            }
+          ],
+          "isError": false
+        }
+      }
+    },
+    {
+      "seq": 5,
+      "type": "tool/call",
+      "data": {
+        "turn": 1,
+        "step": 2,
+        "callId": "c2",
+        "name": "write",
+        "arguments": "{\"file_path\":\"/dsh/workspace/logs/archived.md\",\"content\":\"# 归档\\n\"}"
+      }
+    },
+    {
+      "seq": 6,
+      "type": "tool/result",
+      "data": {
+        "turn": 1,
+        "step": 2,
+        "message": {
+          "toolCallId": "c2",
+          "content": [
+            {
+              "type": "text",
+              "text": "wrote 8 bytes"
+            }
+          ],
+          "isError": false
+        },
+        "meta": {
+          "path": "logs/archived.md",
+          "diffs": []
+        }
+      }
+    },
+    {
+      "seq": 7,
+      "type": "user/message",
+      "data": {
+        "turn": 1,
+        "content": [
+          {
+            "type": "text",
+            "text": "顺便把 10-30 那天的单独留一份"
+          }
+        ]
+      }
+    },
+    {
+      "seq": 8,
+      "type": "permission/request",
+      "data": {
+        "requestID": "p1",
+        "tool": "write",
+        "summary": "写 /dsh/workspace/logs/archived.md"
+      }
+    },
+    {
+      "seq": 9,
+      "type": "turn/end",
+      "data": {
+        "turn": 1,
+        "reason": {
+          "kind": "error",
+          "error": {
+            "message": "模型服务连接中断"
+          }
+        }
+      }
+    }
+  ],
+  "rows": [
+    {
+      "row": "u1",
+      "surface": "bubble",
+      "state": "user-sent",
+      "collapsed": false,
+      "tokens": [
+        "colors.selector",
+        "colors.primary",
+        "typography.body",
+        "radius.bubble"
+      ]
+    },
+    {
+      "row": "r1",
+      "surface": "thinkingPill",
+      "state": "reasoning-collapsed",
+      "collapsed": true,
+      "tokens": [
+        "colors.secondary",
+        "colors.tertiary",
+        "typography.secondary",
+        "typography.shimmer"
+      ]
+    },
+    {
+      "row": "t1",
+      "surface": "toolRow",
+      "state": "tool-run-folded-ok",
+      "collapsed": true,
+      "tokens": [
+        "colors.code",
+        "colors.codeBanner",
+        "typography.code",
+        "radius.codeBlock",
+        "stroke.hairline"
+      ]
+    },
+    {
+      "row": "u2",
+      "surface": "bubble",
+      "state": "user-queued",
+      "collapsed": false,
+      "tokens": [
+        "colors.selector",
+        "typography.body",
+        "typography.secondary",
+        "colors.secondary"
+      ]
+    },
+    {
+      "row": "p1",
+      "surface": "approvalCard",
+      "state": "permission-pending",
+      "collapsed": false,
+      "tokens": [
+        "colors.selector",
+        "colors.ctaOverride",
+        "colors.onAccent",
+        "radius.card",
+        "geometry.cardPadding"
+      ]
+    },
+    {
+      "row": "c1",
+      "surface": "composer",
+      "state": "locked-by-approval",
+      "collapsed": false,
+      "tokens": [
+        "colors.input",
+        "colors.borderLight",
+        "colors.tertiary",
+        "typography.secondary"
+      ]
+    },
+    {
+      "row": "e1",
+      "surface": "failLoudBanner",
+      "state": "turn-error",
+      "collapsed": false,
+      "tokens": [
+        "colors.danger",
+        "colors.secondary",
+        "typography.secondary",
+        "typography.caption"
+      ]
+    }
+  ]
+}

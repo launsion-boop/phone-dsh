@@ -1,0 +1,55 @@
+{
+  "id": "retry-transport-reset-before-head",
+  "model": "any",
+  "title": "The connection resets before any response byte: retried once, then the caller sees the second attempt",
+  "request_match": {
+    "method": "POST",
+    "path_suffix": "/v1/chat/completions"
+  },
+  "script": [
+    {
+      "status": 0,
+      "body_chunks": [],
+      "closes": true
+    },
+    {
+      "status": 200,
+      "headers": {
+        "content-type": "text/plain"
+      },
+      "frames": "content_length",
+      "declared_content_length": 2,
+      "body_chunks": [
+        "ok"
+      ],
+      "closes": true
+    }
+  ],
+  "expected": {
+    "caller_visible": "final_status_and_body",
+    "retry": {
+      "retried": true,
+      "attempts": 2,
+      "trigger": "transport_before_head",
+      "delays_ms": [
+        1000
+      ],
+      "jitter_disabled": true
+    },
+    "provider_error": "none",
+    "client_outcome": "ok",
+    "field_evidence": {
+      "caller_visible": "swift-test",
+      "retry": "swift-test",
+      "provider_error": "swift-test",
+      "client_outcome": "swift-test"
+    }
+  },
+  "evidence_level": "swift-test",
+  "source": "Tests/PhoneDSHGatewayTests/ModelGatewayTests.swift:977-993",
+  "related_sources": [
+    "Tests/PhoneDSHGatewayTests/MockUpstreamServer.swift:223-236",
+    "Sources/PhoneDSHGateway/ModelGateway.swift:854-866"
+  ],
+  "notes": "`status: 0` is the only way this format expresses 'the connection ended before a response head': the mock force-cancels the socket, so no status line and no body byte reach the gateway. A transport failure is retried only before the head and only on a replay-safe request; a business POST that already reached the upstream is never replayed (ModelGatewayTests:995-1011)."
+}

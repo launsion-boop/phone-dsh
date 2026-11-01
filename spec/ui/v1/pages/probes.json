@@ -1,0 +1,413 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "ProbesPage",
+  "pageId": "probes",
+  "structure": "swiftui-view",
+  "sectionModel": "regions",
+  "sectionNote": null,
+  "title": {
+    "text": "Probes",
+    "provenance": "ProbesPage.swift:38",
+    "anchor": ".navigationTitle(\"Probes\")"
+  },
+  "source": {
+    "file": "ProbesPage.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/ProbesPage.swift",
+    "lines": 180,
+    "structLine": 15,
+    "renderedFrom": [
+      "body",
+      "header",
+      "actions",
+      "emptyState",
+      "rows",
+      "rowView",
+      "thresholds"
+    ],
+    "sectionOrder": "declaration order inside the page struct"
+  },
+  "android": {
+    "screen": "ProbesPage",
+    "file": "android/lib/src/main/kotlin/com/phonedsh/ui/page/ProbesPage.kt",
+    "match": "composable"
+  },
+  "sections": [
+    {
+      "id": "environment",
+      "kind": "region",
+      "title": "Environment",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleSource": "literal",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "custom-53",
+          "label": null,
+          "labelExpr": "KeyValueLine",
+          "kind": "custom",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "ProbesPage.swift:53",
+          "anchor": "KeyValueLine(key: \"Environment\", value: ProbeEnvironment.current)",
+          "extraction": "manual",
+          "template": "KeyValueLine"
+        },
+        {
+          "id": "custom-54",
+          "label": null,
+          "labelExpr": "KeyValueLine",
+          "kind": "custom",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "ProbesPage.swift:54",
+          "anchor": "KeyValueLine(key: \"OS\", value: ProcessInfo.processInfo.operatingSystemVersionStr",
+          "extraction": "manual",
+          "template": "KeyValueLine"
+        },
+        {
+          "id": "unknown",
+          "label": "unknown",
+          "labelExpr": null,
+          "kind": "custom",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "ProbesPage.swift:55",
+          "anchor": "KeyValueLine(key: \"Bundle\", value: Bundle.main.bundleIdentifier ?? \"unknown\")",
+          "extraction": "syntax",
+          "template": "KeyValueLine"
+        },
+        {
+          "id": "every-row-below-is-produced-by-the-same-probe-implementations-as",
+          "label": "Every row below is produced by the same probe implementations as ",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "ProbesPage.swift:56",
+          "anchor": "Text(\"Every row below is produced by the same probe implementations as \"",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "ProbesPage.swift:52",
+      "anchor": "PageSection(\"Environment\") {",
+      "extraction": "syntax",
+      "template": "PageSection"
+    },
+    {
+      "id": "rows",
+      "kind": "region",
+      "title": "Rows",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleSource": "literal",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "no-probe-has-run-in-this-launch-rows-appear-only-after-a-run",
+          "label": "No probe has run in this launch. Rows appear only after a run; ",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "ProbesPage.swift:104",
+          "anchor": "Text(\"No probe has run in this launch. Rows appear only after a run; \"",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "ProbesPage.swift:103",
+      "anchor": "PageSection(\"Rows\") {",
+      "extraction": "syntax",
+      "template": "PageSection"
+    },
+    {
+      "id": "rows-n",
+      "kind": "region",
+      "title": "Rows (N)",
+      "titleTemplate": "Rows ({model.probeRows.count})",
+      "dynamicTitle": true,
+      "titleSource": "literal",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "model-probesummary-pass-model-probesummary-fail-model-probesummary-info",
+          "label": "{model.probeSummary.pass} / {model.probeSummary.fail} / {model.probeSummary.info}",
+          "labelExpr": null,
+          "kind": "custom",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "ProbesPage.swift:114",
+          "anchor": "value: \"\\(model.probeSummary.pass) / \\(model.probeSummary.fail) / \\(model.probeS",
+          "extraction": "manual",
+          "template": "KeyValueLine",
+          "dynamicLabel": true
+        },
+        {
+          "id": "pass",
+          "label": "PASS",
+          "labelExpr": null,
+          "kind": "custom",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "ProbesPage.swift:115",
+          "anchor": "KeyValueLine(key: \"G0\", value: model.probeSummary.g0Passed ? \"PASS\" : \"FAIL\")",
+          "extraction": "syntax",
+          "template": "KeyValueLine"
+        },
+        {
+          "id": "dynamic-118",
+          "label": null,
+          "labelExpr": "rowView(row)",
+          "kind": "dynamic",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "ProbesPage.swift:118",
+          "anchor": "rowView(row)",
+          "extraction": "manual",
+          "templateLabels": [
+            "G0 {threshold.name}: {threshold.comparison.rawValue}",
+            "{threshold.value.displayText} {threshold.unit}",
+            "· met={$0}",
+            "{row.environment} · {row.recordedAt}"
+          ],
+          "collection": "Array(model.probeRows.enumerated()), id: \\.offset"
+        }
+      ],
+      "provenance": "ProbesPage.swift:112",
+      "anchor": "PageSection(\"Rows (\\(model.probeRows.count))\") {",
+      "extraction": "syntax",
+      "template": "PageSection"
+    },
+    {
+      "id": "g0-thresholds",
+      "kind": "region",
+      "title": "G0 thresholds",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleSource": "literal",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "text-164",
+          "label": null,
+          "labelExpr": "bound.name",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "ProbesPage.swift:164",
+          "anchor": "Text(bound.name)",
+          "extraction": "manual",
+          "collection": "Array(ProbeReport.g0Thresholds.enumerated()), id: \\.offset"
+        },
+        {
+          "id": "bound-value-displaytext-bound-unit",
+          "label": "{bound.value.displayText} {bound.unit}",
+          "labelExpr": null,
+          "kind": "custom",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "ProbesPage.swift:168",
+          "anchor": "value: \"\\(bound.value.displayText) \\(bound.unit)\")",
+          "extraction": "manual",
+          "template": "KeyValueLine",
+          "dynamicLabel": true,
+          "collection": "Array(ProbeReport.g0Thresholds.enumerated()), id: \\.offset"
+        },
+        {
+          "id": "yes",
+          "label": "yes",
+          "labelExpr": null,
+          "kind": "custom",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "ProbesPage.swift:169",
+          "anchor": "KeyValueLine(key: \"gating\", value: bound.gating ? \"yes\" : \"no\")",
+          "extraction": "syntax",
+          "template": "KeyValueLine",
+          "collection": "Array(ProbeReport.g0Thresholds.enumerated()), id: \\.offset"
+        },
+        {
+          "id": "text-170",
+          "label": null,
+          "labelExpr": "bound.source",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "ProbesPage.swift:170",
+          "anchor": "Text(bound.source)",
+          "extraction": "manual",
+          "collection": "Array(ProbeReport.g0Thresholds.enumerated()), id: \\.offset"
+        }
+      ],
+      "provenance": "ProbesPage.swift:161",
+      "anchor": "PageSection(\"G0 thresholds\") {",
+      "extraction": "syntax",
+      "template": "PageSection"
+    }
+  ],
+  "actions": [
+    {
+      "id": "reset",
+      "label": "Reset",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "toolbar",
+      "semantic": "{ model.resetProbes()",
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "ProbesPage.swift:42",
+      "anchor": "Button(\"Reset\", systemImage: \"arrow.counterclockwise\") {",
+      "extraction": "syntax"
+    },
+    {
+      "id": "run-all-probes",
+      "label": "Run all probes",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ model.runAllProbes()",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "ProbesPage.swift:69",
+      "anchor": "Label(\"Run all probes\", systemImage: \"play.fill\")",
+      "extraction": "syntax"
+    },
+    {
+      "id": "button-78",
+      "label": null,
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "menu-item",
+      "semantic": "{ model.runProbe(group)",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "ProbesPage.swift:78",
+      "anchor": "Button(group.title) { model.runProbe(group) }",
+      "extraction": "manual"
+    },
+    {
+      "id": "run-one-group",
+      "label": "Run one group",
+      "labelExpr": null,
+      "kind": "menu",
+      "trigger": "tap",
+      "semantic": null,
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "ProbesPage.swift:81",
+      "anchor": "Label(\"Run one group\", systemImage: \"list.bullet\")",
+      "extraction": "syntax"
+    }
+  ],
+  "presentations": [],
+  "states": {
+    "advisory": true,
+    "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
+    "sites": {
+      "empty": [],
+      "data": [
+        {
+          "renders": "Environment | Rows | Rows (N) | G0 thresholds",
+          "when": null,
+          "provenance": "ProbesPage.swift:15",
+          "anchor": "struct ProbesPage: View {",
+          "note": "structural default: the sections above, when no condition overrides them"
+        }
+      ],
+      "failure": [],
+      "unknown": [
+        {
+          "renders": "—",
+          "when": null,
+          "provenance": "ProbesPage.swift:134",
+          "anchor": "value: row.metrics[key]?.displayText ?? \"—\")"
+        }
+      ],
+      "loading": [
+        {
+          "renders": "ProgressView",
+          "when": "model.probeRunning",
+          "provenance": "ProbesPage.swift:88",
+          "anchor": "ProgressView()"
+        }
+      ]
+    },
+    "absent": [
+      "empty",
+      "failure"
+    ],
+    "coverage": {
+      "empty": 0,
+      "data": 1,
+      "failure": 0,
+      "unknown": 1,
+      "loading": 1
+    }
+  },
+  "subpages": [],
+  "unreachable": [],
+  "extraction": {
+    "tool": "extract_ios_pages.py",
+    "mode": "syntax",
+    "sectionKeywordsInPage": 0,
+    "regionsExtracted": 4,
+    "sectionsExtracted": 4,
+    "warnings": []
+  }
+}

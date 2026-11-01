@@ -1,0 +1,360 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "RuntimeDetailsPage",
+  "pageId": "runtime-details",
+  "structure": "swiftui-view",
+  "sectionModel": "section",
+  "sectionNote": null,
+  "title": {
+    "text": "运行状态",
+    "provenance": "ChatPage.swift:2722",
+    "anchor": ".navigationTitle(\"运行状态\")"
+  },
+  "source": {
+    "file": "ChatPage.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/ChatPage.swift",
+    "lines": 2962,
+    "structLine": 2603,
+    "renderedFrom": [
+      "body",
+      "runtimeRow",
+      "groupHeader"
+    ],
+    "sectionOrder": "declaration order inside the page struct"
+  },
+  "android": {
+    "screen": "RuntimeDetailsPage",
+    "file": "android/lib/src/main/kotlin/com/phonedsh/ui/page/RuntimeDetailsPage.kt",
+    "match": "composable"
+  },
+  "sections": [
+    {
+      "id": "本次运行",
+      "title": "本次运行",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "header",
+      "condition": "hasCounts",
+      "collection": null,
+      "rows": [
+        {
+          "id": "模型调用",
+          "label": "模型调用",
+          "labelExpr": null,
+          "kind": "info",
+          "value": null,
+          "valueExpr": "\"\\(model.modelRequests)\"",
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "ChatPage.swift:2671",
+          "anchor": "runtimeRow(\"模型调用\", \"\\(model.modelRequests)\")",
+          "extraction": "syntax",
+          "template": "runtimeRow"
+        },
+        {
+          "id": "输入-token",
+          "label": "输入 Token",
+          "labelExpr": null,
+          "kind": "info",
+          "value": null,
+          "valueExpr": "model.inputTokens.formatted()",
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "ChatPage.swift:2672",
+          "anchor": "runtimeRow(\"输入 Token\", model.inputTokens.formatted())",
+          "extraction": "syntax",
+          "template": "runtimeRow"
+        },
+        {
+          "id": "输出-token",
+          "label": "输出 Token",
+          "labelExpr": null,
+          "kind": "info",
+          "value": null,
+          "valueExpr": "model.outputTokens.formatted()",
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "ChatPage.swift:2673",
+          "anchor": "runtimeRow(\"输出 Token\", model.outputTokens.formatted())",
+          "extraction": "syntax",
+          "template": "runtimeRow"
+        }
+      ],
+      "provenance": "ChatPage.swift:2675",
+      "anchor": "groupHeader(\"本次运行\")",
+      "extraction": "syntax",
+      "hasHeader": true
+    },
+    {
+      "id": "最近出错",
+      "title": "最近出错",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "header",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "最近没有出错",
+          "label": "最近没有出错",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "ChatPage.swift:2681",
+          "anchor": "Text(model.userFacingError ?? \"最近没有出错\")",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "ChatPage.swift:2689",
+      "anchor": "groupHeader(\"最近出错\")",
+      "extraction": "syntax",
+      "hasHeader": true
+    },
+    {
+      "id": "section-2692",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "absent",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "停止本地引擎",
+          "label": "停止本地引擎",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": "model.isStarted",
+          "provenance": "ChatPage.swift:2694",
+          "anchor": "Button(\"停止本地引擎\") { confirmingStop = true }",
+          "extraction": "syntax"
+        },
+        {
+          "id": "启动本地引擎",
+          "label": "启动本地引擎",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": "!(model.isStarted)",
+          "provenance": "ChatPage.swift:2703",
+          "anchor": "Button(\"启动本地引擎\") { Task { await model.start() } }",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "ChatPage.swift:2692",
+      "anchor": "Section {",
+      "extraction": "syntax",
+      "criterion": {
+        "kind": "first-clickable-row",
+        "label": "停止本地引擎",
+        "provenance": "ChatPage.swift:2694"
+      },
+      "footer": {
+        "text": "停止后,正在跑的任务会停下来,不会再接着做。",
+        "labelExpr": null,
+        "provenance": "ChatPage.swift:2713",
+        "anchor": "Text(\"停止后,正在跑的任务会停下来,不会再接着做。\")"
+      }
+    }
+  ],
+  "actions": [
+    {
+      "id": "停止本地引擎",
+      "label": "停止本地引擎",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ confirmingStop = true",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "ChatPage.swift:2694",
+      "anchor": "Button(\"停止本地引擎\") { confirmingStop = true }",
+      "extraction": "syntax",
+      "labelAlternatives": [],
+      "presents": "confirmationDialog-2725"
+    },
+    {
+      "id": "启动本地引擎",
+      "label": "启动本地引擎",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ Task { await model.start() }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "ChatPage.swift:2703",
+      "anchor": "Button(\"启动本地引擎\") { Task { await model.start() } }",
+      "extraction": "syntax",
+      "labelAlternatives": []
+    },
+    {
+      "id": "取消",
+      "label": "取消",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "dialog-button",
+      "semantic": "{",
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "ChatPage.swift:2726",
+      "anchor": "Button(\"取消\", role: .cancel) {}",
+      "extraction": "syntax"
+    },
+    {
+      "id": "停止",
+      "label": "停止",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "dialog-button",
+      "semantic": "{ Task { await model.stop() }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "ChatPage.swift:2727",
+      "anchor": "Button(\"停止\", role: .destructive) { Task { await model.stop() } }",
+      "extraction": "syntax"
+    }
+  ],
+  "presentations": [
+    {
+      "id": "confirmationDialog-2725",
+      "kind": "confirmationDialog",
+      "title": "停止本地引擎?",
+      "destination": null,
+      "triggerBindings": [
+        "confirmingStop"
+      ],
+      "span": [
+        2725,
+        2728
+      ],
+      "provenance": "ChatPage.swift:2725",
+      "anchor": ".confirmationDialog(\"停止本地引擎?\", isPresented: $confirmingStop, titleVisibility: .v",
+      "triggered": true
+    }
+  ],
+  "states": {
+    "advisory": true,
+    "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
+    "sites": {
+      "empty": [
+        {
+          "renders": "最近没有出错",
+          "when": null,
+          "provenance": "ChatPage.swift:2681",
+          "anchor": "Text(model.userFacingError ?? \"最近没有出错\")"
+        }
+      ],
+      "data": [
+        {
+          "renders": "本次运行 | 最近出错 | untitled section at 2692",
+          "when": null,
+          "provenance": "ChatPage.swift:2603",
+          "anchor": "struct RuntimeDetailsPage: View {",
+          "note": "structural default: the sections above, when no condition overrides them"
+        }
+      ],
+      "failure": [
+        {
+          "renders": "最近出错",
+          "when": null,
+          "provenance": "ChatPage.swift:2689",
+          "anchor": "groupHeader(\"最近出错\")"
+        }
+      ],
+      "unknown": [],
+      "loading": [
+        {
+          "renders": "停止后,正在跑的任务会停下来,不会再接着做。",
+          "when": null,
+          "provenance": "ChatPage.swift:2713",
+          "anchor": "Text(\"停止后,正在跑的任务会停下来,不会再接着做。\")"
+        },
+        {
+          "renders": "正在跑的任务会停下来。会话和文件都还在。",
+          "when": null,
+          "provenance": "ChatPage.swift:2729",
+          "anchor": "Text(\"正在跑的任务会停下来。会话和文件都还在。\")"
+        }
+      ]
+    },
+    "absent": [
+      "unknown"
+    ],
+    "coverage": {
+      "empty": 1,
+      "data": 1,
+      "failure": 1,
+      "unknown": 0,
+      "loading": 2
+    }
+  },
+  "subpages": [
+    {
+      "name": "ChatPage",
+      "line": 11,
+      "private": false,
+      "sections": [
+        {
+          "title": "暂不可用",
+          "provenance": "ChatPage.swift:1360"
+        },
+        {
+          "title": "完全权限",
+          "provenance": "ChatPage.swift:1374"
+        },
+        {
+          "title": "强度",
+          "provenance": "ChatPage.swift:1442"
+        },
+        {
+          "title": "模型",
+          "provenance": "ChatPage.swift:1468"
+        }
+      ],
+      "provenance": "ChatPage.swift:11"
+    },
+    {
+      "name": "CommandExecutionResultPage",
+      "line": 2734,
+      "private": true,
+      "sections": [],
+      "provenance": "ChatPage.swift:2734"
+    }
+  ],
+  "unreachable": [],
+  "extraction": {
+    "tool": "extract_ios_pages.py",
+    "mode": "syntax",
+    "sectionKeywordsInPage": 3,
+    "regionsExtracted": 0,
+    "sectionsExtracted": 3,
+    "warnings": []
+  }
+}

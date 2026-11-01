@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: MIT -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- :engine's AAR already declares INTERNET (it binds the loopback origin).
+         Declared here too so the demo's requirement is visible in :app. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!--
+      Backup policy (security checklist S5, plan R11):
+        * android:allowBackup="false" is the primary switch: no cloud backup and
+          no device-to-device transfer at all.
+        * the two rule files are the second layer, required so that sensitive
+          paths stay out if backup is ever enabled. API 31+ reads only
+          dataExtractionRules; API 23-30 reads only fullBackupContent. Both are
+          declared so neither API era silently falls back to "back everything up".
+      The rule files exclude the K3 domain database and its -wal/-shm/-journal,
+      the WAL workspace, the materialized worker bundle, and the SecureStore
+      ciphertext directory (see their comments for the code path behind each).
+    -->
+    <application
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:label="PDSH 引擎探针"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:supportsRtl="true"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>

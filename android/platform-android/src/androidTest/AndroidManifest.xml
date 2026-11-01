@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: MIT -->
+<!--
+  Instrumentation test APK: the library manifest is merged into the test APK by
+  AGP, but the permission is repeated here so the androidTest APK is
+  self-sufficient if that merge input ever changes.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+</manifest>

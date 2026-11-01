@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: MIT -->
+<!--
+  :domain declares no permission and no component on purpose. The permissions
+  that DeviceCapabilities reads (FOREGROUND_SERVICE, POST_NOTIFICATIONS,
+  FOREGROUND_SERVICE_MICROPHONE, ...) belong to the composition root's app
+  manifest: a library that declares them would force a foreground-service or
+  microphone scope onto every consumer. This module only reports what the app
+  declared, and never asks for anything itself.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" />

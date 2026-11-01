@@ -1,0 +1,88 @@
+{
+  "id": "drain-deadline-20s",
+  "verb": "drain_timeout",
+  "title": "Background drain hits the 20 s deadline: in-flight work aborts, the epoch still closes",
+  "preconditions": {
+    "host_state": "Running",
+    "admission": "open",
+    "epoch_open": true,
+    "acked_mseq": 2,
+    "open_steps": 0,
+    "journaled_steps": 1,
+    "exec_in_flight": false,
+    "persisted_state": "Running",
+    "worker_channel": "open",
+    "notes": "No tool step is open, so the drain has only VFS/HTTP work to settle; the 20 s deadline is the constant of budgets.md section 1."
+  },
+  "timeline": [
+    {
+      "at": 0,
+      "event": "foreground",
+      "expect_state": "Running",
+      "source": "Tests/PhoneDSHControllerTests/HostStateMachineTests.swift:166-178"
+    },
+    {
+      "at": 5,
+      "event": "scenePhase background",
+      "detail": "admission closes, the 20 s deadline and the background task start, the drain target is Parked",
+      "expect_state": "Draining",
+      "source": "Tests/PhoneDSHControllerTests/HostStateMachineTests.swift:166-178"
+    },
+    {
+      "at": 20005,
+      "event": "drain deadline elapses",
+      "detail": "in-flight channel requests are aborted; the epoch close still runs",
+      "expect_state": "Draining",
+      "source": "Tests/PhoneDSHControllerTests/HostStateMachineTests.swift:194-210"
+    },
+    {
+      "at": 20010,
+      "event": "epoch close",
+      "detail": "materialized copy fsynced, epoch-close record appended, segments and manifest made durable, then VFS_ACK level 2 (wal.md section 5.2)",
+      "expect_state": "Parked",
+      "source": "Tests/PhoneDSHControllerTests/HostStateMachineTests.swift:179-210"
+    },
+    {
+      "at": 20020,
+      "event": "parked",
+      "detail": "admission stays closed until scenePhase active",
+      "expect_state": "Parked",
+      "source": "Tests/PhoneDSHControllerTests/HostStateMachineTests.swift:179-193"
+    }
+  ],
+  "expected": {
+    "state": "Parked",
+    "state_path": [
+      "Running",
+      "Draining",
+      "Parked"
+    ],
+    "durability_level": "level_2",
+    "wal_tail": "closed_epoch",
+    "journal_gap": "none",
+    "surfaced_to_user": "unmeasured",
+    "admission": "closed",
+    "acked_prefix_preserved": true,
+    "steps_open": 0,
+    "steps_abandoned": 0,
+    "field_evidence": {
+      "state": "swift-test",
+      "state_path": "swift-test",
+      "durability_level": "swift-source",
+      "wal_tail": "swift-source",
+      "journal_gap": "swift-source",
+      "admission": "swift-test",
+      "acked_prefix_preserved": "swift-test",
+      "steps_open": "swift-test",
+      "steps_abandoned": "swift-test"
+    }
+  },
+  "evidence_level": "swift-source",
+  "source": "Tests/PhoneDSHControllerTests/HostStateMachineTests.swift:194-210",
+  "related_sources": [
+    "Tests/PhoneDSHControllerTests/HostStateMachineTests.swift:166-193",
+    "spec/v1/wal.md:133-160",
+    "spec/v1/budgets.md:43"
+  ],
+  "notes": "The controller test drives an injected clock and a recording epoch closer, so what a test asserts here is that the close is INVOKED exactly once on the way to Parked; the level-2 durability of that close is the fsync and manifest order of wal.md section 5.2. Android has no 20 s window (onTimeout is seconds and a force-stop is zero-callback), so the runner must not weaken the level-1 write path to depend on this close."
+}

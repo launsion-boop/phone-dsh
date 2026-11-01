@@ -1,0 +1,51 @@
+{
+  "id": "delivery-stall-timeout",
+  "model": "deepseek-flash",
+  "title": "The upstream writes a prefix and holds the socket open: the delivery deadline ends the fetch, and the attempt is not retried",
+  "request_match": {
+    "method": "POST",
+    "path_suffix": "/v1/messages"
+  },
+  "script": [
+    {
+      "status": 200,
+      "headers": {
+        "content-type": "text/event-stream"
+      },
+      "frames": "chunked",
+      "body_chunks": [
+        "event: message_start\ndata: {\"message\":{\"content\":[],\"id\":\"msg_mock_1\",\"model\":\"deepseek-flash\",\"role\":\"assistant\"},\"type\":\"message_start\"}\n\n",
+        "event: content_block_start\ndata: {\"content_block\":{\"signature\":\"\",\"thinking\":\"\",\"type\":\"thinking\"},\"index\":0,\"type\":\"content_block_start\"}\n\n",
+        "event: content_block_delta\ndata: {\"delta\":{\"thinking\":\"Plan the fixed command\",\"type\":\"thinking_delta\"},\"index\":0,\"type\":\"content_block_delta\"}\n\n"
+      ],
+      "stall_after_bytes": 300,
+      "closes": false
+    }
+  ],
+  "expected": {
+    "caller_visible": "delivery_timeout",
+    "retry": {
+      "retried": false,
+      "attempts": 1,
+      "trigger": "none"
+    },
+    "provider_error": "none",
+    "delivery_error": "PDSH_DELIVERY_TIMEOUT",
+    "client_outcome": "error",
+    "field_evidence": {
+      "caller_visible": "swift-test",
+      "retry": "swift-test",
+      "provider_error": "swift-source",
+      "delivery_error": "swift-test",
+      "client_outcome": "swift-test"
+    }
+  },
+  "evidence_level": "swift-source",
+  "source": "scripts/ci/scenarios/selftest.json:140-197",
+  "related_sources": [
+    "Sources/PhoneDSHScenario/ScenarioMockUpstream.swift:45-61",
+    "Sources/PhoneDSHScenario/ScenarioMockUpstream.swift:345-381",
+    "Tests/PhoneDSHGatewayTests/ModelGatewayTests.swift:288-328"
+  ],
+  "notes": "The stall prefix is 300 bytes here; the catalog self-test uses 8192 with a 2000 ms delivery idle timeout, and the exact prefix is not part of the contract. What the fixture fixes is the outcome: the Worker's host-route fetch ends with the typed PDSH_DELIVERY_TIMEOUT error, the attempt is not retried (the catalog asserts a model-request ceiling), and the gateway raises no ModelGatewayError because the upstream body never completed. No terminating chunk is ever written, so the response is never committed to the response log; that point is unmeasured rather than asserted."
+}

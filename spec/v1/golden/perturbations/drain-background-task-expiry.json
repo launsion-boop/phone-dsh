@@ -1,0 +1,79 @@
+{
+  "id": "drain-background-task-expiry",
+  "verb": "drain_timeout",
+  "title": "The OS expires the background task: the drain deadline fires early and the epoch still closes",
+  "preconditions": {
+    "host_state": "Running",
+    "admission": "open",
+    "epoch_open": true,
+    "acked_mseq": 2,
+    "open_steps": 0,
+    "journaled_steps": 1,
+    "exec_in_flight": false,
+    "persisted_state": "Running",
+    "worker_channel": "open",
+    "notes": "The host is already Draining when the background task expires; the expiry forces the 20 s deadline instead of waiting for it (budgets.md section 3)."
+  },
+  "timeline": [
+    {
+      "at": 0,
+      "event": "scenePhase background",
+      "detail": "admission closes and the drain target is Parked",
+      "expect_state": "Draining",
+      "source": "Tests/PhoneDSHControllerTests/HostStateMachineTests.swift:166-178"
+    },
+    {
+      "at": 1200,
+      "event": "background task expiry",
+      "detail": "the expiry forces the drain deadline: in-flight requests abort and the pending target continues",
+      "expect_state": "Draining",
+      "source": "Tests/PhoneDSHControllerTests/HostStateMachineTests.swift:227-238"
+    },
+    {
+      "at": 1210,
+      "event": "epoch close",
+      "detail": "the close is invoked exactly once on the way out of Draining",
+      "source": "Tests/PhoneDSHControllerTests/HostStateMachineTests.swift:179-193"
+    },
+    {
+      "at": 1220,
+      "event": "parked",
+      "expect_state": "Parked",
+      "source": "Tests/PhoneDSHControllerTests/HostStateMachineTests.swift:227-238"
+    }
+  ],
+  "expected": {
+    "state": "Parked",
+    "state_path": [
+      "Draining",
+      "Parked"
+    ],
+    "durability_level": "level_2",
+    "wal_tail": "closed_epoch",
+    "journal_gap": "none",
+    "surfaced_to_user": "unmeasured",
+    "admission": "closed",
+    "acked_prefix_preserved": true,
+    "steps_open": 0,
+    "steps_abandoned": 0,
+    "field_evidence": {
+      "state": "swift-test",
+      "state_path": "swift-test",
+      "durability_level": "swift-source",
+      "wal_tail": "swift-source",
+      "journal_gap": "swift-source",
+      "admission": "swift-test",
+      "acked_prefix_preserved": "swift-test",
+      "steps_open": "swift-test",
+      "steps_abandoned": "swift-test"
+    }
+  },
+  "evidence_level": "swift-source",
+  "source": "Tests/PhoneDSHControllerTests/HostStateMachineTests.swift:227-238",
+  "related_sources": [
+    "Tests/PhoneDSHControllerTests/HostStateMachineTests.swift:166-193",
+    "spec/v1/budgets.md:43",
+    "spec/v1/budgets.md:67"
+  ],
+  "notes": "This is the iOS shape that Android maps onTimeout onto. The fixture does not assert a drain window length: the expiry is a signal, and the deadline constant stays 20 s (budgets.md section 1)."
+}

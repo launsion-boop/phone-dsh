@@ -1,0 +1,25 @@
+# iOS baseline capture conditions
+captured_at=2026-10-31T15:55:18Z
+device_name=PDSH iOS Baseline iPhone 16 Pro
+device_udid=4AAA363B-7B29-4415-9303-C692640BCF77
+device_type=com.apple.CoreSimulator.SimDeviceType.iPhone-16-Pro
+runtime=com.apple.CoreSimulator.SimRuntime.iOS-26-5
+xcode=Xcode 26.5 Build version 17F42 
+app_bundle_id=dev.phone-dsh.probe
+build_configuration=Debug
+build_mode=capture-copy (+1 constant defaultOfficeInteractionTimeout=60; HEAD does not compile)
+screen_px=1206x2622
+screen_pt=402x874
+scale=3
+appearance=light
+content_size=large
+locale=zh_CN
+status_bar_time=09:41 (simctl status_bar override)
+status_bar_Current Status Bar Overrides:
+status_bar_=============================
+status_bar_Time: 09:41
+status_bar_DataNetworkType: 11
+status_bar_WiFi Mode: 3, WiFi Bars: 3
+status_bar_Cell Mode: 3, Cell Bars: 4
+status_bar_Operator Name: 
+status_bar_Battery State: 2, Battery Level: 100, Not Charging: 0

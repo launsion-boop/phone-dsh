@@ -37,6 +37,16 @@ SOURCE_ROOTS = [
     # shared probe-site fixture). Scanned like every other phone source root.
     "Sources/PhoneDSHHarness",
     "Sources/PhoneDSHScenario",
+    # Android port P0: the contract trees that the Kotlin host reads instead of
+    # translating Swift. They are spec assets, so the same hygiene and licence
+    # rules apply to them as to spec/v1. Added when the trees landed; a tree
+    # that is absent is inactive (see scan_files), so older checkouts still run.
+    "spec/host",
+    "spec/platform",
+    "spec/ui",
+    # Android adaptation tree: structure only in P0 (package markers), but the
+    # SPDX and hygiene rules apply to it from the first file.
+    "android",
 ]
 
 TEST_ROOTS = [

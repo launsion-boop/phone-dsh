@@ -106,10 +106,78 @@ export const WORKER_ROOTS: readonly RootSpec[] = Object.freeze([
   Object.freeze({ path: '/dev/null', kind: 'device', sink: false, budgetBucket: 'none' }),
 ] as const)
 
+/**
+ * Where the shell engine mounts its private process-substitution filesystem.
+ *
+ * `/dev/fd` is not a root and nothing is ever stored there: just-bash writes a
+ * substitution descriptor through the active filesystem first and installs its
+ * own in-memory filesystem at `/dev/fd` only when that write *fails* (the
+ * failure is the mount trigger, `processSubstitutionFsMounted`). The base VFS
+ * therefore has to answer "this path is not here" with a plain `ENOENT`, not
+ * with the write policy's `EACCES` + roots sentence: a legal `<(...)`/`>(...)`
+ * is not an attempted escape, and the shell renders every recorded refusal at
+ * the end, so classifying the probe as a denial would fail a working command.
+ *
+ * The reserved set is deliberately disjoint from {@link WORKER_ROOTS}: adding
+ * `/dev/fd` there would make it a writable root (`mkdir /dev/fd`, real bytes in
+ * the VFS) and the engine would no longer see the failure it needs to mount.
+ */
+export const ENGINE_RESERVED_ROOTS: readonly string[] = Object.freeze(['/dev/fd'])
+
+/**
+ * The engine-reserved root a virtual path lies *strictly below*.
+ *
+ * `/dev/fd` itself is not reserved: the mount point name is an ordinary image
+ * path (it does not exist and may not be created). Only descriptor paths such
+ * as `/dev/fd/63` — the ones the engine's probe writes — match.
+ * @param path - absolute virtual path.
+ * @returns the reserved root (`/dev/fd`), or undefined for every other path.
+ */
+export function engineReservedRoot(path: string): string | undefined {
+  let resolved: string
+  try {
+    resolved = normalizeVirtualPath(path)
+  } catch {
+    return undefined
+  }
+  return ENGINE_RESERVED_ROOTS.find(root => resolved !== root && isWithin(root, resolved))
+}
+
 /** One line an execution surface gets when it reaches for session state. */
 export function execReadDeniedMessage(path: string, root: string): string {
   return `session-internal state under ${root} is not readable from an execution surface; `
     + `read it through the session API or copy what you need into /dsh/workspace first (${path})`
+}
+
+/**
+ * Marker property on an error that refused a create/change outside the root
+ * table.
+ *
+ * The marker, not the message text, is the identity: a later rendering layer
+ * (`ExecWriteDenialLog` in the shell) must be able to add the remediation
+ * sentence after just-bash has sanitized the error text, and must not mistake
+ * an ordinary mode-bit `EACCES` inside a writable root for a policy refusal.
+ */
+export const WRITE_DENIED: symbol = Symbol.for('@phone-dsh/dsh-wasi-toolbox/write-denied')
+
+/**
+ * Mark one refusal as a write-policy denial.
+ * @param error - the error to mark (usually a `VfsProxyError`).
+ * @returns the same error, marked.
+ */
+export function markWriteDenied<T extends object>(error: T): T {
+  Object.defineProperty(error, WRITE_DENIED, { value: true, enumerable: false })
+  return error
+}
+
+/**
+ * Whether an error is a write-policy refusal.
+ * @param error - any thrown value.
+ * @returns true only for an error {@link markWriteDenied} marked.
+ */
+export function isWriteDenied(error: unknown): boolean {
+  return typeof error === 'object' && error !== null
+    && (error as Record<PropertyKey, unknown>)[WRITE_DENIED] === true
 }
 
 /** True when `path` is `root` itself or lies below it (both canonical). */
@@ -270,26 +338,162 @@ export class VfsNamespace {
   }
 
   /**
+   * Whether an execution surface's listing of `directory` may contain `name`.
+   *
+   * `channel.md` §VFS makes the DSH-internal roots *invisible* to an execution
+   * surface: their names do not appear in a listing of their parent, so `ls`,
+   * `find`, `du`, `tree`, `compgen` and a glob expansion cannot discover them.
+   * An explicit read of the same path still answers `EACCES` — the directory
+   * exists, so reporting absence would be a lie.
+   *
+   * This predicate is deliberately independent of {@link execReadable}: the
+   * two halves of the contract ("not listed" and "not readable") are separate
+   * mechanisms, and removing one must not silently disable the other. It is
+   * also independent of the *spelling* of the directory: `resolve` folds
+   * `/home`, `/dsh/home/../home` and `/dsh/home/` to one path before the
+   * comparison, so an equivalent listing spelling hides the same names.
+   * @param directory - absolute virtual path of the directory being listed.
+   * @param name - one entry name the backend returned for that directory.
+   * @returns false for a direct child of an internal root, true otherwise.
+   */
+  execEntryVisible(directory: string, name: string): boolean {
+    if (typeof name !== 'string' || name === '') return true
+    let resolved: string
+    try {
+      resolved = this.resolve(directory)
+    } catch {
+      return true
+    }
+    const child = resolved === '/' ? `/${name}` : `${resolved}/${name}`
+    return !EXEC_INTERNAL_ROOTS.some(root => root === child)
+  }
+
+  /**
    * Whether an execution surface may create or change this path.
+   *
+   * The write side has exactly the root table as its authority
+   * (`spec/v1/channel.md:259-261`): `/dsh/workspace`, `/dsh/home`, `/tmp`,
+   * `/dsh/tmp` and the `/dev/null` device. Everything else — `/`, `/dsh`,
+   * `/dsh/config/**`, `/dsh/bin/**`, `/etc/**` — is the read-only image. A
+   * root is writable whether it sinks or is volatile; the table says which.
    * @param path - absolute virtual path.
-   * @returns true for every root in the table.
+   * @returns true for every root in the table, false outside it.
    */
   writable(path: string): boolean {
     return this.rootFor(path) !== undefined
   }
 
   /**
+   * Every root an execution surface may write below, in table order.
+   *
+   * Unlike {@link writableRoots} this includes the `/dev/null` device: a write
+   * to it is legal and counts against no budget, so a remediation line that
+   * omits it would be lying about what the Worker accepts.
+   * @returns the writable root paths, device included.
+   */
+  writeRoots(): readonly string[] {
+    return Object.freeze(this.roots.map(root => root.path))
+  }
+
+  /**
+   * The one write-side remediation line, shared by every surface.
+   *
+   * This is the P2 sentence (`pdsh-shell: writable roots are ...`), not a new
+   * wording: the roots themselves are derived from the table, and `TMPDIR`
+   * names the volatile root `/tmp` canonicalises onto. `/` and `/dsh/config`
+   * are absent from the table, so they are absent here too — the sentence is
+   * the whole answer for an image path.
+   * @returns the single remediation line.
+   */
+  writableRootsLine(): string {
+    return `pdsh-shell: writable roots are ${this.writeRoots().join(', ')} (TMPDIR=/dsh/tmp)`
+  }
+
+  /**
+   * The `EACCES` answer an execution surface gets for a path it may not
+   * create or change, or undefined when the write is allowed.
+   *
+   * The message is the same two-line shape P2 gave the shell adapter: the
+   * node-shaped errno sentence naming the path, then the one remediation line.
+   * Every writer that runs under the Worker namespace asks this (the shell's
+   * redirection path, `git`, the Worker's own `node:fs.promises` face), so an
+   * image path has exactly one answer no matter which surface reached it.
+   * @param path - absolute virtual path the surface is about to write.
+   * @param syscall - node syscall name for the errno sentence (`open`, `mkdir`, ...).
+   * @returns the denial message, or undefined when the write is allowed.
+   */
+  writeDenial(path: string, syscall = 'open'): string | undefined {
+    let resolved: string
+    try {
+      resolved = this.resolve(path)
+    } catch {
+      return undefined
+    }
+    if (this.writable(resolved)) return undefined
+    return `EACCES: permission denied, ${syscall} '${resolved}'\n${this.writableRootsLine()}`
+  }
+
+  /**
+   * Refuse a create/change outside the root table with `EACCES` and the one
+   * remediation line. Writers call this before their first backend mutation so
+   * no surface can create a file the root table does not name.
+   *
+   * The thrown message is the node-shaped errno line only. The remediation
+   * sentence is *not* carried in the thrown text: just-bash's error sanitizer
+   * rewrites host-looking absolute paths (`/home`, `/tmp`, `/etc`, ...) to
+   * `<path>` before a command prints an error message, which would corrupt the
+   * root list. The shell renders the sentence on the way out instead
+   * (`ExecWriteDenialLog`), where no sanitizer runs. The error is marked with
+   * {@link WRITE_DENIED} so that renderer can recognise it.
+   * @param path - absolute virtual path the surface is about to write.
+   * @param syscall - node syscall name for the errno sentence.
+   * @throws {VfsProxyError} `EACCES` when the path is outside every root.
+   */
+  assertWritable(path: string, syscall = 'open'): void {
+    const denial = this.writeDenial(path, syscall)
+    if (denial === undefined) return
+    const errnoLine = denial.slice(0, denial.indexOf('\n'))
+    throw markWriteDenied(new VfsProxyError('EACCES', errnoLine.slice('EACCES: '.length)))
+  }
+
+  /**
+   * The answer an execution surface gets for a path it may not read: `EACCES`
+   * followed by the one remediation line, or undefined when the path is
+   * readable.
+   *
+   * Surfaces that render their own diagnostic (`ls`, `stat`) call this instead
+   * of catching an opaque error, so a shell command and a WASI guest answer a
+   * denied path with the same code and the same sentence (`channel.md` §VFS
+   * states exactly one answer).
+   * @param path - absolute virtual path the surface is about to read.
+   * @returns the denial message, or undefined when the read is allowed.
+   */
+  execReadDenial(path: string): string | undefined {
+    let resolved: string
+    try {
+      resolved = this.resolve(path)
+    } catch {
+      return undefined
+    }
+    if (this.execReadable(resolved)) return undefined
+    const root = EXEC_INTERNAL_ROOTS.find(candidate => isWithin(candidate, resolved)) ?? resolved
+    return `EACCES: ${execReadDeniedMessage(resolved, root)}`
+  }
+
+  /**
    * Refuse a read of DSH-internal state with `EACCES` and one remediation
    * line. Surfaces call this before their first backend read so every one of
    * them answers with the same code and message.
+   *
+   * The message already names the path, so the error is constructed without a
+   * second `(path)` suffix: one denial, one sentence.
    * @param path - absolute virtual path the surface is about to read.
    * @throws {VfsProxyError} `EACCES` when the path is inside an internal root.
    */
   assertExecReadable(path: string): void {
-    const resolved = this.resolve(path)
-    if (this.execReadable(resolved)) return
-    const root = EXEC_INTERNAL_ROOTS.find(candidate => isWithin(candidate, resolved)) ?? resolved
-    throw new VfsProxyError('EACCES', execReadDeniedMessage(resolved, root), resolved)
+    const denial = this.execReadDenial(path)
+    if (denial === undefined) return
+    throw new VfsProxyError('EACCES', denial.slice('EACCES: '.length))
   }
 
   /**
@@ -359,6 +563,22 @@ const PROMISE_TWO_PATHS: readonly string[] = Object.freeze(['rename', 'cp', 'lin
 /** Members that expose data (not just metadata) of a path. */
 const READ_MEMBERS: readonly string[] = Object.freeze(['readFile', 'readdir', 'stat', 'lstat', 'realpath', 'access', 'opendir'])
 
+/**
+ * One-path promise members that create or change a path.
+ *
+ * The write side has its own policy (`spec/v1/channel.md:259-261`): only the
+ * root table is writable. Checking the same members the read policy reaches
+ * means `/`, `/dsh/config/**` and `/dsh/bin/**` answer `EACCES` from the same
+ * seam the reads already use, instead of succeeding because `node:fs` has no
+ * concept of the image being read-only.
+ */
+const WRITE_MEMBERS: readonly string[] = Object.freeze([
+  'writeFile', 'appendFile', 'mkdir', 'unlink', 'rm', 'rmdir', 'truncate', 'chmod', 'mkdtemp', 'utimes',
+])
+
+/** One two-path promise member whose destination (and source for a move) changes a path. */
+const WRITE_TWO_PATHS: readonly string[] = Object.freeze(['rename', 'cp', 'link'])
+
 /** Any function-shaped member. */
 type Fn = (...args: unknown[]) => unknown
 
@@ -370,15 +590,52 @@ function storageOf(namespace: VfsNamespace, path: unknown): unknown {
   return typeof path === 'string' && path.startsWith('/') ? namespace.storagePath(path) : path
 }
 
-/** Decide whether one `open` call reads (and therefore needs the read policy). */
+/**
+ * Drop the entries an execution surface must not see from one `readdir` result.
+ *
+ * The shape is preserved because both call shapes share this member:
+ * `readdir(path)` returns names and `readdir(path, { withFileTypes: true })`
+ * returns dirents, and a caller relies on the one it asked for. A dirent keeps
+ * its own instance; only the array is new. An entry with no readable name is
+ * left alone: the policy can only answer for a name it can see.
+ * @param namespace - the path authority carrying the visibility rule.
+ * @param directory - the virtual directory the caller listed.
+ * @param entries - whatever the wrapped `readdir` resolved to.
+ * @returns the filtered result, in the backend's order.
+ */
+function filterExecListing(namespace: VfsNamespace, directory: unknown, entries: unknown): unknown {
+  if (!Array.isArray(entries)) return entries
+  const listed = String(directory)
+  return entries.filter(entry => {
+    let name: string | undefined
+    if (typeof entry === 'string') name = entry
+    else if (typeof entry === 'object' && entry !== null) {
+      const candidate = (entry as { name?: unknown }).name
+      if (typeof candidate === 'string') name = candidate
+    }
+    return name === undefined || namespace.execEntryVisible(listed, name)
+  })
+}
+
+/**
+ * Decide whether one `open` call reads (and therefore needs the read policy).
+ *
+ * A numeric `open(2)` mask carries the access mode in its low two bits
+ * (`O_WRONLY` = 1, `O_RDWR` = 2 on every platform the Worker runs on); the
+ * write policy must see those as writes even without the string spelling.
+ * @param args - `open(path, flags, mode?)` arguments.
+ * @returns true when the call only reads.
+ */
 function openReads(args: readonly unknown[]): boolean {
-  const flags = typeof args[1] === 'string' ? args[1] : 'r'
-  return !/[wa+]/.test(flags)
+  const flags = args[1]
+  if (typeof flags === 'number') return (flags & 3) === 0
+  return !/[wa+]/.test(typeof flags === 'string' ? flags : 'r')
 }
 
 /**
  * Wrap one `node:fs/promises`-shaped face so every virtual path goes through
- * the namespace and every execution read honours {@link VfsNamespace.assertExecReadable}.
+ * the namespace, every execution read honours {@link VfsNamespace.assertExecReadable}
+ * and every execution write honours {@link VfsNamespace.assertWritable}.
  *
  * This is the face the execution adapters use — the shell's
  * `VfsFileSystem`, `NodeGitFs`, and (patched in place by
@@ -393,9 +650,15 @@ function openReads(args: readonly unknown[]): boolean {
 export function wrapFsPromises<T extends object>(
   face: T,
   namespace: VfsNamespace = WORKER_VFS_NAMESPACE,
-  options: { readonly policy?: boolean } = {},
+  options: { readonly policy?: boolean; readonly writePolicy?: boolean } = {},
 ): T {
   const policy = options.policy ?? true
+  // The write side is opt-in: a standalone toolbox backend may be pointed at a
+  // real host directory (desktop simulation, the WASI test fixtures), where
+  // `/dsh/**` is not the namespace at all. The Worker enables it on its own
+  // `node:fs.promises` face (see {@link installExecFsPolicy}), which is the
+  // face the shell and `git` adapters actually hold.
+  const writePolicy = options.writePolicy ?? false
   const source = face as unknown as FsFace
   const wrapped: FsFace = { ...source }
   const wrapOne = (name: string): void => {
@@ -403,17 +666,28 @@ export function wrapFsPromises<T extends object>(
     if (typeof original !== 'function') return
     wrapped[name] = (...args: unknown[]): unknown => {
       const path = args[0]
-      // The face is a promise face: a refused read is a rejected call, not a
-      // synchronous throw (Node's `node:fs/promises` contract).
+      // The face is a promise face: a refused read or write is a rejected
+      // call, not a synchronous throw (Node's `node:fs/promises` contract).
       try {
         if (policy && READ_MEMBERS.includes(name)) namespace.assertExecReadable(String(path))
         if (policy && name === 'open' && openReads(args)) namespace.assertExecReadable(String(path))
+        if (writePolicy && name === 'open' && !openReads(args)) namespace.assertWritable(String(path))
+        if (writePolicy && WRITE_MEMBERS.includes(name)) namespace.assertWritable(String(path), name)
       } catch (error) {
         return Promise.reject(error)
       }
       const next = [...args]
       next[0] = storageOf(namespace, path)
-      return (original as Fn).apply(source, next)
+      const result = (original as Fn).apply(source, next)
+      // The other half of the read policy: a listing never names a DSH-internal
+      // root, because the name is not there for the execution surface to see.
+      // The guard above still refuses an explicit read of that path with
+      // `EACCES`; this only edits what the allowed parent's listing contains.
+      // Filtering here — not in `ls`/`find`/the glob engine — is what makes
+      // every `readdir` consumer agree, including a command this Worker does
+      // not own.
+      if (!policy || name !== 'readdir') return result
+      return Promise.resolve(result).then(entries => filterExecListing(namespace, path, entries))
     }
   }
   const wrapTwo = (name: string): void => {
@@ -422,9 +696,15 @@ export function wrapFsPromises<T extends object>(
     wrapped[name] = (...args: unknown[]): unknown => {
       // Moving or linking DSH session state out of its subtree exposes the
       // same bytes a direct read would, so the source is policy-checked too.
+      // A move also removes the source, so an image path may not be renamed
+      // away; a copy only reads it, and the destination is the mutation.
       try {
         if (policy && (name === 'cp' || name === 'rename' || name === 'link')) {
           namespace.assertExecReadable(String(args[0]))
+        }
+        if (writePolicy && WRITE_TWO_PATHS.includes(name)) {
+          namespace.assertWritable(String(args[1]), name)
+          if (name === 'rename' || name === 'link') namespace.assertWritable(String(args[0]), name)
         }
       } catch (error) {
         return Promise.reject(error)
@@ -454,7 +734,7 @@ export function wrapFsPromises<T extends object>(
  */
 export function installExecFsPolicy<T extends object>(face: T, namespace: VfsNamespace = WORKER_VFS_NAMESPACE): () => void {
   const target = face as unknown as FsFace
-  const wrapped = wrapFsPromises(face, namespace) as unknown as FsFace
+  const wrapped = wrapFsPromises(face, namespace, { writePolicy: true }) as unknown as FsFace
   const replaced = new Map<string, unknown>()
   for (const name of [...PROMISE_ONE_PATH, ...PROMISE_TWO_PATHS, 'readlink']) {
     const original = target[name]

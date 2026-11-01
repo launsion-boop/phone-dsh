@@ -1,0 +1,33 @@
+{
+  "name": "request-response-binary",
+  "direction": "sequence",
+  "schema": "bridge-message.schema.json",
+  "instance": [
+    {
+      "direction": "page-to-host",
+      "instance": {
+        "v": 1,
+        "kind": "request",
+        "requestId": "c41d7a93-6e2b-4f08-9d17-5a8c3e0b6f24",
+        "method": "file.read",
+        "params": {
+          "path": "artifacts/sample.bin"
+        }
+      }
+    },
+    {
+      "direction": "host-to-page",
+      "instance": {
+        "v": 1,
+        "kind": "response",
+        "requestId": "c41d7a93-6e2b-4f08-9d17-5a8c3e0b6f24",
+        "method": "file.read",
+        "result": {
+          "encoding": "base64",
+          "data": "aGVsbG8gcGhvbmUtZHNo"
+        }
+      }
+    }
+  ],
+  "notes": "bridge.md §4; data decodes to 15 bytes and the member set is fixed at exactly encoding+data. file.read is reserved by bridge.md §11 and has no implementation: this vector fixes the binary encoding only."
+}

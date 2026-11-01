@@ -195,6 +195,13 @@ export {
 } from './bridge.ts'
 export type { AcceleratorHost, AcceleratorRequest, AcceleratorResult, ExecBridgeAcceleratorOptions } from './bridge.ts'
 export {
+  execReadDenialForRequest,
+  execReadRefusalLine,
+  guardExecClient,
+  refusedExecStream,
+} from './exec-read-guard.ts'
+export type { ExecReadRefusal } from './exec-read-guard.ts'
+export {
   MAX_REDIRECTS,
   createCurlCommand,
   hostAllowed,

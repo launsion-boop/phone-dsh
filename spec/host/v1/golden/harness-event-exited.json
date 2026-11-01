@@ -1,0 +1,11 @@
+{
+  "name": "harness-event-exited",
+  "schema": "schema/harness-event.schema.json",
+  "instance": {
+    "session_id": "sess-2f7c",
+    "time_ms": 1793400130000,
+    "kind": "exited",
+    "reason": "the harness process ended"
+  },
+  "notes": "Sources/PhoneDSHAgentCore/AgentHarness.swift:410-411 and 490-494: exited is the in-band end of a session stream and carries no seq because it is a transport fact, not a journal record. A stream that ends for any other reason terminates with a harness error instead (AgentHarness.swift:492-494)."
+}

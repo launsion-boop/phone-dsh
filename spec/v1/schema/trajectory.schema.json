@@ -1,0 +1,147 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "trajectory event row",
+  "description": "One raw or normalized Harness event row (trajectory/1). The schema fixes shape only; noise removal is fixed by trajectory.md and its rule table.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "sessionID",
+    "turnID",
+    "seq",
+    "type",
+    "data"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "trajectory/1"
+    },
+    "platform": {
+      "enum": [
+        "ios",
+        "android"
+      ]
+    },
+    "sessionID": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._-]{1,64}$"
+    },
+    "turnID": {
+      "type": "string",
+      "pattern": "^(?:-|turn-[0-9]{4})$"
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1000000
+    },
+    "type": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(?:/[a-z][a-z0-9-]*)+$"
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "time": {
+      "type": "number"
+    },
+    "timestamp": {
+      "type": "number"
+    },
+    "wallClock": {
+      "type": "number"
+    },
+    "wallMs": {
+      "type": "number"
+    },
+    "occurredAt": {
+      "type": "number"
+    },
+    "mono": {
+      "type": "number"
+    },
+    "monotonic": {
+      "type": "number"
+    },
+    "monotonicMs": {
+      "type": "number"
+    },
+    "machAbsolute": {
+      "type": "number"
+    },
+    "mach_absolute_time": {
+      "type": "number"
+    },
+    "uptimeMs": {
+      "type": "number"
+    },
+    "pid": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "processID": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "processId": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "port": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 65535
+    },
+    "socketPort": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 65535
+    },
+    "localPort": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 65535
+    },
+    "remotePort": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 65535
+    },
+    "memory": {
+      "type": "number"
+    },
+    "memoryBytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "memoryMB": {
+      "type": "number"
+    },
+    "rssBytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "cpu": {
+      "type": "number"
+    },
+    "cpuPercent": {
+      "type": "number"
+    },
+    "cpuTimeMs": {
+      "type": "number"
+    },
+    "requestId": {
+      "type": "string",
+      "maxLength": 128
+    },
+    "request_id": {
+      "type": "string",
+      "maxLength": 128
+    },
+    "reqId": {
+      "type": "string",
+      "maxLength": 128
+    }
+  },
+  "additionalProperties": false
+}

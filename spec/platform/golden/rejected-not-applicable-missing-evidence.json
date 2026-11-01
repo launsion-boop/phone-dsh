@@ -1,0 +1,17 @@
+{
+  "intent": "rejected",
+  "reason": "被拒原因：baseline 写 not-applicable 却只带了 justification_class，缺 evidence 与 approved_by。例外通道必须三字段齐全，否则等于用「基线没做」换免检（方案 §5.3-1）。",
+  "entry": {
+    "id": "golden.renderer-priority",
+    "capability": "engine.renderer-priority",
+    "ios": "WKWebView 没有渲染进程优先级 API",
+    "android": "setRendererPriorityPolicy 设置渲染进程优先级",
+    "divergence_class": "os-forced",
+    "rationale": "Android 提供渲染进程优先级控制，iOS 侧没有对应 API，属平台强制差异；本条故意只带一个例外字段，用来说明被拒条件。",
+    "spec_ref": "spec/v1/render-media-v1.md §B.9",
+    "android_mechanism": "setRendererPriorityPolicy",
+    "evidence_level": "emulator-probe",
+    "baseline": "not-applicable",
+    "justification_class": "os-mechanism-absent"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "name": "harness-event-question-requested",
+  "schema": "schema/harness-event.schema.json",
+  "instance": {
+    "session_id": "sess-2f7c",
+    "time_ms": 1793400125500,
+    "kind": "question_requested",
+    "request": {
+      "request_id": "ev-9a1",
+      "prompt": "Which workspace should the run use?",
+      "options": [
+        "main",
+        "sandbox"
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "prompt": "Which workspace should the run use?",
+          "options": [
+            "main",
+            "sandbox"
+          ],
+          "multiple": false
+        }
+      ]
+    }
+  },
+  "notes": "Sources/PhoneDSHAgentCore/AgentHarness.swift:398 and 297-327. A question carries a flat prompt/options pair and optionally the per-question items; DSH maps user-questions/request to a best-effort event without seq, joins the question texts into prompt and takes the first item's option labels (DSHRemoteHarness.swift:410-422). No seq means it is never replayed after a resume."
+}

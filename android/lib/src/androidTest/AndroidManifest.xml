@@ -1,0 +1,18 @@
+<!-- SPDX-License-Identifier: MIT -->
+<!--
+  The screenshot host activity. Its window is the capture backdrop: the theme is
+  light with no action bar and a pure-white window background. White is a capture
+  condition, not a product token (`colors.background` is tier: unmeasured), and it
+  makes "no ink" unambiguous for the font-scale measurement.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <activity
+            android:name="com.phonedsh.ui.screenshot.ScreenshotActivity"
+            android:exported="true"
+            android:screenOrientation="portrait"
+            android:theme="@style/PdshScreenshotTheme" />
+    </application>
+
+</manifest>

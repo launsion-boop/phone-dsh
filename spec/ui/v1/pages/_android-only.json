@@ -1,0 +1,18 @@
+{
+  "schema": "pdsh.ui.page-structure-android-only/1",
+  "note": "Android screens with no counterpart in the iOS probe baseline. They have no page contract (there is nothing to extract), so this file is their explicit registration; a screen that is neither here nor in a contract is an `unmapped-android-screen` failure. Each entry names the evidence that the baseline really lacks the page.",
+  "screens": [
+    {
+      "screen": "SessionHistoryPage",
+      "file": "android/lib/src/main/kotlin/com/phonedsh/ui/page/SessionHistoryPage.kt",
+      "reason": "The baseline has no `struct SessionHistoryPage`: history is the ChatPage's `⋯` → 历史 entry in README §1, which the probe app never implemented as its own page. Android implemented it as a full screen, so there is no iOS structure to mirror.",
+      "evidence": "grep -rn 'struct SessionHistoryPage' examples/probe-app → no match (README §1 lists it as `later`)"
+    },
+    {
+      "screen": "GoalDetailPage",
+      "file": "android/lib/src/main/kotlin/com/phonedsh/ui/page/GoalDetailPage.kt",
+      "reason": "The baseline has no `struct GoalDetailPage`: the goal is a bar in ChatPage (`GoalBar`) with sheet-based detail that the probe app never split into a page. Android implemented a standalone screen.",
+      "evidence": "grep -rn 'struct GoalDetailPage' examples/probe-app → no match (README §1 lists it as `later`)"
+    }
+  ]
+}

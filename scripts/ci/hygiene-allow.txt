@@ -30,18 +30,17 @@ password@api\.example\.com
 userinfo-password@channel\.invalid
 docs\.example\.org
 
-# public official documentation referenced by the architecture and Office research
-support\.apple\.com
-docs\.github\.com
-getlocalcode\.app
-www\.libreoffice\.org
-www\.collaboraonline\.com
-en\.wikipedia\.org
-www\.gnu\.org
-cloudconvert\.com
-developers\.google\.com
-purchase\.aspose\.com
-learn\.microsoft\.com
+# legacy-project provenance: these design docs cite literal sibling-repository
+# paths as evidence, so the directory name must stay resolvable for reviewers
+docs/design/device-connector-2026-10-31\.md:.*xiaozhi-link
+docs/design/device-connector-review-brief\.md:.*xiaozhi-link
 
-# local app bundle name in build-evidence paths, not a network hostname
-^PhoneDSHProbe\.app$
+# `PhoneDSHProbe.app` in the office receipt is a recorded app-bundle path,
+# not a hostname (the receipt is evidence and must not be rewritten)
+docs/receipts/office-2026-10-30\.json:.*PhoneDSHProbe\.app
+
+# The Gradle wrapper scripts carry the Apache License 2.0 header verbatim; that
+# header names the license home page. The wrapper regenerates both scripts, so
+# the URL cannot be rewritten by hand. Scoped to the two generated files.
+android/gradlew:.*www\.apache\.org
+android/gradlew\.bat:.*www\.apache\.org

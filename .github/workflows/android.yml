@@ -1,0 +1,219 @@
+# SPDX-License-Identifier: MIT
+# Android CI host declaration (Linux).
+#
+# Every check below is one entry point: the job runs the same
+# `bash scripts/ci/check.sh --only <stage>` command a developer runs locally,
+# so CI never carries a private copy of the logic.
+#
+#   android-jvm          ACTIVE. JDK 21 + Android SDK + Rust. Runs
+#                        --only phone-android-structure
+#                        --only phone-android-tests
+#                        No emulator, no NDK, no network-dependent tests. The
+#                        Gradle cache makes it runnable offline after warm-up.
+#   android-release      MANUAL (workflow_dispatch with run_release=true, after
+#                        android-jvm). Runs --only phone-android-release:
+#                        :app:assembleRelease plus the 16 KB PT_LOAD alignment
+#                        proof. Needs the NDK for the arm64-v8a cargo-ndk
+#                        product. Without an NDK's llvm-strip the APK build
+#                        WARNS and packages the unstripped .so on purpose; that
+#                        is accepted, not a failure.
+#                        It also needs examples/probe-app/Bundle/worker, which
+#                        is gitignored (~65 MB, built from the pinned DSH
+#                        checkout). This job does not fabricate it: the shared
+#                        stage aligns the .so, then SKIPs the APK with the
+#                        command that produces the bundle (exit 2, not green).
+#                        Before packing it runs --only phone-bundle-fresh, so an
+#                        APK built from a bundle older than its plugin sources
+#                        fails instead of shipping the previous worker bytes.
+#   android-instrumented NOT RUN (`if: false`). The CI hosts have no KVM, so an
+#                        emulator cannot boot. API 33/35 instrumented evidence
+#                        is produced on a local device host; the job stays here
+#                        as a declaration and must not be mistaken for a gate.
+#
+# The macOS host keeps the Swift baseline gate in ci.yml; this file is the
+# Linux Android host. Worker image, golden and catalog are built once and
+# consumed by both hosts.
+
+name: android
+
+on:
+  push:
+    paths:
+      - "android/**"
+      - "shell/crates/pdsh-jni/**"
+      - "shell/Cargo.toml"
+      - "shell/Cargo.lock"
+      - "scripts/ci/check.sh"
+      - ".github/workflows/android.yml"
+  pull_request:
+    paths:
+      - "android/**"
+      - "shell/crates/pdsh-jni/**"
+      - "shell/Cargo.toml"
+      - "shell/Cargo.lock"
+      - "scripts/ci/check.sh"
+      - ".github/workflows/android.yml"
+  workflow_dispatch:
+    inputs:
+      run_release:
+        description: "Run android-release (needs the NDK and the gitignored worker bundle)"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  android-jvm:
+    name: android-jvm (JDK 21, no NDK, no emulator)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Android SDK (platform 35, build-tools; no NDK)
+        uses: android-actions/setup-android@v4
+        with:
+          packages: "platforms;android-35 build-tools;35.0.0"
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache Gradle (keyed on the version catalog)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('android/gradle/libs.versions.toml', 'android/**/*.gradle.kts', 'android/build.gradle.kts', 'android/settings.gradle.kts', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+      - name: Cache Cargo (keyed on Cargo.lock)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            shell/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('shell/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+      - name: Android structure + tool tests
+        # structure_check.py (9 checks incl. nested-comments) and the
+        # android/tools unittest discovery, which includes the
+        # check-native-alignment.py mutation tests.
+        run: bash scripts/ci/check.sh --only phone-android-structure
+      - name: Android JVM tests
+        # cargo build -p pdsh-jni first (the :core/:dsh/:testkit JNI input),
+        # then every test-bearing Gradle module. 0 tests counted = failure.
+        run: bash scripts/ci/check.sh --only phone-android-tests
+        env:
+          CI_GRADLE_ARGS: "--no-daemon"
+
+  android-release:
+    name: "android-release (manual: NDK + worker bundle)"
+    # Manual only. `inputs` is empty for push/PR, so the second clause is what
+    # keeps this job out of the default gate.
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_release }}
+    needs: android-jvm
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Android SDK + NDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: "platforms;android-35 build-tools;35.0.0 ndk;27.0.12077973"
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache Gradle (keyed on the version catalog)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('android/gradle/libs.versions.toml', 'android/**/*.gradle.kts', 'android/build.gradle.kts', 'android/settings.gradle.kts', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+      - name: Cache Cargo (keyed on Cargo.lock)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            shell/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('shell/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+      - name: Build the arm64-v8a JNI library
+        # The release APK packages shell/target/aarch64-linux-android/debug/
+        # libpdsh_jni.so; it is a build product and is not committed.
+        run: |
+          set -euo pipefail
+          sdk_root="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          if [ -z "$sdk_root" ] || [ ! -d "$sdk_root/ndk" ]; then
+            echo "no NDK under \$ANDROID_HOME/\$ANDROID_SDK_ROOT; setup-android did not install it" >&2
+            exit 1
+          fi
+          ndk_dir=$(ls -d "$sdk_root/ndk/"* | sort -V | tail -n 1)
+          export ANDROID_NDK_HOME="$ndk_dir"
+          echo "ANDROID_NDK_HOME=$ndk_dir" >> "$GITHUB_ENV"
+          command -v cargo-ndk >/dev/null 2>&1 || cargo install cargo-ndk --locked
+          cd shell
+          cargo ndk -t arm64-v8a build -p pdsh-jni
+      - name: Worker bundle freshness
+        # The release APK packages examples/probe-app/Bundle/worker. A bundle
+        # older than the plugin sources ships the previous worker bytes with a
+        # green build; that is the defect class this step closes. The same stage
+        # runs locally (`bash scripts/ci/check.sh --only phone-bundle-fresh`).
+        run: bash scripts/ci/check.sh --only phone-bundle-fresh
+      - name: Release build + 16 KB alignment
+        run: bash scripts/ci/check.sh --only phone-android-release
+        env:
+          CI_GRADLE_ARGS: "--no-daemon"
+
+  android-instrumented:
+    name: android-instrumented API ${{ matrix.api-level }} (declaration only)
+    # NOT RUN: the CI hosts have no KVM and cannot boot an emulator. The API
+    # 33/35 instrumented evidence is collected on a local device host, not here.
+    # `if: false` is deliberate, so this job can never be mistaken for a gate.
+    if: ${{ false }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        api-level: [33, 35]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Android SDK + emulator packages
+        uses: android-actions/setup-android@v4
+        with:
+          packages: "platforms;android-35 build-tools;35.0.0 emulator"
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api-level }}
+          target: google_apis
+          arch: x86_64
+          script: |
+            cd android
+            bash ./gradlew --configure-on-demand --console=plain \
+              :dsh:connectedDebugAndroidTest \
+              :domain:connectedDebugAndroidTest \
+              :platform-android:connectedDebugAndroidTest \
+              :engine:connectedDebugAndroidTest \
+              :testkit:connectedDebugAndroidTest

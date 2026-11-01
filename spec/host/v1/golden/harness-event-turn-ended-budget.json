@@ -1,0 +1,17 @@
+{
+  "name": "harness-event-turn-ended-budget",
+  "schema": "schema/harness-event.schema.json",
+  "instance": {
+    "session_id": "sess-2f7c",
+    "seq": 7,
+    "time_ms": 1793400124000,
+    "kind": "turn_ended",
+    "turn_id": "0",
+    "reason": {
+      "kind": "budget_exhausted",
+      "detail": "max-tokens"
+    },
+    "raw_turn_end_kind": "max-tokens"
+  },
+  "notes": "Sources/PhoneDSHAgentCore/AgentHarness.swift:405 and 329-336 (completed, cancelled, failed(message), budget_exhausted(detail) and 421-434 (raw_turn_end_kind keeps the producer label). The DSH mapping is the authority on the projection: completed and forked map to completed, aborted and interrupted to cancelled, max-tokens to budget_exhausted(\"max-tokens\"), error/blocked to failed, any newer producer kind to failed (<kind>) (DSHEventMapper.swift:143-153)."
+}

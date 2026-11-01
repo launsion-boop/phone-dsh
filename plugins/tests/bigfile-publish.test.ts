@@ -252,7 +252,10 @@ test('ENG-07: a VFS_RESYNC for a 60 MiB file is re-sent in chunks and keeps the 
 })
 
 test('ENG-07: the read cap is the single-file budget and an over-cap read has a chunk hint', async () => {
-  assert.equal(MAX_FILE_SIZE, 128 * MIB, 'the default 8 GiB tier single-file budget')
+  // One owner for the number: spec/v1/budgets.md:104 — "| Single file | … |
+  // ≤ 128 MiB | …", the 8 GiB (default) column. This assertion used to pin
+  // 64 MiB, a value no row of that table contains.
+  assert.equal(MAX_FILE_SIZE, 128 * MIB, 'the default 8 GiB tier single-file budget (spec/v1/budgets.md:104)')
   assert.equal(MAX_FILE_READ_SIZE, MAX_FILE_SIZE, 'the read cap follows the single-file budget')
   assert.ok(MAX_FILE_SIZE > MAX_MUTATION_DATA, 'the file cap is not the per-mutation cap')
 

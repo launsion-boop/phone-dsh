@@ -1,0 +1,627 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "DailyBriefPage",
+  "pageId": "daily-brief",
+  "structure": "swiftui-view",
+  "sectionModel": "section",
+  "sectionNote": null,
+  "title": {
+    "text": "每日简报",
+    "provenance": "DailyBriefPage.swift:138",
+    "anchor": ".navigationTitle(\"每日简报\")"
+  },
+  "source": {
+    "file": "DailyBriefPage.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/DailyBriefPage.swift",
+    "lines": 235,
+    "structLine": 8,
+    "renderedFrom": [
+      "body"
+    ],
+    "sectionOrder": "declaration order inside the page struct"
+  },
+  "android": {
+    "screen": "DailyBriefPage",
+    "file": "android/lib/src/main/kotlin/com/phonedsh/ui/page/DailyBriefPage.kt",
+    "match": "composable"
+  },
+  "sections": [
+    {
+      "id": "n-条内容",
+      "title": "N 条内容",
+      "titleTemplate": "{report.itemCount} 条内容",
+      "dynamicTitle": true,
+      "titleExpression": null,
+      "titleSource": "template",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "还没有简报",
+          "label": "还没有简报",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "DailyBriefPage.swift:21",
+          "anchor": "Text(model.snapshot == nil ? \"还没有简报\" : \"每日简报\")",
+          "extraction": "syntax"
+        },
+        {
+          "id": "最近成功-date-style-relative",
+          "label": "最近成功 {date, style: .relative}",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "let date = model.lastSuccessfulAt",
+          "provenance": "DailyBriefPage.swift:26",
+          "anchor": "Text(\"最近成功 \\(date, style: .relative)\")",
+          "extraction": "manual",
+          "dynamicLabel": true
+        },
+        {
+          "id": "添加来源后-打开页面就会更新",
+          "label": "添加来源后，打开页面就会更新",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "!(let date = model.lastSuccessfulAt)",
+          "provenance": "DailyBriefPage.swift:29",
+          "anchor": "Text(\"添加来源后，打开页面就会更新\")",
+          "extraction": "syntax"
+        },
+        {
+          "id": "最近尝试-date-style-relative",
+          "label": "最近尝试 {date, style: .relative}",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "let date = model.lastAttemptAt",
+          "provenance": "DailyBriefPage.swift:33",
+          "anchor": "Text(\"最近尝试 \\(date, style: .relative)\")",
+          "extraction": "manual",
+          "dynamicLabel": true
+        },
+        {
+          "id": "loading-38",
+          "label": null,
+          "labelExpr": null,
+          "kind": "loading",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "model.isRefreshing",
+          "provenance": "DailyBriefPage.swift:38",
+          "anchor": "if model.isRefreshing { ProgressView() }",
+          "extraction": "manual"
+        },
+        {
+          "id": "custom-40",
+          "label": null,
+          "labelExpr": "ShareLink",
+          "kind": "custom",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "!model.shareText.isEmpty",
+          "provenance": "DailyBriefPage.swift:40",
+          "anchor": "ShareLink(item: model.shareText) {",
+          "extraction": "manual",
+          "template": "ShareLink"
+        },
+        {
+          "id": "report-itemcount-条内容",
+          "label": "{report.itemCount} 条内容",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "let report = model.lastReport",
+          "provenance": "DailyBriefPage.swift:47",
+          "anchor": "Text(\"\\(report.itemCount) 条内容\")",
+          "extraction": "manual",
+          "dynamicLabel": true
+        },
+        {
+          "id": "新增-report-newitemcount",
+          "label": "新增 {report.newItemCount}",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "let report = model.lastReport",
+          "provenance": "DailyBriefPage.swift:49",
+          "anchor": "Text(\"新增 \\(report.newItemCount)\")",
+          "extraction": "manual",
+          "dynamicLabel": true
+        },
+        {
+          "id": "网络-bytecountformatter-string-frombytecount-int64-report-networkbytes-模型-0-实际",
+          "label": "网络 \\(ByteCountFormatter().string(fromByteCount: Int64(report.networkBytes))) · 模型 0 · 实际",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "let report = model.lastReport",
+          "provenance": "DailyBriefPage.swift:51",
+          "anchor": "Text(\"网络 \\(ByteCountFormatter().string(fromByteCount: Int64(report.networkBytes)",
+          "extraction": "manual",
+          "dynamicLabel": true
+        },
+        {
+          "id": "text-56",
+          "label": null,
+          "labelExpr": "error",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "let error = model.errorMessage",
+          "provenance": "DailyBriefPage.swift:56",
+          "anchor": "Text(error)",
+          "extraction": "manual"
+        }
+      ],
+      "provenance": "DailyBriefPage.swift:47",
+      "anchor": "Text(\"\\(report.itemCount) 条内容\")",
+      "extraction": "syntax"
+    },
+    {
+      "id": "最新一期",
+      "title": "最新一期",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "literal",
+      "condition": "let items = model.snapshot?.items, !items.isEmpty",
+      "collection": null,
+      "rows": [
+        {
+          "id": "custom-66",
+          "label": null,
+          "labelExpr": "Link",
+          "kind": "custom",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "let link = item.link",
+          "provenance": "DailyBriefPage.swift:66",
+          "anchor": "Link(destination: link) { DailyBriefItemRow(item: item) }",
+          "extraction": "manual",
+          "template": "Link",
+          "collection": "items"
+        },
+        {
+          "id": "custom-69",
+          "label": null,
+          "labelExpr": "DailyBriefItemRow",
+          "kind": "custom",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "!(let link = item.link)",
+          "provenance": "DailyBriefPage.swift:69",
+          "anchor": "DailyBriefItemRow(item: item)",
+          "extraction": "manual",
+          "template": "DailyBriefItemRow",
+          "collection": "items"
+        }
+      ],
+      "provenance": "DailyBriefPage.swift:63",
+      "anchor": "Section(\"最新一期\") {",
+      "extraction": "syntax"
+    },
+    {
+      "id": "section-74",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "absent",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "还没有可显示的内容",
+          "label": "还没有可显示的内容",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "DailyBriefPage.swift:78",
+          "anchor": "Text(\"还没有可显示的内容\")",
+          "extraction": "syntax"
+        },
+        {
+          "id": "先添加一个-rss-或-atom-来源-已有内容会保存在本机-离线也能看",
+          "label": "先添加一个 RSS 或 Atom 来源。已有内容会保存在本机，离线也能看。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "DailyBriefPage.swift:81",
+          "anchor": "? \"先添加一个 RSS 或 Atom 来源。已有内容会保存在本机，离线也能看。\"",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "DailyBriefPage.swift:74",
+      "anchor": "Section {",
+      "extraction": "syntax",
+      "criterion": {
+        "kind": "first-row",
+        "label": "还没有可显示的内容",
+        "provenance": "DailyBriefPage.swift:78"
+      }
+    },
+    {
+      "id": "资讯来源",
+      "title": "资讯来源",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "literal",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "text-95",
+          "label": null,
+          "labelExpr": "source.name",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "DailyBriefPage.swift:95",
+          "anchor": "Text(source.name).font(.body)",
+          "extraction": "manual",
+          "collection": "model.sources"
+        },
+        {
+          "id": "text-96",
+          "label": null,
+          "labelExpr": "source.url.absoluteString",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "DailyBriefPage.swift:96",
+          "anchor": "Text(source.url.absoluteString)",
+          "extraction": "manual",
+          "collection": "model.sources"
+        },
+        {
+          "id": "control-101",
+          "label": null,
+          "labelExpr": null,
+          "kind": "control",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "DailyBriefPage.swift:101",
+          "anchor": "Toggle(\"\", isOn: Binding(",
+          "extraction": "manual",
+          "collection": "model.sources"
+        },
+        {
+          "id": "添加-rss-atom-来源",
+          "label": "添加 RSS / Atom 来源",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "DailyBriefPage.swift:120",
+          "anchor": "Label(\"添加 RSS / Atom 来源\", systemImage: \"plus\")",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "DailyBriefPage.swift:91",
+      "anchor": "Section(\"资讯来源\") {",
+      "extraction": "syntax"
+    },
+    {
+      "id": "本次更新问题",
+      "title": "本次更新问题",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "literal",
+      "condition": "let issues = model.lastReport?.sourceIssues, !issues.isEmpty",
+      "collection": null,
+      "rows": [
+        {
+          "id": "text-130",
+          "label": null,
+          "labelExpr": "issue.sourceName",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "!issue.sourceName.isEmpty",
+          "provenance": "DailyBriefPage.swift:130",
+          "anchor": "Text(issue.sourceName).font(.caption.weight(.semibold))",
+          "extraction": "manual",
+          "collection": "Array(issues.enumerated()), id: \\.offset"
+        },
+        {
+          "id": "text-132",
+          "label": null,
+          "labelExpr": "issue.message",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "DailyBriefPage.swift:132",
+          "anchor": "Text(issue.message).font(.caption).foregroundStyle(.secondary)",
+          "extraction": "manual",
+          "collection": "Array(issues.enumerated()), id: \\.offset"
+        }
+      ],
+      "provenance": "DailyBriefPage.swift:126",
+      "anchor": "Section(\"本次更新问题\") {",
+      "extraction": "syntax"
+    }
+  ],
+  "actions": [
+    {
+      "id": "toggle-101",
+      "label": null,
+      "labelExpr": null,
+      "kind": "toggle",
+      "trigger": "tap",
+      "semantic": null,
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "DailyBriefPage.swift:101",
+      "anchor": "Toggle(\"\", isOn: Binding(",
+      "extraction": "manual"
+    },
+    {
+      "id": "添加-rss-atom-来源",
+      "label": "添加 RSS / Atom 来源",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ addingSource = true",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "DailyBriefPage.swift:120",
+      "anchor": "Label(\"添加 RSS / Atom 来源\", systemImage: \"plus\")",
+      "extraction": "syntax",
+      "labelAlternatives": [],
+      "presents": "sheet-152"
+    },
+    {
+      "id": "gesture-151",
+      "label": null,
+      "labelExpr": null,
+      "kind": "gesture",
+      "trigger": "pull-to-refresh",
+      "semantic": "refresh",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "DailyBriefPage.swift:151",
+      "anchor": ".refreshable { await model.refresh() }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "删除",
+      "label": "删除",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "swipe",
+      "semantic": "{ Task { await model.remove(source: source) }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "DailyBriefPage.swift:112",
+      "anchor": "Label(\"删除\", systemImage: \"trash\")",
+      "extraction": "syntax"
+    },
+    {
+      "id": "刷新",
+      "label": "刷新",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "toolbar",
+      "semantic": "{ Task { await model.refresh() }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "DailyBriefPage.swift:145",
+      "anchor": "Label(\"刷新\", systemImage: \"arrow.clockwise\")",
+      "extraction": "syntax"
+    },
+    {
+      "id": "分享",
+      "label": "分享",
+      "labelExpr": null,
+      "kind": "share",
+      "trigger": "tap",
+      "semantic": null,
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "DailyBriefPage.swift:41",
+      "anchor": "Label(\"分享\", systemImage: \"square.and.arrow.up\")",
+      "extraction": "syntax"
+    },
+    {
+      "id": "取消",
+      "label": "取消",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "toolbar",
+      "semantic": "{ dismiss()",
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "DailyBriefPage.swift:215",
+      "anchor": "Button(\"取消\") { dismiss() }",
+      "extraction": "syntax",
+      "presentedBy": "sheet-152"
+    },
+    {
+      "id": "添加",
+      "label": "添加",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "toolbar",
+      "semantic": "{ saving = true Task { let added = await model.addSource(name: name, urlString: urlString) saving = false if added { dismiss() } else { errorText = model.errorMessage } }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "DailyBriefPage.swift:218",
+      "anchor": "Button(saving ? \"添加中…\" : \"添加\") {",
+      "extraction": "syntax",
+      "presentedBy": "sheet-152"
+    }
+  ],
+  "presentations": [
+    {
+      "id": "sheet-152",
+      "kind": "sheet",
+      "title": null,
+      "destination": "DailyBriefSourceEditor",
+      "triggerBindings": [
+        "addingSource"
+      ],
+      "span": [
+        152,
+        156
+      ],
+      "provenance": "DailyBriefPage.swift:152",
+      "anchor": ".sheet(isPresented: $addingSource) {",
+      "triggered": true
+    }
+  ],
+  "states": {
+    "advisory": true,
+    "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
+    "sites": {
+      "empty": [
+        {
+          "renders": "还没有简报",
+          "when": null,
+          "provenance": "DailyBriefPage.swift:21",
+          "anchor": "Text(model.snapshot == nil ? \"还没有简报\" : \"每日简报\")"
+        },
+        {
+          "renders": "还没有可显示的内容",
+          "when": null,
+          "provenance": "DailyBriefPage.swift:78",
+          "anchor": "Text(\"还没有可显示的内容\")"
+        }
+      ],
+      "data": [
+        {
+          "renders": "N 条内容 | 最新一期 | untitled section at 74 | 资讯来源 | 本次更新问题",
+          "when": null,
+          "provenance": "DailyBriefPage.swift:8",
+          "anchor": "struct DailyBriefPage: View {",
+          "note": "structural default: the sections above, when no condition overrides them"
+        }
+      ],
+      "failure": [
+        {
+          "renders": "下拉或点右上角刷新；失败时不会清空上一期。",
+          "when": null,
+          "provenance": "DailyBriefPage.swift:82",
+          "anchor": ": \"下拉或点右上角刷新；失败时不会清空上一期。\")"
+        }
+      ],
+      "unknown": [],
+      "loading": [
+        {
+          "renders": "ProgressView",
+          "when": "model.isRefreshing",
+          "provenance": "DailyBriefPage.swift:38",
+          "anchor": "if model.isRefreshing { ProgressView() }"
+        }
+      ]
+    },
+    "absent": [
+      "unknown"
+    ],
+    "coverage": {
+      "empty": 2,
+      "data": 1,
+      "failure": 1,
+      "unknown": 0,
+      "loading": 1
+    }
+  },
+  "subpages": [],
+  "unreachable": [],
+  "extraction": {
+    "tool": "extract_ios_pages.py",
+    "mode": "syntax",
+    "sectionKeywordsInPage": 5,
+    "regionsExtracted": 0,
+    "sectionsExtracted": 5,
+    "warnings": []
+  }
+}

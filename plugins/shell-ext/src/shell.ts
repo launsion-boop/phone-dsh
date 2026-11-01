@@ -15,6 +15,7 @@ import { Bash, defineCommand, getCommandNames } from 'just-bash/browser'
 import type { CommandName, CustomCommand, ExecOptions, IFileSystem } from 'just-bash/browser'
 import type { TransformContext, TransformPlugin, TransformResult } from 'just-bash'
 import { MAX_FILE_SIZE, formatByteLimit, formatByteLimitMib } from '../../wasi-toolbox/src/limits.ts'
+import { WORKER_VFS_NAMESPACE, engineReservedRoot } from '../../wasi-toolbox/src/vfs-namespace.ts'
 import { createArithmeticBaseCommand, createArithmeticExpansionPlugin } from './arithmetic.ts'
 import { createBashSourcePlugin } from './bash-source.ts'
 import { materializeCapabilityManifest } from './capabilities.ts'
@@ -28,6 +29,13 @@ import {
   truncationAnnotation,
 } from './contract.ts'
 import { VfsFileSystem } from './filesystem.ts'
+import {
+  EXEC_READ_METHODS,
+  ExecReadDenialLog,
+  ExecWriteDenialLog,
+  recordExecReadDenial,
+  recordExecWriteDenial,
+} from './exec-denial.ts'
 import { createFindCommand } from './find.ts'
 import { createGrepCommand } from './grep.ts'
 import { createJqCommand } from './jq.ts'
@@ -105,7 +113,8 @@ export const DEFAULT_STDIN_EOF_TIMEOUT_MS = 30_000
  * The interpreter's `maxOutputSize` is a memory bound on one command result,
  * not the user-visible per-stream cap. A pipeline stage may carry a legal
  * file's bytes into the next stage (`cat big | wc -c`), so the engine bound
- * must leave room for one whole file (`MAX_FILE_SIZE`, 64 MiB by default) plus
+ * must leave room for one whole file (`MAX_FILE_SIZE`, 128 MiB on the 8 GiB
+ * tier, `spec/v1/budgets.md:104`) plus
  * the caller's stream cap. The final stdout/stderr discipline is applied below
  * by {@link boundOutput}; a command that actually emits more than
  * `maxOutputBytes` still exits 1 with `reason=output-truncated`.
@@ -728,11 +737,25 @@ interface GuardedFileSystem {
  * attempts to restore the snapshot. A non-settling write or failed restore is
  * reported as backend-failed; a late rollback continues in the background.
  * Reads stay ungated so the engine can unwind.
+ *
+ * The same wrapper owns the execution-surface read policy's *diagnostics*:
+ * every refused read (and every `exists()` that answers `false` because the
+ * path is policy-denied) is recorded in the per-execution
+ * {@link ExecReadDenialLog}, so the final stderr can be rendered once,
+ * command-agnostically, by `ExecReadDenialLog.render` (see `exec-denial.ts`).
+ * The refusal itself is still enforced below the adapter; this only observes
+ * it.
  * @param fs - the command filesystem.
  * @param signal - this execution's abort signal.
+ * @param denials - the execution's policy-denial log.
  * @returns the gated filesystem and its handler lifecycle.
  */
-function guardedFileSystem(fs: IFileSystem, signal: AbortSignal): GuardedFileSystem {
+function guardedFileSystem(
+  fs: IFileSystem,
+  signal: AbortSignal,
+  denials: ExecReadDenialLog,
+  writeDenials: ExecWriteDenialLog,
+): GuardedFileSystem {
   let handlerMode = false
   let rollbackSucceeded = true
   const pending = new Set<Promise<unknown>>()
@@ -743,8 +766,16 @@ function guardedFileSystem(fs: IFileSystem, signal: AbortSignal): GuardedFileSys
       undo = await undoForMutation(fs, method, args)
       if (signal.aborted) throw abortedWriteError()
     }
-    const operation = (async (): Promise<unknown> =>
-      await (Reflect.get(fs, method) as (...callArgs: unknown[]) => Promise<unknown>).apply(fs, [...args]))()
+    const operation = (async (): Promise<unknown> => {
+      try {
+        return await (Reflect.get(fs, method) as (...callArgs: unknown[]) => Promise<unknown>).apply(fs, [...args])
+      } catch (error) {
+        // The write policy's sentence is rendered on the way out, not carried
+        // in the thrown text (just-bash's sanitizer would rewrite the roots).
+        recordExecWriteDenial(writeDenials, args[0], error)
+        throw error
+      }
+    })()
     const tracked = (async (): Promise<unknown> => {
       try {
         return await operation
@@ -770,6 +801,26 @@ function guardedFileSystem(fs: IFileSystem, signal: AbortSignal): GuardedFileSys
       const bound = (value as (...args: unknown[]) => unknown).bind(target)
       if (typeof property === 'string' && ABORT_GATED_WRITE_METHODS.has(property)) {
         return async (...args: unknown[]): Promise<unknown> => await mutate(property, args)
+      }
+      if (typeof property === 'string' && EXEC_READ_METHODS.has(property)) {
+        return async (...args: unknown[]): Promise<unknown> => {
+          try {
+            return await bound(...args)
+          } catch (error) {
+            recordExecReadDenial(denials, target, args[0], error)
+            throw error
+          }
+        }
+      }
+      if (property === 'exists') {
+        // `exists()` swallows its failure and answers `false`, so the refusal
+        // is invisible to the caller. Record it here; the renderer turns the
+        // command's "No such file" wording back into the contract's answer.
+        return async (...args: unknown[]): Promise<unknown> => {
+          const present = await bound(...args)
+          if (present === false) recordExecReadDenial(denials, target, args[0])
+          return present
+        }
       }
       return bound
     },
@@ -1400,8 +1451,14 @@ export class WorkerShell {
     const customCommands = commandTable
     // The gate is a no-op until the signal fires; the handler additionally
     // snapshots each target and rolls back a write that was still in flight
-    // when the deadline/abort arrived (see guardedFileSystem).
-    const fsGuard = guardedFileSystem(this.fs, controller.signal)
+    // when the deadline/abort arrived (see guardedFileSystem). The same
+    // wrapper records every execution-surface read and write refusal so the
+    // final stderr can be rendered once for every command (see
+    // exec-denial.ts): the read answer is `EACCES` plus its sentence, and the
+    // write answer is the node-shaped line plus the writable-roots sentence.
+    const denials = new ExecReadDenialLog()
+    const writeDenials = new ExecWriteDenialLog()
+    const fsGuard = guardedFileSystem(this.fs, controller.signal, denials, writeDenials)
     const bash = new Bash({
       fs: fsGuard.fs,
       cwd,
@@ -1571,6 +1628,32 @@ export class WorkerShell {
     } catch (error) {
       if (controller.signal.aborted) return await finishInterrupted()
       clearTrapState(trapToken)
+      // A redirection's write is refused before the pipeline has a result the
+      // engine can return, so the policy answer would otherwise be reported as
+      // `backend-failed` — a substrate failure that did not happen. Render the
+      // recorded answer instead: the node-shaped `EACCES` line and the shared
+      // writable-roots sentence, the same two lines a command that survives to
+      // its own result gets. There is no contract trailer: like the read
+      // policy, this is an answer to the command, not a resource exhaustion.
+      const writeDenial = writeDenials.first()
+      if (writeDenial !== undefined) {
+        if (!await waitOrInterrupt(cleanupSourceTemp())) return await finishInterrupted()
+        releaseInterruption()
+        return plainResult('', `${writeDenial.denial}\n`, 1)
+      }
+      // The shell engine owns `/dev/fd`: the base filesystem answers a
+      // descriptor write with `ENOENT` so just-bash installs its private in-
+      // memory mount (the failure is the mount trigger, not a policy answer).
+      // A command that wrote there before the mount existed simply named a
+      // path outside the namespace; that is the command's own failure, not a
+      // substrate failure, so it gets the node-shaped line and no trailer —
+      // the same shape the writable-roots answer uses for an image path.
+      const escapedPath = (error as { path?: unknown } | null)?.path
+      if (typeof escapedPath === 'string' && engineReservedRoot(escapedPath) !== undefined) {
+        if (!await waitOrInterrupt(cleanupSourceTemp())) return await finishInterrupted()
+        releaseInterruption()
+        return plainResult('', `${error instanceof Error ? error.message : String(error)}\n`, 1)
+      }
       // The engine itself rejected: this is our execution layer failing, the
       // one class the contract labels `backend-failed` (contract.ts).
       const failure = shellFailure(
@@ -1749,6 +1832,32 @@ export class WorkerShell {
     let exitCode = handlerExitCode ?? result.exitCode
     if (handlerSeamFailure && exitCode === 0) exitCode = 1
     let stderrText = err.text
+    // `channel.md` §VFS has exactly one answer for a path the execution policy
+    // refuses: `EACCES` plus the remediation sentence, whichever command asked.
+    // The per-execution log recorded every refusal the adapter saw; render
+    // them into the final stderr here, once, instead of teaching each command
+    // the sentence (see exec-denial.ts). A command that swallowed the refusal
+    // and still reported success must not exit 0 over it.
+    const terminalCwd = readTerminalState(result)?.cwd
+    const denialRender = denials.render(stderrText, {
+      cwd,
+      cwds: terminalCwd === undefined || terminalCwd === cwd ? [cwd] : [cwd, terminalCwd],
+      program: directProgram ?? 'bash',
+      resolvePath: (base, path) => this.fs.resolvePath(base, path),
+    })
+    stderrText = denialRender.stderr
+    if (denialRender.appendedHard > 0 && exitCode === 0) exitCode = 2
+    // The write policy's answer has a second line that cannot travel intact in
+    // the thrown error: just-bash's sanitizer rewrites `/home`, `/tmp` and
+    // `/etc` inside error text. Render it here, once, from the one owner
+    // (repairing a sanitized line if the command already printed one). The exit
+    // status stays the command's own when the command said something about the
+    // refusal, as bash would; a command that swallowed the failure and printed
+    // nothing must not report success over a hard refusal — the read side's
+    // rule applied to the write side.
+    const writeRender = writeDenials.render(stderrText, WORKER_VFS_NAMESPACE.writableRootsLine())
+    stderrText = writeRender.stderr
+    if (writeRender.appended > 0 && exitCode === 0 && !writeDenials.represented(stderrText)) exitCode = 1
     // A cut stream is incomplete data: say so with one contract trailer line
     // and never report the command's 0 over a partial page (contract.ts).
     const truncation = truncationAnnotation(stdoutTruncated, stderrTruncated, maxBytes)
@@ -1792,7 +1901,11 @@ export class WorkerShell {
             exitCode,
             program,
             reason: 'limit-refused',
-            hint: `a single VFS file is limited to ${budgetLabel(budget)} (PLAN D4)`,
+            // Actionable, and split from the capture budget: this is the file
+            // budget, so the remedy is to spread the bytes over more files (or
+            // not to materialise them at all), not to narrow stdout.
+            hint: `a single VFS file is limited to ${budgetLabel(budget)} (PLAN D4); `
+              + 'split the output across files (e.g. out.1, out.2) instead of growing one past the limit',
           })
         }
       }

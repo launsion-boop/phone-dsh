@@ -1,0 +1,14 @@
+{
+  "name": "harness-capabilities-dsh-remote",
+  "schema": "schema/harness-capabilities.schema.json",
+  "instance": {
+    "cancel": true,
+    "steer": true,
+    "resume": "native",
+    "permission": "native",
+    "client_tools": "none",
+    "tool_visibility": true,
+    "runs_while_app_suspended": true
+  },
+  "notes": "Sources/PhoneDSHAgentCore/DSH/DSHRemoteHarness.swift:34-36 declares this set for the self-hosted DSH remote; Sources/PhoneDSHAgentCore/AgentHarness.swift:17-77 fixes the member set and the three-valued enums. client_tools is none because that backend takes MCP servers from its own configuration and rejects per-session ones (DSHRemoteHarness.swift:71-74)."
+}

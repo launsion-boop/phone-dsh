@@ -1,0 +1,349 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Mock-upstream script fixture",
+  "description": "One language-neutral script for a mock model upstream: the request it answers, the ordered responses it writes and what the caller must observe. Transport semantics are those of the host gateway (spec/exec-bridge-v1 section 6): a 429 or 5xx head retries before any byte is forwarded, a transport failure retries only before the response head, and a body that is cut after the head ends the caller's stream with a failure that is not retried. Vocabulary and the assertion algorithm are documented in spec/v1/golden/upstream/README.md.",
+  "type": "object",
+  "required": [
+    "id",
+    "model",
+    "request_match",
+    "script",
+    "expected",
+    "evidence_level",
+    "source"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "minLength": 3,
+      "maxLength": 80
+    },
+    "model": {
+      "description": "The request model member the mock answers; any when the script is model-agnostic.",
+      "type": "string",
+      "pattern": "^(any|[A-Za-z0-9._:-]+)$",
+      "minLength": 3,
+      "maxLength": 80
+    },
+    "title": {
+      "type": "string",
+      "minLength": 4,
+      "maxLength": 200
+    },
+    "request_match": {
+      "type": "object",
+      "required": [
+        "method",
+        "path_suffix"
+      ],
+      "properties": {
+        "method": {
+          "type": "string",
+          "pattern": "^[A-Z]{3,7}$"
+        },
+        "path_suffix": {
+          "description": "The mock answers a request whose path ends with this string.",
+          "type": "string",
+          "pattern": "^/[A-Za-z0-9/._-]*$",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "notes": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        }
+      },
+      "additionalProperties": false
+    },
+    "script": {
+      "description": "Ordered responses, one per upstream connection. The last entry repeats when the caller makes more attempts than the script has entries.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "required": [
+          "status",
+          "body_chunks",
+          "closes"
+        ],
+        "properties": {
+          "status": {
+            "description": "0 means the connection is reset before any response byte. Otherwise the HTTP status of the response head.",
+            "oneOf": [
+              {
+                "const": 0
+              },
+              {
+                "type": "integer",
+                "minimum": 200,
+                "maximum": 599
+              }
+            ]
+          },
+          "headers": {
+            "description": "Response headers, lower-case names. A content-length header is the declared body length, which may exceed the bytes actually written.",
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 200
+            }
+          },
+          "body_chunks": {
+            "description": "Body payload written in order. Zero entries means no body bytes.",
+            "type": "array",
+            "minItems": 0,
+            "maxItems": 512,
+            "items": {
+              "type": "string",
+              "maxLength": 20000
+            }
+          },
+          "delay_ms": {
+            "description": "Logical delay applied between two body chunks.",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 60000
+          },
+          "closes": {
+            "description": "true writes the terminating chunk (or the declared length) and closes. false holds the connection open with no terminating chunk.",
+            "type": "boolean"
+          },
+          "frames": {
+            "description": "chunked writes every body chunk as one transfer-encoding chunk and ends with the zero-length chunk. content_length writes the head with declared_content_length and then the body bytes.",
+            "enum": [
+              "chunked",
+              "content_length"
+            ]
+          },
+          "declared_content_length": {
+            "description": "The Content-Length value of the head. Required with frames content_length and when the body is cut short.",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 16777216
+          },
+          "truncated": {
+            "description": "true when the server closes before the declared body length, so the caller must observe a truncated body.",
+            "type": "boolean"
+          },
+          "malformed": {
+            "description": "true when the body bytes are deliberately not valid SSE; the mock must not normalize them.",
+            "type": "boolean"
+          },
+          "stall_after_bytes": {
+            "description": "With closes false, how many body bytes are written before the connection goes silent with no terminating chunk.",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 16777216
+          }
+        },
+        "additionalProperties": false,
+        "dependentRequired": {
+          "truncated": [
+            "declared_content_length"
+          ],
+          "declared_content_length": [
+            "frames"
+          ],
+          "malformed": [
+            "body_chunks"
+          ],
+          "stall_after_bytes": [
+            "body_chunks"
+          ]
+        }
+      }
+    },
+    "expected": {
+      "type": "object",
+      "required": [
+        "caller_visible",
+        "retry",
+        "provider_error"
+      ],
+      "properties": {
+        "caller_visible": {
+          "enum": [
+            "sse_stream_passthrough",
+            "status_and_body",
+            "final_status_and_body",
+            "bytes_passed_through_unchanged",
+            "truncated_stream_then_error",
+            "error_without_body",
+            "delivery_timeout",
+            "unmeasured"
+          ]
+        },
+        "retry": {
+          "type": "object",
+          "required": [
+            "retried",
+            "attempts"
+          ],
+          "properties": {
+            "retried": {
+              "type": "boolean"
+            },
+            "attempts": {
+              "description": "Upstream connections the gateway must open for one caller request.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10
+            },
+            "trigger": {
+              "enum": [
+                "none",
+                "upstream_status",
+                "transport_before_head",
+                "budget_exhausted",
+                "unmeasured"
+              ]
+            },
+            "delays_ms": {
+              "description": "Backoff schedule, one entry per retry. Only deterministic when jitter is disabled.",
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 9,
+              "items": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 600000
+              }
+            },
+            "jitter_disabled": {
+              "description": "true when the fixture's schedule was produced with jitterFraction 0; the production default jitters each delay downward.",
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        },
+        "provider_error": {
+          "description": "The stable cause code the gateway reports, or none when the response is forwarded.",
+          "enum": [
+            "none",
+            "host_not_allowed",
+            "invalid_request",
+            "credential_unavailable",
+            "upstream_failed",
+            "shutting_down",
+            "transport_failure",
+            "upstream_status",
+            "unmeasured"
+          ]
+        },
+        "delivery_error": {
+          "description": "The typed error the Worker's host-route delivery layer reports when the upstream body never completes.",
+          "enum": [
+            "PDSH_DELIVERY_TIMEOUT",
+            "none",
+            "unmeasured"
+          ]
+        },
+        "response_log": {
+          "enum": [
+            "committed",
+            "aborted",
+            "not_written",
+            "unmeasured"
+          ]
+        },
+        "client_outcome": {
+          "enum": [
+            "ok",
+            "error",
+            "unmeasured"
+          ]
+        },
+        "field_evidence": {
+          "type": "object",
+          "properties": {
+            "caller_visible": {
+              "enum": [
+                "swift-test",
+                "swift-source",
+                "spec-only",
+                "NEW"
+              ]
+            },
+            "retry": {
+              "enum": [
+                "swift-test",
+                "swift-source",
+                "spec-only",
+                "NEW"
+              ]
+            },
+            "provider_error": {
+              "enum": [
+                "swift-test",
+                "swift-source",
+                "spec-only",
+                "NEW"
+              ]
+            },
+            "delivery_error": {
+              "enum": [
+                "swift-test",
+                "swift-source",
+                "spec-only",
+                "NEW"
+              ]
+            },
+            "response_log": {
+              "enum": [
+                "swift-test",
+                "swift-source",
+                "spec-only",
+                "NEW"
+              ]
+            },
+            "client_outcome": {
+              "enum": [
+                "swift-test",
+                "swift-source",
+                "spec-only",
+                "NEW"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "evidence_level": {
+      "enum": [
+        "swift-test",
+        "swift-source",
+        "spec-only",
+        "NEW"
+      ]
+    },
+    "source": {
+      "type": "string",
+      "pattern": "^(NEW|(Tests|Sources|scripts|spec)/[A-Za-z0-9_./-]+\\.(swift|json|md):[0-9]+(-[0-9]+)?)$"
+    },
+    "related_sources": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": {
+        "type": "string",
+        "pattern": "^(NEW|(Tests|Sources|scripts|spec)/[A-Za-z0-9_./-]+\\.(swift|json|md):[0-9]+(-[0-9]+)?)$"
+      }
+    },
+    "new_reason": {
+      "type": "string",
+      "minLength": 20,
+      "maxLength": 400
+    },
+    "notes": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 600
+    }
+  },
+  "additionalProperties": false
+}

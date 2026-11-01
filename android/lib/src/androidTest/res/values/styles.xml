@@ -1,0 +1,21 @@
+<!-- SPDX-License-Identifier: MIT -->
+<!--
+  The one theme every capture runs under. It pins the window chrome, not the
+  product colours: the page still paints only tokens. A light, action-bar-free
+  window means the capture is 1080x2400 of product content with no system title
+  bar and no device-theme-dependent backdrop.
+-->
+<resources>
+
+    <style name="PdshScreenshotTheme" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">#FFFFFFFF</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowDisablePreview">true</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:statusBarColor">#FF000000</item>
+        <item name="android:navigationBarColor">#FF000000</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+    </style>
+
+</resources>

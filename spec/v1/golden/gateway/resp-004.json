@@ -1,0 +1,62 @@
+{
+  "id": "gw-resp-004",
+  "rule": "response-redaction",
+  "kind": "response",
+  "source": "Sources/PhoneDSHGateway/ModelGateway.swift:1206",
+  "references": [
+    "Tests/PhoneDSHGatewayTests/MCPEgressPolicyTests.swift:242",
+    "Tests/PhoneDSHGatewayTests/MCPEgressPolicyTests.swift:287"
+  ],
+  "note": "Sensitivity is a property of the MCP call, not the credential kind. A scalar bearer MCP credential is redacted and excluded from the response log exactly like a header map.",
+  "input": {
+    "method": "POST",
+    "url": "https://mcp.example.invalid/mcp",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "allowlist": [
+      "https://mcp.example.invalid"
+    ],
+    "mcp": true,
+    "credential": {
+      "kind": "bearer",
+      "value": "resp-scalar-token"
+    },
+    "response": {
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "x-echo": "server saw Bearer resp-scalar-token"
+      },
+      "body": "{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"isError\":true,\"content\":[{\"type\":\"text\",\"text\":\"echo Bearer resp-scalar-token\"}]}}"
+    }
+  },
+  "expect": {
+    "dispatch": "allow",
+    "outbound_headers": {
+      "cache-control": "no-store",
+      "content-type": "application/json",
+      "x-echo": "[redacted]"
+    },
+    "stripped": [],
+    "outbound_url": "https://mcp.example.invalid/mcp",
+    "body_json": {
+      "jsonrpc": "2.0",
+      "id": 7,
+      "result": {
+        "isError": true,
+        "content": [
+          {
+            "type": "text",
+            "text": "echo [redacted]"
+          }
+        ]
+      }
+    },
+    "body_withheld": false,
+    "log": {
+      "recorded": false,
+      "reason": "sensitive_credential"
+    }
+  }
+}

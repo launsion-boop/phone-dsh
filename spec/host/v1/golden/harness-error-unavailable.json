@@ -1,0 +1,10 @@
+{
+  "name": "harness-error-unavailable",
+  "schema": "schema/harness-error.schema.json",
+  "instance": {
+    "code": "unavailable",
+    "message": "event stream retry budget exhausted",
+    "retry_after_ms": 1000
+  },
+  "notes": "Sources/PhoneDSHAgentCore/AgentHarness.swift:490-494 (a transport loss ends the stream with unavailable and the caller re-subscribes from its last durable seq) and DSHRemoteHarness.swift:262-265 (retry exhaustion surfaces unavailable). Only unavailable and rate_limited are retryable (ProviderError.swift:31-37); the DSH transport maps gateway/internal and its siblings to unavailable (DSHRemoteTransport.swift:53-69)."
+}

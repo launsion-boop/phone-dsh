@@ -1,0 +1,31 @@
+{
+  "id": "gw-egress-001",
+  "rule": "egress-classification",
+  "kind": "request",
+  "source": "Sources/PhoneDSHGateway/GatewaySession.swift:59",
+  "references": [
+    "Tests/PhoneDSHGatewayTests/ModelGatewayEgressClassificationTests.swift:161"
+  ],
+  "note": "Loopback is reachable only because the exact host:port is listed; there is no implicit localhost exemption.",
+  "input": {
+    "method": "GET",
+    "url": "http://127.0.0.1:7861/v1/file",
+    "headers": {
+      "accept": "text/plain"
+    },
+    "allowlist": [
+      "127.0.0.1:7861"
+    ],
+    "credential": {
+      "kind": "none"
+    }
+  },
+  "expect": {
+    "dispatch": "allow",
+    "outbound_headers": {
+      "accept": "text/plain"
+    },
+    "stripped": [],
+    "outbound_url": "http://127.0.0.1:7861/v1/file"
+  }
+}

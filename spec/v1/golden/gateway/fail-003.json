@@ -1,0 +1,38 @@
+{
+  "id": "gw-fail-003",
+  "rule": "failure-surface",
+  "kind": "request",
+  "source": "Sources/PhoneDSHGateway/ModelGateway.swift:573",
+  "references": [
+    "spec/v1/gateway-security.md:113"
+  ],
+  "note": "A URL with no host is invalid_request before the allow-list, before credential resolution and before any connection. The caller credential is dropped with the request and nothing echoes it, and the diagnostic carries no upstream contact.",
+  "input": {
+    "method": "GET",
+    "url": "https://:443/v1/models",
+    "headers": {
+      "authorization": "Bearer sk-SENTINEL-DO-NOT-USE",
+      "content-type": "application/json"
+    },
+    "allowlist": [
+      "https://api.example.invalid"
+    ],
+    "credential": {
+      "kind": "bearer",
+      "value": "host-injected-token"
+    }
+  },
+  "expect": {
+    "dispatch": "deny",
+    "outbound_headers": {},
+    "stripped": [],
+    "outbound_url": "",
+    "deny_reason": "invalid_request",
+    "failure": {
+      "code": "invalid_request",
+      "proxy_status": 400,
+      "proxy_error": "bad_request",
+      "upstream_contacts": 0
+    }
+  }
+}

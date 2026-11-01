@@ -1,0 +1,19 @@
+{
+  "title": "PDSH divergence_class vocabulary",
+  "description": "Self-contained schema for one divergence_class value of the platform whitelist. The enum is the only legal set; x-class-definitions carries the prose meaning so the enum and its definition cannot drift apart.",
+  "type": "string",
+  "enum": [
+    "os-forced",
+    "hardware-absent",
+    "policy-forbidden"
+  ],
+  "x-class-definitions": {
+    "os-forced": "OS 强制。iOS 侧依赖的某个 OS 机制在 Android 不存在或语义不同（F_FULLFSYNC、NWListener、BGTaskScheduler、ScenePhase），必须换机制实现同一可观测语义；语义等价是义务，不是建议。",
+    "hardware-absent": "硬件不存在。iOS 设备上可靠存在的硬件或安全单元在 Android 设备上不存在或为可选件（Secure Enclave 对应 StrongBox/TEE），只能诚实降级、显式标注当前级别，并把失效路径写进可用性矩阵。",
+    "policy-forbidden": "分发政策禁止。OS 提供了该机制，但分发渠道政策禁止使用或禁止某种用法（电池优化豁免的申请、动态下发不可信 JS），只能引导用户或改走别的实现路径；这是政策造成的分歧，不是 OS 能力缺失。"
+  },
+  "x-consumers": [
+    "spec/platform/whitelist.json 的 divergence_class 成员",
+    "spec/platform/schema/whitelist.schema.json 的同名 enum"
+  ]
+}

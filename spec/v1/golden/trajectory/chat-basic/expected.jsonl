@@ -1,0 +1,4 @@
+{"data":{"step":0,"text":"Summarize /dsh/workspace/notes/a.md","turn":1},"requestId":"req-0007","schemaVersion":"trajectory/1","seq":1,"sessionID":"sess-001","turnID":"turn-0001","type":"user/message"}
+{"data":{"arguments":"{\"path\":\"/dsh/workspace/notes/a.md\"}","callId":"call-1","name":"read","path":"/dsh/workspace/notes/a.md"},"requestId":"req-0008","schemaVersion":"trajectory/1","seq":2,"sessionID":"sess-001","turnID":"turn-0001","type":"tool/call"}
+{"data":{"text":"Done.","usage":{"inputTokens":12,"outputTokens":34}},"requestId":"req-0009","schemaVersion":"trajectory/1","seq":3,"sessionID":"sess-001","turnID":"turn-0001","type":"assistant/message"}
+{"data":{"reason":{"kind":"completed"}},"requestId":"req-0010","schemaVersion":"trajectory/1","seq":4,"sessionID":"sess-001","turnID":"turn-0001","type":"turn/end"}

@@ -1,0 +1,102 @@
+{
+  "id": "planned-restart-reconciles-pending-step",
+  "verb": "planned_restart",
+  "title": "Planned restart closes the epoch and the replacement Worker's write-open owns the pending step",
+  "preconditions": {
+    "host_state": "Running",
+    "admission": "open",
+    "epoch_open": true,
+    "acked_mseq": 1,
+    "open_steps": 1,
+    "journaled_steps": 0,
+    "exec_in_flight": true,
+    "persisted_state": "Running",
+    "worker_channel": "open",
+    "notes": "A non-idempotent call is in flight. The restart lands at a tool-call boundary (budgets.md section 4) or after the 60 s boundary deadline; the outcome can only be proven by DSH's own reconcile."
+  },
+  "timeline": [
+    {
+      "at": 0,
+      "event": "write acked; journal dispatched acked",
+      "expect_state": "Running",
+      "source": "Tests/PhoneDSHKillTests/PhoneDSHScenarioOrphanStepTests.swift:321-323"
+    },
+    {
+      "at": 5,
+      "event": "planned restart requested",
+      "detail": "admission closes, the epoch closes exactly once, then the worker restarts",
+      "expect_state": "Recovering",
+      "source": "Tests/PhoneDSHControllerTests/HostStateMachineTests.swift:259-269"
+    },
+    {
+      "at": 15,
+      "event": "replacement Worker sends HELLO with a new boot id",
+      "expect_state": "Recovering",
+      "source": "Tests/PhoneDSHKillTests/PhoneDSHScenarioOrphanStepTests.swift:332-342"
+    },
+    {
+      "at": 25,
+      "event": "host opens the affected session for writing",
+      "detail": "the Worker answers with the terminal resolved(action unknown) record",
+      "source": "Tests/PhoneDSHKillTests/PhoneDSHScenarioOrphanStepTests.swift:328-331"
+    },
+    {
+      "at": 35,
+      "event": "step owned by the write-open",
+      "detail": "state journaled, history is the worker-local path, no settled reason, the reconcile set is empty",
+      "source": "Tests/PhoneDSHKillTests/PhoneDSHScenarioOrphanStepTests.swift:344-351"
+    },
+    {
+      "at": 45,
+      "event": "no settlement event",
+      "source": "Tests/PhoneDSHKillTests/PhoneDSHScenarioOrphanStepTests.swift:352-353"
+    },
+    {
+      "at": 55,
+      "event": "lease verified and admission opened",
+      "detail": "the host is Running with admission open (diagnostics.admission == open)",
+      "expect_state": "Running",
+      "source": "Tests/PhoneDSHKillTests/PhoneDSHScenarioOrphanStepTests.swift:336-342"
+    }
+  ],
+  "expected": {
+    "state": "Running",
+    "state_path": [
+      "Running",
+      "Recovering",
+      "Running"
+    ],
+    "durability_level": "level_2",
+    "wal_tail": "closed_epoch",
+    "journal_gap": "step_reconciled",
+    "surfaced_to_user": "none",
+    "admission": "open",
+    "acked_prefix_preserved": true,
+    "steps_open": 0,
+    "steps_abandoned": 0,
+    "settlement_reason": "absent",
+    "worker_rehello": true,
+    "field_evidence": {
+      "state": "swift-test",
+      "state_path": "swift-test",
+      "durability_level": "swift-source",
+      "wal_tail": "swift-source",
+      "journal_gap": "swift-test",
+      "surfaced_to_user": "swift-test",
+      "admission": "swift-test",
+      "acked_prefix_preserved": "swift-test",
+      "steps_open": "swift-test",
+      "steps_abandoned": "swift-test",
+      "settlement_reason": "swift-test",
+      "worker_rehello": "swift-test"
+    }
+  },
+  "evidence_level": "swift-source",
+  "source": "Tests/PhoneDSHKillTests/PhoneDSHScenarioOrphanStepTests.swift:305-358",
+  "related_sources": [
+    "Tests/PhoneDSHControllerTests/HostStateMachineTests.swift:259-269",
+    "spec/v1/budgets.md:44-46",
+    "spec/v1/wal.md:133-160"
+  ],
+  "notes": "The restart must not fabricate a success result: resolved(action unknown) is the real reconcile projection of an unprovable call. level_2 is the epoch close the D14 edge performs before the restart; a test asserts the close is invoked, the fsync order is wal.md section 5.2."
+}

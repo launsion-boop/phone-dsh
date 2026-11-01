@@ -1,0 +1,18 @@
+{
+  "name": "harness-session-resumed",
+  "schema": "schema/harness-session.schema.json",
+  "instance": {
+    "id": "sess-2f7c",
+    "capabilities": {
+      "cancel": true,
+      "steer": true,
+      "resume": "native",
+      "permission": "native",
+      "client_tools": "none",
+      "tool_visibility": true,
+      "runs_while_app_suspended": true
+    },
+    "last_seq": 8
+  },
+  "notes": "Sources/PhoneDSHAgentCore/AgentHarness.swift:147-163 (id, capabilities, last_seq); a session may narrow the backend's static set, never widen it (AgentHarness.swift:480-482). The DSH remote returns last_seq nil even when it resumes an existing session (DSHRemoteHarness.swift:86), so a host MUST keep its own processed-seq cursor and not treat last_seq as the resume cursor (plan §4.2)."
+}

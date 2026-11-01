@@ -69,6 +69,17 @@
  * whose path is outside the writable roots get one remediation line naming
  * `/dsh/workspace`, `/dsh/home`, `/dsh/tmp` and `TMPDIR`; the error keeps its
  * code and virtual path and is never swallowed.
+ *
+ * ## The read policy's visibility half
+ *
+ * The read policy's other half is that a DSH-internal root is *not listed* by
+ * an execution surface (`ls`, `find`, `du`, `tree`, `compgen`, a glob), while
+ * an explicit `stat`/read of the same path still answers `EACCES` — the
+ * directory exists, so calling it absent would be a false statement. Both
+ * listing methods and `getAllPaths()` therefore ask
+ * `VfsNamespace.execEntryVisible` for every child name; the policy wrapper on
+ * `node:fs.promises` filters the same way, so the answer does not depend on
+ * which of the two faces the caller was handed.
  * @module @phone-dsh/dsh-shell-ext/filesystem
  */
 
@@ -83,6 +94,12 @@ import {
   formatByteLimit,
   singleFileLimitFromEnvironment,
 } from '../../wasi-toolbox/src/limits.ts'
+import {
+  WORKER_VFS_NAMESPACE,
+  engineReservedRoot,
+  isWriteDenied,
+  markWriteDenied,
+} from '../../wasi-toolbox/src/vfs-namespace.ts'
 import { trailerLine } from './contract.ts'
 import type { FileContent, IFileSystem } from 'just-bash/browser'
 
@@ -153,8 +170,19 @@ export const WORKER_TMP_ALIAS: VfsPathAlias = Object.freeze({ from: '/tmp', to: 
 /** The alias table the Worker wiring enables for the virtual root. */
 export const WORKER_PATH_ALIASES: readonly VfsPathAlias[] = Object.freeze([WORKER_TMP_ALIAS])
 
-/** The roots a Worker command may create files under (PLAN D4/D15). */
-export const WORKER_WRITABLE_ROOTS: readonly string[] = Object.freeze(['/dsh/workspace', '/dsh/home', '/dsh/tmp'])
+
+/**
+ * The directory roots a Worker command may create files under, in the
+ * namespace's table order (PLAN D4/D15, `spec/v1/channel.md:259-261`).
+ *
+ * Derived, not restated: a second hand-maintained list is how `/tmp` went
+ * missing from the write-side answer (G2-B). This is the *storage* set — the
+ * same roots the WASI preopen table mounts — so `/dev/null` is absent here;
+ * a write to the device is legal but stores nothing and never reaches
+ * `node:fs`. The full writable set, device included, is
+ * {@link WORKER_VFS_NAMESPACE.writeRoots}.
+ */
+export const WORKER_WRITABLE_ROOTS: readonly string[] = Object.freeze([...WORKER_VFS_NAMESPACE.writableRoots()])
 
 /**
  * Bytes one read of a bounded virtual device returns.
@@ -345,6 +373,16 @@ export interface VfsFileSystemOptions {
    * must not overlap.
    */
   aliases?: readonly VfsPathAlias[]
+  /**
+   * Enforce the namespace's write policy (`assertWritable`) for this adapter.
+   *
+   * Defaults to `true` exactly for the Worker's virtual root (`''`, which is
+   * what `root: '/'` normalises to). A caller that uses the empty root to
+   * address *real host paths* — the git integration tests, desktop simulation
+   * — must pass `false`, because those paths are not Worker roots and the
+   * policy would refuse them. A real-directory root is never policy-enforcing.
+   */
+  writePolicy?: boolean
 }
 
 /** Node error shape the runtime VFS and `node:fs` both use. */
@@ -361,9 +399,17 @@ function isWithin(root: string, path: string): boolean {
   return path === root || path.startsWith(`${root}/`)
 }
 
-/** True when a virtual path is one of the writable Worker roots. */
+/**
+ * True when a virtual path is one of the writable Worker roots.
+ *
+ * The authority is the namespace's root table, not a local list: the same
+ * predicate decides the write guard and the remediation line, so the adapter
+ * can never accept a path the answer says is read-only.
+ * @param path - alias-mapped absolute virtual path.
+ * @returns whether a command may create or change the path.
+ */
 function isWritableRoot(path: string): boolean {
-  return WORKER_WRITABLE_ROOTS.some(root => isWithin(root, path))
+  return WORKER_VFS_NAMESPACE.writable(path)
 }
 
 /**
@@ -633,6 +679,7 @@ function byteLimit(value: number, field: string): number {
  */
 export class VfsFileSystem implements IFileSystem {
   private readonly root: string
+  private readonly writePolicyEnabled: boolean
   private readonly maxFileSizeBytes: number
   private readonly maxFileReadSize: number
   private readonly aliases: readonly VfsPathAlias[]
@@ -656,6 +703,7 @@ export class VfsFileSystem implements IFileSystem {
       throw new TypeError(`VfsFileSystem: root must be absolute or empty, got ${JSON.stringify(root)}`)
     }
     this.root = root === '/' ? '' : root.replace(/\/+$/, '')
+    this.writePolicyEnabled = options.writePolicy ?? (this.root === '')
     const envLimit = options.maxFileSize === undefined ? singleFileLimitFromEnvironment() : undefined
     this.maxFileSizeBytes = byteLimit(options.maxFileSize ?? envLimit ?? MAX_FILE_SIZE, 'maxFileSize')
     this.maxFileReadSize = byteLimit(options.maxFileReadSize ?? this.maxFileSizeBytes, 'maxFileReadSize')
@@ -735,28 +783,96 @@ export class VfsFileSystem implements IFileSystem {
   }
 
   /**
-   * Re-throw a failed write, adding one remediation line when the target is
-   * outside the writable Worker roots.
+   * Re-throw a failed write, labelling a target outside the writable roots as
+   * a policy refusal.
    *
    * The code, syscall and the virtual path are preserved; the original error
-   * becomes the `cause`. Nothing is swallowed and no target is rewritten.
+   * becomes the `cause`. Nothing is swallowed and no target is rewritten. A
+   * refusal that already carries the marker (the namespace wrapper, which is
+   * installed on `node:fs.promises` in the Worker) is re-thrown unchanged
+   * instead of gaining a second label. The remediation sentence is appended by
+   * the shell on the way out (`ExecWriteDenialLog`), never in the thrown text:
+   * just-bash's sanitizer would rewrite the roots list.
    * @param error - error from `node:fs`.
    * @param resolved - the path the adapter resolved.
    */
   private rethrowWrite(error: unknown, resolved: ResolvedVfsPath): never {
     if (!(error instanceof Error)) rethrow(error)
+    if (isWriteDenied(error)) throw error
     const coded = error as CodedError
     const code = coded.code
     if ((code === 'ENOENT' || code === 'EACCES') && !isWritableRoot(resolved.mapped)) {
-      const roots = WORKER_WRITABLE_ROOTS.join(', ')
-      const hint = `pdsh-shell: writable roots are ${roots} (TMPDIR=${WORKER_TMP_ALIAS.to})`
-      throw Object.assign(new Error(`${coded.message}\n${hint}`, { cause: error }), {
-        code,
-        path: resolved.virtual,
-        syscall: coded.syscall,
-      })
+      // The one remediation line travels with the adapter's own rejection so a
+      // caller that never reaches the shell still gets the contract's answer.
+      // Under the shell the thrown text is sanitized (`/home`, `/tmp` become
+      // `<path>`), so `ExecWriteDenialLog` repairs that line on the way out.
+      throw markWriteDenied(Object.assign(
+        new Error(`${coded.message}\n${WORKER_VFS_NAMESPACE.writableRootsLine()}`, { cause: error }),
+        { code, path: resolved.virtual, syscall: coded.syscall },
+      ))
     }
     throw error
+  }
+
+  /**
+   * Refuse a create/change outside the root table before `node:fs` runs.
+   *
+   * The Worker's image (everything outside `/dsh/workspace`, `/dsh/home`,
+   * `/tmp`, `/dsh/tmp`) is read-only: `/dsh/config/**`, `/dsh/bin/**`, `/`
+   * and `/etc/**` are image paths, not writable roots. In production the
+   * `node:fs.promises` face is already policy-wrapped by
+   * {@link installExecFsPolicy}; this check is the adapter's own gate, so the
+   * answer does not depend on which face a build injected and the synchronous
+   * write path is covered too. It reuses P2's answer
+   * ({@link VfsNamespace.writeDenial}) instead of inventing a third wording;
+   * only the errno line is thrown, the sentence is rendered on the way out.
+   * @param resolved - the path the adapter resolved.
+   * @param syscall - node syscall name for the errno sentence.
+   * @throws {CodedError} `EACCES` marked as a write-policy refusal.
+   */
+  private assertWritable(resolved: ResolvedVfsPath, syscall: string): void {
+    // Only the Worker's virtual root carries the policy. The two desktop
+    // modes — a real-directory root, and the empty root used to address real
+    // host paths — keep verbatim POSIX behaviour, exactly like the read-side
+    // gate, so a simulation writing `/work` or a host temp path is not refused
+    // by a contract it is not running under.
+    if (!this.writePolicyEnabled) return
+    const denial = WORKER_VFS_NAMESPACE.writeDenial(resolved.virtual, syscall)
+    if (denial === undefined) return
+    const errnoLine = denial.slice(0, denial.indexOf('\n'))
+    throw markWriteDenied(Object.assign(new Error(errnoLine), {
+      code: 'EACCES',
+      path: resolved.virtual,
+      syscall,
+    }))
+  }
+
+  /**
+   * Refuse a write into the shell engine's private mount point as `ENOENT`.
+   *
+   * `/dev/fd/**` belongs to the shell engine, not to the namespace: just-bash
+   * probes the active filesystem with a descriptor write and installs its
+   * private in-memory `/dev/fd` only when that write fails — the failure is
+   * the mount trigger. Answering the plain `ENOENT` a missing path answers
+   * (and storing nothing) is what lets the mount happen.
+   *
+   * A write-policy refusal would be wrong twice over: it is not a policy
+   * answer, and the shell renders every recorded refusal at the end, so the
+   * recovered probe would turn a working `diff <(...) <(...)` into exit 1
+   * with the writable-roots sentence on stderr. The check runs before
+   * {@link assertWritable}, so it holds whether or not this adapter carries
+   * the policy (the golden harness uses a real-directory root without it).
+   * @param resolved - the path the adapter resolved.
+   * @param syscall - node syscall name for the errno sentence.
+   * @throws {CodedError} `ENOENT`, unmarked, when the path is engine-reserved.
+   */
+  private assertNotEngineReserved(resolved: ResolvedVfsPath, syscall: string): void {
+    if (engineReservedRoot(resolved.virtual) === undefined) return
+    throw Object.assign(new Error(`ENOENT: no such file or directory, ${syscall} '${resolved.virtual}'`), {
+      code: 'ENOENT',
+      path: resolved.virtual,
+      syscall,
+    })
   }
 
   /**
@@ -896,7 +1012,15 @@ export class VfsFileSystem implements IFileSystem {
       this.commandDirectories = directories
       return
     }
-    writeFileSyncNode(this.toReal(path), data, options)
+    // Past the synthetic command table this is an ordinary image write: the
+    // root table decides. just-bash's own `/bin`/`/usr/bin` registrations
+    // returned above and are never affected.
+    const resolved = this.resolve(path)
+    // A sync descriptor write is the same engine-owned path as the async one:
+    // absent, never a policy refusal.
+    this.assertNotEngineReserved(resolved, 'open')
+    this.assertWritable(resolved, 'open')
+    writeFileSyncNode(resolved.real, data, options)
   }
 
   /** Names in a synthetic command directory, or undefined for any other path. */
@@ -1051,6 +1175,14 @@ export class VfsFileSystem implements IFileSystem {
     if (this.isDevice(path)) return
     const encoding = encodingOf(options)
     const resolved = this.resolve(path)
+    // `/dev/fd/**` is the engine's private mount point, not namespace storage:
+    // it answers `ENOENT` (the trigger just-bash mounts on), never a policy
+    // refusal. See {@link assertNotEngineReserved}.
+    this.assertNotEngineReserved(resolved, 'open')
+    // The root table is the write authority: an image path is refused before
+    // the budget is even consulted, so `/dsh/config/x` and `/dsh/bin/x` answer
+    // the contract's one `EACCES`, not a backend ENOENT (G2-B).
+    this.assertWritable(resolved, 'open')
     // A complete write stores exactly this content; refuse it here so the
     // runtime VFS never publishes an over-limit mutation (D4).
     const bytes = contentByteLength(content, encoding)
@@ -1066,6 +1198,8 @@ export class VfsFileSystem implements IFileSystem {
     if (this.isDevice(path)) return
     const encoding = encodingOf(options)
     const resolved = this.resolve(path)
+    this.assertNotEngineReserved(resolved, 'open')
+    this.assertWritable(resolved, 'open')
     // Two appends to the same target must not both pass the size check and
     // then jointly cross the limit: the stat and the write are one critical
     // section per real path. (A post-write check would be too late — the VFS
@@ -1130,6 +1264,62 @@ export class VfsFileSystem implements IFileSystem {
     }
   }
 
+  /**
+   * The `EACCES` answer an execution surface must give for one virtual path,
+   * or undefined when the shell may read it (`channel.md` §VFS).
+   *
+   * The read policy is enforced below this adapter (the Worker patches
+   * `node:fs.promises`), but a command that formats its own diagnostic cannot
+   * see the code: just-bash's built-in `ls`/`cat` render *every* read failure
+   * as "No such file or directory", which reports a policy denial as absence
+   * and contradicts what `python3` answers for the same path. Commands that
+   * want the contract's single answer ask this adapter before they delegate.
+   *
+   * Only the Worker's virtual root carries the policy: a real-directory root
+   * (desktop simulation, unit tests) keeps verbatim POSIX behaviour, exactly
+   * like the `node:fs.promises` patch, which only lives in the Worker.
+   * @param path - absolute virtual path the command is about to read.
+   * @returns the denial message, or undefined when the read is allowed.
+   */
+  execReadDenial(path: string): string | undefined {
+    if (this.root !== '') return undefined
+    let mapped: string
+    try {
+      mapped = this.resolve(path).mapped
+    } catch {
+      return undefined
+    }
+    return WORKER_VFS_NAMESPACE.execReadDenial(mapped)
+  }
+
+  /**
+   * Whether a listing of `directory` may name the entry `name`.
+   *
+   * The visibility half of the read policy (`channel.md` §VFS): a direct child
+   * of a DSH-internal root is not listed, while an explicit `stat`/read of the
+   * same path still answers `EACCES` through the guard below. This adapter is
+   * the shell's whole `IFileSystem`, so applying the rule here covers every
+   * built-in and custom command, the glob engine and the whole-tree
+   * `getAllPaths()` walk with one predicate — and it holds for a face that the
+   * Worker policy wrapper did not build (the immutable-fork capture, a test).
+   *
+   * Like {@link execReadDenial}, only the Worker's virtual root carries the
+   * policy: a real-directory root keeps verbatim POSIX behaviour.
+   * @param directory - absolute virtual directory being listed.
+   * @param name - one entry name the backend returned.
+   * @returns false for a DSH-internal direct child.
+   */
+  private listsEntry(directory: string, name: string): boolean {
+    if (this.root !== '') return true
+    let mapped: string
+    try {
+      mapped = this.resolve(directory).mapped
+    } catch {
+      return true
+    }
+    return WORKER_VFS_NAMESPACE.execEntryVisible(mapped, name)
+  }
+
   async stat(path: string): Promise<FsStat> {
     if (this.isDevice(path)) return this.deviceStat(path)
     if (this.virtualDirectory(path) !== undefined) return this.commandDirectoryStat()
@@ -1147,6 +1337,7 @@ export class VfsFileSystem implements IFileSystem {
   async mkdir(path: string, options?: MkdirOptions): Promise<void> {
     if (this.isDevice(path)) throw errno('EEXIST', 'device file already exists', path)
     const resolved = this.resolve(path)
+    this.assertWritable(resolved, 'mkdir')
     try {
       await this.nodeFs.mkdir(resolved.real, options)
     } catch (error) {
@@ -1157,6 +1348,7 @@ export class VfsFileSystem implements IFileSystem {
   async createExclusive(path: string, options: CreateExclusiveOptions): Promise<void> {
     if (this.isDevice(path)) throw errno('EEXIST', 'device file already exists', path)
     const resolved = this.resolve(path)
+    this.assertWritable(resolved, options.directory === true ? 'mkdir' : 'open')
     try {
       if (options.directory === true) await this.nodeFs.mkdir(resolved.real, { mode: options.mode })
       else await this.nodeFs.writeFile(resolved.real, new Uint8Array(0), { flag: 'wx', mode: options.mode })
@@ -1169,7 +1361,8 @@ export class VfsFileSystem implements IFileSystem {
     if (this.isDevice(path)) throw errno('ENOTDIR', 'not a directory', path)
     const synthetic = this.virtualDirectory(path)
     if (synthetic !== undefined) return [...synthetic]
-    return await this.nodeFs.readdir(this.toReal(path)) as string[]
+    const names = await this.nodeFs.readdir(this.toReal(path)) as string[]
+    return names.filter(name => this.listsEntry(path, name))
   }
 
   async readdirWithFileTypes(path: string): Promise<DirentEntry[]> {
@@ -1179,7 +1372,7 @@ export class VfsFileSystem implements IFileSystem {
       return synthetic.map(name => ({ name, isFile: true, isDirectory: false, isSymbolicLink: false }))
     }
     const entries = await this.nodeFs.readdir(this.toReal(path), { withFileTypes: true }) as VfsDirentLike[]
-    return entries.map(entry => ({
+    return entries.filter(entry => this.listsEntry(path, entry.name)).map(entry => ({
       name: entry.name,
       isFile: entry.isFile(),
       isDirectory: entry.isDirectory(),
@@ -1190,6 +1383,8 @@ export class VfsFileSystem implements IFileSystem {
   async rm(path: string, options?: RmOptions): Promise<void> {
     if (this.isDevice(path)) throw errno('EPERM', 'cannot remove a virtual device', path)
     const real = this.toReal(path)
+    // Removing is a mutation too: `rm -rf /dsh/bin` must not delete the image.
+    this.assertWritable(this.resolve(path), 'rm')
     const recursive = options?.recursive === true
     const force = options?.force === true
     try {
@@ -1237,6 +1432,10 @@ export class VfsFileSystem implements IFileSystem {
       await this.nodeFs.writeFile(this.toReal(dest), bytes)
       return
     }
+    // A copy only reads the source, so the source may be an image path; the
+    // destination is the mutation and must be one of the writable roots.
+    // Device destinations returned above: they are adapter-level sinks.
+    this.assertWritable(this.resolve(dest), 'open')
     // A copied regular file is a whole-file write at the destination; refuse a
     // source that cannot fit one D4 mutation before `cp` starts streaming it.
     const source = await this.nodeFs.stat(this.toReal(src))
@@ -1250,6 +1449,9 @@ export class VfsFileSystem implements IFileSystem {
     if (this.isDevice(src) || this.isDevice(dest)) {
       throw errno('EPERM', 'cannot move a virtual device', this.isDevice(src) ? src : dest)
     }
+    // A move removes the source: neither end may be an image path.
+    this.assertWritable(this.resolve(src), 'rename')
+    this.assertWritable(this.resolve(dest), 'rename')
     await this.nodeFs.rename(this.toReal(src), this.toReal(dest))
   }
 
@@ -1257,6 +1459,7 @@ export class VfsFileSystem implements IFileSystem {
     // A device's mode is virtual and fixed; forwarding would hit `node:fs`.
     if (this.isDevice(path)) return
     if (this.virtualEntry(path) !== undefined || this.virtualDirectory(path) !== undefined) return
+    this.assertWritable(this.resolve(path), 'chmod')
     await this.nodeFs.chmod(this.toReal(path), mode)
   }
 
@@ -1268,6 +1471,7 @@ export class VfsFileSystem implements IFileSystem {
     if (this.isDevice(existingPath) || this.isDevice(newPath)) {
       throw errno('EPERM', 'cannot hard-link a virtual device', this.isDevice(existingPath) ? existingPath : newPath)
     }
+    this.assertWritable(this.resolve(newPath), 'link')
     await this.nodeFs.link(this.toReal(existingPath), this.toReal(newPath))
   }
 
@@ -1285,6 +1489,7 @@ export class VfsFileSystem implements IFileSystem {
     // The runtime VFS keeps mtimes virtual and its `node:fs` face has no
     // `utimes`; a timestamp update is a no-op there rather than a hard error.
     if (this.nodeFs.utimes === undefined) return
+    this.assertWritable(this.resolve(path), 'utimes')
     try {
       await this.nodeFs.utimes(this.toReal(path), atime, mtime)
     } catch (error) {
@@ -1309,6 +1514,9 @@ export class VfsFileSystem implements IFileSystem {
         return
       }
       for (const entry of entries) {
+        // A hidden entry is not pushed *and* not descended into: the walk is a
+        // listing, so it answers the same visibility question as `readdir`.
+        if (!this.listsEntry(virtual, entry.name)) continue
         const child = posix.join(virtual, entry.name)
         paths.push(child)
         if (entry.isDirectory()) walk(child)

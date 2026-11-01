@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: MIT -->
+<!--
+  Background execution surface for :dsh (plan §7.2, §7.4, §7.7, §7.9).
+
+  Permissions:
+    FOREGROUND_SERVICE + FOREGROUND_SERVICE_DATA_SYNC
+        the dataSync fallback channel (below Android 14 it is the only channel).
+    RUN_USER_INITIATED_JOBS
+        Android 14+ UIDT. Without it JobScheduler.schedule throws SecurityException.
+    WAKE_LOCK
+        declared per plan §7.7. The services themselves do not acquire a wakelock
+        (UIDT manages one; a dataSync FGS is not kept alive by a wakelock hack). A
+        future turn runtime that needs to hold the CPU across a synchronous
+        checkpoint acquires it with a timeout, never indefinitely.
+    POST_NOTIFICATIONS
+        runtime permission from Android 13. Denied => no progress notification =>
+        UIDT is not used and the turn stays foreground-only
+        (whitelist platform.post-notifications-degraded).
+    RECEIVE_BOOT_COMPLETED
+        required by BootReceiver, which only posts guidance (plan §7.4-3).
+
+  Deliberately absent: REQUEST_IGNORE_BATTERY_OPTIMIZATIONS. Plan §7.5 draws the
+  Play policy line: guide the user through ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS
+  instead of requesting the exemption.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.RUN_USER_INITIATED_JOBS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <application>
+        <!--
+          dataSync fallback. android:stopWithTask="true" is an explicit decision,
+          not the platform default:
+            * removing the task is the most common user gesture (plan §7.10-B10④),
+              and with stopWithTask="true" the platform guarantees the service is
+              stopped instead of leaving an invisible background window after the
+              user thinks the app is gone;
+            * the stop arrives as an onDestroy callback, so the tombstone reason and
+              the durable marker are accurate, unlike the Task Manager's zero-
+              callback Stop;
+            * "the turn is still running" remains visible through the notification
+              for anyone who merely switched apps (switching apps does not remove
+              the task).
+          The service still implements onTaskRemoved as a defensive path for ROMs
+          that call it before stopping (see TurnForegroundService).
+        -->
+        <service
+            android:name=".background.TurnForegroundService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="dataSync"
+            android:stopWithTask="true" />
+
+        <!--
+          UIDT (Android 14+). BIND_JOB_SERVICE is required by JobScheduler and makes
+          the service unexported to other apps; the system binds it.
+        -->
+        <service
+            android:name=".background.TurnJobService"
+            android:enabled="true"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
+
+        <!-- The notification's stop action: same entry point for both channels. -->
+        <receiver
+            android:name=".background.TurnStopReceiver"
+            android:enabled="true"
+            android:exported="false" />
+
+        <!--
+          Posts guidance only; never starts a foreground service or resumes a turn
+          (Android 15 forbids BOOT_COMPLETED from starting a dataSync FGS). The
+          broadcast is protected, so exported="false" still receives it from the
+          system and no other app can trigger it.
+        -->
+        <receiver
+            android:name=".background.BootReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+    </application>
+
+</manifest>

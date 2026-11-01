@@ -1,0 +1,16 @@
+{
+  "intent": "rejected",
+  "reason": "被拒原因：os-forced 条目的 android_mechanism 写成「平台相关」，既不是 API 名也不可机械审计。方案 §5.2 要求白名单机器可读，这类空话等于没有出处。",
+  "entry": {
+    "id": "golden.vague-mechanism",
+    "capability": "engine.page-load",
+    "ios": "WKWebView 在 iOS 上加载页面",
+    "android": "按平台相关的方式加载页面",
+    "divergence_class": "os-forced",
+    "rationale": "这是一个反例：android_mechanism 必须是具体 API 名，不能写成平台相关的空话，否则 checker 与评审都无法复核，条目也就失去登记价值。",
+    "spec_ref": "spec/v1/render-media-v1.md §B.3",
+    "android_mechanism": "平台相关",
+    "evidence_level": "spec-only",
+    "baseline": "Sources/PhoneDSHEngine/PageSchemeHandler.swift"
+  }
+}

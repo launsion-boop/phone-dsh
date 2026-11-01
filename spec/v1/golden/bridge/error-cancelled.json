@@ -1,0 +1,35 @@
+{
+  "name": "error-cancelled",
+  "direction": "sequence",
+  "schema": "bridge-message.schema.json",
+  "instance": [
+    {
+      "direction": "page-to-host",
+      "instance": {
+        "v": 1,
+        "kind": "request",
+        "requestId": "9d4f1a86-3b27-4e59-8c01-6a2d5f8b3c70",
+        "method": "directory.pick",
+        "params": {
+          "sessionId": "sess-8f21c4",
+          "targetDirectory": "/dsh/workspace/imports"
+        }
+      }
+    },
+    {
+      "direction": "host-to-page",
+      "instance": {
+        "v": 1,
+        "kind": "error",
+        "requestId": "9d4f1a86-3b27-4e59-8c01-6a2d5f8b3c70",
+        "method": "directory.pick",
+        "error": {
+          "code": "BRIDGE_CANCELLED",
+          "message": "a newer request replaced this one",
+          "retryable": false
+        }
+      }
+    }
+  ],
+  "notes": "bridge.md §7; supersede cancels the older request exactly once and the existing code skips the report when the id was reused, Sources/PhoneDSHEngine/WebEngineNativePreview.swift:656-667 with the code at :164."
+}

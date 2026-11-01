@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: MIT -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- The turn lane boots the real worker page and binds two loopback HTTP
+         fixtures in this process; both need the network permission, and the
+         page's origin is cleartext http on 127.0.0.1. Same two declarations as
+         :engine's instrumented APK, for the same two reasons. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <application android:networkSecurityConfig="@xml/pdsh_test_network_security_config" />
+</manifest>

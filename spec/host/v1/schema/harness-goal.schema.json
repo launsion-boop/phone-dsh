@@ -1,0 +1,74 @@
+{
+  "title": "HarnessGoal",
+  "description": "The session's current goal projection. A goal is optional per session; the host renders objective/phase and counts rounds. blocked_reason is required exactly when phase is blocked.",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": [
+        "objective",
+        "phase",
+        "rounds_started",
+        "max_goal_rounds"
+      ],
+      "properties": {
+        "objective": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        },
+        "phase": {
+          "type": "string",
+          "enum": [
+            "active",
+            "paused",
+            "complete"
+          ]
+        },
+        "rounds_started": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "max_goal_rounds": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "objective",
+        "phase",
+        "blocked_reason",
+        "rounds_started",
+        "max_goal_rounds"
+      ],
+      "properties": {
+        "objective": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        },
+        "phase": {
+          "const": "blocked"
+        },
+        "blocked_reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        },
+        "rounds_started": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "max_goal_rounds": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    }
+  ]
+}
+

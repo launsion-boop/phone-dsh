@@ -27,8 +27,8 @@ import { defineCommand } from 'just-bash/browser'
 import type { Command } from 'just-bash/browser'
 import { currentToolCall, deriveIdemKey } from '@phone-dsh/dsh-exec-bridge'
 import { byteStringOutput, byteStringToBytes, bytesToByteString, concatBytes, decodeUtf8 } from './encoding.ts'
+import { appendShellTrailer, SHELL_MANIFEST_PATH, SHELL_REASON_EXIT } from './contract.ts'
 import type { ExecClient, ExecEvent, ExecRequest, Hello, IdemKeyFacts, ToolCallContext } from '@phone-dsh/dsh-exec-bridge'
-import { phoneProviderFailure } from './phone-errors.ts'
 
 /** One accelerator invocation as just-bash sees it. */
 export interface AcceleratorRequest {
@@ -54,8 +54,6 @@ export interface AcceleratorResult {
   readonly stderr: string
   readonly exitCode: number
   readonly signal?: string | null | undefined
-  readonly providerCode?: string
-  readonly providerMessage?: string
 }
 
 /** The dispatcher the command definitions forward to. */
@@ -88,14 +86,6 @@ export interface ExecBridgeAcceleratorOptions {
 export function advertisedAccelerators(hello: Pick<Hello, 'capabilities'>): string[] {
   const names = hello.capabilities.accelerators ?? []
   return [...new Set(names.filter((name): name is string => typeof name === 'string' && name !== ''))]
-}
-
-/** Stable, call-scoped identity bounded by the host's 64-character exec_id. */
-export function acceleratorExecID(idemKey: string, sequence: number): string {
-  if (!/^[0-9a-f]{64}$/u.test(idemKey)) throw new Error('accelerator exec_id needs a sha256 idem_key')
-  if (!Number.isSafeInteger(sequence) || sequence < 0) throw new Error('accelerator sequence is invalid')
-  const suffix = `-a${String(sequence)}`
-  return `${idemKey.slice(0, 64 - suffix.length)}${suffix}`
 }
 
 /**
@@ -135,10 +125,11 @@ export function createExecBridgeAccelerators(options: ExecBridgeAcceleratorOptio
       if (!Number.isSafeInteger(requiresMseq) || requiresMseq < 0) {
         throw new Error(`accelerator requires_mseq ${String(requiresMseq)} is outside the JSON safe-integer range`)
       }
-      // A process-local sequence restarts at zero on a Worker rebuild. Derive
-      // the persistent identity from idem_key so unrelated calls cannot reuse
-      // an exec_id already owned by the host ledger.
-      const execId = acceleratorExecID(idemKey, sequence++)
+      // D6 bounds the host wire id to 64 characters. Keep the `-aN` sequence
+      // suffix intact and shorten only the prefix when the identity is long.
+      const prefix = identity.key !== undefined && identity.key !== '' ? identity.key : 'xl'
+      const suffix = `-a${String(sequence++)}`
+      const execId = `${prefix.length + suffix.length <= 64 ? prefix : prefix.slice(0, 64 - suffix.length)}${suffix}`
       const execRequest: ExecRequest = {
         exec_id: execId,
         argv: [...request.argv],
@@ -174,13 +165,12 @@ export function createExecBridgeAccelerators(options: ExecBridgeAcceleratorOptio
             exit = event
             break
           } else if (event.type === 'error') {
-            return {
-              stdout: bytesToByteString(concatBytes(stdout)),
-              stderr: `${stderr}${event.code}: ${event.message}\n`,
-              exitCode: 1,
-              providerCode: event.code,
-              providerMessage: event.message,
-            }
+            return hostRefusal(
+              request.argv,
+              event,
+              bytesToByteString(concatBytes(stdout)),
+              stderr,
+            )
           }
         }
       } catch (error) {
@@ -198,6 +188,100 @@ export function createExecBridgeAccelerators(options: ExecBridgeAcceleratorOptio
       return { stdout: bytesToByteString(concatBytes(stdout)), stderr, exitCode: exit.code ?? 1, signal: exit.signal }
     },
   }
+}
+
+/** The accelerator whose *tool* surface the host app owns (`exec.md` §3). */
+const PHONE_ACCELERATOR = 'phone'
+
+/** exec.md §3: the host started no execution for this request. */
+const HOST_REFUSED = 'unsupported'
+
+/** Longest host sentence the shell repeats back inside one stderr line. */
+const HOST_DETAIL_MAX_CHARS = 160
+
+/**
+ * Render an argv word inside stderr without letting it forge a trailer line.
+ *
+ * A tool name is model-supplied: a raw newline plus `pdsh-shell: exit=…` would
+ * otherwise be parsed as the contract trailer and suppress the real one, so
+ * anything outside the bare-name alphabet is JSON-quoted (which escapes every
+ * newline) and bounded.
+ * @param word - one argv element.
+ * @returns a single-line, trailer-safe spelling.
+ */
+function stderrWord(word: string): string {
+  return /^[A-Za-z0-9._+-]{1,64}$/u.test(word) ? word : JSON.stringify(word.slice(0, 64))
+}
+
+/**
+ * Collapse a host-supplied message into one stderr line.
+ *
+ * The text is trusted (the host tool contract forbids argv and file content in
+ * it), but a raw newline would still let it start a line that a reader could
+ * take for a trailer, so it is flattened and bounded.
+ * @param message - the terminal event's message.
+ * @returns one line, or `''` when the host said nothing usable.
+ */
+function hostDetail(message: string): string {
+  const text = message
+    .replace(/[\r\n\t]+/gu, ' ')
+    // The shell already states that nothing ran; a host sentence that ends the
+    // same way must not make the line say it twice.
+    .replace(/[;,]?\s*nothing executed\.?\s*$/iu, '')
+    .trim()
+  if (text === '') return ''
+  return text.length <= HOST_DETAIL_MAX_CHARS ? text : `${text.slice(0, HOST_DETAIL_MAX_CHARS - 3)}...`
+}
+
+/**
+ * Turn one terminal `error` event into the result the shell sees.
+ *
+ * `exec.md` §3 gives `unsupported` exactly one meaning: the host started no
+ * execution. For `phone` the refused unit is a single *tool* the host does not
+ * provide, so the shell answers the contract's `not-available` kind (exit 127)
+ * naming that tool and pointing at the capability manifest — instead of
+ * forwarding a backend-shaped code the model cannot act on. The host's own
+ * detail is kept: after the ExecBridge fix it says which shape it refused
+ * (`only `phone info` is implemented`), and that is the most useful sentence
+ * the model can get. Every other accelerator keeps the host's own code and
+ * message: those describe a program the Worker does serve.
+ * @param argv - the accelerator argv the host answered.
+ * @param event - the terminal error event.
+ * @param stdout - stdout collected before the event (a latin1 byte string).
+ * @param stderr - stderr collected before the event.
+ * @returns the shell-visible result.
+ */
+function hostRefusal(
+  argv: readonly string[],
+  event: { readonly code: string; readonly message: string },
+  stdout: string,
+  stderr: string,
+): AcceleratorResult {
+  if (argv[0] === PHONE_ACCELERATOR && event.code === HOST_REFUSED) {
+    const tool = argv[1]
+    const subject = tool === undefined
+      ? PHONE_ACCELERATOR
+      : `${PHONE_ACCELERATOR}: ${stderrWord(tool)}`
+    const detail = hostDetail(event.message)
+    const what = detail === ''
+      ? 'this host does not provide that phone tool'
+      : `this host does not provide that phone tool (host: ${detail})`
+    const exitCode = SHELL_REASON_EXIT['not-available']
+    return {
+      stdout,
+      stderr: appendShellTrailer(
+        `${stderr}${subject}: ${what}; nothing executed\n`,
+        {
+          exitCode,
+          program: PHONE_ACCELERATOR,
+          reason: 'not-available',
+          hint: `the host app owns the phone tool surface; see ${SHELL_MANIFEST_PATH}`,
+        },
+      ),
+      exitCode,
+    }
+  }
+  return { stdout, stderr: `${stderr}${event.code}: ${event.message}\n`, exitCode: 1 }
 }
 
 /**
@@ -218,12 +302,6 @@ export function createAcceleratorCommands(host: AcceleratorHost): Command[] {
     const stdin = ctx.stdin === undefined ? '' : ctx.stdin as unknown as string
     try {
       const result = await host.exec({ argv: [name, ...args], cwd: ctx.cwd, env, stdin, signal: ctx.signal })
-      if (name === 'phone') {
-        const failure = phoneProviderFailure(args[0], result)
-        if (failure !== undefined) {
-          return { ...byteStringOutput(failure), stderr: '', exitCode: result.exitCode }
-        }
-      }
       return { ...byteStringOutput(result.stdout), stderr: result.stderr, exitCode: result.exitCode }
     } catch (error) {
       return {

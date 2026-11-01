@@ -1,0 +1,30 @@
+{
+  "id": "gw-egress-005",
+  "rule": "egress-classification",
+  "kind": "request",
+  "source": "Sources/PhoneDSHGateway/GatewaySession.swift:66",
+  "references": [
+    "Tests/PhoneDSHGatewayTests/GatewayHostRuleWildcardTests.swift:28"
+  ],
+  "note": "An explicit port entry compares the effective port, so the same host on another port is a different entry.",
+  "input": {
+    "method": "GET",
+    "url": "http://127.0.0.1:7862/v1/file",
+    "headers": {
+      "accept": "application/json"
+    },
+    "allowlist": [
+      "127.0.0.1:7861"
+    ],
+    "credential": {
+      "kind": "none"
+    }
+  },
+  "expect": {
+    "dispatch": "deny",
+    "outbound_headers": {},
+    "stripped": [],
+    "outbound_url": "",
+    "deny_reason": "host_not_allowed"
+  }
+}

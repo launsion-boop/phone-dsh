@@ -1,0 +1,532 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "ModelProviderSettingsPage",
+  "pageId": "model-provider-settings",
+  "structure": "swiftui-view",
+  "sectionModel": "section",
+  "sectionNote": null,
+  "title": {
+    "text": "模型服务",
+    "provenance": "ModelProviderSettingsPage.swift:61",
+    "anchor": ".navigationTitle(\"模型服务\")"
+  },
+  "source": {
+    "file": "ModelProviderSettingsPage.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/ModelProviderSettingsPage.swift",
+    "lines": 670,
+    "structLine": 37,
+    "renderedFrom": [
+      "body",
+      "profilesSection",
+      "profileRow",
+      "keyBadge",
+      "actionsSection",
+      "restartSection"
+    ],
+    "sectionOrder": "declaration order inside the page struct"
+  },
+  "android": {
+    "screen": "ModelProviderSettingsPage",
+    "file": "android/lib/src/main/kotlin/com/phonedsh/ui/page/ModelProviderSettingsPage.kt",
+    "match": "composable"
+  },
+  "sections": [
+    {
+      "id": "服务",
+      "title": "服务",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "header",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "尚未配置模型服务",
+          "label": "尚未配置模型服务",
+          "labelExpr": null,
+          "kind": "empty",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "snapshot.profiles.isEmpty",
+          "provenance": "ModelProviderSettingsPage.swift:89",
+          "anchor": "ContentUnavailableView(\"尚未配置模型服务\",",
+          "extraction": "syntax"
+        },
+        {
+          "id": "模型服务",
+          "label": "模型服务",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": false,
+          "condition": "!(snapshot.profiles.isEmpty)",
+          "provenance": "ModelProviderSettingsPage.swift:115",
+          "anchor": "Text(profile.displayName.isEmpty ? \"模型服务\" : profile.displayName)",
+          "extraction": "syntax",
+          "collection": "snapshot.profiles"
+        }
+      ],
+      "provenance": "ModelProviderSettingsPage.swift:98",
+      "anchor": "Text(\"服务\")",
+      "extraction": "syntax",
+      "hasHeader": true,
+      "footer": {
+        "text": null,
+        "labelExpr": "errorText",
+        "provenance": "ModelProviderSettingsPage.swift:101",
+        "anchor": "Text(errorText).foregroundStyle(.red)"
+      }
+    },
+    {
+      "id": "section-191",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "absent",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "添加模型服务",
+          "label": "添加模型服务",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "ModelProviderSettingsPage.swift:196",
+          "anchor": "Label(\"添加模型服务\", systemImage: \"plus.circle\")",
+          "extraction": "syntax"
+        },
+        {
+          "id": "编辑默认服务",
+          "label": "编辑默认服务",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": false,
+          "condition": "let selected = snapshot.selected",
+          "provenance": "ModelProviderSettingsPage.swift:202",
+          "anchor": "Label(\"编辑默认服务\", systemImage: \"slider.horizontal.3\")",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "ModelProviderSettingsPage.swift:191",
+      "anchor": "Section {",
+      "extraction": "syntax",
+      "criterion": {
+        "kind": "first-clickable-row",
+        "label": "添加模型服务",
+        "provenance": "ModelProviderSettingsPage.swift:196"
+      },
+      "footer": {
+        "text": null,
+        "labelExpr": "notice",
+        "provenance": "ModelProviderSettingsPage.swift:207",
+        "anchor": "Text(notice).foregroundStyle(.green)"
+      }
+    },
+    {
+      "id": "生效方式",
+      "title": "生效方式",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "literal",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "text-221",
+          "label": null,
+          "labelExpr": "restartHint",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "ModelProviderSettingsPage.swift:221",
+          "anchor": "Label(restartHint, systemImage: \"arrow.clockwise\")",
+          "extraction": "manual"
+        }
+      ],
+      "provenance": "ModelProviderSettingsPage.swift:220",
+      "anchor": "Section(\"生效方式\") {",
+      "extraction": "syntax"
+    }
+  ],
+  "actions": [
+    {
+      "id": "模型服务",
+      "label": "模型服务",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": null,
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "ModelProviderSettingsPage.swift:115",
+      "anchor": "Text(profile.displayName.isEmpty ? \"模型服务\" : profile.displayName)",
+      "extraction": "syntax"
+    },
+    {
+      "id": "添加模型服务",
+      "label": "添加模型服务",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ editingIsNew = true editingProfile = ProviderProfile(id: \"\", displayName: \"\", baseURL: \"https://api.deepseek.com/anthropic\", model: \"deepseek-flash\")",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "ModelProviderSettingsPage.swift:196",
+      "anchor": "Label(\"添加模型服务\", systemImage: \"plus.circle\")",
+      "extraction": "syntax",
+      "labelAlternatives": [],
+      "presents": "sheet-65"
+    },
+    {
+      "id": "编辑默认服务",
+      "label": "编辑默认服务",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ edit(selected)",
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "ModelProviderSettingsPage.swift:202",
+      "anchor": "Label(\"编辑默认服务\", systemImage: \"slider.horizontal.3\")",
+      "extraction": "syntax",
+      "labelAlternatives": []
+    },
+    {
+      "id": "删除-profile-displayname",
+      "label": "删除 {profile.displayName}",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ delete(profile)",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "ModelProviderSettingsPage.swift:79",
+      "anchor": "Button(\"删除 \\(profile.displayName)\", role: .destructive) { delete(profile) }",
+      "extraction": "syntax",
+      "dynamicLabel": true
+    },
+    {
+      "id": "取消",
+      "label": "取消",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{",
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "ModelProviderSettingsPage.swift:80",
+      "anchor": "Button(\"取消\", role: .cancel) {}",
+      "extraction": "syntax"
+    },
+    {
+      "id": "删除",
+      "label": "删除",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "swipe",
+      "semantic": "{ pendingDelete = profile",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "ModelProviderSettingsPage.swift:152",
+      "anchor": "Label(\"删除\", systemImage: \"trash\")",
+      "extraction": "syntax",
+      "presents": "confirmationDialog-75"
+    },
+    {
+      "id": "编辑",
+      "label": "编辑",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "swipe",
+      "semantic": "{ edit(profile)",
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "ModelProviderSettingsPage.swift:156",
+      "anchor": "Label(\"编辑\", systemImage: \"pencil\")",
+      "extraction": "syntax"
+    },
+    {
+      "id": "启动本地引擎",
+      "label": "启动本地引擎",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ Task { await model.start() }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "ModelProviderSettingsPage.swift:227",
+      "anchor": "Button(\"启动本地引擎\") { Task { await model.start() } }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "重启-web-主机以应用配置",
+      "label": "重启 Web 主机以应用配置",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ Task { if web.state == .failed { await web.start() // serialized userReset path } else { await web.restartForConfigurationChange() } }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "ModelProviderSettingsPage.swift:231",
+      "anchor": "Button(\"重启 Web 主机以应用配置\") {",
+      "extraction": "syntax"
+    },
+    {
+      "id": "启动-web-主机",
+      "label": "启动 Web 主机",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ Task { await web.start() }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "ModelProviderSettingsPage.swift:241",
+      "anchor": "Button(\"启动 Web 主机\") { Task { await web.start() } }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "推理强度",
+      "label": "推理强度",
+      "labelExpr": null,
+      "kind": "picker",
+      "trigger": "tap",
+      "semantic": null,
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "ModelProviderSettingsPage.swift:384",
+      "anchor": "Picker(\"推理强度\", selection: Binding(",
+      "extraction": "syntax",
+      "items": [
+        "推理强度",
+        "默认"
+      ],
+      "style": "default",
+      "presentedBy": "sheet-65"
+    },
+    {
+      "id": "从剪贴板导入",
+      "label": "从剪贴板导入",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ if let value = UIPasteboard.general.string?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty { apiKey = value removeStoredKey = false }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "ModelProviderSettingsPage.swift:411",
+      "anchor": "Button(\"从剪贴板导入\") {",
+      "extraction": "syntax",
+      "labelAlternatives": [],
+      "presentedBy": "sheet-65"
+    },
+    {
+      "id": "删除已保存的密钥",
+      "label": "删除已保存的密钥",
+      "labelExpr": null,
+      "kind": "toggle",
+      "trigger": "tap",
+      "semantic": null,
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "ModelProviderSettingsPage.swift:421",
+      "anchor": "Toggle(\"删除已保存的密钥\", isOn: $removeStoredKey)",
+      "extraction": "syntax",
+      "presentedBy": "sheet-65"
+    },
+    {
+      "id": "取消",
+      "label": "取消",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "toolbar",
+      "semantic": "{ dismiss()",
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "ModelProviderSettingsPage.swift:465",
+      "anchor": "Button(\"取消\") { dismiss() }.leadingBarText()",
+      "extraction": "syntax",
+      "presentedBy": "sheet-65"
+    },
+    {
+      "id": "保存",
+      "label": "保存",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "toolbar",
+      "semantic": "{ save()",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "ModelProviderSettingsPage.swift:468",
+      "anchor": "Button(\"保存\") { save() }",
+      "extraction": "syntax",
+      "presentedBy": "sheet-65"
+    },
+    {
+      "id": "测试",
+      "label": "测试",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "toolbar",
+      "semantic": "{ Task { await runConnectionTest() }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "ModelProviderSettingsPage.swift:476",
+      "anchor": "Button(\"测试\") { Task { await runConnectionTest() } }",
+      "extraction": "syntax",
+      "presentedBy": "sheet-65"
+    }
+  ],
+  "presentations": [
+    {
+      "id": "sheet-65",
+      "kind": "sheet",
+      "title": null,
+      "destination": "ModelProviderEditorPage",
+      "triggerBindings": [
+        "editingProfile"
+      ],
+      "span": [
+        65,
+        74
+      ],
+      "provenance": "ModelProviderSettingsPage.swift:65",
+      "anchor": ".sheet(item: $editingProfile, onDismiss: {",
+      "triggered": true
+    },
+    {
+      "id": "confirmationDialog-75",
+      "kind": "confirmationDialog",
+      "title": "删除模型服务？",
+      "destination": null,
+      "triggerBindings": [
+        "pendingDelete"
+      ],
+      "span": [
+        75,
+        81
+      ],
+      "provenance": "ModelProviderSettingsPage.swift:75",
+      "anchor": ".confirmationDialog(\"删除模型服务？\",",
+      "triggered": true
+    }
+  ],
+  "states": {
+    "advisory": true,
+    "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
+    "sites": {
+      "empty": [
+        {
+          "renders": "尚未配置模型服务",
+          "when": "snapshot.profiles.isEmpty",
+          "provenance": "ModelProviderSettingsPage.swift:89",
+          "anchor": "ContentUnavailableView(\"尚未配置模型服务\","
+        },
+        {
+          "renders": "ContentUnavailableView",
+          "when": "snapshot.profiles.isEmpty",
+          "provenance": "ModelProviderSettingsPage.swift:89",
+          "anchor": "ContentUnavailableView(\"尚未配置模型服务\","
+        }
+      ],
+      "data": [
+        {
+          "renders": "服务 | untitled section at 191 | 生效方式",
+          "when": null,
+          "provenance": "ModelProviderSettingsPage.swift:37",
+          "anchor": "struct ModelProviderSettingsPage: View {",
+          "note": "structural default: the sections above, when no condition overrides them"
+        }
+      ],
+      "failure": [
+        {
+          "renders": "读不到密钥",
+          "when": null,
+          "provenance": "ModelProviderSettingsPage.swift:180",
+          "anchor": "text = \"读不到密钥\""
+        },
+        {
+          "renders": "无法读取此设备的密钥，不能删除服务或密钥。请解锁设备后重新载入页面再试。",
+          "when": null,
+          "provenance": "ModelProviderSettingsPage.swift:295",
+          "anchor": "errorText = \"无法读取此设备的密钥，不能删除服务或密钥。请解锁设备后重新载入页面再试。\""
+        }
+      ],
+      "unknown": [],
+      "loading": []
+    },
+    "absent": [
+      "unknown",
+      "loading"
+    ],
+    "coverage": {
+      "empty": 2,
+      "data": 1,
+      "failure": 2,
+      "unknown": 0,
+      "loading": 0
+    }
+  },
+  "subpages": [
+    {
+      "name": "ModelProviderEditorPage",
+      "line": 310,
+      "private": true,
+      "sections": [
+        {
+          "title": "密钥",
+          "provenance": "ModelProviderSettingsPage.swift:401"
+        }
+      ],
+      "provenance": "ModelProviderSettingsPage.swift:310"
+    }
+  ],
+  "unreachable": [],
+  "extraction": {
+    "tool": "extract_ios_pages.py",
+    "mode": "syntax",
+    "sectionKeywordsInPage": 3,
+    "regionsExtracted": 0,
+    "sectionsExtracted": 3,
+    "warnings": [
+      "unsupported control flow at ModelProviderSettingsPage.swift:224: switch host { case .native: if !model.isStarted { Button(\"启动"
+    ]
+  }
+}

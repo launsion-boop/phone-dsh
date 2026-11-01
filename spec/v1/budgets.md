@@ -73,6 +73,23 @@ without `Reclaiming`, and a drain deadline never reopens admission.
 | memory proxy | VFS bytes by prefix, session bytes, sampled engine heap, WebContent termination count | Budget actions in §4 order; VFS or heap pressure shares the same order; a hard cap after the actions → `Failed` (fail loud). |
 | lease verification | controller and remote authority record | Required for `Recovering` → `Running`; failure keeps admission closed. |
 
+**Boot mapping for the rows above.** §2 lists the four persisted states it decided; these four were
+left implicit and the port had to infer them, so they are written down here: persisted `Parked` →
+`Parked` (the resume waits for an active scene), persisted `Backoff` → `Backoff`, persisted `Remote` →
+`Remote`, persisted `HandingOff` → `Failed` (a half-finished handoff cannot be replayed) and persisted
+`Reclaiming` → `Recovering`. Only the `Parked` row has fixture evidence today
+(`cold-start-after-reboot`); the other four are exercised by the transition matrix, not by a
+perturbation fixture, and are marked accordingly.
+
+**Single-file limit versus the aggregate columns.** The aggregate columns (`workspace`, `VFS`, `heap`)
+are budgeted for **that row's own** `single file` value. Raising `single file` is permitted up to the
+row's `host maximum`, and the aggregates are then re-derived from the formula in this section — which
+means they may exceed the numbers printed in the row. That is intended: the printed aggregates
+describe the default single-file limit, not a ceiling that the derived values must stay under. An
+implementation that raises the limit but keeps the printed aggregates is under-budgeting. The
+`host maximum` column therefore documents the largest single-file value used by any row at or above
+that tier; it is not a per-row permission that leaves the aggregates unchanged.
+
 ## 4. Budgets
 
 Device tiers are selected once per boot from the physical memory ceiling. The 8 GB row is the
@@ -137,9 +154,15 @@ the ceiling is at least 12 GiB. `MB`/`MiB` are 1 048 576 bytes.
 | Response log | 128 MiB | Drop complete, oldest replays first; a partial stream is never logged; still over → `Failed`. |
 | Journal | 64 MiB | Prune entries whose step is `journaled` and durable; still over → `Failed`. |
 | `video/` | 512 MiB (12 / 8 GiB; 384 / 256 / 192 MiB at 6 / 4 / ≤ 3 GiB) | Delete `completed` and already re-read sessions first; a session that was never re-read is never evicted; still over → `Failed`. |
+| Domain stores (`session`, `memory`, `task`, …) | 64 MiB **per domain** | Refuse the write with an explicit quota error that names the domain, the quota and the usage; never evict, never truncate, never drop silently. `delete` releases the budget. A transaction that hits the quota rolls back unless the caller catches it. |
 
-Quotas are absolute for every tier: a handoff or a restore does not raise them. None of the three
-stores ever evicts `home/`, `workspace/` or an un-journaled step; data is never silently dropped.
+Quotas are absolute for every tier: a handoff or a restore does not raise them. None of these stores
+ever evicts `home/`, `workspace/` or an un-journaled step; data is never silently dropped.
+
+The domain-store quota is the one row that is a **policy default rather than a measured budget**: it
+was chosen when the store landed, no workload has been profiled against it, and a deployment may
+override it per domain. It is written down so an implementation cannot pick a number silently — the
+row states the value in force, not a value that has been validated.
 `Cache-Control: no-store` responses and lazy image shards are not persisted and do not count against
 these quotas.
 

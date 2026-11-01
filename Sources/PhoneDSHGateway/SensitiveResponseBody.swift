@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: MIT
 // phone-dsh phone DSH — PhoneDSHGateway: host-managed MCP response body privacy.
 //
-// A host-managed MCP credential (Credential.Kind.headers) is injected by the
-// gateway itself. The upstream is the only party that sees the real value, so
-// it can echo that value in a non-2xx body, a JSON-RPC `isError` result or an
-// SSE event. Those bytes must not reach the Worker/ToolRuntime/Session.
+// A host-managed MCP credential (a `.headers` map or a scalar `.bearer` /
+// `.apiKey` value) is injected by the gateway itself. The upstream is the only
+// party that sees the real value, so it can echo that value in a non-2xx body,
+// a JSON-RPC `isError` result or an SSE event. Those bytes must not reach the
+// Worker/ToolRuntime/Session. Credential kind decides which values are
+// redacted, not whether the response is sensitive.
 //
 // This file owns the response-side rewrite. It deliberately works on the
 // exact values the credential router injected rather than guessing token
@@ -132,6 +134,12 @@ enum SensitiveResponseBody {
 
     /// Sanitizes a complete non-SSE body. JSON is decoded and its string values
     /// are rewritten, preserving valid JSON and the JSON-RPC `id` value.
+    ///
+    /// The rewrite is canonical: `.sortedKeys` makes the same input produce the
+    /// same UTF-8 bytes on every run and every Foundation version. Without it
+    /// Foundation's dictionary iteration order (which is randomized per
+    /// process) would leak into the Worker's body and make a golden vector's
+    /// bytes impossible to pin.
     static func sanitizeBufferedBody(_ data: Data, secrets: [String]) -> Data {
         let secrets = normalizedSecrets(secrets)
         guard !data.isEmpty, !secrets.isEmpty else { return data }
@@ -139,8 +147,10 @@ enum SensitiveResponseBody {
                                                           options: [.fragmentsAllowed]) {
             let (redacted, changed) = redactJSON(object, secrets: secrets)
             guard changed else { return data }
-            if let encoded = try? JSONSerialization.data(withJSONObject: redacted,
-                                                         options: [.fragmentsAllowed]) {
+            if let encoded = try? JSONSerialization.data(
+                withJSONObject: redacted,
+                options: [.fragmentsAllowed, .sortedKeys]
+            ) {
                 return encoded
             }
             return controlledDiagnostic(status: 200)
@@ -273,8 +283,10 @@ enum SensitiveResponseBody {
         }
         let (redacted, changed) = redactJSON(object, secrets: secrets)
         guard changed,
-              let encoded = try? JSONSerialization.data(withJSONObject: redacted,
-                                                        options: [.fragmentsAllowed]),
+              let encoded = try? JSONSerialization.data(
+                withJSONObject: redacted,
+                options: [.fragmentsAllowed, .sortedKeys]
+              ),
               let text = String(data: encoded, encoding: .utf8) else {
             guard changed else { return payload }
             // The parsed JSON could not be re-encoded after redaction. Replace

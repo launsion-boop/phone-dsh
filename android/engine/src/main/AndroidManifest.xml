@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: MIT -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!--
+      The engine binds 127.0.0.1 for the loopback origin and loads that origin in
+      the one WebView. Without the INTERNET permission the kernel denies socket()
+      with EPERM (the App UID is not in the `inet` group), which is exactly how the
+      D2 emulator run failed on 2026-10-31 before this line existed. Declaring it
+      in the AAR means :app cannot forget it; the permission is merged into the
+      consuming App's manifest.
+    -->
+    <uses-permission android:name="android.permission.INTERNET" />
+</manifest>

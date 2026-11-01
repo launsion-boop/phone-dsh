@@ -1,0 +1,53 @@
+{
+  "id": "gw-log-001",
+  "rule": "response-redaction",
+  "kind": "response",
+  "source": "Sources/PhoneDSHGateway/ResponseLog.swift:349",
+  "references": [
+    "Tests/PhoneDSHGatewayTests/ResponseLogTests.swift:141"
+  ],
+  "note": "A normal, non-sensitive response is recorded whole: recorded true, reason recorded_ok, and retained bytes equal the body handed to the Worker. Without this vector a gateway that never writes a response log passes every recorded:false case by omission.",
+  "input": {
+    "method": "GET",
+    "url": "https://api.example.invalid/v1/models",
+    "headers": {
+      "accept": "application/json"
+    },
+    "allowlist": [
+      "https://api.example.invalid"
+    ],
+    "credential": {
+      "kind": "api-key",
+      "header": "x-api-key",
+      "value": "sk-HOST-API-KEY-PLACEHOLDER"
+    },
+    "response": {
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "x-request-id": "req-1"
+      },
+      "body": "{\"data\":[{\"id\":\"m1\"}],\"has_more\":false,\"object\":\"list\"}"
+    }
+  },
+  "expect": {
+    "dispatch": "allow",
+    "outbound_headers": {
+      "cache-control": "no-store",
+      "content-type": "application/json",
+      "x-request-id": "req-1"
+    },
+    "stripped": [],
+    "outbound_url": "https://api.example.invalid/v1/models",
+    "body": "{\"data\":[{\"id\":\"m1\"}],\"has_more\":false,\"object\":\"list\"}",
+    "body_bytes": 55,
+    "body_sha256": "58470cf1befdad13d5a07a76866abe068d8f0f36045a1c82d85ac2f932fc9707",
+    "body_withheld": false,
+    "log": {
+      "recorded": true,
+      "reason": "recorded_ok",
+      "body_bytes": 55,
+      "retained_bytes": 55
+    }
+  }
+}

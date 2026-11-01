@@ -1,0 +1,19 @@
+[package]
+name = "pdsh-jni"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "JNI surface of the phone-dsh-v1 wire codec, WAL kernel and pdsh-ffi accelerators for the Android host."
+
+[lib]
+name = "pdsh_jni"
+path = "src/lib.rs"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+pdsh-wal.workspace = true
+pdsh-ffi = { path = "../pdsh-ffi" }
+pdsh-jaq = { path = "../pdsh-jaq" }
+pdsh-wire.workspace = true
+jni = "0.22"

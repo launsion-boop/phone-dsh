@@ -1,0 +1,62 @@
+{
+  "id": "gw-resp-005",
+  "rule": "response-redaction",
+  "kind": "response",
+  "source": "Sources/PhoneDSHGateway/SensitiveResponseBody.swift:152",
+  "references": [
+    "Tests/PhoneDSHGatewayTests/MCPEgressPolicyTests.swift:333"
+  ],
+  "note": "The redacted JSON body is re-encoded with sorted keys, so the bytes handed to the Worker are reproducible and can be pinned by SHA-256 instead of only structurally.",
+  "input": {
+    "method": "POST",
+    "url": "https://mcp.example.invalid/mcp",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "allowlist": [
+      "https://mcp.example.invalid"
+    ],
+    "mcp": true,
+    "credential": {
+      "kind": "bearer",
+      "value": "resp-scalar-token"
+    },
+    "response": {
+      "status": 200,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": "{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"isError\":true,\"content\":[{\"type\":\"text\",\"text\":\"echo Bearer resp-scalar-token\"}],\"z\":1,\"a\":2}}"
+    }
+  },
+  "expect": {
+    "dispatch": "allow",
+    "outbound_headers": {
+      "cache-control": "no-store",
+      "content-type": "application/json"
+    },
+    "stripped": [],
+    "outbound_url": "https://mcp.example.invalid/mcp",
+    "body_json": {
+      "id": 7,
+      "jsonrpc": "2.0",
+      "result": {
+        "a": 2,
+        "content": [
+          {
+            "text": "echo [redacted]",
+            "type": "text"
+          }
+        ],
+        "isError": true,
+        "z": 1
+      }
+    },
+    "body_sha256": "b8c0bc82c8598dccca596f40cfaca4c93fb5cc7e4b642ebe8e571078996528bb",
+    "body_withheld": false,
+    "log": {
+      "recorded": false,
+      "reason": "sensitive_credential"
+    }
+  }
+}

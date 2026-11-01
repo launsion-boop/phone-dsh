@@ -1,0 +1,292 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "FilesPage",
+  "pageId": "files",
+  "structure": "swiftui-view",
+  "sectionModel": "section",
+  "sectionNote": null,
+  "title": {
+    "text": "手机工作区",
+    "provenance": "FilesPage.swift:51",
+    "anchor": ".navigationTitle(directory.isEmpty ? \"手机工作区\" : String(directory.dropLast()).spli"
+  },
+  "source": {
+    "file": "FilesPage.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/FilesPage.swift",
+    "lines": 487,
+    "structLine": 9,
+    "renderedFrom": [
+      "body",
+      "fileList"
+    ],
+    "sectionOrder": "declaration order inside the page struct"
+  },
+  "android": {
+    "screen": "FilesPage",
+    "file": "android/lib/src/main/kotlin/com/phonedsh/ui/page/FilesPage.kt",
+    "match": "composable"
+  },
+  "sections": [
+    {
+      "id": "section-115",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": "fileGroupTitle",
+      "titleSource": "expression",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "navigation-117",
+          "label": null,
+          "labelExpr": "folder",
+          "kind": "navigation",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": "FilesPage",
+          "writes": false,
+          "condition": null,
+          "provenance": "FilesPage.swift:117",
+          "anchor": "NavigationLink {",
+          "extraction": "manual",
+          "collection": "folders, id: \\.self"
+        },
+        {
+          "id": "action-125",
+          "label": null,
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "FilesPage.swift:125",
+          "anchor": "Button {",
+          "extraction": "manual",
+          "collection": "children"
+        }
+      ],
+      "provenance": "FilesPage.swift:115",
+      "anchor": "Section(fileGroupTitle) {",
+      "extraction": "syntax",
+      "criterion": {
+        "kind": "first-row-expression",
+        "labelExpr": "folder",
+        "provenance": "FilesPage.swift:117"
+      }
+    }
+  ],
+  "actions": [
+    {
+      "id": "navigation-117",
+      "label": null,
+      "labelExpr": "folder",
+      "kind": "navigation",
+      "trigger": "tap",
+      "semantic": "navigate:FilesPage",
+      "writes": false,
+      "destination": "FilesPage",
+      "condition": null,
+      "provenance": "FilesPage.swift:117",
+      "anchor": "NavigationLink {",
+      "extraction": "manual"
+    },
+    {
+      "id": "button-125",
+      "label": null,
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ // Always open the preview page: it either shows the // file, Quick Look, or says why it cannot, instead // of a tap that silently does nothing. selectedFile = file",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "FilesPage.swift:125",
+      "anchor": "Button {",
+      "extraction": "manual",
+      "labelAlternatives": [],
+      "presents": "sheet-59"
+    },
+    {
+      "id": "搜索文件",
+      "label": "搜索文件",
+      "labelExpr": null,
+      "kind": "search",
+      "trigger": "search",
+      "semantic": null,
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "FilesPage.swift:56",
+      "anchor": ".searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always),",
+      "extraction": "syntax"
+    },
+    {
+      "id": "gesture-57",
+      "label": null,
+      "labelExpr": null,
+      "kind": "gesture",
+      "trigger": "pull-to-refresh",
+      "semantic": "refresh",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "FilesPage.swift:57",
+      "anchor": ".refreshable { model.refreshFiles() }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "完成",
+      "label": "完成",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "toolbar",
+      "semantic": "{ showingDemo = false",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "FilesPage.swift:73",
+      "anchor": "Button(\"完成\") { showingDemo = false }",
+      "extraction": "syntax",
+      "presents": "sheet-65"
+    },
+    {
+      "id": "3d-示例",
+      "label": "3D 示例",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "toolbar",
+      "semantic": "{ showingDemo = true",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "FilesPage.swift:82",
+      "anchor": "Label(\"3D 示例\", systemImage: \"cube\")",
+      "extraction": "syntax"
+    },
+    {
+      "id": "完成",
+      "label": "完成",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "toolbar",
+      "semantic": "{ dismiss()",
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "FilesPage.swift:324",
+      "anchor": "Button(\"完成\") { dismiss() }.leadingBarText()",
+      "extraction": "syntax",
+      "presentedBy": "sheet-59"
+    },
+    {
+      "id": "分享",
+      "label": "分享",
+      "labelExpr": null,
+      "kind": "share",
+      "trigger": "tap",
+      "semantic": null,
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "FilesPage.swift:329",
+      "anchor": "Label(\"分享\", systemImage: \"square.and.arrow.up\")",
+      "extraction": "syntax",
+      "presentedBy": "sheet-59"
+    }
+  ],
+  "presentations": [
+    {
+      "id": "sheet-59",
+      "kind": "sheet",
+      "title": null,
+      "destination": "FilePreviewPage",
+      "triggerBindings": [
+        "selectedFile"
+      ],
+      "span": [
+        59,
+        64
+      ],
+      "provenance": "FilesPage.swift:59",
+      "anchor": ".sheet(item: $selectedFile) { file in",
+      "triggered": true
+    },
+    {
+      "id": "sheet-65",
+      "kind": "sheet",
+      "title": null,
+      "destination": "NavigationStack",
+      "triggerBindings": [
+        "showingDemo"
+      ],
+      "span": [
+        65,
+        78
+      ],
+      "provenance": "FilesPage.swift:65",
+      "anchor": ".sheet(isPresented: $showingDemo) {",
+      "triggered": true
+    }
+  ],
+  "states": {
+    "advisory": true,
+    "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
+    "sites": {
+      "empty": [
+        {
+          "renders": "还没有文件",
+          "when": "model.files.isEmpty",
+          "provenance": "FilesPage.swift:104",
+          "anchor": "Text(\"还没有文件\")"
+        }
+      ],
+      "data": [
+        {
+          "renders": "untitled section at 115",
+          "when": null,
+          "provenance": "FilesPage.swift:9",
+          "anchor": "struct FilesPage: View {",
+          "note": "structural default: the sections above, when no condition overrides them"
+        }
+      ],
+      "failure": [],
+      "unknown": [],
+      "loading": []
+    },
+    "absent": [
+      "failure",
+      "unknown",
+      "loading"
+    ],
+    "coverage": {
+      "empty": 1,
+      "data": 1,
+      "failure": 0,
+      "unknown": 0,
+      "loading": 0
+    }
+  },
+  "subpages": [
+    {
+      "name": "FilePreviewPage",
+      "line": 224,
+      "private": true,
+      "sections": [],
+      "provenance": "FilesPage.swift:224"
+    }
+  ],
+  "unreachable": [],
+  "extraction": {
+    "tool": "extract_ios_pages.py",
+    "mode": "syntax",
+    "sectionKeywordsInPage": 1,
+    "regionsExtracted": 0,
+    "sectionsExtracted": 1,
+    "warnings": []
+  }
+}

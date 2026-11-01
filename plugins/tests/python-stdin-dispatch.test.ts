@@ -108,8 +108,9 @@ async function productionShell(options: {
   readonly wasm?: Uint8Array
   readonly stdlib?: Uint8Array
 } = {}): Promise<ProductionShell> {
-  // The tier default is 64 MiB; this file exercises the G2-A09 refusal shape
-  // with the old 15 MiB bound so the over-limit write stays a few MiB, not 64.
+  // The tier default is 128 MiB (`spec/v1/budgets.md:104`); this file exercises
+  // the G2-A09 refusal shape with the old 15 MiB bound so the over-limit write
+  // stays a few MiB, not 128.
   configureSingleFileLimit(15 * 1024 * 1024)
   const root = virtualRoot()
   const runtime = new PythonRuntime({

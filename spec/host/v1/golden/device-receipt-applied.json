@@ -1,0 +1,13 @@
+{
+  "name": "device-receipt-applied",
+  "schema": "schema/device-receipt.schema.json",
+  "instance": {
+    "id": "cmd-001",
+    "status": "applied",
+    "code": "ok",
+    "data": {
+      "state_revision": 3
+    }
+  },
+  "notes": "Sources: docs/design/device-adapter-contract-draft.md:58-75 (§4 receipts: id, status applied|failed, code, data; applied receipts carry the resulting state revision) and docs/design/device-connector-2026-10-31.md:158-163 (§4.3 idempotency, TTL and state revision). A receipt reflects the real outcome: a device must not answer applied before executing (draft §4 rules)."
+}

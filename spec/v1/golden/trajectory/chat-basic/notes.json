@@ -1,0 +1,9 @@
+{
+  "kind": "equivalent",
+  "title": "chat basic: one read round trip",
+  "expected": {
+    "ios": "expected.jsonl",
+    "android": "expected.jsonl"
+  },
+  "reason": "Wall clocks, process ids, ports, request-id suffixes, runtime samples and host path prefixes differ. The event types, seqs and semantic payloads are identical."
+}

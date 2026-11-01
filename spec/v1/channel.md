@@ -275,6 +275,14 @@ JSON object, and a duplicate member, non-integer number or malformed JSON is `BA
 1. The loopback service authenticates the upgrade before this channel exists; rejected upgrades never reach the frame layer.
 2. Each direction sends HELLO with `seq = 1` as its first frame. A first frame of another type is
    `PROTO_MISMATCH`; a first-frame HELLO at another seq is `BAD_SEQ`. Both close.
+
+**A bad first frame may be answered before our HELLO.** The rule above says each direction's first
+frame is HELLO, and a peer that violates it has earned a close rather than a conversation. Answering
+with one `ERROR` (`BAD_SEQ` or `PROTO_MISMATCH`, `ref_seq` naming the offending frame) before closing
+is nevertheless permitted, and preferred: the code is the only thing that tells the peer *why* it was
+dropped, and a silent 1002 is indistinguishable from a network fault. This is the one exception to
+"our first frame is HELLO"; an implementation may also close without answering, and either is
+conforming.
 3. Each side validates `proto`, `role`, capabilities, identifier syntax and fence (§4.1); the host is the fence authority.
 4. After HELLO, `seq` MUST equal the previous inbound seq + 1. A gap, duplicate or regression is
    `BAD_SEQ` and closes. A new connection starts a fresh seq space; no seq is carried over.
@@ -316,6 +324,12 @@ JSON object, and a duplicate member, non-integer number or malformed JSON is `BA
   unrelated frames.
 - **Ack level 2** is emitted only at an epoch close, after changed materialized files and directories
   are fsynced, every epoch segment is `F_FULLFSYNC`ed and the manifest is rewritten (D18); no other event sends it.
+  This rule is scoped to **VFS_ACK**: it says what may produce a level-2 answer to the *mutation* stream.
+  It does not constrain `JOURNAL_ACK`, whose level describes the journal record it acknowledges. For a
+  journal record the durability event **is** that record's own fsync, so `JOURNAL_ACK` may carry level 2
+  immediately after it — waiting for an epoch close would report a weaker level than the store can
+  actually prove. A reader may rely on "level 2 implies level 1"; it may not carry a journal level across
+  to the VFS watermark.
 ## 9. Reconnect (D2, D3)
 
 A reconnect is a new WebSocket connection with fresh seq counters; nothing is replayed by seq.

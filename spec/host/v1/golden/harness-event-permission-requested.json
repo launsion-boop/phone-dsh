@@ -1,0 +1,17 @@
+{
+  "name": "harness-event-permission-requested",
+  "schema": "schema/harness-event.schema.json",
+  "instance": {
+    "session_id": "sess-2f7c",
+    "time_ms": 1793400125000,
+    "kind": "permission_requested",
+    "request": {
+      "request_id": "ev-7f3",
+      "tool": "shell",
+      "summary": "Run pytest in the workspace",
+      "risk": "side_effect",
+      "expires_at_ms": 1793400185000
+    }
+  },
+  "notes": "Sources/PhoneDSHAgentCore/AgentHarness.swift:397 and 264-295 (risk is read_only, side_effect or ui; expires_at is optional). DSH maps an approval/request waterfall into a best-effort event with no seq and the DSH event id as request_id (DSHRemoteHarness.swift:397-409), so it is never replayed after a resume; the answer travels back as permission_response."
+}

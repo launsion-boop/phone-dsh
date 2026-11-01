@@ -72,6 +72,9 @@ pub enum VfsError {
     NotAFile { path: String },
     /// The guest path is not a directory.
     NotADirectory { path: String },
+    /// The path names DSH-internal state an execution surface may not read
+    /// (`channel.md` §6). Rendered as `EACCES: <remediation sentence>`.
+    ExecReadDenied { path: String, root: String },
     /// The path was rejected by the mount table.
     Sandbox(SandboxError),
     /// The host filesystem reported an error.
@@ -84,6 +87,11 @@ impl fmt::Display for VfsError {
             VfsError::NotFound { path } => write!(f, "not found: {path}"),
             VfsError::NotAFile { path } => write!(f, "not a file: {path}"),
             VfsError::NotADirectory { path } => write!(f, "not a directory: {path}"),
+            VfsError::ExecReadDenied { path, root } => write!(
+                f,
+                "EACCES: {}",
+                crate::policy::exec_read_denied_message(std::path::Path::new(path), root)
+            ),
             VfsError::Sandbox(error) => write!(f, "{error}"),
             VfsError::Io { path, error } => write!(f, "I/O error on {path}: {error}"),
         }

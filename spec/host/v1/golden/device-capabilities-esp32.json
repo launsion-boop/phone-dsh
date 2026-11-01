@@ -1,0 +1,68 @@
+{
+  "name": "device-capabilities-esp32",
+  "schema": "schema/device-capabilities.schema.json",
+  "instance": {
+    "schema": "pdsh-device-caps/1",
+    "device_id": "esp32-8c4f1a",
+    "protocol": {
+      "id": "devicews",
+      "version": "2.1"
+    },
+    "capabilities": {
+      "audio.tts": {
+        "codec": "opus",
+        "rate": 24000
+      },
+      "audio.asr": {
+        "rate": 48000
+      },
+      "audio.mic.stream": {
+        "codec": "opus",
+        "rate": 16000,
+        "frame_ms": 20,
+        "max_minutes": 120
+      },
+      "display.text": {
+        "max_chars": 512
+      },
+      "light.effect": {
+        "effects": [
+          "breathe",
+          "doa"
+        ]
+      },
+      "speaker.volume": {
+        "range": [
+          0,
+          100
+        ]
+      },
+      "control.gpio": {
+        "pins": [
+          4,
+          5
+        ]
+      },
+      "call.ble": {
+        "uplink": "call_up",
+        "codec": "opus"
+      },
+      "render.pixel": {
+        "w": 64,
+        "h": 64,
+        "format": "rgb565",
+        "fps": 20
+      }
+    },
+    "limits": {
+      "max_frame_bytes": 65536,
+      "text_bytes": 2048,
+      "audio_kbps": 32
+    },
+    "auth": {
+      "pairing": "code",
+      "replay": "counter+ttl"
+    }
+  },
+  "notes": "Sources: docs/design/device-connector-2026-10-31.md:173-198 (§4.5 manifest: schema tag, deviceId, capability map, limits, auth; an undeclared capability is unavailable) and docs/design/device-adapter-contract-draft.md:76-103 (§5 adds the protocol block and the render.* vocabulary, and requires vendor extensions to live under vendor.<name>.*). max_frame_bytes is bounded at 64 KiB by the adapter requirements (device-connector-2026-10-31.md:246-253 §4.6, row 3). vehicle.* is absent because it needs granted_by: oem (device-connector-2026-10-31.md:191,198)."
+}

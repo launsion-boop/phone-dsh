@@ -28,6 +28,7 @@ import type {
 import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
 import { OutputCollector } from '@deepseek-ai/dsh-subprocess-local/output'
 import type { ManagedProcessBinding } from '@deepseek-ai/dsh-subprocess-local/output'
+import { withResolvers } from './deferred.ts'
 import { isTimeoutReason } from './signal.ts'
 import { MAX_TIMER_DELAY_MS } from './jobs.ts'
 import type { WorkerCommandJob, WorkerJobSettleCause } from './jobs.ts'
@@ -60,8 +61,8 @@ export class LocalWorkerProcess implements SubprocessHandle {
   private readonly err = new PassThrough()
   private readonly input = new PassThrough()
   private readonly collectors: Partial<Record<'stdout' | 'stderr', OutputCollector>> = {}
-  private readonly exited = Promise.withResolvers<ExitFacts>()
-  private readonly quiet = Promise.withResolvers<void>()
+  private readonly exited = withResolvers<ExitFacts>()
+  private readonly quiet = withResolvers<void>()
   private readonly detachAbort: () => void
   private job: WorkerCommandJob | undefined
   private deadlineTimer: NodeJS.Timeout | undefined
@@ -217,7 +218,7 @@ export class LocalWorkerProcess implements SubprocessHandle {
   async waitForExit(signal?: AbortSignal): Promise<boolean> {
     if (this.quiescent) return true
     if (signal?.aborted) return false
-    const aborted = Promise.withResolvers<false>()
+    const aborted = withResolvers<false>()
     const onAbort = (): void => { aborted.resolve(false) }
     signal?.addEventListener('abort', onAbort, { once: true })
     try {

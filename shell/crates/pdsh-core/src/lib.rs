@@ -28,6 +28,7 @@ pub mod error;
 pub mod limits;
 pub mod mount;
 pub mod output;
+pub mod policy;
 pub mod registry;
 pub mod vfs;
 
@@ -40,6 +41,9 @@ pub use error::{Error, Result, SandboxError, VfsError};
 pub use limits::Limits;
 pub use mount::{MountSpec, MountTable, GUEST_ROOT, HOME_GUEST, WORKSPACE_GUEST};
 pub use output::{Output, OutputSink};
+pub use policy::{
+    exec_read_denial, exec_read_denied_message, exec_readable, EXEC_INTERNAL_ROOTS,
+};
 pub use registry::Registry;
 pub use vfs::{DirEntry, FileKind, Metadata, StdFsVfs, Vfs};
 

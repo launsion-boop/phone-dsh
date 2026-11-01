@@ -163,16 +163,27 @@ bash scripts/ci/scenarios.sh --upstream real
 
 ## Repository map
 
-| Path | What lives there |
-|---|---|
-| `Sources/PhoneDSH*` | Swift host modules: `Wire`, `Log` (WAL), `Loopback`, `Gateway`, `Controller`, `Engine`, `Shell`, `AgentCore`, and the `PhoneDSH` facade |
-| `plugins/` | Worker-side TypeScript: entry, channel client, DSH plugins, phone profile, image packer, `dsh-pin.json` |
-| `spec/v1/` | Host/Worker contract: frames, WAL, exec, handoff, budgets, golden vectors |
-| `shell/` | xz-shell: our Rust read-only accelerators, built into `PDSHShell.xcframework` |
-| `examples/probe-app/` | iOS probe app, simulator suites, device report export |
-| `Tests/` | Swift unit, probe, kill, smoke and scenario suites |
-| `scripts/ci/` | Local gates: `check.sh`, `smoke.sh`, `sim.sh`, `scenarios.sh`, `probes.sh` |
-| `docs/` | Architecture, probe runbook, native validation records, functional test plan |
+The tree is deliberately asymmetric. The root holds the Swift reference implementation (the
+baseline), the platform-independent contract and runtime sit in the middle, and the Android host is
+one adaptation tree that follows the contract. A symmetric `apple/ + shared/ + android/` split is
+not used: it would suggest the two hosts are peers, which they are not, and it would rewrite
+hundreds of paths for no semantic gain.
+
+| Zone | Path | What lives there |
+|---|---|---|
+| **Baseline** (Swift, the reference) | `Sources/PhoneDSH*` | Swift host modules: `Wire`, `Log` (WAL), `Loopback`, `Gateway`, `Controller`, `Engine`, `Shell`, `AgentCore`, and the `PhoneDSH` facade |
+| | `examples/probe-app/` | The reference iOS UI and the probes that produce device evidence |
+| | `Tests/` | Swift unit, probe, kill, smoke and scenario suites |
+| **Shared** (platform independent) | `spec/v1/` | Host↔Worker contract: frames, WAL, exec, handoff, budgets, the page↔host bridge, gateway security, trajectory normalisation, golden vectors |
+| | `spec/host/v1/` | Host-side contract: AgentHarness, session events, device envelope, receipts, capabilities |
+| | `spec/platform/` | The machine-readable platform divergence whitelist and its `baseline: not-applicable` channel |
+| | `spec/ui/v1/` | UI interaction specification and the single-source design tokens |
+| | `spec/tools/` | Cross-tree invariants that no single contract tree can check alone |
+| | `plugins/` | Worker-side TypeScript: entry, channel client, DSH plugins, phone profile, image packer, `dsh-pin.json`, and the M99 ES-target compatibility gate (the **runtime** WebView baseline is different: see `android/engine/README.md`) |
+| | `shell/` | Rust accelerators built into `PDSHShell.xcframework`, plus `pdsh-wire` and `pdsh-wal`: the shared format and recovery kernel |
+| **Adaptation** (Kotlin, follows the contract) | `android/` | The Android host tree, split `:lib` `:app` `:testkit` and the modules that mirror the Swift ones by package name. Structure only today: the build is blocked on a host with Gradle and the Android SDK |
+| **Tooling** | `scripts/ci/` | Local gates: `check.sh`, `smoke.sh`, `sim.sh`, `scenarios.sh`, `probes.sh` |
+| | `docs/` | Architecture, probe runbook, the device connector contract, the Android module map and the security checklist |
 
 ## Documentation
 

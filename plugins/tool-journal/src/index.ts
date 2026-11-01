@@ -37,6 +37,7 @@ import type {} from '@deepseek-ai/dsh-session'
 import type { SessionHandle } from '@deepseek-ai/dsh-session-persistence'
 import { toolCallStorage } from '@phone-dsh/dsh-exec-bridge/call-context'
 import { createClassifier } from './classify.ts'
+import { withResolvers } from './deferred.ts'
 import type { ToolClass } from './classify.ts'
 import {
   SLOW_JOURNAL_SYNC_MILLISECONDS, ToolJournalStore, canonicalHash, idempotencyKey,
@@ -227,7 +228,7 @@ async function settleOrAbort(body: Promise<ToolExecutionResult>,
       result => ({ kind: 'settled', result }),
       error => ({ kind: 'rejected', error }),
     )
-  const aborted = Promise.withResolvers<ToolBodyOutcome>()
+  const aborted = withResolvers<ToolBodyOutcome>()
   const onAbort = (): void => { aborted.resolve({ kind: 'aborted' }) }
   signal.addEventListener('abort', onAbort, { once: true })
   try {
@@ -282,7 +283,7 @@ async function awaitRerunBody<T>(body: Promise<T>, signal: AbortSignal,
     observeLate()
     throw signal.reason ?? new Error('tool-journal: re-run cancelled before dispatch')
   }
-  const aborted = Promise.withResolvers<never>()
+  const aborted = withResolvers<never>()
   const onAbort = (): void => {
     aborted.reject(signal.reason ?? new Error('tool-journal: re-run cancelled'))
   }

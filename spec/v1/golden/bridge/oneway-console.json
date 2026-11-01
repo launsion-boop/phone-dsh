@@ -1,0 +1,15 @@
+{
+  "name": "oneway-console",
+  "direction": "page-to-host",
+  "schema": "bridge-message.schema.json",
+  "instance": {
+    "v": 1,
+    "kind": "oneway",
+    "method": "console.line",
+    "params": {
+      "level": "warn",
+      "text": "worker boot took 1.8 s"
+    }
+  },
+  "notes": "bridge.md §2, §8, §11; the legacy page side posts {kind:'console', level, text} with no id, Sources/PhoneDSHEngine/WebEngineScripts.swift:36-48, and the host routes kind console at Sources/PhoneDSHEngine/WebEngine.swift:615-619."
+}

@@ -1,0 +1,34 @@
+{
+  "name": "request-response-preview",
+  "direction": "sequence",
+  "schema": "bridge-message.schema.json",
+  "instance": [
+    {
+      "direction": "page-to-host",
+      "instance": {
+        "v": 1,
+        "kind": "request",
+        "requestId": "3f9a1c72-4b8e-4e21-9a3d-6c5b8f0d2a71",
+        "method": "preview.open",
+        "params": {
+          "sessionId": "sess-8f21c4",
+          "path": "notes/report.docx"
+        },
+        "timeoutMs": 20000
+      }
+    },
+    {
+      "direction": "host-to-page",
+      "instance": {
+        "v": 1,
+        "kind": "response",
+        "requestId": "3f9a1c72-4b8e-4e21-9a3d-6c5b8f0d2a71",
+        "method": "preview.open",
+        "result": {
+          "presented": true
+        }
+      }
+    }
+  ],
+  "notes": "bridge.md §2, §6; the page deadline 20000 ms is plugins/phone-native-preview/src/protocol.ts:216-223 and the 15 s host deadline is Sources/PhoneDSHEngine/WebEngineNativePreview.swift:563. Legacy reply {id, ok, code, message} is WebEngineNativePreview.swift:193-215, :228-238; the method echo is new."
+}

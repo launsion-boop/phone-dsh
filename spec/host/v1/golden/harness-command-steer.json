@@ -1,0 +1,10 @@
+{
+  "name": "harness-command-steer",
+  "schema": "schema/harness-command.schema.json",
+  "instance": {
+    "kind": "steer",
+    "text": "Focus on the assertion, not the fixture.",
+    "request_id": "steer-7"
+  },
+  "notes": "Sources/PhoneDSHAgentCore/AgentHarness.swift:252-253. Steer is legal only when the capability steer is true (AgentHarness.swift:15-16, 45); a host that sends it anyway must expect invalid_request (DSHRemoteHarness.swift:59-60)."
+}

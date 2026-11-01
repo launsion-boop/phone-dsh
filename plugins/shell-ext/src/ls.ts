@@ -250,11 +250,98 @@ interface LsContext {
   readonly cwd: string
 }
 
-/** A missing operand's built-in wording. */
-function missingOperand(operand: string, directoryListing: boolean): string {
+/**
+ * A failed operand's built-in wording, with the reason the filesystem actually
+ * gave.
+ *
+ * The built-in hardcodes "No such file or directory" for every read failure,
+ * which reports an execution-surface policy denial as absence. `channel.md`
+ * §VFS gives exactly one answer for DSH-internal state (`EACCES` plus the
+ * remediation line), and `python3` already gives it, so `ls` must not turn the
+ * same path into `ENOENT`.
+ * @param operand - operand spelling from argv.
+ * @param error - failure from `lstat`/`readdir`.
+ * @param directoryListing - whether the diagnostic leads with `cannot access`.
+ * @returns the stderr line.
+ */
+function operandFailure(operand: string, error: unknown, directoryListing: boolean): string {
+  const reason = failureReason(error)
   return directoryListing
-    ? `ls: cannot access '${operand}': No such file or directory\n`
-    : `ls: ${operand}: No such file or directory\n`
+    ? `ls: cannot access '${operand}': ${reason}\n`
+    : `ls: ${operand}: ${reason}\n`
+}
+
+/** The errno text for one failed read; a policy denial keeps its full sentence. */
+function failureReason(error: unknown): string {
+  const code = (error as { code?: unknown } | undefined)?.code
+  if (code === 'ENOENT') return 'No such file or directory'
+  if (code === 'ENOTDIR') return 'Not a directory'
+  if (error instanceof Error && error.message !== '') return error.message
+  return String(error)
+}
+
+/** The subset of the shell filesystem that can answer the exec read policy. */
+interface LsPolicyFace {
+  resolvePath(cwd: string, path: string): string
+  execReadDenial?(path: string): string | undefined
+}
+
+/** One operand the execution surface may not read. */
+interface DeniedOperand {
+  readonly operand: string
+  readonly line: string
+}
+
+/**
+ * Operand tokens of one `ls` argv: every token the built-in would treat as an
+ * operand, i.e. not an option and not after a lone `--`. Every option in the
+ * pinned just-bash `ls` table is boolean (`-l`, `-R`, `--all`, ...), so the
+ * scan never has to know which option would consume a following value.
+ * @param argv - arguments after the program name.
+ * @returns the operand and option tokens, in argv order.
+ */
+function scanLsArguments(argv: readonly string[]): { operands: string[]; options: string[] } {
+  const operands: string[] = []
+  const options: string[] = []
+  let optionsEnded = false
+  for (const token of argv) {
+    if (!optionsEnded && token === '--') {
+      optionsEnded = true
+      options.push(token)
+      continue
+    }
+    if (!optionsEnded && token.startsWith('-') && token !== '-') {
+      options.push(token)
+      continue
+    }
+    operands.push(token)
+  }
+  return { operands, options }
+}
+
+/**
+ * Ask the filesystem adapter which operands this execution surface may not
+ * read. A shell whose adapter has no policy face (a real directory root, a
+ * test double) denies nothing and keeps verbatim POSIX behaviour.
+ * @param fs - the command's filesystem.
+ * @param cwd - current directory.
+ * @param operands - operand tokens from {@link scanLsArguments}.
+ * @returns the denied operands with their `EACCES` line.
+ */
+function deniedOperands(fs: unknown, cwd: string, operands: readonly string[]): DeniedOperand[] {
+  const face = fs as Partial<LsPolicyFace>
+  if (typeof face.execReadDenial !== 'function' || typeof face.resolvePath !== 'function') return []
+  const denied: DeniedOperand[] = []
+  for (const operand of operands) {
+    let denial: string | undefined
+    try {
+      denial = face.execReadDenial(face.resolvePath(cwd, operand))
+    } catch {
+      denial = undefined
+    }
+    if (denial !== undefined) denied.push({ operand, line: `ls: cannot access '${operand}': ${denial}\n` })
+  }
+  return denied
 }
 
 /** Render one directory (or a single non-directory operand) in long format. */
@@ -268,8 +355,8 @@ async function listPath(
   let stat: FsStat
   try {
     stat = await ctx.fs.lstat(directory)
-  } catch {
-    return { stdout: '', stderr: missingOperand(operand, false), exitCode: 2 }
+  } catch (error) {
+    return { stdout: '', stderr: operandFailure(operand, error, false), exitCode: 2 }
   }
   if (!stat.isDirectory) {
     return { stdout: longLine(operand, stat, options), stderr: '', exitCode: 0 }
@@ -278,8 +365,8 @@ async function listPath(
   let names: string[]
   try {
     names = [...await ctx.fs.readdir(directory)]
-  } catch {
-    return { stdout: '', stderr: missingOperand(operand, false), exitCode: 2 }
+  } catch (error) {
+    return { stdout: '', stderr: operandFailure(operand, error, false), exitCode: 2 }
   }
   if (!options.showAll && !options.showAlmostAll) names = names.filter(name => !name.startsWith('.'))
   // The built-in sorts the entries first, prepends `.`/`..` for `-a`, and only
@@ -305,10 +392,10 @@ async function listPath(
       const entry = await ctx.fs.lstat(ctx.fs.resolvePath(directory, name))
       stdout += longLine(name, entry, options)
       if (entry.isDirectory && name !== '.' && name !== '..') childDirectories.push(name)
-    } catch {
+    } catch (error) {
       // A race between readdir and stat is a real failure, not a fabricated
       // 644/755 row: name it and keep the rest of the listing.
-      stderr += `ls: cannot access '${ctx.fs.resolvePath(directory, name)}': No such file or directory\n`
+      stderr += `ls: cannot access '${ctx.fs.resolvePath(directory, name)}': ${failureReason(error)}\n`
       exitCode = 2
     }
   }
@@ -340,8 +427,8 @@ async function longListing(invocation: LsInvocation, ctx: LsContext): Promise<Ex
       const path = ctx.fs.resolvePath(ctx.cwd, operand)
       try {
         stdout += longLine(operand, await ctx.fs.lstat(path), options)
-      } catch {
-        stderr += missingOperand(operand, true)
+      } catch (error) {
+        stderr += operandFailure(operand, error, true)
         exitCode = 2
       }
     }
@@ -356,8 +443,8 @@ async function longListing(invocation: LsInvocation, ctx: LsContext): Promise<Ex
       const stat = await ctx.fs.lstat(path)
       if (stat.isDirectory) directories.push(operand)
       else files.push(operand)
-    } catch {
-      stderr += missingOperand(operand, false)
+    } catch (error) {
+      stderr += operandFailure(operand, error, false)
       exitCode = 2
     }
   }
@@ -366,8 +453,8 @@ async function longListing(invocation: LsInvocation, ctx: LsContext): Promise<Ex
     const path = ctx.fs.resolvePath(ctx.cwd, operand)
     try {
       stdout += longLine(operand, await ctx.fs.lstat(path), options)
-    } catch {
-      stderr += missingOperand(operand, false)
+    } catch (error) {
+      stderr += operandFailure(operand, error, false)
       exitCode = 2
     }
   }
@@ -388,26 +475,49 @@ async function longListing(invocation: LsInvocation, ctx: LsContext): Promise<Ex
  *
  * A non-long invocation (including `--help` and every non-`-l` option
  * spelling) is delegated to `ctx.origCommand`, so its output and diagnostics
- * stay byte-identical. A long invocation is rendered here from `IFileSystem`
- * metadata.
+ * stay byte-identical — except for one deliberate difference: an operand the
+ * execution surface may not read is answered with the contract's `EACCES`
+ * remediation line here, before delegation. The built-in words every read
+ * failure as "No such file or directory", so delegating a denied operand
+ * would report DSH-internal state as absent while `python3` reports `EACCES`
+ * for the same path (`channel.md` §VFS has one answer).
  * @returns the `ls` command definition.
  */
 export function createLsCommand(): Command {
   return defineCommand('ls', async (args, ctx): Promise<ExecResult> => {
-    let invocation: LsInvocation
-    try {
-      invocation = parseLsArguments(args)
-    } catch (error) {
-      if (!(error instanceof LsUsageError)) throw error
-      // The built-in owns the option diagnostics; it raises them before it
-      // ever formats a row, so delegation cannot revive the hardcoded mode.
-      if (ctx.origCommand === undefined) return { stdout: '', stderr: `${error.message}\n`, exitCode: 1 }
-      return await ctx.origCommand([...args])
+    const runListing = async (argv: readonly string[]): Promise<ExecResult> => {
+      let invocation: LsInvocation
+      try {
+        invocation = parseLsArguments(argv)
+      } catch (error) {
+        if (!(error instanceof LsUsageError)) throw error
+        // The built-in owns the option diagnostics; it raises them before it
+        // ever formats a row, so delegation cannot revive the hardcoded mode.
+        if (ctx.origCommand === undefined) return { stdout: '', stderr: `${error.message}\n`, exitCode: 1 }
+        return await ctx.origCommand([...argv])
+      }
+      if (!invocation.options.longFormat) {
+        if (ctx.origCommand === undefined) return { stdout: '', stderr: 'ls: the built-in ls is unavailable in this shell\n', exitCode: 1 }
+        return await ctx.origCommand([...argv])
+      }
+      return await longListing(invocation, ctx as unknown as LsContext)
     }
-    if (!invocation.options.longFormat) {
-      if (ctx.origCommand === undefined) return { stdout: '', stderr: 'ls: the built-in ls is unavailable in this shell\n', exitCode: 1 }
-      return await ctx.origCommand([...args])
+
+    const denied = deniedOperands(ctx.fs, ctx.cwd, scanLsArguments(args).operands)
+    if (denied.length === 0) return await runListing(args)
+
+    const stderr = denied.map(entry => entry.line).join('')
+    // Mixed operands keep their normal listing: only the denied tokens leave
+    // argv, so `ls /dsh/workspace /dsh/home/sessions` still lists the tree it
+    // is allowed to see and answers `EACCES` for the one it is not.
+    const deniedTokens = new Set(denied.map(entry => entry.operand))
+    const allowedArgv = args.filter(token => !deniedTokens.has(token))
+    if (scanLsArguments(allowedArgv).operands.length === 0) return { stdout: '', stderr, exitCode: 2 }
+    const listed = await runListing(allowedArgv)
+    return {
+      stdout: listed.stdout,
+      stderr: `${stderr}${listed.stderr}`,
+      exitCode: Math.max(listed.exitCode, 2),
     }
-    return await longListing(invocation, ctx as unknown as LsContext)
   })
 }

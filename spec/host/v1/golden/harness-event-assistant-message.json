@@ -1,0 +1,12 @@
+{
+  "name": "harness-event-assistant-message",
+  "schema": "schema/harness-event.schema.json",
+  "instance": {
+    "session_id": "sess-2f7c",
+    "seq": 2,
+    "time_ms": 1793400120000,
+    "kind": "assistant_message",
+    "text": "The failing test is test_parse_iso8601_rejects_zulu."
+  },
+  "notes": "Sources/PhoneDSHAgentCore/AgentHarness.swift:389-412 (assistantMessage) and DSHEventMapper.swift:82-88: one DSH event can produce several durable events (message plus usage), so seq is dense only within one mapping, not across backends."
+}

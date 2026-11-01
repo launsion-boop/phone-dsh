@@ -1,0 +1,176 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "page-host bridge message (bridge 1)",
+  "description": "One message of spec/v1/bridge.md. Four kinds share the envelope: a request (page to host) is answered by exactly one response or error carrying the same requestId and method; a oneway (either direction) is never answered; result and error are mutually exclusive because they are separate kinds. Self-contained: no $ref, no $defs, no anyOf, no allOf, so the stdlib validator in tools/spec_golden.py can check it directly.",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": [
+        "v",
+        "kind",
+        "requestId",
+        "method"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "type": "integer",
+          "const": 1
+        },
+        "kind": {
+          "type": "string",
+          "const": "request"
+        },
+        "requestId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,199}$"
+        },
+        "method": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9_]*){1,3}$",
+          "maxLength": 64
+        },
+        "params": {
+          "type": "object"
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 600000
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "v",
+        "kind",
+        "method"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "type": "integer",
+          "const": 1
+        },
+        "kind": {
+          "type": "string",
+          "const": "oneway"
+        },
+        "method": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9_]*){1,3}$",
+          "maxLength": 64
+        },
+        "params": {
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "v",
+        "kind",
+        "requestId",
+        "method",
+        "result"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "type": "integer",
+          "const": 1
+        },
+        "kind": {
+          "type": "string",
+          "const": "response"
+        },
+        "requestId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,199}$"
+        },
+        "method": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9_]*){1,3}$",
+          "maxLength": 64
+        },
+        "result": {
+          "type": [
+            "object",
+            "array",
+            "string",
+            "number",
+            "boolean",
+            "null"
+          ]
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "v",
+        "kind",
+        "requestId",
+        "method",
+        "error"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "type": "integer",
+          "const": 1
+        },
+        "kind": {
+          "type": "string",
+          "const": "error"
+        },
+        "requestId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,199}$"
+        },
+        "method": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9_]*){1,3}$",
+          "maxLength": 64
+        },
+        "error": {
+          "type": "object",
+          "required": [
+            "code",
+            "message"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "type": "string",
+              "enum": [
+                "BRIDGE_BAD_MESSAGE",
+                "BRIDGE_UNSUPPORTED_VERSION",
+                "BRIDGE_METHOD_UNKNOWN",
+                "BRIDGE_INVALID_PARAMS",
+                "BRIDGE_SCOPE_DENIED",
+                "BRIDGE_MESSAGE_TOO_LARGE",
+                "BRIDGE_RESULT_TOO_LARGE",
+                "BRIDGE_TIMEOUT",
+                "BRIDGE_CANCELLED",
+                "BRIDGE_BUSY",
+                "BRIDGE_UNAVAILABLE",
+                "BRIDGE_FAILED"
+              ]
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "retryable": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

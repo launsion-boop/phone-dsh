@@ -1,0 +1,13 @@
+[package]
+name = "pdsh-wal"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "phone-dsh-v1 WAL format and recovery kernel: segments, records, tail-tear detection, recovery planning."
+
+[lib]
+name = "pdsh_wal"
+path = "src/lib.rs"
+
+[dependencies]

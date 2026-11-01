@@ -1,0 +1,35 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: MIT -->
+<!--
+  :engine androidTest page: the one page shape that reaches WebViewEngine's
+  onConsoleMessage `sourceId` branch with the launch URL.
+
+  The shipped worker bundle cannot exercise this branch: every console line in it
+  comes from worker-entry.js, an external script, so Chromium reports the script
+  URL as sourceId (that URL carries no query). An inline script is the one case
+  where sourceId is the document URL, i.e. the launch URL whose ?env= query holds
+  the worker environment and the per-start launch token.
+
+  The page is a fixture, not product UI. It never opens the channel and never
+  fetches a subresource, so the only thing under test is the console callback.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PDSH console query regression guard</title>
+</head>
+<body>
+<p>Instrumented-test fixture; nothing here is product UI.</p>
+<script>
+  "use strict";
+  // The guard line is spelled the way the vulnerability was found: the page logs
+  // its own location.href. The second line is the control that proves console
+  // logging was not turned off to make the negative assertion pass. `guard` is a
+  // per-run nonce the test passes in pageParams, so the control line cannot be
+  // satisfied by a stale line from an earlier run.
+  const nonce = new URLSearchParams(location.search).get("guard");
+  console.log("REGRESSION_GUARD " + location.href);
+  console.log("REGRESSION_GUARD_CONSOLE_OK " + nonce);
+</script>
+</body>
+</html>

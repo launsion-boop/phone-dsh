@@ -341,7 +341,15 @@ export class PhoneShellRemote extends TypertRemoteService {
       idempotencyKey: normalized.execId,
     }
     const handle = this.subprocess.spawn(spec)
-    const forced = Promise.withResolvers<'timeout' | 'cancelled'>()
+    // `Promise.withResolvers` is Chromium 119; the Huawei M99 engine (Chromium
+    // 99) has no such method, and this deferred is the console's only escape
+    // from a provider that ignores `terminate()`. Written out instead.
+    let resolveForced!: (reason: 'timeout' | 'cancelled') => void
+    let rejectForced!: (reason?: unknown) => void
+    const forced = new Promise<'timeout' | 'cancelled'>((resolve, reject) => {
+      resolveForced = resolve
+      rejectForced = reject
+    })
     let stopReason: 'timeout' | 'cancelled' | undefined
     let forceTimer: ReturnType<typeof setTimeout> | undefined
     const entry: RunningConsole = {
@@ -359,7 +367,7 @@ export class PhoneShellRemote extends TypertRemoteService {
       // Terminate first; the hard settlement below only bounds a provider
       // (host accelerator, stalled EXEC_EVT stream) that ignores cancel.
       try { entry.handle.terminate() } catch {}
-      forceTimer = setTimeout(() => { forced.resolve(reason) }, DEADLINE_FORCE_GRACE_MS)
+      forceTimer = setTimeout(() => { resolveForced(reason) }, DEADLINE_FORCE_GRACE_MS)
     }
     this.running.set(normalized.execId, entry)
 
@@ -387,7 +395,7 @@ export class PhoneShellRemote extends TypertRemoteService {
     try {
       const winner = await Promise.race([
         settled,
-        forced.promise.then(reason => ({ kind: 'forced' as const, reason })),
+        forced.then(reason => ({ kind: 'forced' as const, reason })),
       ])
       if (winner.kind === 'failed') {
         if (stopReason === undefined) {

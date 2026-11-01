@@ -1,0 +1,640 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "phone-dsh scenario catalog",
+  "description": "Normative declarative format of scripts/ci/scenarios/catalog.json (and the structurally compatible selftest.json). Additional-properties policy: the document, scenario, workspace, turn, fixture, mock, perturbation and run_plan objects are open (additionalProperties: true). The Swift runner ignores unknown keys and preserves the source object in its evidence, so an additive optional field must never break an older macOS/iOS runner, and the Kotlin third runner is required to ignore the same unknown members. The assertion objects are the deliberate exception: their per-type shape is scenario-assertion.schema.json, which is closed because the runner rejects unknown assertion keys and a misspelled optional bound would silently become a no-op. The budgets object is also closed because ScenarioBudgets rejects unknown keys. run_plan is optional here only because selftest.json shares this document shape; catalog_check.py requires it for catalog.json and enforces its cross-field invariants.",
+  "type": "object",
+  "required": [
+    "version",
+    "generated_by",
+    "scenarios",
+    "fixtures"
+  ],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "const": 1
+    },
+    "generated_by": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "scenarios": {
+      "type": "array",
+      "minItems": 1,
+      "description": "One object per scenario. Unknown scenario members are accepted: the Swift decoder ignores them and retains the source object, so additive optional fields stay forward-compatible. Assertions are validated per type against scenario-assertion.schema.json.",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "category",
+          "title",
+          "user_story",
+          "workspace",
+          "turns",
+          "assertions",
+          "budget"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._-]{1,64}$"
+          },
+          "category": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "user_story": {
+            "type": "string",
+            "minLength": 1
+          },
+          "workspace": {
+            "type": "object",
+            "description": "Seeded workspace. Unknown members are accepted. The files keys are relative paths; catalog_check.py rejects absolute paths and '..' segments because the key namespace is materialized inside the Worker VFS.",
+            "required": [
+              "files"
+            ],
+            "properties": {
+              "files": {
+                "type": "object",
+                "description": "Relative path to file content. An empty object is valid when workspace.fixture supplies every file.",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "fixture": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9._-]{1,64}$"
+              }
+            },
+            "additionalProperties": true
+          },
+          "turns": {
+            "type": "array",
+            "minItems": 1,
+            "description": "At least one user turn. Unknown turn members are accepted.",
+            "items": {
+              "type": "object",
+              "required": [
+                "prompt"
+              ],
+              "properties": {
+                "prompt": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "additionalProperties": true
+            }
+          },
+          "assertions": {
+            "type": "array",
+            "minItems": 1,
+            "description": "Shape gate for the catalog document pass. The per-type contract (required members, closed objects) lives in scenario-assertion.schema.json and is applied element by element by catalog_check.py.",
+            "items": {
+              "type": "object",
+              "required": [
+                "type"
+              ],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                }
+              },
+              "additionalProperties": true
+            }
+          },
+          "rubric": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "budget": {
+            "type": "object",
+            "description": "Per-scenario upper bounds declared by the catalog; the runner treats them as caps, not measurements. Unknown members are accepted.",
+            "required": [
+              "max_minutes",
+              "max_model_requests"
+            ],
+            "properties": {
+              "max_minutes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "max_model_requests": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "additionalProperties": true
+          },
+          "perturbations": {
+            "type": "array",
+            "description": "Injected fault points. Unknown members are accepted for forward compatibility.",
+            "items": {
+              "type": "object",
+              "required": [
+                "at",
+                "kind"
+              ],
+              "properties": {
+                "at": {
+                  "type": "string",
+                  "pattern": "^(after_turn:[1-9][0-9]*|during_first_tool|minute:[1-9][0-9]*)$"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "planned_restart",
+                    "park_resume",
+                    "worker_kill",
+                    "webcontent_kill"
+                  ]
+                }
+              },
+              "additionalProperties": true
+            }
+          },
+          "network": {
+            "description": "Either the literal string none or an allow-list object. Unknown allow-list members are accepted.",
+            "oneOf": [
+              {
+                "type": "string",
+                "const": "none"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "allow"
+                ],
+                "properties": {
+                  "allow": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 253
+                    }
+                  }
+                },
+                "additionalProperties": true
+              }
+            ]
+          },
+          "tags": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "target": {
+            "type": "string",
+            "enum": [
+              "both",
+              "macos",
+              "sim"
+            ]
+          },
+          "budgets": {
+            "type": "object",
+            "description": "Scenario-declared resource premise. Closed because ScenarioBudgets rejects unknown keys; only singleFileBytes is defined today (16 MiB ... 256 MiB per the host contract).",
+            "properties": {
+              "singleFileBytes": {
+                "type": "integer",
+                "minimum": 16777216,
+                "maximum": 268435456
+              }
+            },
+            "additionalProperties": false
+          },
+          "mock": {
+            "type": "object",
+            "description": "Mock-upstream script used by self-test runs. Unknown members are accepted because the synthesized decoder ignores them.",
+            "properties": {
+              "tool_call_rounds": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "tool_command": {
+                "type": "string",
+                "minLength": 1
+              },
+              "tool_description": {
+                "type": "string",
+                "minLength": 1
+              },
+              "tool_text": {
+                "type": "string"
+              },
+              "final_text": {
+                "type": "string"
+              },
+              "response_bytes": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "chunk_bytes": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "chunk_delay_ms": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "stall_from_response": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "stall_after_bytes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "resume_after_ms": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "delivery_idle_timeout_ms": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "additionalProperties": true
+          },
+          "assertions_extra": {
+            "type": "array",
+            "description": "Generator-reserved additive list present in catalog.json. It is not interpreted by the runner; the schema only fixes its array shape so a typo cannot change the surrounding scenario."
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "fixtures": {
+      "type": "array",
+      "description": "Named fixture payloads under scripts/ci/scenarios/fixtures/. Unknown fixture members are accepted.",
+      "items": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._-]{1,64}$"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "run_plan": {
+      "type": "object",
+      "description": "Machine-readable batch plan and declared budget inventory. It is not decoded by the scenario runner; scenario_batch.py consumes the lane plan and inventory. Unknown members are accepted. catalog_check.py requires this member in catalog.json and checks that the declared counts, lane coverage and budget sums agree with the scenarios array.",
+      "required": [
+        "inventory",
+        "parallelism",
+        "order_principle",
+        "lane_plan",
+        "budget",
+        "macos_pass",
+        "sim_pass",
+        "time_budget_by_category_minutes",
+        "model_request_budget",
+        "failure_strategy"
+      ],
+      "properties": {
+        "inventory": {
+          "type": "object",
+          "required": [
+            "scenarios",
+            "by_part",
+            "fixtures",
+            "normal_scenarios",
+            "long_run_scenarios",
+            "note"
+          ],
+          "properties": {
+            "scenarios": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "by_part": {
+              "type": "object",
+              "required": [
+                "A",
+                "B",
+                "C",
+                "D",
+                "E",
+                "F"
+              ],
+              "properties": {
+                "A": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "B": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "C": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "D": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "E": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "F": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "additionalProperties": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "fixtures": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "normal_scenarios": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "long_run_scenarios": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "note": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": true
+        },
+        "parallelism": {
+          "type": "object",
+          "required": [
+            "mac_wkwebviews",
+            "sim_wkwebviews",
+            "note"
+          ],
+          "properties": {
+            "mac_wkwebviews": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "sim_wkwebviews": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "note": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": true
+        },
+        "order_principle": {
+          "type": "string",
+          "minLength": 1
+        },
+        "lane_plan": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "scenario_ids"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9._-]{1,64}$"
+              },
+              "scenario_ids": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9._-]{1,64}$"
+                }
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "budget": {
+          "type": "object",
+          "required": [
+            "serial_max_minutes",
+            "serial_max_model_requests",
+            "normal_50_max_minutes",
+            "normal_50_max_model_requests",
+            "long_run_6_max_minutes",
+            "long_run_6_max_model_requests",
+            "largest_scenario",
+            "note"
+          ],
+          "properties": {
+            "serial_max_minutes": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "serial_max_model_requests": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "normal_50_max_minutes": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "normal_50_max_model_requests": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "long_run_6_max_minutes": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "long_run_6_max_model_requests": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "largest_scenario": {
+              "type": "object",
+              "required": [
+                "id",
+                "max_minutes",
+                "max_model_requests"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9._-]{1,64}$"
+                },
+                "max_minutes": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "max_model_requests": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "additionalProperties": true
+            },
+            "note": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": true
+        },
+        "macos_pass": {
+          "type": "object",
+          "required": [
+            "lanes",
+            "wall_estimate_minutes",
+            "lane_plan_note",
+            "lane_budget"
+          ],
+          "properties": {
+            "lanes": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "wall_estimate_minutes": {
+              "type": "string",
+              "minLength": 1
+            },
+            "lane_plan_note": {
+              "type": "string",
+              "minLength": 1
+            },
+            "lane_budget": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "object",
+                "required": [
+                  "max_minutes",
+                  "max_model_requests"
+                ],
+                "properties": {
+                  "max_minutes": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "max_model_requests": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          },
+          "additionalProperties": true
+        },
+        "sim_pass": {
+          "type": "string",
+          "minLength": 1
+        },
+        "time_budget_by_category_minutes": {
+          "type": "object",
+          "description": "Category to minutes, plus the declared serial total under the literal key written by the catalog generator.",
+          "required": [
+            "总计串行"
+          ],
+          "properties": {
+            "总计串行": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "model_request_budget": {
+          "type": "object",
+          "required": [
+            "normal_50",
+            "long_run_6",
+            "catalog_total",
+            "rerun_reserve_20pct",
+            "requested_quota",
+            "note"
+          ],
+          "properties": {
+            "normal_50": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "long_run_6": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "catalog_total": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "rerun_reserve_20pct": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "requested_quota": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "note": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": true
+        },
+        "failure_strategy": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

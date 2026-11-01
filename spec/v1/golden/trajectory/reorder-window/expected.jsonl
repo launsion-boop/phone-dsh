@@ -1,0 +1,7 @@
+{"data":{"workspace":"/dsh/workspace"},"schemaVersion":"trajectory/1","seq":1,"sessionID":"sess-003","turnID":"-","type":"session/start"}
+{"data":{"step":0,"text":"run the check","turn":1},"requestId":"req-0020","schemaVersion":"trajectory/1","seq":1,"sessionID":"sess-003","turnID":"turn-0001","type":"user/message"}
+{"data":{"action":"exec","id":"perm-1"},"requestId":"req-0021","schemaVersion":"trajectory/1","seq":2,"sessionID":"sess-003","turnID":"turn-0001","type":"permission/request"}
+{"data":{"arguments":"{\"cmd\":\"make check\"}","callId":"call-2","name":"exec"},"requestId":"req-0022","schemaVersion":"trajectory/1","seq":3,"sessionID":"sess-003","turnID":"turn-0001","type":"tool/call"}
+{"data":{"bytes":3,"callId":"call-2","output":"ok"},"requestId":"req-0023","schemaVersion":"trajectory/1","seq":4,"sessionID":"sess-003","turnID":"turn-0001","type":"tool/result"}
+{"data":{"text":"all good","usage":{"inputTokens":9,"outputTokens":4}},"requestId":"req-0024","schemaVersion":"trajectory/1","seq":5,"sessionID":"sess-003","turnID":"turn-0001","type":"assistant/message"}
+{"data":{"reason":{"kind":"completed"}},"requestId":"req-0025","schemaVersion":"trajectory/1","seq":6,"sessionID":"sess-003","turnID":"turn-0001","type":"turn/end"}

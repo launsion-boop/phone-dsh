@@ -1,0 +1,20 @@
+{
+  "name": "oneway-progress",
+  "direction": "host-to-page",
+  "schema": "bridge-message.schema.json",
+  "instance": {
+    "v": 1,
+    "kind": "oneway",
+    "method": "directory.progress",
+    "params": {
+      "requestId": "b7e2d9a4-3c5f-4a18-9e60-2d7f1c8b5a39",
+      "phase": "uploading",
+      "filesDone": 3,
+      "filesTotal": 9,
+      "bytesDone": 4096,
+      "bytesTotal": 12288,
+      "currentPath": "imports/photos/a.jpg"
+    }
+  },
+  "notes": "bridge.md §2, §8; a host-to-page oneway has no envelope requestId, so the originating id travels in params. The legacy form is a CustomEvent detail with {v, id, type, phase, ...}, Sources/PhoneDSHEngine/WebEngineDirectoryImport.swift:825."
+}

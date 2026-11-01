@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: MIT -->
+<!--
+  The turn lane's cleartext hosts are loopback only: the engine's origin, the
+  scripted model upstream and the gateway front. Everything else keeps the
+  platform default (cleartext denied), so this file widens exactly one origin.
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+    </domain-config>
+</network-security-config>

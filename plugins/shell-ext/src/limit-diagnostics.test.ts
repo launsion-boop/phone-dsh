@@ -80,5 +80,6 @@ test('G2-FIX-100: the limit-refused trailer hint is derived from the enforced bu
   const trailer = parseShellTrailer(result.stderr.trimEnd().split('\n').at(-1) as string)
   assert.equal(trailer?.reason, 'limit-refused')
   assert.equal(trailer?.program, 'writebig')
-  assert.equal(trailer?.hint, 'a single VFS file is limited to 1 MiB (PLAN D4)')
+  assert.match(String(trailer?.hint), /^a single VFS file is limited to 1 MiB \(PLAN D4\); split the output across files/u,
+    'the hint names the enforced budget and an action')
 })

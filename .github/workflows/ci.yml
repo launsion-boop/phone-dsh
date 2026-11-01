@@ -26,6 +26,23 @@ jobs:
         run: cd plugins && npm ci && npm run typecheck && npm test
       - name: Static gates
         run: bash scripts/ci/check.sh --only phone-no-dsh-patch,phone-hygiene,phone-license,phone-modules,phone-spec,phone-gate-contracts
+      - name: Android-port contract gates
+        # The four contract trees (spec/host, spec/platform, spec/ui) plus the
+        # catalog, bridge, gateway, trajectory and fixture checkers. Host
+        # independent: this is where the Kotlin host's contract is judged.
+        run: bash scripts/ci/check.sh --only phone-p0-conformance
+      - name: Cross-tree consistency
+        # The eight invariants that only hold across two spec trees (the UI
+        # README <-> tokens.json composition is one of them) and the checker's
+        # own mutation tests. Python only: it runs here, next to the per-tree
+        # gates, so a spec-only change never spins up Gradle + Rust on the
+        # Android host.
+        run: bash scripts/ci/check.sh --only phone-cross-tree
+      - name: M99 compatibility gate
+        # The shared TypeScript must stay inside the Chromium 99 baseline that
+        # the Huawei WebView pins; exceeding it has to fail the pack, not the
+        # device.
+        run: bash scripts/ci/check.sh --only phone-compat
       - name: Xcode package resolution
         run: bash scripts/ci/check.sh --only phone-xcode-resolve
       - name: Image

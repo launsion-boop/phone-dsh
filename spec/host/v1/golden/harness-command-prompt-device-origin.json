@@ -1,0 +1,25 @@
+{
+  "name": "harness-command-prompt-device-origin",
+  "schema": "schema/harness-command.schema.json",
+  "ignore_members": [
+    "origin"
+  ],
+  "instance": {
+    "kind": "prompt",
+    "text": "Summarise the failing test in one line.",
+    "request_id": "dev:dev-01-000123",
+    "attachments": [
+      {
+        "name": "screenshot.png",
+        "mime_type": "image/png",
+        "data_base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8AAAwAB/wFPh4ZAAAAAAElFTkSuQmCC"
+      }
+    ],
+    "origin": {
+      "kind": "device",
+      "device_id": "esp32-8c4f1a",
+      "seq": 123
+    }
+  },
+  "notes": "Sources/PhoneDSHAgentCore/AgentHarness.swift:249-262 (a prompt carries text, attachments and a request_id) and 487-488 (prompts and steers are idempotent by request_id). origin is the device-source member the connector needs (plan §13.2: request_id = \"dev:\" + msg_id, origin = user / device(id, seq)); adding it to a prompt is a spec/v1 change, so every contract-1 decoder MUST ignore it until it is adopted (plan §13.7). This golden exercises exactly that ignore path."
+}

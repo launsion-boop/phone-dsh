@@ -1,0 +1,10 @@
+{
+  "name": "harness-command-permission-response-always",
+  "schema": "schema/harness-command.schema.json",
+  "instance": {
+    "kind": "permission_response",
+    "request_id": "ev-7f3",
+    "decision": "allow_always"
+  },
+  "notes": "Sources/PhoneDSHAgentCore/AgentHarness.swift:259 and 185-189 (three decisions: allow_once, allow_always, deny). The DSH remote has no always outcome: allow_always degrades to allowed-once and the user is asked again next turn (DSHRemoteHarness.swift:134-137). The request side is harness-event permission_requested with a risk class (AgentHarness.swift:266-295)."
+}

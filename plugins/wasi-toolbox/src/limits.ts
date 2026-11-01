@@ -53,6 +53,13 @@ export const MAX_SINGLE_FILE_LIMIT = 256 * MEBIBYTE
 /**
  * Active single-file budget: 128 MiB by default, the 8 GiB tier row.
  *
+ * The number has one owner, `spec/v1/budgets.md:104` ("Single file", 8 GiB
+ * default column: ≤ 128 MiB); a host-configured limit replaces it through
+ * {@link SINGLE_FILE_LIMIT_ENV} and is bounded by the same table's floor and
+ * host maximum. This file used to call the default 64 MiB — a value no row of
+ * that table contains — so the prose and the constant disagreed and nothing
+ * could see it.
+ *
  * This is the file cap, not the per-mutation frame cap. One file larger than
  * one VFS_MUT is published as one complete write plus appended suffixes
  * (channel.md §3.1), so the cap can exceed the 15 MiB mutation bound. The

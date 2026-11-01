@@ -167,7 +167,7 @@ class HandoffBudgetTests(unittest.TestCase):
         self.assert_fails(completed, "lacks required contract text")
 
     def test_budgets_document_requires_wal_quota(self) -> None:
-        self.replace("budgets.md", "| WAL segments | 256 MiB |", "| WAL segments | 256 MB |")
+        self.replace("budgets.md", "| WAL segments | 512 MiB |", "| WAL segments | 512 MB |")
         completed = run_checker(self.copy, full=True)
         self.assert_fails(completed, "lacks required contract text")
 

@@ -1,0 +1,17 @@
+{
+  "schema": "pdsh.ui.page-structure-whitelist/1",
+  "note": "Platform-forced section/action differences that this gate accepts. Every entry references a real id in spec/platform/whitelist.json, carries an owner and a reviewBy date, and must still match an observed divergence (an empty match is a failure: promote or delete it). Row-level and chrome-level differences stay governed by README §5; this file only covers structural items (a section title or an action label).",
+  "entries": [
+    {
+      "id": "settings.platform-appendix",
+      "page": "settings",
+      "kind": "extra-section",
+      "name": "平台差异",
+      "side": "android-only",
+      "platformRef": "platform.post-notifications-degraded",
+      "owner": "android-parity",
+      "reviewBy": "2027-06-30",
+      "reason": "Android-only appendix section: POST_NOTIFICATIONS grant, battery-exemption policy and predictive back have no iOS counterpart (README §5 rows fgs-notification / insets / back-gesture). The baseline has no such section, so the contract has no title to match; the three fact rows are status-only, never actions."
+    }
+  ]
+}

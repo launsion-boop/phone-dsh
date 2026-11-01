@@ -1,0 +1,15 @@
+{
+  "name": "harness-session-request-new",
+  "schema": "schema/harness-session-request.schema.json",
+  "instance": {
+    "preset": "default",
+    "workspace": "/dsh/home/workspaces/main",
+    "instructions": "Answer in the language the user wrote in.",
+    "metadata": {
+      "origin": "app",
+      "locale": "en-US",
+      "device_id": "esp32-8c4f1a"
+    }
+  },
+  "notes": "Sources/PhoneDSHAgentCore/AgentHarness.swift:110-144; an absent session_id requests a new session. DSH maps workspace to cwd and preset to agentPreset and keeps instructions on the host side (DSHRemoteHarness.swift:88-96)."
+}

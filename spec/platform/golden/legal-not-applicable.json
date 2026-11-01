@@ -1,0 +1,19 @@
+{
+  "intent": "legal",
+  "note": "合法例：baseline 写 not-applicable 时必须带 justification_class、evidence、approved_by 三字段 —— 无 drain 窗口是 Swift 侧无法承载的平台差分（方案 §5.3-1）。",
+  "entry": {
+    "id": "golden.no-drain-window",
+    "capability": "background.drain-window",
+    "ios": "20 秒 drain 窗口由 iOS 后台任务提供，Draining 期间可以继续收尾",
+    "android": "onTimeout 只有几秒、force-stop 零回调，不存在等价窗口；持久化改由 WAL 写入路径保证",
+    "divergence_class": "os-forced",
+    "rationale": "Android 没有可用的 drain 窗口（方案 §7.4-1），Swift 侧也没有对应机制可以承载；Draining 状态保留，但实时 drain 是尽力而为，恢复保证只来自 WAL 写入路径本身。",
+    "spec_ref": "spec/v1/budgets.md §1",
+    "android_mechanism": "JobParameters.getStopReason",
+    "evidence_level": "device-gate",
+    "baseline": "not-applicable",
+    "justification_class": "os-mechanism-absent",
+    "evidence": "iOS 的后台任务在 Swift 侧只能表达为 iOS API，无法在 Android 栈上复现窗口；仓库锚点：spec/v1/budgets.md §1 的 Draining 20 秒 deadline。",
+    "approved_by": "P0-H2"
+  }
+}

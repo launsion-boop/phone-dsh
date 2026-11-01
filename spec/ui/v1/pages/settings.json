@@ -1,0 +1,725 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "SettingsPage",
+  "pageId": "settings",
+  "structure": "swiftui-view",
+  "sectionModel": "section",
+  "sectionNote": null,
+  "title": {
+    "text": "设置",
+    "provenance": "SettingsPage.swift:47",
+    "anchor": ".navigationTitle(\"设置\")"
+  },
+  "source": {
+    "file": "SettingsPage.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/SettingsPage.swift",
+    "lines": 615,
+    "structLine": 9,
+    "renderedFrom": [
+      "body",
+      "mainGroup",
+      "row",
+      "settingsRow",
+      "hairline",
+      "rowLabel",
+      "toolsGroup",
+      "groupHeader",
+      "aboutGroup",
+      "versionRow"
+    ],
+    "sectionOrder": "declaration order inside the page struct"
+  },
+  "android": {
+    "screen": "SettingsPage",
+    "file": "android/lib/src/main/kotlin/com/phonedsh/ui/page/SettingsPage.kt",
+    "match": "composable"
+  },
+  "sections": [
+    {
+      "id": "section-70",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "absent",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "权限",
+          "label": "权限",
+          "labelExpr": null,
+          "kind": "navigation",
+          "value": null,
+          "valueExpr": "permissionValue",
+          "clickable": true,
+          "destination": "PermissionDefaultsPage",
+          "writes": false,
+          "condition": null,
+          "provenance": "SettingsPage.swift:73",
+          "anchor": "row(\"权限\", permissionValue) { PermissionDefaultsPage() }",
+          "extraction": "syntax"
+        },
+        {
+          "id": "写之前",
+          "label": "写之前",
+          "labelExpr": null,
+          "kind": "info",
+          "value": null,
+          "valueExpr": "askValue",
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "SettingsPage.swift:74",
+          "anchor": "settingsRow(rowLabel(\"写之前\", askValue, chevronSlot: true))",
+          "extraction": "syntax",
+          "template": "rowLabel"
+        },
+        {
+          "id": "模型服务",
+          "label": "模型服务",
+          "labelExpr": null,
+          "kind": "navigation",
+          "value": null,
+          "valueExpr": "selectedProvider?.displayName ?? \"未配置\"",
+          "clickable": true,
+          "destination": "ModelProviderSettingsPage",
+          "writes": false,
+          "condition": null,
+          "provenance": "SettingsPage.swift:75",
+          "anchor": "row(\"模型服务\", selectedProvider?.displayName ?? \"未配置\") { ModelProviderSettingsPage(",
+          "extraction": "syntax"
+        },
+        {
+          "id": "mcp",
+          "label": "MCP",
+          "labelExpr": null,
+          "kind": "navigation",
+          "value": null,
+          "valueExpr": "mcpSummary",
+          "clickable": true,
+          "destination": "MCPSettingsPage",
+          "writes": false,
+          "condition": null,
+          "provenance": "SettingsPage.swift:76",
+          "anchor": "row(\"MCP\", mcpSummary) { MCPSettingsPage(host: .native) }",
+          "extraction": "syntax"
+        },
+        {
+          "id": "后台运行",
+          "label": "后台运行",
+          "labelExpr": null,
+          "kind": "control",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "SettingsPage.swift:77",
+          "anchor": "settingsRow(Toggle(\"后台运行\", isOn: $model.backgroundKeepAlive)",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "SettingsPage.swift:70",
+      "anchor": "Section {",
+      "extraction": "syntax",
+      "criterion": {
+        "kind": "first-clickable-row",
+        "label": "权限",
+        "provenance": "SettingsPage.swift:73"
+      }
+    },
+    {
+      "id": "工具",
+      "title": "工具",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "header",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "网页搜索",
+          "label": "网页搜索",
+          "labelExpr": null,
+          "kind": "navigation",
+          "value": null,
+          "valueExpr": "searchSummary.title",
+          "clickable": true,
+          "destination": "WebSearchSettingsPage",
+          "writes": false,
+          "condition": null,
+          "provenance": "SettingsPage.swift:88",
+          "anchor": "row(\"网页搜索\", searchSummary.title) { WebSearchSettingsPage(host: .native) }",
+          "extraction": "syntax"
+        },
+        {
+          "id": "网络访问",
+          "label": "网络访问",
+          "labelExpr": null,
+          "kind": "navigation",
+          "value": null,
+          "valueExpr": "\"\\(egressEntries.count) 个地址\"",
+          "clickable": true,
+          "destination": "EgressAllowListPage",
+          "writes": false,
+          "condition": null,
+          "provenance": "SettingsPage.swift:89",
+          "anchor": "row(\"网络访问\", \"\\(egressEntries.count) 个地址\") { EgressAllowListPage() }",
+          "extraction": "syntax"
+        },
+        {
+          "id": "插件与模型",
+          "label": "插件与模型",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "SettingsPage.swift:91",
+          "anchor": "rowLabel(\"插件与模型\", \"\")",
+          "extraction": "syntax"
+        },
+        {
+          "id": "命令",
+          "label": "命令",
+          "labelExpr": null,
+          "kind": "navigation",
+          "value": null,
+          "valueExpr": "\"\"",
+          "clickable": true,
+          "destination": "PDSHShellPage",
+          "writes": false,
+          "condition": null,
+          "provenance": "SettingsPage.swift:95",
+          "anchor": "row(\"命令\", \"\") { PDSHShellPage() }",
+          "extraction": "syntax"
+        },
+        {
+          "id": "发送消息时",
+          "label": "发送消息时",
+          "labelExpr": null,
+          "kind": "info",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "SettingsPage.swift:96",
+          "anchor": "settingsRow(LabeledContent(\"发送消息时\") {",
+          "extraction": "syntax"
+        },
+        {
+          "id": "control-97",
+          "label": null,
+          "labelExpr": null,
+          "kind": "control",
+          "value": "排到下一轮 | 补充当前任务",
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "SettingsPage.swift:97",
+          "anchor": "Picker(\"\", selection: $busyEnterMode) {",
+          "extraction": "manual"
+        }
+      ],
+      "provenance": "SettingsPage.swift:105",
+      "anchor": "groupHeader(\"工具\")",
+      "extraction": "syntax",
+      "hasHeader": true,
+      "footer": {
+        "text": null,
+        "labelExpr": "line",
+        "provenance": "SettingsPage.swift:109",
+        "anchor": "Text(line)"
+      }
+    },
+    {
+      "id": "关于",
+      "title": "关于",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "header",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "版本",
+          "label": "版本",
+          "labelExpr": null,
+          "kind": "info",
+          "value": null,
+          "valueExpr": "versionText",
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "SettingsPage.swift:169",
+          "anchor": "rowLabel(\"版本\", versionText, chevronSlot: true)",
+          "extraction": "syntax",
+          "template": "rowLabel"
+        },
+        {
+          "id": "开源许可",
+          "label": "开源许可",
+          "labelExpr": null,
+          "kind": "navigation",
+          "value": null,
+          "valueExpr": "\"\"",
+          "clickable": true,
+          "destination": "LicensesPage",
+          "writes": false,
+          "condition": null,
+          "provenance": "SettingsPage.swift:121",
+          "anchor": "row(\"开源许可\", \"\") { LicensesPage() }",
+          "extraction": "syntax"
+        },
+        {
+          "id": "导出诊断",
+          "label": "导出诊断",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "SettingsPage.swift:123",
+          "anchor": "rowLabel(\"导出诊断\", \"\")",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "SettingsPage.swift:128",
+      "anchor": "groupHeader(\"关于\")",
+      "extraction": "syntax",
+      "hasHeader": true
+    }
+  ],
+  "actions": [
+    {
+      "id": "权限",
+      "label": "权限",
+      "labelExpr": null,
+      "kind": "navigation",
+      "trigger": "tap",
+      "semantic": "navigate:PermissionDefaultsPage",
+      "writes": false,
+      "destination": "PermissionDefaultsPage",
+      "condition": null,
+      "provenance": "SettingsPage.swift:73",
+      "anchor": "row(\"权限\", permissionValue) { PermissionDefaultsPage() }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "模型服务",
+      "label": "模型服务",
+      "labelExpr": null,
+      "kind": "navigation",
+      "trigger": "tap",
+      "semantic": "navigate:ModelProviderSettingsPage",
+      "writes": false,
+      "destination": "ModelProviderSettingsPage",
+      "condition": null,
+      "provenance": "SettingsPage.swift:75",
+      "anchor": "row(\"模型服务\", selectedProvider?.displayName ?? \"未配置\") { ModelProviderSettingsPage(",
+      "extraction": "syntax"
+    },
+    {
+      "id": "mcp",
+      "label": "MCP",
+      "labelExpr": null,
+      "kind": "navigation",
+      "trigger": "tap",
+      "semantic": "navigate:MCPSettingsPage",
+      "writes": false,
+      "destination": "MCPSettingsPage",
+      "condition": null,
+      "provenance": "SettingsPage.swift:76",
+      "anchor": "row(\"MCP\", mcpSummary) { MCPSettingsPage(host: .native) }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "后台运行",
+      "label": "后台运行",
+      "labelExpr": null,
+      "kind": "toggle",
+      "trigger": "tap",
+      "semantic": null,
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SettingsPage.swift:77",
+      "anchor": "settingsRow(Toggle(\"后台运行\", isOn: $model.backgroundKeepAlive)",
+      "extraction": "syntax"
+    },
+    {
+      "id": "网页搜索",
+      "label": "网页搜索",
+      "labelExpr": null,
+      "kind": "navigation",
+      "trigger": "tap",
+      "semantic": "navigate:WebSearchSettingsPage",
+      "writes": false,
+      "destination": "WebSearchSettingsPage",
+      "condition": null,
+      "provenance": "SettingsPage.swift:88",
+      "anchor": "row(\"网页搜索\", searchSummary.title) { WebSearchSettingsPage(host: .native) }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "网络访问",
+      "label": "网络访问",
+      "labelExpr": null,
+      "kind": "navigation",
+      "trigger": "tap",
+      "semantic": "navigate:EgressAllowListPage",
+      "writes": false,
+      "destination": "EgressAllowListPage",
+      "condition": null,
+      "provenance": "SettingsPage.swift:89",
+      "anchor": "row(\"网络访问\", \"\\(egressEntries.count) 个地址\") { EgressAllowListPage() }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "插件与模型",
+      "label": "插件与模型",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ showDSHConfiguration = true",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SettingsPage.swift:91",
+      "anchor": "rowLabel(\"插件与模型\", \"\")",
+      "extraction": "syntax",
+      "labelAlternatives": [],
+      "presents": "sheet-55"
+    },
+    {
+      "id": "命令",
+      "label": "命令",
+      "labelExpr": null,
+      "kind": "navigation",
+      "trigger": "tap",
+      "semantic": "navigate:PDSHShellPage",
+      "writes": false,
+      "destination": "PDSHShellPage",
+      "condition": null,
+      "provenance": "SettingsPage.swift:95",
+      "anchor": "row(\"命令\", \"\") { PDSHShellPage() }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "picker-97",
+      "label": null,
+      "labelExpr": null,
+      "kind": "picker",
+      "trigger": "tap",
+      "semantic": null,
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SettingsPage.swift:97",
+      "anchor": "Picker(\"\", selection: $busyEnterMode) {",
+      "extraction": "manual",
+      "items": [
+        "排到下一轮",
+        "补充当前任务"
+      ],
+      "style": "default"
+    },
+    {
+      "id": "开源许可",
+      "label": "开源许可",
+      "labelExpr": null,
+      "kind": "navigation",
+      "trigger": "tap",
+      "semantic": "navigate:LicensesPage",
+      "writes": false,
+      "destination": "LicensesPage",
+      "condition": null,
+      "provenance": "SettingsPage.swift:121",
+      "anchor": "row(\"开源许可\", \"\") { LicensesPage() }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "导出诊断",
+      "label": "导出诊断",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ showExport = true",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SettingsPage.swift:123",
+      "anchor": "rowLabel(\"导出诊断\", \"\")",
+      "extraction": "syntax",
+      "labelAlternatives": [],
+      "presents": "sheet-130"
+    },
+    {
+      "id": "完成",
+      "label": "完成",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "toolbar",
+      "semantic": "{ dismiss()",
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "SettingsPage.swift:52",
+      "anchor": "Button(\"完成\") { dismiss() }.leadingBarText()",
+      "extraction": "syntax"
+    },
+    {
+      "id": "运行时详情",
+      "label": "运行时详情",
+      "labelExpr": null,
+      "kind": "navigation",
+      "trigger": "tap",
+      "semantic": "navigate:RuntimeDetailsPage",
+      "writes": false,
+      "destination": "RuntimeDetailsPage",
+      "condition": null,
+      "provenance": "SettingsPage.swift:287",
+      "anchor": "NavigationLink {",
+      "extraction": "manual",
+      "specRequired": true,
+      "specRef": "spec/ui/v1/README.md:63",
+      "baselineReachable": false,
+      "note": "README §1 lists RuntimeDetailsPage's entrance as `页头运行状态点、设置行`. The baseline declares this settings row only inside the never-referenced `advancedSection` (label 运行状态), so its body never renders it. §1 wins: the Android row is named after the page (运行时详情), not after the dead label."
+    }
+  ],
+  "presentations": [
+    {
+      "id": "sheet-55",
+      "kind": "sheet",
+      "title": null,
+      "destination": "NativeConfigurationPage",
+      "triggerBindings": [
+        "showDSHConfiguration"
+      ],
+      "span": [
+        55,
+        58
+      ],
+      "provenance": "SettingsPage.swift:55",
+      "anchor": ".sheet(isPresented: $showDSHConfiguration) {",
+      "triggered": true
+    },
+    {
+      "id": "sheet-130",
+      "kind": "sheet",
+      "title": null,
+      "destination": "ExportPage",
+      "triggerBindings": [
+        "showExport"
+      ],
+      "span": [
+        130,
+        130
+      ],
+      "provenance": "SettingsPage.swift:130",
+      "anchor": ".sheet(isPresented: $showExport) { ExportPage() }",
+      "triggered": true
+    }
+  ],
+  "states": {
+    "advisory": true,
+    "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
+    "sites": {
+      "empty": [
+        {
+          "renders": "未配置",
+          "when": null,
+          "provenance": "SettingsPage.swift:75",
+          "anchor": "row(\"模型服务\", selectedProvider?.displayName ?? \"未配置\") { ModelProviderSettingsPage("
+        },
+        {
+          "renders": "未配置",
+          "when": null,
+          "provenance": "SettingsPage.swift:142",
+          "anchor": "guard model.isStarted, !mcpRows.isEmpty else { return \"未配置\" }"
+        }
+      ],
+      "data": [
+        {
+          "renders": "untitled section at 70 | 工具 | 关于",
+          "when": null,
+          "provenance": "SettingsPage.swift:9",
+          "anchor": "struct SettingsPage: View {",
+          "note": "structural default: the sections above, when no condition overrides them"
+        }
+      ],
+      "failure": [],
+      "unknown": [
+        {
+          "renders": "—",
+          "when": null,
+          "provenance": "SettingsPage.swift:161",
+          "anchor": "Bundle.main.infoDictionary?[\"CFBundleShortVersionString\"] as? String ?? \"—\""
+        },
+        {
+          "renders": "未设置",
+          "when": null,
+          "provenance": "SettingsPage.swift:240",
+          "anchor": "guard let id = NativeConfigurationModel.shared.defaultPermissionMode else { retu"
+        },
+        {
+          "renders": "未设置",
+          "when": null,
+          "provenance": "SettingsPage.swift:241",
+          "anchor": "return AccessModeWording.title(for: id) ?? \"未设置\""
+        },
+        {
+          "renders": "未设置",
+          "when": null,
+          "provenance": "SettingsPage.swift:247",
+          "anchor": "AccessModeWording.title(for: id) != nil else { return \"未设置\" }"
+        }
+      ],
+      "loading": []
+    },
+    "absent": [
+      "failure",
+      "loading"
+    ],
+    "coverage": {
+      "empty": 2,
+      "data": 1,
+      "failure": 0,
+      "unknown": 4,
+      "loading": 0
+    }
+  },
+  "subpages": [
+    {
+      "name": "PermissionDefaultsPage",
+      "line": 464,
+      "private": true,
+      "sections": [],
+      "provenance": "SettingsPage.swift:464"
+    },
+    {
+      "name": "LicensesPage",
+      "line": 500,
+      "private": true,
+      "sections": [],
+      "provenance": "SettingsPage.swift:500"
+    },
+    {
+      "name": "DevelopmentToolsPage",
+      "line": 537,
+      "private": true,
+      "sections": [],
+      "provenance": "SettingsPage.swift:537"
+    },
+    {
+      "name": "DeveloperPage",
+      "line": 552,
+      "private": true,
+      "sections": [],
+      "provenance": "SettingsPage.swift:552"
+    }
+  ],
+  "unreachable": [
+    {
+      "member": "runtimeSection",
+      "line": 258,
+      "endLine": 272,
+      "sections": 1,
+      "note": "view member with Section(s) that body does not reference: dead in the page"
+    },
+    {
+      "member": "advancedSection",
+      "line": 276,
+      "endLine": 293,
+      "sections": 1,
+      "note": "view member with Section(s) that body does not reference: dead in the page"
+    },
+    {
+      "member": "modelSection",
+      "line": 295,
+      "endLine": 324,
+      "sections": 1,
+      "note": "view member with Section(s) that body does not reference: dead in the page"
+    },
+    {
+      "member": "webSearchSection",
+      "line": 326,
+      "endLine": 358,
+      "sections": 1,
+      "note": "view member with Section(s) that body does not reference: dead in the page"
+    },
+    {
+      "member": "mcpSection",
+      "line": 385,
+      "endLine": 397,
+      "sections": 1,
+      "note": "view member with Section(s) that body does not reference: dead in the page"
+    },
+    {
+      "member": "networkSection",
+      "line": 401,
+      "endLine": 422,
+      "sections": 1,
+      "note": "view member with Section(s) that body does not reference: dead in the page"
+    },
+    {
+      "member": "backgroundSection",
+      "line": 430,
+      "endLine": 440,
+      "sections": 1,
+      "note": "view member with Section(s) that body does not reference: dead in the page"
+    },
+    {
+      "member": "conversationSection",
+      "line": 442,
+      "endLine": 453,
+      "sections": 1,
+      "note": "view member with Section(s) that body does not reference: dead in the page"
+    },
+    {
+      "member": "aboutSection",
+      "line": 455,
+      "endLine": 462,
+      "sections": 1,
+      "note": "view member with Section(s) that body does not reference: dead in the page"
+    },
+    {
+      "member": "developerGroup",
+      "line": 512,
+      "endLine": 522,
+      "sections": 1,
+      "note": "view member with Section(s) that body does not reference: dead in the page"
+    },
+    {
+      "member": "developerSection",
+      "line": 524,
+      "endLine": 532,
+      "sections": 1,
+      "note": "view member with Section(s) that body does not reference: dead in the page"
+    }
+  ],
+  "extraction": {
+    "tool": "extract_ios_pages.py",
+    "mode": "syntax",
+    "sectionKeywordsInPage": 3,
+    "regionsExtracted": 0,
+    "sectionsExtracted": 3,
+    "warnings": []
+  }
+}

@@ -68,7 +68,7 @@ const writeManyWasm = readFileSync(
 const STUB_STDLIB = new Uint8Array(64)
 const BOOT_ID = '00112233445566778899aabbccddeeff'
 const FENCE = { owner: 'phone', generation: 0n, wal_seq: 0n } as const
-/** The host's single-file budget in this scenario: below the Worker's 64 MiB. */
+/** The host's single-file budget in this scenario: below the Worker's 128 MiB. */
 const HOST_FILE_LIMIT = 2048
 /** The guest writes 4096-byte files, so the host budget refuses the write. */
 const GUEST_FILE_BYTES = 4096

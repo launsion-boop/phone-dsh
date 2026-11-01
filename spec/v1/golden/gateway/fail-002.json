@@ -1,0 +1,37 @@
+{
+  "id": "gw-fail-002",
+  "rule": "failure-surface",
+  "kind": "request",
+  "source": "Sources/PhoneDSHGateway/ModelGateway.swift:651",
+  "references": [
+    "Tests/PhoneDSHGatewayTests/ModelGatewayTests.swift:261"
+  ],
+  "note": "An allow-listed host with no resolvable credential fails before the connection; the diagnostic is credential_unavailable and carries neither the provider error text nor the caller credential.",
+  "input": {
+    "method": "POST",
+    "url": "https://api.example.invalid/v1/messages",
+    "headers": {
+      "authorization": "Bearer sk-SENTINEL-DO-NOT-USE",
+      "content-type": "application/json"
+    },
+    "allowlist": [
+      "https://api.example.invalid"
+    ],
+    "credential": {
+      "kind": "unavailable"
+    }
+  },
+  "expect": {
+    "dispatch": "deny",
+    "outbound_headers": {},
+    "stripped": [],
+    "outbound_url": "",
+    "deny_reason": "credential_unavailable",
+    "failure": {
+      "code": "credential_unavailable",
+      "proxy_status": 502,
+      "proxy_error": "credential_unavailable",
+      "upstream_contacts": 0
+    }
+  }
+}

@@ -1,0 +1,292 @@
+{
+  "title": "DeviceEnvelope",
+  "description": "Transport-independent envelope of the device plane. Every device protocol maps its frames onto this shape before the host sees them. dir up is a device-originated message (origin MUST be device), dir down is host-originated. text and audio are kind-specific; seq is monotonic per device and direction and its absolute start is protocol-defined.",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": [
+        "v",
+        "msg_id",
+        "device_id",
+        "session_id",
+        "dir",
+        "kind",
+        "origin",
+        "seq",
+        "text"
+      ],
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "msg_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9:._-]{0,127}$"
+        },
+        "device_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9:._-]{0,127}$"
+        },
+        "session_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "dir": {
+          "type": "string",
+          "enum": [
+            "up",
+            "down"
+          ]
+        },
+        "kind": {
+          "const": "text"
+        },
+        "origin": {
+          "type": "string",
+          "enum": [
+            "device",
+            "phone",
+            "agent"
+          ]
+        },
+        "audience": {
+          "type": "string",
+          "enum": [
+            "phone",
+            "device",
+            "both"
+          ]
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ts_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 1048576
+        },
+        "audio": {
+          "type": "object",
+          "required": [
+            "codec",
+            "rate"
+          ],
+          "properties": {
+            "codec": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "rate": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "ms": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "v",
+        "msg_id",
+        "device_id",
+        "session_id",
+        "dir",
+        "kind",
+        "origin",
+        "seq",
+        "audio"
+      ],
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "msg_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9:._-]{0,127}$"
+        },
+        "device_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9:._-]{0,127}$"
+        },
+        "session_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "dir": {
+          "type": "string",
+          "enum": [
+            "up",
+            "down"
+          ]
+        },
+        "kind": {
+          "const": "voice"
+        },
+        "origin": {
+          "type": "string",
+          "enum": [
+            "device",
+            "phone",
+            "agent"
+          ]
+        },
+        "audience": {
+          "type": "string",
+          "enum": [
+            "phone",
+            "device",
+            "both"
+          ]
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ts_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 1048576
+        },
+        "audio": {
+          "type": "object",
+          "required": [
+            "codec",
+            "rate"
+          ],
+          "properties": {
+            "codec": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "rate": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "ms": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "v",
+        "msg_id",
+        "device_id",
+        "session_id",
+        "dir",
+        "kind",
+        "origin",
+        "seq"
+      ],
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "msg_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9:._-]{0,127}$"
+        },
+        "device_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9:._-]{0,127}$"
+        },
+        "session_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "dir": {
+          "type": "string",
+          "enum": [
+            "up",
+            "down"
+          ]
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "event",
+            "ack",
+            "command_result"
+          ]
+        },
+        "origin": {
+          "type": "string",
+          "enum": [
+            "device",
+            "phone",
+            "agent"
+          ]
+        },
+        "audience": {
+          "type": "string",
+          "enum": [
+            "phone",
+            "device",
+            "both"
+          ]
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ts_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 1048576
+        },
+        "audio": {
+          "type": "object",
+          "required": [
+            "codec",
+            "rate"
+          ],
+          "properties": {
+            "codec": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "rate": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "ms": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  ]
+}

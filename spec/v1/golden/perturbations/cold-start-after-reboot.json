@@ -1,0 +1,97 @@
+{
+  "id": "cold-start-after-reboot",
+  "verb": "cold_start_after_reboot",
+  "title": "Device reboot then cold start: no auto-resume, the persisted Parked host boots as parked_resume and recovers on the first foreground",
+  "preconditions": {
+    "host_state": "Parked",
+    "admission": "closed",
+    "epoch_open": false,
+    "acked_mseq": 5,
+    "open_steps": 0,
+    "journaled_steps": 2,
+    "exec_in_flight": false,
+    "persisted_state": "Parked",
+    "worker_channel": "absent",
+    "notes": "The host parked cleanly (epoch closed, level-2 durable) before the device rebooted. No process survives the reboot, and nothing may resume work before the user opens the app."
+  },
+  "timeline": [
+    {
+      "at": 0,
+      "event": "host parked",
+      "detail": "admission closed, WAL durable, WebContent stopped, no work scheduled",
+      "expect_state": "Parked",
+      "source": "Tests/PhoneDSHControllerTests/HostStateMachineTests.swift:179-193"
+    },
+    {
+      "at": 3000,
+      "event": "device reboots",
+      "detail": "no lifecycle callback reaches the parked host and no work is resumed at boot",
+      "expect_state": "Parked",
+      "source": "spec/v1/budgets.md:45"
+    },
+    {
+      "at": 4000,
+      "event": "user opens the app",
+      "detail": "process start with a persisted Parked host: boot disposition parked_resume, admission closed",
+      "expect_state": "Parked",
+      "source": "Tests/PhoneDSHControllerTests/HostStateMachineTests.swift:307-315"
+    },
+    {
+      "at": 4010,
+      "event": "scenePhase active",
+      "detail": "the boot transition carries the parked_resume reason and enters Recovering",
+      "expect_state": "Recovering",
+      "source": "Tests/PhoneDSHControllerTests/HostStateMachineTests.swift:316-328"
+    },
+    {
+      "at": 4020,
+      "event": "overlay pack, worker boot, WAL replay",
+      "detail": "every mutation above the materialized watermark is replayed; the manifest boot id no longer matches the process",
+      "expect_state": "Recovering",
+      "source": "spec/v1/wal.md:299-320"
+    },
+    {
+      "at": 4030,
+      "event": "lease verified",
+      "expect_state": "Running",
+      "source": "Tests/PhoneDSHControllerTests/HostStateMachineTests.swift:295-306"
+    }
+  ],
+  "expected": {
+    "state": "Running",
+    "state_path": [
+      "Parked",
+      "Recovering",
+      "Running"
+    ],
+    "durability_level": "level_2",
+    "wal_tail": "closed_epoch",
+    "journal_gap": "none",
+    "surfaced_to_user": "unmeasured",
+    "admission": "open",
+    "acked_prefix_preserved": true,
+    "steps_open": 0,
+    "steps_abandoned": 0,
+    "boot_disposition": "parked_resume",
+    "field_evidence": {
+      "state": "swift-test",
+      "state_path": "swift-test",
+      "durability_level": "swift-source",
+      "wal_tail": "swift-source",
+      "journal_gap": "swift-source",
+      "admission": "swift-test",
+      "acked_prefix_preserved": "swift-test",
+      "steps_open": "swift-test",
+      "steps_abandoned": "swift-test",
+      "boot_disposition": "swift-test"
+    }
+  },
+  "evidence_level": "swift-source",
+  "source": "Tests/PhoneDSHControllerTests/HostStateMachineTests.swift:307-328",
+  "related_sources": [
+    "Tests/PhoneDSHControllerTests/HostStateMachineTests.swift:32-48",
+    "spec/v1/budgets.md:45",
+    "spec/v1/wal.md:299-320"
+  ],
+  "notes": "Two boot shapes exist and a runner must distinguish them: no persisted state is cold_start with reason empty_workspace, and a persisted non-Failed host is crash_recovery or parked_resume. surfaced_to_user is unmeasured: the Android boot notification and next-launch banner are plan items, and Android 15 does not allow starting a dataSync foreground service from BOOT_COMPLETED, so the runner must not assume one."
+}

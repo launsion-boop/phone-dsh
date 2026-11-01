@@ -1,0 +1,1099 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "SessionsPage",
+  "pageId": "sessions",
+  "structure": "swiftui-view",
+  "sectionModel": "section",
+  "sectionNote": null,
+  "title": null,
+  "source": {
+    "file": "SessionsPage.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/SessionsPage.swift",
+    "lines": 708,
+    "structLine": 68,
+    "renderedFrom": [
+      "body",
+      "sessionRow",
+      "workspaceRow",
+      "archivedRow"
+    ],
+    "sectionOrder": "declaration order inside the page struct"
+  },
+  "android": {
+    "screen": "SessionsPage",
+    "file": "android/lib/src/main/kotlin/com/phonedsh/ui/page/SessionsPage.kt",
+    "match": "composable"
+  },
+  "sections": [
+    {
+      "id": "section-137",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "absent",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "新建会话",
+          "label": "新建会话",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "SessionsPage.swift:144",
+          "anchor": "Text(\"新建会话\").font(.system(size: 17))",
+          "extraction": "syntax"
+        },
+        {
+          "id": "text-166",
+          "label": null,
+          "labelExpr": "reason",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "let reason = newSessionBlocked",
+          "provenance": "SessionsPage.swift:166",
+          "anchor": "Text(reason)",
+          "extraction": "manual"
+        },
+        {
+          "id": "text-178",
+          "label": null,
+          "labelExpr": "errorText",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "let errorText = management.error ?? chat.userFacingError",
+          "provenance": "SessionsPage.swift:178",
+          "anchor": "Text(errorText)",
+          "extraction": "manual"
+        },
+        {
+          "id": "重试",
+          "label": "重试",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": "let errorText = management.error ?? chat.userFacingError",
+          "provenance": "SessionsPage.swift:183",
+          "anchor": "Button(\"重试\") {",
+          "extraction": "syntax"
+        },
+        {
+          "id": "action-198",
+          "label": null,
+          "labelExpr": "displaySessionTitle(session)",
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "SessionsPage.swift:198",
+          "anchor": "ForEach(ungroupedSessions) { session in sessionRow(session) }",
+          "extraction": "manual",
+          "collection": "ungroupedSessions"
+        }
+      ],
+      "provenance": "SessionsPage.swift:137",
+      "anchor": "Section {",
+      "extraction": "syntax",
+      "criterion": {
+        "kind": "first-clickable-row",
+        "label": "新建会话",
+        "provenance": "SessionsPage.swift:144"
+      }
+    },
+    {
+      "id": "section-201",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "absent",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "还没有工作文件夹",
+          "label": "还没有工作文件夹",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "isCompletelyEmpty",
+          "provenance": "SessionsPage.swift:207",
+          "anchor": "Text(\"还没有工作文件夹\")",
+          "extraction": "syntax"
+        },
+        {
+          "id": "选一个文件夹-会话和文件都放在里面",
+          "label": "选一个文件夹,会话和文件都放在里面。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "isCompletelyEmpty",
+          "provenance": "SessionsPage.swift:211",
+          "anchor": "Text(\"选一个文件夹,会话和文件都放在里面。\")",
+          "extraction": "syntax"
+        },
+        {
+          "id": "新建工作文件夹",
+          "label": "新建工作文件夹",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": "isCompletelyEmpty",
+          "provenance": "SessionsPage.swift:217",
+          "anchor": "Text(\"新建工作文件夹\")",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "SessionsPage.swift:201",
+      "anchor": "Section {",
+      "extraction": "syntax",
+      "criterion": {
+        "kind": "first-clickable-row",
+        "label": "新建工作文件夹",
+        "provenance": "SessionsPage.swift:217"
+      }
+    },
+    {
+      "id": "section-239",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "absent",
+      "condition": null,
+      "collection": "visibleWorkspaces",
+      "rows": [
+        {
+          "id": "dynamic-240",
+          "label": null,
+          "labelExpr": "workspaceRow(workspace, count: rows.count)",
+          "kind": "dynamic",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "SessionsPage.swift:240",
+          "anchor": "workspaceRow(workspace, count: rows.count)",
+          "extraction": "manual",
+          "templateLabels": [
+            "· {count} 个会话",
+            "{displayWorkspaceTitle(workspace)}，{count} 个会话",
+            "收起工作文件夹的会话",
+            "展开工作文件夹的会话",
+            "在这里新建会话",
+            "重命名"
+          ]
+        },
+        {
+          "id": "还没有会话",
+          "label": "还没有会话",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "rows.isEmpty",
+          "provenance": "SessionsPage.swift:244",
+          "anchor": "Text(\"还没有会话\")",
+          "extraction": "syntax"
+        },
+        {
+          "id": "点上面的-新建会话-开始",
+          "label": "点上面的「新建会话」开始。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "rows.isEmpty",
+          "provenance": "SessionsPage.swift:247",
+          "anchor": "Text(\"点上面的「新建会话」开始。\")",
+          "extraction": "syntax"
+        },
+        {
+          "id": "action-255",
+          "label": null,
+          "labelExpr": "displaySessionTitle(session)",
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": false,
+          "condition": "!(rows.isEmpty)",
+          "provenance": "SessionsPage.swift:255",
+          "anchor": "ForEach(rows) { session in sessionRow(session) }",
+          "extraction": "manual",
+          "collection": "rows"
+        }
+      ],
+      "provenance": "SessionsPage.swift:239",
+      "anchor": "Section {",
+      "extraction": "syntax",
+      "criterion": {
+        "kind": "first-row",
+        "label": "还没有会话",
+        "provenance": "SessionsPage.swift:244"
+      }
+    },
+    {
+      "id": "section-264",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "absent",
+      "condition": "!isCompletelyEmpty",
+      "collection": null,
+      "rows": [
+        {
+          "id": "添加工作文件夹",
+          "label": "添加工作文件夹",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "SessionsPage.swift:269",
+          "anchor": "Text(\"添加工作文件夹\")",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "SessionsPage.swift:264",
+      "anchor": "Section {",
+      "extraction": "syntax",
+      "criterion": {
+        "kind": "first-clickable-row",
+        "label": "添加工作文件夹",
+        "provenance": "SessionsPage.swift:269"
+      }
+    },
+    {
+      "id": "已归档",
+      "title": "已归档",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "header",
+      "condition": "!isCompletelyEmpty",
+      "collection": null,
+      "rows": [
+        {
+          "id": "没有已归档的会话",
+          "label": "没有已归档的会话",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "management.archivedSessions.isEmpty",
+          "provenance": "SessionsPage.swift:291",
+          "anchor": "Text(\"没有已归档的会话\").font(.body)",
+          "extraction": "syntax"
+        },
+        {
+          "id": "归档的会话会留在这里-随时可以恢复",
+          "label": "归档的会话会留在这里，随时可以恢复。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "management.archivedSessions.isEmpty",
+          "provenance": "SessionsPage.swift:292",
+          "anchor": "Text(\"归档的会话会留在这里，随时可以恢复。\")",
+          "extraction": "syntax"
+        },
+        {
+          "id": "dynamic-298",
+          "label": null,
+          "labelExpr": "archivedRow(session)",
+          "kind": "dynamic",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "!(management.archivedSessions.isEmpty)",
+          "provenance": "SessionsPage.swift:298",
+          "anchor": "ForEach(management.archivedSessions.filter(matchesQuery)) { session in archivedR",
+          "extraction": "manual",
+          "templateLabels": [
+            "恢复"
+          ],
+          "collection": "management.archivedSessions.filter(matchesQuery)"
+        }
+      ],
+      "provenance": "SessionsPage.swift:307",
+      "anchor": "Text(\"已归档\")",
+      "extraction": "syntax",
+      "hasHeader": true
+    }
+  ],
+  "actions": [
+    {
+      "id": "新建会话",
+      "label": "新建会话",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ Task { if await management.createSession() != nil { onSelect() } }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionsPage.swift:144",
+      "anchor": "Text(\"新建会话\").font(.system(size: 17))",
+      "extraction": "syntax",
+      "labelAlternatives": []
+    },
+    {
+      "id": "重试",
+      "label": "重试",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ Task { chat.clearError() await management.refresh() }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionsPage.swift:183",
+      "anchor": "Button(\"重试\") {",
+      "extraction": "syntax",
+      "labelAlternatives": []
+    },
+    {
+      "id": "button-198",
+      "label": null,
+      "labelExpr": "displaySessionTitle(session)",
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": null,
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionsPage.swift:198",
+      "anchor": "ForEach(ungroupedSessions) { session in sessionRow(session) }",
+      "extraction": "manual"
+    },
+    {
+      "id": "新建工作文件夹",
+      "label": "新建工作文件夹",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ showingNewWorkspace = true",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionsPage.swift:217",
+      "anchor": "Text(\"新建工作文件夹\")",
+      "extraction": "syntax",
+      "labelAlternatives": [],
+      "presents": "alert-367"
+    },
+    {
+      "id": "button-255",
+      "label": null,
+      "labelExpr": "displaySessionTitle(session)",
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": null,
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionsPage.swift:255",
+      "anchor": "ForEach(rows) { session in sessionRow(session) }",
+      "extraction": "manual"
+    },
+    {
+      "id": "添加工作文件夹",
+      "label": "添加工作文件夹",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ showingNewWorkspace = true",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionsPage.swift:269",
+      "anchor": "Text(\"添加工作文件夹\")",
+      "extraction": "syntax",
+      "labelAlternatives": []
+    },
+    {
+      "id": "搜索会话",
+      "label": "搜索会话",
+      "labelExpr": null,
+      "kind": "search",
+      "trigger": "search",
+      "semantic": null,
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionsPage.swift:321",
+      "anchor": ".searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always),",
+      "extraction": "syntax"
+    },
+    {
+      "id": "gesture-348",
+      "label": null,
+      "labelExpr": null,
+      "kind": "gesture",
+      "trigger": "pull-to-refresh",
+      "semantic": "refresh",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionsPage.swift:348",
+      "anchor": ".refreshable { await management.refresh() }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "已归档",
+      "label": "已归档",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ withAnimation { showArchived.toggle() }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionsPage.swift:307",
+      "anchor": "Text(\"已归档\")",
+      "extraction": "syntax"
+    },
+    {
+      "id": "取消",
+      "label": "取消",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ deleteWorkspaceTarget = nil",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionsPage.swift:360",
+      "anchor": "Button(\"取消\", role: .cancel) { deleteWorkspaceTarget = nil }",
+      "extraction": "syntax",
+      "presents": "alert-355"
+    },
+    {
+      "id": "删除",
+      "label": "删除",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ Task { await management.deleteWorkspace(workspace); deleteWorkspaceTarget = nil }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionsPage.swift:361",
+      "anchor": "Button(\"删除\", role: .destructive) {",
+      "extraction": "syntax"
+    },
+    {
+      "id": "取消",
+      "label": "取消",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "alert-button",
+      "semantic": "{ newWorkspaceName = \"\"",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionsPage.swift:370",
+      "anchor": "Button(\"取消\", role: .cancel) { newWorkspaceName = \"\" }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "创建",
+      "label": "创建",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "alert-button",
+      "semantic": "{ let name = newWorkspaceName newWorkspaceName = \"\" Task { _ = await management.createWorkspaceFolder(named: name) }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionsPage.swift:371",
+      "anchor": "Button(\"创建\") {",
+      "extraction": "syntax"
+    },
+    {
+      "id": "取消",
+      "label": "取消",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "alert-button",
+      "semantic": "{ workspacePath = \"\"",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionsPage.swift:384",
+      "anchor": "Button(\"取消\", role: .cancel) { workspacePath = \"\" }",
+      "extraction": "syntax",
+      "deadPresentation": "alert-381"
+    },
+    {
+      "id": "添加",
+      "label": "添加",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "alert-button",
+      "semantic": "{ let path = workspacePath.trimmingCharacters(in: .whitespacesAndNewlines) Task { _ = await management.createWorkspace(at: path); workspacePath = \"\" }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionsPage.swift:385",
+      "anchor": "Button(\"添加\") {",
+      "extraction": "syntax",
+      "deadPresentation": "alert-381"
+    },
+    {
+      "id": "取消",
+      "label": "取消",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ renameSessionTarget = nil",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionsPage.swift:395",
+      "anchor": "Button(\"取消\", role: .cancel) { renameSessionTarget = nil }",
+      "extraction": "syntax",
+      "presents": "alert-392"
+    },
+    {
+      "id": "保存",
+      "label": "保存",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ guard let session = renameSessionTarget else { return } Task { await management.rename(session, to: renameText); renameSessionTarget = nil }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionsPage.swift:396",
+      "anchor": "Button(\"保存\") {",
+      "extraction": "syntax"
+    },
+    {
+      "id": "取消",
+      "label": "取消",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ renameWorkspaceTarget = nil",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionsPage.swift:404",
+      "anchor": "Button(\"取消\", role: .cancel) { renameWorkspaceTarget = nil }",
+      "extraction": "syntax",
+      "presents": "alert-401"
+    },
+    {
+      "id": "保存",
+      "label": "保存",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ guard let workspace = renameWorkspaceTarget else { return } Task { await management.renameWorkspace(workspace, to: renameText); renameWorkspaceTarget = nil }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionsPage.swift:405",
+      "anchor": "Button(\"保存\") {",
+      "extraction": "syntax"
+    },
+    {
+      "id": "button-417",
+      "label": null,
+      "labelExpr": "displayWorkspaceTitle(workspace)",
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ toggleWorkspace(workspace.id)",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionsPage.swift:417",
+      "anchor": "Button { toggleWorkspace(workspace.id) } label: {",
+      "extraction": "manual"
+    },
+    {
+      "id": "在这里新建会话",
+      "label": "在这里新建会话",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "menu-item",
+      "semantic": "{ createSession(in: workspace)",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionsPage.swift:444",
+      "anchor": "Button(\"在这里新建会话\") { createSession(in: workspace) }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "重命名",
+      "label": "重命名",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "menu-item",
+      "semantic": "{ renameWorkspaceTarget = workspace; renameText = workspace.title",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionsPage.swift:445",
+      "anchor": "Button(\"重命名\") { renameWorkspaceTarget = workspace; renameText = workspace.title ",
+      "extraction": "syntax"
+    },
+    {
+      "id": "删除工作文件夹",
+      "label": "删除工作文件夹",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "menu-item",
+      "semantic": "{ deleteWorkspaceTarget = workspace",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionsPage.swift:447",
+      "anchor": "Button(\"删除工作文件夹\", role: .destructive) { deleteWorkspaceTarget = workspace }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "button-542",
+      "label": null,
+      "labelExpr": "displaySessionTitle(session)",
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ open(session)",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionsPage.swift:542",
+      "anchor": "Button { open(session) } label: {",
+      "extraction": "manual"
+    },
+    {
+      "id": "重命名会话",
+      "label": "重命名会话",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "long-press",
+      "semantic": "{ renameSessionTarget = session; renameText = session.title",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionsPage.swift:583",
+      "anchor": "Button(\"重命名会话\") { renameSessionTarget = session; renameText = session.title }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "归档会话",
+      "label": "归档会话",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "long-press",
+      "semantic": "{ archiveSession(session)",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionsPage.swift:585",
+      "anchor": "Button(\"归档会话\") { archiveSession(session) }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "恢复",
+      "label": "恢复",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ Task { await management.unarchive(session) }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionsPage.swift:604",
+      "anchor": "Button(\"恢复\") { Task { await management.unarchive(session) } }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "displayworkspacetitle-workspace-的选项",
+      "label": "{displayWorkspaceTitle(workspace)} 的选项",
+      "labelExpr": null,
+      "kind": "menu",
+      "trigger": "tap",
+      "semantic": null,
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionsPage.swift:455",
+      "anchor": ".accessibilityLabel(\"\\(displayWorkspaceTitle(workspace)) 的选项\")",
+      "extraction": "syntax",
+      "dynamicLabel": true
+    },
+    {
+      "id": "编辑",
+      "label": "编辑",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ editingItem = item; replacement = item.text",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionsPage.swift:671",
+      "anchor": "Button(\"编辑\") { editingItem = item; replacement = item.text }",
+      "extraction": "syntax",
+      "labelAlternatives": [],
+      "presents": "sheet-692",
+      "presentedBy": "navigationDestination-350"
+    },
+    {
+      "id": "设为当前引导",
+      "label": "设为当前引导",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ Task { await management.updateQueue(item, action: \"steer\") }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionsPage.swift:673",
+      "anchor": "Button(\"设为当前引导\") { Task { await management.updateQueue(item, action: \"steer\") } ",
+      "extraction": "syntax",
+      "labelAlternatives": [],
+      "presentedBy": "navigationDestination-350"
+    },
+    {
+      "id": "移除",
+      "label": "移除",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ Task { await management.updateQueue(item, action: \"remove\") }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionsPage.swift:675",
+      "anchor": "Button(\"移除\", role: .destructive) { Task { await management.updateQueue(item, act",
+      "extraction": "syntax",
+      "labelAlternatives": [],
+      "presentedBy": "navigationDestination-350"
+    },
+    {
+      "id": "gesture-690",
+      "label": null,
+      "labelExpr": null,
+      "kind": "gesture",
+      "trigger": "pull-to-refresh",
+      "semantic": "refresh",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionsPage.swift:690",
+      "anchor": ".refreshable { await management.refreshQueue(for: session.id) }",
+      "extraction": "syntax",
+      "presentedBy": "navigationDestination-350"
+    },
+    {
+      "id": "取消",
+      "label": "取消",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "toolbar",
+      "semantic": "{ editingItem = nil",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionsPage.swift:698",
+      "anchor": "ToolbarItem(placement: .cancellationAction) { Button(\"取消\") { editingItem = nil }",
+      "extraction": "syntax",
+      "presentedBy": "navigationDestination-350"
+    },
+    {
+      "id": "保存",
+      "label": "保存",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "toolbar",
+      "semantic": "{ Task { await management.updateQueue(item, action: \"edit\", replacement: replacement); editingItem = nil }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SessionsPage.swift:700",
+      "anchor": "Button(\"保存\") {",
+      "extraction": "syntax",
+      "presentedBy": "navigationDestination-350"
+    }
+  ],
+  "presentations": [
+    {
+      "id": "sheet-342",
+      "kind": "sheet",
+      "title": null,
+      "destination": "NativeAutomationPage",
+      "triggerBindings": [
+        "showSchedules"
+      ],
+      "span": [
+        342,
+        345
+      ],
+      "provenance": "SessionsPage.swift:342",
+      "anchor": ".sheet(isPresented: $showSchedules) {",
+      "triggered": false,
+      "deadUi": true,
+      "deadUiEvidence": "the state binding showSchedules is never assigned outside its declaration, so nothing opens this sheet"
+    },
+    {
+      "id": "sheet-349",
+      "kind": "sheet",
+      "title": null,
+      "destination": "NativeConfigurationPage",
+      "triggerBindings": [
+        "showingConfiguration"
+      ],
+      "span": [
+        349,
+        349
+      ],
+      "provenance": "SessionsPage.swift:349",
+      "anchor": ".sheet(isPresented: $showingConfiguration) { NativeConfigurationPage() }",
+      "triggered": false,
+      "deadUi": true,
+      "deadUiEvidence": "the state binding showingConfiguration is never assigned outside its declaration, so nothing opens this sheet"
+    },
+    {
+      "id": "navigationDestination-350",
+      "kind": "navigationDestination",
+      "title": null,
+      "destination": "SessionQueuePage",
+      "triggerBindings": [
+        "selectedQueueSession"
+      ],
+      "span": [
+        350,
+        352
+      ],
+      "provenance": "SessionsPage.swift:350",
+      "anchor": ".navigationDestination(item: $selectedQueueSession) { session in",
+      "triggered": false,
+      "deadUi": true,
+      "deadUiEvidence": "the state binding selectedQueueSession is never assigned outside its declaration, so nothing opens this navigationDestination"
+    },
+    {
+      "id": "alert-355",
+      "kind": "alert",
+      "title": "删除「{displayWorkspaceTitle($0)}」?",
+      "destination": null,
+      "triggerBindings": [
+        "deleteWorkspaceTarget"
+      ],
+      "span": [
+        355,
+        364
+      ],
+      "provenance": "SessionsPage.swift:356",
+      "anchor": "deleteWorkspaceTarget.map { \"删除「\\(displayWorkspaceTitle($0))」?\" } ?? \"\",",
+      "triggered": true
+    },
+    {
+      "id": "alert-367",
+      "kind": "alert",
+      "title": "新建工作文件夹",
+      "destination": null,
+      "triggerBindings": [
+        "showingNewWorkspace"
+      ],
+      "span": [
+        367,
+        376
+      ],
+      "provenance": "SessionsPage.swift:367",
+      "anchor": ".alert(\"新建工作文件夹\", isPresented: $showingNewWorkspace) {",
+      "triggered": true
+    },
+    {
+      "id": "alert-381",
+      "kind": "alert",
+      "title": "添加工作区",
+      "destination": null,
+      "triggerBindings": [
+        "showingAddWorkspace"
+      ],
+      "span": [
+        381,
+        389
+      ],
+      "provenance": "SessionsPage.swift:381",
+      "anchor": ".alert(\"添加工作区\", isPresented: $showingAddWorkspace) {",
+      "triggered": false,
+      "deadUi": true,
+      "deadUiEvidence": "the state binding showingAddWorkspace is never assigned outside its declaration, so nothing opens this alert"
+    },
+    {
+      "id": "alert-392",
+      "kind": "alert",
+      "title": "重命名会话",
+      "destination": null,
+      "triggerBindings": [
+        "renameSessionTarget"
+      ],
+      "span": [
+        392,
+        400
+      ],
+      "provenance": "SessionsPage.swift:392",
+      "anchor": ".alert(\"重命名会话\", isPresented: Binding(",
+      "triggered": true
+    },
+    {
+      "id": "alert-401",
+      "kind": "alert",
+      "title": "重命名工作文件夹",
+      "destination": null,
+      "triggerBindings": [
+        "renameWorkspaceTarget"
+      ],
+      "span": [
+        401,
+        409
+      ],
+      "provenance": "SessionsPage.swift:401",
+      "anchor": ".alert(\"重命名工作文件夹\", isPresented: Binding(",
+      "triggered": true
+    }
+  ],
+  "states": {
+    "advisory": true,
+    "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
+    "sites": {
+      "empty": [
+        {
+          "renders": "还没有工作文件夹",
+          "when": "isCompletelyEmpty",
+          "provenance": "SessionsPage.swift:207",
+          "anchor": "Text(\"还没有工作文件夹\")"
+        },
+        {
+          "renders": "还没有会话",
+          "when": "rows.isEmpty",
+          "provenance": "SessionsPage.swift:244",
+          "anchor": "Text(\"还没有会话\")"
+        },
+        {
+          "renders": "没有已归档的会话",
+          "when": "management.archivedSessions.isEmpty",
+          "provenance": "SessionsPage.swift:291",
+          "anchor": "Text(\"没有已归档的会话\").font(.body)"
+        }
+      ],
+      "data": [
+        {
+          "renders": "untitled section at 137 | untitled section at 201 | untitled section at 239 | untitled section at 264 | 已归档",
+          "when": null,
+          "provenance": "SessionsPage.swift:68",
+          "anchor": "struct SessionsPage: View {",
+          "note": "structural default: the sections above, when no condition overrides them"
+        }
+      ],
+      "failure": [
+        {
+          "renders": "重试",
+          "when": "let errorText = management.error ?? chat.userFacingError",
+          "provenance": "SessionsPage.swift:183",
+          "anchor": "Button(\"重试\") {"
+        }
+      ],
+      "unknown": [],
+      "loading": []
+    },
+    "absent": [
+      "unknown",
+      "loading"
+    ],
+    "coverage": {
+      "empty": 3,
+      "data": 1,
+      "failure": 1,
+      "unknown": 0,
+      "loading": 0
+    }
+  },
+  "subpages": [
+    {
+      "name": "SessionQueuePage",
+      "line": 652,
+      "private": true,
+      "sections": [
+        {
+          "title": "next-turn",
+          "provenance": "SessionsPage.swift:667"
+        },
+        {
+          "title": "错误",
+          "provenance": "SessionsPage.swift:682"
+        }
+      ],
+      "provenance": "SessionsPage.swift:652"
+    }
+  ],
+  "unreachable": [],
+  "extraction": {
+    "tool": "extract_ios_pages.py",
+    "mode": "syntax",
+    "sectionKeywordsInPage": 5,
+    "regionsExtracted": 0,
+    "sectionsExtracted": 5,
+    "warnings": []
+  }
+}

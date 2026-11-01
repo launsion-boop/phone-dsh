@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: MIT -->
+<!--
+  Auto Backup / full-backup exclusions for API 23-30 (`android:fullBackupContent`).
+
+  `android:allowBackup="false"` already excludes the whole app from cloud backup
+  and device transfer. These rules are the second layer required by
+  docs/design/security-checklist-2026-10-31.md S5 and by plan R11's
+  `noBackupFilesDir` semantics: if a later change ever turns backup on, the
+  sensitive paths below must stay off the wire without anyone having to
+  rediscover them.
+
+  The paths are the real ones read from the code, not guesses:
+    * databases/phonedsh-domain.db*  <- SqliteConnectionFactory.DEFAULT_DATABASE_NAME
+                                       ("phonedsh-domain.db") via context.getDatabasePath
+    * files/xl                       <- ProbeEngineViewModel.WORKSPACE_DIRECTORY ("xl");
+                                       WAL segments + workspace files
+    * files/worker, worker.version   <- WorkerAssets.BUNDLE_DIR / VERSION_FILE
+                                       (the materialized copy of the APK asset)
+    * no_backup/secure-store         <- AndroidSecureStore STORE_DIR under
+                                       Context.noBackupFilesDir (dataDir/no_backup)
+
+  The backup XML format has no globs, so the SQLite side files are listed
+  explicitly; `-journal` is included for completeness (the app uses WAL mode,
+  but a rollback-journal moment must not open a hole either).
+-->
+<full-backup-content>
+    <exclude domain="database" path="phonedsh-domain.db" />
+    <exclude domain="database" path="phonedsh-domain.db-wal" />
+    <exclude domain="database" path="phonedsh-domain.db-shm" />
+    <exclude domain="database" path="phonedsh-domain.db-journal" />
+
+    <exclude domain="file" path="xl" />
+    <exclude domain="file" path="worker" />
+    <exclude domain="file" path="worker.version" />
+
+    <!-- noBackupFilesDir is skipped by the platform itself; naming it keeps the
+         rule honest if the store ever moves. The Keystore-wrapped key material
+         never leaves AndroidKeyStore, and this covers the software-key fallback. -->
+    <exclude domain="root" path="no_backup/secure-store" />
+</full-backup-content>

@@ -1,0 +1,11 @@
+{
+  "name": "harness-event-assistant-delta",
+  "schema": "schema/harness-event.schema.json",
+  "instance": {
+    "session_id": "sess-2f7c",
+    "time_ms": 1793400119500,
+    "kind": "assistant_delta",
+    "text": "The failing"
+  },
+  "notes": "Sources/PhoneDSHAgentCore/AgentHarness.swift:391 and 9-11: streaming deltas are best effort and are never replayed, so a delta carries no seq at all (AgentHarness.swift:414-415, 453). DSH yields text-delta chunks with seq absent (DSHRemoteHarness.swift:350-364). A host that persists deltas as durable events breaks the resume contract."
+}

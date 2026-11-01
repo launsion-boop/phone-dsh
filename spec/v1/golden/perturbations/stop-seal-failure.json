@@ -1,0 +1,90 @@
+{
+  "id": "stop-seal-failure",
+  "verb": "stop_seal_failure",
+  "title": "A teardown failure after the drain epoch close still seals the open epoch and keeps the accepted content",
+  "preconditions": {
+    "host_state": "Running",
+    "admission": "open",
+    "epoch_open": true,
+    "acked_mseq": 1,
+    "open_steps": 0,
+    "journaled_steps": 1,
+    "exec_in_flight": false,
+    "persisted_state": "Running",
+    "worker_channel": "open",
+    "notes": "One write is acked. The drain window is armed so a sink mutation arrives after the controller already closed its epoch (opening a new one) and the same window then fails the teardown."
+  },
+  "timeline": [
+    {
+      "at": 0,
+      "event": "write accepted and acked",
+      "expect_state": "Running",
+      "source": "Tests/PhoneDSHKillTests/AbortStopDurabilityHostTests.swift:104-110"
+    },
+    {
+      "at": 5,
+      "event": "teardown begins",
+      "detail": "stop() runs through the park path, so the controller is Draining while the window runs",
+      "expect_state": "Draining",
+      "source": "Sources/PhoneDSH/PhoneDSHHost.swift:2364-2371"
+    },
+    {
+      "at": 10,
+      "event": "sink mutation written inside the drain window",
+      "detail": "the controller already closed its epoch, so this append opens a new epoch",
+      "source": "Tests/PhoneDSHKillTests/AbortStopDurabilityHostTests.swift:115-122"
+    },
+    {
+      "at": 15,
+      "event": "the drain window fails the teardown",
+      "detail": "the error reaches the caller; the terminal stop seal runs anyway",
+      "source": "Tests/PhoneDSHKillTests/AbortStopDurabilityHostTests.swift:124-134"
+    },
+    {
+      "at": 25,
+      "event": "terminal seal",
+      "detail": "the open epoch is closed, the manifest lists exactly the real segments and last_mseq covers the accepted tail",
+      "source": "Tests/PhoneDSHKillTests/AbortStopDurabilityHostTests.swift:68-93"
+    },
+    {
+      "at": 35,
+      "event": "materialized copy verified",
+      "detail": "both the pre-teardown write and the drain-window write are materialized with their exact bytes",
+      "source": "Tests/PhoneDSHKillTests/AbortStopDurabilityHostTests.swift:135-144"
+    }
+  ],
+  "expected": {
+    "state": "Draining",
+    "state_path": [
+      "Draining"
+    ],
+    "durability_level": "level_2",
+    "wal_tail": "closed_epoch",
+    "journal_gap": "none",
+    "surfaced_to_user": "stop_error_to_caller",
+    "acked_prefix_preserved": true,
+    "materialized_equals_replay": true,
+    "steps_open": 0,
+    "steps_abandoned": 0,
+    "field_evidence": {
+      "state": "swift-source",
+      "state_path": "swift-source",
+      "durability_level": "swift-source",
+      "wal_tail": "swift-source",
+      "journal_gap": "swift-source",
+      "surfaced_to_user": "swift-test",
+      "acked_prefix_preserved": "swift-test",
+      "materialized_equals_replay": "swift-test",
+      "steps_open": "swift-test",
+      "steps_abandoned": "swift-test"
+    }
+  },
+  "evidence_level": "swift-source",
+  "source": "Tests/PhoneDSHKillTests/AbortStopDurabilityHostTests.swift:97-145",
+  "related_sources": [
+    "Tests/PhoneDSHKillTests/AbortStopDurabilityHostTests.swift:68-93",
+    "Sources/PhoneDSH/PhoneDSHHost.swift:2364-2371",
+    "Sources/PhoneDSH/PhoneDSHHost.swift:2398-2412"
+  ],
+  "notes": "expected.state names the last D14 state of the teardown, Draining. The facade then reports its own stopped state, which is not one of the nine D14 states and is therefore not asserted here. The invariant that matters is the one a runner can check without reading Swift: manifest.segments equals the real wal/ directory, manifest.last_mseq covers the highest retained mutation, and materialized_upto_mseq never exceeds last_mseq."
+}

@@ -1,0 +1,53 @@
+{
+  "id": "gw-redir-007",
+  "rule": "redirect-scope",
+  "kind": "redirect-chain",
+  "source": "Sources/PhoneDSHGateway/GatewaySession.swift:375",
+  "references": [
+    "Tests/PhoneDSHGatewayTests/ModelGatewayTests.swift:1314"
+  ],
+  "note": "A 308 is re-authorized like any other hop. The in-scope hop is followed, the cross-host hop is refused, and the caller gets that hop's own 308: two contacts, and the model key never reaches the second host.",
+  "input": {
+    "method": "POST",
+    "url": "https://api.example.invalid/v1/messages",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "allowlist": [
+      "https://api.example.invalid",
+      "https://internal.example.invalid"
+    ],
+    "credential": {
+      "kind": "api-key",
+      "header": "x-api-key",
+      "value": "sk-HOST-API-KEY-PLACEHOLDER"
+    },
+    "redirects": [
+      {
+        "status": 308,
+        "location": "https://api.example.invalid/v1/messages"
+      },
+      {
+        "status": 308,
+        "location": "https://internal.example.invalid/mcp"
+      }
+    ]
+  },
+  "expect": {
+    "dispatch": "deny",
+    "outbound_headers": {
+      "content-type": "application/json",
+      "x-api-key": "sk-HOST-API-KEY-PLACEHOLDER"
+    },
+    "stripped": [],
+    "outbound_url": "https://api.example.invalid/v1/messages",
+    "deny_reason": "redirect_scope_mismatch",
+    "redirects_followed": 1,
+    "final_url": "https://internal.example.invalid/mcp",
+    "status": 308,
+    "response_headers": {
+      "location": "https://internal.example.invalid/mcp"
+    },
+    "upstream_contacts": 2
+  }
+}

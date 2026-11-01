@@ -1,0 +1,102 @@
+{
+  "schema": "pdsh.ui.page-structure-unrecognized/1",
+  "note": "Structural items that cannot be compared statically, registered explicitly (owner + reviewBy + reason). An entry here is a decision, not debt: the checker prints it as `registered` and it is not a divergence. An entry that matches no observed item is an error (delete it), and a past reviewBy is an error (re-review it). Two shapes so far: (a) an untitled baseline group whose only row text is runtime data (error/notice blocks), so no literal criterion exists by design; (b) an Android section title computed from state while the contract section is titled/criterion-based.",
+  "entries": [
+    {
+      "page": "mcp-settings",
+      "kind": "unresolved-section",
+      "name": "<untitled: error>",
+      "reason": "MCPSettingsPage.swift:97 renders `Section { Text(error) }`: an untitled error block whose only row is runtime text, so no literal criterion exists.",
+      "owner": "ui-contract",
+      "reviewBy": "2027-06-30"
+    },
+    {
+      "page": "mcp-settings",
+      "kind": "unresolved-section",
+      "name": "<untitled: notice>",
+      "reason": "MCPSettingsPage.swift:102 renders `Section { Text(notice) }`: an untitled notice block whose only row is runtime text.",
+      "owner": "ui-contract",
+      "reviewBy": "2027-06-30"
+    },
+    {
+      "page": "mcp-editor",
+      "kind": "unresolved-section",
+      "name": "<untitled: errorText>",
+      "reason": "MCPSettingsPage.swift:257 renders `Section { Text(errorText) }`: an untitled error block whose only row is runtime text.",
+      "owner": "ui-contract",
+      "reviewBy": "2027-06-30"
+    },
+    {
+      "page": "native-configuration",
+      "kind": "unresolved-section",
+      "name": "<untitled: error>",
+      "reason": "NativeConfigurationPage.swift:17 renders `Section { Label(error, …) }`: an untitled error block whose row is runtime text.",
+      "owner": "ui-contract",
+      "reviewBy": "2027-06-30"
+    },
+    {
+      "page": "native-configuration",
+      "kind": "unresolved-section",
+      "name": "group.title",
+      "reason": "The Android page supplies this group's title from host state (`group.title`); the contract section is criterion-based, so the title is runtime data and is not comparable statically. The row criterion, not the title, is the judgement.",
+      "owner": "android-parity",
+      "reviewBy": "2027-06-30"
+    },
+    {
+      "page": "native-configuration",
+      "kind": "unresolved-section",
+      "name": "section.title",
+      "reason": "Android composes this section title from its state (`section.title`); the contract section is criterion-based, so there is no literal title to compare.",
+      "owner": "android-parity",
+      "reviewBy": "2027-06-30"
+    },
+    {
+      "page": "runtime-details",
+      "kind": "unresolved-section",
+      "name": "section.title",
+      "reason": "Android composes section titles from its runtime snapshot (`section.title`); the contract's titles are `本次运行`/`最近出错` and cannot be matched against runtime data.",
+      "owner": "android-parity",
+      "reviewBy": "2027-06-30"
+    },
+    {
+      "page": "session-activity",
+      "kind": "unresolved-section",
+      "name": "section.kind.title",
+      "reason": "Android derives this section title from the activity kind (`section.kind.title`); the contract has no title template for it.",
+      "owner": "android-parity",
+      "reviewBy": "2027-06-30"
+    },
+    {
+      "page": "sessions",
+      "kind": "unresolved-section",
+      "name": "row.laneLabel",
+      "reason": "The Android queue section title is the queue lane label (`row.laneLabel`); the baseline keeps that screen in the embedded SessionQueuePage, so the contract has no title for it.",
+      "owner": "android-parity",
+      "reviewBy": "2027-06-30"
+    },
+    {
+      "page": "files",
+      "kind": "unresolved-section",
+      "name": "<untitled: folder>",
+      "reason": "FilesPage.swift:117 takes the group title from data (`fileGroupTitle`, the current folder). Its first row is `Label(folder)`, also data, so no literal criterion exists; the group is identified by the folder expression at runtime.",
+      "owner": "ui-contract",
+      "reviewBy": "2027-06-30"
+    },
+    {
+      "page": "files",
+      "kind": "unresolved-section",
+      "name": "state.groupTitle",
+      "reason": "Android renders the group title from state (`state.groupTitle`), which mirrors the baseline's data-as-title; there is no literal title on either side to compare.",
+      "owner": "android-parity",
+      "reviewBy": "2027-06-30"
+    }
+  ],
+  "notes": [
+    {
+      "page": "chat",
+      "text": "`完全权限` 是 Swift 的字符串比较操作数（ChatPage.swift:1395 `AccessModeWording.title(…) == \"完全权限\"`），不是 section 标题；该组的真实标题是两个三元分支之一，rows 就是 :1376 的菜单按钮、已作为 action 覆盖。契约里该 section 被标 `suppressed`，不给 Android 加假字面量 section。",
+      "owner": "ui-contract",
+      "reviewBy": "2027-06-30"
+    }
+  ]
+}

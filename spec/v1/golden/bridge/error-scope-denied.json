@@ -1,0 +1,35 @@
+{
+  "name": "error-scope-denied",
+  "direction": "sequence",
+  "schema": "bridge-message.schema.json",
+  "instance": [
+    {
+      "direction": "page-to-host",
+      "instance": {
+        "v": 1,
+        "kind": "request",
+        "requestId": "2b6d9f13-4a80-4c57-9e12-8f3a5b7c0d94",
+        "method": "preview.open",
+        "params": {
+          "sessionId": "sess-8f21c4",
+          "path": "notes/report.docx"
+        }
+      }
+    },
+    {
+      "direction": "host-to-page",
+      "instance": {
+        "v": 1,
+        "kind": "error",
+        "requestId": "2b6d9f13-4a80-4c57-9e12-8f3a5b7c0d94",
+        "method": "preview.open",
+        "error": {
+          "code": "BRIDGE_SCOPE_DENIED",
+          "message": "the caller is not the main frame of the loopback origin",
+          "retryable": false
+        }
+      }
+    }
+  ],
+  "notes": "bridge.md §9; the request is the one a cross-origin subframe would attempt on Android, where addJavascriptInterface is visible to every frame. iOS already drops it before dispatch: Sources/PhoneDSHEngine/WebEngine.swift:604, WebEngineNativePreview.swift:622-625."
+}

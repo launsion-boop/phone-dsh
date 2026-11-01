@@ -9,6 +9,9 @@ members = [
     "crates/pdsh-brush-wasm",
     "crates/pdsh-jaq-wasm",
     "crates/pdsh-all",
+    "crates/pdsh-wire",
+    "crates/pdsh-wal",
+    "crates/pdsh-jni",
 ]
 resolver = "2"
 
@@ -26,6 +29,9 @@ pdsh-ts = { path = "crates/pdsh-ts" }
 pdsh-phone = { path = "crates/pdsh-phone" }
 pdsh-all = { path = "crates/pdsh-all" }
 pdsh-brush-wasm = { path = "crates/pdsh-brush-wasm" }
+pdsh-wire = { path = "crates/pdsh-wire" }
+pdsh-wal = { path = "crates/pdsh-wal" }
+pdsh-jni = { path = "crates/pdsh-jni" }
 
 # Read-only search (ripgrep libraries; Unlicense OR MIT).
 grep-matcher = "0.1.9"

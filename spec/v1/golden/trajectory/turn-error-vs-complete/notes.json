@@ -1,0 +1,14 @@
+{
+  "kind": "real-difference",
+  "title": "real semantic difference: failed turn vs completed turn",
+  "expected": {
+    "ios": "expected.jsonl",
+    "android": "android.expected.jsonl"
+  },
+  "reason": "Both platforms saw the same user message, tool call and permission-denied tool result, but iOS closed the turn with reason.kind=error while Android closed it with reason.kind=completed.",
+  "semanticDifference": [
+    "turn/end.data.reason.kind: ios=error, android=completed",
+    "iOS carries data.reason.error.message; Android has no error object"
+  ],
+  "whyNotNoise": "A failed turn and a completed turn are different product outcomes: the error path renders the fail-loud state and the completed path does not. Normalizing this away would hide exactly the behavior-level divergence the conformance suite exists to catch."
+}
