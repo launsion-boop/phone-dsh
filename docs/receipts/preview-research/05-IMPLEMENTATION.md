@@ -15,7 +15,7 @@
 - `PDSHPageResolver.networkAllowed` + `Content-Security-Policy` 测试：授权前后 CSP 对照。
 - CSP meta 改为完整属性解析（64 KiB、任意属性顺序/引号），默认 `local`；meta 只能请求，页面声明 `online` 仍需本次授权，`sandbox` 即便授权也保持 sandbox。
 - SVG 强制静态 CSP（`script-src 'none'`），所有 CSP 加 `frame-ancestors 'none'`；`WKUIDelegate` 拒绝弹窗/JS 面板/文件选择。
-- 新增 AVKit WAV fixture；PageSchemeHandler 20 个测试通过。
+- 新增 AVKit WAV fixture；PageSchemeHandler 23 个测试通过。
 - 3D：`glb/gltf` 走 `Web3DLib/3d-viewer.html`（three.js + GLTFLoader + OrbitControls，自动 fit 包围盒）；已用 `cube.glb` 截图验证。
 - 代码生成媒体：`mp4/mov/m4v` 走 AVKit；`gif` 走 HTML 动图 viewer；`webm/ogv` 走 HTML `<video>` viewer（编码不支持时显示可分享的失败提示）。
 - 深色：`NativePagePalette.page` 跟随 App 外观，不再固定白底；Files 也改用 palette。

@@ -174,8 +174,13 @@ final class PreviewModel {
         }
     }
 
+    func retry() {
+        retryCount = 0
+        reload()
+    }
+
     func loadMore() {
-        guard !eof, let fileURL else { return }
+        guard !eof, !isLoading, let fileURL else { return }
         loadNextTextPage(url: fileURL)
     }
 
@@ -230,6 +235,8 @@ struct PreviewSurface: View {
     @State private var model: PreviewModel
     @State private var webReloadID = UUID()
     @State private var showShare = false
+    @State private var player: AVPlayer?
+    @State private var pdfDocument: PDFDocument?
     @State private var networkGranted = false
 
     init(target: PreviewTarget, presentation: PreviewPresentation = .init(), isModal: Bool = true) {
@@ -258,7 +265,7 @@ struct PreviewSurface: View {
                     VStack(spacing: 16) {
                         ContentUnavailableView("无法预览", systemImage: "doc.questionmark",
                                                description: Text(error))
-                        Button("重试") { model.reload() }
+                        Button("重试") { model.retry() }
                             .buttonStyle(.borderedProminent)
                     }
                 } else {
@@ -287,6 +294,22 @@ struct PreviewSurface: View {
         .background(NativePagePalette.page)
         .navigationTitle(URL(fileURLWithPath: model.path).lastPathComponent)
         .navigationBarTitleDisplayMode(.inline)
+        .task(id: model.fileURL) {
+            // Keep the player and PDF document across view updates (opening
+            // Share must not restart audio or reset the PDF scroll position).
+            player?.pause()
+            player = nil
+            pdfDocument = nil
+            guard let url = model.fileURL else { return }
+            switch model.kind {
+            case .video, .audio:
+                player = AVPlayer(url: url)
+            case .pdf:
+                pdfDocument = PDFDocument(url: url)
+            default:
+                break
+            }
+        }
         .onChange(of: networkGranted) { _, _ in
             // A CSP is injected with the response; reload to apply the grant.
             webReloadID = UUID()
@@ -358,12 +381,15 @@ struct PreviewSurface: View {
             pdfBody
         case .office:
             officeBody
-        case .video:
-            if let url = model.fileURL { VideoPlayer(player: AVPlayer(url: url)) }
-            else { unsupportedBody }
-        case .audio:
-            if let url = model.fileURL { VideoPlayer(player: AVPlayer(url: url)) }
-            else { unsupportedBody }
+        case .video, .audio:
+            if let player {
+                VideoPlayer(player: player)
+            } else if model.fileURL != nil {
+                ProgressView("准备播放器…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                unsupportedBody
+            }
         case .unsupported:
             unsupportedBody
         }
@@ -466,8 +492,11 @@ struct PreviewSurface: View {
 
     @ViewBuilder
     private var pdfBody: some View {
-        if let url = model.fileURL, let document = PDFDocument(url: url) {
-            PDFKitView(document: document)
+        if let pdfDocument {
+            PDFKitView(document: pdfDocument)
+        } else if model.fileURL != nil {
+            ProgressView("正在打开 PDF…")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ContentUnavailableView("无法打开 PDF", systemImage: "doc.richtext",
                                    description: Text("文件可能已加密或仍在写入。"))

@@ -154,7 +154,7 @@ JS 默认开，但真正边界是 CSP：
 | 3 | 产物预览 | **后续迭代**，不进 v1 |
 | 4 | localhost | **v1 不做**，v1.1 独立面 |
 | 5 | SVG | static WebView / QL，不走 ImageIO |
-| 6 | GLB / CSV 网格 | P2；v1 CSV 分页文本 |
+| 6 | GLB / CSV 网格 | GLB 按用户要求已加入 v1（three.js viewer）；CSV 网格 P2 |
 | 7 | Office | 全屏 QuickLook + 打开方式 |
 | 8 | 深色/AX | P0 |
 
@@ -176,4 +176,4 @@ JS 默认开，但真正边界是 CSP：
 - 不把 localhost 页面嵌进 `pdsh-page://` iframe 当同源。
 - 不给页面 JS 桥/App token。
 - 不依赖 iOS inline QuickLook。
-- v1 不做 tabs/多预览/artifacts/peek/CSV 网格/GLB/mDNS/LAN。
+- v1 不做 tabs/多预览/artifacts/peek/CSV 网格/mDNS/LAN；3D GLB 是用户追加要求，作为例外已落地。
