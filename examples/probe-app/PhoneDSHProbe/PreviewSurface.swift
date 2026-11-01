@@ -227,6 +227,7 @@ struct PreviewSurface: View {
     @Environment(\.dismiss) private var dismiss
     @State private var model: PreviewModel
     @State private var webReloadID = UUID()
+    @State private var showShare = false
 
     init(target: PreviewTarget, presentation: PreviewPresentation = .init(), isModal: Bool = true) {
         self.target = target
@@ -279,6 +280,12 @@ struct PreviewSurface: View {
         .background(NativePagePalette.page)
         .navigationTitle(URL(fileURLWithPath: model.path).lastPathComponent)
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showShare) {
+            if let url = model.fileURL {
+                ActivityView(items: [url])
+                    .presentationDetents([.medium, .large])
+            }
+        }
         .toolbar {
             if isModal {
                 ToolbarItem(placement: .cancellationAction) {
@@ -295,12 +302,14 @@ struct PreviewSurface: View {
                         }
                         .accessibilityLabel("重新加载页面")
                     }
-                    if let fileURL = model.fileURL {
-                        ShareLink(item: fileURL) {
+                    if model.fileURL != nil {
+                        Button {
+                            showShare = true
+                        } label: {
                             Image(systemName: "square.and.arrow.up")
+                                .foregroundStyle(NativePagePalette.accent)
                         }
                         .accessibilityLabel("分享")
-                        .tint(NativePagePalette.accent)
                     }
                 }
                 .tint(NativePagePalette.accent)
@@ -477,6 +486,14 @@ private struct PDFKitView: UIViewRepresentable {
     func updateUIView(_ view: PDFView, context: Context) {
         if view.document !== document { view.document = document }
     }
+}
+
+private struct ActivityView: UIViewControllerRepresentable {
+    let items: [Any]
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }
 
 private struct QuickLookInline: UIViewControllerRepresentable {
