@@ -464,6 +464,7 @@ public actor PhoneDSHTurnInactivitySupervisor: AgentHarness {
         case .turnStarted: return "turnStarted"
         case .turnEnded: return "turnEnded"
         case .progress: return "progress"
+        case .compaction: return "compaction"
         case .sessionStatus: return "sessionStatus"
         case .usage: return "usage"
         case .exited: return "exited"

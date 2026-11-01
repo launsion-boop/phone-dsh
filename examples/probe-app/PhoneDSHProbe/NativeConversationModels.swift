@@ -26,7 +26,15 @@ struct ChatItem: Identifiable, Equatable {
     var arguments: JSONValue?
     var toolOutput: String?
     var toolMetadata: JSONValue?
+    /// DSH `tool/result.error.code` (e.g. `interrupted`, `AUTO_REVIEW_DENIED`).
+    /// Kept beside `toolState` so realtime and replayed rows agree.
+    var toolErrorCode: String?
     var toolState: NativeToolState?
+    /// DSH `user/message.source.kind` for injected/steering messages. nil for
+    /// human prompts and ordinary transcript rows.
+    var sourceKind: String?
+    /// Optional one-line summary carried by a producer notice.
+    var sourceSummary: String?
     var turnUsage: NativeTurnUsage?
     var attachments: [NativeMessageAttachment] = []
     var rawBlock: JSONValue?
@@ -119,6 +127,16 @@ struct NativeTurnUsage: Equatable {
         guard let cacheReadTokens, totalTokens > outputTokens else { return nil }
         return Double(cacheReadTokens) * 100 / Double(totalTokens - outputTokens)
     }
+}
+
+/// Official session projection `imageLimits`; the composer's pre-check uses the
+/// host values rather than assuming the deployment defaults.
+struct NativeImageLimits: Equatable, Sendable {
+    var maxImagesPerMessage: Int = 20
+    var maxImageBytes: Int = 20 * 1024 * 1024
+    var maxMessageImageBytes: Int = 200 * 1024 * 1024
+
+    static let fallback = NativeImageLimits()
 }
 
 struct NativeSessionStats: Equatable {

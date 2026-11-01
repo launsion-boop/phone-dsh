@@ -56,6 +56,8 @@ public enum DSHEventMapper {
         let data = event["data"] ?? .null
         var kinds: [HarnessEvent.Kind] = []
         var detail: HarnessToolResultDetail?
+        var toolResultMeta: JSONValue?
+        var toolResultErrorCode: String?
         var rawTurnEndKind: String?
         var rawTurnEndCause: String?
         switch type {
@@ -71,6 +73,9 @@ public enum DSHEventMapper {
                 return HarnessUserInput(text: text, source: userInputSource(message))
             }
             if !inserted.isEmpty { kinds.append(.inboxSpliced(messages: inserted)) }
+        case "compaction/summary":
+            let summary = texts(data["summary"])
+            if !summary.isEmpty { kinds.append(.compaction(summary: summary)) }
         case "turn/start":
             kinds.append(.turnStarted(turnID: turnID(data)))
         case "turn/end":
@@ -98,6 +103,9 @@ public enum DSHEventMapper {
             var text = texts(message["content"])
             if text.isEmpty, let reason = data["error"]?["reason"]?.stringValue { text = reason }
             kinds.append(.toolResult(callID: callID, isError: isError, summary: truncate(text)))
+            toolResultMeta = data["meta"]
+            toolResultErrorCode = data["error"]?["code"]?.stringValue
+                ?? message["error"]?["code"]?.stringValue
             // The summary above is the bounded, single-line UI projection. The
             // audit projection below keeps the tool's line structure so the
             // scenario transcript carries verdict lines and root causes.
@@ -109,12 +117,14 @@ public enum DSHEventMapper {
             break
         }
         return kinds.enumerated().map { index, kind in
-            let toolResultDetail: HarnessToolResultDetail?
-            if case .toolResult = kind { toolResultDetail = detail } else { toolResultDetail = nil }
+            let isToolResult: Bool
+            if case .toolResult = kind { isToolResult = true } else { isToolResult = false }
             return HarnessEvent(seq: harnessSeq(dshSeq: seq, part: index), time: time, kind: kind,
-                                toolResultDetail: toolResultDetail,
+                                toolResultDetail: isToolResult ? detail : nil,
                                 rawTurnEndKind: rawTurnEndKind,
-                                rawTurnEndCause: rawTurnEndCause)
+                                rawTurnEndCause: rawTurnEndCause,
+                                toolResultMeta: isToolResult ? toolResultMeta : nil,
+                                toolResultErrorCode: isToolResult ? toolResultErrorCode : nil)
         }
     }
 

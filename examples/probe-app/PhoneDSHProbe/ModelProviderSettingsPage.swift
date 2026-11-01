@@ -57,7 +57,7 @@ struct ModelProviderSettingsPage: View {
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
-        .background(Color.white)
+        .background(NativePagePalette.page)
         .navigationTitle("模型服务")
         .navigationBarTitleDisplayMode(.large)
         .task { reload() }
@@ -452,7 +452,7 @@ private struct ModelProviderEditorPage: View {
             if let testResult {
                 Text(testResult)
                     .font(.footnote)
-                    .foregroundStyle(testResult.contains("正常") ? Color.secondary : ChatPage.danger)
+                    .foregroundStyle(testResult.contains("正常") ? Color.secondary : NativePagePalette.danger)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(12)
                     .background(.bar)

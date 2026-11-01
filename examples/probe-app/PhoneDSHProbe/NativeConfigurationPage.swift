@@ -24,7 +24,7 @@ struct NativeConfigurationPage: View {
             }
             .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
-        .background(Color.white)
+        .background(NativePagePalette.page)
             .navigationTitle("插件")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {

@@ -24,6 +24,9 @@ public enum ChatHostConfiguration {
     public static let defaultDrainDeadline: TimeInterval = 20
     public static let defaultHelloTimeout: TimeInterval = 240
     public static let defaultBootTimeout: TimeInterval = 240
+    /// How long an Office/Quick Look interaction may stay on screen before the
+    /// presenter auto-dismisses it (the app has no interactive Xcode preview).
+    public static let defaultOfficeInteractionTimeout: TimeInterval = 30
 
     /// `Documents/chat-host` for the App, or below the caller's Documents
     /// directory in a hostless test process (the suite passes the installed

@@ -52,7 +52,7 @@ struct FilesPage: View {
             .navigationBarTitleDisplayMode(.large)
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
-            .background(Color.white)
+            .background(NativePagePalette.page)
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索文件")
             .refreshable { model.refreshFiles() }
             .task { await openInitialPathIfNeeded() }
@@ -102,10 +102,10 @@ struct FilesPage: View {
             if model.files.isEmpty {
                 VStack(spacing: 8) {
                     Text("还没有文件")
-                        .font(.system(size: 17, weight: .semibold))
+                        .font(.body.weight(.semibold))
                     Text("智能体做的文件会出现在这里。")
-                        .font(.system(size: 13))
-                        .foregroundStyle(ChatPage.inkSecondary)
+                        .font(.footnote)
+                        .foregroundStyle(NativePagePalette.inkSecondary)
                         .multilineTextAlignment(.center)
                 }
                 .frame(maxWidth: .infinity)
@@ -183,21 +183,26 @@ struct FilesPage: View {
 
 private struct FileRow: View {
     let file: WorkspaceFile
+    @Environment(\.dynamicTypeSize) private var typeSize
+    /// 图标跟文字一起放大:默认档下还是 24/34x38,一行的高度和现在一样。
+    @ScaledMetric(relativeTo: .body) private var iconSize: CGFloat = 24
+    @ScaledMetric(relativeTo: .body) private var iconBoxWidth: CGFloat = 34
+    @ScaledMetric(relativeTo: .body) private var iconBoxHeight: CGFloat = 38
 
     var body: some View {
         HStack(spacing: 12) {
-            FileTypeGlyph.icon(for: file.relativePath, size: 24)
-                .frame(width: 34, height: 38)
+            FileTypeGlyph.icon(for: file.relativePath, size: iconSize)
+                .frame(width: iconBoxWidth, height: iconBoxHeight)
             VStack(alignment: .leading, spacing: 3) {
                 Text(URL(fileURLWithPath: file.relativePath).lastPathComponent)
                     .font(.body)
                     .foregroundStyle(.primary)
-                    .lineLimit(1)
+                    .lineLimit(typeSize.rowLineLimit)
                 if let folder = folderName {
                     Text(folder)
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                        .lineLimit(typeSize.rowLineLimit)
                 }
                 Text(ByteCountFormatter.string(fromByteCount: Int64(file.size), countStyle: .file))
                     .font(.caption2)

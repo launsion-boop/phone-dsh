@@ -7,15 +7,35 @@ import SwiftUI
 import UIKit
 
 struct SettingsPage: View {
+    private enum Tab: String, CaseIterable, Identifiable {
+        case general, tools, permissions, about
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .general: return "通用"
+            case .tools: return "工具"
+            case .permissions: return "手机权限"
+            case .about: return "关于"
+            }
+        }
+    }
+
+    @State private var tab: Tab = .general
     @State private var model = ChatModel.shared
     @State private var configuration = NativeConfigurationModel.shared
     @State private var web = WebHostModel.shared
-    @AppStorage("phone-dsh.composer.busyEnter") private var busyEnterMode = "queue"
+    @State private var preferences = NativeChatPreferences.shared
+    @StateObject private var phonePermissions = PhonePermissionRequester.shared
+    private var busyEnterBinding: Binding<String> {
+        Binding(get: { preferences.busyEnterMode },
+                set: { preferences.setBusyEnterMode($0) })
+    }
     @State private var showDSHConfiguration = false
     @State private var didSave = false
     @State private var mcpRows: [MCPServerSummary] = []
     @State private var showExport = false
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     private var networkConfigurationChanged: Bool {
         model.egressAllow != ChatSettings.egressAllow
@@ -25,25 +45,23 @@ struct SettingsPage: View {
         (try? PhoneModelProviderSettings.shared.load().selected)
     }
 
-    init() {
+    init(startsOnPermissions: Bool = false) {
+        _tab = State(initialValue: startsOnPermissions ? .permissions : .general)
         // SwiftUI 会忽略 listRowSeparatorTint,统一从 UIKit 侧设,免得每页各写一份。
-        UITableView.appearance().separatorColor = UIColor(red: 0xDD / 255, green: 0xDC / 255, blue: 0xE2 / 255, alpha: 1)
+        // 必须给动态色:定死成 #DDDCE2 的话,深色下每条分隔线都是一道亮线。
+        UITableView.appearance().separatorColor = UIColor { traits in
+            traits.userInterfaceStyle == .dark
+                ? UIColor(white: 1, alpha: 0.12)
+                : UIColor(red: 0xDD / 255, green: 0xDC / 255, blue: 0xE2 / 255, alpha: 1)
+        }
     }
 
     var body: some View {
-        List {
-            mainGroup
-            toolsGroup
-            aboutGroup
+        VStack(spacing: 0) {
+            settingsTabBar
+            tabContent
         }
-        .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Color.white)
-        .listRowSeparatorTint(ChatPage.hairline)
-        .listRowSeparator(.visible)
-        .listSectionSpacing(0)
-        .environment(\.defaultMinListRowHeight, 44)
-        .tint(ChatPage.accent)
+        .background(NativePagePalette.page)
         .navigationTitle("设置")
         // 页头规矩:标题居中,不随列表滚动变成左侧大标题。
         .navigationBarTitleDisplayMode(.inline)
@@ -61,7 +79,68 @@ struct SettingsPage: View {
         .task {
             await configuration.refresh()
             await refreshMCPRows()
+            await phonePermissions.refresh()
         }
+    }
+
+    private var settingsTabBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 0) {
+                ForEach(Tab.allCases) { item in
+                    Button {
+                        withAnimation(.easeOut(duration: 0.15)) { tab = item }
+                    } label: {
+                        VStack(spacing: 6) {
+                            Text(item.title)
+                                .font(.system(size: 14, weight: tab == item ? .semibold : .regular))
+                                .foregroundStyle(tab == item ? NativePagePalette.ink : NativePagePalette.inkSecondary)
+                                .fixedSize(horizontal: true, vertical: false)
+                            Rectangle()
+                                .fill(tab == item ? NativePagePalette.ink : .clear)
+                                .frame(height: 2)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.top, 8)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(tab == item ? [.isSelected] : [])
+                }
+            }
+            .padding(.horizontal, 16)
+        }
+        .frame(height: 40)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(NativePagePalette.hairline).frame(height: 0.5)
+        }
+    }
+
+    @ViewBuilder
+    private var tabContent: some View {
+        switch tab {
+        case .general:
+            settingsList { mainGroup }
+        case .tools:
+            settingsList { toolsGroup }
+        case .about:
+            settingsList { aboutGroup }
+        case .permissions:
+            PhonePermissionsPage(embedded: true)
+        }
+    }
+
+    private func settingsList<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        List {
+            content()
+        }
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background(NativePagePalette.page)
+        .listRowSeparatorTint(NativePagePalette.hairline)
+        .listRowSeparator(.visible)
+        .listSectionSpacing(0)
+        .environment(\.defaultMinListRowHeight, 44)
+        .tint(NativePagePalette.accent)
     }
 
     // MARK: - 首屏第一组:七行,不写组标题(iOS 自己的设置第一组也不写)
@@ -73,6 +152,7 @@ struct SettingsPage: View {
             row("权限", permissionValue) { PermissionDefaultsPage() }
             settingsRow(rowLabel("写之前", askValue, chevronSlot: true))
             row("模型服务", selectedProvider?.displayName ?? "未配置") { ModelProviderSettingsPage() }
+            row("聊天外观", "") { ChatPreferencesPage() }
             row("MCP", mcpSummary) { MCPSettingsPage(host: .native) }
             settingsRow(Toggle("后台运行", isOn: $model.backgroundKeepAlive)
                 .onChange(of: model.backgroundKeepAlive) { _, value in
@@ -94,7 +174,7 @@ struct SettingsPage: View {
             .foregroundStyle(.primary))
             row("命令", "") { PDSHShellPage() }
             settingsRow(LabeledContent("发送消息时") {
-                Picker("", selection: $busyEnterMode) {
+                Picker("", selection: busyEnterBinding) {
                     Text("排到下一轮").tag("queue")
                     Text("补充当前任务").tag("steer")
                 }
@@ -107,8 +187,8 @@ struct SettingsPage: View {
             // 这几种提示原来各占一行,现在折成一组页脚:行数不变,信息不丢。
             if let line = toolsFooter {
                 Text(line)
-                    .font(.system(size: 13))
-                    .foregroundStyle(ChatPage.inkSecondary)
+                    .font(.footnote)
+                    .foregroundStyle(NativePagePalette.inkSecondary)
             }
         }
     }
@@ -176,8 +256,8 @@ struct SettingsPage: View {
     /// 标题自己就是分界。
     private func groupHeader(_ title: String) -> some View {
         Text(title)
-            .font(.system(size: 13, weight: .regular))
-            .foregroundStyle(ChatPage.inkSecondary)
+            .font(.footnote)
+            .foregroundStyle(NativePagePalette.inkSecondary)
             .textCase(nil)
             .listRowInsets(EdgeInsets(top: 24, leading: 16, bottom: 8, trailing: 16))
     }
@@ -186,7 +266,7 @@ struct SettingsPage: View {
     /// UITableView 的分隔线颜色,只有自绘才稳定落在 #DDDCE2。
     private func hairline() -> some View {
         Rectangle()
-            .fill(ChatPage.hairline)
+            .fill(NativePagePalette.hairline)
             .frame(height: 1 / UIScreen.main.scale)
     }
 
@@ -199,6 +279,10 @@ struct SettingsPage: View {
             // 所以 leading 写 0 才是屏幕上 16;trailing 16 让行右缘落 370,
             // 值再让出 20 的箭头位,右缘就落在 350。
             .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
+            // 浅色下卡片和页面都是白的,这一页看起来就是一整张纸;行内容贴的是
+            // 卡片左缘。深色下卡片会显形,这行底色必须让出来,否则字正好压在
+            // 卡片边上——给行透明的底色,深色下仍是一张纸 + 自绘分隔线。
+            .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
             .overlay(alignment: .bottom) {
                 if divider { hairline().padding(.trailing, -16) }
@@ -208,15 +292,17 @@ struct SettingsPage: View {
     private func rowLabel(_ title: String, _ value: String, chevronSlot: Bool = false) -> some View {
         // 行内容左缘 16、右缘 370:带箭头的行,箭头右缘落 370、值右缘落 350;
         // 不带箭头的行照样空出那 20,值的右缘才和上一行齐。
+        // 字号用系统文字样式:默认档下 body/subheadline 就是 17/15,和原来的定值
+        // 一模一样;放大字号时才跟着长,行高由 minHeight 兜住。
         HStack(spacing: 12) {
             Text(title)
-                .font(.system(size: 17))
+                .font(.body)
                 .foregroundStyle(.primary)
             Spacer(minLength: 12)
             Text(value)
-                .font(.system(size: 15))
-                .foregroundStyle(ChatPage.inkSecondary)
-                .lineLimit(1)
+                .font(.subheadline)
+                .foregroundStyle(NativePagePalette.inkSecondary)
+                .lineLimit(typeSize.rowLineLimit)
                 .truncationMode(.middle)
                 .padding(.trailing, chevronSlot ? 20 : 0)
         }
@@ -231,8 +317,8 @@ struct SettingsPage: View {
 
     private func note(_ text: String, isWarning: Bool) -> some View {
         Label(text, systemImage: isWarning ? "exclamationmark.triangle" : "checkmark.circle.fill")
-            .font(.system(size: 13))
-            .foregroundStyle(isWarning ? ChatPage.warning : ChatPage.inkSecondary)
+            .font(.footnote)
+            .foregroundStyle(isWarning ? NativePagePalette.warning : NativePagePalette.inkSecondary)
     }
 
     /// 权限那行的值 = 宿主报的默认档翻成中文;翻不出来就写「未设置」,不写死一个词。
@@ -259,12 +345,12 @@ struct SettingsPage: View {
         Section {
             HStack(spacing: 8) {
                 Circle()
-                    .fill(model.isStarted ? Color(red: 0x0E / 255, green: 0x9F / 255, blue: 0x6E / 255) : Color(uiColor: .tertiaryLabel))
+                    .fill(model.isStarted ? NativePagePalette.success : Color(uiColor: .tertiaryLabel))
                     .frame(width: 8, height: 8)
                 Text("本地引擎")
                 Spacer()
                 Text(hostLabel)
-                    .font(.system(size: 15))
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
             .accessibilityElement(children: .combine)
@@ -441,7 +527,7 @@ struct SettingsPage: View {
 
     private var conversationSection: some View {
         Section("发送消息时") {
-            Picker("发送消息时", selection: $busyEnterMode) {
+            Picker("发送消息时", selection: busyEnterBinding) {
                 Text("排到下一轮").tag("queue")
                 Text("补充当前任务").tag("steer")
             }
@@ -467,8 +553,8 @@ private struct PermissionDefaultsPage: View {
         List {
             Section {
                 Text("只影响之后新开的会话。正在聊的这个不跟着变。")
-                    .font(.system(size: 13))
-                    .foregroundStyle(ChatPage.inkSecondary)
+                    .font(.footnote)
+                    .foregroundStyle(NativePagePalette.inkSecondary)
             }
             Section {
                 // 三档就是聊天里权限菜单那三档,措辞一致;顺序也一致,完全权限压最后。
@@ -490,7 +576,7 @@ private struct PermissionDefaultsPage: View {
                 Spacer(minLength: 8)
                 if value == title {
                     Image(systemName: "checkmark")
-                        .foregroundStyle(ChatPage.accent)
+                        .foregroundStyle(NativePagePalette.accent)
                 }
             }
         }
@@ -551,22 +637,24 @@ private struct DevelopmentToolsPage: View {
 /// 只有连点版本号七下才走得到这里:探针和导出诊断都是给我们自己验收用的。
 private struct DeveloperPage: View {
     @Environment(\.dismiss) private var dismiss
+    /// 页头那一条是定高 44:字号放大时一起长,不然标题会顶出边界。
+    @ScaledMetric(relativeTo: .body) private var headerHeight: CGFloat = 44
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // 标题居中、完成在左,同一行:用叠放,标题按屏宽居中,不被左边按钮挤歪。
             ZStack {
                 Text("开发者")
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(.body.weight(.semibold))
                 HStack {
                     Button("完成") { dismiss() }
-                        .font(.system(size: 17))
-                        .foregroundStyle(ChatPage.accent)
+                        .font(.body)
+                        .foregroundStyle(NativePagePalette.accent)
                     Spacer()
                 }
             }
             .padding(.horizontal, 16)
-            .frame(height: 44)
+            .frame(height: headerHeight)
             .padding(.top, 4)
             .padding(.bottom, 8)
 
@@ -575,7 +663,7 @@ private struct DeveloperPage: View {
                     developerRow("探针")
                 }
                 Rectangle()
-                    .fill(ChatPage.hairline)
+                    .fill(NativePagePalette.hairline)
                     .frame(height: 1 / UIScreen.main.scale)
                     .padding(.horizontal, 16)
                 NavigationLink { ExportPage() } label: {
@@ -584,15 +672,15 @@ private struct DeveloperPage: View {
             }
 
             Text("这些是给我们自己看的，你不需要用。")
-                .font(.system(size: 13))
-                .foregroundStyle(ChatPage.inkSecondary)
+                .font(.footnote)
+                .foregroundStyle(NativePagePalette.inkSecondary)
                 .padding(.leading, 16)
                 .padding(.trailing, 16)
                 .padding(.top, 12)
 
             Spacer()
         }
-        .background(Color.white)
+        .background(NativePagePalette.page)
         .navigationBarBackButtonHidden()
         .toolbar(.hidden, for: .navigationBar)
     }
@@ -600,12 +688,12 @@ private struct DeveloperPage: View {
     private func developerRow(_ title: String) -> some View {
         HStack {
             Text(title)
-                .font(.system(size: 17))
+                .font(.body)
                 .foregroundStyle(.primary)
             Spacer(minLength: 12)
             Image(systemName: "chevron.right")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(ChatPage.inkSecondary.opacity(0.6))
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(NativePagePalette.inkSecondary.opacity(0.6))
         }
         .frame(minHeight: 44)
         .padding(.leading, 16)

@@ -74,3 +74,9 @@ public protocol ExecProvider: Sendable {
     func run(_ request: ExecRequest) -> AsyncThrowingStream<ExecEvent, Error>
     func cancel(execID: String) async
 }
+
+/// A provider failure that is safe to expose across the exec-bridge boundary.
+public protocol ExecProviderFailure: Error {
+    var code: String { get }
+    var message: String { get }
+}

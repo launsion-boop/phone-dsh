@@ -1,0 +1,196 @@
+{
+  "label": "session-chat-long-user-turn",
+  "createdAt": "2026-11-01T06:54:42.587Z",
+  "target": {
+    "url": "http://127.0.0.1:56316/?token=<redacted>",
+    "viewport": {
+      "width": 402,
+      "height": 874,
+      "dpr": 3
+    },
+    "colorScheme": "light",
+    "mobile": true
+  },
+  "chrome": {
+    "executable": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "version": null,
+    "remoteDebuggingPort": 56413
+  },
+  "screenshot": {
+    "path": "/Users/leilangsheng/Desktop/TonoTeam/phone-dsh/docs/receipts/ios-session-audit/screens/official/official-session-chat-long-user-turn-402x874-dpr3.png",
+    "width": 1206,
+    "height": 2622,
+    "bytes": 254627,
+    "expectedWidth": 1206,
+    "expectedHeight": 2622
+  },
+  "runtime": {
+    "finalUrl": "http://127.0.0.1:56316/",
+    "title": "You are the evidence-reading and — DSH 本地构建",
+    "viewport": {
+      "innerWidth": 402,
+      "innerHeight": 874,
+      "dpr": 3,
+      "visualWidth": 402,
+      "visualHeight": 874
+    },
+    "bootMounted": false,
+    "skeletonPresent": false,
+    "appMounted": true
+  },
+  "console": {
+    "errors": [],
+    "warnings": [],
+    "exceptions": [],
+    "logEntries": []
+  },
+  "network": {
+    "failures": [],
+    "httpErrors": []
+  },
+  "boot": {
+    "ok": true,
+    "reason": null,
+    "sentinel": "[data-dsh-boot]",
+    "bodyTextHead": "You are the evidence-reading and\n对话\n轨迹\nYou are the evidence-reading and proposal stage of the TonoLive technical-intelligence pipeline.\n\nYour job is not to summarize AI news. Your job is to read the supplied source material completely and skeptically, determine what it actually proves, compare it with the current TonoLive repository and the supplied `gap_evidence_registry`, and propose only transfer mechanisms that can be tested. A fluent abstract-level paraphrase is a failure: extract the real mechanism, experiment, result, boundary condition, and missing evidence. You are not the final verifier and cannot create product, architecture, hardware, Runtime, Work, Canvas, Connection, release, or TODO decisions.\n\n## Required reading protocol\n\nPerform these passes in order before writing JSON:\n\n1. **Source sufficiency.** Identify whether the packet contains full text, an abstract, release notes, a blog excerpt, or only a trigger. Do not claim to have read sections that are absent. An abstract-only packet cannot support details that are not in the abstract.\n2. **Source facts.** Extract the method, experimental subject, baselines, metrics, limitations, and material claims. Every material …[truncated 173285 chars]"
+  },
+  "session": {
+    "requestedId": "session-d81de3d6-526a-4894-b3aa-1520db906f62",
+    "steps": [
+      {
+        "kind": "open-drawer",
+        "selector": "button[aria-label=\"菜单\"]",
+        "ok": true,
+        "clicked": {
+          "tag": "BUTTON",
+          "text": "菜单",
+          "rect": {
+            "x": 12,
+            "y": 12,
+            "width": 36,
+            "height": 36
+          }
+        }
+      },
+      {
+        "kind": "expand-group",
+        "selector": "[data-row-key=\"workspace:\"]",
+        "ok": true,
+        "clicked": {
+          "tag": "DIV",
+          "text": "未分组",
+          "rect": {
+            "x": 12,
+            "y": 246,
+            "width": 256,
+            "height": 34
+          }
+        }
+      },
+      {
+        "kind": "open-session",
+        "selector": "[data-row-key=\"session:session-d81de3d6-526a-4894-b3aa-1520db906f62\"]",
+        "ok": true,
+        "clicked": {
+          "tag": "DIV",
+          "text": "未命名\n1个月",
+          "rect": {
+            "x": 12,
+            "y": 350,
+            "width": 256,
+            "height": 32
+          }
+        }
+      },
+      {
+        "kind": "close-drawer",
+        "selector": "button[aria-label=\"关闭面板\"]",
+        "ok": true,
+        "clicked": {
+          "tag": "BUTTON",
+          "text": "关闭面板",
+          "rect": {
+            "x": 0,
+            "y": 0,
+            "width": 402,
+            "height": 874
+          }
+        }
+      }
+    ],
+    "openedId": "session-d81de3d6-526a-4894-b3aa-1520db906f62",
+    "title": "You are the evidence-reading and",
+    "documentTitle": "You are the evidence-reading and — DSH 本地构建",
+    "drawerClosed": true,
+    "transcript": {
+      "rows": 4,
+      "flowKinds": [
+        "user",
+        "turn-process",
+        "turn-error",
+        "turn-tail"
+      ],
+      "visibleFlowKinds": [
+        "user",
+        "turn-process",
+        "turn-error"
+      ],
+      "turns": [
+        "1"
+      ],
+      "keys": [
+        "13:input-message5eab29e8-2a6a-49b8-9ac3-4564679c8e0d",
+        "12:turn-process1",
+        "10:turn-error1",
+        "9:turn-tail1"
+      ]
+    },
+    "requiredSelectors": [],
+    "follow": {
+      "scrollTop": 143845,
+      "scrollHeight": 144637,
+      "clientHeight": 792
+    }
+  },
+  "interactions": [
+    {
+      "pass": 1,
+      "kind": "pwa-install-banner-close",
+      "requested": {
+        "type": "selector",
+        "value": "button[aria-label=\"关闭提示\"]"
+      },
+      "clicked": {
+        "tag": "BUTTON",
+        "text": "关闭提示",
+        "rect": {
+          "x": 346,
+          "y": 23,
+          "width": 32,
+          "height": 32
+        }
+      },
+      "ok": true
+    },
+    {
+      "pass": 1,
+      "kind": "get-started-dialog-close",
+      "requested": {
+        "type": "selector",
+        "value": "button[aria-label=\"关闭\"]"
+      },
+      "clicked": {
+        "tag": "BUTTON",
+        "text": "关闭",
+        "rect": {
+          "x": 325,
+          "y": 366,
+          "width": 28,
+          "height": 28
+        }
+      },
+      "ok": true
+    }
+  ],
+  "leftoverOverlays": []
+}

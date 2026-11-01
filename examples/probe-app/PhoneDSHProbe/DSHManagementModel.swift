@@ -7,6 +7,7 @@ import PhoneDSHAgentCore
 import PhoneDSH
 import PhoneDSHEngine
 import PhoneDSHWire
+import ProbeKit
 
 struct ManagedSession: Identifiable, Hashable {
     let id: String
@@ -182,7 +183,8 @@ final class DSHManagementModel {
             // This Remote has a reserved optional input in its TypeScript
             // contract, but the wire method takes no arguments at this pin.
             let sessionValue = try await client.call("session/list", args: .object([:]))
-            sessions = Self.decodeSessions(sessionValue)
+            let deviceSessionIDs = DeviceSessionCoordinator.shared.mappedSessionIDs
+            sessions = Self.decodeSessions(sessionValue).filter { !deviceSessionIDs.contains($0.id) }
             // Optional catalog failures must not hide the valid session list.
             async let catalogResponse = try? client.call("session/modelCatalog", args: .object([:]))
             if let catalogValue = await catalogResponse {
@@ -903,7 +905,10 @@ final class DSHManagementModel {
 private static func decodeSessions(_ value: JSONValue) -> [ManagedSession] {
         (value["items"]?.arrayValue ?? []).compactMap { item in
             guard let id = item["sessionId"]?.stringValue else { return nil }
-            let projected = item["projections"]?["values"]?["title"]?["title"]?.stringValue
+            // `title` is a plain string in the session projection (or null),
+            // not { title: string }. The old wrapper made every projected
+            // title nil and forced the local hint fallback.
+            let projected = item["projections"]?["values"]?["title"]?.stringValue
                 .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
             let title = projected
                 ?? SessionTitleHints.title(for: id)

@@ -1,0 +1,545 @@
+{
+  "chat_item_kinds": [
+    "assistant",
+    "context",
+    "image",
+    "maxTokens",
+    "reasoning",
+    "status",
+    "systemEvent",
+    "toolCall",
+    "toolResult",
+    "turnError",
+    "unknown",
+    "user"
+  ],
+  "tool_variants": [
+    "bash",
+    "code",
+    "edit",
+    "others",
+    "read",
+    "search",
+    "write"
+  ],
+  "tool_title_cases": [
+    "bash",
+    "edit",
+    "grep",
+    "read",
+    "run_code",
+    "write"
+  ],
+  "tool_titles": {},
+  "theme_colors": {},
+  "theme_fonts": {},
+  "key_probes": {
+    "transcript_horizontal_padding": [
+      {
+        "file": "ChatPage.swift",
+        "line": 154,
+        "text": ".padding(.horizontal, 104)"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 204,
+        "text": ".padding(.horizontal, 16)"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 332,
+        "text": ".padding(.horizontal, 16)"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 568,
+        "text": ".padding(.horizontal, 16)"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 691,
+        "text": ".padding(.horizontal, 4)"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 719,
+        "text": ".padding(.horizontal, 16)"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 731,
+        "text": ".padding(.horizontal, 16)"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 925,
+        "text": ".padding(.horizontal, 12)"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 1080,
+        "text": ".padding(.horizontal, 16)"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 1122,
+        "text": ".padding(.horizontal, 10)"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 1170,
+        "text": ".padding(.horizontal, 10)"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 1325,
+        "text": ".padding(.horizontal, 16)"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 1509,
+        "text": ".padding(.horizontal, 5)"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 1612,
+        "text": ".padding(.horizontal, 5)"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 1622,
+        "text": ".padding(.horizontal, 4)"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 1966,
+        "text": ".padding(.horizontal, 12)"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 2019,
+        "text": ".padding(.horizontal, 12).padding(.vertical, 8)"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 2034,
+        "text": ".padding(.horizontal, 12).padding(.vertical, 8)"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 2467,
+        "text": ".padding(.horizontal, 16)"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 2825,
+        "text": ".padding(.horizontal, 16)"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 2834,
+        "text": ".padding(.horizontal, 16)"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 3010,
+        "text": ".padding(.horizontal, 12)"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 3086,
+        "text": ".padding(.horizontal, 16)"
+      }
+    ],
+    "header_frame_height": [
+      {
+        "file": "ChatPage.swift",
+        "line": 181,
+        "text": ".frame(height: 44)"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 209,
+        "text": ".frame(height: 0.5)"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 838,
+        "text": ".frame(height: 1)"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 1039,
+        "text": ".frame(height: 50)"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 1123,
+        "text": ".frame(height: 40)"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 1171,
+        "text": ".frame(height: 28)"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 1300,
+        "text": ".frame(height: 32)"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 1510,
+        "text": ".frame(height: 28)"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 1613,
+        "text": ".frame(height: 28)"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 1623,
+        "text": ".frame(height: 32)"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 2532,
+        "text": ".frame(height: 28)"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 3065,
+        "text": ".frame(height: 48)"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 3078,
+        "text": ".frame(height: 44)"
+      }
+    ],
+    "composer_corner_radius": [
+      {
+        "file": "ChatPage.swift",
+        "line": 792,
+        "text": ".background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 929,
+        "text": ".background(Self.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 930,
+        "text": ".overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 1013,
+        "text": ".background(Self.accent, in: RoundedRectangle(cornerRadius: 12, style: .continuous))"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 1040,
+        "text": ".background(ChatPage.accent, in: RoundedRectangle(cornerRadius: 12))"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 1125,
+        "text": "in: RoundedRectangle(cornerRadius: 10, style: .continuous))"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 1173,
+        "text": "in: RoundedRectangle(cornerRadius: 8, style: .continuous))"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 1976,
+        "text": "in: RoundedRectangle(cornerRadius: 14, style: .continuous))"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 2043,
+        "text": ".background(NativeChatTheme.selector, in: RoundedRectangle(cornerRadius: 14, style: .continuous))"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 2323,
+        "text": ".background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 2880,
+        "text": ".background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 2973,
+        "text": ".background(Color(.tertiarySystemBackground), in: RoundedRectangle(cornerRadius: 9))"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 3012,
+        "text": ".background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 13, style: .continuous))"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 3066,
+        "text": ".background(ChatPage.accent, in: RoundedRectangle(cornerRadius: 12, style: .continuous))"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 3085,
+        "text": ".background(ChatPage.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))"
+      }
+    ],
+    "font_17_semibold": [
+      {
+        "file": "ChatPage.swift",
+        "line": 999,
+        "text": ".font(.system(size: 17, weight: .semibold))"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 1010,
+        "text": ".font(.system(size: 17, weight: .semibold))"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 1027,
+        "text": ".font(.system(size: 17, weight: .semibold))"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 1036,
+        "text": ".font(.system(size: 17, weight: .semibold))"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 3062,
+        "text": ".font(.system(size: 17, weight: .semibold))"
+      }
+    ],
+    "font_14_body": [
+      {
+        "file": "ChatPage.swift",
+        "line": 2418,
+        "text": ".font(NativeChatTheme.bodyFont())"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 2459,
+        "text": ".font(NativeChatTheme.bodyFont())"
+      }
+    ],
+    "line_spacing": [
+      {
+        "file": "ChatPage.swift",
+        "line": 1275,
+        "text": ".lineSpacing(NativeParityTokens.composerLineSpacing)"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 2421,
+        "text": ".lineSpacing(NativeChatTheme.bodyLineSpacing)"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 2460,
+        "text": ".lineSpacing(NativeParityTokens.userBubbleLineSpacing)"
+      }
+    ],
+    "max_width_296": [],
+    "min_height_36": [
+      {
+        "file": "ChatPage.swift",
+        "line": 1278,
+        "text": ".frame(minHeight: 36, maxHeight: 336)"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 1284,
+        "text": ".frame(minHeight: 36)"
+      }
+    ],
+    "max_height_336": [
+      {
+        "file": "ChatPage.swift",
+        "line": 1278,
+        "text": ".frame(minHeight: 36, maxHeight: 336)"
+      }
+    ],
+    "enter_key_hint": [
+      {
+        "file": "ChatPage.swift",
+        "line": 1188,
+        "text": "onSubmit: { submitQuestion($0) },"
+      }
+    ],
+    "todo_terms": [],
+    "plan_terms": [
+      {
+        "file": "ChatPage.swift",
+        "line": 1421,
+        "text": "if let plan = model.planModeState, plan.isPlanTarget {"
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 1422,
+        "text": "NativePlanChip(mode: plan,"
+      },
+      {
+        "file": "ChatModel.swift",
+        "line": 234,
+        "text": "/// page consumes `todos/plan/inbox/userQuestions/subagentCatalog/goal/title`"
+      },
+      {
+        "file": "ChatModel.swift",
+        "line": 258,
+        "text": "var planModeState: NativePlanModeState? {"
+      },
+      {
+        "file": "ChatModel.swift",
+        "line": 264,
+        "text": "/// `/plan off` through the live command registry, then refresh the folded"
+      }
+    ],
+    "turn_process_terms": [],
+    "trigger_terms": [
+      {
+        "file": "ChatPage.swift",
+        "line": 2372,
+        "text": "// inbox/spliced: the official turn-trigger notice, not a raw"
+      },
+      {
+        "file": "ChatModel.swift",
+        "line": 1773,
+        "text": "// rendered as a turn-trigger/context row, never as a user bubble."
+      }
+    ],
+    "inbox_terms": [
+      {
+        "file": "ChatPage.swift",
+        "line": 2372,
+        "text": "// inbox/spliced: the official turn-trigger notice, not a raw"
+      },
+      {
+        "file": "ChatModel.swift",
+        "line": 234,
+        "text": "/// page consumes `todos/plan/inbox/userQuestions/subagentCatalog/goal/title`"
+      },
+      {
+        "file": "ChatModel.swift",
+        "line": 239,
+        "text": "var projectedInbox: JSONValue? { projectionValues?[\"inbox\"] }"
+      },
+      {
+        "file": "ChatModel.swift",
+        "line": 1638,
+        "text": "\"llm/retry\", \"request/header\", \"agent/inbox/spliced\": category = .requestBoundary"
+      },
+      {
+        "file": "ChatModel.swift",
+        "line": 1776,
+        "text": "case .inboxSpliced(let messages):"
+      },
+      {
+        "file": "ChatModel.swift",
+        "line": 1783,
+        "text": "event: event, idSuffix: \"inbox-\\(index)\")"
+      },
+      {
+        "file": "DSHManagementModel.swift",
+        "line": 471,
+        "text": "(values[\"inbox\"]?[lane]?.arrayValue ?? []).compactMap { item in"
+      }
+    ],
+    "subagent_terms": [
+      {
+        "file": "ChatPage.swift",
+        "line": 111,
+        "text": "/// Official `subagentCatalog` projection → the header catalog view model."
+      },
+      {
+        "file": "ChatPage.swift",
+        "line": 124,
+        "text": "parentID: row[\"parentSessionId\"]?.stringValue,"
+      },
+      {
+        "file": "ChatModel.swift",
+        "line": 234,
+        "text": "/// page consumes `todos/plan/inbox/userQuestions/subagentCatalog/goal/title`"
+      },
+      {
+        "file": "ChatModel.swift",
+        "line": 241,
+        "text": "var projectedSubagents: JSONValue? { projectionValues?[\"subagentCatalog\"] }"
+      },
+      {
+        "file": "DSHManagementModel.swift",
+        "line": 575,
+        "text": "subagents = (values[\"subagentCatalog\"]?.arrayValue ?? []).compactMap { row in"
+      },
+      {
+        "file": "DSHManagementModel.swift",
+        "line": 663,
+        "text": "\"childSessionId\": .string(row.id), \"parentSessionId\": .string(parentSessionID), \"mode\": .string(\"continuable\"),"
+      },
+      {
+        "file": "DSHManagementModel.swift",
+        "line": 921,
+        "text": "parentSessionID: item[\"parentSessionId\"]?.stringValue,"
+      }
+    ]
+  },
+  "projection_mentions": {
+    "todos": [
+      "ChatModel.swift",
+      "DSHManagementModel.swift"
+    ],
+    "plan": [
+      "ChatModel.swift",
+      "DSHManagementModel.swift"
+    ],
+    "inbox": [
+      "ChatModel.swift",
+      "DSHManagementModel.swift"
+    ],
+    "userQuestions": [
+      "ChatModel.swift"
+    ],
+    "subagentCatalog": [
+      "ChatModel.swift",
+      "DSHManagementModel.swift"
+    ],
+    "subagentTiming": [],
+    "subagent": [
+      "ChatModel.swift"
+    ],
+    "goal": [
+      "ChatModel.swift",
+      "DSHManagementModel.swift"
+    ],
+    "title": [
+      "ChatModel.swift",
+      "DSHManagementModel.swift"
+    ],
+    "permissions": [
+      "ChatModel.swift"
+    ],
+    "tokenUsage": [
+      "ChatModel.swift"
+    ],
+    "contextPressure": [
+      "ChatModel.swift"
+    ],
+    "contextBreakdown": [
+      "ChatModel.swift"
+    ],
+    "sessionStats": [
+      "ChatModel.swift"
+    ]
+  }
+}

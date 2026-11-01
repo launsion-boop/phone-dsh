@@ -15,7 +15,7 @@ struct NativeComposerStats: View {
     }
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 12) {
             if let stats, stats.steps > 0 || stats.tokensPerSecond != nil {
                 Button { detail = .activity } label: {
                     HStack(spacing: 6) {
@@ -99,12 +99,12 @@ struct NativeComposerStats: View {
 private struct NativeStatPill: ViewModifier {
     func body(content: Content) -> some View {
         content
-            .font(.system(size: 11))
+            .font(.system(size: 12))
             .foregroundStyle(NativeChatTheme.tertiary)
             .monospacedDigit()
             .lineLimit(1)
             .fixedSize(horizontal: true, vertical: false)
-            .padding(.horizontal, 2)
+            .padding(.horizontal, 8)
             .padding(.vertical, 1)
             .frame(minHeight: 20)
             .contentShape(Rectangle())

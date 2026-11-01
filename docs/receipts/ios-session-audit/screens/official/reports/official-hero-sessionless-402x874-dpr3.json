@@ -1,0 +1,118 @@
+{
+  "label": "hero-sessionless",
+  "createdAt": "2026-11-01T06:54:05.544Z",
+  "target": {
+    "url": "http://127.0.0.1:56230/?token=<redacted>",
+    "viewport": {
+      "width": 402,
+      "height": 874,
+      "dpr": 3
+    },
+    "colorScheme": "light",
+    "mobile": true
+  },
+  "chrome": {
+    "executable": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "version": null,
+    "remoteDebuggingPort": 56232
+  },
+  "screenshot": {
+    "path": "/Users/leilangsheng/Desktop/TonoTeam/phone-dsh/docs/receipts/ios-session-audit/screens/official/official-hero-sessionless-402x874-dpr3.png",
+    "width": 1206,
+    "height": 2622,
+    "bytes": 90508,
+    "expectedWidth": 1206,
+    "expectedHeight": 2622
+  },
+  "runtime": {
+    "finalUrl": "http://127.0.0.1:56230/",
+    "title": "DSH 本地构建",
+    "viewport": {
+      "innerWidth": 402,
+      "innerHeight": 874,
+      "dpr": 3,
+      "visualWidth": 402,
+      "visualHeight": 874
+    },
+    "bootMounted": false,
+    "skeletonPresent": false,
+    "appMounted": true
+  },
+  "console": {
+    "errors": [],
+    "warnings": [],
+    "exceptions": [],
+    "logEntries": []
+  },
+  "network": {
+    "failures": [],
+    "httpErrors": []
+  },
+  "boot": {
+    "ok": true,
+    "reason": null,
+    "sentinel": "[data-dsh-boot]",
+    "bodyTextHead": "探索未至之境\n预览版\n默认工作区\n标准模式\n描述你想要构建的内容, / 调用指令, @ 文件或对话\n请选择模型"
+  },
+  "session": null,
+  "interactions": [
+    {
+      "pass": 1,
+      "kind": "pwa-install-banner-close",
+      "requested": {
+        "type": "selector",
+        "value": "button[aria-label=\"关闭提示\"]"
+      },
+      "clicked": {
+        "tag": "BUTTON",
+        "text": "关闭提示",
+        "rect": {
+          "x": 346,
+          "y": 23,
+          "width": 32,
+          "height": 32
+        }
+      },
+      "ok": true
+    },
+    {
+      "pass": 1,
+      "kind": "preview-notice-continue",
+      "requested": {
+        "type": "text",
+        "value": "继续"
+      },
+      "clicked": {
+        "tag": "BUTTON",
+        "text": "继续",
+        "rect": {
+          "x": 48,
+          "y": 593,
+          "width": 306,
+          "height": 36
+        }
+      },
+      "ok": true
+    },
+    {
+      "pass": 1,
+      "kind": "get-started-dialog-close",
+      "requested": {
+        "type": "selector",
+        "value": "button[aria-label=\"关闭\"]"
+      },
+      "clicked": {
+        "tag": "BUTTON",
+        "text": "关闭",
+        "rect": {
+          "x": 325,
+          "y": 366,
+          "width": 28,
+          "height": 28
+        }
+      },
+      "ok": true
+    }
+  ],
+  "leftoverOverlays": []
+}

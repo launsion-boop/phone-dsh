@@ -42,6 +42,13 @@ enum NativeHeaderStyle {
     static let statusDot: CGFloat = 8
 }
 
+/// 抽屉压在页面上的那条 0.5 断线。浅色保持原来的 #D5D4DB(白对白时阴影不够用);
+/// 深色下页面和面板都是黑,阴影看不见,退成系统分隔线的白 12%,不拿一道亮线劈屏幕。
+private enum DrawerSeam {
+    static let color = NativeParityTokens.rgba(light: 0xD5D4DB, lightAlpha: 1,
+                                               dark: 0xFFFFFF, darkAlpha: 0.12)
+}
+
 /// The one status indicator: green means the host is running, amber means it is
 /// parked in the background, grey means stopped.
 struct RunStatusDot: View {
@@ -82,16 +89,28 @@ struct NativeShell: View {
     init() {
         // 页面底全 App 纯白:分组列表默认那层 #F2F2F7 会和白卡片叠出接缝,
         // 分层靠间距和分隔线,不靠底色差。
-        UITableView.appearance().backgroundColor = .white
-        UICollectionView.appearance().backgroundColor = .white
+        // 页面底色的全局默认值:浅色下就是纯白(和原来一样),深色下必须跟着
+        // 系统走,否则 .scrollContentBackground(.hidden) 的列表在深色里还是白纸。
+        UITableView.appearance().backgroundColor = .systemBackground
+        UICollectionView.appearance().backgroundColor = .systemBackground
     }
 
-    @State private var drawerOpen = false
+    @State private var drawerOpen = NativeShell.startsWithDrawerOpen
     @State private var dragOffset: CGFloat = 0
     private let drawerWidth: CGFloat = 320
     #if DEBUG
     @State private var preview = PreviewScreen.requested
     #endif
+
+    /// 只给验收截图用:`-openDrawer 1` 直接落在「抽屉已开」的样子,不用坐标点击。
+    /// Release 里永远从关闭开始,行为不变。
+    private static var startsWithDrawerOpen: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.arguments.contains("-openDrawer")
+        #else
+        return false
+        #endif
+    }
 
     var body: some View {
         // 推走式:菜单在下层,固定不动;当前页面整体右移 320 把菜单让出来,
@@ -107,13 +126,14 @@ struct NativeShell: View {
                 NavigationStack {
                     ChatPage(openDrawer: { openDrawer() })
                 }
-                // 白对白时阴影不够用,再加一条 0.5 的断线:#D5D4DB,只贴页面左缘、只在抽屉开着时出现。
+                // 白对白时阴影不够用,再加一条 0.5 的断线(浅色 #D5D4DB / 深色白 12%),
+                // 只贴页面左缘、只在抽屉开着时出现。
                 // 它挂在页面自己身上(所以在 offset 之前),跟着页面走;0.5 宽不参与布局,
                 // 也不随内容滚动。阴影保持原深度,两样一起加深会变成一道黑边。
                 .overlay(alignment: .leading) {
                     if drawerOpen {
                         Rectangle()
-                            .fill(Color(red: 0xD5 / 255, green: 0xD4 / 255, blue: 0xDB / 255))
+                            .fill(DrawerSeam.color)
                             .frame(width: 0.5)
                             .allowsHitTesting(false)
                             .accessibilityHidden(true)
@@ -143,8 +163,11 @@ struct NativeShell: View {
                 }
             }
             .ignoresSafeArea()
-            // 菜单盖着状态栏那一条,那上面的字必须深色;只有抽屉开着时把外观压成浅色。
-            .preferredColorScheme(drawerOpen ? .light : nil)
+            // 抽屉不再把整个窗口压成浅色。面板现在跟着外观走(浅色白纸 / 深色黑纸),
+            // 状态栏的字由窗口的界面风格决定:浅色下是深字压白面板,深色下是浅字压
+            // 黑面板,两边都读得出来;右侧露出的页面也是同一套外观,不会一半白一半黑。
+            // 只有「面板颜色和状态栏字同色」才需要窗口级 override,这里已经不存在。
+            // (状态栏字仍然可读:见 SessionsDrawerPanel 的语义底色。)
         }
         #if DEBUG
         // `-uiPreview <screen>` lands straight on one screen, so review passes
@@ -181,8 +204,6 @@ struct NativeShell: View {
         }
         #endif
     }
-
-    @Environment(\.colorScheme) private var colorScheme
 
     /// 页面右移的距离:开着是 320,拖动时跟手减。
     private var contentOffset: CGFloat {
@@ -231,9 +252,10 @@ struct SessionsDrawerPanel: View {
         SessionsDrawer(isOpen: $isOpen, topInset: topInset, bottomInset: bottomInset)
             .frame(width: width)
             .frame(maxHeight: .infinity)
-            // 面板是白纸,不跟系统深色走:盖到状态栏下面时,状态栏的字必须是深色。
-            .background(Color.white)
-            .environment(\.colorScheme, .light)
+            // 面板和页面用同一块语义底:浅色是白纸(和原来一样),深色是系统底。
+            // 不能再钉 .environment(\.colorScheme, .light):面板一黑、状态栏的字
+            // 也就跟着变浅,浅色下深字压白面板那条老行为原样保留。
+            .background(NativePagePalette.page)
             .clipShape(UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: 0,
                                               bottomTrailingRadius: 22, topTrailingRadius: 22,
                                               style: .continuous))
@@ -299,10 +321,10 @@ struct SessionsDrawer: View {
                         showSettings = true
                     }
                 }
-                .background(Color.white)
+                .background(NativePagePalette.page)
                 .padding(.bottom, bottomInset + 16)
             }
-            .background(Color.white)
+            .background(NativePagePalette.page)
             .sheet(isPresented: $showSettings) {
                 NavigationStack { SettingsPage() }
                     .presentationDragIndicator(.visible)
@@ -319,6 +341,8 @@ struct WorkspaceFoldersPage: View {
     @State private var management = DSHManagementModel.shared
     @State private var showingNewWorkspace = false
     @State private var newWorkspaceName = ""
+    /// 空态主按钮定高 50:字号放大时一起长。
+    @ScaledMetric(relativeTo: .body) private var primaryButtonHeight: CGFloat = 50
 
     var body: some View {
         List {
@@ -330,14 +354,14 @@ struct WorkspaceFoldersPage: View {
                 } label: {
                     HStack(spacing: 12) {
                         Text(Self.displayName(workspace))
-                            .font(.system(size: 17))
+                            .font(.body)
                             .foregroundStyle(.primary)
                         Spacer(minLength: 12)
                         Text(workspace.sessionIDs.count == 1
                              ? "1 个会话"
                              : "\(workspace.sessionIDs.count) 个会话")
-                            .font(.system(size: 15))
-                            .foregroundStyle(ChatPage.inkSecondary)
+                            .font(.subheadline)
+                            .foregroundStyle(NativePagePalette.inkSecondary)
                     }
                     .frame(minHeight: 44)
                 }
@@ -345,20 +369,20 @@ struct WorkspaceFoldersPage: View {
             if management.workspaces.isEmpty {
                 VStack(spacing: 8) {
                     Text("还没有工作文件夹")
-                        .font(.system(size: 17, weight: .semibold))
+                        .font(.body.weight(.semibold))
                     Text("会话把生成的文件放在文件夹里。新建一个文件夹给它用。")
-                        .font(.system(size: 13))
-                        .foregroundStyle(ChatPage.inkSecondary)
+                        .font(.footnote)
+                        .foregroundStyle(NativePagePalette.inkSecondary)
                         .multilineTextAlignment(.center)
                     Button {
                         showingNewWorkspace = true
                     } label: {
                         Text("添加工作文件夹")
-                            .font(.system(size: 17, weight: .semibold))
+                            .font(.body.weight(.semibold))
                             .foregroundStyle(.white)
                             .frame(maxWidth: .infinity)
-                            .frame(height: 50)
-                            .background(ChatPage.accent, in: RoundedRectangle(cornerRadius: 12))
+                            .frame(minHeight: primaryButtonHeight)
+                            .background(NativePagePalette.accentFill, in: RoundedRectangle(cornerRadius: 12))
                     }
                     .padding(.horizontal, 16)
                     .padding(.top, 8)
@@ -374,8 +398,8 @@ struct WorkspaceFoldersPage: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button("添加") { showingNewWorkspace = true }
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(ChatPage.accent)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(NativePagePalette.accent)
             }
         }
         .alert("新建工作文件夹", isPresented: $showingNewWorkspace) {
@@ -394,7 +418,7 @@ struct WorkspaceFoldersPage: View {
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
-        .background(Color.white)
+        .background(NativePagePalette.page)
     }
 
     /// 自带的那个文件夹叫「默认文件夹」,用户自己建的按原名显示。
@@ -449,6 +473,7 @@ struct EgressAllowListPage: View {
     @State private var addProblem: String?
     @State private var toast: String?
     @State private var toastTask: Task<Void, Never>?
+    @Environment(\.colorScheme) private var colorScheme
 
     private static let stashKey = "phoneDSH.egressListBeforeAllowAll"
 
@@ -466,6 +491,8 @@ struct EgressAllowListPage: View {
                 Toggle("允许连任何网站", isOn: allowAllBinding)
                     .frame(minHeight: 48)
                     .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
+                    // 行贴卡片左缘(浅色下卡片是白的);深色下要让出卡片底色。
+                    .listRowBackground(Color.clear)
             } footer: {
                 Text("打开之后,下面这些地址就不起作用了。")
             }
@@ -473,16 +500,20 @@ struct EgressAllowListPage: View {
             Section {
                 if hosts.isEmpty {
                     Text(allowAll ? "现在全部能连。" : "还没有地址,现在连不出去。")
-                        .foregroundStyle(SessionsPage.ink)
+                        .foregroundStyle(NativePagePalette.inkSecondary)
                         .frame(minHeight: 48)
                         .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
+                        // 行贴卡片左缘(浅色下卡片是白的);深色下要让出卡片底色。
+                        .listRowBackground(Color.clear)
                     Button {
                         restoreDefaults()
                     } label: {
                         Text("恢复成默认的")
-                            .foregroundStyle(ChatPage.accent)
+                            .foregroundStyle(NativePagePalette.accent)
                             .frame(minHeight: 48, alignment: .leading)
                             .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
+                            // 行贴卡片左缘(浅色下卡片是白的);深色下要让出卡片底色。
+                            .listRowBackground(Color.clear)
                     }
                 } else {
                     ForEach(hosts, id: \.self) { host in
@@ -490,6 +521,8 @@ struct EgressAllowListPage: View {
                             .frame(minHeight: 48)
                             .contentShape(Rectangle())
                             .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
+                            // 行贴卡片左缘(浅色下卡片是白的);深色下要让出卡片底色。
+                            .listRowBackground(Color.clear)
                             .contextMenu {
                                 // 开关开着也留这条:名单里有一张过期的地址,
                                 // 用户想清掉的正是它,不能逼他先去关开关。
@@ -511,9 +544,11 @@ struct EgressAllowListPage: View {
                                 .font(.system(size: 16, weight: .semibold))
                             Text("添加地址")
                         }
-                        .foregroundStyle(ChatPage.accent)
+                        .foregroundStyle(NativePagePalette.accent)
                         .frame(minHeight: 48, alignment: .leading)
                         .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
+                        // 行贴卡片左缘(浅色下卡片是白的);深色下要让出卡片底色。
+                        .listRowBackground(Color.clear)
                     }
                 }
             } header: {
@@ -522,21 +557,21 @@ struct EgressAllowListPage: View {
                     Spacer(minLength: 8)
                     if allowAll {
                         Text("现在不起作用")
-                            .font(.system(size: 13))
+                            .font(.footnote)
                             .textCase(nil)
-                            .foregroundStyle(SessionsPage.ink)
+                            .foregroundStyle(NativePagePalette.inkSecondary)
                     } else if !hosts.isEmpty {
                         Text("\(hosts.count) 个地址")
-                            .font(.system(size: 13))
+                            .font(.footnote)
                             .textCase(nil)
-                            .foregroundStyle(SessionsPage.ink)
+                            .foregroundStyle(NativePagePalette.inkSecondary)
                     }
                 }
             }
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
-        .background(Color.white)
+        .background(NativePagePalette.page)
         .navigationTitle("网络访问")
         .navigationBarTitleDisplayMode(.inline)
         .task { load() }
@@ -545,14 +580,14 @@ struct EgressAllowListPage: View {
             if let toast {
                 HStack(spacing: 0) {
                     Text(toast)
-                        .font(.system(size: 13))
-                        .foregroundStyle(SessionsPage.ink)
+                        .font(.footnote)
+                        .foregroundStyle(NativePagePalette.inkSecondary)
                         .padding(.leading, 12)
                         .padding(.trailing, 14)
-                        .frame(height: 28)
+                        .frame(minHeight: 28)
                         .background(
                             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .fill(Color(red: 0xF2 / 255, green: 0xF3 / 255, blue: 0xF5 / 255))
+                                .fill(NativePagePalette.toast)
                         )
                     Spacer(minLength: 0)
                 }
@@ -646,12 +681,12 @@ struct EgressAllowListPage: View {
 
     private var addDialog: some View {
         ZStack {
-            Color.black.opacity(0.12)
+            NativePagePalette.scrim(colorScheme)
                 .ignoresSafeArea()
                 .onTapGesture { adding = false }
             VStack(alignment: .leading, spacing: 12) {
                 Text("添加地址")
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(.body.weight(.semibold))
                 TextField("只写域名,不用写 http://", text: $draft)
                     .keyboardType(.URL)
                     .textInputAutocapitalization(.never)
@@ -660,25 +695,25 @@ struct EgressAllowListPage: View {
                     .onChange(of: draft) { _, _ in addProblem = nil }
                 if let addProblem {
                     Text(addProblem)
-                        .font(.system(size: 13))
-                        .foregroundStyle(ChatPage.danger)
+                        .font(.footnote)
+                        .foregroundStyle(NativePagePalette.danger)
                 }
                 HStack(spacing: 12) {
                     Button("取消") { adding = false }
                         .frame(maxWidth: .infinity, minHeight: 44)
-                        .foregroundStyle(SessionsPage.ink)
+                        .foregroundStyle(NativePagePalette.inkSecondary)
                     Button("添加") { submitDraft() }
                         .frame(maxWidth: .infinity, minHeight: 44)
-                        .foregroundStyle(ChatPage.accent)
+                        .foregroundStyle(NativePagePalette.accent)
                         .disabled(Self.trim(draft).isEmpty)
                 }
-                .font(.system(size: 17))
+                .font(.body)
             }
             .padding(20)
             .frame(maxWidth: 300)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(Color.white)
+                    .fill(NativePagePalette.raised)
                     .shadow(color: .black.opacity(0.12), radius: 16, y: 6)
             )
             .padding(.horizontal, 32)
@@ -733,6 +768,8 @@ enum PreviewScreen: String, Identifiable, CaseIterable {
     case settingsNetwork = "settings.network"
     case settingsPlugins = "settings.plugins"
     case settingsAbout = "settings.about"
+    case phonePermissions = "settings.permissions"
+    case settingsPermissionsTab = "settings.permissions.tab"
     case settingsRuntime = "settings.runtime"
     case sessions
     case sessionsSchedules = "sessions.schedules"
@@ -773,6 +810,8 @@ enum PreviewScreen: String, Identifiable, CaseIterable {
         case .settingsNetwork: EgressAllowListPage()
         case .settingsPlugins: NativeConfigurationPage()
         case .settingsAbout: SettingsAboutPage()
+        case .phonePermissions: PhonePermissionsPage()
+        case .settingsPermissionsTab: SettingsPage(startsOnPermissions: true)
         case .settingsRuntime: RuntimeDetailsPage(model: ChatModel.shared)
         case .sessions: SessionsPage(onSelect: {})
         case .sessionsSchedules: NativeAutomationPage()
@@ -804,7 +843,7 @@ enum PreviewScreen: String, Identifiable, CaseIterable {
         case .chatPermission:
             // 权限卡单独一屏,拿真数据前也能验收文案与两个按钮。
             VStack(alignment: .leading, spacing: 0) {
-                Color.white
+                Color(.systemBackground)
                 PermissionCardView(permission: ChatPermission(id: "p-perm",
                                                               tool: "write_file",
                                                               summary: "",
@@ -813,10 +852,10 @@ enum PreviewScreen: String, Identifiable, CaseIterable {
                                                               tool: "run_command",
                                                               summary: "",
                                                               arguments: ["command": "swift build"]))
-                    .background(Color.white)
-                Color.white
+                    .background(Color(.systemBackground))
+                Color(.systemBackground)
             }
-            .background(Color.white)
+            .background(Color(.systemBackground))
         case .codeBlock:
             ScrollView {
                 DSSCodeBlock(source: PreviewChatItems.longCode, language: "swift")
@@ -827,7 +866,7 @@ enum PreviewScreen: String, Identifiable, CaseIterable {
     }
 }
 
-/// 抽屉的预览外壳:宽 320、白底、页头一行,里面就是真正的 SessionsPage。
+/// 抽屉的预览外壳:宽 320、和抽屉同色的底、页头一行,里面就是真正的 SessionsPage。
 /// 只给验收用,数据由 `installPreviewData` 造假,不碰宿主。
 struct DrawerPreview: View {
     let sessionCount: Int
@@ -849,7 +888,8 @@ struct DrawerPreview: View {
         }
         .frame(width: 320)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Color.white)
+        // 预览外壳的整块底也要跟外观走:白色会把深色预览的右半边和状态栏一起刷白。
+        .background(NativePagePalette.page)
         .task {
             management.installPreviewData(sessionCount: sessionCount, workspaceCount: workspaceCount)
             if let forcedError { management.installPreviewError(forcedError) }

@@ -100,7 +100,10 @@ public actor DSHRemoteHarness: AgentHarness {
         let value = try await call("session/projections", [
             "request": .object(["sessionId": .string(sessionID)]),
         ])
-        guard let current = value["values"]?["goal"]?["current"],
+        // The wire projection is the GoalProjection itself:
+        // { goal, roundsStarted, createdAt, updatedAt }. The old `current`
+        // wrapper belonged to an earlier shape and silently made GoalBar nil.
+        guard let current = value["values"]?["goal"],
               current.objectValue != nil,
               let goal = current["goal"],
               let objective = goal["objective"]?.stringValue, !objective.isEmpty else {
@@ -415,10 +418,17 @@ public actor DSHRemoteHarness: AgentHarness {
                 let options = (items.first?["options"]?.arrayValue ?? []).compactMap { $0["label"]?.stringValue }
                 continuation.yield(HarnessEvent(seq: nil, time: Date(), kind: .questionRequested(
                     HarnessQuestion(requestID: eventID, prompt: prompt, options: options, questions: items.map {
-                        HarnessQuestionItem(id: $0["id"]?.stringValue ?? "",
-                                            prompt: $0["question"]?.stringValue ?? "",
-                                            options: ($0["options"]?.arrayValue ?? []).compactMap { $0["label"]?.stringValue },
-                                            multiple: $0["multiSelect"]?.boolValue ?? false)
+                        let intent = $0["intent"]
+                        return HarnessQuestionItem(
+                            id: $0["id"]?.stringValue ?? "",
+                            prompt: $0["question"]?.stringValue ?? "",
+                            options: ($0["options"]?.arrayValue ?? []).compactMap { $0["label"]?.stringValue },
+                            multiple: $0["multiSelect"]?.boolValue ?? false,
+                            header: $0["header"]?.stringValue,
+                            detail: $0["detail"]?.stringValue,
+                            intentKind: intent?["kind"]?.stringValue,
+                            approve: intent?["approve"]?.stringValue,
+                            callID: intent?["callId"]?.stringValue)
                     }))))
             default:
                 // Not ours to answer: let the next listener handle it.

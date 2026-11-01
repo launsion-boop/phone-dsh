@@ -68,11 +68,13 @@ enum DrawerTitles {
 struct SessionsPage: View {
     var onSelect: () -> Void = {}
 
-    /// 抽屉里三处共用的颜色:正文 #111114、次要 #66666B、运行中 #B45309(全站只有这一个橙)。
-    static let dark = Color(red: 0x11 / 255, green: 0x11 / 255, blue: 0x14 / 255)
-    static let ink = Color(red: 0x66 / 255, green: 0x66 / 255, blue: 0x6B / 255)
+    /// 抽屉里三处共用的颜色:正文、次要、运行中。全部走 `NativePagePalette`,
+    /// 浅色值和原来逐位一致(#111114 / #66666B),深色下换成 DSH 的深色墨色,
+    /// 否则 #111114 的字落在黑面板上就是一个洞。
+    static let dark = NativePagePalette.ink
+    static let ink = NativePagePalette.inkSecondary
     /// 运行中是正常状态,不抢眼:和「5 分钟前」同一档灰,不许用橙色(橙留给「要你注意」)。
-    static let runningInk = Color(red: 0x66 / 255, green: 0x66 / 255, blue: 0x6B / 255)
+    static let runningInk = NativePagePalette.inkSecondary
 
     @State private var management = DSHManagementModel.shared
     @State private var chat = ChatModel.shared
@@ -145,13 +147,13 @@ struct SessionsPage: View {
                             Spacer(minLength: 0)
                         }
                         .foregroundStyle(newSessionBlocked == nil
-                                         ? Color(red: 0x2F / 255, green: 0x5B / 255, blue: 0xFF / 255)
-                                         : Color(red: 0x8A / 255, green: 0x8A / 255, blue: 0x90 / 255))
+                                         ? NativePagePalette.accent
+                                         : NativePagePalette.disabledInk)
                         .frame(maxHeight: .infinity)
                         .overlay(alignment: .bottom) {
                             // 分隔线自绘,面板内右缘留 16。
                             Rectangle()
-                                .fill(Color(red: 0xDD / 255, green: 0xDC / 255, blue: 0xE2 / 255))
+                                .fill(NativePagePalette.hairline)
                                 .frame(width: 288, height: 0.5)
                         }
                         .contentShape(Rectangle())
@@ -165,7 +167,7 @@ struct SessionsPage: View {
                     if let reason = newSessionBlocked {
                         Text(reason)
                             .font(.system(size: 13))
-                            .foregroundStyle(Color(red: 0x66 / 255, green: 0x66 / 255, blue: 0x6B / 255))
+                            .foregroundStyle(SessionsPage.ink)
                             .fixedSize(horizontal: false, vertical: true)
                             .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 0, trailing: 16))
                             .listRowSeparator(.hidden)
@@ -177,7 +179,7 @@ struct SessionsPage: View {
                         HStack(spacing: 12) {
                             Text(errorText)
                                 .font(.system(size: 13))
-                                .foregroundStyle(ChatPage.danger)
+                                .foregroundStyle(NativePagePalette.danger)
                                 .lineLimit(2)
                             Spacer(minLength: 8)
                             Button("重试") {
@@ -187,7 +189,7 @@ struct SessionsPage: View {
                                 }
                             }
                             .font(.system(size: 17))
-                            .foregroundStyle(ChatPage.accent)
+                            .foregroundStyle(NativePagePalette.accent)
                         }
                         .frame(height: 44)
                         .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
@@ -219,7 +221,8 @@ struct SessionsPage: View {
                                     .foregroundStyle(.white)
                                     .frame(maxWidth: .infinity)
                                     .frame(height: 50)
-                                    .background(ChatPage.accent, in: RoundedRectangle(cornerRadius: 12))
+                                    .background(NativePagePalette.accentFill,
+                                                in: RoundedRectangle(cornerRadius: 12))
                             }
                             .buttonStyle(.plain)
                             .padding(.top, 24)
@@ -229,7 +232,7 @@ struct SessionsPage: View {
                         .padding(.bottom, 8)
                         .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
                         .listRowSeparator(.hidden)
-                        .listRowBackground(Color.white)
+                        .listRowBackground(NativePagePalette.page)
                     }
                 }
 
@@ -243,10 +246,10 @@ struct SessionsPage: View {
                                 VStack(alignment: .leading, spacing: 8) {
                                     Text("还没有会话")
                                         .font(.system(size: 17, weight: .semibold))
-                                        .foregroundStyle(Color(red: 0x11 / 255, green: 0x11 / 255, blue: 0x14 / 255))
+                                        .foregroundStyle(SessionsPage.dark)
                                     Text("点上面的「新建会话」开始。")
                                         .font(.system(size: 13))
-                                        .foregroundStyle(Color(red: 0x66 / 255, green: 0x66 / 255, blue: 0x6B / 255))
+                                        .foregroundStyle(SessionsPage.ink)
                                 }
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.top, 24)
@@ -270,7 +273,7 @@ struct SessionsPage: View {
                                     .font(.system(size: 17))
                                 Spacer(minLength: 8)
                             }
-                            .foregroundStyle(ChatPage.accent)
+                            .foregroundStyle(NativePagePalette.accent)
                             .frame(height: 44)
                             .contentShape(Rectangle())
                         }
@@ -327,7 +330,7 @@ struct SessionsPage: View {
                         .foregroundStyle(SessionsPage.ink)
                         .padding(.horizontal, 12)
                         .frame(height: 28)
-                        .background(Color(red: 0xF2 / 255, green: 0xF3 / 255, blue: 0xF5 / 255),
+                        .background(NativePagePalette.toast,
                                     in: RoundedRectangle(cornerRadius: 12))
                         .padding(.top, 92)
                         .transition(.opacity)
@@ -337,7 +340,7 @@ struct SessionsPage: View {
             // 分隔线一律自绘:系统那层会从面板左缘拉到右缘,和 16..304 那套对不上。
             .listRowSeparator(.hidden)
             .scrollContentBackground(.hidden)
-            .background(Color(uiColor: .systemBackground))
+            .background(NativePagePalette.page)
 
             .sheet(isPresented: $showSchedules) {
                 NavigationStack { NativeAutomationPage() }
@@ -418,7 +421,7 @@ struct SessionsPage: View {
                 HStack(spacing: 0) {
                     Image(systemName: isWorkspaceExpanded(workspace.id) ? "chevron.down" : "chevron.right")
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Color(red: 0x66 / 255, green: 0x66 / 255, blue: 0x6B / 255))
+                        .foregroundStyle(SessionsPage.ink)
                         .frame(width: 12, alignment: .leading)
                     Text(displayWorkspaceTitle(workspace))
                         .font(.system(size: 17, weight: .semibold))
@@ -428,7 +431,7 @@ struct SessionsPage: View {
                     if count > 0 {
                         Text("· \(count) 个会话")
                             .font(.system(size: 13))
-                            .foregroundStyle(Color(red: 0x66 / 255, green: 0x66 / 255, blue: 0x6B / 255))
+                            .foregroundStyle(SessionsPage.ink)
                             .padding(.leading, 6)
                     }
                     Spacer(minLength: 8)
@@ -448,7 +451,7 @@ struct SessionsPage: View {
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 20))
-                    .foregroundStyle(Color(red: 0x66 / 255, green: 0x66 / 255, blue: 0x6B / 255))
+                    .foregroundStyle(SessionsPage.ink)
                     .frame(width: 32, height: 44)
                     .contentShape(Rectangle())
             }
@@ -570,7 +573,7 @@ struct SessionsPage: View {
                 if ChatModel.shared.currentSessionID == session.id {
                     Image(systemName: "checkmark")
                         .font(.system(size: 20, weight: .regular))
-                        .foregroundStyle(Color(red: 0x11 / 255, green: 0x11 / 255, blue: 0x14 / 255))
+                        .foregroundStyle(SessionsPage.dark)
                 }
             }
             .padding(.horizontal, 8)
@@ -589,7 +592,7 @@ struct SessionsPage: View {
         .overlay(alignment: .bottomLeading) {
             // 面板内左 16 右 16:320 宽的面板,线正好 288。
             Rectangle()
-                .fill(Color(red: 0xDD / 255, green: 0xDC / 255, blue: 0xE2 / 255))
+                .fill(NativePagePalette.hairline)
                 .frame(width: 288, height: 0.5)
         }
     }
@@ -635,14 +638,15 @@ struct SessionsPage: View {
 
 }
 
-/// 列表行按下时的反馈:整行铺 #F2F3F5、圆角 12、0.15 秒渐入。
+/// 列表行按下时的反馈:整行铺一层 toast 底、圆角 12、0.15 秒渐入。
+/// 浅色是原来的 #F2F3F5,深色退成系统二级底,不拿白块闪一下。
 /// 不用缩放:缩放会把时间那行字一起放大,松手回弹还和列表滚动抢手感。
 private struct SessionRowButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .background(
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(Color(red: 0xF2 / 255, green: 0xF3 / 255, blue: 0xF5 / 255))
+                    .fill(NativePagePalette.toast)
                     .opacity(configuration.isPressed ? 1 : 0)
             )
             .animation(.easeIn(duration: 0.15), value: configuration.isPressed)
@@ -684,7 +688,7 @@ private struct SessionQueuePage: View {
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
-        .background(Color.white)
+        .background(NativePagePalette.page)
         .navigationTitle("待处理队列")
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await management.refreshQueue(for: session.id) }

@@ -227,3 +227,56 @@ struct DSSCodeBlock: View {
     }
 }
 
+
+// MARK: - Page chrome (settings / files / support pages)
+
+/// Semantic colors shared by the settings, files and support pages.
+///
+/// Every light value is the exact color those pages already shipped with, so
+/// the light appearance does not move; the dark values are the pinned DSH
+/// parity values from `NativeParityTokens` and only take effect once
+/// `NativeChatPreferences.appearance` is `.dark`.
+enum NativePagePalette {
+    /// The page behind a `List`. White in light (as before), black in dark.
+    /// Row backgrounds decide the rest: pages that keep the default grouped
+    /// insets still get a `secondarySystemGroupedBackground` card, while the
+    /// lists that draw their own 16pt rows set `listRowBackground(.clear)` so
+    /// dark stays one flat sheet with separators, exactly like the light
+    /// design's "layering by spacing and separators, not by background".
+    static let page = Color(.systemBackground)
+    static let ink = NativeParityTokens.color(light: 0x111114, dark: 0xF9FAFB)
+    /// Same value as `ChatPage.inkSecondary` in light, legible in dark.
+    static let inkSecondary = NativeParityTokens.color(light: 0x66666B, dark: 0xCFD3D6)
+
+    static let accent = NativeParityTokens.color(light: 0x2F5BFF, dark: 0x679EFE)
+    /// Solid fill under white text. The same blue in both appearances: the
+    /// lightened dark-mode accent leaves white text at roughly 2.5:1.
+    static let accentFill = NativeParityTokens.color(light: 0x2F5BFF, dark: 0x2F5BFF)
+    static let success = NativeParityTokens.color(light: 0x0E9F6E, dark: 0x22C55E)
+    static let warning = NativeParityTokens.color(light: 0xB45309, dark: 0xF5B45A)
+    static let danger = NativeParityTokens.color(light: 0xC0392B, dark: 0xF25A5A)
+
+    /// 1px row separator: identical to the old #DDDCE2 in light, and white 12%
+    /// (what `UIColor.separator` resolves to) in dark.
+    static let hairline = NativeParityTokens.rgba(light: 0xDDDCE2, lightAlpha: 1,
+                                                 dark: 0xFFFFFF, darkAlpha: 0.12)
+
+    /// Hand-drawn surfaces that float over the page.
+    static let raised = NativeParityTokens.color(light: 0xFFFFFF, dark: 0x1C1C1E)
+    static let toast = NativeParityTokens.color(light: 0xF2F3F5, dark: 0x2C2C2E)
+
+    static let disabledFill = NativeParityTokens.color(light: 0xE5E5EA, dark: 0x2C2C2E)
+    static let disabledInk = NativeParityTokens.color(light: 0x8A8A90, dark: 0x8E8E93)
+
+    /// The scrim behind a hand-drawn dialog. Black on a black page separates
+    /// nothing, so dark gets a deeper scrim instead of a lighter one.
+    static func scrim(_ scheme: ColorScheme) -> Color {
+        Color.black.opacity(scheme == .dark ? 0.5 : 0.12)
+    }
+}
+
+extension DynamicTypeSize {
+    /// List rows keep their single line at the default sizes and get a second
+    /// one at accessibility sizes, so a name is not cut down to "…".
+    var rowLineLimit: Int { isAccessibilitySize ? 2 : 1 }
+}

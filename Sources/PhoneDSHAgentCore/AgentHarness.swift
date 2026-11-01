@@ -300,9 +300,24 @@ public struct HarnessQuestionItem: Codable, Equatable, Sendable, Identifiable {
     public var prompt: String
     public var options: [String]
     public var multiple: Bool
+    /// Official `AskUserQuestionItem.header` (the small eyebrow above the
+    /// question); nil for older requests.
+    public var header: String?
+    /// Official `detail`; for a plan review this is the full Markdown plan.
+    public var detail: String?
+    /// Official `intent.kind`; only `plan-review` is narrowed by the client.
+    public var intentKind: String?
+    /// Official `intent.approve` (the option label that approves the plan).
+    public var approve: String?
+    /// Official `intent.callId` (the logged exit_plan_mode call, when any).
+    public var callID: String?
 
-    public init(id: String, prompt: String, options: [String] = [], multiple: Bool = false) {
+    public init(id: String, prompt: String, options: [String] = [], multiple: Bool = false,
+                header: String? = nil, detail: String? = nil,
+                intentKind: String? = nil, approve: String? = nil, callID: String? = nil) {
         self.id = id; self.prompt = prompt; self.options = options; self.multiple = multiple
+        self.header = header; self.detail = detail
+        self.intentKind = intentKind; self.approve = approve; self.callID = callID
     }
 }
 
@@ -405,6 +420,9 @@ public struct HarnessEvent: Codable, Equatable, Sendable {
         case turnEnded(turnID: String, reason: HarnessTurnEnd)
         /// Progress of a long task; drives background-task progress UI.
         case progress(phase: String, step: Int, of: Int?)
+        /// DSH `compaction/summary`: the immutable summary that replaced an
+        /// earlier context window. Not a user/assistant message.
+        case compaction(summary: String)
         case sessionStatus(String)
         case usage(inputTokens: Int, outputTokens: Int)
         /// The harness process / session ended for good.
@@ -432,22 +450,35 @@ public struct HarnessEvent: Codable, Equatable, Sendable {
     /// `reason.error`), as compact, key-sorted JSON when the cause is an object.
     /// `nil` when the reason carries no cause, for example `interrupted`.
     public var rawTurnEndCause: String?
+    /// DSH `tool/result.data.meta`: the durable presentation payload the
+    /// official tool cards read (diff, path, lines, exitCode, query, sources).
+    /// Set only on a `.toolResult`; nil for other backends and old journals.
+    public var toolResultMeta: JSONValue?
+    /// DSH `tool/result.data.error.code` (or `message.error.code`), e.g.
+    /// `interrupted` / `AUTO_REVIEW_DENIED`. Kept beside the bounded summary so
+    /// the row can distinguish stopped from failed.
+    public var toolResultErrorCode: String?
 
     public init(seq: UInt64?, time: Date, kind: Kind) {
         self.init(seq: seq, time: time, kind: kind, toolResultDetail: nil,
-                  rawTurnEndKind: nil, rawTurnEndCause: nil)
+                  rawTurnEndKind: nil, rawTurnEndCause: nil,
+                  toolResultMeta: nil, toolResultErrorCode: nil)
     }
 
     public init(seq: UInt64?, time: Date, kind: Kind,
                 toolResultDetail: HarnessToolResultDetail?,
                 rawTurnEndKind: String? = nil,
-                rawTurnEndCause: String? = nil) {
+                rawTurnEndCause: String? = nil,
+                toolResultMeta: JSONValue? = nil,
+                toolResultErrorCode: String? = nil) {
         self.seq = seq
         self.time = time
         self.kind = kind
         self.toolResultDetail = toolResultDetail
         self.rawTurnEndKind = rawTurnEndKind
         self.rawTurnEndCause = rawTurnEndCause
+        self.toolResultMeta = toolResultMeta
+        self.toolResultErrorCode = toolResultErrorCode
     }
 
     public var isDurable: Bool { seq != nil }

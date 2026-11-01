@@ -69,7 +69,7 @@ struct NativeMessageActions: View {
     }
 }
 
-private struct NativeTurnUsageDetails: View {
+struct NativeTurnUsageDetails: View {
     let usage: NativeTurnUsage
     @Environment(\.dismiss) private var dismiss
 

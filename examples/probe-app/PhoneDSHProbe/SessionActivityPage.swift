@@ -149,7 +149,7 @@ struct SessionActivityPage: View {
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
-        .background(Color.white)
+        .background(NativePagePalette.page)
         .navigationTitle("会话活动")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("刷新") { Task { await management.refreshActivity(sessionID: sessionID) } }.trailingBarText() } }

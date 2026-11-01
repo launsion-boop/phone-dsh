@@ -120,7 +120,7 @@ struct MCPSettingsPage: View {
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
-        .background(Color.white)
+        .background(NativePagePalette.page)
         .navigationTitle("MCP 网络与密钥")
         .navigationBarTitleDisplayMode(.large)
         .task { await model.refresh() }
