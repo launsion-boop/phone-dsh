@@ -300,8 +300,10 @@ struct PreviewSurface: View {
                             Image(systemName: "square.and.arrow.up")
                         }
                         .accessibilityLabel("分享")
+                        .tint(NativePagePalette.accent)
                     }
                 }
+                .tint(NativePagePalette.accent)
             }
         }
     }
@@ -575,6 +577,79 @@ extension PreviewDebugFixtures {
             text += "\(String(format: "%05d", index))  preview line — 分页加载测试 — \(String(repeating: "x", count: 40))\n"
         }
         install(path: path, text: text)
+    }
+}
+#endif
+
+#if DEBUG
+struct PreviewDebugPDF: View {
+    let path: String
+    @State private var installed = false
+    var body: some View {
+        PreviewSurface(target: .workspaceFile(path), isModal: false)
+            .task {
+                guard !installed else { return }
+                installed = true
+                PreviewDebugFixtures.installPDF(path: path)
+            }
+    }
+}
+
+struct PreviewDebugImage: View {
+    let path: String
+    @State private var installed = false
+    var body: some View {
+        PreviewSurface(target: .workspaceFile(path), isModal: false)
+            .task {
+                guard !installed else { return }
+                installed = true
+                PreviewDebugFixtures.installImage(path: path)
+            }
+    }
+}
+
+extension PreviewDebugFixtures {
+    static func installPDF(path: String) {
+        let renderer = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 612, height: 792))
+        let data = renderer.pdfData { context in
+            context.beginPage()
+            let title = "Phone DSH PDF Preview"
+            title.draw(at: CGPoint(x: 48, y: 64), withAttributes: [
+                .font: UIFont.boldSystemFont(ofSize: 28),
+                .foregroundColor: UIColor.black,
+            ])
+            "This page is rendered by PDFKit inside the native preview surface."
+                .draw(in: CGRect(x: 48, y: 110, width: 500, height: 80), withAttributes: [
+                    .font: UIFont.systemFont(ofSize: 16),
+                    .foregroundColor: UIColor.darkGray,
+                ])
+        }
+        write(data: data, path: path)
+    }
+
+    static func installImage(path: String) {
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 800, height: 500))
+        let image = renderer.image { context in
+            UIColor.systemBlue.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 800, height: 500))
+            "Preview".draw(at: CGPoint(x: 60, y: 200), withAttributes: [
+                .font: UIFont.boldSystemFont(ofSize: 64),
+                .foregroundColor: UIColor.white,
+            ])
+        }
+        if let data = image.pngData() { write(data: data, path: path) }
+    }
+
+    private static func write(data: Data, path: String) {
+        let root = ChatModel.shared.workspaceRoot
+            .appendingPathComponent("materialized", isDirectory: true)
+            .appendingPathComponent("workspace", isDirectory: true)
+            .appendingPathComponent(path)
+            .deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let url = root.appendingPathComponent((path as NSString).lastPathComponent)
+        try? data.write(to: url)
+        ChatModel.shared.refreshFiles()
     }
 }
 #endif
