@@ -252,6 +252,31 @@ final class PageSchemeHandlerTests: XCTestCase {
         XCTAssertEqual(task.chunks.reduce(Data(), +), bytes)
     }
 
+    /// A per-preview user grant widens only resource/egress directives; it
+    /// must never add https: to script-src.
+    func testNetworkGrantWidensResourcesButNotScripts() throws {
+        let ws = try workspace()
+        try write("<html><body>hi</body></html>", to: ws.appendingPathComponent("page.html"))
+        let denied = PDSHPageResolver(libraryRoot: try library(), workspaceRoot: { _ in ws })
+        let granted = PDSHPageResolver(libraryRoot: try library(),
+                                       workspaceRoot: { _ in ws },
+                                       networkAllowed: { _ in true })
+
+        let deniedTask = FakeTask(url: URL(string: "pdsh-page://S/page.html")!)
+        run(makeHandler(denied), deniedTask)
+        let deniedCSP = deniedTask.response?.value(forHTTPHeaderField: "Content-Security-Policy") ?? ""
+        XCTAssertTrue(deniedCSP.contains("connect-src 'none'"))
+        XCTAssertFalse(deniedCSP.contains("https:"))
+
+        let grantedTask = FakeTask(url: URL(string: "pdsh-page://S/page.html")!)
+        run(makeHandler(granted), grantedTask)
+        let grantedCSP = grantedTask.response?.value(forHTTPHeaderField: "Content-Security-Policy") ?? ""
+        XCTAssertTrue(grantedCSP.contains("connect-src pdsh-page: https:"))
+        XCTAssertTrue(grantedCSP.contains("img-src data: blob: pdsh-page: https:"))
+        XCTAssertTrue(grantedCSP.contains("script-src 'unsafe-inline' blob: pdsh-page:"))
+        XCTAssertFalse(grantedCSP.contains("script-src 'unsafe-inline' blob: pdsh-page: https:"))
+    }
+
     func testServesARangeWith206() throws {
         let ws = try workspace()
         let bytes = Data(repeating: 0x42, count: 4096)

@@ -53,11 +53,16 @@ public struct PDSHPageResolver: Sendable {
     public let libraryRoot: URL
     /// Session id → the session's materialized workspace directory.
     public let workspaceRoot: @Sendable (String) -> URL?
+    /// A per-preview user grant for external images/fonts/media/connect.
+    /// Scripts from `https:` remain forbidden in every tier.
+    public let networkAllowed: @Sendable (URL) -> Bool
 
     public init(libraryRoot: URL,
-                workspaceRoot: @escaping @Sendable (String) -> URL?) {
+                workspaceRoot: @escaping @Sendable (String) -> URL?,
+                networkAllowed: @escaping @Sendable (URL) -> Bool = { _ in false }) {
         self.libraryRoot = libraryRoot.standardizedFileURL.resolvingSymlinksInPath()
         self.workspaceRoot = workspaceRoot
+        self.networkAllowed = networkAllowed
     }
 
     /// Resolves `pdsh-page://<host>/<path>` to a validated file.
@@ -452,7 +457,8 @@ public final class PDSHPageSchemeHandler: NSObject, WKURLSchemeHandler {
             }
             headers["Content-Length"] = String(bodyLength)
             if file.isHTML {
-                let tier = PDSHPageScheme.declaredTier(inHTML: firstChunk.prefix(4096))
+                var tier = PDSHPageScheme.declaredTier(inHTML: firstChunk.prefix(4096))
+                if resolver.networkAllowed(url) { tier = .online }
                 headers["Content-Security-Policy"] =
                     PDSHPageScheme.contentSecurityPolicy(for: tier)
             }

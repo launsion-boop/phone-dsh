@@ -228,6 +228,7 @@ struct PreviewSurface: View {
     @State private var model: PreviewModel
     @State private var webReloadID = UUID()
     @State private var showShare = false
+    @State private var networkGranted = false
 
     init(target: PreviewTarget, presentation: PreviewPresentation = .init(), isModal: Bool = true) {
         self.target = target
@@ -280,6 +281,10 @@ struct PreviewSurface: View {
         .background(NativePagePalette.page)
         .navigationTitle(URL(fileURLWithPath: model.path).lastPathComponent)
         .navigationBarTitleDisplayMode(.inline)
+        .onChange(of: networkGranted) { _, _ in
+            // A CSP is injected with the response; reload to apply the grant.
+            webReloadID = UUID()
+        }
         .sheet(isPresented: $showShare) {
             if let url = model.fileURL {
                 ActivityView(items: [url])
@@ -295,6 +300,13 @@ struct PreviewSurface: View {
             ToolbarItem(placement: .primaryAction) {
                 HStack(spacing: 16) {
                     if model.kind == .html {
+                        Menu {
+                            Toggle("允许本次加载外部图片/字体/媒体", isOn: $networkGranted)
+                        } label: {
+                            Image(systemName: networkGranted ? "network.badge.shield.half.filled" : "network")
+                                .foregroundStyle(NativePagePalette.accent)
+                        }
+                        .accessibilityLabel("网页网络权限")
                         Button {
                             webReloadID = UUID()
                         } label: {
@@ -381,19 +393,19 @@ struct PreviewSurface: View {
         #if DEBUG
         map["preview-session"] = ChatModel.shared.workspaceDirectoryURL
         #endif
-        return PDSHPageResolver(libraryRoot: library, workspaceRoot: { map[$0] })
+        return PDSHPageResolver(libraryRoot: library,
+                                workspaceRoot: { map[$0] },
+                                networkAllowed: { _ in networkGranted })
     }
 
     @ViewBuilder
     private var imageBody: some View {
         if let url = model.fileURL, let image = UIImage(contentsOfFile: url.path) {
-            ScrollView([.vertical, .horizontal]) {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxWidth: .infinity)
-                    .padding(16)
-            }
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFit()
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .padding(16)
         } else {
             ContentUnavailableView("无法显示图片", systemImage: "photo",
                                    description: Text("图片格式不受支持，或文件仍在写入。"))
