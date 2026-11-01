@@ -34,7 +34,7 @@ struct SessionArtifactsPage: View {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
                     Text("正在读取产物…")
-                        .foregroundStyle(NativePagePalette.inkSecondary)
+                        .foregroundStyle(ChatPage.inkSecondary)
                 }
                 .frame(minHeight: 44)
                 .listRowSeparator(.hidden)
@@ -44,9 +44,9 @@ struct SessionArtifactsPage: View {
                 Section {
                     Text(loadError)
                         .font(.footnote)
-                        .foregroundStyle(NativePagePalette.danger)
+                        .foregroundStyle(ChatPage.danger)
                     Button("重试") { Task { await loadArtifacts() } }
-                        .foregroundStyle(NativePagePalette.accent)
+                        .foregroundStyle(ChatPage.accent)
                         .frame(minHeight: 44)
                 }
             }
@@ -55,11 +55,11 @@ struct SessionArtifactsPage: View {
                 Section {
                     VStack(spacing: 8) {
                         Text("本 session 还没有已确认归属的产物")
-                            .font(.body.weight(.semibold))
+                            .font(.system(size: 17, weight: .semibold))
                             .multilineTextAlignment(.center)
                         Text("此会话生成或导入的文件会显示在这里。没有真实会话来源的记录不会被归入本 session。")
-                            .font(.footnote)
-                            .foregroundStyle(NativePagePalette.inkSecondary)
+                            .font(.system(size: 13))
+                            .foregroundStyle(ChatPage.inkSecondary)
                             .multilineTextAlignment(.center)
                     }
                     .frame(maxWidth: .infinity)
@@ -88,7 +88,7 @@ struct SessionArtifactsPage: View {
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
-        .background(NativePagePalette.page)
+        .background(Color.white)
         .navigationTitle("本 session 产物")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -129,7 +129,7 @@ struct SessionArtifactsPage: View {
                     if unassigned {
                         Text("未归属")
                             .font(.caption2)
-                            .foregroundStyle(NativePagePalette.inkSecondary)
+                            .foregroundStyle(ChatPage.inkSecondary)
                     }
                 }
                 Spacer(minLength: 8)

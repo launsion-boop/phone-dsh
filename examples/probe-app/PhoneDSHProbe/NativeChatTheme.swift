@@ -36,6 +36,7 @@ enum NativeChatTheme {
         if let size { return .system(size: size, design: .monospaced) }
         return NativeChatPreferences.shared.font(for: .code)
     }
+    static func terminalFont() -> Font { NativeChatPreferences.shared.font(for: .terminal) }
 
     static var bodyLineSpacing: CGFloat {
         let size = CGFloat(NativeChatPreferences.shared.textFontSize)

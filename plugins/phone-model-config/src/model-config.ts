@@ -4,7 +4,7 @@
  *
  * The host app writes `PDSH_MODEL_PROVIDER_JSON` into the Worker environment
  * before boot. It contains only the selected provider's id, display name,
- * endpoint, model and optional reasoning effort — never an API key and never a
+ * endpoint, model directory and optional reasoning effort — never an API key and never a
  * Keychain reference. This module parses that value defensively and returns a
  * frozen snapshot the browser tab can render without mutating anything.
  * @module @phone-dsh/dsh-phone-model-config/model-config
@@ -13,12 +13,23 @@
 /** Environment variable carrying the host's non-secret provider document. */
 export const MODEL_PROVIDER_ENV = 'PDSH_MODEL_PROVIDER_JSON'
 
+export interface ProviderModelConfig {
+  readonly id: string
+  readonly name?: string
+  readonly contextWindow?: number
+  readonly maxTokens?: number
+  readonly textInput: boolean
+  readonly imageInput: boolean
+  readonly reasoningEffort?: string
+}
+
 /** One provider as published to the Worker; deliberately contains no secret. */
 export interface ProviderPublicConfig {
   readonly id: string
   readonly displayName: string
   readonly baseURL: string
   readonly model: string
+  readonly models?: readonly ProviderModelConfig[]
   readonly reasoningEffort?: string
 }
 
@@ -90,6 +101,38 @@ function stringField(value: unknown, name: string): string | undefined {
   return trimmed
 }
 
+function optionalPositiveInteger(value: unknown, name: string): number | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`${name} must be a positive integer`)
+  }
+  return value
+}
+
+function publicModels(value: unknown): readonly ProviderModelConfig[] | undefined {
+  if (value === undefined) return undefined
+  if (!Array.isArray(value) || value.length === 0) throw new Error('models must be a non-empty array')
+  return Object.freeze(value.map(entry => {
+    if (!isRecord(entry)) throw new Error('model entry must be an object')
+    const id = stringField(entry['id'], 'model id')
+    if (id === undefined) throw new Error('model id is required')
+    const textInput = entry['textInput'] !== false
+    const imageInput = entry['imageInput'] === true
+    if (!textInput && !imageInput) throw new Error('model must accept text or image input')
+    const rawEffort = entry['reasoningEffort']
+    if (rawEffort !== undefined && typeof rawEffort !== 'string') throw new Error('model reasoningEffort must be a string')
+    return Object.freeze({
+      id,
+      ...(entry['name'] === undefined ? {} : { name: stringField(entry['name'], 'model name') }),
+      contextWindow: optionalPositiveInteger(entry['contextWindow'], 'contextWindow'),
+      maxTokens: optionalPositiveInteger(entry['maxTokens'], 'maxTokens'),
+      textInput,
+      imageInput,
+      ...(typeof rawEffort === 'string' && rawEffort.trim() !== '' ? { reasoningEffort: rawEffort.trim() } : {}),
+    })
+  }))
+}
+
 /** Parse one provider row, dropping every field the page must never receive. */
 function publicProvider(value: unknown): ProviderPublicConfig {
   if (!isRecord(value)) throw new Error('provider entry must be an object')
@@ -118,11 +161,13 @@ function publicProvider(value: unknown): ProviderPublicConfig {
     throw new Error('provider reasoningEffort must be a string when present')
   }
   const reasoningEffort = typeof rawEffort === 'string' && rawEffort.trim() !== '' ? rawEffort.trim() : undefined
+  const models = publicModels(value['models'])
   return Object.freeze({
     id,
     displayName,
     baseURL: rawBaseURL,
     model,
+    ...(models === undefined ? {} : { models }),
     ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
   })
 }

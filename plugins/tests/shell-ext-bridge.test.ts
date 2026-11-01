@@ -11,6 +11,7 @@ import type { ExecClient, ExecEvent, ExecRequest, EventStream, Hello } from '@ph
 import { deriveIdemKey, toolCallStorage } from '../exec-bridge/src/index.ts'
 import {
   TRAP_TOKEN_ENV,
+  acceleratorExecID,
   VfsFileSystem,
   WorkerShell,
   createAcceleratorCommands,
@@ -90,7 +91,7 @@ test('bridge: an advertised accelerator forwards argv, cwd, requires_mseq and th
   assert.equal(request.requires_mseq, 48)
   assert.equal(request.idem_key, deriveIdemKey(request.argv, request.cwd, request.env, { key }))
   assert.equal(request.env?.XL_IDEMPOTENCY_KEY, key)
-  assert.match(request.exec_id ?? '', new RegExp(`^${key}-a\\d+$`))
+  assert.equal(request.exec_id, acceleratorExecID(request.idem_key!, 0))
 })
 
 test('bridge: the internal trap token never leaks into the host env and repeats keep one idem_key', async () => {
@@ -154,7 +155,7 @@ test('bridge: a shell-exported XL_IDEMPOTENCY_KEY cannot override the tool-call 
   // for both the D10 derivation and the host exec id prefix.
   assert.equal(request.env?.XL_IDEMPOTENCY_KEY, key)
   assert.equal(request.idem_key, deriveIdemKey(request.argv, request.cwd, request.env, { key }))
-  assert.match(request.exec_id ?? '', new RegExp(`^${key}-a\\d+$`))
+  assert.equal(request.exec_id, acceleratorExecID(request.idem_key!, 0))
 })
 
 test('bridge: an explicit out-of-band identity works outside a tool call and keeps -aN within D6', async () => {

@@ -20,6 +20,27 @@ import PhoneDSHGateway
 /// The id is the stable identity in the stored document; `credentialRef` is the
 /// Keychain account that holds this profile's API key. Neither field is a
 /// secret by itself, and the key is never part of a profile value.
+public struct ProviderModelDefinition: Codable, Equatable, Sendable {
+    public var id: String
+    public var name: String?
+    public var contextWindow: Int?
+    public var maxTokens: Int?
+    public var textInput: Bool
+    public var imageInput: Bool
+    public var reasoningEffort: String?
+
+    public init(id: String, name: String? = nil, contextWindow: Int? = nil, maxTokens: Int? = nil,
+                textInput: Bool = true, imageInput: Bool = false, reasoningEffort: String? = nil) {
+        self.id = id
+        self.name = name
+        self.contextWindow = contextWindow
+        self.maxTokens = maxTokens
+        self.textInput = textInput
+        self.imageInput = imageInput
+        self.reasoningEffort = reasoningEffort
+    }
+}
+
 public struct ProviderProfile: Codable, Identifiable, Equatable, Sendable {
     public var id: String
     public var displayName: String
@@ -27,13 +48,19 @@ public struct ProviderProfile: Codable, Identifiable, Equatable, Sendable {
     public var model: String
     public var reasoningEffort: String?
     public var credentialRef: String
+    public var models: [ProviderModelDefinition]?
+
+    public var modelDefinitions: [ProviderModelDefinition] {
+        models ?? [ProviderModelDefinition(id: model, reasoningEffort: reasoningEffort)]
+    }
 
     public init(id: String,
                 displayName: String,
                 baseURL: String,
                 model: String,
                 reasoningEffort: String? = nil,
-                credentialRef: String? = nil) {
+                credentialRef: String? = nil,
+                models: [ProviderModelDefinition]? = nil) {
         self.id = id
         self.displayName = displayName
         self.baseURL = baseURL
@@ -41,6 +68,7 @@ public struct ProviderProfile: Codable, Identifiable, Equatable, Sendable {
         self.reasoningEffort = reasoningEffort
         let trimmedID = id.trimmingCharacters(in: .whitespacesAndNewlines)
         self.credentialRef = credentialRef ?? "provider.\(trimmedID.isEmpty ? "default" : trimmedID)"
+        self.models = models
     }
 
     /// Parsed endpoint, or nil when the stored value is not a valid HTTP(S)
@@ -80,6 +108,7 @@ private struct PublicProviderProfile: Codable, Equatable, Sendable {
     let displayName: String
     let baseURL: String
     let model: String
+    let models: [ProviderModelDefinition]
     let reasoningEffort: String?
 
     init(_ profile: ProviderProfile) {
@@ -87,6 +116,7 @@ private struct PublicProviderProfile: Codable, Equatable, Sendable {
         self.displayName = profile.displayName
         self.baseURL = profile.baseURL
         self.model = profile.model
+        self.models = profile.modelDefinitions
         self.reasoningEffort = profile.reasoningEffort
     }
 }

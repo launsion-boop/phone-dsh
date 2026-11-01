@@ -5,11 +5,9 @@
 // `PhoneDSHProbeTests` target use: ``ProbeSuiteRunner`` from ProbeKit. This
 // target adds no probe code. It only attaches the probe WebViews to a
 // one-point visible window (a hostless XCTest has no App scene), writes
-// `probe-report.json` into the probe app container's `Documents/pdsh-reports/`,
-// and marks the rows `environment: "ios-simulator"` (ProbeKit does that).
-//
-// NOT_VERIFIED on an iPhone: the simulator is the device gate until a physical
-// device run records its own report.
+// `probe-report.json` into the probe app container's `Documents/pdsh-reports/`.
+// ProbeKit labels each row with the actual execution environment. Simulator and
+// physical-device reports remain separate evidence and are never interchanged.
 
 import Foundation
 import ProbeKit
@@ -53,8 +51,8 @@ final class PhoneDSHSimProbeTests: XCTestCase {
                        "the G0 probe suite recorded no gating row")
         XCTAssertTrue(summary.g0Passed,
                       "G0 failed: " + summary.failedGatingProbes.joined(separator: ", "))
-        XCTAssertEqual(report.document().environment, "ios-simulator",
-                       "a simulator report must not claim device behaviour")
+        XCTAssertEqual(report.document().environment, SimEnvironment.label,
+                       "the report environment must match its execution target")
     }
 
     /// Adds the suite envelope and a no-bound threshold on rows that ProbeKit
@@ -73,7 +71,7 @@ final class PhoneDSHSimProbeTests: XCTestCase {
         document["ok"] = summary.g0Passed
         document["elapsed_ms"] = elapsedMilliseconds
         document["device"] = [
-            "model": SimEnvironment.simulatorModel ?? "iOS Simulator",
+            "model": SimEnvironment.simulatorModel ?? DeviceReportStore.hardwareModel(),
             "system": SimEnvironment.systemVersion,
             "is_simulator": SimEnvironment.isSimulator,
         ]

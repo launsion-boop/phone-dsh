@@ -89,20 +89,20 @@ means no dependency. Before dispatch the host MUST have appended every mutation 
   (wal.md §5.1) → the host waits for the resolving complete write; the accelerator never reads a
   stale or deferred view.
 - `requires_mseq = 0` → dispatch as soon as admission is open.
-- the deadline or a closed admission while waiting ends the request with a terminal error and no
-  execution; the dedup entry stays replayable.
+- The readiness wait ends at the earlier of 300 seconds and the caller's deadline, or when admission closes. It returns a terminal error without execution; the dedup entry stays replayable. This readiness fence creates no idempotency key and covers channel-to-materialization lag.
 
-`requires_mseq` is a readiness fence, not a new idempotency key. VFS and exec frames share the
-ordered channel, but the host's WAL/materialization pipeline may lag the channel; this field makes the
-dependency explicit.
-
-### 2.2 `grace_ms` and deadlines
+### 2.2 `grace_ms`, deadlines and provider failures
 
 `grace_ms` follows exec-bridge v1: an integer `1..60000`, absent means `3000` (exec-bridge v1 §4.1
-request fields, which set the same maximum). `0`, negative or larger than 60000 is `BAD_PAYLOAD`; the
-host never clamps silently. Cancel and deadline deliver SIGTERM to the process group, wait `grace_ms`,
-then SIGKILL (exec-bridge v1 §4.4). A deadline that has already passed before dispatch yields a
-terminal `error` event and no execution.
+request fields). `0`, negative or larger than 60000 is `BAD_PAYLOAD`; the host never clamps silently.
+Cancel/deadline delivers SIGTERM then SIGKILL after `grace_ms` (exec-bridge v1 §4.4). A passed deadline
+returns a terminal `error` without execution.
+
+`phone` provider failures are bounded `{ok:false,error:{...}}` results without native paths or
+credentials. `admission_closed` has `outcome: "not_started"`, `foreground_required: true` and is retryable.
+A deadline produces `provider_timeout`; reads are retryable but artifact-producing writes have
+`outcome: "unknown"` and are not automatically retried. `provider_unavailable` preserves typed safe reasons.
+Native UI interactions retain their bounded completion/cancellation semantics.
 
 ## 3. Executor inversion (D12)
 

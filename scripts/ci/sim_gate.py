@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: MIT
 """Row table and exit gate for the iOS Simulator report set.
 
-``scripts/ci/sim.sh`` pulls ``probe-report.json``, ``smoke-report.json``,
-``kill-report.json`` and ``web-surface-report.json`` from the probe app's data
-container and runs this module with ``$OUT``. It prints one PASS/FAIL/INFO row
+``scripts/ci/sim.sh`` pulls ``probe-report.json``, ``smoke-report.json`` and
+``kill-report.json`` from the probe app's data container and runs this module
+with ``$OUT``. It prints one PASS/FAIL/INFO row
 per line together with the row's threshold, then exits non-zero when:
 
 * a report is missing or cannot be read;
@@ -19,12 +19,6 @@ versioned synthetic reports through the same gate and checks the clean, sparse,
 duplicate, missing and failing cases. ``sim.sh`` runs it on every invocation,
 so the FAIL-to-non-zero behaviour is demonstrated rather than only inspected,
 including a non-gating FAIL row.
-
-``sim.sh`` also passes ``--canonical-commit/--canonical-version`` and, for a
-controlled run, ``--source-commit/--source-version``. The gate then
-cross-checks the Web suite's recorded ``asset_metadata`` against those CI
-inputs independently of the suite's own pass/fail rows. Without those options
-the historical report-only behaviour is unchanged.
 """
 
 from __future__ import annotations
@@ -38,7 +32,6 @@ REPORTS = (
     "probe-report.json",
     "smoke-report.json",
     "kill-report.json",
-    "web-surface-report.json",
 )
 REQUIRED_GATING_ROWS = {
     "probe-report.json": {
@@ -83,7 +76,6 @@ def _validate_contract(name, document, rows, problems):
         "probe-report.json": ("probe", "G0"),
         "smoke-report.json": ("smoke", "G1"),
         "kill-report.json": ("kill", "G1"),
-        "web-surface-report.json": ("web", "G1"),
     }[name]
     if document.get("schema") != 1:
         problems.append(f"{name}: schema is {document.get('schema')!r}, expected 1")
@@ -233,64 +225,6 @@ def inspect(out):
     return documents, problems, status
 
 
-def check_selected_source(documents, expected):
-    """Cross-checks the Web suite's asset metadata against CI inputs.
-
-    The full-Web test already fails when its runner-supplied canonical and
-    selected pairs do not match the bundle. This second check is deliberately
-    independent of the test's pass/fail row: the gate compares the recorded
-    metadata with the same values `sim.sh` resolved from the pin/checkout, so a
-    stale report cannot be relabelled by the test process alone.
-    """
-    if expected is None:
-        return [], 0
-    problems = []
-    status = 0
-    document = documents.get("web-surface-report.json") or {}
-    metadata = document.get("asset_metadata")
-    if not isinstance(metadata, dict):
-        return ["web-surface-report.json: no asset_metadata for the selected source"], 1
-
-    canonical_commit = expected.get("canonical_commit")
-    canonical_version = expected.get("canonical_version")
-    source_commit = expected.get("source_commit")
-    source_version = expected.get("source_version")
-    explicit = bool(source_commit)
-    selected_commit = source_commit or canonical_commit
-    selected_version = source_version or canonical_version
-    expected_overridden = (
-        selected_commit != canonical_commit or selected_version != canonical_version
-    )
-
-    def mismatch(field, actual, wanted):
-        nonlocal status
-        if actual != wanted:
-            problems.append(
-                f"web-surface-report.json asset_metadata.{field} is {actual!r}, "
-                f"expected {wanted!r}"
-            )
-            status = 1
-
-    mismatch("canonical_commit", metadata.get("canonical_commit"), canonical_commit)
-    mismatch("canonical_version", metadata.get("canonical_version"), canonical_version)
-    mismatch("pin_commit", metadata.get("pin_commit"), canonical_commit)
-    mismatch("pin_version", metadata.get("pin_version"), canonical_version)
-    mismatch("expected_commit", metadata.get("expected_commit"), selected_commit)
-    mismatch("expected_version", metadata.get("expected_version"), selected_version)
-    mismatch("expected_overridden", metadata.get("expected_overridden"), expected_overridden)
-    mismatch("source_selection", metadata.get("source_selection"),
-             "explicit" if explicit else "canonical")
-    mismatch("checkout_overridden_match",
-             metadata.get("checkout_overridden_match"), True)
-    if metadata.get("input_error"):
-        problems.append(
-            f"web-surface-report.json asset_metadata.input_error is "
-            f"{metadata.get('input_error')!r}"
-        )
-        status = 1
-    return problems, status
-
-
 def render(documents, problems, status):
     """Returns ``(table_text, status)`` for the inspected reports."""
     lines = ["", f"{'suite':<7} {'row':<56} {'status':<5} threshold"]
@@ -363,12 +297,9 @@ def render(documents, problems, status):
     return "\n".join(lines), status
 
 
-def gate(out, echo=True, expected=None):
+def gate(out, echo=True):
     """Prints the table for ``out`` and returns the gate exit status."""
     documents, problems, status = inspect(out)
-    source_problems, source_status = check_selected_source(documents, expected)
-    problems.extend(source_problems)
-    status = max(status, source_status)
     text, status = render(documents, problems, status)
     if echo:
         print(text)
@@ -399,8 +330,7 @@ def _row(probe, status, gating):
 def _suite(name, environment="ios-simulator", ok=True, rows=None):
     suite, gate_name = {"probe-report.json": ("probe", "G0"),
                         "smoke-report.json": ("smoke", "G1"),
-                        "kill-report.json": ("kill", "G1"),
-                        "web-surface-report.json": ("web", "G1")}[name]
+                        "kill-report.json": ("kill", "G1")}[name]
     if rows is None:
         probes = set(REQUIRED_GATING_ROWS.get(name, ()))
         if name == "kill-report.json":
@@ -413,11 +343,6 @@ def _suite(name, environment="ios-simulator", ok=True, rows=None):
                 row["metrics"] = {"kind": kind, "timing": timing}
                 rows.append(row)
             rows.append(_row("kill.real-webcontent-kill", "INFO", False))
-        elif name == "web-surface-report.json":
-            # The real Web suite emits its own rows (session E2E, source
-            # consistency); one representative gating row keeps the synthetic
-            # selftest report structurally valid without faking its catalogue.
-            rows = [_row("web.source-consistency", "PASS", True)]
         else:
             rows = [_row(probe, "PASS", True) for probe in sorted(probes)]
     report = {
@@ -465,13 +390,12 @@ def selftest():
 
     cases = []
 
-    def case(label, expected, documents, drop=(), source_expected=None):
+    def case(label, expected, documents, drop=()):
         with tempfile.TemporaryDirectory(prefix="pdsh-sim-gate-") as directory:
             for name in drop:
                 documents.pop(name, None)
             _write(directory, documents)
-            cases.append((label, expected,
-                          gate(directory, echo=False, expected=source_expected)))
+            cases.append((label, expected, gate(directory, echo=False)))
 
     case("clean", 0, _clean())
 
@@ -523,47 +447,6 @@ def selftest():
         }
         case(f"missing required {probe}", 1, missing_python_row)
 
-    canonical_commit = "7be5505b0be06009d74891c869063c9cf19a0df0"
-    selected_commit = "c63e01d545cbc03f6b59b1f33679c501de590255"
-    version = "0.2.1-rc.2"
-    source_inputs = {
-        "canonical_commit": canonical_commit,
-        "canonical_version": version,
-        "source_commit": selected_commit,
-        "source_version": version,
-    }
-
-    def source_metadata(expected_commit):
-        return {
-            "canonical_commit": canonical_commit,
-            "canonical_version": version,
-            "pin_commit": canonical_commit,
-            "pin_version": version,
-            "expected_commit": expected_commit,
-            "expected_version": version,
-            "expected_overridden": expected_commit != canonical_commit,
-            "source_selection": (
-                "explicit" if expected_commit != canonical_commit else "canonical"
-            ),
-            "checkout_overridden_match": True,
-            "input_error": "",
-        }
-
-    source_match = _clean()
-    source_match["web-surface-report.json"]["asset_metadata"] = source_metadata(
-        selected_commit
-    )
-    case("selected source match", 0, source_match, source_expected=source_inputs)
-
-    source_mismatch = _clean()
-    source_mismatch["web-surface-report.json"]["asset_metadata"] = source_metadata(
-        selected_commit
-    )
-    wrong_inputs = dict(source_inputs)
-    wrong_inputs["source_commit"] = "d" * 40
-    case("selected source mismatch", 1, source_mismatch,
-         source_expected=wrong_inputs)
-
     failures = [
         f"{label}: expected exit {expected}, got {status}"
         for label, expected, status in cases
@@ -581,36 +464,10 @@ def selftest():
 def main(argv):
     if len(argv) == 2 and argv[1] == "--selftest":
         return selftest()
-    if len(argv) < 2:
+    if len(argv) != 2:
         print("usage: sim_gate.py OUT | sim_gate.py --selftest", file=sys.stderr)
         return 2
-    out = argv[1]
-    expected = {}
-    index = 2
-    options = {
-        "--canonical-commit": "canonical_commit",
-        "--canonical-version": "canonical_version",
-        "--source-commit": "source_commit",
-        "--source-version": "source_version",
-    }
-    while index < len(argv):
-        option = argv[index]
-        if option not in options or index + 1 >= len(argv):
-            print(f"sim_gate.py: unknown or incomplete option {option!r}", file=sys.stderr)
-            return 2
-        expected[options[option]] = argv[index + 1]
-        index += 2
-    canonical_pair = bool(expected.get("canonical_commit")) == bool(
-        expected.get("canonical_version")
-    )
-    source_pair = bool(expected.get("source_commit")) == bool(
-        expected.get("source_version")
-    )
-    if not canonical_pair or not source_pair:
-        print("sim_gate.py: source and canonical inputs must each be a commit/version pair",
-              file=sys.stderr)
-        return 2
-    return gate(out, expected=expected or None)
+    return gate(argv[1])
 
 
 if __name__ == "__main__":

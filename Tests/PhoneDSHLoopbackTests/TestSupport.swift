@@ -521,9 +521,11 @@ final class ScriptedExecProvider: ExecProvider, @unchecked Sendable {
     private var runCountValue = 0
     private var cancelledIDs: [String] = []
     private let events: [ExecEvent]
+    private let error: Error?
 
-    init(events: [ExecEvent]) {
+    init(events: [ExecEvent], error: Error? = nil) {
         self.events = events
+        self.error = error
     }
 
     var runCount: Int {
@@ -545,7 +547,11 @@ final class ScriptedExecProvider: ExecProvider, @unchecked Sendable {
         lock.unlock()
         return AsyncThrowingStream { continuation in
             for event in events { continuation.yield(event) }
-            continuation.finish()
+            if let error {
+                continuation.finish(throwing: error)
+            } else {
+                continuation.finish()
+            }
         }
     }
 

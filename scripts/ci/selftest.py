@@ -253,8 +253,10 @@ class HygieneTests(CheckerFixture):
             }
         )
         proc = self.run_checker("hygiene", tree)
-        for line in (1, 2, 3, 4):
+        for line in (1, 3):
             self.assert_finding(proc, "spec/v1/bad/words.md", line, "banned-word")
+        self.assertNotIn("spec/v1/bad/words.md:2:", proc.stdout)
+        self.assertNotIn("spec/v1/bad/words.md:4:", proc.stdout)
         self.assert_finding(proc, "spec/v1/bad/contact.txt", 1, "email")
         self.assert_finding(proc, "spec/v1/bad/paths.txt", 1, "home-path")
         self.assert_finding(proc, "spec/v1/bad/paths.txt", 2, "home-path")
@@ -263,6 +265,18 @@ class HygieneTests(CheckerFixture):
         for line in (1, 2, 3, 4):
             self.assert_finding(proc, "spec/v1/bad/creds.txt", line, "credential")
         self.assertNotIn("ignored.txt", proc.stdout)
+
+    def test_bare_reserved_documentation_hosts_pass(self):
+        tree = self.make_tree(
+            {
+                "spec/v1/ok/reserved.txt": (
+                    "https://example.com\n"
+                    "https://example.org\n"
+                    "https://example.net\n"
+                ),
+            }
+        )
+        self.assert_pass(self.run_checker("hygiene", tree))
 
 
 class LicenseTests(CheckerFixture):

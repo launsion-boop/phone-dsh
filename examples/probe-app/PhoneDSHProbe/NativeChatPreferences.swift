@@ -46,8 +46,8 @@ enum NativeFontRole {
 
     var defaultSize: Int {
         switch self {
-        case .text: 14
-        case .code: 11
+        case .text: 17
+        case .code: 14
         case .terminal: 13
         }
     }
@@ -121,7 +121,7 @@ final class NativeChatPreferences {
     private(set) var textFontFamily = ""
     private(set) var codeFontFamily = ""
     private(set) var terminalFontFamily = ""
-    private(set) var appearance = NativeAppearance.light
+    private(set) var appearance = NativeAppearance.system
     private(set) var language = NativeLocalePreference.system
     private(set) var transcriptView = NativeTranscriptViewMode.detailed
     private(set) var collapseTiming = NativeCollapseTiming.completion

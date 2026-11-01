@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import PhoneDSH
 import PhoneDSHAgentCore
 import XCTest
 
@@ -104,6 +105,45 @@ final class NativeChatPresentationTests: XCTestCase {
         XCTAssertEqual(usage.cacheHitPercent, 31.25)
         XCTAssertEqual(nativePercent(usage.cacheHitPercent), "31")
         XCTAssertEqual(nativeCompactTokens(198_000), "198K")
+    }
+
+    func testWorkBuddyDefaultsAndShortcutConflicts() {
+        let suite = "NativeChatPreferencesTests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let preferences = NativeChatPreferences(defaults: defaults)
+        XCTAssertEqual(preferences.textFontSize, 17)
+        XCTAssertEqual(preferences.codeFontSize, 14)
+        XCTAssertEqual(preferences.terminalFontSize, 13)
+        XCTAssertEqual(NativeChatTheme.bodySize, 14)
+        XCTAssertEqual(preferences.shortcut(for: .send).identity, "return")
+        XCTAssertEqual(preferences.shortcut(for: .alternate).identity, "command+return")
+        XCTAssertEqual(preferences.shortcutConflict(NativeShortcut(key: "return"), for: .alternate), .send)
+        XCTAssertFalse(preferences.setShortcut(NativeShortcut(key: "return"), for: .alternate))
+        XCTAssertTrue(preferences.setShortcut(NativeShortcut(key: "k", command: true), for: .alternate))
+        preferences.resetAllShortcuts()
+        XCTAssertTrue(preferences.shortcutOverrides.isEmpty)
+    }
+
+    func testLegacyProviderModelBecomesOneElementCatalog() {
+        let profile = ProviderProfile(id: "deepseek", displayName: "DeepSeek", baseURL: "https://api.deepseek.com/anthropic", model: "deepseek-flash")
+        XCTAssertEqual(profile.modelDefinitions.map(\.id), ["deepseek-flash"])
+        XCTAssertEqual(profile.modelDefinitions[0].reasoningEffort, nil)
+        let vision = ProviderModelDefinition(id: "vision", contextWindow: 128_000, maxTokens: 4_096,
+                                             textInput: true, imageInput: true)
+        XCTAssertEqual(vision.contextWindow, 128_000)
+        XCTAssertEqual(vision.maxTokens, 4_096)
+        XCTAssertTrue(vision.imageInput)
+    }
+
+    func testMarkdownTableParsingPreservesHeaderAndRows() throws {
+        let blocks = NativeMarkdownParser.parse("| 项目 | 金额 | 备注 |\n|---|---:|---|\n| 交通 | 120.50 | PDSH_TABLE_OK |")
+        guard let block = blocks.first, case .table(let header, let rows, _) = block else {
+            return XCTFail("expected one table, got \(blocks)")
+        }
+        XCTAssertEqual(header.count, 3)
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows[0].count, 3)
     }
 
     private func event(_ seq: Int, _ type: String, data: [String: JSONValue]) -> JSONValue {

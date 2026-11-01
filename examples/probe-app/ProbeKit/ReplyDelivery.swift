@@ -3,6 +3,7 @@
 
 import Foundation
 import Observation
+import PhoneDSHAgentCore
 
 /// Keeps a human reply retryable until the harness confirms that it accepted it.
 @MainActor
@@ -82,5 +83,12 @@ public enum TurnResourceCleanup {
         stopNativeAudio()
         if shouldPark { await park() }
         endBackgroundTask()
+    }
+
+    public static func isTerminal(_ kind: HarnessEvent.Kind) -> Bool {
+        switch kind {
+        case .turnEnded, .exited: return true
+        default: return false
+        }
     }
 }

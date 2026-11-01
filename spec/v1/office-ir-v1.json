@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://phone-dsh.test/spec/v1/office-ir-v1.json",
+  "title": "Phone DSH structured office intermediate representation",
+  "description": "Generation-only IR. It never represents editing an imported Office document or raw OOXML from a model. Swift validates equivalent concrete types and budgets before rendering.",
+  "$defs": {
+    "fileName": { "type": "string", "minLength": 1, "maxLength": 80, "pattern": "^[^/\\\\:\\x00-\\x1f]+\\.(docx|xlsx|pptx|png)$" },
+    "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "decimal": { "type": "string", "pattern": "^-?[0-9]+(\\.[0-9]+)?$" },
+    "document": {
+      "type": "object", "additionalProperties": false,
+      "required": ["fileName", "title", "blocks"],
+      "properties": {
+        "fileName": { "$ref": "#/$defs/fileName" }, "title": { "$ref": "#/$defs/title" },
+        "blocks": { "type": "array", "maxItems": 200, "items": {
+          "type": "object", "additionalProperties": false, "required": ["type"],
+          "properties": {
+            "type": { "enum": ["heading", "paragraph", "table"] },
+            "text": { "type": "string", "maxLength": 4000 },
+            "rows": { "type": "array", "maxItems": 50, "items": { "type": "array", "maxItems": 8, "items": { "type": "string", "maxLength": 256 } } }
+          }
+        } }
+      }
+    },
+    "sheet": {
+      "type": "object", "additionalProperties": false, "required": ["fileName", "title", "rows"],
+      "properties": {
+        "fileName": { "$ref": "#/$defs/fileName" }, "title": { "$ref": "#/$defs/title" },
+        "sheetName": { "type": "string", "maxLength": 31 },
+        "rows": { "type": "array", "minItems": 1, "maxItems": 1000, "items": {
+          "type": "array", "minItems": 1, "maxItems": 26, "items": {
+            "type": "object", "additionalProperties": false,
+            "properties": { "text": { "type": "string", "maxLength": 4000 }, "number": { "$ref": "#/$defs/decimal" } }
+          }
+        } }
+      }
+    },
+    "slides": {
+      "type": "object", "additionalProperties": false, "required": ["fileName", "title", "slides"],
+      "properties": {
+        "fileName": { "$ref": "#/$defs/fileName" }, "title": { "$ref": "#/$defs/title" },
+        "slides": { "type": "array", "minItems": 1, "maxItems": 30, "items": {
+          "type": "object", "additionalProperties": false, "required": ["title", "bullets"],
+          "properties": { "title": { "$ref": "#/$defs/title" }, "bullets": { "type": "array", "maxItems": 12, "items": { "type": "string", "maxLength": 500 } } }
+        } }
+      }
+    },
+    "chart": {
+      "type": "object", "additionalProperties": false, "required": ["fileName", "title", "labels", "values"],
+      "properties": {
+        "fileName": { "$ref": "#/$defs/fileName" }, "title": { "$ref": "#/$defs/title" },
+        "labels": { "type": "array", "minItems": 1, "maxItems": 16, "items": { "type": "string", "maxLength": 60 } },
+        "values": { "type": "array", "minItems": 1, "maxItems": 16, "items": { "$ref": "#/$defs/decimal" } }
+      }
+    }
+  }
+}

@@ -1,0 +1,59 @@
+{
+  "schema": "pdsh-upgrade-receipt/1",
+  "stage": "Phase0-lite",
+  "sourceCommit": "b5378575d1c315db0bcf915d6c3f344d5af67b76",
+  "environment": {
+    "machine": "arm64 macOS on Apple silicon",
+    "simulator": "iPhone 17 Pro, iOS 26.5 (simulator 7140630D-F62D-4B99-B68C-394E654C0640)",
+    "node": "22 (Homebrew)",
+    "physicalIPhone": "not connected for this run"
+  },
+  "result": "PARTIAL",
+  "resultMeaning": "P0-01/P0-03 gate 与 P0-02 的 simulator gate 在当前 commit 通过；P0-04 物理 iPhone smoke 未重跑，保持 BLOCKED。模拟器单元测试中 1 项既有失败不属于 gate 判据，见 failureClassification。",
+  "gates": [
+    {
+      "id": "P0-01",
+      "command": "bash scripts/ci/check.sh --only phone-modules,phone-hygiene,phone-gate-contracts",
+      "checkout": "clean worktree at b5378575",
+      "result": "PASS",
+      "log": "/tmp/pdsh-p0-clean (worktree; not retained)"
+    },
+    {
+      "id": "P0-02",
+      "command": "OUT=/tmp/pdsh-p0lite-sim bash scripts/ci/sim.sh",
+      "result": "PASS",
+      "detail": "probe pass=7 fail=0 gate_passed=true; smoke pass=28 fail=0 gate_passed=true; kill pass=20 fail=0 gate_passed=true",
+      "evidence": "/tmp/pdsh-p0lite-sim/{probe,smoke,kill}-report.json",
+      "note": "xcodebuild still exits 65 because one pre-existing unit test in the same scheme fails; every gating simulator row passed."
+    },
+    {
+      "id": "P0-03",
+      "command": "bash scripts/ci/check.sh --only phone-gate-contracts",
+      "result": "PASS",
+      "detail": "18 python gate-contract regressions, 0 failures"
+    },
+    {
+      "id": "P0-05",
+      "command": "this receipt",
+      "result": "PASS",
+      "detail": "commit, commands, environment and per-gate results are bound here; raw logs stay under /tmp and are not yet uploaded as CI artifacts"
+    }
+  ],
+  "notRun": [
+    {
+      "id": "P0-04",
+      "status": "BLOCKED",
+      "reason": "物理 iPhone 当前没有有效签名和连接，未重跑真机 boot → tool → result → persist → restart/recover；历史上唯一一次真机 PASS 绑定在 add2d9c5，不能当作当前 commit 的证据。"
+    }
+  ],
+  "failureClassification": [
+    {
+      "test": "OfficeTests.testOfficeBridgeDoesNotAdvertiseUnsupportedContext",
+      "classification": "environment-dependent, pre-existing",
+      "evidence": "断言拿到空 accelerator 列表；同一测试在 2026-10-30 19:15 的 simulator 运行中同样失败（/tmp/pdsh-pr-sim-final.log），与本轮改动无关。shell accelerator 库未在该 scheme 中链接时 caps 为空。",
+      "action": "不在本 receipt 中记为 PASS；建议 sim.sh 在缺失链接时跳过该断言或显式跳过该测试。"
+    }
+  ],
+  "operator": "dsh review agent",
+  "date": "2026-10-31"
+}

@@ -47,7 +47,7 @@ set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 lock="$here/lockfile.json"
-repo_root="$(cd "$here/../../../.." && pwd -P)"
+repo_root="$(cd "$here/../../.." && pwd -P)"
 
 cache="${PDSH_PYTHON_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/pdsh-python-wasi}"
 cache_explicit=0
@@ -380,6 +380,51 @@ PY
   fi
 }
 
+# node --test runs files in separate processes. Serialize probes as well as
+# builds: an unlocked reader can otherwise observe a pair while another build
+# is replacing it and report a transient, empty compression probe failure.
+mkdir -p "$cache"
+build_lock="$cache/.build.lock"
+build_lock_owned=0
+artifact_staging=""
+release_build_lock() {
+  if [ -n "$artifact_staging" ] && [ -d "$artifact_staging" ]; then
+    rm -rf "$artifact_staging" || true
+  fi
+  if [ "$build_lock_owned" -eq 1 ]; then
+    rm -f "$build_lock/pid"
+    rmdir "$build_lock" 2>/dev/null || true
+  fi
+}
+trap release_build_lock EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+lock_wait_announced=0
+while ! mkdir "$build_lock" 2>/dev/null; do
+  if [ "$lock_wait_announced" -eq 0 ]; then
+    say "waiting for another build using $cache"
+    lock_wait_announced=1
+  fi
+  lock_pid="$(cat "$build_lock/pid" 2>/dev/null || true)"
+  case "$lock_pid" in
+    ''|*[!0-9]*) ;;
+    *)
+      if ! kill -0 "$lock_pid" 2>/dev/null; then
+        # Do not remove a lock that changed owners after the liveness check.
+        if [ "$(cat "$build_lock/pid" 2>/dev/null || true)" = "$lock_pid" ]; then
+          rm -f "$build_lock/pid"
+          rmdir "$build_lock" 2>/dev/null || true
+        fi
+      fi
+      ;;
+  esac
+  sleep 1
+done
+printf '%s\n' "$$" > "$build_lock/pid"
+build_lock_owned=1
+
 if [ "$check_only" -eq 1 ]; then
   if [ -e "$out/python.wasm" ] || [ -e "$out/python313.zip" ]; then
     # A probe/report failure in the managed default directory is not a reason
@@ -417,6 +462,14 @@ out_real="$(cd "$out_parent" && pwd -P)/$(basename "$out")"
 case "$out_real/" in
   "$repo_root"/*) die "--out must be outside the repository (artifacts are never committed): $out_real" ;;
 esac
+# Other processes read this directory without taking our build lock. Keep the
+# previous pair and reports intact until the replacement passes every probe.
+final_out="$out"
+if [ "$out_explicit" -eq 0 ]; then
+  artifact_staging="${out}.staging.$$"
+  rm -rf "$artifact_staging"
+  out="$artifact_staging"
+fi
 mkdir -p "$out" "$cache/downloads" "$cache/src"
 
 fetch() {
@@ -605,7 +658,11 @@ if [ ! -x "$build_dir/python.exe" ] && [ ! -x "$build_dir/python" ]; then
   mkdir -p "$build_dir"
   (
     cd "$build_dir"
-    ../../configure -C
+    # The build Python only supports the cross-build; host OpenSSL modules are
+    # optional and can mismatch the runner's headers and dynamic libraries.
+    ac_cv_working_openssl_ssl=no \
+    ac_cv_working_openssl_hashlib=no \
+      ../../configure -C
     make -s -j "$jobs" all
   )
 fi
@@ -766,6 +823,16 @@ with open(target, 'w', encoding='utf-8') as handle:
 PY
 mv -f "$out/.compression.json.tmp" "$out/compression.json"
 mv -f "$out/.sizes.json.tmp" "$out/sizes.json"
+
+if [ "$out_explicit" -eq 0 ]; then
+  previous_out="${final_out}.previous.$$"
+  rm -rf "$previous_out"
+  if [ -e "$final_out" ]; then mv "$final_out" "$previous_out"; fi
+  mv "$out" "$final_out"
+  out="$final_out"
+  rm -rf "$previous_out"
+  artifact_staging=""
+fi
 
 say "done"
 printf '  python.wasm      %s bytes  sha256 %s\n' "$wasm_bytes" "$wasm_sha"

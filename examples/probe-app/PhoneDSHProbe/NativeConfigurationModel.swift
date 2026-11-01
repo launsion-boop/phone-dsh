@@ -123,6 +123,14 @@ final class NativeConfigurationModel {
         settingsGroups.first { $0.namespace == namespace }
     }
 
+    func settingsDocument() -> String {
+        guard let data = try? JSONValue.object(namespaceValues).encoded(),
+              let object = try? JSONSerialization.jsonObject(with: data),
+              let pretty = try? JSONSerialization.data(withJSONObject: object,
+                                                       options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]) else { return "{}" }
+        return String(data: pretty, encoding: .utf8) ?? "{}"
+    }
+
     func refresh() async {
         guard !isLoading else { return }
         guard !hasDrafts else {

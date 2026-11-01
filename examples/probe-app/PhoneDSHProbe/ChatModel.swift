@@ -532,6 +532,25 @@ final class ChatModel {
     private var foregroundResumeRequested = false
     private var backgroundParkRequested = false
     var canSend: Bool { harness != nil && sessionID != nil && transcriptReady && !busy && !parked && !hostLifecycleTransition }
+    private(set) var modelProviderIssue: String? = "请先配置模型服务和 API Key"
+
+    func refreshModelProviderReadiness() {
+        let settings = PhoneModelProviderSettings.shared
+        do {
+            guard let profile = try settings.load().selected else {
+                modelProviderIssue = "请先配置模型服务和 API Key"
+                return
+            }
+            switch try settings.apiKeyStatus(for: profile.id) {
+            case .present: modelProviderIssue = nil
+            case .missing: modelProviderIssue = "请先配置模型服务的 API Key"
+            case .unreadable: modelProviderIssue = "无法读取 API Key，请解锁设备后重试"
+            }
+        } catch {
+            modelProviderIssue = "无法读取模型服务配置，请检查设置"
+        }
+    }
+
     var displayStatus: String {
         if parked { return "已暂停" }
         if host == nil { return "已停止" }
@@ -1102,6 +1121,13 @@ final class ChatModel {
 
     /// Opens a new session through DSH and makes it the active chat.
     func newSession() async {
+        await openManagedSession(id: nil)
+    }
+
+    func newSession(preset: String) async {
+        // The authenticated host selects the preset from its own catalog; the
+        // phone only needs to open a fresh session for the creator flow.
+        _ = preset
         await openManagedSession(id: nil)
     }
 

@@ -31,6 +31,7 @@ import { setActiveVfs } from '@deepseek-ai/dsh-experimental-webworker-runtime/sr
 import { DEFAULT_ROOT, IMAGE_MANIFEST_PATH } from '@deepseek-ai/dsh-experimental-webworker-runtime/src/image-layout.ts'
 import { requireActiveModuleLoader } from '@deepseek-ai/dsh-experimental-webworker-runtime/src/module-system/module-loader.ts'
 import moduleShim from './module-shim.ts'
+import { captureNodeTimerPrototypes, installNodeTimerCompat } from './node-timer-compat.ts'
 import { installExecFsPolicy, type VfsNamespace } from '../../wasi-toolbox/src/index.ts'
 import {
   APP_BOOT_SPECIFIER, createAppBootShim, loadPinnedModule, type AppBootModule,
@@ -46,7 +47,9 @@ import { installBoundedDirectoryOpener, type BoundedDirectoryVfs } from './bound
 // The runtime's worker.ts installs these before its message listener exists, so
 // every image module sees the same patched platform. Keep the order.
 installAsyncContextHooks()
+captureNodeTimerPrototypes()
 installTimerGlobals()
+installNodeTimerCompat()
 installCryptoGlobals()
 
 /** Port the runtime tunnel posts page-facing frames through. */

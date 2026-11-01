@@ -2,6 +2,7 @@
 // phone-dsh — probe chat reply and terminal-resource regression tests.
 
 import Foundation
+import PhoneDSH
 import PhoneDSHAgentCore
 import ProbeKit
 import XCTest
@@ -103,5 +104,40 @@ final class ChatWorkflowTests: XCTestCase {
             endBackgroundTask: { actions.append("background-task") },
             park: { actions.append("park") })
         XCTAssertEqual(actions, ["heartbeat", "page-audio", "native-audio", "background-task"])
+    }
+
+    func testHostConfigurationUsesExtendedBudgets() throws {
+        let configuration = ChatHostConfiguration.make(
+            workspaceRoot: URL(fileURLWithPath: "/tmp/pdsh-chat-config-test"),
+            bundle: PhoneDSHBundleLocation(staticDirectory: URL(fileURLWithPath: "/static")),
+            modelBaseURL: URL(string: "https://example.com")!,
+            modelName: "test",
+            credentialProvider: StaticCredentialProvider([:]),
+            egressHosts: [])
+        XCTAssertEqual(configuration.turnInactivityTimeout, 1_800)
+        XCTAssertEqual(configuration.engine.bootTimeout, 600)
+        XCTAssertEqual(configuration.engine.environment["PDSH_SHELL_TIMEOUT_MS"], "600000")
+    }
+
+    func testResumeWatchdogOutlivesTheHostHelloDeadline() throws {
+        let configuration = ChatHostConfiguration.make(
+            workspaceRoot: URL(fileURLWithPath: "/tmp/pdsh-chat-config-test"),
+            bundle: PhoneDSHBundleLocation(staticDirectory: URL(fileURLWithPath: "/static")),
+            modelBaseURL: URL(string: "https://example.com")!,
+            modelName: "test",
+            credentialProvider: StaticCredentialProvider([:]),
+            egressHosts: [])
+        XCTAssertGreaterThan(ChatHostConfiguration.defaultResumeWatchdogTimeout,
+                             configuration.helloTimeout)
+        XCTAssertEqual(ChatHostConfiguration.defaultResumeWatchdogTimeout,
+                       configuration.helloTimeout + 60)
+    }
+
+    func testTerminalEventsReleasePendingInteractions() {
+        XCTAssertTrue(TurnResourceCleanup.isTerminal(.turnEnded(turnID: "turn", reason: .failed("stalled"))))
+        XCTAssertTrue(TurnResourceCleanup.isTerminal(.exited(reason: "worker stopped")))
+        XCTAssertFalse(TurnResourceCleanup.isTerminal(.turnStarted(turnID: "turn")))
+        XCTAssertFalse(TurnResourceCleanup.isTerminal(.questionRequested(
+            HarnessQuestion(requestID: "question", prompt: "Continue?"))))
     }
 }

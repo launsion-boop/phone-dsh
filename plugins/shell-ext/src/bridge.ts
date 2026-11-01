@@ -28,6 +28,7 @@ import type { Command } from 'just-bash/browser'
 import { currentToolCall, deriveIdemKey } from '@phone-dsh/dsh-exec-bridge'
 import { byteStringOutput, byteStringToBytes, bytesToByteString, concatBytes, decodeUtf8 } from './encoding.ts'
 import type { ExecClient, ExecEvent, ExecRequest, Hello, IdemKeyFacts, ToolCallContext } from '@phone-dsh/dsh-exec-bridge'
+import { phoneProviderFailure } from './phone-errors.ts'
 
 /** One accelerator invocation as just-bash sees it. */
 export interface AcceleratorRequest {
@@ -53,6 +54,8 @@ export interface AcceleratorResult {
   readonly stderr: string
   readonly exitCode: number
   readonly signal?: string | null | undefined
+  readonly providerCode?: string
+  readonly providerMessage?: string
 }
 
 /** The dispatcher the command definitions forward to. */
@@ -85,6 +88,14 @@ export interface ExecBridgeAcceleratorOptions {
 export function advertisedAccelerators(hello: Pick<Hello, 'capabilities'>): string[] {
   const names = hello.capabilities.accelerators ?? []
   return [...new Set(names.filter((name): name is string => typeof name === 'string' && name !== ''))]
+}
+
+/** Stable, call-scoped identity bounded by the host's 64-character exec_id. */
+export function acceleratorExecID(idemKey: string, sequence: number): string {
+  if (!/^[0-9a-f]{64}$/u.test(idemKey)) throw new Error('accelerator exec_id needs a sha256 idem_key')
+  if (!Number.isSafeInteger(sequence) || sequence < 0) throw new Error('accelerator sequence is invalid')
+  const suffix = `-a${String(sequence)}`
+  return `${idemKey.slice(0, 64 - suffix.length)}${suffix}`
 }
 
 /**
@@ -124,11 +135,10 @@ export function createExecBridgeAccelerators(options: ExecBridgeAcceleratorOptio
       if (!Number.isSafeInteger(requiresMseq) || requiresMseq < 0) {
         throw new Error(`accelerator requires_mseq ${String(requiresMseq)} is outside the JSON safe-integer range`)
       }
-      // D6 bounds the host wire id to 64 characters. Keep the `-aN` sequence
-      // suffix intact and shorten only the prefix when the identity is long.
-      const prefix = identity.key !== undefined && identity.key !== '' ? identity.key : 'xl'
-      const suffix = `-a${String(sequence++)}`
-      const execId = `${prefix.length + suffix.length <= 64 ? prefix : prefix.slice(0, 64 - suffix.length)}${suffix}`
+      // A process-local sequence restarts at zero on a Worker rebuild. Derive
+      // the persistent identity from idem_key so unrelated calls cannot reuse
+      // an exec_id already owned by the host ledger.
+      const execId = acceleratorExecID(idemKey, sequence++)
       const execRequest: ExecRequest = {
         exec_id: execId,
         argv: [...request.argv],
@@ -164,7 +174,13 @@ export function createExecBridgeAccelerators(options: ExecBridgeAcceleratorOptio
             exit = event
             break
           } else if (event.type === 'error') {
-            return { stdout: bytesToByteString(concatBytes(stdout)), stderr: `${stderr}${event.code}: ${event.message}\n`, exitCode: 1 }
+            return {
+              stdout: bytesToByteString(concatBytes(stdout)),
+              stderr: `${stderr}${event.code}: ${event.message}\n`,
+              exitCode: 1,
+              providerCode: event.code,
+              providerMessage: event.message,
+            }
           }
         }
       } catch (error) {
@@ -202,6 +218,12 @@ export function createAcceleratorCommands(host: AcceleratorHost): Command[] {
     const stdin = ctx.stdin === undefined ? '' : ctx.stdin as unknown as string
     try {
       const result = await host.exec({ argv: [name, ...args], cwd: ctx.cwd, env, stdin, signal: ctx.signal })
+      if (name === 'phone') {
+        const failure = phoneProviderFailure(args[0], result)
+        if (failure !== undefined) {
+          return { ...byteStringOutput(failure), stderr: '', exitCode: result.exitCode }
+        }
+      }
       return { ...byteStringOutput(result.stdout), stderr: result.stderr, exitCode: result.exitCode }
     } catch (error) {
       return {

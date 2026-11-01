@@ -880,10 +880,11 @@ public enum SHA256 {
         private func process(_ bytes: Data, offset: Int) {
             for index in 0..<16 {
                 let base = offset + index * 4
-                schedule[index] = (UInt32(bytes[bytes.index(bytes.startIndex, offsetBy: base)]) << 24)
-                    | (UInt32(bytes[bytes.index(bytes.startIndex, offsetBy: base + 1)]) << 16)
-                    | (UInt32(bytes[bytes.index(bytes.startIndex, offsetBy: base + 2)]) << 8)
-                    | UInt32(bytes[bytes.index(bytes.startIndex, offsetBy: base + 3)])
+                let first = UInt32(bytes[base])
+                let second = UInt32(bytes[base + 1])
+                let third = UInt32(bytes[base + 2])
+                let fourth = UInt32(bytes[base + 3])
+                schedule[index] = (first << 24) | (second << 16) | (third << 8) | fourth
             }
             for index in 16..<64 {
                 let s0 = rotateRight(schedule[index - 15], by: 7)

@@ -365,7 +365,7 @@ function muxWireFrame(frame: WorkerEntryMuxServerFrame): Record<string, unknown>
   switch (frame.type) {
     case 'item':
       return frame.value !== undefined
-        ? { type: frame.type, streamId: frame.streamId, value: frame.value }
+        ? { type: frame.type, streamId: frame.streamId, value: muxWireValue(frame.value) }
         : { type: frame.type, streamId: frame.streamId }
     case 'end':
       return { type: frame.type, streamId: frame.streamId }
@@ -380,6 +380,18 @@ function muxWireFrame(frame: WorkerEntryMuxServerFrame): Record<string, unknown>
         },
       }
   }
+}
+
+function muxWireValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(muxWireValue)
+  if (!isRecord(value)) return value
+  const projected = Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [key, muxWireValue(item)]),
+  )
+  if (projected['type'] !== 'llm/retry' || !isRecord(projected['data'])) return projected
+  const delayMs = projected['data']['delayMs']
+  if (typeof delayMs !== 'number' || !Number.isFinite(delayMs) || Number.isInteger(delayMs)) return projected
+  return { ...projected, data: { ...projected['data'], delayMs: Math.round(delayMs) } }
 }
 
 function writeMuxFrame(sink: WorkerEntryResponseSink, frame: WorkerEntryMuxServerFrame): void {

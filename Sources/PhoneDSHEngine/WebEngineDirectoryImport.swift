@@ -496,14 +496,14 @@ public protocol WebEngineDirectoryImportSink: Sendable {
 }
 
 /// Injectable system folder picker; production uses the UIKit Files sheet.
-@MainActor
+@WebEngineUIActor
 public protocol WebEngineDirectoryImportPresenting: AnyObject {
     /// Present the picker and call `completion` exactly once.
     func present(completion: @escaping (Result<URL, WebEngineDirectoryImportError>) -> Void)
 }
 
 /// Coordinates one exclusive import from a WKWebView page.
-@MainActor
+@WebEngineUIActor
 public final class WebEngineDirectoryImport {
     /// Page-to-native script-message handler name.
     public static let messageHandlerName = "pdshDirectoryImport"
@@ -621,7 +621,7 @@ public final class WebEngineDirectoryImport {
             let stagingRoot = self.stagingRoot
             let stageProgress = StageProgressGate()
             let relay: @Sendable (WebEngineDirectoryImportProgress) -> Void = { [weak self] progress in
-                Task { @MainActor [weak self] in
+                Task { @WebEngineUIActor [weak self] in
                     guard stageProgress.isOpen else { return }
                     self?.publishProgress(progress, id: id)
                 }
@@ -894,7 +894,7 @@ private final class DirectoryImportCancellation: @unchecked Sendable {
 /// with `WKUserContentController` using
 /// ``WebEngineDirectoryImport/messageHandlerName``; this class never registers
 /// itself.
-@MainActor
+@WebEngineUIActor
 public final class WebEngineDirectoryImportScriptHandler: NSObject, WKScriptMessageHandlerWithReply {
     private let importer: WebEngineDirectoryImport
 
@@ -926,13 +926,13 @@ public final class WebEngineDirectoryImportScriptHandler: NSObject, WKScriptMess
                 return
             }
             let importer = self.importer
-            Task { @MainActor in
+            Task { @WebEngineUIActor in
                 importer.start(id: id, sessionID: sessionID, targetDirectory: targetDirectory)
             }
             replyHandler(["ok": true], nil)
         case "cancel":
             let importer = self.importer
-            Task { @MainActor in importer.cancel(id: id) }
+            Task { @WebEngineUIActor in importer.cancel(id: id) }
             replyHandler(["ok": true], nil)
         default:
             replyHandler(nil, "directory import action must be pick or cancel")
@@ -943,7 +943,7 @@ public final class WebEngineDirectoryImportScriptHandler: NSObject, WKScriptMess
 #if canImport(UIKit)
 /// The system `UIDocumentPickerViewController` folder sheet. It is the only
 /// UI this module presents; no Safari toolbar or app-specific chrome exists.
-@MainActor
+@WebEngineUIActor
 public final class WebEngineDirectoryImportDocumentPicker: NSObject,
     WebEngineDirectoryImportPresenting, UIDocumentPickerDelegate {
     private weak var webView: WKWebView?

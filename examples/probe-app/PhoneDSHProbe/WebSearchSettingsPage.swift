@@ -11,11 +11,7 @@ import ProbeKit
 import SwiftUI
 
 struct WebSearchSettingsPage: View {
-    /// Which one host this page may restart after a saved search change.
-    var host: ModelProviderSettingsHost = .native
-
     @State private var model = ChatModel.shared
-    @State private var web = WebHostModel.shared
     @State private var snapshot = PhoneWebSearchSnapshot()
     @State private var selectedProfile: ProviderProfile?
     @State private var mode = PhoneWebSearchMode.followModel
@@ -30,9 +26,6 @@ struct WebSearchSettingsPage: View {
     /// 存好之后给人看的尾巴四位(不是密钥本身,只为认出「是这一把」)。
     @State private var keyTail = ""
     @FocusState private var focus: Field?
-    @Environment(\.dynamicTypeSize) private var typeSize
-    /// 选项卡一行定高 56:字号放大时一起长,两句文案不会被裁掉。
-    @ScaledMetric(relativeTo: .body) private var modeRowHeight: CGFloat = 56
 
     private enum Field { case address, key }
     private enum FeedbackRow { case address, key }
@@ -59,7 +52,7 @@ struct WebSearchSettingsPage: View {
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
-        .background(NativePagePalette.page)
+        .background(Color.white)
         .navigationTitle("网页搜索")
         .navigationBarTitleDisplayMode(.large)
         .task { _ = reload() }
@@ -99,23 +92,21 @@ struct WebSearchSettingsPage: View {
                     HStack(spacing: 12) {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(modeTitle(value))
-                                .foregroundStyle(NativePagePalette.ink)
-                                .lineLimit(typeSize.rowLineLimit)
+                                .foregroundStyle(Color(red: 0x11 / 255, green: 0x11 / 255, blue: 0x14 / 255))
                             // 每个选项自己一句,只让选中那项看得见;两句都留位置,切换时下面的地址和密钥不跳。
                             Text(modeSubtitle(value))
-                                .font(.footnote)
-                                .foregroundStyle(NativePagePalette.inkSecondary)
-                                .lineLimit(typeSize.rowLineLimit)
+                                .font(.system(size: 13))
+                                .foregroundStyle(Color(red: 0x66 / 255, green: 0x66 / 255, blue: 0x6B / 255))
                                 .opacity(mode == value ? 1 : 0)
                         }
                         Spacer(minLength: 8)
                         if mode == value {
                             Image(systemName: "checkmark")
-                                .font(.body.weight(.semibold))
-                                .foregroundStyle(NativePagePalette.accent)
+                                .font(.system(size: 17, weight: .semibold))
+                                .foregroundStyle(Color(red: 0x2F / 255, green: 0x5B / 255, blue: 0xFF / 255))
                         }
                     }
-                    .frame(minHeight: modeRowHeight)
+                    .frame(height: 56)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -127,7 +118,7 @@ struct WebSearchSettingsPage: View {
                 if mode == .followModel {
                     Label(followModelSupportText,
                           systemImage: followsModelSearch ? "checkmark.circle" : "exclamationmark.triangle")
-                        .foregroundStyle(followsModelSearch ? Color.secondary : NativePagePalette.warning)
+                        .foregroundStyle(followsModelSearch ? Color.secondary : ChatPage.warning)
                 }
             }
         }
@@ -172,15 +163,15 @@ struct WebSearchSettingsPage: View {
                 }
                 if feedbackRow == .address, let line = feedbackLine {
                     Text(line.text)
-                        .font(.footnote)
-                        .foregroundStyle(line.isProblem ? NativePagePalette.danger : NativePagePalette.inkSecondary)
+                        .font(.system(size: 13))
+                        .foregroundStyle(line.isProblem ? ChatPage.danger : SessionsPage.ink)
                 }
             }
         } header: {
             Text("地址")
         } footer: {
             Text("照服务商给的那段整段粘过来就行。")
-                .foregroundStyle(NativePagePalette.inkSecondary)
+                .foregroundStyle(SessionsPage.ink)
         }
     }
 
@@ -194,12 +185,12 @@ struct WebSearchSettingsPage: View {
                 Text("密钥")
                 Spacer(minLength: 8)
                 Text(snapshot.hasCredential ? "存好了" : "还没存")
-                    .font(.footnote)
-                    .foregroundStyle(snapshot.hasCredential ? NativePagePalette.inkSecondary : NativePagePalette.warning)
+                    .font(.system(size: 13))
+                    .foregroundStyle(snapshot.hasCredential ? SessionsPage.ink : ChatPage.warning)
                 if snapshot.hasCredential, !keyTail.isEmpty {
                     Text("尾号 \(keyTail)")
-                        .font(.footnote)
-                        .foregroundStyle(NativePagePalette.inkSecondary)
+                        .font(.system(size: 13))
+                        .foregroundStyle(SessionsPage.ink)
                 }
             }
             // 框和它的红字自成一行:红字紧贴框下 8。
@@ -215,8 +206,8 @@ struct WebSearchSettingsPage: View {
                     .frame(minHeight: 44)
                 if feedbackRow == .key, let line = feedbackLine {
                     Text(line.text)
-                        .font(.footnote)
-                        .foregroundStyle(line.isProblem ? NativePagePalette.danger : NativePagePalette.inkSecondary)
+                        .font(.system(size: 13))
+                        .foregroundStyle(line.isProblem ? ChatPage.danger : SessionsPage.ink)
                 }
             }
             // 这一页唯一要按下的动作。空着就是灰底灰字、按不动;
@@ -228,7 +219,7 @@ struct WebSearchSettingsPage: View {
                 ZStack {
                     if saving, feedbackRow == .key {
                         ProgressView().controlSize(.small)
-                            .tint(trimmedKey.isEmpty ? NativePagePalette.inkSecondary : .white)
+                            .tint(trimmedKey.isEmpty ? SessionsPage.ink : .white)
                     } else {
                         Text("保存")
                     }
@@ -244,7 +235,7 @@ struct WebSearchSettingsPage: View {
                     confirmClearKey = true
                 } label: {
                     Text("清除密钥")
-                        .foregroundStyle(NativePagePalette.accent)
+                        .foregroundStyle(ChatPage.accent)
                         .frame(minHeight: 44, alignment: .leading)
                 }
             }
@@ -272,56 +263,29 @@ struct WebSearchSettingsPage: View {
     private var restartSection: some View {
         Section("什么时候生效") {
             Label(restartHint, systemImage: "arrow.clockwise")
-                .font(.footnote)
-                .foregroundStyle(hostRunning ? NativePagePalette.warning : Color.secondary)
-            switch host {
-            case .native:
-                if model.isStarted {
-                    Button("停止本地引擎") { Task { await model.stop() } }
-                        .foregroundStyle(NativePagePalette.danger)
-                } else {
-                    Button("启动本地引擎") { Task { await model.start() } }
-                }
-            case .web:
-                if web.isStarted {
-                    Button("重启引擎,用上新设置") {
-                        Task {
-                            if web.state == .failed {
-                                await web.start()
-                            } else {
-                                await web.restartForConfigurationChange()
-                            }
-                        }
-                    }
-                } else {
-                    Button("启动本地引擎") { Task { await web.start() } }
-                }
+                .font(.system(size: 13))
+                .foregroundStyle(hostRunning ? ChatPage.warning : Color.secondary)
+            if model.isStarted {
+                Button("停止本地引擎") { Task { await model.stop() } }
+                    .foregroundStyle(ChatPage.danger)
+            } else {
+                Button("启动本地引擎") { Task { await model.start() } }
             }
         }
     }
 
-    private var hostRunning: Bool {
-        switch host {
-        case .native: return model.isStarted
-        case .web: return web.isStarted
-        }
-    }
+    private var hostRunning: Bool { model.isStarted }
 
-    private var launchWarning: String? {
-        switch host {
-        case .native: return model.searchLaunchWarning
-        case .web: return web.searchLaunchWarning
-        }
-    }
+    private var launchWarning: String? { model.searchLaunchWarning }
 
     private func launchWarningSection(_ warning: String) -> some View {
         Section {
             Label(warning, systemImage: "exclamationmark.triangle")
-                .font(.footnote)
-                .foregroundStyle(NativePagePalette.warning)
+                .font(.system(size: 13))
+                .foregroundStyle(ChatPage.warning)
             Text("重启本地引擎之后这行提示会自己消失。")
-                .font(.footnote)
-                .foregroundStyle(NativePagePalette.inkSecondary)
+                .font(.system(size: 13))
+                .foregroundStyle(SessionsPage.ink)
         } header: {
             Text("需要处理")
         }
@@ -343,12 +307,7 @@ struct WebSearchSettingsPage: View {
 
     private var restartHint: String {
         guard hostRunning else { return "下次启动本地引擎时才生效。" }
-        switch host {
-        case .native:
-            return "重启本地引擎之后生效;工作文件夹和会话都不变。"
-        case .web:
-            return "重启之后生效;工作文件夹和会话都不变。"
-        }
+        return "重启本地引擎之后生效;工作文件夹和会话都不变。"
     }
 
     private var footerSection: some View {
@@ -530,16 +489,16 @@ private struct SaveKeyButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.body.weight(.semibold))
+            .font(.system(size: 17, weight: .semibold))
             .foregroundStyle(enabled
                              ? Color.white
-                             : NativePagePalette.disabledInk)
+                             : Color(red: 0x8A / 255, green: 0x8A / 255, blue: 0x90 / 255))
             .frame(maxWidth: .infinity, minHeight: 50)
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .fill(enabled
-                          ? NativePagePalette.accentFill
-                          : NativePagePalette.disabledFill)
+                          ? Color(red: 0x2F / 255, green: 0x5B / 255, blue: 0xFF / 255)
+                          : Color(red: 0xE5 / 255, green: 0xE5 / 255, blue: 0xEA / 255))
             )
             .opacity(configuration.isPressed ? 0.85 : 1)
     }

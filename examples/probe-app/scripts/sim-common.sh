@@ -513,7 +513,11 @@ sim_prepare_worker_assets() { # <example-dir> <staging-dir> <www> <image>
 sim_install_probe_app() { # <udid> <app-path>
   local udid="$1"
   local app="$2"
-  xcrun simctl uninstall "$udid" "$SIM_PROBE_BUNDLE_ID" 2>/dev/null || true
+  if [ "${PDSH_SIM_PRESERVE_DATA:-0}" = "1" ]; then
+    echo "sim: preserving the existing app data container" >&2
+  else
+    xcrun simctl uninstall "$udid" "$SIM_PROBE_BUNDLE_ID" 2>/dev/null || true
+  fi
   xcrun simctl install "$udid" "$app" || return 1
   sim_app_container "$udid"
 }

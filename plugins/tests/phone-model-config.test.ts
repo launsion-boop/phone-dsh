@@ -138,6 +138,32 @@ test('valid host JSON projects the selected provider and ignores secret-shaped f
   assert.doesNotMatch(serialized, /apiKey|apiKeyEnv|credentialRef/)
 })
 
+test('model directories preserve each model input and limits without secrets', () => {
+  const snapshot = config(JSON.stringify({
+    version: 1,
+    selectedId: 'deepseek',
+    providers: [{
+      id: 'deepseek',
+      displayName: 'DeepSeek',
+      baseURL: 'https://api.example.com/anthropic',
+      model: 'deepseek-flash',
+      models: [{
+        id: 'deepseek-flash', name: 'Flash', contextWindow: 128000, maxTokens: 4096,
+        textInput: true, imageInput: true, reasoningEffort: 'high', apiKey: 'never-publish',
+      }],
+    }],
+  }))
+  assert.equal(snapshot.configured, true)
+  if (!snapshot.configured) return
+  assert.deepEqual(snapshot.selected.models, [{
+    id: 'deepseek-flash', name: 'Flash', contextWindow: 128000, maxTokens: 4096,
+    textInput: true, imageInput: true, reasoningEffort: 'high',
+  }])
+  assert.equal(Object.isFrozen(snapshot.selected.models), true)
+  assert.equal(Object.isFrozen(snapshot.selected.models?.[0]), true)
+  assert.doesNotMatch(JSON.stringify(snapshot), /never-publish/)
+})
+
 test('the projection is frozen and the environment is not mutated', () => {
   const environment = { [MODEL_PROVIDER_ENV]: VALID }
   const snapshot = readModelConfig(environment)

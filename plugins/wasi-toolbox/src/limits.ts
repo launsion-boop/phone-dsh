@@ -51,7 +51,7 @@ export const MIN_SINGLE_FILE_LIMIT = 16 * MEBIBYTE
 export const MAX_SINGLE_FILE_LIMIT = 256 * MEBIBYTE
 
 /**
- * Active single-file budget: 64 MiB by default, the 8 GiB tier row.
+ * Active single-file budget: 128 MiB by default, the 8 GiB tier row.
  *
  * This is the file cap, not the per-mutation frame cap. One file larger than
  * one VFS_MUT is published as one complete write plus appended suffixes

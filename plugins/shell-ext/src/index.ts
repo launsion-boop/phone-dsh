@@ -188,6 +188,7 @@ export {
   createArithmeticExpansionPlugin,
 } from './arithmetic.ts'
 export {
+  acceleratorExecID,
   advertisedAccelerators,
   createAcceleratorCommands,
   createExecBridgeAccelerators,

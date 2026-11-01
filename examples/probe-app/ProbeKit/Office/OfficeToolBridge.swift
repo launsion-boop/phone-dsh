@@ -3,8 +3,19 @@
 import Foundation
 import PhoneDSHShell
 
-public final class OfficeToolBridge: PhoneToolBridge, @unchecked Sendable {
+public final class OfficeToolBridge: PhoneToolBridge, CapabilityGatedToolBridge, @unchecked Sendable {
+    /// Office tools that touch system data and must still pass the capability gate.
+    /// Adding a tool here without a route in `PhoneCapabilityBridge.legacyRoutes` fails closed.
+    public static let capabilityGatedTools: Set<String> = ["contacts.search", "calendar.create_event"]
+    public var capabilityGatedTools: Set<String> { Self.capabilityGatedTools }
+
     public let supportsContext = false
+    public let handles: Set<String> = [
+        "files.list", "files.pick", "doc.preview", "share.export", "pdf.text",
+        "pdf.render_pages", "docx.read", "xlsx.read", "csv.analyze", "doc.write",
+        "sheet.write", "slides.write", "chart.render", "ocr.image", "mail.compose_draft",
+        "calendar.create_event", "contacts.search", "text.translate", "office.convert",
+    ]
 
     private let store: OfficeArtifactStore
     private let presenter: (any OfficePresenting)?

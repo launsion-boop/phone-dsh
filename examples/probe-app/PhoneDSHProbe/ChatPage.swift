@@ -11,6 +11,7 @@ import UIKit
 
 struct ChatPage: View {
     var openDrawer: (() -> Void)? = nil
+    var drawerExpanded: Bool = false
     #if DEBUG
     /// 预览专用:直接吃一份本地造好的消息,不订阅宿主、不等记录就绪。
     var previewItems: [ChatItem]? = nil

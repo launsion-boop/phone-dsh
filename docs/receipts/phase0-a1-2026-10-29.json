@@ -1,0 +1,122 @@
+{
+  "schema": "pdsh-upgrade-receipt/1",
+  "stage": "Phase0+A1-core",
+  "sourceCommit": "add2d9c59b3b86cfb1c065dd13b4a2876ce73454",
+  "artifactHashes": {
+    "PhoneDSHProbe-simulator-signed": "2d2070b1719b2040fa875eab91c7761908e7defb2c5968981dff25190353e83a",
+    "PhoneDSHProbe-physical-p0": "d9423e585e48d5afaaddbccfc0d737668ce0eb6ead5e86fb062aa170ecc7186d",
+    "worker-image-current": "1fc4f31037003baf6a0f5e91a652a8f7072a7c5096323e3f4ed8b1f5586b0d69",
+    "worker-image-physical-p0": "f4fa2c8295e6f49ecfd358ddd98115594649430308a0907d87f4225e0e830573"
+  },
+  "artifactHashAlgorithm": "SHA-256; app directories use sorted relative paths, entry types and contents",
+  "environment": {
+    "macOS": "arm64e-apple-macos14.0",
+    "simulator": "iPhone 17 Pro, iOS 26.5",
+    "physicalIPhone": "iPhone Air (iPhone18,4), iOS 27.0",
+    "realTransport": "public RSS and DeepSeek Messages over HTTPS",
+    "credentialHandling": "launch environment to Keychain; no credential is recorded",
+    "offlineMode": "DEBUG URLSession fault injection, not flight mode"
+  },
+  "result": "PARTIAL",
+  "gates": [
+    {
+      "command": "bash scripts/ci/check.sh --only phone-no-dsh-patch,phone-hygiene,phone-license,phone-modules,phone-gate-contracts,phone-xcode-resolve",
+      "result": "PASS"
+    },
+    {
+      "command": "bash scripts/ci/check.sh --only phone-sdk",
+      "result": "PASS",
+      "testsExecuted": 1429,
+      "failures": 0
+    },
+    {
+      "command": "npm run typecheck && node scripts/run-tests.mjs worker-entry/src/mux-bridge.test.ts",
+      "result": "PASS",
+      "testsExecuted": 12,
+      "failures": 0
+    },
+    {
+      "command": "OUT=/tmp/pdsh-sim-final-upgrade bash scripts/ci/sim.sh",
+      "result": "PASS",
+      "testsExecuted": 79,
+      "testsSkipped": 1,
+      "failures": 0,
+      "evidence": "/tmp/pdsh-sim-final-upgrade/"
+    },
+    {
+      "command": "TEST_RUNNER_PDSH_DAILY_BRIEF_LIVE_URL=<official-rss-url> xcodebuild test -scheme PhoneDSHDevice -only-testing:PhoneDSHDeviceTests/PhoneDSHSimSmokeTests/testSimulatorEndToEndSmoke -only-testing:PhoneDSHDeviceTests/PhoneDSHSimProbeTests/testPhase0ProbeSuite -only-testing:PhoneDSHDeviceTests/PhoneDSHSimKillTests/testSimulatorKillMatrix -only-testing:PhoneDSHDeviceTests/DailyBriefTests -only-testing:PhoneDSHDeviceTests/DailyBriefModelTests",
+      "result": "PASS",
+      "testsExecuted": 17,
+      "testsSkipped": 0,
+      "failures": 0,
+      "evidence": "/tmp/pdsh-device-p0-a1/p0-a1-v2.xcresult"
+    },
+    {
+      "command": "TEST_RUNNER_PDSH_DAILY_BRIEF_UI_URL=<official-rss-url> xcodebuild test -scheme PhoneDSHDeviceUI -only-testing:PhoneDSHDeviceUITests/PhoneDSHDeviceUITests/testDailyBriefAddRefreshAndRelaunch",
+      "result": "PASS",
+      "testsExecuted": 1,
+      "testsSkipped": 0,
+      "failures": 0,
+      "evidence": "/tmp/pdsh-sim-ui-daily-offline/daily-offline-ui-v5.xcresult"
+    },
+    {
+      "command": "xcodebuild test -scheme PhoneDSHDeviceUI -only-testing:PhoneDSHDeviceUITests/PhoneDSHDeviceUITests/testRealSessionTaskFromComposer",
+      "result": "PASS",
+      "testsExecuted": 1,
+      "testsSkipped": 0,
+      "failures": 0,
+      "evidence": "/tmp/pdsh-sim-ui-real-final/real-session-ui-v2.xcresult"
+    },
+    {
+      "command": "xcrun devicectl device info appIcon --app-bundle-id dev.phone-dsh.probe --destination /tmp/pdsh-device-icon.png",
+      "result": "PASS",
+      "evidence": "/tmp/pdsh-device-icon.png",
+      "isPlaceholder": false
+    }
+  ],
+  "verifiedContracts": [
+    "static baseline gates pass without DSH source patches",
+    "physical iPhone boot → tool → result → persist → restart/recover",
+    "physical iPhone G0 probes and 20 kill-matrix iterations",
+    "tool result is carried by a later model request",
+    "RSS/Atom parse, stable dedupe, conditional cursor and real HTTPS fetch",
+    "complete Snapshot atomic publish and previous Snapshot preservation",
+    "fetch, summary and publish process-exit recovery preserves the same Snapshot ID",
+    "offline fault-injected reload and system share actions",
+    "real DeepSeek UI session creates and reads back PDSH_DEVICE_OK",
+    "signed simulator Keychain contains the provider credential without logging it",
+    "nested llm/retry delayMs is rounded only at the phone mux projection",
+    "Phone DSH uses the original bundle ID, display name and a non-placeholder icon"
+  ],
+  "notRun": [
+    {
+      "id": "A1-05,A1-06",
+      "reason": "Actual flight-mode reading and local-copy delivery were not exercised. DEBUG offline injection and share actions are not a flight-mode substitute."
+    },
+    {
+      "id": "A1-11",
+      "reason": "The eight-week kill/scale evaluation has not run."
+    },
+    {
+      "id": "A2,A3",
+      "reason": "GitHub and Personal App Runtime vertical slices have not started."
+    }
+  ],
+  "failures": [
+    {
+      "id": "physical-full-device-suite",
+      "result": "FAIL",
+      "testsExecuted": 29,
+      "failures": 6,
+      "evidence": "/tmp/pdsh-device-unit/device-unit.xcresult",
+      "reason": "The full-Web session and file bridge still have physical-device failures. One stale simulator-environment assertion was fixed separately; this suite is not a gate pass."
+    }
+  ],
+  "failureClassification": {
+    "physicalFullDeviceSuite": "FAIL",
+    "flightMode": "NOT_RUN",
+    "eightWeekEvaluation": "NOT_RUN"
+  },
+  "operator": "Kimi Code",
+  "date": "2026-10-29T21:25:50+08:00"
+}

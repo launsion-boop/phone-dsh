@@ -16,12 +16,6 @@ import PhoneDSH
 import PhoneDSHAgentCore
 import ProbeKit
 
-/// Which one local host owns the shared registry and policy.
-enum MCPConfigurationHost {
-    case native
-    case web
-}
-
 struct MCPServerSummary: Identifiable, Equatable {
     let serverName: String
     let url: String
@@ -118,7 +112,6 @@ struct MCPServerDraft: Equatable {
 @MainActor
 @Observable
 final class MCPSettingsModel {
-    let host: MCPConfigurationHost
     private let settings: PhoneMCPAccessSettings
     private let isHostRunning: @MainActor () -> Bool
     private let makeTransport: @MainActor () async throws -> any DSHRemoteTransport
@@ -134,12 +127,10 @@ final class MCPSettingsModel {
     private(set) var errorText: String?
     private(set) var notice: String?
 
-    init(host: MCPConfigurationHost,
-         settings: PhoneMCPAccessSettings,
+    init(settings: PhoneMCPAccessSettings,
          isHostRunning: @escaping @MainActor () -> Bool,
          makeTransport: @escaping @MainActor () async throws -> any DSHRemoteTransport,
          refreshPolicy: @escaping @MainActor () -> Void) {
-        self.host = host
         self.settings = settings
         self.isHostRunning = isHostRunning
         self.makeTransport = makeTransport
@@ -150,12 +141,7 @@ final class MCPSettingsModel {
         isHostRunning()
     }
 
-    var hostLabel: String {
-        switch host {
-        case .native: return "原生恢复主机"
-        case .web: return "完整 Web 主机"
-        }
-    }
+    var hostLabel: String { "原生恢复主机" }
 
     func refresh() async {
         guard !loading else { return }

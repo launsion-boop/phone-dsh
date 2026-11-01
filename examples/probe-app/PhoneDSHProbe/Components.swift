@@ -40,9 +40,7 @@ struct LockdownBadge: View {
 /// keeps this view in the page hierarchy for the whole host lifetime. SwiftUI
 /// does not call `makeUIView` again when only the anchor changes, so the
 /// representable owns a small container and `updateUIView` swaps the host
-/// anchor inside it. That is what lets the Web surface hand the window from
-/// `WebHostModel` to `ChatModel` (and back) without either host booting
-/// against a detached view.
+/// anchor inside it.
 struct VisibleAnchorView: UIViewRepresentable {
     let anchor: VisibleEngineAnchor
 

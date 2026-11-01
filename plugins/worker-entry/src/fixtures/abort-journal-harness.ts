@@ -30,13 +30,10 @@ import { createServer } from 'node:http'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 
-import { createWorkerHost } from '@deepseek-ai/dsh-experimental-webworker-runtime/src/worker-host.ts'
+import { createPhoneWorkerHost } from '../runtime-binding.ts'
 import '@deepseek-ai/dsh-experimental-webworker-runtime/src/node/builtin_modules/implemented/buffer.ts'
-import { alsCausality } from '@deepseek-ai/dsh-experimental-webworker-runtime/src/node/builtin_modules/implemented/async_hooks.ts'
-import { createNodeBuiltins, REPLACED_PREFIXES } from '@deepseek-ai/dsh-experimental-webworker-runtime/src/node/builtins.ts'
+
 import { whenRequestListener } from '@deepseek-ai/dsh-experimental-webworker-runtime/src/node/builtin_modules/implemented/http.ts'
-import { installCryptoGlobals } from '@deepseek-ai/dsh-experimental-webworker-runtime/src/node/globals/crypto.ts'
-import { installAsyncContextHooks } from '@deepseek-ai/dsh-experimental-webworker-runtime/src/polyfill/async-context/async-context-hooks.ts'
 import {
   createSyntheticExchange,
   type RuntimeRequestListener,
@@ -81,7 +78,7 @@ const result: Diagnosis = { booted: false }
 let modelRequestSeen = false
 let modelStreamOpen = false
 let modelResponse: ServerResponse | undefined
-let host: ReturnType<typeof createWorkerHost> | undefined
+let host: ReturnType<typeof createPhoneWorkerHost> | undefined
 
 /** Report the diagnosis, stop the runtime and exit without waiting on its timers. */
 function finish(): void {
@@ -307,15 +304,8 @@ try {
   const modelBase = `http://127.0.0.1:${(modelServer.address() as AddressInfo).port}`
   const imageUrl = `${modelBase}/image.tar.gz`
 
-  installAsyncContextHooks()
-  installCryptoGlobals()
-
   const profileOverlay = await createPhoneProfileOverlay()
-  host = createWorkerHost({
-    staticModules: createNodeBuiltins(),
-    staticModulePrefixes: REPLACED_PREFIXES,
-    requestListener: whenRequestListener,
-    alsCausality,
+  host = createPhoneWorkerHost({
     image: imageUrl,
     overlays: [profileOverlay],
     env: {
@@ -332,7 +322,7 @@ try {
       PDSH_CHANNEL_TOKEN: 'diagnosis-channel-token',
       PDSH_CHANNEL_ORIGIN: modelBase,
     },
-  } as never)
+  })
   await host.start()
   result.booted = true
 

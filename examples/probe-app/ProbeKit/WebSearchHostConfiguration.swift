@@ -3,7 +3,7 @@
 //
 // `PhoneWebSearchSettings` owns the non-secret document, the dedicated search
 // Keychain and the host/path credential router. This file is the one place the
-// App, the recovery surface and the simulator full-Web suite apply that module
+// App, the recovery surface and the simulator suites apply that module
 // to the model launch plan:
 //
 //   * independent Search/Fetch mode selects the official

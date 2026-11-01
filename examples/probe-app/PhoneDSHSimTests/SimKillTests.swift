@@ -19,9 +19,8 @@
 // `scripts/ci/sim.sh` while the smoke suite's real WKWebView is alive;
 // the watcher is scoped to this simulator's WebContent pids. This test records
 // an INFO row for it, never a PASS that claims a kill happened; the shell
-// stamps the measured attempt into that row after the suites.
-//
-// NOT_VERIFIED on an iPhone: no physical-device run exists.
+// stamps the measured attempt into that row after the suites. A physical-device
+// run records its own environment; simulator results are not device evidence.
 
 import Foundation
 import XCTest

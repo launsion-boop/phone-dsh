@@ -243,7 +243,7 @@ function vfsMutations(frames: readonly Frame[]): ReturnType<typeof decodeVfsMuta
 }
 
 test('G2-FIX-29: an append past the single-file budget fails as the command error, not as a channel close', async () => {
-  assert.equal(MAX_FILE_SIZE, 64 * 1024 * 1024, 'the write cap is the 8 GiB tier single-file budget')
+  assert.equal(MAX_FILE_SIZE, 128 * 1024 * 1024, 'the write cap is the 8 GiB tier single-file budget')
   const { vfs, pair, frames, dispose } = fixture()
   try {
     // A file already at the exact single-file limit; one more byte must be refused.
@@ -263,8 +263,8 @@ test('G2-FIX-29: an append past the single-file budget fails as the command erro
     )
     assert.match(refused.stderr, /EFBIG/)
     assert.match(refused.stderr, /File too large/)
-    assert.equal(refused.stderr.includes(String(MAX_FILE_SIZE)), true, 'the message names the 64 MiB byte limit')
-    assert.match(refused.stderr, /64 MiB/)
+    assert.equal(refused.stderr.includes(String(MAX_FILE_SIZE)), true, 'the message names the 128 MiB byte limit')
+    assert.match(refused.stderr, /128 MiB/)
 
     // The refused write never reached the VFS sink: no oversized frame, no
     // ERROR frame, and the channel was not closed. The shell bootstrap itself
@@ -331,7 +331,7 @@ test('G2-FIX-29: a WASI guest (python3) write past the single-file budget is ref
     if (refused.ok) return
     assert.equal(refused.code, 'EFBIG')
     assert.match(refused.message, /File too large/)
-    assert.equal(refused.message.includes(String(MAX_FILE_SIZE)), true, 'the message names the 64 MiB byte limit')
+    assert.equal(refused.message.includes(String(MAX_FILE_SIZE)), true, 'the message names the 128 MiB byte limit')
 
     // The refusal happened before the VFS mutation: the tree keeps the exact
     // limit, no observer error was swallowed, and no channel teardown started.
@@ -405,8 +405,8 @@ test('G2-FIX-29: a complete write above the single-file budget is refused before
         const coded = error as { code?: string; message?: string }
         assert.equal(coded.code, 'EFBIG')
         assert.match(String(coded.message), /File too large/)
-        assert.equal(String(coded.message).includes(String(MAX_FILE_SIZE)), true, 'the message names the 64 MiB byte limit')
-        assert.match(String(coded.message), /64 MiB/)
+        assert.equal(String(coded.message).includes(String(MAX_FILE_SIZE)), true, 'the message names the 128 MiB byte limit')
+        assert.match(String(coded.message), /128 MiB/)
         return true
       },
     )

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // phone-dsh phone DSH — iOS Simulator gate support (PLAN W3-SIM).
 //
-// Shared by the three headless simulator suites (`PhoneDSHSimTests`):
+// Shared by the simulator and hosted physical-device test twins:
 //
 //   * report directory discovery: the installed probe app's
 //     `Documents/pdsh-reports/` container, so `scripts/ci/sim.sh` pulls the
@@ -13,9 +13,8 @@
 //   * one PASS/FAIL/INFO row shape for the smoke and kill reports, built on
 //     ProbeKit's ``ProbeRow`` so every suite is printed by one table.
 //
-// Every row is labelled `environment: "ios-simulator"`. Nothing in this
-// target is device evidence; iOS/WebKit behaviour stays NOT_VERIFIED until a
-// physical iPhone run records it.
+// Every row is labelled with its actual execution environment. A simulator
+// report is never device evidence; a physical run writes a separate report.
 
 import Foundation
 import ProbeKit
@@ -49,6 +48,15 @@ enum SimEnvironment {
     /// This is a simulator name, never a claim about a physical device.
     static var simulatorModel: String? {
         variables["SIMULATOR_MODEL_IDENTIFIER"]
+    }
+
+    static var deviceModel: String {
+        if let simulatorModel { return simulatorModel }
+        var info = utsname()
+        guard uname(&info) == 0 else { return "unknown" }
+        return withUnsafePointer(to: &info.machine) {
+            $0.withMemoryRebound(to: CChar.self, capacity: 1) { String(cString: $0) }
+        }
     }
 
     /// OS version string of the simulator runtime.
@@ -394,7 +402,7 @@ final class SimSuiteReport: @unchecked Sendable {
             "generated_at": ProbeReport.timestamp(),
             "ok": snapshotOK && gatingFailed.isEmpty,
             "device": [
-                "model": SimEnvironment.simulatorModel ?? "iOS Simulator",
+                "model": SimEnvironment.deviceModel,
                 "system": SimEnvironment.systemVersion,
                 "is_simulator": SimEnvironment.isSimulator,
             ],
