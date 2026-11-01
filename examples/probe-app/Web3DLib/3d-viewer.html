@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="pdsh-csp" content="local">
+<title>3D 预览</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #f2f2f4; overflow: hidden; }
+  canvas { display: block; width: 100%; height: 100%; }
+  #status { position: fixed; left: 12px; bottom: 12px; font: 12px/1.4 -apple-system, ui-sans-serif;
+            color: #6b7280; background: rgba(255,255,255,.86); padding: 5px 9px; border-radius: 7px; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "pdsh-page://lib/three.module.min.js" } }
+</script>
+</head>
+<body>
+<div id="status">加载模型…</div>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'pdsh-page://lib/loaders/GLTFLoader.js';
+import { OrbitControls } from 'pdsh-page://lib/controls/OrbitControls.js';
+import { RoomEnvironment } from 'pdsh-page://lib/environments/RoomEnvironment.js';
+
+const params = new URLSearchParams(location.search);
+const session = params.get('session') || '';
+const rawPath = params.get('path') || '';
+const encodedPath = rawPath.split('/').map(encodeURIComponent).join('/');
+const modelURL = `pdsh-page://${session}/${encodedPath}`;
+const status = document.getElementById('status');
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.domElement.style.touchAction = 'none';
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xf2f2f4);
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.01, 1000);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+
+new GLTFLoader().load(modelURL, (gltf) => {
+  const model = gltf.scene;
+  scene.add(model);
+  const box = new THREE.Box3().setFromObject(model);
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
+  const radius = Math.max(size.x, size.y, size.z) || 1;
+  camera.position.set(center.x + radius * 1.7, center.y + radius * 1.1, center.z + radius * 2.2);
+  camera.near = radius / 100;
+  camera.far = radius * 100;
+  camera.updateProjectionMatrix();
+  controls.target.copy(center);
+  controls.update();
+  const name = rawPath.split('/').pop();
+  status.textContent = `${name} · 拖动旋转 / 双指缩放`;
+}, undefined, (error) => {
+  status.textContent = '模型加载失败：' + (error && error.message ? error.message : error);
+});
+
+window.addEventListener('resize', () => {
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+});
+renderer.setAnimationLoop(() => {
+  controls.update();
+  renderer.render(scene, camera);
+});
+window.addEventListener('pagehide', () => {
+  renderer.setAnimationLoop(null);
+  renderer.dispose();
+});
+</script>
+</body>
+</html>

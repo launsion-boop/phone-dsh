@@ -64,7 +64,7 @@ enum PreviewPathResolver {
 }
 
 enum PreviewKind {
-    case text, markdown, html, image, pdf, office, video, audio, unsupported
+    case text, markdown, html, model, webMedia, image, pdf, office, video, audio, unsupported
 }
 
 private extension URL {
@@ -72,7 +72,9 @@ private extension URL {
         switch pathExtension.lowercased() {
         case "md", "markdown": return .markdown
         case "html", "htm": return .html
-        case "png", "jpg", "jpeg", "gif", "webp", "heic", "heif", "bmp", "tiff": return .image
+        case "glb", "gltf": return .model
+        case "gif", "webm", "ogv": return .webMedia
+        case "png", "jpg", "jpeg", "webp", "heic", "heif", "bmp", "tiff": return .image
         case "pdf": return .pdf
         case "doc", "docx", "xls", "xlsx", "ppt", "pptx", "pages", "numbers", "key", "rtf", "epub":
             return .office
@@ -346,6 +348,10 @@ struct PreviewSurface: View {
             }
         case .html:
             htmlBody
+        case .model:
+            modelBody
+        case .webMedia:
+            webMediaBody
         case .image:
             imageBody
         case .pdf:
@@ -386,6 +392,48 @@ struct PreviewSurface: View {
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("-uiPreview") {
             return .workspace(sessionID: "preview-session", path: model.path)
+        }
+        #endif
+        return nil
+    }
+
+    @ViewBuilder
+    private var modelBody: some View {
+        if let owner = ownerSession() {
+            let entry = PDSHPageEntry.model(sessionID: owner.sessionID, path: owner.path)
+            if let resolver = pageResolver {
+                PDSHPageView(entry: entry, resolver: resolver)
+            } else {
+                unsupportedBody
+            }
+        } else {
+            ContentUnavailableView("这个模型不在工作区里", systemImage: "cube",
+                                   description: Text("3D 预览需要文件所属的会话工作区。"))
+        }
+    }
+
+    @ViewBuilder
+    private var webMediaBody: some View {
+        if let owner = ownerSession(), let resolver = pageResolver {
+            let kind: PDSHWebMediaKind = model.path.lowercased().hasSuffix(".gif") ? .image : .video
+            PDSHPageView(entry: .webMedia(sessionID: owner.sessionID, path: owner.path, kind: kind),
+                         resolver: resolver)
+        } else {
+            ContentUnavailableView("这个媒体不在工作区里", systemImage: "photo.on.rectangle",
+                                   description: Text("动图/视频预览需要文件所属的会话工作区。"))
+        }
+    }
+
+    private func ownerSession() -> (sessionID: String, path: String)? {
+        if let owner = ChatModel.shared.pageWorkspaceOwner(for: model.path) {
+            return (owner.sessionID, owner.relativePath)
+        }
+        if let sessionID = ChatModel.shared.currentSessionID {
+            return (sessionID, model.path)
+        }
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-uiPreview") {
+            return ("preview-session", model.path)
         }
         #endif
         return nil
@@ -752,6 +800,37 @@ extension PreviewDebugFixtures {
             appendLE(Int16(sample * 8_000))
         }
         write(data: data, path: path)
+    }
+}
+#endif
+
+#if DEBUG
+struct PreviewDebug3D: View {
+    let path: String
+    @State private var installed = false
+    var body: some View {
+        PreviewSurface(target: .workspaceFile(path), isModal: false)
+            .task {
+                guard !installed else { return }
+                installed = true
+                PreviewDebugFixtures.install3D(path: path)
+            }
+    }
+}
+
+extension PreviewDebugFixtures {
+    static func install3D(path: String) {
+        guard let library = Bundle.main.url(forResource: "Web3DLib", withExtension: nil) else { return }
+        let source = library.appendingPathComponent("demo/cube.glb")
+        guard let data = try? Data(contentsOf: source) else { return }
+        let root = ChatModel.shared.workspaceRoot
+            .appendingPathComponent("materialized", isDirectory: true)
+            .appendingPathComponent("workspace", isDirectory: true)
+            .appendingPathComponent(path)
+            .deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try? data.write(to: root.appendingPathComponent((path as NSString).lastPathComponent))
+        ChatModel.shared.refreshFiles()
     }
 }
 #endif

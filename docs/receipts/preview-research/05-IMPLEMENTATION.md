@@ -15,6 +15,8 @@
 - `PDSHPageResolver.networkAllowed` + `Content-Security-Policy` 测试：授权前后 CSP 对照。
 - CSP meta 改为完整属性解析（64 KiB、任意属性顺序/引号），不再靠 4 KiB 子串；`WKUIDelegate` 拒绝弹窗/JS 面板/文件选择。
 - 新增 AVKit WAV fixture；PageSchemeHandler 20 个测试通过。
+- 3D：`glb/gltf` 走 `Web3DLib/3d-viewer.html`（three.js + GLTFLoader + OrbitControls，自动 fit 包围盒）；已用 `cube.glb` 截图验证。
+- 代码生成媒体：`mp4/mov/m4v` 走 AVKit；`gif` 走 HTML 动图 viewer；`webm/ogv` 走 HTML `<video>` viewer（编码不支持时显示可分享的失败提示）。
 - 深色：`NativePagePalette.page` 跟随 App 外观，不再固定白底；Files 也改用 palette。
 - 删除 `FilePreviewPage` / `EmbeddedQuickLook` 死路径和旧 Sheet 预览。
 - 新增 DEBUG 路由与截图：
@@ -29,7 +31,7 @@
 
 - HTML 两档 CSP、meta 白名单、弹窗/下载策略、网络授权横幅（P1）。
 - localhost 独立 Web 面（按评审 defer）。
-- PDF/Image/Office/AVKit fixture 与截图已加。
+- PDF/Image/Office/AVKit/3D fixture 与截图已加。
 - 深色 Markdown 截图已加；其他类型深色基线与 Dynamic Type 待补。
 - 文本 `#L` 定位、行号、滚动恢复（P1）。
 - Android 侧 router/read/WebView（后续）。

@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="pdsh-csp" content="local">
+<title>媒体预览</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0b0b0c; overflow: hidden; }
+  img, video { display: block; width: 100%; height: 100%; object-fit: contain; }
+  #status { position: fixed; left: 12px; bottom: 12px; right: 12px; font: 12px/1.4 -apple-system, ui-sans-serif;
+            color: #d1d5db; background: rgba(0,0,0,.55); padding: 7px 10px; border-radius: 7px; display: none; }
+</style>
+</head>
+<body>
+<div id="status"></div>
+<script>
+  const params = new URLSearchParams(location.search);
+  const session = params.get('session') || '';
+  const rawPath = params.get('path') || '';
+  const kind = params.get('kind') || 'video';
+  const encodedPath = rawPath.split('/').map(encodeURIComponent).join('/');
+  const source = `pdsh-page://${session}/${encodedPath}`;
+  const status = document.getElementById('status');
+  function fail(message) {
+    status.style.display = 'block';
+    status.textContent = message + ' · 可以用分享在其他 App 打开';
+  }
+  if (kind === 'image') {
+    const img = document.createElement('img');
+    img.src = source;
+    img.alt = rawPath.split('/').pop() || 'image';
+    img.onerror = () => fail('这张动图/图片无法解码');
+    document.body.appendChild(img);
+  } else {
+    const video = document.createElement('video');
+    video.src = source;
+    video.controls = true;
+    video.autoplay = true;
+    video.playsInline = true;
+    video.onerror = () => fail('这个视频编码在当前设备上无法播放');
+    document.body.appendChild(video);
+  }
+</script>
+</body>
+</html>

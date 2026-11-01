@@ -17,16 +17,26 @@ import SwiftUI
 import WebKit
 
 /// The entry a PAGE surface opens.
+public enum PDSHWebMediaKind: String, Equatable, Sendable {
+    case video, image
+}
+
 public enum PDSHPageEntry: Equatable, Sendable {
     /// A file in a session's workspace: `pdsh-page://<sessionID>/<path>`.
     case workspace(sessionID: String, path: String)
     /// A file in the bundled Web3DLib: `pdsh-page://lib/<path>`.
     case library(path: String)
+    /// A workspace 3D model rendered by the bundled viewer.
+    case model(sessionID: String, path: String)
+    /// A workspace animated image or video codec rendered by a bundled HTML
+    /// viewer (GIF/WebM), where AVKit is not the right surface.
+    case webMedia(sessionID: String, path: String, kind: PDSHWebMediaKind)
 
     /// The path inside its root (workspace or library).
     public var path: String {
         switch self {
-        case .workspace(_, let path), .library(let path): return path
+        case .workspace(_, let path), .library(let path), .model(_, let path), .webMedia(_, let path, _):
+            return path
         }
     }
 
@@ -41,6 +51,21 @@ public enum PDSHPageEntry: Equatable, Sendable {
         case .library(let path):
             components.host = PDSHPageScheme.libraryHost
             components.path = "/" + path
+        case .model(let sessionID, let path):
+            components.host = PDSHPageScheme.libraryHost
+            components.path = "/3d-viewer.html"
+            components.queryItems = [
+                URLQueryItem(name: "session", value: sessionID),
+                URLQueryItem(name: "path", value: path),
+            ]
+        case .webMedia(let sessionID, let path, let kind):
+            components.host = PDSHPageScheme.libraryHost
+            components.path = "/media-viewer.html"
+            components.queryItems = [
+                URLQueryItem(name: "session", value: sessionID),
+                URLQueryItem(name: "path", value: path),
+                URLQueryItem(name: "kind", value: kind.rawValue),
+            ]
         }
         return components.url
     }
