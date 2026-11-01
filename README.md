@@ -1,34 +1,45 @@
 <p align="center"><img src="docs/assets/logo.png" alt="Phone DSH" width="200"></p>
 
-# Phone DSH — Jointly open-sourced by Xiaozhi & Tono AI Team
+# Phone DSH — 由 Xiaozhi & Tono AI Team 联合开源
 
-Run DeepSeek Harness, unmodified, on your iPhone.
+把 DeepSeek Harness 变成手机的一等运行时。
 
-[简体中文](README.zh.md) · [Architecture](docs/architecture.md) · [Protocol spec](spec/v1/README.md)
+[English](README.en.md) · [架构说明](docs/architecture.md) · [协议规范](spec/v1/README.md)
 
-<p align="center"><img src="docs/assets/screenshot-chat.jpg" width="300" alt="Phone DSH generating a PDF and reporting progress in the native chat"></p>
+<p align="center"><img src="docs/assets/screenshot-chat.jpg" width="300" alt="原生对话：模型生成 PDF 后汇报结果"></p>
 
-> The mascot is fan artwork of the DeepSeek assistant character, used as project branding. It is not an official DeepSeek asset, it is not covered by the MIT licence (see [NOTICE](NOTICE)), and this project is not affiliated with DeepSeek.
+> 吉祥物是 DeepSeek 助手的同人创作，作为项目形象使用；它不是 DeepSeek 官方素材，也不在 MIT 许可范围内（见 [NOTICE](NOTICE)），本项目与 DeepSeek 官方无隶属关系。
 
+> **非官方项目。** Phone DSH 不是 DeepSeek 官方产品，与 DeepSeek 没有隶属、赞助或背书关系；它只是把官方 DeepSeek Harness 作为依赖，按官方插件契约装进手机运行时。
 
-## What this is
+## 项目定位
 
-DeepSeek Harness (DSH) ships a `webworker-runtime` that executes the harness inside a Web Worker. Phone DSH is the host side: a Swift SDK that boots that Worker in the system WebKit engine (WKWebView) and provides the services a phone can honestly offer. The parts a WebView cannot own stay in the app process: the log, the origin, the credentials and the lifecycle.
+Phone DSH 是一个**非官方**的 DeepSeek Harness 宿主实现。目标不是把官方 Web UI 套一层壳，而是让手机成为 DSH 的一等运行时，具体做三件事：
 
-The pinned release is in [`plugins/dsh-pin.json`](plugins/dsh-pin.json): DSH `0.2.1-rc.2`, commit `7be5505b0be06009d74891c869063c9cf19a0df0`. No DSH source tree is copied, vendored or modified. The Worker image is built from that checkout by driving DSH's own packer library from `plugins/scripts/pack-image.mjs`, with this repository's plugins staged beside it. The packer normalizes exactly two built `dispose()` cleanup call sites in two packages; each site is anchored and hashed in `sizes.json`, and `scripts/ci/no_dsh_patch.py` enforces the source boundary.
+1. **把手机的性能和资源真正用起来。** 不是远程桌面，也不是把模型请求转发到另一台电脑：Worker 在手机的 WKWebView/Web Worker 里执行，原生宿主负责回环网络、持久化日志、模型网关、凭据、后台生命周期、内存/热预算和可中断的恢复。CPU、内存、后台执行窗口和系统调度都参与进来，而不是只把手机当显示器。
+2. **覆盖绝大部分办公场景。** 文档、表格、幻灯片、PDF、邮件草稿、日程、联系人、文件检索、网页搜索、代码与数据处理，都尽量在会话里通过原生工具和 DSH 插件完成；能落到工作区的产物直接写工作区，权限和凭据留在手机本地。
+3. **通过连接器接入更多硬件。** 手机不只是终端：通过 BLE 与局域网连接器，外设（ESP32、树莓派、车机、耳机/音箱、传感器等）可以成为同一个 DSH 会话的另一端。一个设备对应一个固定 Session，设备上行消息带 origin，UI/模型能区分“人说的”和“设备说的”；默认只读监视，写操作走能力门禁。
 
-Without this split, the official DSH plugin tree (model adapters, tools, sub-agents, session persistence) would have to be reimplemented for a phone, or the phone would have to hand a WebView authority it cannot keep.
+这三件事共同决定了当前架构：**原生宿主掌握手机资源与安全边界，Worker 保持 DSH 原样，连接器把外设接进同一个会话**。
 
-## Key properties
+## 这是什么
 
-- **One loopback origin.** Page, static assets, image and overlay shards, the ordered WebSocket, `/v1/http` and the MCP endpoint share one `127.0.0.1` origin. The Worker uses ordinary same-origin `fetch` and a normal WebSocket; there is no custom URL scheme and no second server.
-- **Durable workspace writes.** Every mutation the model makes is numbered with a persistent `mseq`, appended to a write-ahead log and acknowledged before it counts as durable. After a reconnect or restart the Worker replays from the last acknowledged number. Level 1 survives a process kill; level 2 (epoch close, `F_FULLFSYNC`, atomic manifest) puts an epoch on stable storage, so a power loss costs at most the unclosed epoch.
-- **The API key never enters the Worker.** The model gateway asks the app's `CredentialProvider` for a credential scoped to the exact upstream host and path, injects it on the host side, and first strips inbound `authorization`, `proxy-authorization` and `x-pdsh-*` headers. The Worker only ever holds a placeholder. A redirect is re-credentialed only within the same scope.
-- **Lifecycle the OS can interrupt.** Planned restarts at tool-call boundaries, background park/drain/resume with a 20 s drain window, memory and thermal budgets, and a handoff/reclaim facade backed by a durable non-secret intent. The host state machine fails loud and never silently reopens admission.
-- **Self-built accelerators: xz-shell.** The read-only accelerators are our own Rust workspace (`shell/`), not a bundled external binary: ripgrep-compatible search, jq-compatible filters, tree-sitter parse/query and the `phone`/`ctx` host bridge, behind a hand-written C ABI (`include/xzshell.h`) that is linked as `PDSHShell.xcframework`. The same workspace also produces the WASI jq engine the Worker runs. Every command is read-only by construction (a mount-table sandbox rejects anything outside `/dsh/workspace` and `/dsh/home`), bounded in output, and cancellable.
-- **Executor inversion.** `bash`, `git`, `python3` and the file tools run inside the Worker on the in-memory VFS, so their writes are ordinary workspace mutations. Only read-only accelerators (`rg`, `jaq`/`jq`, `ts-parse`, `ts-query`, and `phone`/`ctx` when a bridge exists) cross into the app process, and only when the host advertised them.
+DeepSeek Harness（DSH）自带 `webworker-runtime`，让 harness 在 Web Worker 里执行。Phone DSH 做的是宿主这一侧：一个 Swift SDK，把 Worker 启动在系统 WebKit（WKWebView）里，并提供手机真正能提供的服务。WebView 保不住的东西都留在 App 进程：日志、回环源、凭据和生命周期。
 
-## Architecture
+DSH 版本钉在 [`plugins/dsh-pin.json`](plugins/dsh-pin.json)：`0.2.1-rc.2`，commit `7be5505b0be06009d74891c869063c9cf19a0df0`。DSH 源码树不会被复制、vendor 或修改。Worker 镜像由 `plugins/scripts/pack-image.mjs` 驱动 DSH 检出自带的 packer 库构建，phone-dsh 的插件 staged 在旁边。packer 只规范化两个包里 built `dispose()` 清理调用点各一处；每个位置都有锚点，改写前后的 SHA-256 记进 `sizes.json`，源码边界由 `scripts/ci/no_dsh_patch.py` 守住。
+
+如果没有这层拆分，要么得为手机重写官方 DSH 插件树（模型适配、工具、子代理、会话持久化），要么得让 WebView 承担它保不住的权威。
+
+## 关键特性
+
+- **单一回环源。** 页面、静态资源、镜像与 overlay 分片、有序 WebSocket、`/v1/http` 和 MCP 端点共用同一个 `127.0.0.1` 源。Worker 用普通的同源 `fetch` 和 WebSocket 即可，不需要自定义 URL scheme，也没有第二个服务器。
+- **工作区写入是持久的。** 模型做出的每一次改动都带持久 `mseq` 编号写入预写日志，确认后才算持久；重连或重启后，Worker 从最后确认的编号开始重放。一级确认能扛进程被杀；二级确认（epoch 关闭、`F_FULLFSYNC`、原子写 manifest）把 epoch 落到稳定存储，所以断电最多丢最后一个未关闭的 epoch。
+- **API key 不进 Worker。** 模型网关按精确的上游 host 与路径向 App 的 `CredentialProvider` 取凭据，在宿主侧注入，并先剥掉入站的 `authorization`、`proxy-authorization` 和 `x-pdsh-*` 头。Worker 手里只有占位符；重定向只有在同一作用域内才会重新带上凭据。
+- **生命周期扛得住系统打断。** 在工具调用边界做计划内重启；后台 park/drain/resume，排空窗口 20 秒；内存与温度预算；带持久非秘密 intent 的交接/收回 facade。宿主状态机出错就大声失败，不会悄悄重新放行。
+- **自研加速器 xz-shell。** 宿主侧的只读加速器是我们自己的 Rust workspace（`shell/`），不是打包的第三方二进制：ripgrep 兼容搜索、jq 兼容过滤、tree-sitter 解析/查询，以及 `phone`/`ctx` 宿主桥，统一走手写 C ABI（`include/xzshell.h`），链接为 `PDSHShell.xcframework`。同一个 workspace 还产出 Worker 里运行的 WASI jq 引擎。每个命令在构造上只读（mount table 沙箱拒绝 `/dsh/workspace`、`/dsh/home` 之外的一切）、输出有上限、可取消。
+- **执行器倒置。** `bash`、`git`、`python3` 和文件工具都在 Worker 内的内存 VFS 上运行，写入就是普通的工作区变更。只有宿主广播过的只读加速器（`rg`、`jaq`/`jq`、`ts-parse`、`ts-query`，以及有 bridge 时的 `phone`/`ctx`）才会跨进 App 进程。
+
+## 架构
 
 ```text
 ┌───────────────────────────────────────────────────┐
@@ -54,48 +65,75 @@ Without this split, the official DSH plugin tree (model adapters, tools, sub-age
                 model provider (DeepSeek, ...)
 ```
 
-The app and the Worker meet at one origin. The page and static assets are served over HTTP; side effects travel over one ordered binary WebSocket (`VFS`, `EXEC`, `JOURNAL`, `API`, `LIFECYCLE`, `CONSOLE`, `FENCE` and the rest); model and MCP traffic goes to `/v1/http`, the only path that leaves the device. The WAL is the recovery log, never a second writer: while the Worker runs, its in-memory VFS is the authority. See [docs/architecture.md](docs/architecture.md) for the persistence model, the frame contract and the failure modes.
+App 与 Worker 在一个源上碰面。页面和静态资源走 HTTP；副作用走一条有序二进制 WebSocket（`VFS`、`EXEC`、`JOURNAL`、`API`、`LIFECYCLE`、`CONSOLE`、`FENCE` 等）；模型与 MCP 流量走 `/v1/http`，这是唯一离开设备的路径。WAL 是恢复日志，不是第二个写者：Worker 运行时，内存 VFS 才是权威。持久化模型、帧契约与失败模式见 [docs/architecture.md](docs/architecture.md)。
+
+### 手机、Worker 与设备平面
+
+```text
+┌──────────────────────────── 手机（一个 App 进程） ────────────────────────────┐
+│                                                                              │
+│  Native Host（Swift / Kotlin）                                                │
+│   ├─ Loopback + WAL + ModelGateway + Credentials + Lifecycle                 │
+│   ├─ Phone capability bridge（通讯录/日历/照片/定位/通知/文件…）              │
+│   ├─ DeviceSessionCoordinator（deviceID → 固定 DSH sessionID）              │
+│   └─ BLE / LAN connector 适配层（真实传输可替换，页面不伪造在线设备）         │
+│                              │                                               │
+│                              │ same-origin HTTP + ordered WebSocket           │
+│                              ▼                                               │
+│  WKWebView / Web Worker（DSH 原样运行）                                      │
+│   ├─ in-memory VFS + bash/git/python/file tools                              │
+│   └─ plugins / subagents / session persistence                               │
+└──────────────────────────────┬───────────────────────────────────────────────┘
+                               │ /v1/http（宿主注入凭据、allow-list）
+                               ▼
+                    model provider / MCP servers
+
+外设 ── BLE / 局域网 ──► connector ──► DeviceSessionCoordinator ──► 同一个固定 Session
+```
+
+- **宿主/Worker 边界**：WebView 保不住的权威（日志、回环源、凭据、生命周期、设备映射）留在原生进程；DSH 插件树和工具执行留在 Worker，避免为手机重写一套 DSH。
+- **资源边界**：内存、热、后台排空、工具调用边界重启都由宿主状态机管理；失败是显式的，不会静默重新放行。
+- **设备边界**：连接器只发布真实状态；同一 `deviceID` 复用固定 Session，设备会话从普通会话列表过滤，只能以只读方式监视；设备上行和手机用户消息在投影层分开。
+- **平台边界**：iOS 是 Swift 基线，Android 跟随同一份 `spec/v1` 与宿主契约；两端用同名状态、同一 402×874@3 视口和同一组 layout metrics 对齐，不直接做跨平台逐像素 diff。
 
 ## xz-shell
 
-The accelerators the Worker is allowed to hand to the app process are a Rust
-workspace of our own, in [`shell/`](shell/README.md). Nothing is generated or
-copied into the Apple build: `pdsh-ffi` exports a hand-written C ABI
-(`shell/include/xzshell.h`, checked against the exports by a test) and the
-Swift host links `PDSHShell.xcframework` built by `shell/build-apple.sh`.
+Worker 允许交给 App 进程的加速器，是我们自己的 Rust workspace，位于
+[`shell/`](shell/README.md)。Apple 构建里没有生成或拷贝的源码：`pdsh-ffi`
+导出手写 C ABI（`shell/include/xzshell.h`，有测试核对导出符号），Swift 宿主
+链接 `shell/build-apple.sh` 产出的 `PDSHShell.xcframework`。
 
-| Crate | What it provides |
+| crate | 提供什么 |
 |---|---|
-| `pdsh-core` | mount-table path sandbox, read-only VFS, cancellation, bounded output, limits, host bridge, command registry and capability JSON |
-| `pdsh-rg` | `rg`, ripgrep-compatible read-only search |
-| `pdsh-jaq` | `jaq` and its `jq` alias |
-| `pdsh-ts` | `ts-parse` and `ts-query` (tree-sitter) |
-| `pdsh-phone` | `phone` and `ctx` host-bridge accelerators |
-| `pdsh-all` | the complete production registry the host advertises |
-| `pdsh-jaq-wasm` | the jq-compatible engine the Worker runs under WASI |
+| `pdsh-core` | mount table 路径沙箱、只读 VFS、取消、输出上限、资源限制、宿主桥、命令注册表与能力 JSON |
+| `pdsh-rg` | `rg`（ripgrep 兼容的只读搜索） |
+| `pdsh-jaq` | `jaq` 及 `jq` 别名 |
+| `pdsh-ts` | `ts-parse`、`ts-query`（tree-sitter） |
+| `pdsh-phone` | `phone`、`ctx` 宿主桥加速器 |
+| `pdsh-all` | 宿主实际广播的完整生产注册表 |
+| `pdsh-jaq-wasm` | Worker 在 WASI 下运行的 jq 兼容引擎 |
 
-It is deliberately **not** a general shell: `bash -c` and every command that can
-write the workspace stay inside the Worker, and the host advertises only the
-names it can actually execute. The opt-in link keeps that boundary visible:
-build with `bash shell/build-apple.sh` and link with `PDSH_WITH_XZSHELL=1`;
-without the artifact the SDK advertises no accelerators at all.
+它刻意**不是**通用 shell：`bash -c` 以及一切会写工作区的命令都留在 Worker
+里，宿主只广播它真能执行的命令名。可选链接让这条边界保持可见：先
+`bash shell/build-apple.sh` 构建，再用 `PDSH_WITH_XZSHELL=1` 链接；没有产物时
+SDK 不广播任何加速器能力。
 
-## Quick start
+## 快速开始
 
-All commands run from the repository root unless stated otherwise.
+以下命令默认在仓库根目录执行。
 
-### Requirements
+### 环境要求
 
-| Requirement | Notes |
+| 要求 | 说明 |
 |---|---|
-| Xcode 26 with a Swift 6.3+ toolchain | recorded builds use Xcode 26.5 and Swift 6.3.2 |
-| XcodeGen | `brew install xcodegen`; regenerates `examples/probe-app/PhoneDSHProbe.xcodeproj` |
-| iOS 17+ (the SwiftPM package also builds for macOS 14) | `project.yml`, `Package.swift` |
-| Node.js ≥ 22.19, npm and pnpm | plugins, Worker image, pinned DSH build |
-| A DSH checkout at the pinned commit | built locally, never committed |
-| Rust stable and Apple targets (optional) | only for the accelerator XCFramework |
+| Xcode 26、Swift 6.3+ | 记录在案的构建使用 Xcode 26.5 与 Swift 6.3.2 |
+| XcodeGen | `brew install xcodegen`；用来重新生成 `examples/probe-app/PhoneDSHProbe.xcodeproj` |
+| iOS 17+（SwiftPM 包同时支持 macOS 14） | `project.yml`、`Package.swift` |
+| Node.js ≥ 22.19、npm、pnpm | plugins、Worker 镜像、DSH 检出构建 |
+| 钉住版本的 DSH 检出 | 本地构建，不入库 |
+| Rust stable 与 Apple targets（可选） | 只用于加速器 XCFramework |
 
-### 1. Fetch and pin the DSH checkout
+### 1. 拉取并钉住 DSH 检出
 
 ```bash
 export PDSH_DSH_CHECKOUT="$PWD/../deepseek-harness"
@@ -109,11 +147,11 @@ echo "$PDSH_DSH_CHECKOUT" > "$HOME/.config/phone-dsh/dsh-checkout"
 node plugins/scripts/dsh-checkout.mjs --verify
 ```
 
-`--verify` fails when HEAD differs from the pin, when a tracked file is modified, when an untracked file exists under a path the packer reads, or when the build artifacts are missing. `PDSH_DSH_CHECKOUT` overrides the per-machine file; the path is never committed.
+`--verify` 会在这些情况下失败：HEAD 与 pin 不一致、跟踪文件被改、packer 会读的路径下出现未跟踪文件，或者构建产物缺失。`PDSH_DSH_CHECKOUT` 优先于机器上的路径文件；这个绝对路径不会进仓库。
 
-### 2. Stage the Worker bundle
+### 2. 准备 Worker bundle
 
-`examples/probe-app/Bundle/worker/` is not committed, and the host refuses to start without it.
+`examples/probe-app/Bundle/worker/` 不入库，缺了它宿主会拒绝启动。
 
 ```bash
 bash scripts/ci/build-web-dist.sh --source "$PDSH_DSH_CHECKOUT" \
@@ -122,108 +160,118 @@ examples/probe-app/scripts/copy-bundle-assets.sh \
   --checkout "$PDSH_DSH_CHECKOUT" --force
 ```
 
-The copy step builds the Worker image, adds the CPython and jq WASI artifacts unless you pass `--without-python` / `--without-jq`, verifies the checkout against the image source, and records provenance. The Web distribution holds the complete DSH page; the app's native surface does not open it.
+复制步骤会构建 Worker 镜像，默认把 CPython 与 jq 的 WASI 产物一起打包（要用 `--without-python` / `--without-jq` 显式不要），校验检出与镜像来源一致，并记录 provenance。Web 发行目录放的是完整 DSH 页面，供 Worker 启动使用；App 原生界面不会打开它（完整 Web UI 已移除）。
 
-### 3. Build and run the probe app
+### 3. 生成并构建 probe App
 
 ```bash
 cd examples/probe-app
 xcodegen generate
 
-# Simulator
+# 模拟器
 xcodebuild -scheme PhoneDSHProbe \
   -destination 'generic/platform=iOS Simulator' \
   build CODE_SIGNING_ALLOWED=NO
 
-# Device: replace the placeholder bundle id in project.yml first,
-# then sign with your team.
+# 真机：先在 project.yml 里把占位 bundle id 换成自己的，再签名。
 xcodebuild -scheme PhoneDSHProbe \
   -destination 'generic/platform=iOS' \
   -allowProvisioningUpdates DEVELOPMENT_TEAM=YOUR_TEAM_ID build
 ```
 
-The generated `PhoneDSHProbe.xcodeproj` is intentionally not committed. Simulator reports are labelled `ios-simulator` and are not device evidence.
+生成的 `PhoneDSHProbe.xcodeproj` 故意不入库。模拟器报告会标成 `ios-simulator`，不是真机证据。
 
-### 4. Run the gates
+### 4. 跑门禁
 
 ```bash
 bash scripts/ci/check.sh --list
 bash scripts/ci/check.sh --only phone-plugins,phone-image,phone-sdk
-bash scripts/ci/check.sh        # every stage
-bash scripts/ci/smoke.sh        # desktop, real WKWebView, scripted model
-bash scripts/ci/sim.sh          # iPhone 17 Pro simulator, four gated JSON reports
+bash scripts/ci/check.sh        # 全部阶段
+bash scripts/ci/smoke.sh        # 桌面端，真 WKWebView，脚本模型
+bash scripts/ci/sim.sh          # iPhone 17 Pro 模拟器，四份参与判定的 JSON 报告
 ```
 
-Stages are `phone-spec`, `phone-plugins`, `phone-image`, `phone-sdk`, `phone-no-dsh-patch`, `phone-hygiene`, `phone-license`, `phone-modules`, `phone-gate-contracts` and `phone-xcode-resolve`. A skipped optional stage makes the run exit `INCOMPLETE` (exit 2), never `PASS`. The catalog-driven real-model batch is separate:
+阶段是 `phone-spec`、`phone-plugins`、`phone-image`、`phone-sdk`、`phone-no-dsh-patch`、`phone-hygiene`、`phone-license`、`phone-modules`、`phone-gate-contracts` 和 `phone-xcode-resolve`。可选阶段被跳过时，整轮以 `INCOMPLETE`（exit 2）结束，永远不会是 `PASS`。按 catalog 跑的真实模型批处理单独执行：
 
 ```bash
-eval "$(node scripts/ci/model-env.mjs)"   # exports PDSH_MODEL_*, prints no key
+eval "$(node scripts/ci/model-env.mjs)"   # 只导出 PDSH_MODEL_*，不打印密钥
 bash scripts/ci/scenarios.sh --upstream real
 ```
 
-## Repository map
+## 仓库结构
 
-The tree is deliberately asymmetric. The root holds the Swift reference implementation (the
-baseline), the platform-independent contract and runtime sit in the middle, and the Android host is
-one adaptation tree that follows the contract. A symmetric `apple/ + shared/ + android/` split is
-not used: it would suggest the two hosts are peers, which they are not, and it would rewrite
-hundreds of paths for no semantic gain.
-
-| Zone | Path | What lives there |
-|---|---|---|
-| **Baseline** (Swift, the reference) | `Sources/PhoneDSH*` | Swift host modules: `Wire`, `Log` (WAL), `Loopback`, `Gateway`, `Controller`, `Engine`, `Shell`, `AgentCore`, and the `PhoneDSH` facade |
-| | `examples/probe-app/` | The reference iOS UI and the probes that produce device evidence |
-| | `Tests/` | Swift unit, probe, kill, smoke and scenario suites |
-| **Shared** (platform independent) | `spec/v1/` | Host↔Worker contract: frames, WAL, exec, handoff, budgets, the page↔host bridge, gateway security, trajectory normalisation, golden vectors |
-| | `spec/host/v1/` | Host-side contract: AgentHarness, session events, device envelope, receipts, capabilities |
-| | `spec/platform/` | The machine-readable platform divergence whitelist and its `baseline: not-applicable` channel |
-| | `spec/ui/v1/` | UI interaction specification and the single-source design tokens |
-| | `spec/tools/` | Cross-tree invariants that no single contract tree can check alone |
-| | `plugins/` | Worker-side TypeScript: entry, channel client, DSH plugins, phone profile, image packer, `dsh-pin.json`, and the M99 ES-target compatibility gate (the **runtime** WebView baseline is different: see `android/engine/README.md`) |
-| | `shell/` | Rust accelerators built into `PDSHShell.xcframework`, plus `pdsh-wire` and `pdsh-wal`: the shared format and recovery kernel |
-| **Adaptation** (Kotlin, follows the contract) | `android/` | The Android host tree, split `:lib` `:app` `:testkit` and the modules that mirror the Swift ones by package name. Structure only today: the build is blocked on a host with Gradle and the Android SDK |
-| **Tooling** | `scripts/ci/` | Local gates: `check.sh`, `smoke.sh`, `sim.sh`, `scenarios.sh`, `probes.sh` |
-| | `docs/` | Architecture, probe runbook, the device connector contract, the Android module map and the security checklist |
-
-## Documentation
-
-- [docs/architecture.md](docs/architecture.md): implemented capabilities, persistence model, credentials, budgets and known limits.
-- [docs/functional-test-plan-2026-10-28.md](docs/functional-test-plan-2026-10-28.md): native-surface test matrix (Chinese).
-- [docs/runbook-probe.md](docs/runbook-probe.md): build the artifacts, run the probe package and the smoke, read the reports.
-- [spec/v1/README.md](spec/v1/README.md): the normative host/Worker contract and golden vectors.
-- [CONTRIBUTING.md](CONTRIBUTING.md): the rules a change has to satisfy.
-
-## Security and privacy
-
-- **Keys.** The SDK's model-settings store keeps model credentials in the Keychain through `KeychainModelProviderSecretStore` (`kSecClassGenericPassword`). MCP header values, the independent web-search key and the handoff reclaim token each have a dedicated Keychain service. The per-launch loopback token stays in memory.
-- **Egress.** The gateway allow-list is the union of `allowedModelHosts` and `egressAllowHosts`; an empty model list denies every upstream. MCP access is granted per exact scheme/host/port/path, never `*`. The Worker never opens an outbound socket of its own; every external request goes through the host's `/v1/http` and is checked there.
-- **What leaves the device.** Prompts, tool results and model requests go directly from the phone to the provider you configure; there is no relay service. Requests to MCP servers you add go to those servers. Workspaces, the WAL and session records stay in the app container under `Library/xl/<workspace_id>/`. The example app sets `DSH_TELEMETRY_DISABLED=1` for the Worker, and this repository adds no analytics or crash reporting.
-- **What does not leave.** The API key, the loopback token, MCP header values and the reclaim token are injected by the host. The Worker sees placeholders only. MCP auth headers are injected for the exact URL and redacted from host-managed error bodies.
-
-There is no `SECURITY.md` in the repository yet. To report a vulnerability, use GitHub's private security advisory flow: **Security** tab → **Report a vulnerability**. Do not open a public issue containing a key, token or exploit.
-
-## Status and limitations
-
-A PASS belongs only to the source commit, built artifacts and environment named in its receipt. This tree does not include a current-source receipt for the end-to-end gates.
-
-| Area | Status |
+| 路径 | 内容 |
 |---|---|
-| Desktop smoke (real WKWebView, scripted model) | historical gate on an earlier revision; a rerun on the current source is not recorded here |
-| iPhone 17 Pro simulator gate (`sim.sh`) | historical simulator gate; simulator evidence only |
-| Full 56-scenario real-model batch (`scenarios.sh`) | NOT_RUN on the current source; needs a real key and a source-bound receipt |
-| Physical iPhone (signing, install, real provider, background) | NOT_RUN; no device evidence, so throttling, JIT, jetsam, Lockdown Mode and background scheduling stay NOT_VERIFIED on device |
-| Remote handoff peer | facade and in-process tests exist; a deployed remote DSH peer over real transport is NOT_RUN |
-| Hosted GitHub Actions | currently off (billing), so no CI badge is shown; `.github/workflows/ci.yml` is kept and the same gates run locally |
-| Complete DSH Web UI in the app | removed: the app ships only the native SwiftUI shell; the Worker image still carries the DSH page the Worker boots from |
-| Native accelerators | opt-in: `PDSH_WITH_XZSHELL=1` plus a built `shell/dist/PDSHShell.xcframework`; without it the SDK advertises nothing and fails loud |
-| Lockdown Mode | the local Worker is disabled and reported; there is no in-app workaround |
+| `Sources/PhoneDSH*` | Swift 宿主模块：`Wire`、`Log`（WAL）、`Loopback`、`Gateway`、`Controller`、`Engine`、`Shell`、`AgentCore`，以及门面 `PhoneDSH` |
+| `plugins/` | Worker 侧 TypeScript：入口、通道客户端、DSH 插件、手机 profile、镜像打包器、`dsh-pin.json` |
+| `spec/v1/` | 宿主/Worker 契约：帧、WAL、exec、交接、预算、golden vectors |
+| `shell/` | xz-shell：自研 Rust 只读加速器，构建为 `PDSHShell.xcframework` |
+| `examples/probe-app/` | iOS probe App、模拟器套件、真机报告导出 |
+| `Tests/` | Swift 单测、探针、kill、smoke、场景套件 |
+| `scripts/ci/` | 本地门禁：`check.sh`、`smoke.sh`、`sim.sh`、`scenarios.sh`、`probes.sh` |
+| `docs/` | 架构、probe runbook、原生验证记录、功能测试计划 |
 
-## Contributing
+## 平台与基线
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Zero DSH source patches is a hard rule; contract changes update `spec/v1` and the golden vectors together; every change keeps the local gates green.
+iOS 是参考实现，Android 跟随同一份 `spec/v1` 与宿主契约。两边不靠手截图对齐，基线是可复跑的脚本：
 
-## License
+```bash
+# 官方 DSH Web UI 参照（真实 dsh web + CDP，402×874@3，9 个状态）
+scripts/ios-parity/golden/capture-official.sh
 
-MIT. See [LICENSE](LICENSE). © 2026 Xiaozhi & Tono AI Team.
+# iOS 原生自检截图
+scripts/ios-parity/capture.sh <simulator-udid> sample
+```
 
-Third-party components in the Worker image are listed in [plugins/THIRD_PARTY.md](plugins/THIRD_PARTY.md) and [shell/THIRD_PARTY.md](shell/THIRD_PARTY.md). This is a community project, not affiliated with or endorsed by DeepSeek.
+Android 用 Android 仓的工具在**同一视口、同一状态名、同一组 layout metrics**下采集和比较；跨平台不做逐像素 diff（CoreText/Android 字体栅格不同），只在各自平台内做阈值比较：
+
+```bash
+android/tools/screenshot-capture.sh
+python3 android/tools/test_screenshot_compare.py compare \
+  --baseline <android-golden-dir> --actual <android-capture-dir>
+```
+
+详见 [scripts/ios-parity/README.md](scripts/ios-parity/README.md) 与 [golden/README.md](scripts/ios-parity/golden/README.md)。
+
+## 文档
+
+- [docs/architecture.md](docs/architecture.md)：已实现能力、持久化模型、凭据、预算与已知限制。
+- [docs/functional-test-plan-2026-10-28.md](docs/functional-test-plan-2026-10-28.md)：原生界面的测试矩阵。
+- [docs/runbook-probe.md](docs/runbook-probe.md)：构建产物、跑 probe 包和 smoke、读报告。
+- [spec/v1/README.md](spec/v1/README.md)：规范的宿主/Worker 契约与 golden vectors。
+- [CONTRIBUTING.md](CONTRIBUTING.md)：一次改动必须满足的规则。
+
+## 安全与隐私
+
+- **密钥。** SDK 的模型设置存储通过 `KeychainModelProviderSecretStore`（`kSecClassGenericPassword`）把模型凭据放进 Keychain。MCP 请求头值、独立网页搜索密钥、handoff reclaim token 各有专用 Keychain service；每次启动的 loopback token 只留在内存。
+- **出网。** 网关允许列表是 `allowedModelHosts` 与 `egressAllowHosts` 的并集；模型 host 列表为空就拒绝所有上游。MCP 授权按精确 `scheme/host/port/path` 发放，不接受 `*`。Worker 从不自己开对外的 socket，所有外部请求都走宿主的 `/v1/http` 并在那里检查。
+- **会离开设备的。** 提示词、工具结果和模型请求从手机直接发给你配置的 provider，没有中继服务；你添加的 MCP server 会收到对应请求。工作区、WAL 和会话记录留在 App 容器的 `Library/xl/<workspace_id>/`。示例 App 给 Worker 设置 `DSH_TELEMETRY_DISABLED=1`，本仓库不包含分析或崩溃上报代码。
+- **不会离开的。** API key、loopback token、MCP 请求头值、reclaim token 都由宿主注入，Worker 只看得到占位符。MCP 认证头只在精确 URL 上注入，宿主托管的错误正文会脱敏。
+
+本仓库目前没有 `SECURITY.md`。报告漏洞请走 GitHub 的私密安全公告：**Security** → **Report a vulnerability**。不要在公开 issue 里贴 key、token 或利用细节。
+
+## 状态与限制
+
+一条 PASS 只属于其 receipt 中写明的源码 commit、构建产物和环境。本仓库没有当前源码的端到端 gate receipt。
+
+| 范围 | 状态 |
+|---|---|
+| 桌面 smoke（真 WKWebView + 脚本模型） | 在较早修订上通过的历史门禁；当前源码重跑未记录 |
+| iPhone 17 Pro 模拟器门禁（`sim.sh`） | 历史模拟器门禁；只是模拟器证据 |
+| 全 56 场景真实模型批跑（`scenarios.sh`） | 当前源码 NOT_RUN；需要真实密钥和绑定源码的 receipt |
+| 物理 iPhone（签名、安装、真实 provider、后台） | NOT_RUN；没有真机证据，限流、JIT、jetsam、锁定模式和后台调度在真机上仍是 NOT_VERIFIED |
+| 远端 handoff peer | facade 与进程内测试存在；真实传输上的部署 peer NOT_RUN |
+| 托管 GitHub Actions | 因账单原因目前关闭，所以不放 CI 徽章；`.github/workflows/ci.yml` 保留，同样的门禁在本地跑 |
+| App 里的完整 DSH Web UI | 已移除：App 只保留原生 SwiftUI 界面；Worker 镜像里仍带 DSH 页面，那是 Worker 启动用的，不是界面 |
+| 原生加速器 | 可选：`PDSH_WITH_XZSHELL=1` 加构建好的 `shell/dist/PDSHShell.xcframework`；不链接时 SDK 不广播任何能力并大声失败 |
+| 锁定模式 | 本地 Worker 不可用并会如实上报，App 内没有绕过办法 |
+
+## 参与贡献
+
+见 [CONTRIBUTING.md](CONTRIBUTING.md)。硬规则：不改 DSH 源码；改契约时 `spec/v1` 与 golden vectors 一起改；每次改动都要让本地门禁保持通过。
+
+## 许可证
+
+MIT，见 [LICENSE](LICENSE)。© 2026 Xiaozhi & Tono AI Team。
+
+Worker 镜像中的第三方组件列在 [plugins/THIRD_PARTY.md](plugins/THIRD_PARTY.md) 与 [shell/THIRD_PARTY.md](shell/THIRD_PARTY.md)。社区项目，与 DeepSeek 官方无隶属或背书关系。
