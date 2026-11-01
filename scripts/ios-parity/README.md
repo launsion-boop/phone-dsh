@@ -7,6 +7,41 @@
 
 它**不运行**官方 Web，也不渲染 iOS；只读源码/CSS。适合在官方 pin 变化、或 iOS chat 代码改动后复跑，作为“审计/实现有没有漂移”的体检。
 
+## iOS 基线用哪个脚本
+
+iOS 的 402pt 基线分两层，不要手截图：
+
+```bash
+# 1) 官方 DSH 真机 Web UI 参照（9 个状态）
+scripts/ios-parity/golden/capture-official.sh
+
+# 2) iOS 原生自检截图
+scripts/ios-parity/capture.sh <simulator-udid> sample
+```
+
+官方 golden 会启动真实 `dsh web`、用 Chrome DevTools Protocol 在 402×874@3 下截图，
+并把 hero / auth / chat / tool / question / plan / subagent 的 manifest 一起写出来。
+详见 [golden/README.md](golden/README.md)。
+
+## Android 对齐建议
+
+Android 不要手工截图对 iOS；用同一个 402×874@3 口径跑脚本，再把两边同名状态并排审：
+
+```bash
+# Android 截图（Android 仓自己的工具）
+android/tools/screenshot-capture.sh
+
+# 阈值比较（每个 Android 状态内部先过自己的 golden）
+python3 android/tools/test_screenshot_compare.py compare \
+  --baseline <android-golden-dir> \
+  --actual <android-capture-dir>
+```
+
+跨平台不要直接做逐像素 diff：CoreText 与 Android 字体栅格不同，必然有抗锯齿差异。
+Android 对齐 iOS 基线时使用同一套状态名、同一 402×874@3 视口、同一组 layout metrics
+（header 50、composer 370×98、内容列 338、tool row 24、flow 6/12）；
+像素阈值只在 Android 自己的 golden 内使用。
+
 ## 用法
 
 ```bash
