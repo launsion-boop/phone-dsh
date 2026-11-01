@@ -142,13 +142,13 @@ final class PageSchemeHandlerTests: XCTestCase {
         }
     }
 
-    func testDeclaredTierIsReadFromThePageAndDefaultsToSandbox() {
+    func testDeclaredTierIsReadFromThePageAndDefaultsToLocal() {
         XCTAssertEqual(PDSHPageScheme.declaredTier(
             inHTML: Data("<meta name=\"pdsh-csp\" content=\"local\">".utf8)), .local)
         XCTAssertEqual(PDSHPageScheme.declaredTier(
             inHTML: Data("<meta name='pdsh-csp' content='online'>".utf8)), .online)
         XCTAssertEqual(PDSHPageScheme.declaredTier(
-            inHTML: Data("<html><head></head></html>".utf8)), .sandbox)
+            inHTML: Data("<html><head></head></html>".utf8)), .local)
     }
 
     func testByteRanges() {
@@ -256,8 +256,10 @@ final class PageSchemeHandlerTests: XCTestCase {
         XCTAssertEqual(PDSHPageScheme.declaredTier(inHTML: Data("<META CONTENT='local' NAME='pdsh-csp'>".utf8)), .local)
         XCTAssertEqual(PDSHPageScheme.declaredTier(inHTML: Data("<meta name=pdsh-csp content=online>".utf8)), .online)
         XCTAssertEqual(PDSHPageScheme.declaredTier(inHTML: Data("<meta name='pdsh-csp' content='sandbox'>".utf8)), .sandbox)
-        XCTAssertEqual(PDSHPageScheme.declaredTier(inHTML: Data("<meta name='pdsh-csp' content='bogus'>".utf8)), .sandbox)
-        XCTAssertEqual(PDSHPageScheme.declaredTier(inHTML: Data("<meta name='other' content='online'>".utf8)), .sandbox)
+        XCTAssertEqual(PDSHPageScheme.declaredTier(inHTML: Data("<meta name='pdsh-csp' content='bogus'>".utf8)), .local)
+        XCTAssertEqual(PDSHPageScheme.declaredTier(inHTML: Data("<meta name='other' content='online'>".utf8)), .local)
+        XCTAssertEqual(PDSHPageScheme.declaredTier(inHTML: Data("<meta name='pdsh-csp' content='online'>".utf8)), .online)
+        XCTAssertEqual(PDSHPageScheme.declaredTier(inHTML: Data("<meta name='pdsh-csp' content='sandbox'>".utf8)), .sandbox)
     }
 
     /// A per-preview user grant widens only resource/egress directives; it
@@ -273,7 +275,7 @@ final class PageSchemeHandlerTests: XCTestCase {
         let deniedTask = FakeTask(url: URL(string: "pdsh-page://S/page.html")!)
         run(makeHandler(denied), deniedTask)
         let deniedCSP = deniedTask.response?.value(forHTTPHeaderField: "Content-Security-Policy") ?? ""
-        XCTAssertTrue(deniedCSP.contains("connect-src 'none'"))
+        XCTAssertTrue(deniedCSP.contains("connect-src pdsh-page:"))
         XCTAssertFalse(deniedCSP.contains("https:"))
 
         let grantedTask = FakeTask(url: URL(string: "pdsh-page://S/page.html")!)
@@ -283,6 +285,44 @@ final class PageSchemeHandlerTests: XCTestCase {
         XCTAssertTrue(grantedCSP.contains("img-src data: blob: pdsh-page: https:"))
         XCTAssertTrue(grantedCSP.contains("script-src 'unsafe-inline' blob: pdsh-page:"))
         XCTAssertFalse(grantedCSP.contains("script-src 'unsafe-inline' blob: pdsh-page: https:"))
+    }
+
+    func testPageCannotSelfGrantOnline() throws {
+        let ws = try workspace()
+        try write("<meta name='pdsh-csp' content='online'><p>hi</p>",
+                  to: ws.appendingPathComponent("page.html"))
+        let resolver = PDSHPageResolver(libraryRoot: try library(), workspaceRoot: { _ in ws })
+        let task = FakeTask(url: URL(string: "pdsh-page://S/page.html")!)
+        run(makeHandler(resolver), task)
+        let csp = task.response?.value(forHTTPHeaderField: "Content-Security-Policy") ?? ""
+        XCTAssertTrue(csp.contains("connect-src pdsh-page:"))
+        XCTAssertFalse(csp.contains("https:"))
+    }
+
+    func testSandboxIgnoresNetworkGrant() throws {
+        let ws = try workspace()
+        try write("<meta name='pdsh-csp' content='sandbox'><p>hi</p>",
+                  to: ws.appendingPathComponent("page.html"))
+        let resolver = PDSHPageResolver(libraryRoot: try library(),
+                                        workspaceRoot: { _ in ws },
+                                        networkAllowed: { _ in true })
+        let task = FakeTask(url: URL(string: "pdsh-page://S/page.html")!)
+        run(makeHandler(resolver), task)
+        let csp = task.response?.value(forHTTPHeaderField: "Content-Security-Policy") ?? ""
+        XCTAssertTrue(csp.contains("connect-src 'none'"))
+        XCTAssertFalse(csp.contains("https:"))
+    }
+
+    func testSVGAlwaysGetsStaticCSP() throws {
+        let ws = try workspace()
+        try write("<svg xmlns='http://www.w3.org/2000/svg'><script>alert(1)</script></svg>",
+                  to: ws.appendingPathComponent("icon.svg"))
+        let resolver = PDSHPageResolver(libraryRoot: try library(), workspaceRoot: { _ in ws })
+        let task = FakeTask(url: URL(string: "pdsh-page://S/icon.svg")!)
+        run(makeHandler(resolver), task)
+        let csp = task.response?.value(forHTTPHeaderField: "Content-Security-Policy") ?? ""
+        XCTAssertTrue(csp.contains("script-src 'none'"))
+        XCTAssertTrue(csp.contains("frame-ancestors 'none'"))
     }
 
     func testServesARangeWith206() throws {

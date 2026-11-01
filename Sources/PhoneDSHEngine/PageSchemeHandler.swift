@@ -252,7 +252,7 @@ public enum PDSHPageScheme {
                   let tier = PDSHCSPSandboxTier(rawValue: raw) else { continue }
             return tier
         }
-        return .sandbox
+        return .local
     }
 
     private static func metaAttributes(in tag: String) -> [String: String] {
@@ -292,7 +292,27 @@ public enum PDSHPageScheme {
             "media-src \(origin)\(network)",
             "connect-src \(connect)",
             "frame-src 'none'",
+            "frame-ancestors 'none'",
             "worker-src blob: \(origin)",
+            "object-src 'none'",
+            "base-uri 'none'",
+            "form-action 'none'",
+        ].joined(separator: "; ")
+    }
+
+    /// SVG is a document, not a passive image: it can contain scripts and
+    /// external references. It gets a static-only policy even when the URL is
+    /// loaded as a top-level page.
+    public static func svgContentSecurityPolicy() -> String {
+        [
+            "default-src 'none'",
+            "script-src 'none'",
+            "style-src 'unsafe-inline'",
+            "img-src data:",
+            "font-src data:",
+            "connect-src 'none'",
+            "frame-src 'none'",
+            "frame-ancestors 'none'",
             "object-src 'none'",
             "base-uri 'none'",
             "form-action 'none'",
@@ -485,9 +505,21 @@ public final class PDSHPageSchemeHandler: NSObject, WKURLSchemeHandler {
                 headers["Content-Range"] = "bytes \(range.start)-\(range.end)/\(total)"
             }
             headers["Content-Length"] = String(bodyLength)
-            if file.isHTML {
+            let isSVG = file.url.pathExtension.lowercased() == "svg"
+            if isSVG {
+                headers["Content-Security-Policy"] = PDSHPageScheme.svgContentSecurityPolicy()
+            } else if file.isHTML {
                 var tier = PDSHPageScheme.declaredTier(inHTML: firstChunk.prefix(64 * 1024))
-                if resolver.networkAllowed(url) { tier = .online }
+                // Meta is a request, never a grant. A page can restrict its
+                // tier; only the host's per-preview grant can widen it. The
+                // sandbox tier stays sandbox even when network is granted.
+                if tier != .sandbox {
+                    if tier == .online, !resolver.networkAllowed(url) {
+                        tier = .local
+                    } else if resolver.networkAllowed(url) {
+                        tier = .online
+                    }
+                }
                 headers["Content-Security-Policy"] =
                     PDSHPageScheme.contentSecurityPolicy(for: tier)
             }
