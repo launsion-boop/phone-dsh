@@ -133,6 +133,7 @@ public struct PDSHPageWebView: UIViewRepresentable {
                          forMainFrameOnly: true))
         let view = WKWebView(frame: .zero, configuration: configuration)
         view.navigationDelegate = context.coordinator
+        view.uiDelegate = context.coordinator
         view.scrollView.isScrollEnabled = true
         view.isInspectable = false
         view.load(URLRequest(url: url))
@@ -175,7 +176,7 @@ public struct PDSHPageWebView: UIViewRepresentable {
     })();
     """
 
-    public final class Coordinator: NSObject, WKNavigationDelegate {
+    public final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         let resolver: PDSHPageResolver
         let failure: Binding<String?>
 
@@ -192,6 +193,38 @@ public struct PDSHPageWebView: UIViewRepresentable {
             decisionHandler(
                 navigationAction.request.url?.scheme == PDSHPageScheme.name
                     ? .allow : .cancel)
+        }
+
+        // No popups, file pickers, or JavaScript panels: the preview is a
+        // read-only page surface, and a page must not be able to open another
+        // in-app web view or reach the host file picker.
+        public func webView(_ webView: WKWebView,
+                            createWebViewWith configuration: WKWebViewConfiguration,
+                            for navigationAction: WKNavigationAction,
+                            windowFeatures: WKWindowFeatures) -> WKWebView? {
+            nil
+        }
+
+        public func webView(_ webView: WKWebView,
+                            runJavaScriptAlertPanelWithMessage message: String,
+                            initiatedByFrame frame: WKFrameInfo,
+                            completionHandler: @escaping () -> Void) {
+            completionHandler()
+        }
+
+        public func webView(_ webView: WKWebView,
+                            runJavaScriptConfirmPanelWithMessage message: String,
+                            initiatedByFrame frame: WKFrameInfo,
+                            completionHandler: @escaping (Bool) -> Void) {
+            completionHandler(false)
+        }
+
+        public func webView(_ webView: WKWebView,
+                            runJavaScriptTextInputPanelWithPrompt prompt: String,
+                            defaultText: String?,
+                            initiatedByFrame frame: WKFrameInfo,
+                            completionHandler: @escaping (String?) -> Void) {
+            completionHandler(nil)
         }
 
         public func webView(_ webView: WKWebView,

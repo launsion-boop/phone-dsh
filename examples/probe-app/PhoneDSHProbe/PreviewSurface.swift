@@ -708,3 +708,50 @@ extension PreviewDebugFixtures {
     }
 }
 #endif
+
+#if DEBUG
+struct PreviewDebugAudio: View {
+    let path: String
+    @State private var installed = false
+    var body: some View {
+        PreviewSurface(target: .workspaceFile(path), isModal: false)
+            .task {
+                guard !installed else { return }
+                installed = true
+                PreviewDebugFixtures.installAudio(path: path)
+            }
+    }
+}
+
+extension PreviewDebugFixtures {
+    /// A tiny 440 Hz PCM WAV, enough to exercise the AVKit branch without a
+    /// binary asset in the repository.
+    static func installAudio(path: String) {
+        let sampleRate = 22_050
+        let seconds = 2
+        let sampleCount = sampleRate * seconds
+        var data = Data()
+        func appendLE<T: FixedWidthInteger>(_ value: T) {
+            withUnsafeBytes(of: value.littleEndian) { data.append(contentsOf: $0) }
+        }
+        let dataBytes = sampleCount * 2
+        data.append(contentsOf: Array("RIFF".utf8))
+        appendLE(UInt32(36 + dataBytes))
+        data.append(contentsOf: Array("WAVEfmt ".utf8))
+        appendLE(UInt32(16))
+        appendLE(UInt16(1))
+        appendLE(UInt16(1))
+        appendLE(UInt32(sampleRate))
+        appendLE(UInt32(sampleRate * 2))
+        appendLE(UInt16(2))
+        appendLE(UInt16(16))
+        data.append(contentsOf: Array("data".utf8))
+        appendLE(UInt32(dataBytes))
+        for index in 0..<sampleCount {
+            let sample = sin(2 * .pi * 440 * Double(index) / Double(sampleRate))
+            appendLE(Int16(sample * 8_000))
+        }
+        write(data: data, path: path)
+    }
+}
+#endif

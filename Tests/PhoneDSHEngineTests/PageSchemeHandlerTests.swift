@@ -252,6 +252,14 @@ final class PageSchemeHandlerTests: XCTestCase {
         XCTAssertEqual(task.chunks.reduce(Data(), +), bytes)
     }
 
+    func testCSPTierParsesMetaAttributesInAnyOrder() {
+        XCTAssertEqual(PDSHPageScheme.declaredTier(inHTML: Data("<META CONTENT='local' NAME='pdsh-csp'>".utf8)), .local)
+        XCTAssertEqual(PDSHPageScheme.declaredTier(inHTML: Data("<meta name=pdsh-csp content=online>".utf8)), .online)
+        XCTAssertEqual(PDSHPageScheme.declaredTier(inHTML: Data("<meta name='pdsh-csp' content='sandbox'>".utf8)), .sandbox)
+        XCTAssertEqual(PDSHPageScheme.declaredTier(inHTML: Data("<meta name='pdsh-csp' content='bogus'>".utf8)), .sandbox)
+        XCTAssertEqual(PDSHPageScheme.declaredTier(inHTML: Data("<meta name='other' content='online'>".utf8)), .sandbox)
+    }
+
     /// A per-preview user grant widens only resource/egress directives; it
     /// must never add https: to script-src.
     func testNetworkGrantWidensResourcesButNotScripts() throws {

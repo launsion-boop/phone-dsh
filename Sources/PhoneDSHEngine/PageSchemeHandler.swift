@@ -229,18 +229,47 @@ public enum PDSHPageScheme {
         }
     }
 
-    /// The tier a page declares in its first bytes; `sandbox` is the default.
+    /// The tier a page declares in its first 64 KiB; `sandbox` is the default.
+    ///
+    /// This is a real `<meta>` attribute parse, not a substring scan: the
+    /// attributes may be in any order and may use single/double quotes or no
+    /// quotes. An invalid tier, an absent meta, or a meta outside the prefix
+    /// all fall back to the safe tier. The host still takes `min(declared,
+    /// network grant)`; a page can never upgrade the host policy by itself.
     public static func declaredTier(inHTML prefix: Data) -> PDSHCSPSandboxTier {
-        let text = String(decoding: prefix, as: UTF8.self).lowercased()
-        for tier in [PDSHCSPSandboxTier.online, .local, .sandbox] {
-            if text.contains("name=\"pdsh-csp\"" ) || text.contains("name='pdsh-csp'") {
-                if text.contains("content=\"\(tier.rawValue)\"")
-                    || text.contains("content='\(tier.rawValue)'") {
-                    return tier
-                }
-            }
+        let text = String(decoding: prefix, as: UTF8.self)
+        guard let meta = try? NSRegularExpression(pattern: "<meta\\b[^>]*>",
+                                                  options: [.caseInsensitive]) else {
+            return .sandbox
+        }
+        let ns = text as NSString
+        let full = NSRange(location: 0, length: ns.length)
+        for match in meta.matches(in: text, options: [], range: full) {
+            let tag = ns.substring(with: match.range)
+            let attributes = metaAttributes(in: tag)
+            guard attributes["name"]?.lowercased() == "pdsh-csp",
+                  let raw = attributes["content"]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+                  let tier = PDSHCSPSandboxTier(rawValue: raw) else { continue }
+            return tier
         }
         return .sandbox
+    }
+
+    private static func metaAttributes(in tag: String) -> [String: String] {
+        guard let regex = try? NSRegularExpression(
+            pattern: "([A-Za-z_:][-A-Za-z0-9_:.]*)\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)'|([^\\s\"'>]+))",
+            options: []) else { return [:] }
+        let ns = tag as NSString
+        let full = NSRange(location: 0, length: ns.length)
+        var result: [String: String] = [:]
+        for match in regex.matches(in: tag, options: [], range: full) {
+            let key = ns.substring(with: match.range(at: 1)).lowercased()
+            for group in 2...4 where match.range(at: group).location != NSNotFound {
+                result[key] = ns.substring(with: match.range(at: group))
+                break
+            }
+        }
+        return result
     }
 
     /// The host-enforced policy of a tier (spec-render-media-v1 §B.4).
@@ -457,7 +486,7 @@ public final class PDSHPageSchemeHandler: NSObject, WKURLSchemeHandler {
             }
             headers["Content-Length"] = String(bodyLength)
             if file.isHTML {
-                var tier = PDSHPageScheme.declaredTier(inHTML: firstChunk.prefix(4096))
+                var tier = PDSHPageScheme.declaredTier(inHTML: firstChunk.prefix(64 * 1024))
                 if resolver.networkAllowed(url) { tier = .online }
                 headers["Content-Security-Policy"] =
                     PDSHPageScheme.contentSecurityPolicy(for: tier)
