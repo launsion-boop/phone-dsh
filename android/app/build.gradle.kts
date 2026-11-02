@@ -12,6 +12,8 @@ import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.TaskAction
+import org.gradle.api.tasks.Copy
+import org.gradle.api.tasks.testing.Test
 import org.gradle.process.ExecOperations
 
 plugins {
@@ -38,6 +40,32 @@ plugins {
 // below fails instead of shipping that APK.
 val repoRoot: File = rootProject.projectDir.parentFile
 val pdshJniSo: File = repoRoot.resolve("shell/target/aarch64-linux-android/debug/libpdsh_jni.so")
+val hostPdshJni: File = repoRoot.resolve("shell/target/debug/${System.mapLibraryName("pdsh_jni")}")
+val hostJniTestDirectory: File = layout.buildDirectory.dir("generated/host-jni-test").get().asFile
+val stageHostJniForTests = tasks.register("stageHostJniForTests") {
+    description = "Stages the real host Rust JNI artifact for app JVM tests"
+    doLast {
+        check(hostPdshJni.isFile) {
+            "missing real Rust JNI artifact ${hostPdshJni.path}; build it with: " +
+                "bash android/tools/with-rust-toolchain.sh cargo build --locked --manifest-path shell/Cargo.toml -p pdsh-jni"
+        }
+        hostJniTestDirectory.mkdirs()
+        hostPdshJni.copyTo(hostJniTestDirectory.resolve(hostPdshJni.name), overwrite = true)
+    }
+}
+
+tasks.withType<Test>().configureEach {
+    dependsOn(stageHostJniForTests)
+    systemProperty("pdsh.repo.root", repoRoot.absolutePath)
+    systemProperty("java.library.path", hostJniTestDirectory.absolutePath)
+    doFirst {
+        val staged = hostJniTestDirectory.resolve(System.mapLibraryName("pdsh_jni"))
+        check(staged.isFile && staged.length() > 0L) {
+            "real host JNI artifact was not staged at ${staged.path}; build it with: " +
+                "bash android/tools/with-rust-toolchain.sh cargo build --locked --manifest-path shell/Cargo.toml -p pdsh-jni"
+        }
+    }
+}
 fun displayPath(path: File): String =
     runCatching { path.relativeTo(repoRoot).path }.getOrElse { path.absolutePath }
 val pdshJniRelative: String = displayPath(pdshJniSo)

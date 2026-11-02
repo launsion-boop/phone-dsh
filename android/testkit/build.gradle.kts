@@ -77,18 +77,29 @@ tasks.matching { it.name == "test" }.configureEach {
 // directory is derived from the Gradle root (no machine-local path is committed).
 // Build it first with: cd shell && cargo build -p pdsh-jni
 val repoRoot: File = rootProject.projectDir.parentFile
-val nativeLibraryDir: File = repoRoot.resolve("shell/target/debug")
-val nativeLibrary: File = nativeLibraryDir.resolve(System.mapLibraryName("pdsh_jni"))
+val nativeLibrary: File = repoRoot.resolve("shell/target/debug/${System.mapLibraryName("pdsh_jni")}")
+val hostJniTestDirectory: File = layout.buildDirectory.dir("generated/host-jni-test").get().asFile
+val stageHostJniForTests = tasks.register("stageHostJniForTests") {
+    description = "Stages the real host Rust JNI artifact for testkit JVM tests"
+    doLast {
+        check(nativeLibrary.isFile) {
+            "missing real Rust JNI artifact ${nativeLibrary.path}; build it with: " +
+                "bash android/tools/with-rust-toolchain.sh cargo build --locked --manifest-path shell/Cargo.toml -p pdsh-jni"
+        }
+        hostJniTestDirectory.mkdirs()
+        nativeLibrary.copyTo(hostJniTestDirectory.resolve(nativeLibrary.name), overwrite = true)
+    }
+}
 
 tasks.withType<Test>().configureEach {
+    dependsOn(stageHostJniForTests)
     systemProperty("pdsh.repo.root", repoRoot.absolutePath)
-    systemProperty("java.library.path", nativeLibraryDir.absolutePath)
-    // Not declared as an input: Gradle validates a declared input BEFORE doFirst
-    // runs, so a missing dylib surfaced as "file ... does not exist" and buried the
-    // actionable message below. The doFirst check is the one people need to see.
+    systemProperty("java.library.path", hostJniTestDirectory.absolutePath)
     doFirst {
-        check(nativeLibrary.isFile) {
-            "missing ${nativeLibrary.path}; build it first with: cd shell && cargo build -p pdsh-jni"
+        val staged = hostJniTestDirectory.resolve(System.mapLibraryName("pdsh_jni"))
+        check(staged.isFile && staged.length() > 0L) {
+            "real host JNI artifact was not staged at ${staged.path}; build it with: " +
+                "bash android/tools/with-rust-toolchain.sh cargo build --locked --manifest-path shell/Cargo.toml -p pdsh-jni"
         }
     }
 }

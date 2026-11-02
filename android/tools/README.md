@@ -1,5 +1,36 @@
 # Android capture tools: three profiles, one frame contract
 
+## Rust-backed host JVM tests
+
+The workspace manifest declares Rust 1.85, but the lockfile-resolved workspace
+was built and checked with Rust 1.99.1. Isolated Fleet test shells can start
+with no Rust on `PATH`, so run native work through the pinned bootstrap wrapper:
+
+```sh
+bash android/tools/with-rust-toolchain.sh --check
+bash android/tools/with-rust-toolchain.sh cargo build --locked --manifest-path shell/Cargo.toml -p pdsh-jni
+bash android/tools/with-rust-toolchain.sh cargo test --locked --manifest-path shell/Cargo.toml -p pdsh-jni
+```
+
+The wrapper reuses a caller toolchain at least 1.99.1, otherwise installs pinned
+1.99.1 only after checking the official channel manifest SHA-256
+(`fb152be80975c194aa5fc684b2aec3a6e14e2b855efe2faa4e5f8ae6e590f463`) and
+the platform-specific rustup-init 1.28.2 SHA-256 published by the official Rust
+distribution host. The manifest is
+[`channel-rust-1.99.1.toml`](https://static.rust-lang.org/dist/channel-rust-1.99.1.toml).
+It keeps rustup and cargo
+state under `RUSTUP_HOME` / `CARGO_HOME`, `XDG_CACHE_HOME`, or `HOME`; set the
+cache variables to writable locations in isolated shells. `--check` never
+installs or downloads. The normal command mode installs only when required and
+then execs the requested command. Cargo commands use `--locked` so they do not
+rewrite the repository lockfile.
+
+Both `:app` and `:testkit` JVM test tasks stage the actual host artifact from
+`shell/target/debug` into that module's generated test directory and set the
+test JVM library path there. If the real artifact is missing, Gradle fails with
+the wrapper command needed to build it. Android APK JNI packaging remains on
+its existing Android-target `.so` input.
+
 `android/tools/screenshot-capture.sh` captures Android pixels on a real emulator
 in one of three **profiles**. The profile decides the frame and the baseline
 directory; the capture chain (instrumented Compose → `captureToImage()` →

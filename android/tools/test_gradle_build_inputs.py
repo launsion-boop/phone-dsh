@@ -210,6 +210,8 @@ class GradleBuildInputTaskGraphTests(unittest.TestCase):
             ":app:testDebugUnitTest",
             ":lib:testDebugUnitTest",
             ":testkit:testDebugUnitTest",
+            ":app:stageHostJniForTests",
+            ":testkit:stageHostJniForTests",
         }
         self.assertTrue(requested.issubset(graph), sorted(requested - graph))
 
@@ -263,6 +265,7 @@ class GradleBuildInputTaskGraphTests(unittest.TestCase):
         self.assertIn(":app:mergeReleaseJniLibFolders", graph)
         # Test-only fixture validators must not leak into the shipping graph.
         for fixture_task in (
+            ":app:stageHostJniForTests",
             ":app:verifyPdshJniFixture",
             ":engine:verifyWorkerBundleFixture",
             ":testkit:verifyWorkerBundleForTestsFixture",
@@ -295,6 +298,7 @@ class GradleBuildInputTaskGraphTests(unittest.TestCase):
             any("AndroidTestJni" in task or "AndroidTestNative" in task for task in graph),
             sorted(graph),
         )
+        self.assertNotIn(":testkit:stageHostJniForTests", graph)
 
     def test_empty_worker_bundle_fixture_fails_shared_validator(self):
         with tempfile.TemporaryDirectory() as temp:
