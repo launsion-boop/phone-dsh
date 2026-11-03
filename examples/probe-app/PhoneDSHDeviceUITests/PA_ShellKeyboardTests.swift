@@ -20,7 +20,8 @@ final class PA_ShellKeyboardTests: XCTestCase {
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
         XCTAssertFalse(dock.exists)
         XCTAssertTrue(editor.isHittable)
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)).tap()
+        app.staticTexts["引擎还没启动"].tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 10))
         XCTAssertTrue(dock.waitForExistence(timeout: 10))
         XCTAssertEqual(editor.value as? String, "pa-keyboard-draft")
     }
@@ -28,7 +29,7 @@ final class PA_ShellKeyboardTests: XCTestCase {
     func testMaximumContentSizeKeepsDockActionsAvailable() throws {
         let app = XCUIApplication(bundleIdentifier: "dev.phone-dsh.probe")
         app.launchArguments = ["-PDSH_SHELL", "v4", "-uiPreview", "app.chat",
-                               "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryXXXL"]
+                               "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
         app.launch()
         defer { app.terminate() }
         let dock = app.descendants(matching: .any).matching(

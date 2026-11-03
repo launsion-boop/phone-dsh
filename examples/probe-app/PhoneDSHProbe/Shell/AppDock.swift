@@ -7,61 +7,67 @@ struct AppDock: View {
     let badges: [AppTab: Int]
     let onSelect: (AppTab) -> Void
 
+    @ScaledMetric(relativeTo: .caption2) private var labelSize = HomeSpec.tabLabelSize
+
     var body: some View {
         HStack(spacing: AppDockMetrics.groupSpacing) {
             Button { onSelect(.chat) } label: {
-                Image(systemName: AppTab.chat.systemImage)
-                    .font(.system(size: 23, weight: .medium))
-                    .foregroundStyle(selection == .chat ? HomeSpec.primaryButtonInk : HomeSpec.textPrimary)
+                PhoneDSHLogo(size: AppDockMetrics.logoSize)
+                    .clipShape(Circle())
                     .frame(width: AppDockMetrics.height, height: AppDockMetrics.height)
-                    .background(selection == .chat ? HomeSpec.primaryButton : HomeSpec.surface, in: Circle())
-                    .overlay(Circle().strokeBorder(HomeSpec.textPrimary, lineWidth: selection == .chat ? 2 : 0))
-                    .overlay(alignment: .topTrailing) { badgeDot(for: .chat) }
+                    .background(selection == .chat ? HomeSpec.userBubble : HomeSpec.surface, in: Circle())
+                    .overlay(Circle().strokeBorder(
+                        selection == .chat ? HomeSpec.textPrimary : HomeSpec.borderList,
+                        lineWidth: selection == .chat ? 1.5 : 0.75))
+                    .overlay(alignment: .topTrailing) {
+                        badgeDot(for: .chat)
+                            .offset(x: -2, y: 2)
+                    }
                     .contentShape(Circle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(AppDockButtonStyle())
             .accessibilityLabel(AppTab.chat.title)
             .accessibilityValue(accessibilityValue(for: .chat))
             .accessibilityAddTraits(selection == .chat ? .isSelected : [])
             .accessibilityIdentifier(AppTab.chat.accessibilityIdentifier)
 
-            HStack(spacing: 0) {
+            HStack(spacing: 2) {
                 ForEach([AppTab.dsh, .discover, .profile]) { tab in
                     dockButton(tab)
                 }
             }
-            .padding(6)
+            .padding(AppDockMetrics.groupPadding)
             .frame(maxWidth: .infinity)
-            .frame(height: AppDockMetrics.height)
             .background(HomeSpec.surface, in: Capsule())
+            .overlay(Capsule().strokeBorder(HomeSpec.borderList, lineWidth: 0.75))
         }
         .padding(.horizontal, AppDockMetrics.horizontalInset)
-        .homeFloatingShadow()
+        .shadow(color: .black.opacity(0.07), radius: 10, y: 3)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("app.dock")
     }
 
     private func dockButton(_ tab: AppTab) -> some View {
         Button { onSelect(tab) } label: {
-            VStack(spacing: 4) {
+            VStack(spacing: 3) {
                 Image(systemName: tab.systemImage)
-                    .font(.system(size: 19, weight: selection == tab ? .semibold : .regular))
+                    .font(.system(size: AppDockMetrics.iconSize,
+                                  weight: selection == tab ? .medium : .regular))
+                    .frame(width: 24, height: 24)
                     .overlay(alignment: .topTrailing) { dockBadge(tab) }
                 Text(tab.title)
-                    .font(.system(size: HomeSpec.tabLabelSize, weight: selection == tab ? .semibold : .regular))
+                    .font(.system(size: min(labelSize, AppDockMetrics.maximumLabelSize),
+                                  weight: selection == tab ? .medium : .regular))
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
             }
-            .foregroundStyle(HomeSpec.textPrimary)
+            .foregroundStyle(selection == tab ? HomeSpec.textPrimary : HomeSpec.textSecondary)
             .frame(maxWidth: .infinity)
-            .frame(height: 52)
-            .background(selection == tab ? HomeSpec.userBubble : Color.clear,
-                        in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(HomeSpec.textPrimary, lineWidth: selection == tab ? 1.5 : 0))
+            .frame(minHeight: AppDockMetrics.itemHeight)
+            .background(selection == tab ? HomeSpec.userBubble : Color.clear, in: Capsule())
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(AppDockButtonStyle())
         .accessibilityLabel(tab.title)
         .accessibilityValue(accessibilityValue(for: tab))
         .accessibilityAddTraits(selection == tab ? .isSelected : [])
@@ -71,15 +77,18 @@ struct AppDock: View {
     @ViewBuilder
     private func dockBadge(_ tab: AppTab) -> some View {
         if tab == .dsh, let count = badges[tab], count > 0 {
-            Text("\(min(count, 99))")
-                .font(.system(size: 10, weight: .bold).monospacedDigit())
-                .foregroundStyle(HomeSpec.primaryButtonInk)
+            Text(count > 99 ? "99+" : "\(count)")
+                .font(.system(size: 10, weight: .semibold).monospacedDigit())
+                .foregroundStyle(AppDockMetrics.attentionInk)
+                .padding(.horizontal, 4)
                 .frame(minWidth: 18, minHeight: 18)
-                .background(HomeSpec.primaryButton, in: Capsule())
-                .offset(x: 14, y: -8)
+                .background(AppDockMetrics.attention, in: Capsule())
+                .overlay(Capsule().strokeBorder(HomeSpec.surface, lineWidth: 1.5))
+                .offset(x: 12, y: -7)
+                .accessibilityHidden(true)
         } else {
             badgeDot(for: tab)
-                .offset(x: 8, y: -3)
+                .offset(x: 7, y: -3)
         }
     }
 
@@ -87,20 +96,35 @@ struct AppDock: View {
     private func badgeDot(for tab: AppTab) -> some View {
         if tab != .dsh, let count = badges[tab], count > 0 {
             Circle()
-                .fill(HomeSpec.primaryButton)
-                .frame(width: 9, height: 9)
+                .fill(AppDockMetrics.attention)
+                .frame(width: 8, height: 8)
                 .overlay(Circle().strokeBorder(HomeSpec.surface, lineWidth: 2))
                 .accessibilityHidden(true)
         }
     }
 
     private func accessibilityValue(for tab: AppTab) -> String {
-        let count = badges[tab] ?? 0
-        guard count > 0 else { return selection == tab ? NativeText("已选中", "Selected") : "" }
-        if tab == .dsh {
-            return String(format: NativeText("%d 项需要处理", "%d items need attention"), count)
+        var values: [String] = []
+        if selection == tab {
+            values.append(NativeText("已选中", "Selected"))
         }
-        return NativeText("有需要处理的事项", "Needs attention")
+        let count = badges[tab] ?? 0
+        if count > 0 {
+            if tab == .dsh {
+                values.append(String(format: NativeText("%d 项需要处理", "%d items need attention"), count))
+            } else {
+                values.append(NativeText("有需要处理的事项", "Needs attention"))
+            }
+        }
+        return values.joined(separator: NativeText("，", ", "))
+    }
+}
+
+private struct AppDockButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.6 : 1)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
 

@@ -62,9 +62,16 @@ enum AppShellMode: String, Sendable {
 }
 
 enum AppDockMetrics {
-    static let height: CGFloat = 64
+    static let height: CGFloat = 60
+    static let itemHeight: CGFloat = 52
     static let horizontalInset: CGFloat = 16
-    static let groupSpacing: CGFloat = 12
+    static let groupSpacing: CGFloat = 10
+    static let groupPadding: CGFloat = 4
+    static let iconSize: CGFloat = 20
+    static let maximumLabelSize: CGFloat = 16
+    static let logoSize: CGFloat = 44
     static let bottomSpacing: CGFloat = 12
+    static let attention = NativeParityTokens.color(light: 0xB45309, dark: 0xFBBF24)
+    static let attentionInk = NativeParityTokens.color(light: 0xFFFFFF, dark: 0x241703)
     static var reservedHeight: CGFloat { height + bottomSpacing }
 }

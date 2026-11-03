@@ -49,7 +49,7 @@ enum HomeSpec {
     static let processSize: CGFloat = 15
     static let listItemSize: CGFloat = 14
     static let listItemLine: CGFloat = 22
-    static let tabLabelSize: CGFloat = 10.5
+    static let tabLabelSize: CGFloat = 11
 
     // MARK: - Spacing
 
