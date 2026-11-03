@@ -1,0 +1,18 @@
+{
+  "schema": "pdsh.ios-parity.personal-agent-shell/1",
+  "note": "Capture manifest only. Images are evidence produced by scripts/ios-parity/capture.sh, not checked-in claims of a completed capture.",
+  "viewports": [
+    { "width": 390, "height": 844 },
+    { "width": 430, "height": 932 }
+  ],
+  "captures": [
+    { "name": "v4-chat", "shell": "v4", "preview": "app.chat" },
+    { "name": "v4-dsh", "shell": "v4", "preview": "app.dsh" },
+    { "name": "v4-discover", "shell": "v4", "preview": "app.discover" },
+    { "name": "v4-profile", "shell": "v4", "preview": "app.profile" },
+    { "name": "dock", "shell": "v4", "preview": "app.dock" },
+    { "name": "connector-detail", "shell": "v4", "preview": "app.connector-detail" },
+    { "name": "personal-memory", "shell": "v4", "preview": "app.personal-memory" },
+    { "name": "legacy-chat", "shell": "legacy", "preview": "chat.official" }
+  ]
+}

@@ -69,7 +69,7 @@ EMBEDDED_HINTS = ("SessionQueuePage", "PermissionDefaultsPage", "LicensesPage",
 TOOL = "extract_ios_pages.py"
 
 STRUCT_RE = re.compile(
-    r"^[ \t]*(?:public |internal |fileprivate |private |final )*struct[ \t]+(\w+)[ \t]*:"
+    r"^[ \t]*(?:public |internal |fileprivate |private |final )*struct[ \t]+(\w+)(?:[ \t]*<[^>{]+>)?[ \t]*:"
     r"[ \t]*[^{]*(?:\bView\b|UIViewRepresentable|UIViewControllerRepresentable)[ \t]*\{",
     re.M,
 )
@@ -2014,7 +2014,7 @@ def discover_pages(root: Path) -> list:
     """
     probe = root / PROBE_REL
     pages = []
-    for path in sorted(probe.glob("*.swift")):
+    for path in sorted(probe.rglob("*.swift")):
         source = Source(path, root)
         for struct in page_structs(source):
             if struct["private"]:

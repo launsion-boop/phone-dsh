@@ -8,7 +8,7 @@
       "destination": "PDSHShellPage",
       "provenance": "NativeWorkbenchPage.swift:19",
       "anchor": "PDSHShellPage()",
-      "specRef": "spec/ui/v1/README.md:55",
+      "specRef": "spec/ui/v1/README.md:64",
       "reason": "README §1 names the workbench's command segment. The else branch renders PDSHShellPage directly rather than through a button, so the extractor cannot represent it as an action."
     },
     {
@@ -16,7 +16,7 @@
       "label": "提交回答",
       "kind": "button",
       "writes": true,
-      "provenance": "ChatPage.swift:3615",
+      "provenance": "ChatPage.swift:3624",
       "anchor": "Button(\"提交回答\", systemImage: \"arrow.up\") { submitAnswers() }",
       "baselineReachable": true,
       "reason": "`QuestionCard` is a sibling view struct outside the page struct the extractor walks; the card is rendered in ChatPage's pending-answer slot and Android implements the submit button."
@@ -26,7 +26,7 @@
       "label": "打开会话列表",
       "kind": "button",
       "writes": false,
-      "provenance": "ChatPage.swift:214",
+      "provenance": "ChatPage.swift:216",
       "anchor": ".accessibilityLabel(\"打开会话列表\")",
       "baselineReachable": true,
       "reason": "The drawer button has no visible text: its accessible name is the only label. Without it in the contract, merging the drawer and ⋯ header buttons into one `HeaderAction(label, glyph, …)` would be reported as `extra-action '打开会话列表'`, which is why the page carries two near-duplicate header components."

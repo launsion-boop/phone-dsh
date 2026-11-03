@@ -826,7 +826,7 @@ def check_pages(root: Path, readme: str) -> tuple:
     if not probe.is_dir():
         return 0, False
     names = set()
-    for path in sorted(probe.glob("*.swift")):
+    for path in sorted(probe.rglob("*.swift")):
         names.update(PAGE_RE.findall(read_text(path)))
     if not names:
         raise CheckError(f"no *Page struct found under {PROBE_REL}")

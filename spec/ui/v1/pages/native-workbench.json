@@ -90,7 +90,7 @@
       "anchor": "PDSHShellPage()",
       "extraction": "manual",
       "specRequired": true,
-      "specRef": "spec/ui/v1/README.md:55",
+      "specRef": "spec/ui/v1/README.md:64",
       "baselineReachable": false,
       "note": "README §1 names the workbench's command segment. The else branch renders PDSHShellPage directly rather than through a button, so the extractor cannot represent it as an action."
     }

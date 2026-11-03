@@ -1,0 +1,460 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "ConnectorDetailPage",
+  "pageId": "connector-detail",
+  "structure": "swiftui-view",
+  "sectionModel": "section",
+  "sectionNote": null,
+  "title": null,
+  "source": {
+    "file": "ConnectorDetailPage.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/Discover/ConnectorDetailPage.swift",
+    "lines": 98,
+    "structLine": 6,
+    "renderedFrom": [
+      "body"
+    ],
+    "sectionOrder": "declaration order inside the page struct"
+  },
+  "android": {
+    "screen": "ConnectorDetailPage",
+    "file": null,
+    "match": "missing"
+  },
+  "sections": [
+    {
+      "id": "用途与能力",
+      "title": "用途与能力",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "literal",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "text-26",
+          "label": null,
+          "labelExpr": "descriptor.supported",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "ConnectorDetailPage.swift:26",
+          "anchor": "Text(descriptor.supported)",
+          "extraction": "manual"
+        },
+        {
+          "id": "text-27",
+          "label": null,
+          "labelExpr": "descriptor.unsupported",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "ConnectorDetailPage.swift:27",
+          "anchor": "Text(descriptor.unsupported)",
+          "extraction": "manual"
+        },
+        {
+          "id": "text-29",
+          "label": null,
+          "labelExpr": "descriptor.example",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "ConnectorDetailPage.swift:29",
+          "anchor": "Text(descriptor.example)",
+          "extraction": "manual"
+        }
+      ],
+      "provenance": "ConnectorDetailPage.swift:25",
+      "anchor": "Section(NativeText(\"用途与能力\", \"Purpose and capabilities\")) {",
+      "extraction": "syntax"
+    },
+    {
+      "id": "账号与连接",
+      "title": "账号与连接",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "literal",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "状态",
+          "label": "状态",
+          "labelExpr": null,
+          "kind": "info",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "ConnectorDetailPage.swift:35",
+          "anchor": "LabeledContent(NativeText(\"状态\", \"State\"),",
+          "extraction": "syntax"
+        },
+        {
+          "id": "账号",
+          "label": "账号",
+          "labelExpr": null,
+          "kind": "info",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "ConnectorDetailPage.swift:37",
+          "anchor": "LabeledContent(NativeText(\"账号\", \"Account\"), value: NativeText(\"未配置\", \"Not config",
+          "extraction": "syntax"
+        },
+        {
+          "id": "最近核验",
+          "label": "最近核验",
+          "labelExpr": null,
+          "kind": "info",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "ConnectorDetailPage.swift:38",
+          "anchor": "LabeledContent(NativeText(\"最近核验\", \"Last verified\")) {",
+          "extraction": "syntax"
+        },
+        {
+          "id": "text-40",
+          "label": null,
+          "labelExpr": "date",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "let date = record?.lastVerifiedAt",
+          "provenance": "ConnectorDetailPage.swift:40",
+          "anchor": "Text(date, style: .relative)",
+          "extraction": "manual"
+        },
+        {
+          "id": "尚未核验",
+          "label": "尚未核验",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "!(let date = record?.lastVerifiedAt)",
+          "provenance": "ConnectorDetailPage.swift:42",
+          "anchor": "Text(NativeText(\"尚未核验\", \"Not verified\"))",
+          "extraction": "syntax"
+        },
+        {
+          "id": "text-46",
+          "label": null,
+          "labelExpr": "issue",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "let issue = record?.issue",
+          "provenance": "ConnectorDetailPage.swift:46",
+          "anchor": "Text(issue)",
+          "extraction": "manual"
+        }
+      ],
+      "provenance": "ConnectorDetailPage.swift:34",
+      "anchor": "Section(NativeText(\"账号与连接\", \"Account and connection\")) {",
+      "extraction": "syntax"
+    },
+    {
+      "id": "数据范围与授权",
+      "title": "数据范围与授权",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "literal",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "grant",
+          "label": "Grant",
+          "labelExpr": null,
+          "kind": "info",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "ConnectorDetailPage.swift:54",
+          "anchor": "LabeledContent(NativeText(\"Grant\", \"Grant\"),",
+          "extraction": "syntax"
+        },
+        {
+          "id": "读取-草稿与发送等能力分别授权-当前没有真实-grant",
+          "label": "读取、草稿与发送等能力分别授权；当前没有真实 grant。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "ConnectorDetailPage.swift:56",
+          "anchor": "Text(NativeText(\"读取、草稿与发送等能力分别授权；当前没有真实 grant。\", \"Read, draft and send capabilit",
+          "extraction": "syntax"
+        },
+        {
+          "id": "撤销授权",
+          "label": "撤销授权",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": "record?.state == .connected || record?.state == .needsAttention || record?.state == .expired",
+          "provenance": "ConnectorDetailPage.swift:60",
+          "anchor": "Button(NativeText(\"撤销授权\", \"Revoke grant\"), role: .destructive) {",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "ConnectorDetailPage.swift:53",
+      "anchor": "Section(NativeText(\"数据范围与授权\", \"Data scope and grant\")) {",
+      "extraction": "syntax"
+    },
+    {
+      "id": "同步",
+      "title": "同步",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "literal",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "首版仅前台与手动同步-不显示实时状态",
+          "label": "首版仅前台与手动同步，不显示实时状态。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "ConnectorDetailPage.swift:67",
+          "anchor": "Text(NativeText(\"首版仅前台与手动同步，不显示实时状态。\", \"The first version syncs in the foregroun",
+          "extraction": "syntax"
+        },
+        {
+          "id": "最近同步游标",
+          "label": "最近同步游标",
+          "labelExpr": null,
+          "kind": "info",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "ConnectorDetailPage.swift:68",
+          "anchor": "LabeledContent(NativeText(\"最近同步游标\", \"Last sync cursor\"), value: NativeText(\"尚未同步",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "ConnectorDetailPage.swift:66",
+      "anchor": "Section(NativeText(\"同步\", \"Synchronization\")) {",
+      "extraction": "syntax"
+    },
+    {
+      "id": "凭据",
+      "title": "凭据",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "literal",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "oauth-token-与-pat-只应存于-keychain-由原生宿主注入-不回显-也不进入-worker-日志或截图",
+          "label": "OAuth token 与 PAT 只应存于 Keychain，由原生宿主注入，不回显，也不进入 Worker、日志或截图。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "ConnectorDetailPage.swift:72",
+          "anchor": "Text(NativeText(\"OAuth token 与 PAT 只应存于 Keychain，由原生宿主注入，不回显，也不进入 Worker、日志或截图。\"",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "ConnectorDetailPage.swift:71",
+      "anchor": "Section(NativeText(\"凭据\", \"Credentials\")) {",
+      "extraction": "syntax"
+    },
+    {
+      "id": "section-77",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "absent",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "在-chat-中使用",
+          "label": "在 Chat 中使用",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "ConnectorDetailPage.swift:78",
+          "anchor": "Button(NativeText(\"在 Chat 中使用\", \"Use in Chat\"), action: useInChat)",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "ConnectorDetailPage.swift:77",
+      "anchor": "Section {",
+      "extraction": "syntax",
+      "criterion": {
+        "kind": "first-clickable-row",
+        "label": "在 Chat 中使用",
+        "provenance": "ConnectorDetailPage.swift:78"
+      },
+      "footer": {
+        "text": "只返回 Chat 并保留来源上下文，不会自动发送示例。",
+        "labelExpr": null,
+        "provenance": "ConnectorDetailPage.swift:82",
+        "anchor": "Text(NativeText(\"只返回 Chat 并保留来源上下文，不会自动发送示例。\", \"Returns to Chat with source cont"
+      }
+    }
+  ],
+  "actions": [
+    {
+      "id": "撤销授权",
+      "label": "撤销授权",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ Task { await model.revoke(descriptor.id) }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "ConnectorDetailPage.swift:60",
+      "anchor": "Button(NativeText(\"撤销授权\", \"Revoke grant\"), role: .destructive) {",
+      "extraction": "syntax",
+      "labelAlternatives": []
+    },
+    {
+      "id": "在-chat-中使用",
+      "label": "在 Chat 中使用",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": null,
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "ConnectorDetailPage.swift:78",
+      "anchor": "Button(NativeText(\"在 Chat 中使用\", \"Use in Chat\"), action: useInChat)",
+      "extraction": "syntax",
+      "labelAlternatives": []
+    }
+  ],
+  "presentations": [],
+  "states": {
+    "advisory": true,
+    "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
+    "sites": {
+      "empty": [
+        {
+          "renders": "未配置",
+          "when": null,
+          "provenance": "ConnectorDetailPage.swift:37",
+          "anchor": "LabeledContent(NativeText(\"账号\", \"Account\"), value: NativeText(\"未配置\", \"Not config"
+        },
+        {
+          "renders": "读取、草稿与发送等能力分别授权；当前没有真实 grant。",
+          "when": null,
+          "provenance": "ConnectorDetailPage.swift:56",
+          "anchor": "Text(NativeText(\"读取、草稿与发送等能力分别授权；当前没有真实 grant。\", \"Read, draft and send capabilit"
+        }
+      ],
+      "data": [
+        {
+          "renders": "用途与能力 | 账号与连接 | 数据范围与授权 | 同步 | 凭据 | untitled section at 77",
+          "when": null,
+          "provenance": "ConnectorDetailPage.swift:6",
+          "anchor": "struct ConnectorDetailPage<Configuration: View>: View {",
+          "note": "structural default: the sections above, when no condition overrides them"
+        }
+      ],
+      "failure": [],
+      "unknown": [],
+      "loading": [
+        {
+          "renders": "读取中",
+          "when": null,
+          "provenance": "ConnectorDetailPage.swift:36",
+          "anchor": "value: record.map { nativeConnectorStateTitle($0.state) } ?? NativeText(\"读取中\", \""
+        }
+      ]
+    },
+    "absent": [
+      "failure",
+      "unknown"
+    ],
+    "coverage": {
+      "empty": 2,
+      "data": 1,
+      "failure": 0,
+      "unknown": 0,
+      "loading": 1
+    }
+  },
+  "subpages": [],
+  "unreachable": [],
+  "extraction": {
+    "tool": "extract_ios_pages.py",
+    "mode": "syntax",
+    "sectionKeywordsInPage": 6,
+    "regionsExtracted": 0,
+    "sectionsExtracted": 6,
+    "warnings": []
+  }
+}

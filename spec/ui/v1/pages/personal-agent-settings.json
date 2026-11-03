@@ -1,0 +1,185 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "PersonalAgentSettingsPage",
+  "pageId": "personal-agent-settings",
+  "structure": "swiftui-view",
+  "sectionModel": "section",
+  "sectionNote": null,
+  "title": {
+    "text": "Personal Agent",
+    "provenance": "PersonalAgentSettingsPage.swift:31",
+    "anchor": ".navigationTitle(\"Personal Agent\")"
+  },
+  "source": {
+    "file": "PersonalAgentSettingsPage.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/Profile/PersonalAgentSettingsPage.swift",
+    "lines": 35,
+    "structLine": 5,
+    "renderedFrom": [
+      "body"
+    ],
+    "sectionOrder": "declaration order inside the page struct"
+  },
+  "android": {
+    "screen": "PersonalAgentSettingsPage",
+    "file": null,
+    "match": "missing"
+  },
+  "sections": [
+    {
+      "id": "personal-agent",
+      "title": "Personal Agent",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "literal",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "agent-名称",
+          "label": "Agent 名称",
+          "labelExpr": null,
+          "kind": "input",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "PersonalAgentSettingsPage.swift:12",
+          "anchor": "TextField(NativeText(\"Agent 名称\", \"Agent name\"), text: $agentName)",
+          "extraction": "syntax"
+        },
+        {
+          "id": "如何称呼你",
+          "label": "如何称呼你",
+          "labelExpr": null,
+          "kind": "input",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "PersonalAgentSettingsPage.swift:14",
+          "anchor": "TextField(NativeText(\"如何称呼你\", \"How to address you\"), text: $ownerName)",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "PersonalAgentSettingsPage.swift:11",
+      "anchor": "Section(NativeText(\"Personal Agent\", \"Personal Agent\")) {",
+      "extraction": "syntax"
+    },
+    {
+      "id": "个人上下文",
+      "title": "个人上下文",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "literal",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "称呼保存在本机-时区-语言-职业-关键联系人与作息等结构化字段将在-personal-agent-数据层接入后提供",
+          "label": "称呼保存在本机。时区、语言、职业、关键联系人与作息等结构化字段将在 Personal Agent 数据层接入后提供。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "PersonalAgentSettingsPage.swift:18",
+          "anchor": "Text(NativeText(\"称呼保存在本机。时区、语言、职业、关键联系人与作息等结构化字段将在 Personal Agent 数据层接入后提供。\",",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "PersonalAgentSettingsPage.swift:17",
+      "anchor": "Section(NativeText(\"个人上下文\", \"Personal context\")) {",
+      "extraction": "syntax"
+    },
+    {
+      "id": "ai-日记",
+      "title": "AI 日记",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "literal",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "历史与数据管理入口将在-ai-日记能力接入后开放-当前没有生成日记",
+          "label": "历史与数据管理入口将在 AI 日记能力接入后开放；当前没有生成日记。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "PersonalAgentSettingsPage.swift:24",
+          "anchor": "Text(NativeText(\"历史与数据管理入口将在 AI 日记能力接入后开放；当前没有生成日记。\",",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "PersonalAgentSettingsPage.swift:23",
+      "anchor": "Section(NativeText(\"AI 日记\", \"AI Journal\")) {",
+      "extraction": "syntax"
+    }
+  ],
+  "actions": [],
+  "presentations": [],
+  "states": {
+    "advisory": true,
+    "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
+    "sites": {
+      "empty": [
+        {
+          "renders": "历史与数据管理入口将在 AI 日记能力接入后开放；当前没有生成日记。",
+          "when": null,
+          "provenance": "PersonalAgentSettingsPage.swift:24",
+          "anchor": "Text(NativeText(\"历史与数据管理入口将在 AI 日记能力接入后开放；当前没有生成日记。\","
+        }
+      ],
+      "data": [
+        {
+          "renders": "Personal Agent | 个人上下文 | AI 日记",
+          "when": null,
+          "provenance": "PersonalAgentSettingsPage.swift:5",
+          "anchor": "struct PersonalAgentSettingsPage: View {",
+          "note": "structural default: the sections above, when no condition overrides them"
+        }
+      ],
+      "failure": [],
+      "unknown": [],
+      "loading": []
+    },
+    "absent": [
+      "failure",
+      "unknown",
+      "loading"
+    ],
+    "coverage": {
+      "empty": 1,
+      "data": 1,
+      "failure": 0,
+      "unknown": 0,
+      "loading": 0
+    }
+  },
+  "subpages": [],
+  "unreachable": [],
+  "extraction": {
+    "tool": "extract_ios_pages.py",
+    "mode": "syntax",
+    "sectionKeywordsInPage": 3,
+    "regionsExtracted": 0,
+    "sectionsExtracted": 3,
+    "warnings": []
+  }
+}

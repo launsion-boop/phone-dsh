@@ -1,0 +1,330 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "DiscoverPage",
+  "pageId": "discover",
+  "structure": "swiftui-view",
+  "sectionModel": "section",
+  "sectionNote": null,
+  "title": {
+    "text": "发现",
+    "provenance": "DiscoverPage.swift:108",
+    "anchor": ".navigationTitle(NativeText(\"发现\", \"Discover\"))"
+  },
+  "source": {
+    "file": "DiscoverPage.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/Discover/DiscoverPage.swift",
+    "lines": 120,
+    "structLine": 25,
+    "renderedFrom": [
+      "body"
+    ],
+    "sectionOrder": "declaration order inside the page struct"
+  },
+  "android": {
+    "screen": "DiscoverPage",
+    "file": null,
+    "match": "missing"
+  },
+  "sections": [
+    {
+      "id": "section-47",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "absent",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "筛选",
+          "label": "筛选",
+          "labelExpr": null,
+          "kind": "control",
+          "value": "筛选 | Filter",
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "DiscoverPage.swift:48",
+          "anchor": "Picker(NativeText(\"筛选\", \"Filter\"), selection: $filter) {",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "DiscoverPage.swift:47",
+      "anchor": "Section {",
+      "extraction": "syntax",
+      "criterion": {
+        "kind": "first-clickable-row",
+        "label": "筛选",
+        "provenance": "DiscoverPage.swift:48"
+      }
+    },
+    {
+      "id": "连接器",
+      "title": "连接器",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "header",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "navigation-59",
+          "label": null,
+          "labelExpr": null,
+          "kind": "navigation",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": "HStack",
+          "writes": false,
+          "condition": null,
+          "provenance": "DiscoverPage.swift:59",
+          "anchor": "NavigationLink(value: DiscoverRoute.connector(descriptor.id)) {",
+          "extraction": "manual",
+          "collection": "connectors"
+        },
+        {
+          "id": "没有符合当前搜索与筛选的连接器",
+          "label": "没有符合当前搜索与筛选的连接器。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "connectors.isEmpty",
+          "provenance": "DiscoverPage.swift:81",
+          "anchor": "Text(NativeText(\"没有符合当前搜索与筛选的连接器。\", \"No connectors match this search and filter.",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "DiscoverPage.swift:85",
+      "anchor": "Text(NativeText(\"连接器\", \"Connectors\"))",
+      "extraction": "syntax",
+      "hasHeader": true,
+      "footer": {
+        "text": "连接器运行时正在接入；这里不显示伪造的账号或连接成功状态。",
+        "labelExpr": null,
+        "provenance": "DiscoverPage.swift:87",
+        "anchor": "Text(NativeText(\"连接器运行时正在接入；这里不显示伪造的账号或连接成功状态。\","
+      }
+    },
+    {
+      "id": "插件",
+      "title": "插件",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "literal",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "navigation-92",
+          "label": null,
+          "labelExpr": null,
+          "kind": "navigation",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": "SettingsRowLabel",
+          "writes": false,
+          "condition": null,
+          "provenance": "DiscoverPage.swift:92",
+          "anchor": "NavigationLink(value: DiscoverRoute.plugins(focus: nil)) {",
+          "extraction": "manual"
+        }
+      ],
+      "provenance": "DiscoverPage.swift:91",
+      "anchor": "Section(NativeText(\"插件\", \"Plugins\")) {",
+      "extraction": "syntax"
+    },
+    {
+      "id": "硬件",
+      "title": "硬件",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "literal",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "navigation-100",
+          "label": null,
+          "labelExpr": null,
+          "kind": "navigation",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": "SettingsRowLabel",
+          "writes": false,
+          "condition": null,
+          "provenance": "DiscoverPage.swift:100",
+          "anchor": "NavigationLink(value: DiscoverRoute.devices(focus: nil)) {",
+          "extraction": "manual"
+        }
+      ],
+      "provenance": "DiscoverPage.swift:99",
+      "anchor": "Section(NativeText(\"硬件\", \"Hardware\")) {",
+      "extraction": "syntax"
+    }
+  ],
+  "actions": [
+    {
+      "id": "筛选",
+      "label": "筛选",
+      "labelExpr": null,
+      "kind": "picker",
+      "trigger": "tap",
+      "semantic": null,
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "DiscoverPage.swift:48",
+      "anchor": "Picker(NativeText(\"筛选\", \"Filter\"), selection: $filter) {",
+      "extraction": "syntax",
+      "items": [
+        "筛选",
+        "Filter"
+      ],
+      "style": "default"
+    },
+    {
+      "id": "navigation-59",
+      "label": null,
+      "labelExpr": null,
+      "kind": "navigation",
+      "trigger": "tap",
+      "semantic": "navigate:HStack",
+      "writes": false,
+      "destination": "HStack",
+      "condition": null,
+      "provenance": "DiscoverPage.swift:59",
+      "anchor": "NavigationLink(value: DiscoverRoute.connector(descriptor.id)) {",
+      "extraction": "manual"
+    },
+    {
+      "id": "navigation-92",
+      "label": null,
+      "labelExpr": null,
+      "kind": "navigation",
+      "trigger": "tap",
+      "semantic": "navigate:SettingsRowLabel",
+      "writes": false,
+      "destination": "SettingsRowLabel",
+      "condition": null,
+      "provenance": "DiscoverPage.swift:92",
+      "anchor": "NavigationLink(value: DiscoverRoute.plugins(focus: nil)) {",
+      "extraction": "manual"
+    },
+    {
+      "id": "navigation-100",
+      "label": null,
+      "labelExpr": null,
+      "kind": "navigation",
+      "trigger": "tap",
+      "semantic": "navigate:SettingsRowLabel",
+      "writes": false,
+      "destination": "SettingsRowLabel",
+      "condition": null,
+      "provenance": "DiscoverPage.swift:100",
+      "anchor": "NavigationLink(value: DiscoverRoute.devices(focus: nil)) {",
+      "extraction": "manual"
+    },
+    {
+      "id": "搜索连接器-插件-硬件",
+      "label": "搜索连接器、插件、硬件",
+      "labelExpr": null,
+      "kind": "search",
+      "trigger": "search",
+      "semantic": null,
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "DiscoverPage.swift:110",
+      "anchor": ".searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always),",
+      "extraction": "syntax"
+    },
+    {
+      "id": "gesture-117",
+      "label": null,
+      "labelExpr": null,
+      "kind": "gesture",
+      "trigger": "pull-to-refresh",
+      "semantic": "refresh",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "DiscoverPage.swift:117",
+      "anchor": ".refreshable { await model.refresh() }",
+      "extraction": "syntax"
+    }
+  ],
+  "presentations": [],
+  "states": {
+    "advisory": true,
+    "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
+    "sites": {
+      "empty": [
+        {
+          "renders": "没有符合当前搜索与筛选的连接器。",
+          "when": "connectors.isEmpty",
+          "provenance": "DiscoverPage.swift:81",
+          "anchor": "Text(NativeText(\"没有符合当前搜索与筛选的连接器。\", \"No connectors match this search and filter."
+        }
+      ],
+      "data": [
+        {
+          "renders": "untitled section at 47 | 连接器 | 插件 | 硬件",
+          "when": null,
+          "provenance": "DiscoverPage.swift:25",
+          "anchor": "struct DiscoverPage: View {",
+          "note": "structural default: the sections above, when no condition overrides them"
+        }
+      ],
+      "failure": [],
+      "unknown": [],
+      "loading": [
+        {
+          "renders": "连接器运行时正在接入；这里不显示伪造的账号或连接成功状态。",
+          "when": null,
+          "provenance": "DiscoverPage.swift:87",
+          "anchor": "Text(NativeText(\"连接器运行时正在接入；这里不显示伪造的账号或连接成功状态。\","
+        },
+        {
+          "renders": "ProgressView",
+          "when": null,
+          "provenance": "DiscoverPage.swift:73",
+          "anchor": "ProgressView().controlSize(.mini)"
+        }
+      ]
+    },
+    "absent": [
+      "failure",
+      "unknown"
+    ],
+    "coverage": {
+      "empty": 1,
+      "data": 1,
+      "failure": 0,
+      "unknown": 0,
+      "loading": 2
+    }
+  },
+  "subpages": [],
+  "unreachable": [],
+  "extraction": {
+    "tool": "extract_ios_pages.py",
+    "mode": "syntax",
+    "sectionKeywordsInPage": 4,
+    "regionsExtracted": 0,
+    "sectionsExtracted": 4,
+    "warnings": []
+  }
+}

@@ -16,6 +16,13 @@ struct NativePluginInventoryPage: View {
     var body: some View {
         List {
             Section {
+                if let error = model.inventoryError ?? model.error {
+                    Label(NativeText("需配置/读取失败", "Configuration or read failure"),
+                          systemImage: "exclamationmark.triangle")
+                    Text(nativeConfigurationError(error))
+                        .font(.system(size: 13))
+                        .foregroundStyle(NativeParityTokens.warning)
+                }
                 if model.isLoading && model.pluginEntries.isEmpty {
                     HStack(spacing: 10) {
                         ProgressView().controlSize(.small)
@@ -23,7 +30,9 @@ struct NativePluginInventoryPage: View {
                             .foregroundStyle(HomeSpec.textPlaceholder)
                     }
                 } else if filtered.isEmpty {
-                    Text(NativeText("没有匹配的插件。", "No matching plugins."))
+                    Text(query.isEmpty
+                         ? NativeText("需桌面安装/当前 Worker 不可用", "Desktop installation or current Worker unavailable")
+                         : NativeText("没有匹配的插件。", "No matching plugins."))
                         .foregroundStyle(HomeSpec.textPlaceholder)
                 } else {
                     ForEach(filtered) { plugin in

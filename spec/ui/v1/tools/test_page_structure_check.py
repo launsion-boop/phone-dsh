@@ -906,6 +906,28 @@ class PageStructureCheckTests(unittest.TestCase):
         rc, out = run_check(self.fx.root)
         self.assertEqual(rc, 0, out)
 
+    def test_ios_only_exception_is_explicit_and_becomes_stale(self) -> None:
+        data = contract()
+        data["android"] = {"screen": PAGE, "file": None, "match": "missing"}
+        self.fx.write_contract(data)
+        rc, out = run_check(self.fx.root)
+        self.assertEqual(rc, 1, out)
+        self.assertIn("missing-section", out)
+        registry = self.fx.root / "spec/ui/v1/pages/_ios-only.json"
+        registry.write_text(json.dumps({
+            "schema": "pdsh.ui.page-structure-ios-only/1", "note": "fixture",
+            "pages": [{"page": PAGE_ID, "reason": "iOS-only milestone fixture",
+                       "owner": "shell", "reviewBy": "2999-12-31", "milestone": "M-test"}],
+        }, ensure_ascii=False), encoding="utf-8")
+        rc, out = run_check(self.fx.root)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("iOS-only until M-test", out)
+        data["android"] = {"screen": PAGE, "file": ANDROID_REL, "match": "composable"}
+        self.fx.write_contract(data)
+        rc, out = run_check(self.fx.root)
+        self.assertEqual(rc, 1, out)
+        self.assertIn("remove the exception", out)
+
     def test_representable_page_skips_section_comparison(self) -> None:
         data = contract()
         data["sectionModel"] = "representable"

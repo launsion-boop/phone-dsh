@@ -1,0 +1,196 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "PluginCatalogPage",
+  "pageId": "plugin-catalog",
+  "structure": "swiftui-view",
+  "sectionModel": "section",
+  "sectionNote": null,
+  "title": {
+    "text": "插件",
+    "provenance": "PluginCatalogPage.swift:36",
+    "anchor": ".navigationTitle(NativeText(\"插件\", \"Plugins\"))"
+  },
+  "source": {
+    "file": "PluginCatalogPage.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/Discover/PluginCatalogPage.swift",
+    "lines": 40,
+    "structLine": 5,
+    "renderedFrom": [
+      "body"
+    ],
+    "sectionOrder": "declaration order inside the page struct"
+  },
+  "android": {
+    "screen": "PluginCatalogPage",
+    "file": null,
+    "match": "missing"
+  },
+  "sections": [
+    {
+      "id": "真实运行状态",
+      "title": "真实运行状态",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "header",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "navigation-11",
+          "label": null,
+          "labelExpr": null,
+          "kind": "navigation",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": "NativePluginInventoryPage",
+          "writes": false,
+          "condition": null,
+          "provenance": "PluginCatalogPage.swift:11",
+          "anchor": "NavigationLink {",
+          "extraction": "manual"
+        },
+        {
+          "id": "navigation-16",
+          "label": null,
+          "labelExpr": null,
+          "kind": "navigation",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": "NativeConfigurationPage",
+          "writes": false,
+          "condition": null,
+          "provenance": "PluginCatalogPage.swift:16",
+          "anchor": "NavigationLink {",
+          "extraction": "manual"
+        }
+      ],
+      "provenance": "PluginCatalogPage.swift:22",
+      "anchor": "Text(NativeText(\"真实运行状态\", \"Actual runtime state\"))",
+      "extraction": "syntax",
+      "hasHeader": true,
+      "footer": {
+        "text": "状态只区分运行中、已启用、已停用、需配置/读取失败、需桌面安装/当前 Worker 不可用。启用不等于运行中。",
+        "labelExpr": null,
+        "provenance": "PluginCatalogPage.swift:24",
+        "anchor": "Text(NativeText(\"状态只区分运行中、已启用、已停用、需配置/读取失败、需桌面安装/当前 Worker 不可用。启用不等于运行中。\","
+      }
+    },
+    {
+      "id": "section-28",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "absent",
+      "condition": "focus != nil",
+      "collection": null,
+      "rows": [
+        {
+          "id": "已保留插件深链-请从真实插件清单打开对应条目",
+          "label": "已保留插件深链；请从真实插件清单打开对应条目。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "PluginCatalogPage.swift:29",
+          "anchor": "Text(NativeText(\"已保留插件深链；请从真实插件清单打开对应条目。\", \"The plugin deep link is retained; op",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "PluginCatalogPage.swift:28",
+      "anchor": "Section {",
+      "extraction": "syntax",
+      "criterion": {
+        "kind": "first-row",
+        "label": "已保留插件深链；请从真实插件清单打开对应条目。",
+        "provenance": "PluginCatalogPage.swift:29"
+      }
+    }
+  ],
+  "actions": [
+    {
+      "id": "navigation-11",
+      "label": null,
+      "labelExpr": null,
+      "kind": "navigation",
+      "trigger": "tap",
+      "semantic": "navigate:NativePluginInventoryPage",
+      "writes": false,
+      "destination": "NativePluginInventoryPage",
+      "condition": null,
+      "provenance": "PluginCatalogPage.swift:11",
+      "anchor": "NavigationLink {",
+      "extraction": "manual"
+    },
+    {
+      "id": "navigation-16",
+      "label": null,
+      "labelExpr": null,
+      "kind": "navigation",
+      "trigger": "tap",
+      "semantic": "navigate:NativeConfigurationPage",
+      "writes": false,
+      "destination": "NativeConfigurationPage",
+      "condition": null,
+      "provenance": "PluginCatalogPage.swift:16",
+      "anchor": "NavigationLink {",
+      "extraction": "manual"
+    }
+  ],
+  "presentations": [],
+  "states": {
+    "advisory": true,
+    "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
+    "sites": {
+      "empty": [],
+      "data": [
+        {
+          "renders": "真实运行状态 | untitled section at 28",
+          "when": null,
+          "provenance": "PluginCatalogPage.swift:5",
+          "anchor": "struct PluginCatalogPage: View {",
+          "note": "structural default: the sections above, when no condition overrides them"
+        }
+      ],
+      "failure": [
+        {
+          "renders": "状态只区分运行中、已启用、已停用、需配置/读取失败、需桌面安装/当前 Worker 不可用。启用不等于运行中。",
+          "when": null,
+          "provenance": "PluginCatalogPage.swift:24",
+          "anchor": "Text(NativeText(\"状态只区分运行中、已启用、已停用、需配置/读取失败、需桌面安装/当前 Worker 不可用。启用不等于运行中。\","
+        }
+      ],
+      "unknown": [],
+      "loading": []
+    },
+    "absent": [
+      "empty",
+      "unknown",
+      "loading"
+    ],
+    "coverage": {
+      "empty": 0,
+      "data": 1,
+      "failure": 1,
+      "unknown": 0,
+      "loading": 0
+    }
+  },
+  "subpages": [],
+  "unreachable": [],
+  "extraction": {
+    "tool": "extract_ios_pages.py",
+    "mode": "syntax",
+    "sectionKeywordsInPage": 2,
+    "regionsExtracted": 0,
+    "sectionsExtracted": 2,
+    "warnings": []
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "AppDock",
+  "pageId": "app-dock",
+  "structure": "swiftui-view",
+  "sectionModel": "single-region",
+  "sectionNote": "One 64pt Chat circle and one 64pt three-entry capsule; keyboard hides the whole Dock.",
+  "title": null,
+  "source": {
+    "file": "AppDock.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/Shell/AppDock.swift",
+    "lines": 111,
+    "structLine": 5,
+    "renderedFrom": ["body", "dockButton", "dockBadge"],
+    "sectionOrder": "chat, dsh, discover, profile"
+  },
+  "android": {
+    "screen": "AppDock",
+    "file": null,
+    "match": "missing"
+  },
+  "sections": [],
+  "actions": [
+    {
+      "id": "chat",
+      "label": "Chat",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "select:chat",
+      "writes": false,
+      "destination": "PersonalAgentChatPlaceholderPage",
+      "condition": null,
+      "provenance": "AppDock.swift:23",
+      "anchor": ".accessibilityLabel(AppTab.chat.title)",
+      "extraction": "manual"
+    },
+    {
+      "id": "dsh-discover-profile",
+      "label": "tab.title",
+      "labelExpr": "tab.title",
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "select:tab",
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "AppDock.swift:65",
+      "anchor": ".accessibilityLabel(tab.title)",
+      "extraction": "manual"
+    }
+  ],
+  "presentations": [],
+  "states": {
+    "advisory": true,
+    "sites": {}
+  },
+  "subpages": [],
+  "unreachable": [],
+  "extraction": {
+    "tool": "manual",
+    "mode": "manual",
+    "sectionKeywordsInPage": 0,
+    "regionsExtracted": 1,
+    "sectionsExtracted": 0,
+    "warnings": []
+  }
+}

@@ -84,7 +84,12 @@ struct RunStatusDot: View {
 /// Wide windows keep sessions beside the conversation; compact windows use a
 /// push-aside drawer. Both layouts retain the same conversation view and draft.
 struct NativeShell: View {
-    init() {
+    let dockBottomInset: CGFloat
+    let approvalFocusID: String?
+
+    init(dockBottomInset: CGFloat = 0, approvalFocusID: String? = nil) {
+        self.dockBottomInset = dockBottomInset
+        self.approvalFocusID = approvalFocusID
         // HomeSpec chrome for every list, pushed page and sheet: #F7F7F7 page,
         // white rows, a flat navigation bar.
         HomeAppearance.apply()
@@ -95,9 +100,6 @@ struct NativeShell: View {
     @State private var dragOffset: CGFloat = 0
     @State private var preferences = NativeChatPreferences.shared
     private let drawerWidth: CGFloat = 320
-    #if DEBUG
-    @State private var preview = PreviewScreen.requested
-    #endif
 
     var body: some View {
         GeometryReader { proxy in
@@ -111,13 +113,26 @@ struct NativeShell: View {
 
             ZStack(alignment: .topLeading) {
                 NavigationStack {
+                    #if DEBUG
                     ChatPage(openDrawer: {
                         if usesSidebar {
                             withAnimation(.easeInOut(duration: 0.22)) { sidebarCollapsed.toggle() }
                         } else {
                             openDrawer()
                         }
-                    }, drawerExpanded: sidebarVisible)
+                    }, drawerExpanded: sidebarVisible, dockBottomInset: dockBottomInset,
+                             approvalFocusID: approvalFocusID,
+                             previewDraft: ProcessInfo.processInfo.environment["PDSH_PREVIEW_DRAFT"])
+                    #else
+                    ChatPage(openDrawer: {
+                        if usesSidebar {
+                            withAnimation(.easeInOut(duration: 0.22)) { sidebarCollapsed.toggle() }
+                        } else {
+                            openDrawer()
+                        }
+                    }, drawerExpanded: sidebarVisible, dockBottomInset: dockBottomInset,
+                             approvalFocusID: approvalFocusID)
+                    #endif
                 }
                 .frame(width: max(0, proxy.size.width - (sidebarVisible ? drawerWidth : 0)))
                 // A persistent sidebar sits beside the page; the phone drawer
@@ -139,7 +154,7 @@ struct NativeShell: View {
 
                 SessionsDrawerPanel(isOpen: panelOpen,
                                     topInset: proxy.safeAreaInsets.top,
-                                    bottomInset: proxy.safeAreaInsets.bottom,
+                                    bottomInset: proxy.safeAreaInsets.bottom + dockBottomInset,
                                     isPersistent: usesSidebar)
                     .offset(x: drawerOffset(usesSidebar: usesSidebar, sidebarVisible: sidebarVisible))
                     .shadow(color: .black.opacity(modalDrawerVisible ? 0.12 : 0), radius: 20, x: 6)
@@ -157,13 +172,6 @@ struct NativeShell: View {
                 dragOffset = 0
             }
         }
-        #if DEBUG
-        // `-uiPreview <screen>` lands straight on one screen, so review passes
-        // never depend on taps or swipes. Names match docs/screen-inventory.md.
-        .fullScreenCover(item: $preview) { screen in
-            NavigationStack { screen.body }
-        }
-        #endif
         #if DEBUG
         .task {
             // The host loads an empty transcript on boot, so the sample is
@@ -232,11 +240,29 @@ struct SessionsDrawerPanel: View {
     var topInset: CGFloat
     var bottomInset: CGFloat = 0
     var isPersistent = false
+    @State private var showNewSession = false
     private let width: CGFloat = 320
 
     var body: some View {
         HomeDrawer(isOpen: $isOpen, topInset: topInset, bottomInset: bottomInset,
                        isPersistent: isPersistent)
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if AppShellMode.current == .v4 {
+                    Button { showNewSession = true } label: {
+                        Label(NativeText("新建会话与 Agent 预设", "New session and Agent presets"),
+                              systemImage: "square.and.pencil")
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.top, topInset + HomeSpec.navTop)
+                    .background(HomeSpec.page)
+                    .accessibilityIdentifier("dsh.new-session.entry")
+                }
+            }
+            .sheet(isPresented: $showNewSession) {
+                NavigationStack { DSHNewSessionPage() }
+                    .homeSheetChrome()
+            }
             .frame(width: width)
             .frame(maxHeight: .infinity)
             .background(HomeSpec.page)
@@ -706,9 +732,23 @@ enum PreviewScreen: String, Identifiable, CaseIterable {
     case sessionsError = "sessions.error"
     case chatLong = "chat.long"
     case chatDraft = "chat.draft"
+    case appChat = "app.chat"
+    case appDSH = "app.dsh"
+    case appDiscover = "app.discover"
+    case appProfile = "app.profile"
+    case appDock = "app.dock"
+    case appConnectorDetail = "app.connector-detail"
+    case appPersonalMemory = "app.personal-memory"
     case codeBlock = "code.block"
 
     var id: String { rawValue }
+
+    var isAppShellPreview: Bool {
+        switch self {
+        case .appChat, .appDSH, .appDiscover, .appProfile: true
+        default: false
+        }
+    }
 
     static var requested: PreviewScreen? {
         let arguments = ProcessInfo.processInfo.arguments
@@ -803,6 +843,25 @@ enum PreviewScreen: String, Identifiable, CaseIterable {
                 Color.white
             }
             .background(Color.white)
+        case .appChat:
+            PersonalAgentChatPlaceholderPage(focus: nil, dockBottomInset: 0) {}
+        case .appDSH:
+            ChatPage()
+        case .appDiscover:
+            DiscoverPage(model: DiscoverConnectorModel(), dockBottomInset: 0)
+        case .appProfile:
+            ProfilePage(dockBottomInset: 0)
+        case .appDock:
+            VStack {
+                Spacer()
+                AppDock(selection: .chat, badges: [.dsh: 2, .discover: 1]) { _ in }
+                    .padding(.bottom, AppDockMetrics.bottomSpacing)
+            }
+            .background(HomeSpec.page)
+        case .appConnectorDetail:
+            ConnectorDetailPage(descriptor: .github, model: DiscoverConnectorModel()) {}
+        case .appPersonalMemory:
+            PersonalMemoryPage()
         case .codeBlock:
             ScrollView {
                 DSSCodeBlock(source: PreviewChatItems.longCode, language: "swift")

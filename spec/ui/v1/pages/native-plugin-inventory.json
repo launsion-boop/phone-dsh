@@ -7,13 +7,13 @@
   "sectionNote": null,
   "title": {
     "text": "已加载插件",
-    "provenance": "NativePluginInventoryPage.swift:66",
+    "provenance": "NativePluginInventoryPage.swift:75",
     "anchor": ".navigationTitle(NativeText(\"已加载插件\", \"Loaded Plugins\"))"
   },
   "source": {
     "file": "NativePluginInventoryPage.swift",
     "path": "examples/probe-app/PhoneDSHProbe/NativePluginInventoryPage.swift",
-    "lines": 72,
+    "lines": 81,
     "structLine": 5,
     "renderedFrom": [
       "body"
@@ -37,7 +37,37 @@
       "collection": null,
       "rows": [
         {
-          "id": "loading-21",
+          "id": "需配置-读取失败",
+          "label": "需配置/读取失败",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "let error = model.inventoryError ?? model.error",
+          "provenance": "NativePluginInventoryPage.swift:20",
+          "anchor": "Label(NativeText(\"需配置/读取失败\", \"Configuration or read failure\"),",
+          "extraction": "syntax"
+        },
+        {
+          "id": "text-22",
+          "label": null,
+          "labelExpr": "nativeConfigurationError(error)",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "let error = model.inventoryError ?? model.error",
+          "provenance": "NativePluginInventoryPage.swift:22",
+          "anchor": "Text(nativeConfigurationError(error))",
+          "extraction": "manual"
+        },
+        {
+          "id": "loading-28",
           "label": null,
           "labelExpr": null,
           "kind": "loading",
@@ -47,7 +77,7 @@
           "destination": null,
           "writes": false,
           "condition": "model.isLoading && model.pluginEntries.isEmpty",
-          "provenance": "NativePluginInventoryPage.swift:21",
+          "provenance": "NativePluginInventoryPage.swift:28",
           "anchor": "ProgressView().controlSize(.small)",
           "extraction": "manual"
         },
@@ -62,13 +92,13 @@
           "destination": null,
           "writes": false,
           "condition": "model.isLoading && model.pluginEntries.isEmpty",
-          "provenance": "NativePluginInventoryPage.swift:22",
+          "provenance": "NativePluginInventoryPage.swift:29",
           "anchor": "Text(NativeText(\"正在读取插件…\", \"Loading plugins…\"))",
           "extraction": "syntax"
         },
         {
-          "id": "没有匹配的插件",
-          "label": "没有匹配的插件。",
+          "id": "需桌面安装-当前-worker-不可用",
+          "label": "需桌面安装/当前 Worker 不可用",
           "labelExpr": null,
           "kind": "text",
           "value": null,
@@ -77,8 +107,8 @@
           "destination": null,
           "writes": false,
           "condition": "filtered.isEmpty",
-          "provenance": "NativePluginInventoryPage.swift:26",
-          "anchor": "Text(NativeText(\"没有匹配的插件。\", \"No matching plugins.\"))",
+          "provenance": "NativePluginInventoryPage.swift:34",
+          "anchor": "? NativeText(\"需桌面安装/当前 Worker 不可用\", \"Desktop installation or current Worker unav",
           "extraction": "syntax"
         },
         {
@@ -92,7 +122,7 @@
           "destination": null,
           "writes": false,
           "condition": "!(filtered.isEmpty)",
-          "provenance": "NativePluginInventoryPage.swift:49",
+          "provenance": "NativePluginInventoryPage.swift:58",
           "anchor": "HomeTag(text: plugin.enabled && plugin.phase == \"active\"",
           "extraction": "syntax",
           "template": "DisclosureGroup",
@@ -104,13 +134,13 @@
       "extraction": "syntax",
       "criterion": {
         "kind": "first-row",
-        "label": "正在读取插件…",
-        "provenance": "NativePluginInventoryPage.swift:22"
+        "label": "需配置/读取失败",
+        "provenance": "NativePluginInventoryPage.swift:20"
       },
       "footer": {
         "text": null,
         "labelExpr": "nativeConfigurationError(error)",
-        "provenance": "NativePluginInventoryPage.swift:59",
+        "provenance": "NativePluginInventoryPage.swift:68",
         "anchor": "Text(nativeConfigurationError(error)).foregroundStyle(ChatPage.danger)"
       }
     }
@@ -126,12 +156,12 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "NativePluginInventoryPage.swift:68",
+      "provenance": "NativePluginInventoryPage.swift:77",
       "anchor": ".searchable(text: $query, prompt: NativeText(\"搜索插件\", \"Search plugins\"))",
       "extraction": "syntax"
     },
     {
-      "id": "gesture-69",
+      "id": "gesture-78",
       "label": null,
       "labelExpr": null,
       "kind": "gesture",
@@ -140,7 +170,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "NativePluginInventoryPage.swift:69",
+      "provenance": "NativePluginInventoryPage.swift:78",
       "anchor": ".refreshable { await model.refresh() }",
       "extraction": "syntax"
     }
@@ -154,8 +184,8 @@
         {
           "renders": "没有匹配的插件。",
           "when": "filtered.isEmpty",
-          "provenance": "NativePluginInventoryPage.swift:26",
-          "anchor": "Text(NativeText(\"没有匹配的插件。\", \"No matching plugins.\"))"
+          "provenance": "NativePluginInventoryPage.swift:35",
+          "anchor": ": NativeText(\"没有匹配的插件。\", \"No matching plugins.\"))"
         }
       ],
       "data": [
@@ -167,31 +197,37 @@
           "note": "structural default: the sections above, when no condition overrides them"
         }
       ],
-      "failure": [],
+      "failure": [
+        {
+          "renders": "需配置/读取失败",
+          "when": "let error = model.inventoryError ?? model.error",
+          "provenance": "NativePluginInventoryPage.swift:20",
+          "anchor": "Label(NativeText(\"需配置/读取失败\", \"Configuration or read failure\"),"
+        }
+      ],
       "unknown": [],
       "loading": [
         {
           "renders": "正在读取插件…",
           "when": "model.isLoading && model.pluginEntries.isEmpty",
-          "provenance": "NativePluginInventoryPage.swift:22",
+          "provenance": "NativePluginInventoryPage.swift:29",
           "anchor": "Text(NativeText(\"正在读取插件…\", \"Loading plugins…\"))"
         },
         {
           "renders": "ProgressView",
           "when": "model.isLoading && model.pluginEntries.isEmpty",
-          "provenance": "NativePluginInventoryPage.swift:21",
+          "provenance": "NativePluginInventoryPage.swift:28",
           "anchor": "ProgressView().controlSize(.small)"
         }
       ]
     },
     "absent": [
-      "failure",
       "unknown"
     ],
     "coverage": {
       "empty": 1,
       "data": 1,
-      "failure": 0,
+      "failure": 1,
       "unknown": 0,
       "loading": 2
     }

@@ -1,0 +1,115 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "PersonalAgentChatPlaceholderPage",
+  "pageId": "personal-agent-chat-placeholder",
+  "structure": "swiftui-view",
+  "sectionModel": "regions",
+  "sectionNote": null,
+  "title": {
+    "text": "Personal Agent",
+    "provenance": "PersonalAgentChatPlaceholderPage.swift:67",
+    "anchor": ".navigationTitle(\"Personal Agent\")"
+  },
+  "source": {
+    "file": "PersonalAgentChatPlaceholderPage.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/Shell/PersonalAgentChatPlaceholderPage.swift",
+    "lines": 74,
+    "structLine": 7,
+    "renderedFrom": [
+      "body"
+    ],
+    "sectionOrder": "declaration order inside the page struct"
+  },
+  "android": {
+    "screen": "PersonalAgentChatPlaceholderPage",
+    "file": null,
+    "match": "missing"
+  },
+  "sections": [
+    {
+      "id": "今天需要处理什么",
+      "kind": "region",
+      "title": "今天需要处理什么？",
+      "titleTemplate": null,
+      "titleSource": "header-text",
+      "condition": null,
+      "collection": null,
+      "rows": [],
+      "provenance": "PersonalAgentChatPlaceholderPage.swift:22",
+      "anchor": "Text(NativeText(\"今天需要处理什么？\", \"What needs attention today?\"))",
+      "extraction": "syntax",
+      "note": "header Text only; its rows are the following siblings in the same stack"
+    }
+  ],
+  "actions": [
+    {
+      "id": "先去-dsh",
+      "label": "先去 DSH",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": null,
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "PersonalAgentChatPlaceholderPage.swift:57",
+      "anchor": "Button(NativeText(\"先去 DSH\", \"Open DSH first\"), action: openDSH)",
+      "extraction": "syntax"
+    }
+  ],
+  "presentations": [],
+  "states": {
+    "advisory": true,
+    "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
+    "sites": {
+      "empty": [
+        {
+          "renders": "尚未配置模型",
+          "when": "!modelConfigured",
+          "provenance": "PersonalAgentChatPlaceholderPage.swift:29",
+          "anchor": "Label(NativeText(\"尚未配置模型\", \"Model not configured\"), systemImage: \"cpu\")"
+        }
+      ],
+      "data": [
+        {
+          "renders": "今天需要处理什么？",
+          "when": null,
+          "provenance": "PersonalAgentChatPlaceholderPage.swift:7",
+          "anchor": "struct PersonalAgentChatPlaceholderPage: View {",
+          "note": "structural default: the sections above, when no condition overrides them"
+        }
+      ],
+      "failure": [],
+      "unknown": [],
+      "loading": [
+        {
+          "renders": "Personal Agent 正在接入",
+          "when": null,
+          "provenance": "PersonalAgentChatPlaceholderPage.swift:45",
+          "anchor": "Label(NativeText(\"Personal Agent 正在接入\", \"Personal Agent is being connected\"), sy"
+        }
+      ]
+    },
+    "absent": [
+      "failure",
+      "unknown"
+    ],
+    "coverage": {
+      "empty": 1,
+      "data": 1,
+      "failure": 0,
+      "unknown": 0,
+      "loading": 1
+    }
+  },
+  "subpages": [],
+  "unreachable": [],
+  "extraction": {
+    "tool": "extract_ios_pages.py",
+    "mode": "syntax",
+    "sectionKeywordsInPage": 0,
+    "regionsExtracted": 1,
+    "sectionsExtracted": 1,
+    "warnings": []
+  }
+}

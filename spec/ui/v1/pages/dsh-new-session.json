@@ -1,0 +1,205 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "DSHNewSessionPage",
+  "pageId": "dsh-new-session",
+  "structure": "swiftui-view",
+  "sectionModel": "section",
+  "sectionNote": null,
+  "title": {
+    "text": "新建 DSH 会话",
+    "provenance": "DSHNewSessionPage.swift:42",
+    "anchor": ".navigationTitle(NativeText(\"新建 DSH 会话\", \"New DSH session\"))"
+  },
+  "source": {
+    "file": "DSHNewSessionPage.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/Shell/DSHNewSessionPage.swift",
+    "lines": 51,
+    "structLine": 5,
+    "renderedFrom": [
+      "body"
+    ],
+    "sectionOrder": "declaration order inside the page struct"
+  },
+  "android": {
+    "screen": "DSHNewSessionPage",
+    "file": null,
+    "match": "missing"
+  },
+  "sections": [
+    {
+      "id": "新建会话",
+      "title": "新建会话",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "header",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "使用当前预设新建会话",
+          "label": "使用当前预设新建会话",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "DSHNewSessionPage.swift:22",
+          "anchor": "Label(NativeText(\"使用当前预设新建会话\", \"New session with the current preset\"),",
+          "extraction": "syntax"
+        },
+        {
+          "id": "navigation-26",
+          "label": null,
+          "labelExpr": null,
+          "kind": "navigation",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": "NativeAgentPresetsPage",
+          "writes": false,
+          "condition": null,
+          "provenance": "DSHNewSessionPage.swift:26",
+          "anchor": "NavigationLink {",
+          "extraction": "manual"
+        }
+      ],
+      "provenance": "DSHNewSessionPage.swift:33",
+      "anchor": "Text(NativeText(\"新建会话\", \"New session\"))",
+      "extraction": "syntax",
+      "hasHeader": true,
+      "footer": {
+        "text": "预设只用于 DSH 新会话，不是 Personal Agent 的个人设置。",
+        "labelExpr": null,
+        "provenance": "DSHNewSessionPage.swift:35",
+        "anchor": "Text(NativeText(\"预设只用于 DSH 新会话，不是 Personal Agent 的个人设置。\", \"Presets belong to new"
+      }
+    },
+    {
+      "id": "section-38",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "absent",
+      "condition": "let error = management.error",
+      "collection": null,
+      "rows": [
+        {
+          "id": "text-38",
+          "label": null,
+          "labelExpr": "error",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "DSHNewSessionPage.swift:38",
+          "anchor": "Section { Text(error).foregroundStyle(ChatPage.danger) }",
+          "extraction": "manual"
+        }
+      ],
+      "provenance": "DSHNewSessionPage.swift:38",
+      "anchor": "Section { Text(error).foregroundStyle(ChatPage.danger) }",
+      "extraction": "syntax",
+      "criterion": {
+        "kind": "first-row-expression",
+        "labelExpr": "error",
+        "provenance": "DSHNewSessionPage.swift:38"
+      }
+    }
+  ],
+  "actions": [
+    {
+      "id": "使用当前预设新建会话",
+      "label": "使用当前预设新建会话",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ guard !isCreating else { return } isCreating = true Task { if await management.createSession() != nil { dismiss() } isCreating = false }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "DSHNewSessionPage.swift:22",
+      "anchor": "Label(NativeText(\"使用当前预设新建会话\", \"New session with the current preset\"),",
+      "extraction": "syntax",
+      "labelAlternatives": []
+    },
+    {
+      "id": "navigation-26",
+      "label": null,
+      "labelExpr": null,
+      "kind": "navigation",
+      "trigger": "tap",
+      "semantic": "navigate:NativeAgentPresetsPage",
+      "writes": false,
+      "destination": "NativeAgentPresetsPage",
+      "condition": null,
+      "provenance": "DSHNewSessionPage.swift:26",
+      "anchor": "NavigationLink {",
+      "extraction": "manual"
+    },
+    {
+      "id": "取消",
+      "label": "取消",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "toolbar",
+      "semantic": "{ dismiss()",
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "DSHNewSessionPage.swift:46",
+      "anchor": "Button(NativeText(\"取消\", \"Cancel\")) { dismiss() }",
+      "extraction": "syntax"
+    }
+  ],
+  "presentations": [],
+  "states": {
+    "advisory": true,
+    "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
+    "sites": {
+      "empty": [],
+      "data": [
+        {
+          "renders": "新建会话 | untitled section at 38",
+          "when": null,
+          "provenance": "DSHNewSessionPage.swift:5",
+          "anchor": "struct DSHNewSessionPage: View {",
+          "note": "structural default: the sections above, when no condition overrides them"
+        }
+      ],
+      "failure": [],
+      "unknown": [],
+      "loading": []
+    },
+    "absent": [
+      "empty",
+      "failure",
+      "unknown",
+      "loading"
+    ],
+    "coverage": {
+      "empty": 0,
+      "data": 1,
+      "failure": 0,
+      "unknown": 0,
+      "loading": 0
+    }
+  },
+  "subpages": [],
+  "unreachable": [],
+  "extraction": {
+    "tool": "extract_ios_pages.py",
+    "mode": "syntax",
+    "sectionKeywordsInPage": 2,
+    "regionsExtracted": 0,
+    "sectionsExtracted": 2,
+    "warnings": []
+  }
+}

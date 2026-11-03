@@ -1,0 +1,266 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "ProfileGeneralSettingsPage",
+  "pageId": "profile-general-settings",
+  "structure": "swiftui-view",
+  "sectionModel": "section",
+  "sectionNote": null,
+  "title": {
+    "text": "通用设置",
+    "provenance": "ProfileGeneralSettingsPage.swift:47",
+    "anchor": ".navigationTitle(NativeText(\"通用设置\", \"General settings\"))"
+  },
+  "source": {
+    "file": "ProfileGeneralSettingsPage.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/Profile/ProfileGeneralSettingsPage.swift",
+    "lines": 51,
+    "structLine": 5,
+    "renderedFrom": [
+      "body"
+    ],
+    "sectionOrder": "declaration order inside the page struct"
+  },
+  "android": {
+    "screen": "ProfileGeneralSettingsPage",
+    "file": null,
+    "match": "missing"
+  },
+  "sections": [
+    {
+      "id": "外观与语言",
+      "title": "外观与语言",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "literal",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "外观",
+          "label": "外观",
+          "labelExpr": null,
+          "kind": "control",
+          "value": "跟随系统 | System | 浅色 | Light | 深色 | Dark",
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "ProfileGeneralSettingsPage.swift:17",
+          "anchor": "SettingsRowLabel(title: NativeText(\"外观\", \"Appearance\"), icon: \"circle.lefthalf.f",
+          "extraction": "syntax"
+        },
+        {
+          "id": "语言",
+          "label": "语言",
+          "labelExpr": null,
+          "kind": "control",
+          "value": "跟随系统 | System | 中文 | English",
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "ProfileGeneralSettingsPage.swift:25",
+          "anchor": "SettingsRowLabel(title: NativeText(\"语言\", \"Language\"), icon: \"globe\")",
+          "extraction": "syntax"
+        },
+        {
+          "id": "navigation-27",
+          "label": null,
+          "labelExpr": null,
+          "kind": "navigation",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": "makeFontSizeSettingsView()",
+          "writes": false,
+          "condition": null,
+          "provenance": "ProfileGeneralSettingsPage.swift:27",
+          "anchor": "NavigationLink {",
+          "extraction": "manual"
+        }
+      ],
+      "provenance": "ProfileGeneralSettingsPage.swift:10",
+      "anchor": "Section(NativeText(\"外观与语言\", \"Appearance and language\")) {",
+      "extraction": "syntax"
+    },
+    {
+      "id": "工作过程",
+      "title": "工作过程",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "literal",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "navigation-34",
+          "label": null,
+          "labelExpr": null,
+          "kind": "navigation",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": "makeConversationSettingsView()",
+          "writes": false,
+          "condition": null,
+          "provenance": "ProfileGeneralSettingsPage.swift:34",
+          "anchor": "NavigationLink {",
+          "extraction": "manual"
+        },
+        {
+          "id": "navigation-39",
+          "label": null,
+          "labelExpr": null,
+          "kind": "navigation",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": "NativeShortcutsPage",
+          "writes": false,
+          "condition": null,
+          "provenance": "ProfileGeneralSettingsPage.swift:39",
+          "anchor": "NavigationLink {",
+          "extraction": "manual"
+        }
+      ],
+      "provenance": "ProfileGeneralSettingsPage.swift:33",
+      "anchor": "Section(NativeText(\"工作过程\", \"Work details\")) {",
+      "extraction": "syntax"
+    }
+  ],
+  "actions": [
+    {
+      "id": "外观",
+      "label": "外观",
+      "labelExpr": null,
+      "kind": "picker",
+      "trigger": "tap",
+      "semantic": "binding:Binding(get: { preferences.appearance }, set: { preferences.setAppearance($0) })",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "ProfileGeneralSettingsPage.swift:17",
+      "anchor": "SettingsRowLabel(title: NativeText(\"外观\", \"Appearance\"), icon: \"circle.lefthalf.f",
+      "extraction": "syntax",
+      "items": [
+        "跟随系统",
+        "System",
+        "浅色",
+        "Light",
+        "深色",
+        "Dark"
+      ],
+      "style": "default"
+    },
+    {
+      "id": "语言",
+      "label": "语言",
+      "labelExpr": null,
+      "kind": "picker",
+      "trigger": "tap",
+      "semantic": "binding:Binding(get: { preferences.language }, set: { preferences.setLanguage($0) })",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "ProfileGeneralSettingsPage.swift:25",
+      "anchor": "SettingsRowLabel(title: NativeText(\"语言\", \"Language\"), icon: \"globe\")",
+      "extraction": "syntax",
+      "items": [
+        "跟随系统",
+        "System",
+        "中文",
+        "English"
+      ],
+      "style": "default"
+    },
+    {
+      "id": "navigation-27",
+      "label": null,
+      "labelExpr": null,
+      "kind": "navigation",
+      "trigger": "tap",
+      "semantic": "navigate:makeFontSizeSettingsView()",
+      "writes": false,
+      "destination": "makeFontSizeSettingsView()",
+      "condition": null,
+      "provenance": "ProfileGeneralSettingsPage.swift:27",
+      "anchor": "NavigationLink {",
+      "extraction": "manual"
+    },
+    {
+      "id": "navigation-34",
+      "label": null,
+      "labelExpr": null,
+      "kind": "navigation",
+      "trigger": "tap",
+      "semantic": "navigate:makeConversationSettingsView()",
+      "writes": false,
+      "destination": "makeConversationSettingsView()",
+      "condition": null,
+      "provenance": "ProfileGeneralSettingsPage.swift:34",
+      "anchor": "NavigationLink {",
+      "extraction": "manual"
+    },
+    {
+      "id": "navigation-39",
+      "label": null,
+      "labelExpr": null,
+      "kind": "navigation",
+      "trigger": "tap",
+      "semantic": "navigate:NativeShortcutsPage",
+      "writes": false,
+      "destination": "NativeShortcutsPage",
+      "condition": null,
+      "provenance": "ProfileGeneralSettingsPage.swift:39",
+      "anchor": "NavigationLink {",
+      "extraction": "manual"
+    }
+  ],
+  "presentations": [],
+  "states": {
+    "advisory": true,
+    "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
+    "sites": {
+      "empty": [],
+      "data": [
+        {
+          "renders": "外观与语言 | 工作过程",
+          "when": null,
+          "provenance": "ProfileGeneralSettingsPage.swift:5",
+          "anchor": "struct ProfileGeneralSettingsPage: View {",
+          "note": "structural default: the sections above, when no condition overrides them"
+        }
+      ],
+      "failure": [],
+      "unknown": [],
+      "loading": []
+    },
+    "absent": [
+      "empty",
+      "failure",
+      "unknown",
+      "loading"
+    ],
+    "coverage": {
+      "empty": 0,
+      "data": 1,
+      "failure": 0,
+      "unknown": 0,
+      "loading": 0
+    }
+  },
+  "subpages": [],
+  "unreachable": [],
+  "extraction": {
+    "tool": "extract_ios_pages.py",
+    "mode": "syntax",
+    "sectionKeywordsInPage": 2,
+    "regionsExtracted": 0,
+    "sectionsExtracted": 2,
+    "warnings": []
+  }
+}

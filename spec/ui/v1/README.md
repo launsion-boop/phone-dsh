@@ -44,6 +44,15 @@ checker 强制：tokens 过 schema；6 个签名面的 token 引用全部存在�
 | 页面 | 职责 | 入口 | 导航关系 | P5 |
 |---|---|---|---|---|
 | ChatPage | 对话、输入坞、审批/问题卡、目标条 | RootView 的默认原生面（NativeShell） | 根页；HomeSpec 浮动页头：抽屉 / 所属文件夹 / 设备连接 / `⋯` | must |
+| PersonalAgentChatPlaceholderPage | Personal Agent 的真实接入中与模型未配置状态 | AppShell 的 Chat 根页 | 配置模型 push；DSH 根页切换 | must |
+| DiscoverPage | 连接器、插件、硬件的搜索与筛选 | AppShell 的发现根页 | push ConnectorDetailPage、PluginCatalogPage、NativeDeviceConnectionPage | must |
+| ConnectorDetailPage | 通用连接器的六段状态、grant、同步与凭据说明 | DiscoverPage 连接器卡片 | push；连接器专属配置段可注入 | must |
+| PluginCatalogPage | 真实插件清单与可写配置入口 | DiscoverPage 插件段 | push NativePluginInventoryPage、NativeConfigurationPage | must |
+| ProfilePage | 个人、模型、Memory、权限、文件、引擎与通用设置 | AppShell 的个人根页 | push 各既有设置页与 PersonalMemoryPage | must |
+| PersonalAgentSettingsPage | Agent 名、主人称呼与个人上下文真实边界 | ProfilePage 首段 | push | must |
+| PersonalMemoryPage | personal-memory 的真实未接入状态 | ProfilePage Memory 段 | push；不复用 MemoryPage 压力探针 | must |
+| ProfileGeneralSettingsPage | 外观、语言、字号、工作过程与快捷键 | ProfilePage 通用段 | push | must |
+| DSHNewSessionPage | DSH 新建会话与 Agent 预设 | DSH 抽屉 | sheet；push NativeAgentPresetsPage | must |
 | SessionsPage | 会话列表、重命名、归档与开关 | 页头左按钮拉出抽屉（当前抽屉主体为 HomeDrawer） | 抽屉内常驻；选中会话即关闭抽屉 | must |
 | SessionActivityPage | 单会话的步骤/用量/上下文 | **触发点缺失（sheet 已接线但无人置位，基线不可达）** | sheet | later |
 | SessionHistoryPage | 历史回合列表与单回合详情 | 页头 `⋯` →「历史」，或 ChatPage 的目标行 | push；回合详情复用 ChatPage 的折叠规则 | later |

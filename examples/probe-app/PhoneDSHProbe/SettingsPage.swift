@@ -58,6 +58,7 @@ struct SettingsPage: View {
 
     var body: some View {
         List {
+            if AppShellMode.current == .legacy {
             Section(NativeText("模型与智能体", "Models and agents")) {
                 link(NativeText("模型服务", "Model providers"), icon: "cpu") { ModelProviderSettingsPage() }
                 link(NativeText("Agent 预设", "Agent presets"), icon: "person.2") { NativeAgentPresetsPage() }
@@ -97,6 +98,7 @@ struct SettingsPage: View {
                     ConversationSettingsPage()
                 }
                 link(NativeText("快捷键", "Shortcuts"), icon: "command") { NativeShortcutsPage() }
+            }
             }
 
             Section(NativeText("会话与文件", "Sessions and files")) {
@@ -415,3 +417,9 @@ private struct LicensesPage: View {
         .navigationTitle(NativeText("开源许可", "Open-source licenses"))
     }
 }
+
+func makeFontSizeSettingsView() -> some View { FontSizeSettingsPage() }
+func makeConversationSettingsView() -> some View { ConversationSettingsPage() }
+func makeArchivedSessionsView() -> some View { ArchivedSessionsPage() }
+func makePermissionDefaultsView() -> some View { PermissionDefaultsPage() }
+func makeLicensesView() -> some View { LicensesPage() }

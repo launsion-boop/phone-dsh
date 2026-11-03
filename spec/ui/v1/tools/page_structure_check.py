@@ -131,9 +131,11 @@ KINDS = (
     "android-only-stale",
 )
 ANDROID_ONLY_REL = PAGES_REL / "_android-only.json"
+IOS_ONLY_REL = PAGES_REL / "_ios-only.json"
 UNRECOGNIZED_REL = PAGES_REL / "_unrecognized.json"
 UNRECOGNIZED_SCHEMA = "pdsh.ui.page-structure-unrecognized/1"
 ANDROID_ONLY_SCHEMA = "pdsh.ui.page-structure-android-only/1"
+IOS_ONLY_SCHEMA = "pdsh.ui.page-structure-ios-only/1"
 SCREEN_FUN_RE = re.compile(r"^public fun (\w*Page)\s*\(", re.M)
 SPEC_ROW_RE = re.compile(r"^\|\s*([A-Za-z]+Page)\s*\|([^|]*)\|([^|]*)\|([^|]*)\|\s*(must|later)\s*\|")
 #: §1's entrance text names a *source page* (or the app shell). "抽屉" is the
@@ -484,6 +486,41 @@ def load_android_only(root: Path) -> dict:
         if not (root / entry["file"]).is_file():
             raise CheckError(f"{ANDROID_ONLY_REL}: {entry['screen']} names missing file {entry['file']}")
         out[entry["screen"]] = entry
+    return out
+
+
+def load_ios_only(root: Path, contracts: dict) -> dict:
+    """iOS-only pages explicitly deferred from Android comparison until a milestone."""
+    path = root / IOS_ONLY_REL
+    if not path.is_file():
+        return {}
+    data = load_json(path)
+    if not isinstance(data, dict) or data.get("schema") != IOS_ONLY_SCHEMA:
+        raise CheckError(f"{IOS_ONLY_REL}: not a {IOS_ONLY_SCHEMA} document")
+    entries = data.get("pages")
+    if not isinstance(entries, list):
+        raise CheckError(f"{IOS_ONLY_REL}: `pages` must be a list")
+    out = {}
+    today = datetime.date.today()
+    for entry in entries:
+        for key in ("page", "reason", "owner", "reviewBy", "milestone"):
+            if key not in entry:
+                raise CheckError(f"{IOS_ONLY_REL}: an entry misses `{key}`")
+        page = entry["page"]
+        contract = contracts.get(page)
+        if contract is None:
+            raise CheckError(f"{IOS_ONLY_REL}: unknown page {page!r}")
+        if page in out:
+            raise CheckError(f"{IOS_ONLY_REL}: duplicate page {page!r}")
+        if contract["android"].get("file"):
+            raise CheckError(f"{IOS_ONLY_REL}: {page!r} now has an Android mapping; remove the exception")
+        if not str(entry["reason"]).strip() or not str(entry["owner"]).strip() or not str(entry["milestone"]).strip():
+            raise CheckError(f"{IOS_ONLY_REL}: {page!r} needs reason, owner and milestone")
+        if not DATE_RE.match(str(entry["reviewBy"])):
+            raise CheckError(f"{IOS_ONLY_REL}: {page!r} reviewBy must be YYYY-MM-DD")
+        if datetime.date.fromisoformat(entry["reviewBy"]) < today:
+            raise CheckError(f"{IOS_ONLY_REL}: {page!r} reviewBy is in the past")
+        out[page] = entry
     return out
 
 
@@ -1667,10 +1704,23 @@ def run(root: Path, strict: bool, baseline_path: Path | None, write_baseline: Pa
                          + "; ".join(stale_contracts[:5])
                          + (" ..." if len(stale_contracts) > 5 else ""))
 
-    # Rule 2: the Android page exists and declares the mapped screen, and its
-    # section titles / action labels are the contract's.
-    summaries = [compare(root, contract, report, strings, shared_consts, wrappers)
-                 for contract in contracts.values()]
+    # Rule 2: the Android page exists and declares the mapped screen, unless an
+    # explicit, reviewed iOS-only milestone exception covers the whole page.
+    ios_only = load_ios_only(root, all_contracts)
+    summaries = []
+    for contract in contracts.values():
+        page_id = contract["pageId"]
+        if page_id in ios_only:
+            summaries.append({
+                "page": page_id, "screen": contract["page"], "android": None,
+                "sections": {"contract": len(contract["sections"]),
+                             "titled": len([s for s in contract["sections"] if s.get("title")]),
+                             "android": 0},
+                "actions": {"contract": len(contract["actions"]), "android": 0},
+                "findings": 0, "iosOnly": ios_only[page_id],
+            })
+        else:
+            summaries.append(compare(root, contract, report, strings, shared_consts, wrappers))
 
     # Rule 2a: §1 entrances vs the baseline's reachable navigation.
     check_spec_entrances(root, all_contracts, report, only_page=only_page)
@@ -1734,7 +1784,10 @@ def run(root: Path, strict: bool, baseline_path: Path | None, write_baseline: Pa
         findings = [f for f in report.findings if f[0] == summary["page"]]
         page_new = [f for f in new_findings if f[0] == summary["page"]]
         print(f"PAGE {summary['page']}  {summary['screen']} → {Path(summary['android']).name}"
-              if summary["android"] else f"PAGE {summary['page']}  {summary['screen']} → (no Android screen)")
+              if summary["android"] else
+              (f"PAGE {summary['page']}  {summary['screen']} → "
+               f"(iOS-only until {summary['iosOnly']['milestone']})" if "iosOnly" in summary else
+               f"PAGE {summary['page']}  {summary['screen']} → (no Android screen)"))
         model = summary.get("sectionModel", "section")
         if model in ("section", "regions"):
             print(f"  sections  contract {summary['sections']['contract']} "

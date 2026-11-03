@@ -14,6 +14,8 @@ struct ChatPage: View {
     var drawerExpanded: Bool = false
     /// Optional deep entry used by the preview router/debug route.
     var initialPreviewTarget: PreviewTarget? = nil
+    var dockBottomInset: CGFloat = 0
+    var approvalFocusID: String? = nil
     #if DEBUG
     /// 预览专用:直接吃一份本地造好的消息,不订阅宿主、不等记录就绪。
     var previewItems: [ChatItem]? = nil
@@ -270,6 +272,7 @@ struct ChatPage: View {
         .padding(.horizontal, HomeSpec.chromeInset)
         .padding(.top, HomeSpec.navTop)
         .frame(height: HomeSpec.navTop + HomeSpec.navButton)
+        .accessibilityIdentifier("dsh.session.\(sessionKey)")
     }
 
     /// 副标题是会话所属的文件夹。每个会话都有文件夹:不在任何文件夹里的就算在默认的「日常」。
@@ -369,11 +372,15 @@ struct ChatPage: View {
         // whole stack (including the title row) up under the status bar on
         // newer iOS versions.
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if let question = model.pendingQuestion {
-                questionTakeover(question)
-            } else {
-                composer
+            Group {
+                if let question = model.pendingQuestion {
+                    questionTakeover(question)
+                } else {
+                    composer
+                }
             }
+            .padding(.bottom, dockBottomInset)
+            .background(HomeSpec.page)
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
             keyboardVisible = true
@@ -578,7 +585,7 @@ struct ChatPage: View {
             draft = savedDraft(for: sessionKey)
             #if DEBUG
             // 预览:输入框里先放好那段超长文本,验行高和滚动。
-            if let previewDraft, draft.isEmpty { draft = previewDraft }
+            if let previewDraft { draft = previewDraft }
             #endif
             if model.isStarted { Task { await management.refresh() } }
             // The native surface owns the one host now, so a cold launch
@@ -650,7 +657,7 @@ struct ChatPage: View {
             draft = savedDraft(for: sessionKey)
             #if DEBUG
             // 预览:输入框里先放好那段超长文本,验行高和滚动。
-            if let previewDraft, draft.isEmpty { draft = previewDraft }
+            if let previewDraft { draft = previewDraft }
             #endif
             pendingAttachments.removeAll()
             attachmentError = nil
@@ -1091,6 +1098,8 @@ struct ChatPage: View {
                            isBusy: model.busy,
                            onAllow: { respond(.allowOnce) },
                            onDeny: { respond(.deny) })
+            .accessibilityIdentifier("dsh.approval.\(permission.id)")
+            .accessibilityAddTraits(approvalFocusID == permission.id ? .isSelected : [])
     }
 
 

@@ -1,0 +1,161 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "PersonalMemoryPage",
+  "pageId": "personal-memory",
+  "structure": "swiftui-view",
+  "sectionModel": "section",
+  "sectionNote": null,
+  "title": {
+    "text": "个人 Memory",
+    "provenance": "PersonalMemoryPlaceholderPage.swift:23",
+    "anchor": ".navigationTitle(NativeText(\"个人 Memory\", \"Personal Memory\"))"
+  },
+  "source": {
+    "file": "PersonalMemoryPlaceholderPage.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/Profile/PersonalMemoryPlaceholderPage.swift",
+    "lines": 27,
+    "structLine": 5,
+    "renderedFrom": [
+      "body"
+    ],
+    "sectionOrder": "declaration order inside the page struct"
+  },
+  "android": {
+    "screen": "PersonalMemoryPage",
+    "file": null,
+    "match": "missing"
+  },
+  "sections": [
+    {
+      "id": "personal-memory",
+      "title": "Personal Memory",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "literal",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "个人记忆正在接入",
+          "label": "个人记忆正在接入",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "PersonalMemoryPlaceholderPage.swift:9",
+          "anchor": "Label(NativeText(\"个人记忆正在接入\", \"Personal Memory is being connected\"), systemImage:",
+          "extraction": "syntax"
+        },
+        {
+          "id": "这里将展示待确认-关于我-工作进展-来源-修订-归档与遗忘-当前没有读取或生成任何个人记忆",
+          "label": "这里将展示待确认、关于我、工作进展、来源、修订、归档与遗忘。当前没有读取或生成任何个人记忆。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "PersonalMemoryPlaceholderPage.swift:10",
+          "anchor": "Text(NativeText(\"这里将展示待确认、关于我、工作进展、来源、修订、归档与遗忘。当前没有读取或生成任何个人记忆。\",",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "PersonalMemoryPlaceholderPage.swift:8",
+      "anchor": "Section(NativeText(\"Personal Memory\", \"Personal Memory\")) {",
+      "extraction": "syntax"
+    },
+    {
+      "id": "数据来源",
+      "title": "数据来源",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "literal",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "此页面使用-personal-memory-契约-不复用内存压力探针-memorypage",
+          "label": "此页面使用 personal-memory 契约，不复用内存压力探针 MemoryPage。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "PersonalMemoryPlaceholderPage.swift:16",
+          "anchor": "Text(NativeText(\"此页面使用 personal-memory 契约，不复用内存压力探针 MemoryPage。\",",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "PersonalMemoryPlaceholderPage.swift:15",
+      "anchor": "Section(NativeText(\"数据来源\", \"Data sources\")) {",
+      "extraction": "syntax"
+    }
+  ],
+  "actions": [],
+  "presentations": [],
+  "states": {
+    "advisory": true,
+    "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
+    "sites": {
+      "empty": [
+        {
+          "renders": "这里将展示待确认、关于我、工作进展、来源、修订、归档与遗忘。当前没有读取或生成任何个人记忆。",
+          "when": null,
+          "provenance": "PersonalMemoryPlaceholderPage.swift:10",
+          "anchor": "Text(NativeText(\"这里将展示待确认、关于我、工作进展、来源、修订、归档与遗忘。当前没有读取或生成任何个人记忆。\","
+        }
+      ],
+      "data": [
+        {
+          "renders": "Personal Memory | 数据来源",
+          "when": null,
+          "provenance": "PersonalMemoryPlaceholderPage.swift:5",
+          "anchor": "struct PersonalMemoryPage: View {",
+          "note": "structural default: the sections above, when no condition overrides them"
+        }
+      ],
+      "failure": [],
+      "unknown": [],
+      "loading": [
+        {
+          "renders": "个人记忆正在接入",
+          "when": null,
+          "provenance": "PersonalMemoryPlaceholderPage.swift:9",
+          "anchor": "Label(NativeText(\"个人记忆正在接入\", \"Personal Memory is being connected\"), systemImage:"
+        }
+      ]
+    },
+    "absent": [
+      "failure",
+      "unknown"
+    ],
+    "coverage": {
+      "empty": 1,
+      "data": 1,
+      "failure": 0,
+      "unknown": 0,
+      "loading": 1
+    }
+  },
+  "subpages": [],
+  "unreachable": [],
+  "extraction": {
+    "tool": "extract_ios_pages.py",
+    "mode": "syntax",
+    "sectionKeywordsInPage": 2,
+    "regionsExtracted": 0,
+    "sectionsExtracted": 2,
+    "warnings": []
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "AppShell",
+  "pageId": "app-shell",
+  "structure": "swiftui-view",
+  "sectionModel": "single-region",
+  "sectionNote": "Four retained roots and one Worker anchor; Dock is a separate contract.",
+  "title": null,
+  "source": {
+    "file": "AppShell.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/Shell/AppShell.swift",
+    "lines": 276,
+    "structLine": 11,
+    "renderedFrom": ["body", "chatRoot", "discoverRoot", "profileRoot", "open"],
+    "sectionOrder": "chat, dsh, discover, profile"
+  },
+  "android": {
+    "screen": "AppShell",
+    "file": null,
+    "match": "missing"
+  },
+  "sections": [],
+  "actions": [],
+  "presentations": [],
+  "states": {
+    "advisory": true,
+    "sites": {}
+  },
+  "subpages": [],
+  "unreachable": [],
+  "extraction": {
+    "tool": "manual",
+    "mode": "manual",
+    "sectionKeywordsInPage": 0,
+    "regionsExtracted": 1,
+    "sectionsExtracted": 0,
+    "warnings": []
+  }
+}

@@ -1,7 +1,7 @@
 {
   "schema": "pdsh.ui.page-structure-baseline/1",
   "note": "Known page-structure divergences between the iOS contract and the Android screens. The 174 entries were regenerated for the owner-reviewed PR 22 HomeSpec rebaseline; from here the ratchet only shrinks. Regenerate with --write-baseline only when a later rebaseline is explicitly reviewed.",
-  "contracts": 33,
+  "contracts": 44,
   "divergences": [
     {
       "page": "background",

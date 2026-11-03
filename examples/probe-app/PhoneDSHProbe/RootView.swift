@@ -4,6 +4,27 @@
 import SwiftUI
 
 struct RootView: View {
+    #if DEBUG
+    @State private var preview = PreviewScreen.requested.flatMap { $0.isAppShellPreview ? nil : $0 }
+    #endif
+
+    var body: some View {
+        Group {
+            if AppShellMode.current == .v4 {
+                AppShell()
+            } else {
+                LegacyRootView()
+            }
+        }
+        #if DEBUG
+        .fullScreenCover(item: $preview) { screen in
+            NavigationStack { screen.body }
+        }
+        #endif
+    }
+}
+
+private struct LegacyRootView: View {
     @State private var chat = ChatModel.shared
 
     var body: some View {

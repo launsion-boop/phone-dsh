@@ -1,0 +1,83 @@
+{
+  "schema": "pdsh.ui.page-structure-ios-only/1",
+  "note": "ADR-6: the Personal Agent wave is iOS-only. Each exception expires when its named Android synchronization milestone is reviewed; an Android mapping makes the entry stale.",
+  "pages": [
+    {
+      "page": "app-shell",
+      "reason": "The four-root retained NavigationStack shell and single Worker anchor have no Android counterpart in this wave.",
+      "owner": "personal-agent-shell",
+      "reviewBy": "2027-06-30",
+      "milestone": "Android four-root shell implementation review"
+    },
+    {
+      "page": "app-dock",
+      "reason": "The iOS HomeSpec Chat button and three-entry capsule are new iOS chrome; Android keeps its existing navigation during this wave.",
+      "owner": "personal-agent-shell",
+      "reviewBy": "2027-06-30",
+      "milestone": "Android four-root shell implementation review"
+    },
+    {
+      "page": "personal-agent-chat-placeholder",
+      "reason": "The truthful Personal Agent integration placeholder exists only during the iOS M1a wave and is not a chat implementation to mirror.",
+      "owner": "personal-agent-shell",
+      "reviewBy": "2027-06-30",
+      "milestone": "Android Personal Agent runtime review"
+    },
+    {
+      "page": "discover",
+      "reason": "Connector, plugin and hardware discovery is introduced on iOS first under ADR-6.",
+      "owner": "personal-agent-shell",
+      "reviewBy": "2027-06-30",
+      "milestone": "Android Discover implementation review"
+    },
+    {
+      "page": "connector-detail",
+      "reason": "The generic six-section connector detail contract is introduced on iOS before connector Android adapters exist.",
+      "owner": "personal-agent-shell",
+      "reviewBy": "2027-06-30",
+      "milestone": "Android connector platform review"
+    },
+    {
+      "page": "plugin-catalog",
+      "reason": "The iOS discovery catalog reuses native plugin pages; Android plugin migration is outside this wave.",
+      "owner": "personal-agent-shell",
+      "reviewBy": "2027-06-30",
+      "milestone": "Android Discover implementation review"
+    },
+    {
+      "page": "profile",
+      "reason": "The seven-section Personal Agent profile is a new iOS root with no Android profile shell.",
+      "owner": "personal-agent-shell",
+      "reviewBy": "2027-06-30",
+      "milestone": "Android Profile implementation review"
+    },
+    {
+      "page": "personal-agent-settings",
+      "reason": "Agent naming and personal context are Personal Agent features excluded from the Android wave.",
+      "owner": "personal-agent-shell",
+      "reviewBy": "2027-06-30",
+      "milestone": "Android Personal Agent runtime review"
+    },
+    {
+      "page": "personal-memory",
+      "reason": "Personal Memory is distinct from the existing memory pressure probe and has no Android implementation.",
+      "owner": "personal-agent-shell",
+      "reviewBy": "2027-06-30",
+      "milestone": "Android Personal Agent data layer review"
+    },
+    {
+      "page": "profile-general-settings",
+      "reason": "This iOS profile grouping reuses existing native preferences and does not create an Android settings contract in this wave.",
+      "owner": "personal-agent-shell",
+      "reviewBy": "2027-06-30",
+      "milestone": "Android Profile implementation review"
+    },
+    {
+      "page": "dsh-new-session",
+      "reason": "Agent presets move beside the iOS DSH new-session entry; Android session composition remains unchanged.",
+      "owner": "personal-agent-shell",
+      "reviewBy": "2027-06-30",
+      "milestone": "Android DSH session composition review"
+    }
+  ]
+}
