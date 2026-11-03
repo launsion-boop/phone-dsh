@@ -1061,10 +1061,10 @@ final class ChatModel {
         // library advertises them. Without the XCFramework `acceleratorNames`
         // is empty, so the host keeps advertising none instead of faking a
         // capability. `phone`/`ctx` are registered by the library but need an
-        // injected PhoneToolBridge (there is no MCP bridge in this host yet),
-        // so `channelAcceleratorNames` keeps them out of the host HELLO and the
-        // EXEC_REQ whitelist instead of advertising commands that would exit 69.
+        // injected PhoneToolBridge, so `channelAcceleratorNames` keeps an
+        // unavailable command out of the host HELLO and EXEC_REQ whitelist.
         let toolBridge = AppComposition.shared.dshToolBridge
+        PhoneToolHostCapabilities.apply(to: &environment, bridge: toolBridge)
         let shell = PDSHShellProvider(materializedWorkspace: materializedWorkspace,
                                       materializedHome: materializedHome,
                                       toolBridge: toolBridge)

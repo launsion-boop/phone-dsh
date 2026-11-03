@@ -41,6 +41,7 @@ import WebKit
 import PhoneDSHAgentCore
 import PhoneDSH
 import PhoneDSHEngine
+import PhoneDSHShell
 import ProbeKit
 
 /// One redaction pass shared by every console line, failure string, diagnostic
@@ -1389,7 +1390,8 @@ final class CapabilityTestHost {
               modelName: String,
               environmentExtra: [String: String],
               egressHosts: Set<String> = [],
-              extraCredentials: [CredentialScope: Credential] = [:]) async throws {
+              extraCredentials: [CredentialScope: Credential] = [:],
+              toolBridge: (any PhoneToolBridge)? = nil) async throws {
         let visibleWindow = SimVisibleWindow(size: CGSize(width: 430, height: 932))
         window = visibleWindow
         guard visibleWindow.isAttached else {
@@ -1421,7 +1423,8 @@ final class CapabilityTestHost {
             workerPlaceholderKey: PhoneDSHWorkerCapabilityTests.workerPlaceholderKey,
             pagePath: PhoneDSHWorkerCapabilityTests.fullPagePath,
             drainDeadline: 5,
-            helloTimeout: 240)
+            helloTimeout: 240,
+            toolBridge: toolBridge)
         var configuration = assembly.configuration
         configuration.engine.visibleAreaPoints = 430
         for (name, value) in environmentExtra {

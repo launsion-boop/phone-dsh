@@ -84,6 +84,7 @@ import { installNamespaceAuthority, type NamespaceRuntimeHooks } from './namespa
 import { createPhoneProfileOverlay } from './profile-overlay.ts'
 import {
   buildCapabilityManifest,
+  manifestHostCaps,
   publishCapabilityManifest,
   workerCommandSurface,
   workerUnavailableCommands,
@@ -649,7 +650,9 @@ async function startPhoneWorkerInternal(options: PhoneWorkerOptions): Promise<Ph
         PDSH_CHANNEL_TOKEN: process.env.PDSH_CHANNEL_TOKEN,
         PDSH_EXEC_BRIDGE_TOKEN: process.env.PDSH_EXEC_BRIDGE_TOKEN,
       }),
-      hostCaps: channel.hostHello?.caps ?? [],
+      hostCaps: manifestHostCaps(channel.hostHello?.caps ?? [], {
+        PDSH_HOST_TOOL_CAPABILITIES: process.env.PDSH_HOST_TOOL_CAPABILITIES,
+      }),
       pythonModules,
       ...jqWiring === undefined ? {} : {
         jq: {

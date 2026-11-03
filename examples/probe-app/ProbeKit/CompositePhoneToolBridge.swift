@@ -3,6 +3,15 @@
 import Foundation
 import PhoneDSHShell
 
+public enum PhoneToolHostCapabilities {
+    public static let environmentKey = "PDSH_HOST_TOOL_CAPABILITIES"
+
+    public static func apply(to environment: inout [String: String], bridge: any PhoneToolBridge) {
+        let capabilities = bridge.handles.map { "phone-tool:\($0)" }.sorted()
+        environment[environmentKey] = capabilities.joined(separator: ",")
+    }
+}
+
 public struct CompositePhoneToolBridge: PhoneToolBridge {
     public let supportsContext: Bool
     public let handles: Set<String>

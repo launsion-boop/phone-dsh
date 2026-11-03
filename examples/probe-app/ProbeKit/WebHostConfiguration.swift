@@ -73,6 +73,8 @@ public enum WebHostConfiguration {
     ///     real model key.
     ///   - pagePath: the complete page route; tests may override to prove an
     ///     explicit request is honoured, but production uses ``pagePath``.
+    ///   - toolBridge: host tools for the `phone` accelerator and the explicit
+    ///     non-secret tool-capability declaration consumed by the Worker manifest.
     public static func make(workspaceRoot: URL,
                             bundle: PhoneDSHBundleLocation,
                             modelURL: URL? = nil,
@@ -89,7 +91,8 @@ public enum WebHostConfiguration {
                             drainDeadline: TimeInterval =
                                 ChatHostConfiguration.defaultDrainDeadline,
                             helloTimeout: TimeInterval =
-                                ChatHostConfiguration.defaultHelloTimeout)
+                                ChatHostConfiguration.defaultHelloTimeout,
+                            toolBridge: (any PhoneToolBridge)? = nil)
         -> Assembly {
         // The chat assembly needs a concrete URL only to derive its default
         // host rule and environment. A caller that supplies the launch plan
@@ -116,9 +119,12 @@ public enum WebHostConfiguration {
         // The provider reads the WAL-owned materialized mounts derived from
         // this same workspace root; App and E2E therefore execute the same
         // read-only accelerator surface, never a host path outside the WAL.
-        let shellProvider = PDSHShellProvider(workspaceRoot: workspaceRoot)
+        let shellProvider = PDSHShellProvider(workspaceRoot: workspaceRoot, toolBridge: toolBridge)
         configuration.accelerators = shellProvider
         configuration.execProvider = shellProvider
+        if let toolBridge {
+            PhoneToolHostCapabilities.apply(to: &configuration.engine.environment, bridge: toolBridge)
+        }
         if !shellProvider.acceleratorNames.isEmpty {
             let names = shellProvider.channelAcceleratorNames
             if !names.isEmpty {

@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT
 
-@testable import PhoneDSHProbe
 @testable import ProbeKit
 import XCTest
 
@@ -14,6 +13,11 @@ final class PA_AppCompositionTests: XCTestCase {
         XCTAssertFalse(composition.dshToolBridge.handles.contains("gmail.message.send"))
         XCTAssertTrue(composition.connectorTools.descriptors.contains { $0.internalName == "github.issue.comment" })
         XCTAssertTrue(composition.connectorTools.descriptors.contains { $0.internalName == "gmail.message.send" })
+        var environment: [String: String] = [:]
+        PhoneToolHostCapabilities.apply(to: &environment, bridge: composition.dshToolBridge)
+        let capabilities = try XCTUnwrap(environment[PhoneToolHostCapabilities.environmentKey])
+        XCTAssertTrue(capabilities.contains("phone-tool:github.repository.get"))
+        XCTAssertFalse(capabilities.contains("phone-tool:github.issue.comment"))
     }
 
     func testContextIncludesPriorConversationAndMemoryButNotCurrentTurnTwice() async throws {

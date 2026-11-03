@@ -89,7 +89,7 @@ final class AppComposition {
     static let shared = try! AppComposition()
 
     let root: URL
-    let credentials: KeychainConnectorCredentialStore
+    let credentials: any ConnectorCredentialStore
     let connectorStore: SQLiteConnectorStore
     let registry: PersistentConnectorRegistry
     let operations: FileOperationLedger
@@ -119,16 +119,18 @@ final class AppComposition {
         try self.init(root: support.appendingPathComponent("PersonalAgent", isDirectory: true))
     }
 
-    init(root: URL) throws {
+    init(root: URL,
+         credentials: any ConnectorCredentialStore = KeychainConnectorCredentialStore(),
+         githubTransport: any ConnectorHTTPTransport = URLSessionConnectorHTTPTransport()) throws {
         self.root = root
-        credentials = KeychainConnectorCredentialStore()
+        self.credentials = credentials
         connectorStore = try SQLiteConnectorStore(databaseURL: root.appendingPathComponent("connectors/registry.sqlite"))
         registry = try PersistentConnectorRegistry(store: connectorStore, credentials: credentials)
         operations = try FileOperationLedger(root: root)
         ingress = try MainIngress(root: root)
         writeGate = try DefaultWriteGate(root: root)
 
-        githubClient = GitHubClient(transport: URLSessionConnectorHTTPTransport(), credentials: credentials)
+        githubClient = GitHubClient(transport: githubTransport, credentials: credentials)
         githubBridge = GitHubToolBridge(client: githubClient, registry: registry,
                                         writeGate: writeGate, ledger: operations)
 

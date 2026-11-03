@@ -251,6 +251,30 @@ export interface HostRouteEnvironment {
   readonly PDSH_EXEC_BRIDGE_TOKEN?: string | undefined
 }
 
+export const HOST_TOOL_CAPABILITIES_ENV = 'PDSH_HOST_TOOL_CAPABILITIES'
+
+export interface HostToolCapabilityEnvironment {
+  readonly PDSH_HOST_TOOL_CAPABILITIES?: string | undefined
+}
+
+/**
+ * Merge the App's host-owned tool declarations without changing the channel SDK.
+ * The native accelerator must still be present in the actual wire HELLO; an
+ * environment list alone can never make `phone` executable.
+ */
+export function manifestHostCaps(
+  hostCaps: readonly string[],
+  env: HostToolCapabilityEnvironment = {},
+): string[] {
+  const caps = new Set(hostCaps)
+  if (caps.has('accelerator:phone')) {
+    for (const capability of (env[HOST_TOOL_CAPABILITIES_ENV] ?? '').split(',')) {
+      if (/^phone-tool:[A-Za-z0-9_.-]{1,128}$/u.test(capability)) caps.add(capability)
+    }
+  }
+  return sorted([...caps])
+}
+
 /** Reason `curl` carries when this boot has no host `/v1/http` route. */
 export const CURL_NO_HOST_ROUTE_REASON =
   'no host /v1/http route in this boot: PDSH_CHANNEL_TOKEN is unset, so curl cannot reach any host'
@@ -279,7 +303,7 @@ export interface CapabilityManifestInput {
   readonly commands: readonly string[]
   /** Host HELLO `accelerator:<name>` names, when a host HELLO arrived. */
   readonly accelerators?: readonly string[]
-  /** Full host HELLO caps, for diagnostics (D12). */
+  /** Wire HELLO caps plus the App's explicit host-owned tool declarations. */
   readonly hostCaps?: readonly string[]
   /** Build-time probe output staged by `scripts/pack-image.mjs`. */
   readonly pythonModules?: readonly string[]
@@ -815,10 +839,10 @@ const HOST_PROJECTED_PHONE_TOOLS: readonly CapabilityPhoneTool[] = Object.freeze
  * The honest `phone` section for a host that advertised `accelerator:phone`.
  *
  * Android's verified `info` row is always retained. Connector rows are projected
- * only from explicit `phone-tool:<name>` HELLO capabilities; `phone-tool:github.*`
+ * only from explicit `phone-tool:<name>` host capabilities; `phone-tool:github.*`
  * is the host's declaration for the complete GitHub bridge. No connector row is
  * inferred from `accelerator:phone` alone.
- * @param hostCaps - full host HELLO capabilities.
+ * @param hostCaps - effective wire HELLO and App-declared host capabilities.
  * @returns the `phone` document section.
  */
 export function phoneCapability(hostCaps: readonly string[] = []): NonNullable<CapabilityManifestDocument['phone']> {

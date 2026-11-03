@@ -53,6 +53,7 @@ import {
   PHONE_V1_LIMITS,
   TASK_EXECUTION_GUIDANCE,
   buildCapabilityManifest,
+  manifestHostCaps,
   publishCapabilityManifest,
   workerCommandSurface,
   workerUnavailableCommands,
@@ -387,6 +388,26 @@ test('AGENTS.md stays within its byte budget and answers the environment questio
   assert.doesNotMatch(manifest.markdown, /trap.*not implemented/iu)
   assert.deepEqual(manifest.json.bash.deviations.map(deviation => deviation.id), ['JB-EPOCHSECONDS', 'JB-DEV0'])
   assert.deepEqual(DEFAULT_BASH_DEVIATIONS.map(deviation => deviation.id), ['JB-EPOCHSECONDS', 'JB-DEV0'])
+})
+
+test('the App tool declaration supplements only a real phone accelerator', () => {
+  const env = {
+    PDSH_HOST_TOOL_CAPABILITIES: 'phone-tool:github.repository.get,phone-tool:github.pull.get,invalid,accelerator:rg',
+  }
+  const caps = manifestHostCaps(['channel/1', 'exec/1', 'accelerator:phone'], env)
+  assert.deepEqual(caps, [
+    'accelerator:phone', 'channel/1', 'exec/1',
+    'phone-tool:github.pull.get', 'phone-tool:github.repository.get',
+  ])
+  assert.deepEqual(manifestHostCaps(['channel/1', 'exec/1'], env), ['channel/1', 'exec/1'])
+  const manifest = buildCapabilityManifest(manifestInput({
+    commands: ['bash', 'phone'],
+    accelerators: ['phone'],
+    hostCaps: caps,
+  }))
+  assert.deepEqual(manifest.json.phone?.tools.map(tool => tool.name), [
+    'info', 'github.repository.get', 'github.pull.get',
+  ])
 })
 
 test('the phone section publishes only the tools the host declares', () => {
