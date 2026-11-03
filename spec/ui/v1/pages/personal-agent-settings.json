@@ -13,7 +13,7 @@
   "source": {
     "file": "PersonalAgentSettingsPage.swift",
     "path": "examples/probe-app/PhoneDSHProbe/Profile/PersonalAgentSettingsPage.swift",
-    "lines": 75,
+    "lines": 57,
     "structLine": 6,
     "renderedFrom": [
       "body"

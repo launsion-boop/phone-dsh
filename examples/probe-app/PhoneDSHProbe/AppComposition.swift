@@ -190,6 +190,31 @@ final class AppComposition {
         try await registry.revoke(connectorID)
     }
 
+    func preferredOwnerName() async throws -> String? {
+        try await memories.active(principal: personalModel.principal)
+            .first(where: { $0.field == .displayName })?.text
+    }
+
+    func savePreferredOwnerName(_ value: String) async throws {
+        let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let existing = try await memories.active(principal: personalModel.principal)
+            .first(where: { $0.field == .displayName })
+        if let existing {
+            if text.isEmpty {
+                try await memories.archive(existing.id)
+            } else if existing.text != text {
+                _ = try await memories.supersede(existing.id, with: text)
+            }
+        } else if !text.isEmpty {
+            let record = MemoryRecord(principal: personalModel.principal, kind: .longTerm,
+                                      field: .displayName, text: text,
+                                      source: MemorySource(kind: .phone, reference: "profile.displayName",
+                                                           detail: "用户在首次引导或个人设置中明确保存"),
+                                      origin: .userExplicit, status: .active)
+            try await memories.save(record)
+        }
+    }
+
     func refreshModelConfiguration() {
         personalModel.isModelConfigured = Self.modelIsConfigured()
     }

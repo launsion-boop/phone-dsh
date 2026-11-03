@@ -24,6 +24,13 @@
       "milestone": "Android Personal Agent runtime review"
     },
     {
+      "page": "personal-agent-onboarding",
+      "reason": "The two-step owner and agent naming flow is introduced with the iOS Personal Agent first-run experience.",
+      "owner": "personal-agent-shell",
+      "reviewBy": "2027-06-30",
+      "milestone": "Android Personal Agent onboarding review"
+    },
+    {
       "page": "discover",
       "reason": "Connector, plugin and hardware discovery is introduced on iOS first under ADR-6.",
       "owner": "personal-agent-shell",

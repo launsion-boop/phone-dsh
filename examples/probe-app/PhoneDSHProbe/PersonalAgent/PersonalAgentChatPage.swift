@@ -20,7 +20,7 @@ struct PersonalAgentChatPage: View {
     @State private var showFollowUps = false
     @State private var expandedArtifacts = Set<String>()
     @State private var voice = ComposerVoiceInput()
-    @AppStorage("personalAgent.displayName") private var agentName = "Personal Agent"
+    @AppStorage("personalAgent.displayName") private var agentName = "小肥鱼"
 
     init(model: PersonalAgentModel, focus: ChatFocus? = nil, connectors: [ConnectorRecord] = [],
          dailyBrief: DailyBriefModel? = nil, followUpCoordinator: FollowUpCoordinator? = nil, bottomInset: CGFloat = 0,

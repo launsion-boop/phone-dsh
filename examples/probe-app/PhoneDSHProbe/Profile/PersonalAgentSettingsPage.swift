@@ -4,7 +4,7 @@ import ProbeKit
 import SwiftUI
 
 struct PersonalAgentSettingsPage: View {
-    @AppStorage("personalAgent.displayName") private var agentName = "Personal Agent"
+    @AppStorage("personalAgent.displayName") private var agentName = "小肥鱼"
     @AppStorage("personalAgent.ownerName") private var ownerName = ""
     @State private var composition = AppComposition.shared
     @State private var errorMessage: String?
@@ -42,31 +42,13 @@ struct PersonalAgentSettingsPage: View {
     }
 
     private func loadOwnerName() async {
-        guard ownerName.isEmpty,
-              let record = try? await composition.memories.active(principal: composition.personalModel.principal)
-                .first(where: { $0.field == .displayName }) else { return }
-        ownerName = record.text
+        guard ownerName.isEmpty, let name = try? await composition.preferredOwnerName() else { return }
+        ownerName = name
     }
 
     private func saveOwnerName() async {
-        let text = ownerName.trimmingCharacters(in: .whitespacesAndNewlines)
         do {
-            let existing = try await composition.memories.active(principal: composition.personalModel.principal)
-                .first(where: { $0.field == .displayName })
-            if let existing {
-                if text.isEmpty {
-                    try await composition.memories.archive(existing.id)
-                } else if existing.text != text {
-                    _ = try await composition.memories.supersede(existing.id, with: text)
-                }
-            } else if !text.isEmpty {
-                let record = MemoryRecord(principal: composition.personalModel.principal, kind: .longTerm,
-                                          field: .displayName, text: text,
-                                          source: MemorySource(kind: .phone, reference: "profile.displayName",
-                                                               detail: "用户在个人设置中明确保存"),
-                                          origin: .userExplicit, status: .active)
-                try await composition.memories.save(record)
-            }
+            try await composition.savePreferredOwnerName(ownerName)
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription

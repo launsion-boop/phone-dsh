@@ -11,6 +11,9 @@ enum ShellChatRoute: Hashable {
 struct AppShell: View {
     @State private var chat = ChatModel.shared
     @State private var composition = AppComposition.shared
+    @AppStorage("personalAgent.displayName") private var agentName = "小肥鱼"
+    @AppStorage("personalAgent.ownerName") private var ownerName = ""
+    @AppStorage("personalAgent.onboarding.completed") private var onboardingCompleted = false
     @State private var connectorModel = DiscoverConnectorModel()
     @State private var connectorConfiguration = ConnectorConfigurationModel()
     @State private var attention = AppAttentionModel()
@@ -44,6 +47,18 @@ struct AppShell: View {
         return false
     }
 
+    private var needsOnboarding: Bool {
+        guard !onboardingCompleted, ownerName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              agentName == "Personal Agent" || agentName == "小肥鱼" else { return false }
+        let arguments = ProcessInfo.processInfo.arguments
+        if arguments.contains("-personalOnboarding") { return true }
+        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil { return false }
+        #if DEBUG
+        if PreviewScreen.requested != nil { return false }
+        #endif
+        return true
+    }
+
     private var badges: [AppTab: Int] {
         [
             .chat: attention.chatItems.count,
@@ -59,6 +74,14 @@ struct AppShell: View {
     }
 
     var body: some View {
+        if needsOnboarding {
+            PersonalAgentOnboardingPage()
+        } else {
+            appContent
+        }
+    }
+
+    private var appContent: some View {
         ZStack {
             retained(.chat) { chatRoot }
             retained(.dsh) {

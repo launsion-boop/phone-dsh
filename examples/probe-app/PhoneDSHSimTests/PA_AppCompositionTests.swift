@@ -67,6 +67,21 @@ final class PA_AppCompositionTests: XCTestCase {
         XCTAssertEqual(mandate.allowedActions, [.read])
     }
 
+    @MainActor
+    func testPreferredOwnerNamePersistsAndSupersedesInMemory() async throws {
+        let composition = try AppComposition(root: temporaryRoot())
+        await composition.personalModel.load()
+        try await composition.savePreferredOwnerName("测试主人")
+        let initial = try await composition.preferredOwnerName()
+        XCTAssertEqual(initial, "测试主人")
+        try await composition.savePreferredOwnerName("新称呼")
+        let updated = try await composition.preferredOwnerName()
+        XCTAssertEqual(updated, "新称呼")
+        let records = try await composition.memories.records(principal: composition.personalModel.principal)
+        XCTAssertEqual(records.filter { $0.field == .displayName && $0.isActive() }.count, 1)
+        XCTAssertEqual(records.filter { $0.field == .displayName && $0.status == .archived }.count, 1)
+    }
+
     private func temporaryRoot() -> URL {
         FileManager.default.temporaryDirectory.appendingPathComponent("PA-Composition-\(UUID().uuidString)")
     }

@@ -1,0 +1,143 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "PersonalAgentOnboardingPage",
+  "pageId": "personal-agent-onboarding",
+  "structure": "swiftui-view",
+  "sectionModel": "regions",
+  "sectionNote": null,
+  "title": null,
+  "source": {
+    "file": "PersonalAgentOnboardingPage.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/PersonalAgent/PersonalAgentOnboardingPage.swift",
+    "lines": 112,
+    "structLine": 5,
+    "renderedFrom": [
+      "body",
+      "ownerStep",
+      "agentStep"
+    ],
+    "sectionOrder": "declaration order inside the page struct"
+  },
+  "android": {
+    "screen": "PersonalAgentOnboardingPage",
+    "file": null,
+    "match": "missing"
+  },
+  "sections": [
+    {
+      "id": "第-step-步-共-2-步",
+      "kind": "region",
+      "title": "第 \\(step) 步，共 2 步",
+      "titleTemplate": null,
+      "titleSource": "header-text",
+      "condition": null,
+      "collection": null,
+      "rows": [],
+      "provenance": "PersonalAgentOnboardingPage.swift:19",
+      "anchor": "Text(\"第 \\(step) 步，共 2 步\")",
+      "extraction": "syntax",
+      "note": "header Text only; its rows are the following siblings in the same stack"
+    },
+    {
+      "id": "给你的-personal-agent-取个名字",
+      "kind": "region",
+      "title": "给你的 Personal Agent 取个名字",
+      "titleTemplate": null,
+      "titleSource": "header-text",
+      "condition": null,
+      "collection": null,
+      "rows": [],
+      "provenance": "PersonalAgentOnboardingPage.swift:73",
+      "anchor": "Text(\"给你的 Personal Agent 取个名字\")",
+      "extraction": "syntax",
+      "note": "header Text only; its rows are the following siblings in the same stack"
+    },
+    {
+      "id": "以后会显示在-chat-顶栏-默认叫小肥鱼-也可以改成你喜欢的名字",
+      "kind": "region",
+      "title": "以后会显示在 Chat 顶栏。默认叫小肥鱼，也可以改成你喜欢的名字。",
+      "titleTemplate": null,
+      "titleSource": "header-text",
+      "condition": null,
+      "collection": null,
+      "rows": [],
+      "provenance": "PersonalAgentOnboardingPage.swift:75",
+      "anchor": "Text(\"以后会显示在 Chat 顶栏。默认叫小肥鱼，也可以改成你喜欢的名字。\")",
+      "extraction": "syntax",
+      "note": "header Text only; its rows are the following siblings in the same stack"
+    }
+  ],
+  "actions": [
+    {
+      "id": "上一步",
+      "label": "上一步",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ step = 1",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "PersonalAgentOnboardingPage.swift:31",
+      "anchor": "Button(\"上一步\") { step = 1 }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "开始使用",
+      "label": "开始使用",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ if step == 1 { step = 2 } else { Task { await finish() } }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "PersonalAgentOnboardingPage.swift:36",
+      "anchor": "Button(step == 1 ? \"继续\" : \"开始使用\") {",
+      "extraction": "syntax"
+    }
+  ],
+  "presentations": [],
+  "states": {
+    "advisory": true,
+    "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
+    "sites": {
+      "empty": [],
+      "data": [
+        {
+          "renders": "第 \\(step) 步，共 2 步 | 给你的 Personal Agent 取个名字 | 以后会显示在 Chat 顶栏。默认叫小肥鱼，也可以改成你喜欢的名字。",
+          "when": null,
+          "provenance": "PersonalAgentOnboardingPage.swift:5",
+          "anchor": "struct PersonalAgentOnboardingPage: View {",
+          "note": "structural default: the sections above, when no condition overrides them"
+        }
+      ],
+      "failure": [],
+      "unknown": [],
+      "loading": []
+    },
+    "absent": [
+      "empty",
+      "failure",
+      "unknown",
+      "loading"
+    ],
+    "coverage": {
+      "empty": 0,
+      "data": 1,
+      "failure": 0,
+      "unknown": 0,
+      "loading": 0
+    }
+  },
+  "subpages": [],
+  "unreachable": [],
+  "extraction": {
+    "tool": "extract_ios_pages.py",
+    "mode": "syntax",
+    "sectionKeywordsInPage": 0,
+    "regionsExtracted": 3,
+    "sectionsExtracted": 3,
+    "warnings": []
+  }
+}
