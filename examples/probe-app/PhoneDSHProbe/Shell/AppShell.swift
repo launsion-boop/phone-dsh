@@ -17,6 +17,7 @@ struct AppShell: View {
     @State private var connectorModel = DiscoverConnectorModel()
     @State private var connectorConfiguration = ConnectorConfigurationModel()
     @State private var attention = AppAttentionModel()
+    @Environment(\.scenePhase) private var scenePhase
     @State private var selection: AppTab
     @State private var chatPath: [ShellChatRoute] = []
     @State private var discoverPath: [DiscoverRoute] = []
@@ -124,6 +125,9 @@ struct AppShell: View {
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
             withAnimation(.easeOut(duration: 0.18)) { keyboardVisible = false }
         }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { keyboardVisible = false }
+        }
         .onOpenURL { url in
             if let route = AppDeepLink.parse(url) { open(route) }
         }
@@ -184,7 +188,10 @@ struct AppShell: View {
                     if let id { open(.discover(.connector(id))) }
                     else { open(.discover(nil)) }
                 },
-                onOpenMemory: { open(.profile(.memory)) },
+                onOpenMemory: {
+                    selection = .profile
+                    profilePath = [.personalAgent]
+                },
                 onUndoOperation: { id in
                     Task { await composition.personalModel.undoOperation(id) }
                 })
