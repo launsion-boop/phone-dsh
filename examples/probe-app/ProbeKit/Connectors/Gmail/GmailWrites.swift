@@ -156,20 +156,28 @@ public struct GmailWriteCoordinator: Sendable {
         let intent = try await authorizeWithHost(descriptor: descriptor, argumentsJSON: argumentsJSON,
                                                  caller: caller, grant: grant)
         let record = try await ledger.prepare(intent)
+        let undoLedger = ledger as? any UndoWindowOperationLedger
+        if let undoLedger { _ = try await undoLedger.beginUndoWindow(record.id) }
         do {
             try await undoWindow.wait()
         } catch {
+            if let undoLedger { _ = try? await undoLedger.markCancelled(record.id, reason: "用户在发送前撤销") }
             throw GmailError.permissionDenied("发送已在撤销窗口取消，未调用 Gmail")
         }
         var activeGrant = grant
-        if let grants {
-            guard let current = await grants.gmailGrant(), current == grant else {
-                throw GmailError.permissionDenied("Gmail grant 已变化，发送未执行")
+        do {
+            if let grants {
+                guard let current = await grants.gmailGrant(), current == grant else {
+                    throw GmailError.permissionDenied("Gmail grant 已变化，发送未执行")
+                }
+                activeGrant = current
+                try await authorizeSend(input, caller: caller, grant: activeGrant)
             }
-            activeGrant = current
-            try await authorizeSend(input, caller: caller, grant: activeGrant)
+            try await ledger.markCommitting(record.id)
+        } catch {
+            if let undoLedger { _ = try? await undoLedger.markCancelled(record.id, reason: "发送前授权已变化") }
+            throw error
         }
-        try await ledger.markCommitting(record.id)
         do {
             let body = SendRequestDTO(input: input, operationID: record.id, digest: input.digest)
             let response: SendResponseDTO = try await client.post(

@@ -104,12 +104,14 @@ final class AppComposition {
     let gmailBridge: GmailToolBridge
     let connectorTools: CompositeConnectorToolInvoker
     let dshToolBridge: CompositePhoneToolBridge
+    let domain: SQLiteDomainStore
     let conversations: ConversationStore
     let memories: MemoryStore
     let followUps: FollowUpStore
     let agent: NativeMainAgentAdapter
     let personalModel: PersonalAgentModel
     let followUpCoordinator: FollowUpCoordinator
+    let chatAttention: ChatAttentionSource
 
     convenience init() throws {
         let support = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
@@ -149,7 +151,7 @@ final class AppComposition {
             ReadOnlyConnectorPhoneBridge(base: githubBridge), ReadOnlyConnectorPhoneBridge(base: gmailBridge),
         ])
 
-        let domain = try SQLiteDomainStore(fileURL: root.appendingPathComponent("domain.sqlite"))
+        domain = try SQLiteDomainStore(fileURL: root.appendingPathComponent("domain.sqlite"))
         conversations = ConversationStore(domain: domain)
         memories = MemoryStore(domain: domain)
         followUps = FollowUpStore(domain: domain)
@@ -168,23 +170,8 @@ final class AppComposition {
             GitHubFollowUpChecker(client: githubClient, store: connectorStore),
             GmailFollowUpChecker(client: gmailClient, incremental: incremental),
         ], notifier: NotificationRouter(sender: PersonalAgentNotificationSender()))
-    }
-
-    func connectGitHub(pat: String, repositories: [String]) async throws {
-        let repositories = Array(Set(repositories.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty })).sorted()
-        guard !pat.isEmpty, !repositories.isEmpty else { throw GitHubClientError.notConfigured }
-        try credentials.saveCredential(pat, for: "github.pat")
-        do {
-            _ = try await githubClient.verify(repositories: repositories)
-            let previous = await registry.grant(of: "github")
-            let grant = ConnectorGrant(connectorID: "github", version: (previous?.version ?? 0) + 1,
-                                       allowedActions: [.read], scope: GrantScope(repositories: repositories))
-            _ = try await registry.connect("github", grant: grant, credentialRef: "github.pat") {}
-        } catch {
-            try? credentials.deleteCredential(for: "github.pat")
-            throw error
-        }
+        chatAttention = ChatAttentionSource(conversationID: personalModel.conversationID,
+                                            conversations: conversations, followUps: followUps, operations: operations)
     }
 
     func connectGmail() async throws {
@@ -201,6 +188,24 @@ final class AppComposition {
     func revoke(_ connectorID: String) async throws {
         if connectorID == "gmail" { try await gmailTokens.revoke() }
         try await registry.revoke(connectorID)
+    }
+
+    func refreshModelConfiguration() {
+        personalModel.isModelConfigured = Self.modelIsConfigured()
+    }
+
+    func recoverOperations() async {
+        _ = try? await operations.recoverAfterProcessRestart()
+        let gmail = GmailSendReconciler(client: gmailClient, ledger: operations)
+        let github = GitHubWriteReconciler(client: githubClient)
+        for record in await operations.pending() {
+            if record.intent.toolName.hasPrefix("gmail.") {
+                _ = await gmail.reconcile(record)
+            } else if record.intent.toolName == "github.issue.comment",
+                      let receipt = try? await github.reconcile(record) {
+                _ = try? await operations.reconcile(record.id, receipt: receipt)
+            }
+        }
     }
 
     private static func conversationID() -> UUID {

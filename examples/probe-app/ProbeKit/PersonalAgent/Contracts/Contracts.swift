@@ -402,6 +402,11 @@ public protocol OperationLedger: Sendable {
     func pending() async -> [OperationRecord]
 }
 
+public protocol UndoWindowOperationLedger: OperationLedger {
+    func beginUndoWindow(_ id: UUID) async throws -> OperationRecord
+    func markCancelled(_ id: UUID, reason: String) async throws -> OperationRecord
+}
+
 public protocol DomainMigration: Sendable {
     var owner: String { get }
     var version: Int { get }

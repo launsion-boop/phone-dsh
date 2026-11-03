@@ -97,7 +97,47 @@ final class PA_GmailSendReconcileTests: XCTestCase {
         XCTAssertEqual(recovered?.receipt?.providerObjectID, "provider-message")
     }
 
+    func testRealUndoWindowCancellationPersistsCancelledWithoutProviderCall() async throws {
+        let store = PA_GmailTokenStore(PA_GmailTokens())
+        let transport = PA_GmailTransport()
+        let client = GmailClient(tokens: PA_GmailManager(store: store, transport: transport,
+                                                         scopes: [GmailScope.readOnly, GmailScope.compose]),
+                                 transport: transport)
+        let ledger = try FileOperationLedger(root: paTemporaryRoot())
+        let coordinator = GmailWriteCoordinator(client: client, gate: PA_GmailAllowGate(), ledger: ledger,
+                                                undoWindow: PA_GmailBlockingUndo())
+        let input = GmailSendInput(kind: .new, draft: PA_GmailDraft())
+        let grant = PA_GmailGrant(actions: [.read, .gmailSendNew],
+                                  scopes: [GmailScope.readOnly, GmailScope.compose])
+        let mandate = PA_GmailMandate(actions: [.gmailSendNew], recipients: ["friend@example.com"])
+        let task = Task {
+            try await coordinator.send(input, caller: .personalAgent(mandate: mandate), grant: grant,
+                                       argumentsJSON: arguments(input))
+        }
+        for _ in 0..<100 {
+            if await ledger.all().first?.phase == .undoWindow { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let waiting = await ledger.all()
+        XCTAssertEqual(waiting.first?.phase, .undoWindow)
+        task.cancel()
+        do {
+            _ = try await task.value
+            XCTFail("撤销窗口取消不能发送")
+        } catch {}
+        let cancelled = await ledger.all()
+        XCTAssertEqual(cancelled.first?.phase, .cancelled)
+        let requests = await transport.requests(for: "/gmail/v1/users/me/messages/send")
+        XCTAssertTrue(requests.isEmpty)
+    }
+
     private func arguments(_ input: GmailSendInput) -> String {
         String(decoding: (try! GmailJSON.encoder.encode(input)), as: UTF8.self)
+    }
+}
+
+private struct PA_GmailBlockingUndo: GmailUndoWindow {
+    func wait() async throws {
+        try await Task.sleep(nanoseconds: 60_000_000_000)
     }
 }

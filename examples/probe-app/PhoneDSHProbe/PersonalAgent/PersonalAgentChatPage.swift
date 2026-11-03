@@ -5,6 +5,7 @@ import SwiftUI
 
 struct PersonalAgentChatPage: View {
     @Bindable var model: PersonalAgentModel
+    let focus: ChatFocus?
     let connectors: [ConnectorRecord]
     let dailyBrief: DailyBriefModel?
     let followUpCoordinator: FollowUpCoordinator?
@@ -20,12 +21,13 @@ struct PersonalAgentChatPage: View {
     @State private var expandedArtifacts = Set<String>()
     @State private var voice = ComposerVoiceInput()
 
-    init(model: PersonalAgentModel, connectors: [ConnectorRecord] = [], dailyBrief: DailyBriefModel? = nil,
-         followUpCoordinator: FollowUpCoordinator? = nil, bottomInset: CGFloat = 0,
+    init(model: PersonalAgentModel, focus: ChatFocus? = nil, connectors: [ConnectorRecord] = [],
+         dailyBrief: DailyBriefModel? = nil, followUpCoordinator: FollowUpCoordinator? = nil, bottomInset: CGFloat = 0,
          onConfigureModel: @escaping () -> Void = {}, onOpenDSH: @escaping () -> Void = {},
          onManageConnector: @escaping (String?) -> Void = { _ in }, onOpenMemory: @escaping () -> Void = {},
          onUndoOperation: ((UUID) -> Void)? = nil) {
         self.model = model
+        self.focus = focus
         self.connectors = connectors
         self.dailyBrief = dailyBrief
         self.followUpCoordinator = followUpCoordinator
@@ -57,6 +59,7 @@ struct PersonalAgentChatPage: View {
         .padding(.bottom, bottomInset)
         .task {
             await model.load()
+            openFocusedFollowUp()
             await dailyBrief?.load()
             if let followUpCoordinator {
                 _ = try? await followUpCoordinator.checkAll()
@@ -132,7 +135,7 @@ struct PersonalAgentChatPage: View {
                     }
                     if let question = model.pendingQuestion { questionRow(question) }
                     ForEach(model.operationRecords, id: \.id) { operation in
-                        operationRow(operation)
+                        operationRow(operation).id(operation.id)
                     }
                     if let notice = model.recoveryNotice ?? model.failureNotice {
                         Label(notice, systemImage: "exclamationmark.circle")
@@ -159,7 +162,13 @@ struct PersonalAgentChatPage: View {
             }
             .onChange(of: model.messages.count) { _, _ in
                 if let id = model.messages.last?.id { proxy.scrollTo(id, anchor: .bottom) }
+                scrollToFocusedItem(proxy: proxy)
             }
+            .onChange(of: focus) { _, _ in
+                openFocusedFollowUp()
+                scrollToFocusedItem(proxy: proxy)
+            }
+            .task { scrollToFocusedItem(proxy: proxy) }
         }
     }
 
@@ -376,6 +385,17 @@ struct PersonalAgentChatPage: View {
         case .github: return "GitHub"
         case .gmail: return "Gmail"
         case .files: return "文件"
+        }
+    }
+
+    private func openFocusedFollowUp() {
+        if case .followUp = focus { showFollowUps = true }
+    }
+
+    private func scrollToFocusedItem(proxy: ScrollViewProxy) {
+        switch focus {
+        case .message(let id), .operation(let id): proxy.scrollTo(id, anchor: .center)
+        default: break
         }
     }
 

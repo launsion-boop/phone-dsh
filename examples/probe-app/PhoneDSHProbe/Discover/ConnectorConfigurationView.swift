@@ -7,8 +7,7 @@ import SwiftUI
 @MainActor
 @Observable
 final class ConnectorConfigurationModel {
-    var githubPAT = ""
-    var githubRepositories = ""
+    let githubModel: GitHubConnectorModel
     private(set) var isConnecting = false
     private(set) var errorMessage: String?
 
@@ -16,30 +15,17 @@ final class ConnectorConfigurationModel {
 
     init(composition: AppComposition = .shared) {
         self.composition = composition
-    }
-
-    func connectGitHub() async {
-        await perform {
-            try await composition.connectGitHub(
-                pat: githubPAT.trimmingCharacters(in: .whitespacesAndNewlines),
-                repositories: githubRepositories.components(separatedBy: CharacterSet(charactersIn: ",，\n")))
-            githubPAT = ""
-        }
+        githubModel = GitHubConnectorModel(registry: composition.registry, client: composition.githubClient,
+                                           credentials: composition.credentials)
     }
 
     func connectGmail() async {
-        await perform { try await composition.connectGmail() }
-    }
-
-    private func perform(_ action: () async throws -> Void) async {
         guard !isConnecting else { return }
         isConnecting = true
         errorMessage = nil
         defer { isConnecting = false }
         do {
-            try await action()
-        } catch let error as GitHubClientError {
-            errorMessage = error.message
+            try await composition.connectGmail()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -68,22 +54,7 @@ struct ConnectorConfigurationView: View {
     }
 
     private var github: some View {
-        Group {
-            SecureField(NativeText("Personal Access Token", "Personal Access Token"), text: $model.githubPAT)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .accessibilityIdentifier("connector.github.pat")
-            TextField(NativeText("授权仓库，逗号分隔，例如 owner/repo", "Repositories, comma separated, for example owner/repo"),
-                      text: $model.githubRepositories, axis: .vertical)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .accessibilityIdentifier("connector.github.repositories")
-            Button(NativeText("验证并连接 GitHub", "Verify and connect GitHub")) {
-                Task { await model.connectGitHub() }
-            }
-            .disabled(model.isConnecting || model.githubPAT.isEmpty || model.githubRepositories.isEmpty)
-            .accessibilityIdentifier("connector.github.connect")
-        }
+        GitHubConnectorConfigurationSection(model: model.githubModel)
     }
 
     private var gmail: some View {

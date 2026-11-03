@@ -35,6 +35,7 @@ public final class PersonalAgentModel {
     public private(set) var didLoad = false
     @ObservationIgnored private var responseBuffer = ""
     @ObservationIgnored private var currentTurnID: UUID?
+    @ObservationIgnored private var operationPollingTask: Task<Void, Never>?
 
     public var streamingText: String {
         PersonalAgentTextPolicy.visibleAssistantText(responseBuffer, allowEmpty: true)
@@ -106,6 +107,11 @@ public final class PersonalAgentModel {
         await agent.cancel(turnID: currentTurnID)
     }
 
+    public func undoOperation(_ id: UUID) async {
+        guard operationRecords.contains(where: { $0.id == id && $0.phase == .undoWindow }) else { return }
+        await cancel()
+    }
+
     public func answerPendingQuestion(_ answer: String) async {
         guard let question = pendingQuestion else { return }
         do {
@@ -168,7 +174,10 @@ public final class PersonalAgentModel {
     private func processQueue() async {
         guard !isRunning else { return }
         isRunning = true
+        startOperationPolling()
         defer {
+            operationPollingTask?.cancel()
+            operationPollingTask = nil
             isRunning = false
             currentTurnID = nil
         }
@@ -236,6 +245,20 @@ public final class PersonalAgentModel {
         } catch {
             failureNotice = error.localizedDescription
         }
+    }
+
+    private func startOperationPolling() {
+        operationPollingTask?.cancel()
+        operationPollingTask = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.reloadOperations()
+                try? await Task.sleep(for: .milliseconds(200))
+            }
+        }
+    }
+
+    private func reloadOperations() async {
+        if let operations { operationRecords = await operations.pending() }
     }
 
     private func reload() async throws {

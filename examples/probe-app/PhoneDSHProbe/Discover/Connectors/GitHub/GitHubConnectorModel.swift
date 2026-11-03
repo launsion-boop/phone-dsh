@@ -55,7 +55,7 @@ public final class GitHubConnectorModel: ObservableObject {
             var actions: Set<MandateAction> = [.read]
             if allowsComments { actions.insert(.githubComment) }
             if allowsIssueCreation { actions.insert(.githubCreateIssue) }
-            let grant = ConnectorGrant(connectorID: GitHubToolBridge.connectorID, version: 1,
+            let grant = ConnectorGrant(connectorID: GitHubToolBridge.connectorID, version: (grant?.version ?? 0) + 1,
                                        allowedActions: actions,
                                        scope: GrantScope(repositories: repositories))
             record = try await registry.connect(GitHubToolBridge.connectorID, grant: grant,

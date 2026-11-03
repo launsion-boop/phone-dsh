@@ -10,7 +10,7 @@ public enum OperationLedgerError: Error, Equatable {
     case invalidReceipt
 }
 
-public actor FileOperationLedger: OperationLedger {
+public actor FileOperationLedger: UndoWindowOperationLedger {
     private let fileURL: URL
     private var records: [UUID: OperationRecord]
     private let now: @Sendable () -> Date
