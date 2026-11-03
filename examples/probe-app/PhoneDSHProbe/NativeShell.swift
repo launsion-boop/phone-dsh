@@ -868,10 +868,17 @@ enum PreviewScreen: String, Identifiable, CaseIterable {
                                principal: AppComposition.shared.personalModel.principal,
                                domainStore: AppComposition.shared.domain)
         case .appSuggestionCard:
+            let turnID = UUID()
             PersonalAgentSuggestionCard(
-                suggestion: ConversationSuggestion(turnID: UUID(), options: [
-                    "查看这个 PR 的新阻塞", "整理成简短回复", "继续处理下一项任务",
-                ]), onDismiss: {}, onChoose: { _ in })
+                suggestion: SuggestionCard(
+                    conversationID: turnID, turnID: turnID, principal: "preview", accountID: "local",
+                    suppressionKeys: [SuggestionSuppressionKey(action: "preview", target: "conversation")],
+                    kind: .nextSteps, question: "接下来可以做什么？", options: [
+                        SuggestionOption(id: "review", label: "查看这个 PR 的新阻塞", userRequest: "查看这个 PR 的新阻塞"),
+                        SuggestionOption(id: "reply", label: "整理成简短回复", userRequest: "整理成简短回复"),
+                        SuggestionOption(id: "next", label: "继续处理下一项任务", userRequest: "继续处理下一项任务"),
+                    ], allowCustom: true, dismissOnMoveOn: true),
+                onDismiss: {}, onDecline: {}, onChoose: { _ in })
                 .padding(20)
                 .background(HomeSpec.page)
         case .codeBlock:

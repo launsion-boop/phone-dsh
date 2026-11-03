@@ -13,7 +13,7 @@
   "source": {
     "file": "NativeShell.swift",
     "path": "examples/probe-app/PhoneDSHProbe/NativeShell.swift",
-    "lines": 1070,
+    "lines": 1077,
     "structLine": 418,
     "renderedFrom": [
       "body",
@@ -360,10 +360,10 @@
     },
     {
       "name": "SettingsAboutPage",
-      "line": 910,
+      "line": 917,
       "private": false,
       "sections": [],
-      "provenance": "NativeShell.swift:910"
+      "provenance": "NativeShell.swift:917"
     }
   ],
   "unreachable": [],

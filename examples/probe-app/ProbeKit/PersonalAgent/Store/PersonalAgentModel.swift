@@ -16,12 +16,14 @@ public final class PersonalAgentModel {
     @ObservationIgnored public let followUps: FollowUpStore
     @ObservationIgnored private let operations: (any OperationLedger)?
     @ObservationIgnored private let ingress: MainIngress?
-    @ObservationIgnored private let suggestionGenerator: (any SuggestionGenerating)?
+    @ObservationIgnored private let suggestionGenerator: (any StructuredSuggestionGenerating)?
     @ObservationIgnored private let suggestionStore: SuggestionStore?
     @ObservationIgnored private var suggestionTask: Task<Void, Never>?
+    @ObservationIgnored private var suggestionTurnID: UUID?
 
     public let conversationID: UUID
     public let principal: String
+    public let accountID: String
     public var draft = ""
     public var sourceSelection: PersonalAgentSourceSelection = .automatic
     public var isModelConfigured = true
@@ -34,7 +36,7 @@ public final class PersonalAgentModel {
     public private(set) var candidates: [MemoryRecord] = []
     public private(set) var followUpRecords: [FollowUpRecord] = []
     public private(set) var operationRecords: [OperationRecord] = []
-    public private(set) var suggestion: ConversationSuggestion?
+    public private(set) var suggestion: SuggestionCard?
     public private(set) var isRunning = false
     public private(set) var didLoad = false
     @ObservationIgnored private var responseBuffer = ""
@@ -51,13 +53,14 @@ public final class PersonalAgentModel {
         return "跟进中 \(followUpRecords.count)" + (attention > 0 ? " · 需要你处理 \(attention)" : "")
     }
 
-    public init(conversationID: UUID, principal: String, agent: any MainAgentPort,
-                conversations: ConversationStore, memories: MemoryStore, followUps: FollowUpStore,
-                operations: (any OperationLedger)? = nil, ingress: MainIngress? = nil,
-                suggestionGenerator: (any SuggestionGenerating)? = nil,
+    public init(conversationID: UUID, principal: String, accountID: String = "local",
+                agent: any MainAgentPort, conversations: ConversationStore, memories: MemoryStore,
+                followUps: FollowUpStore, operations: (any OperationLedger)? = nil, ingress: MainIngress? = nil,
+                suggestionGenerator: (any StructuredSuggestionGenerating)? = nil,
                 suggestionStore: SuggestionStore? = nil) {
         self.conversationID = conversationID
         self.principal = principal
+        self.accountID = accountID
         self.agent = agent
         self.conversations = conversations
         self.memories = memories
@@ -94,8 +97,15 @@ public final class PersonalAgentModel {
         guard !content.isEmpty, isModelConfigured else { return }
         if text == nil { draft = "" }
         failureNotice = nil
+        if let suggestion, suggestion.outcome == .shown {
+            try? await suggestionStore?.supersede(cardID: suggestion.cardID)
+        }
+        if let suggestionTurnID {
+            try? await suggestionStore?.supersede(turnID: suggestionTurnID, scope: suggestionScope)
+        }
         suggestionTask?.cancel()
         suggestion = nil
+        suggestionTurnID = nil
         let requestID = UUID()
         let source = SourceEnvelope(requestID: requestID, principal: principal, source: .phone,
                                     replyTo: .phoneChat, grantVersion: 0, receivedAt: Date())
@@ -126,27 +136,77 @@ public final class PersonalAgentModel {
 
     public func dismissSuggestion() async {
         guard let suggestion else { return }
-        let turnID = suggestion.turnID
+        let cardID = suggestion.cardID
         self.suggestion = nil
         do {
-            try await suggestionStore?.dismiss(turnID: turnID)
+            try await suggestionStore?.dismiss(cardID: cardID)
         } catch {
-            failureNotice = "建议状态保存失败。"
+            failureNotice = "关闭状态未能持久保存。"
         }
     }
 
-    public func chooseSuggestion(_ option: String) async {
-        guard let suggestion, suggestion.options.contains(option) else { return }
-        await dismissSuggestion()
-        await send(option)
+    public func declineSuggestion() async {
+        guard let suggestion else { return }
+        let cardID = suggestion.cardID
+        self.suggestion = nil
+        do {
+            try await suggestionStore?.decline(cardID: cardID)
+        } catch {
+            failureNotice = "拒绝状态未能持久保存。"
+        }
+    }
+
+    public func chooseSuggestion(_ option: SuggestionOption, selectionEventID: UUID = UUID()) async {
+        guard let suggestion else { return }
+        do {
+            guard let result = try await suggestionStore?.select(
+                cardID: suggestion.cardID, optionID: option.id, selectionEventID: selectionEventID),
+                  result.shouldSend else {
+                self.suggestion = nil
+                return
+            }
+            self.suggestion = nil
+            await send(result.userRequest)
+        } catch {
+            self.suggestion = nil
+            failureNotice = "选择未能持久保存，未发起后续操作。"
+        }
     }
 
     public func answerPendingQuestion(_ answer: String) async {
         guard let question = pendingQuestion else { return }
         do {
+            var request = answer
+            if let card = try await suggestionStore?.outstanding(scope: suggestionScope)
+                .first(where: { $0.cardID == question.id && $0.kind == .clarification }) {
+                if let option = card.options.first(where: { $0.label == answer }) {
+                    let result = try await suggestionStore?.select(cardID: card.cardID, optionID: option.id)
+                    if let result, result.shouldSend { request = result.userRequest }
+                } else {
+                    try await suggestionStore?.supersede(cardID: card.cardID)
+                }
+            }
             try await conversations.resolveQuestion(question.id)
             pendingQuestion = nil
-            await send(answer)
+            await send(request)
+        } catch {
+            failureNotice = error.localizedDescription
+        }
+    }
+
+    public func dismissPendingQuestion() async {
+        guard let question = pendingQuestion else { return }
+        do {
+            if let card = try await suggestionStore?.outstanding(scope: suggestionScope)
+                .first(where: { $0.cardID == question.id && $0.kind == .clarification }) {
+                try await suggestionStore?.dismiss(cardID: card.cardID)
+            }
+            try await conversations.resolveQuestion(question.id)
+            if let waiting = try await conversations.turns(conversationID: conversationID)
+                .first(where: { $0.state == .waitingForUser }) {
+                try await conversations.fail(waiting.id, reason: "问题已关闭，任务暂停。", interrupted: true)
+            }
+            pendingQuestion = nil
         } catch {
             failureNotice = error.localizedDescription
         }
@@ -277,24 +337,44 @@ public final class PersonalAgentModel {
         }
     }
 
+    private var suggestionScope: SuggestionScope {
+        SuggestionScope(conversationID: conversationID, principal: principal, accountID: accountID)
+    }
+
     private func generateSuggestions(for turn: MainTurnInput, answer: AssistantMessage) {
         guard let suggestionGenerator, let suggestionStore else { return }
         suggestionTask?.cancel()
         suggestion = nil
+        suggestionTurnID = turn.turnID
         suggestionTask = Task { [weak self] in
             guard let self else { return }
             do {
-                if await suggestionStore.isDismissed(turnID: turn.turnID) { return }
-                let options = try await suggestionGenerator.generate(turn: turn, answer: answer)
+                let metadata = SuggestionHostMetadata(
+                    accountID: accountID,
+                    suppressionHistory: await suggestionStore.suppressionHistory(),
+                    userLanguage: turn.text.range(of: #"\p{Han}"#, options: .regularExpression) != nil
+                        ? "zh-Hans" : "en")
+                let result = await suggestionGenerator.generateCard(turn: turn, answer: answer,
+                                                                    metadata: metadata)
                 guard !Task.isCancelled else { return }
-                guard !options.isEmpty else {
+                switch result {
+                case .none, .suppressed:
                     self.suggestion = nil
-                    return
+                case .card(let card):
+                    guard let shown = try await suggestionStore.shown(card) else {
+                        self.suggestion = nil
+                        return
+                    }
+                    if shown.kind == .clarification {
+                        let question = PendingQuestion(id: shown.cardID, text: shown.question,
+                                                       choices: shown.options.map(\.label))
+                        try await conversations.recordQuestion(question, turnID: turn.turnID)
+                        pendingQuestion = question
+                        self.suggestion = nil
+                    } else {
+                        self.suggestion = shown
+                    }
                 }
-                if await suggestionStore.isDismissed(turnID: turn.turnID) { return }
-                try await suggestionStore.save(turnID: turn.turnID, options: options)
-                guard !Task.isCancelled else { return }
-                self.suggestion = ConversationSuggestion(turnID: turn.turnID, options: options, dismissed: false)
             } catch {
                 self.suggestion = nil
             }
@@ -304,20 +384,15 @@ public final class PersonalAgentModel {
     private func reloadSuggestions() async {
         guard let suggestionStore else { return }
         do {
-            guard let latest = messages.last(where: { $0.role == .assistant && $0.turnID != nil }),
-                  let turnID = latest.turnID else {
-                suggestion = nil
-                return
-            }
-            if await suggestionStore.isDismissed(turnID: turnID) {
-                suggestion = nil
-                return
-            }
-            let options = await suggestionStore.options(for: turnID)
-            if let options, !options.isEmpty {
-                suggestion = ConversationSuggestion(turnID: turnID, options: options, dismissed: false)
+            let outstanding = try await suggestionStore.outstanding(scope: suggestionScope)
+            if let card = outstanding.first(where: { $0.kind == .nextSteps }) {
+                suggestion = card
             } else {
                 suggestion = nil
+            }
+            if let clarification = outstanding.first(where: { $0.kind == .clarification }), pendingQuestion == nil {
+                pendingQuestion = PendingQuestion(id: clarification.cardID, text: clarification.question,
+                                                  choices: clarification.options.map(\.label))
             }
         } catch {
             suggestion = nil

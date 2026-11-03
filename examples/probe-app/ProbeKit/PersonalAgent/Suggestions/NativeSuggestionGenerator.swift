@@ -86,6 +86,10 @@ public struct NativeSuggestionGenerator: SuggestionGenerating, StructuredSuggest
         do {
             let snapshot = try await contextProvider.snapshot(for: turn)
             guard snapshot.pendingQuestions.isEmpty else { return .suppressed(.pendingClarification) }
+            guard snapshot.runtimeContext?.interactionState.storageError == nil,
+                  snapshot.runtimeContext?.interactionState.pendingApprovals.isEmpty != false else {
+                return .suppressed(.staleContext)
+            }
             let resolved = try clientResolver.resolveClient()
             let tool = AnthropicTool(name: "suggest_card",
                                      description: "Return the validated optional interaction proposal.",

@@ -133,6 +133,13 @@ final class PA_PromptContextTests: XCTestCase {
         XCTAssertEqual(PersonalAgentTextPolicy.visibleAssistantText("", allowEmpty: false), "")
     }
 
+    func testPromptSizeEvidenceUsesMeasuredUTF8Bytes() throws {
+        let runtime = try MainRuntimeContext().encodedEnvelope()
+        print("PDSH_PROMPT_EVIDENCE core_bytes=\(PersonalAgentCorePrompt.utf8Bytes) default_runtime_bytes=\(runtime.utf8.count)")
+        XCTAssertEqual(PersonalAgentCorePrompt.utf8Bytes, 13_786)
+        XCTAssertGreaterThan(runtime.utf8.count, 0)
+    }
+
     private static func runtimeObject(from prompt: String) throws -> [String: Any] {
         let marker = "## Runtime context\n"
         let start = try XCTUnwrap(prompt.range(of: marker)).upperBound

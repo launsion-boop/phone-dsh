@@ -47,6 +47,21 @@ struct PersonalAgentContextProvider: MainContextProviding {
     let memories: MemoryStore
     let followUps: FollowUpStore
     let operations: any OperationLedger
+    let suggestionStore: SuggestionStore?
+    let accountID: String
+    let assistantName: @Sendable () -> String
+
+    init(conversations: ConversationStore, memories: MemoryStore, followUps: FollowUpStore,
+         operations: any OperationLedger, suggestionStore: SuggestionStore? = nil,
+         accountID: String = "local", assistantName: @escaping @Sendable () -> String = { "小肥鱼" }) {
+        self.conversations = conversations
+        self.memories = memories
+        self.followUps = followUps
+        self.operations = operations
+        self.suggestionStore = suggestionStore
+        self.accountID = accountID
+        self.assistantName = assistantName
+    }
 
     func snapshot(for turn: MainTurnInput) async throws -> MainConversationSnapshot {
         async let conversation = conversations.context(conversationID: turn.conversationID, recentLimit: 80)
@@ -70,6 +85,27 @@ struct PersonalAgentContextProvider: MainContextProviding {
             MainContextDocument(id: $0.id.uuidString, sourceRef: $0.source.reference,
                                 revision: $0.revision, text: $0.text)
         }
+        let ownerName = try await memories.active(principal: turn.principal)
+            .first(where: { $0.field == .displayName })?.text
+        let language = turn.text.range(of: #"\p{Han}"#, options: .regularExpression) != nil ? "zh-Hans" : "en"
+        let scopes: [MainDelegatedScope] = try turn.mandate.map { mandate in
+            var targets = mandate.targets.gmailThreadIDs + mandate.targets.recipientIdentities
+            if let repository = mandate.targets.repository { targets.append(repository) }
+            targets.append(contentsOf: mandate.targets.issueOrPRNumbers.map { String($0) })
+            return [MainDelegatedScope(id: mandate.mandateID.uuidString, version: mandate.version,
+                                       principal: mandate.principal,
+                                       actions: mandate.allowedActions.map(\.rawValue).sorted(),
+                                       targets: targets, expiry: mandate.validUntil)]
+        } ?? []
+        let history = await suggestionStore?.suppressionHistory() ?? []
+        let interaction = MainInteractionState(
+            pendingClarifications: context.pendingQuestions,
+            unresolvedOperations: pending.map { "\($0.intent.toolName): \($0.phase.rawValue)" },
+            suggestionHistory: history)
+        let runtime = try MainRuntimeContext(
+            assistantName: assistantName(), userName: ownerName, preferredLanguage: language,
+            userTimezone: TimeZone.current.identifier, delegatedScopes: scopes,
+            interactionState: interaction)
         return MainConversationSnapshot(
             currentText: turn.text, mandate: turn.mandate,
             followUps: try await followUpRecords.map(\.followUp),
@@ -79,7 +115,8 @@ struct PersonalAgentContextProvider: MainContextProviding {
                 MainArtifactContext(id: $0.id, title: $0.title, locator: $0.locator)
             },
             pendingReconciliations: pending.map { "\($0.intent.toolName): \($0.phase.rawValue)" },
-            responseStylePrompt: PersonalAgentTextPolicy.conciseSystemPrompt)
+            responseStylePrompt: PersonalAgentTextPolicy.conciseSystemPrompt,
+            runtimeContext: runtime, currentLanguage: language)
     }
 }
 
@@ -87,6 +124,7 @@ struct PersonalAgentContextProvider: MainContextProviding {
 @Observable
 final class AppComposition {
     static let shared = try! AppComposition()
+    static var scheduleProviderFactory: (() -> (any PersonalScheduleProviding)?)?
 
     let root: URL
     let credentials: any ConnectorCredentialStore
@@ -103,6 +141,7 @@ final class AppComposition {
     let gmailOAuth: GmailOAuthCoordinator
     let gmailBridge: GmailToolBridge
     let connectorTools: CompositeConnectorToolInvoker
+    let localTools: LocalCapabilityToolInvoker
     let dshToolBridge: CompositePhoneToolBridge
     let domain: SQLiteDomainStore
     let conversations: ConversationStore
@@ -149,7 +188,6 @@ final class AppComposition {
         let gmailWrites = GmailWriteCoordinator(client: gmailClient, gate: writeGate, ledger: operations,
                                                 grants: gmailGrants)
         gmailBridge = GmailToolBridge(client: gmailClient, grants: gmailGrants, writes: gmailWrites)
-        connectorTools = CompositeConnectorToolInvoker(invokers: [githubBridge, gmailBridge])
         dshToolBridge = CompositePhoneToolBridge(bridges: [
             OfficeToolBridge(presenter: OfficePresenter()), PhoneCapabilityBridge(),
             ReadOnlyConnectorPhoneBridge(base: githubBridge), ReadOnlyConnectorPhoneBridge(base: gmailBridge),
@@ -159,13 +197,23 @@ final class AppComposition {
         conversations = ConversationStore(domain: domain)
         memories = MemoryStore(domain: domain)
         followUps = FollowUpStore(domain: domain)
-        let context = PersonalAgentContextProvider(conversations: conversations, memories: memories,
-                                                   followUps: followUps, operations: operations)
+        suggestionStore = SuggestionStore(rootDirectory: root)
+        localTools = LocalCapabilityToolInvoker(
+            profile: PersonalAgentProfileStore(), memories: memories, followUps: followUps,
+            suggestionHistory: SuggestionStoreHistoryAdapter(store: suggestionStore),
+            schedules: Self.scheduleProviderFactory?())
+        connectorTools = CompositeConnectorToolInvoker(invokers: [githubBridge, gmailBridge, localTools])
+        let context = PersonalAgentContextProvider(
+            conversations: conversations, memories: memories, followUps: followUps, operations: operations,
+            suggestionStore: suggestionStore, accountID: "local",
+            assistantName: {
+                UserDefaults.standard.string(forKey: "personalAgent.displayName") ?? "小肥鱼"
+            })
         agent = try NativeMainAgentAdapter(clientResolver: NativeMainGatewayClientProvider(),
                                            toolInvoker: connectorTools, contextProvider: context)
         suggestionGenerator = NativeSuggestionGenerator(clientResolver: NativeMainGatewayClientProvider(),
-                                                        contextProvider: context)
-        suggestionStore = SuggestionStore(rootDirectory: root)
+                                                        contextProvider: context,
+                                                        capabilities: connectorTools.descriptors.map(\.internalName))
         personalModel = PersonalAgentModel(conversationID: Self.conversationID(), principal: "phone-owner",
                                            agent: agent, conversations: conversations, memories: memories,
                                            followUps: followUps, operations: operations, ingress: ingress,

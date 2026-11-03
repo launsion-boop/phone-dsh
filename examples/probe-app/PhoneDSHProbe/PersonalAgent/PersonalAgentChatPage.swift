@@ -140,6 +140,7 @@ struct PersonalAgentChatPage: View {
                             PersonalAgentSuggestionCard(
                                 suggestion: suggestion,
                                 onDismiss: { Task { await model.dismissSuggestion() } },
+                                onDecline: { Task { await model.declineSuggestion() } },
                                 onChoose: { option in Task { await model.chooseSuggestion(option) } })
                                 .id("suggestion-\(suggestion.turnID)")
                         }
@@ -315,7 +316,16 @@ struct PersonalAgentChatPage: View {
 
     private func questionRow(_ question: PendingQuestion) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(question.text)
+            HStack {
+                Text(question.text)
+                Spacer()
+                Button { Task { await model.dismissPendingQuestion() } } label: {
+                    Image(systemName: "xmark")
+                        .frame(width: 32, height: 32)
+                }
+                .accessibilityLabel("关闭问题")
+                .accessibilityIdentifier("app.chat.question.dismiss")
+            }
             if !question.choices.isEmpty {
                 ForEach(question.choices, id: \.self) { choice in
                     Button(choice) { Task { await model.answerPendingQuestion(choice) } }

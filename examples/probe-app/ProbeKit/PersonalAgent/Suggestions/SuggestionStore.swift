@@ -179,6 +179,57 @@ public actor SuggestionStore {
         state.events.filter { $0.cardID == cardID }.sorted { $0.createdAt < $1.createdAt }
     }
 
+    public func suppressionHistory(limit: Int = 32) -> [String] {
+        state.events.suffix(max(0, limit)).map { event in
+            let keys = state.cards[event.cardID]?.suppressionKeys.map(\.canonical).joined(separator: ",") ?? "legacy"
+            return "\(event.outcome.rawValue):\(keys)"
+        }
+    }
+
+    public func historyEntries(principal: String, accountScope: String?, canonicalKey: String?,
+                               limit: Int) -> [SuggestionHistoryEntry] {
+        let accountID = accountScope ?? "local"
+        let cards = state.cards.filter {
+            $0.value.principal == principal && $0.value.accountID == accountID
+        }
+        let entries = state.events.compactMap { event -> SuggestionHistoryEntry? in
+            guard let card = cards[event.cardID],
+                  let outcome = SuggestionHistoryOutcome(rawValue: event.outcome.rawValue) else { return nil }
+            let key = card.suppressionKeys.first?.canonical ?? ""
+            if let canonicalKey, key != canonicalKey { return nil }
+            return SuggestionHistoryEntry(id: event.id, principal: principal, accountScope: accountScope,
+                                          canonicalKey: key, outcome: outcome, occurredAt: event.createdAt)
+        }
+        return Array(entries.sorted { $0.occurredAt > $1.occurredAt }.prefix(max(0, limit)))
+    }
+
+    public func recordHistory(_ entry: SuggestionHistoryEntry) throws {
+        let accountID = entry.accountScope ?? "local"
+        if state.cards[entry.id] != nil {
+            switch entry.outcome {
+            case .shown: return
+            case .selected: try transition(cardID: entry.id, outcome: .selected, now: entry.occurredAt)
+            case .dismissed: try dismiss(cardID: entry.id, now: entry.occurredAt)
+            case .declined: try decline(cardID: entry.id, now: entry.occurredAt)
+            case .superseded: try supersede(cardID: entry.id, now: entry.occurredAt)
+            case .expired: return
+            }
+            return
+        }
+        let key = try Self.suppressionKey(from: entry.canonicalKey)
+        let card = SuggestionCard(cardID: entry.id, conversationID: entry.id, turnID: entry.id,
+                                  principal: entry.principal, accountID: accountID,
+                                  createdAt: entry.occurredAt, suppressionKeys: [key], kind: .clarification,
+                                  question: "Interaction history", options: [], allowCustom: true,
+                                  dismissOnMoveOn: false, outcome: SuggestionOutcome(rawValue: entry.outcome.rawValue)!)
+        var updated = state
+        updated.cards[entry.id] = card
+        updated.events.append(SuggestionLifecycleEvent(id: entry.id, cardID: entry.id,
+                                                       outcome: card.outcome, createdAt: entry.occurredAt))
+        try persist(updated)
+        state = updated
+    }
+
     public func legacyOutcome(turnID: UUID) -> SuggestionOutcome? {
         state.legacy[turnID]?.outcome
     }
@@ -238,6 +289,18 @@ public actor SuggestionStore {
         }
         let declineCount = events.filter { $0.outcome == .declined }.count
         return declineCount >= policy.stopAfterExplicitDeclines
+    }
+
+    private static func suppressionKey(from canonical: String) throws -> SuggestionSuppressionKey {
+        let parts = canonical.split(separator: ":", omittingEmptySubsequences: false)
+        guard parts.count == 3, parts[0] == "v1",
+              let actionData = Data(base64Encoded: String(parts[1])),
+              let targetData = Data(base64Encoded: String(parts[2])),
+              let action = String(data: actionData, encoding: .utf8),
+              let target = String(data: targetData, encoding: .utf8) else {
+            throw SuggestionValidationError.invalid("invalid canonical suppression key")
+        }
+        return SuggestionSuppressionKey(action: action, target: target)
     }
 
     private func transition(cardID: UUID, outcome: SuggestionOutcome, now: Date) throws {

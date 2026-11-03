@@ -32,6 +32,11 @@ struct PhoneDSHProbeApp: App {
         }
         Self.seedProviderFromEnvironment()
         #endif
+        AppComposition.scheduleProviderFactory = {
+            DSHScheduleAdapter(model: .shared, sessionID: {
+                ChatModel.shared.currentSessionID ?? "personal-agent"
+            })
+        }
     }
 
     var body: some Scene {
