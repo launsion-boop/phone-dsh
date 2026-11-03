@@ -7,16 +7,21 @@
   "sectionNote": null,
   "title": {
     "text": "Personal Agent",
-    "provenance": "PersonalAgentSettingsPage.swift:38",
+    "provenance": "PersonalAgentSettingsPage.swift:32",
     "anchor": ".navigationTitle(\"Personal Agent\")"
   },
   "source": {
     "file": "PersonalAgentSettingsPage.swift",
     "path": "examples/probe-app/PhoneDSHProbe/Profile/PersonalAgentSettingsPage.swift",
-    "lines": 57,
-    "structLine": 6,
+    "lines": 231,
+    "structLine": 7,
     "renderedFrom": [
-      "body"
+      "body",
+      "agentSection",
+      "personalizationSection",
+      "taskSection",
+      "memorySection",
+      "agentNameEditor"
     ],
     "sectionOrder": "declaration order inside the page struct"
   },
@@ -27,30 +32,81 @@
   },
   "sections": [
     {
-      "id": "personal-agent",
-      "title": "Personal Agent",
+      "id": "section-65",
+      "title": null,
       "titleTemplate": null,
       "dynamicTitle": false,
       "titleExpression": null,
-      "titleSource": "literal",
+      "titleSource": "absent",
       "condition": null,
       "collection": null,
       "rows": [
         {
-          "id": "agent-名称",
-          "label": "Agent 名称",
+          "id": "custom-67",
+          "label": null,
+          "labelExpr": "PhoneDSHLogo",
+          "kind": "custom",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "PersonalAgentSettingsPage.swift:67",
+          "anchor": "PhoneDSHLogo(size: 88)",
+          "extraction": "manual",
+          "template": "PhoneDSHLogo"
+        },
+        {
+          "id": "personal-agent",
+          "label": "Personal Agent",
           "labelExpr": null,
-          "kind": "input",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "PersonalAgentSettingsPage.swift:69",
+          "anchor": "Text(agentName.isEmpty ? \"Personal Agent\" : agentName)",
+          "extraction": "syntax"
+        },
+        {
+          "id": "编辑名称",
+          "label": "编辑名称",
+          "labelExpr": null,
+          "kind": "action",
           "value": null,
           "valueExpr": null,
           "clickable": true,
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "PersonalAgentSettingsPage.swift:15",
-          "anchor": "TextField(NativeText(\"Agent 名称\", \"Agent name\"), text: $agentName)",
+          "provenance": "PersonalAgentSettingsPage.swift:77",
+          "anchor": "Label(\"编辑名称\", systemImage: \"pencil\")",
           "extraction": "syntax"
-        },
+        }
+      ],
+      "provenance": "PersonalAgentSettingsPage.swift:65",
+      "anchor": "Section {",
+      "extraction": "syntax",
+      "criterion": {
+        "kind": "first-clickable-row",
+        "label": "编辑名称",
+        "provenance": "PersonalAgentSettingsPage.swift:77"
+      }
+    },
+    {
+      "id": "个性化",
+      "title": "个性化",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "header",
+      "condition": null,
+      "collection": null,
+      "rows": [
         {
           "id": "如何称呼你",
           "label": "如何称呼你",
@@ -62,13 +118,13 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "PersonalAgentSettingsPage.swift:17",
-          "anchor": "TextField(NativeText(\"如何称呼你\", \"How to address you\"), text: $ownerName)",
+          "provenance": "PersonalAgentSettingsPage.swift:93",
+          "anchor": "TextField(\"如何称呼你\", text: $ownerName)",
           "extraction": "syntax"
         },
         {
-          "id": "保存称呼到个人上下文",
-          "label": "保存称呼到个人上下文",
+          "id": "保存称呼到-memory",
+          "label": "保存称呼到 Memory",
           "labelExpr": null,
           "kind": "action",
           "value": null,
@@ -77,12 +133,12 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "PersonalAgentSettingsPage.swift:19",
-          "anchor": "Button(NativeText(\"保存称呼到个人上下文\", \"Save name to personal context\")) {",
+          "provenance": "PersonalAgentSettingsPage.swift:95",
+          "anchor": "Button(\"保存称呼到 Memory\") {",
           "extraction": "syntax"
         },
         {
-          "id": "text-22",
+          "id": "text-100",
           "label": null,
           "labelExpr": "errorMessage",
           "kind": "text",
@@ -92,14 +148,88 @@
           "destination": null,
           "writes": false,
           "condition": "let errorMessage",
-          "provenance": "PersonalAgentSettingsPage.swift:22",
-          "anchor": "if let errorMessage { Text(errorMessage).foregroundStyle(NativeParityTokens.warn",
+          "provenance": "PersonalAgentSettingsPage.swift:100",
+          "anchor": "Text(errorMessage)",
           "extraction": "manual"
         }
       ],
-      "provenance": "PersonalAgentSettingsPage.swift:14",
-      "anchor": "Section(NativeText(\"Personal Agent\", \"Personal Agent\")) {",
-      "extraction": "syntax"
+      "provenance": "PersonalAgentSettingsPage.swift:105",
+      "anchor": "Text(\"个性化\")",
+      "extraction": "syntax",
+      "hasHeader": true,
+      "footer": {
+        "text": "称呼会保存到个人 Memory，并用于后续回答。",
+        "labelExpr": null,
+        "provenance": "PersonalAgentSettingsPage.swift:107",
+        "anchor": "Text(\"称呼会保存到个人 Memory，并用于后续回答。\")"
+      }
+    },
+    {
+      "id": "任务与通知",
+      "title": "任务与通知",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "header",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "定时任务",
+          "label": "定时任务",
+          "labelExpr": null,
+          "kind": "navigation",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": "NativeAutomationPage",
+          "writes": false,
+          "condition": null,
+          "provenance": "PersonalAgentSettingsPage.swift:116",
+          "anchor": "LabeledContent(\"定时任务\") {",
+          "extraction": "syntax"
+        },
+        {
+          "id": "control-125",
+          "label": null,
+          "labelExpr": null,
+          "kind": "control",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "PersonalAgentSettingsPage.swift:125",
+          "anchor": "Toggle(isOn: Binding(",
+          "extraction": "manual"
+        },
+        {
+          "id": "去系统设置允许通知",
+          "label": "去系统设置允许通知",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": "notifications.authorization == .denied",
+          "provenance": "PersonalAgentSettingsPage.swift:134",
+          "anchor": "Button(\"去系统设置允许通知\") {",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "PersonalAgentSettingsPage.swift:139",
+      "anchor": "Text(\"任务与通知\")",
+      "extraction": "syntax",
+      "hasHeader": true,
+      "footer": {
+        "text": null,
+        "labelExpr": "notificationFooter",
+        "provenance": "PersonalAgentSettingsPage.swift:141",
+        "anchor": "Text(notificationFooter)"
+      }
     },
     {
       "id": "个人上下文",
@@ -107,65 +237,95 @@
       "titleTemplate": null,
       "dynamicTitle": false,
       "titleExpression": null,
-      "titleSource": "literal",
+      "titleSource": "header",
       "condition": null,
       "collection": null,
       "rows": [
         {
-          "id": "称呼会用于后续回答-语言-职业-关键联系人与作息等记忆可在-chat-中明确要求记住-并在个人-memory-中查看来源-修正或遗忘",
-          "label": "称呼会用于后续回答。语言、职业、关键联系人与作息等记忆可在 Chat 中明确要求记住，并在个人 Memory 中查看来源、修正或遗忘。",
+          "id": "memory",
+          "label": "Memory",
           "labelExpr": null,
-          "kind": "text",
+          "kind": "navigation",
           "value": null,
           "valueExpr": null,
-          "clickable": false,
-          "destination": null,
+          "clickable": true,
+          "destination": "PersonalMemoryPage",
           "writes": false,
           "condition": null,
-          "provenance": "PersonalAgentSettingsPage.swift:25",
-          "anchor": "Text(NativeText(\"称呼会用于后续回答。语言、职业、关键联系人与作息等记忆可在 Chat 中明确要求记住，并在个人 Memory 中查看来源、修正",
+          "provenance": "PersonalAgentSettingsPage.swift:152",
+          "anchor": "Label(\"Memory\", systemImage: \"person.crop.circle\")",
           "extraction": "syntax"
         }
       ],
-      "provenance": "PersonalAgentSettingsPage.swift:24",
-      "anchor": "Section(NativeText(\"个人上下文\", \"Personal context\")) {",
-      "extraction": "syntax"
+      "provenance": "PersonalAgentSettingsPage.swift:156",
+      "anchor": "Text(\"个人上下文\")",
+      "extraction": "syntax",
+      "hasHeader": true,
+      "footer": {
+        "text": "查看记忆来源，或修正、归档和遗忘已保存的内容。",
+        "labelExpr": null,
+        "provenance": "PersonalAgentSettingsPage.swift:158",
+        "anchor": "Text(\"查看记忆来源，或修正、归档和遗忘已保存的内容。\")"
+      }
     },
     {
-      "id": "每日简报",
-      "title": "每日简报",
+      "id": "agent-名称",
+      "title": "Agent 名称",
       "titleTemplate": null,
       "dynamicTitle": false,
       "titleExpression": null,
-      "titleSource": "literal",
+      "titleSource": "header",
       "condition": null,
       "collection": null,
       "rows": [
         {
-          "id": "只有真实新增内容才会生成每日简报-artifact-并显示在-chat-时间线中",
-          "label": "只有真实新增内容才会生成每日简报 Artifact，并显示在 Chat 时间线中。",
+          "id": "名称",
+          "label": "名称",
           "labelExpr": null,
-          "kind": "text",
+          "kind": "input",
           "value": null,
           "valueExpr": null,
-          "clickable": false,
+          "clickable": true,
           "destination": null,
-          "writes": false,
+          "writes": true,
           "condition": null,
-          "provenance": "PersonalAgentSettingsPage.swift:31",
-          "anchor": "Text(NativeText(\"只有真实新增内容才会生成每日简报 Artifact，并显示在 Chat 时间线中。\",",
+          "provenance": "PersonalAgentSettingsPage.swift:166",
+          "anchor": "TextField(\"名称\", text: $agentName)",
           "extraction": "syntax"
         }
       ],
-      "provenance": "PersonalAgentSettingsPage.swift:30",
-      "anchor": "Section(NativeText(\"每日简报\", \"Daily brief\")) {",
-      "extraction": "syntax"
+      "provenance": "PersonalAgentSettingsPage.swift:172",
+      "anchor": "Text(\"Agent 名称\")",
+      "extraction": "syntax",
+      "hasHeader": true,
+      "footer": {
+        "text": "名称会立即同步到 Chat。",
+        "labelExpr": null,
+        "provenance": "PersonalAgentSettingsPage.swift:174",
+        "anchor": "Text(\"名称会立即同步到 Chat。\")"
+      }
     }
   ],
   "actions": [
     {
-      "id": "保存称呼到个人上下文",
-      "label": "保存称呼到个人上下文",
+      "id": "编辑名称",
+      "label": "编辑名称",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ editingAgentName = true",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "PersonalAgentSettingsPage.swift:77",
+      "anchor": "Label(\"编辑名称\", systemImage: \"pencil\")",
+      "extraction": "syntax",
+      "labelAlternatives": [],
+      "presents": "sheet-46"
+    },
+    {
+      "id": "保存称呼到-memory",
+      "label": "保存称呼到 Memory",
       "labelExpr": null,
       "kind": "button",
       "trigger": "tap",
@@ -173,13 +333,181 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "PersonalAgentSettingsPage.swift:19",
-      "anchor": "Button(NativeText(\"保存称呼到个人上下文\", \"Save name to personal context\")) {",
+      "provenance": "PersonalAgentSettingsPage.swift:95",
+      "anchor": "Button(\"保存称呼到 Memory\") {",
       "extraction": "syntax",
       "labelAlternatives": []
+    },
+    {
+      "id": "定时任务",
+      "label": "定时任务",
+      "labelExpr": null,
+      "kind": "navigation",
+      "trigger": "tap",
+      "semantic": "navigate:NativeAutomationPage",
+      "writes": false,
+      "destination": "NativeAutomationPage",
+      "condition": null,
+      "provenance": "PersonalAgentSettingsPage.swift:116",
+      "anchor": "LabeledContent(\"定时任务\") {",
+      "extraction": "syntax"
+    },
+    {
+      "id": "toggle-125",
+      "label": null,
+      "labelExpr": null,
+      "kind": "toggle",
+      "trigger": "tap",
+      "semantic": "binding:Binding( get: { notifications.isEnabled }, set: { enabled in Task { await notifications.setEnabled(enabled) } } )",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "PersonalAgentSettingsPage.swift:125",
+      "anchor": "Toggle(isOn: Binding(",
+      "extraction": "manual"
+    },
+    {
+      "id": "去系统设置允许通知",
+      "label": "去系统设置允许通知",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ notifications.requiresSystemSettings = true",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "PersonalAgentSettingsPage.swift:134",
+      "anchor": "Button(\"去系统设置允许通知\") {",
+      "extraction": "syntax",
+      "labelAlternatives": []
+    },
+    {
+      "id": "memory",
+      "label": "Memory",
+      "labelExpr": null,
+      "kind": "navigation",
+      "trigger": "tap",
+      "semantic": "navigate:PersonalMemoryPage",
+      "writes": false,
+      "destination": "PersonalMemoryPage",
+      "condition": null,
+      "provenance": "PersonalAgentSettingsPage.swift:152",
+      "anchor": "Label(\"Memory\", systemImage: \"person.crop.circle\")",
+      "extraction": "syntax"
+    },
+    {
+      "id": "取消",
+      "label": "取消",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "alert-button",
+      "semantic": "{",
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "PersonalAgentSettingsPage.swift:48",
+      "anchor": "Button(\"取消\", role: .cancel) {}",
+      "extraction": "syntax",
+      "deadPresentation": "alert-47"
+    },
+    {
+      "id": "去系统设置",
+      "label": "去系统设置",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "alert-button",
+      "semantic": "{ openSystemSettings()",
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "PersonalAgentSettingsPage.swift:49",
+      "anchor": "Button(\"去系统设置\") { openSystemSettings() }",
+      "extraction": "syntax",
+      "deadPresentation": "alert-47"
+    },
+    {
+      "id": "好",
+      "label": "好",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ notifications.errorMessage = nil",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "PersonalAgentSettingsPage.swift:57",
+      "anchor": "Button(\"好\") { notifications.errorMessage = nil }",
+      "extraction": "syntax",
+      "presents": "alert-53"
+    },
+    {
+      "id": "完成",
+      "label": "完成",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "toolbar",
+      "semantic": "{ finishEditingAgentName()",
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "PersonalAgentSettingsPage.swift:182",
+      "anchor": "Button(\"完成\") { finishEditingAgentName() }",
+      "extraction": "syntax"
     }
   ],
-  "presentations": [],
+  "presentations": [
+    {
+      "id": "sheet-46",
+      "kind": "sheet",
+      "title": null,
+      "destination": "agentNameEditor",
+      "triggerBindings": [
+        "editingAgentName"
+      ],
+      "span": [
+        46,
+        46
+      ],
+      "provenance": "PersonalAgentSettingsPage.swift:46",
+      "anchor": ".sheet(isPresented: $editingAgentName) { agentNameEditor }",
+      "triggered": true
+    },
+    {
+      "id": "alert-47",
+      "kind": "alert",
+      "title": "在系统设置中管理通知",
+      "destination": null,
+      "triggerBindings": [
+        "notifications"
+      ],
+      "span": [
+        47,
+        50
+      ],
+      "provenance": "PersonalAgentSettingsPage.swift:47",
+      "anchor": ".alert(\"在系统设置中管理通知\", isPresented: $notifications.requiresSystemSettings) {",
+      "triggered": false,
+      "deadUi": true,
+      "deadUiEvidence": "the state binding notifications is never assigned outside its declaration, so nothing opens this alert"
+    },
+    {
+      "id": "alert-53",
+      "kind": "alert",
+      "title": "通知请求失败",
+      "destination": null,
+      "triggerBindings": [
+        "errorMessage",
+        "notifications"
+      ],
+      "span": [
+        53,
+        58
+      ],
+      "provenance": "PersonalAgentSettingsPage.swift:53",
+      "anchor": ".alert(\"通知请求失败\", isPresented: Binding(",
+      "triggered": true
+    }
+  ],
   "states": {
     "advisory": true,
     "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
@@ -187,27 +515,33 @@
       "empty": [],
       "data": [
         {
-          "renders": "Personal Agent | 个人上下文 | 每日简报",
+          "renders": "untitled section at 65 | 个性化 | 任务与通知 | 个人上下文 | Agent 名称",
           "when": null,
-          "provenance": "PersonalAgentSettingsPage.swift:6",
+          "provenance": "PersonalAgentSettingsPage.swift:7",
           "anchor": "struct PersonalAgentSettingsPage: View {",
           "note": "structural default: the sections above, when no condition overrides them"
         }
       ],
-      "failure": [],
+      "failure": [
+        {
+          "renders": "通知请求失败",
+          "when": null,
+          "provenance": "PersonalAgentSettingsPage.swift:53",
+          "anchor": ".alert(\"通知请求失败\", isPresented: Binding("
+        }
+      ],
       "unknown": [],
       "loading": []
     },
     "absent": [
       "empty",
-      "failure",
       "unknown",
       "loading"
     ],
     "coverage": {
       "empty": 0,
       "data": 1,
-      "failure": 0,
+      "failure": 1,
       "unknown": 0,
       "loading": 0
     }
@@ -217,9 +551,9 @@
   "extraction": {
     "tool": "extract_ios_pages.py",
     "mode": "syntax",
-    "sectionKeywordsInPage": 3,
+    "sectionKeywordsInPage": 5,
     "regionsExtracted": 0,
-    "sectionsExtracted": 3,
+    "sectionsExtracted": 5,
     "warnings": []
   }
 }

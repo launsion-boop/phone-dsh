@@ -9,7 +9,7 @@ final class PA_ChatUITests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
         app = XCUIApplication(bundleIdentifier: "dev.phone-dsh.probe")
-        app.launchArguments = ["-PDSH_SHELL", "v4", "-uiPreview", "app.chat"]
+        app.launchArguments = ["-PDSH_SHELL", "v4", "-uiPreview", "app.chat", "-resetPersonalAgentName"]
         app.launch()
     }
 

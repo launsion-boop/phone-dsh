@@ -79,6 +79,8 @@ final class PA_OnboardingUITests: XCTestCase {
 
     private func openMemoryAndAssertOwner(_ ownerName: String) {
         app.buttons["app.chat.agent-settings"].tap()
+        XCTAssertTrue(app.navigationBars["Personal Agent"].waitForExistence(timeout: 15))
+        app.descendants(matching: .any)["profile.memory"].tap()
         XCTAssertTrue(app.navigationBars["个人 Memory"].waitForExistence(timeout: 15))
         XCTAssertTrue(app.staticTexts[ownerName].waitForExistence(timeout: 15))
         XCTAssertTrue(app.staticTexts["displayName"].exists)

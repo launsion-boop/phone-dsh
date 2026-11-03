@@ -27,6 +27,9 @@ struct PhoneDSHProbeApp: App {
             defaults.set("", forKey: "personalAgent.ownerName")
             defaults.set("小肥鱼", forKey: "personalAgent.displayName")
         }
+        if ProcessInfo.processInfo.arguments.contains("-resetPersonalAgentName") {
+            UserDefaults.standard.set("小肥鱼", forKey: "personalAgent.displayName")
+        }
         Self.seedProviderFromEnvironment()
         #endif
     }
