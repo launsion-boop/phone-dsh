@@ -15,6 +15,7 @@ public final class PersonalAgentModel {
     @ObservationIgnored public let memories: MemoryStore
     @ObservationIgnored public let followUps: FollowUpStore
     @ObservationIgnored private let operations: (any OperationLedger)?
+    @ObservationIgnored private let ingress: MainIngress?
 
     public let conversationID: UUID
     public let principal: String
@@ -47,7 +48,7 @@ public final class PersonalAgentModel {
 
     public init(conversationID: UUID, principal: String, agent: any MainAgentPort,
                 conversations: ConversationStore, memories: MemoryStore, followUps: FollowUpStore,
-                operations: (any OperationLedger)? = nil) {
+                operations: (any OperationLedger)? = nil, ingress: MainIngress? = nil) {
         self.conversationID = conversationID
         self.principal = principal
         self.agent = agent
@@ -55,6 +56,7 @@ public final class PersonalAgentModel {
         self.memories = memories
         self.followUps = followUps
         self.operations = operations
+        self.ingress = ingress
     }
 
     public func load() async {
@@ -86,6 +88,7 @@ public final class PersonalAgentModel {
         let source = SourceEnvelope(requestID: requestID, principal: principal, source: .phone,
                                     replyTo: .phoneChat, grantVersion: 0, receivedAt: Date())
         do {
+            if let ingress { _ = try await ingress.ingest(envelope: source, userText: content) }
             _ = try await memories.ingestUserInstruction(
                 content, principal: principal,
                 source: MemorySource(kind: .phone, reference: requestID.uuidString, detail: "用户在 Chat 中明确要求记住"))
@@ -177,7 +180,16 @@ public final class PersonalAgentModel {
             pendingQuestion = nil
             do {
                 try await conversations.markRunning(turn.id)
-                let stream = agent.run(turn: turn.input)
+                var input = turn.input
+                if let ingress {
+                    guard let mandate = await ingress.mandate(for: turn.requestID) else {
+                        throw MainFailure.invalidResponse("当前回合缺少已持久化的用户委托")
+                    }
+                    input = MainTurnInput(turnID: turn.id, requestID: turn.requestID,
+                                          principal: turn.principal, conversationID: turn.conversationID,
+                                          text: turn.text, mandate: mandate)
+                }
+                let stream = agent.run(turn: input)
                 for try await event in stream {
                     switch event {
                     case .status(let status):

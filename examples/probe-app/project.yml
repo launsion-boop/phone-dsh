@@ -196,6 +196,8 @@ targets:
       # The native Daily Brief presentation model is UI-free and lets the suite
       # exercise add → refresh → persist → offline reload against ProbeKit.
       - path: PhoneDSHProbe/DailyBriefModel.swift
+      - path: PhoneDSHProbe/AppComposition.swift
+      - path: PhoneDSHProbe/PersonalAgent/PersonalAgentNotificationSender.swift
       - path: PhoneDSHProbe/NativeConversationModels.swift
       - path: PhoneDSHProbe/NativeTranscriptProjector.swift
       - path: PhoneDSHProbe/NativeAskQuestionCard.swift

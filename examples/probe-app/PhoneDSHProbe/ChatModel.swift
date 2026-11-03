@@ -1064,9 +1064,7 @@ final class ChatModel {
         // injected PhoneToolBridge (there is no MCP bridge in this host yet),
         // so `channelAcceleratorNames` keeps them out of the host HELLO and the
         // EXEC_REQ whitelist instead of advertising commands that would exit 69.
-        let toolBridge = CompositePhoneToolBridge(
-            office: OfficeToolBridge(presenter: OfficePresenter()),
-            phone: PhoneCapabilityBridge())
+        let toolBridge = AppComposition.shared.dshToolBridge
         let shell = PDSHShellProvider(materializedWorkspace: materializedWorkspace,
                                       materializedHome: materializedHome,
                                       toolBridge: toolBridge)

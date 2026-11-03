@@ -97,6 +97,10 @@ public actor MainIngress {
         return MainIngressResult(envelope: envelope, mandate: mandate, duplicate: false, connectorContent: content)
     }
 
+    public func mandate(for requestID: UUID) async -> WorkMandate? {
+        await mandates.mandate(for: requestID)
+    }
+
     public func selectTargets(previous: WorkMandate, envelope: SourceEnvelope,
                               targets: MandateTargets, validUntil: Date? = nil) async throws -> WorkMandate {
         guard targets.origin == .uiSelected else { throw MandateStoreError.invalidVersion }
