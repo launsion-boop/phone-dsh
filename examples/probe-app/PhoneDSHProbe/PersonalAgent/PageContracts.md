@@ -4,13 +4,13 @@
 
 ## `personal-agent-chat`
 
-- 顶栏：Agent 名、当前状态、个人上下文入口、更多菜单；DSH 仅在更多菜单。
+- 顶栏：共享 PhoneDSH Logo 与 Agent 名组成视觉居中的设置入口，右侧保留更多菜单；DSH 仅在更多菜单。
 - 跟进入口：有事项时显示“跟进中 N · 需要你处理 M”，无事项不渲染。
 - 主时间线：用户/自然语言回答、单行当前状态、简短结果、来源/Artifact 展开、一个问题、失败与恢复。
-- 空态：最多三条由真实连接器状态生成的建议；模型未配置卡有“配置模型 / 先去 DSH”。
+- 空态：共享 Logo、友好欢迎与最多三条由真实连接器状态生成的建议；模型未配置卡有“配置模型 / 先去 DSH”。
 - 候选 Memory：自然停顿处最多两行，每行“记住 / 不用”。
-- 来源：自动 / GitHub / Gmail / 文件；`+` 与 `@` 共用来源选择，管理连接器由外层路由处理。
-- Composer：草稿属于 `PersonalAgentModel`，发送/停止共用一个按钮；底部预留外层 Dock inset。
+- 来源：自动 / GitHub / Gmail / 文件；一个紧凑来源入口显示当前选择，管理连接器由外层路由处理。
+- Composer：草稿属于 `PersonalAgentModel`，保留来源、语音与发送/停止按钮；底部预留外层 Dock inset，页面 accessibility 容器不得合并或覆盖子控件。
 - 禁止渲染：thinking/reasoning、bash、命令参数、原始工具输出、JSON、token、内部 ID、子 Agent 和队列技术细节。
 
 ## `personal-memory`

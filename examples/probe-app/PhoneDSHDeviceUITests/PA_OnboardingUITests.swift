@@ -72,11 +72,13 @@ final class PA_OnboardingUITests: XCTestCase {
 
     private func assertChat(agentName: String) {
         XCTAssertTrue(app.descendants(matching: .any)["app.chat"].waitForExistence(timeout: 60))
-        XCTAssertTrue(app.staticTexts[agentName].waitForExistence(timeout: 10))
+        let settings = app.buttons["app.chat.agent-settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 10))
+        XCTAssertTrue(settings.label.contains(agentName))
     }
 
     private func openMemoryAndAssertOwner(_ ownerName: String) {
-        app.buttons["个人上下文与 Memory"].tap()
+        app.buttons["app.chat.agent-settings"].tap()
         XCTAssertTrue(app.navigationBars["个人 Memory"].waitForExistence(timeout: 15))
         XCTAssertTrue(app.staticTexts[ownerName].waitForExistence(timeout: 15))
         XCTAssertTrue(app.staticTexts["displayName"].exists)

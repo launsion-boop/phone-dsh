@@ -20,6 +20,7 @@ struct PersonalAgentChatPage: View {
     @State private var showFollowUps = false
     @State private var expandedArtifacts = Set<String>()
     @State private var voice = ComposerVoiceInput()
+    @FocusState private var composerFocused: Bool
     @AppStorage("personalAgent.displayName") private var agentName = "小肥鱼"
 
     init(model: PersonalAgentModel, focus: ChatFocus? = nil, connectors: [ConnectorRecord] = [],
@@ -57,6 +58,7 @@ struct PersonalAgentChatPage: View {
             composer
         }
         .background(HomeSpec.page)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("app.chat")
         .padding(.bottom, bottomInset)
         .task {
@@ -87,26 +89,40 @@ struct PersonalAgentChatPage: View {
     }
 
     private var header: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(agentName).font(.system(size: HomeSpec.navTitleSize, weight: .semibold))
-                Text(model.isRunning ? "处理中" : "今天需要处理什么？")
-                    .font(.caption).foregroundStyle(HomeSpec.textSecondary)
-            }
-            Spacer()
+        ZStack {
             Button(action: onOpenMemory) {
-                Image(systemName: "person.crop.circle")
-                    .frame(width: 44, height: 44)
+                HStack(spacing: 8) {
+                    PhoneDSHLogo(size: 30)
+                    Text(agentName)
+                        .font(.system(size: HomeSpec.navTitleSize, weight: .semibold))
+                        .foregroundStyle(HomeSpec.textPrimary)
+                        .lineLimit(1)
+                }
+                .padding(.horizontal, HomeSpec.navButton)
+                .frame(maxWidth: .infinity, minHeight: HomeSpec.navButton)
+                .contentShape(Rectangle())
             }
-            .accessibilityLabel("个人上下文与 Memory")
-            Menu {
-                Button("在 DSH 中查看", action: onOpenDSH)
-            } label: {
-                Image(systemName: "ellipsis.circle").frame(width: 44, height: 44)
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(agentName)，Personal Agent 设置")
+            .accessibilityIdentifier("app.chat.agent-settings")
+            HStack {
+                Spacer()
+                Menu {
+                    Button("在 DSH 中查看", action: onOpenDSH)
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(HomeSpec.textPrimary)
+                        .frame(width: HomeSpec.navButton, height: HomeSpec.navButton)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel("更多")
+                .accessibilityIdentifier("app.chat.more")
             }
         }
         .padding(.horizontal, HomeSpec.chromeInset)
-        .padding(.vertical, 8)
+        .padding(.top, HomeSpec.navTop)
+        .padding(.bottom, 4)
     }
 
     private var timeline: some View {
@@ -172,6 +188,7 @@ struct PersonalAgentChatPage: View {
             }
             .task { scrollToFocusedItem(proxy: proxy) }
         }
+        .simultaneousGesture(TapGesture().onEnded { composerFocused = false })
     }
 
     private var messagesEmpty: Bool {
@@ -179,16 +196,33 @@ struct PersonalAgentChatPage: View {
     }
 
     private var emptyState: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("今天需要处理什么？").font(.title3.weight(.semibold))
-            ForEach(suggestions, id: \.self) { suggestion in
-                Button(suggestion) { model.draft = suggestion }
-                    .buttonStyle(.plain)
+        VStack(spacing: 20) {
+            PhoneDSHLogo(size: 64)
+            VStack(spacing: 7) {
+                Text("你好，我是 \(agentName)")
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(HomeSpec.textPrimary)
+                Text("今天想一起处理什么？")
+                    .font(.body)
                     .foregroundStyle(HomeSpec.textSecondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            VStack(spacing: 10) {
+                ForEach(suggestions, id: \.self) { suggestion in
+                    Button(suggestion) { model.draft = suggestion }
+                        .buttonStyle(.plain)
+                        .font(.subheadline)
+                        .foregroundStyle(HomeSpec.textSecondary)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 11)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(HomeSpec.surface,
+                                    in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
             }
         }
-        .padding(.vertical, 20)
+        .frame(maxWidth: .infinity)
+        .padding(.top, 28)
+        .padding(.bottom, 12)
     }
 
     private var suggestions: [String] {
@@ -304,44 +338,38 @@ struct PersonalAgentChatPage: View {
     }
 
     private var composer: some View {
-        VStack(spacing: 6) {
-            HStack {
-                Text("本次来源")
+        let canSubmit = model.isRunning || (!model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                            && model.isModelConfigured)
+        return VStack(spacing: 4) {
+            HStack(alignment: .bottom, spacing: 2) {
                 Menu {
                     ForEach(PersonalAgentSourceSelection.allCases, id: \.self) { source in
-                        Button(sourceTitle(source)) { model.sourceSelection = source }
+                        Button(sourceTitle(source)) { selectSource(source) }
                     }
                     Divider()
                     Button("管理连接器") { onManageConnector(nil) }
                 } label: {
-                    Label(sourceTitle(model.sourceSelection), systemImage: "chevron.up.chevron.down")
+                    HStack(spacing: 4) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 15, weight: .medium))
+                        Text(sourceTitle(model.sourceSelection))
+                            .font(.caption)
+                            .lineLimit(1)
+                    }
+                    .foregroundStyle(HomeSpec.textSecondary)
+                    .padding(.horizontal, 6)
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
                 }
-                Spacer()
-            }
-            .font(.caption).foregroundStyle(HomeSpec.textSecondary)
-            HStack(alignment: .bottom, spacing: 8) {
-                Menu {
-                    Button("GitHub") { selectSource(.github, connectorID: "github") }
-                    Button("Gmail") { selectSource(.gmail, connectorID: "gmail") }
-                    Button("文件") { model.sourceSelection = .files }
-                    Button("管理连接器") { onManageConnector(nil) }
-                } label: {
-                    Image(systemName: "plus.circle").font(.title2).frame(width: 44, height: 44)
-                }
-                .accessibilityLabel("添加来源")
-                TextField("输入…，也可 @ 指定来源", text: $model.draft, axis: .vertical)
+                .accessibilityLabel("来源：\(sourceTitle(model.sourceSelection))")
+                .accessibilityIdentifier("app.chat.source")
+                TextField("输入消息", text: $model.draft, axis: .vertical)
+                    .focused($composerFocused)
                     .lineLimit(1...4)
                     .textFieldStyle(.plain)
-                    .padding(.vertical, 10)
-                Menu {
-                    Button("GitHub") { selectSource(.github, connectorID: "github") }
-                    Button("Gmail") { selectSource(.gmail, connectorID: "gmail") }
-                    Button("文件") { model.sourceSelection = .files }
-                    Button("管理连接器") { onManageConnector(nil) }
-                } label: {
-                    Text("@").frame(width: 36, height: 44)
-                }
-                .accessibilityLabel("指定来源")
+                    .padding(.horizontal, 4)
+                    .frame(minHeight: 44)
+                    .accessibilityIdentifier("app.chat.composer")
                 Button {
                     if voice.recording {
                         voice.finish()
@@ -352,20 +380,35 @@ struct PersonalAgentChatPage: View {
                     }
                 } label: {
                     Image(systemName: voice.recording ? "mic.fill" : "mic")
-                        .frame(width: 36, height: 44)
+                        .font(.system(size: 19))
+                        .foregroundStyle(HomeSpec.textSecondary)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
                 .accessibilityLabel(voice.recording ? "结束听写" : "听写")
+                .accessibilityIdentifier("app.chat.voice")
                 Button {
                     if model.isRunning { Task { await model.cancel() } } else { Task { await model.send() } }
                 } label: {
-                    Image(systemName: model.isRunning ? "stop.circle.fill" : "arrow.up.circle.fill")
-                        .font(.title2).frame(width: 44, height: 44)
+                    Image(systemName: model.isRunning ? "stop.fill" : "arrow.up")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(canSubmit ? HomeSpec.primaryButtonInk : HomeSpec.iconMuted)
+                        .frame(width: 32, height: 32)
+                        .background(canSubmit ? HomeSpec.primaryButton : HomeSpec.userBubble, in: Circle())
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
-                .disabled(!model.isRunning && (model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !model.isModelConfigured))
+                .buttonStyle(.plain)
+                .disabled(!canSubmit)
                 .accessibilityLabel(model.isRunning ? "停止" : "发送")
+                .accessibilityIdentifier("app.chat.send")
             }
-            .padding(.horizontal, 8)
-            .background(HomeSpec.surface, in: RoundedRectangle(cornerRadius: HomeSpec.composerOpenRadius))
+            .padding(4)
+            .background(HomeSpec.surface,
+                        in: RoundedRectangle(cornerRadius: HomeSpec.composerOpenRadius, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: HomeSpec.composerOpenRadius, style: .continuous)
+                .strokeBorder(HomeSpec.borderList, lineWidth: 0.5))
+            .homeComposerShadow()
             if !voice.status.isEmpty {
                 Text(voice.status).font(.caption2).foregroundStyle(HomeSpec.textSecondary)
             }
@@ -374,9 +417,15 @@ struct PersonalAgentChatPage: View {
         .padding(.bottom, 8)
     }
 
-    private func selectSource(_ source: PersonalAgentSourceSelection, connectorID: String) {
+    private func selectSource(_ source: PersonalAgentSourceSelection) {
         model.sourceSelection = source
-        if !connectors.contains(where: { $0.connectorID == connectorID && $0.state == .connected }) {
+        let connectorID: String? = switch source {
+        case .github: "github"
+        case .gmail: "gmail"
+        default: nil
+        }
+        if let connectorID,
+           !connectors.contains(where: { $0.connectorID == connectorID && $0.state == .connected }) {
             onManageConnector(connectorID)
         }
     }
