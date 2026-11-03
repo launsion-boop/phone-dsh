@@ -21,7 +21,9 @@ public struct MainStaticContextProvider: MainContextProviding {
                                  userConstraints: base.userConstraints,
                                  currentArtifacts: base.currentArtifacts,
                                  pendingReconciliations: base.pendingReconciliations,
-                                 responseStylePrompt: base.responseStylePrompt)
+                                 responseStylePrompt: base.responseStylePrompt,
+                                 runtimeContext: base.runtimeContext, currentLanguage: base.currentLanguage,
+                                 toolSchemas: base.toolSchemas)
     }
 }
 
@@ -46,6 +48,7 @@ public final class NativeMainAgentAdapter: MainAgentPort, @unchecked Sendable {
     private let contextProvider: any MainContextProviding
     private let compactor: MainConversationCompactor
     private let toolLoop: NativeToolLoop
+    private let toolDescriptors: [ConnectorToolDescriptor]
     public let latencyRecorder: MainLatencyRecorder
 
     private let lock = NSLock()
@@ -68,6 +71,7 @@ public final class NativeMainAgentAdapter: MainAgentPort, @unchecked Sendable {
         self.toolLoop = NativeToolLoop(invoker: toolInvoker,
                                        codec: try ToolNameCodec(descriptors: toolInvoker.descriptors),
                                        configuration: toolConfiguration)
+        self.toolDescriptors = toolInvoker.descriptors
         self.latencyRecorder = latencyRecorder
     }
 
@@ -151,7 +155,9 @@ public final class NativeMainAgentAdapter: MainAgentPort, @unchecked Sendable {
             emit(.status(StatusLine(text: "正在准备上下文", phase: .preparing)), for: turn.turnID)
             let resolved = try clientResolver.resolveClient()
             let snapshot = try await contextProvider.snapshot(for: turn)
-            let compacted = try await compactor.compact(snapshot)
+            let resolvedSnapshot = try snapshot.resolvingRuntimeContext(
+                descriptors: toolDescriptors, toolSchemas: toolLoop.tools)
+            let compacted = try await compactor.compact(resolvedSnapshot)
             let assistant = try await toolLoop.run(client: resolved.client, model: resolved.model,
                                                    maxTokens: resolved.maxTokens,
                                                    context: compacted.context, mandate: turn.mandate,

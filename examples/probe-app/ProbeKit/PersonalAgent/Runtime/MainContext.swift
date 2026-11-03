@@ -80,13 +80,17 @@ public struct MainConversationSnapshot: Sendable {
     public let currentArtifacts: [MainArtifactContext]
     public let pendingReconciliations: [String]
     public let responseStylePrompt: String
+    public let runtimeContext: MainRuntimeContext?
+    public let currentLanguage: String?
+    public let toolSchemas: [AnthropicTool]
 
     public init(currentText: String, mandate: WorkMandate? = nil, followUps: [FollowUp] = [],
                 pendingQuestions: [PendingQuestion] = [], messages: [MainConversationMessage] = [],
                 rollingSummary: MainConversationSummary? = nil, memory: [MainContextDocument] = [],
                 connectorDocuments: [MainContextDocument] = [], userConstraints: [String] = [],
                 currentArtifacts: [MainArtifactContext] = [], pendingReconciliations: [String] = [],
-                responseStylePrompt: String = "") {
+                responseStylePrompt: String = "", runtimeContext: MainRuntimeContext? = nil,
+                currentLanguage: String? = nil, toolSchemas: [AnthropicTool] = []) {
         self.currentText = currentText
         self.mandate = mandate
         self.followUps = followUps
@@ -99,6 +103,23 @@ public struct MainConversationSnapshot: Sendable {
         self.currentArtifacts = currentArtifacts
         self.pendingReconciliations = pendingReconciliations
         self.responseStylePrompt = responseStylePrompt
+        self.runtimeContext = runtimeContext
+        self.currentLanguage = currentLanguage
+        self.toolSchemas = toolSchemas
+    }
+
+    public func resolvingRuntimeContext(descriptors: [ConnectorToolDescriptor] = [],
+                                        toolSchemas: [AnthropicTool]? = nil) throws
+    -> MainConversationSnapshot {
+        let runtime = try (runtimeContext ?? MainRuntimeContext()).resolving(
+            currentLanguage: currentLanguage, descriptors: descriptors)
+        return MainConversationSnapshot(
+            currentText: currentText, mandate: mandate, followUps: followUps,
+            pendingQuestions: pendingQuestions, messages: messages, rollingSummary: rollingSummary,
+            memory: memory, connectorDocuments: connectorDocuments, userConstraints: userConstraints,
+            currentArtifacts: currentArtifacts, pendingReconciliations: pendingReconciliations,
+            responseStylePrompt: responseStylePrompt, runtimeContext: runtime,
+            currentLanguage: currentLanguage, toolSchemas: toolSchemas ?? self.toolSchemas)
     }
 }
 
@@ -142,16 +163,47 @@ public struct MainAssembledContext: Sendable {
     public let tokenEstimationMethod: String
     public let recentMessages: [MainConversationMessage]
     public let rollingSummary: MainConversationSummary?
+    public let coreBytes: Int
+    public let runtimeContextBytes: Int
+    public let toolSchemaBytes: Int
+    public let messageBytes: Int
+    public let totalBytes: Int
+    public let byteBudget: Int
 
     public init(systemPrompt: String, messages: [AnthropicMessage], estimatedTokens: Int,
                 tokenEstimationMethod: String, recentMessages: [MainConversationMessage],
-                rollingSummary: MainConversationSummary?) {
+                rollingSummary: MainConversationSummary?, coreBytes: Int = 0, runtimeContextBytes: Int = 0,
+                toolSchemaBytes: Int = 0, messageBytes: Int = 0, totalBytes: Int? = nil,
+                byteBudget: Int = Int.max) {
         self.systemPrompt = systemPrompt
         self.messages = messages
         self.estimatedTokens = estimatedTokens
         self.tokenEstimationMethod = tokenEstimationMethod
         self.recentMessages = recentMessages
         self.rollingSummary = rollingSummary
+        self.coreBytes = coreBytes
+        self.runtimeContextBytes = runtimeContextBytes
+        self.toolSchemaBytes = toolSchemaBytes
+        self.messageBytes = messageBytes
+        self.totalBytes = totalBytes ?? systemPrompt.utf8.count + toolSchemaBytes + messageBytes
+        self.byteBudget = byteBudget
+    }
+
+    public func replacingMessages(_ messages: [AnthropicMessage], tools: [AnthropicTool]) throws
+    -> MainAssembledContext {
+        let messageBytes = try AnthropicMessagesRequest.encodedMessages(messages).count
+        let toolSchemaBytes = try AnthropicMessagesRequest.encodedTools(tools).count
+        let totalBytes = systemPrompt.utf8.count + toolSchemaBytes + messageBytes
+        guard totalBytes <= byteBudget else {
+            throw MainFailure.invalidResponse("Main messages and tool schemas exceed the context byte budget")
+        }
+        return MainAssembledContext(
+            systemPrompt: systemPrompt, messages: messages,
+            estimatedTokens: MainContextBudget().estimatedTokens(utf8Bytes: totalBytes),
+            tokenEstimationMethod: tokenEstimationMethod, recentMessages: recentMessages,
+            rollingSummary: rollingSummary, coreBytes: coreBytes, runtimeContextBytes: runtimeContextBytes,
+            toolSchemaBytes: toolSchemaBytes, messageBytes: messageBytes, totalBytes: totalBytes,
+            byteBudget: byteBudget)
     }
 }
 
@@ -256,10 +308,22 @@ public struct MainConversationCompactor: Sendable {
         guard protected.utf8.count + snapshot.currentText.utf8.count <= budget.protectedBytes else {
             throw MainFailure.invalidResponse("current task constraints exceed the protected context budget")
         }
+        let runtime = try (snapshot.runtimeContext ?? MainRuntimeContext()).resolving(
+            currentLanguage: snapshot.currentLanguage)
+        let runtimeJSON = try runtime.encodedEnvelope()
+        let messageBytes = try AnthropicMessagesRequest.encodedMessages([.text(snapshot.currentText)]).count
+        let toolSchemaBytes = try AnthropicMessagesRequest.encodedTools(snapshot.toolSchemas).count
+        let fixedBytes = PersonalAgentCorePrompt.utf8Bytes + runtimeJSON.utf8.count
+            + protected.utf8.count + messageBytes + toolSchemaBytes
+        let variableBytes = budget.totalBytes - fixedBytes - 1_024
+        guard variableBytes >= 0 else {
+            throw MainFailure.invalidResponse("core, runtime, task, tools and request exceed the context byte budget")
+        }
+        let limits = Self.variableBudgets(available: variableBytes, budget: budget)
         let external = Self.externalSection(memory: snapshot.memory,
                                             connectors: snapshot.connectorDocuments,
-                                            byteLimit: budget.externalBytes)
-        let recent = Self.recentMessages(snapshot.messages, byteLimit: budget.recentBytes)
+                                            byteLimit: limits.external)
+        let recent = Self.recentMessages(snapshot.messages, byteLimit: limits.recent)
         let recentSequences = Set(recent.map(\.sequence))
         let older = snapshot.messages.filter { !recentSequences.contains($0.sequence) }
         var summary = snapshot.rollingSummary
@@ -288,11 +352,22 @@ public struct MainConversationCompactor: Sendable {
                 throw MainFailure.provider("conversation compaction failed: \(MainRuntimeJSON.boundedString(error))")
             }
         }
-        let context = try MainContextAssembler.assemble(snapshot: snapshot, protectedSection: protected,
-                                                        externalSection: external, recentMessages: recent,
-                                                        summary: summary, budget: budget)
+        let context = try MainContextAssembler.assemble(
+            snapshot: snapshot, protectedSection: protected, runtimeJSON: runtimeJSON,
+            externalSection: external, recentMessages: recent, summary: summary, budget: budget,
+            recentByteLimit: limits.recent, summaryByteLimit: limits.summary)
         return MainCompactionResult(context: context, summary: summary,
                                     originalMessages: snapshot.messages)
+    }
+
+    private static func variableBudgets(available: Int, budget: MainContextBudget)
+    -> (recent: Int, summary: Int, external: Int) {
+        let weights = [budget.recentBytes, budget.summaryBytes, budget.externalBytes]
+        let weightTotal = weights.reduce(0, +)
+        let recent = available * budget.recentBytes / weightTotal
+        let summary = available * budget.summaryBytes / weightTotal
+        let external = available - recent - summary
+        return (recent, summary, external)
     }
 
     public func originalMessages(for summary: MainConversationSummary,
@@ -339,9 +414,11 @@ public struct MainConversationCompactor: Sendable {
     }
 
     fileprivate static func truncate(_ text: String, byteLimit: Int) -> String {
+        guard byteLimit > 0 else { return "" }
         guard text.utf8.count > byteLimit else { return text }
         let marker = "\n…[truncated]"
-        let prefixLimit = max(0, byteLimit - marker.utf8.count)
+        guard marker.utf8.count <= byteLimit else { return "" }
+        let prefixLimit = byteLimit - marker.utf8.count
         var prefix = ""
         var used = 0
         for scalar in text.unicodeScalars {
@@ -401,31 +478,39 @@ public enum MainContextAssembler {
     }
 
     fileprivate static func assemble(snapshot: MainConversationSnapshot, protectedSection: String,
-                                     externalSection: String, recentMessages: [MainConversationMessage],
-                                     summary: MainConversationSummary?, budget: MainContextBudget) throws
+                                     runtimeJSON: String, externalSection: String,
+                                     recentMessages: [MainConversationMessage],
+                                     summary: MainConversationSummary?, budget: MainContextBudget,
+                                     recentByteLimit: Int, summaryByteLimit: Int) throws
     -> MainAssembledContext {
-        var sections = [protectedSection]
+        var sections = [PersonalAgentCorePrompt.text, "## Runtime context\n" + runtimeJSON, protectedSection]
         if !recentMessages.isEmpty {
             let transcript = recentMessages.map(MainConversationCompactor.render).joined(separator: "\n")
             sections.append("## Recent conversation\n" + MainConversationCompactor.truncate(
-                transcript, byteLimit: budget.recentBytes))
+                transcript, byteLimit: recentByteLimit))
         }
         if let summary {
             let metadata = "summaryID=\(summary.summaryID) coveredRange=\(summary.coveredRange.lowerBound)...\(summary.coveredRange.upperBound) "
                 + "revision=\(summary.revision) sourceCursor=\(summary.sourceCursor)"
             sections.append("## Rolling summary\n[\(metadata)]\n" + MainConversationCompactor.truncate(
-                summary.text, byteLimit: budget.summaryBytes))
+                summary.text, byteLimit: summaryByteLimit))
         }
         if !externalSection.isEmpty { sections.append(externalSection) }
         let system = sections.joined(separator: "\n\n")
-        let message = AnthropicMessage.text(snapshot.currentText)
-        let bytes = system.utf8.count + snapshot.currentText.utf8.count
+        let messages = [AnthropicMessage.text(snapshot.currentText)]
+        let messageBytes = try AnthropicMessagesRequest.encodedMessages(messages).count
+        let toolSchemaBytes = try AnthropicMessagesRequest.encodedTools(snapshot.toolSchemas).count
+        let bytes = system.utf8.count + toolSchemaBytes + messageBytes
         guard bytes <= budget.totalBytes else {
             throw MainFailure.invalidResponse("assembled Main context exceeds its total byte budget")
         }
-        return MainAssembledContext(systemPrompt: system, messages: [message],
-                                    estimatedTokens: budget.estimatedTokens(utf8Bytes: bytes),
-                                    tokenEstimationMethod: MainContextBudget.tokenEstimationMethod,
-                                    recentMessages: recentMessages, rollingSummary: summary)
+        return MainAssembledContext(
+            systemPrompt: system, messages: messages,
+            estimatedTokens: budget.estimatedTokens(utf8Bytes: bytes),
+            tokenEstimationMethod: MainContextBudget.tokenEstimationMethod,
+            recentMessages: recentMessages, rollingSummary: summary,
+            coreBytes: PersonalAgentCorePrompt.utf8Bytes, runtimeContextBytes: runtimeJSON.utf8.count,
+            toolSchemaBytes: toolSchemaBytes, messageBytes: messageBytes, totalBytes: bytes,
+            byteBudget: budget.totalBytes)
     }
 }

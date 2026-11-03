@@ -29,7 +29,8 @@ final class PA_ChatPresentationTests: XCTestCase {
         XCTAssertEqual(fixture.model.messages.filter { $0.role == .assistant }.count, 1)
         let visible = fixture.model.messages.filter { $0.role == .assistant }.map(\.text).joined()
         XCTAssertTrue(visible.contains("已总结 12 封邮件"))
-        for forbidden in ["thinking", "隐藏推理", "bash", "rm -rf", "rawTool", "TaskRun", "gmail.search", "secret"] {
+        XCTAssertTrue(visible.contains("```bash\nrm -rf example\n```"))
+        for forbidden in ["thinking", "隐藏推理", "rawTool", "TaskRun", "gmail.search", "secret"] {
             XCTAssertFalse(visible.contains(forbidden), "不应展示 \(forbidden)")
         }
         let turns = try await fixture.conversations.turns(conversationID: fixture.model.conversationID)
@@ -51,7 +52,7 @@ final class PA_ChatPresentationTests: XCTestCase {
                                           followUps: FollowUpStore(domain: fixture.domain))
         await restored.load()
         XCTAssertEqual(restored.pendingQuestion, question)
-        XCTAssertTrue(PersonalAgentTextPolicy.conciseSystemPrompt.contains("1–3 个短句"))
+        XCTAssertTrue(PersonalAgentCorePrompt.text.contains("Reply in the language the user is currently using"))
         XCTAssertEqual(PersonalAgentTextPolicy.failureText(.provider("{\"token\":\"bad\"}")),
                        "模型服务暂时不可用，请稍后重试。")
     }

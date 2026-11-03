@@ -46,6 +46,8 @@ public struct NativeToolLoop: Sendable {
     private let configuration: NativeToolLoopConfiguration
     private let adapter = AnthropicMessagesAdapter()
 
+    public var tools: [AnthropicTool] { codec.anthropicTools }
+
     public init(invoker: any ConnectorToolInvoker, codec: ToolNameCodec,
                 configuration: NativeToolLoopConfiguration = NativeToolLoopConfiguration()) {
         self.invoker = invoker
@@ -64,14 +66,8 @@ public struct NativeToolLoop: Sendable {
         let tools = codec.anthropicTools
         while true {
             try Self.checkCancellation(isCancelled)
-            let request = adapter.makeRequest(model: model,
-                                              context: MainAssembledContext(
-                                                systemPrompt: context.systemPrompt,
-                                                messages: messages,
-                                                estimatedTokens: context.estimatedTokens,
-                                                tokenEstimationMethod: context.tokenEstimationMethod,
-                                                recentMessages: context.recentMessages,
-                                                rollingSummary: context.rollingSummary),
+            let requestContext = try context.replacingMessages(messages, tools: tools)
+            let request = adapter.makeRequest(model: model, context: requestContext,
                                               tools: tools, maxTokens: maxTokens)
             telemetry.markRequest()
             var accumulator = AnthropicResponseAccumulator()

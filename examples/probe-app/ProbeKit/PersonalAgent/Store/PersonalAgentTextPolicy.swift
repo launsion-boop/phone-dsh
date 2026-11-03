@@ -4,21 +4,46 @@ import Foundation
 
 public enum PersonalAgentTextPolicy {
     public static let conciseSystemPrompt = """
-    结论先行，不复述用户问题。简单回答只用 1–3 个短句；行动结果只说明完成了什么，
-    必要时附一个来源或下一步。不要输出思考过程、命令、工具原始结果、JSON、token、
-    session、turn、TaskRun 或内部路由。复杂依据放入可展开 Artifact。用户明确要求详细解释时才展开。
+    Lead with the answer and stay concise. Preserve requested code, commands, evidence, and failures.
+    Do not expose hidden reasoning or raw tool protocols unless a technical explanation was requested.
     """
 
     public static func visibleAssistantText(_ raw: String, allowEmpty: Bool = false) -> String {
+        var sections: [String] = []
+        var plainLines: [String] = []
+        var insideFence = false
+        for line in raw.components(separatedBy: .newlines) {
+            if line.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
+                if !insideFence {
+                    sections.append(visiblePlainText(plainLines.joined(separator: "\n")))
+                    plainLines = []
+                    insideFence = true
+                } else {
+                    insideFence = false
+                }
+                sections.append(line)
+            } else if insideFence {
+                sections.append(line)
+            } else {
+                plainLines.append(line)
+            }
+        }
+        if !plainLines.isEmpty {
+            sections.append(visiblePlainText(plainLines.joined(separator: "\n")))
+        }
+        return sections.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func visiblePlainText(_ raw: String) -> String {
         var text = raw
         let blocks = [
             #"(?is)<thinking>.*?</thinking>"#, #"(?is)<reasoning>.*?</reasoning>"#,
-            #"(?is)<analysis>.*?</analysis>"#, #"(?is)```(?:bash|sh|shell|json|tool|tool_result)?\s*.*?```"#,
+            #"(?is)<analysis>.*?</analysis>"#,
         ]
         for pattern in blocks {
             text = text.replacingOccurrences(of: pattern, with: "", options: .regularExpression)
         }
-        let lines = text.components(separatedBy: .newlines).filter { line in
+        return text.components(separatedBy: .newlines).filter { line in
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             let lower = trimmed.lowercased()
             if trimmed.isEmpty { return true }
@@ -30,13 +55,9 @@ public enum PersonalAgentTextPolicy {
             if (trimmed.hasPrefix("{") && trimmed.hasSuffix("}")) ||
                 (trimmed.hasPrefix("[") && trimmed.hasSuffix("]")) { return false }
             return true
-        }
-        let visible = lines.joined(separator: "\n")
+        }.joined(separator: "\n")
             .replacingOccurrences(of: #"(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b"#,
                                   with: "", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        if visible.isEmpty, !allowEmpty { return "已完成，但没有可展示的文字结果。" }
-        return visible
     }
 
     public static func failureText(_ failure: MainFailure) -> String {

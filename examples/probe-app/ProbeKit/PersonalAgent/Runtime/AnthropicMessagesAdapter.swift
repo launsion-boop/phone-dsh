@@ -117,6 +117,14 @@ public struct AnthropicMessagesRequest: Sendable, Equatable {
         ]
     }
 
+    static func encodedMessages(_ messages: [AnthropicMessage]) throws -> Data {
+        try JSONSerialization.data(withJSONObject: messages.map(messageObject), options: [.sortedKeys])
+    }
+
+    static func encodedTools(_ tools: [AnthropicTool]) throws -> Data {
+        try JSONSerialization.data(withJSONObject: tools.map(toolObject), options: [.sortedKeys])
+    }
+
     private static func toolChoiceObject(_ choice: AnthropicToolChoice) -> [String: Any] {
         switch choice {
         case .auto: return ["type": "auto"]
