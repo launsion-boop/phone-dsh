@@ -2,55 +2,275 @@
 
 import Foundation
 
-public actor SuggestionStore {
-    private let fileURL: URL
-    private var suggestions: [UUID: ConversationSuggestion]
+public enum SuggestionStoreError: Error, Sendable, Equatable {
+    case selectionEventConflict
+}
 
-    public init(rootDirectory: URL) {
+public actor SuggestionStore {
+    private static let diskSchemaVersion = 2
+
+    private struct LegacyRecord: Codable {
+        var suggestion: ConversationSuggestion
+        let outcome: SuggestionOutcome
+    }
+
+    private struct TurnKey: Codable, Hashable {
+        let scope: SuggestionScope
+        let turnID: UUID
+    }
+
+    private struct DiskState: Codable {
+        let schemaVersion: Int
+        let cards: [SuggestionCard]
+        let events: [SuggestionLifecycleEvent]
+        let selections: [SuggestionSelection]
+        let legacy: [LegacyRecord]
+        let turnTombstones: [TurnKey]
+    }
+
+    private struct State {
+        var cards: [UUID: SuggestionCard] = [:]
+        var events: [SuggestionLifecycleEvent] = []
+        var selections: [UUID: SuggestionSelection] = [:]
+        var legacy: [UUID: LegacyRecord] = [:]
+        var turnTombstones: Set<TurnKey> = []
+    }
+
+    private let fileURL: URL
+    private let policy: SuggestionPolicy
+    private var state: State
+
+    public init(rootDirectory: URL, policy: SuggestionPolicy = SuggestionPolicy()) {
         self.fileURL = rootDirectory.appendingPathComponent("conversation-suggestions.json")
+        self.policy = policy
         if let data = try? Data(contentsOf: fileURL),
-           let restored = try? JSONDecoder().decode([ConversationSuggestion].self, from: data) {
-            self.suggestions = Dictionary(restored.map { ($0.turnID, $0) }, uniquingKeysWith: { _, last in last })
+           let disk = try? JSONDecoder().decode(DiskState.self, from: data),
+           disk.schemaVersion == Self.diskSchemaVersion {
+            var restored = State()
+            restored.cards = Dictionary(disk.cards.map { ($0.cardID, $0) }, uniquingKeysWith: { _, last in last })
+            restored.events = disk.events
+            restored.selections = Dictionary(disk.selections.map { ($0.selectionEventID, $0) },
+                                             uniquingKeysWith: { _, last in last })
+            restored.legacy = Dictionary(disk.legacy.map { ($0.suggestion.turnID, $0) },
+                                         uniquingKeysWith: { _, last in last })
+            restored.turnTombstones = Set(disk.turnTombstones)
+            self.state = restored
+        } else if let data = try? Data(contentsOf: fileURL),
+                  let legacy = try? JSONDecoder().decode([ConversationSuggestion].self, from: data) {
+            var migrated = State()
+            migrated.legacy = Dictionary(legacy.map {
+                ($0.turnID, LegacyRecord(suggestion: $0, outcome: .unknown))
+            }, uniquingKeysWith: { _, last in last })
+            self.state = migrated
         } else {
-            self.suggestions = [:]
+            self.state = State()
         }
     }
 
+    @discardableResult
+    public func shown(_ card: SuggestionCard, now: Date = Date(),
+                      directlyRequested: Bool = false) throws -> SuggestionCard? {
+        try card.validate()
+        guard card.outcome == .shown, now < card.expiresAt else { return nil }
+        if let existing = state.cards[card.cardID] {
+            return existing.outcome == .shown ? existing : nil
+        }
+        let turnKey = TurnKey(scope: card.scope, turnID: card.turnID)
+        guard !state.turnTombstones.contains(turnKey),
+              state.legacy[card.turnID]?.suggestion.dismissed != true,
+              !hasTerminalCard(for: turnKey) else { return nil }
+
+        let outstanding = state.cards.values.filter {
+            $0.scope == card.scope && $0.outcome == .shown && $0.cardID != card.cardID
+        }
+        if card.kind == .nextSteps {
+            guard !outstanding.contains(where: { $0.kind == .clarification }),
+                  directlyRequested || !isSuppressed(card, now: now) else { return nil }
+        }
+
+        var updated = state
+        for other in outstanding {
+            updated.cards[other.cardID]?.outcome = .superseded
+            updated.events.append(SuggestionLifecycleEvent(cardID: other.cardID,
+                                                           outcome: .superseded, createdAt: now))
+        }
+        updated.cards[card.cardID] = card
+        updated.events.append(SuggestionLifecycleEvent(cardID: card.cardID,
+                                                       outcome: .shown, createdAt: now))
+        try persist(updated)
+        state = updated
+        return card
+    }
+
+    public func outstanding(scope: SuggestionScope, now: Date = Date()) throws -> [SuggestionCard] {
+        var updated = state
+        var changed = false
+        for card in state.cards.values where card.scope == scope && card.outcome == .shown && now >= card.expiresAt {
+            updated.cards[card.cardID]?.outcome = .expired
+            updated.events.append(SuggestionLifecycleEvent(cardID: card.cardID,
+                                                           outcome: .expired, createdAt: now))
+            changed = true
+        }
+        if changed {
+            try persist(updated)
+            state = updated
+        }
+        return state.cards.values.filter { $0.scope == scope && $0.outcome == .shown }
+            .sorted { $0.createdAt < $1.createdAt }
+    }
+
+    public func select(cardID: UUID, optionID: String, selectionEventID: UUID = UUID(),
+                       now: Date = Date()) throws -> SuggestionSelectionResult? {
+        if let existing = state.selections[selectionEventID] {
+            guard existing.cardID == cardID, existing.optionID == optionID else {
+                throw SuggestionStoreError.selectionEventConflict
+            }
+            return SuggestionSelectionResult(selection: existing, shouldSend: false)
+        }
+        guard let card = state.cards[cardID], card.outcome == .shown,
+              let option = card.options.first(where: { $0.id == optionID }) else { return nil }
+        if now >= card.expiresAt {
+            try transition(cardID: cardID, outcome: .expired, now: now)
+            return nil
+        }
+        let selection = SuggestionSelection(selectionEventID: selectionEventID, cardID: cardID,
+                                            cardVersion: card.schemaVersion, optionID: option.id,
+                                            userRequest: option.userRequest, conversationID: card.conversationID,
+                                            principal: card.principal, accountID: card.accountID, createdAt: now)
+        var updated = state
+        updated.cards[cardID]?.outcome = .selected
+        updated.events.append(SuggestionLifecycleEvent(cardID: cardID, outcome: .selected, createdAt: now))
+        updated.selections[selectionEventID] = selection
+        try persist(updated)
+        state = updated
+        return SuggestionSelectionResult(selection: selection, shouldSend: true)
+    }
+
+    public func dismiss(cardID: UUID, now: Date = Date()) throws {
+        try transition(cardID: cardID, outcome: .dismissed, now: now)
+    }
+
+    public func decline(cardID: UUID, now: Date = Date()) throws {
+        try transition(cardID: cardID, outcome: .declined, now: now)
+    }
+
+    public func supersede(cardID: UUID, now: Date = Date()) throws {
+        try transition(cardID: cardID, outcome: .superseded, now: now)
+    }
+
+    public func supersede(turnID: UUID, scope: SuggestionScope, now: Date = Date()) throws {
+        let key = TurnKey(scope: scope, turnID: turnID)
+        var updated = state
+        updated.turnTombstones.insert(key)
+        for card in state.cards.values where card.scope == scope && card.turnID == turnID && card.outcome == .shown {
+            updated.cards[card.cardID]?.outcome = .superseded
+            updated.events.append(SuggestionLifecycleEvent(cardID: card.cardID,
+                                                           outcome: .superseded, createdAt: now))
+        }
+        try persist(updated)
+        state = updated
+    }
+
+    public func outcome(cardID: UUID) -> SuggestionOutcome? {
+        state.cards[cardID]?.outcome
+    }
+
+    public func events(cardID: UUID) -> [SuggestionLifecycleEvent] {
+        state.events.filter { $0.cardID == cardID }.sorted { $0.createdAt < $1.createdAt }
+    }
+
+    public func legacyOutcome(turnID: UUID) -> SuggestionOutcome? {
+        state.legacy[turnID]?.outcome
+    }
+
+    public nonisolated static func canonicalSuppressionKey(action: String, target: String) -> String {
+        SuggestionSuppressionKey.canonical(action: action, target: target)
+    }
+
     public func options(for turnID: UUID) -> [String]? {
-        guard let suggestion = suggestions[turnID], !suggestion.dismissed else { return nil }
-        return suggestion.options
+        guard let record = state.legacy[turnID], !record.suggestion.dismissed else { return nil }
+        return record.suggestion.options
     }
 
     public func save(turnID: UUID, options: [String]) throws {
-        let existing = suggestions[turnID]
+        let existing = state.legacy[turnID]?.suggestion
         let suggestion = ConversationSuggestion(id: existing?.id ?? UUID(), turnID: turnID,
                                                 options: options, dismissed: existing?.dismissed ?? false)
-        var updated = suggestions
-        updated[turnID] = suggestion
+        var updated = state
+        updated.legacy[turnID] = LegacyRecord(suggestion: suggestion, outcome: .unknown)
         try persist(updated)
-        suggestions = updated
+        state = updated
     }
 
     public func dismiss(turnID: UUID) throws {
-        let existing = suggestions[turnID]
+        let existing = state.legacy[turnID]?.suggestion
         let suggestion = ConversationSuggestion(id: existing?.id ?? UUID(), turnID: turnID,
                                                 options: existing?.options ?? [], dismissed: true)
-        var updated = suggestions
-        updated[turnID] = suggestion
+        var updated = state
+        updated.legacy[turnID] = LegacyRecord(suggestion: suggestion, outcome: .unknown)
         try persist(updated)
-        suggestions = updated
+        state = updated
     }
 
     public func isDismissed(turnID: UUID) -> Bool {
-        suggestions[turnID]?.dismissed ?? false
+        state.legacy[turnID]?.suggestion.dismissed ?? false
     }
 
-    private func persist(_ values: [UUID: ConversationSuggestion]) throws {
+    private func hasTerminalCard(for key: TurnKey) -> Bool {
+        state.cards.values.contains {
+            $0.scope == key.scope && $0.turnID == key.turnID && $0.outcome != .shown
+        }
+    }
+
+    private func isSuppressed(_ proposal: SuggestionCard, now: Date) -> Bool {
+        let keys = Set(proposal.suppressionKeys)
+        guard !keys.isEmpty else { return false }
+        let matchingCards = state.cards.values.filter {
+            $0.scope == proposal.scope && !Set($0.suppressionKeys).isDisjoint(with: keys)
+        }
+        let cardIDs = Set(matchingCards.map(\.cardID))
+        let events = state.events.filter { cardIDs.contains($0.cardID) }
+        for event in events {
+            let age = now.timeIntervalSince(event.createdAt)
+            guard age >= 0 else { continue }
+            if event.outcome == .dismissed && age <= policy.dismissCooldown { return true }
+            if event.outcome == .declined && age <= policy.declineCooldown { return true }
+        }
+        let declineCount = events.filter { $0.outcome == .declined }.count
+        return declineCount >= policy.stopAfterExplicitDeclines
+    }
+
+    private func transition(cardID: UUID, outcome: SuggestionOutcome, now: Date) throws {
+        guard let card = state.cards[cardID], card.outcome == .shown else { return }
+        var updated = state
+        updated.cards[cardID]?.outcome = outcome
+        updated.events.append(SuggestionLifecycleEvent(cardID: cardID, outcome: outcome, createdAt: now))
+        try persist(updated)
+        state = updated
+    }
+
+    private func persist(_ state: State) throws {
         try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(),
                                                 withIntermediateDirectories: true)
+        let disk = DiskState(
+            schemaVersion: Self.diskSchemaVersion,
+            cards: state.cards.values.sorted { $0.cardID.uuidString < $1.cardID.uuidString },
+            events: state.events.sorted {
+                ($0.createdAt, $0.id.uuidString) < ($1.createdAt, $1.id.uuidString)
+            },
+            selections: state.selections.values.sorted {
+                $0.selectionEventID.uuidString < $1.selectionEventID.uuidString
+            },
+            legacy: state.legacy.values.sorted {
+                $0.suggestion.turnID.uuidString < $1.suggestion.turnID.uuidString
+            },
+            turnTombstones: state.turnTombstones.sorted {
+                ($0.scope.accountID, $0.scope.principal, $0.scope.conversationID.uuidString, $0.turnID.uuidString)
+                    < ($1.scope.accountID, $1.scope.principal, $1.scope.conversationID.uuidString, $1.turnID.uuidString)
+            })
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        let data = try encoder.encode(values.values.sorted { $0.turnID.uuidString < $1.turnID.uuidString })
+        let data = try encoder.encode(disk)
         try data.write(to: fileURL, options: .atomic)
     }
 }
