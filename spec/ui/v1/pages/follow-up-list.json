@@ -1,0 +1,199 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "FollowUpListPage",
+  "pageId": "follow-up-list",
+  "structure": "swiftui-view",
+  "sectionModel": "unmodeled",
+  "sectionNote": null,
+  "title": {
+    "text": "持续跟进",
+    "provenance": "FollowUpPages.swift:23",
+    "anchor": ".navigationTitle(\"持续跟进\")"
+  },
+  "source": {
+    "file": "FollowUpPages.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/PersonalAgent/FollowUpPages.swift",
+    "lines": 117,
+    "structLine": 6,
+    "renderedFrom": [
+      "body"
+    ],
+    "sectionOrder": "declaration order inside the page struct"
+  },
+  "android": {
+    "screen": "FollowUpListPage",
+    "file": null,
+    "match": "missing"
+  },
+  "sections": [
+    {
+      "id": "region-6",
+      "kind": "implicit",
+      "title": null,
+      "titleTemplate": null,
+      "titleSource": "absent",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "没有进行中的跟进",
+          "label": "没有进行中的跟进",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "records.isEmpty",
+          "provenance": "FollowUpPages.swift:14",
+          "anchor": "Text(\"没有进行中的跟进\").foregroundStyle(HomeSpec.textSecondary)",
+          "extraction": "syntax"
+        },
+        {
+          "id": "navigation-17",
+          "label": null,
+          "labelExpr": null,
+          "kind": "navigation",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": "FollowUpDetailPage",
+          "writes": false,
+          "condition": null,
+          "provenance": "FollowUpPages.swift:17",
+          "anchor": "NavigationLink(record.followUp.goal) {",
+          "extraction": "manual",
+          "collection": "records"
+        }
+      ],
+      "provenance": "FollowUpPages.swift:6",
+      "anchor": "struct FollowUpListPage: View {",
+      "extraction": "manual",
+      "criterion": {
+        "kind": "implicit"
+      },
+      "note": "no Section/PageSection/GroupBox/header Text found: the whole body is one region, so a human must say what the group is (or the page has none)"
+    }
+  ],
+  "actions": [
+    {
+      "id": "好",
+      "label": "好",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "alert-button",
+      "semantic": "{ errorMessage = nil",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "FollowUpPages.swift:26",
+      "anchor": "Button(\"好\") { errorMessage = nil }",
+      "extraction": "syntax",
+      "presents": "alert-25"
+    },
+    {
+      "id": "navigation-17",
+      "label": null,
+      "labelExpr": null,
+      "kind": "navigation",
+      "trigger": "tap",
+      "semantic": "navigate:FollowUpDetailPage",
+      "writes": false,
+      "destination": "FollowUpDetailPage",
+      "condition": null,
+      "provenance": "FollowUpPages.swift:17",
+      "anchor": "NavigationLink(record.followUp.goal) {",
+      "extraction": "manual"
+    }
+  ],
+  "presentations": [
+    {
+      "id": "alert-25",
+      "kind": "alert",
+      "title": "无法读取跟进",
+      "destination": null,
+      "triggerBindings": [
+        "errorMessage"
+      ],
+      "span": [
+        25,
+        27
+      ],
+      "provenance": "FollowUpPages.swift:25",
+      "anchor": ".alert(\"无法读取跟进\", isPresented: .constant(errorMessage != nil)) {",
+      "triggered": true
+    }
+  ],
+  "states": {
+    "advisory": true,
+    "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
+    "sites": {
+      "empty": [
+        {
+          "renders": "没有进行中的跟进",
+          "when": "records.isEmpty",
+          "provenance": "FollowUpPages.swift:14",
+          "anchor": "Text(\"没有进行中的跟进\").foregroundStyle(HomeSpec.textSecondary)"
+        }
+      ],
+      "data": [
+        {
+          "renders": "untitled section at 6",
+          "when": null,
+          "provenance": "FollowUpPages.swift:6",
+          "anchor": "struct FollowUpListPage: View {",
+          "note": "structural default: the sections above, when no condition overrides them"
+        }
+      ],
+      "failure": [
+        {
+          "renders": "无法读取跟进",
+          "when": null,
+          "provenance": "FollowUpPages.swift:25",
+          "anchor": ".alert(\"无法读取跟进\", isPresented: .constant(errorMessage != nil)) {"
+        }
+      ],
+      "unknown": [],
+      "loading": []
+    },
+    "absent": [
+      "unknown",
+      "loading"
+    ],
+    "coverage": {
+      "empty": 1,
+      "data": 1,
+      "failure": 1,
+      "unknown": 0,
+      "loading": 0
+    }
+  },
+  "subpages": [
+    {
+      "name": "FollowUpDetailPage",
+      "line": 36,
+      "private": false,
+      "sections": [
+        {
+          "title": "目标与当前结果",
+          "provenance": "FollowUpPages.swift:52"
+        },
+        {
+          "title": "条件",
+          "provenance": "FollowUpPages.swift:63"
+        }
+      ],
+      "provenance": "FollowUpPages.swift:36"
+    }
+  ],
+  "unreachable": [],
+  "extraction": {
+    "tool": "extract_ios_pages.py",
+    "mode": "syntax",
+    "sectionKeywordsInPage": 0,
+    "regionsExtracted": 0,
+    "sectionsExtracted": 1,
+    "warnings": []
+  }
+}

@@ -12,9 +12,6 @@ struct ProfilePage: View {
             Section(NativeText("Personal Agent", "Personal Agent")) {
                 link(NativeText("Agent 与个人上下文", "Agent and personal context"), icon: "person.crop.circle",
                      route: .personalAgent)
-                NavigationLink(value: ProfileRoute.personalAgent) {
-                    SettingsRowLabel(title: NativeText("AI 日记历史与数据", "AI Journal history and data"), icon: "book")
-                }
             }
 
             Section(NativeText("模型与用量", "Model and usage")) {

@@ -17,8 +17,8 @@
       "milestone": "Android four-root shell implementation review"
     },
     {
-      "page": "personal-agent-chat-placeholder",
-      "reason": "The truthful Personal Agent integration placeholder exists only during the iOS M1a wave and is not a chat implementation to mirror.",
+      "page": "personal-agent-chat",
+      "reason": "The native Personal Agent conversation, memory candidates and minimal tool status are iOS-only in this wave.",
       "owner": "personal-agent-shell",
       "reviewBy": "2027-06-30",
       "milestone": "Android Personal Agent runtime review"
@@ -64,6 +64,20 @@
       "owner": "personal-agent-shell",
       "reviewBy": "2027-06-30",
       "milestone": "Android Personal Agent data layer review"
+    },
+    {
+      "page": "follow-up-list",
+      "reason": "Persistent Personal Agent follow-ups and their attention states are iOS-only in this wave.",
+      "owner": "personal-agent-experience",
+      "reviewBy": "2027-06-30",
+      "milestone": "Android Personal Agent follow-up review"
+    },
+    {
+      "page": "follow-up-detail",
+      "reason": "Follow-up conditions, pause and stop actions are iOS-only in this wave.",
+      "owner": "personal-agent-experience",
+      "reviewBy": "2027-06-30",
+      "milestone": "Android Personal Agent follow-up review"
     },
     {
       "page": "profile-general-settings",

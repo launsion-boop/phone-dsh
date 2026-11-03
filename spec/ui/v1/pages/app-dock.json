@@ -29,7 +29,7 @@
       "trigger": "tap",
       "semantic": "select:chat",
       "writes": false,
-      "destination": "PersonalAgentChatPlaceholderPage",
+      "destination": "PersonalAgentChatPage",
       "condition": null,
       "provenance": "AppDock.swift:23",
       "anchor": ".accessibilityLabel(AppTab.chat.title)",

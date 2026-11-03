@@ -34,7 +34,9 @@ struct ConnectorDetailPage<Configuration: View>: View {
             Section(NativeText("账号与连接", "Account and connection")) {
                 LabeledContent(NativeText("状态", "State"),
                                value: record.map { nativeConnectorStateTitle($0.state) } ?? NativeText("读取中", "Loading"))
-                LabeledContent(NativeText("账号", "Account"), value: NativeText("未配置", "Not configured"))
+                LabeledContent(NativeText("账号", "Account"),
+                               value: grant?.scope.gmailAccount ?? (record?.state == .connected
+                                   ? NativeText("已核验", "Verified") : NativeText("未配置", "Not configured")))
                 LabeledContent(NativeText("最近核验", "Last verified")) {
                     if let date = record?.lastVerifiedAt {
                         Text(date, style: .relative)
@@ -53,7 +55,7 @@ struct ConnectorDetailPage<Configuration: View>: View {
             Section(NativeText("数据范围与授权", "Data scope and grant")) {
                 LabeledContent(NativeText("Grant", "Grant"),
                                value: grant.map { "v\($0.version)" } ?? NativeText("未授权", "No grant"))
-                Text(NativeText("读取、草稿与发送等能力分别授权；当前没有真实 grant。", "Read, draft and send capabilities have separate grants. No real grant is present."))
+                Text(NativeText("读取、草稿与发送等能力分别授权；写入还要求本次用户委托明确允许。", "Read, draft and send capabilities have separate grants; writes also require an explicit user mandate."))
                     .font(.system(size: 13))
                     .foregroundStyle(HomeSpec.textSecondary)
                 if record?.state == .connected || record?.state == .needsAttention || record?.state == .expired {

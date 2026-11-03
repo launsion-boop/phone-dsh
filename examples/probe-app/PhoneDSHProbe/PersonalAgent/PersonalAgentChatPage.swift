@@ -57,6 +57,7 @@ struct PersonalAgentChatPage: View {
             composer
         }
         .background(HomeSpec.page)
+        .accessibilityIdentifier("app.chat")
         .padding(.bottom, bottomInset)
         .task {
             await model.load()

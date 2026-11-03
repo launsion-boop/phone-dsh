@@ -7,14 +7,14 @@
   "sectionNote": null,
   "title": {
     "text": "Personal Agent",
-    "provenance": "PersonalAgentSettingsPage.swift:31",
+    "provenance": "PersonalAgentSettingsPage.swift:38",
     "anchor": ".navigationTitle(\"Personal Agent\")"
   },
   "source": {
     "file": "PersonalAgentSettingsPage.swift",
     "path": "examples/probe-app/PhoneDSHProbe/Profile/PersonalAgentSettingsPage.swift",
-    "lines": 35,
-    "structLine": 5,
+    "lines": 75,
+    "structLine": 6,
     "renderedFrom": [
       "body"
     ],
@@ -47,7 +47,7 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "PersonalAgentSettingsPage.swift:12",
+          "provenance": "PersonalAgentSettingsPage.swift:15",
           "anchor": "TextField(NativeText(\"Agent 名称\", \"Agent name\"), text: $agentName)",
           "extraction": "syntax"
         },
@@ -62,12 +62,42 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "PersonalAgentSettingsPage.swift:14",
+          "provenance": "PersonalAgentSettingsPage.swift:17",
           "anchor": "TextField(NativeText(\"如何称呼你\", \"How to address you\"), text: $ownerName)",
           "extraction": "syntax"
+        },
+        {
+          "id": "保存称呼到个人上下文",
+          "label": "保存称呼到个人上下文",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "PersonalAgentSettingsPage.swift:19",
+          "anchor": "Button(NativeText(\"保存称呼到个人上下文\", \"Save name to personal context\")) {",
+          "extraction": "syntax"
+        },
+        {
+          "id": "text-22",
+          "label": null,
+          "labelExpr": "errorMessage",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "let errorMessage",
+          "provenance": "PersonalAgentSettingsPage.swift:22",
+          "anchor": "if let errorMessage { Text(errorMessage).foregroundStyle(NativeParityTokens.warn",
+          "extraction": "manual"
         }
       ],
-      "provenance": "PersonalAgentSettingsPage.swift:11",
+      "provenance": "PersonalAgentSettingsPage.swift:14",
       "anchor": "Section(NativeText(\"Personal Agent\", \"Personal Agent\")) {",
       "extraction": "syntax"
     },
@@ -82,8 +112,8 @@
       "collection": null,
       "rows": [
         {
-          "id": "称呼保存在本机-时区-语言-职业-关键联系人与作息等结构化字段将在-personal-agent-数据层接入后提供",
-          "label": "称呼保存在本机。时区、语言、职业、关键联系人与作息等结构化字段将在 Personal Agent 数据层接入后提供。",
+          "id": "称呼会用于后续回答-语言-职业-关键联系人与作息等记忆可在-chat-中明确要求记住-并在个人-memory-中查看来源-修正或遗忘",
+          "label": "称呼会用于后续回答。语言、职业、关键联系人与作息等记忆可在 Chat 中明确要求记住，并在个人 Memory 中查看来源、修正或遗忘。",
           "labelExpr": null,
           "kind": "text",
           "value": null,
@@ -92,18 +122,18 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "PersonalAgentSettingsPage.swift:18",
-          "anchor": "Text(NativeText(\"称呼保存在本机。时区、语言、职业、关键联系人与作息等结构化字段将在 Personal Agent 数据层接入后提供。\",",
+          "provenance": "PersonalAgentSettingsPage.swift:25",
+          "anchor": "Text(NativeText(\"称呼会用于后续回答。语言、职业、关键联系人与作息等记忆可在 Chat 中明确要求记住，并在个人 Memory 中查看来源、修正",
           "extraction": "syntax"
         }
       ],
-      "provenance": "PersonalAgentSettingsPage.swift:17",
+      "provenance": "PersonalAgentSettingsPage.swift:24",
       "anchor": "Section(NativeText(\"个人上下文\", \"Personal context\")) {",
       "extraction": "syntax"
     },
     {
-      "id": "ai-日记",
-      "title": "AI 日记",
+      "id": "每日简报",
+      "title": "每日简报",
       "titleTemplate": null,
       "dynamicTitle": false,
       "titleExpression": null,
@@ -112,8 +142,8 @@
       "collection": null,
       "rows": [
         {
-          "id": "历史与数据管理入口将在-ai-日记能力接入后开放-当前没有生成日记",
-          "label": "历史与数据管理入口将在 AI 日记能力接入后开放；当前没有生成日记。",
+          "id": "只有真实新增内容才会生成每日简报-artifact-并显示在-chat-时间线中",
+          "label": "只有真实新增内容才会生成每日简报 Artifact，并显示在 Chat 时间线中。",
           "labelExpr": null,
           "kind": "text",
           "value": null,
@@ -122,35 +152,44 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "PersonalAgentSettingsPage.swift:24",
-          "anchor": "Text(NativeText(\"历史与数据管理入口将在 AI 日记能力接入后开放；当前没有生成日记。\",",
+          "provenance": "PersonalAgentSettingsPage.swift:31",
+          "anchor": "Text(NativeText(\"只有真实新增内容才会生成每日简报 Artifact，并显示在 Chat 时间线中。\",",
           "extraction": "syntax"
         }
       ],
-      "provenance": "PersonalAgentSettingsPage.swift:23",
-      "anchor": "Section(NativeText(\"AI 日记\", \"AI Journal\")) {",
+      "provenance": "PersonalAgentSettingsPage.swift:30",
+      "anchor": "Section(NativeText(\"每日简报\", \"Daily brief\")) {",
       "extraction": "syntax"
     }
   ],
-  "actions": [],
+  "actions": [
+    {
+      "id": "保存称呼到个人上下文",
+      "label": "保存称呼到个人上下文",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ Task { await saveOwnerName() }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "PersonalAgentSettingsPage.swift:19",
+      "anchor": "Button(NativeText(\"保存称呼到个人上下文\", \"Save name to personal context\")) {",
+      "extraction": "syntax",
+      "labelAlternatives": []
+    }
+  ],
   "presentations": [],
   "states": {
     "advisory": true,
     "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
     "sites": {
-      "empty": [
-        {
-          "renders": "历史与数据管理入口将在 AI 日记能力接入后开放；当前没有生成日记。",
-          "when": null,
-          "provenance": "PersonalAgentSettingsPage.swift:24",
-          "anchor": "Text(NativeText(\"历史与数据管理入口将在 AI 日记能力接入后开放；当前没有生成日记。\","
-        }
-      ],
+      "empty": [],
       "data": [
         {
-          "renders": "Personal Agent | 个人上下文 | AI 日记",
+          "renders": "Personal Agent | 个人上下文 | 每日简报",
           "when": null,
-          "provenance": "PersonalAgentSettingsPage.swift:5",
+          "provenance": "PersonalAgentSettingsPage.swift:6",
           "anchor": "struct PersonalAgentSettingsPage: View {",
           "note": "structural default: the sections above, when no condition overrides them"
         }
@@ -160,12 +199,13 @@
       "loading": []
     },
     "absent": [
+      "empty",
       "failure",
       "unknown",
       "loading"
     ],
     "coverage": {
-      "empty": 1,
+      "empty": 0,
       "data": 1,
       "failure": 0,
       "unknown": 0,

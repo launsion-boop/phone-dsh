@@ -18,7 +18,7 @@ final class PA_ShellLegacyTests: XCTestCase {
         XCTAssertFalse(app.buttons["新建会话与 Agent 预设"].exists)
     }
 
-    func testV4SettingsRemovesMigratedEntries() throws {
+    func testV4RemovesSettingsEntryAndLegacyKeepsIt() throws {
         let app = XCUIApplication(bundleIdentifier: "dev.phone-dsh.probe")
         app.launchArguments = ["-PDSH_SHELL", "v4", "-appRoute", "pdsh://dsh"]
         app.launch()
@@ -26,17 +26,13 @@ final class PA_ShellLegacyTests: XCTestCase {
         XCTAssertTrue(app.buttons["打开会话列表"].waitForExistence(timeout: 60))
         app.buttons["打开会话列表"].tap()
         let settings = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "设置")).firstMatch
-        XCTAssertTrue(settings.waitForExistence(timeout: 10))
-        settings.tap()
-        XCTAssertTrue(app.staticTexts["会话与文件"].waitForExistence(timeout: 10))
-        for removed in ["模型服务", "Agent 预设", "插件与工具", "新会话默认权限", "外观"] {
-            XCTAssertFalse(app.staticTexts[removed].exists, removed)
-        }
+        XCTAssertFalse(settings.exists)
         app.terminate()
         app.launchArguments = ["-PDSH_SHELL", "legacy"]
         app.launch()
         XCTAssertTrue(app.buttons["打开会话列表"].waitForExistence(timeout: 60))
         app.buttons["打开会话列表"].tap()
+        XCTAssertTrue(settings.waitForExistence(timeout: 10))
         settings.tap()
         XCTAssertTrue(app.staticTexts["模型服务"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["Agent 预设"].exists)

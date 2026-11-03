@@ -7,16 +7,17 @@
   "sectionNote": null,
   "title": {
     "text": "个人 Memory",
-    "provenance": "PersonalMemoryPlaceholderPage.swift:23",
-    "anchor": ".navigationTitle(NativeText(\"个人 Memory\", \"Personal Memory\"))"
+    "provenance": "PersonalMemoryPage.swift:39",
+    "anchor": ".navigationTitle(\"个人 Memory\")"
   },
   "source": {
-    "file": "PersonalMemoryPlaceholderPage.swift",
-    "path": "examples/probe-app/PhoneDSHProbe/Profile/PersonalMemoryPlaceholderPage.swift",
-    "lines": 27,
-    "structLine": 5,
+    "file": "PersonalMemoryPage.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/PersonalAgent/PersonalMemoryPage.swift",
+    "lines": 133,
+    "structLine": 6,
     "renderedFrom": [
-      "body"
+      "body",
+      "memorySection"
     ],
     "sectionOrder": "declaration order inside the page struct"
   },
@@ -27,18 +28,18 @@
   },
   "sections": [
     {
-      "id": "personal-memory",
-      "title": "Personal Memory",
+      "id": "存储诊断",
+      "title": "存储诊断",
       "titleTemplate": null,
       "dynamicTitle": false,
       "titleExpression": null,
       "titleSource": "literal",
-      "condition": null,
+      "condition": "case .readOnlyDiagnostic(let detail) = health",
       "collection": null,
       "rows": [
         {
-          "id": "个人记忆正在接入",
-          "label": "个人记忆正在接入",
+          "id": "数据库已损坏-未自动重建-当前只能读取诊断信息-detail",
+          "label": "数据库已损坏，未自动重建。当前只能读取诊断信息。\n{detail}",
           "labelExpr": null,
           "kind": "text",
           "value": null,
@@ -47,43 +48,61 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "PersonalMemoryPlaceholderPage.swift:9",
-          "anchor": "Label(NativeText(\"个人记忆正在接入\", \"Personal Memory is being connected\"), systemImage:",
-          "extraction": "syntax"
-        },
-        {
-          "id": "这里将展示待确认-关于我-工作进展-来源-修订-归档与遗忘-当前没有读取或生成任何个人记忆",
-          "label": "这里将展示待确认、关于我、工作进展、来源、修订、归档与遗忘。当前没有读取或生成任何个人记忆。",
-          "labelExpr": null,
-          "kind": "text",
-          "value": null,
-          "valueExpr": null,
-          "clickable": false,
-          "destination": null,
-          "writes": false,
-          "condition": null,
-          "provenance": "PersonalMemoryPlaceholderPage.swift:10",
-          "anchor": "Text(NativeText(\"这里将展示待确认、关于我、工作进展、来源、修订、归档与遗忘。当前没有读取或生成任何个人记忆。\",",
-          "extraction": "syntax"
+          "provenance": "PersonalMemoryPage.swift:27",
+          "anchor": "Label(\"数据库已损坏，未自动重建。当前只能读取诊断信息。\\n\\(detail)\",",
+          "extraction": "manual",
+          "dynamicLabel": true
         }
       ],
-      "provenance": "PersonalMemoryPlaceholderPage.swift:8",
-      "anchor": "Section(NativeText(\"Personal Memory\", \"Personal Memory\")) {",
+      "provenance": "PersonalMemoryPage.swift:26",
+      "anchor": "Section(\"存储诊断\") {",
       "extraction": "syntax"
     },
     {
-      "id": "数据来源",
-      "title": "数据来源",
+      "id": "section-79",
+      "title": null,
       "titleTemplate": null,
       "dynamicTitle": false,
-      "titleExpression": null,
-      "titleSource": "literal",
-      "condition": null,
+      "titleExpression": "title",
+      "titleSource": "expression",
+      "condition": "!values.isEmpty",
       "collection": null,
       "rows": [
         {
-          "id": "此页面使用-personal-memory-契约-不复用内存压力探针-memorypage",
-          "label": "此页面使用 personal-memory 契约，不复用内存压力探针 MemoryPage。",
+          "id": "text-82",
+          "label": null,
+          "labelExpr": "record.text",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "PersonalMemoryPage.swift:82",
+          "anchor": "Text(record.text)",
+          "extraction": "manual",
+          "collection": "values"
+        },
+        {
+          "id": "text-84",
+          "label": null,
+          "labelExpr": "record.field?.rawValue ?? record.kind.rawValue",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "PersonalMemoryPage.swift:84",
+          "anchor": "Text(record.field?.rawValue ?? record.kind.rawValue)",
+          "extraction": "manual",
+          "collection": "values"
+        },
+        {
+          "id": "修订-record-revision",
+          "label": "修订 {record.revision}",
           "labelExpr": null,
           "kind": "text",
           "value": null,
@@ -92,60 +111,341 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "PersonalMemoryPlaceholderPage.swift:16",
-          "anchor": "Text(NativeText(\"此页面使用 personal-memory 契约，不复用内存压力探针 MemoryPage。\",",
-          "extraction": "syntax"
+          "provenance": "PersonalMemoryPage.swift:85",
+          "anchor": "Text(\"修订 \\(record.revision)\")",
+          "extraction": "manual",
+          "dynamicLabel": true,
+          "collection": "values"
+        },
+        {
+          "id": "text-86",
+          "label": null,
+          "labelExpr": "record.scope",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "PersonalMemoryPage.swift:86",
+          "anchor": "Text(record.scope)",
+          "extraction": "manual",
+          "collection": "values"
+        },
+        {
+          "id": "为什么知道这个",
+          "label": "为什么知道这个",
+          "labelExpr": null,
+          "kind": "custom",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "PersonalMemoryPage.swift:89",
+          "anchor": "DisclosureGroup(\"为什么知道这个\") {",
+          "extraction": "syntax",
+          "template": "DisclosureGroup",
+          "collection": "values"
+        },
+        {
+          "id": "记住",
+          "label": "记住",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": "record.status == .candidate",
+          "provenance": "PersonalMemoryPage.swift:99",
+          "anchor": "Button(\"记住\") { Task { await mutate { _ = try await store.acceptCandidate(record.",
+          "extraction": "syntax",
+          "collection": "values"
+        },
+        {
+          "id": "不用",
+          "label": "不用",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": "record.status == .candidate",
+          "provenance": "PersonalMemoryPage.swift:100",
+          "anchor": "Button(\"不用\") { Task { await mutate { try await store.rejectCandidate(record.id) ",
+          "extraction": "syntax",
+          "collection": "values"
+        },
+        {
+          "id": "修正",
+          "label": "修正",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": "record.status == .active",
+          "provenance": "PersonalMemoryPage.swift:103",
+          "anchor": "Button(\"修正\") {",
+          "extraction": "syntax",
+          "collection": "values"
+        },
+        {
+          "id": "归档",
+          "label": "归档",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": "record.status == .active",
+          "provenance": "PersonalMemoryPage.swift:108",
+          "anchor": "Button(\"归档\") { Task { await mutate { try await store.archive(record.id) } } }",
+          "extraction": "syntax",
+          "collection": "values"
+        },
+        {
+          "id": "遗忘",
+          "label": "遗忘",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": "record.status == .active",
+          "provenance": "PersonalMemoryPage.swift:109",
+          "anchor": "Button(\"遗忘\", role: .destructive) {",
+          "extraction": "syntax",
+          "collection": "values"
         }
       ],
-      "provenance": "PersonalMemoryPlaceholderPage.swift:15",
-      "anchor": "Section(NativeText(\"数据来源\", \"Data sources\")) {",
+      "provenance": "PersonalMemoryPage.swift:79",
+      "anchor": "Section(title) {",
+      "extraction": "syntax",
+      "criterion": {
+        "kind": "first-clickable-row",
+        "label": "记住",
+        "provenance": "PersonalMemoryPage.swift:99"
+      }
+    }
+  ],
+  "actions": [
+    {
+      "id": "记住",
+      "label": "记住",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ Task { await mutate { _ = try await store.acceptCandidate(record.id) } }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "PersonalMemoryPage.swift:99",
+      "anchor": "Button(\"记住\") { Task { await mutate { _ = try await store.acceptCandidate(record.",
+      "extraction": "syntax",
+      "labelAlternatives": []
+    },
+    {
+      "id": "不用",
+      "label": "不用",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ Task { await mutate { try await store.rejectCandidate(record.id) } }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "PersonalMemoryPage.swift:100",
+      "anchor": "Button(\"不用\") { Task { await mutate { try await store.rejectCandidate(record.id) ",
+      "extraction": "syntax",
+      "labelAlternatives": []
+    },
+    {
+      "id": "修正",
+      "label": "修正",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ correctionText = record.text correctionScope = record.scope correction = record",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "PersonalMemoryPage.swift:103",
+      "anchor": "Button(\"修正\") {",
+      "extraction": "syntax",
+      "labelAlternatives": [],
+      "presents": "sheet-46"
+    },
+    {
+      "id": "归档",
+      "label": "归档",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ Task { await mutate { try await store.archive(record.id) } }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "PersonalMemoryPage.swift:108",
+      "anchor": "Button(\"归档\") { Task { await mutate { try await store.archive(record.id) } } }",
+      "extraction": "syntax",
+      "labelAlternatives": []
+    },
+    {
+      "id": "遗忘",
+      "label": "遗忘",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ Task { await mutate { try await store.forget(record.id) } }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "PersonalMemoryPage.swift:109",
+      "anchor": "Button(\"遗忘\", role: .destructive) {",
+      "extraction": "syntax",
+      "labelAlternatives": []
+    },
+    {
+      "id": "gesture-45",
+      "label": null,
+      "labelExpr": null,
+      "kind": "gesture",
+      "trigger": "pull-to-refresh",
+      "semantic": "refresh",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "PersonalMemoryPage.swift:45",
+      "anchor": ".refreshable { await reload() }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "保存为新修订",
+      "label": "保存为新修订",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ Task { do { _ = try await store.supersede(record.id, with: correctionText, scope: correctionScope) correction = nil await reload() } catch { errorMessage = error.localizedDescription } }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "PersonalMemoryPage.swift:51",
+      "anchor": "Button(\"保存为新修订\") {",
+      "extraction": "syntax",
+      "presents": "alert-66"
+    },
+    {
+      "id": "取消",
+      "label": "取消",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "toolbar",
+      "semantic": "{ correction = nil",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "PersonalMemoryPage.swift:63",
+      "anchor": ".toolbar { Button(\"取消\") { correction = nil } }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "好",
+      "label": "好",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "alert-button",
+      "semantic": "{ errorMessage = nil",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "PersonalMemoryPage.swift:67",
+      "anchor": "Button(\"好\") { errorMessage = nil }",
       "extraction": "syntax"
     }
   ],
-  "actions": [],
-  "presentations": [],
+  "presentations": [
+    {
+      "id": "sheet-46",
+      "kind": "sheet",
+      "title": null,
+      "destination": "NavigationStack",
+      "triggerBindings": [
+        "correction"
+      ],
+      "span": [
+        46,
+        65
+      ],
+      "provenance": "PersonalMemoryPage.swift:46",
+      "anchor": ".sheet(item: $correction) { record in",
+      "triggered": true
+    },
+    {
+      "id": "alert-66",
+      "kind": "alert",
+      "title": "Memory 操作失败",
+      "destination": null,
+      "triggerBindings": [
+        "errorMessage"
+      ],
+      "span": [
+        66,
+        68
+      ],
+      "provenance": "PersonalMemoryPage.swift:66",
+      "anchor": ".alert(\"Memory 操作失败\", isPresented: .constant(errorMessage != nil)) {",
+      "triggered": true
+    }
+  ],
   "states": {
     "advisory": true,
     "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
     "sites": {
-      "empty": [
-        {
-          "renders": "这里将展示待确认、关于我、工作进展、来源、修订、归档与遗忘。当前没有读取或生成任何个人记忆。",
-          "when": null,
-          "provenance": "PersonalMemoryPlaceholderPage.swift:10",
-          "anchor": "Text(NativeText(\"这里将展示待确认、关于我、工作进展、来源、修订、归档与遗忘。当前没有读取或生成任何个人记忆。\","
-        }
-      ],
+      "empty": [],
       "data": [
         {
-          "renders": "Personal Memory | 数据来源",
+          "renders": "存储诊断 | untitled section at 79",
           "when": null,
-          "provenance": "PersonalMemoryPlaceholderPage.swift:5",
+          "provenance": "PersonalMemoryPage.swift:6",
           "anchor": "struct PersonalMemoryPage: View {",
           "note": "structural default: the sections above, when no condition overrides them"
         }
       ],
-      "failure": [],
-      "unknown": [],
-      "loading": [
+      "failure": [
         {
-          "renders": "个人记忆正在接入",
+          "renders": "Memory 操作失败",
           "when": null,
-          "provenance": "PersonalMemoryPlaceholderPage.swift:9",
-          "anchor": "Label(NativeText(\"个人记忆正在接入\", \"Personal Memory is being connected\"), systemImage:"
+          "provenance": "PersonalMemoryPage.swift:66",
+          "anchor": ".alert(\"Memory 操作失败\", isPresented: .constant(errorMessage != nil)) {"
         }
-      ]
+      ],
+      "unknown": [],
+      "loading": []
     },
     "absent": [
-      "failure",
-      "unknown"
+      "empty",
+      "unknown",
+      "loading"
     ],
     "coverage": {
-      "empty": 1,
+      "empty": 0,
       "data": 1,
-      "failure": 0,
+      "failure": 1,
       "unknown": 0,
-      "loading": 1
+      "loading": 0
     }
   },
   "subpages": [],

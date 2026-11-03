@@ -1,0 +1,408 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "FollowUpDetailPage",
+  "pageId": "follow-up-detail",
+  "structure": "swiftui-view",
+  "sectionModel": "section",
+  "sectionNote": null,
+  "title": {
+    "text": "跟进详情",
+    "provenance": "FollowUpPages.swift:102",
+    "anchor": ".navigationTitle(\"跟进详情\")"
+  },
+  "source": {
+    "file": "FollowUpPages.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/PersonalAgent/FollowUpPages.swift",
+    "lines": 117,
+    "structLine": 36,
+    "renderedFrom": [
+      "body"
+    ],
+    "sectionOrder": "declaration order inside the page struct"
+  },
+  "android": {
+    "screen": "FollowUpDetailPage",
+    "file": null,
+    "match": "missing"
+  },
+  "sections": [
+    {
+      "id": "目标与当前结果",
+      "title": "目标与当前结果",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "literal",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "text-53",
+          "label": null,
+          "labelExpr": "record.followUp.goal",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "FollowUpPages.swift:53",
+          "anchor": "Text(record.followUp.goal)",
+          "extraction": "manual"
+        },
+        {
+          "id": "等待",
+          "label": "等待",
+          "labelExpr": null,
+          "kind": "info",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "let reason = record.followUp.waitingReason",
+          "provenance": "FollowUpPages.swift:54",
+          "anchor": "if let reason = record.followUp.waitingReason { LabeledContent(\"等待\", value: reas",
+          "extraction": "syntax"
+        },
+        {
+          "id": "text-55",
+          "label": null,
+          "labelExpr": "summary",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "let summary = record.lastChangeSummary",
+          "provenance": "FollowUpPages.swift:55",
+          "anchor": "if let summary = record.lastChangeSummary { Text(summary) }",
+          "extraction": "manual"
+        },
+        {
+          "id": "最近核验",
+          "label": "最近核验",
+          "labelExpr": null,
+          "kind": "info",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "let verified = record.followUp.lastVerifiedAt",
+          "provenance": "FollowUpPages.swift:57",
+          "anchor": "LabeledContent(\"最近核验\", value: verified.formatted(date: .abbreviated, time: .shor",
+          "extraction": "syntax"
+        },
+        {
+          "id": "最近通知",
+          "label": "最近通知",
+          "labelExpr": null,
+          "kind": "info",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "let notified = record.lastNotificationAt",
+          "provenance": "FollowUpPages.swift:60",
+          "anchor": "LabeledContent(\"最近通知\", value: notified.formatted(date: .abbreviated, time: .shor",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "FollowUpPages.swift:52",
+      "anchor": "Section(\"目标与当前结果\") {",
+      "extraction": "syntax"
+    },
+    {
+      "id": "条件",
+      "title": "条件",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "literal",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "检查条件",
+          "label": "检查条件",
+          "labelExpr": null,
+          "kind": "input",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "FollowUpPages.swift:64",
+          "anchor": "TextField(\"检查条件\", text: $checkExpression, axis: .vertical)",
+          "extraction": "syntax"
+        },
+        {
+          "id": "停止条件",
+          "label": "停止条件",
+          "labelExpr": null,
+          "kind": "input",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "FollowUpPages.swift:65",
+          "anchor": "TextField(\"停止条件\", text: $stopExpression, axis: .vertical)",
+          "extraction": "syntax"
+        },
+        {
+          "id": "通知",
+          "label": "通知",
+          "labelExpr": null,
+          "kind": "control",
+          "value": "通知 | 安静 | 仅变化 | 所有新结果",
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "FollowUpPages.swift:66",
+          "anchor": "Picker(\"通知\", selection: Binding(",
+          "extraction": "syntax"
+        },
+        {
+          "id": "保存条件",
+          "label": "保存条件",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "FollowUpPages.swift:73",
+          "anchor": "Button(\"保存条件\") {",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "FollowUpPages.swift:63",
+      "anchor": "Section(\"条件\") {",
+      "extraction": "syntax"
+    },
+    {
+      "id": "section-84",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "absent",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "暂停到周五",
+          "label": "暂停到周五",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "FollowUpPages.swift:85",
+          "anchor": "Button(\"暂停到周五\") {",
+          "extraction": "syntax"
+        },
+        {
+          "id": "结束跟进",
+          "label": "结束跟进",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "FollowUpPages.swift:91",
+          "anchor": "Button(\"结束跟进\", role: .destructive) {",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "FollowUpPages.swift:84",
+      "anchor": "Section {",
+      "extraction": "syntax",
+      "criterion": {
+        "kind": "first-clickable-row",
+        "label": "暂停到周五",
+        "provenance": "FollowUpPages.swift:85"
+      }
+    }
+  ],
+  "actions": [
+    {
+      "id": "通知",
+      "label": "通知",
+      "labelExpr": null,
+      "kind": "picker",
+      "trigger": "tap",
+      "semantic": null,
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "FollowUpPages.swift:66",
+      "anchor": "Picker(\"通知\", selection: Binding(",
+      "extraction": "syntax",
+      "items": [
+        "通知",
+        "安静",
+        "仅变化",
+        "所有新结果"
+      ],
+      "style": "default"
+    },
+    {
+      "id": "保存条件",
+      "label": "保存条件",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ Task { do { record = try await store.updateConditions( record.id, check: CheckCondition(expression: checkExpression), stop: StopCondition(expression: stopExpression), notificationPolicy: record.followUp.notificationPolicy) } catch { errorMessage = error.localizedDescription } }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "FollowUpPages.swift:73",
+      "anchor": "Button(\"保存条件\") {",
+      "extraction": "syntax",
+      "labelAlternatives": [],
+      "presents": "alert-103"
+    },
+    {
+      "id": "暂停到周五",
+      "label": "暂停到周五",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ Task { do { record = try await store.pause(record.id, until: Self.nextFriday()) } catch { errorMessage = error.localizedDescription } }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "FollowUpPages.swift:85",
+      "anchor": "Button(\"暂停到周五\") {",
+      "extraction": "syntax",
+      "labelAlternatives": []
+    },
+    {
+      "id": "结束跟进",
+      "label": "结束跟进",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ Task { do { try await store.end(record.id) record.endedAt = Date() record.needsAttention = false } catch { errorMessage = error.localizedDescription } }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "FollowUpPages.swift:91",
+      "anchor": "Button(\"结束跟进\", role: .destructive) {",
+      "extraction": "syntax",
+      "labelAlternatives": []
+    },
+    {
+      "id": "好",
+      "label": "好",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "alert-button",
+      "semantic": "{ errorMessage = nil",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "FollowUpPages.swift:104",
+      "anchor": "Button(\"好\") { errorMessage = nil }",
+      "extraction": "syntax"
+    }
+  ],
+  "presentations": [
+    {
+      "id": "alert-103",
+      "kind": "alert",
+      "title": "操作失败",
+      "destination": null,
+      "triggerBindings": [
+        "errorMessage"
+      ],
+      "span": [
+        103,
+        105
+      ],
+      "provenance": "FollowUpPages.swift:103",
+      "anchor": ".alert(\"操作失败\", isPresented: .constant(errorMessage != nil)) {",
+      "triggered": true
+    }
+  ],
+  "states": {
+    "advisory": true,
+    "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
+    "sites": {
+      "empty": [],
+      "data": [
+        {
+          "renders": "目标与当前结果 | 条件 | untitled section at 84",
+          "when": null,
+          "provenance": "FollowUpPages.swift:36",
+          "anchor": "struct FollowUpDetailPage: View {",
+          "note": "structural default: the sections above, when no condition overrides them"
+        }
+      ],
+      "failure": [
+        {
+          "renders": "操作失败",
+          "when": null,
+          "provenance": "FollowUpPages.swift:103",
+          "anchor": ".alert(\"操作失败\", isPresented: .constant(errorMessage != nil)) {"
+        }
+      ],
+      "unknown": [],
+      "loading": [
+        {
+          "renders": "等待",
+          "when": "let reason = record.followUp.waitingReason",
+          "provenance": "FollowUpPages.swift:54",
+          "anchor": "if let reason = record.followUp.waitingReason { LabeledContent(\"等待\", value: reas"
+        }
+      ]
+    },
+    "absent": [
+      "empty",
+      "unknown"
+    ],
+    "coverage": {
+      "empty": 0,
+      "data": 1,
+      "failure": 1,
+      "unknown": 0,
+      "loading": 1
+    }
+  },
+  "subpages": [
+    {
+      "name": "FollowUpListPage",
+      "line": 6,
+      "private": false,
+      "sections": [],
+      "provenance": "FollowUpPages.swift:6"
+    }
+  ],
+  "unreachable": [],
+  "extraction": {
+    "tool": "extract_ios_pages.py",
+    "mode": "syntax",
+    "sectionKeywordsInPage": 3,
+    "regionsExtracted": 0,
+    "sectionsExtracted": 3,
+    "warnings": []
+  }
+}

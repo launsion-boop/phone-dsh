@@ -10,7 +10,8 @@ import UIKit
 
 /// The four places the native shell can be. Chat owns the composed turn;
 /// Sessions owns history + scheduled runs; Workspace owns files and the
-/// workbench; Settings owns every switch in the app.
+/// workbench; legacy Settings owns its original global entries, while v4 keeps
+/// those entries under the AppShell profile root.
 enum NativeTab: String, CaseIterable, Identifiable {
     case chat, sessions, workspace, settings
 
@@ -844,7 +845,7 @@ enum PreviewScreen: String, Identifiable, CaseIterable {
             }
             .background(Color.white)
         case .appChat:
-            PersonalAgentChatPlaceholderPage(focus: nil, dockBottomInset: 0) {}
+            PersonalAgentChatPage(model: AppComposition.shared.personalModel)
         case .appDSH:
             ChatPage()
         case .appDiscover:
@@ -861,7 +862,9 @@ enum PreviewScreen: String, Identifiable, CaseIterable {
         case .appConnectorDetail:
             ConnectorDetailPage(descriptor: .github, model: DiscoverConnectorModel()) {}
         case .appPersonalMemory:
-            PersonalMemoryPage()
+            PersonalMemoryPage(store: AppComposition.shared.memories,
+                               principal: AppComposition.shared.personalModel.principal,
+                               domainStore: AppComposition.shared.domain)
         case .codeBlock:
             ScrollView {
                 DSSCodeBlock(source: PreviewChatItems.longCode, language: "swift")

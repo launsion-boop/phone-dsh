@@ -57,11 +57,7 @@ enum AppShellMode: String, Sendable {
         if let value = defaults.string(forKey: "PDSH_SHELL"), let mode = AppShellMode(rawValue: value) {
             return mode
         }
-        #if DEBUG
         return .v4
-        #else
-        return .legacy
-        #endif
     }
 }
 

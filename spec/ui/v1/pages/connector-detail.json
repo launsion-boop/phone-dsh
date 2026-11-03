@@ -9,7 +9,7 @@
   "source": {
     "file": "ConnectorDetailPage.swift",
     "path": "examples/probe-app/PhoneDSHProbe/Discover/ConnectorDetailPage.swift",
-    "lines": 98,
+    "lines": 100,
     "structLine": 6,
     "renderedFrom": [
       "body"
@@ -119,7 +119,7 @@
           "writes": false,
           "condition": null,
           "provenance": "ConnectorDetailPage.swift:37",
-          "anchor": "LabeledContent(NativeText(\"账号\", \"Account\"), value: NativeText(\"未配置\", \"Not config",
+          "anchor": "LabeledContent(NativeText(\"账号\", \"Account\"),",
           "extraction": "syntax"
         },
         {
@@ -133,12 +133,12 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "ConnectorDetailPage.swift:38",
+          "provenance": "ConnectorDetailPage.swift:40",
           "anchor": "LabeledContent(NativeText(\"最近核验\", \"Last verified\")) {",
           "extraction": "syntax"
         },
         {
-          "id": "text-40",
+          "id": "text-42",
           "label": null,
           "labelExpr": "date",
           "kind": "text",
@@ -148,7 +148,7 @@
           "destination": null,
           "writes": false,
           "condition": "let date = record?.lastVerifiedAt",
-          "provenance": "ConnectorDetailPage.swift:40",
+          "provenance": "ConnectorDetailPage.swift:42",
           "anchor": "Text(date, style: .relative)",
           "extraction": "manual"
         },
@@ -163,12 +163,12 @@
           "destination": null,
           "writes": false,
           "condition": "!(let date = record?.lastVerifiedAt)",
-          "provenance": "ConnectorDetailPage.swift:42",
+          "provenance": "ConnectorDetailPage.swift:44",
           "anchor": "Text(NativeText(\"尚未核验\", \"Not verified\"))",
           "extraction": "syntax"
         },
         {
-          "id": "text-46",
+          "id": "text-48",
           "label": null,
           "labelExpr": "issue",
           "kind": "text",
@@ -178,7 +178,7 @@
           "destination": null,
           "writes": false,
           "condition": "let issue = record?.issue",
-          "provenance": "ConnectorDetailPage.swift:46",
+          "provenance": "ConnectorDetailPage.swift:48",
           "anchor": "Text(issue)",
           "extraction": "manual"
         }
@@ -208,13 +208,13 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "ConnectorDetailPage.swift:54",
+          "provenance": "ConnectorDetailPage.swift:56",
           "anchor": "LabeledContent(NativeText(\"Grant\", \"Grant\"),",
           "extraction": "syntax"
         },
         {
-          "id": "读取-草稿与发送等能力分别授权-当前没有真实-grant",
-          "label": "读取、草稿与发送等能力分别授权；当前没有真实 grant。",
+          "id": "读取-草稿与发送等能力分别授权-写入还要求本次用户委托明确允许",
+          "label": "读取、草稿与发送等能力分别授权；写入还要求本次用户委托明确允许。",
           "labelExpr": null,
           "kind": "text",
           "value": null,
@@ -223,8 +223,8 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "ConnectorDetailPage.swift:56",
-          "anchor": "Text(NativeText(\"读取、草稿与发送等能力分别授权；当前没有真实 grant。\", \"Read, draft and send capabilit",
+          "provenance": "ConnectorDetailPage.swift:58",
+          "anchor": "Text(NativeText(\"读取、草稿与发送等能力分别授权；写入还要求本次用户委托明确允许。\", \"Read, draft and send capabi",
           "extraction": "syntax"
         },
         {
@@ -238,12 +238,12 @@
           "destination": null,
           "writes": true,
           "condition": "record?.state == .connected || record?.state == .needsAttention || record?.state == .expired",
-          "provenance": "ConnectorDetailPage.swift:60",
+          "provenance": "ConnectorDetailPage.swift:62",
           "anchor": "Button(NativeText(\"撤销授权\", \"Revoke grant\"), role: .destructive) {",
           "extraction": "syntax"
         }
       ],
-      "provenance": "ConnectorDetailPage.swift:53",
+      "provenance": "ConnectorDetailPage.swift:55",
       "anchor": "Section(NativeText(\"数据范围与授权\", \"Data scope and grant\")) {",
       "extraction": "syntax"
     },
@@ -268,7 +268,7 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "ConnectorDetailPage.swift:67",
+          "provenance": "ConnectorDetailPage.swift:69",
           "anchor": "Text(NativeText(\"首版仅前台与手动同步，不显示实时状态。\", \"The first version syncs in the foregroun",
           "extraction": "syntax"
         },
@@ -283,12 +283,12 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "ConnectorDetailPage.swift:68",
+          "provenance": "ConnectorDetailPage.swift:70",
           "anchor": "LabeledContent(NativeText(\"最近同步游标\", \"Last sync cursor\"), value: NativeText(\"尚未同步",
           "extraction": "syntax"
         }
       ],
-      "provenance": "ConnectorDetailPage.swift:66",
+      "provenance": "ConnectorDetailPage.swift:68",
       "anchor": "Section(NativeText(\"同步\", \"Synchronization\")) {",
       "extraction": "syntax"
     },
@@ -313,17 +313,17 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "ConnectorDetailPage.swift:72",
+          "provenance": "ConnectorDetailPage.swift:74",
           "anchor": "Text(NativeText(\"OAuth token 与 PAT 只应存于 Keychain，由原生宿主注入，不回显，也不进入 Worker、日志或截图。\"",
           "extraction": "syntax"
         }
       ],
-      "provenance": "ConnectorDetailPage.swift:71",
+      "provenance": "ConnectorDetailPage.swift:73",
       "anchor": "Section(NativeText(\"凭据\", \"Credentials\")) {",
       "extraction": "syntax"
     },
     {
-      "id": "section-77",
+      "id": "section-79",
       "title": null,
       "titleTemplate": null,
       "dynamicTitle": false,
@@ -343,23 +343,23 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "ConnectorDetailPage.swift:78",
+          "provenance": "ConnectorDetailPage.swift:80",
           "anchor": "Button(NativeText(\"在 Chat 中使用\", \"Use in Chat\"), action: useInChat)",
           "extraction": "syntax"
         }
       ],
-      "provenance": "ConnectorDetailPage.swift:77",
+      "provenance": "ConnectorDetailPage.swift:79",
       "anchor": "Section {",
       "extraction": "syntax",
       "criterion": {
         "kind": "first-clickable-row",
         "label": "在 Chat 中使用",
-        "provenance": "ConnectorDetailPage.swift:78"
+        "provenance": "ConnectorDetailPage.swift:80"
       },
       "footer": {
         "text": "只返回 Chat 并保留来源上下文，不会自动发送示例。",
         "labelExpr": null,
-        "provenance": "ConnectorDetailPage.swift:82",
+        "provenance": "ConnectorDetailPage.swift:84",
         "anchor": "Text(NativeText(\"只返回 Chat 并保留来源上下文，不会自动发送示例。\", \"Returns to Chat with source cont"
       }
     }
@@ -375,7 +375,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ConnectorDetailPage.swift:60",
+      "provenance": "ConnectorDetailPage.swift:62",
       "anchor": "Button(NativeText(\"撤销授权\", \"Revoke grant\"), role: .destructive) {",
       "extraction": "syntax",
       "labelAlternatives": []
@@ -390,7 +390,7 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "ConnectorDetailPage.swift:78",
+      "provenance": "ConnectorDetailPage.swift:80",
       "anchor": "Button(NativeText(\"在 Chat 中使用\", \"Use in Chat\"), action: useInChat)",
       "extraction": "syntax",
       "labelAlternatives": []
@@ -405,19 +405,13 @@
         {
           "renders": "未配置",
           "when": null,
-          "provenance": "ConnectorDetailPage.swift:37",
-          "anchor": "LabeledContent(NativeText(\"账号\", \"Account\"), value: NativeText(\"未配置\", \"Not config"
-        },
-        {
-          "renders": "读取、草稿与发送等能力分别授权；当前没有真实 grant。",
-          "when": null,
-          "provenance": "ConnectorDetailPage.swift:56",
-          "anchor": "Text(NativeText(\"读取、草稿与发送等能力分别授权；当前没有真实 grant。\", \"Read, draft and send capabilit"
+          "provenance": "ConnectorDetailPage.swift:39",
+          "anchor": "? NativeText(\"已核验\", \"Verified\") : NativeText(\"未配置\", \"Not configured\")))"
         }
       ],
       "data": [
         {
-          "renders": "用途与能力 | 账号与连接 | 数据范围与授权 | 同步 | 凭据 | untitled section at 77",
+          "renders": "用途与能力 | 账号与连接 | 数据范围与授权 | 同步 | 凭据 | untitled section at 79",
           "when": null,
           "provenance": "ConnectorDetailPage.swift:6",
           "anchor": "struct ConnectorDetailPage<Configuration: View>: View {",
@@ -440,7 +434,7 @@
       "unknown"
     ],
     "coverage": {
-      "empty": 2,
+      "empty": 1,
       "data": 1,
       "failure": 0,
       "unknown": 0,

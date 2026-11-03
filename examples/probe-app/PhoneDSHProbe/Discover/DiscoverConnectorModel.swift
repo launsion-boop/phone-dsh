@@ -17,46 +17,17 @@ struct DiscoverConnectorDescriptor: Identifiable, Sendable {
         id: "github", title: "GitHub", detail: NativeText("仓库、Issue、PR 与 Checks", "Repositories, issues, PRs and checks"),
         systemImage: "chevron.left.forwardslash.chevron.right",
         supported: NativeText("读取授权的仓库、Issue、PR、review 与 Checks。", "Read authorized repositories, issues, PRs, reviews and checks."),
-        unsupported: NativeText("当前未配置账号；不会自动 merge、rebase 或 force push。", "No account is configured; merge, rebase and force push are not automatic."),
+        unsupported: NativeText("不会自动 merge、rebase 或 force push。", "Merge, rebase and force push are not automatic."),
         example: NativeText("查看这个 PR 的修改、争议和当前 Checks。", "Summarize this PR's changes, discussion and current checks."))
 
     static let gmail = DiscoverConnectorDescriptor(
         id: "gmail", title: "Gmail", detail: NativeText("邮件、线程与每日简报", "Messages, threads and the daily brief"),
         systemImage: "envelope",
         supported: NativeText("在授权后有界搜索邮件、读取线程并保留来源链接。", "Search and read authorized threads with source links."),
-        unsupported: NativeText("当前未配置 OAuth；不会创建草稿、发送或批量修改邮件。", "OAuth is not configured; drafts, sending and bulk changes are unavailable."),
+        unsupported: NativeText("草稿、回复、发送和转发分别授权；不会批量修改邮件。", "Drafts, replies, sending and forwarding have separate grants; bulk modification is unavailable."),
         example: NativeText("总结今天未读邮件，列出需要我回复的。", "Summarize today's unread mail and identify replies."))
 
     static let all = [github, gmail]
-}
-
-enum ShellConnectorError: LocalizedError {
-    case unavailable
-
-    var errorDescription: String? {
-        NativeText("连接器运行时正在接入，当前不能读取或修改真实账号。", "The connector runtime is not connected; no real account can be read or changed.")
-    }
-}
-
-actor ShellConnectorRegistry: ConnectorRegistry {
-    static let shared = ShellConnectorRegistry()
-
-    func state(of connectorID: String) async -> ConnectorRecord {
-        ConnectorRecord(connectorID: connectorID, state: .disconnected,
-                        issue: ShellConnectorError.unavailable.localizedDescription)
-    }
-
-    func grant(of connectorID: String) async -> ConnectorGrant? { nil }
-
-    nonisolated func updates() -> AsyncStream<ConnectorRecord> {
-        AsyncStream { continuation in
-            continuation.onTermination = { _ in }
-        }
-    }
-
-    func revoke(_ connectorID: String) async throws {
-        throw ShellConnectorError.unavailable
-    }
 }
 
 @MainActor
@@ -68,7 +39,7 @@ final class DiscoverConnectorModel {
     private(set) var isLoading = false
     private(set) var error: String?
 
-    init(registry: any ConnectorRegistry = ShellConnectorRegistry.shared) {
+    init(registry: any ConnectorRegistry = AppComposition.shared.registry) {
         self.registry = registry
     }
 
@@ -92,7 +63,12 @@ final class DiscoverConnectorModel {
 
     func revoke(_ connectorID: String) async {
         do {
-            try await registry.revoke(connectorID)
+            if let persistent = registry as? PersistentConnectorRegistry,
+               persistent === AppComposition.shared.registry {
+                try await AppComposition.shared.revoke(connectorID)
+            } else {
+                try await registry.revoke(connectorID)
+            }
             await refresh()
         } catch {
             self.error = error.localizedDescription

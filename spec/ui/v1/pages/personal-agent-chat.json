@@ -1,0 +1,514 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "PersonalAgentChatPage",
+  "pageId": "personal-agent-chat",
+  "structure": "swiftui-view",
+  "sectionModel": "regions",
+  "sectionNote": null,
+  "title": null,
+  "source": {
+    "file": "PersonalAgentChatPage.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/PersonalAgent/PersonalAgentChatPage.swift",
+    "lines": 423,
+    "structLine": 6,
+    "renderedFrom": [
+      "body",
+      "header",
+      "timeline",
+      "emptyState",
+      "modelConfigurationCard",
+      "messageRow",
+      "artifactCard",
+      "questionRow",
+      "operationRow",
+      "composer"
+    ],
+    "sectionOrder": "declaration order inside the page struct"
+  },
+  "android": {
+    "screen": "PersonalAgentChatPage",
+    "file": null,
+    "match": "missing"
+  },
+  "sections": [
+    {
+      "id": "正在确认最终结果-请勿重复操作",
+      "kind": "region",
+      "title": "正在确认最终结果；请勿重复操作。",
+      "titleTemplate": null,
+      "titleSource": "header-text",
+      "condition": null,
+      "collection": null,
+      "rows": [],
+      "provenance": "PersonalAgentChatPage.swift:298",
+      "anchor": "Text(\"正在确认最终结果；请勿重复操作。\")",
+      "extraction": "syntax",
+      "note": "header Text only; its rows are the following siblings in the same stack"
+    }
+  ],
+  "actions": [
+    {
+      "id": "button-47",
+      "label": null,
+      "labelExpr": "summary",
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ showFollowUps = true",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "PersonalAgentChatPage.swift:47",
+      "anchor": "Button { showFollowUps = true } label: {",
+      "extraction": "manual",
+      "presents": "sheet-82"
+    },
+    {
+      "id": "button-97",
+      "label": null,
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ Image(systemName: \"person.crop.circle\") .frame(width: 44, height: 44)",
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "PersonalAgentChatPage.swift:97",
+      "anchor": "Button(action: onOpenMemory) {",
+      "extraction": "manual"
+    },
+    {
+      "id": "在-dsh-中查看",
+      "label": "在 DSH 中查看",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "menu-item",
+      "semantic": null,
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "PersonalAgentChatPage.swift:103",
+      "anchor": "Button(\"在 DSH 中查看\", action: onOpenDSH)",
+      "extraction": "syntax"
+    },
+    {
+      "id": "记住",
+      "label": "记住",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ Task { await model.acceptCandidate(candidate.id) }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "PersonalAgentChatPage.swift:154",
+      "anchor": "Button(\"记住\") { Task { await model.acceptCandidate(candidate.id) } }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "不用",
+      "label": "不用",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ Task { await model.rejectCandidate(candidate.id) }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "PersonalAgentChatPage.swift:155",
+      "anchor": "Button(\"不用\") { Task { await model.rejectCandidate(candidate.id) } }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "button-185",
+      "label": null,
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ model.draft = suggestion",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "PersonalAgentChatPage.swift:185",
+      "anchor": "Button(suggestion) { model.draft = suggestion }",
+      "extraction": "manual"
+    },
+    {
+      "id": "配置模型",
+      "label": "配置模型",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": null,
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "PersonalAgentChatPage.swift:212",
+      "anchor": "Button(\"配置模型\", action: onConfigureModel)",
+      "extraction": "syntax"
+    },
+    {
+      "id": "先去-dsh",
+      "label": "先去 DSH",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": null,
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "PersonalAgentChatPage.swift:213",
+      "anchor": "Button(\"先去 DSH\", action: onOpenDSH)",
+      "extraction": "syntax"
+    },
+    {
+      "id": "button-250",
+      "label": null,
+      "labelExpr": "artifact.title",
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ if expanded { expandedArtifacts.remove(artifact.id) } else { expandedArtifacts.insert(artifact.id) }",
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "PersonalAgentChatPage.swift:250",
+      "anchor": "Button {",
+      "extraction": "manual"
+    },
+    {
+      "id": "button-279",
+      "label": null,
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ Task { await model.answerPendingQuestion(choice) }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "PersonalAgentChatPage.swift:279",
+      "anchor": "Button(choice) { Task { await model.answerPendingQuestion(choice) } }",
+      "extraction": "manual"
+    },
+    {
+      "id": "撤销",
+      "label": "撤销",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ onUndoOperation(operation.id)",
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "PersonalAgentChatPage.swift:295",
+      "anchor": "Button(\"撤销\") { onUndoOperation(operation.id) }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "button-312",
+      "label": null,
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "menu-item",
+      "semantic": "{ model.sourceSelection = source",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "PersonalAgentChatPage.swift:312",
+      "anchor": "Button(sourceTitle(source)) { model.sourceSelection = source }",
+      "extraction": "manual"
+    },
+    {
+      "id": "管理连接器",
+      "label": "管理连接器",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "menu-item",
+      "semantic": "{ onManageConnector(nil)",
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "PersonalAgentChatPage.swift:315",
+      "anchor": "Button(\"管理连接器\") { onManageConnector(nil) }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "github",
+      "label": "GitHub",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "menu-item",
+      "semantic": "{ selectSource(.github, connectorID: \"github\")",
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "PersonalAgentChatPage.swift:324",
+      "anchor": "Button(\"GitHub\") { selectSource(.github, connectorID: \"github\") }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "gmail",
+      "label": "Gmail",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "menu-item",
+      "semantic": "{ selectSource(.gmail, connectorID: \"gmail\")",
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "PersonalAgentChatPage.swift:325",
+      "anchor": "Button(\"Gmail\") { selectSource(.gmail, connectorID: \"gmail\") }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "文件",
+      "label": "文件",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "menu-item",
+      "semantic": "{ model.sourceSelection = .files",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "PersonalAgentChatPage.swift:326",
+      "anchor": "Button(\"文件\") { model.sourceSelection = .files }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "管理连接器",
+      "label": "管理连接器",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "menu-item",
+      "semantic": "{ onManageConnector(nil)",
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "PersonalAgentChatPage.swift:327",
+      "anchor": "Button(\"管理连接器\") { onManageConnector(nil) }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "github",
+      "label": "GitHub",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "menu-item",
+      "semantic": "{ selectSource(.github, connectorID: \"github\")",
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "PersonalAgentChatPage.swift:337",
+      "anchor": "Button(\"GitHub\") { selectSource(.github, connectorID: \"github\") }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "gmail",
+      "label": "Gmail",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "menu-item",
+      "semantic": "{ selectSource(.gmail, connectorID: \"gmail\")",
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "PersonalAgentChatPage.swift:338",
+      "anchor": "Button(\"Gmail\") { selectSource(.gmail, connectorID: \"gmail\") }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "文件",
+      "label": "文件",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "menu-item",
+      "semantic": "{ model.sourceSelection = .files",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "PersonalAgentChatPage.swift:339",
+      "anchor": "Button(\"文件\") { model.sourceSelection = .files }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "管理连接器",
+      "label": "管理连接器",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "menu-item",
+      "semantic": "{ onManageConnector(nil)",
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "PersonalAgentChatPage.swift:340",
+      "anchor": "Button(\"管理连接器\") { onManageConnector(nil) }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "button-345",
+      "label": null,
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ if voice.recording { voice.finish() } else { voice.start { text in model.draft += (model.draft.isEmpty ? \"\" : \" \") + text } }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "PersonalAgentChatPage.swift:345",
+      "anchor": "Button {",
+      "extraction": "manual"
+    },
+    {
+      "id": "button-358",
+      "label": null,
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ if model.isRunning { Task { await model.cancel() } } else { Task { await model.send() } }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "PersonalAgentChatPage.swift:358",
+      "anchor": "Button {",
+      "extraction": "manual"
+    },
+    {
+      "id": "menu-102",
+      "label": null,
+      "labelExpr": null,
+      "kind": "menu",
+      "trigger": "tap",
+      "semantic": null,
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "PersonalAgentChatPage.swift:102",
+      "anchor": "Menu {",
+      "extraction": "manual"
+    },
+    {
+      "id": "menu-310",
+      "label": null,
+      "labelExpr": null,
+      "kind": "menu",
+      "trigger": "tap",
+      "semantic": null,
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "PersonalAgentChatPage.swift:310",
+      "anchor": "Menu {",
+      "extraction": "manual"
+    },
+    {
+      "id": "添加来源",
+      "label": "添加来源",
+      "labelExpr": null,
+      "kind": "menu",
+      "trigger": "tap",
+      "semantic": null,
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "PersonalAgentChatPage.swift:331",
+      "anchor": ".accessibilityLabel(\"添加来源\")",
+      "extraction": "syntax"
+    },
+    {
+      "id": "item",
+      "label": "@",
+      "labelExpr": null,
+      "kind": "menu",
+      "trigger": "tap",
+      "semantic": null,
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "PersonalAgentChatPage.swift:342",
+      "anchor": "Text(\"@\").frame(width: 36, height: 44)",
+      "extraction": "syntax"
+    }
+  ],
+  "presentations": [
+    {
+      "id": "sheet-82",
+      "kind": "sheet",
+      "title": null,
+      "destination": "FollowUpListPage",
+      "triggerBindings": [
+        "showFollowUps"
+      ],
+      "span": [
+        82,
+        86
+      ],
+      "provenance": "PersonalAgentChatPage.swift:82",
+      "anchor": ".sheet(isPresented: $showFollowUps) {",
+      "triggered": true
+    }
+  ],
+  "states": {
+    "advisory": true,
+    "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
+    "sites": {
+      "empty": [
+        {
+          "renders": "模型尚未配置",
+          "when": null,
+          "provenance": "PersonalAgentChatPage.swift:208",
+          "anchor": "Text(\"模型尚未配置\").font(.headline)"
+        }
+      ],
+      "data": [
+        {
+          "renders": "正在确认最终结果；请勿重复操作。",
+          "when": null,
+          "provenance": "PersonalAgentChatPage.swift:6",
+          "anchor": "struct PersonalAgentChatPage: View {",
+          "note": "structural default: the sections above, when no condition overrides them"
+        }
+      ],
+      "failure": [],
+      "unknown": [],
+      "loading": [
+        {
+          "renders": "排队中 \\(model.queuedTurns.count)",
+          "when": "!model.queuedTurns.isEmpty",
+          "provenance": "PersonalAgentChatPage.swift:135",
+          "anchor": "Text(\"排队中 \\(model.queuedTurns.count)\")"
+        },
+        {
+          "renders": "正在发送",
+          "when": null,
+          "provenance": "PersonalAgentChatPage.swift:293",
+          "anchor": "Text(\"正在发送\")"
+        },
+        {
+          "renders": "正在确认最终结果；请勿重复操作。",
+          "when": null,
+          "provenance": "PersonalAgentChatPage.swift:298",
+          "anchor": "Text(\"正在确认最终结果；请勿重复操作。\")"
+        }
+      ]
+    },
+    "absent": [
+      "failure",
+      "unknown"
+    ],
+    "coverage": {
+      "empty": 1,
+      "data": 1,
+      "failure": 0,
+      "unknown": 0,
+      "loading": 3
+    }
+  },
+  "subpages": [],
+  "unreachable": [],
+  "extraction": {
+    "tool": "extract_ios_pages.py",
+    "mode": "syntax",
+    "sectionKeywordsInPage": 0,
+    "regionsExtracted": 1,
+    "sectionsExtracted": 1,
+    "warnings": []
+  }
+}

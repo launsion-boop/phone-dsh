@@ -4,8 +4,7 @@ Status: P0 · spec 版本 1 · MIT。适用端：iOS 基线（`examples/probe-ap
 
 **当前镜像对象：PR 22 的 HomeSpec 原生外壳（Chat + 抽屉）**。2026-11-02 owner 决定用 `docs/design/ios-home-design-spec-no-overview.html` 的 430pt 设计替换旧官方 Web 402pt 视觉基线；旧 golden 与 receipts 只作历史参照。新规范只定义浅色，深色沿用 PR 22 的基础回退，不视为已完成细调。
 
-本目录回答一个问题：**同一串 Harness 事件，两个平台必须画出同一个界面状态**。规范从「事件 → UiState 投影」反写，
-不从 SwiftUI 代码抽取实现细节；只有颜色/字号/间距/几何这类要镜像现状的值，才逐项标注来源 `file.swift:line`。
+本目录回答一个问题：**同一串 Harness 事件，两个平台必须画出同一个界面状态**。规范从「事件 → UiState 投影」反写，不从 SwiftUI 代码抽取实现细节；只有颜色/字号/间距/几何这类要镜像现状的值，才逐项标注来源 `file.swift:line`。
 
 术语（本目录内定义，出现即此义）：
 
@@ -19,8 +18,7 @@ Status: P0 · spec 版本 1 · MIT。适用端：iOS 基线（`examples/probe-ap
 | 未测项（unmeasured） | 值读不到；记 `null` + `provenance.tier = unmeasured`（来源可写定义处 `file:line`），**禁止编造**。 |
 | 语义等价 | 两端交互结果相同；呈现形式允许不同，差异必须落在 §5 白名单内。 |
 
-MUST / SHOULD / MAY 按 RFC 2119 读。权威顺序：**Harness 事件序列 > 交互状态机 > 语义一致 > 视觉一致**；
-截图只作辅证，验收比对的是投影出的行序列。
+MUST / SHOULD / MAY 按 RFC 2119 读。权威顺序：**Harness 事件序列 > 交互状态机 > 语义一致 > 视觉一致**；截图只作辅证，验收比对的是投影出的行序列。
 
 自校验（失败退出 1；`--strict` 连 §4 的已登记无障碍债一起判失败）：
 
@@ -44,13 +42,15 @@ checker 强制：tokens 过 schema；6 个签名面的 token 引用全部存在�
 | 页面 | 职责 | 入口 | 导航关系 | P5 |
 |---|---|---|---|---|
 | ChatPage | 对话、输入坞、审批/问题卡、目标条 | RootView 的默认原生面（NativeShell） | 根页；HomeSpec 浮动页头：抽屉 / 所属文件夹 / 设备连接 / `⋯` | must |
-| PersonalAgentChatPlaceholderPage | Personal Agent 的真实接入中与模型未配置状态 | AppShell 的 Chat 根页 | 配置模型 push；DSH 根页切换 | must |
+| PersonalAgentChatPage | Personal Agent 的极简对话、Memory 候选、跟进与操作状态 | AppShell 的 Chat 根页 | 配置模型 push；Memory、发现与 DSH 根页切换 | must |
 | DiscoverPage | 连接器、插件、硬件的搜索与筛选 | AppShell 的发现根页 | push ConnectorDetailPage、PluginCatalogPage、NativeDeviceConnectionPage | must |
 | ConnectorDetailPage | 通用连接器的六段状态、grant、同步与凭据说明 | DiscoverPage 连接器卡片 | push；连接器专属配置段可注入 | must |
 | PluginCatalogPage | 真实插件清单与可写配置入口 | DiscoverPage 插件段 | push NativePluginInventoryPage、NativeConfigurationPage | must |
 | ProfilePage | 个人、模型、Memory、权限、文件、引擎与通用设置 | AppShell 的个人根页 | push 各既有设置页与 PersonalMemoryPage | must |
 | PersonalAgentSettingsPage | Agent 名、主人称呼与个人上下文真实边界 | ProfilePage 首段 | push | must |
-| PersonalMemoryPage | personal-memory 的真实未接入状态 | ProfilePage Memory 段 | push；不复用 MemoryPage 压力探针 | must |
+| PersonalMemoryPage | 个人 Memory 的来源、修订、归档与遗忘 | ProfilePage Memory 段 | push；不复用 MemoryPage 压力探针 | must |
+| FollowUpListPage | 持续跟进目标与需要注意的变化 | PersonalAgentChatPage 跟进入口或深链 | sheet；push FollowUpDetailPage | must |
+| FollowUpDetailPage | 跟进条件、通知、暂停与结束 | FollowUpListPage 目标行 | push | must |
 | ProfileGeneralSettingsPage | 外观、语言、字号、工作过程与快捷键 | ProfilePage 通用段 | push | must |
 | DSHNewSessionPage | DSH 新建会话与 Agent 预设 | DSH 抽屉 | sheet；push NativeAgentPresetsPage | must |
 | SessionsPage | 会话列表、重命名、归档与开关 | 页头左按钮拉出抽屉（当前抽屉主体为 HomeDrawer） | 抽屉内常驻；选中会话即关闭抽屉 | must |
@@ -63,8 +63,8 @@ checker 强制：tokens 过 schema；6 个签名面的 token 引用全部存在�
 | NativeWorkbenchPage | 会话内工作面板（文件 / 命令两段） | 对话里点工具写出的文件路径（含待预览路径补开） | sheet，`完成` 关闭 | must |
 | PDSHShellPage | 只读加速器命令（argv 来自 caps） | 工作面板「命令」段 | 段内页面 | must |
 | WorkspaceFoldersPage | 工作区文件夹增删与切换 | 抽屉「工作文件夹」 | push；每行打开 FilesPage | must |
-| SettingsPage | 手机设置式分组列表：模型、会话、插件、权限、运行与关于 | 抽屉底行「设置」 | sheet（NavigationStack）；push NativePluginInventoryPage、PhonePermissionsPage、NativeAgentPresetsPage、NativeShortcutsPage、FontSizeSettingsPage、ConversationSettingsPage、ArchivedSessionsPage；「模型」分区由 ModelProviderSettingsPage 实现 | must |
-| ModelProviderSettingsPage | 模型服务、密钥、编解码 | 设置首行、起手卡「去配置模型服务」、启动失败横幅 | sheet | must |
+| SettingsPage | legacy 手机设置式分组列表；四入口的全局设置已迁到 ProfilePage | legacy 抽屉底行「设置」；四入口不再提供该入口 | sheet（NavigationStack）；push NativePluginInventoryPage、PhonePermissionsPage、NativeAgentPresetsPage、NativeShortcutsPage、FontSizeSettingsPage、ConversationSettingsPage、ArchivedSessionsPage；「模型」分区由 ModelProviderSettingsPage 实现 | must |
+| ModelProviderSettingsPage | 模型服务、密钥、编解码 | 个人 → 模型服务、Personal Agent 配置卡、起手卡与启动失败横幅 | push / sheet | must |
 | WebSearchSettingsPage | 网页搜索开关与后端 | 插件与工具 →「网页搜索与抓取」 | push / sheet | must |
 | MCPSettingsPage | MCP 服务器列表与编辑 | **PR 22 当前无入口（页面保留）** | 不可达；编辑子页 MCPEditorPage | later |
 | NativeConfigurationPage | 会话级与插件配置 | 页头 `⋯` → 本会话设置 | sheet | must |

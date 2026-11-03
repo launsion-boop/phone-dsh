@@ -46,12 +46,14 @@ struct HomeDrawer: View {
                 .padding(.bottom, 24)
             }
             .scrollIndicators(.hidden)
-            settingsBar
+            if AppShellMode.current == .legacy { settingsBar }
         }
         .background(HomeSpec.page)
         .overlay(alignment: .top) {
             if archivedToast {
-                Text("已归档，可在 设置 › 已归档会话 里找回")
+                Text(AppShellMode.current == .v4
+                     ? "已归档，可在 个人 › 已归档会话 里找回"
+                     : "已归档，可在 设置 › 已归档会话 里找回")
                     .font(.system(size: 13))
                     .foregroundStyle(HomeSpec.textSecondary)
                     .padding(.horizontal, 12)

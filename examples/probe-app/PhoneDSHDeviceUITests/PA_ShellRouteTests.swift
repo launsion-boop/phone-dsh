@@ -26,15 +26,15 @@ final class PA_ShellRouteTests: XCTestCase {
     func testProfileMemoryDeepLinkUsesPersonalMemory() throws {
         launch(route: "pdsh://profile?focus=memory")
         XCTAssertTrue(app.navigationBars["个人 Memory"].waitForExistence(timeout: 15))
-        XCTAssertTrue(app.staticTexts["个人记忆正在接入"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["profile.personal-memory"].exists)
+        XCTAssertFalse(app.staticTexts["个人记忆正在接入"].exists)
         XCTAssertFalse(app.staticTexts["内存压力"].exists)
     }
 
-    func testChatDeepLinkStaysOnTruthfulPlaceholder() throws {
+    func testChatDeepLinkOpensPersonalAgentFollowUp() throws {
         launch(route: "pdsh://chat?followUp=3F4D4F6A-6C28-4B4E-93F4-48C0D2EFD001")
-        XCTAssertTrue(app.staticTexts["Personal Agent 正在接入"].waitForExistence(timeout: 15))
-        XCTAssertTrue(app.staticTexts["已保留这次 Personal Agent 深链；对应内容会在接入后开放。"].exists)
-        XCTAssertFalse(app.textViews.firstMatch.exists)
+        XCTAssertTrue(app.navigationBars["持续跟进"].waitForExistence(timeout: 15))
+        XCTAssertFalse(app.staticTexts["Personal Agent 正在接入"].exists)
     }
 
     func testDSHDeepLinkSelectsTargetSession() throws {

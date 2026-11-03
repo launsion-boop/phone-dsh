@@ -37,6 +37,7 @@ struct PersonalMemoryPage: View {
             memorySection("遗忘", statuses: [.forgotten])
         }
         .navigationTitle("个人 Memory")
+        .accessibilityIdentifier("profile.personal-memory")
         .task {
             if let domainStore { health = await domainStore.health }
             await reload()
