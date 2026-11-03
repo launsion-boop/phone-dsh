@@ -194,6 +194,10 @@ final class AppComposition {
         personalModel.isModelConfigured = Self.modelIsConfigured()
     }
 
+    func requestNotificationAuthorization() async throws -> Bool {
+        try await PersonalAgentNotificationSender().requestAuthorization()
+    }
+
     func recoverOperations() async {
         _ = try? await operations.recoverAfterProcessRestart()
         let gmail = GmailSendReconciler(client: gmailClient, ledger: operations)

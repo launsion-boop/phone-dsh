@@ -20,6 +20,7 @@ struct PersonalAgentChatPage: View {
     @State private var showFollowUps = false
     @State private var expandedArtifacts = Set<String>()
     @State private var voice = ComposerVoiceInput()
+    @AppStorage("personalAgent.displayName") private var agentName = "Personal Agent"
 
     init(model: PersonalAgentModel, focus: ChatFocus? = nil, connectors: [ConnectorRecord] = [],
          dailyBrief: DailyBriefModel? = nil, followUpCoordinator: FollowUpCoordinator? = nil, bottomInset: CGFloat = 0,
@@ -87,7 +88,7 @@ struct PersonalAgentChatPage: View {
     private var header: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Personal Agent").font(.system(size: HomeSpec.navTitleSize, weight: .semibold))
+                Text(agentName).font(.system(size: HomeSpec.navTitleSize, weight: .semibold))
                 Text(model.isRunning ? "处理中" : "今天需要处理什么？")
                     .font(.caption).foregroundStyle(HomeSpec.textSecondary)
             }
