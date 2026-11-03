@@ -8,6 +8,16 @@ enum AppDeepLink {
 
     static func parse(_ url: URL) -> AppRoute? {
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        let hasPath = !components.path.isEmpty && components.path != "/"
+        if hasPath, components.scheme?.lowercased() == "phonedsh",
+           let route = NotificationRouter.route(forDeepLink: url) {
+            return route
+        }
+        if hasPath, components.scheme?.lowercased() == "pdsh" {
+            var normalized = components
+            normalized.scheme = "phonedsh"
+            if let url = normalized.url, let route = NotificationRouter.route(forDeepLink: url) { return route }
+        }
         let values = Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).map { ($0.name, $0.value ?? "") })
         switch components.host?.lowercased() ?? components.path.lowercased() {
         case "chat":

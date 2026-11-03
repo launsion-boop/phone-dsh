@@ -197,6 +197,7 @@ targets:
       # exercise add → refresh → persist → offline reload against ProbeKit.
       - path: PhoneDSHProbe/DailyBriefModel.swift
       - path: PhoneDSHProbe/AppComposition.swift
+      - path: PhoneDSHProbe/Shell/AppDeepLink.swift
       - path: PhoneDSHProbe/PersonalAgent/PersonalAgentNotificationSender.swift
       - path: PhoneDSHProbe/NativeConversationModels.swift
       - path: PhoneDSHProbe/NativeTranscriptProjector.swift
