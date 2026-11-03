@@ -10,13 +10,14 @@
 | `xcrun swiftc -typecheck examples/probe-app/ProbeKit/PersonalAgent/Contracts/Contracts.swift` | PASS | 契约源码，非 iOS 端到端 |
 | `cd examples/probe-app && xcodegen generate` | PASS | 工程生成 |
 | `xcodebuild -resolvePackageDependencies -scheme PhoneDSHSim` | PASS，解析 PhoneDSH、SwiftMarkdown、SwiftMath、cmark-gfm | Xcode 包解析，非设备行为 |
-| `bash scripts/ci/check.sh` | 前台 300 秒超时；日志到 PhoneDSHScenario 测试，不能记为 PASS 或 FAIL | 基线检查未完成 |
-| `bash scripts/ci/sim.sh` | 前台 300 秒超时；停在完整 DSH Web 依赖安装阶段，不能记为 PASS 或 FAIL | 基线构建未完成 |
+| `bash scripts/ci/check.sh` | 长时限重跑完成；多数 iOS 阶段 PASS，Android 阶段因 JDK/NDK 缺失 SKIP；环境设置后 `phone-plugins` PASS | 完整静态/SDK 检查，非全绿 |
+| `bash scripts/ci/sim.sh` | 所有 gating rows PASS；仍有一项既有 OfficeTests 失败，进程退出 65 | iOS 模拟器门禁通过，非全量通过 |
 
 ## 后续命令
 
 ```bash
-# 全量静态/插件/SDK 门禁
+# 全量静态/插件/SDK 门禁（先指向 pin 对应的 DSH checkout）
+export PDSH_DSH_CHECKOUT="/path/to/deepseek-harness"
 bash scripts/ci/check.sh
 
 # iOS 模拟器总门禁
