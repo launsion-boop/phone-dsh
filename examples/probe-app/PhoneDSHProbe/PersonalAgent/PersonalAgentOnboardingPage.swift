@@ -52,7 +52,6 @@ struct PersonalAgentOnboardingPage: View {
         .background(HomeSpec.page)
         .interactiveDismissDisabled()
         .task { prepare() }
-        .accessibilityIdentifier("personal-agent-onboarding")
     }
 
     private var ownerStep: some View {

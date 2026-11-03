@@ -9,7 +9,7 @@
   "source": {
     "file": "PersonalAgentOnboardingPage.swift",
     "path": "examples/probe-app/PhoneDSHProbe/PersonalAgent/PersonalAgentOnboardingPage.swift",
-    "lines": 112,
+    "lines": 111,
     "structLine": 5,
     "renderedFrom": [
       "body",
@@ -47,7 +47,7 @@
       "condition": null,
       "collection": null,
       "rows": [],
-      "provenance": "PersonalAgentOnboardingPage.swift:73",
+      "provenance": "PersonalAgentOnboardingPage.swift:72",
       "anchor": "Text(\"给你的 Personal Agent 取个名字\")",
       "extraction": "syntax",
       "note": "header Text only; its rows are the following siblings in the same stack"
@@ -61,7 +61,7 @@
       "condition": null,
       "collection": null,
       "rows": [],
-      "provenance": "PersonalAgentOnboardingPage.swift:75",
+      "provenance": "PersonalAgentOnboardingPage.swift:74",
       "anchor": "Text(\"以后会显示在 Chat 顶栏。默认叫小肥鱼，也可以改成你喜欢的名字。\")",
       "extraction": "syntax",
       "note": "header Text only; its rows are the following siblings in the same stack"

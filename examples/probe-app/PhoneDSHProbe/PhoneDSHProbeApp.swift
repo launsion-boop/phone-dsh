@@ -21,6 +21,12 @@ struct PhoneDSHProbeApp: App {
 
     init() {
         #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-resetPersonalOnboarding") {
+            let defaults = UserDefaults.standard
+            defaults.set(false, forKey: "personalAgent.onboarding.completed")
+            defaults.set("", forKey: "personalAgent.ownerName")
+            defaults.set("小肥鱼", forKey: "personalAgent.displayName")
+        }
         Self.seedProviderFromEnvironment()
         #endif
     }
