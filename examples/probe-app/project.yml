@@ -199,6 +199,7 @@ targets:
       - path: PhoneDSHProbe/AppComposition.swift
       - path: PhoneDSHProbe/Shell/AppDeepLink.swift
       - path: PhoneDSHProbe/PersonalAgent/PersonalAgentNotificationSender.swift
+      - path: PhoneDSHProbe/PersonalAgent/PersonalAgentSettingsModel.swift
       - path: PhoneDSHProbe/NativeConversationModels.swift
       - path: PhoneDSHProbe/NativeTranscriptProjector.swift
       - path: PhoneDSHProbe/NativeAskQuestionCard.swift
@@ -293,6 +294,7 @@ targets:
       # production presentation source is compiled into this test module too.
       - path: PhoneDSHProbe/MCPSettingsModel.swift
       - path: PhoneDSHProbe/DailyBriefModel.swift
+      - path: PhoneDSHProbe/PersonalAgent/PersonalAgentSettingsModel.swift
       - path: PhoneDSHProbe/NativeConversationModels.swift
       - path: PhoneDSHProbe/NativeTranscriptProjector.swift
       - path: PhoneDSHProbe/NativeAskQuestionCard.swift
