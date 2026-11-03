@@ -7,14 +7,14 @@
   "sectionNote": "flat List: one version row + one sentence; no group header",
   "title": {
     "text": "关于",
-    "provenance": "NativeShell.swift:929",
+    "provenance": "NativeShell.swift:938",
     "anchor": ".navigationTitle(\"关于\")"
   },
   "source": {
     "file": "NativeShell.swift",
     "path": "examples/probe-app/PhoneDSHProbe/NativeShell.swift",
-    "lines": 1061,
-    "structLine": 901,
+    "lines": 1070,
+    "structLine": 910,
     "renderedFrom": [
       "body"
     ],
@@ -27,7 +27,7 @@
   },
   "sections": [
     {
-      "id": "section-904",
+      "id": "section-913",
       "title": null,
       "titleTemplate": null,
       "dynamicTitle": false,
@@ -47,7 +47,7 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "NativeShell.swift:911",
+          "provenance": "NativeShell.swift:920",
           "anchor": "Text(\"Phone DSH\")",
           "extraction": "syntax"
         },
@@ -62,22 +62,22 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "NativeShell.swift:913",
+          "provenance": "NativeShell.swift:922",
           "anchor": "Text(\"运行在手机上的 DeepSeek Harness\")",
           "extraction": "syntax"
         }
       ],
-      "provenance": "NativeShell.swift:904",
+      "provenance": "NativeShell.swift:913",
       "anchor": "Section {",
       "extraction": "syntax",
       "criterion": {
         "kind": "first-row",
         "label": "Phone DSH",
-        "provenance": "NativeShell.swift:911"
+        "provenance": "NativeShell.swift:920"
       }
     },
     {
-      "id": "section-921",
+      "id": "section-930",
       "title": null,
       "titleTemplate": null,
       "dynamicTitle": false,
@@ -97,7 +97,7 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "NativeShell.swift:922",
+          "provenance": "NativeShell.swift:931",
           "anchor": "LabeledContent(\"版本\", value: Bundle.main.infoDictionary?[\"CFBundleShortVersionStr",
           "extraction": "syntax"
         },
@@ -112,23 +112,23 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "NativeShell.swift:923",
+          "provenance": "NativeShell.swift:932",
           "anchor": "LabeledContent(\"构建\", value: Bundle.main.infoDictionary?[\"CFBundleVersion\"] as? S",
           "extraction": "syntax"
         }
       ],
-      "provenance": "NativeShell.swift:921",
+      "provenance": "NativeShell.swift:930",
       "anchor": "Section {",
       "extraction": "syntax",
       "criterion": {
         "kind": "first-row",
         "label": "版本",
-        "provenance": "NativeShell.swift:922"
+        "provenance": "NativeShell.swift:931"
       },
       "footer": {
         "text": "会话记录和文件都保存在这台手机上。",
         "labelExpr": null,
-        "provenance": "NativeShell.swift:925",
+        "provenance": "NativeShell.swift:934",
         "anchor": "Text(\"会话记录和文件都保存在这台手机上。\")"
       }
     }
@@ -142,9 +142,9 @@
       "empty": [],
       "data": [
         {
-          "renders": "untitled section at 904 | untitled section at 921",
+          "renders": "untitled section at 913 | untitled section at 930",
           "when": null,
-          "provenance": "NativeShell.swift:901",
+          "provenance": "NativeShell.swift:910",
           "anchor": "struct SettingsAboutPage: View {",
           "note": "structural default: the sections above, when no condition overrides them"
         }
@@ -154,13 +154,13 @@
         {
           "renders": "—",
           "when": null,
-          "provenance": "NativeShell.swift:922",
+          "provenance": "NativeShell.swift:931",
           "anchor": "LabeledContent(\"版本\", value: Bundle.main.infoDictionary?[\"CFBundleShortVersionStr"
         },
         {
           "renders": "—",
           "when": null,
-          "provenance": "NativeShell.swift:923",
+          "provenance": "NativeShell.swift:932",
           "anchor": "LabeledContent(\"构建\", value: Bundle.main.infoDictionary?[\"CFBundleVersion\"] as? S"
         }
       ],
@@ -182,22 +182,22 @@
   "subpages": [
     {
       "name": "WorkspaceFoldersPage",
-      "line": 293,
+      "line": 294,
       "private": false,
       "sections": [],
-      "provenance": "NativeShell.swift:293"
+      "provenance": "NativeShell.swift:294"
     },
     {
       "name": "EgressAllowListPage",
-      "line": 417,
+      "line": 418,
       "private": false,
       "sections": [
         {
           "title": "地址",
-          "provenance": "NativeShell.swift:446"
+          "provenance": "NativeShell.swift:447"
         }
       ],
-      "provenance": "NativeShell.swift:417"
+      "provenance": "NativeShell.swift:418"
     }
   ],
   "unreachable": [],

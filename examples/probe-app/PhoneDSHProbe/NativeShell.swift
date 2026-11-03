@@ -4,6 +4,7 @@
 // 会话占一格是产品决定（高频检索）；定时任务并进会话页的第二段。
 
 import SwiftUI
+import ProbeKit
 import PhoneDSH
 import PhoneDSHAgentCore
 import UIKit
@@ -740,6 +741,7 @@ enum PreviewScreen: String, Identifiable, CaseIterable {
     case appDock = "app.dock"
     case appConnectorDetail = "app.connector-detail"
     case appPersonalMemory = "app.personal-memory"
+    case appSuggestionCard = "app.suggestion-card"
     case codeBlock = "code.block"
 
     var id: String { rawValue }
@@ -865,6 +867,13 @@ enum PreviewScreen: String, Identifiable, CaseIterable {
             PersonalMemoryPage(store: AppComposition.shared.memories,
                                principal: AppComposition.shared.personalModel.principal,
                                domainStore: AppComposition.shared.domain)
+        case .appSuggestionCard:
+            PersonalAgentSuggestionCard(
+                suggestion: ConversationSuggestion(turnID: UUID(), options: [
+                    "查看这个 PR 的新阻塞", "整理成简短回复", "继续处理下一项任务",
+                ]), onDismiss: {}, onChoose: { _ in })
+                .padding(20)
+                .background(HomeSpec.page)
         case .codeBlock:
             ScrollView {
                 DSSCodeBlock(source: PreviewChatItems.longCode, language: "swift")

@@ -16,6 +16,9 @@ public final class PersonalAgentModel {
     @ObservationIgnored public let followUps: FollowUpStore
     @ObservationIgnored private let operations: (any OperationLedger)?
     @ObservationIgnored private let ingress: MainIngress?
+    @ObservationIgnored private let suggestionGenerator: (any SuggestionGenerating)?
+    @ObservationIgnored private let suggestionStore: SuggestionStore?
+    @ObservationIgnored private var suggestionTask: Task<Void, Never>?
 
     public let conversationID: UUID
     public let principal: String
@@ -31,6 +34,7 @@ public final class PersonalAgentModel {
     public private(set) var candidates: [MemoryRecord] = []
     public private(set) var followUpRecords: [FollowUpRecord] = []
     public private(set) var operationRecords: [OperationRecord] = []
+    public private(set) var suggestion: ConversationSuggestion?
     public private(set) var isRunning = false
     public private(set) var didLoad = false
     @ObservationIgnored private var responseBuffer = ""
@@ -49,7 +53,9 @@ public final class PersonalAgentModel {
 
     public init(conversationID: UUID, principal: String, agent: any MainAgentPort,
                 conversations: ConversationStore, memories: MemoryStore, followUps: FollowUpStore,
-                operations: (any OperationLedger)? = nil, ingress: MainIngress? = nil) {
+                operations: (any OperationLedger)? = nil, ingress: MainIngress? = nil,
+                suggestionGenerator: (any SuggestionGenerating)? = nil,
+                suggestionStore: SuggestionStore? = nil) {
         self.conversationID = conversationID
         self.principal = principal
         self.agent = agent
@@ -58,6 +64,8 @@ public final class PersonalAgentModel {
         self.followUps = followUps
         self.operations = operations
         self.ingress = ingress
+        self.suggestionGenerator = suggestionGenerator
+        self.suggestionStore = suggestionStore
     }
 
     public func load() async {
@@ -73,6 +81,7 @@ public final class PersonalAgentModel {
                 recoveryNotice = "有 \(recovery.interruptedTurns.count) 次执行被中断，未自动重放。请确认后继续。"
             }
             try await reload()
+            await reloadSuggestions()
             if pendingQuestion == nil, !queuedTurns.isEmpty { await processQueue() }
         } catch {
             didLoad = false
@@ -85,6 +94,8 @@ public final class PersonalAgentModel {
         guard !content.isEmpty, isModelConfigured else { return }
         if text == nil { draft = "" }
         failureNotice = nil
+        suggestionTask?.cancel()
+        suggestion = nil
         let requestID = UUID()
         let source = SourceEnvelope(requestID: requestID, principal: principal, source: .phone,
                                     replyTo: .phoneChat, grantVersion: 0, receivedAt: Date())
@@ -103,6 +114,7 @@ public final class PersonalAgentModel {
     }
 
     public func cancel() async {
+        suggestionTask?.cancel()
         guard let currentTurnID else { return }
         await agent.cancel(turnID: currentTurnID)
     }
@@ -110,6 +122,23 @@ public final class PersonalAgentModel {
     public func undoOperation(_ id: UUID) async {
         guard operationRecords.contains(where: { $0.id == id && $0.phase == .undoWindow }) else { return }
         await cancel()
+    }
+
+    public func dismissSuggestion() async {
+        guard let suggestion else { return }
+        let turnID = suggestion.turnID
+        self.suggestion = nil
+        do {
+            try await suggestionStore?.dismiss(turnID: turnID)
+        } catch {
+            failureNotice = "建议状态保存失败。"
+        }
+    }
+
+    public func chooseSuggestion(_ option: String) async {
+        guard let suggestion, suggestion.options.contains(option) else { return }
+        await dismissSuggestion()
+        await send(option)
     }
 
     public func answerPendingQuestion(_ answer: String) async {
@@ -217,6 +246,7 @@ public final class PersonalAgentModel {
                         activeStatus = nil
                         pendingQuestion = nil
                         try await reloadMessages()
+                        generateSuggestions(for: input, answer: message)
                     case .failed(let failure):
                         let visible = PersonalAgentTextPolicy.failureText(failure)
                         try await conversations.fail(turn.id, reason: visible)
@@ -247,6 +277,53 @@ public final class PersonalAgentModel {
         }
     }
 
+    private func generateSuggestions(for turn: MainTurnInput, answer: AssistantMessage) {
+        guard let suggestionGenerator, let suggestionStore else { return }
+        suggestionTask?.cancel()
+        suggestion = nil
+        suggestionTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                if await suggestionStore.isDismissed(turnID: turn.turnID) { return }
+                let options = try await suggestionGenerator.generate(turn: turn, answer: answer)
+                guard !Task.isCancelled else { return }
+                guard !options.isEmpty else {
+                    self.suggestion = nil
+                    return
+                }
+                if await suggestionStore.isDismissed(turnID: turn.turnID) { return }
+                try await suggestionStore.save(turnID: turn.turnID, options: options)
+                guard !Task.isCancelled else { return }
+                self.suggestion = ConversationSuggestion(turnID: turn.turnID, options: options, dismissed: false)
+            } catch {
+                self.suggestion = nil
+            }
+        }
+    }
+
+    private func reloadSuggestions() async {
+        guard let suggestionStore else { return }
+        do {
+            guard let latest = messages.last(where: { $0.role == .assistant && $0.turnID != nil }),
+                  let turnID = latest.turnID else {
+                suggestion = nil
+                return
+            }
+            if await suggestionStore.isDismissed(turnID: turnID) {
+                suggestion = nil
+                return
+            }
+            let options = await suggestionStore.options(for: turnID)
+            if let options, !options.isEmpty {
+                suggestion = ConversationSuggestion(turnID: turnID, options: options, dismissed: false)
+            } else {
+                suggestion = nil
+            }
+        } catch {
+            suggestion = nil
+        }
+    }
+
     private func startOperationPolling() {
         operationPollingTask?.cancel()
         operationPollingTask = Task { [weak self] in
@@ -267,6 +344,7 @@ public final class PersonalAgentModel {
         candidates = try await memories.pendingCandidates(principal: principal)
         followUpRecords = try await followUps.records()
         if let operations { operationRecords = await operations.pending() }
+        await reloadSuggestions()
     }
 
     private func reloadMessages() async throws {

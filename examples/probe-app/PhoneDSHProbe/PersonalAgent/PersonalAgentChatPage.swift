@@ -135,6 +135,14 @@ struct PersonalAgentChatPage: View {
                     if !model.isModelConfigured { modelConfigurationCard }
                     ForEach(model.messages) { message in
                         messageRow(message).id(message.id)
+                        if message.role == .assistant, message.turnID == model.suggestion?.turnID,
+                           let suggestion = model.suggestion {
+                            PersonalAgentSuggestionCard(
+                                suggestion: suggestion,
+                                onDismiss: { Task { await model.dismissSuggestion() } },
+                                onChoose: { option in Task { await model.chooseSuggestion(option) } })
+                                .id("suggestion-\(suggestion.turnID)")
+                        }
                     }
                     if !model.streamingText.isEmpty {
                         Text(model.streamingText)

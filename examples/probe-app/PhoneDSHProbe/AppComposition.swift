@@ -109,6 +109,8 @@ final class AppComposition {
     let memories: MemoryStore
     let followUps: FollowUpStore
     let agent: NativeMainAgentAdapter
+    let suggestionGenerator: NativeSuggestionGenerator
+    let suggestionStore: SuggestionStore
     let personalModel: PersonalAgentModel
     let followUpCoordinator: FollowUpCoordinator
     let chatAttention: ChatAttentionSource
@@ -161,9 +163,13 @@ final class AppComposition {
                                                    followUps: followUps, operations: operations)
         agent = try NativeMainAgentAdapter(clientResolver: NativeMainGatewayClientProvider(),
                                            toolInvoker: connectorTools, contextProvider: context)
+        suggestionGenerator = NativeSuggestionGenerator(clientResolver: NativeMainGatewayClientProvider(),
+                                                        contextProvider: context)
+        suggestionStore = SuggestionStore(rootDirectory: root)
         personalModel = PersonalAgentModel(conversationID: Self.conversationID(), principal: "phone-owner",
                                            agent: agent, conversations: conversations, memories: memories,
-                                           followUps: followUps, operations: operations, ingress: ingress)
+                                           followUps: followUps, operations: operations, ingress: ingress,
+                                           suggestionGenerator: suggestionGenerator, suggestionStore: suggestionStore)
         personalModel.isModelConfigured = Self.modelIsConfigured()
 
         let incremental = GmailIncrementalSynchronizer(client: gmailClient,
