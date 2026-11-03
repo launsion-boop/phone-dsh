@@ -389,20 +389,20 @@ test('AGENTS.md stays within its byte budget and answers the environment questio
   assert.deepEqual(DEFAULT_BASH_DEVIATIONS.map(deviation => deviation.id), ['JB-EPOCHSECONDS', 'JB-DEV0'])
 })
 
-test('the phone section publishes only the tool the host really implements', () => {
+test('the phone section publishes only the tools the host declares', () => {
   const withPhone = buildCapabilityManifest(manifestInput({
     commands: ['bash', 'phone'],
     accelerators: ['phone'],
     hostCaps: ['accelerator:phone', 'exec/1'],
   }))
-  // `phone info` is the one subcommand the Android host accepts; it is the only
-  // row the manifest may publish.
+  // `phone info` remains the Android baseline. Accelerator support alone must
+  // not invent connector rows for a host that never declared them.
   assert.deepEqual(withPhone.json.phone?.tools.map(tool => tool.name), ['info'])
   assert.equal(withPhone.json.phone?.command, 'phone')
   assert.equal(withPhone.json.phone?.tool_catalog, 'host-owned')
   assert.match(withPhone.jsonText, /"usage": "phone info"/u)
   assert.match(withPhone.markdown, /phone info/u)
-  assert.match(withPhone.markdown, /not available and executes nothing/u)
+  assert.match(withPhone.markdown, /not available.*executes nothing/u)
   // The hard-coded Apple Office surface must never come back. Every one of
   // those rows answered `unsupported` on the device while the manifest claimed
   // it — the capability lie this test pins shut.
@@ -414,6 +414,25 @@ test('the phone section publishes only the tool the host really implements', () 
   ]) {
     assert.ok(!withPhone.jsonText.includes(fake), `the manifest must not claim the unverified tool ${fake}`)
   }
+
+  const github = buildCapabilityManifest(manifestInput({
+    commands: ['bash', 'phone'],
+    accelerators: ['phone'],
+    hostCaps: ['accelerator:phone', 'phone-tool:github.*'],
+  }))
+  assert.deepEqual(github.json.phone?.tools.map(tool => tool.name), [
+    'info', 'github.repository.get', 'github.issue.get', 'github.pull.get',
+    'github.pull.diff', 'github.pull.checks', 'github.issue.comment', 'github.issue.create',
+  ])
+  assert.match(github.markdown, /phone github\.pull\.checks/u)
+
+  const exact = buildCapabilityManifest(manifestInput({
+    commands: ['bash', 'phone'],
+    accelerators: ['phone'],
+    hostCaps: ['accelerator:phone', 'phone-tool:github.repository.get'],
+  }))
+  assert.deepEqual(exact.json.phone?.tools.map(tool => tool.name), ['info', 'github.repository.get'])
+  assert.ok(!exact.jsonText.includes('github.pull.get'))
 
   // A host that never advertised `accelerator:phone` gets no section at all:
   // the block is a host fact, not a constant of the Worker.

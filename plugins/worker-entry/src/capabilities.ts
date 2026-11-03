@@ -798,19 +798,35 @@ export function clampMarkdown(text: string, maxBytes: number): string {
   return `${head}${note}`
 }
 
+const HOST_PROJECTED_PHONE_TOOLS: readonly CapabilityPhoneTool[] = Object.freeze([
+  ...['repository.get', 'issue.get', 'pull.get', 'pull.diff', 'pull.checks'].map(name => Object.freeze({
+    name: `github.${name}`,
+    usage: `${PHONE_COMMAND_NAME} github.${name} ${name === 'repository.get' ? '{"repository":"owner/repo"}' : '{"repository":"owner/repo","number":1}'}`,
+    note: 'read-only; returns bounded GitHub data and source links from the host connector',
+  })),
+  ...['issue.comment', 'issue.create'].map(name => Object.freeze({
+    name: `github.${name}`,
+    usage: `${PHONE_COMMAND_NAME} github.${name} <json-object>`,
+    note: 'write; DSH direct calls require native per-operation approval and never inherit Chat grants',
+  })),
+])
+
 /**
  * The honest `phone` section for a host that advertised `accelerator:phone`.
  *
- * The row is not a guess: the only host in this repository that advertises the
- * accelerator without a larger verified surface is the Android host, whose
- * `PhoneInfoTool` accepts exactly `argv = ["phone", "info"]` and refuses every
- * other argv. A host with a bigger catalog must declare it (the HELLO carries
- * only `accelerator:phone`, so that needs a protocol extension); until then
- * publishing one verified row is the whole truth, and a tool the host does not
- * implement is refused as `not-available` rather than advertised.
+ * Android's verified `info` row is always retained. Connector rows are projected
+ * only from explicit `phone-tool:<name>` HELLO capabilities; `phone-tool:github.*`
+ * is the host's declaration for the complete GitHub bridge. No connector row is
+ * inferred from `accelerator:phone` alone.
+ * @param hostCaps - full host HELLO capabilities.
  * @returns the `phone` document section.
  */
-export function phoneCapability(): NonNullable<CapabilityManifestDocument['phone']> {
+export function phoneCapability(hostCaps: readonly string[] = []): NonNullable<CapabilityManifestDocument['phone']> {
+  const declared = new Set(hostCaps)
+  const projected = HOST_PROJECTED_PHONE_TOOLS.filter(tool =>
+    declared.has(`phone-tool:${tool.name}`)
+    || (tool.name.startsWith('github.') && declared.has('phone-tool:github.*')),
+  )
   return {
     command: PHONE_COMMAND_NAME,
     invocation: `${PHONE_COMMAND_NAME} <tool> <json-object>`,
@@ -819,12 +835,13 @@ export function phoneCapability(): NonNullable<CapabilityManifestDocument['phone
       {
         name: 'info',
         usage: `${PHONE_COMMAND_NAME} info`,
-        note: 'the only tool this host implements; takes no arguments and returns device model/OS/display JSON',
+        note: 'takes no arguments and returns device model/OS/display JSON',
       },
+      ...projected,
     ],
     notes: [
       'The catalog is owned by the host build, not by the Worker. This list is what THIS host serves.',
-      'Any other tool name is refused as not available: the host executes nothing and the shell reports exit 127.',
+      'Any undeclared tool name is refused as not available: the host executes nothing and the shell reports exit 127.',
     ],
   }
 }
@@ -863,7 +880,7 @@ export function buildCapabilityManifest(input: CapabilityManifestInput): Capabil
   const git: GitCapability | undefined = commands.includes('git') ? gitCapability() : undefined
   // Same rule for the phone accelerator: the section exists only when the
   // host's HELLO put the command in this table.
-  const phone = commands.includes(PHONE_COMMAND_NAME) ? phoneCapability() : undefined
+  const phone = commands.includes(PHONE_COMMAND_NAME) ? phoneCapability(hostCaps) : undefined
   const jqInput = input.jq
   const python: CapabilityManifestDocument['python'] = pythonInput === undefined || !pythonInput.available
     ? {
