@@ -82,6 +82,8 @@ targets:
       - package: PhoneDSH
         product: PhoneDSHAgentCore
       - package: PhoneDSH
+        product: PhoneDSHGateway
+      - package: PhoneDSH
         product: PhoneDSHWire
       - package: PhoneDSH
         product: PhoneDSHShell
@@ -128,6 +130,8 @@ targets:
       - package: PhoneDSH
         product: PhoneDSHAgentCore
       - package: PhoneDSH
+        product: PhoneDSHGateway
+      - package: PhoneDSH
         product: PhoneDSHController
       # WebHostConfiguration assembles the linked PDSHShellProvider and its
       # runnable accelerator set for the production Web surface and the E2E.
@@ -137,6 +141,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.phone-dsh.probe.probekit
         PRODUCT_NAME: ProbeKit
+        OTHER_LDFLAGS: "-lsqlite3"
         GENERATE_INFOPLIST_FILE: YES
         DEFINES_MODULE: YES
         SKIP_INSTALL: YES
@@ -230,6 +235,8 @@ targets:
         product: PhoneDSHLoopback
       - package: PhoneDSH
         product: PhoneDSHAgentCore
+      - package: PhoneDSH
+        product: PhoneDSHGateway
       # The simulator suites import the linked shell provider exposed by the
       # shared WebHostConfiguration assembly.
       - package: PhoneDSH
@@ -317,6 +324,8 @@ targets:
         product: PhoneDSHLoopback
       - package: PhoneDSH
         product: PhoneDSHAgentCore
+      - package: PhoneDSH
+        product: PhoneDSHGateway
       - package: PhoneDSH
         product: PhoneDSHShell
     settings:
