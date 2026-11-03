@@ -59,7 +59,10 @@ final class PA_GateTests: XCTestCase {
         let inferred = await gate.authorize(
             tool: paTool(), argumentsJSON: paReplyArguments(),
             caller: .personalAgent(mandate: paMandate(origin: .modelInferred)), grant: paGrant())
-        guard case .requireTargetSelection = inferred else { return XCTFail("模型推断目标不能自动写") }
+        guard case let .requireTargetSelection(candidates) = inferred else {
+            return XCTFail("模型推断目标不能自动写")
+        }
+        XCTAssertFalse(candidates.isEmpty, "需要用户选择时必须提供真实候选")
 
         let malformed = await gate.authorize(tool: paTool(), argumentsJSON: "not-json",
                                              caller: .personalAgent(mandate: paMandate()), grant: paGrant())

@@ -76,8 +76,11 @@ public struct DefaultWriteGate: Sendable {
             return deny("missing_mandate", "缺少用户委托；已拒绝写入")
         }
 
-        if tool.effect != .read, mandate?.targets.origin == .modelInferred {
-            return .requireTargetSelection([])
+        if tool.effect != .read, let mandate, mandate.targets.origin == .modelInferred {
+            let candidates = targetCandidates(for: mandate)
+            return candidates.isEmpty
+                ? .downgradeToDraft(reason: "模型推断目标不能自动写入；已降级为草稿")
+                : .requireTargetSelection(candidates)
         }
 
         let arguments: [String: Any]
@@ -254,6 +257,26 @@ public struct DefaultWriteGate: Sendable {
             if let value = arguments[key] as? Int { return value }
         }
         return nil
+    }
+
+    private func targetCandidates(for mandate: WorkMandate) -> [TargetCandidate] {
+        var candidates: [TargetCandidate] = []
+        for id in mandate.targets.gmailThreadIDs {
+            let evidence = EvidenceRef(id: id, kind: "gmailThread", locator: "gmail://\(id)")
+            candidates.append(TargetCandidate(id: id, title: "邮件线程 \(id)", evidence: evidence))
+        }
+        if let repository = mandate.targets.repository {
+            for number in mandate.targets.issueOrPRNumbers {
+                let id = "\(repository)#\(number)"
+                let evidence = EvidenceRef(id: id, kind: "github", locator: "github://\(id)")
+                candidates.append(TargetCandidate(id: id, title: id, evidence: evidence))
+            }
+        }
+        for recipient in mandate.targets.recipientIdentities {
+            let evidence = EvidenceRef(id: recipient, kind: "recipient", locator: "mailto:\(recipient)")
+            candidates.append(TargetCandidate(id: recipient, title: recipient, evidence: evidence))
+        }
+        return candidates
     }
 
     private func deny(_ code: String, _ message: String) -> GateDecision {

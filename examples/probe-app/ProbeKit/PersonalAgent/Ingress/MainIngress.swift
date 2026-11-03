@@ -90,8 +90,11 @@ public actor MainIngress {
             mandate = try await mandates.issue(
                 envelope: envelope, draft: factory.draft(userText: userText, now: now()))
         }
+        guard isNew else {
+            return MainIngressResult(envelope: envelope, mandate: mandate, duplicate: true)
+        }
         let content = try await loadConnectorContent?()
-        return MainIngressResult(envelope: envelope, mandate: mandate, duplicate: !isNew, connectorContent: content)
+        return MainIngressResult(envelope: envelope, mandate: mandate, duplicate: false, connectorContent: content)
     }
 
     public func selectTargets(previous: WorkMandate, envelope: SourceEnvelope,

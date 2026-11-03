@@ -100,4 +100,22 @@ final class PA_MandateTests: XCTestCase {
         let context = EvidenceFilter().context([allowed, other], mandate: mandate) { $0 }
         XCTAssertEqual(context, [allowed])
     }
+
+    func testDuplicateDoesNotReloadConnectorContent() async throws {
+        let root = paTemporaryRoot()
+        let ingress = try MainIngress(root: root, now: { paFixedDate })
+        let envelope = paEnvelope()
+        var loads = 0
+        _ = try await ingress.ingest(envelope: envelope, userText: "读取邮件") {
+            loads += 1
+            return "第一封邮件"
+        }
+        let replay = try await ingress.ingest(envelope: envelope, userText: "第二次不应再读取") {
+            loads += 1
+            return "重复内容"
+        }
+        XCTAssertTrue(replay.duplicate)
+        XCTAssertNil(replay.connectorContent)
+        XCTAssertEqual(loads, 1)
+    }
 }
