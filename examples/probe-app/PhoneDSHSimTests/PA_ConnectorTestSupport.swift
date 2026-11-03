@@ -162,6 +162,15 @@ actor RecordingOperationLedger: OperationLedger {
         update(id, phase: .unknown)
         records[id]?.failureReason = reason
     }
+    func reconcile(_ id: UUID, receipt: ProviderReceipt?) async throws -> OperationRecord {
+        if let receipt {
+            update(id, phase: .reconciled)
+            records[id]?.receipt = receipt
+        } else {
+            update(id, phase: .unknown)
+        }
+        return records[id]!
+    }
     func pending() async -> [OperationRecord] {
         records.values.filter { [.prepared, .committing, .unknown, .undoWindow].contains($0.phase) }
     }

@@ -49,7 +49,7 @@ public struct GmailSendReconciler: Sendable {
                 "id": message.id, "threadID": message.threadID, "reconciled": true,
             ], options: [.sortedKeys])), as: UTF8.self)
             let receipt = ProviderReceipt(providerObjectID: message.id, url: message.link.absoluteString, rawJSON: raw)
-            try await ledger.commit(record.id, receipt: receipt)
+            _ = try await ledger.reconcile(record.id, receipt: receipt)
             return .reconciled(receipt)
         } catch {
             return .unknown

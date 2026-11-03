@@ -398,6 +398,7 @@ public protocol OperationLedger: Sendable {
     func markCommitting(_ id: UUID) async throws
     func commit(_ id: UUID, receipt: ProviderReceipt) async throws
     func markUnknown(_ id: UUID, reason: String) async throws
+    func reconcile(_ id: UUID, receipt: ProviderReceipt?) async throws -> OperationRecord
     func pending() async -> [OperationRecord]
 }
 

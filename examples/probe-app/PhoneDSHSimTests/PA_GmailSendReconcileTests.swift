@@ -72,7 +72,29 @@ final class PA_GmailSendReconcileTests: XCTestCase {
         guard case .reconciled(let receipt) = result else { return XCTFail("expected provider receipt") }
         XCTAssertEqual(receipt.providerObjectID, "provider-message")
         let recoveredRecord = await ledger.record(record.id)
-        XCTAssertEqual(recoveredRecord?.phase, .committed)
+        XCTAssertEqual(recoveredRecord?.phase, .reconciled)
+    }
+
+    func testFileOperationLedgerReconcilesUnknownToReconciled() async throws {
+        let input = GmailSendInput(kind: .new, draft: PA_GmailDraft())
+        let intent = OperationIntent(toolName: "gmail.message.send", argumentsJSON: arguments(input),
+                                     digest: "digest", mandateID: UUID())
+        let ledger = try FileOperationLedger(root: paTemporaryRoot())
+        _ = try await ledger.prepare(intent)
+        try await ledger.markCommitting(intent.id)
+        try await ledger.markUnknown(intent.id, reason: "进程退出后的结果未知")
+
+        let sent = PA_GmailMessage(id: "provider-message", operationID: intent.id.uuidString, digest: input.digest)
+        let reading = PA_GmailReadingMock()
+        await reading.enqueueSearch(GmailSearchResult(messages: [sent], nextPageToken: nil))
+        let persisted = await ledger.record(id: intent.id)
+        let record = try XCTUnwrap(persisted)
+        let result = await GmailSendReconciler(client: reading, ledger: ledger).reconcile(record)
+
+        guard case .reconciled = result else { return XCTFail("真实账本必须完成对账：\(result)") }
+        let recovered = await ledger.record(id: intent.id)
+        XCTAssertEqual(recovered?.phase, .reconciled)
+        XCTAssertEqual(recovered?.receipt?.providerObjectID, "provider-message")
     }
 
     private func arguments(_ input: GmailSendInput) -> String {

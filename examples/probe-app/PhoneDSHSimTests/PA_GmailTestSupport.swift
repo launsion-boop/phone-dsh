@@ -87,6 +87,15 @@ actor PA_GmailLedger: OperationLedger {
         update(id, phase: .unknown)
         records[id]?.failureReason = reason
     }
+    func reconcile(_ id: UUID, receipt: ProviderReceipt?) throws -> OperationRecord {
+        if let receipt {
+            update(id, phase: .reconciled)
+            records[id]?.receipt = receipt
+        } else {
+            update(id, phase: .unknown)
+        }
+        return records[id]!
+    }
     func pending() -> [OperationRecord] {
         records.values.filter { [.prepared, .undoWindow, .committing, .unknown].contains($0.phase) }
     }
