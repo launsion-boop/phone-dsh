@@ -4,6 +4,7 @@
 import SwiftUI
 
 struct RootView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @State private var chat = ChatModel.shared
 
     var body: some View {
@@ -19,6 +20,9 @@ struct RootView: View {
                     .frame(width: 2, height: 2)
                     .accessibilityHidden(true)
                     .allowsHitTesting(false)
+            }
+            .onChange(of: scenePhase) { _, newPhase in
+                Task { await chat.scenePhaseChanged(newPhase) }
             }
     }
 }
