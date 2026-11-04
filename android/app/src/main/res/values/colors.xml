@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: MIT -->
+<!--
+  The launcher icon's palette. These are not new colours: each one is a value
+  already in `spec/ui/v1/tokens.json` (light side), copied here because an
+  adaptive icon is resolved by the launcher before the app draws anything and
+  therefore cannot go through `PdshTheme` / the generated UiTokenData.
+
+    pdsh_icon_background  <- colors.primary.light  #111114
+    pdsh_icon_mark        <- colors.onAccent.light #FFFFFF
+    pdsh_icon_cursor      <- colors.accent.light   #3964FE
+
+  A token change here would be a token change in the icon; keep the two files in
+  step, and prefer adding a token over inventing a colour.
+-->
+<resources>
+    <color name="pdsh_icon_background">#111114</color>
+    <color name="pdsh_icon_mark">#FFFFFF</color>
+    <color name="pdsh_icon_cursor">#3964FE</color>
+</resources>

@@ -55,6 +55,44 @@ sealed interface WalUplink {
 
         override val watermark: MseqWatermark get() = observed
 
+        /**
+         * Value equality over the watermark.
+         *
+         * Two HELLOs that carry the same three numbers are the same HELLO; the
+         * facade rebuilds this value per send with the live numbers, so identity
+         * equality would make an unchanged HELLO compare unequal to itself. The
+         * capability set is constant for [Up], so it needs no comparison.
+         */
+        override fun equals(other: Any?): Boolean = other is Up && other.observed == observed
+
+        override fun hashCode(): Int = observed.hashCode()
+
+        override fun toString(): String = "WalUplink.Up(${observed.provenance})"
+
+        /**
+         * The same `wal/1` value with a **fresher** watermark.
+         *
+         * A HELLO is sent per connection, and `channel.md` \u00a79.2 makes the
+         * Worker adopt the host's `next_mseq` on every one of them (the bundled
+         * client takes `max(its own, hello.next_mseq)` and re-sends from
+         * `acked_mseq + 1`). So the numbers must be read from the live log at send
+         * time, not once at boot: after an App-side workspace write the boot-time
+         * pair is behind the WAL, and a reconnecting Worker would re-anchor to a
+         * number the log has already spent \u2014 the L77 crash loop.
+         *
+         * @throws IllegalArgumentException when [observed] is not a legal §4.1
+         *   watermark; callers check [MseqWatermark.satisfiesHelloRules] first and
+         *   keep the previous value instead.
+         */
+        internal fun refreshed(observed: MseqWatermark.Observed): Up {
+            require(observed.satisfiesHelloRules) {
+                "wal/1 requires a §4.1-legal watermark (next_mseq >= 1, next_mseq > acked_mseq, " +
+                    "durable_mseq <= acked_mseq); was next_mseq=${observed.nextMseq}, " +
+                    "acked_mseq=${observed.ackedMseq}, durable_mseq=${observed.durableMseq}"
+            }
+            return Up(observed)
+        }
+
         companion object {
             /**
              * Builds the "WAL is on" value.

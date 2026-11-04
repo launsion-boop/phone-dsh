@@ -59,6 +59,8 @@ import { createTarCommand } from './tar.ts'
 import { createToolboxCommands, toolboxCommandNames } from './toolbox-commands.ts'
 import { createTrapCommand } from './trap.ts'
 import { trailerCommand } from './contract.ts'
+import { createUbuntuCommand, getUbuntuCapability } from './ubuntu.ts'
+import type { UbuntuCapability } from './ubuntu.ts'
 
 /** Inputs for the production command table. */
 export interface WorkerCommandOptions {
@@ -86,6 +88,12 @@ export interface WorkerCommandOptions {
    * Compression Streams first, then a real `node:zlib`.
    */
   readonly gzip?: GzipBackendOptions | false | undefined
+  /**
+   * The `ubuntu` capability. Production omits this and reads the boot probe's
+   * answer from the shared global (`getUbuntuCapability`); a test passes it
+   * directly. `false` omits the command even when the global says available.
+   */
+  readonly ubuntu?: UbuntuCapability | false | undefined
 }
 
 /**
@@ -251,12 +259,23 @@ export function createWorkerCommands(options: WorkerCommandOptions = {}): Custom
     commands.push(...createAcceleratorCommands(options.accelerators))
   }
   if (options.curl !== false) commands.push(createCurlCommand(options.curl ?? {}))
+  // The local environment is a host tool, not an accelerator: it is registered
+  // only when the host answered the boot probe, and it needs the same
+  // dispatcher the phone tools ride. An absent answer therefore leaves the name
+  // unregistered, which is the 127 the design requires (design §4.3).
+  const ubuntu = options.ubuntu === false ? undefined : options.ubuntu ?? getUbuntuCapability()
+  const ubuntuDispatcher = options.accelerators
+  const ubuntuHost = ubuntu !== undefined && ubuntuDispatcher !== undefined
+  if (ubuntu !== undefined && ubuntuDispatcher !== undefined) {
+    commands.push(createUbuntuCommand(ubuntuDispatcher, ubuntu))
+  }
   const names = [
     ...options.accelerators?.names ?? [],
     ...installedToolbox?.list().flatMap(command => toolboxCommandNames(command)) ?? [],
     ...options.git === false ? [] : ['git'],
     ...options.gzip === false ? [] : ['gzip', 'gunzip', 'zcat'],
     'tar', 'realpath', 'readlink', 'awk', 'cmp', 'cp', 'od', 'rmdir', 'ls', 'jq',
+    ...ubuntuHost ? ['ubuntu'] : [],
     ...options.whichExtra ?? [],
     ...options.curl === false ? [] : ['curl'],
   ]

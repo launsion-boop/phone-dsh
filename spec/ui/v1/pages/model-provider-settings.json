@@ -95,8 +95,8 @@
       "collection": null,
       "rows": [
         {
-          "id": "action-208",
-          "label": null,
+          "id": "添加模型服务",
+          "label": "添加模型服务",
           "labelExpr": null,
           "kind": "action",
           "value": null,
@@ -105,13 +105,13 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "ModelProviderSettingsPage.swift:208",
-          "anchor": "Button {",
-          "extraction": "manual"
+          "provenance": "ModelProviderSettingsPage.swift:211",
+          "anchor": "SettingsRowLabel(title: NativeText(\"添加模型服务\", \"Add Model Provider\"), icon: \"plus\"",
+          "extraction": "syntax"
         },
         {
-          "id": "action-215",
-          "label": null,
+          "id": "编辑默认服务",
+          "label": "编辑默认服务",
           "labelExpr": null,
           "kind": "action",
           "value": null,
@@ -120,17 +120,18 @@
           "destination": null,
           "writes": false,
           "condition": "let selected = snapshot.selected",
-          "provenance": "ModelProviderSettingsPage.swift:215",
-          "anchor": "Button {",
-          "extraction": "manual"
+          "provenance": "ModelProviderSettingsPage.swift:218",
+          "anchor": "SettingsRowLabel(title: NativeText(\"编辑默认服务\", \"Edit Default Provider\"), icon: \"sl",
+          "extraction": "syntax"
         }
       ],
       "provenance": "ModelProviderSettingsPage.swift:207",
       "anchor": "Section {",
       "extraction": "syntax",
       "criterion": {
-        "kind": "empty",
-        "provenance": "ModelProviderSettingsPage.swift:207"
+        "kind": "first-clickable-row",
+        "label": "添加模型服务",
+        "provenance": "ModelProviderSettingsPage.swift:211"
       },
       "footer": {
         "text": null,
@@ -197,8 +198,8 @@
       "extraction": "syntax"
     },
     {
-      "id": "button-208",
-      "label": null,
+      "id": "添加模型服务",
+      "label": "添加模型服务",
       "labelExpr": null,
       "kind": "button",
       "trigger": "tap",
@@ -206,15 +207,15 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ModelProviderSettingsPage.swift:208",
-      "anchor": "Button {",
-      "extraction": "manual",
+      "provenance": "ModelProviderSettingsPage.swift:211",
+      "anchor": "SettingsRowLabel(title: NativeText(\"添加模型服务\", \"Add Model Provider\"), icon: \"plus\"",
+      "extraction": "syntax",
       "labelAlternatives": [],
       "presents": "sheet-77"
     },
     {
-      "id": "button-215",
-      "label": null,
+      "id": "编辑默认服务",
+      "label": "编辑默认服务",
       "labelExpr": null,
       "kind": "button",
       "trigger": "tap",
@@ -222,9 +223,9 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "ModelProviderSettingsPage.swift:215",
-      "anchor": "Button {",
-      "extraction": "manual",
+      "provenance": "ModelProviderSettingsPage.swift:218",
+      "anchor": "SettingsRowLabel(title: NativeText(\"编辑默认服务\", \"Edit Default Provider\"), icon: \"sl",
+      "extraction": "syntax",
       "labelAlternatives": []
     },
     {
@@ -395,6 +396,7 @@
       "name": "ModelProviderEditorPage",
       "line": 305,
       "private": false,
+      "embedded": true,
       "sections": [
         {
           "title": "连接信息",

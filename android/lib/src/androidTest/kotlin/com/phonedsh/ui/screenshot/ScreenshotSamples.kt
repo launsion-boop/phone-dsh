@@ -9,12 +9,17 @@
 package com.phonedsh.ui.screenshot
 
 import com.phonedsh.ui.page.BusyEnterMode
+import com.phonedsh.ui.page.AutomationFacts
+import com.phonedsh.ui.page.AutomationScreenState
+import com.phonedsh.ui.page.AutomationSnapshot
 import com.phonedsh.ui.page.FactState
 import com.phonedsh.ui.page.PermissionTier
+import com.phonedsh.ui.page.NewSessionBlock
 import com.phonedsh.ui.page.SessionListing
 import com.phonedsh.ui.page.SessionRunStatus
 import com.phonedsh.ui.page.SessionsLocalState
 import com.phonedsh.ui.page.SessionsScreenState
+import com.phonedsh.ui.page.SessionWorkspace
 import com.phonedsh.ui.page.SettingsFacts
 import com.phonedsh.ui.page.SettingsPlatformFacts
 import com.phonedsh.ui.page.WebSearchSummary
@@ -98,7 +103,18 @@ object ScreenshotSamples {
         ),
     )
 
-    /** The chat page with a pending approval: the dock is visible but locked. */
+    /**
+     * `ios-chat-failed` / `page-chat-banner`: a failed turn with the top banner.
+     *
+     * `userFacingError` is set explicitly because this sample builds the screen
+     * state directly instead of going through the projector, which derives it as
+     * `banners.firstOrNull()?.message` (`ChatScreenState.kt:945`). Until L22 only
+     * `banners` was set, so `ChatPage`'s `failedItemID == null &&
+     * userFacingError != null` clause never fired: this state rendered the exact
+     * same PNG as [chatState] and the `page-chat-banner` baseline was a false
+     * green. `PageScreenshotTest` now asserts the banner node is actually on
+     * screen before it captures.
+     */
     fun chatStateWithBanner(): ChatScreenState = chatState().copy(
         phase = ChatPhase.FAILED,
         banners = listOf(
@@ -110,7 +126,13 @@ object ScreenshotSamples {
                 dismissible = true,
             ),
         ),
+        // The field the page's banner clause reads; the projector sets it from
+        // `banners` on the live path, this hand-built sample has to set it too.
+        userFacingError = BANNER_MESSAGE,
     )
+
+    /** The parity suite's name for [chatStateWithBanner]; kept for `ParityScreenshotTest`. */
+    fun chatStateWithTopError(): ChatScreenState = chatStateWithBanner()
 
     /** The sessions page: four statuses, one selected row, one running row. */
     fun sessionsState(): SessionsScreenState = SessionsScreenState.from(
@@ -162,6 +184,174 @@ object ScreenshotSamples {
                 batteryExemption = FactState.NO,
                 predictiveBack = FactState.YES,
             ),
+        ),
+    )
+
+    // ------------------------------------------------- ios-parity profile only
+    //
+    // The three samples below exist because the iOS baseline publishes three chat
+    // states the gate profile never needed (`ios-chat-draft`, `ios-chat-long`,
+    // and the failed turn). They are extra *states*, not extra pages: no page
+    // source had to change for them, which is the point of a state baseline.
+
+    /** The draft length `ios-chat-draft.png` was captured with: exactly 5000 characters. */
+    val LONG_DRAFT: String = run {
+        val unit = "把 PDSH 的像素基线跑一遍，先确认抓到的是真像素。"
+        val text = unit.repeat(5_000 / unit.length + 1).take(5_000)
+        check(text.length == 5_000) { "the long draft must be exactly 5000 characters" }
+        text
+    }
+
+    /** One assistant answer long enough to fill several lines at 402 pt. */
+    const val LONG_ANSWER: String =
+        "同口径采集只保证两件事：同样的视口、同样的状态名。字体栅格属于平台，" +
+            "所以跨平台不做逐像素 diff，只把两张图并排审；Android 自己的 golden 才跑阈值比较。" +
+            "这条回答刻意写长，让长会话状态里能出现换行、行高与段间距。"
+
+    /**
+     * `ios-chat-draft`: empty host + a 5000-character draft.
+     *
+     * The iOS shot shows the composer at its maximum height, which is what the
+     * draft length is here to exercise (`geometry.composerMaxHeight`).
+     */
+    fun chatStateWithLongDraft(): ChatScreenState = chatState().copy(
+        rows = emptyList(),
+        empty = com.phonedsh.ui.state.ChatEmpty.ENGINE_NOT_STARTED,
+        runStatus = com.phonedsh.ui.state.RunStatus.STOPPED,
+        composer = chatState().composer.copy(draft = LONG_DRAFT, canSubmit = true),
+    )
+
+    /**
+     * `ios-chat-long`: six long turns.
+     *
+     * The harness captures the first viewport of the transcript (it has no scroll
+     * position), so this state measures row density and turn spacing, not the
+     * bottom of a long conversation.
+     */
+    fun chatStateLongThread(): ChatScreenState {
+        val rows = buildList {
+            repeat(6) { turn ->
+                add(ChatRow.User("row-user-long-$turn", "$USER_TEXT（第 ${turn + 1} 轮）"))
+                add(ChatRow.Assistant("row-assistant-long-$turn", LONG_ANSWER, closing = true))
+            }
+        }
+        return chatState().copy(rows = rows, expandedRowIds = emptySet())
+    }
+
+    // ------------------------------------------------------ sessions family
+    //
+    // The six `ios-sessions-*.png` drawer states plus the schedules page. Every
+    // state mirrors the baseline's own preview data, not a convenient one:
+    // `DSHManagementModel.installPreviewData` in the iOS probe app builds
+    // `会话Count` rows titled 预览会话 N (every 7th one untitled, starting at
+    // index 3), `updatedAt = now - index hours`, `running = index == 1`, and deals
+    // them across the workspaces by `index % workspaceCount`. The numbers below
+    // are that generator's, so a row's title, its relative time and its folder
+    // are the ones the screenshot shows.
+
+    /** The engine-off sentence the drawer shows under 新建会话 in every capture. */
+    private val engineOff: NewSessionBlock = NewSessionBlock.ENGINE_NOT_STARTED
+
+    /** The host's forced read failure in `ios-sessions-error.png`. */
+    const val SESSIONS_FAILURE: String = "读不到会话"
+
+    /**
+     * The baseline's preview generator for one workspace index.
+     *
+     * @param sessionCount how many sessions the host lists.
+     * @param workspaceCount how many folders it lists; 0 leaves every session
+     *   ungrouped, which is the `ungrouped` state.
+     */
+    private fun previewSessions(
+        sessionCount: Int,
+        workspaceCount: Int,
+    ): Pair<List<SessionListing>, List<SessionWorkspace>> {
+        val ids = (0 until sessionCount).map { "preview-s-$it" }
+        val rows = (0 until sessionCount).map { index ->
+            SessionListing(
+                id = ids[index],
+                // Every 7th index (starting at 3) has no host title: the page
+                // rewords it to 新会话 instead of printing an empty row.
+                title = if (index % 7 == 3) "" else "预览会话 ${index + 1}",
+                updatedAtMs = NOW_MS - index * 3_600_000L,
+                status = if (index == 1) SessionRunStatus.RUNNING else SessionRunStatus.IDLE,
+            )
+        }
+        val folders = (0 until workspaceCount).map { index ->
+            val title = if (index == 0) "项目资料" else "设计稿 $index"
+            SessionWorkspace(
+                id = "preview-ws-$index",
+                title = title,
+                // The model deals sessions by `index % workspaceCount`.
+                sessionIDs = ids.filterIndexed { session, _ ->
+                    session % workspaceCount.coerceAtLeast(1) == index
+                },
+            )
+        }
+        return rows to folders
+    }
+
+    private fun sessionState(
+        sessionCount: Int,
+        workspaceCount: Int,
+        failure: String? = null,
+    ): SessionsScreenState {
+        val (rows, folders) = previewSessions(sessionCount, workspaceCount)
+        return SessionsScreenState.from(
+            sessions = rows,
+            nowMs = NOW_MS,
+            zone = ZONE,
+            failure = failure,
+            workspaces = folders,
+            archivedSessions = emptyList(),
+            newSessionBlock = engineOff,
+        )
+    }
+
+    /**
+     * `ios-sessions-default.png` and `ios-sessions-nothing.png`: no folder, no
+     * session, no archive, engine off — the drawer's big empty block.
+     *
+     * The two iOS shots are the same *state* in two containers: `.sessions`
+     * renders `SessionsPage` directly in the 402 pt window and `sessions.nothing`
+     * wraps it in `DrawerPreview` at 320 pt (`NativeShell.swift:842`, `:872-879`).
+     * Measured, they differ by 74,939 px in y 223.7–398.3 pt: the empty block's
+     * centre (201 vs 159.7), its hint, the CTA width (370 vs 288) and the
+     * new-session separator (57 → 345 vs 16 → 304). No section label differs —
+     * neither shot draws one. Since L73 the page fills its container, so the two
+     * Android captures differ the same way; see
+     * `SessionsParityScreenshotTest.captureSessions(drawer = …)`.
+     */
+    fun sessionsNothing(): SessionsScreenState = sessionState(sessionCount = 0, workspaceCount = 0)
+
+    /** `ios-sessions-empty.png`: two folders, each showing 还没有会话. */
+    fun sessionsEmpty(): SessionsScreenState = sessionState(sessionCount = 0, workspaceCount = 2)
+
+    /** `ios-sessions-many.png`: 40 sessions dealt across two folders (20 each). */
+    fun sessionsMany(): SessionsScreenState = sessionState(sessionCount = 40, workspaceCount = 2)
+
+    /** `ios-sessions-ungrouped.png`: three sessions and no folder at all. */
+    fun sessionsUngrouped(): SessionsScreenState =
+        sessionState(sessionCount = 3, workspaceCount = 0)
+
+    /** `ios-sessions-error.png`: one folder with two rows over a failed read. */
+    fun sessionsError(): SessionsScreenState = sessionState(
+        sessionCount = 2,
+        workspaceCount = 1,
+        failure = SESSIONS_FAILURE,
+    )
+
+    /**
+     * `ios-sessions-schedules.png`: no schedule, plus the host's raw read failure.
+     *
+     * The baseline prints the untranslated probe error verbatim (a real baseline
+     * defect, recorded in `VISUAL.md`); this sample uses the same sentence so the
+     * error row is compared against the same width.
+     */
+    fun automationState(): AutomationScreenState = AutomationScreenState.from(
+        AutomationFacts(
+            snapshot = AutomationSnapshot(schedules = emptyList()),
+            failure = "The operation couldn't be completed. (ProbeKit.ProbeHostError error 3.)",
         ),
     )
 }

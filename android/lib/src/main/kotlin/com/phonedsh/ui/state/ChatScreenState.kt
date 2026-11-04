@@ -24,12 +24,83 @@
 package com.phonedsh.ui.state
 
 import com.phonedsh.agentcore.JsonBool
+import com.phonedsh.agentcore.JsonArray
+import com.phonedsh.agentcore.JsonObject
 import com.phonedsh.agentcore.JsonString
+import com.phonedsh.agentcore.JsonValue
 import com.phonedsh.ui.UiStrings
 import com.phonedsh.ui.projection.UiStateKind
 import com.phonedsh.ui.projection.UiStateNode
+import com.phonedsh.ui.surface.ChatFileChange
 import com.phonedsh.ui.surface.ComposerMode
 import com.phonedsh.ui.surface.ToolRowState
+import com.phonedsh.ui.surface.lineDelta
+import androidx.compose.runtime.Immutable
+import kotlin.math.roundToInt
+
+/** Compact or detailed presentation for the native composer metrics row. */
+public enum class ComposerStatsMode { COMPACT, DETAILED }
+
+/** Session-level activity metrics, present only when the host projection reports them. */
+@Immutable
+public data class SessionStats(
+    public val turns: Long,
+    public val steps: Long,
+    public val llmMs: Double,
+    public val toolMs: Double,
+    public val ttftMs: Double,
+    public val ttftSteps: Long,
+    public val decodeMs: Double,
+    public val decodeTokens: Long,
+) {
+    public val tokensPerSecond: Double? get() = if (decodeMs > 0) decodeTokens / (decodeMs / 1_000.0) else null
+}
+
+/** Session-level token counters. A missing object stays unavailable. */
+@Immutable
+public data class SessionTokenUsage(
+    public val uncachedInputTokens: Long,
+    public val outputTokens: Long,
+    public val cacheReadTokens: Long,
+    public val cacheWriteTokens: Long,
+) {
+    init {
+        require(safeTokenSum(uncachedInputTokens, cacheReadTokens, cacheWriteTokens, outputTokens) != null) {
+            "session token totals exceed the supported integer range"
+        }
+    }
+    public val billedInputTokens: Long get() = safeTokenSum(uncachedInputTokens, cacheReadTokens, cacheWriteTokens)!!
+    public val totalTokens: Long get() = safeTokenSum(uncachedInputTokens, cacheReadTokens, cacheWriteTokens, outputTokens)!!
+    public val cacheHitPercent: Double? get() = if (billedInputTokens > 0) cacheReadTokens * 100.0 / billedInputTokens else null
+}
+
+private fun safeTokenSum(vararg values: Long): Long? {
+    var sum = 0L
+    for (value in values) {
+        if (value < 0 || Long.MAX_VALUE - sum < value) return null
+        sum += value
+    }
+    return sum
+}
+
+@Immutable
+public data class ContextPressure(
+    public val pressureTokens: Long?,
+    public val projectedTokens: Long?,
+    public val contextWindow: Long,
+) {
+    public val usedTokens: Long? get() = projectedTokens ?: pressureTokens
+    public val percent: Int? get() = usedTokens?.let {
+        (it * 100.0 / contextWindow).roundToInt().coerceIn(0, 100)
+    }
+}
+
+@Immutable
+public data class ContextBreakdown(
+    public val systemTokens: Long,
+    public val toolsTokens: Long,
+    public val messageTokens: Long,
+)
 
 /** What the page shows around the list. */
 public enum class ChatPhase {
@@ -82,7 +153,54 @@ public data class ToolEntry(
     public val banner: String = "",
     public val body: String = "",
     public val filePath: String? = null,
-)
+    /** Structured `tool/call.arguments`, retained for native per-tool details. */
+    public val arguments: JsonObject? = null,
+    /** Tool-result metadata when the host event supplied it. */
+    public val metadata: JsonObject? = null,
+    /** Number of host call/result events folded into this visual entry. */
+    public val sourceEventCount: Int = 1,
+    /** Tool kind derived from the actual tool name, never from its prose output. */
+    public val variant: ToolVariant = ToolVariant.fromName(title),
+) {
+    /** The common iOS tool-row title mapping; unknown names keep their received label. */
+    public val displayTitle: String
+        get() = when (title) {
+            "bash", "pwsh", "exec_command", "write_stdin" -> "运行命令"
+            "read" -> "读取"
+            "read_image" -> "读取图片"
+            "grep" -> "搜索文件内容"
+            "glob" -> "查找文件"
+            "web_search" -> "网页搜索"
+            "web_fetch" -> "网页获取"
+            "edit", "apply_patch", "str_replace_editor" -> "编辑"
+            "write" -> "写入"
+            "todo_write" -> "更新任务清单"
+            "ask_user_question", "request_user_input" -> "提问"
+            "exit_plan_mode" -> "提交计划"
+            else -> title
+        }
+}
+
+/** Tool-detail families used by iOS `NativeToolCallModel`. */
+public enum class ToolVariant {
+    BASH, READ, WRITE, EDIT, SEARCH, WEB_SEARCH, WEB_FETCH, QUESTION, PLAN, TODO, GENERIC;
+
+    public companion object {
+        public fun fromName(name: String): ToolVariant = when (name) {
+            "bash", "pwsh", "exec_command", "write_stdin" -> BASH
+            "read", "read_image" -> READ
+            "write" -> WRITE
+            "edit", "apply_patch", "str_replace_editor" -> EDIT
+            "grep", "glob", "session_search", "session_event_search", "session_trace" -> SEARCH
+            "web_search" -> WEB_SEARCH
+            "web_fetch" -> WEB_FETCH
+            "ask_user_question", "request_user_input" -> QUESTION
+            "exit_plan_mode" -> PLAN
+            "todo_write" -> TODO
+            else -> if (name.startsWith("terminal_")) BASH else GENERIC
+        }
+    }
+}
 
 /**
  * One injected context block (iOS `NativeContextSourceGroup`).
@@ -132,12 +250,17 @@ public sealed interface ChatRow {
      *   host today, so it stays false and no halo/spinner is drawn.
      * @param closing true for the last assistant row of a closed turn, which is
      *   the only row iOS attaches the turn-wide actions to.
+     * @param changes the files the closed turn edited, in tool-call order; empty
+     *   hides the "已编辑 N 个文件" card. The row renderer draws it under the body,
+     *   the way `NativeChangedFilesCard.swift` sits inside `assistantBody`.
      */
     public data class Assistant(
         override val id: String,
         public val text: String,
         public val streaming: Boolean = false,
         public val closing: Boolean = false,
+        public val changes: List<ChatFileChange> = emptyList(),
+        public val usage: TurnUsage? = null,
     ) : ChatRow
 
     /** A reasoning row (iOS `NativeThinkingRow`). */
@@ -145,6 +268,10 @@ public sealed interface ChatRow {
         override val id: String,
         public val summary: String,
         public val streaming: Boolean,
+        /** Bounded source reasoning for disclosure; null when only a summary was supplied. */
+        public val fullReasoning: String? = null,
+        /** Whether [fullReasoning] lost source text to the UiState text limit; null for older hosts. */
+        public val fullReasoningTruncated: Boolean? = null,
     ) : ChatRow
 
     /**
@@ -167,14 +294,54 @@ public sealed interface ChatRow {
         /** The first line's tool name. */
         public val title: String get() = entries.firstOrNull()?.title.orEmpty()
 
-        /** The last line's summary. */
-        public val summary: String get() = entries.lastOrNull()?.summary.orEmpty()
+        /** The renderer's one-line preview; complete output remains in each entry's body. */
+        public val summary: String get() = entries.lastOrNull()?.summary?.lineSequence()?.firstOrNull().orEmpty()
     }
+
+    /** Consecutive reasoning and tool activity for one turn (iOS process group). */
+    public data class ProcessGroup(
+        override val id: String,
+        public val turnID: String,
+        public val entries: List<ChatRow>,
+        public val categories: List<ChatProcessCategory>,
+        public val title: String,
+        public val running: Boolean,
+        public val showsHeader: Boolean,
+    ) : ChatRow
+
+    /** Closed-turn control row; its entries are the foldable body before the final answer. */
+    public data class TurnProcess(
+        override val id: String,
+        public val turnID: String,
+        public val outcome: ChatTurnState,
+        public val elapsedMillis: Long? = null,
+        public val foldable: Boolean = false,
+        public val expanded: Boolean = false,
+        public val entries: List<ChatRow> = emptyList(),
+        public val closingAssistant: Assistant? = null,
+    ) : ChatRow
+
+    /** One closed turn's action row; optional host facts remain absent. */
+    public data class TurnTail(
+        override val id: String,
+        public val turnID: String,
+        public val assistantText: String,
+        public val timeMillis: Long? = null,
+        public val usage: TurnUsage? = null,
+        public val feedbackAvailable: Boolean = false,
+        public val branchAvailable: Boolean = false,
+    ) : ChatRow
 
     /** Consecutive injected context blocks, folded into one disclosure line. */
     public data class Context(
         override val id: String,
         public val entries: List<ContextEntry>,
+    ) : ChatRow
+
+    /** A late answer to a prior question request (iOS `NativeQuestionReplyBubble`). */
+    public data class QuestionReply(
+        override val id: String,
+        public val text: String,
     ) : ChatRow
 
     /**
@@ -191,6 +358,77 @@ public sealed interface ChatRow {
     ) : ChatRow
 }
 
+/** The outcomes the iOS turn-process control can display. */
+public enum class ChatTurnState { RUNNING, COMPLETED, STOPPED, FAILED }
+
+/** Only measured token counters are retained; missing counts are not zero-filled. */
+public data class TurnUsage(
+    public val inputTokens: Long? = null,
+    public val outputTokens: Long? = null,
+) {
+    public val totalTokens: Long? get() = if (inputTokens != null && outputTokens != null) inputTokens + outputTokens else null
+}
+
+/** Activity categories and title rules mirrored from iOS `NativeProcessGroupModel`. */
+public enum class ChatProcessCategory(
+    public val runningLabel: String,
+    public val finishedLabel: String,
+) {
+    THINKING("正在分析请求", "已完成分析"),
+    READ("正在读取文件", "已读取文件"),
+    READ_IMAGE("正在读取图片", "已读取图片"),
+    SEARCH("正在搜索代码", "已搜索代码"),
+    EDIT("正在编辑文件", "修改了文件"),
+    WRITE("正在写入文件", "已写入文件"),
+    COMMANDS("正在运行命令", "执行了命令"),
+    CODE("正在运行代码", "运行了代码"),
+    WEB_SEARCH("正在搜索网页", "已搜索网页"),
+    WEB_FETCH("正在访问网页", "已访问网页"),
+    SUBAGENTS("正在协调子智能体", "已协调子智能体"),
+    PLAN("正在更新计划", "更新了计划"),
+    QUESTIONS("等待你的操作", "向用户提出了问题"),
+    TOOLS("正在调用工具", "已调用工具"),
+    ;
+
+    public companion object {
+        public fun forTool(name: String): ChatProcessCategory = when (name) {
+            "read" -> READ
+            "read_image" -> READ_IMAGE
+            "grep", "glob", "session_search", "session_event_search", "session_trace" -> SEARCH
+            "edit", "apply_patch", "str_replace_editor" -> EDIT
+            "write" -> WRITE
+            "bash", "pwsh", "exec_command", "write_stdin" -> COMMANDS
+            "run_code" -> CODE
+            "web_search" -> WEB_SEARCH
+            "web_fetch" -> WEB_FETCH
+            "subagent", "list_agents", "list_subagent_models", "send_message", "wait_agent",
+            "interrupt_agent", "spawn_teammate" -> SUBAGENTS
+            "todo_write", "exit_plan_mode" -> PLAN
+            "ask_user_question", "request_user_input" -> QUESTIONS
+            else -> if (name.startsWith("terminal_")) COMMANDS else TOOLS
+        }
+
+        public fun title(categories: List<ChatProcessCategory>, running: Boolean): String {
+            val unique = categories.distinct()
+            val first = unique.firstOrNull() ?: THINKING
+            if (running) {
+                return if (unique.size == 1) first.runningLabel
+                else unique.joinToString("，") { it.runningLabel } + "等"
+            }
+            if (unique.size == 1) return first.finishedLabel
+            if (unique.size == 2) {
+                val second = unique[1].finishedLabel
+                return if (first.finishedLabel.startsWith("已") && second.startsWith("已")) {
+                    first.finishedLabel + "并" + second.drop(1)
+                } else {
+                    first.finishedLabel + "并" + second
+                }
+            }
+            return unique.take(3).joinToString("，") { it.finishedLabel } + "等"
+        }
+    }
+}
+
 /** A pending ask the user still has to answer. */
 public data class PendingAnswer(
     public val id: String,
@@ -202,7 +440,69 @@ public data class PendingAnswer(
     public val options: List<String> = emptyList(),
     /** A question that accepts several answers (iOS `HarnessQuestionItem.multiple`). */
     public val multiple: Boolean = false,
+    /** Structured question content when the host supplied it. Missing metadata stays null. */
+    public val questionItems: List<PendingQuestionItem> = emptyList(),
+    /** Submission facts are nullable because the event stream does not report them. */
+    public val submitting: Boolean? = null,
+    public val submissionError: String? = null,
+    public val channelAvailable: Boolean? = null,
+    public val initialProgress: PendingQuestionProgress? = null,
+    public val form: QuestionFormState? = null,
+    public val actionState: PendingAnswerActionState? = null,
+) {
+    public val typedRequestId: StateRequestId get() = StateRequestId(requestId)
+}
+
+public enum class PendingAnswerAction { SUBMIT, DISCARD, MINIMISE, REOPEN }
+public enum class PendingAnswerActionStatus { PENDING, SUCCEEDED, FAILED }
+public data class PendingAnswerActionState(
+    public val requestId: StateRequestId,
+    public val action: PendingAnswerAction,
+    public val status: PendingAnswerActionStatus,
+    public val error: String? = null,
 )
+
+/** One option label and optional host-provided description. */
+public data class PendingQuestionOption(
+    public val label: String,
+    public val description: String? = null,
+)
+
+/** The independently answerable question shape used by the native question UI. */
+public data class PendingQuestionItem(
+    public val id: String,
+    public val header: String? = null,
+    public val prompt: String,
+    public val detail: String? = null,
+    public val options: List<PendingQuestionOption> = emptyList(),
+    public val multiple: Boolean = false,
+    public val intentKind: String? = null,
+    public val approveWireLabel: String? = null,
+    public val recommendedWireLabel: String? = null,
+)
+
+/** A host-reported question step and any prefilled answers; absent until reported. */
+public data class PendingQuestionProgress(
+    public val index: Int,
+    public val drafts: Map<String, List<String>> = emptyMap(),
+    public val customAnswers: Map<String, String> = emptyMap(),
+)
+
+/** Local form state keeps each question's multiple selections and custom text separately. */
+public data class QuestionFormState(
+    public val index: Int,
+    public val questionIds: List<String>,
+    public val answers: Map<String, List<String>> = emptyMap(),
+    public val customAnswers: Map<String, String> = emptyMap(),
+) {
+    public val currentQuestionId: String? get() = questionIds.getOrNull(index)
+    public val canGoBack: Boolean get() = index > 0 && index < questionIds.size
+    public val canGoForward: Boolean get() = index >= 0 && index + 1 < questionIds.size
+    public val missingRequiredQuestionIds: List<String> get() = questionIds.filter { id ->
+        answers[id].orEmpty().none { it.isNotBlank() } && customAnswers[id].isNullOrBlank()
+    }
+    public val complete: Boolean get() = missingRequiredQuestionIds.isEmpty()
+}
 
 /**
  * The pending-answer slot: at most two asks, the primary card on top and the
@@ -294,6 +594,19 @@ public enum class RunStatus {
     STOPPED,
 }
 
+/** Host state needed for visible status, restart acknowledgement, and send-to-start. */
+public enum class EngineLifecycleStatus { UNKNOWN, STOPPED, STARTING, RUNNING, RECOVERING, FAILED }
+
+/** One measured lifecycle snapshot, shared by Chat and the General settings tab. */
+@Immutable
+public data class EngineLifecycleFacts(
+    public val status: EngineLifecycleStatus = EngineLifecycleStatus.UNKNOWN,
+    /** The host's safe state label, when it has one; never an error payload. */
+    public val statusLabel: String? = null,
+    public val needsReset: Boolean = false,
+    public val canStartBySending: Boolean = false,
+)
+
 /**
  * Which of the three mutually exclusive empty states the transcript shows
  * (iOS `emptyTimeline`: engine, provider, ready).
@@ -313,6 +626,8 @@ public enum class ChatEmpty {
 public data class ComposerCommand(
     public val name: String,
     public val description: String,
+    /** Whether this command accepts an input value (host registry declaration). */
+    public val hasInput: Boolean = true,
 )
 
 /** The in-place `/` menu: loading, a failure, matches, or "no match". */
@@ -356,6 +671,8 @@ public data class AccessModeMenu(
     public val error: String? = null,
     /** False while a turn runs or an ask is pending (iOS disables the menu). */
     public val enabled: Boolean = false,
+    /** Null while the host has not reported whether the catalog read completed. */
+    public val catalogLoaded: Boolean? = null,
 ) {
     /** iOS `accessModeTitle`: the current title, or the bare product word. */
     public val label: String get() = currentTitle ?: UiStrings.ACCESS_MODE_TITLE_FALLBACK
@@ -388,6 +705,8 @@ public data class ModelMenu(
     public val defaultEffortTitle: String = UiStrings.MODEL_DEFAULT_EFFORT,
     /** False while a turn runs or an ask is pending (iOS disables the menu). */
     public val enabled: Boolean = false,
+    /** Null while the host has not reported whether the catalog read completed. */
+    public val catalogLoaded: Boolean? = null,
 ) {
     /** True when the host reports no model catalog at all. */
     public val unavailable: Boolean get() = models.isEmpty() && modelName.isEmpty()
@@ -431,21 +750,50 @@ public data class ChatHostFacts(
     public val accessModes: List<AccessModeOption> = emptyList(),
     public val currentAccessMode: AccessModeOption? = null,
     public val accessModeError: String? = null,
+    public val accessModesLoaded: Boolean? = null,
     /** The model catalog. */
     public val models: List<String> = emptyList(),
     public val currentModel: String? = null,
     public val effortTitle: String? = null,
     public val efforts: List<EffortOption> = emptyList(),
     public val currentEffort: String? = null,
+    public val modelsLoaded: Boolean? = null,
     public val defaultEffortTitle: String = UiStrings.MODEL_DEFAULT_EFFORT,
     /** Workspace relative paths for the `@` menu. */
     public val files: List<String> = emptyList(),
     /** Session titles for the `@` menu. */
     public val sessionTitles: List<String> = emptyList(),
+    /** Worker session id for request-bound queue/steer/stop commands; null before one exists. */
+    public val workerSessionID: String? = null,
     /** The permissions menu is mid-write (iOS `isSelectingAccessMode`). */
     public val selectingAccessMode: Boolean = false,
     /** The estimated context-window share; `null` hides the ring. */
     public val contextPercent: Int? = null,
+    /** Current authoritative session-projection todos, when the host provides them. */
+    public val todoItems: List<TodoDockItem> = emptyList(),
+    /** Whether any phone agent/device is online; null means the host did not read it. */
+    public val hasOnlineDevices: Boolean? = null,
+    /** Host lifecycle details; `null` means not measured by this caller. */
+    public val lifecycle: EngineLifecycleFacts? = null,
+    /** Host-owned plan state; null means the host has not supplied a snapshot. */
+    public val plan: PlanApprovalState? = null,
+    public val queueItems: List<ManagedQueueItemState>? = null,
+    public val commandReceipts: List<CommandExecutionReceipt>? = null,
+    public val artifacts: List<ArtifactReference>? = null,
+    public val contextLost: ContextLostReceipt? = null,
+    public val snapshotRevision: StateRevision? = null,
+    public val sessionStats: SessionStats? = null,
+    public val tokenUsage: SessionTokenUsage? = null,
+    public val contextPressure: ContextPressure? = null,
+    public val contextBreakdown: ContextBreakdown? = null,
+    public val composerStatsMode: ComposerStatsMode = ComposerStatsMode.DETAILED,
+)
+
+/** One todo row from `session/projections.values.todos`; status remains a wire fact. */
+public data class TodoDockItem(
+    public val id: String,
+    public val content: String,
+    public val status: String,
 )
 
 /** What the Enter key does while a turn runs (iOS `busyEnterMode`). */
@@ -498,8 +846,16 @@ public sealed interface GoalBarState {
     public data class Visible(
         public val phase: String,
         public val objective: String,
+        /** Parsed host lifecycle phase; null when an unknown phase word was received. */
+        public val phaseKind: GoalPhase? = null,
+        public val goalID: String? = null,
+        public val canPause: Boolean? = null,
+        public val canResume: Boolean? = null,
+        public val canClear: Boolean? = null,
     ) : GoalBarState
 }
+
+public enum class GoalPhase { ACTIVE, PAUSED, BLOCKED }
 
 /**
  * The local UI events of the screen. Nothing here is inferred from the engine:
@@ -509,6 +865,8 @@ public data class ChatLocalState(
     public val draft: String = "",
     /** Request ids the user already answered; their cards leave the slot. */
     public val answeredRequestIds: Set<String> = emptySet(),
+    /** Typed, request-correlated pending-card action state; failed submissions retain input. */
+    public val pendingAnswerActions: Map<StateRequestId, PendingAnswerActionState> = emptyMap(),
     /** Banner node ids the user dismissed. */
     public val dismissedBannerIds: Set<String> = emptySet(),
     /** Rows the user expanded (tool entry ids and thinking pill ids). */
@@ -528,11 +886,205 @@ public data class ChatLocalState(
     public val imeVisible: Boolean = false,
     /** The user tapped the folded slot to see the asks while the keyboard is up. */
     public val pendingSlotExpanded: Boolean = false,
+    /** Session whose transient form state this belongs to, when known. */
+    public val sessionID: String? = null,
 )
+
+/** Opaque, typed request identity used to correlate async responses. */
+@JvmInline
+public value class StateRequestId(public val value: String)
+
+/** A monotonically increasing host revision; absent revisions remain unknown. */
+@JvmInline
+public value class StateRevision(public val value: Long) : Comparable<StateRevision> {
+    override fun compareTo(other: StateRevision): Int = value.compareTo(other.value)
+}
+
+/** Session-scoped revisioned snapshot. A different session is never implicitly adopted. */
+public data class RevisionedSnapshot<T>(
+    public val sessionID: String,
+    public val revision: StateRevision,
+    public val value: T,
+)
+
+/** Only an explicit user switch or a host-confirmed not-found may bind another session. */
+public enum class SessionChangeCause { USER_SELECTED, SESSION_NOT_FOUND, RESTORE, INCIDENTAL_RESPONSE }
+
+public sealed interface SessionBindingResult {
+    public data class Bound(public val sessionID: String) : SessionBindingResult
+    public data class Retained(public val sessionID: String, public val rejectedSessionID: String) : SessionBindingResult
+}
+
+public fun bindSession(
+    currentSessionID: String,
+    requestedSessionID: String,
+    cause: SessionChangeCause,
+): SessionBindingResult = when {
+    currentSessionID == requestedSessionID -> SessionBindingResult.Bound(currentSessionID)
+    cause == SessionChangeCause.USER_SELECTED || cause == SessionChangeCause.SESSION_NOT_FOUND ->
+        SessionBindingResult.Bound(requestedSessionID)
+    else -> SessionBindingResult.Retained(currentSessionID, requestedSessionID)
+}
+
+/** Result of considering a snapshot update against current session and revision. */
+public sealed interface SnapshotUpdate<out T> {
+    public data class Applied<T>(public val snapshot: RevisionedSnapshot<T>) : SnapshotUpdate<T>
+    public data class IgnoredOlder<T>(public val current: RevisionedSnapshot<T>) : SnapshotUpdate<T>
+    public data class WrongSession<T>(public val expectedSessionID: String, public val receivedSessionID: String) : SnapshotUpdate<T>
+}
+
+/** Pure serialized/coalesced snapshot acceptance; late old snapshots cannot overwrite newer facts. */
+public fun <T> acceptSnapshot(
+    current: RevisionedSnapshot<T>?,
+    expectedSessionID: String,
+    incoming: RevisionedSnapshot<T>,
+): SnapshotUpdate<T> = when {
+    incoming.sessionID != expectedSessionID -> SnapshotUpdate.WrongSession(expectedSessionID, incoming.sessionID)
+    current != null && current.sessionID == expectedSessionID && incoming.revision <= current.revision ->
+        SnapshotUpdate.IgnoredOlder(current)
+    else -> SnapshotUpdate.Applied(incoming)
+}
+
+/** A typed request may settle state only while it still owns that state slot. */
+public data class StateRequest<T>(
+    public val id: StateRequestId,
+    public val sessionID: String,
+    public val revision: StateRevision,
+    public val value: T,
+)
+
+public fun <T> StateRequest<T>.isCurrent(
+    activeRequestId: StateRequestId?,
+    activeSessionID: String,
+    minimumRevision: StateRevision?,
+): Boolean = id == activeRequestId && sessionID == activeSessionID &&
+    (minimumRevision == null || revision >= minimumRevision)
+
+/** Submitted `exit_plan_mode` content and explicit host approval status. */
+public data class PlanApprovalState(
+    public val requestId: StateRequestId,
+    public val markdown: String,
+    public val status: PlanApprovalStatus = PlanApprovalStatus.PENDING,
+    public val submissionError: String? = null,
+)
+
+public enum class PlanApprovalStatus { PENDING, APPROVED, REJECTED, DISMISSED }
+
+/** Host-confirmed command result; callbacks alone are not a receipt. */
+public data class CommandExecutionReceipt(
+    public val requestId: StateRequestId,
+    public val command: String,
+    public val input: String? = null,
+    public val outcome: CommandOutcome,
+    public val message: String? = null,
+)
+
+public enum class CommandOutcome { SUCCEEDED, FAILED }
+
+/** An artifact may be explicitly turn/session scoped or unattributed. */
+public data class ArtifactReference(
+    public val id: String,
+    public val name: String,
+    public val path: String? = null,
+    public val scope: ArtifactScope = ArtifactScope.UNKNOWN,
+    public val sessionID: String? = null,
+    public val turnID: String? = null,
+)
+
+public enum class ArtifactScope { TURN, SESSION, UNKNOWN }
+
+/** Durable context-loss fact kept visible after a failed action or restore. */
+public data class ContextLostReceipt(
+    public val requestId: StateRequestId,
+    public val sessionID: String,
+    public val message: String,
+    public val contextID: String? = null,
+)
+
+/** Stable queue row: durable and local identifiers are distinct by construction. */
+public data class ManagedQueueItemState(
+    public val id: QueueItemId,
+    public val text: String,
+    public val state: QueueItemStatus? = null,
+    public val canEdit: Boolean? = null,
+    public val canRemove: Boolean? = null,
+    public val canSteer: Boolean? = null,
+    public val busy: Boolean? = null,
+    public val actionRequestId: StateRequestId? = null,
+    public val receipt: QueueActionReceipt? = null,
+    /** Worker session that owns the durable inbox item; null for local-only rows. */
+    public val sessionId: String? = null,
+    public val lane: String? = null,
+    /** Stable backend prompt identity for a locally pending queue/steer submission. */
+    public val promptRequestId: StateRequestId? = null,
+)
+
+public data class QueueActionReceipt(
+    public val requestId: StateRequestId,
+    public val action: QueueAction,
+    public val outcome: CommandOutcome,
+    public val message: String? = null,
+    public val sessionId: String? = null,
+    public val itemId: String? = null,
+)
+
+public enum class QueueAction { QUEUE, EDIT, REMOVE, STEER }
+
+public sealed interface QueueItemId {
+    public data class Durable(public val value: String) : QueueItemId
+    public data class Local(public val value: String) : QueueItemId
+}
+
+public enum class QueueItemStatus { QUEUED, SENDING, STEERED }
+
+/**
+ * Durable rows keep their actionable IDs; local echoes are never paired by text.
+ *
+ * DSH's QueueDock removes a pending submission once its `source.rpcId` appears
+ * in the inbox. The same identity rule applies here: a durable row replaces the
+ * local echo for that exact backend prompt, including a failed echo left by an
+ * ambiguous prompt response.
+ */
+public fun reconcileQueueRows(
+    durable: List<ManagedQueueItemState>,
+    local: List<ManagedQueueItemState>,
+): List<ManagedQueueItemState> {
+    val durablePromptIds = durable.mapNotNull { it.promptRequestId }.toSet()
+    return durable + local.filterNot { item ->
+        item.promptRequestId != null && item.promptRequestId in durablePromptIds
+    }
+}
+
+/** Retire only the local echo for the exact backend prompt acknowledged and read back. */
+public fun retireAcceptedQueuePrompt(
+    local: List<ManagedQueueItemState>,
+    promptRequestId: StateRequestId,
+): List<ManagedQueueItemState> = local.filterNot { item ->
+    item.id is QueueItemId.Local && item.promptRequestId == promptRequestId
+}
+
+/**
+ * A live inbox proves acceptance of every local echo whose backend rpcId it
+ * carries. Retire those echoes instead of only hiding them at render time: once
+ * the durable row is consumed, a retained echo would reappear as a ghost row.
+ */
+public fun retireQueuePromptsPresentIn(
+    local: List<ManagedQueueItemState>,
+    durable: List<ManagedQueueItemState>,
+): List<ManagedQueueItemState> {
+    if (local.isEmpty() || durable.isEmpty()) return local
+    val observed = durable.mapNotNull { it.promptRequestId }.toSet()
+    if (observed.isEmpty()) return local
+    return local.filterNot { item ->
+        item.promptRequestId != null && item.promptRequestId in observed
+    }
+}
 
 /** The complete screen state of the chat page. */
 public data class ChatScreenState(
     public val sessionID: String,
+    /** Worker session id for management RPCs; absent before the first Worker session exists. */
+    public val workerSessionID: String? = null,
     public val phase: ChatPhase,
     public val rows: List<ChatRow>,
     public val pending: PendingSlot,
@@ -572,6 +1124,23 @@ public data class ChatScreenState(
     public val modelMenu: ModelMenu = ModelMenu(),
     /** The estimated share of the context window in use; `null` hides the ring. */
     public val contextPercent: Int? = null,
+    /** The host's current todo snapshot; empty means no rows were supplied. */
+    public val todoItems: List<TodoDockItem> = emptyList(),
+    /** The phone status icon's online marker; null hides only the marker. */
+    public val hasOnlineDevices: Boolean? = null,
+    /** The host lifecycle facts the page can render and use to unlock send-to-start. */
+    public val lifecycle: EngineLifecycleFacts? = null,
+    public val plan: PlanApprovalState? = null,
+    public val queueItems: List<ManagedQueueItemState>? = null,
+    public val commandReceipts: List<CommandExecutionReceipt>? = null,
+    public val artifacts: List<ArtifactReference>? = null,
+    public val contextLost: ContextLostReceipt? = null,
+    public val snapshotRevision: StateRevision? = null,
+    public val sessionStats: SessionStats? = null,
+    public val tokenUsage: SessionTokenUsage? = null,
+    public val contextPressure: ContextPressure? = null,
+    public val contextBreakdown: ContextBreakdown? = null,
+    public val composerStatsMode: ComposerStatsMode = ComposerStatsMode.DETAILED,
 ) {
     /** True when the list has nothing to show yet. */
     public val isEmpty: Boolean get() = rows.isEmpty()
@@ -600,6 +1169,17 @@ public data class ChatScreenState(
             val sessionID = nodes.firstOrNull { it.kind == UiStateKind.SESSION }?.sessionID
                 ?: nodes.firstOrNull()?.sessionID
                 ?: ""
+            // Session-bound transient forms and queue markers must not leak to a
+            // different session. Preserve the draft so a switch cannot silently
+            // discard user input; clear only state that names prior-session rows.
+            val uiLocal = if (local.sessionID != null && local.sessionID != sessionID) {
+                local.copy(
+                    answeredRequestIds = emptySet(), dismissedBannerIds = emptySet(),
+                    pendingAnswerActions = emptyMap(),
+                    expandedRowIds = emptySet(), badges = emptyMap(), attachments = emptyList(),
+                    attachmentError = null, fileImportNotice = null, pendingSlotExpanded = false,
+                )
+            } else local
             val rows = mutableListOf<ChatRow>()
             val pending = mutableListOf<PendingAnswer>()
             val banners = mutableListOf<BannerState>()
@@ -617,7 +1197,13 @@ public data class ChatScreenState(
 
             fun flushRun() {
                 val builder = run ?: return
-                rows.add(builder.build())
+                // A row with nothing to say is not a row. On a restored session the
+                // host's result node can arrive without a name and without output
+                // (the call/result pair lost its `callId`), and the page painted a
+                // bare `工具调用 ·` line for each of them — two per call, on the
+                // real transcript. iOS only draws a line it can name.
+                val built = builder.build()
+                if (built.entries.isNotEmpty()) rows.add(built)
                 run = null
             }
 
@@ -657,14 +1243,23 @@ public data class ChatScreenState(
                         val role = node.props.string("role")
                         val text = node.text.orEmpty()
                         if (role == "assistant") {
+                            node.props.string("reasoning")?.takeIf { it.isNotBlank() }?.let { reasoning ->
+                                rows.add(ChatRow.Thinking(id = "${node.nodeID}/reasoning", summary = reasoning, streaming = false))
+                            }
                             assistantTurns[node.nodeID] = node.nodeID.substringBefore("/event/")
-                            rows.add(ChatRow.Assistant(node.nodeID, text))
+                            rows.add(
+                                ChatRow.Assistant(
+                                    id = node.nodeID,
+                                    text = text,
+                                    usage = node.props.usage(),
+                                ),
+                            )
                         } else {
                             rows.add(
                                 ChatRow.User(
                                     id = node.nodeID,
                                     text = text,
-                                    badge = local.badges[node.nodeID],
+                                    badge = uiLocal.badges[node.nodeID],
                                 ),
                             )
                         }
@@ -672,6 +1267,10 @@ public data class ChatScreenState(
 
                     UiStateKind.CONTEXT -> {
                         flushRun()
+                        if (node.props.string("source") == QUESTION_REPLY_SOURCE) {
+                            rows.add(ChatRow.QuestionReply(node.nodeID, node.text.orEmpty()))
+                            return@forEach
+                        }
                         val entry = ContextEntry(
                             // The host source name stays un-translated here; the row
                             // renderer calls `contextSourceName` and hides a word it
@@ -697,6 +1296,8 @@ public data class ChatScreenState(
                                 id = node.nodeID,
                                 summary = node.text.orEmpty(),
                                 streaming = node.props.boolean("streaming"),
+                                fullReasoning = node.props.string("fullReasoning"),
+                                fullReasoningTruncated = node.props.nullableBoolean("fullReasoningTruncated"),
                             ),
                         )
                     }
@@ -746,7 +1347,7 @@ public data class ChatScreenState(
                     UiStateKind.APPROVAL_CARD -> {
                         flushRun()
                         val requestId = node.props.string("requestId") ?: node.nodeID
-                        if (requestId in local.answeredRequestIds) return@forEach
+                        if (requestId in uiLocal.answeredRequestIds) return@forEach
                         val kind = node.props.string("kind") ?: PERMISSION
                         pending.add(
                             PendingAnswer(
@@ -761,6 +1362,13 @@ public data class ChatScreenState(
                                 subtitle = node.text.orEmpty(),
                                 options = node.props.stringList("options"),
                                 multiple = node.props.boolean("multiple"),
+                                questionItems = node.props.questionItems(),
+                                submitting = node.props.nullableBoolean("submitting"),
+                                submissionError = node.props.string("submissionError"),
+                                channelAvailable = node.props.nullableBoolean("channelAvailable"),
+                                initialProgress = node.props.questionProgress(),
+                                form = node.props.questionForm(),
+                                actionState = uiLocal.pendingAnswerActions[StateRequestId(requestId)],
                             ),
                         )
                     }
@@ -769,7 +1377,7 @@ public data class ChatScreenState(
                         flushRun()
                         val reason = node.props.string("reason") ?: "error"
                         failed = true
-                        if (node.nodeID !in local.dismissedBannerIds) {
+                        if (node.nodeID !in uiLocal.dismissedBannerIds) {
                             banners.add(
                                 BannerState(
                                     id = node.nodeID,
@@ -821,18 +1429,26 @@ public data class ChatScreenState(
             }
 
             // iOS `isTurnClosingAssistant`: the turn's last assistant row carries the
-            // turn-wide actions; only a *closed* turn has one.
+            // turn-wide actions; only a *closed* turn has one. The same row also
+            // carries the turn's changed files (`NativeTranscriptProjector.changes`),
+            // because iOS renders that card inside `assistantBody` (`ChatPage.swift:3699`).
             val closed = settled.map { row ->
-                if (row is ChatRow.Assistant && assistantTurns[row.id]?.let { it !in openTurns } == true) {
-                    val turn = assistantTurns[row.id]
+                val turn = if (row is ChatRow.Assistant) assistantTurns[row.id] else null
+                if (row is ChatRow.Assistant && turn != null && turn !in openTurns) {
                     val lastAssistant = settled.lastOrNull {
                         it is ChatRow.Assistant && assistantTurns[it.id] == turn
                     }
-                    if (lastAssistant?.id == row.id) row.copy(closing = true) else row
+                    if (lastAssistant?.id == row.id) {
+                        row.copy(closing = true, changes = changedFilesFor(nodes, turn))
+                    } else {
+                        row
+                    }
                 } else {
                     row
                 }
             }
+
+            val timeline = turnAwareRows(closed, nodes, openTurns, uiLocal.expandedRowIds)
 
             // At most two asks share the slot: the permission card stays on top,
             // the other folds into one line (spec §2 "审批卡" fold rule). A third
@@ -851,13 +1467,13 @@ public data class ChatScreenState(
                 else -> ChatPhase.IDLE
             }
             // Spec §3: keyboard up and not manually expanded folds the whole area.
-            val fold = if (slot.isEmpty || local.pendingSlotExpanded || !local.imeVisible) {
+            val fold = if (slot.isEmpty || uiLocal.pendingSlotExpanded || !uiLocal.imeVisible) {
                 PendingFold.EXPANDED
             } else {
                 PendingFold.FOLDED
             }
             val lock = when {
-                phase == ChatPhase.WAITING -> ComposerLock.WAITING_ENGINE
+                phase == ChatPhase.WAITING && host.lifecycle?.canStartBySending != true -> ComposerLock.WAITING_ENGINE
                 !slot.isEmpty -> ComposerLock.PENDING_ANSWER
                 else -> ComposerLock.NONE
             }
@@ -867,10 +1483,11 @@ public data class ChatScreenState(
             // flight freezes the dock; while a turn runs the *steer/queue* capability
             // decides, otherwise `canSend` does.
             val enabled = lock == ComposerLock.NONE && !host.selectingAccessMode &&
-                if (running) (if (steering) host.canSteer else host.canSend) else host.canSend
-            val trimmed = local.draft.trim()
+                if (running) (if (steering) host.canSteer else host.canSend)
+                else host.canSend || host.lifecycle?.canStartBySending == true
+            val trimmed = uiLocal.draft.trim()
             val hasText = trimmed.isNotEmpty()
-            val hasAttachments = local.attachments.isNotEmpty()
+            val hasAttachments = uiLocal.attachments.isNotEmpty()
             // iOS `canSubmit`: steering cannot carry attachments.
             val canSubmit = enabled && when {
                 running && steering -> hasText && !hasAttachments
@@ -902,12 +1519,13 @@ public data class ChatScreenState(
             }
             return ChatScreenState(
                 sessionID = sessionID,
+                workerSessionID = host.workerSessionID,
                 phase = phase,
-                rows = closed,
+                rows = timeline,
                 pending = slot,
                 banners = banners,
                 composer = ComposerState(
-                    draft = local.draft,
+                    draft = uiLocal.draft,
                     // The main key is the stop key only while a turn runs and the
                     // draft cannot be submitted to it (iOS `actionButton`).
                     mode = if (running && !canSubmit) ComposerMode.STOP else ComposerMode.SEND,
@@ -920,17 +1538,17 @@ public data class ChatScreenState(
                     canSubmit = canSubmit,
                     running = running,
                     steering = steering,
-                    attachments = local.attachments,
-                    attachmentError = local.attachmentError,
-                    fileImportNotice = local.fileImportNotice,
-                    slash = slashMenu(local.draft, host),
-                    reference = referenceMenu(local.draft, host),
+                    attachments = uiLocal.attachments,
+                    attachmentError = uiLocal.attachmentError,
+                    fileImportNotice = uiLocal.fileImportNotice,
+                    slash = slashMenu(uiLocal.draft, host),
+                    reference = referenceMenu(uiLocal.draft, host),
                 ),
                 goal = goal,
-                expandedRowIds = local.expandedRowIds,
+                expandedRowIds = uiLocal.expandedRowIds,
                 stats = stats,
                 pendingFold = fold,
-                pendingExpanded = local.pendingSlotExpanded,
+                pendingExpanded = uiLocal.pendingSlotExpanded,
                 composerLock = lock,
                 transcript = TranscriptState(
                     hasMore = host.transcript.hasMore,
@@ -953,6 +1571,7 @@ public data class ChatScreenState(
                     // iOS disables the menu while a turn runs, an ask is pending or a
                     // write is in flight.
                     enabled = enabled && !running && slot.isEmpty,
+                    catalogLoaded = host.accessModesLoaded,
                 ),
                 modelMenu = ModelMenu(
                     modelName = host.currentModel.orEmpty(),
@@ -963,8 +1582,23 @@ public data class ChatScreenState(
                     currentEffort = host.currentEffort,
                     defaultEffortTitle = host.defaultEffortTitle,
                     enabled = enabled && !running && slot.isEmpty,
+                    catalogLoaded = host.modelsLoaded,
                 ),
                 contextPercent = host.contextPercent,
+                sessionStats = host.sessionStats,
+                tokenUsage = host.tokenUsage,
+                contextPressure = host.contextPressure,
+                contextBreakdown = host.contextBreakdown,
+                composerStatsMode = host.composerStatsMode,
+                todoItems = host.todoItems,
+                hasOnlineDevices = host.hasOnlineDevices,
+                lifecycle = host.lifecycle,
+                plan = host.plan,
+                queueItems = host.queueItems,
+                commandReceipts = host.commandReceipts,
+                artifacts = host.artifacts,
+                contextLost = host.contextLost,
+                snapshotRevision = host.snapshotRevision,
             )
         }
 
@@ -1012,12 +1646,19 @@ public data class ChatScreenState(
             val existing = entries[callId]
             when (phase) {
                 CALL_PHASE -> {
+                    val arguments = node.props["arguments"].asObject()
+                    val variant = ToolVariant.fromName(name.orEmpty())
                     entries[callId] = ToolEntry(
                         id = node.nodeID,
                         title = name ?: node.text.orEmpty(),
                         summary = UiStrings.TOOL_RUNNING,
                         state = ToolRowState.RUNNING,
                         banner = name ?: node.text.orEmpty(),
+                        filePath = arguments.pathFor(variant),
+                        arguments = arguments,
+                        metadata = node.props["meta"] as? JsonObject,
+                        sourceEventCount = 1,
+                        variant = variant,
                     )
                 }
 
@@ -1027,7 +1668,8 @@ public data class ChatScreenState(
                     } else {
                         ToolRowState.OK
                     }
-                    val output = node.text.orEmpty()
+                    val output = node.props.string("body") ?: node.text.orEmpty()
+                    val arguments = existing?.arguments
                     entries[callId] = ToolEntry(
                         // A result without a preceding call is its own line, anchored
                         // on its own node so the expansion key is stable.
@@ -1037,16 +1679,221 @@ public data class ChatScreenState(
                         state = state,
                         banner = name ?: existing?.title.orEmpty(),
                         body = output,
+                        filePath = (node.props["meta"] as? JsonObject)?.string("path") ?: existing?.filePath,
+                        arguments = arguments,
+                        metadata = (node.props["meta"] as? JsonObject) ?: existing?.metadata,
+                        sourceEventCount = (existing?.sourceEventCount ?: 0) + 1,
+                        variant = ToolVariant.fromName(name ?: existing?.title.orEmpty()),
                     )
                 }
             }
         }
 
-        fun build(): ChatRow.ToolRun = ChatRow.ToolRun(id = firstNodeID, entries = entries.values.toList())
+        fun build(): ChatRow.ToolRun = ChatRow.ToolRun(
+            id = firstNodeID,
+            entries = entries.values.filterNot { entry ->
+                entry.title.isEmpty() && entry.summary.isEmpty() && entry.body.isEmpty()
+            },
+        )
     }
 }
 
+/** The file path iOS exposes for read/write/edit calls, from their real arguments. */
+private fun JsonObject?.pathFor(variant: ToolVariant): String? {
+    if (variant !in setOf(ToolVariant.READ, ToolVariant.WRITE, ToolVariant.EDIT)) return null
+    return this?.string("file_path") ?: this?.string("path")
+}
+
+/** Accept the raw object or the JSON string form carried by a host bridge. */
+private fun JsonValue?.asObject(): JsonObject? = when (this) {
+    is JsonObject -> this
+    is JsonString -> (runCatching { JsonValue.parse(value) }.getOrNull() as? JsonObject)
+    else -> null
+}
+
 /** The leading `/token` or `@token` while it is still a bare token (iOS trigger). */
+/** Builds the iOS-style per-turn timeline from the event-anchored rows. */
+private fun turnAwareRows(
+    rows: List<ChatRow>,
+    nodes: List<UiStateNode>,
+    openTurns: Set<String>,
+    expandedRowIds: Set<String>,
+): List<ChatRow> {
+    val explicitEnd = LinkedHashMap<String, UiStateNode>()
+    val startTimes = HashMap<String, Long>()
+    nodes.forEach { node ->
+        if (node.kind == UiStateKind.TURN) {
+            node.props.long("startedAtMs")?.let { startTimes[turnKey(node.nodeID)] = it }
+        }
+        if (node.kind == UiStateKind.STATUS && node.props.string("reason") in TURN_END_REASONS) {
+            explicitEnd[turnKey(node.nodeID)] = node
+        }
+    }
+
+    val groupedProcesses = mutableListOf<ChatRow>()
+    var processKey: String? = null
+    var processEntries = mutableListOf<ChatRow>()
+    fun flushProcess() {
+        if (processEntries.isEmpty()) return
+        val key = processKey.orEmpty()
+        val categories = processEntries.flatMap { row ->
+            when (row) {
+                is ChatRow.Thinking -> listOf(ChatProcessCategory.THINKING)
+                is ChatRow.ToolRun -> row.entries.map { ChatProcessCategory.forTool(it.title) }
+                else -> emptyList()
+            }
+        }.distinct()
+        val isRunning = processEntries.any { row ->
+            when (row) {
+                is ChatRow.Thinking -> row.streaming
+                is ChatRow.ToolRun -> row.entries.any { it.state == ToolRowState.RUNNING }
+                else -> false
+            }
+        }
+        val memberCount = processEntries.sumOf { row ->
+            when (row) {
+                is ChatRow.Thinking -> 1
+                is ChatRow.ToolRun -> row.entries.sumOf { it.sourceEventCount }
+                else -> 1
+            }
+        }
+        groupedProcesses += ChatRow.ProcessGroup(
+            id = "process/$key/${processEntries.first().id.substringAfterLast('/')}",
+            turnID = key,
+            entries = processEntries.toList(),
+            categories = categories,
+            title = ChatProcessCategory.title(categories, isRunning),
+            running = isRunning,
+            showsHeader = memberCount > 1,
+        )
+        processEntries = mutableListOf()
+        processKey = null
+    }
+    rows.forEach { row ->
+        val key = row.turnIDOrNull()
+        val process = row is ChatRow.Thinking || row is ChatRow.ToolRun
+        if (!process) {
+            flushProcess()
+            groupedProcesses += row
+        } else {
+            if (processEntries.isNotEmpty() && processKey != key) flushProcess()
+            if (processKey == null) processKey = key
+            processEntries += row
+        }
+    }
+    flushProcess()
+
+    val byTurn = LinkedHashMap<String, MutableList<ChatRow>>()
+    groupedProcesses.forEach { row ->
+        val key = row.turnIDOrNull()
+        if (key != null) byTurn.getOrPut(key) { mutableListOf() }.add(row)
+    }
+    val result = mutableListOf<ChatRow>()
+    // The projection order is the timeline order; each turn is a contiguous slice.
+    val consumed = HashSet<String>()
+    groupedProcesses.forEach { row ->
+        val key = row.turnIDOrNull()
+        if (key == null) {
+            result += row
+        } else if (consumed.add(key)) {
+            val items = byTurn.getValue(key)
+            val end = explicitEnd[key]
+            val isOpen = openTurns.any { turnKey(it) == key }
+            val assistants = items.filterIsInstance<ChatRow.Assistant>()
+            val closing = assistants.lastOrNull()
+            val reason = end?.props?.string("reason")
+            val outcome = when {
+                isOpen -> ChatTurnState.RUNNING
+                reason == ERROR || reason == FAILED -> ChatTurnState.FAILED
+                reason == CANCELLED || reason == ABORTED || reason == INTERRUPTED -> ChatTurnState.STOPPED
+                else -> ChatTurnState.COMPLETED
+            }
+            val hasEnded = end != null || (!isOpen && closing != null)
+            val inputRows = items.filter {
+                it is ChatRow.User || it is ChatRow.Context || it is ChatRow.QuestionReply
+            }
+            val contentRows = items.filterNot {
+                it is ChatRow.User || it is ChatRow.Context || it is ChatRow.QuestionReply
+            }
+            val hasProcess = contentRows.any { it is ChatRow.ProcessGroup || it is ChatRow.Thinking || it is ChatRow.ToolRun }
+            val foldable = outcome == ChatTurnState.COMPLETED && closing != null && hasProcess
+            result += inputRows
+            if (hasEnded) {
+                val endTime = end?.props?.long("endedAtMs")
+                val elapsed = end?.props?.long("elapsedMillis")
+                    ?: startTimes[key]?.let { start -> endTime?.minus(start)?.coerceAtLeast(0L) }
+                val processID = "turn-process/$key"
+                result += ChatRow.TurnProcess(
+                    id = processID,
+                    turnID = key,
+                    outcome = outcome,
+                    elapsedMillis = elapsed,
+                    foldable = foldable,
+                    expanded = !foldable || processID in expandedRowIds,
+                    entries = contentRows,
+                    closingAssistant = closing,
+                )
+                if (closing != null) {
+                    val allAssistantText = assistants.joinToString("\n\n") { it.text }
+                    val usage = turnUsage(items)
+                    result += ChatRow.TurnTail(
+                        id = "turn-tail/$key",
+                        turnID = key,
+                        assistantText = allAssistantText,
+                        timeMillis = endTime,
+                        usage = usage,
+                    )
+                }
+            } else {
+                result += contentRows
+            }
+        }
+    }
+    return result
+}
+
+private fun turnUsage(rows: List<ChatRow>): TurnUsage? {
+    val assistant = rows.filterIsInstance<ChatRow.Assistant>().lastOrNull() ?: return null
+    val raw = assistant.usage ?: return null
+    return raw
+}
+
+/** Structural turn key from a row's anchored node id. */
+private fun ChatRow.turnIDOrNull(): String? = when (this) {
+    is ChatRow.ProcessGroup -> turnID
+    is ChatRow.TurnProcess -> turnID
+    is ChatRow.TurnTail -> turnID
+    else -> turnKey(id).takeIf { it.isNotEmpty() }
+}
+
+private fun turnKey(nodeID: String): String {
+    val turn = nodeID.substringBefore("/event/").substringAfterLast("/turn/", "")
+    if (turn.isEmpty()) return ""
+    if (turn.endsWith("-local")) return turn.removeSuffix("-local")
+    val workerSuffix = TURN_SUFFIX.find(turn)
+    return if (workerSuffix != null && workerSuffix.range.first > 0) {
+        turn.removeRange(workerSuffix.range)
+    } else {
+        turn
+    }
+}
+
+private fun JsonObject.long(key: String): Long? =
+    (this[key] as? com.phonedsh.agentcore.JsonNumber)?.asLongOrNull()
+
+private fun JsonObject.usage(): TurnUsage? {
+    val usage = this["usage"] as? JsonObject ?: return null
+    val input = usage.long("inputTokens") ?: usage.long("input_tokens")
+    val output = usage.long("outputTokens") ?: usage.long("output_tokens")
+    if (input == null && output == null) return null
+    return TurnUsage(inputTokens = input, outputTokens = output)
+}
+
+private val TURN_SUFFIX = Regex("-turn-[0-9]{4}$")
+private val TURN_END_REASONS = setOf(
+    "completed", "error", "failed", "cancelled", "aborted", "interrupted", "max_tokens", "max-tokens",
+)
+
 private fun triggerToken(draft: String, marker: Char): String? {
     val trimmed = draft.trim()
     if (!trimmed.startsWith(marker)) return null
@@ -1093,6 +1940,140 @@ private fun progressTitle(phase: String): String = when {
     phase == COMPACTION || phase.startsWith("$COMPACTION/") -> UiStrings.SYSTEM_EVENT_COMPACTION
     else -> UiStrings.SYSTEM_EVENT_TURN
 }
+
+/**
+ * The files a closed turn changed, from its tool-call arguments.
+ *
+ * Mirror: `NativeTranscriptProjector.changes(forTurn:in:)`
+ * (`NativeTranscriptProjector.swift:155-193`). iOS scans the turn's `toolCall`
+ * items whose state settled to `.ok`, keeps the tools that write (`write`,
+ * `edit`, `str_replace_editor`), reads the path and the old/new text from the
+ * call's arguments, and runs the LCS diff in `lineDelta`. A later call for the
+ * same path replaces the earlier entry *in place*, which is what the `positions`
+ * map does there and what [LinkedHashMap] does here.
+ *
+ * @param nodes the UiState projection, in order.
+ * @param turn the turn's node id (`.../turn/<tid>`); a node belongs to it when its
+ *   own id has that prefix before `/event/`.
+ * @return one entry per file, in first-touch order; empty when the turn edited none.
+ */
+private fun changedFilesFor(nodes: List<UiStateNode>, turn: String): List<ChatFileChange> {
+    // The call node carries the arguments; only a settled, successful result makes
+    // the iOS projector count it (`item.toolState == .ok`).
+    val settled = HashMap<String, Boolean>()
+    nodes.forEach { node ->
+        if (node.kind != UiStateKind.TOOL_ROW) return@forEach
+        if (node.props.string("phase") != PHASE_RESULT) return@forEach
+        val callId = node.props.string("callId") ?: return@forEach
+        settled[callId] = !node.props.boolean("isError")
+    }
+
+    val files = LinkedHashMap<String, ChatFileChange>()
+    nodes.forEach { node ->
+        if (node.kind != UiStateKind.TOOL_ROW) return@forEach
+        if (node.nodeID.substringBefore("/event/") != turn) return@forEach
+        if (node.props.string("phase") != PHASE_CALL) return@forEach
+        val name = node.props.string("name") ?: return@forEach
+        if (name !in CHANGE_TOOLS) return@forEach
+        val callId = node.props.string("callId") ?: node.nodeID
+        if (settled[callId] != true) return@forEach
+        val raw = node.props.string("arguments") ?: return@forEach
+        val args = (runCatching { JsonValue.parse(raw) }.getOrNull() as? JsonObject) ?: return@forEach
+        val path = (args["file_path"] ?: args["path"]).asString() ?: return@forEach
+        if (path.isEmpty()) return@forEach
+        var oldText: String? = null
+        var newText: String? = null
+        when (name) {
+            "write" -> newText = args["content"].asString()
+            "edit" -> {
+                oldText = args["old_string"].asString()
+                newText = args["new_string"].asString()
+            }
+            else -> when (args["command"].asString()) {
+                "create" -> newText = args["file_text"].asString() ?: ""
+                "str_replace" -> {
+                    oldText = args["old_str"].asString()
+                    newText = args["new_str"].asString() ?: ""
+                }
+                "insert" -> newText = args["new_str"].asString()
+            }
+        }
+        val text = newText ?: return@forEach
+        val (added, deleted) = lineDelta(oldText, text)
+        files[path] = ChatFileChange(path = path, display = path, added = added, deleted = deleted)
+    }
+    return files.values.toList()
+}
+
+/** A JSON value as a string, or `null` when it is absent or not a string. */
+private fun com.phonedsh.agentcore.JsonValue?.asString(): String? = (this as? JsonString)?.value
+
+/** Reads only the question fields retained by `ui-state/1`; absent metadata stays absent. */
+private fun JsonObject.questionItems(): List<PendingQuestionItem> =
+    ((this["questionItems"] as? JsonArray)?.values.orEmpty()).mapNotNull { raw ->
+        val item = raw as? JsonObject ?: return@mapNotNull null
+        val id = item.string("id") ?: return@mapNotNull null
+        val prompt = item.string("prompt") ?: return@mapNotNull null
+        val options = ((item["options"] as? JsonArray)?.values.orEmpty()).mapNotNull { value ->
+            when (value) {
+                is JsonString -> PendingQuestionOption(value.value)
+                is JsonObject -> value.string("label")?.let { PendingQuestionOption(it, value.string("description")) }
+                else -> null
+            }
+        }
+        PendingQuestionItem(
+            id = id,
+            header = item.string("header"),
+            prompt = prompt,
+            detail = item.string("detail"),
+            options = options,
+            multiple = item.boolean("multiple"),
+            intentKind = item.string("intentKind"),
+            approveWireLabel = item.string("approveWireLabel"),
+            recommendedWireLabel = item.string("recommendedWireLabel"),
+        )
+    }
+
+/** Reads a boolean only when the host actually supplied one. */
+private fun JsonObject.nullableBoolean(key: String): Boolean? = (this[key] as? JsonBool)?.value
+
+/** Reads optional multi-question progress and answer drafts. */
+private fun JsonObject.questionProgress(): PendingQuestionProgress? {
+    val progress = this["initialProgress"] as? JsonObject ?: return null
+    val index = (progress["index"] as? com.phonedsh.agentcore.JsonNumber)?.asLongOrNull()?.toInt() ?: return null
+    val drafts = (progress["drafts"] as? JsonObject)?.members.orEmpty().mapNotNull { (id, value) ->
+        val answers = when (value) {
+            is JsonString -> listOf(value.value)
+            is JsonArray -> value.values.mapNotNull { (it as? JsonString)?.value }
+            else -> emptyList()
+        }
+        if (answers.isEmpty()) null else id to answers
+    }.toMap()
+    val customAnswers = (progress["customAnswers"] as? JsonObject)?.members.orEmpty()
+        .mapNotNull { (id, value) -> (value as? JsonString)?.value?.let { id to it } }
+        .toMap()
+    return PendingQuestionProgress(index = index, drafts = drafts, customAnswers = customAnswers)
+}
+
+private fun JsonObject.questionForm(): QuestionFormState? {
+    val items = questionItems()
+    if (items.isEmpty()) return null
+    val progress = questionProgress()
+    return QuestionFormState(
+        index = progress?.index ?: 0,
+        questionIds = items.map { it.id },
+        answers = progress?.drafts.orEmpty(),
+        customAnswers = progress?.customAnswers.orEmpty(),
+    )
+}
+
+/** The tools whose calls count as a changed file (iOS `changes(forTurn:)`, `:159`). */
+private val CHANGE_TOOLS: Set<String> = setOf("write", "edit", "str_replace_editor")
+
+/** The projector's tool-call phases (`UiStateProjector.toolCall` / `toolResult`). */
+private const val PHASE_CALL: String = "call"
+private const val PHASE_RESULT: String = "result"
+private const val QUESTION_REPLY_SOURCE: String = "user-question-reply"
 
 /** Reads a string prop, or `null` when absent or not a string. */
 internal fun com.phonedsh.agentcore.JsonObject.string(key: String): String? =

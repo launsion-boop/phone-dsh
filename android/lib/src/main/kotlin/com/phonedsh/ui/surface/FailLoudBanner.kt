@@ -98,7 +98,6 @@ public fun FailLoudBanner(
         FailLoudKind.TOOL -> tokens.geometry.toolFailureBannerInset
         else -> tokens.geometry.bannerInsetH
     }
-
     Column(
         modifier = modifier
             .fillMaxWidth()

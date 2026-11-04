@@ -22,8 +22,8 @@
   },
   "android": {
     "screen": "ChatPreferencesPage",
-    "file": null,
-    "match": "missing"
+    "file": "android/lib/src/main/kotlin/com/phonedsh/ui/page/ChatPreferencesPage.kt",
+    "match": "composable"
   },
   "sections": [
     {
@@ -193,7 +193,7 @@
       "labelExpr": null,
       "kind": "picker",
       "trigger": "tap",
-      "semantic": null,
+      "semantic": "binding:Binding( get: { preferences.appearance }, set: { preferences.setAppearance($0) } )",
       "writes": true,
       "destination": null,
       "condition": null,
@@ -214,7 +214,7 @@
       "labelExpr": null,
       "kind": "picker",
       "trigger": "tap",
-      "semantic": null,
+      "semantic": "binding:Binding( get: { preferences.collapseTiming }, set: { preferences.setCollapseTiming($0) } )",
       "writes": true,
       "destination": null,
       "condition": null,
@@ -234,7 +234,7 @@
       "labelExpr": null,
       "kind": "picker",
       "trigger": "tap",
-      "semantic": null,
+      "semantic": "binding:Binding( get: { preferences.transcriptView }, set: { preferences.setTranscriptView($0) } )",
       "writes": true,
       "destination": null,
       "condition": null,

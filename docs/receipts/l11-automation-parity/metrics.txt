@@ -1,0 +1,1 @@
+name=page-sessions-schedules image=page-sessions-schedules.png profile=ios-parity width=1206 height=2622 dpi=480 density=3.0 fontScale=1.0 scaledDensity=3.0 locale=en-US theme=light textBoxHeightPx=-

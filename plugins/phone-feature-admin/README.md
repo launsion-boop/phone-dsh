@@ -17,6 +17,8 @@ and it never invents a plugin row, skill or agent preset.
 |---|---|---|
 | `.` | `src/index.ts` | Host plugin. Registers the `phone/featureAdmin` Typert Remote (`featureAdmin` service, `phone` namespace). |
 | `./client` | `src/client/index.ts` → `lib/client.js` | Browser plugin. Registers one `settings.plugins.tab` tab into DSH's shipped Plugins settings section. |
+| `./creator-inspect` | `src/creator-inspect.ts` | Official Host inspect registry and Creator-scoped phone authoring guidance. |
+| `./creator-manager` | `src/creator-manager.ts` | Existing `pluginManager` contract with persistent, offline declarative preset-bundle installation. |
 | `./cordis.patch.yml` | `cordis.patch.yml` | Optional direct package-patch row for consumers that resolve it through this package. |
 | `./package.json` | — | `dsh.client` declares `platform: web`. |
 
@@ -216,6 +218,10 @@ run pnpm, build the browser bundle, boot WKWebView or touch a real DSH home.
 
 ## Platform limit
 
-This is not a remote-PC wrapper and not a package installer. On iPhone the
-running image is immutable; only the profile patch and the flat user-skill
-directory are editable. The page states that boundary on every visit.
+The feature-admin page does not install external packages. The running image is
+immutable. Creator additionally installs workspace-local declarative preset
+bundles using already shipped preset modules: two validated metadata files are
+copied into the profile, the real Loader verifies activation, and ordinary DSH
+approval still applies. npm/Git dependencies, scripts, `!!js`, and new JS code
+are refused explicitly. Failed activation restores the profile and owned bundle
+bytes; existing defaults are not changed. The guide is scoped to Creator.

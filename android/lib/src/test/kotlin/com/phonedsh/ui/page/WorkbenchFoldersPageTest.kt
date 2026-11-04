@@ -16,6 +16,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -31,6 +32,7 @@ import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.phonedsh.ui.SpecFixtures
+import com.phonedsh.ui.HomeMetrics
 import com.phonedsh.ui.UiStrings
 import com.phonedsh.ui.theme.PdshTheme
 import com.phonedsh.ui.tokenNames
@@ -378,16 +380,19 @@ class WorkspaceFoldersPageTest {
     }
 
     @Test
-    fun `the empty state carries the baseline's 添加工作文件夹 call to action`() {
-        showLive(WorkspaceFoldersSnapshot(folders = emptyList()))
-        compose.onNodeWithTag(UiPageTags.WORKSPACE_LIST)
-            .performScrollToNode(hasTestTag(UiPageTags.WORKSPACE_EMPTY))
-        // `NativeShell.swift:356`: the empty state has its own button, and it opens
-        // the same create row the toolbar's 添加 does.
-        compose.onNodeWithTag(UiPageTags.WORKSPACE_ADD_FOLDER).assertIsDisplayed()
-        compose.onNodeWithText(UiStrings.WORKSPACE_ADD_FOLDER).assertIsDisplayed()
-        compose.onNodeWithTag(UiPageTags.WORKSPACE_ADD_FOLDER).performClick()
-        compose.onNodeWithTag(UiPageTags.WORKSPACE_CREATE_ROW).assertIsDisplayed()
+    fun `the empty state can open the validated creation script`() {
+        val started = WorkspaceFoldersLocalState().apply(WorkspaceFoldersUiEvent.BeginCreate)
+        val empty = WorkspaceFoldersScreenState.from(
+            WorkspaceFoldersSnapshot(folders = emptyList()),
+            started,
+        )
+        assertTrue(empty.isEmpty)
+        assertTrue(empty.creating)
+        assertEquals(WorkspaceNameError.EMPTY, empty.nameError)
+        val typed = started.apply(WorkspaceFoldersUiEvent.DraftChange("Project"))
+        val ready = WorkspaceFoldersScreenState.from(WorkspaceFoldersSnapshot(folders = emptyList()), typed)
+        assertNull(ready.nameError)
+        assertTrue(ready.canCreate)
     }
 
     @Test
@@ -399,73 +404,33 @@ class WorkspaceFoldersPageTest {
     }
 
     @Test
-    fun `folders render the current mark, their counts and both actions`() {
+    fun `folders match the iOS navigation row and open their Files page`() {
         var opened: WorkspaceFolderView? = null
-        var switched: WorkspaceFolderView? = null
-        showLive(snapshot, onOpenFiles = { opened = it }, onSwitch = { switched = it })
+        showLive(snapshot, onOpenFiles = { opened = it })
         compose.onNodeWithTag(UiPageTags.WORKSPACE_LIST).assertIsDisplayed()
         // The built-in `workspace` folder is reworded for display.
-        compose.onNodeWithText(UiStrings.WORKSPACE_DEFAULT_NAME).assertIsDisplayed()
-        compose.onNodeWithText(UiStrings.WORKSPACE_CURRENT).assertIsDisplayed()
+        compose.onNodeWithText(UiStrings.DRAWER_DEFAULT_FOLDER).assertIsDisplayed()
         compose.onNodeWithText(UiStrings.WORKSPACE_SESSION_COUNT.format(2)).assertIsDisplayed()
         // The second folder's count was not measured: 未知 plus one explanation line.
         compose.onNodeWithText(UiStrings.UNKNOWN).assertIsDisplayed()
         compose.onNodeWithText(UiStrings.WORKSPACE_UNMEASURED_HINT).assertIsDisplayed()
-        // The current folder cannot be deleted, and the row says why.
-        compose.onNodeWithText(UiStrings.WORKSPACE_SELECTED_LOCKED).assertIsDisplayed()
-        compose.onAllNodesWithTag(UiPageTags.WORKSPACE_DELETE)[0].assertIsNotEnabled()
-        // The other folder can be switched to, and a row opens its file list.
-        compose.onAllNodesWithTag(UiPageTags.WORKSPACE_SWITCH)[1].performClick()
-        assertEquals("w2", switched?.id)
-        compose.onNodeWithText(UiStrings.WORKSPACE_DEFAULT_NAME).performClick()
+        // The iOS row has only the NavigationLink to FilesPage; switching/deleting
+        // folders are not actions in WorkspaceFoldersPage.swift.
+        compose.onNodeWithTag(UiPageTags.WORKSPACE_SWITCH).assertDoesNotExist()
+        compose.onNodeWithTag(UiPageTags.WORKSPACE_DELETE).assertDoesNotExist()
+        compose.onNodeWithText(UiStrings.DRAWER_DEFAULT_FOLDER).performClick()
         assertEquals("w1", opened?.id)
     }
 
     @Test
-    fun `the create row rejects a name with a path separator and reports why`() {
-        var created = 0
-        showLive(WorkspaceFoldersSnapshot(folders = emptyList()), onCreate = { created += 1 })
-        compose.onNodeWithTag(UiPageTags.WORKSPACE_NEW).performClick()
-        compose.onNodeWithTag(UiPageTags.WORKSPACE_CREATE_ROW).assertIsDisplayed()
-        // A blank draft cannot be created; it has no error copy yet (nothing typed).
-        compose.onNodeWithTag(UiPageTags.WORKSPACE_CREATE).assertIsNotEnabled()
-        compose.onNodeWithTag(UiPageTags.WORKSPACE_NAME_ERROR).assertDoesNotExist()
-        compose.onNodeWithTag(UiPageTags.WORKSPACE_NAME_FIELD).performClick()
-        compose.onNodeWithTag(UiPageTags.WORKSPACE_NAME_FIELD).performTextInput("a/b")
-        compose.onNodeWithTag(UiPageTags.WORKSPACE_NAME_ERROR).assertIsDisplayed()
-        compose.onNodeWithText(UiStrings.WORKSPACE_NAME_SEPARATOR).assertIsDisplayed()
-        compose.onNodeWithTag(UiPageTags.WORKSPACE_CREATE).assertIsNotEnabled()
-        assertEquals(0, created)
-    }
-
-    @Test
-    fun `a valid folder name enables create and the action fires`() {
-        var created = 0
-        showLive(WorkspaceFoldersSnapshot(folders = emptyList()), onCreate = { created += 1 })
-        compose.onNodeWithTag(UiPageTags.WORKSPACE_NEW).performClick()
-        compose.onNodeWithTag(UiPageTags.WORKSPACE_NAME_FIELD).performClick()
-        compose.onNodeWithTag(UiPageTags.WORKSPACE_NAME_FIELD).performTextInput("Project B")
-        compose.onNodeWithTag(UiPageTags.WORKSPACE_NAME_ERROR).assertDoesNotExist()
-        compose.onNodeWithTag(UiPageTags.WORKSPACE_CREATE).assertIsEnabled().performClick()
-        assertEquals(1, created)
-    }
-
-    @Test
-    fun `deleting needs a confirmation and the current folder is refused`() {
-        var deleted: WorkspaceFolderView? = null
-        showLive(snapshot, onDeleteConfirm = { deleted = it })
-        // w1 is the current folder: its delete action is disabled, not hidden.
-        compose.onAllNodesWithTag(UiPageTags.WORKSPACE_DELETE)[0].assertIsNotEnabled()
-        // w2 asks first; nothing is deleted on the first tap.
-        compose.onAllNodesWithTag(UiPageTags.WORKSPACE_DELETE)[1].performClick()
-        compose.onNodeWithTag(UiPageTags.WORKSPACE_DELETE_YES).assertIsDisplayed()
-        compose.onNodeWithText(UiStrings.WORKSPACE_DELETE_CONFIRM).assertIsDisplayed()
-        assertNull(deleted)
-        compose.onNodeWithTag(UiPageTags.WORKSPACE_DELETE_NO).performClick()
-        compose.onNodeWithTag(UiPageTags.WORKSPACE_DELETE_YES).assertDoesNotExist()
-        compose.onAllNodesWithTag(UiPageTags.WORKSPACE_DELETE)[1].performClick()
-        compose.onNodeWithTag(UiPageTags.WORKSPACE_DELETE_YES).performClick()
-        assertEquals("w2", deleted?.id)
+    fun `workspace rows do not expose Android-only switch and delete actions`() {
+        showLive(snapshot)
+        compose.onAllNodesWithTag(UiPageTags.WORKSPACE_ROW).assertCountEquals(2)
+        compose.onAllNodesWithTag(UiPageTags.WORKSPACE_ROW)[0]
+            .assertIsDisplayed()
+            .assertHeightIsAtLeast(HomeMetrics.defaultMinListRowHeight)
+        compose.onNodeWithTag(UiPageTags.WORKSPACE_SWITCH).assertDoesNotExist()
+        compose.onNodeWithTag(UiPageTags.WORKSPACE_DELETE).assertDoesNotExist()
     }
 
     @Test

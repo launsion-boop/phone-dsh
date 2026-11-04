@@ -32,7 +32,7 @@ if [ -z "${JAVA_HOME:-}" ] && command -v java >/dev/null 2>&1; then
   JAVA_HOME="$(cd "$(dirname "$(command -v java)")/.." && pwd)"
 fi
 PDSH_AVD="${PDSH_AVD:-pdsh35}"
-PACKAGE="com.phonedsh.probe"
+PACKAGE="${PDSH_PACKAGE:-com.phonedsh.app}"
 ARTIFACTS="$ROOT/android/build/app-turn-artifacts"
 PROMPT="Run phone info and tell me what it says."
 
@@ -130,7 +130,11 @@ adb shell am start -W -n "$COMPONENT" \
   --es pdsh.egress.origin "$BASE_URL" \
   --es pdsh.prompt "\"$PROMPT\"" \
   --ez pdsh.egress.probe true \
-  --ez pdsh.model.proxy false >/dev/null
+  --ez pdsh.model.proxy false \
+  --ez pdsh.face.probe true >/dev/null
+# `pdsh.face.probe`: the launch face is the product home now (L62), so a driver
+# that types into 「跑一轮」 has to ask for the probe face. Without it this script
+# waits on a session list that never shows the button.
 
 wait_for() {
   local pattern="$1" deadline="$2" label="$3"

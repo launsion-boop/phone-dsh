@@ -268,6 +268,15 @@
 - 视口为 CSS 402×874、DPR3、light、mobile；截图是 1206×2622 物理像素，没有按 @3x 再乘一次。
 - 截图由无头 Chrome（DevTools Protocol）生成，字体回退到 macOS 系统栈（-apple-system / PingFang），与 iPhone 真机字形可能有细微差异。
 
+## 发布脱敏
+
+生成器在写盘前对**整份产物**做一次文本替换（规则，不是字段清单），所以之后新增的字段也不会漏：
+
+- `home-path`：21 处 → `~`。记录下来的命令或 fixture 路径前面的家目录前缀指向的是采集机器、不是证据本身；`~` 让命令仍然可跑，相对结构也不变
+- `internal-codename`：2 处 → `<internal-project>`。仓库不允许这个内部服务拼写进入公开树；它位于捕获到的正文里、不在渲染出的视口内，所以 PNG 不受影响、无需重做截图
+
+原始捕获值不在任何发布的产物里（`reports/*.json` 同样脱敏）；要复核只能重跑捕获。
+
 ## 复现
 
 ```bash
@@ -282,3 +291,4 @@ SKIP_SESSION=1 scripts/ios-parity/golden/capture-official.sh   # 只做 hero + a
 #             DSH_GOLDEN_SUBAGENT_SESSION_ID / DSH_GOLDEN_SUBAGENT_FIXTURE
 #             DSH_GOLDEN_SUBAGENT_PARALLEL_SESSION_ID / DSH_GOLDEN_SUBAGENT_PARALLEL_FIXTURE
 ```
+

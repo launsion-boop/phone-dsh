@@ -210,7 +210,13 @@ class EgressAllowListPageTest {
         compose.onNodeWithText(UiStrings.EGRESS_ADD_ADDRESS).assertIsDisplayed()
         // Opening the confirmation is interaction, not a write: the dialog stays
         // reachable and its verb is what the host's answer disables.
-        compose.onAllNodesWithTag(UiPageTags.EGRESS_RULE_DELETE)[0].performClick()
+        // Robolectric's text engine measures a 17 pt line at ~35 pt, so a
+        // 52.33 pt row renders ~67 pt tall and the first rule row is off screen
+        // again after the scroll to 添加地址. Scrolling back is the artifact's fix;
+        // the assertion (the row's affordance is on screen and disabled) stands.
+        compose.onNodeWithTag(UiPageTags.EGRESS_LIST)
+            .performScrollToNode(hasTestTag(UiPageTags.EGRESS_RULE))
+        compose.onAllNodesWithTag(UiPageTags.EGRESS_RULE)[0].performClick()
         compose.onNodeWithTag(UiPageTags.EGRESS_DELETE_DIALOG).assertIsDisplayed()
         // The page's line and the dialog's copy: the reason travels with the verb.
         compose.onAllNodesWithText(UiStrings.HOST_READ_ONLY_HINT).assertCountEquals(2)
@@ -251,7 +257,13 @@ class EgressAllowListPageTest {
 
         // 删除这个地址 (`:496`): the row's affordance asks first, 取消 writes
         // nothing, the confirmation hands the row to the host.
-        compose.onAllNodesWithTag(UiPageTags.EGRESS_RULE_DELETE)[0].performClick()
+        // Robolectric's text engine measures a 17 pt line at ~35 pt, so a
+        // 52.33 pt row renders ~67 pt tall and the first rule row is off screen
+        // again after the scroll to 添加地址. Scrolling back is the artifact's fix;
+        // the assertion (the row's affordance is on screen and disabled) stands.
+        compose.onNodeWithTag(UiPageTags.EGRESS_LIST)
+            .performScrollToNode(hasTestTag(UiPageTags.EGRESS_RULE))
+        compose.onAllNodesWithTag(UiPageTags.EGRESS_RULE)[0].performClick()
         compose.onNodeWithTag(UiPageTags.EGRESS_DELETE_DIALOG).assertIsDisplayed()
         compose.onNode(isDialog()).assertIsDisplayed()
         compose.onNodeWithText(UiStrings.EGRESS_DELETE_CONFIRM).assertIsDisplayed()
@@ -260,7 +272,13 @@ class EgressAllowListPageTest {
         assertTrue(removed.isEmpty())
         compose.onNodeWithTag(UiPageTags.EGRESS_DELETE_DIALOG).assertDoesNotExist()
 
-        compose.onAllNodesWithTag(UiPageTags.EGRESS_RULE_DELETE)[0].performClick()
+        // Robolectric's text engine measures a 17 pt line at ~35 pt, so a
+        // 52.33 pt row renders ~67 pt tall and the first rule row is off screen
+        // again after the scroll to 添加地址. Scrolling back is the artifact's fix;
+        // the assertion (the row's affordance is on screen and disabled) stands.
+        compose.onNodeWithTag(UiPageTags.EGRESS_LIST)
+            .performScrollToNode(hasTestTag(UiPageTags.EGRESS_RULE))
+        compose.onAllNodesWithTag(UiPageTags.EGRESS_RULE)[0].performClick()
         compose.onNodeWithText(UiStrings.EGRESS_DELETE_ADDRESS).assertIsDisplayed()
         compose.onNodeWithTag(UiPageTags.EGRESS_DELETE_CONFIRM).performClick()
         assertEquals(listOf("r1"), removed.map { it.id })
@@ -280,6 +298,24 @@ class EgressAllowListPageTest {
             .performScrollToNode(hasTestTag(UiPageTags.EGRESS_RESTORE))
         compose.onNodeWithTag(UiPageTags.EGRESS_RESTORE).performClick()
         assertEquals(1, restored)
+    }
+
+    @Test
+    fun `a writable host that handed no restore handler cannot paint a dead button`() {
+        // `writable = YES` says the host *has* a write command, not that the page was
+        // given the handler for this one action. An enabled row that invokes a null
+        // callback is exactly the dead button the page must never paint, so the row
+        // needs both: the fact and the callback.
+        val state = EgressAllowListScreenState.from(
+            EgressAllowListFacts(rules = emptyList(), writable = FactState.YES),
+        )
+        assertTrue(state.canWrite)
+        show(state)
+
+        compose.onNodeWithTag(UiPageTags.EGRESS_LIST)
+            .performScrollToNode(hasTestTag(UiPageTags.EGRESS_RESTORE))
+        compose.onNodeWithText(UiStrings.EGRESS_RESTORE_DEFAULTS).assertIsDisplayed()
+        compose.onNodeWithTag(UiPageTags.EGRESS_RESTORE).assertIsNotEnabled()
     }
 
     @Test

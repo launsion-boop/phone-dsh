@@ -14,6 +14,11 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -41,25 +46,30 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import com.phonedsh.ui.UiStrings
 import com.phonedsh.ui.UiTags
+import com.phonedsh.ui.ChatMetrics
+import com.phonedsh.ui.HomeMetrics
+import com.phonedsh.ui.icon.PdshIcon
+import com.phonedsh.ui.icon.PdshIconView
 import com.phonedsh.ui.theme.LocalUiTokens
 import com.phonedsh.ui.theme.LocalUiType
 import com.phonedsh.ui.theme.generated.UiTokenNames
 
-/**
- * The token inventory of this surface; exactly
- * `signatureSurfaces.thinkingPill.tokens`.
- */
+/** Active compatibility tokens used alongside the HomeSpec process-row contract. */
 public object ThinkingPillTokens {
     public val refs: List<String> = listOf(
-        UiTokenNames.COLORS_SECONDARY,
-        UiTokenNames.COLORS_TERTIARY,
-        UiTokenNames.COLORS_CAPTION,
+        UiTokenNames.COLORS_TEXT_SECONDARY,
+        UiTokenNames.COLORS_TEXT_TERTIARY,
+        UiTokenNames.COLORS_TEXT_PLACEHOLDER,
+        UiTokenNames.TYPOGRAPHY_PROCESS,
         UiTokenNames.TYPOGRAPHY_SECONDARY,
-        UiTokenNames.TYPOGRAPHY_SHIMMER,
+        UiTokenNames.MOTION_DISCLOSURE,
         UiTokenNames.MOTION_SHIMMER,
-        UiTokenNames.GEOMETRY_DISCLOSURE_ROW_HEIGHT,
+        UiTokenNames.GEOMETRY_DISCLOSURE_ICON_GAP,
+        UiTokenNames.GEOMETRY_PROCESS_ROW_HEIGHT,
+        UiTokenNames.GEOMETRY_PROCESS_ICON,
         UiTokenNames.GEOMETRY_SUMMARY_DOT_DIAMETER,
         UiTokenNames.GEOMETRY_SUMMARY_DOT_GAP,
         UiTokenNames.GEOMETRY_THINKING_CONTENT_INDENT,
@@ -76,8 +86,12 @@ public object ThinkingPillTokens {
  *   turns the sweep on.
  * @param expanded whether the full reasoning is visible.
  * @param onToggle expand/collapse.
- * @param detail the full reasoning text; `null` disables the toggle because
- *   there is nothing to reveal.
+ * @param detail the actual full reasoning source; `null` means the source is
+ *   unknown or unavailable. A one-line full source can still be expanded.
+ * @param onOpenFile host router for relative workspace links in compact reasoning.
+ * @param onOpenResource host router for scoped file/sandbox resource URIs.
+ * @param imageSource the host's workspace/session image reader, when available.
+ * @param detailTruncated true only when the host reports a bounded source excerpt.
  */
 @Composable
 public fun ThinkingPill(
@@ -87,17 +101,22 @@ public fun ThinkingPill(
     onToggle: () -> Unit,
     modifier: Modifier = Modifier,
     detail: String? = null,
+    onOpenFile: ((String) -> Unit)? = null,
+    onOpenResource: ((String) -> Unit)? = null,
+    imageSource: MarkdownImageSource? = null,
+    detailTruncated: Boolean? = null,
 ) {
     val tokens = LocalUiTokens.current
     val type = LocalUiType.current
     val canExpand = detail != null
+    val showsSummary = summary.isNotEmpty() && !expanded
 
     // The tag sits on the merged, clickable row (see ToolRow).
     Column(modifier = modifier) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .defaultMinSize(minHeight = tokens.geometry.disclosureRowHeight)
+                .defaultMinSize(minHeight = HomeMetrics.processRowHeight)
                 .clickable(
                     enabled = canExpand,
                     role = Role.Button,
@@ -106,49 +125,77 @@ public fun ThinkingPill(
                 )
                 .semantics(mergeDescendants = true) {
                     stateDescription = if (expanded) UiStrings.EXPANDED else UiStrings.COLLAPSED
-                    contentDescription = "${UiStrings.THINKING} · $summary"
+                    contentDescription = if (showsSummary) "${UiStrings.THINKING} · $summary" else UiStrings.THINKING
                 }
                 .testTag(UiTags.THINKING_PILL),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(tokens.geometry.summaryDotGap),
+            horizontalArrangement = Arrangement.spacedBy(tokens.geometry.disclosureIconGap),
         ) {
             Box(
                 modifier = Modifier
-                    .size(tokens.geometry.summaryDotDiameter)
-                    .clip(CircleShape)
-                    .background(tokens.colors.caption),
-            )
+                    .size(HomeMetrics.processIcon),
+                contentAlignment = Alignment.Center,
+            ) {
+                PdshIconView(
+                    icon = if (canExpand && expanded) PdshIcon.CHEVRON_UP else PdshIcon.THINK,
+                    size = if (canExpand && expanded) {
+                        ChatMetrics.DISCLOSURE_CHEVRON_ICON_PT.dp
+                    } else {
+                        ChatMetrics.DISCLOSURE_CATEGORY_ICON_PT.dp
+                    },
+                    tint = tokens.colors.textSecondary,
+                    contentDescription = null,
+                    modifier = Modifier.testTag(
+                        if (canExpand && expanded) THINKING_CHEVRON_TAG else THINKING_CATEGORY_ICON_TAG,
+                    ),
+                )
+            }
             BasicText(
                 text = UiStrings.THINKING,
-                style = type.secondary.copy(color = tokens.colors.tertiary),
+                style = type.processBody.copy(color = tokens.colors.textSecondary),
                 maxLines = 1,
             )
-            Box(modifier = Modifier.weight(1f)) {
-                if (streaming) {
-                    ShimmerLine(
-                        text = summary,
-                        style = type.shimmer,
-                        base = tokens.colors.secondary,
-                        sweep = tokens.colors.tertiary,
-                        durationMs = tokens.motion.shimmerMs,
-                        easing = tokens.motion.shimmerEasing,
-                        repeat = tokens.motion.shimmerRepeat,
-                    )
-                } else {
-                    BasicText(
-                        text = summary,
-                        style = type.secondary.copy(color = tokens.colors.secondary),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+            if (showsSummary) {
+                Box(
+                    modifier = Modifier
+                        .padding(horizontal = tokens.geometry.summaryDotGap)
+                        .size(tokens.geometry.summaryDotDiameter)
+                        .clip(CircleShape)
+                        .background(tokens.colors.textPlaceholder),
+                )
+                Box(modifier = Modifier.weight(1f)) {
+                    if (streaming) {
+                        ShimmerLine(
+                            text = summary,
+                            style = type.processBody,
+                            base = tokens.colors.textSecondary,
+                            sweep = tokens.colors.textTertiary,
+                            durationMs = tokens.motion.shimmerMs,
+                            easing = tokens.motion.shimmerEasing,
+                            repeat = tokens.motion.shimmerRepeat,
+                        )
+                    } else {
+                        BasicText(
+                            text = summary,
+                            style = type.processBody.copy(color = tokens.colors.textSecondary),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
             }
         }
 
-        if (expanded && canExpand) {
-            BasicText(
-                text = detail.orEmpty(),
-                style = type.secondary.copy(color = tokens.colors.tertiary),
+        AnimatedVisibility(
+            visible = expanded && canExpand,
+            enter = expandVertically(
+                animationSpec = tween(tokens.motion.disclosureMs, easing = tokens.motion.disclosureEasing),
+            ) + fadeIn(tween(tokens.motion.disclosureMs, easing = tokens.motion.disclosureEasing)),
+            exit = shrinkVertically(
+                animationSpec = tween(tokens.motion.disclosureMs, easing = tokens.motion.disclosureEasing),
+            ) + fadeOut(tween(tokens.motion.disclosureMs, easing = tokens.motion.disclosureEasing)),
+        ) {
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(
@@ -156,10 +203,27 @@ public fun ThinkingPill(
                         top = tokens.geometry.thinkingContentVertical,
                         bottom = tokens.geometry.thinkingContentVertical,
                     ),
-            )
+            ) {
+                MarkdownBody(
+                    markdown = detail.orEmpty().ifEmpty { "…" },
+                    onOpenFile = onOpenFile,
+                    onOpenResource = onOpenResource,
+                    variant = MarkdownVariant.COMPACT,
+                    imageSource = imageSource,
+                )
+                if (detailTruncated == true) {
+                    BasicText(
+                        text = "仅显示部分思考内容",
+                        style = type.caption.copy(color = tokens.colors.textSecondary),
+                    )
+                }
+            }
         }
     }
 }
+
+internal const val THINKING_CATEGORY_ICON_TAG: String = "pdsh.surface.thinking.category-icon"
+internal const val THINKING_CHEVRON_TAG: String = "pdsh.surface.thinking.chevron"
 
 /**
  * A one-line summary with a highlight band sweeping across it.

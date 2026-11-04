@@ -24,6 +24,10 @@ final class PA_IntegrationUpgradeTests: XCTestCase {
             principal: "owner", kind: .longTerm, field: .displayName, text: "测试用户",
             source: MemorySource(kind: .phone, reference: "onboarding", detail: "test"),
             origin: .userExplicit, status: .active))
+        try await memories.save(MemoryRecord(
+            principal: "owner", kind: .longTerm, field: .language, text: "en",
+            source: MemorySource(kind: .phone, reference: "preference", detail: "test"),
+            origin: .userExplicit, status: .active))
         let store = SuggestionStore(rootDirectory: root)
         try await store.recordHistory(SuggestionHistoryEntry(
             principal: "owner", canonicalKey: SuggestionStore.canonicalSuppressionKey(
@@ -49,7 +53,7 @@ final class PA_IntegrationUpgradeTests: XCTestCase {
         let runtime = try XCTUnwrap(resolved.runtimeContext)
         XCTAssertEqual(runtime.assistantName, "测试Agent")
         XCTAssertEqual(runtime.userName, "测试用户")
-        XCTAssertEqual(runtime.preferredLanguage, "zh-Hans")
+        XCTAssertEqual(runtime.preferredLanguage, "en")
         XCTAssertEqual(runtime.delegatedScopes.map(\.version), [2])
         XCTAssertEqual(runtime.delegatedScopes.first?.actions, ["read"])
         XCTAssertEqual(runtime.capabilities.map(\.name), ["github_pull_get"])

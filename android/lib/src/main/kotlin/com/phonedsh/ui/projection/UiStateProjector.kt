@@ -316,6 +316,7 @@ public object UiStateProjector {
             val buffered = reasoning[sessionId]?.toString().orEmpty()
             if (buffered.isNotBlank()) {
                 val summary = ReasoningSummary.summarize(buffered)
+                val (fullReasoning, fullReasoningTruncated) = bounded(buffered)
                 if (summary.isNotEmpty()) {
                     eventRow(
                         event = event,
@@ -326,6 +327,12 @@ public object UiStateProjector {
                         props = props(
                             "streaming" to JsonBool(false),
                             "collapsed" to JsonBool(true),
+                            // The collapsed row text is only the preview. Preserve
+                            // the existing text budget for expanded content and
+                            // expose truncation instead of claiming the prefix is
+                            // the complete source reasoning.
+                            "fullReasoning" to JsonString(fullReasoning),
+                            "fullReasoningTruncated" to JsonBool(fullReasoningTruncated),
                         ),
                     )
                 }
@@ -422,6 +429,26 @@ public object UiStateProjector {
                     "kind" to JsonString("question"),
                     "multiple" to JsonBool(items?.firstOrNull()?.multiple ?: false),
                     "options" to JsonArray(options.map { JsonString(it) }),
+                    // Preserve every field the host actually supplied. Header,
+                    // detail, descriptions and intent are not in HarnessQuestionItem.
+                    "questionItems" to JsonArray(
+                        (items ?: listOf(
+                            com.phonedsh.agentcore.HarnessQuestionItem(
+                                id = "answer",
+                                prompt = request.prompt,
+                                options = request.options,
+                            ),
+                        )).map { item ->
+                            JsonObject(
+                                mapOf(
+                                    "id" to JsonString(item.id),
+                                    "prompt" to JsonString(bounded(item.prompt).first),
+                                    "options" to JsonArray(item.options.map(::JsonString)),
+                                    "multiple" to JsonBool(item.multiple),
+                                ),
+                            )
+                        },
+                    ),
                     "requestId" to JsonString(request.requestId),
                     "truncated" to JsonBool(truncated),
                 ),

@@ -1,14 +1,22 @@
 #!/usr/bin/env node
+# SPDX-License-Identifier: MIT
 /**
  * Assemble the official-screenshot manifest from cdp-capture.mjs reports.
  *
  * Writes `manifest.json` (machine) and `manifest.md` (human) next to the PNGs.
  * Every claim in the manifest is derived from a capture report or from the
  * harness environment; nothing is copied from the audit prose.
+ *
+ * Both artifacts are publishing artifacts: `redactText` strips the home
+ * directory and the internal service spelling from everything written, and
+ * `assertRedacted` refuses to write a file that still carries one.  What was
+ * removed is recorded in `manifest.redactions` so a reader knows the capture
+ * contained it.
  */
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, isAbsolute, relative, resolve } from 'node:path'
+import { assertRedacted, countRedactions, redactText, redactionReport } from './redactions.mjs'
 
 const STATE_BY_LABEL = {
   'hero-sessionless': {
@@ -397,7 +405,14 @@ function main() {
     limitations: LIMITATIONS,
   }
 
-  writeFileSync(resolve(outDir, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`)
+  // Count the redactions on the body, then add the record of them, then write
+  // the redacted text. Counting first keeps the declared numbers describing
+  // the capture, not the note that describes the capture.
+  const redactions = redactionReport(countRedactions(`${JSON.stringify(manifest, null, 2)}\n`))
+  manifest.redactions = redactions
+  const jsonText = redactText(`${JSON.stringify(manifest, null, 2)}\n`)
+  assertRedacted(jsonText, 'manifest.json')
+  writeFileSync(resolve(outDir, 'manifest.json'), jsonText)
 
   const lines = [
     '# 官方 DSH Web UI 截图清单',
@@ -503,6 +518,21 @@ function main() {
   lines.push('## 已知限制', '')
   for (const item of LIMITATIONS) lines.push(`- ${item}`)
   lines.push('')
+  lines.push('## 发布脱敏', '')
+  lines.push(
+    '生成器在写盘前对**整份产物**做一次文本替换（规则，不是字段清单），所以之后新增的字段也不会漏：',
+    '',
+  )
+  if (manifest.redactions.length === 0) {
+    lines.push('- 本次没有命中任何脱敏目标。')
+  } else {
+    for (const entry of manifest.redactions) {
+      lines.push(`- \`${entry.kind}\`：${entry.replacements} 处 → \`${entry.with}\`。${entry.reason}`)
+    }
+  }
+  lines.push('')
+  lines.push('原始捕获值不在任何发布的产物里（`reports/*.json` 同样脱敏）；要复核只能重跑捕获。')
+  lines.push('')
   lines.push('## 复现', '')
   lines.push('```bash')
   lines.push('scripts/ios-parity/golden/capture-official.sh')
@@ -518,7 +548,9 @@ function main() {
   lines.push('```')
   lines.push('')
 
-  writeFileSync(resolve(outDir, 'manifest.md'), `${lines.join('\n')}\n`)
+  const mdText = redactText(`${lines.join('\n')}\n`)
+  assertRedacted(mdText, 'manifest.md')
+  writeFileSync(resolve(outDir, 'manifest.md'), mdText)
   console.log(`[write-manifest] wrote ${resolve(outDir, 'manifest.json')} and manifest.md (${screenshots.length} screenshots)`)
 }
 

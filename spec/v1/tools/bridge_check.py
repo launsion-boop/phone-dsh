@@ -34,13 +34,17 @@ from pathlib import Path
 TOOLS_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(TOOLS_DIR))
 
-from spec_golden import Reporter, SpecError, load_json, validate_json  # noqa: E402
+from spec_golden import LINE_CAPS, Reporter, SpecError, load_json, validate_json  # noqa: E402
 
 SCHEMA_NAME = "bridge-message.schema.json"
 SCHEMA_DIR = "schema"
 VECTOR_DIR = "golden/bridge"
 DOC_NAME = "bridge.md"
-DOC_LINE_CAP = 200
+# One document, one cap: `spec_golden.LINE_CAPS` owns bridge.md's line budget and
+# `spec_golden.py` already enforces it. The literal that used to sit here was a
+# second copy of the same rule, so a normative addition either passed one checker
+# and failed the other or needed two edits to say one thing. This reads the owner.
+DOC_LINE_CAP = LINE_CAPS[DOC_NAME]
 MINIMUM_VECTORS = 8
 
 VECTOR_MEMBERS = frozenset({"name", "direction", "schema", "instance", "notes"})

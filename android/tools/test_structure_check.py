@@ -52,6 +52,8 @@ KOTLIN_PACKAGES = {
 
 MODULES = (
     "platform",
+    "platform-android",
+    "domain",
     "core",
     "net",
     "controller",
@@ -61,6 +63,7 @@ MODULES = (
     "lib",
     "testkit",
     "app",
+    "lib-consumer-test",
 )
 
 SETTINGS = """// SPDX-License-Identifier: MIT
@@ -79,6 +82,8 @@ dependencyResolutionManagement {
 }
 rootProject.name = "fixture"
 include(":platform")
+include(":platform-android")
+include(":domain")
 include(":core")
 include(":net")
 include(":controller")
@@ -88,6 +93,7 @@ include(":dsh")
 include(":lib")
 include(":testkit")
 include(":app")
+include(":lib-consumer-test")
 """
 
 CATALOG = """# SPDX-License-Identifier: MIT
@@ -230,6 +236,21 @@ def make_fixture(root):
         android / "core" / "src" / "main" / "kotlin" / "com" / "phonedsh" / "wire" / "PackageMarker.kt",
         "// SPDX-License-Identifier: MIT\n// Fixture marker.\npackage com.phonedsh.wire\n",
     )
+    write(android / ".gitignore", "local.properties\n")
+    page_dir = (
+        android
+        / "lib"
+        / "src"
+        / "main"
+        / "kotlin"
+        / "com"
+        / "phonedsh"
+        / "ui"
+        / "page"
+    )
+    for index in range(structure_check.EXPECTED_UI_PAGES):
+        name = "ChatPage.kt" if index == 0 else "Fixture{:02d}Page.kt".format(index)
+        write(page_dir / name, "// SPDX-License-Identifier: MIT\npackage com.phonedsh.ui.page\n")
 
 
 class StructureCheckMutationTests(unittest.TestCase):
@@ -294,6 +315,53 @@ class StructureCheckMutationTests(unittest.TestCase):
         self.mutate("android/app/build.gradle.kts", "minSdk = 26", "minSdk = 24")
         self.assert_fails("sdk-levels")
 
+    def test_missing_module_inventory_fails(self):
+        (self.root / "android" / "controller" / "build.gradle.kts").unlink()
+        self.assert_fails("module-inventory")
+
+    def test_unreviewed_module_inventory_fails(self):
+        write(
+            self.root / "android" / "ghost" / "build.gradle.kts",
+            "// SPDX-License-Identifier: MIT\n",
+        )
+        self.assert_fails("module-inventory")
+
+    def test_deleted_page_inventory_fails(self):
+        page_dir = (
+            self.root
+            / "android"
+            / "lib"
+            / "src"
+            / "main"
+            / "kotlin"
+            / "com"
+            / "phonedsh"
+            / "ui"
+            / "page"
+        )
+        (page_dir / "Fixture33Page.kt").unlink()
+        self.assert_fails("page-inventory")
+
+    def test_added_page_inventory_passes(self):
+        page_dir = (
+            self.root
+            / "android"
+            / "lib"
+            / "src"
+            / "main"
+            / "kotlin"
+            / "com"
+            / "phonedsh"
+            / "ui"
+            / "page"
+        )
+        write(page_dir / "NewLanePage.kt", "// SPDX-License-Identifier: MIT\n")
+        self.assert_passes("page-inventory")
+
+    def test_local_properties_not_ignored_fails(self):
+        (self.root / "android" / ".gitignore").write_text("build/\n", encoding="utf-8")
+        self.assert_fails("local-properties")
+
     def test_readme_missing_swift_module_fails(self):
         path = self.root / "android" / "README.md"
         kept = [line for line in path.read_text(encoding="utf-8").splitlines() if "PhoneDSHScenario" not in line]
@@ -325,9 +393,101 @@ class StructureCheckMutationTests(unittest.TestCase):
         path.write_text(path.read_text(encoding="utf-8") + "\nmavenLocal()\n", encoding="utf-8")
         self.assert_fails("repositories")
 
+    # ---- the one admitted repository --------------------------------------
+    # `com.phonedsh:lib` can only be consumed by coordinate if the build names a
+    # repository for it, and a local file repository can only be declared with a
+    # `maven { }` block. The exception is a path inside the build tree; these
+    # three tests pin that it admits exactly that and nothing else.
+
+    def add_in_tree_repository(self):
+        path = self.root / "android" / "settings.gradle.kts"
+        text = path.read_text(encoding="utf-8")
+        block = (
+            "        maven {\n"
+            '            name = "pdshLocal"\n'
+            '            url = uri(rootDir.resolve("build/repo"))\n'
+            "        }\n"
+        )
+        self.assertIn("        google()\n", text)
+        path.write_text(text.replace("        google()\n", block + "        google()\n", 1), encoding="utf-8")
+
+    def test_in_tree_publish_repository_passes(self):
+        self.add_in_tree_repository()
+        self.assert_passes("repositories")
+
+    def test_external_maven_url_still_fails(self):
+        # Same file, same markers as the admitted repository — a `maven { }`
+        # block that names a network URL must still be rejected. Without this
+        # test the exception would be a hole: the marker check is per file, and
+        # a file can hold more than one block.
+        self.add_in_tree_repository()
+        path = self.root / "android" / "settings.gradle.kts"
+        text = path.read_text(encoding="utf-8")
+        path.write_text(
+            text.replace(
+                "        mavenCentral()\n",
+                "        mavenCentral()\n"
+                "        maven {\n"
+                '            name = "mirror"\n'
+                '            url = "https://evil.example.com/build/repo"\n'
+                "        }\n",
+                1,
+            ),
+            encoding="utf-8",
+        )
+        self.assert_fails("repositories")
+
+    def test_maven_local_next_to_in_tree_repository_fails(self):
+        # A file-wide allowance must not launder a second, machine-state
+        # repository: mavenLocal() stays forbidden even beside the admitted one.
+        self.add_in_tree_repository()
+        path = self.root / "android" / "settings.gradle.kts"
+        path.write_text(path.read_text(encoding="utf-8") + "\nmavenLocal()\n", encoding="utf-8")
+        self.assert_fails("repositories")
+
     def test_absolute_path_fails(self):
         bad_path = "/" + "Users" + "/someone" + "/sdk"
         write(self.root / "android" / "abspath-note.md", "bad = \"{}\"\n".format(bad_path))
+        self.assert_fails("absolute-paths")
+
+    def test_non_first_line_shebang_is_not_a_shebang_exemption(self):
+        # Tool tests are not blanket-exempt. A fixture may embed a shell script
+        # whose shebang is not line 1, but a real home path on a later line is
+        # still a finding: skipping shebangs must not launder the rest of the
+        # file.
+        write(
+            self.root / "android" / "tools" / "test_fixture.py",
+            "#!/usr/bin/env python3\n"
+            "# embedded fixture below\n"
+            "#!/usr/bin/env bash\n"
+            'bad = "/' + "home" + '/someone/sdk"\n',
+        )
+        self.assert_fails("absolute-paths")
+
+    def test_absolute_path_in_a_tools_test_fails(self):
+        # The old check exempted every tools/test_*.py file. Fixtures now build
+        # the path from parts, so a literal machine path in the same file is a
+        # real portability failure.
+        write(
+            self.root / "android" / "tools" / "test_fixture.py",
+            "#!/usr/bin/env python3\n"
+            'bad = "/' + "Users" + '/someone/sdk"\n',
+        )
+        self.assert_fails("absolute-paths")
+
+    def test_only_the_checkout_local_properties_is_machine_local(self):
+        # android/local.properties is gitignored and carries a machine SDK path.
+        # A file merely named local.properties under tools/ is committed and is
+        # not exempt.
+        write(
+            self.root / "android" / "local.properties",
+            "sdk.dir=/" + "home" + "/someone/sdk\n",
+        )
+        self.assert_passes("absolute-paths")
+        write(
+            self.root / "android" / "tools" / "local.properties",
+            "sdk.dir=/" + "home" + "/someone/sdk\n",
+        )
         self.assert_fails("absolute-paths")
 
     def test_unverified_pin_annotation_required(self):

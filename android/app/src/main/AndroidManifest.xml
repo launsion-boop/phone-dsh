@@ -6,6 +6,35 @@
          Declared here too so the demo's requirement is visible in :app. -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Do Not Disturb access for the phone-permissions page's 专注模式 row.
+         `protectionLevel=normal`, so it needs no runtime prompt — but without the
+         declaration the app never appears in the system's "Do Not Disturb access"
+         list, and the row's 去系统设置 lands on a page with no switch for it
+         (measured 2026-11-01). The grant is still the user's: the row routes to
+         that system page and reads `isNotificationPolicyAccessGranted` back. -->
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+
+    <!--
+      The background surface is NOT declared here, and must not be: it belongs to
+      :dsh, whose library manifest declares the two services, the two receivers and
+      the six permissions (FOREGROUND_SERVICE, FOREGROUND_SERVICE_DATA_SYNC,
+      RUN_USER_INITIATED_JOBS, WAKE_LOCK, POST_NOTIFICATIONS,
+      RECEIVE_BOOT_COMPLETED). :app depends on :dsh, so the manifest merger puts
+      them in the APK.
+
+      Reading this file alone therefore shows zero services and zero receivers.
+      That is a property of the source layout, not of the installed app. Read the
+      merged artifact instead, under
+      android/app/build/intermediates/merged_manifests/debug/processDebugManifest/,
+      or, on a device, `adb shell dumpsys package com.phonedsh.probe` and look for
+      TurnForegroundService / TurnJobService / TurnStopReceiver / BootReceiver.
+
+      Declaring them again here would merge cleanly today and become a second
+      source of truth tomorrow, so the app reads the merged manifest back at
+      runtime instead (HostBackground.declaration) and reports the verdict on the
+      runtime page's 前台服务可用性 row.
+    -->
+
     <!--
       Backup policy (security checklist S5, plan R11):
         * android:allowBackup="false" is the primary switch: no cloud backup and
@@ -18,17 +47,102 @@
       the WAL workspace, the materialized worker bundle, and the SecureStore
       ciphertext directory (see their comments for the code path behind each).
     -->
+    <!--
+      Back gesture (`spec/ui/v1/README.md` §5 back-gesture, `platform.predictive-back`):
+      the system owns the gesture and the page stack pops one level per gesture, so the
+      app opts in here. `android:enableOnBackInvokedCallback` is API 33+ only (the
+      platform's OnBackInvokedDispatcher); on older devices it is ignored and back
+      arrives through the legacy `onBackPressed()` path, which the Activity's dispatcher
+      routes to the same callback.
+
+      The app's one back chain lives in `HostShell` (`PdshBackHandler`): drawer, then the
+      top route's own inner level, then the route stack. The chain is deliberately
+      *disabled* at the root route, so the platform's default (finish the Activity) runs
+      there — printing `finish()` from a callback would take the task away from the
+      system's predictive animation and from multi-window/recents semantics.
+
+      This attribute only declares the intent: whether the platform carries back through
+      the new path is the device's answer, which is why the 返回手势 row is measured at
+      runtime rather than printed from this file.
+    -->
+    <!--
+      Product identity: the label the launcher shows and the icons it draws. The
+      APK's `applicationId` (`com.phonedsh.app`, set in build.gradle.kts) is what
+      the system knows this app by; this file's component names are therefore
+      fully qualified rather than `.MainActivity`, because a leading dot resolves
+      against the applicationId and the class actually lives in the `namespace`
+      package `com.phonedsh.probe`.
+
+      Both icons are adaptive (API 26+ only, and minSdk is 26): the
+      `mipmap-anydpi-v26` XMLs are the only icon resources, and `roundIcon`
+      points at the same layers so a round-masked launcher gets the same mark
+      from its own mask instead of a scaled bitmap.
+
+      extractNativeLibs: `true`, because the Termux proot binaries and the Rust
+      JNI library are executed from `applicationInfo.nativeLibraryDir`; Android
+      10+ refuses `execve` on app-home files. The cost is that every packaged
+      `.so` is materialized in app data (the 32 MB JNI library included), and
+      the 16 KB gate runs in its extracted mode: ELF PT_LOAD alignment is still
+      checked, while zip compression/offset no longer describe the executed
+      file. `noCompress += "so"` and `keepDebugSymbols` in `:app` keep the
+      packaged bytes equal to the pinned asset SHAs.
+
+      allowBackup: already `false`, and it stays `false`. This app owns an API
+      key's encrypted record under `noBackupFilesDir` plus the WAL workspace; a
+      backup that carried either off the device would be a leak. The two rule
+      files remain as the second layer for the day someone flips the switch.
+    -->
     <application
         android:allowBackup="false"
+        android:extractNativeLibs="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
+        android:enableOnBackInvokedCallback="true"
         android:fullBackupContent="@xml/backup_rules"
-        android:label="PDSH 引擎探针"
+        android:icon="@mipmap/ic_launcher"
+        android:label="PDSH"
         android:networkSecurityConfig="@xml/network_security_config"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
 
+        <!--
+          What the APK says about its own signature, readable without launching
+          the app (XML comments cannot spell the tools' double-dash flags, so
+          the exact command lines live in the "产品化" section of
+          docs/receipts/android-port-pr-description.md):
+
+            adb shell dumpsys package com.phonedsh.app | grep -A2 SIGNING
+            aapt2 dump xmltree <apk> <the AndroidManifest.xml file flag>
+
+          The values are manifest placeholders from build.gradle.kts, so they
+          always describe the build they are in:
+          `debug-keystore-fallback` + 调试签名，不可发布 when `release` fell back
+          to AGP's debug key, `release-keystore` + 正式签名，可发布 otherwise.
+          They are also exposed to code as BuildConfig.SIGNING_MODE /
+          SIGNING_RELEASABLE / SIGNING_NOTICE, which is what the 关于 page reads.
+        -->
+        <meta-data
+            android:name="com.phonedsh.app.SIGNING_MODE"
+            android:value="${pdshSigningMode}" />
+        <meta-data
+            android:name="com.phonedsh.app.SIGNING_NOTICE"
+            android:value="${pdshSigningNotice}" />
+
+        <!-- 导出对话记录 writes a long Markdown document under cacheDir and hands
+             it to the share sheet through this provider. Scope is exactly that
+             one cache directory; the preview's provider keeps the workspace. -->
+        <provider
+            android:name="com.phonedsh.probe.TranscriptFileProvider"
+            android:authorities="${applicationId}.pdsh.transcript"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/transcript_file_paths" />
+        </provider>
+
         <activity
-            android:name=".MainActivity"
+            android:name="com.phonedsh.probe.MainActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

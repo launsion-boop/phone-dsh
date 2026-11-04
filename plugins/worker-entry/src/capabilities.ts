@@ -34,7 +34,13 @@
  */
 import { createHash } from 'node:crypto'
 import { getCommandNames } from 'just-bash/browser'
-import { createWorkerCommands, WORKER_EXECUTION_LIMITS } from '../../shell-ext/src/index.ts'
+import {
+  createWorkerCommands,
+  getUbuntuCapability,
+  ubuntuDescription,
+  WORKER_EXECUTION_LIMITS,
+} from '../../shell-ext/src/index.ts'
+import type { UbuntuCapability } from '../../shell-ext/src/index.ts'
 import type { WorkerToolbox } from '../../wasi-toolbox/src/index.ts'
 import { gitCapability } from '../../wasi-toolbox/git/capability.ts'
 import type { GitCapability, GitTrimFact } from '../../wasi-toolbox/git/capability.ts'
@@ -69,7 +75,7 @@ export const CAPABILITIES_JSON_PATH = '/dsh/home/capabilities.json'
  * counts them. Every future overflow is readable in the injected document
  * instead of being inferred from a missing section.
  */
-export const AGENTS_MD_MAX_BYTES = 7168
+export const AGENTS_MD_MAX_BYTES = 8192
 /** Schema tag of the machine-readable document. */
 export const CAPABILITY_SCHEMA = 'pdsh-capabilities/1'
 /** Version of the engine that must stay truthful about its own deviations. */
@@ -316,6 +322,8 @@ export interface CapabilityManifestInput {
   readonly bashDeviations?: readonly CapabilityBashDeviation[]
   /** Commands registered by the table but not runnable in this boot. */
   readonly unavailable?: readonly CapabilityUnavailable[]
+  /** The boot probe's answer; omitted means "read the published global". */
+  readonly ubuntu?: UbuntuCapability | undefined
 }
 
 /** Structured budget rows exactly as the JSON manifest carries them. */
@@ -373,6 +381,22 @@ export interface CapabilityManifestDocument {
     readonly invocation: string
     readonly tools: readonly CapabilityPhoneTool[]
     readonly tool_catalog: 'host-owned'
+    readonly notes: readonly string[]
+  }
+  /**
+   * The host's local Linux environment, present only when the boot probe
+   * answered and the table therefore serves `ubuntu` (design §4.3). The host
+   * owns the environment; this block publishes what it said, including the
+   * backend, because a mock must not be read as a real toolchain.
+   */
+  readonly ubuntu?: {
+    readonly command: string
+    readonly backend: string
+    readonly env: string
+    readonly invocation: string
+    readonly commands: readonly string[]
+    readonly description: string
+    readonly cost: readonly string[]
     readonly notes: readonly string[]
   }
   readonly python: {
@@ -571,6 +595,18 @@ function pythonExamples(modules: readonly string[]): string[] {
   return preferred.filter(name => present.has(name))
 }
 
+/** The Agent-facing section for the local Linux environment. */
+function ubuntuSection(ubuntu: NonNullable<CapabilityManifestDocument['ubuntu']>): string[] {
+  return [
+    '## Local Ubuntu environment',
+    ubuntu.description,
+    '',
+    `Backend: \`${ubuntu.backend}\` on \`${ubuntu.env}\`; ops: ${ubuntu.commands.map(name => `\`${name}\``).join(', ')}.`,
+    ...ubuntu.notes.map(note => `- ${note}`),
+    '',
+  ]
+}
+
 function pythonSection(python: CapabilityManifestDocument['python'], modules: readonly string[]): string[] {
   const lines: string[] = ['## Python']
   if (!python.available) {
@@ -647,6 +683,7 @@ function markdownFor(document: CapabilityManifestDocument, compactCommands = fal
     'Unknown programs exit 127 with `pdsh-shell: exit=127 ... hint=` naming '
       + `${CAPABILITIES_JSON_PATH}; no host process/package manager/compiler (apt/brew/pip absent).`,
     '',
+    ...document.ubuntu === undefined ? [] : [...ubuntuSection(document.ubuntu), ''],
     ...document.git === undefined ? [] : [...gitSection(document.git), ''],
     ...document.phone === undefined ? [] : [
       '## Host phone tools',
@@ -851,7 +888,45 @@ const HOST_PROJECTED_PHONE_TOOLS: readonly CapabilityPhoneTool[] = Object.freeze
  * @param hostCaps - effective wire HELLO and App-declared host capabilities.
  * @returns the `phone` document section.
  */
-export function phoneCapability(hostCaps: readonly string[] = []): NonNullable<CapabilityManifestDocument['phone']> {
+/** The command name the local environment is served under. */
+export const UBUNTU_COMMAND_NAME = 'ubuntu'
+
+/**
+ * The honest `ubuntu` document for a host that answered the boot probe.
+ *
+ * `description` is the same text `ubuntu --help` prints (one constant in
+ * shell-ext), so the injected instructions and the command cannot describe the
+ * environment differently. `cost` and `notes` are the facts the Agent must
+ * weigh before starting it, restated structurally for a JSON reader.
+ * @param capability - the probe's answer (environment and backend).
+ * @returns the document section.
+ */
+export function ubuntuCapability(
+  capability: UbuntuCapability,
+): NonNullable<CapabilityManifestDocument['ubuntu']> {
+  return {
+    command: UBUNTU_COMMAND_NAME,
+    backend: capability.backend,
+    env: capability.env,
+    invocation: `${UBUNTU_COMMAND_NAME} run [--env <id>] [--cwd <path>] [--label <text>] [--timeout-ms <n>] -- <command...>`,
+    commands: ['run', 'status', 'close', 'fetch'],
+    description: ubuntuDescription(capability.backend),
+    cost: [
+      'starting the environment takes time, disk space and battery',
+      "the first use in a session needs the user's approval; later jobs in the same session do not",
+      'files inside it are not kept after `ubuntu close`; the next use starts a fresh environment',
+    ],
+    notes: [
+      'It does not run DSH: the turn, the context, the session and every file stay in DSH.',
+      'Ordinary work (`ls`, `cat`, `grep`, `git`, `python3`) runs in the existing `bash` and must not start it.',
+      capability.backend === 'mock'
+        ? 'This build is wired to a MOCK adapter: its output is synthetic (`backend=mock`), so a mock exit 0 is not a real compile or run.'
+        : `The host reported backend \`${capability.backend}\`; the exit code is the environment's own.`,
+    ],
+  }
+}
+
+export function phoneCapability(hostCaps: readonly string[] = [], ubuntu: boolean = false): NonNullable<CapabilityManifestDocument['phone']> {
   const declared = new Set(hostCaps)
   const projected = HOST_PROJECTED_PHONE_TOOLS.filter(tool =>
     declared.has(`phone-tool:${tool.name}`)
@@ -868,6 +943,14 @@ export function phoneCapability(hostCaps: readonly string[] = []): NonNullable<C
         note: 'takes no arguments and returns device model/OS/display JSON',
       },
       ...projected,
+      ...ubuntu
+        ? [{
+            name: 'ubuntu',
+            usage: `${PHONE_COMMAND_NAME} ubuntu <run|status|close|fetch>`,
+            note: 'the local Linux environment (bridge.md §12); normally reached through the `ubuntu` command, '
+              + 'and present only because the boot probe answered',
+          }]
+        : [],
     ],
     notes: [
       'The catalog is owned by the host build, not by the Worker. This list is what THIS host serves.',
@@ -910,7 +993,11 @@ export function buildCapabilityManifest(input: CapabilityManifestInput): Capabil
   const git: GitCapability | undefined = commands.includes('git') ? gitCapability() : undefined
   // Same rule for the phone accelerator: the section exists only when the
   // host's HELLO put the command in this table.
-  const phone = commands.includes(PHONE_COMMAND_NAME) ? phoneCapability(hostCaps) : undefined
+  const ubuntuInput = input.ubuntu ?? getUbuntuCapability()
+  const ubuntu = commands.includes(UBUNTU_COMMAND_NAME) && ubuntuInput !== undefined
+    ? ubuntuCapability(ubuntuInput)
+    : undefined
+  const phone = commands.includes(PHONE_COMMAND_NAME) ? phoneCapability(hostCaps, ubuntu !== undefined) : undefined
   const jqInput = input.jq
   const python: CapabilityManifestDocument['python'] = pythonInput === undefined || !pythonInput.available
     ? {
@@ -947,6 +1034,7 @@ export function buildCapabilityManifest(input: CapabilityManifestInput): Capabil
     commands,
     unavailable,
     accelerators,
+    ...ubuntu === undefined ? {} : { ubuntu },
     host_caps: hostCaps,
     ...phone === undefined ? {} : { phone },
     python,

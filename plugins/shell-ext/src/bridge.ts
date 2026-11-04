@@ -17,6 +17,21 @@
  * model/script data: it is never read as the call identity, so a script cannot
  * rewrite the host `exec_id` prefix or the D10 `idem_key`.
  *
+ * ---- the tool-call session rides the same envelope, never argv ----
+ * A host tool that has to bind a decision to a DSH session (the `ubuntu`
+ * approval gate) cannot take that id from its argv: `phone` is also an ordinary
+ * command inside `bash`, so `phone ubuntu run --session <other>` would let the
+ * model pick whose approval it spends. The dispatch request therefore has an
+ * explicit [AcceleratorRequest.sessionId] field; this module deletes the
+ * shell's exported member, writes the trusted value into the request env, and
+ * marks the request with `markTrustedToolCallSession` for the transport. The
+ * transport deletes the member on every dispatch and re-adds it only from that
+ * out-of-band mark, exactly like `XL_IDEMPOTENCY_KEY`, so a script that exports
+ * the same name changes nothing. A dispatch that does not set the field (every
+ * command built by {@link createAcceleratorCommands}, including a script
+ * invoking `phone` directly) carries no session at all, which is what makes the
+ * host able to refuse a dispatch the `ubuntu` command did not build.
+ *
  * Only names the host advertised in `accelerator:<name>` are registered, so a
  * name outside the caps keeps running Worker-local (just-bash's own `rg`, for
  * example) and never crosses the channel.
@@ -26,10 +41,24 @@
 import { defineCommand } from 'just-bash/browser'
 import type { Command } from 'just-bash/browser'
 import { currentToolCall, deriveIdemKey } from '@phone-dsh/dsh-exec-bridge'
+import { markTrustedToolCallSession } from '@phone-dsh/dsh-exec-bridge/transport'
 import { byteStringOutput, byteStringToBytes, bytesToByteString, concatBytes, decodeUtf8 } from './encoding.ts'
 import { appendShellTrailer, SHELL_MANIFEST_PATH, SHELL_REASON_EXIT } from './contract.ts'
 import { phoneProviderFailure } from './phone-errors.ts'
 import type { ExecClient, ExecEvent, ExecRequest, Hello, IdemKeyFacts, ToolCallContext } from '@phone-dsh/dsh-exec-bridge'
+
+/**
+ * The EXEC_REQ `env` member that carries the trusted tool-call session.
+ *
+ * It is an envelope member, not a flag: the `ubuntu` dispatch writes it from
+ * its explicit out-of-band session field, and no shell variable of the same
+ * name is ever forwarded. The host reads it back from the request's `env` map,
+ * so the wire schema of `channel.md` §4.2 does not change.
+ */
+export const TOOL_CALL_SESSION_ENV = 'PDSH_TOOL_CALL_SESSION'
+
+/** channel.md §6 / D6 identifier shape; a session id follows it. */
+const SESSION_ID = /^[A-Za-z0-9._-]{1,64}$/u
 
 /** One accelerator invocation as just-bash sees it. */
 export interface AcceleratorRequest {
@@ -38,6 +67,16 @@ export interface AcceleratorRequest {
   readonly cwd: string
   /** Exported environment of the calling shell. */
   readonly env: Readonly<Record<string, string>>
+  /**
+   * The DSH session that owns this dispatch, when the command building it knows.
+   *
+   * Out-of-band by construction: it is not an argv word and not a shell
+   * variable, so the model cannot choose it. A command that leaves it undefined
+   * sends `env` with [TOOL_CALL_SESSION_ENV] deleted, and the host refuses a
+   * session-scoped tool dispatch that has no session — that is how a script
+   * calling `phone` directly is kept out of the approval lane.
+   */
+  readonly sessionId?: string | undefined
   /**
    * Standard input as just-bash's latin1-shaped byte string.
    *
@@ -128,6 +167,16 @@ export function createExecBridgeAccelerators(options: ExecBridgeAcceleratorOptio
       // the call only has the session/turn/step fallback.
       delete env.XL_IDEMPOTENCY_KEY
       if (facts?.key !== undefined && facts.key !== '') env.XL_IDEMPOTENCY_KEY = facts.key
+      // The session is identity too: a script may export this name, and the
+      // value it exports is never the one that reaches the host. Only the
+      // explicit out-of-band field survives, and only a D6-shaped value does.
+      // A dispatch without one sends no session, which the host refuses for a
+      // tool that needs one (so `phone ubuntu run` from a script cannot even
+      // reach the approval gate).
+      delete env[TOOL_CALL_SESSION_ENV]
+      const session = request.sessionId
+      const trustedSession = session !== undefined && SESSION_ID.test(session) ? session : undefined
+      if (trustedSession !== undefined) env[TOOL_CALL_SESSION_ENV] = trustedSession
       const identity: IdemKeyFacts = facts ?? {}
       let idemKey: string
       try {
@@ -162,6 +211,11 @@ export function createExecBridgeAccelerators(options: ExecBridgeAcceleratorOptio
           ? { mode: 'ignore' }
           : { mode: 'data', data: Buffer.from(byteStringToBytes(request.stdin)).toString('base64') },
       }
+      // The env member is only for the host's wire shape; the transport must
+      // not trust argv (a script's `phone ubuntu run` looks identical). The
+      // out-of-band mark is the one fact that says this request is the
+      // `ubuntu` command's own dispatch, so only this path sets it.
+      if (trustedSession !== undefined) markTrustedToolCallSession(execRequest, trustedSession)
       let stream
       try {
         stream = await options.client.exec(execRequest, request.signal)

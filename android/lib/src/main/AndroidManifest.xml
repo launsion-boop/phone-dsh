@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The preview's one platform component: the FileProvider that lets a shared file
+  leave the app-private workspace as a `content://` URI.
+
+  Scope: exactly `files/xl/materialized/workspace/` — the same tree the preview's
+  resolver is allowed to read. No cache path, no `noBackupFilesDir`, no `external`
+  root: a URI this provider answers for can therefore never name a file the resolver
+  would have refused, and the receiving app never sees anything the preview could
+  not show.
+
+  The authority is `${applicationId}.pdsh.preview` (AGP substitutes the consuming
+  app's id at manifest merge), and `PreviewShare.authority(context)` builds the same
+  string from `context.packageName` at runtime, so the two cannot drift.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.pdsh.preview"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/pdsh_preview_file_paths" />
+        </provider>
+    </application>
+
+</manifest>

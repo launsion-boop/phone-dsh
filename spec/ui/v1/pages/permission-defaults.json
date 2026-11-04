@@ -1,0 +1,281 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "PermissionDefaultsPage",
+  "pageId": "permission-defaults",
+  "structure": "swiftui-view",
+  "sectionModel": "section",
+  "sectionNote": null,
+  "title": {
+    "text": "新会话默认权限",
+    "provenance": "SettingsPage.swift:420",
+    "anchor": ".navigationTitle(NativeText(\"新会话默认权限\", \"Default permission\"))"
+  },
+  "source": {
+    "file": "SettingsPage.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/SettingsPage.swift",
+    "lines": 434,
+    "structLine": 387,
+    "renderedFrom": [
+      "body"
+    ],
+    "sectionOrder": "declaration order inside the page struct"
+  },
+  "android": {
+    "screen": "PermissionDefaultsPage",
+    "file": "android/lib/src/main/kotlin/com/phonedsh/ui/page/PermissionDefaultsPage.kt",
+    "match": "composable"
+  },
+  "sections": [
+    {
+      "id": "只影响之后新开的会话-当前会话保持不变",
+      "title": "只影响之后新开的会话，当前会话保持不变。",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "literal",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "text-394",
+          "label": null,
+          "labelExpr": "nativeConfigurationError(model.defaultPermissionReadOnlyReason)",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "!model.canEditDefaultPermission",
+          "provenance": "SettingsPage.swift:394",
+          "anchor": "Text(nativeConfigurationError(model.defaultPermissionReadOnlyReason))",
+          "extraction": "manual"
+        },
+        {
+          "id": "action-398",
+          "label": null,
+          "labelExpr": "nativePermissionModeTitle(id: mode.id, fallback: mode.name)",
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "SettingsPage.swift:398",
+          "anchor": "Button {",
+          "extraction": "manual",
+          "collection": "model.defaultPermissionModes"
+        }
+      ],
+      "provenance": "SettingsPage.swift:392",
+      "anchor": "Section(NativeText(\"只影响之后新开的会话，当前会话保持不变。\", \"Only new sessions use this default; ",
+      "extraction": "syntax"
+    },
+    {
+      "id": "section-413",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "absent",
+      "condition": "let error = model.permissionCatalogError ?? model.settingsError",
+      "collection": null,
+      "rows": [
+        {
+          "id": "text-413",
+          "label": null,
+          "labelExpr": "error",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "SettingsPage.swift:413",
+          "anchor": "Section { Text(error).foregroundStyle(.red) }",
+          "extraction": "manual"
+        }
+      ],
+      "provenance": "SettingsPage.swift:413",
+      "anchor": "Section { Text(error).foregroundStyle(.red) }",
+      "extraction": "syntax",
+      "criterion": {
+        "kind": "first-row-expression",
+        "labelExpr": "error",
+        "provenance": "SettingsPage.swift:413"
+      }
+    },
+    {
+      "id": "section-416",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "absent",
+      "condition": "let error = model.error",
+      "collection": null,
+      "rows": [
+        {
+          "id": "text-416",
+          "label": null,
+          "labelExpr": "nativeConfigurationError(error)",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "SettingsPage.swift:416",
+          "anchor": "Section { Text(nativeConfigurationError(error)).foregroundStyle(.red) }",
+          "extraction": "manual"
+        }
+      ],
+      "provenance": "SettingsPage.swift:416",
+      "anchor": "Section { Text(nativeConfigurationError(error)).foregroundStyle(.red) }",
+      "extraction": "syntax",
+      "criterion": {
+        "kind": "first-row-expression",
+        "labelExpr": "nativeConfigurationError(error)",
+        "provenance": "SettingsPage.swift:416"
+      }
+    }
+  ],
+  "actions": [
+    {
+      "id": "button-398",
+      "label": null,
+      "labelExpr": "nativePermissionModeTitle(id: mode.id, fallback: mode.name)",
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ Task { _ = await model.setDefaultPermissionMode(mode.id) }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SettingsPage.swift:398",
+      "anchor": "Button {",
+      "extraction": "manual",
+      "labelAlternatives": []
+    }
+  ],
+  "presentations": [],
+  "states": {
+    "advisory": true,
+    "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
+    "sites": {
+      "empty": [],
+      "data": [
+        {
+          "renders": "只影响之后新开的会话，当前会话保持不变。 | untitled section at 413 | untitled section at 416",
+          "when": null,
+          "provenance": "SettingsPage.swift:387",
+          "anchor": "private struct PermissionDefaultsPage: View {",
+          "note": "structural default: the sections above, when no condition overrides them"
+        }
+      ],
+      "failure": [],
+      "unknown": [],
+      "loading": []
+    },
+    "absent": [
+      "empty",
+      "failure",
+      "unknown",
+      "loading"
+    ],
+    "coverage": {
+      "empty": 0,
+      "data": 1,
+      "failure": 0,
+      "unknown": 0,
+      "loading": 0
+    }
+  },
+  "subpages": [
+    {
+      "name": "SettingsPage",
+      "line": 45,
+      "private": false,
+      "embedded": false,
+      "sections": [
+        {
+          "title": "模型与智能体",
+          "provenance": "SettingsPage.swift:63"
+        },
+        {
+          "title": "权限与隐私",
+          "provenance": "SettingsPage.swift:73"
+        },
+        {
+          "title": "对话",
+          "provenance": "SettingsPage.swift:81"
+        },
+        {
+          "title": "会话与文件",
+          "provenance": "SettingsPage.swift:106"
+        },
+        {
+          "title": "引擎",
+          "provenance": "SettingsPage.swift:117"
+        },
+        {
+          "title": "关于",
+          "provenance": "SettingsPage.swift:143"
+        }
+      ],
+      "provenance": "SettingsPage.swift:45"
+    },
+    {
+      "name": "FontSizeSettingsPage",
+      "line": 238,
+      "private": true,
+      "embedded": true,
+      "sections": [],
+      "provenance": "SettingsPage.swift:238"
+    },
+    {
+      "name": "ConversationSettingsPage",
+      "line": 276,
+      "private": true,
+      "embedded": true,
+      "sections": [
+        {
+          "title": "工作步骤",
+          "provenance": "SettingsPage.swift:281"
+        },
+        {
+          "title": "发送与用量",
+          "provenance": "SettingsPage.swift:300"
+        }
+      ],
+      "provenance": "SettingsPage.swift:276"
+    },
+    {
+      "name": "ArchivedSessionsPage",
+      "line": 325,
+      "private": true,
+      "embedded": true,
+      "sections": [],
+      "provenance": "SettingsPage.swift:325"
+    },
+    {
+      "name": "LicensesPage",
+      "line": 425,
+      "private": true,
+      "embedded": true,
+      "sections": [],
+      "provenance": "SettingsPage.swift:425"
+    }
+  ],
+  "unreachable": [],
+  "extraction": {
+    "tool": "extract_ios_pages.py",
+    "mode": "syntax",
+    "sectionKeywordsInPage": 3,
+    "regionsExtracted": 0,
+    "sectionsExtracted": 3,
+    "warnings": []
+  }
+}

@@ -1,9 +1,10 @@
 // phone-dsh — :app: the launch-time configuration of the demo host.
 // SPDX-License-Identifier: MIT
 //
-// The App stays a probe: it has no settings screen, no accounts and no account
-// UI. The non-secret launch values are therefore read once, in the composition
-// root, from explicit Intent extras:
+// The App stays a probe: it has no accounts and no account UI. The non-secret
+// launch values are read once, in the composition root, from explicit Intent
+// extras (the model service the settings page saves is a device record that
+// overrides two of them — see `ProviderConfigStore`):
 //
 //   pdsh.deepseek.baseUrl  the provider's Messages base (may carry a path prefix)
 //   pdsh.egress.origin     the exact origin the `/v1/http` gateway may reach
@@ -11,7 +12,18 @@
 //   pdsh.model.name        the model id the Worker reports
 //   pdsh.model.proxy       mount the host model edge (default true)
 //   pdsh.face.web          open the DSH Web surface once the engine is ready
+//   pdsh.face.probe        open the engine probe as the launch face (L62: the
+//                          product home is the session list, so the device scripts
+//                          that tap 跑一轮 at launch ask for this)
 //   pdsh.boot.overlay      hand the recovered workspace to the Worker (default true)
+//
+// **Only a debuggable install reads these extras.** The launcher activity is
+// exported (it must be, to appear in the launcher), so any app or `adb`
+// invocation can deliver them. `MainActivity` passes the install's
+// `FLAG_DEBUGGABLE` fact into [ProbeLaunchConfig.install], and a release install
+// ignores every override above: it uses the defaults plus the user's saved
+// provider record. The device scripts keep the diagnostic behaviour because
+// they run a debuggable build.
 //
 // ---- the base URL is the Messages base, not the origin ---------------------
 // The launch value is forwarded verbatim to the provider endpoint the host edge
@@ -80,6 +92,25 @@ import java.net.URI
 import java.util.concurrent.atomic.AtomicReference
 import org.json.JSONObject
 
+/**
+ * The diagnostic values an Intent may carry.
+ *
+ * Kept separate from [Intent] so the release gate can be exercised by JVM tests
+ * without Android stubs. Every member keeps [ProbeLaunchConfig]'s default when
+ * the Intent did not name it.
+ */
+internal data class LaunchExtras(
+    val baseUrl: String? = null,
+    val egressOrigin: String? = null,
+    val prompt: String? = null,
+    val modelName: String? = null,
+    val egressProbe: Boolean = false,
+    val modelProxy: Boolean = true,
+    val webFace: Boolean = false,
+    val probeFace: Boolean = false,
+    val bootOverlay: Boolean = true,
+)
+
 /** The non-secret values a launch may supply. All are empty by default. */
 internal data class ProbeLaunchConfig(
     val deepseekBaseUrl: String? = null,
@@ -88,6 +119,17 @@ internal data class ProbeLaunchConfig(
     val modelName: String = DEFAULT_MODEL,
     val egressProbe: Boolean = false,
     val webFace: Boolean = false,
+    /**
+     * Open the engine probe (the D3 diagnostic console) as the launch face.
+     *
+     * The product home is the session list (L62), and the probe is one drawer tap
+     * away at 引擎探针. This switch exists for the device scripts that tap
+     * 跑一轮 on the launch face (`android/tools/run-app-turn.sh` and the demo
+     * runners): they pass `--ez pdsh.face.probe true` and get the pre-L62 start
+     * face back, with the product default unchanged. It is a diagnostic, not a
+     * setting, exactly like [bootOverlay] and [webFace].
+     */
+    val probeFace: Boolean = false,
     /** Mount the model edge for this launch. A scripted launch passes `false`. */
     val modelProxy: Boolean = true,
     /**
@@ -103,6 +145,10 @@ internal data class ProbeLaunchConfig(
      * `ls /dsh/workspace` must see nothing. It is a diagnostic, not a setting.
      */
     val bootOverlay: Boolean = true,
+    /** Credential account captured with this process's endpoint at launch. Null means no key binding. */
+    val credentialAccount: String? = null,
+    /** Stored provider that supplied this launch's endpoint/model, if any. */
+    val providerProfileId: String? = null,
 ) {
     /**
      * The `env` object the engine merges with `PDSH_DSH_LAUNCH_TOKEN`.
@@ -166,10 +212,10 @@ internal data class ProbeLaunchConfig(
         // state variable below is the honest part of the answer. A Worker that needs the real
         // credential asks the host for it one request at a time at the network edge.
         env.put(DEEPSEEK_API_KEY, WORKER_KEY_PLACEHOLDER)
-        when (val state = ApiKeyStore.activeState()) {
+        when (val state = credentialAccount?.let { ApiKeyStore.activeState(it) } ?: ApiKeyState.Absent) {
             is ApiKeyState.Valid -> env.put(MODEL_KEY_STATE, KEY_STATE_CONFIGURED)
             ApiKeyState.Absent -> env.put(MODEL_KEY_STATE, KEY_STATE_ABSENT)
-            is ApiKeyState.Invalid -> env.put(MODEL_KEY_STATE, KEY_STATE_INVALID)
+            is ApiKeyState.Invalid, is ApiKeyState.Unreadable -> env.put(MODEL_KEY_STATE, KEY_STATE_INVALID)
         }
         // The endpoint facts stay gated: they are only true when the launch named a base URL.
         if (base != null) {
@@ -200,8 +246,9 @@ internal data class ProbeLaunchConfig(
     fun modelCredentialProvider(): GatewayCredentialProvider? {
         val base = deepseekBaseUrl ?: return null
         val store = ApiKeyStore.active() ?: return null
+        val account = credentialAccount ?: return null
         val anonymous = egressGrant()?.host?.let { setOf(it) } ?: emptySet()
-        return store.credentialProvider(base, anonymous)
+        return store.credentialProvider(base, anonymous, account)
     }
 
     /**
@@ -212,7 +259,8 @@ internal data class ProbeLaunchConfig(
      * injection paths above use [ApiKeyStore] directly, so a page cannot obtain
      * plaintext from a fact.
      */
-    fun keyFact(): ProviderKeyFact = ApiKeyStore.activeFact()
+    fun keyFact(): ProviderKeyFact = credentialAccount?.let { ApiKeyStore.activeFact(it) }
+        ?: ProviderKeyFact(com.phonedsh.ui.page.ProviderKeyStatus.NOT_CONFIGURED, null)
 
     /** The parsed egress grant, or `null` when the launch supplied none/wildcard. */
     fun egressGrant(): GatewayHostRule? {
@@ -260,6 +308,16 @@ internal data class ProbeLaunchConfig(
          */
         const val EXTRA_WEB_FACE: String = "pdsh.face.web"
 
+        /**
+         * Open the engine probe as the launch face (L62).
+         *
+         * The product home is the session list now, so a device script that taps
+         * 跑一轮 straight after launch must ask for the probe. One tap on the
+         * drawer's 引擎探针 row reaches it by hand; this switch is what keeps the
+         * scripted runs a single command.
+         */
+        const val EXTRA_PROBE_FACE: String = "pdsh.face.probe"
+
         const val DEFAULT_PROMPT: String = "Run phone info and tell me what it says."
         const val DEFAULT_MODEL: String = "deepseek-flash"
 
@@ -296,37 +354,117 @@ internal data class ProbeLaunchConfig(
         private val current = AtomicReference(ProbeLaunchConfig())
 
         /** Installs the values of [intent] before the composition root is built. */
-        fun install(intent: Intent?) {
-            current.set(from(intent))
+        fun install(intent: Intent?, debuggable: Boolean = false) {
+            current.set(from(intent, debuggable))
         }
 
         /** The values installed for this process; safe to read repeatedly. */
         fun active(): ProbeLaunchConfig = current.get()
 
         /** Parses [intent] without trusting any value: a malformed one is ignored. */
-        fun from(intent: Intent?): ProbeLaunchConfig {
-            if (intent == null) return ProbeLaunchConfig()
-            val base = intent.getStringExtra(EXTRA_BASE_URL)?.trim()
+        fun from(intent: Intent?, debuggable: Boolean = false): ProbeLaunchConfig =
+            from(intent, ProviderConfigStore.active()?.current(), debuggable)
+
+        /**
+         * Launch resolver; the selected profile and its key account are captured together.
+         *
+         * The launcher is exported, so a release install must not even read the
+         * diagnostic extras: with [debuggable] false this resolves exactly as if the
+         * Intent carried none. The stored profile is the user's saved configuration,
+         * not a launch override, so it is always honoured.
+         */
+        internal fun from(
+            intent: Intent?,
+            storedProfile: ProviderRecord?,
+            debuggable: Boolean = false,
+        ): ProbeLaunchConfig = fromExtras(
+            extras = if (debuggable) intent.readLaunchExtras() else null,
+            storedProfile = storedProfile,
+            debuggable = debuggable,
+        )
+
+        /**
+         * The release gate shared with the JVM tests.
+         *
+         * Only a debuggable launch keeps [extras]; every other install resolves the
+         * no-extras shape and falls through to defaults plus the stored profile.
+         */
+        internal fun fromExtras(
+            extras: LaunchExtras?,
+            storedProfile: ProviderRecord?,
+            debuggable: Boolean,
+        ): ProbeLaunchConfig {
+            val allowed = extras?.takeIf { debuggable }
+            return fromValues(
+                extraBaseUrl = allowed?.baseUrl,
+                extraEgressOrigin = allowed?.egressOrigin,
+                extraPrompt = allowed?.prompt,
+                extraModelName = allowed?.modelName,
+                egressProbe = allowed?.egressProbe ?: false,
+                modelProxy = allowed?.modelProxy ?: true,
+                webFace = allowed?.webFace ?: false,
+                probeFace = allowed?.probeFace ?: false,
+                bootOverlay = allowed?.bootOverlay ?: true,
+                storedProfile = storedProfile,
+            )
+        }
+
+        /** Reads the diagnostic extras; only a debuggable launch calls this. */
+        private fun Intent?.readLaunchExtras(): LaunchExtras = LaunchExtras(
+            baseUrl = this?.getStringExtra(EXTRA_BASE_URL),
+            egressOrigin = this?.getStringExtra(EXTRA_EGRESS_ORIGIN),
+            prompt = this?.getStringExtra(EXTRA_PROMPT),
+            modelName = this?.getStringExtra(EXTRA_MODEL_NAME),
+            egressProbe = this?.getBooleanExtra(EXTRA_EGRESS_PROBE, false) ?: false,
+            modelProxy = this?.getBooleanExtra(EXTRA_MODEL_PROXY, true) ?: true,
+            webFace = this?.getBooleanExtra(EXTRA_WEB_FACE, false) ?: false,
+            probeFace = this?.getBooleanExtra(EXTRA_PROBE_FACE, false) ?: false,
+            bootOverlay = this?.getBooleanExtra(EXTRA_BOOT_OVERLAY, true) ?: true,
+        )
+
+        /** Pure value resolver shared by the Intent adapter and loopback regression tests. */
+        internal fun fromValues(
+            extraBaseUrl: String?,
+            extraEgressOrigin: String? = null,
+            extraPrompt: String? = null,
+            extraModelName: String? = null,
+            egressProbe: Boolean = false,
+            modelProxy: Boolean = true,
+            webFace: Boolean = false,
+            probeFace: Boolean = false,
+            bootOverlay: Boolean = true,
+            storedProfile: ProviderRecord? = null,
+        ): ProbeLaunchConfig {
+            val explicitBase = extraBaseUrl?.trim()
                 ?.takeIf { it.isNotEmpty() }
                 ?.takeIf { parseHttpUrl(it) != null }
-            val egress = intent.getStringExtra(EXTRA_EGRESS_ORIGIN)?.trim()
+            // An explicit endpoint override is not a provider selection. Never attach
+            // the saved profile's credential (or model) to an unrelated launch origin.
+            val stored = storedProfile.takeIf { explicitBase == null }
+            val base = explicitBase ?: stored?.endpoint
+            val egress = extraEgressOrigin?.trim()
                 ?.takeIf { it.isNotEmpty() && !it.contains('*') }
                 ?.takeIf { parseHttpUrl(it) != null }
-            val prompt = intent.getStringExtra(EXTRA_PROMPT)?.trim()
-                ?.takeIf { it.isNotEmpty() }
-                ?: DEFAULT_PROMPT
-            val model = intent.getStringExtra(EXTRA_MODEL_NAME)?.trim()
-                ?.takeIf { it.isNotEmpty() }
+            val prompt = extraPrompt?.trim()?.takeIf { it.isNotEmpty() } ?: DEFAULT_PROMPT
+            val model = extraModelName?.trim()?.takeIf { it.isNotEmpty() }
+                ?: stored?.model?.takeIf { it.isNotEmpty() }
                 ?: DEFAULT_MODEL
             return ProbeLaunchConfig(
                 deepseekBaseUrl = base,
                 egressOrigin = egress,
                 prompt = prompt,
                 modelName = model,
-                egressProbe = intent.getBooleanExtra(EXTRA_EGRESS_PROBE, false),
-                modelProxy = intent.getBooleanExtra(EXTRA_MODEL_PROXY, true),
-                webFace = intent.getBooleanExtra(EXTRA_WEB_FACE, false),
-                bootOverlay = intent.getBooleanExtra(EXTRA_BOOT_OVERLAY, true),
+                egressProbe = egressProbe,
+                modelProxy = modelProxy,
+                webFace = webFace,
+                probeFace = probeFace,
+                bootOverlay = bootOverlay,
+                credentialAccount = when {
+                    explicitBase != null -> null
+                    stored != null -> stored.credentialAccount()
+                    else -> null
+                },
+                providerProfileId = stored?.id,
             )
         }
 

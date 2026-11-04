@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
 # Capture the official DSH Web UI at the iPhone-parity viewport
 # (CSS 402×874, DPR 3, light) into docs/receipts/ios-session-audit/screens/official/.
 #

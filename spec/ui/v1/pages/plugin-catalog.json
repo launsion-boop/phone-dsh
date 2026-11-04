@@ -37,8 +37,8 @@
       "collection": null,
       "rows": [
         {
-          "id": "navigation-11",
-          "label": null,
+          "id": "已加载插件",
+          "label": "已加载插件",
           "labelExpr": null,
           "kind": "navigation",
           "value": null,
@@ -47,13 +47,13 @@
           "destination": "NativePluginInventoryPage",
           "writes": false,
           "condition": null,
-          "provenance": "PluginCatalogPage.swift:11",
-          "anchor": "NavigationLink {",
-          "extraction": "manual"
+          "provenance": "PluginCatalogPage.swift:14",
+          "anchor": "SettingsRowLabel(title: NativeText(\"已加载插件\", \"Loaded plugins\"), icon: \"puzzlepiec",
+          "extraction": "syntax"
         },
         {
-          "id": "navigation-16",
-          "label": null,
+          "id": "可写设置",
+          "label": "可写设置",
           "labelExpr": null,
           "kind": "navigation",
           "value": null,
@@ -62,9 +62,9 @@
           "destination": "NativeConfigurationPage",
           "writes": false,
           "condition": null,
-          "provenance": "PluginCatalogPage.swift:16",
-          "anchor": "NavigationLink {",
-          "extraction": "manual"
+          "provenance": "PluginCatalogPage.swift:19",
+          "anchor": "SettingsRowLabel(title: NativeText(\"可写设置\", \"Writable settings\"), icon: \"slider.h",
+          "extraction": "syntax"
         }
       ],
       "provenance": "PluginCatalogPage.swift:22",
@@ -116,8 +116,8 @@
   ],
   "actions": [
     {
-      "id": "navigation-11",
-      "label": null,
+      "id": "已加载插件",
+      "label": "已加载插件",
       "labelExpr": null,
       "kind": "navigation",
       "trigger": "tap",
@@ -125,13 +125,13 @@
       "writes": false,
       "destination": "NativePluginInventoryPage",
       "condition": null,
-      "provenance": "PluginCatalogPage.swift:11",
-      "anchor": "NavigationLink {",
-      "extraction": "manual"
+      "provenance": "PluginCatalogPage.swift:14",
+      "anchor": "SettingsRowLabel(title: NativeText(\"已加载插件\", \"Loaded plugins\"), icon: \"puzzlepiec",
+      "extraction": "syntax"
     },
     {
-      "id": "navigation-16",
-      "label": null,
+      "id": "可写设置",
+      "label": "可写设置",
       "labelExpr": null,
       "kind": "navigation",
       "trigger": "tap",
@@ -139,9 +139,9 @@
       "writes": false,
       "destination": "NativeConfigurationPage",
       "condition": null,
-      "provenance": "PluginCatalogPage.swift:16",
-      "anchor": "NavigationLink {",
-      "extraction": "manual"
+      "provenance": "PluginCatalogPage.swift:19",
+      "anchor": "SettingsRowLabel(title: NativeText(\"可写设置\", \"Writable settings\"), icon: \"slider.h",
+      "extraction": "syntax"
     }
   ],
   "presentations": [],

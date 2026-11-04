@@ -68,6 +68,10 @@ TEST_ROOTS = [
 SCAN_ROOTS = SOURCE_ROOTS + TEST_ROOTS + [
     "scripts/ci/*.py",
     "scripts/ci/*.sh",
+    # `scripts/ios-parity/**` was outside every scan root, so the hygiene gate
+    # reported 0 while five of its files carried the developer's home path — and
+    # those files are published. `redactions.mjs` even had a comment admitting it.
+    "scripts/ios-parity",
     "docs",
 ]
 

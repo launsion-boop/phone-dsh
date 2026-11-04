@@ -77,6 +77,11 @@
  * - {@link createWorkerCommands} is the production table: just-bash built-ins,
  *   accelerator bridges, `curl`, the Worker `git` program and the installed
  *   WASI toolbox's programs (`python3`), all inside the Worker (D12).
+ * - {@link createUbuntuCommand} is the host's local Linux environment, one
+ *   command next to `rg`/`jq`/`python3` rather than a new tool namespace. It
+ *   exists only when the boot probe answered the host has one, so an
+ *   unadvertised host answers `ubuntu: command not found` with status 127
+ *   (design §4.3).
  * @module @phone-dsh/dsh-shell-ext
  */
 
@@ -407,3 +412,15 @@ export {
   createCorpusStub,
   createWhichCommand,
 } from './corpus.ts'
+export {
+  UBUNTU_DEFAULT_ENV,
+  UBUNTU_DESCRIPTION,
+  UBUNTU_USAGE,
+  ubuntuDescription,
+  createUbuntuCommand,
+  exitOfReply,
+  getUbuntuCapability,
+  renderUbuntuReply,
+  setUbuntuCapability,
+} from './ubuntu.ts'
+export type { UbuntuCapability } from './ubuntu.ts'

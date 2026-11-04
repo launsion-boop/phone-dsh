@@ -1,13 +1,15 @@
-// Files page: the listing, the preview bodies and their ScreenState sequence.
+// Files page: the listing and its ScreenState sequence.
 // SPDX-License-Identifier: MIT
 //
 // The mirror source is `FilesPage.swift`; the assertions below are the sections,
 // rows, conditions and strings that file renders, never a screenshot (the page is
-// not one of the six signature surfaces).
+// not one of the six signature surfaces). PR #15 moved the preview out of this page
+// into `PreviewSurface`, so the preview bodies belong to `PreviewStateTest` and
+// `PreviewSurfaceDeviceTest`, not to this file.
 package com.phonedsh.ui.page
 
-import androidx.compose.runtime.Composable
 import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -15,13 +17,15 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.phonedsh.ui.UiStrings
 import com.phonedsh.ui.UiTags
 import com.phonedsh.ui.theme.PdshTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -45,11 +49,9 @@ class FilesPageTest {
         onOpenFile: (WorkspaceFile) -> Unit = {},
         onQueryChange: (String) -> Unit = {},
         onNavigateUp: () -> Unit = {},
-        onClosePreview: () -> Unit = {},
         onBack: () -> Unit = {},
-        onShare: () -> Unit = {},
         onOpenDemo: (() -> Unit)? = null,
-        pageSurface: (@Composable () -> Unit)? = null,
+        onImportRequest: (() -> Unit)? = null,
     ) {
         compose.setContent {
             PdshTheme {
@@ -59,11 +61,9 @@ class FilesPageTest {
                     onOpenFile = onOpenFile,
                     onQueryChange = onQueryChange,
                     onNavigateUp = onNavigateUp,
-                    onClosePreview = onClosePreview,
                     onBack = onBack,
-                    onShare = onShare,
                     onOpenDemo = onOpenDemo,
-                    pageSurface = pageSurface,
+                    onImportRequest = onImportRequest,
                 )
             }
         }
@@ -172,7 +172,7 @@ class FilesPageTest {
     }
 
     @Test
-    fun `a folder row opens the folder and a file row opens its preview`() {
+    fun `a folder row opens the folder and a file row opens the preview route`() {
         var openedFolder: String? = null
         var openedFile: WorkspaceFile? = null
         show(
@@ -184,27 +184,6 @@ class FilesPageTest {
         assertEquals("src", openedFolder)
         compose.onNodeWithText("notes.md").performClick()
         assertEquals(root, openedFile)
-    }
-
-    @Test
-    fun `the header back walks the stack - preview, then folder, then page`() {
-        var closes = 0
-        var ups = 0
-        var backs = 0
-        val previewState = FilesScreenState.from(
-            FilesSource(files = files, preview = FilePreviewRead(content = "hi")),
-            FilesLocalState(previewPath = "notes.md"),
-        )
-        show(
-            previewState,
-            onClosePreview = { closes += 1 },
-            onNavigateUp = { ups += 1 },
-            onBack = { backs += 1 },
-        )
-        compose.onNodeWithContentDescription(UiStrings.BACK).performClick()
-        assertEquals(1, closes)
-        assertEquals(0, ups)
-        assertEquals(0, backs)
     }
 
     @Test
@@ -221,10 +200,18 @@ class FilesPageTest {
         assertEquals(0, backs)
     }
 
+    // The viewer and importer are host actions: absent callbacks remain visible
+    // but disabled, never routed to a fake sheet or a no-op.
     @Test
-    fun `the demo entry is absent when the host offers no demo`() {
+    fun `the demo entry is drawn even when the host offers no demo`() {
         show(FilesScreenState.from(FilesSource(files = files)))
-        compose.onNodeWithTag(UiPageTags.FILES_DEMO).assertDoesNotExist()
+        compose.onNodeWithTag(UiPageTags.FILES_DEMO).assertIsDisplayed()
+    }
+
+    @Test
+    fun `the demo entry is disabled when the host offers no native viewer`() {
+        show(FilesScreenState.from(FilesSource(files = files)))
+        compose.onNodeWithTag(UiPageTags.FILES_DEMO).assertIsNotEnabled()
     }
 
     @Test
@@ -235,164 +222,38 @@ class FilesPageTest {
         assertEquals(1, demos)
     }
 
-    // ------------------------------------------------------------------ preview
-
-    private fun previewState(
-        path: String = "notes.md",
-        read: FilePreviewRead? = FilePreviewRead(content = "hello workspace"),
-    ): FilesScreenState = FilesScreenState.from(
-        FilesSource(files = files, preview = read),
-        FilesLocalState(previewPath = path),
-    )
-
     @Test
-    fun `a text preview renders its content and 完成 closes it`() {
-        var closes = 0
-        show(previewState(), onClosePreview = { closes += 1 })
-        compose.onNodeWithTag(UiTags.FILES_PREVIEW).assertIsDisplayed()
-        compose.onNodeWithTag(UiPageTags.FILES_PREVIEW_TEXT).assertIsDisplayed()
-        compose.onNodeWithText("hello workspace").assertIsDisplayed()
-        compose.onNodeWithTag(UiTags.FILES_LIST).assertDoesNotExist()
-        compose.onNodeWithTag(UiPageTags.FILES_PREVIEW_DONE).performClick()
-        assertEquals(1, closes)
-    }
-
-    @Test
-    fun `an unanswered read is the baseline's gone card, not a loading sentence`() {
-        val state = previewState(read = null)
-        assertTrue(state.preview is FilePreview.Unavailable)
-        show(state)
-        compose.onNodeWithTag(UiPageTags.FILES_PREVIEW_CARD).assertIsDisplayed()
-        compose.onNodeWithText(UiStrings.FILES_PREVIEW_GONE).assertIsDisplayed()
-        compose.onNodeWithText(UiStrings.FILES_PREVIEW_GONE_HINT).assertIsDisplayed()
-    }
-
-    @Test
-    fun `a failed read shows the baseline's prefix and the host's reason`() {
-        show(previewState(read = FilePreviewRead(error = "读不到")))
-        compose.onNodeWithText(UiStrings.FILES_PREVIEW_GONE).assertIsDisplayed()
-        compose.onNodeWithText(UiStrings.FILES_PREVIEW_READ_FAILED.format("读不到")).assertIsDisplayed()
-    }
-
-    @Test
-    fun `a preview without a current session says so`() {
-        show(previewState(read = FilePreviewRead(sessionMissing = true)))
-        compose.onNodeWithText(UiStrings.FILES_PREVIEW_GONE).assertIsDisplayed()
-        compose.onNodeWithText(UiStrings.FILES_PREVIEW_NO_SESSION).assertIsDisplayed()
-    }
-
-    @Test
-    fun `a file outside the safe snapshot is refused with the baseline's sentence`() {
-        show(previewState(read = FilePreviewRead(unsafe = true)))
-        compose.onNodeWithText(UiStrings.FILES_PREVIEW_UNSAFE).assertIsDisplayed()
-    }
-
-    @Test
-    fun `a successful read with an empty body is an empty text body, not a failure`() {
-        // `FilesPage.swift:406`–`:408`: `text ?? ""` is a body of its own, so an
-        // empty file renders the (empty) monospaced body and never the failure card.
-        val state = previewState(path = "empty.txt", read = FilePreviewRead(content = ""))
-        assertTrue(state.preview is FilePreview.Text)
-        show(state)
-        // An empty body has no size to display, but it is the body the baseline
-        // renders — and it is emphatically not the failure card.
-        compose.onNodeWithTag(UiPageTags.FILES_PREVIEW_TEXT).assertExists()
-        compose.onNodeWithTag(UiPageTags.FILES_PREVIEW_CARD).assertDoesNotExist()
-    }
-
-    @Test
-    fun `a non-text file falls back to the measured degradation card`() {
-        show(previewState(path = "logo.png", read = FilePreviewRead(byteCount = 2048)))
-        compose.onNodeWithTag(UiPageTags.FILES_PREVIEW_CARD).assertIsDisplayed()
-        compose.onNodeWithText(UiStrings.FILES_PREVIEW_BINARY).assertIsDisplayed()
-        compose.onNodeWithText(UiStrings.FILES_PREVIEW_BINARY_HINT).assertIsDisplayed()
-        compose.onNodeWithText("2 KB").assertIsDisplayed()
-    }
-
-    @Test
-    fun `an html file outside a workspace shows the outside card and its notice`() {
-        val state = previewState(
-            path = "demo/spin.html",
-            read = FilePreviewRead(pageAvailable = false),
+    fun `import requests are explicit and cancellation is rendered as cancellation`() {
+        var requests = 0
+        var state by mutableStateOf(FilesScreenState.from(FilesSource(files = files)))
+        compose.setContent {
+            PdshTheme {
+                FilesPage(
+                    state = state,
+                    onOpenFolder = {},
+                    onOpenFile = {},
+                    onQueryChange = {},
+                    onNavigateUp = {},
+                    onBack = {},
+                    onImportRequest = { requests += 1 },
+                )
+            }
+        }
+        compose.onNodeWithTag("files-import").performClick()
+        assertEquals(1, requests)
+        state = FilesScreenState.from(
+            FilesSource(files = files),
+            importReceipt = FilesImportReceipt.CANCELLED,
         )
-        assertTrue(state.preview is FilePreview.Page)
-        show(state)
-        compose.onNodeWithText(UiStrings.FILES_PREVIEW_OUTSIDE).assertIsDisplayed()
-        compose.onNodeWithText(UiStrings.FILES_PREVIEW_OUTSIDE_HINT).assertIsDisplayed()
-        compose.onNodeWithTag(UiPageTags.FILES_PREVIEW_NOTICE).assertIsDisplayed()
-        compose.onNodeWithText(UiStrings.FILES_PREVIEW_NOTICE_HTML).assertIsDisplayed()
+        compose.onNodeWithText("文件导入已取消").assertIsDisplayed()
     }
 
     @Test
-    fun `an html file with a workspace host the surface and keep the notice`() {
-        val state = previewState(
-            path = "demo/spin.html",
-            read = FilePreviewRead(pageAvailable = true, shareable = true),
-        )
-        show(state, pageSurface = { androidx.compose.foundation.text.BasicText("page-host") })
-        compose.onNodeWithTag(UiPageTags.FILES_PREVIEW_SURFACE).assertIsDisplayed()
-        compose.onNodeWithText("page-host").assertIsDisplayed()
-        compose.onNodeWithText(UiStrings.FILES_PREVIEW_NOTICE_HTML).assertIsDisplayed()
-    }
-
-    @Test
-    fun `分享 is offered and shares when the host says the file is shareable`() {
-        var shares = 0
-        show(
-            previewState(read = FilePreviewRead(content = "x", shareable = true)),
-            onShare = { shares += 1 },
-        )
-        compose.onNodeWithTag(UiPageTags.FILES_PREVIEW_SHARE).assertIsDisplayed()
-        compose.onNodeWithTag(UiPageTags.FILES_PREVIEW_SHARE).performClick()
-        assertEquals(1, shares)
-    }
-
-    @Test
-    fun `分享 is absent while the host has not said the file is shareable`() {
-        show(previewState(read = FilePreviewRead(content = "x", shareable = null)))
-        compose.onNodeWithTag(UiPageTags.FILES_PREVIEW_SHARE).assertDoesNotExist()
-    }
-
-    @Test
-    fun `an unshareable file says it is not in the workspace any more`() {
-        show(previewState(read = FilePreviewRead(content = "x", shareable = false)))
-        compose.onNodeWithTag(UiPageTags.FILES_PREVIEW_MISSING).assertIsDisplayed()
-        compose.onNodeWithText(UiStrings.FILES_PREVIEW_MISSING).assertIsDisplayed()
-    }
-
-    @Test
-    fun `the read caps append their sentences to the one notice line`() {
-        val read = FilePreviewRead(
-            content = "x",
-            textTruncated = true,
-            linesTruncated = true,
-            shareable = true,
-        )
-        val state = previewState(read = read)
-        assertEquals(
-            listOf(
-                UiStrings.FILES_PREVIEW_NOTICE_256KIB,
-                UiStrings.FILES_PREVIEW_NOTICE_LINES.format(200),
-            ).joinToString(" "),
-            state.previewNotice,
-        )
-        show(state)
-        compose.onNodeWithTag(UiPageTags.FILES_PREVIEW_NOTICE).assertIsDisplayed()
-        compose.onNodeWithText(UiStrings.FILES_PREVIEW_NOTICE_256KIB, substring = true)
+    fun `import button is explicitly unavailable without a host picker`() {
+        show(FilesScreenState.from(FilesSource(files = files)))
+        compose.onNodeWithTag("files-import").assertIsNotEnabled()
+        compose.onNodeWithText("当前宿主没有提供文件选择器，尚未导入文件。")
             .assertIsDisplayed()
-    }
-
-    @Test
-    fun `a materialized-copy fallback renders the text and says it is a copy`() {
-        val state = previewState(
-            path = "notes.txt",
-            read = FilePreviewRead(content = "disk copy", materializedCopy = true),
-        )
-        assertTrue(state.preview is FilePreview.Text)
-        assertEquals(UiStrings.FILES_PREVIEW_NOTICE_COPY, state.previewNotice)
-        show(state)
-        compose.onNodeWithText("disk copy").assertIsDisplayed()
-        compose.onNodeWithText(UiStrings.FILES_PREVIEW_NOTICE_COPY).assertIsDisplayed()
     }
 
     // --------------------------------------------------------------- pure facts
@@ -479,12 +340,8 @@ class FilesPageTest {
         var local = FilesLocalState()
         local = local.apply(FilesUiEvent.SetQuery("re"))
         local = local.apply(FilesUiEvent.OpenFolder("src"))
-        // A pushed page starts with an empty query and no preview (`:25`, `:118`).
+        // A pushed page starts with an empty query (`:25`, `:118`).
         assertEquals(FilesLocalState(directory = "src/"), local)
-        local = local.apply(FilesUiEvent.OpenFile("src/main.kt"))
-        assertEquals("src/main.kt", local.previewPath)
-        local = local.apply(FilesUiEvent.ClosePreview)
-        assertNull(local.previewPath)
         local = local.copy(directory = "a/b/")
         local = local.apply(FilesUiEvent.NavigateUp)
         assertEquals("a/", local.directory)
@@ -494,7 +351,7 @@ class FilesPageTest {
 
     @Test
     fun `the same snapshot and script always yield the same rows`() {
-        val source = FilesSource(files = files, preview = FilePreviewRead(content = "hi"))
+        val source = FilesSource(files = files)
         fun run(): List<FilesScreenState> {
             var local = FilesLocalState()
             val out = mutableListOf<FilesScreenState>()
@@ -504,21 +361,15 @@ class FilesPageTest {
             local = local.apply(FilesUiEvent.SetQuery(""))
             local = local.apply(FilesUiEvent.OpenFolder("src"))
             out += FilesScreenState.from(source, local)
-            local = local.apply(FilesUiEvent.OpenFile("src/main.kt"))
-            out += FilesScreenState.from(source, local)
             return out
         }
         val first = run()
         assertEquals(first, run())
-        // The sequence: listing, filtered, folder, preview.
+        // The sequence: the root listing, the filtered listing, the folder.
+        assertEquals(listOf("", "", "src/"), first.map { it.directory })
         assertEquals(
-            listOf(false, false, false, true),
-            first.map { it.isPreviewing },
+            listOf(listOf("src"), emptyList(), listOf("deep")),
+            first.map { it.folders },
         )
-        assertEquals(listOf("", "", "src/"), first.take(3).map { it.directory })
-        // `kt` is one of the Android-toolchain extensions added on top of the
-        // baseline's list (`platform.workspace-text-extensions`), so this file
-        // takes the text body rather than Quick Look.
-        assertTrue(first.last().preview is FilePreview.Text)
     }
 }

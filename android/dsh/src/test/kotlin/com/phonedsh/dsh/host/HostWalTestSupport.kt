@@ -8,6 +8,7 @@
 
 package com.phonedsh.dsh.host
 
+import com.phonedsh.log.MseqAllocator
 import com.phonedsh.log.MutationBody
 import com.phonedsh.loopback.LoopbackConnection
 import com.phonedsh.platform.DurabilityLevel
@@ -45,9 +46,15 @@ internal class FakeHostWal(
     private val appendFailure: Exception? = null,
     private val closeFailure: Exception? = null,
     private val closeGate: CompletableDeferred<Unit>? = null,
+    /** Returned by [pendingResync]; a test sets this to hold the periodic close. */
+    var pendingResyncValue: WalResync? = null,
 ) : HostWal {
     /** How many times the facade asked for recovery. */
     var recoverCalls: Int = 0
+        private set
+
+    /** How many times the facade asked for a real re-recovery. */
+    var resetCalls: Int = 0
         private set
 
     /** Whether an epoch close is inside the seam right now (drain tests). */
@@ -70,16 +77,27 @@ internal class FakeHostWal(
         return recovery
     }
 
+    override suspend fun resetForRecovery() {
+        resetCalls += 1
+    }
+
+    override fun pendingResync(): WalResync? = pendingResyncValue
+
     override fun durabilityClaim(): DurabilityLevel = level
 
     override fun appliedMseq(): Long = (recovery as? WalRecovery.Recovered)?.ackedMseq ?: 0L
 
-    override suspend fun append(body: MutationBody): WalAppend {
+    override fun allocator(): MseqAllocator =
+        MseqAllocator(lastMseq = nextAppendMseq - 1, nextMseq = nextAppendMseq)
+
+    override suspend fun appendWorker(body: MutationBody, mseq: Long): WalWorkerAppend {
         appendFailure?.let { throw it }
-        val mseq = nextAppendMseq
+        val tail = nextAppendMseq - 1
+        if (mseq <= tail) return WalWorkerAppend.Behind(tail)
+        if (mseq != nextAppendMseq) return WalWorkerAppend.Ahead(nextAppendMseq)
         appendedBodies += body
         nextAppendMseq += 1
-        return WalAppend(mseq = mseq, materializedUptoMseq = mseq)
+        return WalWorkerAppend.Appended(WalAppend(mseq = mseq, materializedUptoMseq = mseq))
     }
 
     override suspend fun closeEpoch(): WalClose {

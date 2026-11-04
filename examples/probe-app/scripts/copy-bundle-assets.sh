@@ -433,9 +433,14 @@ if [ -z "$WORKER_OUT" ]; then
   # worker-entry/build.mjs' Worker-host existence check: otherwise a canonical
   # ~/.config checkout would silently stage an old Worker entry beside a new
   # Web page and image.
-  echo "copy-bundle-assets: verifying Worker checkout $WEB_VERSION $WEB_COMMIT" >&2
-  PDSH_DSH_CHECKOUT="$CHECKOUT" node "$PLUGIN_DIR/scripts/dsh-checkout.mjs" --verify \
-    --commit "$WEB_COMMIT" --version "$WEB_VERSION" >&2 \
+  VERIFY_ARGS=(--verify)
+  if [ "$STAGE_WEB" -eq 1 ]; then
+    echo "copy-bundle-assets: verifying Worker checkout $WEB_VERSION $WEB_COMMIT" >&2
+    VERIFY_ARGS+=(--commit "$WEB_COMMIT" --version "$WEB_VERSION")
+  else
+    echo "copy-bundle-assets: verifying Worker checkout against dsh-pin.json" >&2
+  fi
+  PDSH_DSH_CHECKOUT="$CHECKOUT" node "$PLUGIN_DIR/scripts/dsh-checkout.mjs" "${VERIFY_ARGS[@]}" >&2 \
     || { echo "copy-bundle-assets: Worker checkout does not match the Web/image source; pass --worker-out for a separately verified build" >&2; exit 1; }
   echo "copy-bundle-assets: building the Worker entry bundle"
   node "$PLUGIN_DIR/worker-entry/build.mjs" --out "$TMP/worker-entry" >&2

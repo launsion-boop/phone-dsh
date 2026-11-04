@@ -153,32 +153,22 @@ public actor LocalCapabilityToolInvoker: ConnectorToolInvoker {
             .sorted { $0.updatedAt > $1.updatedAt }
             .first
         let source = memorySource(name, mandate: mandate)
-        let saved: MemoryRecord
-        let outcome: String
-        if let existing {
-            if existing.text == value {
-                saved = existing
-                outcome = "unchanged"
-            } else {
-                saved = try await memories.supersede(existing.id, with: value, source: source, now: now())
-                outcome = "revised"
-            }
-        } else {
-            let record = MemoryRecord(principal: mandate.principal, accountScope: accountScope,
-                                      kind: .longTerm, field: field, text: value, source: source,
-                                      origin: .modelInference, revision: 1, validFrom: now(), status: .active,
-                                      createdAt: now(), updatedAt: now())
-            try await memories.save(record)
-            saved = record
-            outcome = "created"
+        if let existing, existing.text == value {
+            return try Self.success(tool: name, outcome: "unchanged",
+                                    values: ["record": Self.jsonObject(existing), "revision": existing.revision])
         }
-        let verified = try await verifiedMemory(saved.id, principal: mandate.principal)
-        guard verified.revision == saved.revision, verified.text == value,
-              verified.source.kind == source.kind, verified.source.reference == source.reference,
-              verified.source.detail == source.detail, verified.isActive(at: now()) else {
-            throw LocalCapabilityError.verificationFailed("memory read-after-write did not match")
+        let record = MemoryRecord(principal: mandate.principal, accountScope: accountScope,
+                                  kind: .longTerm, field: field, text: value, source: source,
+                                  origin: .modelInference, revision: 1, validFrom: now(), status: .candidate,
+                                  createdAt: now(), updatedAt: now())
+        try await memories.save(record)
+        let verified = try await verifiedMemory(record.id, principal: mandate.principal)
+        guard verified.revision == 1, verified.text == value, verified.status == .candidate,
+              verified.origin == .modelInference, verified.source.kind == source.kind,
+              verified.source.reference == source.reference, verified.source.detail == source.detail else {
+            throw LocalCapabilityError.verificationFailed("memory candidate read-after-write did not match")
         }
-        return try Self.success(tool: name, outcome: outcome,
+        return try Self.success(tool: name, outcome: "candidate",
                                 values: ["record": Self.jsonObject(verified), "revision": verified.revision])
     }
 
@@ -190,16 +180,16 @@ public actor LocalCapabilityToolInvoker: ConnectorToolInvoker {
         let source = memorySource("memory_log", mandate: mandate)
         let record = MemoryRecord(principal: mandate.principal, accountScope: accountScope,
                                   kind: .event, text: text, scope: scope, source: source,
-                                  origin: .modelInference, revision: 1, validFrom: now(), status: .active,
+                                  origin: .modelInference, revision: 1, validFrom: now(), status: .candidate,
                                   createdAt: now(), updatedAt: now())
         try await memories.save(record)
         let verified = try await verifiedMemory(record.id, principal: mandate.principal)
-        guard verified.revision == 1, verified.text == text,
-              verified.source.kind == source.kind, verified.source.reference == source.reference,
-              verified.source.detail == source.detail else {
-            throw LocalCapabilityError.verificationFailed("memory event read-after-write did not match")
+        guard verified.revision == 1, verified.text == text, verified.status == .candidate,
+              verified.origin == .modelInference, verified.source.kind == source.kind,
+              verified.source.reference == source.reference, verified.source.detail == source.detail else {
+            throw LocalCapabilityError.verificationFailed("memory event candidate read-after-write did not match")
         }
-        return try Self.success(tool: "memory_log", outcome: "logged", values: ["record": Self.jsonObject(verified)])
+        return try Self.success(tool: "memory_log", outcome: "candidate", values: ["record": Self.jsonObject(verified)])
     }
 
     private func deleteMemory(_ argumentsJSON: String,

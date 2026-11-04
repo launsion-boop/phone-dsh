@@ -180,10 +180,6 @@ class ExecRequestValidationTest {
             rejected(ExecFixtures.baseRequest().put("argv", JSONArray())).reason,
         )
         assertEquals(
-            ExecRequestException.Reason.BAD_VALUE,
-            rejected(ExecFixtures.baseRequest(argv = listOf("rg", ""))).reason,
-        )
-        assertEquals(
             "deadline",
             rejected(ExecFixtures.baseRequest().put("deadline", -1)).field,
         )
@@ -278,5 +274,44 @@ class ExecRequestValidationTest {
 
         val payload = String(ExecSpec.hexBytes(golden.getString("payload_hex")), Charsets.UTF_8)
         assertEquals(payload, request.toJson())
+    }
+
+    /**
+     * An empty argv element is a legal argument, not a malformed payload.
+     *
+     * `channel.md` §4.2 types `argv` as "array of strings" and §10's list of
+     * `BAD_PAYLOAD` causes (bad JSON, identifier, capability set, level or
+     * length field) says nothing about an element's content; `exec.md` §1's
+     * identity formula carries `""` through canonical JSON unchanged. The real
+     * Worker sends `["rg","-N",""]` for an empty pattern, and answering it with
+     * `BAD_PAYLOAD` closed the whole ordered channel for a legal request.
+     *
+     * Reverse validation: restore the `argv.any { it.isEmpty() }` check in
+     * [ExecRequest] and both assertions below throw instead of returning.
+     */
+    @Test
+    fun anEmptyArgvElementIsLegalAndRoundTrips() {
+        val request = ExecRequest.parse(
+            ExecFixtures.baseRequest(argv = listOf("rg", "-N", "", "--color=never")).toString(),
+        )
+
+        assertEquals(listOf("rg", "-N", "", "--color=never"), request.argv)
+        // The tool's argument object carries the empty element unchanged, so a
+        // tool that reproduces argv (and the idem_key derivation over it) sees
+        // exactly what the Worker sent.
+        val canonical = JSONObject(request.toJson()).getJSONArray("argv")
+        assertEquals(4, canonical.length())
+        assertEquals("", canonical.getString(2))
+        // Direct construction enforces the same rule as parse().
+        assertEquals(
+            listOf("phone", ""),
+            ExecRequest(
+                execId = ExecFixtures.EXEC_ID,
+                argv = listOf("phone", ""),
+                cwd = "/dsh/workspace",
+                requiresMseq = 0L,
+                idemKey = ExecFixtures.IDEM_A,
+            ).argv,
+        )
     }
 }

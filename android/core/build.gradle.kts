@@ -4,6 +4,7 @@
 plugins {
     id("java-library")
     alias(libs.plugins.kotlin.jvm)
+    id("maven-publish")
 }
 
 kotlin {
@@ -19,6 +20,13 @@ val nativeLibraryDir: File = repoRoot.resolve("shell/target/debug")
 val nativeLibrary: File = nativeLibraryDir.resolve(System.mapLibraryName("pdsh_jni"))
 
 tasks.test {
+    // The recovery tests read a 128 MiB workspace inside a child JVM (so they can
+    // prove the reader streams), but the runner that drives them also holds the
+    // 128 MiB fixture and Gradle's own state. Left at the default heap the suite
+    // fails with `NoClassDefFoundError` cascades under a loaded machine — a
+    // false red on the very tests that guard the OOM fix. Measured: 12 failures
+    // at default vs 0 at 2g on the same tree.
+    maxHeapSize = "2g"
     systemProperty("pdsh.repo.root", repoRoot.absolutePath)
     systemProperty("java.library.path", nativeLibraryDir.absolutePath)
     // Re-run the suite when the native library changes: the JVM tests exercise
@@ -40,4 +48,19 @@ dependencies {
     // a consumer such as `:app` collects the stream in Compose without declaring it itself.
     api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.1")
     testImplementation(libs.junit)
+}
+
+// ---- the published coordinate ------------------------------------------------
+// `com.phonedsh:<module>:0.1.0`, packaging=jar. The repository and the version
+// come from android/build.gradle.kts (root `subprojects` block). `java` exists
+// as soon as `java-library` is applied, so no `afterEvaluate` is needed;
+// `from(components["java"])` is what turns this module's `api` edges into
+// `compile` scope in the POM — a hand-written POM would have to re-derive that
+// split and would drift.
+publishing {
+    publications {
+        create<MavenPublication>("release") {
+            from(components["java"])
+        }
+    }
 }

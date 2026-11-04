@@ -1,0 +1,301 @@
+{
+  "schema": "pdsh.l28.pr15-divergences/1",
+  "note": "页面结构分歧在 PR15 前后对照。before 用当前工作树（checker 11 new）；after = 同一工具 + PR15 iOS 源码重算契约（checker 12 new）。known = spec/ui/v1/pages/_baseline.json 已登记项。",
+  "current_before_pr15": {
+    "page_contracts": 32,
+    "android_screens": 32,
+    "known": 17,
+    "new": 11,
+    "verdict": "FAIL (11 new divergence(s) outside the baseline)",
+    "items": [
+      {
+        "page": "chat",
+        "kind": "missing-action",
+        "name": "完成"
+      },
+      {
+        "page": "chat",
+        "kind": "missing-action",
+        "name": "刷新"
+      },
+      {
+        "page": "egress-allow-list",
+        "kind": "missing-action",
+        "name": "恢复成默认的"
+      },
+      {
+        "page": "native-automation",
+        "kind": "missing-action",
+        "name": "修改计划时间"
+      },
+      {
+        "page": "native-automation",
+        "kind": "missing-action",
+        "name": "保存"
+      },
+      {
+        "page": "native-configuration",
+        "kind": "extra-section",
+        "name": "手机 Worker 限制"
+      },
+      {
+        "page": "native-device-connection",
+        "kind": "missing-section",
+        "name": "解除该设备的会话映射"
+      },
+      {
+        "page": "native-device-session",
+        "kind": "missing-action",
+        "name": "正在读取…"
+      },
+      {
+        "page": "native-plugin-inventory",
+        "kind": "missing-section",
+        "name": "This iPhone Worker has no pnpm, execa or subprocess installation environment. Plugins and bundles can be viewed here; install, enable and disable them in desktop DSH."
+      },
+      {
+        "page": "session-artifacts",
+        "kind": "missing-action",
+        "name": "分享"
+      },
+      {
+        "page": "workspace-folders",
+        "kind": "extra-action",
+        "name": "重试"
+      }
+    ]
+  },
+  "after_pr15_ios_sources": {
+    "page_contracts": 32,
+    "android_screens": 32,
+    "known": 17,
+    "new": 12,
+    "verdict": "FAIL (12 new divergence(s) outside the baseline)",
+    "items": [
+      {
+        "page": "chat",
+        "kind": "missing-action",
+        "name": "完成"
+      },
+      {
+        "page": "chat",
+        "kind": "missing-action",
+        "name": "刷新"
+      },
+      {
+        "page": "egress-allow-list",
+        "kind": "missing-action",
+        "name": "恢复成默认的"
+      },
+      {
+        "page": "native-automation",
+        "kind": "missing-action",
+        "name": "修改计划时间"
+      },
+      {
+        "page": "native-automation",
+        "kind": "missing-action",
+        "name": "保存"
+      },
+      {
+        "page": "native-configuration",
+        "kind": "extra-section",
+        "name": "手机 Worker 限制"
+      },
+      {
+        "page": "native-device-connection",
+        "kind": "missing-section",
+        "name": "解除该设备的会话映射"
+      },
+      {
+        "page": "native-device-session",
+        "kind": "missing-action",
+        "name": "正在读取…"
+      },
+      {
+        "page": "native-plugin-inventory",
+        "kind": "missing-section",
+        "name": "This iPhone Worker has no pnpm, execa or subprocess installation environment. Plugins and bundles can be viewed here; install, enable and disable them in desktop DSH."
+      },
+      {
+        "page": "session-artifacts",
+        "kind": "missing-action",
+        "name": "分享"
+      },
+      {
+        "page": "workspace-folders",
+        "kind": "extra-action",
+        "name": "重试"
+      },
+      {
+        "page": "files",
+        "kind": "extra-action",
+        "name": "分享"
+      }
+    ],
+    "added": [
+      {
+        "page": "files",
+        "kind": "extra-action",
+        "name": "分享",
+        "cause": "PR15 删除 FilePreviewPage 后 files.json 少了两条 action（分享 + 预览用 完成）；Android FilesPage 仍渲染 分享"
+      }
+    ],
+    "resolved": []
+  },
+  "known": [
+    {
+      "page": "daily-brief",
+      "kind": "missing-section",
+      "name": "N 条内容",
+      "reason": "known divergence on daily-brief (missing-section); shrink only"
+    },
+    {
+      "page": "export",
+      "kind": "extra-action",
+      "name": "重试",
+      "reason": "known divergence on export (extra-action); shrink only"
+    },
+    {
+      "page": "mcp-editor",
+      "kind": "extra-action",
+      "name": "保存",
+      "reason": "known divergence on mcp-editor (extra-action); shrink only"
+    },
+    {
+      "page": "mcp-editor",
+      "kind": "extra-action",
+      "name": "本地命令",
+      "reason": "known divergence on mcp-editor (extra-action); shrink only"
+    },
+    {
+      "page": "mcp-editor",
+      "kind": "extra-action",
+      "name": "网络地址",
+      "reason": "known divergence on mcp-editor (extra-action); shrink only"
+    },
+    {
+      "page": "native-automation",
+      "kind": "extra-action",
+      "name": "加载更早记录",
+      "reason": "known divergence on native-automation (extra-action); shrink only"
+    },
+    {
+      "page": "native-automation",
+      "kind": "extra-action",
+      "name": "查看投递记录",
+      "reason": "known divergence on native-automation (extra-action); shrink only"
+    },
+    {
+      "page": "native-configuration",
+      "kind": "missing-section",
+      "name": "iPhone Worker 限制",
+      "reason": "known divergence on native-configuration (missing-section); shrink only"
+    },
+    {
+      "page": "runtime-details",
+      "kind": "extra-section",
+      "name": "WebView",
+      "reason": "known divergence on runtime-details (extra-section); shrink only"
+    },
+    {
+      "page": "runtime-details",
+      "kind": "extra-section",
+      "name": "内存",
+      "reason": "known divergence on runtime-details (extra-section); shrink only"
+    },
+    {
+      "page": "runtime-details",
+      "kind": "extra-section",
+      "name": "前台服务",
+      "reason": "known divergence on runtime-details (extra-section); shrink only"
+    },
+    {
+      "page": "runtime-details",
+      "kind": "extra-section",
+      "name": "引擎",
+      "reason": "known divergence on runtime-details (extra-section); shrink only"
+    },
+    {
+      "page": "runtime-details",
+      "kind": "extra-section",
+      "name": "电源与散热",
+      "reason": "known divergence on runtime-details (extra-section); shrink only"
+    },
+    {
+      "page": "runtime-details",
+      "kind": "missing-action",
+      "name": "停止",
+      "reason": "known divergence on runtime-details (missing-action); shrink only"
+    },
+    {
+      "page": "runtime-details",
+      "kind": "missing-section",
+      "name": "最近出错",
+      "reason": "known divergence on runtime-details (missing-section); shrink only"
+    },
+    {
+      "page": "runtime-details",
+      "kind": "missing-section",
+      "name": "本次运行",
+      "reason": "known divergence on runtime-details (missing-section); shrink only"
+    },
+    {
+      "page": "task-screen",
+      "kind": "extra-action",
+      "name": "重试",
+      "reason": "known divergence on task-screen (extra-action); shrink only"
+    }
+  ],
+  "contract_changes": {
+    "count": 6,
+    "semantic": [
+      {
+        "page": "files",
+        "detail": "actions 8 → 6: 去掉 '分享'(share) 与预览用 '完成'; source.lines 487 → 219"
+      }
+    ],
+    "provenance_only": [
+      {
+        "page": "chat",
+        "moved": "32/60",
+        "source_lines": "4471 → 4482"
+      },
+      {
+        "page": "runtime-details",
+        "moved": "12/13",
+        "source_lines": "4471 → 4482"
+      },
+      {
+        "page": "settings-about",
+        "moved": "2/3",
+        "source_lines": "1001 → 1037"
+      },
+      {
+        "page": "egress-allow-list",
+        "moved": "0/15",
+        "source_lines": "1001 → 1037"
+      },
+      {
+        "page": "workspace-folders",
+        "moved": "0/12",
+        "source_lines": "1001 → 1037"
+      }
+    ],
+    "manual_fix_required": [
+      {
+        "file": "_spec-required.json",
+        "label": "打开会话列表",
+        "from": "ChatPage.swift:228",
+        "to": "ChatPage.swift:231"
+      },
+      {
+        "file": "_spec-required.json",
+        "label": "提交回答",
+        "from": "ChatPage.swift:3430",
+        "to": "ChatPage.swift:3441"
+      }
+    ],
+    "new_pages": []
+  }
+}

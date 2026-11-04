@@ -2542,5 +2542,19 @@
     "网页截图不含 iOS 状态栏（09:41/信号/电量）；状态栏属于 iOS 侧叠加层，不是 Web UI 的一部分。",
     "视口为 CSS 402×874、DPR3、light、mobile；截图是 1206×2622 物理像素，没有按 @3x 再乘一次。",
     "截图由无头 Chrome（DevTools Protocol）生成，字体回退到 macOS 系统栈（-apple-system / PingFang），与 iPhone 真机字形可能有细微差异。"
+  ],
+  "redactions": [
+    {
+      "kind": "home-path",
+      "with": "~",
+      "reason": "记录下来的命令或 fixture 路径前面的家目录前缀指向的是采集机器、不是证据本身；`~` 让命令仍然可跑，相对结构也不变",
+      "replacements": 21
+    },
+    {
+      "kind": "internal-codename",
+      "with": "<internal-project>",
+      "reason": "仓库不允许这个内部服务拼写进入公开树；它位于捕获到的正文里、不在渲染出的视口内，所以 PNG 不受影响、无需重做截图",
+      "replacements": 2
+    }
   ]
 }

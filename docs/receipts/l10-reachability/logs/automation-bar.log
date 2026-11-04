@@ -1,0 +1,10 @@
+# L10 automation-bar handoff (final APK, emulator-5624)
+
+## 刷新
+11-01 17:15:54.224  8553  8553 I PDSHNav : host action handed off: automation.refresh
+note: 宿主未实现：重新读取定时任务，本次未提交
+
+## 新建
+11-01 17:15:54.224  8553  8553 I PDSHNav : host action handed off: automation.refresh
+11-01 17:16:00.568  8553  8553 I PDSHNav : host action handed off: automation.editor
+note: 宿主未实现：定时任务编辑器，本次未提交

@@ -11,6 +11,7 @@
 package com.phonedsh.probe
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -71,8 +72,13 @@ internal fun ProbeScreen(
     onOpenConfiguration: () -> Unit,
     onOpenRuntime: () -> Unit,
     onOpenWorkbench: (WorkbenchSection, String?) -> Unit,
+    // The resolved 外观 choice. The probe draws its own `PdshTheme`, so without
+    // this parameter it would follow the system even when the person picked
+    // 浅色 / 深色 in settings — the one surface that would silently disagree with
+    // the rest of the app. Defaults to the system answer.
+    darkTheme: Boolean = isSystemInDarkTheme(),
 ) {
-    PdshTheme {
+    PdshTheme(darkTheme = darkTheme) {
         val tokens = PdshThemeValues.tokens
         Box(Modifier.fillMaxSize().background(tokens.colors.selector)) {
             Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
@@ -480,6 +486,12 @@ private fun TurnCard(turn: AppTurnState, onOpenWorkbench: (WorkbenchSection, Str
             AppTurnState.Running ->
                 Line("已发起，等待 worker 自己的 turn_ended。", type.caption, tokens.colors.secondary)
             is AppTurnState.Completed -> {
+                // A restored completion is the *previous* process's turn; the card
+                // says so instead of letting 「完成」 stand for "you just ran this".
+                if (turn.restored) {
+                    Line(AppTurnState.RESTORED_LINE, type.caption, tokens.colors.secondary)
+                    Spacer(Modifier.height(tokens.spacing.jsonStack))
+                }
                 KeyValueRow("session", turn.sessionId)
                 KeyValueRow("事件", turn.kinds.joinToString(", "))
                 // §1: a tool-written path in the conversation opens the workbench

@@ -23,6 +23,16 @@ class ControllerStateMachine private constructor(initialBoot: BootResult) {
     /** The D14 boot mapping that created this machine. */
     val initialBoot: BootResult = initialBoot
 
+    /**
+     * The current D14 state.
+     *
+     * `@Volatile`: the machine serialises [handle] behind the facade's signal
+     * lock, but readers such as the host's periodic epoch-close lane run on a
+     * different dispatcher thread and must observe the last accepted state
+     * without taking that lock. A non-volatile read here is a data race the
+     * periodic lane would silently interpret as "not Running".
+     */
+    @Volatile
     var state: HostState = initialBoot.state
         private set
 

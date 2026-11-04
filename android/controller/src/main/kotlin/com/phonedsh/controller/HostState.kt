@@ -124,4 +124,18 @@ enum class ControllerFailure(val code: String) {
     QUOTA_EXCEEDED("QUOTA_STILL_EXCEEDED_AFTER_COMPACTION"),
     MEMORY_HARD_CAP("MEMORY_HARD_CAP_AFTER_BUDGET_ACTIONS"),
     HOST_DEFECT("UNRECOVERABLE_HOST_DEFECT"),
+    ;
+
+    companion object {
+        /**
+         * The member whose [code] is [code], or `null` for a value this
+         * vocabulary does not name.
+         *
+         * `host-state.json` persists the code, so a boot that restores
+         * `Failed` can feed the controller the same closed-vocabulary reason
+         * the previous process recorded instead of booting `UNRECORDED`.
+         */
+        fun fromCode(code: String?): ControllerFailure? =
+            code?.let { wanted -> entries.firstOrNull { it.code == wanted } }
+    }
 }

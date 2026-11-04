@@ -179,7 +179,7 @@
       "labelExpr": null,
       "kind": "toggle",
       "trigger": "tap",
-      "semantic": null,
+      "semantic": "binding:$changeTiming",
       "writes": true,
       "destination": null,
       "condition": null,
@@ -194,7 +194,7 @@
       "labelExpr": null,
       "kind": "picker",
       "trigger": "tap",
-      "semantic": null,
+      "semantic": "binding:$rule",
       "writes": true,
       "destination": null,
       "condition": null,
@@ -242,6 +242,48 @@
       "anchor": "Button(saving ? \"保存中…\" : \"保存\") { save() }",
       "extraction": "syntax",
       "presentedBy": "sheet-82"
+    },
+    {
+      "id": "查看投递记录",
+      "label": "查看投递记录",
+      "labelExpr": null,
+      "kind": "action",
+      "trigger": "tap",
+      "semantic": null,
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "extraction": "manual",
+      "androidOnly": {
+        "reason": {
+          "baselineLacks": "the contract has no row for it, but iOS does draw it — NativeAutomationPage.swift:140, inside `ScheduleDetailPage` / `ScheduleHistoryPage`, which are NavigationLink destinations. The extractor walks those structs but does not collect a navigated subpage's actions into the parent contract, so the label is absent from the contract while it exists in the app.",
+          "androidNeeds": "Android renders the detail and history in the page's own file, so the row is drawn where the contract does not look.",
+          "withoutIt": "the delivery history could not be opened, or would stop at the first page with no way back."
+        },
+        "owner": "android-ui",
+        "reviewBy": "2027-06-30"
+      }
+    },
+    {
+      "id": "加载更早记录",
+      "label": "加载更早记录",
+      "labelExpr": null,
+      "kind": "action",
+      "trigger": "tap",
+      "semantic": null,
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "extraction": "manual",
+      "androidOnly": {
+        "reason": {
+          "baselineLacks": "the contract has no row for it, but iOS does draw it — NativeAutomationPage.swift:199, inside `ScheduleDetailPage` / `ScheduleHistoryPage`, which are NavigationLink destinations. The extractor walks those structs but does not collect a navigated subpage's actions into the parent contract, so the label is absent from the contract while it exists in the app.",
+          "androidNeeds": "Android renders the detail and history in the page's own file, so the row is drawn where the contract does not look.",
+          "withoutIt": "the delivery history could not be opened, or would stop at the first page with no way back."
+        },
+        "owner": "android-ui",
+        "reviewBy": "2027-06-30"
+      }
     }
   ],
   "presentations": [
@@ -337,6 +379,7 @@
       "name": "ScheduleDetailPage",
       "line": 107,
       "private": true,
+      "embedded": true,
       "sections": [
         {
           "title": "提醒",
@@ -357,6 +400,7 @@
       "name": "ScheduleHistoryPage",
       "line": 169,
       "private": true,
+      "embedded": true,
       "sections": [
         {
           "title": "错误",
@@ -369,6 +413,7 @@
       "name": "ScheduleEditorPage",
       "line": 204,
       "private": true,
+      "embedded": true,
       "sections": [
         {
           "title": "任务内容",

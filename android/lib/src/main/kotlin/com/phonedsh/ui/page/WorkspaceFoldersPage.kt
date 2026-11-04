@@ -1,22 +1,21 @@
-// Workspace folders: the drawer's folder list, its creation, switch and removal.
+// Workspace folders: the drawer's folder list and file-list entry.
 // SPDX-License-Identifier: MIT
 //
-// Spec: `spec/ui/v1/README.md` §1 (`WorkspaceFoldersPage`: 工作区文件夹增删与切换;
+// Spec: `spec/ui/v1/README.md` §1 (`WorkspaceFoldersPage`: 工作区文件夹列表与文件入口;
 // entry: 抽屉「工作文件夹」; push; 每行打开 FilesPage), §3.1 (the ScreenState layer) and
 // §5 (`insets`, `ime`, `back-gesture`).
 //
 // There is no harness event anchor here: the folder list, the current selection and
 // the per-folder session count are host facts, so §3.1 rule 3 makes the host's
 // read-only snapshot the UiState-side input. `WorkspaceFoldersScreenState.from` is a
-// pure function of (snapshot, local create/delete script); name validation is a pure
+// pure function of (snapshot, local create script); name validation is a pure
 // function too, so the whole page replays on the JVM.
 //
 // Safety rules the state machine owns, not the caller:
 //   * a name is trimmed and rejected when blank, when it contains a path separator
 //     or a control character, or when it is longer than the declared limit;
-//   * deleting needs a confirmation, and the folder the host reports as current is
-//     never deletable: the page disables the action instead of silently retargeting
-//     the selection, and the projection refuses to open the confirmation for it;
+//   * the current selection is a host fact; this page only opens a folder's FilesPage
+//     and does not expose a switch/delete action that the iOS page does not have;
 //   * a list the host did not report is 未知 with an explanation, never an empty
 //     list; an unmeasured session count renders 未知, never 0.
 //
@@ -34,29 +33,38 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.style.TextAlign
 import com.phonedsh.ui.UiStrings
+import com.phonedsh.ui.SessionsMetrics
+import com.phonedsh.ui.HomeMetrics
+import com.phonedsh.ui.surface.PageBarCapsule
+import com.phonedsh.ui.surface.SettingsSubPageFrame
 import com.phonedsh.ui.theme.LocalUiTokens
 import com.phonedsh.ui.theme.LocalUiType
 import com.phonedsh.ui.theme.generated.UiTokenNames
@@ -68,7 +76,7 @@ import com.phonedsh.ui.theme.generated.UiTokenNames
 /**
  * One workspace folder exactly as the host lists it.
  *
- * @param id the host id used for switch/delete/open.
+ * @param id the host id used to open this folder's file listing.
  * @param name the host name; the built-in folder is reworded for display and a
  *   blank name renders 未知.
  * @param sessionCount the host's session count; `null` when it did not measure it.
@@ -105,6 +113,8 @@ public data class WorkspaceFoldersSnapshot(
      * follows when it renders 未知 instead of 0.
      */
     public val writable: FactState = FactState.UNKNOWN,
+    /** Last host-confirmed workspace write, or `null` when no result was reported. */
+    public val mutationReceipt: PageMutationReceipt? = null,
 )
 
 /** The four states the page distinguishes. */
@@ -200,6 +210,7 @@ public data class WorkspaceFoldersScreenState(
     public val deleteTargetID: String?,
     public val hasUnmeasuredValues: Boolean,
     public val canWrite: Boolean = true,
+    public val mutationReceipt: PageMutationReceipt? = null,
 ) {
     /** True when the host reported an empty list. */
     public val isEmpty: Boolean get() = status == WorkspaceFoldersStatus.EMPTY
@@ -257,6 +268,7 @@ public data class WorkspaceFoldersScreenState(
                 deleteTargetID = deleteTargetID,
                 hasUnmeasuredValues = folders.any { it.sessionCount == null },
                 canWrite = snapshot.writable != FactState.NO,
+                mutationReceipt = snapshot.mutationReceipt,
             )
         }
     }
@@ -312,14 +324,14 @@ public data class WorkspaceFoldersLocalState(
  * @param state the pure screen state ([WorkspaceFoldersScreenState.from]).
  * @param onBack pop the page (the drawer row pushes it).
  * @param onOpenFiles open the folder's file list (`FilesPage`).
- * @param onSwitch make the folder current; the host applies the switch and re-reads.
- * @param onBeginCreate open the inline create row.
+ * @param onSwitch legacy host callback; this page does not render a switch action.
+ * @param onBeginCreate open the create alert.
  * @param onDraftChange edit the create draft.
- * @param onCancelCreate close the create row.
+ * @param onCancelCreate close the create alert.
  * @param onCreate create the folder from the current draft (the host validates too).
- * @param onDeleteRequest ask for the delete confirmation.
- * @param onDeleteConfirm delete the confirmed folder.
- * @param onDeleteCancel cancel the confirmation.
+ * @param onDeleteRequest legacy host callback; this page does not render deletion.
+ * @param onDeleteConfirm legacy host callback; this page does not render deletion.
+ * @param onDeleteCancel legacy host callback; this page does not render deletion.
  * @param onRetry retry a failed read.
  * @param onDismissFailure dismiss the failure line.
  */
@@ -341,26 +353,39 @@ public fun WorkspaceFoldersPage(
     onDismissFailure: (() -> Unit)? = null,
 ) {
     val tokens = LocalUiTokens.current
-    PageFrame(
-        title = UiStrings.WORKSPACE_FOLDERS,
+    val type = LocalUiType.current
+    // The baseline is a **large-title** page: `.navigationTitle("工作文件夹")` +
+    // `.navigationBarTitleDisplayMode(.large)` (`NativeShell.swift:372`–`:373`),
+    // measured on `ios-workspace-folders.png` at 34 pt, ink y 125.33–155.33, leading
+    // inset 17.33. It also paints its own page fill (`.background(Color.white)`,
+    // `:378`), so the frame's `pageFill` mode is what puts the same white behind the
+    // rows instead of the Material surface.
+    SettingsSubPageFrame(
+        largeTitle = UiStrings.WORKSPACE_FOLDERS,
         onBack = onBack,
+        backGlyph = PAGE_BACK_GLYPH,
+        pageFill = true,
         rootTag = UiPageTags.WORKSPACE_ROOT,
         modifier = modifier,
-        actions = {
-            // `NativeShell.swift:376`: the baseline's toolbar verb is 添加; the
-            // empty state carries the longer 添加工作文件夹 call to action below.
-            SessionTextAction(
-                label = UiStrings.WORKSPACE_ADD,
+        trailing = {
+            // `NativeShell.swift:376`–`:379`: `Button("添加")` with a 17 pt accent
+            // title. On iOS 26 a bar button floats in a white capsule over the page
+            // (`ios-workspace-folders.png`: pill ≈ x 309.0–386.7, y ≈ 69.7–113.3, the
+            // white fill visible only through its shadow; title ink #2F5BFF =
+            // `colors.pageAccent`). The empty state below carries the longer
+            // 添加工作文件夹 call to action.
+            PageBarCapsule(
+                description = UiStrings.WORKSPACE_ADD,
                 onClick = onBeginCreate,
-                tone = SessionActionTone.ACCENT,
-                modifier = Modifier.testTag(UiPageTags.WORKSPACE_NEW),
+                insetH = com.phonedsh.ui.SettingsMetrics.WORKSPACE_TOOLBAR_TEXT_INSET_H_PT.dp,
+                elevation = com.phonedsh.ui.SettingsMetrics.WORKSPACE_TOOLBAR_SHADOW_ELEVATION_PT.dp,
                 enabled = state.canWrite,
+                tag = UiPageTags.WORKSPACE_NEW,
             )
         },
     ) {
-        // The create field is a text input: the IME must lift the list, not cover it
-        // (spec §5 row `ime`).
-        Column(modifier = Modifier.fillMaxSize().imePadding()) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            state.mutationReceipt?.let { PageMutationReceiptLine(it) }
             if (state.failure != null) {
                 SessionFailureLine(
                     message = state.failure,
@@ -372,17 +397,6 @@ public fun WorkspaceFoldersPage(
             }
             // A failed read with no rows to keep is the failure line only.
             if (state.status != WorkspaceFoldersStatus.FAILED) {
-                // The create row is pinned above the list on purpose: opening it must
-                // not depend on where the (lazy) list happens to be scrolled, and the
-                // field must stay visible while the IME is up.
-                if (state.creating) {
-                    CreateRow(
-                        state = state,
-                        onDraftChange = onDraftChange,
-                        onCancelCreate = onCancelCreate,
-                        onCreate = onCreate,
-                    )
-                }
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -409,17 +423,14 @@ public fun WorkspaceFoldersPage(
                             if (state.hasUnmeasuredValues) {
                                 item(key = "unmeasured") { UnmeasuredHint() }
                             }
-                            items(items = state.folders, key = { it.id }) { folder ->
+                            itemsIndexed(items = state.folders, key = { _, folder -> folder.id }) { index, folder ->
                                 FolderRow(
                                     folder = folder,
-                                    writable = state.canWrite,
                                     onOpenFiles = onOpenFiles,
-                                    onSwitch = onSwitch,
-                                    onDeleteRequest = onDeleteRequest,
-                                    onDeleteConfirm = onDeleteConfirm,
-                                    onDeleteCancel = onDeleteCancel,
                                 )
-                                SessionHairline()
+                                if (index < state.folders.lastIndex) {
+                                    SessionHairline(modifier = Modifier.padding(horizontal = tokens.geometry.pageOuterMarginH))
+                                }
                             }
                         }
 
@@ -429,16 +440,22 @@ public fun WorkspaceFoldersPage(
             }
         }
     }
+    if (state.creating) {
+        WorkspaceCreateDialog(
+            state = state,
+            onDraftChange = onDraftChange,
+            onCancel = onCancelCreate,
+            onCreate = onCreate,
+        )
+    }
 }
 
 /**
  * The baseline's empty state (`NativeShell.swift:345`-`:363`): 还没有工作文件夹,
  * the one-line hint, and the accent 「添加工作文件夹」 button that opens the same
  * create flow the toolbar's 添加 does. The baseline draws the button as a filled
- * 50 pt call to action; the page-level `geometry.pageRowMinHeight` is the page's
- * declared control floor, so the button takes it instead of a screen-specific
- * height (`geometry.primaryButtonHeight` belongs to the approval card and is not
- * borrowed here).
+ * 50 pt call to action (`NativeShell.swift:354-360`); this shared CTA metric was
+ * measured on the sessions empty state and has the same source height/radius.
  *
  * @param canWrite false when the host reported the page read-only: the button is
  *   disabled, not hidden, so the empty state never promises an action it cannot do.
@@ -455,31 +472,46 @@ private fun EmptyWorkspace(
     Column(
         modifier = modifier
             .fillMaxSize()
+            // `ios-workspace-folders.png`: the empty block starts directly below the
+            // title area (24 pt of breathing room), not vertically centred.
+            .padding(top = tokens.spacing.cardInset * 2)
             .testTag(UiPageTags.WORKSPACE_EMPTY),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
+        verticalArrangement = Arrangement.Top,
     ) {
         BasicText(
             text = UiStrings.WORKSPACE_EMPTY,
-            style = type.body.copy(color = tokens.colors.tertiary),
+            // `NativeShell.swift:347`: 17 pt semibold primary.
+            style = type.headline.copy(
+                color = tokens.colors.primary,
+                textAlign = TextAlign.Center,
+            ),
+            modifier = Modifier.fillMaxWidth(),
         )
         BasicText(
             text = UiStrings.WORKSPACE_EMPTY_HINT,
-            style = type.caption.copy(color = tokens.colors.tertiary),
-            modifier = Modifier.padding(top = tokens.spacing.badgeInsetV),
+            // `NativeShell.swift:349`: 13 pt secondary, centred.
+            style = type.secondary.copy(
+                color = tokens.colors.secondary,
+                textAlign = TextAlign.Center,
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = tokens.spacing.badgeInsetV),
         )
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(
-                    top = tokens.spacing.iconText,
-                    start = tokens.geometry.pageOuterMarginH,
-                    end = tokens.geometry.pageOuterMarginH,
+                    top = tokens.spacing.cardInset,
+                    // `ios-workspace-folders.png`: the CTA is 337.7 pt wide, i.e. the
+                    // page margin twice on each side, matching the baseline's inset
+                    // grouped row inset plus the button's own 16 pt inset.
+                    start = tokens.geometry.pageOuterMarginH * 2,
+                    end = tokens.geometry.pageOuterMarginH * 2,
                 )
-                // Page-level geometry: the CTA is a page control and takes the page
-                // row floor rather than a screen-specific button height.
-                .defaultMinSize(minHeight = tokens.geometry.pageRowMinHeight)
-                .background(tokens.colors.accent, RoundedCornerShape(tokens.radius.card))
+                .height(SessionsMetrics.ctaHeight)
+                .background(tokens.colors.pageAccent, RoundedCornerShape(tokens.radius.card))
                 .clickable(enabled = canWrite, role = Role.Button, onClick = onCreate)
                 .testTag(UiPageTags.WORKSPACE_ADD_FOLDER)
                 .semantics { contentDescription = UiStrings.WORKSPACE_ADD_FOLDER },
@@ -493,200 +525,126 @@ private fun EmptyWorkspace(
     }
 }
 
-/** The inline create row: a validated name field, 创建 and 取消. */
+/** The iOS alert (`NativeShell.swift:376-394`) with a single validated name field. */
 @Composable
-private fun CreateRow(
+private fun WorkspaceCreateDialog(
     state: WorkspaceFoldersScreenState,
     onDraftChange: (String) -> Unit,
-    onCancelCreate: () -> Unit,
+    onCancel: () -> Unit,
     onCreate: () -> Unit,
 ) {
     val tokens = LocalUiTokens.current
     val type = LocalUiType.current
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag(UiPageTags.WORKSPACE_CREATE_ROW)
-            .padding(
-                horizontal = tokens.geometry.pageOuterMarginH,
-                vertical = tokens.spacing.badgeInsetV,
-            ),
-        verticalArrangement = Arrangement.spacedBy(tokens.spacing.badgeInsetV),
-    ) {
-        BasicText(
-            text = UiStrings.WORKSPACE_NEW,
-            style = type.caption.copy(color = tokens.colors.tertiary),
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(tokens.spacing.iconText),
-        ) {
-            BasicTextField(
-                value = state.draft,
-                onValueChange = onDraftChange,
-                singleLine = true,
-                textStyle = type.body.copy(color = tokens.colors.primary),
-                cursorBrush = SolidColor(tokens.colors.accent),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                modifier = Modifier
-                    .weight(1f)
-                    // Page-level geometry: an inline field is a page row.
-                    .heightIn(min = tokens.geometry.pageRowMinHeight)
-                    .testTag(UiPageTags.WORKSPACE_NAME_FIELD)
-                    .semantics { contentDescription = UiStrings.WORKSPACE_NAME },
-                decorationBox = { inner ->
-                    if (state.draft.isEmpty()) {
-                        BasicText(
-                            text = UiStrings.WORKSPACE_NAME,
-                            style = type.body.copy(color = tokens.colors.tertiary),
-                        )
-                    }
-                    inner()
-                },
+    AlertDialog(
+        onDismissRequest = onCancel,
+        modifier = Modifier.testTag(UiPageTags.WORKSPACE_CREATE_ROW),
+        title = {
+            BasicText(
+                text = UiStrings.SESSIONS_NEW_WORKSPACE,
+                style = type.headline.copy(color = tokens.colors.primary),
             )
-            SessionTextAction(
-                label = UiStrings.WORKSPACE_CREATE,
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(tokens.spacing.iconText)) {
+                BasicTextField(
+                    value = state.draft,
+                    onValueChange = onDraftChange,
+                    singleLine = true,
+                    textStyle = type.body.copy(color = tokens.colors.primary),
+                    cursorBrush = SolidColor(tokens.colors.accent),
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.None,
+                        autoCorrectEnabled = false,
+                        imeAction = ImeAction.Done,
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = tokens.geometry.pageRowMinHeight)
+                        .testTag(UiPageTags.WORKSPACE_NAME_FIELD)
+                        .semantics { contentDescription = UiStrings.WORKSPACE_NAME },
+                    decorationBox = { inner ->
+                        if (state.draft.isEmpty()) {
+                            BasicText(
+                                text = UiStrings.WORKSPACE_NAME,
+                                style = type.body.copy(color = tokens.colors.tertiary),
+                            )
+                        }
+                        inner()
+                    },
+                )
+                BasicText(
+                    text = UiStrings.SESSIONS_WORKSPACE_CREATE_DETAIL,
+                    style = type.caption.copy(color = tokens.colors.secondary),
+                )
+                val error = state.nameError
+                if (state.draft.isNotEmpty() && error != null) {
+                    BasicText(
+                        text = workspaceNameErrorText(error),
+                        style = type.caption.copy(color = tokens.colors.warning),
+                        modifier = Modifier.testTag(UiPageTags.WORKSPACE_NAME_ERROR),
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
                 onClick = onCreate,
-                tone = SessionActionTone.ACCENT,
                 enabled = state.canCreate,
                 modifier = Modifier.testTag(UiPageTags.WORKSPACE_CREATE),
-            )
-            SessionTextAction(
-                label = UiStrings.CANCEL,
-                onClick = onCancelCreate,
-                tone = SessionActionTone.SECONDARY,
-            )
-        }
-        // A blank draft has no message: an error before the first keystroke would
-        // shout at the reader for not typing yet. The create action is still disabled.
-        val error = state.nameError
-        if (state.draft.isNotEmpty() && error != null) {
-            BasicText(
-                text = workspaceNameErrorText(error),
-                style = type.caption.copy(color = tokens.colors.warning),
-                modifier = Modifier.testTag(UiPageTags.WORKSPACE_NAME_ERROR),
-            )
-        }
-    }
+            ) {
+                BasicText(
+                    text = UiStrings.WORKSPACE_CREATE,
+                    style = type.body.copy(color = if (state.canCreate) tokens.colors.accent else tokens.colors.tertiary),
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onCancel) {
+                BasicText(text = UiStrings.CANCEL, style = type.body.copy(color = tokens.colors.secondary))
+            }
+        },
+        containerColor = tokens.colors.input,
+        textContentColor = tokens.colors.secondary,
+    )
 }
 
-/** One folder row: name, current mark, measured count and the two actions. */
+/** One iOS navigation row: name and count, opening that folder's FilesPage. */
 @Composable
-private fun FolderRow(
-    folder: WorkspaceFolderView,
-    writable: Boolean,
-    onOpenFiles: (WorkspaceFolderView) -> Unit,
-    onSwitch: (WorkspaceFolderView) -> Unit,
-    onDeleteRequest: (WorkspaceFolderView) -> Unit,
-    onDeleteConfirm: (WorkspaceFolderView) -> Unit,
-    onDeleteCancel: () -> Unit,
-) {
+private fun FolderRow(folder: WorkspaceFolderView, onOpenFiles: (WorkspaceFolderView) -> Unit) {
     val tokens = LocalUiTokens.current
     val type = LocalUiType.current
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag(UiPageTags.WORKSPACE_ROW)
-                .clickable(enabled = writable, role = Role.Button, onClick = { onOpenFiles(folder) })
-                // Page-level geometry: a folder row is a compact list row and uses the
-                // page margin.
-                .defaultMinSize(minHeight = tokens.geometry.pageListRowMinHeight)
-                .padding(
-                    horizontal = tokens.geometry.pageOuterMarginH,
-                    vertical = tokens.spacing.iconText,
-                )
-                .semantics(mergeDescendants = true) {},
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(tokens.spacing.iconText),
-        ) {
-            if (folder.current) {
-                Box(
-                    modifier = Modifier
-                        // Page-level geometry: the current-selection dot.
-                        .size(tokens.geometry.statusDotDiameter)
-                        .clip(CircleShape)
-                        .background(tokens.colors.accent),
-                )
-            }
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(tokens.spacing.badgeInsetV),
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(tokens.spacing.iconText),
-                ) {
-                    BasicText(
-                        text = folder.name,
-                        style = type.body.copy(
-                            color = if (folder.current) tokens.colors.accent else tokens.colors.primary,
-                        ),
-                        maxLines = 1,
-                        modifier = Modifier.weight(1f),
-                    )
-                    if (folder.current) {
-                        BasicText(
-                            text = UiStrings.WORKSPACE_CURRENT,
-                            style = type.caption.copy(color = tokens.colors.accent),
-                            modifier = Modifier.testTag(UiPageTags.WORKSPACE_CURRENT),
-                        )
-                    }
-                }
-                BasicText(
-                    // A measured count is a number; an unmeasured one is the word.
-                    text = folder.sessionCount?.let { UiStrings.WORKSPACE_SESSION_COUNT.format(it) }
-                        ?: UiStrings.UNKNOWN,
-                    style = type.caption.copy(color = tokens.colors.tertiary),
-                )
-            }
-        }
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(
-                    horizontal = tokens.geometry.pageOuterMarginH,
-                    vertical = tokens.spacing.badgeInsetV,
-                ),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(tokens.spacing.iconText),
-        ) {
-            SessionTextAction(
-                label = UiStrings.WORKSPACE_SWITCH,
-                onClick = { onSwitch(folder) },
-                tone = SessionActionTone.SECONDARY,
-                enabled = writable && !folder.current,
-                description = "${UiStrings.WORKSPACE_SWITCH} ${folder.name}",
-                modifier = Modifier.testTag(UiPageTags.WORKSPACE_SWITCH),
-            )
-            SessionTextAction(
-                label = UiStrings.WORKSPACE_DELETE,
-                onClick = { onDeleteRequest(folder) },
-                tone = SessionActionTone.DANGER,
-                enabled = writable && folder.deletable,
-                description = "${UiStrings.WORKSPACE_DELETE} ${folder.name}",
-                modifier = Modifier.testTag(UiPageTags.WORKSPACE_DELETE),
-            )
-            if (!folder.deletable) {
-                BasicText(
-                    text = UiStrings.WORKSPACE_SELECTED_LOCKED,
-                    style = type.caption.copy(color = tokens.colors.tertiary),
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag(UiPageTags.WORKSPACE_LOCKED),
-                )
-            }
-        }
-        if (folder.confirmingDelete) {
-            DeleteConfirmRow(
-                folder = folder,
-                writable = writable,
-                onDeleteConfirm = onDeleteConfirm,
-                onDeleteCancel = onDeleteCancel,
-            )
-        }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(tokens.colors.surface)
+            .testTag(UiPageTags.WORKSPACE_ROW)
+            // Folder opening is a read; the grouped-list row stays available in
+            // the host's read-only mode.
+            .clickable(role = Role.Button, onClick = { onOpenFiles(folder) })
+            .defaultMinSize(minHeight = HomeMetrics.defaultMinListRowHeight)
+            .padding(horizontal = HomeMetrics.contentInset)
+            .semantics(mergeDescendants = true) {},
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(WORKSPACE_ROW_GAP_PT.dp),
+    ) {
+        BasicText(
+            text = folder.name,
+            style = type.body.copy(color = tokens.colors.primary),
+            maxLines = 1,
+            modifier = Modifier.weight(1f),
+        )
+        // iOS's HStack places the measured count on the same line before the
+        // navigation chevron (`NativeShell.swift:279-290`).
+        BasicText(
+            text = folder.sessionCount?.let { UiStrings.WORKSPACE_SESSION_COUNT.format(it) }
+                ?: UiStrings.UNKNOWN,
+            style = type.subheadline.copy(color = tokens.colors.secondary),
+            maxLines = 1,
+        )
+        BasicText(
+            text = WORKSPACE_ROW_CHEVRON,
+            style = type.caption.copy(color = tokens.colors.tertiary),
+        )
     }
 }
 
@@ -818,7 +776,7 @@ internal fun workspaceDisplayName(raw: String): String {
     val trimmed = raw.trim()
     return when {
         trimmed.isEmpty() -> UiStrings.UNKNOWN
-        trimmed.lowercase() == DEFAULT_FOLDER_NAME -> UiStrings.WORKSPACE_DEFAULT_NAME
+        trimmed.lowercase() == DEFAULT_FOLDER_NAME -> UiStrings.DRAWER_DEFAULT_FOLDER
         else -> trimmed
     }
 }
@@ -836,6 +794,9 @@ private const val PATH_SEPARATOR: Char = '/'
 
 /** The baseline's built-in folder name, compared lowercase and never shown raw. */
 private const val DEFAULT_FOLDER_NAME: String = "workspace"
+/** `NativeShell.swift:327`: folder name/count spacing in the navigation row. */
+private const val WORKSPACE_ROW_GAP_PT: Float = 12f
+private const val WORKSPACE_ROW_CHEVRON: String = "›"
 
 /**
  * The token inventory of this page.
@@ -848,20 +809,26 @@ private const val DEFAULT_FOLDER_NAME: String = "workspace"
 internal object WorkspaceFoldersPageTokens {
     val refs: List<String> = listOf(
         UiTokenNames.COLORS_PRIMARY,
+        UiTokenNames.COLORS_SECONDARY,
         UiTokenNames.COLORS_TERTIARY,
         UiTokenNames.COLORS_ACCENT,
+        UiTokenNames.COLORS_PAGE_ACCENT,
         UiTokenNames.COLORS_ON_ACCENT,
         UiTokenNames.COLORS_WARNING,
+        UiTokenNames.COLORS_INPUT,
+        UiTokenNames.COLORS_SURFACE,
         UiTokenNames.RADIUS_CARD,
         UiTokenNames.TYPOGRAPHY_BODY,
         UiTokenNames.TYPOGRAPHY_SECONDARY,
         UiTokenNames.TYPOGRAPHY_CAPTION,
         UiTokenNames.TYPOGRAPHY_HEADLINE,
+        UiTokenNames.TYPOGRAPHY_SUBHEADLINE,
         UiTokenNames.SPACING_ICON_TEXT,
         UiTokenNames.SPACING_BADGE_INSET_V,
+        UiTokenNames.SPACING_CARD_INSET,
         UiTokenNames.GEOMETRY_PAGE_OUTER_MARGIN_H,
         UiTokenNames.GEOMETRY_PAGE_ROW_MIN_HEIGHT,
-        UiTokenNames.GEOMETRY_PAGE_LIST_ROW_MIN_HEIGHT,
-        UiTokenNames.GEOMETRY_STATUS_DOT_DIAMETER,
+        // L75: the toolbar capsule's two page-layer lengths. The white page fill and
+        // the 34 pt title are the frame's (`pageFill` / `largeTitle`).
     )
 }

@@ -27,6 +27,7 @@ import com.phonedsh.log.WorkspaceLog
 import com.phonedsh.platform.DurabilityLevel
 import com.phonedsh.platform.testing.FakePlatform
 import com.phonedsh.wire.WireCodec
+import java.nio.file.Files
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -174,6 +175,78 @@ class HostWalWiringTest {
                 assertTrue(host.hello.wal is WalUplink.Down)
                 assertFalse(host.hello.capabilities.values.contains(HostCapabilities.WAL))
                 assertEquals(MseqWatermark.NotWired, host.hello.watermark)
+            } finally {
+                host.stop()
+            }
+        }
+    }
+
+    /**
+     * An incomplete WAL cannot be rebuilt from mseq 1, so recovery stays
+     * `Failed` and the host must record the held path and mseq. This is the
+     * diagnostic that the device evidence lost (`UNRECORDED`).
+     */
+    @Test
+    fun anIncompleteWalHeldResyncFailsTheHostWithPathAndMseq() {
+        FakePlatform().use { platform ->
+            runBlocking {
+                val fixture = WorkspaceLog(
+                    paths = WalPaths(platform.tempDir),
+                    durability = platform,
+                    clock = platform,
+                    bootId = LogBootId.random(),
+                )
+                assertTrue(fixture.recover() is RecoveryOutcome.Recovered)
+                fixture.appendMutation(write("/dsh/workspace/held.txt", "abcdefghij"))
+                fixture.closeEpoch()
+                fixture.appendMutation(
+                    MutationBody(
+                        op = VfsOp.WRITE,
+                        mode = 420,
+                        path = "/dsh/workspace/held.txt",
+                        data = "klmnop".toByteArray(Charsets.UTF_8),
+                        appended = true,
+                        appendFrom = 10L,
+                    ),
+                )
+                fixture.appendMutation(write("/dsh/workspace/held.txt", "zz"))
+            }
+            // The retained WAL must start above mseq 1: drop epoch 1's segment
+            // after the manifest watermark already covers its only mutation.
+            val paths = WalPaths(platform.tempDir)
+            val segments = Files.list(paths.walDirectory).use { stream ->
+                stream.sorted().toList()
+            }
+            Files.delete(segments.first())
+
+            val log = WorkspaceLog(
+                paths = paths,
+                durability = platform,
+                clock = platform,
+                bootId = LogBootId.random(),
+            )
+            val host = newHost(platform, wal = log.asHostWal())
+            host.start()
+            try {
+                runBlocking { withTimeout(5_000) { host.ready.first { it } } }
+                assertEquals(
+                    "an incomplete WAL with a held resync is Failed",
+                    com.phonedsh.controller.HostState.FAILED,
+                    host.controller.state,
+                )
+                assertEquals(
+                    com.phonedsh.controller.ControllerFailure.UNREPAIRED_BASE_MISMATCH,
+                    host.controller.lastFailure,
+                )
+                assertTrue(
+                    "the reason names the path: ${host.controller.lastFailureDetail}",
+                    host.controller.lastFailureDetail?.contains("/dsh/workspace/held.txt") == true,
+                )
+                assertTrue(
+                    "the reason names the mseq: ${host.controller.lastFailureDetail}",
+                    host.controller.lastFailureDetail?.contains("mseq 2") == true,
+                )
+                assertTrue("wal/1 stays off", host.hello.wal is WalUplink.Down)
             } finally {
                 host.stop()
             }

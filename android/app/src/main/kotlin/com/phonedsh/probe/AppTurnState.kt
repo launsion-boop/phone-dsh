@@ -15,6 +15,8 @@
 
 package com.phonedsh.probe
 
+import com.phonedsh.domain.session.ArchivedTurn
+
 /** One command a `tool_call` event named, with its call id. */
 internal data class TurnToolCommand(
     val id: String,
@@ -42,22 +44,81 @@ internal sealed interface AppTurnState {
      * @param kinds the projected host kinds, in wire order.
      * @param commands the tool calls that named a command.
      * @param writes the write tools that named a path.
+     * @param restored true only when this turn came back from the
+     *   [com.phonedsh.domain.session.SessionArchive] at launch, i.e. the
+     *   **previous** process completed it. The screen must not present that as a
+     *   completion of the current process: `完成` and `完成（上次进程）` are
+     *   different claims, and before this flag existed the card could only say
+     *   the first.
      */
     data class Completed(
         val sessionId: String,
         val kinds: List<String>,
         val commands: List<TurnToolCommand> = emptyList(),
         val writes: List<TurnWrite> = emptyList(),
+        val restored: Boolean = false,
     ) : AppTurnState
 
     /** The turn did not complete; [reason] is a code or a class name. */
     data class Failed(val reason: String) : AppTurnState
 
-    /** A one-line Chinese label for the card; the code stays in [toString]. */
+    /**
+     * A one-line Chinese label for the card; the code stays in [toString].
+     *
+     * A restored completion says so in the label. The card's own line
+     * ([RESTORED_LINE]) is the longer sentence; the label is the glanceable one.
+     */
     fun label(): String = when (this) {
         Idle -> "未开始"
         Running -> "进行中"
-        is Completed -> "完成"
+        is Completed -> if (restored) RESTORED_LABEL else "完成"
         is Failed -> "失败"
     }
+
+    companion object {
+        /**
+         * The label of a turn the previous process completed.
+         *
+         * iOS writes a status line instead of a label
+         * (`ChatModel.swift:2576`: `显示上次对话，引擎在后台启动…`); the label has
+         * to fit the card's caption slot, so the provenance is the short half.
+         */
+        const val RESTORED_LABEL: String = "完成（上次进程）"
+
+        /**
+         * The sentence a restored completion shows under its card.
+         *
+         * The baseline's own words are `显示上次对话，引擎在后台启动…`
+         * (`ChatModel.swift:2576`, set together with `isShowingCachedTranscript`).
+         * Android keeps the opening claim verbatim and states the one fact the
+         * iOS sentence leaves implicit: the turn was completed by the previous
+         * process. The baseline's trailing clause is not copied: it is a
+         * transient status on iOS (the next host message overwrites it), while
+         * this line stays on screen until the next turn, so repeating
+         * 「引擎在后台启动…」 after the engine had started would become false.
+         */
+        const val RESTORED_LINE: String = "显示上次对话 · 上次进程的回合"
+    }
 }
+
+/**
+ * The projection of an archived turn back into the screen's state.
+ *
+ * Nothing is invented: an archived turn is one the Worker completed, so it maps
+ * to [AppTurnState.Completed] and never to [AppTurnState.Running]. It is marked
+ * [AppTurnState.Completed.restored] because this process did not run it — that
+ * flag is what lets the card say 「上次进程的回合」 instead of claiming a
+ * completion the person did not just watch.
+ *
+ * It lives here, next to the state it produces, so the mapping is a plain
+ * function the JVM suite can drive without a device.
+ */
+internal fun ArchivedTurn.toRestoredCompleted(): AppTurnState.Completed =
+    AppTurnState.Completed(
+        sessionId = sessionId,
+        kinds = kinds,
+        commands = commands.map { TurnToolCommand(it.id, it.command) },
+        writes = writes.map { TurnWrite(it.path, it.toolName) },
+        restored = true,
+    )
+

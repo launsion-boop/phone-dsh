@@ -43,6 +43,7 @@ enum NativeSettingsTab: String, CaseIterable, Identifiable {
 /// inline except those menus. Groups run from what you change most (models,
 /// permissions) to what you read least (engine, about).
 struct SettingsPage: View {
+    var onOpenSession: () -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var preferences = NativeChatPreferences.shared
     @State private var configuration = NativeConfigurationModel.shared
@@ -52,7 +53,8 @@ struct SettingsPage: View {
     /// Deep entry (`SettingsPage(initialTab:)`) pushes that page on appear.
     @State private var deepLink: NativeSettingsTab?
 
-    init(initialTab: NativeSettingsTab = .general) {
+    init(initialTab: NativeSettingsTab = .general, onOpenSession: @escaping () -> Void = {}) {
+        self.onOpenSession = onOpenSession
         _deepLink = State(initialValue: initialTab == .general ? nil : initialTab)
     }
 
@@ -61,7 +63,9 @@ struct SettingsPage: View {
             if AppShellMode.current == .legacy {
             Section(NativeText("模型与智能体", "Models and agents")) {
                 link(NativeText("模型服务", "Model providers"), icon: "cpu") { ModelProviderSettingsPage() }
-                link(NativeText("Agent 预设", "Agent presets"), icon: "person.2") { NativeAgentPresetsPage() }
+                link(NativeText("Agent 预设", "Agent presets"), icon: "person.2") {
+                    NativeAgentPresetsPage(onOpenSession: openedPresetSession)
+                }
                 link(NativeText("插件与工具", "Plugins and tools"), icon: "puzzlepiece.extension") {
                     NativeConfigurationPage()
                 }
@@ -178,8 +182,13 @@ struct SettingsPage: View {
         case .models: ModelProviderSettingsPage()
         case .plugins: NativeConfigurationPage()
         case .permissions: PhonePermissionsPage(embedded: true)
-        case .presets: NativeAgentPresetsPage()
+        case .presets: NativeAgentPresetsPage(onOpenSession: openedPresetSession)
         }
+    }
+
+    private func openedPresetSession() {
+        dismiss()
+        onOpenSession()
     }
 
     private var permissionTitle: String {
@@ -383,6 +392,10 @@ private struct PermissionDefaultsPage: View {
     var body: some View {
         List {
             Section(NativeText("只影响之后新开的会话，当前会话保持不变。", "Only new sessions use this default; the current session is unchanged.")) {
+                if !model.canEditDefaultPermission {
+                    Text(nativeConfigurationError(model.defaultPermissionReadOnlyReason))
+                        .font(.callout).foregroundStyle(.secondary)
+                }
                 ForEach(model.defaultPermissionModes) { mode in
                     Button {
                         Task { _ = await model.setDefaultPermissionMode(mode.id) }
@@ -395,7 +408,11 @@ private struct PermissionDefaultsPage: View {
                             }
                         }
                     }
+                    .disabled(!model.canEditDefaultPermission)
                 }
+            }
+            if let error = model.permissionCatalogError ?? model.settingsError {
+                Section { Text(error).foregroundStyle(.red) }
             }
             if let error = model.error {
                 Section { Text(nativeConfigurationError(error)).foregroundStyle(.red) }

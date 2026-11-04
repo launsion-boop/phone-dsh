@@ -8,11 +8,15 @@
 package com.phonedsh.ui.state
 
 import com.phonedsh.agentcore.JsonObject
+import com.phonedsh.agentcore.JsonArray
 import com.phonedsh.agentcore.JsonString
+import com.phonedsh.agentcore.HarnessEvent
+import com.phonedsh.agentcore.HarnessKind
 import com.phonedsh.ui.SpecFixtures
 import com.phonedsh.ui.UiStrings
 import com.phonedsh.ui.projection.UiStateKind
 import com.phonedsh.ui.projection.UiStateNode
+import com.phonedsh.ui.projection.UiStateProjector
 import com.phonedsh.ui.projection.UiStateSurface
 import com.phonedsh.ui.state.ChatAttachment
 import com.phonedsh.ui.state.ChatEmpty
@@ -32,20 +36,343 @@ import org.junit.Test
 
 class ChatScreenStateTest {
     @Test
+    fun `stale async success cannot settle a later request or another session`() {
+        val active = StateRequestId("new-form")
+        val old = StateRequest(StateRequestId("old-form"), "s1", StateRevision(4), "old success")
+        assertFalse(old.isCurrent(active, "s1", StateRevision(5)))
+        assertFalse(old.isCurrent(active, "s2", StateRevision(4)))
+        val current = StateRequest(active, "s1", StateRevision(5), "current success")
+        assertTrue(current.isCurrent(active, "s1", StateRevision(5)))
+    }
+
+    @Test
+    fun `older and wrong-session snapshots cannot replace restored newer state`() {
+        val restored = RevisionedSnapshot("s1", StateRevision(12), listOf("restored"))
+        val old = acceptSnapshot(restored, "s1", RevisionedSnapshot("s1", StateRevision(10), listOf("old")))
+        assertEquals(SnapshotUpdate.IgnoredOlder(restored), old)
+        val switched = acceptSnapshot(restored, "s2", RevisionedSnapshot("s1", StateRevision(13), listOf("wrong session")))
+        assertEquals(SnapshotUpdate.WrongSession<String>("s2", "s1"), switched)
+        val fresh = RevisionedSnapshot("s2", StateRevision(1), listOf("new session"))
+        assertEquals(SnapshotUpdate.Applied(fresh), acceptSnapshot(restored, "s2", fresh))
+        assertEquals(
+            SnapshotUpdate.Applied(RevisionedSnapshot("s1", StateRevision(1), listOf("cold restore"))),
+            acceptSnapshot(null, "s1", RevisionedSnapshot("s1", StateRevision(1), listOf("cold restore"))),
+        )
+        assertEquals(
+            SessionBindingResult.Retained("s1", "s2"),
+            bindSession("s1", "s2", SessionChangeCause.INCIDENTAL_RESPONSE),
+        )
+        assertEquals(
+            SessionBindingResult.Bound("s2"),
+            bindSession("s1", "s2", SessionChangeCause.SESSION_NOT_FOUND),
+        )
+    }
+
+    @Test
+    fun `session switch clears scoped forms without dropping the user's draft`() {
+        val state = ChatScreenState.from(
+            structural(),
+            local = ChatLocalState(
+                draft = "keep this input",
+                sessionID = "old-session",
+                answeredRequestIds = setOf("old-request"),
+                attachments = listOf(ChatAttachment("photo.png", image = true)),
+            ),
+        )
+        assertEquals("keep this input", state.composer.draft)
+        assertTrue(state.pending.isEmpty)
+        assertTrue(state.composer.attachments.isEmpty())
+    }
+
+    @Test
+    fun `multi-answer question form retains selections custom input and validates every step`() {
+        val form = QuestionFormState(
+            index = 1,
+            questionIds = listOf("features", "other"),
+            answers = mapOf("features" to listOf("voice", "camera")),
+        )
+        assertEquals("other", form.currentQuestionId)
+        assertTrue(form.canGoBack)
+        assertFalse(form.canGoForward)
+        assertEquals(listOf("other"), form.missingRequiredQuestionIds)
+        assertFalse(form.complete)
+        val completed = form.copy(customAnswers = mapOf("other" to "something else"))
+        assertTrue(completed.complete)
+        assertEquals(listOf("voice", "camera"), completed.answers["features"])
+    }
+
+    @Test
+    fun `queue reconciliation preserves actionable durable IDs beside duplicate local echoes`() {
+        val durable = listOf(
+            ManagedQueueItemState(QueueItemId.Durable("d1"), "same text", QueueItemStatus.QUEUED),
+            ManagedQueueItemState(QueueItemId.Durable("d2"), "same text", QueueItemStatus.QUEUED),
+        )
+        val local = listOf(
+            ManagedQueueItemState(QueueItemId.Local("l1"), "same text", QueueItemStatus.QUEUED),
+            ManagedQueueItemState(QueueItemId.Local("l2"), "same text", QueueItemStatus.SENDING),
+        )
+        val merged = reconcileQueueRows(durable, local)
+        assertEquals(4, merged.size)
+        assertEquals(
+            listOf(QueueItemId.Durable("d1"), QueueItemId.Durable("d2"), QueueItemId.Local("l1"), QueueItemId.Local("l2")),
+            merged.map { it.id },
+        )
+        assertEquals(QueueItemStatus.SENDING, merged.last().state)
+        assertTrue(merged.take(2).all { (it.id as? QueueItemId.Durable) != null })
+    }
+
+    @Test
+    fun `retiring one confirmed local prompt preserves durable and identical unrelated rows`() {
+        val prompt = StateRequestId("prompt-one")
+        val otherPrompt = StateRequestId("prompt-two")
+        val durable = listOf(
+            ManagedQueueItemState(QueueItemId.Durable("d1"), "same text", QueueItemStatus.QUEUED),
+            ManagedQueueItemState(QueueItemId.Durable("d2"), "same text", QueueItemStatus.QUEUED),
+        )
+        val local = listOf(
+            ManagedQueueItemState(
+                id = QueueItemId.Local("local-one"), text = "same text", state = QueueItemStatus.QUEUED,
+                promptRequestId = prompt,
+            ),
+            ManagedQueueItemState(
+                id = QueueItemId.Local("local-two"), text = "same text", state = QueueItemStatus.QUEUED,
+                promptRequestId = otherPrompt,
+            ),
+        )
+
+        val afterOneAck = reconcileQueueRows(durable, retireAcceptedQueuePrompt(local, prompt))
+        assertEquals(listOf(QueueItemId.Durable("d1"), QueueItemId.Durable("d2"), QueueItemId.Local("local-two")), afterOneAck.map { it.id })
+        assertEquals(otherPrompt, afterOneAck.last().promptRequestId)
+    }
+
+    @Test
+    fun `durable row with the same source rpc id replaces its local sending echo`() {
+        val prompt = StateRequestId("prompt-accepted")
+        val durable = ManagedQueueItemState(
+            id = QueueItemId.Durable("q-accepted"),
+            text = "accepted text",
+            state = QueueItemStatus.QUEUED,
+            promptRequestId = prompt,
+        )
+        val local = ManagedQueueItemState(
+            id = QueueItemId.Local("local-echo"),
+            text = "accepted text",
+            state = QueueItemStatus.SENDING,
+            promptRequestId = prompt,
+        )
+
+        val merged = reconcileQueueRows(listOf(durable), listOf(local))
+
+        assertEquals(listOf(QueueItemId.Durable("q-accepted")), merged.map { it.id })
+        assertEquals(QueueItemStatus.SENDING, local.state)
+    }
+
+    @Test
+    fun `an observed durable prompt retires its local echo before it can reappear`() {
+        val prompt = StateRequestId("prompt-observed")
+        val durable = listOf(
+            ManagedQueueItemState(
+                id = QueueItemId.Durable("q-observed"),
+                text = "accepted text",
+                promptRequestId = prompt,
+            ),
+        )
+        val local = listOf(
+            ManagedQueueItemState(
+                id = QueueItemId.Local("local-echo"),
+                text = "accepted text",
+                state = QueueItemStatus.SENDING,
+                promptRequestId = prompt,
+            ),
+            ManagedQueueItemState(
+                id = QueueItemId.Local("unrelated"),
+                text = "not accepted yet",
+                state = QueueItemStatus.SENDING,
+                promptRequestId = StateRequestId("prompt-other"),
+            ),
+        )
+
+        val remaining = retireQueuePromptsPresentIn(local, durable)
+
+        assertEquals(listOf(QueueItemId.Local("unrelated")), remaining.map { it.id })
+    }
+
+    @Test
+    fun `host receipts and scopes remain explicit and unknown facts stay null`() {
+        val host = ChatHostFacts(
+            plan = PlanApprovalState(StateRequestId("plan"), "# Plan", PlanApprovalStatus.PENDING),
+            commandReceipts = listOf(
+                CommandExecutionReceipt(StateRequestId("cmd"), "clear", outcome = CommandOutcome.FAILED, message = "offline"),
+                CommandExecutionReceipt(StateRequestId("cmd-2"), "pause", outcome = CommandOutcome.SUCCEEDED),
+            ),
+            artifacts = listOf(ArtifactReference("a", "result.txt", scope = ArtifactScope.UNKNOWN)),
+            contextLost = ContextLostReceipt(StateRequestId("lost"), "s1", "Session context expired"),
+            snapshotRevision = StateRevision(7),
+        )
+        val state = ChatScreenState.from(structural(), host = host)
+        assertEquals(PlanApprovalStatus.PENDING, state.plan?.status)
+        assertEquals(listOf(CommandOutcome.FAILED, CommandOutcome.SUCCEEDED), state.commandReceipts?.map { it.outcome })
+        assertEquals(ArtifactScope.UNKNOWN, state.artifacts?.single()?.scope)
+        assertTrue(state.contextLost != null)
+        assertNull(state.modelMenu.currentEffort)
+    }
+
+    @Test
+    fun `tool run preview is one line and expanded entry keeps full result`() {
+        val call = node(
+            kind = UiStateKind.TOOL_ROW,
+            slot = "tool-call",
+            surface = UiStateSurface.TOOL_ROW,
+            text = "bash",
+            props = mapOf("callId" to JsonString("c1"), "name" to JsonString("bash"), "phase" to JsonString("call")),
+        )
+        val body = "a,b\n1,2"
+        val result = node(
+            kind = UiStateKind.TOOL_ROW,
+            slot = "tool-result",
+            surface = UiStateSurface.TOOL_ROW,
+            text = body,
+            props = mapOf("callId" to JsonString("c1"), "name" to JsonString("bash"), "phase" to JsonString("result"), "body" to JsonString(body)),
+        )
+        val run = visibleRows(ChatScreenState.from(structural() + call + result).rows)
+            .filterIsInstance<ChatRow.ToolRun>().single()
+        assertEquals("a,b", run.summary)
+        assertEquals(body, run.entries.single().body)
+    }
+
+    @Test
+    fun `thinking keeps collapsed summary separate from full disclosure text`() {
+        val full = "First reasoning paragraph.\n\nSecond reasoning paragraph."
+        val thinking = node(
+            kind = UiStateKind.THINKING_PILL,
+            slot = "thinking",
+            surface = UiStateSurface.THINKING_PILL,
+            text = "Second reasoning paragraph.",
+            props = mapOf("streaming" to com.phonedsh.agentcore.JsonBool(false), "fullReasoning" to JsonString(full)),
+        )
+        val row = ChatScreenState.from(structural() + thinking).rows
+            .flatMap { visibleRows(listOf(it)) }
+            .filterIsInstance<ChatRow.Thinking>().single()
+        assertEquals("Second reasoning paragraph.", row.summary)
+        assertEquals(full, row.fullReasoning)
+        assertNull(row.fullReasoningTruncated)
+    }
+
+    @Test
+    fun `reasoning event through UiState into screen keeps markdown body and settled summary`() {
+        val full = "Inspect the inputs.\n\n**Plan**: compare each option.\nKeep the full markdown body."
+        val events = listOf(
+            HarnessEvent("s1", 0L, 1L, HarnessKind.TurnStarted("1")),
+            HarnessEvent("s1", 1L, null, HarnessKind.ReasoningDelta(full)),
+            HarnessEvent("s1", 2L, 2L, HarnessKind.AssistantMessage("Done")),
+        )
+        val nodes = UiStateProjector.project(events)
+        val pill = nodes.single { it.kind == UiStateKind.THINKING_PILL }
+        assertEquals("Plan: compare each option.", pill.text)
+        assertEquals(full, (pill.props["fullReasoning"] as JsonString).value)
+        val row = visibleRows(ChatScreenState.from(nodes).rows).filterIsInstance<ChatRow.Thinking>().single()
+        assertEquals("Plan: compare each option.", row.summary)
+        assertEquals(full, row.fullReasoning)
+        assertEquals(false, row.fullReasoningTruncated)
+    }
+
+    @Test
+    fun `todo dock rows pass through only from host facts`() {
+        val todo = TodoDockItem(id = "t1", content = "Review changes", status = "in_progress")
+        assertEquals(listOf(todo), ChatScreenState.from(emptyList(), host = ChatHostFacts(todoItems = listOf(todo))).todoItems)
+        assertTrue(ChatScreenState.from(emptyList()).todoItems.isEmpty())
+    }
+
+    @Test
+    fun `question items retain host fields and leave unreported metadata unknown`() {
+        val item = JsonObject(
+            mapOf(
+                "id" to JsonString("color"),
+                "header" to JsonString("Preference"),
+                "prompt" to JsonString("Choose a color"),
+                "detail" to JsonString("Pick one."),
+                "options" to JsonArray(
+                    listOf(
+                        JsonObject(mapOf("label" to JsonString("blue (recommended)"), "description" to JsonString("Cool"))),
+                        JsonObject(mapOf("label" to JsonString("green"))),
+                    ),
+                ),
+                "multiple" to com.phonedsh.agentcore.JsonBool(false),
+                "intentKind" to JsonString("plan-review"),
+                "approveWireLabel" to JsonString("approve"),
+                "recommendedWireLabel" to JsonString("blue (recommended)"),
+            ),
+        )
+        val ask = approval("question-request", "q-1", "question", "Choose a color").copy(
+            props = JsonObject(
+                mapOf(
+                    "kind" to JsonString("question"),
+                    "requestId" to JsonString("q-1"),
+                    "multiple" to com.phonedsh.agentcore.JsonBool(false),
+                    "questionItems" to JsonArray(listOf(item)),
+                    "channelAvailable" to com.phonedsh.agentcore.JsonBool(true),
+                    "submitting" to com.phonedsh.agentcore.JsonBool(false),
+                    "submissionError" to JsonString("try again"),
+                    "initialProgress" to JsonObject(
+                        mapOf(
+                            "index" to com.phonedsh.agentcore.JsonNumber("0"),
+                            "drafts" to JsonObject(mapOf("color" to JsonArray(listOf(JsonString("blue (recommended)"))))),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val question = requireNotNull(
+            ChatScreenState.from(
+                structural() + ask,
+                local = ChatLocalState(
+                    pendingAnswerActions = mapOf(
+                        StateRequestId("q-1") to PendingAnswerActionState(
+                            StateRequestId("q-1"), PendingAnswerAction.SUBMIT, PendingAnswerActionStatus.FAILED, "retry me",
+                        ),
+                    ),
+                ),
+            ).pending.primary,
+        )
+        assertEquals("color", question.questionItems.single().id)
+        assertEquals("Choose a color", question.questionItems.single().prompt)
+        val typed = question.questionItems.single()
+        assertEquals(listOf("blue (recommended)", "green"), typed.options.map { it.label })
+        assertEquals("Cool", typed.options.first().description)
+        assertEquals("Preference", typed.header)
+        assertEquals("Pick one.", typed.detail)
+        assertEquals("plan-review", typed.intentKind)
+        assertEquals("approve", typed.approveWireLabel)
+        assertEquals("blue (recommended)", typed.recommendedWireLabel)
+        assertEquals(true, question.channelAvailable)
+        assertEquals(false, question.submitting)
+        assertEquals("try again", question.submissionError)
+        assertEquals(0, question.initialProgress?.index)
+        assertEquals(listOf("blue (recommended)"), question.initialProgress?.drafts?.get("color"))
+        assertEquals("color", question.form?.currentQuestionId)
+        assertEquals(listOf("blue (recommended)"), question.form?.answers?.get("color"))
+        assertEquals(PendingAnswerActionStatus.FAILED, question.actionState?.status)
+        assertEquals("retry me", question.actionState?.error)
+    }
+
+    @Test
     fun `chat-basic folds its rows and closes the turn`() {
         val state = stateOf("chat-basic")
+        val rows = visibleRows(state.rows)
         assertEquals(
-            listOf(ChatRow.User::class, ChatRow.ToolRun::class, ChatRow.Assistant::class),
-            state.rows.map { it::class },
+            listOf(ChatRow.User::class, ChatRow.Assistant::class),
+            rows.map { it::class },
         )
-        assertEquals("Summarize /dsh/workspace/notes/a.md", (state.rows[0] as ChatRow.User).text)
-        val run = state.rows[1] as ChatRow.ToolRun
+        assertEquals("Summarize /dsh/workspace/notes/a.md", (rows[0] as ChatRow.User).text)
+        val process = state.rows.filterIsInstance<ChatRow.TurnProcess>().single()
+        assertTrue("completed turns fold their process by default", !process.expanded && process.foldable)
+        val run = visibleRows(process.entries).filterIsInstance<ChatRow.ToolRun>().single()
         assertEquals("read", run.title)
         // The fixture has no tool_result, and the turn closed, so the row cannot
         // still be running: it settles to "stopped" rather than shimmering forever.
         assertEquals(ToolRowState.STOPPED, run.state)
         assertEquals(UiStrings.TOOL_STOPPED, run.summary)
-        assertEquals("Done.", (state.rows[2] as ChatRow.Assistant).text)
+        assertEquals("Done.", (rows[1] as ChatRow.Assistant).text)
         assertEquals(ChatPhase.IDLE, state.phase)
         assertTrue(state.pending.isEmpty)
         assertTrue(state.banners.isEmpty())
@@ -54,7 +381,26 @@ class ChatScreenStateTest {
         // The completed turn-end node exists in UiState but is not a visible row.
         val nodes = SpecFixtures.projectCase("chat-basic")
         assertTrue(nodes.any { it.kind == UiStateKind.STATUS && it.text == "completed" })
-        assertTrue(state.rows.none { it is ChatRow.SystemEvent })
+        assertTrue(rows.none { it is ChatRow.SystemEvent })
+    }
+
+    @Test
+    fun `a closed turn carries its process fold and tail actions separately`() {
+        val state = stateOf("chat-basic")
+        val process = state.rows.filterIsInstance<ChatRow.TurnProcess>().single()
+        assertEquals(ChatTurnState.COMPLETED, process.outcome)
+        assertTrue(process.foldable)
+        assertFalse(process.expanded)
+        assertEquals("Done.", process.closingAssistant?.text)
+        val group = process.entries.filterIsInstance<ChatRow.ProcessGroup>().single()
+        assertEquals("已读取文件", group.title)
+        assertFalse(group.running)
+        assertFalse(group.showsHeader)
+        val tail = state.rows.filterIsInstance<ChatRow.TurnTail>().single()
+        assertEquals("Done.", tail.assistantText)
+        assertNull(tail.timeMillis)
+        assertNull(tail.usage)
+        assertFalse(tail.feedbackAvailable)
     }
 
     @Test
@@ -68,8 +414,9 @@ class ChatScreenStateTest {
         assertEquals(1, state.pending.count)
         assertTrue("a pending ask disables the dock", !state.composer.enabled)
         assertEquals(ChatPhase.IDLE, state.phase)
-        assertEquals(1, state.rows.count { it is ChatRow.ToolRun })
-        val run = state.rows.single { it is ChatRow.ToolRun } as ChatRow.ToolRun
+        val rows = visibleRows(state.rows)
+        assertEquals(1, rows.count { it is ChatRow.ToolRun })
+        val run = rows.single { it is ChatRow.ToolRun } as ChatRow.ToolRun
         assertEquals(ToolRowState.OK, run.state)
         assertEquals("uid=1000", run.summary)
     }
@@ -96,12 +443,13 @@ class ChatScreenStateTest {
         assertTrue(banner.dismissible)
         // A turn's tool activity is one run per contiguous block (an approval cards
         // splits it here), and the turn end is a system-event row.
-        assertEquals(ChatRow.User::class, state.rows.first()::class)
-        assertEquals(ChatRow.SystemEvent::class, state.rows.last()::class)
-        assertTrue(state.rows.drop(1).dropLast(1).all { it is ChatRow.ToolRun })
+        val rows = visibleRows(state.rows)
+        assertEquals(ChatRow.User::class, rows.first()::class)
+        assertEquals(ChatRow.SystemEvent::class, rows.last()::class)
+        assertTrue(rows.drop(1).dropLast(1).all { it is ChatRow.ToolRun || it is ChatRow.Assistant })
         // The host's wire word is not copy: the row carries the translated title
         // (the cause text lives in the fail-loud banner above the list).
-        val event = state.rows.last() as ChatRow.SystemEvent
+        val event = rows.last() as ChatRow.SystemEvent
         assertEquals(UiStrings.SYSTEM_EVENT_TURN_FAILED, event.title)
         assertTrue(event.isError)
         assertEquals("", event.text)
@@ -183,7 +531,7 @@ class ChatScreenStateTest {
         val state = ChatScreenState.from(nodes)
         assertEquals(ChatPhase.RUNNING, state.phase)
         assertEquals(ComposerMode.STOP, state.composer.mode)
-        assertEquals(ToolRowState.RUNNING, (state.rows.single() as ChatRow.ToolRun).state)
+        assertEquals(ToolRowState.RUNNING, (visibleRows(state.rows).single() as ChatRow.ToolRun).state)
     }
 
     @Test
@@ -196,8 +544,9 @@ class ChatScreenStateTest {
             stats = "1.2k tokens",
         )
         assertEquals(GoalBarState.Visible("active", "ship F6"), visible.goal)
+        assertEquals(GoalPhase.ACTIVE, GoalBarState.Visible("active", "ship F6", phaseKind = GoalPhase.ACTIVE).phaseKind)
         assertEquals("1.2k tokens", visible.stats)
-        assertNull(visible.rows.firstOrNull { it is ChatRow.SystemEvent })
+        assertNull(visibleRows(visible.rows).firstOrNull { it is ChatRow.SystemEvent })
     }
 
     @Test
@@ -405,25 +754,81 @@ class ChatScreenStateTest {
         // ChatPage.swift `isTurnClosingAssistant`.
         val nodes = SpecFixtures.projectCase("chat-basic")
         val state = ChatScreenState.from(nodes)
-        val assistant = state.rows.filterIsInstance<ChatRow.Assistant>()
+        val assistant = visibleRows(state.rows).filterIsInstance<ChatRow.Assistant>()
         assertEquals(1, assistant.size)
         assertTrue(assistant.single().closing)
         // The same turn, still open, has no closing row.
         val open = ChatScreenState.from(nodes.filterNot { it.kind == UiStateKind.STATUS })
-        assertTrue(open.rows.filterIsInstance<ChatRow.Assistant>().none { it.closing })
+        assertTrue(visibleRows(open.rows).filterIsInstance<ChatRow.Assistant>().none { it.closing })
     }
 
     @Test
     fun `a tool run keeps one entry per call and settles it with the turn`() {
         // NativeMessageRows/`ToolRunRow`: one disclosure line per call/result.
-        val entries = ChatScreenState.from(SpecFixtures.projectCase("permission-flow"))
-            .rows.filterIsInstance<ChatRow.ToolRun>().flatMap { it.entries }
+        val entries = visibleRows(ChatScreenState.from(SpecFixtures.projectCase("permission-flow")).rows)
+            .filterIsInstance<ChatRow.ToolRun>().flatMap { it.entries }
         assertEquals(1, entries.size)
         assertEquals("exec", entries.single().title)
         assertEquals("uid=1000", entries.single().body)
     }
 
+    @Test
+    fun `tool detail carrier preserves call arguments result body metadata and file path`() {
+        val args = JsonObject(
+            mapOf(
+                "file_path" to JsonString("src/main.kt"),
+                "old_string" to JsonString("before"),
+                "new_string" to JsonString("after"),
+            ),
+        )
+        val call = node(
+            kind = UiStateKind.TOOL_ROW,
+            slot = "tool-call",
+            surface = UiStateSurface.TOOL_ROW,
+            text = "edit",
+            props = mapOf(
+                "callId" to JsonString("edit-1"),
+                "name" to JsonString("edit"),
+                "phase" to JsonString("call"),
+                "state" to JsonString("running"),
+                "arguments" to args,
+            ),
+        )
+        val body = "changed one line\nwith details"
+        val meta = JsonObject(mapOf("durationMs" to com.phonedsh.agentcore.JsonNumber("25")))
+        val result = node(
+            kind = UiStateKind.TOOL_ROW,
+            slot = "tool-result",
+            surface = UiStateSurface.TOOL_ROW,
+            text = "changed one line",
+            props = mapOf(
+                "callId" to JsonString("edit-1"),
+                "phase" to JsonString("result"),
+                "state" to JsonString("ok"),
+                "body" to JsonString(body),
+                "meta" to meta,
+            ),
+        )
+        val entry = visibleRows(ChatScreenState.from(structural() + call + result).rows)
+            .filterIsInstance<ChatRow.ToolRun>().single().entries.single()
+        assertEquals("src/main.kt", entry.filePath)
+        assertEquals(ToolVariant.EDIT, entry.variant)
+        assertEquals(args, entry.arguments)
+        assertEquals(body, entry.body)
+        assertEquals(meta, entry.metadata)
+        assertEquals("after", entry.arguments?.string("new_string"))
+    }
+
     private fun stateOf(case: String): ChatScreenState = ChatScreenState.from(SpecFixtures.projectCase(case))
+
+    private fun visibleRows(rows: List<ChatRow>): List<ChatRow> = rows.flatMap { row ->
+        when (row) {
+            is ChatRow.ProcessGroup -> visibleRows(row.entries)
+            is ChatRow.TurnProcess -> if (row.expanded) visibleRows(row.entries) else listOfNotNull(row.closingAssistant)
+            is ChatRow.TurnTail -> emptyList()
+            else -> listOf(row)
+        }
+    }
 
     /** The three structural nodes every session has, in pre-order. */
     private fun structural(): List<UiStateNode> = listOf(

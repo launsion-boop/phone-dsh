@@ -3,20 +3,6 @@
 import ProbeKit
 import SwiftUI
 
-public struct GmailWriteGrantSelection: Equatable, Sendable {
-    public var drafts: Bool
-    public var reply: Bool
-    public var sendNew: Bool
-    public var forward: Bool
-
-    public init(drafts: Bool = false, reply: Bool = false, sendNew: Bool = false, forward: Bool = false) {
-        self.drafts = drafts
-        self.reply = reply
-        self.sendNew = sendNew
-        self.forward = forward
-    }
-}
-
 public struct GmailConfigurationPresentation: Equatable, Sendable {
     public var isOAuthConfigured: Bool
     public var account: String?

@@ -1,0 +1,2381 @@
+{
+  "schema": "pdsh.android-pr22-source-map/1",
+  "status": "UNACCEPTED_AUDIT",
+  "generated_from": {
+    "android_candidate": "59e05d39cf98c145560c2e6425ddea63756eae43",
+    "android_pr14": "8c2eeab7b29728ebd0a54b71b5deaab07e5ac6eb",
+    "ios_pr22": "edd687463cd24b9c969914a13fa1da268df016fe",
+    "shared_main": "2695fd21d2d32369c5b3c8b8ae4cc736819b7d74",
+    "authority": "PR22 iOS sources + docs/design/ios-home-design-spec-no-overview.html (430x932pt)"
+  },
+  "status_legend": {
+    "implemented-on-candidate": "The mapped source implementation is present on the candidate; this remains UNACCEPTED until the acceptance receipts are complete.",
+    "partial": "The surface exists, but a PR22 route, control, action, design value, host binding, or source/visual verification remains incomplete.",
+    "missing": "No Android implementation was found.",
+    "unverifiable": "Source exists but the contract is native/device-only and cannot be verified by the JVM suite on this Linux host."
+  },
+  "entries": [
+    {
+      "id": "spec-intro",
+      "kind": "design-section",
+      "status": "partial",
+      "ios": [
+        {
+          "path": "docs/design/ios-home-design-spec-no-overview.html",
+          "anchors": [
+            "id=\"intro\"",
+            "430 × 932 pt"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/UiMetrics.kt",
+          "anchors": [
+            "BASELINE_WIDTH_PT",
+            "BASELINE_HEIGHT_PT"
+          ]
+        },
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/theme/UiTokens.kt",
+          "anchors": [
+            "UiColors"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: docs/design/ios-home-design-spec-no-overview.html#intro",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/UiMetrics.kt#BASELINE_WIDTH_PT"
+      ],
+      "notes": "The only shared frame in Android is still the old 402x874@3 (UiMetrics.BASELINE_WIDTH_PT/HEIGHT_PT); no 430x932 frame constant was found in the candidate. HomeSpec.swift is the PR22 authority but has no Android counterpart.",
+      "limitation": "PR22 430x932 design frame is not implemented; Android still measures against 402x874."
+    },
+    {
+      "id": "spec-grid",
+      "kind": "design-section",
+      "status": "partial",
+      "ios": [
+        {
+          "path": "docs/design/ios-home-design-spec-no-overview.html",
+          "anchors": [
+            "id=\"grid\"",
+            "内容边距"
+          ]
+        },
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/HomeSpec.swift",
+          "anchors": [
+            "static let chromeInset",
+            "static let contentInset",
+            "static let navTop"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/ChatMetrics.kt",
+          "anchors": [
+            "HEADER_HORIZONTAL_INSET_PT",
+            "TRANSCRIPT_SIDE_INSET_PT"
+          ]
+        },
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/UiMetrics.kt",
+          "anchors": [
+            "CONTENT_COLUMN_WIDTH_PT"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: docs/design/ios-home-design-spec-no-overview.html#grid",
+        "anchor: examples/probe-app/PhoneDSHProbe/HomeSpec.swift#chromeInset"
+      ],
+      "notes": "PR22 fixes outer inset 16 / content inset 20 at every width. Android still carries literal 16/32 and a fixed 338 content column from the 402pt mirror.",
+      "limitation": "HomeSpec 16/20 inset contract is absent; 32/338 legacy geometry remains."
+    },
+    {
+      "id": "spec-color",
+      "kind": "design-section",
+      "status": "partial",
+      "ios": [
+        {
+          "path": "docs/design/ios-home-design-spec-no-overview.html",
+          "anchors": [
+            "id=\"color\"",
+            "--m-page",
+            "--m-btn"
+          ]
+        },
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/HomeSpec.swift",
+          "anchors": [
+            "static let page",
+            "static let primaryButton",
+            "static let userBubble"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/theme/UiTokens.kt",
+          "anchors": [
+            "public data class UiColors",
+            "userBubble"
+          ]
+        },
+        {
+          "path": "spec/ui/v1/tokens.json",
+          "anchors": [
+            "\"colors\""
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: docs/design/ios-home-design-spec-no-overview.html#color",
+        "anchor: examples/probe-app/PhoneDSHProbe/HomeSpec.swift#static let page"
+      ],
+      "notes": "The Android palette is generated from spec/ui/v1/tokens.json (the older 402pt DSH theme). PR22 page #F7F7F7, #1A1A1A and #E8E8E8 are named in HomeSpec but the current tokens resolve to the legacy values; the bubble surface reads colors.userBubble (#EDF3FE in tokens).",
+      "limitation": "PR22 monochrome palette is not the active token source."
+    },
+    {
+      "id": "spec-type",
+      "kind": "design-section",
+      "status": "partial",
+      "ios": [
+        {
+          "path": "docs/design/ios-home-design-spec-no-overview.html",
+          "anchors": [
+            "id=\"type\"",
+            "16 / 24"
+          ]
+        },
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/HomeSpec.swift",
+          "anchors": [
+            "static let bodySize",
+            "static let bodyLine",
+            "static let navTitleSize"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/theme/UiTheme.kt",
+          "anchors": [
+            "public data class UiType",
+            "LocalUiType"
+          ]
+        },
+        {
+          "path": "spec/ui/v1/tokens.json",
+          "anchors": [
+            "\"body\""
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: docs/design/ios-home-design-spec-no-overview.html#type",
+        "anchor: examples/probe-app/PhoneDSHProbe/HomeSpec.swift#bodySize"
+      ],
+      "notes": "PR22 body is 16/24 and nav title 17.5/22. spec/ui/v1 typography.body currently resolves to 17pt, so page text is one point larger than PR22.",
+      "limitation": "PR22 16/24 body type is not implemented in the shared token set."
+    },
+    {
+      "id": "spec-space",
+      "kind": "design-section",
+      "status": "partial",
+      "ios": [
+        {
+          "path": "docs/design/ios-home-design-spec-no-overview.html",
+          "anchors": [
+            "id=\"space\"",
+            "间距只用 5 个值"
+          ]
+        },
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/HomeSpec.swift",
+          "anchors": [
+            "static let blockGap",
+            "static let paragraphGap",
+            "static let disclosureGap"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/ChatMetrics.kt",
+          "anchors": [
+            "FLOW_GAP_PT",
+            "RESPONSE_GAP_PT",
+            "TURN_GAP_PT"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: docs/design/ios-home-design-spec-no-overview.html#space",
+        "anchor: examples/probe-app/PhoneDSHProbe/HomeSpec.swift#blockGap"
+      ],
+      "notes": "Android keeps the legacy 6/12/16 flow gaps; PR22 block/paragraph/disclosure gaps are 20/16/8 and are not declared in ChatMetrics.",
+      "limitation": "PR22 spacing scale (20/16/8) is not implemented."
+    },
+    {
+      "id": "spec-shape",
+      "kind": "design-section",
+      "status": "partial",
+      "ios": [
+        {
+          "path": "docs/design/ios-home-design-spec-no-overview.html",
+          "anchors": [
+            "id=\"shape\"",
+            "r22",
+            "r24",
+            "r18"
+          ]
+        },
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/HomeSpec.swift",
+          "anchors": [
+            "static let bubbleRadius",
+            "static let listCardRadius",
+            "static let composerOpenRadius"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/theme/UiTokens.kt",
+          "anchors": [
+            "radius",
+            "bubble"
+          ]
+        },
+        {
+          "path": "spec/ui/v1/tokens.json",
+          "anchors": [
+            "\"radius\""
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: docs/design/ios-home-design-spec-no-overview.html#shape",
+        "anchor: examples/probe-app/PhoneDSHProbe/HomeSpec.swift#bubbleRadius"
+      ],
+      "notes": "PR22 radii are nav 22 / bubble 24 / list card 18 / composer 24. tokens.json declares bubble 20 and composer 28; the bubble composable draws all four corners round instead of the top-trailing square.",
+      "limitation": "PR22 radii and bubble corner shape are not implemented."
+    },
+    {
+      "id": "spec-components",
+      "kind": "design-section",
+      "status": "partial",
+      "ios": [
+        {
+          "path": "docs/design/ios-home-design-spec-no-overview.html",
+          "anchors": [
+            "id=\"components\"",
+            "查询深圳天气"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/ChatPage.kt",
+          "anchors": [
+            "private fun ChatHeader",
+            "private fun ChatTranscript",
+            "private fun ComposerDock"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: docs/design/ios-home-design-spec-no-overview.html#components",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/ChatPage.kt#ChatHeader"
+      ],
+      "notes": "The component examples are laid out at the 430pt content width of 390. Android draws the same component families against the 402pt/338pt legacy frame, so every measured x/y example differs.",
+      "limitation": "PR22 component geometry is not reproduced at 430pt."
+    },
+    {
+      "id": "spec-diff",
+      "kind": "design-section",
+      "status": "partial",
+      "ios": [
+        {
+          "path": "docs/design/ios-home-design-spec-no-overview.html",
+          "anchors": [
+            "id=\"diff\"",
+            "固定 402"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/UiMetrics.kt",
+          "anchors": [
+            "public const val BASELINE_WIDTH_PT: Int = 430"
+          ]
+        },
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/ChatMetrics.kt",
+          "anchors": [
+            "public const val CONTENT_COLUMN_WIDTH_PT: Int = 390"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: docs/design/ios-home-design-spec-no-overview.html#diff",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/UiMetrics.kt#BASELINE_WIDTH_PT",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/ChatMetrics.kt#CONTENT_COLUMN_WIDTH_PT"
+      ],
+      "notes": "The current Android source owns a 430×932 pt capture frame (`UiMetrics.BASELINE_WIDTH_PT`) and a 390 pt content column (`ChatMetrics.CONTENT_COLUMN_WIDTH_PT`). The old 402 pt frame is no longer the metric owner. This row remains partial because source anchors do not establish page-by-page screenshot parity.",
+      "limitation": "The 430 pt source authority is present; page-level visual and interaction acceptance remains separate and is not claimed by this map."
+    },
+    {
+      "id": "home-spec-chrome",
+      "kind": "chrome",
+      "status": "partial",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/HomeSpec.swift",
+          "anchors": [
+            "enum HomeSpec",
+            "static let chromeInset",
+            "static var bubbleShape",
+            "static let composerOpenMinHeight"
+          ]
+        },
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/ChatPage.swift",
+          "anchors": [
+            "HomeSpec.navTitleSize",
+            "HomeSpec.composerOpenMinHeight"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/ChatPage.kt",
+          "anchors": [
+            "private fun ChatHeader",
+            "private fun ComposerDock"
+          ]
+        },
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/ChatMetrics.kt",
+          "anchors": [
+            "HEADER_HEIGHT_PT",
+            "TRANSCRIPT_SIDE_INSET_PT"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/HomeSpec.swift#enum HomeSpec",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/ChatMetrics.kt#HEADER_HEIGHT_PT"
+      ],
+      "notes": "The PR22 chrome values (nav 44, nav pill 92, process row 24, composer min 104, send 36, tab 50) are defined in HomeSpec and read by ChatPage.swift. The Android ChatPage header/composer reads ChatMetrics values mirrored from NativeParityTokens, not HomeSpec, and no HomeSpec-equivalent object exists.",
+      "limitation": "HomeSpec chrome is only partially reflected; 402pt ChatMetrics remains the drawing source."
+    },
+    {
+      "id": "home-drawer",
+      "kind": "drawer",
+      "status": "missing",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/HomeDrawer.swift",
+          "anchors": [
+            "struct HomeDrawer",
+            "private var entriesCard",
+            "private var folderSectionHeader",
+            "private var settingsBar"
+          ]
+        },
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/NativeShell.swift",
+          "anchors": [
+            "HomeDrawer(isOpen"
+          ]
+        }
+      ],
+      "android": [],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/HomeDrawer.swift#struct HomeDrawer",
+        "static: no Android HomeDrawer symbol; the routed drawer is android/lib/src/main/kotlin/com/phonedsh/ui/nav/PdshDrawer.kt#public fun PdshDrawer"
+      ],
+      "notes": "PR22 replaces the old session drawer with HomeDrawer: white entries card (新会话 / 定时任务), 文件夹 section with default 日常 grouping, folder long-press create/edit, session long-press rename/archive, archived toast, settings bar. Android still ships PdshDrawer.kt, the pre-PR22 SessionsPage body plus 定时任务/设置 rows (its own KDoc cites NativeShell.swift:288-316). No Android HomeDrawer implementation was found.",
+      "limitation": "The PR22 drawer surface is absent; the routed drawer is the old one."
+    },
+    {
+      "id": "native-shell-routing",
+      "kind": "chrome",
+      "status": "partial",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/NativeShell.swift",
+          "anchors": [
+            "ChatPage(openDrawer",
+            "struct SessionsDrawerPanel",
+            "HomeDrawer(isOpen"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/app/src/main/kotlin/com/phonedsh/probe/HostShell.kt",
+          "anchors": [
+            "internal fun HostShell",
+            "HomeDrawer(",
+            "HostHomeScreen("
+          ]
+        },
+        {
+          "path": "android/app/src/main/kotlin/com/phonedsh/probe/HostSessionsScreen.kt",
+          "anchors": [
+            "internal fun HostHomeScreen"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/NativeShell.swift#ChatPage(openDrawer",
+        "anchor: android/app/src/main/kotlin/com/phonedsh/probe/HostShell.kt#HostHomeScreen"
+      ],
+      "notes": "The Android shell now mounts the PR22 HomeDrawer overlay (`HostShell.kt`), but its default home slot still renders HostHomeScreen/HostSessionsScreen; ChatPage remains a pushed route rather than the launch home. The drawer renderer is present, while the root-face routing mismatch remains partial.",
+      "limitation": "Default launch still uses the sessions home, not ChatPage; this is a real root-routing gap."
+    },
+    {
+      "id": "signature-bubble",
+      "kind": "signature",
+      "status": "implemented-on-candidate",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/HomeSpec.swift",
+          "anchors": [
+            "static var bubbleShape",
+            "static let bubbleRadius",
+            "static let userBubble"
+          ]
+        },
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/ChatPage.swift",
+          "anchors": [
+            "private var userBubble",
+            "HomeSpec.bubbleShape"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/surface/Bubble.kt",
+          "anchors": [
+            "public fun ChatBubble",
+            "BubbleRole.USER",
+            "topEnd = HomeMetrics.BUBBLE_TOP_TRAILING_RADIUS_PT.dp",
+            "color = tokens.colors.userBubble"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/HomeSpec.swift#bubbleShape",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/surface/Bubble.kt#ChatBubble",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/HomeMetrics.kt#BUBBLE_TOP_TRAILING_RADIUS_PT",
+        "anchor: spec/ui/v1/tokens.json#colors.userBubble"
+      ],
+      "notes": "The current Android user bubble reads the HomeSpec-derived 24 pt bubble radius, the top-trailing radius override, and the userBubble fill token (#E8E8E8 light). The previous all-corners RoundedCornerShape anchor was stale; the live code now expresses the asymmetric source shape.",
+      "limitation": "This is source-level implementation evidence only; it is not a simulator screenshot or Fleet acceptance receipt."
+    },
+    {
+      "id": "signature-tool-row",
+      "kind": "signature",
+      "status": "partial",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/NativeToolDetailCards.swift",
+          "anchors": [
+            "struct NativeToolCallRow"
+          ]
+        },
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/NativeToolCardChrome.swift",
+          "anchors": [
+            "struct NativeToolCardChrome",
+            "struct NativeToolCardHeaderRow"
+          ]
+        },
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/HomeSpec.swift",
+          "anchors": [
+            "static let listCardRadius"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/surface/ToolRow.kt",
+          "anchors": [
+            "public fun ToolRow",
+            "public fun ToolDetailCard",
+            "ToolRowTokens"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/NativeToolCardChrome.swift#NativeToolCardChrome",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/surface/ToolRow.kt#ToolRow"
+      ],
+      "notes": "Android has the collapsed/expanded tool row with a code card, but reads legacy tokens (radius.codeBlock 12, code/codeBanner palette). PR22 expanded cards are white r18 cards with the HomeSpec border/gap; no HomeSpec equivalents are read.",
+      "limitation": "Tool-row structure exists; PR22 white-card geometry/palette is not applied."
+    },
+    {
+      "id": "signature-thinking-pill",
+      "kind": "signature",
+      "status": "partial",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/NativeMessageRows.swift",
+          "anchors": [
+            "struct NativeThinkingRow"
+          ]
+        },
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/HomeSpec.swift",
+          "anchors": [
+            "static let processRowHeight",
+            "static let processSize"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/surface/ThinkingPill.kt",
+          "anchors": [
+            "public fun ThinkingPill",
+            "ThinkingPillTokens"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/NativeMessageRows.swift#NativeThinkingRow",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/surface/ThinkingPill.kt#ThinkingPill"
+      ],
+      "notes": "The Android pill is a token-driven legacy surface (process row 24 from NativeParityTokens). It has no PR22 15/24 process text or HomeSpec spacing; a source-level visual comparison was not possible without a capture.",
+      "limitation": "Thinking pill uses legacy type/spacing."
+    },
+    {
+      "id": "signature-approval-card",
+      "kind": "signature",
+      "status": "partial",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/ChatPage.swift",
+          "anchors": [
+            "struct PermissionCardView",
+            "private func accessModeErrorBanner"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/surface/ApprovalCard.kt",
+          "anchors": [
+            "public fun ApprovalCard",
+            "public fun FoldedPendingRow",
+            "ApprovalCardTokens"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/ChatPage.swift#PermissionCardView",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/surface/ApprovalCard.kt#ApprovalCard"
+      ],
+      "notes": "Android has the approval card and folded pending row, but its tokens/geometry are the legacy set; PR22 HomeSpec card radius/border/CTA values are not read.",
+      "limitation": "Approval card structure exists; PR22 visual contract is not proven."
+    },
+    {
+      "id": "signature-composer",
+      "kind": "signature",
+      "status": "partial",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/ChatPage.swift",
+          "anchors": [
+            "private var composer",
+            "private var composerCard",
+            "HomeSpec.composerOpenMinHeight"
+          ]
+        },
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/HomeSpec.swift",
+          "anchors": [
+            "static let composerOpenMinHeight",
+            "static let sendButton",
+            "static let composerOpenRadius"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/surface/Composer.kt",
+          "anchors": [
+            "public fun Composer",
+            "ComposerTokens",
+            "RoundedCornerShape(tokens.radius.composer)"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/ChatPage.swift#private var composer",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/surface/Composer.kt#Composer"
+      ],
+      "notes": "The PR22 composer opens at min 104pt, radius 24, send 36, icon 24. Android reads radius.composer=28 and the legacy composer geometry from tokens.json; no HomeSpec value is referenced.",
+      "limitation": "Composer dimensions/radius do not match PR22."
+    },
+    {
+      "id": "signature-fail-loud-banner",
+      "kind": "signature",
+      "status": "partial",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/ChatPage.swift",
+          "anchors": [
+            "private func errorBanner",
+            "private func accessModeErrorBanner",
+            "private func commandErrorBanner"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/surface/FailLoudBanner.kt",
+          "anchors": [
+            "public fun FailLoudBanner",
+            "FailLoudBannerTokens"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/ChatPage.swift#private func errorBanner",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/surface/FailLoudBanner.kt#FailLoudBanner"
+      ],
+      "notes": "The Android banner exists and is token-driven, but PR22 errorBanner/accessModeErrorBanner/commandErrorBanner copy and geometry are not mapped one-for-one; it remains a legacy surface.",
+      "limitation": "Banner implementation exists; PR22 copy/anchor parity is unproven."
+    },
+    {
+      "id": "voice-input-policy",
+      "kind": "policy",
+      "status": "missing",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/ComposerVoiceInput.swift",
+          "anchors": [
+            "final class ComposerVoiceInput",
+            "recording"
+          ]
+        },
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/ChatPage.swift",
+          "anchors": [
+            "voice.recording"
+          ]
+        }
+      ],
+      "android": [],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/ComposerVoiceInput.swift#ComposerVoiceInput"
+      ],
+      "notes": "PR22 gates the microphone entry behind a hidden/unverified policy. The prepared Android UI exposes no microphone control at all; this audit found no unverified voice feature to leak, but also no Android implementation. Keep it hidden unless the microphone path is verified."
+    },
+    {
+      "id": "page-chatpage",
+      "kind": "page",
+      "status": "partial",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/ChatPage.swift",
+          "anchors": [
+            "struct ChatPage"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/ChatPage.kt",
+          "anchors": [
+            "public fun ChatPage",
+            "private fun ChatHeader",
+            "private fun ChatTranscript",
+            "private fun ComposerDock"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/ChatPage.swift#struct ChatPage",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/ChatPage.kt#public fun ChatPage"
+      ],
+      "notes": "PR22 ChatPage is the home; Android renders it only as a pushed route. Header menu lacks the PR22 子智能体/后台任务/定时任务/插件与工具 entries, the queue strip has no edit/delete/steer actions, and there is no voice-input surface (PR22 keeps voice hidden; Android has none at all).",
+      "limitation": "See note: at least one PR22 element is absent or still on legacy 402pt tokens."
+    },
+    {
+      "id": "page-sessionspage",
+      "kind": "page",
+      "status": "partial",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/SessionsPage.swift",
+          "anchors": [
+            "struct SessionsPage"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/SessionsPage.kt",
+          "anchors": [
+            "public fun SessionsPage",
+            "public data class SessionsScreenState"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/SessionsPage.swift#struct SessionsPage",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/SessionsPage.kt#public fun SessionsPage"
+      ],
+      "notes": "The list/folder/archive structure exists, but the PR22 drawer default 日常 grouping is absent: no 日常 / defaultFolderName string or grouping path was found in SessionsPage.kt. PR22 uses SessionsPage as the drawer body unless folders exist; Android routes it as its own page.",
+      "limitation": "See note: at least one PR22 element is absent or still on legacy 402pt tokens."
+    },
+    {
+      "id": "page-settingspage",
+      "kind": "page",
+      "status": "partial",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/SettingsPage.swift",
+          "anchors": [
+            "struct SettingsPage"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/SettingsPage.kt",
+          "anchors": [
+            "public fun SettingsPage",
+            "SettingsIndexSection(\"modelsAgents\"",
+            "SettingsSectionLabel(section.title",
+            "SettingsIndexRow(entry"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/SettingsPage.swift#struct SettingsPage",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/SettingsPage.kt#SettingsIndexSection",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/SettingsPage.kt#SettingsIndexList"
+      ],
+      "notes": "Android now renders the grouped PR22 settings index from SettingsIndexSection models and passes each section title and entry through SettingsSectionLabel/SettingsIndexRow. The old SettingsSegmentedPicker is not the root screen. This map records the actual grouped renderer; complete interaction and visual acceptance remains UNACCEPTED.",
+      "limitation": "The root grouped index is present; remaining settings subpage or host-operation gaps are tracked by their own entries and receipts."
+    },
+    {
+      "id": "page-modelprovidersettingspage",
+      "kind": "page",
+      "status": "partial",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/ModelProviderSettingsPage.swift",
+          "anchors": [
+            "struct ModelProviderSettingsPage"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/ModelProviderSettingsPage.kt",
+          "anchors": [
+            "public fun ModelProviderSettingsPage",
+            "private fun ProviderEditor"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/ModelProviderSettingsPage.swift#struct ModelProviderSettingsPage",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/ModelProviderSettingsPage.kt#public fun ModelProviderSettingsPage"
+      ],
+      "notes": "Android has services/keys/editor but no 获取模型 flow, no 高级设置 page, no protocol/context/output fields, and different field copy (显示名称/服务 URL vs PR22 名称/API 地址). PR22 test-connection and request-bound save receipts are only partly present.",
+      "limitation": "See note: at least one PR22 element is absent or still on legacy 402pt tokens."
+    },
+    {
+      "id": "page-chatpreferencespage",
+      "kind": "page",
+      "status": "implemented-on-candidate",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/ChatPreferencesPage.swift",
+          "anchors": [
+            "struct ChatPreferencesPage"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/ChatPreferencesPage.kt",
+          "anchors": [
+            "public fun ChatPreferencesPage"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/ChatPreferencesPage.swift#struct ChatPreferencesPage",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/ChatPreferencesPage.kt#public fun ChatPreferencesPage"
+      ],
+      "notes": "The page is present with the PR22 appearance/font-size/fold controls; its KDoc still cites the older iOS HEAD. PR22 also added separate FontSize/Conversation settings pages, which Android does not have."
+    },
+    {
+      "id": "page-dailybriefpage",
+      "kind": "page",
+      "status": "implemented-on-candidate",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/DailyBriefPage.swift",
+          "anchors": [
+            "struct DailyBriefPage"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/DailyBriefPage.kt",
+          "anchors": [
+            "public fun DailyBriefPage"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/DailyBriefPage.swift#struct DailyBriefPage",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/DailyBriefPage.kt#public fun DailyBriefPage"
+      ],
+      "notes": "The page exists with sources/items/run report states, but it is reachable only from Android 开发者工具, not a PR22 product entry. No PR22-specific structural defect was found in this audit."
+    },
+    {
+      "id": "page-exportpage",
+      "kind": "page",
+      "status": "partial",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/ExportPage.swift",
+          "anchors": [
+            "struct ExportPage"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/ExportPage.kt",
+          "anchors": [
+            "public fun ExportPage"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/ExportPage.swift#struct ExportPage",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/ExportPage.kt#public fun ExportPage"
+      ],
+      "notes": "The page renders export facts, but the host has no export command (HostShell hostRouteNote says 本宿主没有导出诊断的命令), so the PR22 write/share gesture cannot complete on this candidate.",
+      "limitation": "See note: at least one PR22 element is absent or still on legacy 402pt tokens."
+    },
+    {
+      "id": "page-filespage",
+      "kind": "page",
+      "status": "partial",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/FilesPage.swift",
+          "anchors": [
+            "struct FilesPage"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/FilesPage.kt",
+          "anchors": [
+            "public fun FilesPage",
+            "public fun classifyFileKind"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/FilesPage.swift#struct FilesPage",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/FilesPage.kt#public fun FilesPage"
+      ],
+      "notes": "The workspace listing/preview entry exists, but the host is read-only for imports/shares (HostShell route notes) and the PR22 import/SAF path is not wired in the host.",
+      "limitation": "See note: at least one PR22 element is absent or still on legacy 402pt tokens."
+    },
+    {
+      "id": "page-mcpsettingspage",
+      "kind": "page",
+      "status": "partial",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/MCPSettingsPage.swift",
+          "anchors": [
+            "struct MCPSettingsPage"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/MCPSettingsPage.kt",
+          "anchors": [
+            "public fun MCPSettingsPage"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/MCPSettingsPage.swift#struct MCPSettingsPage",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/MCPSettingsPage.kt#public fun MCPSettingsPage"
+      ],
+      "notes": "The list/editor exists, but the host registers no phone/mcpUpsert tool, so saving is refused; PR22 copy and the full connection/auth model are not all present.",
+      "limitation": "See note: at least one PR22 element is absent or still on legacy 402pt tokens."
+    },
+    {
+      "id": "page-memorypage",
+      "kind": "page",
+      "status": "implemented-on-candidate",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/MemoryPage.swift",
+          "anchors": [
+            "struct MemoryPage"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/MemoryPage.kt",
+          "anchors": [
+            "public fun MemoryPage"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/MemoryPage.swift#struct MemoryPage",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/MemoryPage.kt#public fun MemoryPage"
+      ],
+      "notes": "The probe page exists and is exercised by MemoryPageTest; it is Android 开发者工具-only (PR22 has no product entry). No PR22-specific structural defect found."
+    },
+    {
+      "id": "page-nativeagentpresetspage",
+      "kind": "page",
+      "status": "implemented-on-candidate",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/NativeAgentPresetsPage.swift",
+          "anchors": [
+            "struct NativeAgentPresetsPage"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/NativeAgentPresetsPage.kt",
+          "anchors": [
+            "public fun NativeAgentPresetsPage"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/NativeAgentPresetsPage.swift#struct NativeAgentPresetsPage",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/NativeAgentPresetsPage.kt#public fun NativeAgentPresetsPage"
+      ],
+      "notes": "Roster/default/read-only configuration surface exists with tests; reachable from the settings family."
+    },
+    {
+      "id": "page-nativeautomationpage",
+      "kind": "page",
+      "status": "partial",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/NativeAutomationPage.swift",
+          "anchors": [
+            "struct NativeAutomationPage"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/NativeAutomationPage.kt",
+          "anchors": [
+            "public fun NativeAutomationPage",
+            "private fun ScheduleEditorPage",
+            "public data class AutomationScreenState"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/NativeAutomationPage.swift#struct NativeAutomationPage",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/NativeAutomationPage.kt#public fun NativeAutomationPage"
+      ],
+      "notes": "Catalog/detail/history/editor and host schedule calls exist, but the page is still on the legacy HomeSpec-less chrome and the chat-side 定时任务 entry only appears when schedules are non-empty.",
+      "limitation": "See note: at least one PR22 element is absent or still on legacy 402pt tokens."
+    },
+    {
+      "id": "page-nativeconfigurationpage",
+      "kind": "page",
+      "status": "partial",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/NativeConfigurationPage.swift",
+          "anchors": [
+            "struct NativeConfigurationPage"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/NativeConfigurationPage.kt",
+          "anchors": [
+            "public fun NativeConfigurationPage"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/NativeConfigurationPage.swift#struct NativeConfigurationPage",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/NativeConfigurationPage.kt#public fun NativeConfigurationPage"
+      ],
+      "notes": "PR22 sections 子 Agent / 子 Agent 模型 / 自动执行轮次 / 终端 / 智能体团队 / 语音输入 / 自动授权审查 are absent (38 Chinese literals missing, including the whole subagent/auto-exec/terminal blocks).",
+      "limitation": "See note: at least one PR22 element is absent or still on legacy 402pt tokens."
+    },
+    {
+      "id": "page-nativedeviceconnectionpage",
+      "kind": "page",
+      "status": "implemented-on-candidate",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/NativeDeviceConnectionPage.swift",
+          "anchors": [
+            "struct NativeDeviceConnectionPage"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/NativeDeviceConnectionPage.kt",
+          "anchors": [
+            "public fun NativeDeviceConnectionPage"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/NativeDeviceConnectionPage.swift#struct NativeDeviceConnectionPage",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/NativeDeviceConnectionPage.kt#public fun NativeDeviceConnectionPage"
+      ],
+      "notes": "Three-part page with honest no-connector empty state; the app passes no DeviceConnectionSource, so the product default shows no fabricated device. Injected connectors are test/screenshot fixtures only."
+    },
+    {
+      "id": "page-nativedevicesessionpage",
+      "kind": "page",
+      "status": "implemented-on-candidate",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/NativeDeviceSessionPage.swift",
+          "anchors": [
+            "struct NativeDeviceSessionPage"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/NativeDeviceSessionPage.kt",
+          "anchors": [
+            "public fun NativeDeviceSessionPage"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/NativeDeviceSessionPage.swift#struct NativeDeviceSessionPage",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/NativeDeviceSessionPage.kt#public fun NativeDeviceSessionPage"
+      ],
+      "notes": "Read-only fixed-session monitor with paging/live tail exists and is tested; the product host has no real transport, which the page/route says."
+    },
+    {
+      "id": "page-nativeplugininventorypage",
+      "kind": "page",
+      "status": "implemented-on-candidate",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/NativePluginInventoryPage.swift",
+          "anchors": [
+            "struct NativePluginInventoryPage"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/NativePluginInventoryPage.kt",
+          "anchors": [
+            "public fun NativePluginInventoryPage"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/NativePluginInventoryPage.swift#struct NativePluginInventoryPage",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/NativePluginInventoryPage.kt#public fun NativePluginInventoryPage"
+      ],
+      "notes": "Read-only inventory/search/config link exists with tests."
+    },
+    {
+      "id": "page-nativesettingsdocumentpage",
+      "kind": "page",
+      "status": "implemented-on-candidate",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/NativeSettingsDocumentPage.swift",
+          "anchors": [
+            "struct NativeSettingsDocumentPage"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/NativeSettingsDocumentPage.kt",
+          "anchors": [
+            "public fun NativeSettingsDocumentPage"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/NativeSettingsDocumentPage.swift#struct NativeSettingsDocumentPage",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/NativeSettingsDocumentPage.kt#public fun NativeSettingsDocumentPage"
+      ],
+      "notes": "Redacted settings document + share surface exists with tests."
+    },
+    {
+      "id": "page-nativeshortcutspage",
+      "kind": "page",
+      "status": "partial",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/NativeShortcutsPage.swift",
+          "anchors": [
+            "struct NativeShortcutsPage"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/NativeShortcutsPage.kt",
+          "anchors": [
+            "public fun NativeShortcutsPage"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/NativeShortcutsPage.swift#struct NativeShortcutsPage",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/NativeShortcutsPage.kt#public fun NativeShortcutsPage"
+      ],
+      "notes": "The reference/reset surface exists, but PR22 per-action key capture and conflict validation (按键 / 保存快捷键 / 冲突) are missing.",
+      "limitation": "See note: at least one PR22 element is absent or still on legacy 402pt tokens."
+    },
+    {
+      "id": "page-nativeworkbenchpage",
+      "kind": "page",
+      "status": "implemented-on-candidate",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/NativeWorkbenchPage.swift",
+          "anchors": [
+            "struct NativeWorkbenchPage"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/NativeWorkbenchPage.kt",
+          "anchors": [
+            "public fun NativeWorkbenchPage"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/NativeWorkbenchPage.swift#struct NativeWorkbenchPage",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/NativeWorkbenchPage.kt#public fun NativeWorkbenchPage"
+      ],
+      "notes": "Files/commands workbench exists with tests; reachable from the chat subpage facts."
+    },
+    {
+      "id": "page-pdshshellpage",
+      "kind": "page",
+      "status": "partial",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/PDSHShellPage.swift",
+          "anchors": [
+            "struct PDSHShellPage"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/PDSHShellPage.kt",
+          "anchors": [
+            "internal fun PDSHShellPage"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/PDSHShellPage.swift#struct PDSHShellPage",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/PDSHShellPage.kt#internal fun PDSHShellPage"
+      ],
+      "notes": "The page exists, but HostShell answers RunShellCommand with 本宿主没有调用 exec 桥的命令, so the PR22 run/stop/progress path cannot execute on this candidate.",
+      "limitation": "See note: at least one PR22 element is absent or still on legacy 402pt tokens."
+    },
+    {
+      "id": "page-phonepermissionspage",
+      "kind": "page",
+      "status": "implemented-on-candidate",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/PhonePermissionsPage.swift",
+          "anchors": [
+            "struct PhonePermissionsPage"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/PhonePermissionsPage.kt",
+          "anchors": [
+            "public fun PhonePermissionsPage"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/PhonePermissionsPage.swift#struct PhonePermissionsPage",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/PhonePermissionsPage.kt#public fun PhonePermissionsPage"
+      ],
+      "notes": "23-capability matrix, request and settings handoffs exist with tests; the host permission read is the actual device read."
+    },
+    {
+      "id": "page-probespage",
+      "kind": "page",
+      "status": "implemented-on-candidate",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/ProbesPage.swift",
+          "anchors": [
+            "struct ProbesPage"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/ProbesPage.kt",
+          "anchors": [
+            "public fun ProbesPage"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/ProbesPage.swift#struct ProbesPage",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/ProbesPage.kt#public fun ProbesPage"
+      ],
+      "notes": "Probe rows/report surface exists with tests; reachable only from Android 开发者工具."
+    },
+    {
+      "id": "page-sessionactivitypage",
+      "kind": "page",
+      "status": "partial",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/SessionActivityPage.swift",
+          "anchors": [
+            "struct SessionActivityPage"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/SessionActivityPage.kt",
+          "anchors": [
+            "public fun SessionActivityPage"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/SessionActivityPage.swift#struct SessionActivityPage",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/SessionActivityPage.kt#public fun SessionActivityPage"
+      ],
+      "notes": "The eight-section page exists, but its only call site is Android 开发者工具 with SessionActivitySource() empty facts; the PR22 chat-menu entry is absent. It therefore cannot show the real session activity in the product flow.",
+      "limitation": "See note: at least one PR22 element is absent or still on legacy 402pt tokens."
+    },
+    {
+      "id": "page-sessionartifactspage",
+      "kind": "page",
+      "status": "implemented-on-candidate",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/SessionArtifactsPage.swift",
+          "anchors": [
+            "struct SessionArtifactsPage"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/SessionArtifactsPage.kt",
+          "anchors": [
+            "public fun SessionArtifactsPage"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/SessionArtifactsPage.swift#struct SessionArtifactsPage",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/SessionArtifactsPage.kt#public fun SessionArtifactsPage"
+      ],
+      "notes": "Attribution split (本会话 / 未归属) and share/preview states exist with tests; host wiring was reworked in the candidate."
+    },
+    {
+      "id": "page-taskscreenpage",
+      "kind": "page",
+      "status": "implemented-on-candidate",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/TaskScreenPage.swift",
+          "anchors": [
+            "struct TaskScreenPage"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/TaskScreenPage.kt",
+          "anchors": [
+            "public fun TaskScreenPage"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/TaskScreenPage.swift#struct TaskScreenPage",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/TaskScreenPage.kt#public fun TaskScreenPage"
+      ],
+      "notes": "Pure-black task screen and brightness/status surface exists with tests; reachable only from Android 开发者工具."
+    },
+    {
+      "id": "page-websearchsettingspage",
+      "kind": "page",
+      "status": "partial",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/WebSearchSettingsPage.swift",
+          "anchors": [
+            "struct WebSearchSettingsPage"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/WebSearchSettingsPage.kt",
+          "anchors": [
+            "public fun WebSearchSettingsPage"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/WebSearchSettingsPage.swift#struct WebSearchSettingsPage",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/WebSearchSettingsPage.kt#public fun WebSearchSettingsPage"
+      ],
+      "notes": "Page exists, but the host marks it read-only (WEB_SEARCH_READ_ONLY_REASON) and no SetWebSearchEnabled/SelectWebSearchBackend handler exists in :app, so PR22 save/test/mode switching cannot complete.",
+      "limitation": "See note: at least one PR22 element is absent or still on legacy 402pt tokens."
+    },
+    {
+      "id": "page-backgroundpage",
+      "kind": "page",
+      "status": "implemented-on-candidate",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/BackgroundPage.swift",
+          "anchors": [
+            "struct BackgroundPage"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/BackgroundPage.kt",
+          "anchors": [
+            "public fun BackgroundPage"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/BackgroundPage.swift#struct BackgroundPage",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/BackgroundPage.kt#public fun BackgroundPage"
+      ],
+      "notes": "Background keep-alive diagnostics exist with tests; reachable only from Android 开发者工具."
+    },
+    {
+      "id": "subpage-font-size",
+      "kind": "settings-subpage",
+      "status": "partial",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/SettingsPage.swift",
+          "anchors": [
+            "struct FontSizeSettingsPage",
+            "nativePermissionModeTitle"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/ChatPreferencesPage.kt",
+          "anchors": [
+            "public fun ChatPreferencesPage",
+            "onSetTextFontSize"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/SettingsPage.swift#FontSizeSettingsPage",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/ChatPreferencesPage.kt#onSetTextFontSize"
+      ],
+      "notes": "PR22 字号 is a standalone List with 会话内容/代码/终端 sections, system-font fallback text and per-role family fields. Android only has the two legacy text/code steppers on ChatPreferencesPage; no terminal size, font-family field or unavailable-font message.",
+      "limitation": "FontSizeSettingsPage is not a page in Android; only two of the three roles exist."
+    },
+    {
+      "id": "subpage-conversation-settings",
+      "kind": "settings-subpage",
+      "status": "partial",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/SettingsPage.swift",
+          "anchors": [
+            "struct ConversationSettingsPage",
+            "任务进行中发送"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/SettingsPage.kt",
+          "anchors": [
+            "SettingsIndexPage.CONVERSATION -> ConversationSettingsPage("
+          ]
+        },
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/ConversationSettingsPage.kt",
+          "anchors": [
+            "public fun ConversationSettingsPage(",
+            "SettingsSectionLabel(native(\"工作步骤\"",
+            "DeveloperToolsRow(preferences.developerTools, onToggleDeveloperTools, languageId)"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/SettingsPage.swift#struct ConversationSettingsPage",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/SettingsPage.kt#SettingsIndexPage.CONVERSATION",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/ConversationSettingsPage.kt#public fun ConversationSettingsPage"
+      ],
+      "notes": "The standalone Android ConversationSettingsPage is now rooted from the grouped Settings index. Its Work steps and Sending/usage groups include the transcript, collapse, busy-send, performance, and developer-tools controls. The prior anchor pointed at the removed segmented-picker shell.",
+      "limitation": "Source implementation is mapped; acceptance is still UNACCEPTED and host callback behavior must be checked from its own current route/receipt evidence."
+    },
+    {
+      "id": "subpage-archived-sessions",
+      "kind": "settings-subpage",
+      "status": "missing",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/SettingsPage.swift",
+          "anchors": [
+            "struct ArchivedSessionsPage",
+            "没有已归档的会话"
+          ]
+        }
+      ],
+      "android": [],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/SettingsPage.swift#ArchivedSessionsPage"
+      ],
+      "notes": "PR22 设置 › 已归档会话 lists archived sessions with 恢复 and the return-to-folder footer. No Android archived-sessions page or composable was found; SessionsPage only has a folded archived section.",
+      "limitation": "ArchivedSessionsPage has no Android implementation."
+    },
+    {
+      "id": "subpage-permission-defaults",
+      "kind": "settings-subpage",
+      "status": "implemented-on-candidate",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/SettingsPage.swift",
+          "anchors": [
+            "struct PermissionDefaultsPage"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/PermissionDefaultsPage.kt",
+          "anchors": [
+            "public fun PermissionDefaultsPage(",
+            "onClick = onSelect?.let"
+          ]
+        },
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/SettingsPage.kt",
+          "anchors": [
+            "SettingsIndexPage.PERMISSION_DEFAULTS -> PermissionDefaultsPage("
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/SettingsPage.swift#struct PermissionDefaultsPage",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/PermissionDefaultsPage.kt#public fun PermissionDefaultsPage",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/SettingsPage.kt#SettingsIndexPage.PERMISSION_DEFAULTS"
+      ],
+      "notes": "The page is implemented in its own composable and reached from the grouped Settings index; option taps are tied to the provided onSelect callback and current enabled/busy/readback state. The previous anchor targeted a stale declaration in SettingsPage.kt.",
+      "limitation": "This implementation status does not accept the candidate; the Fleet baseline and acceptance receipts remain UNACCEPTED."
+    },
+    {
+      "id": "subpage-about",
+      "kind": "settings-subpage",
+      "status": "implemented-on-candidate",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/NativeShell.swift",
+          "anchors": [
+            "struct SettingsAboutPage"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/AboutPage.kt",
+          "anchors": [
+            "public fun AboutPage"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/NativeShell.swift#SettingsAboutPage",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/AboutPage.kt#AboutPage"
+      ],
+      "notes": "About page exists with version/platform/license rows; licenses and developer rows are rendered unavailable on this host by design."
+    },
+    {
+      "id": "subpage-licenses",
+      "kind": "settings-subpage",
+      "status": "missing",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/SettingsPage.swift",
+          "anchors": [
+            "struct LicensesPage"
+          ]
+        }
+      ],
+      "android": [],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/SettingsPage.swift#LicensesPage"
+      ],
+      "notes": "PR22 开源许可 lists the packaged open-source components. Android AboutPage.kt explicitly states Android has no LicensesPage and passes onOpenLicenses = null.",
+      "limitation": "LicensesPage has no Android implementation."
+    },
+    {
+      "id": "page-runtime-details",
+      "kind": "page",
+      "status": "implemented-on-candidate",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/ChatPage.swift",
+          "anchors": [
+            "struct RuntimeDetailsPage"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/RuntimeDetailsPage.kt",
+          "anchors": [
+            "public fun RuntimeDetailsPage"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/ChatPage.swift#RuntimeDetailsPage",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/RuntimeDetailsPage.kt#RuntimeDetailsPage"
+      ],
+      "notes": "Runtime details is present as an Android page with tests; it uses legacy page chrome."
+    },
+    {
+      "id": "schedule-catalog",
+      "kind": "schedule-surface",
+      "status": "implemented-on-candidate",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/NativeAutomationPage.swift",
+          "anchors": [
+            "struct NativeAutomationPage",
+            "还没有定时任务"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/NativeAutomationPage.kt",
+          "anchors": [
+            "public fun NativeAutomationPage",
+            "AutomationScreenState"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/NativeAutomationPage.swift#NativeAutomationPage",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/NativeAutomationPage.kt#NativeAutomationPage"
+      ],
+      "notes": "Catalog/empty/error states and create/update/delete host calls are wired through HostAutomation."
+    },
+    {
+      "id": "schedule-editor",
+      "kind": "schedule-surface",
+      "status": "implemented-on-candidate",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/NativeAutomationPage.swift",
+          "anchors": [
+            "struct ScheduleEditorPage"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/NativeAutomationPage.kt",
+          "anchors": [
+            "private fun ScheduleEditorPage",
+            "AutomationScheduleDraft"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/NativeAutomationPage.swift#ScheduleEditorPage",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/NativeAutomationPage.kt#ScheduleEditorPage"
+      ],
+      "notes": "The editor form, validation, submit/discard and request-bound save receipt exist; host write calls are implemented in HostAutomation.save."
+    },
+    {
+      "id": "schedule-detail-history",
+      "kind": "schedule-surface",
+      "status": "implemented-on-candidate",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/NativeAutomationPage.swift",
+          "anchors": [
+            "struct ScheduleDetailPage",
+            "struct ScheduleHistoryPage"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/NativeAutomationPage.kt",
+          "anchors": [
+            "AutomationHistory",
+            "AutomationHistoryStatus"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/NativeAutomationPage.swift#ScheduleHistoryPage",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/NativeAutomationPage.kt#AutomationHistory"
+      ],
+      "notes": "Detail/history paging exists; host history read is wired through HostAutomation.history."
+    },
+    {
+      "id": "chat-schedule-sheet",
+      "kind": "schedule-surface",
+      "status": "partial",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/ChatPage.swift",
+          "anchors": [
+            "struct NativeScheduleListSheet"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/ChatPage.kt",
+          "anchors": [
+            "public fun NativeScheduleListSheet"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/ChatPage.swift#NativeScheduleListSheet",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/ChatPage.kt#NativeScheduleListSheet"
+      ],
+      "notes": "The sheet exists, but the chat header only draws the 定时任务 row when schedules are non-empty and the host populates ChatSubpageFacts.schedules; empty/read-failure entries are not reachable from the header."
+    },
+    {
+      "id": "chat-jobs-sheet",
+      "kind": "schedule-surface",
+      "status": "partial",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/ChatPage.swift",
+          "anchors": [
+            "struct NativeJobListSheet"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/ChatPage.kt",
+          "anchors": [
+            "public fun NativeJobListSheet",
+            "public data class ChatSubpageFacts"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/ChatPage.swift#NativeJobListSheet",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/ChatPage.kt#NativeJobListSheet"
+      ],
+      "notes": "The sheet exists, but HostShell only fills ChatSubpageFacts.schedules and never fills .jobs, so the 后台任务 row never appears in the product even when jobs exist (null callback/list masquerading as \"no row\")."
+    },
+    {
+      "id": "subagent-catalog",
+      "kind": "schedule-surface",
+      "status": "missing",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/NativeSubagentCatalogSheet.swift",
+          "anchors": [
+            "struct NativeSubagentCatalogSheet"
+          ]
+        },
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/ChatPage.swift",
+          "anchors": [
+            "NativeSubagentCatalogSheet"
+          ]
+        }
+      ],
+      "android": [],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/NativeSubagentCatalogSheet.swift#NativeSubagentCatalogSheet"
+      ],
+      "notes": "PR22 opens a subagent catalog from the chat header and lists/opens subagents. Android has no NativeSubagentCatalogSheet equivalent (no symbol found) and the header menu row is absent."
+    },
+    {
+      "id": "command-result",
+      "kind": "schedule-surface",
+      "status": "implemented-on-candidate",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/ChatPage.swift",
+          "anchors": [
+            "struct CommandExecutionResultPage",
+            "NativeCommandExecution",
+            "showCommandResult"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/ChatPage.kt",
+          "anchors": [
+            "public fun CommandExecutionResultPage"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/ChatPage.swift#NativeCommandExecution",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/ChatPage.kt#CommandExecutionResultPage"
+      ],
+      "notes": "Command settlement/result page is implemented; the host command execution itself is limited to the chat command bridge."
+    },
+    {
+      "id": "files-preview-share",
+      "kind": "files-surface",
+      "status": "unverifiable",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/FilesPage.swift",
+          "anchors": [
+            "struct FilesPage"
+          ]
+        },
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/PreviewSurface.swift",
+          "anchors": [
+            "struct PreviewSurface"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/surface/preview/PreviewSurface.kt",
+          "anchors": [
+            "public fun PreviewPage"
+          ]
+        },
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/SessionArtifactsPage.kt",
+          "anchors": [
+            "public fun SessionArtifactsPage"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/PreviewSurface.swift#PreviewSurface",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/surface/preview/PreviewSurface.kt#PreviewSurface"
+      ],
+      "notes": "The preview/share sources and intent/share chooser exist, but the native Android share sheet and SAF import cannot be exercised by the JVM suite; installed-App verification is NOT_RUN on this Linux host."
+    },
+    {
+      "id": "workbench-surface",
+      "kind": "workbench-surface",
+      "status": "partial",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/NativeWorkbenchPage.swift",
+          "anchors": [
+            "struct NativeWorkbenchPage"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/NativeWorkbenchPage.kt",
+          "anchors": [
+            "public fun NativeWorkbenchPage"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/NativeWorkbenchPage.swift#NativeWorkbenchPage",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/NativeWorkbenchPage.kt#NativeWorkbenchPage"
+      ],
+      "notes": "The workbench exists, but its only product entry is through chat subpage facts that the host fills only partially; the PR22 右侧边栏 → 工作面板 entry is not present."
+    },
+    {
+      "id": "device-connector",
+      "kind": "device-surface",
+      "status": "implemented-on-candidate",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/NativeDeviceConnectionPage.swift",
+          "anchors": [
+            "struct NativeDeviceConnectionPage"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/NativeDeviceConnectionPage.kt",
+          "anchors": [
+            "public fun NativeDeviceConnectionPage"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/NativeDeviceConnectionPage.swift#NativeDeviceConnectionPage",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/NativeDeviceConnectionPage.kt#NativeDeviceConnectionPage"
+      ],
+      "notes": "The page and its injected-connector states exist; the product passes no connector and the route says so. It is honest about unavailable transport."
+    },
+    {
+      "id": "device-session",
+      "kind": "device-surface",
+      "status": "implemented-on-candidate",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/NativeDeviceSessionPage.swift",
+          "anchors": [
+            "struct NativeDeviceSessionPage"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/NativeDeviceSessionPage.kt",
+          "anchors": [
+            "public fun NativeDeviceSessionPage"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/NativeDeviceSessionPage.swift#NativeDeviceSessionPage",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/NativeDeviceSessionPage.kt#NativeDeviceSessionPage"
+      ],
+      "notes": "The read-only monitor exists with paging; real device transport is not present and is disclosed."
+    },
+    {
+      "id": "host-shell",
+      "kind": "host-runtime",
+      "status": "partial",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/NativeShell.swift",
+          "anchors": [
+            "struct NativeShell",
+            "HomeDrawer(isOpen"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/app/src/main/kotlin/com/phonedsh/probe/HostShell.kt",
+          "anchors": [
+            "internal fun HostShell",
+            "private fun handleHostAction",
+            "private fun hostRouteNote"
+          ]
+        },
+        {
+          "path": "android/app/src/main/kotlin/com/phonedsh/probe/HostSessionsScreen.kt",
+          "anchors": [
+            "internal fun HostHomeScreen"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/NativeShell.swift#HomeDrawer(isOpen",
+        "anchor: android/app/src/main/kotlin/com/phonedsh/probe/HostShell.kt#handleHostAction"
+      ],
+      "notes": "The shell wires routes, facts and actions, but the home is HostSessionsScreen and the drawer is PdshDrawer. Several host actions are honest refusals (export, shell exec, MCP save, web search writes); this is a partial host binding, not an accepted one."
+    },
+    {
+      "id": "nav-host",
+      "kind": "host-runtime",
+      "status": "implemented-on-candidate",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/NativeShell.swift",
+          "anchors": [
+            "struct NativeShell"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/nav/PdshNavHost.kt",
+          "anchors": [
+            "public fun PdshNavHost"
+          ]
+        },
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/nav/PdshRoute.kt",
+          "anchors": [
+            "public sealed"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/nav/PdshNavHost.kt#PdshNavHost"
+      ],
+      "notes": "The route host renders the settings/chat/secondary routes and passes callbacks; it is compiled and tested by the JVM suite."
+    },
+    {
+      "id": "nav-facts",
+      "kind": "host-runtime",
+      "status": "implemented-on-candidate",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/ChatModel.swift",
+          "anchors": [
+            "final class ChatModel"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/nav/PdshNavFacts.kt",
+          "anchors": [
+            "public data class PdshNavFacts"
+          ]
+        },
+        {
+          "path": "android/app/src/main/kotlin/com/phonedsh/probe/HostNavFacts.kt",
+          "anchors": [
+            "internal fun buildNavFacts"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/nav/PdshNavFacts.kt#PdshNavFacts"
+      ],
+      "notes": "The typed facts snapshot is the UI interface; it is constructed from real host/device reads in HostNavFacts.kt."
+    },
+    {
+      "id": "chat-screen-state",
+      "kind": "host-runtime",
+      "status": "implemented-on-candidate",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/ChatPage.swift",
+          "anchors": [
+            "private var timelineRows",
+            "private var composer"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/state/ChatScreenState.kt",
+          "anchors": [
+            "public data class ChatScreenState",
+            "public fun from"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/state/ChatScreenState.kt#ChatScreenState"
+      ],
+      "notes": "The pure projection owns transcript/composer/pending state and is exercised by ChatScreenStateTest and the JVM suite."
+    },
+    {
+      "id": "ui-state-projector",
+      "kind": "host-runtime",
+      "status": "implemented-on-candidate",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/DeviceTranscriptProjection.swift",
+          "anchors": [
+            "enum DeviceTranscriptProjector"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/projection/UiStateProjector.kt",
+          "anchors": [
+            "public object UiStateProjector"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/projection/UiStateProjector.kt#UiStateProjector"
+      ],
+      "notes": "The projector folds Worker events into typed UI state and is tested by UiStateProjectorRulesTest."
+    },
+    {
+      "id": "chat-surface",
+      "kind": "host-runtime",
+      "status": "implemented-on-candidate",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/ChatModel.swift",
+          "anchors": [
+            "final class ChatModel"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/app/src/main/kotlin/com/phonedsh/probe/ChatSurface.kt",
+          "anchors": [
+            "internal fun chatScreenState"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: android/app/src/main/kotlin/com/phonedsh/probe/ChatSurface.kt#chatScreenState"
+      ],
+      "notes": "The app-side adapter feeds ChatScreenState from real turns/snapshots; it is exercised by ChatSurfaceTest and ChatWiringTest."
+    },
+    {
+      "id": "chat-session-snapshot",
+      "kind": "host-runtime",
+      "status": "implemented-on-candidate",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/ChatModel.swift",
+          "anchors": [
+            "final class ChatModel"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/app/src/main/kotlin/com/phonedsh/probe/ChatSessionSnapshot.kt",
+          "anchors": [
+            "internal data class ChatSessionSnapshot"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: android/app/src/main/kotlin/com/phonedsh/probe/ChatSessionSnapshot.kt#ChatSessionSnapshot"
+      ],
+      "notes": "The persisted session/transcript snapshot exists with restore tests (ChatSessionSnapshotTest)."
+    },
+    {
+      "id": "host-automation",
+      "kind": "host-runtime",
+      "status": "implemented-on-candidate",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/DSHManagementModel.swift",
+          "anchors": [
+            "final class DSHManagementModel"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/app/src/main/kotlin/com/phonedsh/probe/HostAutomation.kt",
+          "anchors": [
+            "internal class HostAutomation"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: android/app/src/main/kotlin/com/phonedsh/probe/HostAutomation.kt#HostAutomation"
+      ],
+      "notes": "The schedule catalog/create/update/delete/history host binding exists and is wired through ProbeEngineViewModel.handleAutomationAction."
+    },
+    {
+      "id": "host-provider-connection-test",
+      "kind": "host-runtime",
+      "status": "implemented-on-candidate",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/ModelProviderSettingsPage.swift",
+          "anchors": [
+            "private func fetchModels",
+            "private func runConnectionTest"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/app/src/main/kotlin/com/phonedsh/probe/HostProviderConnectionTest.kt",
+          "anchors": [
+            "internal suspend fun testProviderConnection"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: android/app/src/main/kotlin/com/phonedsh/probe/HostProviderConnectionTest.kt#testProviderConnection"
+      ],
+      "notes": "A real provider connectivity test seam exists and is called from HostShell for TestProvider; get-models itself is still missing from the page."
+    },
+    {
+      "id": "main-activity-edge-to-edge",
+      "kind": "host-runtime",
+      "status": "implemented-on-candidate",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/PhoneDSHProbeApp.swift",
+          "anchors": [
+            "struct PhoneDSHProbeApp"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/app/src/main/kotlin/com/phonedsh/probe/MainActivity.kt",
+          "anchors": [
+            "class MainActivity",
+            "enableEdgeToEdge"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: android/app/src/main/kotlin/com/phonedsh/probe/MainActivity.kt#MainActivity"
+      ],
+      "notes": "The Activity owns edge-to-edge and the real launch/permission seams; platform-only behavior is instrumented-test territory."
+    },
+    {
+      "id": "shared-theme-tokens",
+      "kind": "host-runtime",
+      "status": "partial",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/HomeSpec.swift",
+          "anchors": [
+            "enum HomeSpec"
+          ]
+        },
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/NativeParityTokens.swift",
+          "anchors": [
+            "enum NativeParityTokens"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/theme/UiTokens.kt",
+          "anchors": [
+            "UiColors",
+            "UiTokenData"
+          ]
+        },
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/theme/UiTheme.kt",
+          "anchors": [
+            "PdshTheme"
+          ]
+        },
+        {
+          "path": "spec/ui/v1/tokens.json",
+          "anchors": [
+            "\"kind\""
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/theme/UiTokens.kt#UiColors",
+        "anchor: spec/ui/v1/tokens.json#kind"
+      ],
+      "notes": "The token pipeline is real (generated from spec/ui/v1/tokens.json and checked by ui_check), but the token values are the old 402pt DSH palette/type/geometry, not PR22 HomeSpec. This is the shared root of the per-page partial statuses."
+    },
+    {
+      "id": "page-egress-allow-list",
+      "kind": "page",
+      "status": "implemented-on-candidate",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/NativeShell.swift",
+          "anchors": [
+            "struct EgressAllowListPage"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/EgressAllowListPage.kt",
+          "anchors": [
+            "public fun EgressAllowListPage"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/NativeShell.swift#EgressAllowListPage",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/EgressAllowListPage.kt#EgressAllowListPage"
+      ],
+      "notes": "The app-egress rules page exists with validation and tests; it documents that it is the App-level HTTP policy, not the DSH settings allow-list."
+    },
+    {
+      "id": "page-mcp-editor",
+      "kind": "page",
+      "status": "partial",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/MCPSettingsPage.swift",
+          "anchors": [
+            "struct MCPEditorPage",
+            "struct MCPSettingsPage"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/MCPEditorPage.kt",
+          "anchors": [
+            "public fun MCPEditorPage"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/MCPSettingsPage.swift#MCPEditorPage",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/MCPEditorPage.kt#MCPEditorPage"
+      ],
+      "notes": "The editor exists, but the host has no phone/mcpUpsert tool so saving is refused, and the baseline page_structure ratchet still records the save label divergence as a known row."
+    },
+    {
+      "id": "page-workspace-folders",
+      "kind": "page",
+      "status": "implemented-on-candidate",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/NativeShell.swift",
+          "anchors": [
+            "struct WorkspaceFoldersPage"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/WorkspaceFoldersPage.kt",
+          "anchors": [
+            "public fun WorkspaceFoldersPage"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/NativeShell.swift#WorkspaceFoldersPage",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/WorkspaceFoldersPage.kt#WorkspaceFoldersPage"
+      ],
+      "notes": "The folder list/create/rename/delete page exists with validation and tests; the host refuses the folder writes (honest refusal), and the page is reachable from Android 开发者工具 rather than the PR22 settings row."
+    },
+    {
+      "id": "page-model-provider-editor",
+      "kind": "page",
+      "status": "partial",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/ModelProviderSettingsPage.swift",
+          "anchors": [
+            "struct ModelProviderEditorPage"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/ModelProviderSettingsPage.kt",
+          "anchors": [
+            "private fun ProviderEditor",
+            "ProviderDraft"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/ModelProviderSettingsPage.swift#ModelProviderEditorPage",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/ModelProviderSettingsPage.kt#ProviderEditor"
+      ],
+      "notes": "The Android editor exists with name/key/URL/model/effort fields and a save/test receipt, but lacks the PR22 获取模型 flow, 高级设置 (context/output/manual models), protocol hint and the exact field copy."
+    },
+    {
+      "id": "page-session-artifact-preview",
+      "kind": "page",
+      "status": "implemented-on-candidate",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/SessionArtifactsPage.swift",
+          "anchors": [
+            "struct SessionArtifactPreviewPage"
+          ]
+        }
+      ],
+      "android": [
+        {
+          "path": "android/lib/src/main/kotlin/com/phonedsh/ui/page/SessionArtifactsPage.kt",
+          "anchors": [
+            "private fun SessionArtifactPreviewPage",
+            "public fun sessionArtifactShareChooser"
+          ]
+        }
+      ],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/SessionArtifactsPage.swift#SessionArtifactPreviewPage",
+        "anchor: android/lib/src/main/kotlin/com/phonedsh/ui/page/SessionArtifactsPage.kt#SessionArtifactPreviewPage"
+      ],
+      "notes": "The preview subpage and share chooser exist; native QuickLook is replaced by the real Android share intent, which is the correct platform boundary but device-only to verify."
+    },
+    {
+      "id": "page-session-queue",
+      "kind": "page",
+      "status": "missing",
+      "ios": [
+        {
+          "path": "examples/probe-app/PhoneDSHProbe/SessionsPage.swift",
+          "anchors": [
+            "struct SessionQueuePage",
+            "selectedQueueSession"
+          ]
+        }
+      ],
+      "android": [],
+      "evidence": [
+        "anchor: examples/probe-app/PhoneDSHProbe/SessionsPage.swift#SessionQueuePage"
+      ],
+      "notes": "PR22 opens SessionQueuePage from the session row and can edit/steer/remove queued messages. Android SessionsPage.kt says L55 removed the page, and no Android queue page or navigation destination remains."
+    }
+  ]
+}

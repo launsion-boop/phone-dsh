@@ -62,9 +62,21 @@ object TurnBackground {
     /**
      * The turn finished successfully. Stops whichever backend owns the window and
      * removes the marker: a completed turn must not produce a tombstone.
+     *
+     * A window that was only `SCHEDULED` (the turn ended before the platform
+     * started the component) is closed the same way [stop] closes it: the queued
+     * job must not start after its owner is gone and reopen a window nobody will
+     * close.
      */
     fun complete(context: Context) {
         val snapshot = TurnRuntime.snapshot()
+        if (snapshot.isScheduled) {
+            // Not "running", so the body below would return early and leave the
+            // reservation behind. `stop` owns the cancel path for a window that
+            // never started, including the queued `JobScheduler` job.
+            stop(context, TurnRuntime.StopReason.COMPLETED)
+            return
+        }
         if (!snapshot.isRunning) return
         TurnRuntime.finish(TurnRuntime.StopReason.COMPLETED)
         InterruptedTurnStore(context.applicationContext).complete()
@@ -84,16 +96,23 @@ object TurnBackground {
 
     /**
      * Ends the window on request (user stop, task removal, controller decision).
-     * Returns whether a live window existed. No drain, no fsync: the WAL write path
-     * is the durability guarantee (plan §7.4-1).
+     * Returns whether a live window existed — `SCHEDULED` included: a window the
+     * platform accepted but has not started is exactly what the user's 停止本轮
+     * is about on a device that just booted, and it must end immediately rather
+     * than linger until the job's constraint is satisfied.
+     *
+     * No drain, no fsync: the WAL write path is the durability guarantee
+     * (plan §7.4-1).
      */
     fun stop(context: Context, reason: TurnRuntime.StopReason): Boolean {
         val appContext = context.applicationContext
         val snapshot = TurnRuntime.snapshot()
-        val wasRunning = snapshot.isRunning
-        if (wasRunning) {
-            TurnRuntime.closeAdmission(reason)
-            TurnRuntime.finish(reason)
+        // Closes RUNNING and SCHEDULED alike in one step; a second close (a
+        // duplicated stop) reports `false`. It still revokes a retriable system
+        // stop, because a job the platform rescheduled must not resume a turn
+        // the user just ended (L60 #7).
+        val hadWindow = TurnRuntime.closeWindow(reason)
+        if (hadWindow) {
             // A stop the user asked for is not an interruption to report later.
             InterruptedTurnStore(appContext).complete()
             TombstoneScheduler.cancel(appContext)
@@ -110,14 +129,14 @@ object TurnBackground {
         // A UIDT can be scheduled without onStartJob having run yet; a user stop
         // must cancel it too. When a running job was just finished, cancelling it
         // again could race with a retry request, so it is skipped in that case.
-        val justFinishedJob = wasRunning &&
+        val justFinishedJob = snapshot.isRunning &&
             snapshot.backend == TurnRuntime.Backend.USER_INITIATED_JOB
         if (!justFinishedJob) {
             runCatching {
                 appContext.getSystemService(JobScheduler::class.java)?.cancel(TurnJobScheduler.JOB_ID)
             }
         }
-        return wasRunning
+        return hadWindow
     }
 
     /** The surviving interruption marker for the next-open banner, if any. */

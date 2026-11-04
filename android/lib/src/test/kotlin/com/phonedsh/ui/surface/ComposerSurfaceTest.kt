@@ -12,14 +12,29 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.assertIsNotFocused
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performImeAction
+import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.geometry.Offset
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.phonedsh.ui.UiStrings
 import com.phonedsh.ui.UiTags
+import com.phonedsh.ui.state.ComposerStatsMode
+import com.phonedsh.ui.state.SessionStats
+import com.phonedsh.ui.state.SessionTokenUsage
+import com.phonedsh.ui.state.ContextPressure
+import com.phonedsh.ui.state.ContextBreakdown
 import com.phonedsh.ui.theme.PdshTheme
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -40,6 +55,14 @@ class ComposerSurfaceTest {
         compose.onNodeWithTag(UiTags.COMPOSER).assertIsDisplayed()
         compose.onNodeWithTag(UiTags.COMPOSER_SEND).assertIsEnabled()
         compose.onNodeWithTag(UiTags.COMPOSER_SEND).performClick()
+        assertEquals(1, sent)
+    }
+
+    @Test
+    fun `the soft keyboard send action submits a submittable draft`() {
+        var sent = 0
+        show(text = "hello", canSubmit = true, onSend = { sent += 1 })
+        compose.onNodeWithTag(UiTags.COMPOSER_FIELD).performImeAction()
         assertEquals(1, sent)
     }
 
@@ -96,6 +119,64 @@ class ComposerSurfaceTest {
     }
 
     @Test
+    fun `compact mode uses only available speed and cache hit`() {
+        show(
+            text = "", canSubmit = false,
+            sessionStats = SessionStats(1, 2, 0.0, 0.0, 0.0, 0, 1000.0, 25),
+            tokenUsage = SessionTokenUsage(100, 20, 80, 0),
+            contextPressure = ContextPressure(500, 700, 1000),
+            statsMode = ComposerStatsMode.COMPACT,
+        )
+        compose.onNodeWithTag("pdsh.composer.metrics.compact").assertIsDisplayed()
+        compose.onNodeWithText("25 tok/s", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("缓存命中 44%", substring = true).assertIsDisplayed()
+        compose.onNodeWithTag("pdsh.composer.metrics.activity").assertDoesNotExist()
+        compose.onNodeWithTag("pdsh.composer.metrics.context").assertDoesNotExist()
+    }
+
+    @Test
+    fun `detailed mode chips open source-data detail sheets`() {
+        show(
+            text = "", canSubmit = false,
+            sessionStats = SessionStats(2, 4, 1200.0, 0.0, 600.0, 2, 2000.0, 50),
+            tokenUsage = SessionTokenUsage(100, 20, 80, 10),
+            contextPressure = ContextPressure(800, 900, 1000),
+            contextBreakdown = ContextBreakdown(30, 40, 800),
+        )
+        compose.onNodeWithText("210 tok", substring = true).assertIsDisplayed()
+        compose.onNodeWithTag("pdsh.composer.metrics.usage").performClick()
+        compose.onNodeWithText("Token 用量").assertIsDisplayed()
+        compose.onNodeWithText("缓存读取").assertIsDisplayed()
+        compose.onNodeWithText("80 tok").assertIsDisplayed()
+        compose.onNodeWithTag("pdsh.composer.metrics.done").assertIsDisplayed()
+    }
+
+    @Test
+    fun `activity chip opens its session detail`() {
+        show(
+            text = "", canSubmit = false,
+            sessionStats = SessionStats(2, 4, 1200.0, 300.0, 600.0, 2, 2000.0, 50),
+        )
+        compose.onNodeWithTag("pdsh.composer.metrics.activity").performClick()
+        compose.onNodeWithText("会话统计").assertIsDisplayed()
+        compose.onNodeWithText("轮 / 步").assertIsDisplayed()
+        compose.onNodeWithText("模型用时").assertIsDisplayed()
+    }
+
+    @Test
+    fun `context chip opens the supplied context breakdown`() {
+        show(
+            text = "", canSubmit = false,
+            contextPressure = ContextPressure(800, 900, 1000),
+            contextBreakdown = ContextBreakdown(30, 40, 800),
+        )
+        compose.onNodeWithTag("pdsh.composer.metrics.context").performClick()
+        compose.onNodeWithText("上下文").assertIsDisplayed()
+        compose.onNodeWithText("系统提示").assertIsDisplayed()
+        compose.onNodeWithText("~30").assertIsDisplayed()
+    }
+
+    @Test
     fun `the controls slot is docked inside the card`() {
         // ChatPage.swift `composerControls`: the tool row lives inside the card.
         show(
@@ -111,6 +192,50 @@ class ComposerSurfaceTest {
         compose.onNodeWithTag(CONTROLS_TAG).assertIsDisplayed()
     }
 
+    @Test
+    @OptIn(ExperimentalTestApi::class)
+    fun `hardware enter sends only after the editor has no composing region`() {
+        var sent = 0
+        show(text = "hello", canSubmit = true, onSend = { sent += 1 })
+        compose.onNodeWithTag(UiTags.COMPOSER_FIELD).performClick()
+        compose.onNodeWithTag(UiTags.COMPOSER_FIELD).performKeyInput {
+            keyDown(Key.Enter)
+            keyUp(Key.Enter)
+        }
+        assertEquals(1, sent)
+    }
+
+    @Test
+    @OptIn(ExperimentalTestApi::class)
+    fun `open card and primary action meet PR22 minimum geometry`() {
+        show(text = "", canSubmit = false)
+        val cardBounds = compose.onNodeWithTag(UiTags.COMPOSER).getUnclippedBoundsInRoot()
+        val sendBounds = compose.onNodeWithTag(UiTags.COMPOSER_SEND).getUnclippedBoundsInRoot()
+        val cardHeight = (cardBounds.bottom - cardBounds.top).value
+        val sendHitWidth = (sendBounds.right - sendBounds.left).value
+        val sendCircleBounds = compose.onNodeWithTag("pdsh.composer.send-circle", useUnmergedTree = true).getUnclippedBoundsInRoot()
+        val sendDiameter = (sendCircleBounds.right - sendCircleBounds.left).value
+        assertEquals(true, cardHeight >= 104f)
+        assertEquals(44f, sendHitWidth, 0.1f)
+        assertEquals(36f, sendDiameter, 0.1f)
+    }
+
+    @Test
+    @OptIn(ExperimentalTestApi::class)
+    fun `blank card tap focuses input and send child still invokes its action`() {
+        var sent = 0
+        show(text = "hello", canSubmit = true, onSend = { sent += 1 })
+        compose.onNodeWithTag(UiTags.COMPOSER_FIELD).assertIsNotFocused()
+        compose.onNodeWithTag("pdsh.composer.card").performTouchInput {
+            // Two physical pixels inside the top-left card corner: outside the
+            // port's sourced 8pt top / 11pt leading insets and clear of controls.
+            click(Offset(2f, 2f))
+        }
+        compose.onNodeWithTag(UiTags.COMPOSER_FIELD).assertIsFocused()
+        compose.onNodeWithTag(UiTags.COMPOSER_SEND).performClick()
+        assertEquals(1, sent)
+    }
+
     private fun show(
         text: String,
         canSubmit: Boolean,
@@ -119,6 +244,11 @@ class ComposerSurfaceTest {
         mode: ComposerMode = ComposerMode.SEND,
         stat: String? = null,
         contextPercent: Int? = null,
+        sessionStats: SessionStats? = null,
+        tokenUsage: SessionTokenUsage? = null,
+        contextPressure: ContextPressure? = null,
+        contextBreakdown: ContextBreakdown? = null,
+        statsMode: ComposerStatsMode = ComposerStatsMode.DETAILED,
         onSend: () -> Unit = {},
         onStop: () -> Unit = {},
         controls: (@androidx.compose.runtime.Composable () -> Unit)? = null,
@@ -137,6 +267,11 @@ class ComposerSurfaceTest {
                     onStop = onStop,
                     stat = stat,
                     contextPercent = contextPercent,
+                    sessionStats = sessionStats,
+                    tokenUsage = tokenUsage,
+                    contextPressure = contextPressure,
+                    contextBreakdown = contextBreakdown,
+                    statsMode = statsMode,
                     controls = controls,
                 )
             }

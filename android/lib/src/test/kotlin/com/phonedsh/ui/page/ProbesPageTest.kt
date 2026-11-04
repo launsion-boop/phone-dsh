@@ -179,7 +179,10 @@ class ProbesPageTest {
         show(state)
 
         scrollTo(UiPageTags.PROBES_ROWS)
-        assertTrue(textShown(UiStrings.PROBES_SECTION_ROWS_COUNT_EN))
+        // `ProbesPage.swift:112` renders `Rows (\(model.probeRows.count))`: the title is
+        // the template with the measured count in it, never the interpolation source.
+        assertTrue(textShown(UiStrings.PROBES_SECTION_ROWS_COUNT.format(state.rows.size)))
+        assertFalse(textShown(UiStrings.PROBES_SECTION_ROWS_COUNT_EN))
         scrollTo(UiPageTags.PROBES_COUNTS)
         assertTrue(textShown(UiStrings.PROBES_COUNTS.format("1", "1", "0")))
         scrollTo(UiPageTags.PROBES_G0)

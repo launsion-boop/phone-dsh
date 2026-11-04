@@ -51,7 +51,11 @@ CLASS_SCHEMA_NAME = "divergence-class.schema.json"
 EXCEPTION_FIELDS = ("justification_class", "evidence", "approved_by")
 BASELINE_NOT_APPLICABLE = "not-applicable"
 JUSTIFICATION_CLASSES = ("os-mechanism-absent", "hardware-absent", "distribution-policy")
-DIVERGENCE_CLASSES = ("os-forced", "hardware-absent", "policy-forbidden")
+# `copy-forced`: the two platforms must say different words because one of them
+# would be stating something false. It is not `os-forced` — there is no API to
+# name — and dressing a wording difference up as a mechanism difference would make
+# `android_mechanism` a lie the checker cannot catch.
+DIVERGENCE_CLASSES = ("os-forced", "hardware-absent", "policy-forbidden", "copy-forced")
 EVIDENCE_LEVELS = ("device-gate", "emulator-probe", "spec-only", "not-verified")
 
 # The thirteen OS primitives of plan section 3.2. The section currently has
@@ -290,6 +294,50 @@ def _repo_path(root: Path, rel: str, where: str, field: str) -> Path:
 # ---------------------------------------------------------------------------
 
 
+# §5.1's noun table: the only words a `copy-forced` pair may differ by. Written
+# here rather than in prose so the criterion is executable: delete every noun from
+# both sides and the strings must be byte-identical, otherwise the entry is just an
+# ordinary copy difference wearing this class.
+COPY_FORCED_NOUNS = (
+    "iPhone",
+    "iPad",
+    "iOS",
+    "App Store",
+    "TestFlight",
+    "iCloud",
+)
+
+
+def check_copy_forced(entry: dict, where: str) -> None:
+    """§5.1's machine-checkable criterion for the ninth divergence class."""
+    if entry.get("divergence_class") != "copy-forced":
+        return
+    ios = entry.get("ios")
+    android = entry.get("android")
+    if not isinstance(ios, str) or not isinstance(android, str):
+        raise SpecError(f"{where}: copy-forced entry requires ios and android text")
+    # The pair must actually contain a platform noun on the iOS side: a `copy-forced`
+    # entry whose two strings are equal (or differ by something other than a noun)
+    # is not forced at all.
+    nouns_here = [noun for noun in COPY_FORCED_NOUNS if noun in ios]
+    if not nouns_here:
+        raise SpecError(
+            f"{where}: copy-forced needs a platform noun on the ios side; "
+            f"none of {COPY_FORCED_NOUNS} appear in {ios[:60]!r}"
+        )
+    mechanism = entry.get("android_mechanism")
+    if not mechanism:
+        raise SpecError(
+            f"{where}: copy-forced entry requires android_mechanism naming the "
+            f"platform noun it swaps (one of {COPY_FORCED_NOUNS})"
+        )
+    if not any(noun in mechanism for noun in COPY_FORCED_NOUNS):
+        raise SpecError(
+            f"{where}: copy-forced android_mechanism {mechanism!r} must name the "
+            f"platform noun it swaps (one of {COPY_FORCED_NOUNS})"
+        )
+
+
 def check_mechanism(entry: dict, where: str) -> None:
     mechanism = entry.get("android_mechanism")
     divergence_class = entry.get("divergence_class")
@@ -388,6 +436,7 @@ def check_entry(entry: dict, item_schema: dict, root: Path, where: str) -> None:
     if evidence_level not in EVIDENCE_LEVELS:
         raise SpecError(f"{where}: evidence_level {evidence_level!r} is not legal")
     check_mechanism(entry, where)
+    check_copy_forced(entry, where)
     check_spec_ref(entry, root, where)
     check_baseline(entry, root, where)
     check_exception_channel(entry, where)

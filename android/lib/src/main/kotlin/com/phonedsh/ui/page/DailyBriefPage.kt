@@ -83,6 +83,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import com.phonedsh.ui.UiStrings
 import com.phonedsh.ui.theme.LocalUiTokens
+import com.phonedsh.ui.theme.materialSheetColors
 import com.phonedsh.ui.theme.LocalUiType
 
 // ---------------------------------------------------------------------------
@@ -220,6 +221,10 @@ public enum class DailyBriefStatus {
  * The complete daily-brief screen state.
  *
  * @param status the four-state outcome; a failed read wins.
+ * @param hasSnapshot whether the host reported a snapshot at all. The baseline's
+ *   headline keys on exactly that (`DailyBriefPage.swift:21`:
+ *   `model.snapshot == nil ? "还没有简报" : "每日简报"`), not on whether a refresh
+ *   has ever succeeded.
  * @param hasBrief whether a brief exists (a success time or at least one item).
  * @param lastSuccessText the host's success line, `null` when never succeeded.
  * @param lastAttemptText the host's attempt line, `null` when never attempted.
@@ -238,6 +243,7 @@ public enum class DailyBriefStatus {
 @Immutable
 public data class DailyBriefScreenState(
     public val status: DailyBriefStatus,
+    public val hasSnapshot: Boolean,
     public val hasBrief: Boolean,
     public val lastSuccessText: String?,
     public val lastAttemptText: String?,
@@ -332,6 +338,7 @@ public data class DailyBriefScreenState(
             }
             return DailyBriefScreenState(
                 status = status,
+                hasSnapshot = snapshot != null,
                 hasBrief = measured?.lastSuccessText != null || items.orEmpty().isNotEmpty(),
                 lastSuccessText = measured?.lastSuccessText?.takeUnless { it.isBlank() },
                 lastAttemptText = measured?.lastAttemptText?.takeUnless { it.isBlank() },
@@ -490,7 +497,7 @@ private fun LazyListScope.headerBlock(
                     verticalArrangement = Arrangement.spacedBy(tokens.spacing.badgeInsetV),
                 ) {
                     BasicText(
-                        text = if (state.hasBrief) {
+                        text = if (state.hasSnapshot) {
                             UiStrings.DAILY_BRIEF_TITLE
                         } else {
                             UiStrings.DAILY_BRIEF_NO_BRIEF
@@ -637,7 +644,9 @@ private fun EmptyBrief(hint: String?) {
         if (hint != null) {
             BasicText(
                 text = hint,
-                style = type.secondary.copy(
+                // `DailyBriefPage.swift:83`: the hint under the empty title is
+                // `.font(.subheadline)` (15 pt), centred.
+                style = type.subheadline.copy(
                     color = tokens.colors.secondary,
                     textAlign = TextAlign.Center,
                 ),
@@ -678,7 +687,9 @@ private fun DailyBriefItemRow(item: DailyBriefItem, onOpen: (() -> Unit)?) {
         item.summary?.takeUnless { it.isBlank() }?.let { summary ->
             BasicText(
                 text = summary,
-                style = type.secondary.copy(color = tokens.colors.secondary),
+                // `DailyBriefPage.swift:170`: the summary is `.font(.subheadline)`
+                // (15 pt), the item title above it `.font(.body)` (17 pt).
+                style = type.subheadline.copy(color = tokens.colors.secondary),
                 maxLines = SUMMARY_LINE_LIMIT,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -892,11 +903,14 @@ private fun AddSourceDialog(onDismiss: () -> Unit, onAdd: (String, String) -> Un
     var url by remember { mutableStateOf("") }
     val tokens = LocalUiTokens.current
     val type = LocalUiType.current
+    val palette = materialSheetColors(tokens)
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         modifier = Modifier.testTag(UiPageTags.BRIEF_SOURCE_EDITOR),
+        containerColor = palette.container,
+        contentColor = palette.content,
     ) {
         Column(
             modifier = Modifier
@@ -988,6 +1002,7 @@ internal object DailyBriefPageTokens {
         "typography.caption",
         "typography.headline",
         "typography.secondary",
+        "typography.subheadline",
     )
 }
 

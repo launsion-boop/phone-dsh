@@ -34,7 +34,7 @@ import { createPhoneWorkerHost, whenRequestListener } from '../../worker-entry/s
 import { startMcpFixture } from './phone-mcp-fixture.ts'
 import { startScriptedMessages } from './scripted-messages.ts'
 
-import { createPhoneProfileOverlay } from '../../worker-entry/src/profile-overlay.ts'
+import { createPhoneProfileOverlay, packPhoneProfileTar } from '../../worker-entry/src/profile-overlay.ts'
 
 interface CapturedLine {
   level: 'log' | 'warn' | 'error' | 'uncaught' | 'unhandled'
@@ -49,9 +49,12 @@ interface WorkspaceProbe {
   importedWorkspacePath?: string
   importedAbsolutePath?: string
   readText?: string
+  settingsLocks?: Record<string, {code: string; message: string}>
+  presetDocument?: string
   presets?: { id: string; isDefault: boolean; broken?: string }[]
   presetSessions?: Record<string, string>
   presetErrors?: Record<string, string>
+  creator?: Record<string, unknown>
   workflowFileText?: string
   workflowChildResultSeen?: boolean
   workflowTextSeen?: boolean
@@ -162,6 +165,7 @@ const hostHello = {
 }
 
 const imagePath = process.argv[2] ?? ''
+const persistedFilesPath = process.argv[3]
 if (imagePath === '') {
   result(false, 'usage: worker-boot-harness <image.tar.gz>')
   throw new Error('boot harness: image path is required')
@@ -259,6 +263,16 @@ const nativeFetch = globalThis.fetch.bind(globalThis)
 // deliberately does not carry). Pass the same overlay the production entry
 // builds, so this harness boots exactly what the App boots.
 const profileOverlay = await createPhoneProfileOverlay()
+const persistedOverlays: Uint8Array[] = []
+if (persistedFilesPath !== undefined) {
+  const files = JSON.parse(readFileSync(persistedFilesPath, 'utf8')) as Record<string, string>
+  for (const [path, content] of Object.entries(files)) {
+    if (!path.startsWith('/dsh/home/profiles/web/')) throw new Error('Unexpected creator persistence path')
+    const tar = packPhoneProfileTar(path.slice('/dsh/'.length), new TextEncoder().encode(content))
+    const stream = new Blob([tar as BlobPart]).stream().pipeThrough(new CompressionStream('gzip'))
+    persistedOverlays.push(new Uint8Array(await new Response(stream).arrayBuffer()))
+  }
+}
 // One authenticated Streamable HTTP MCP server in the harness process. The
 // Worker reaches it through its real fetch; no credential is printed.
 const mcpFixture = await startMcpFixture()
@@ -292,20 +306,22 @@ if (process.env.PDSH_EMULATE_WORKER_GLOBAL === '1') {
 // phone-mcp mount registered through that same context. The factory itself
 // still installs the module-import diagnostics on the active loader first.
 interface LiveHostContext {
+  get(name: string): unknown
   tools: {
     execute(exec: {
       callId: string
       name: string
       arguments: unknown
       signal: AbortSignal
-    }): Promise<{ isError: boolean; content: unknown }>
+      agent?: unknown
+    }): Promise<{ isError: boolean; content: unknown; value?: unknown }>
     schemas(): { name: string }[]
   }
 }
 let hostContext: LiveHostContext | undefined
 const host = createPhoneWorkerHost({
   image: imageUrl,
-  overlays: [profileOverlay],
+  overlays: [profileOverlay, ...persistedOverlays],
   env: {
     PDSH_DSH_LAUNCH_TOKEN: 'test-launch-token',
     PDSH_DSH_PORT: '0',
@@ -448,6 +464,19 @@ try {
     return envelope.value
   }
   const tryCall = callEnvelope
+  // The native phone settings must respect the real startup overlay. A
+  // globally writable settings provider does not make these fields writable.
+  const settings = await call('settings/describe', {})
+  probe.settingsLocks = {}
+  for (const [ns, patch] of [
+    ['permission', {defaultPreset: 'read-only'}],
+    ['agent-preset-registry', {selectedDefault: 'ptc'}],
+  ] as const) {
+    const descriptor = (settings.namespaces as Record<string, unknown>[]).find(row => row.ns === ns)
+    const result = await tryCall('settings/update', {ns, patch, expectedRevision: descriptor?.revision})
+    if (result.ok) throw new Error(`startup-owned ${ns} unexpectedly accepted a profile write`)
+    probe.settingsLocks[ns] = result.error as {code: string; message: string}
+  }
 
   const initialized = await call('workspace/initializeDefault', {})
   const workspace = initialized.workspace as Record<string, unknown> | undefined
@@ -508,6 +537,8 @@ try {
   // default must be standard; unsupported presets stay listed with their own
   // real diagnostics instead of being hidden.
   const listed = await call('agentPresets/list', {})
+  const document = await call('agentPresets/read', {agentPreset: 'standard'})
+  probe.presetDocument = typeof document.content === 'string' ? document.content : undefined
   const presetRows = Array.isArray(listed.presets) ? listed.presets as Record<string, unknown>[] : []
   probe.presets = presetRows.map(row => ({
     id: String(row.id),
@@ -524,6 +555,69 @@ try {
       probe.presetErrors[preset] = JSON.stringify(created.error)
     }
   }
+
+  const creatorId = probe.presetSessions.cordis
+  if (creatorId === undefined || hostContext === undefined) throw new Error('Creator did not mount')
+  const lookup = (hostContext.get('typert') as {lookups: Map<string, {resolve(id: string): Promise<unknown>}>}).lookups.get('agent')
+  const creatorAgent = await lookup?.resolve(creatorId)
+  if (creatorAgent === undefined) throw new Error('Creator has no real Agent')
+  const creatorTools = async (name: string, args: unknown): Promise<unknown> => {
+    const result = await hostContext!.tools.execute({
+      callId: randomUUID(), name, arguments: args, agent: creatorAgent, signal: new AbortController().signal,
+    })
+    if (result.isError) throw new Error(`Creator tool ${name} failed: ${JSON.stringify(result.content)}`)
+    return typeof result.value === 'string' ? JSON.parse(result.value) : result.value
+  }
+  probe.creator = { modelRequestsAtEntry: scriptedModel.requests() }
+  probe.creator.inspect = await creatorTools('cordis_inspect_list', {})
+  probe.creator.config = await creatorTools('cordis_inspect_query', {platform: 'host', provider: 'Config', method: 'listConfigs', input: {name: '@deepseek-ai/dsh-persona'}})
+  if (persistedFilesPath === undefined) {
+    // Explicit test approval, after entry. Production entry never changes access
+    // or sends a prompt; plugin_manager keeps the official escalation gate.
+    await call('commands/execute', {agentId: creatorId, line: '/permission danger-full-access', submittedAttachments: []})
+    const bundleDirectory = `${probe.workspacePath}/creator-preset`
+    const localManifest = JSON.stringify({name: '@local/phone-created-review', version: '1.0.0', private: true, type: 'module', dsh: {bundle: {patch: './cordis.patch.yml'}}})
+    const localPatch = '- insert:\n    - id: preset-phone-created-review\n      name: "@deepseek-ai/dsh-agent-preset"\n      config:\n        id: phone-created-review\n        name: Phone Created Review\n        plugins:\n          - id: persona\n            name: "@deepseek-ai/dsh-persona"\n            config:\n              prefix: Review only.\n          - id: tool-fs\n            name: "@deepseek-ai/dsh-tool-fs"\n'
+    await creatorTools('write', {file_path: `${bundleDirectory}/package.json`, content: localManifest})
+    await creatorTools('write', {file_path: `${bundleDirectory}/cordis.patch.yml`, content: localPatch})
+    probe.creator.install = await creatorTools('plugin_manager', {action: 'install_bundle', target: bundleDirectory})
+    if ((probe.creator.install as {application?: string})?.application !== 'applied') {
+      throw new Error(`Creator installation failed: ${JSON.stringify(probe.creator.install)}`)
+    }
+    const profile = hostContext.get('profileContext') as {dir: string}
+    const creatorVfs = host.vfs as unknown as {readFileSync(path: string, encoding: 'utf8'): string}
+    probe.creator.persistedFiles = Object.fromEntries([
+      `${profile.dir}/package.json`,
+      `${profile.dir}/node_modules/@local/phone-created-review/package.json`,
+      `${profile.dir}/node_modules/@local/phone-created-review/cordis.patch.yml`,
+    ].map(path => [path, creatorVfs.readFileSync(path, 'utf8')]))
+    const rejectDirectory = `${probe.workspacePath}/creator-rejected`
+    const badManifest = JSON.stringify({...JSON.parse(localManifest), engines: {dsh: '>=999.0.0'}})
+    await creatorTools('write', {file_path: `${rejectDirectory}/package.json`, content: badManifest})
+    await creatorTools('write', {file_path: `${rejectDirectory}/cordis.patch.yml`, content: localPatch})
+    probe.creator.rollback = await creatorTools('plugin_manager', {action: 'install_bundle', target: rejectDirectory})
+    probe.creator.rollbackBytesPreserved = Object.entries(probe.creator.persistedFiles as Record<string, string>)
+      .every(([path, contents]) => creatorVfs.readFileSync(path, 'utf8') === contents)
+    probe.creator.externalRefusal = await call('pluginManager/installBundle', {spec: '@local/not-in-the-image'})
+    const manager = hostContext.get('pluginManager') as {
+      installBundle(spec: string, options: {requestId: string}): Promise<unknown>
+      cancelInstall(requestId: string): Promise<unknown>
+    }
+    const cancelledID = randomUUID()
+    const pendingInstall = manager.installBundle(bundleDirectory, {requestId: cancelledID})
+    probe.creator.cancellation = await manager.cancelInstall(cancelledID)
+    probe.creator.cancelledResult = await pendingInstall
+    probe.creator.recoveredCancellation = await call('pluginManager/waitForInstall', {requestId: cancelledID})
+    probe.creator.cancelBytesPreserved = Object.entries(probe.creator.persistedFiles as Record<string, string>)
+      .every(([path, contents]) => creatorVfs.readFileSync(path, 'utf8') === contents)
+  } else {
+    probe.creator.coldBoot = true
+  }
+  probe.creator.roster = await call('agentPresets/list', {})
+  probe.creator.document = await call('agentPresets/read', {agentPreset: 'phone-created-review'})
+  const custom = await call('session/create', {request: {workspaceId, agentPreset: 'phone-created-review'}})
+  probe.creator.projection = await call('session/projections', {request: {sessionId: custom.sessionId}})
+  probe.creator.modelRequestsBeforePrompt = scriptedModel.requests()
 
   // One real turn on the standard preset: parent asks for `workflow`, the
   // workflow child asks for `bash`, and the child's text flows back into the

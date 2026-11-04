@@ -45,10 +45,31 @@
 // finishes and the same `scenePhase(active)` is re-fed afterwards, so the round
 // trip stays inside budgets.md §2 instead of growing an edge the contract does
 // not have.
+//
+// ---- the window that guards that drain (L49, completed by L53) --------------
+// The D14 row's premise is "no background window". While the platform holds a
+// UIDT job or a dataSync foreground service for this turn it has *granted*
+// execution authority, and plan §7.9 promises "尽量完成" there; draining then
+// abandons a turn the OS was still running (L39 measured exactly that:
+// `APP_TURN_FAILED reason=channel_lost` while job 8401 was in its execution
+// slot). So `scenePhase(background)` is offered to [WindowHold] first: a
+// measured window defers the edge, the edge is fed when the window ends (turn
+// complete, 停止本轮, platform stop) or when the bounded hold expires, and an
+// unreadable window is treated as no window — a failed reading can cost a turn,
+// it can never exempt one. [TurnWindowRead] is the reading; nothing here
+// hard-codes `true`.
+//
+// L53 extended "window" to the phase before the component runs: a UIDT job that
+// `JobScheduler.schedule()` accepted but that is still pending on its network
+// constraint is a window in place (`TurnWindowPhase.SCHEDULED`), so an early
+// HOME after a cold boot no longer drains a turn the platform promised to run.
+// The bound is unchanged: [WINDOW_HOLD_MAX_MILLIS] is measured from the
+// background edge, so a `SCHEDULED` phase that never starts still expires.
 
 package com.phonedsh.dsh.host
 
 import com.phonedsh.controller.ControllerEffect
+import com.phonedsh.controller.ControllerFailure
 import com.phonedsh.controller.ControllerSignal
 import com.phonedsh.controller.ControllerStateMachine
 import com.phonedsh.controller.ControllerBudgets
@@ -58,6 +79,10 @@ import com.phonedsh.controller.ScenePhase
 import com.phonedsh.controller.SignalOutcome
 import com.phonedsh.dsh.exec.ExecBridge
 import com.phonedsh.dsh.exec.ExecCapability
+import com.phonedsh.dsh.exec.ExecControl
+import com.phonedsh.dsh.exec.ExecControlOutcome
+import com.phonedsh.dsh.exec.ExecEvent
+import com.phonedsh.dsh.exec.ExecRequest
 import com.phonedsh.dsh.journal.JournalException
 import com.phonedsh.dsh.journal.JournalSink
 import com.phonedsh.dsh.journal.JournalStore
@@ -72,6 +97,7 @@ import com.phonedsh.platform.EngineHostState
 import com.phonedsh.platform.LifecycleSignal
 import com.phonedsh.platform.LifecycleSnapshot
 import com.phonedsh.platform.LifecycleSignals
+import com.phonedsh.platform.NetworkPath
 import com.phonedsh.platform.Notifier
 import java.security.SecureRandom
 import java.util.concurrent.atomic.AtomicBoolean
@@ -81,11 +107,16 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -182,6 +213,14 @@ interface PhoneDshHost {
 
     /** Stops the engine and the subscriptions; idempotent. */
     fun stop()
+
+    /**
+     * Queues an explicit failure acknowledgement. Returns false unless D14 is
+     * currently `Failed`, and true when a reset request is accepted. The actual
+     * D14 `UserReset` signal and recovery run on the facade scope after start
+     * preparation is ready; callers never edit controller state directly.
+     */
+    fun resetFailure(): Boolean
 }
 
 /**
@@ -238,6 +277,13 @@ interface PhoneDshHost {
  *   pre-P15 behaviour — every boot is a cold start — which is honest for a
  *   build with no workspace; the App passes a store so a `Parked` host survives
  *   a kill and the §3 boot mapping is reachable.
+ * @param turnWindow the measured answer to "does the OS hold a window for the
+ *   running turn"; it guards `Running -> Draining` (plan §7.9). Defaults to
+ *   [TurnWindowRead.Platform]; see [WindowHold] for why an unreadable window is
+ *   not a window.
+ * @param windowHoldMaxMillis the bound on that guard ([WINDOW_HOLD_MAX_MILLIS]).
+ * @param windowWatchIntervalMillis how often the window is re-read while the
+ *   edge is deferred ([WINDOW_WATCH_INTERVAL_MILLIS]).
  */
 class DefaultPhoneDshHost(
     override val engine: EngineHost,
@@ -275,6 +321,37 @@ class DefaultPhoneDshHost(
      * caller that forgot to measure — a `≤ 3 GiB` device with an 8× file quota.
      */
     private val deviceBudgets: ControllerBudgets = HostBudgetTier.UNMEASURED,
+    /**
+     * The turn-window reading that guards `Running -> Draining` (plan §7.9).
+     *
+     * Defaults to [TurnWindowRead.Platform], the `:dsh` background lane's own
+     * record, because that is the only reading available without a `Context` and
+     * the App's composition root cannot pass one. A composition with no background
+     * lane passes [TurnWindowRead.NoBackgroundLane] and says so; no composition
+     * hard-codes "the window is there". A read that throws is turned into
+     * [TurnWindow.Unreadable] by [WindowHold], and therefore into no window.
+     */
+    private val turnWindow: TurnWindowRead = TurnWindowRead.Platform,
+    /**
+     * The longest a measured window may defer `Running -> Draining`.
+     *
+     * See [WINDOW_HOLD_MAX_MILLIS] for the value and why it is this one. It is a
+     * parameter so the bound is testable without waiting minutes.
+     */
+    private val windowHoldMaxMillis: Long = WINDOW_HOLD_MAX_MILLIS,
+    /**
+     * How often the window is re-read while the edge is deferred.
+     *
+     * See [WINDOW_WATCH_INTERVAL_MILLIS]; tests pass a value that never fires and
+     * drive [checkWindowHold] themselves.
+     */
+    private val windowWatchIntervalMillis: Long = WINDOW_WATCH_INTERVAL_MILLIS,
+    /**
+     * How often a `Running` host closes a WAL epoch (`wal.md` §5.2: every
+     * 30–60 s). It is a constructor parameter so the JVM test can prove the
+     * timer without waiting the product interval.
+     */
+    private val epochCloseIntervalMillis: Long = EPOCH_CLOSE_INTERVAL_MILLIS,
 ) : PhoneDshHost {
     override val boot: HostBoot = HostBoot.generate(clock, random)
 
@@ -296,7 +373,68 @@ class DefaultPhoneDshHost(
         exec = execCapability,
     )
 
-    override val hello: HostHello get() = helloState
+    /** The host's actually registered read-only shell accelerators, excluding the phone tool. */
+    fun readOnlyAcceleratorNames(): List<String> =
+        exec?.capability?.names?.filterNot { it == "phone" }.orEmpty()
+
+    /**
+     * Runs through the same validated `exec/1` bridge used for Worker EXEC_REQ.
+     * This host UI seam cannot create a process or bypass the bridge's admission,
+     * idempotency ledger, mounted roots, deadline, or output limits.
+     */
+    fun runReadOnlyAccelerator(request: ExecRequest): Flow<ExecEvent> {
+        val bridge = exec ?: return flow {
+            emit(ExecEvent.Error(
+                execId = request.execId,
+                seq = ExecEvent.SEQUENCE_START,
+                code = "unsupported",
+                message = "read-only execution is not available on this host",
+            ))
+        }
+        return bridge.onRequest(request)
+    }
+
+    /** Cancels one UI-owned execution through the same live ExecBridge control path. */
+    fun cancelReadOnlyAccelerator(execId: String): ExecControlOutcome? =
+        exec?.onControl(ExecControl.Cancel(execId))
+
+    /** The ordered WAL watermark required by an interactive shell-page request. */
+    fun appliedWorkspaceMseq(): Long = wal?.appliedMseq() ?: 0L
+
+    /**
+     * The HELLO value, with the WAL numbers read from the live allocator.
+     *
+     * [helloState] is the boot-time value (recovery's report); this getter
+     * refreshes its watermark on every read, and [HostChannel] reads it once per
+     * HELLO send. `channel.md` §4.1 derives `next_mseq` from the WAL tail and
+     * §9.2 makes the Worker adopt it per connection, so a cached pair is wrong
+     * the moment anything else writes the log \u2014 which the App's import lane
+     * does. The refresh is skipped (keeping the previous, legal value) when the
+     * live pair would violate §4.1, e.g. before recovery has run.
+     */
+    override val hello: HostHello get() = liveHello()
+
+    private fun liveHello(): HostHello {
+        val current = helloState
+        val up = current.wal as? WalUplink.Up ?: return current
+        val seam = wal ?: return current
+        val allocator = seam.allocator()
+        val durable = minOf(vfsSink?.durableWatermark ?: 0L, allocator.lastMseq)
+        val observed = MseqWatermark.Observed(
+            nextMseq = allocator.nextMseq,
+            ackedMseq = allocator.lastMseq,
+            durableMseq = durable,
+        )
+        if (!observed.satisfiesHelloRules) {
+            logger.warn(
+                "live mseq watermark would violate channel.md §4.1 " +
+                    "(next_mseq=${observed.nextMseq}, acked_mseq=${observed.ackedMseq}, " +
+                    "durable_mseq=${observed.durableMseq}); keeping the boot-time value",
+            )
+            return current
+        }
+        return current.copy(wal = up.refreshed(observed))
+    }
 
     private val readyState = MutableStateFlow(false)
 
@@ -423,6 +561,26 @@ class DefaultPhoneDshHost(
     )
 
     /**
+     * The guard on `Running -> Draining`: the window (plan §7.9) that defers the
+     * background edge, and the bound that ends the deferral.
+     *
+     * While a window is in place the host keeps `Running` and the turn keeps its
+     * execution authority; [checkWindowHold] re-reads the window on
+     * [windowWatchIntervalMillis] and feeds the queued edge when it ends. The
+     * reading is [turnWindow], a measurement — [WindowHold] converts a failed
+     * read into "no window", so the fail-safe direction is the drain.
+     */
+    private val hold = WindowHold(
+        clock = clock,
+        window = turnWindow,
+        maxHoldMillis = windowHoldMaxMillis,
+        logger = logger,
+    )
+
+    /** The coroutine that re-reads the window while a background edge is held. */
+    private var holdWatch: Job? = null
+
+    /**
      * `true` when a foreground return arrived while the host was `Draining` and
      * the resume is waiting for the drain to finish.
      *
@@ -438,6 +596,7 @@ class DefaultPhoneDshHost(
     override val state: StateFlow<HostState> = mutableState.asStateFlow()
 
     private val started = AtomicBoolean(false)
+    private val resetQueued = AtomicBoolean(false)
 
     /**
      * Invalidates a boot job that was launched by a previous [start] when
@@ -448,6 +607,14 @@ class DefaultPhoneDshHost(
 
     /** Serialises `ControllerStateMachine.handle` (the machine is not thread-safe). */
     private val signalLock = Any()
+
+    /**
+     * Serialises every epoch close this facade issues: the periodic lane, the
+     * planned restart and the drain. A close is a D18 fsync/manifest sequence,
+     * so two of them must never interleave; the drain then waits for an
+     * in-flight periodic close instead of tearing the same epoch.
+     */
+    private val epochCloseGate = Mutex()
     private val jobsLock = Any()
     private val jobs = mutableListOf<Job>()
 
@@ -458,6 +625,21 @@ class DefaultPhoneDshHost(
      */
     @Volatile
     private var foreground: Boolean = true
+
+    /**
+     * The last network-path reading the OS reported, or `null` before any.
+     *
+     * `budgets.md` §2's `Backoff -> Running` guard needs a *satisfied network
+     * path*: a fact about now, not a change event. `Running -> Backoff` clears the
+     * machine's flag to force a fresh fact, and for a path-driven entry the event
+     * that caused it is that fact's successor. For the **upstream 429/5xx** entry
+     * the path never changed, so nothing would ever arrive to satisfy the guard
+     * and admission stayed closed for the life of the process (every `EXEC_REQ`
+     * answered `admission_closed` while the chat kept working). This field lets
+     * the facade hand the machine the observation it already has.
+     */
+    @Volatile
+    private var lastPathStatus: NetworkPathStatus? = null
 
     override fun start() {
         if (!started.compareAndSet(false, true)) {
@@ -484,18 +666,33 @@ class DefaultPhoneDshHost(
             // `Backoff` is the one booted state whose only exit needs a producer
             // in this process.
             armRetryAfterBoot()
+            resumeParkedAfterBoot()
             persistHostState()
             if (!current(generation)) return@launch
             val engineJob = launch { engine.state.collect { onEngineState(it) } }
             val signalsJob = launch { signals.events.collect { onLifecycleSignal(it) } }
+            // The App's own workspace writes (an attachment import) are
+            // host-lane mutations: `wal.md` line 3 makes the Worker's in-memory
+            // VFS the authority while it runs, so a live Worker cannot see them
+            // and its next mseq is one the log already spent. The collector
+            // re-establishes the invariant by restarting the Worker at the next
+            // boundary (the D14 planned-restart row), which re-anchors its
+            // numbering on a live HELLO and re-reads the overlay (wal.md §8).
+            val hostLaneJob = launch {
+                wal?.hostLaneAppends?.collect { mseq -> onHostLaneAppend(mseq) }
+            }
+            val epochCloseJob = scope.launch { periodicEpochClose(generation) }
             if (!current(generation)) {
                 engineJob.cancel()
                 signalsJob.cancel()
+                epochCloseJob.cancel()
                 return@launch
             }
             synchronized(jobsLock) {
                 jobs += engineJob
                 jobs += signalsJob
+                jobs += hostLaneJob
+                jobs += epochCloseJob
             }
             engine.start()
             if (!current(generation)) {
@@ -516,6 +713,9 @@ class DefaultPhoneDshHost(
         bootGeneration.incrementAndGet()
         readyState.value = false
         retry.release()
+        // A stop is not a turn outcome: the deferred background edge is dropped,
+        // and a later start must be allowed to defer a fresh one.
+        hold.releaseForForeground("the host is stopping")
         val cancelled = synchronized(jobsLock) { jobs.toList().also { jobs.clear() } }
         cancelled.forEach { it.cancel() }
         engine.stop()
@@ -523,11 +723,59 @@ class DefaultPhoneDshHost(
         logger.info("host stopped: engine stopped, subscriptions cancelled")
     }
 
+    /**
+     * Explicit `Failed -> Recovering` acknowledgement (`D14 UserReset`).
+     *
+     * Start preparation first, then feed the same serialized signal path as
+     * lifecycle/controller events. This keeps the final HELLO/recovery context
+     * ready before reset effects boot a replacement worker.
+     */
+    override fun resetFailure(): Boolean {
+        if (controller.state != HostState.FAILED) return false
+        if (!resetQueued.compareAndSet(false, true)) return false
+        if (!started.get()) {
+            try {
+                start()
+            } catch (failure: Exception) {
+                resetQueued.set(false)
+                logger.warn("user reset not accepted: host start threw ${failure.javaClass.simpleName}")
+                return false
+            }
+        }
+        val generation = bootGeneration.get()
+        val job = scope.launch {
+            try {
+                val isReady = readyState.value || withTimeoutOrNull(USER_RESET_READY_TIMEOUT_MILLIS) {
+                    readyState.first { it }
+                    true
+                } == true
+                if (!isReady || !current(generation)) {
+                    logger.warn("user reset not applied: boot preparation did not become ready")
+                    return@launch
+                }
+                if (controller.state != HostState.FAILED) {
+                    logger.warn("user reset not applied: host left Failed before the reset signal")
+                    return@launch
+                }
+                logger.info("user acknowledged the failed host; feeding D14 UserReset")
+                handle(ControllerSignal.UserReset)
+            } finally {
+                resetQueued.set(false)
+            }
+        }
+        synchronized(jobsLock) { jobs += job }
+        job.invokeOnCompletion { synchronized(jobsLock) { jobs.remove(job) } }
+        return true
+    }
+
     /** `true` while [generation] is the boot job the facade still wants. */
     private fun current(generation: Long): Boolean =
         started.get() && bootGeneration.get() == generation
 
-    override suspend fun closeEpoch(): Long? = vfsSink?.closeEpoch()
+    override suspend fun closeEpoch(): Long? = epochCloseGate.withLock { closeEpochUnderGate() }
+
+    /** The gate-held close body, so the periodic lane does not re-lock. */
+    private suspend fun closeEpochUnderGate(): Long? = vfsSink?.closeEpoch()
 
     /**
      * Diagnostic: `true` while the drain of the current `Draining` entry is still
@@ -537,6 +785,15 @@ class DefaultPhoneDshHost(
      * facade's own state rather than inferred from a log line.
      */
     internal fun isDrainInFlight(): Boolean = drain.isDraining
+
+    /**
+     * Diagnostic: `true` while `scenePhase(background)` is deferred for a measured
+     * turn window (plan §7.9).
+     *
+     * Exposed for the JVM tests, which assert that a window in place keeps the
+     * host `Running` instead of inferring it from a log line.
+     */
+    internal fun isBackgroundEdgeHeld(): Boolean = hold.isHeld
 
     // ---- wiring -----------------------------------------------------------------
 
@@ -573,9 +830,21 @@ class DefaultPhoneDshHost(
 
     private fun applySignal(signal: LifecycleSignal) {
         if (signal is AppForeground) {
+            // It never drives a transition on its own (see the field). It does end
+            // the refusal an *expired* window hold installs: the next background
+            // spell is a fresh window. The live hold is released by
+            // `scenePhase(active)`, which always follows a real return.
+            if (signal.foreground) hold.onForeground()
             foreground = signal.foreground
             logger.debug("app foreground: ${signal.foreground}")
             return
+        }
+        if (signal is NetworkPath) {
+            lastPathStatus = if (signal.available) {
+                NetworkPathStatus.SATISFIED
+            } else {
+                NetworkPathStatus.UNSATISFIED
+            }
         }
         val mapped = HostSignalMapping.from(signal) ?: return
         logger.debug("lifecycle signal: ${mapped.label}")
@@ -597,6 +866,12 @@ class DefaultPhoneDshHost(
      * *is* a row (`Parked -> Recovering`), so the round trip stays inside the
      * table instead of adding an edge to it.
      *
+     * A *background* edge is queued the same way when the measured turn window
+     * is in place: §2's `Running -> Draining` row has "no background window" as
+     * its premise (plan §7.9), so [WindowHold] defers it until the window ends or
+     * the bounded hold expires. The machine still owns the row; the facade only
+     * decides when its guard is satisfied.
+     *
      * `internal` because it is the facade's one signal entry point and two
      * callers are not `LifecycleSignals`: the retry lane (in this module) and a
      * future model edge, whose `UpstreamUnavailable(429)` is a D14 signal with
@@ -604,43 +879,154 @@ class DefaultPhoneDshHost(
      * what a signal means.
      */
     internal fun handle(signal: ControllerSignal) {
-        if (signal is ControllerSignal.ScenePhaseChanged && signal.phase == ScenePhase.ACTIVE) {
-            if (controller.state == HostState.DRAINING) {
-                resumeAfterDrain = true
-                logger.info("scenePhase(active) in Draining: the drain finishes first, then the resume")
-                if (!drain.foregroundReturn()) {
-                    // The drain finished between the state check and this call, or
-                    // no drain was ever armed (a boot mapping cannot produce this,
-                    // but a composition that armed nothing would). Either way the
-                    // exit must be taken here instead of waiting for one.
-                    when (controller.state) {
-                        HostState.DRAINING -> {
-                            logger.warn("no drain was in flight in Draining; arming it now to take the exit")
-                            drain.arm(controller.drainDeadlineAtMillis)
-                            if (drain.isDraining) drain.foregroundReturn()
-                        }
-
-                        HostState.PARKED -> {
-                            // The completion ran before `resumeAfterDrain` was set,
-                            // so its own resume did not see it: take the row here.
-                            logger.info("the drain completed just now; the resume runs here (Parked -> Recovering)")
-                            resumeAfterDrain = false
-                            dispatch(signal)
-                        }
-
-                        else -> Unit
-                    }
+        if (signal is ControllerSignal.ScenePhaseChanged) {
+            if (signal.phase == ScenePhase.BACKGROUND) {
+                if (controller.state == HostState.RUNNING && holdBackgroundEdge()) return
+            } else if (signal.phase == ScenePhase.ACTIVE) {
+                if (
+                    controller.state == HostState.RUNNING &&
+                    hold.releaseForForeground("the app came back to the foreground")
+                ) {
+                    logger.info(
+                        "window: scenePhase(active) in Running released the held background edge; " +
+                            "no D14 edge is taken (none exists out of Running, and none is needed)",
+                    )
+                    return
                 }
-                return
-            }
-            if (controller.state == HostState.RECOVERING) {
-                // `Parked -> Recovering` starts the worker; an already-Recovering
-                // host has no such row, so a return here must not stall in a
-                // state whose only exit is the lease check.
-                startWorker("foreground return in Recovering")
+                if (controller.state == HostState.DRAINING) {
+                    resumeAfterDrain = true
+                    logger.info("scenePhase(active) in Draining: the drain finishes first, then the resume")
+                    if (!drain.foregroundReturn()) {
+                        // The drain finished between the state check and this call, or
+                        // no drain was ever armed (a boot mapping cannot produce this,
+                        // but a composition that armed nothing would). Either way the
+                        // exit must be taken here instead of waiting for one.
+                        when (controller.state) {
+                            HostState.DRAINING -> {
+                                logger.warn("no drain was in flight in Draining; arming it now to take the exit")
+                                drain.arm(controller.drainDeadlineAtMillis)
+                                if (drain.isDraining) drain.foregroundReturn()
+                            }
+
+                            HostState.PARKED -> {
+                                // The completion ran before `resumeAfterDrain` was set,
+                                // so its own resume did not see it: take the row here.
+                                logger.info("the drain completed just now; the resume runs here (Parked -> Recovering)")
+                                resumeAfterDrain = false
+                                dispatch(signal)
+                            }
+
+                            else -> Unit
+                        }
+                    }
+                    return
+                }
+                if (controller.state == HostState.RECOVERING) {
+                    // `Parked -> Recovering` starts the worker; an already-Recovering
+                    // host has no such row, so a return here must not stall in a
+                    // state whose only exit is the lease check.
+                    startWorker("foreground return in Recovering")
+                }
             }
         }
         dispatch(signal)
+    }
+
+    /**
+     * Offers one `scenePhase(background)` to the measured turn window.
+     *
+     * A `SCHEDULED` window (accepted by the platform, component not started yet)
+     * defers the edge exactly like a `RUNNING` one: the drain's premise is "no
+     * background window", and an accepted UIDT job or foreground-service start is
+     * a window. The log names the phase so the two readings are distinguishable.
+     *
+     * @return `true` when the edge is deferred (the caller must not feed it), i.e.
+     *   a window is in place. `false` for no window, an unreadable window and a
+     *   hold that already expired — all three feed the edge, which is the
+     *   fail-safe direction.
+     */
+    private fun holdBackgroundEdge(): Boolean {
+        val heldWindow = hold.hold() ?: return false
+        startHoldWatch()
+        logger.info(
+            "window: scenePhase(background) with a ${heldWindow.backend.wireName} window in place " +
+                "(phase=${heldWindow.phase.wireName}); keeping Running (plan §7.9). The window " +
+                "watch feeds the edge when the window ends, and at the latest after " +
+                "$windowHoldMaxMillis ms",
+        )
+        return true
+    }
+
+    /**
+     * The coroutine behind a held edge: re-read the window on the facade's scope
+     * until [checkWindowHold] says the hold is gone.
+     *
+     * Armed once per hold; a second `scenePhase(background)` while one is held
+     * does not start a second watch. The job is in [jobs], so [stop] cancels it.
+     */
+    private fun startHoldWatch() {
+        synchronized(jobsLock) {
+            if (holdWatch?.isActive == true) return
+            val job = scope.launch {
+                while (true) {
+                    delay(windowWatchIntervalMillis)
+                    if (!checkWindowHold()) return@launch
+                }
+            }
+            holdWatch = job
+            jobs += job
+            job.invokeOnCompletion { synchronized(jobsLock) { jobs.remove(job) } }
+        }
+    }
+
+    /**
+     * One look at a held window.
+     *
+     * @return `true` while the hold is still in place (the watch keeps polling).
+     *
+     * `internal` so the JVM tests drive the transition deterministically instead
+     * of waiting on a wall clock: the fake window changes, one call here, and the
+     * deferred edge is fed inline.
+     */
+    internal fun checkWindowHold(): Boolean {
+        val release = hold.check() ?: return hold.isHeld
+        onWindowReleased(release)
+        return false
+    }
+
+    /**
+     * Feeds the deferred `scenePhase(background)` once the window is gone (or the
+     * bound expired).
+     *
+     * The row it takes is the ordinary `Running -> Draining`, so the drain's exit
+     * — epoch close, worker stop, `Draining -> Parked` — is unchanged; this method
+     * only decides *when* it is fed. A host that has already left `Running` (a
+     * racing engine termination, a failure) does not have that row any more, and a
+     * visible app makes the queued edge stale: both drop it with a log line
+     * instead of inventing an edge.
+     */
+    private fun onWindowReleased(release: WindowHold.Release) {
+        if (controller.state != HostState.RUNNING) {
+            logger.warn(
+                "window: the hold ended (${release.reason.wireName}) but the host is now " +
+                    "${controller.state.wireName}; the deferred edge has no row from there",
+            )
+            return
+        }
+        if (foreground) {
+            logger.info(
+                "window: the hold ended (${release.reason.wireName}) with the app visible again; " +
+                    "the deferred scenePhase(background) is dropped",
+            )
+            return
+        }
+        logger.info(
+            "window: feeding the deferred scenePhase(background) " +
+                "(reason=${release.reason.wireName}, window=${release.backend.wireName}/" +
+                "${release.phase.wireName}, held ${release.heldMillis} ms); " +
+                "the ordinary Draining -> Parked exit runs now",
+        )
+        dispatch(ControllerSignal.ScenePhaseChanged(ScenePhase.BACKGROUND))
     }
 
     private fun dispatch(signal: ControllerSignal) {
@@ -657,6 +1043,20 @@ class DefaultPhoneDshHost(
         // this value — the D14 signal was the one fed above.
         if (signal is ControllerSignal.NetworkPathChanged && controller.state == HostState.BACKOFF) {
             retry.onNetworkPath(signal.status == NetworkPathStatus.SATISFIED)
+            return
+        }
+        // An entry into `Backoff` that did not come from the path (an upstream
+        // 429/5xx) has no path event behind the guard. `budgets.md` §2's guard is
+        // about the path *now*, and the last reading is the host's observation of
+        // it, so feed that one instead of waiting for a change that will not
+        // come. Only a SATISFIED reading reopens anything: an unsatisfied one has
+        // nothing to add, and `null` (never observed) stays unknown.
+        if (controller.state == HostState.BACKOFF && lastPathStatus == NetworkPathStatus.SATISFIED) {
+            logger.info(
+                "Backoff guard: the last observed network path is satisfied; " +
+                    "recording that observation so the retry probe can run",
+            )
+            handle(ControllerSignal.NetworkPathChanged(NetworkPathStatus.SATISFIED))
         }
     }
 
@@ -666,8 +1066,13 @@ class DefaultPhoneDshHost(
      *
      * Two groups are owned here:
      * * `ARM_DRAIN_DEADLINE` — the drain's exit ([drain]); `START_BACKGROUND_TASK`
-     *   is reported by it as "no background window" (this App declares no
-     *   service), never as a silent drop;
+     *   is reported by it as "in-process, no window opened by the drain", never as
+     *   a silent drop. The APK *does* declare the background service: the merged
+     *   `:dsh` manifest ships `TurnForegroundService` / `TurnJobService` /
+     *   `TurnStopReceiver` / `BootReceiver`, and `aapt2` shows them in the packaged
+     *   APK. Whether a window is *in place for this turn* is a reading
+     *   ([TurnWindowRead]), and the drain row is only fed when that reading says
+     *   no window is there;
      * * `START_WORKER` / `RESTART_WORKER` — the `:engine` seam. Without these the
      *   resume path `Parked -> Recovering` would reach `Recovering` with a
      *   stopped worker, and `Recovering -> Running` waits for an engine that
@@ -691,13 +1096,21 @@ class DefaultPhoneDshHost(
                 if (ControllerEffect.FORCE_DRAIN_DEADLINE in record.effects) {
                     abortInFlightWork("forced by the drain deadline")
                 }
+                if (ControllerEffect.RE_RUN_RECOVERY in record.effects) {
+                    readyState.value = false
+                    notifier.cancel(ControllerEffects.HOST_FAILURE_NOTIFICATION_ID)
+                    resetFailedHostWorker(record.signal)
+                }
                 if (ControllerEffect.ARM_DRAIN_DEADLINE in record.effects) {
                     drain.arm(controller.drainDeadlineAtMillis)
                 }
-                if (
-                    ControllerEffect.START_WORKER in record.effects ||
-                    ControllerEffect.RESTART_WORKER in record.effects
-                ) {
+                if (ControllerEffect.RESTART_WORKER in record.effects) {
+                    // A restart must stop the page it is replacing; `startWorker`
+                    // alone is a no-op while the engine is Running, which is why
+                    // the planned-restart row used to leave the old Worker (and
+                    // its stale VFS) in place.
+                    restartWorker(record.signal)
+                } else if (ControllerEffect.START_WORKER in record.effects) {
                     startWorker(record.signal)
                 }
                 if (record.from == HostState.BACKOFF && record.to != HostState.BACKOFF) {
@@ -767,6 +1180,27 @@ class DefaultPhoneDshHost(
      * missing or already-past deadline arms the ordinary first window instead
      * of trapping the host.
      */
+    /**
+     * A cold start happens in the foreground, so a host that booted from the
+     * persisted `Parked` must be fed `scenePhase(active)` — otherwise nothing in
+     * the D14 table is a legal edge out of `Parked`, admission stays closed, and
+     * every `exec` is refused until the user backgrounds the app and returns.
+     *
+     * Measured 2026-11-02: kill the app after a turn that finished in the
+     * background, relaunch, and the run button is disabled with
+     * "宿主不可用：Parked" while `exec refused: admission closed` repeats. A
+     * HOME round trip then drove `Parked -> Recovering -> Running`, which is
+     * exactly the edge this call supplies at the moment it is already true.
+     */
+    private fun resumeParkedAfterBoot() {
+        if (controller.state != HostState.PARKED) return
+        logger.info(
+            "boot restored Parked: the app starts in the foreground, " +
+                "so feeding scenePhase(active) to take the one legal exit",
+        )
+        handle(ControllerSignal.ScenePhaseChanged(ScenePhase.ACTIVE))
+    }
+
     private fun armRetryAfterBoot() {
         if (controller.state != HostState.BACKOFF) return
         val remaining = stateStore?.load()?.backoffUntilMillis?.let { deadline ->
@@ -777,6 +1211,42 @@ class DefaultPhoneDshHost(
                 "(${remaining?.let { "remaining window $it ms" } ?: "the schedule's first delay"})",
         )
         retry.arm(RetryLane.Entry.BOOT, firstWindowMillis = remaining)
+    }
+
+    /**
+     * One App-lane workspace write: the Worker's VFS is now behind the WAL.
+     *
+     * `wal.md` line 3 is the rule: "the in-memory VFS of the worker is the single
+     * authority while it runs". A host-lane write is therefore only representable
+     * when no Worker holds the VFS — so a live one is restarted, which is the D14
+     * `PlannedRestartRequested` row (`Running -> Recovering`, "close admission,
+     * close the epoch, restart WebContent at a tool-call boundary"). The fresh
+     * Worker boots from the re-packed overlay (so it sees the imported file) and
+     * adopts the live `next_mseq` from its HELLO (`channel.md` §9.2), which is
+     * what stops the next `VFS_MUT` from colliding with the mseq the App took.
+     *
+     * Outside `Running` there is nothing to re-anchor: `Parked` has no Worker,
+     * `Recovering` is about to boot one (its HELLO is live), and `Backoff` /
+     * `Failed` / `Remote` do not run tool work.
+     */
+    internal fun onHostLaneAppend(mseq: Long) {
+        val state = controller.state
+        logger.info(
+            "host-lane workspace write at mseq $mseq (the App's own VFS lane); " +
+                "worker state=${state.wireName}",
+        )
+        if (state != HostState.RUNNING) {
+            logger.info(
+                "no live Worker to re-anchor for mseq $mseq " +
+                    "(next Worker boot adopts the live allocator from its HELLO)",
+            )
+            return
+        }
+        logger.info(
+            "planned restart: a host-lane write left the live Worker's VFS and numbering stale, " +
+                "so the Worker is restarted at this boundary (budgets.md §2 planned-restart row)",
+        )
+        handle(ControllerSignal.PlannedRestartRequested)
     }
 
     /**
@@ -826,6 +1296,128 @@ class DefaultPhoneDshHost(
                 logger.info("worker start requested by '$reason' from ${describe(current)}")
                 engine.start()
             }
+        }
+    }
+
+    /**
+     * Stops a live Worker and boots a fresh one (the `RESTART_WORKER` effect).
+     *
+     * Runs on the facade's scope because the stop is asynchronous: the engine
+     * must report `Stopped` before `start()` is meaningful (`EngineHost.start()`
+     * ignores a start while the previous page is still shutting down). The epoch
+     * is closed in between, which is the row's `CLOSE_EPOCH` action and what
+     * makes the imported bytes durable before the new Worker reads the overlay.
+     */
+    private fun restartWorker(reason: String) {
+        scope.launch {
+            val current = engine.state.value
+            val live = current is EngineHostState.Running ||
+                current is EngineHostState.Starting ||
+                current === EngineHostState.Recovering
+            if (live) {
+                logger.info("planned restart ($reason): stopping the live Worker")
+                engine.stop()
+                if (!awaitWorkerStopped()) {
+                    logger.warn(
+                        "planned restart ($reason): the Worker did not report stopped within " +
+                            "$WORKER_STOP_BOUND_MILLIS ms; the fresh start follows anyway",
+                    )
+                }
+            }
+            closeEpochForRestart(reason)
+            if (controller.state == HostState.RECOVERING) {
+                startWorker("planned restart ($reason)")
+            } else {
+                logger.info(
+                    "planned restart ($reason): the host is ${controller.state.wireName}, " +
+                        "so the Worker is not started from here",
+                )
+            }
+        }
+    }
+
+    /** Performs the host-owned `RE_RUN_RECOVERY` action for D14 UserReset. */
+    private fun resetFailedHostWorker(reason: String) {
+        val generation = bootGeneration.get()
+        val job = scope.launch {
+            try {
+                val currentEngine = engine.state.value
+                val engineMayOwnWorker = currentEngine is EngineHostState.Running ||
+                    currentEngine is EngineHostState.Starting || currentEngine is EngineHostState.Recovering
+                if (engineMayOwnWorker) {
+                    logger.info("user reset ($reason): stopping the failed Worker before recovery")
+                    engine.stop()
+                    if (!awaitWorkerStopped()) {
+                        logger.warn(
+                            "user reset ($reason): Worker did not report stopped within " +
+                                "$WORKER_STOP_BOUND_MILLIS ms; recovery continues",
+                        )
+                    }
+                }
+                if (!current(generation) || controller.state != HostState.RECOVERING) return@launch
+
+                // budgets.md §2's Failed -> Recovering action is "re-run
+                // recovery", not a planned restart: it does not close the
+                // epoch. A close here is what deadlocked the device, because
+                // the only party that could repair the held resync was the
+                // Worker this reset had just stopped. The log's cached outcome
+                // and sticky fatal are cleared so this pass is a real recovery
+                // (the first recover() of a process returns the boot outcome
+                // and closeEpoch() makes every later write throw).
+                val seam = wal
+                if (seam != null) {
+                    seam.resetForRecovery()
+                    if (!current(generation) || controller.state != HostState.RECOVERING) return@launch
+                }
+
+                // The controller effect is a real recovery pass, not only a
+                // state transition: reseed the VFS proof and HELLO before the
+                // replacement Worker starts.
+                val uplink = recoverWal()
+                helloState = helloState.copy(wal = uplink)
+                if (seam != null && uplink !is WalUplink.Up) {
+                    logger.warn(
+                        "user reset ($reason): recovery did not reopen wal/1; " +
+                            "the replacement Worker is not started and the host stays Failed",
+                    )
+                    return@launch
+                }
+                openJournal()
+                if (!current(generation) || controller.state != HostState.RECOVERING) return@launch
+                startWorker("user reset ($reason)")
+                readyState.value = true
+                logger.info("user reset recovery complete: replacement Worker start requested")
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                logger.warn("user reset recovery failed (${failure.javaClass.simpleName}); returning to Failed")
+                handle(
+                    ControllerSignal.FailureRaised(
+                        reason = ControllerFailure.HOST_DEFECT,
+                        detail = "user reset recovery failed",
+                    ),
+                )
+            }
+        }
+        synchronized(jobsLock) { jobs += job }
+        job.invokeOnCompletion { synchronized(jobsLock) { jobs.remove(job) } }
+    }
+
+    /** The row's `CLOSE_EPOCH`: reported, never fatal to the restart itself. */
+    private suspend fun closeEpochForRestart(reason: String) {
+        if (vfsSink == null) return
+        try {
+            closeEpoch()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            // VfsSink already reported it through the write-failure lane when the
+            // code was attributable (D14 failure); the restart still proceeds so
+            // the host does not stay in Recovering behind a bad epoch.
+            logger.warn(
+                "planned restart ($reason): the epoch close failed " +
+                    "(${failure.javaClass.simpleName}); continuing with the restart",
+            )
         }
     }
 
@@ -931,14 +1523,38 @@ class DefaultPhoneDshHost(
             throw cancelled
         } catch (failure: Exception) {
             val kind = failure.javaClass.simpleName
+            // A thrown recovery is a host defect under budgets.md §2 and must
+            // be recorded, not only logged: otherwise the next process boots
+            // the persisted Failed with no reason (`UNRECORDED`). The class
+            // name is the only safe detail here; an arbitrary exception message
+            // can carry an absolute path (HostWalWiringTest pins that rule).
             logger.warn("workspace log recovery threw $kind; wal/1 stays off")
+            handle(
+                ControllerSignal.FailureRaised(
+                    reason = ControllerFailure.HOST_DEFECT,
+                    detail = "workspace log recovery threw $kind",
+                ),
+            )
             return WalUplink.down("recovery threw $kind")
         }
         return when (recovered) {
             is WalRecovery.Recovered -> recoveredUplink(recovered)
 
             is WalRecovery.Failed -> {
-                logger.warn("workspace log recovery failed (${recovered.code}); wal/1 stays off")
+                logger.warn(
+                    "workspace log recovery failed (${recovered.code}): ${recovered.detail}; " +
+                        "wal/1 stays off",
+                )
+                // budgets.md §2: a WAL_CORRUPT/recovery refusal is an any-state
+                // Failed condition, and the reason must be recorded, not only
+                // logged. UNREPAIRED_BASE_MISMATCH is the closed-vocabulary name
+                // for the resync refusal; everything else is a host defect.
+                val reason = when (recovered.code) {
+                    "WAL_CORRUPT" -> ControllerFailure.WAL_CORRUPT
+                    "WAL_RESYNC_UNREPAIRED" -> ControllerFailure.UNREPAIRED_BASE_MISMATCH
+                    else -> ControllerFailure.HOST_DEFECT
+                }
+                handle(ControllerSignal.FailureRaised(reason = reason, detail = recovered.detail))
                 WalUplink.down("recovery failed (${recovered.code})")
             }
         }
@@ -954,6 +1570,12 @@ class DefaultPhoneDshHost(
      * thrown out of the boot job.
      */
     private suspend fun recoveredUplink(recovered: WalRecovery.Recovered): WalUplink {
+        if (recovered.fullReconcile) {
+            logger.info(
+                "workspace log recovery rebuilt the materialized tree from the retained WAL " +
+                    "(wal.md §7.2); resync=${recovered.resync.size}",
+            )
+        }
         val next = recovered.nextMseq
         val acked = recovered.ackedMseq
         val durable = recovered.durableMseq
@@ -967,6 +1589,13 @@ class DefaultPhoneDshHost(
                 "workspace log recovered a watermark outside channel.md §4.1 " +
                     "(next_mseq=$next, acked_mseq=$acked, durable_mseq=$durable); " +
                     "wal/1 stays off",
+            )
+            handle(
+                ControllerSignal.FailureRaised(
+                    reason = ControllerFailure.HOST_DEFECT,
+                    detail = "recovered watermark violates channel.md §4.1 " +
+                        "(next_mseq=$next, acked_mseq=$acked, durable_mseq=$durable)",
+                ),
             )
             return WalUplink.down("recovered watermark violates channel.md §4.1")
         }
@@ -1092,6 +1721,97 @@ class DefaultPhoneDshHost(
         is EngineHostState.Failed -> "Failed(${state.reason})"
     }
 
+    /**
+     * `wal.md` §5.2's periodic epoch close: every [epochCloseIntervalMillis]
+     * while `Running`, and never while the drain owns the close.
+     *
+     * An outstanding §5.1 resync defers the close instead of failing it. The
+     * closure would be fail-loud (`wal.md` §5.2), and the repair may still be
+     * in flight on a live Worker; the alternative, closing and entering
+     * `Failed`, leaves the user with an unrecoverable host. The reason and the
+     * held path/mseq are logged, so the deferral is observable rather than
+     * silent. A tick skipped because the host is not `Running` (or the drain
+     * owns the close) is logged at debug level for the same reason: a lane that
+     * quietly did nothing for nine minutes looks exactly like a lane that was
+     * never started. A real failure of the close itself still reports through
+     * [VfsSink] and moves D14 to `Failed`.
+     */
+    private suspend fun periodicEpochClose(generation: Long) {
+        logger.debug(
+            "periodic epoch close: lane started (every $epochCloseIntervalMillis ms, " +
+                "generation=$generation)",
+        )
+        while (current(generation)) {
+            delay(epochCloseIntervalMillis)
+            if (!current(generation)) {
+                logger.debug(
+                    "periodic epoch close: lane stopped (generation $generation is no longer current)",
+                )
+                return
+            }
+            // Read the published StateFlow, not the machine's field: this lane
+            // runs outside the signal lock, and the StateFlow write is the
+            // visibility edge every dispatch publishes.
+            val hostState = state.value
+            if (hostState != HostState.RUNNING || drain.isDraining) {
+                logger.debug(
+                    "periodic epoch close skipped: host state=${hostState.wireName}" +
+                        (if (drain.isDraining) ", drain in flight" else "") +
+                        " (wal.md §5.2 closes only while Running and never while the drain owns the close)",
+                )
+                continue
+            }
+            val pending = wal?.pendingResync()
+            if (pending != null) {
+                logger.warn(
+                    "periodic epoch close skipped: the base mismatch at ${pending.path} " +
+                        "(mseq ${pending.mseq}) is still unrepaired; a close now would " +
+                        "enter Failed (wal.md §5.2)",
+                )
+                continue
+            }
+            try {
+                val durable = epochCloseGate.withLock {
+                    // Re-check under the close gate: a drain or a new mismatch
+                    // may have arrived while this coroutine waited.
+                    val underGate = state.value
+                    if (underGate != HostState.RUNNING || drain.isDraining) {
+                        logger.debug(
+                            "periodic epoch close skipped: host state=${underGate.wireName}" +
+                                (if (drain.isDraining) ", drain in flight" else "") +
+                                " arrived while waiting for the close gate",
+                        )
+                        null
+                    } else {
+                        wal?.pendingResync()?.let { held ->
+                            logger.warn(
+                                "periodic epoch close skipped: the base mismatch at ${held.path} " +
+                                    "(mseq ${held.mseq}) is still unrepaired; a close now would " +
+                                    "enter Failed (wal.md §5.2)",
+                            )
+                            null
+                        } ?: closeEpochUnderGate()
+                    }
+                }
+                if (durable != null) {
+                    logger.info("periodic epoch close: durable_upto=$durable (wal.md §5.2)")
+                } else {
+                    logger.debug(
+                        "periodic epoch close skipped: the VFS sink is not open in this boot, " +
+                            "so there is no epoch to close",
+                    )
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                logger.warn(
+                    "periodic epoch close failed (${failure.javaClass.simpleName}); " +
+                        "the VfsSink failure path owns the D14 transition",
+                )
+            }
+        }
+    }
+
     companion object {
         /**
          * The notification id the facade cancels on [stop]; mirrors
@@ -1109,5 +1829,47 @@ class DefaultPhoneDshHost(
          * to remove, hence the bound and the warning.
          */
         const val WORKER_STOP_BOUND_MILLIS: Long = 5_000L
+        /** Bound for the boot preparation that resetFailure must await before feeding UserReset. */
+        const val USER_RESET_READY_TIMEOUT_MILLIS: Long = 30_000L
+
+        /**
+         * The longest a measured turn window may defer `Running -> Draining`.
+         *
+         * Plan §7.9 says "尽量完成" while a window is in place, and a hold with no
+         * bound would leave a wedged turn (a dead network, a model that never
+         * answers) holding the host in `Running` forever. 600 s is the bound the
+         * exec lane already gives one command
+         * (`UbuntuExecRequest.DEFAULT_JOB_TIMEOUT_MS`), so a turn cannot hold the
+         * host longer than its own job would have been allowed to run. On UIDT the
+         * platform's execution slot is shorter than this and ends first: the
+         * window then reads absent and the ordinary drain runs without waiting for
+         * the bound.
+         *
+         * The clock starts when the background edge is held, never when the window
+         * starts (L53): a `SCHEDULED` window whose job never enters its execution
+         * slot is bounded by this same value, and a later
+         * `SCHEDULED -> RUNNING` transition does not restart it.
+         */
+        const val WINDOW_HOLD_MAX_MILLIS: Long = 600_000L
+
+        /**
+         * How often the window is re-read while the edge is held.
+         *
+         * 250 ms is the price of noticing a 停止本轮 press (which ends the window
+         * with no callback into the host) quickly enough that the drain is not
+         * delayed by a human-visible amount, and it is a read of a process-local
+         * snapshot — no I/O, no allocation. Only a host with a held background
+         * edge polls at all.
+         */
+        const val WINDOW_WATCH_INTERVAL_MILLIS: Long = 250L
+
+        /**
+         * `wal.md` §5.2: an epoch closes every 30–60 s while the host runs.
+         *
+         * 45 s is the midpoint and matches the Swift reference's
+         * `defaultEpochIntervalSeconds` (45), which had no caller on either
+         * port before this lane.
+         */
+        const val EPOCH_CLOSE_INTERVAL_MILLIS: Long = 45_000L
     }
 }

@@ -188,9 +188,9 @@
           "extraction": "manual"
         },
         {
-          "id": "custom-77",
-          "label": null,
-          "labelExpr": "KeyValueLine",
+          "id": "phase",
+          "label": "phase",
+          "labelExpr": null,
           "kind": "custom",
           "value": null,
           "valueExpr": null,
@@ -200,7 +200,7 @@
           "condition": null,
           "provenance": "BackgroundPage.swift:77",
           "anchor": "KeyValueLine(key: \"phase\", value: runner.phase.rawValue)",
-          "extraction": "manual",
+          "extraction": "syntax",
           "template": "KeyValueLine"
         },
         {
@@ -235,8 +235,8 @@
       "collection": null,
       "rows": [
         {
-          "id": "item",
-          "label": "—",
+          "id": "os-window",
+          "label": "OS window",
           "labelExpr": null,
           "kind": "custom",
           "value": null,
@@ -251,8 +251,8 @@
           "template": "KeyValueLine"
         },
         {
-          "id": "yes",
-          "label": "yes",
+          "id": "lock-observed",
+          "label": "lock observed",
           "labelExpr": null,
           "kind": "custom",
           "value": null,
@@ -261,14 +261,14 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "BackgroundPage.swift:86",
-          "anchor": "value: runner.lockObserved ? \"yes\" : \"no\")",
+          "provenance": "BackgroundPage.swift:85",
+          "anchor": "KeyValueLine(key: \"lock observed\",",
           "extraction": "syntax",
           "template": "KeyValueLine"
         },
         {
-          "id": "1f-s",
-          "label": "%.1f s",
+          "id": "background-interval",
+          "label": "background interval",
           "labelExpr": null,
           "kind": "custom",
           "value": null,
@@ -277,14 +277,14 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "BackgroundPage.swift:89",
-          "anchor": ".map { String(format: \"%.1f s\", $0) } ?? \"—\")",
+          "provenance": "BackgroundPage.swift:87",
+          "anchor": "KeyValueLine(key: \"background interval\",",
           "extraction": "syntax",
           "template": "KeyValueLine"
         },
         {
-          "id": "yes",
-          "label": "yes",
+          "id": "recovered",
+          "label": "recovered",
           "labelExpr": null,
           "kind": "custom",
           "value": null,
@@ -293,14 +293,14 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "BackgroundPage.swift:91",
-          "anchor": "value: runner.recovered.map { $0 ? \"yes\" : \"no\" } ?? \"—\")",
+          "provenance": "BackgroundPage.swift:90",
+          "anchor": "KeyValueLine(key: \"recovered\",",
           "extraction": "syntax",
           "template": "KeyValueLine"
         },
         {
-          "id": "2f-s",
-          "label": "%.2f s",
+          "id": "recovery",
+          "label": "recovery",
           "labelExpr": null,
           "kind": "custom",
           "value": null,
@@ -309,15 +309,15 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "BackgroundPage.swift:94",
-          "anchor": ".map { String(format: \"%.2f s\", $0) } ?? \"—\")",
+          "provenance": "BackgroundPage.swift:92",
+          "anchor": "KeyValueLine(key: \"recovery\",",
           "extraction": "syntax",
           "template": "KeyValueLine"
         },
         {
-          "id": "custom-95",
-          "label": null,
-          "labelExpr": "KeyValueLine",
+          "id": "host-state",
+          "label": "host state",
+          "labelExpr": null,
           "kind": "custom",
           "value": null,
           "valueExpr": null,
@@ -327,7 +327,7 @@
           "condition": null,
           "provenance": "BackgroundPage.swift:95",
           "anchor": "KeyValueLine(key: \"host state\", value: runner.hostStateText)",
-          "extraction": "manual",
+          "extraction": "syntax",
           "template": "KeyValueLine"
         },
         {
@@ -426,8 +426,8 @@
           "collection": "Array(model.store.background.cells.enumerated()), id: \\.offset"
         },
         {
-          "id": "item",
-          "label": "—",
+          "id": "arm",
+          "label": "arm",
           "labelExpr": null,
           "kind": "custom",
           "value": null,
@@ -443,8 +443,8 @@
           "collection": "Array(model.store.background.cells.enumerated()), id: \\.offset"
         },
         {
-          "id": "1f-s",
-          "label": "%.1f s",
+          "id": "observed",
+          "label": "observed",
           "labelExpr": null,
           "kind": "custom",
           "value": null,
@@ -453,15 +453,15 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "BackgroundPage.swift:124",
-          "anchor": ".map { String(format: \"%.1f s\", $0) } ?? \"—\")",
+          "provenance": "BackgroundPage.swift:122",
+          "anchor": "KeyValueLine(key: \"observed\",",
           "extraction": "syntax",
           "template": "KeyValueLine",
           "collection": "Array(model.store.background.cells.enumerated()), id: \\.offset"
         },
         {
-          "id": "yes",
-          "label": "yes",
+          "id": "held-window",
+          "label": "held window",
           "labelExpr": null,
           "kind": "custom",
           "value": null,
@@ -470,15 +470,15 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "BackgroundPage.swift:126",
-          "anchor": "value: cell.heldFullWindow.map { $0 ? \"yes\" : \"no\" } ?? \"—\")",
+          "provenance": "BackgroundPage.swift:125",
+          "anchor": "KeyValueLine(key: \"held window\",",
           "extraction": "syntax",
           "template": "KeyValueLine",
           "collection": "Array(model.store.background.cells.enumerated()), id: \\.offset"
         },
         {
-          "id": "yes",
-          "label": "yes",
+          "id": "recovered",
+          "label": "recovered",
           "labelExpr": null,
           "kind": "custom",
           "value": null,
@@ -487,8 +487,8 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "BackgroundPage.swift:128",
-          "anchor": "value: cell.recovered.map { $0 ? \"yes\" : \"no\" } ?? \"—\")",
+          "provenance": "BackgroundPage.swift:127",
+          "anchor": "KeyValueLine(key: \"recovered\",",
           "extraction": "syntax",
           "template": "KeyValueLine",
           "collection": "Array(model.store.background.cells.enumerated()), id: \\.offset"
@@ -629,7 +629,7 @@
       "labelExpr": null,
       "kind": "picker",
       "trigger": "tap",
-      "semantic": null,
+      "semantic": "binding:$runner.scenario",
       "writes": true,
       "destination": null,
       "condition": null,
@@ -647,7 +647,7 @@
       "labelExpr": null,
       "kind": "toggle",
       "trigger": "tap",
-      "semantic": null,
+      "semantic": "binding:$runner.continuedProcessing",
       "writes": true,
       "destination": null,
       "condition": null,
@@ -661,7 +661,7 @@
       "labelExpr": null,
       "kind": "picker",
       "trigger": "tap",
-      "semantic": null,
+      "semantic": "binding:$runner.requiredSeconds",
       "writes": true,
       "destination": null,
       "condition": null,
@@ -674,6 +674,27 @@
         "60 seconds (UI check)"
       ],
       "style": "default"
+    },
+    {
+      "id": "重试",
+      "label": "重试",
+      "labelExpr": null,
+      "kind": "action",
+      "trigger": "tap",
+      "semantic": null,
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "extraction": "manual",
+      "androidOnly": {
+        "reason": {
+          "baselineLacks": "BackgroundPage.swift reads its run record from local state, so the read cannot fail and needs no retry",
+          "androidNeeds": "Android reads a host snapshot across a process boundary, so the read can fail and the page must offer recovery without leaving and re-entering",
+          "withoutIt": "a failed read leaves the page blank with no way back except killing the app"
+        },
+        "owner": "android-ui",
+        "reviewBy": "2027-01-31"
+      }
     }
   ],
   "presentations": [],

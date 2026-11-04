@@ -1083,10 +1083,11 @@ mod tests {
             assert_eq!(captured_stdout(&capture), "", "{file}: rg printed bytes");
         }
 
-        // `rg --files /dsh/home` may list readable home files but must not walk
-        // into an internal root.
+        // `rg --files /dsh/home` lists the readable home files. The three internal
+        // roots are not hidden behind an EACCES — `read_dir` does not return them at
+        // all, so the walker never learns their names, let alone their contents.
         let (code, capture) = run_in(&tree, &["rg", "--files", "/dsh/home"], limits());
-        assert_eq!(code, 2, "stderr: {}", captured_stderr(&capture));
+        assert_eq!(code, 0, "stderr: {}", captured_stderr(&capture));
         let listing = captured_stdout(&capture);
         assert!(!listing.contains("/dsh/home/sessions"), "{listing}");
         assert!(!listing.contains("/dsh/home/storages"), "{listing}");

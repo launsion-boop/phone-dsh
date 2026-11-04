@@ -21,9 +21,9 @@
     "sectionOrder": "declaration order inside the page struct"
   },
   "android": {
-    "screen": null,
-    "file": "android/lib/src/main/kotlin/com/phonedsh/ui/page/ToolsPage.kt",
-    "match": "kdoc-mention"
+    "screen": "PDSHShellPage",
+    "file": "android/lib/src/main/kotlin/com/phonedsh/ui/page/PDSHShellPage.kt",
+    "match": "composable"
   },
   "sections": [
     {
@@ -42,7 +42,7 @@
           "labelExpr": null,
           "kind": "info",
           "value": null,
-          "valueExpr": null,
+          "valueExpr": "commands.isEmpty ? \"未链接或未配置\" : provider.capabilities.environment",
           "clickable": false,
           "destination": null,
           "writes": false,
@@ -57,7 +57,7 @@
           "labelExpr": null,
           "kind": "info",
           "value": null,
-          "valueExpr": null,
+          "valueExpr": "\"不可用\"",
           "clickable": false,
           "destination": null,
           "writes": false,
@@ -72,7 +72,7 @@
           "labelExpr": null,
           "kind": "info",
           "value": null,
-          "valueExpr": null,
+          "valueExpr": "provider.helloMounts.isEmpty ? \"未设置\" : \"\\(provider.helloMounts.count) 个文件夹\"",
           "clickable": false,
           "destination": null,
           "writes": false,
@@ -286,9 +286,8 @@
       "anchor": "Section {",
       "extraction": "syntax",
       "criterion": {
-        "kind": "first-clickable-row",
-        "label": "运行中…",
-        "provenance": "PDSHShellPage.swift:75"
+        "kind": "empty",
+        "provenance": "PDSHShellPage.swift:74"
       }
     },
     {
@@ -352,7 +351,7 @@
           "labelExpr": null,
           "kind": "info",
           "value": null,
-          "valueExpr": null,
+          "valueExpr": "\"\\(provider.limits.timeoutMilliseconds / 1000) 秒\"",
           "clickable": false,
           "destination": null,
           "writes": false,
@@ -367,7 +366,7 @@
           "labelExpr": null,
           "kind": "info",
           "value": null,
-          "valueExpr": null,
+          "valueExpr": "ByteCountFormatter.string(fromByteCount: Int64(provider.limits.maxOutputBytes), countStyle: .file)",
           "clickable": false,
           "destination": null,
           "writes": false,
@@ -382,7 +381,7 @@
           "labelExpr": null,
           "kind": "info",
           "value": null,
-          "valueExpr": null,
+          "valueExpr": "\"\\(provider.limits.maxFiles)\"",
           "clickable": false,
           "destination": null,
           "writes": false,
@@ -397,7 +396,7 @@
           "labelExpr": null,
           "kind": "info",
           "value": null,
-          "valueExpr": null,
+          "valueExpr": "ByteCountFormatter.string(fromByteCount: Int64(provider.limits.maxFileBytes), countStyle: .file)",
           "clickable": false,
           "destination": null,
           "writes": false,
@@ -419,7 +418,7 @@
       "labelExpr": null,
       "kind": "picker",
       "trigger": "tap",
-      "semantic": null,
+      "semantic": "binding:$command",
       "writes": true,
       "destination": null,
       "condition": null,

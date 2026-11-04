@@ -4,7 +4,7 @@
 
 把 DeepSeek Harness 变成手机的一等运行时。
 
-[English](README.en.md) · [架构说明](docs/architecture.md) · [协议规范](spec/v1/README.md)
+[English](README.en.md) · [Android 版本](#android-版本) · [架构说明](docs/architecture.md) · [协议基线与协作](spec/README.md) · [协议规范](spec/v1/README.md)
 
 <p align="center"><img src="docs/assets/screenshot-chat.jpg" width="300" alt="原生对话：模型生成 PDF 后汇报结果"></p>
 
@@ -16,7 +16,7 @@
 
 Phone DSH 是一个**非官方**的 DeepSeek Harness 宿主实现。目标不是把官方 Web UI 套一层壳，而是让手机成为 DSH 的一等运行时，具体做三件事：
 
-1. **把手机的性能和资源真正用起来。** 不是远程桌面，也不是把模型请求转发到另一台电脑：Worker 在手机的 WKWebView/Web Worker 里执行，原生宿主负责回环网络、持久化日志、模型网关、凭据、后台生命周期、内存/热预算和可中断的恢复。CPU、内存、后台执行窗口和系统调度都参与进来，而不是只把手机当显示器。
+1. **把手机的性能和资源真正用起来。** 不是远程桌面，也不是把模型请求转发到另一台电脑：Worker 在手机的 WKWebView（iOS）或 Android WebView 内的 Web Worker 里执行，原生宿主负责回环网络、持久化日志、模型网关、凭据、后台生命周期、内存/热预算和可中断的恢复。CPU、内存、后台执行窗口和系统调度都参与进来，而不是只把手机当显示器。
 2. **覆盖绝大部分办公场景。** 文档、表格、幻灯片、PDF、邮件草稿、日程、联系人、文件检索、网页搜索、代码与数据处理，都尽量在会话里通过原生工具和 DSH 插件完成；能落到工作区的产物直接写工作区，权限和凭据留在手机本地。
 3. **通过连接器接入更多硬件。** 手机不只是终端：通过 BLE 与局域网连接器，外设（ESP32、树莓派、车机、耳机/音箱、传感器等）可以成为同一个 DSH 会话的另一端。一个设备对应一个固定 Session，设备上行消息带 origin，UI/模型能区分“人说的”和“设备说的”；默认只读监视，写操作走能力门禁。
 
@@ -26,7 +26,7 @@ Phone DSH 是一个**非官方**的 DeepSeek Harness 宿主实现。目标不是
 
 ## 这是什么
 
-DeepSeek Harness（DSH）自带 `webworker-runtime`，让 harness 在 Web Worker 里执行。Phone DSH 做的是宿主这一侧：一个 Swift SDK，把 Worker 启动在系统 WebKit（WKWebView）里，并提供手机真正能提供的服务。WebView 保不住的东西都留在 App 进程：日志、回环源、凭据和生命周期。
+DeepSeek Harness（DSH）自带 `webworker-runtime`，让 harness 在 Web Worker 里执行。Phone DSH 做的是宿主这一侧：iOS 使用 Swift SDK 与系统 WebKit（WKWebView），Android 使用 Kotlin 宿主与 Android WebView，并提供手机真正能提供的服务。WebView 保不住的东西都留在 App 进程：日志、回环源、凭据和生命周期。
 
 DSH 版本钉在 [`plugins/dsh-pin.json`](plugins/dsh-pin.json)：`0.2.1-rc.2`，commit `7be5505b0be06009d74891c869063c9cf19a0df0`。DSH 源码树不会被复制、vendor 或修改。Worker 镜像由 `plugins/scripts/pack-image.mjs` 驱动 DSH 检出自带的 packer 库构建，phone-dsh 的插件 staged 在旁边。packer 只规范化两个包里 built `dispose()` 清理调用点各一处；每个位置都有锚点，改写前后的 SHA-256 记进 `sizes.json`，源码边界由 `scripts/ci/no_dsh_patch.py` 守住。
 
@@ -120,7 +120,7 @@ Worker 允许交给 App 进程的加速器，是我们自己的 Rust workspace�
 `bash shell/build-apple.sh` 构建，再用 `PDSH_WITH_XZSHELL=1` 链接；没有产物时
 SDK 不广播任何加速器能力。
 
-## 快速开始
+## 快速开始（iOS）
 
 以下命令默认在仓库根目录执行。
 
@@ -200,6 +200,24 @@ eval "$(node scripts/ci/model-env.mjs)"   # 只导出 PDSH_MODEL_*，不打印�
 bash scripts/ci/scenarios.sh --upstream real
 ```
 
+## Android 版本
+
+Android 版本位于 [`android/`](android/README.md)，支持 **Android 8.0（API 26）及以上**，使用 Kotlin 与 Jetpack Compose 构建原生界面。它与 iOS 共用 DSH Worker、TypeScript 插件、Rust 内核及宿主/Worker 契约；Worker 在 Android WebView 中运行，宿主负责回环网络、WAL、模型网关、凭据和生命周期，Rust 能力通过 JNI 接入。
+
+原生界面包含会话内容、目标/任务输入、文件浏览、模型服务配置、插件清单和设置等页面，持续跟进 iOS 基线。开发者可构建示例 APK，也可通过 `com.phonedsh:lib:0.1.0` AAR 集成宿主能力。
+
+### 设计取向：与 iOS 同一套实现，手机侧专注轻办公
+
+Android 没有另起一套运行方式，而是沿用 iOS 的实现：DSH Worker 跑在系统 WebView 里，原生宿主管资源、凭据和安全边界，会话、工具编排、上下文和 WAL 的行为与 iOS 基线一致。这样选择是因为手机端的主要场景是**轻办公**——文档、表格、PDF、日程、联系人、文件整理、网页搜索和轻量的数据处理——这些任务在 WebView 内的 Worker 和宿主只读加速器（`rg`、`jq`、tree-sitter 等）上就能完成，不需要常驻一个完整的 Linux 环境，从而把内存、存储和耗电压在手机可以长期承受的水平。
+
+遇到确实需要完整 Linux 用户态的任务（例如编译、跑构建或测试工具链），由会话内按需调起 **Ubuntu** 处理：Agent 在会话中发起 `ubuntu` 请求，宿主先征得用户同意，再把这一条命令交给本地 Ubuntu 环境异步执行，取回输出和产物文件。Ubuntu 按会话申请、用完即弃，平时不运行、不挂载；它只是“命令的执行地点”，DSH 本身和会话状态不会搬进去，构建期间宿主会封住 App 内部的会话与存储目录。设计细节见 [本地挂载运行时（Ubuntu）方案](docs/design/android-local-build-runtime-2026-11-01.md)。
+
+**当前进度（如实）**：Android 已接通真实的本地 Ubuntu 最小路径——Termux 版 proot（带应用进程 seccomp 所需的 SIGSYS 处理）从 `nativeLibraryDir` 运行，Ubuntu Base 24.04.5 arm64 rootfs 在首次使用、经用户同意后按需下载（约 30 MB，解压约 150 MB，固定 SHA-256 校验），`ubuntu run` 的输出标明 `backend=proot`。已在 API 35 arm64 模拟器上验证 `ubuntu run -- uname -a` 真实执行成功（见 [验收记录](docs/receipts/android-ubuntu-proot-slice.md)）。尚未包含：用 apt 安装 gcc 等工具链并编译、产物取回（`ubuntu fetch`）、设置页的 rootfs 管理、网络隔离和物理手机/16 KB 真机验证；proot 与 rootfs 的来源与许可见 [NOTICE](NOTICE)。proot 资产缺失或不可执行时，启动探测会报告不可用并给出原因，不会注册一个无法真正执行的 `ubuntu` 命令；mock 只用于 JVM 测试。iOS 暂无这条路径；页面桥方法 `ubuntu.exec / status / fetch` 在 [`spec/v1/bridge.md`](spec/v1/bridge.md) §12 中仍标为未实现。
+
+- [Android 构建与模块说明](android/README.md)：工具链引导、Gradle 模块、AAR 消费和测试命令。
+- [Worker 资源与 WebView 要求](android/engine/README.md)：Worker bundle 打包与运行环境。
+- [当前验证记录](docs/receipts/android-pr22-alignment/owner-core-final.md)：已完成 debug/release APK、AAR、R8 消费者构建及 API 35 ARM64 模拟器上的部分原生交互验证；物理手机、真实模型服务、16 KB 页大小运行环境及完整 iOS 交互/像素对齐仍未完成验收，PR14 保持 Draft。
+
 ## 仓库结构
 
 | 路径 | 内容 |
@@ -209,6 +227,7 @@ bash scripts/ci/scenarios.sh --upstream real
 | `spec/v1/` | 宿主/Worker 契约：帧、WAL、exec、交接、预算、golden vectors |
 | `shell/` | xz-shell：自研 Rust 只读加速器，构建为 `PDSHShell.xcframework` |
 | `examples/probe-app/` | iOS probe App、模拟器套件、真机报告导出 |
+| `android/` | Kotlin/Jetpack Compose Android 宿主、示例 App、AAR、JNI 适配与测试工具 |
 | `Tests/` | Swift 单测、探针、kill、smoke、场景套件 |
 | `scripts/ci/` | 本地门禁：`check.sh`、`smoke.sh`、`sim.sh`、`scenarios.sh`、`probes.sh` |
 | `docs/` | 架构、probe runbook、原生验证记录、功能测试计划 |
@@ -277,3 +296,9 @@ python3 android/tools/test_screenshot_compare.py compare \
 MIT，见 [LICENSE](LICENSE)。© 2026 Xiaozhi & Tono AI Team。
 
 Worker 镜像中的第三方组件列在 [plugins/THIRD_PARTY.md](plugins/THIRD_PARTY.md) 与 [shell/THIRD_PARTY.md](shell/THIRD_PARTY.md)。社区项目，与 DeepSeek 官方无隶属或背书关系。
+
+## 交流社区
+
+**交流 QQ 群：714985308**。欢迎交流 Phone DSH 的使用、Android/iOS 开发与问题反馈；可搜索群号或扫描下方二维码加入。
+
+<p align="center"><img src="docs/assets/qq-group-714985308.png" alt="Phone DSH 项目交流 QQ 群二维码，群号 714985308" width="320"></p>

@@ -1,0 +1,14 @@
+capture name=preview-paged width=1080 height=2400 file=/storage/emulated/0/Android/data/com.phonedsh.lib.test/files/l29-preview/preview-paged.png
+capture name=preview-paged-end width=1080 height=2400 file=/storage/emulated/0/Android/data/com.phonedsh.lib.test/files/l29-preview/preview-paged-end.png
+capture name=preview-text width=1080 height=2400 file=/storage/emulated/0/Android/data/com.phonedsh.lib.test/files/l29-preview/preview-text.png
+capture name=preview-loading width=1080 height=2400 file=/storage/emulated/0/Android/data/com.phonedsh.lib.test/files/l29-preview/preview-loading.png
+capture name=preview-late-arrival width=1080 height=2400 file=/storage/emulated/0/Android/data/com.phonedsh.lib.test/files/l29-preview/preview-late-arrival.png
+capture name=preview-image width=1080 height=2400 file=/storage/emulated/0/Android/data/com.phonedsh.lib.test/files/l29-preview/preview-image.png
+capture name=preview-pdf width=1080 height=2400 file=/storage/emulated/0/Android/data/com.phonedsh.lib.test/files/l29-preview/preview-pdf.png
+capture name=preview-refused width=1080 height=2400 file=/storage/emulated/0/Android/data/com.phonedsh.lib.test/files/l29-preview/preview-refused.png
+capture name=preview-encoded-path width=1080 height=2400 file=/storage/emulated/0/Android/data/com.phonedsh.lib.test/files/l29-preview/preview-encoded-path.png
+capture name=preview-failed width=1080 height=2400 file=/storage/emulated/0/Android/data/com.phonedsh.lib.test/files/l29-preview/preview-failed.png
+capture name=files-listing width=1080 height=2400 file=/storage/emulated/0/Android/data/com.phonedsh.lib.test/files/l29-preview/files-listing.png
+capture name=preview-unsupported width=1080 height=2400 file=/storage/emulated/0/Android/data/com.phonedsh.lib.test/files/l29-preview/preview-unsupported.png
+share-intent action=android.intent.action.SEND type=application/vnd.openxmlformats-officedocument.presentationml.presentation uri=content://com.phonedsh.lib.test.pdsh.preview/workspace/slides.pptx
+capture name=preview-markdown width=1080 height=2400 file=/storage/emulated/0/Android/data/com.phonedsh.lib.test/files/l29-preview/preview-markdown.png

@@ -43,9 +43,9 @@
       "collection": null,
       "rows": [
         {
-          "id": "custom-53",
-          "label": null,
-          "labelExpr": "KeyValueLine",
+          "id": "environment",
+          "label": "Environment",
+          "labelExpr": null,
           "kind": "custom",
           "value": null,
           "valueExpr": null,
@@ -55,13 +55,13 @@
           "condition": null,
           "provenance": "ProbesPage.swift:53",
           "anchor": "KeyValueLine(key: \"Environment\", value: ProbeEnvironment.current)",
-          "extraction": "manual",
+          "extraction": "syntax",
           "template": "KeyValueLine"
         },
         {
-          "id": "custom-54",
-          "label": null,
-          "labelExpr": "KeyValueLine",
+          "id": "os",
+          "label": "OS",
+          "labelExpr": null,
           "kind": "custom",
           "value": null,
           "valueExpr": null,
@@ -71,12 +71,12 @@
           "condition": null,
           "provenance": "ProbesPage.swift:54",
           "anchor": "KeyValueLine(key: \"OS\", value: ProcessInfo.processInfo.operatingSystemVersionStr",
-          "extraction": "manual",
+          "extraction": "syntax",
           "template": "KeyValueLine"
         },
         {
-          "id": "unknown",
-          "label": "unknown",
+          "id": "bundle",
+          "label": "Bundle",
           "labelExpr": null,
           "kind": "custom",
           "value": null,
@@ -153,8 +153,8 @@
       "collection": null,
       "rows": [
         {
-          "id": "model-probesummary-pass-model-probesummary-fail-model-probesummary-info",
-          "label": "{model.probeSummary.pass} / {model.probeSummary.fail} / {model.probeSummary.info}",
+          "id": "pass-fail-info",
+          "label": "PASS / FAIL / INFO",
           "labelExpr": null,
           "kind": "custom",
           "value": null,
@@ -163,15 +163,14 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "ProbesPage.swift:114",
-          "anchor": "value: \"\\(model.probeSummary.pass) / \\(model.probeSummary.fail) / \\(model.probeS",
-          "extraction": "manual",
-          "template": "KeyValueLine",
-          "dynamicLabel": true
+          "provenance": "ProbesPage.swift:113",
+          "anchor": "KeyValueLine(key: \"PASS / FAIL / INFO\",",
+          "extraction": "syntax",
+          "template": "KeyValueLine"
         },
         {
-          "id": "pass",
-          "label": "PASS",
+          "id": "g0",
+          "label": "G0",
           "labelExpr": null,
           "kind": "custom",
           "value": null,
@@ -240,8 +239,8 @@
           "collection": "Array(ProbeReport.g0Thresholds.enumerated()), id: \\.offset"
         },
         {
-          "id": "bound-value-displaytext-bound-unit",
-          "label": "{bound.value.displayText} {bound.unit}",
+          "id": "bound",
+          "label": "bound",
           "labelExpr": null,
           "kind": "custom",
           "value": null,
@@ -250,16 +249,15 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "ProbesPage.swift:168",
-          "anchor": "value: \"\\(bound.value.displayText) \\(bound.unit)\")",
-          "extraction": "manual",
+          "provenance": "ProbesPage.swift:167",
+          "anchor": "KeyValueLine(key: \"bound\",",
+          "extraction": "syntax",
           "template": "KeyValueLine",
-          "dynamicLabel": true,
           "collection": "Array(ProbeReport.g0Thresholds.enumerated()), id: \\.offset"
         },
         {
-          "id": "yes",
-          "label": "yes",
+          "id": "gating",
+          "label": "gating",
           "labelExpr": null,
           "kind": "custom",
           "value": null,
@@ -353,6 +351,27 @@
       "provenance": "ProbesPage.swift:81",
       "anchor": "Label(\"Run one group\", systemImage: \"list.bullet\")",
       "extraction": "syntax"
+    },
+    {
+      "id": "重试",
+      "label": "重试",
+      "labelExpr": null,
+      "kind": "action",
+      "trigger": "tap",
+      "semantic": null,
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "extraction": "manual",
+      "androidOnly": {
+        "reason": {
+          "baselineLacks": "ProbesPage.swift reads probe results from local state, so the read cannot fail and needs no retry",
+          "androidNeeds": "Android reads a host snapshot across a process boundary, so the read can fail and the page must offer recovery without leaving and re-entering",
+          "withoutIt": "a failed read leaves the page blank with no way back except killing the app"
+        },
+        "owner": "android-ui",
+        "reviewBy": "2027-01-31"
+      }
     }
   ],
   "presentations": [],

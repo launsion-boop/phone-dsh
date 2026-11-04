@@ -24,13 +24,14 @@ CI_TMP=${CI_TMP%/}/phone-dsh-ci
 IDF_VERSION_WANT=${CI_IDF_VERSION:-5.5.2}
 IOS_RUNTIME=${CI_IOS_RUNTIME:-26.5}
 
-STAGES="phone-spec phone-p0-conformance phone-cross-tree phone-compat phone-plugins phone-bundle-fresh phone-image phone-sdk phone-no-dsh-patch phone-hygiene phone-license phone-modules phone-gate-contracts phone-android-structure phone-android-tests phone-android-release phone-xcode-resolve"
+STAGES="phone-spec phone-p0-conformance phone-cross-tree phone-rust-tests phone-compat phone-plugins phone-bundle-fresh phone-image phone-sdk phone-no-dsh-patch phone-hygiene phone-license phone-modules phone-gate-contracts phone-android-structure phone-android-tests phone-android-release phone-xcode-resolve"
 
 stage_desc() {
     case "$1" in
         phone-spec)            echo "spec/v1 --full golden vectors, schemas and the spec tool unit tests" ;;
         phone-p0-conformance)  echo "Android-port P0 contract trees: catalog, bridge, gateway, trajectory, fixtures, host, platform, ui, page structure" ;;
-        phone-cross-tree)      echo "spec/tools/cross_check.py: the 8 invariants that only hold across two trees + its mutation tests" ;;
+        phone-cross-tree)      echo "spec/tools/cross_check.py: 8 cross-tree invariants + registry build/check + schema diff + mutation tests" ;;
+        phone-rust-tests)      echo "cargo test -p pdsh-wire -p pdsh-wal (SKIP without cargo; aggregate INCOMPLETE)" ;;
         phone-compat)          echo "M99 build-time compatibility gate over the shared TypeScript (PDSH_NODE or node)" ;;
         phone-plugins)         echo "plugins npm run typecheck + npm test (SKIP without node_modules)" ;;
         phone-bundle-fresh)    echo "the worker bundle in examples/probe-app/Bundle/worker is not older than the plugin sources it is built from (FAIL names artifact vs source vs rebuild command; SKIP when the gitignored bundle is absent)" ;;
@@ -41,9 +42,10 @@ stage_desc() {
         phone-license)         echo "SPDX MIT headers and plugins package licenses" ;;
         phone-modules)         echo "Package.swift dependency map of the 8 phone-DSH modules (SKIP without PhoneWire)" ;;
         phone-gate-contracts)  echo "Python regressions for scenario batch/evidence and gate contracts" ;;
-        phone-android-structure) echo "android/tools structure_check (11 checks, incl. nested-comments and the two 16 KB page-alignment gates) + its tool unit tests" ;;
+        phone-android-structure) echo "android/tools structure_check (11 checks, incl. nested-comments and the two 16 KB page-alignment gates) + its tool unit tests + the packaged-APK 16 KB gate's mutation suite" ;;
         phone-android-tests)   echo "cargo build -p pdsh-jni, then every test-bearing Gradle module's JVM tests; 0 tests counted = FAIL" ;;
-        phone-android-release) echo "assembleRelease + 16 KB PT_LOAD alignment proof of the arm64-v8a libpdsh_jni.so (SKIP without the gitignored worker bundle/NDK product)" ;;
+        phone-rust-tests)      echo "cargo test --workspace over shell/: the host read policy, the WAL planner and the accelerators; the JVM suite exercises them through JNI, but the authoritative policy tests live only here" ;;
+        phone-android-release) echo "the published com.phonedsh:lib:0.1.0 coordinate (8 artifacts + POM api closure) + the consumer probe resolved from it by coordinate, then assembleRelease + 16 KB proof of the arm64-v8a libpdsh_jni.so and of the .so packaged in the APK (the AAR/publication half never SKIPs; the APK half SKIPs without the gitignored worker bundle/NDK product)" ;;
         phone-xcode-resolve)   echo "xcodegen + Xcode package resolution of examples/probe-app (no simulator; SKIP if XcodeGen is absent)" ;;
         *)                     return 1 ;;
     esac
@@ -77,6 +79,7 @@ android stages:
   src/test sources is tested, a module without them is not silently counted.
 
 phone-DSH stages:
+  CI_PROTOCOL_BASE       schema-diff comparison ref (default: origin/main; must exist locally)
   The phone-* checkers live in scripts/ci/ and each accepts --root DIR.
 EOF
 }
@@ -127,7 +130,6 @@ skip() { echo "$*" > "$SKIP_FILE"; return 77; }
 
 
 # Print "name|udid" of the simulator to use.
-
 
 
 stage_phone_spec() {
@@ -191,9 +193,21 @@ stage_phone_cross_tree() {
     done
     [ -f "$ROOT/spec/tools/cross_check.py" ] || { echo "missing checker: spec/tools/cross_check.py"; return 1; }
     ( cd "$ROOT" && "$PYTHON" spec/tools/cross_check.py --root "$ROOT" ) || return 1
+    [ -f "$ROOT/spec/tools/registry_build.py" ] || { echo "missing registry builder"; return 1; }
+    ( cd "$ROOT" && "$PYTHON" spec/tools/registry_build.py --root "$ROOT" --check ) || return 1
+    [ -f "$ROOT/spec/tools/registry_check.py" ] || { echo "missing registry checker"; return 1; }
+    ( cd "$ROOT" && "$PYTHON" spec/tools/registry_check.py --root "$ROOT" ) || return 1
+    [ -f "$ROOT/spec/tools/schema_diff.py" ] || { echo "missing schema diff checker"; return 1; }
+    ( cd "$ROOT" && "$PYTHON" spec/tools/schema_diff.py --root "$ROOT" --base "${CI_PROTOCOL_BASE:-origin/main}" ) || return 1
     # The mutation tests that keep the checker honest (each invariant has a
     # passing fixture and a mutation that must turn it red).
     ( cd "$ROOT" && "$PYTHON" -m unittest discover -s spec/tools -p 'test_*.py' )
+}
+
+stage_phone_rust_tests() {
+    command -v cargo >/dev/null 2>&1 || { skip "cargo not found: Rust wire/WAL tests were not run"; return; }
+    [ -f "$ROOT/shell/Cargo.toml" ] || { echo "missing shell/Cargo.toml"; return 1; }
+    ( cd "$ROOT/shell" && cargo test -p pdsh-wire -p pdsh-wal )
 }
 
 stage_phone_compat() {
@@ -210,7 +224,13 @@ stage_phone_plugins() {
     [ -d "$ROOT/plugins" ] || { skip "plugins not present"; return; }
     [ -d "$ROOT/plugins/node_modules" ] || { skip "plugins/node_modules not installed"; return; }
     command -v npm >/dev/null 2>&1 || { echo "npm not found"; return 1; }
-    ( cd "$ROOT/plugins" && npm run typecheck && npm test )
+    # Two suites need the pinned DSH checkout (the mux/timer tests read the real
+    # runtime, and the shell corpus resolves its sources there). Resolve it the
+    # same way the image stage and the repo do, so a correct tree is not reported
+    # as broken just because the shell that ran the gate had not exported it.
+    checkout="${PDSH_DSH_CHECKOUT:-}"
+    if [ -z "$checkout" ] && [ -f "$HOME/.config/phone-dsh/dsh-checkout" ]; then checkout=$(head -n1 "$HOME/.config/phone-dsh/dsh-checkout"); fi
+    ( cd "$ROOT/plugins" && PDSH_DSH_CHECKOUT="$checkout" npm run typecheck && PDSH_DSH_CHECKOUT="$checkout" npm test )
 }
 
 stage_phone_bundle_fresh() {
@@ -286,6 +306,8 @@ stage_phone_gate_contracts() {
     "$PYTHON" "$ROOT/scripts/ci/scenario_evidence_test.py" || return 1
     "$PYTHON" "$ROOT/scripts/ci/scenario_batch_test.py" || return 1
     "$PYTHON" "$ROOT/scripts/ci/gates_test.py" || return 1
+    "$PYTHON" "$ROOT/scripts/ci/test_protocol_impact.py" || return 1
+    "$PYTHON" "$ROOT/scripts/ci/test_rust_stage.py" || return 1
     "$PYTHON" "$ROOT/scripts/ci/selftest.py" || return 1
 }
 
@@ -360,10 +382,29 @@ stage_phone_android_structure() {
     [ -n "$ran" ] || { echo "unittest printed no 'Ran N tests' line; the tool tests did not run"; return 1; }
     [ "$ran" -gt 0 ] || { echo "unittest collected 0 tests from android/tools; that is not a pass"; return 1; }
     log "unittest executed $ran tool test(s)"
+
+    # The packaged-APK half of the 16 KB proof has its own mutation suite. It
+    # needs no APK (the fixtures are written to a temp dir), so it runs here
+    # instead of behind the release stage's worker-bundle/NDK skip: a gate whose
+    # red path is never exercised is a gate nobody should trust.
+    for t in check-android-16k.py test_check_android_16k.py; do
+        [ -f "$ROOT/scripts/ci/$t" ] || { echo "missing scripts/ci/$t"; return 1; }
+    done
+    ( cd "$ROOT" && "$PYTHON" -m unittest discover -s scripts/ci -p 'test_check_android_16k.py' ) || {
+        echo "the packaged-APK 16 KB gate's mutation suite failed: the gate no longer goes red"
+        return 1
+    }
 }
 
 # The JVM suite. :core, :dsh and :testkit drive the Rust codec through JNI and
 # their build scripts fail with "missing .../libpdsh_jni.*; build it first with:
+# The authoritative read policy, the WAL planner and the accelerators are Rust.
+# `phone-android-tests` builds `pdsh-jni` and exercises them through JNI, but the
+# policy tests that prove a host accelerator cannot see an internal root live
+# only in `shell/` — and nothing else runs them. The 2026-11-01 audit found the
+# fix for "rg and jaq leak DSH-internal state" guarded by tests that no stage ran:
+# a regression there would leave every gate green while the device leaked bytes.
+
 # cd shell && cargo build -p pdsh-jni". Build the host library first, then run
 # every test-bearing module and refuse an aggregate count of 0.
 stage_phone_android_tests() {
@@ -420,16 +461,210 @@ stage_phone_android_tests() {
     log "JVM suite executed $total test(s) across $(echo $modules | wc -w | tr -d ' ') module(s)"
 }
 
-# assembleRelease plus the 16 KB-page proof. This is the single release entry:
-# android-release in .github/workflows/android.yml calls this stage, so the
-# local command and the CI command stay identical. A missing gitignored input
-# (worker bundle) or a missing NDK product SKIPs with the command that
-# produces it; it never reports a release PASS without building one.
+# The release stage. This is the single release entry: android-release in
+# .github/workflows/android.yml calls this stage, so the local command and the CI
+# command stay identical.
+#
+# ---- the AAR runs first, before every SKIP ---------------------------------
+# The deliverable is `:lib`'s AAR (plan §176: the composition-root app consumes
+# the AAR; `:app` is the vehicle that proves it). Its proof must not sit behind
+# the APK's inputs: the arm64-v8a .so and the ~65 MB worker bundle gate
+# `:app:assembleRelease` and are both gitignored, so on a clean host this stage
+# SKIPs before it builds anything. `:lib:assembleRelease` and the consumer probe
+# need neither — only the JDK and a warm Gradle cache — so they run first.
+#
+# The consequence is deliberate: a broken or unconsumable AAR is a FAIL here, not
+# a SKIP. If the AAR proof lived after the skips, the artifact could stay
+# unbuildable for as long as the worker bundle stayed missing, while the stage
+# still reported "SKIP (not a release PASS)" and nobody looked.
+#
+# The probe is the half that asks the real question: it compiles against
+# `lib-release.aar` as a *file* (never project(":lib")), so it sees no variant
+# attributes and none of :lib's transitive `api` edges; its debug build proves
+# the compile surface, and its release build runs R8 with the POM closure
+# supplied by hand, which is what exercises the AAR's consumer-rules.pro.
+# See docs/design/android-aar-consumer-api-2026-11-02.md.
 stage_phone_android_release() {
     [ -f "$ROOT/android/gradlew" ] || { echo "missing android/gradlew (committed wrapper)"; return 1; }
+
+    # ---- the deliverable: the published coordinates, and a consumer that
+    #      resolves them the way an external app would ----
+    android_require_jdk
+    rc=$?
+    [ "$rc" = 0 ] || return "$rc"
+
+    gradle_args="--configure-on-demand --console=plain"
+    [ "${CI_GRADLE_OFFLINE:-0}" = 1 ] && gradle_args="$gradle_args --offline"
+    # `publishLocalRepository` is the eight `com.phonedsh` artifacts into
+    # android/build/repo. The consumer probe resolves `com.phonedsh:lib:0.1.0`
+    # from there through its POM — no file dependency, no hand-supplied sibling
+    # list — so the publication has to exist before it builds. A real consumer
+    # publishes once and then only consumes; this stage does both because the
+    # deliverable *is* the pair (artifact + the proof someone else can use it).
+    ( cd "$ROOT/android" && bash ./gradlew $gradle_args ${CI_GRADLE_ARGS:-} \
+        :publishLocalRepository :lib-consumer-test:assembleDebug :lib-consumer-test:assembleRelease ) || {
+        echo "the published artifacts or the consumer probe built against them did not build:"
+        echo "  cd android && ./gradlew :publishLocalRepository :lib-consumer-test:assembleDebug :lib-consumer-test:assembleRelease"
+        return 1
+    }
+
+    # The publication is the fix for L63's finding (a bare AAR left R8 with 44
+    # missing classes because a file dependency has no POM). "The consumer built"
+    # alone would not protect that: the probe could pass again on a hand-supplied
+    # closure. So assert the POM itself carries the split it must carry —
+    # `api` -> compile, `implementation` -> runtime, and the Compose BOM as an
+    # import — and that all eight artifacts really exist.
+    repo="$ROOT/android/build/repo"
+    if ! publish_summary=$("$PYTHON" - "$repo" <<'PY'
+import pathlib
+import re
+import sys
+
+repo = pathlib.Path(sys.argv[1])
+version = "0.1.0"
+# artifact -> binary extension. Five AAR (Android libraries), three JAR (JVM).
+required = {
+    "lib": "aar",
+    "dsh": "aar",
+    "domain": "aar",
+    "controller": "aar",
+    "shell": "aar",
+    "core": "jar",
+    "net": "jar",
+    "platform": "jar",
+}
+problems = []
+for artifact, extension in required.items():
+    base = repo / "com" / "phonedsh" / artifact / version
+    pom = base / "{}-{}.pom".format(artifact, version)
+    binary = base / "{}-{}.{}".format(artifact, version, extension)
+    if not pom.is_file():
+        problems.append("missing {} (publishLocalRepository did not write it)".format(pom.relative_to(repo)))
+    if not binary.is_file():
+        problems.append("missing {} ({})".format(binary.relative_to(repo), extension))
+if problems:
+    sys.exit("; ".join(problems[:6]))
+
+pom = (repo / "com" / "phonedsh" / "lib" / version / "lib-{}.pom".format(version)).read_text()
+
+def scope_of(sibling):
+    match = re.search(
+        r"<artifactId>{}</artifactId>\s*<version>{}</version>\s*<scope>(\w+)</scope>".format(
+            re.escape(sibling), re.escape(version)
+        ),
+        pom,
+    )
+    return match.group(1) if match else None
+
+# :lib's `api` edges: the seven siblings on its closure arrive through these.
+for sibling in ("dsh", "domain", "platform"):
+    if scope_of(sibling) != "compile":
+        problems.append(
+            "lib POM: com.phonedsh:{} is {} scope, not compile — an `api` edge "
+            "did not reach the POM".format(sibling, scope_of(sibling) or "absent")
+        )
+# :dsh is the facade and it is `api`, so its own api edges must be compile too.
+dsh_pom = (repo / "com" / "phonedsh" / "dsh" / version / "dsh-{}.pom".format(version)).read_text()
+for sibling in ("core", "net", "controller", "shell", "platform"):
+    if not re.search(
+        r"<artifactId>{}</artifactId>\s*<version>{}</version>\s*<scope>compile</scope>".format(
+            re.escape(sibling), re.escape(version)
+        ),
+        dsh_pom,
+    ):
+        problems.append("dsh POM: com.phonedsh:{} is not compile scope".format(sibling))
+
+# `implementation` must NOT be on the consumer's compile surface.
+core_ktx = re.search(r"<artifactId>core-ktx</artifactId>.*?<scope>(\w+)</scope>", pom, re.S)
+if core_ktx and core_ktx.group(1) != "runtime":
+    problems.append("lib POM: core-ktx is {} scope, so an `implementation` edge leaked into the compile surface".format(core_ktx.group(1)))
+
+# :lib's Compose dependencies are declared without a version (the BOM owns it),
+# so a POM that loses the BOM import is unresolvable, not merely imprecise.
+if "<scope>import</scope>" not in pom or "<artifactId>compose-bom</artifactId>" not in pom:
+    problems.append("lib POM: the Compose BOM is not imported; :lib's versionless Compose dependencies cannot resolve")
+
+if problems:
+    sys.exit("; ".join(problems[:6]))
+print(
+    "publication: 8 com.phonedsh:{} artifacts, :lib POM carries the api closure "
+    "(compile) and the Compose BOM import".format(version)
+)
+PY
+    ); then
+        return 1
+    fi
+    log "$publish_summary"
+
+    # Existence is not the assertion: the AAR must carry the documented consumer
+    # entry points and the R8 rules that make it survivable in a minified app.
+    # A rename, an accidental `internal`, or a dropped consumerProguardFiles
+    # would all leave a non-empty zip behind, so "non-empty" alone would be a
+    # gate that passes while the artifact stops being consumable.
+    aar="$ROOT/android/lib/build/outputs/aar/lib-release.aar"
+    [ -s "$aar" ] || {
+        echo "assembleRelease wrote no non-empty AAR at android/lib/build/outputs/aar/lib-release.aar"
+        return 1
+    }
+    if ! aar_summary=$("$PYTHON" - "$aar" <<'PY'
+import os
+import sys
+import zipfile
+
+aar = sys.argv[1]
+required = (
+    "com/phonedsh/ui/nav/PdshNavHostKt.class",
+    "com/phonedsh/ui/nav/PdshNavFacts.class",
+    "com/phonedsh/ui/nav/PdshNavState.class",
+    "com/phonedsh/ui/nav/PdshRoute.class",
+    "com/phonedsh/ui/theme/UiThemeKt.class",
+)
+with zipfile.ZipFile(aar) as archive:
+    names = archive.namelist()
+    for member in ("classes.jar", "AndroidManifest.xml", "proguard.txt"):
+        if member not in names:
+            sys.exit("%s: the AAR has no %s; it is not a usable deliverable" % (aar, member))
+    rules = archive.read("proguard.txt").decode("utf-8", "replace")
+    with archive.open("classes.jar") as raw:
+        classes = [n for n in zipfile.ZipFile(raw).namelist() if n.endswith(".class")]
+missing = [name for name in required if name not in classes]
+if missing:
+    sys.exit(
+        "%s: classes.jar is missing the documented consumer entry point(s): %s"
+        % (aar, ", ".join(missing))
+    )
+if "-keepclasseswithmembernames class com.phonedsh.wire.NativeWire" not in rules:
+    sys.exit(
+        "%s: the packaged consumer rules no longer keep the JNI symbol names; "
+        "a minifying consumer gets UnsatisfiedLinkError on the first native call" % aar
+    )
+print(
+    "AAR: %d bytes, %d classes, %d/5 consumer entry points, consumer rules packaged"
+    % (os.path.getsize(aar), len(classes), len(required))
+)
+PY
+    ); then
+        return 1
+    fi
+    log "$aar_summary"
+
+    consumer_apk=""
+    for candidate in "$ROOT"/android/lib-consumer-test/build/outputs/apk/debug/*.apk; do
+        [ -f "$candidate" ] || continue
+        consumer_apk="$candidate"
+        break
+    done
+    [ -n "$consumer_apk" ] || {
+        echo "the consumer probe built no debug APK under android/lib-consumer-test/build/outputs/apk/debug/"
+        echo "  the AAR may exist while nothing in the tree consumes it; that is the failure this probe exists for"
+        return 1
+    }
+    log "consumer probe packaged ${consumer_apk#"$ROOT"/} against com.phonedsh:lib:0.1.0 (Maven coordinate, no file dependency)"
+
+    # ---- the demo APK: needs the NDK product and the worker bundle ----
     so="${CI_ANDROID_SO:-$ROOT/shell/target/aarch64-linux-android/debug/libpdsh_jni.so}"
     if [ ! -f "$so" ]; then
-        skip "arm64-v8a libpdsh_jni.so absent: $so; :app cannot be configured. Build it with: cd shell && cargo ndk -t arm64-v8a build -p pdsh-jni (needs the NDK)"
+        skip "the AAR deliverable and its consumer probe PASSED, but the APK half cannot run: arm64-v8a libpdsh_jni.so absent: $so. Build it with: cd shell && cargo ndk -t arm64-v8a build -p pdsh-jni (needs the NDK)"
         return
     fi
     "$PYTHON" "$ROOT/android/tools/check-native-alignment.py" "$so"
@@ -442,18 +677,30 @@ stage_phone_android_release() {
 
     bundle="$ROOT/examples/probe-app/Bundle/worker"
     if [ ! -d "$bundle" ]; then
-        skip "16 KB alignment PASSED, but assembleRelease cannot run: the gitignored ~65 MB worker bundle is missing. Generate it with: bash examples/probe-app/scripts/copy-bundle-assets.sh (pinned DSH checkout + network)"
+        skip "the AAR deliverable and its consumer probe PASSED and 16 KB alignment PASSED, but assembleRelease cannot run: the gitignored ~65 MB worker bundle is missing. Generate it with: bash examples/probe-app/scripts/copy-bundle-assets.sh (pinned DSH checkout + network)"
         return
     fi
 
-    android_require_jdk
-    rc=$?
-    [ "$rc" = 0 ] || return "$rc"
-
-    gradle_args="--configure-on-demand --console=plain"
-    [ "${CI_GRADLE_OFFLINE:-0}" = 1 ] && gradle_args="$gradle_args --offline"
     ( cd "$ROOT/android" && bash ./gradlew $gradle_args ${CI_GRADLE_ARGS:-} :app:assembleRelease ) || return 1
     log "assembleRelease wrote android/app/build/outputs/apk/release/"
+
+    # The APK holds the only bytes that ship: `PackagePdshJni` copied and
+    # llvm-stripped the cargo artifact, and AGP chose the zip entry's
+    # compression and offset. The check above reads shell/target/, so it cannot
+    # see a strip step that rewrote the program headers, a deflated entry or a
+    # 4 KB-aligned offset. This one can.
+    apk=""
+    for candidate in "$ROOT"/android/app/build/outputs/apk/release/*.apk; do
+        [ -f "$candidate" ] || continue
+        apk="$candidate"
+        break
+    done
+    [ -n "$apk" ] || { echo "assembleRelease succeeded but wrote no APK under android/app/build/outputs/apk/release/"; return 1; }
+    "$PYTHON" "$ROOT/scripts/ci/check-android-16k.py" --root "$ROOT" --apk "$apk" || {
+        echo "the packaged .so is not 16 KB-page ready: Android 15+ 16 KB-page devices would reject it"
+        return 1
+    }
+    log "16 KB alignment proven on the packaged APK: ${apk#"$ROOT"/}"
 }
 
 # G2-FIX-22: Xcode's package resolver rejects a test target that depends on

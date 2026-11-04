@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.defaultMinSize
@@ -45,7 +46,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -53,6 +53,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
+import com.phonedsh.ui.HomeMetrics
 import com.phonedsh.ui.UiStrings
 import com.phonedsh.ui.theme.LocalUiTokens
 import com.phonedsh.ui.theme.LocalUiType
@@ -136,51 +137,37 @@ internal fun PageFrame(
     content: @Composable () -> Unit,
 ) {
     val tokens = LocalUiTokens.current
-    // `colors.background` is tier: unmeasured, so an unspecified value leaves the
-    // platform surface in place instead of an invented sRGB fill.
-    val surface = if (tokens.colors.background.isSpecified) {
-        Modifier.background(tokens.colors.background)
-    } else {
-        Modifier
-    }
+    // PR22 secondary pages inherit HomeSpec.page; the old dynamic background
+    // slot is unresolved on Android and is not the current iOS owner.
     val tagged = if (rootTag != null) modifier.testTag(rootTag) else modifier
 
     Column(
         modifier = tagged
             .fillMaxSize()
-            .then(surface)
+            .background(tokens.colors.page)
             // Edge-to-edge: the horizontal system bars are page-wide; the vertical
             // ones are consumed by the header and by the content box below.
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)),
     ) {
-        Row(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .statusBarsPadding()
                 .defaultMinSize(minHeight = tokens.geometry.pageHeaderMinHeight)
                 .padding(horizontal = tokens.geometry.pageOuterMarginH),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(tokens.spacing.iconText),
+            contentAlignment = Alignment.Center,
         ) {
-            if (onBack != null) {
-                BasicText(
-                    text = PAGE_BACK_GLYPH,
-                    style = LocalUiType.current.secondary.copy(color = tokens.colors.secondary),
-                    modifier = Modifier
-                        .clickable(role = Role.Button, onClick = onBack)
-                        .semantics { contentDescription = UiStrings.BACK }
-                        .padding(tokens.spacing.iconText),
-                )
-            }
             Column(
                 modifier = Modifier
-                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(horizontal = tokens.geometry.pageHeaderMinHeight)
                     .semantics(mergeDescendants = true) {},
+                horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(tokens.spacing.badgeInsetV),
             ) {
                 BasicText(
                     text = title,
-                    style = LocalUiType.current.headline.copy(color = tokens.colors.primary),
+                    style = LocalUiType.current.pageTitle.copy(color = tokens.colors.textPrimary),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.semantics { heading() },
@@ -188,13 +175,29 @@ internal fun PageFrame(
                 if (subtitle != null) {
                     BasicText(
                         text = subtitle,
-                        style = LocalUiType.current.caption.copy(color = tokens.colors.tertiary),
+                    style = LocalUiType.current.navSubtitle.copy(color = tokens.colors.textSubtle),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
-            actions?.invoke()
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (onBack != null) {
+                    BasicText(
+                        text = PAGE_BACK_GLYPH,
+                        style = LocalUiType.current.pageTitle.copy(color = tokens.colors.textPrimary),
+                        modifier = Modifier
+                            .clickable(role = Role.Button, onClick = onBack)
+                            .semantics { contentDescription = UiStrings.BACK }
+                            .padding(tokens.spacing.iconText),
+                    )
+                }
+                Spacer(Modifier.weight(1f))
+                actions?.invoke()
+            }
         }
         Box(
             modifier = Modifier
@@ -239,7 +242,7 @@ internal fun SectionHeader(
         modifier = modifier
             .fillMaxWidth()
             // Page-level geometry: a collapsible group header is a compact list row.
-            .defaultMinSize(minHeight = tokens.geometry.pageListRowMinHeight)
+            .defaultMinSize(minHeight = HomeMetrics.defaultMinListRowHeight)
             .then(if (tag != null) Modifier.testTag(tag) else Modifier)
             .clip(RoundedCornerShape(tokens.radius.codeBlock))
             .clickable(
@@ -261,12 +264,12 @@ internal fun SectionHeader(
     ) {
         BasicText(
             text = CHEVRON,
-            style = type.codeLabel.copy(color = tokens.colors.tertiary),
+            style = type.codeLabel.copy(color = tokens.colors.textTertiary),
             modifier = Modifier.rotate(rotation),
         )
         BasicText(
             text = title,
-            style = type.caption.copy(color = tokens.colors.tertiary),
+            style = type.secondary.copy(color = tokens.colors.textSecondary),
             modifier = Modifier
                 .weight(1f)
                 .semantics { heading() },
@@ -274,7 +277,7 @@ internal fun SectionHeader(
         if (trailing != null) {
             BasicText(
                 text = trailing,
-                style = type.caption.copy(color = tokens.colors.tertiary),
+                style = type.secondary.copy(color = tokens.colors.textSecondary),
             )
         }
     }
@@ -316,7 +319,7 @@ internal fun InfoRow(
             )
             // Page-level geometry: a settings row is a page row and uses the page
             // margin; its floor is the page's own row minimum, not a button size.
-            .defaultMinSize(minHeight = tokens.geometry.pageRowMinHeight)
+            .defaultMinSize(minHeight = HomeMetrics.defaultMinListRowHeight)
             .padding(
                 horizontal = tokens.geometry.pageOuterMarginH,
                 vertical = tokens.spacing.iconText,
@@ -331,22 +334,22 @@ internal fun InfoRow(
         ) {
             BasicText(
                 text = title,
-                style = type.body.copy(
-                    color = if (enabled) tokens.colors.primary else tokens.colors.tertiary,
+                style = type.homeBody.copy(
+                    color = if (enabled) tokens.colors.textPrimary else tokens.colors.textTertiary,
                 ),
                 modifier = Modifier.weight(1f),
             )
             if (value != null) {
                 BasicText(
                     text = value,
-                    style = type.secondary.copy(color = tone.ink(tokens)),
+                    style = type.homeBody.copy(color = tone.ink(tokens)),
                 )
             }
         }
         if (subtitle != null) {
             BasicText(
                 text = subtitle,
-                style = type.caption.copy(color = tokens.colors.tertiary),
+                style = type.secondary.copy(color = tokens.colors.textSecondary),
             )
         }
     }
@@ -385,9 +388,9 @@ internal fun EmptyHint(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(tokens.spacing.iconText),
         ) {
-            BasicText(text = title, style = type.body.copy(color = tokens.colors.tertiary))
+            BasicText(text = title, style = type.homeBody.copy(color = tokens.colors.textPrimary))
             if (hint != null) {
-                BasicText(text = hint, style = type.caption.copy(color = tokens.colors.tertiary))
+                BasicText(text = hint, style = type.secondary.copy(color = tokens.colors.textSecondary))
             }
         }
     }
@@ -396,10 +399,10 @@ internal fun EmptyHint(
 /** The ink for a tone; every branch is a token, never a literal colour. */
 internal fun PageTone.ink(tokens: com.phonedsh.ui.theme.UiTokens): androidx.compose.ui.graphics.Color =
     when (this) {
-        PageTone.NORMAL -> tokens.colors.tertiary
-        PageTone.ON -> tokens.colors.success
-        PageTone.DEGRADED -> tokens.colors.warning
-        PageTone.UNKNOWN -> tokens.colors.tertiary
+        PageTone.NORMAL -> tokens.colors.textSecondary
+        PageTone.ON -> tokens.colors.homeSuccess
+        PageTone.DEGRADED -> tokens.colors.pageWarning
+        PageTone.UNKNOWN -> tokens.colors.textSecondary
     }
 
 /**

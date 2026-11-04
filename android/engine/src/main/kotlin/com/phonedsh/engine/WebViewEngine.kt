@@ -2,6 +2,10 @@
 // SPDX-License-Identifier: MIT
 //
 // ---- single-WebView invariant (plan §6.3-5) --------------------------------
+// Why it exists, what it protects in practice (the app-level cookie jar), the
+// order to change it in, and the tests a second renderer would need:
+//   docs/design/android-single-webview-invariant-2026-11-01.md
+//
 // Chromium allows one renderer per App; this class is the only place in the tree
 // that constructs a WebView, and [liveWebViews] + the assertion in [createWebView]
 // make a second one a loud IllegalStateException instead of a silent renderer

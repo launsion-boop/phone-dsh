@@ -9,7 +9,7 @@
   "source": {
     "file": "PersonalAgentChatPage.swift",
     "path": "examples/probe-app/PhoneDSHProbe/PersonalAgent/PersonalAgentChatPage.swift",
-    "lines": 490,
+    "lines": 489,
     "structLine": 6,
     "renderedFrom": [
       "body",
@@ -36,11 +36,12 @@
       "kind": "region",
       "title": "正在确认最终结果；请勿重复操作。",
       "titleTemplate": null,
+      "dynamicTitle": false,
       "titleSource": "header-text",
       "condition": null,
       "collection": null,
       "rows": [],
-      "provenance": "PersonalAgentChatPage.swift:350",
+      "provenance": "PersonalAgentChatPage.swift:354",
       "anchor": "Text(\"正在确认最终结果；请勿重复操作。\")",
       "extraction": "syntax",
       "note": "header Text only; its rows are the following siblings in the same stack"
@@ -63,7 +64,7 @@
       "presents": "sheet-84"
     },
     {
-      "id": "button-93",
+      "id": "button-97",
       "label": null,
       "labelExpr": null,
       "kind": "button",
@@ -72,7 +73,7 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "PersonalAgentChatPage.swift:93",
+      "provenance": "PersonalAgentChatPage.swift:97",
       "anchor": "Button(action: onOpenMemory) {",
       "extraction": "manual"
     },
@@ -86,7 +87,7 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "PersonalAgentChatPage.swift:111",
+      "provenance": "PersonalAgentChatPage.swift:115",
       "anchor": "Button(\"在 DSH 中查看\", action: onOpenDSH)",
       "extraction": "syntax"
     },
@@ -100,7 +101,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "PersonalAgentChatPage.swift:179",
+      "provenance": "PersonalAgentChatPage.swift:183",
       "anchor": "Button(\"记住\") { Task { await model.acceptCandidate(candidate.id) } }",
       "extraction": "syntax"
     },
@@ -114,12 +115,12 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "PersonalAgentChatPage.swift:180",
+      "provenance": "PersonalAgentChatPage.swift:184",
       "anchor": "Button(\"不用\") { Task { await model.rejectCandidate(candidate.id) } }",
       "extraction": "syntax"
     },
     {
-      "id": "button-220",
+      "id": "button-224",
       "label": null,
       "labelExpr": null,
       "kind": "button",
@@ -128,7 +129,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "PersonalAgentChatPage.swift:220",
+      "provenance": "PersonalAgentChatPage.swift:224",
       "anchor": "Button(suggestion) { model.draft = suggestion }",
       "extraction": "manual"
     },
@@ -142,7 +143,7 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "PersonalAgentChatPage.swift:255",
+      "provenance": "PersonalAgentChatPage.swift:259",
       "anchor": "Button(\"配置模型\", action: onConfigureModel)",
       "extraction": "syntax"
     },
@@ -156,12 +157,12 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "PersonalAgentChatPage.swift:256",
+      "provenance": "PersonalAgentChatPage.swift:260",
       "anchor": "Button(\"先去 DSH\", action: onOpenDSH)",
       "extraction": "syntax"
     },
     {
-      "id": "button-293",
+      "id": "button-297",
       "label": null,
       "labelExpr": "artifact.title",
       "kind": "button",
@@ -170,12 +171,12 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "PersonalAgentChatPage.swift:293",
+      "provenance": "PersonalAgentChatPage.swift:297",
       "anchor": "Button {",
       "extraction": "manual"
     },
     {
-      "id": "button-322",
+      "id": "button-326",
       "label": null,
       "labelExpr": null,
       "kind": "button",
@@ -184,12 +185,12 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "PersonalAgentChatPage.swift:322",
+      "provenance": "PersonalAgentChatPage.swift:326",
       "anchor": "Button { Task { await model.dismissPendingQuestion() } } label: {",
       "extraction": "manual"
     },
     {
-      "id": "button-331",
+      "id": "button-335",
       "label": null,
       "labelExpr": null,
       "kind": "button",
@@ -198,7 +199,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "PersonalAgentChatPage.swift:331",
+      "provenance": "PersonalAgentChatPage.swift:335",
       "anchor": "Button(choice) { Task { await model.answerPendingQuestion(choice) } }",
       "extraction": "manual"
     },
@@ -212,12 +213,12 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "PersonalAgentChatPage.swift:347",
+      "provenance": "PersonalAgentChatPage.swift:351",
       "anchor": "Button(\"撤销\") { onUndoOperation(operation.id) }",
       "extraction": "syntax"
     },
     {
-      "id": "button-365",
+      "id": "button-369",
       "label": null,
       "labelExpr": null,
       "kind": "button",
@@ -226,7 +227,7 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "PersonalAgentChatPage.swift:365",
+      "provenance": "PersonalAgentChatPage.swift:369",
       "anchor": "Button(sourceTitle(source)) { selectSource(source) }",
       "extraction": "manual"
     },
@@ -240,12 +241,12 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "PersonalAgentChatPage.swift:368",
+      "provenance": "PersonalAgentChatPage.swift:372",
       "anchor": "Button(\"管理连接器\") { onManageConnector(nil) }",
       "extraction": "syntax"
     },
     {
-      "id": "button-391",
+      "id": "button-390",
       "label": null,
       "labelExpr": null,
       "kind": "button",
@@ -254,12 +255,12 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "PersonalAgentChatPage.swift:391",
+      "provenance": "PersonalAgentChatPage.swift:390",
       "anchor": "Button {",
       "extraction": "manual"
     },
     {
-      "id": "button-408",
+      "id": "button-407",
       "label": null,
       "labelExpr": null,
       "kind": "button",
@@ -268,7 +269,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "PersonalAgentChatPage.swift:408",
+      "provenance": "PersonalAgentChatPage.swift:407",
       "anchor": "Button {",
       "extraction": "manual"
     },
@@ -282,13 +283,13 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "PersonalAgentChatPage.swift:119",
+      "provenance": "PersonalAgentChatPage.swift:123",
       "anchor": ".accessibilityLabel(\"更多\")",
       "extraction": "syntax"
     },
     {
-      "id": "menu-363",
-      "label": null,
+      "id": "来源-sourcetitle-model-sourceselection",
+      "label": "来源：{sourceTitle(model.sourceSelection)}",
       "labelExpr": null,
       "kind": "menu",
       "trigger": "tap",
@@ -296,9 +297,10 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "PersonalAgentChatPage.swift:363",
-      "anchor": "Menu {",
-      "extraction": "manual"
+      "provenance": "PersonalAgentChatPage.swift:381",
+      "anchor": ".accessibilityLabel(\"来源：\\(sourceTitle(model.sourceSelection))\")",
+      "extraction": "syntax",
+      "dynamicLabel": true
     }
   ],
   "presentations": [
@@ -312,7 +314,7 @@
       ],
       "span": [
         84,
-        88
+        92
       ],
       "provenance": "PersonalAgentChatPage.swift:84",
       "anchor": ".sheet(isPresented: $showFollowUps) {",
@@ -327,7 +329,7 @@
         {
           "renders": "模型尚未配置",
           "when": null,
-          "provenance": "PersonalAgentChatPage.swift:251",
+          "provenance": "PersonalAgentChatPage.swift:255",
           "anchor": "Text(\"模型尚未配置\").font(.headline)"
         }
       ],
@@ -346,19 +348,19 @@
         {
           "renders": "排队中 \\(model.queuedTurns.count)",
           "when": "!model.queuedTurns.isEmpty",
-          "provenance": "PersonalAgentChatPage.swift:160",
+          "provenance": "PersonalAgentChatPage.swift:164",
           "anchor": "Text(\"排队中 \\(model.queuedTurns.count)\")"
         },
         {
           "renders": "正在发送",
           "when": null,
-          "provenance": "PersonalAgentChatPage.swift:345",
+          "provenance": "PersonalAgentChatPage.swift:349",
           "anchor": "Text(\"正在发送\")"
         },
         {
           "renders": "正在确认最终结果；请勿重复操作。",
           "when": null,
-          "provenance": "PersonalAgentChatPage.swift:350",
+          "provenance": "PersonalAgentChatPage.swift:354",
           "anchor": "Text(\"正在确认最终结果；请勿重复操作。\")"
         }
       ]

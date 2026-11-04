@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: MIT
-// :lib is the only published AAR entry point:
-//   com.phonedsh:lib:0.0.0-SNAPSHOT
-// The composition-root app depends on this coordinate only; sibling modules
-// are transitive POM entries with the same version. Android library.
+// :lib is the published AAR entry point:
+//   com.phonedsh:lib:0.1.0
+// The composition-root app depends on this coordinate only; the seven sibling
+// modules on the `api` closure are transitive POM entries with the same version
+// (android/build.gradle.kts applies maven-publish to all eight at once, so the
+// coordinate cannot drift between :lib and the POM that names them). Android
+// library.
 //
 // Compose is declared `api` because the AAR's public surface is a composable
 // UI package (com.phonedsh.ui): a consumer that wants to embed a page must be
@@ -11,12 +14,19 @@ plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    id("maven-publish")
 }
 
 group = "com.phonedsh"
-version = "0.0.0-SNAPSHOT"
-// The maven-publish block (release component + POM) lands when the first AAR
-// is cut; P0 fixes only the coordinate and the public api surface.
+// Same number as the app's `versionName`: a consumer pinning this coordinate is
+// asking for the code version 0.1.0 of the app was built from.
+version = "0.1.0"
+// `maven-publish` is applied from android/build.gradle.kts (release component +
+// POM for the AAR modules, `java` component for the JAR ones, one repository,
+// one version). The publication this module produces is:
+//   com.phonedsh:lib:0.1.0              packaging=aar
+// and its POM's `compile` scope is exactly this block's `api` edges, which is
+// what makes the seven siblings arrive for a consumer that declares one line.
 
 android {
     namespace = "com.phonedsh.lib"
@@ -41,6 +51,17 @@ android {
     buildFeatures {
         buildConfig = false
         compose = true
+    }
+
+    // Declare the one variant this module publishes, and nothing else. Besides
+    // pinning the release variant, this is what keeps the `-sources` jar out of
+    // the publication: AGP builds one when it is asked for it, and for this
+    // module that jar would be malformed — the token codegen directory sits in
+    // both the kotlin and the java source set, so the archive is assembled from
+    // every source file twice (measured on the first publish: 248 entries, 78
+    // duplicated). A consumer needs the AAR and the POM.
+    publishing {
+        singleVariant("release")
     }
 
     compileOptions {
@@ -85,6 +106,11 @@ androidComponents {
 // ---------------------------------------------------------------------------
 val repoRoot: File = rootProject.projectDir.parentFile
 val tokensJson: File = repoRoot.resolve("spec/ui/v1/tokens.json")
+// PR22 values are reviewed from the iOS owners into `tokens.json` (HomeSpec for
+// the page table; the still-active component files for their own roles). The
+// generator reads only that reviewed JSON, so Swift/HTML never becomes a second
+// Kotlin truth table. Compatibility names are declared as aliases to canonical
+// leaves and are emitted as accessors, not duplicated token objects.
 val generatedTokensDir: File = layout.buildDirectory.dir("generated/ui-tokens/kotlin").get().asFile
 
 fun upperSnake(name: String): String =
@@ -115,6 +141,9 @@ val generateUiTokens = tasks.register("generateUiTokens") {
         val stroke = spec["stroke"] as Map<String, Any?>
         val motion = spec["motion"] as Map<String, Any?>
         val geometry = spec["geometry"] as Map<String, Any?>
+        val componentMetrics = spec["componentMetrics"] as? Map<String, Map<String, Any?>> ?: emptyMap()
+        val shadows = spec["shadows"] as? Map<String, Map<String, Any?>> ?: emptyMap()
+        val aliases = spec["aliases"] as? Map<String, Map<String, String>> ?: emptyMap()
         val surfaces = spec["signatureSurfaces"] as Map<String, Any?>
 
         val names = StringBuilder()
@@ -129,10 +158,16 @@ val generateUiTokens = tasks.register("generateUiTokens") {
         val surfaceFields = StringBuilder()
         val surfaceList = StringBuilder()
 
+        fun aliasFor(family: String, key: String): String? = aliases[family]?.get(key)
+
         fun nameConst(family: String, key: String): String {
             val token = "$family.$key"
+            // A canonical leaf that is also a compatibility spelling keeps the
+            // canonical object; its legacy constant resolves to the canonical
+            // role this surface should consume (e.g. success -> sessionSuccess).
+            val target = aliasFor(family, key) ?: token
             names.append(
-                "    public const val ${upperSnake(family)}_${upperSnake(key)}: String = \"$token\"\n"
+                "    public const val ${upperSnake(family)}_${upperSnake(key)}: String = \"$target\"\n"
             )
             return token
         }
@@ -143,11 +178,16 @@ val generateUiTokens = tasks.register("generateUiTokens") {
             val light = entry["light"] as String?
             val dark = entry["dark"] as String?
             val unmeasured = light == null || dark == null
+            val lightAlpha = (entry["lightAlpha"] as? Number)?.toFloat() ?: 1f
+            val darkAlpha = (entry["darkAlpha"] as? Number)?.toFloat() ?: 1f
             fields.append(
                 "    public val color${camel(key)}: TokenColor = TokenColor(\n" +
                     "        name = \"$token\",\n" +
                     "        light = ${light?.let { argb(it) } ?: "null"},\n" +
                     "        dark = ${dark?.let { argb(it) } ?: "null"},\n" +
+                    "        lightAlpha = ${lightAlpha}f,\n" +
+                    "        darkAlpha = ${darkAlpha}f,\n" +
+                    "        semantic = ${kotlinString(entry["semantic"] as String?)},\n" +
                     "        unmeasured = $unmeasured,\n" +
                     "        note = ${kotlinString(entry["note"] as String?)},\n" +
                     "    )\n"
@@ -161,8 +201,9 @@ val generateUiTokens = tasks.register("generateUiTokens") {
             val baseSize = (entry["baseSize"] as Number).toFloat()
             val weight = (entry["weight"] as Number).toInt()
             val mono = entry["mono"] as Boolean
+            val lineHeight = (entry["lineHeight"] as Number?)?.toFloat()?.let { "${it}f" } ?: "null"
             fields.append(
-                "    public val type${camel(key)}: TokenType = TokenType(\"$token\", ${baseSize}f, $weight, $mono)\n"
+                "    public val type${camel(key)}: TokenType = TokenType(\"$token\", ${baseSize}f, $weight, $mono, $lineHeight)\n"
             )
             typeMap.append("        \"$token\" to type${camel(key)},\n")
         }
@@ -208,6 +249,60 @@ val generateUiTokens = tasks.register("generateUiTokens") {
             geometryMap.append("        \"$token\" to geometry${camel(key)},\n")
         }
 
+        // Compatibility accessors are generated from declared canonical JSON
+        // leaves; aliases never add duplicate token objects to UiTokenData and
+        // never become a second value table.
+        for ((family, aliasMap) in aliases) {
+            val canonicalKeys = when (family) {
+                "colors" -> colors.keys
+                "typography" -> styles.keys
+                "spacing" -> spacing.keys
+                "radius" -> radius.keys
+                "stroke" -> stroke.keys
+                "motion" -> motion.keys
+                "geometry" -> geometry.keys
+                else -> emptySet()
+            }
+            for ((alias, target) in aliasMap) {
+                if (alias in canonicalKeys) continue
+                val targetParts = target.split(".", limit = 2)
+                val targetExists = targetParts.size == 2 && when (targetParts[0]) {
+                    "colors" -> targetParts[1] in colors
+                    "typography" -> targetParts[1] in styles
+                    "spacing" -> targetParts[1] in spacing
+                    "radius" -> targetParts[1] in radius
+                    "stroke" -> targetParts[1] in stroke
+                    "motion" -> targetParts[1] in motion
+                    "geometry" -> targetParts[1] in geometry
+                    else -> false
+                }
+                require(targetExists) { "aliases.$family.$alias targets missing token '$target'" }
+                names.append(
+                    "    public const val ${upperSnake(family)}_${upperSnake(alias)}: String = \"$target\"\n"
+                )
+                val property = when (family) {
+                    "colors" -> "color${camel(alias)}"
+                    "typography" -> "type${camel(alias)}"
+                    "spacing", "radius", "stroke" -> "$family${camel(alias)}"
+                    "geometry" -> "geometry${camel(alias)}"
+                    else -> continue
+                }
+                val sourceMap = when (family) {
+                    "colors" -> "colors"
+                    "typography" -> "types"
+                    else -> family
+                }
+                val tokenClass = when (family) {
+                    "colors" -> "TokenColor"
+                    "typography" -> "TokenType"
+                    "spacing", "radius", "stroke" -> "TokenDp"
+                    "geometry" -> "TokenGeometry"
+                    else -> continue
+                }
+                fields.append("    public val $property: $tokenClass get() = $sourceMap.getValue(\"$target\")\n")
+            }
+        }
+
         surfaces.forEach { (id, raw) ->
             val entry = raw as Map<String, Any?>
             val tokens = (entry["tokens"] as List<*>).map { it.toString() }
@@ -230,11 +325,15 @@ val generateUiTokens = tasks.register("generateUiTokens") {
         out.append("/** One colour token; a null channel is `tier: unmeasured` and MUST NOT be invented. */\n")
         out.append("public data class TokenColor(\n")
         out.append("    public val name: String,\n    public val light: Long?,\n    public val dark: Long?,\n")
+        out.append("    public val lightAlpha: Float = 1f,\n    public val darkAlpha: Float = 1f,\n")
+        out.append("    public val semantic: String? = null,\n")
         out.append("    public val unmeasured: Boolean,\n    public val note: String?,\n)\n\n")
         out.append("/** One typography token: a base size in pt that the platform scale multiplies. */\n")
         out.append("public data class TokenType(\n")
         out.append("    public val name: String,\n    public val baseSize: Float,\n    public val weight: Int,\n")
-        out.append("    public val mono: Boolean,\n)\n\n")
+        out.append("    public val mono: Boolean,\n")
+        out.append("    /** Optional line box in pt (PR22 HomeSpec roles); null keeps the platform line height. */\n")
+        out.append("    public val lineHeight: Float? = null,\n)\n\n")
         out.append("/** A spacing/radius/stroke token, in dp on Android. */\n")
         out.append("public data class TokenDp(public val name: String, public val value: Float)\n\n")
         out.append("/** A motion token; `curve` is the spec's curve name, resolved by the theme. */\n")
@@ -268,10 +367,73 @@ val generateUiTokens = tasks.register("generateUiTokens") {
         out.append("    public val stroke: Map<String, TokenDp> = mapOf(\n").append(strokeMap).append("    )\n")
         out.append("    public val motion: Map<String, TokenMotion> = mapOf(\n").append(motionMap).append("    )\n")
         out.append("    public val geometry: Map<String, TokenGeometry> = mapOf(\n").append(geometryMap).append("    )\n")
-        out.append("    /** Every leaf token name, in the spec's own spelling. */\n")
+        out.append("    /** Every canonical leaf token name, in the spec's own spelling. */\n")
         out.append("    public val allNames: Set<String> =\n")
         out.append("        colors.keys + types.keys + spacing.keys + radius.keys + stroke.keys + motion.keys + geometry.keys\n")
         out.append("}\n")
+
+        // The HomeSpec compatibility facade is generated exclusively from the
+        // reviewed JSON tokens above. It is a naming adapter, not a second source.
+        val home = StringBuilder()
+        home.append("// GENERATED FILE - do not edit. Source: spec/ui/v1/tokens.json\n")
+        home.append("// SPDX-License-Identifier: MIT\n")
+        home.append("// Regenerate with: ./gradlew :lib:generateUiTokens\n")
+        home.append("package com.phonedsh.ui.theme.generated\n\n")
+        home.append("/** PR22 HomeSpec compatibility names derived from canonical tokens. */\n")
+        home.append("public object HomeSpecData {\n")
+        geometry.forEach { (key, raw) ->
+            home.append("    public const val ${upperSnake(key)}: Float = ${(raw as Map<*, *>)["value"]}f\n")
+        }
+        spacing.forEach { (key, raw) -> home.append("    public const val ${upperSnake(key)}: Float = ${raw}f\n") }
+        radius.forEach { (key, raw) ->
+            val constant = when (key) {
+                "bubble" -> "BUBBLE_RADIUS"
+                "listCard" -> "LIST_CARD_RADIUS"
+                "composerOpen" -> "COMPOSER_OPEN_RADIUS"
+                else -> upperSnake(key)
+            }
+            home.append("    public const val $constant: Float = ${raw}f\n")
+        }
+        componentMetrics.forEach { (key, raw) ->
+            home.append("    public const val ${upperSnake(key)}: Float = ${(raw["value"] as Number).toFloat()}f\n")
+        }
+        fun homeType(name: String, constName: String, line: Boolean = false) {
+            val entry = styles.getValue(name) as Map<*, *>
+            val field = if (line) "lineHeight" else "baseSize"
+            val value = entry[field] ?: return
+            home.append("    public const val ${constName}: Float = ${(value as Number).toFloat()}f\n")
+        }
+        listOf(
+            "navTitle" to "NAV_TITLE_SIZE", "navSubtitle" to "NAV_SUBTITLE_SIZE",
+            "body" to "BODY_SIZE", "process" to "PROCESS_SIZE", "listItem" to "LIST_ITEM_SIZE",
+            "tagLabel" to "TAG_LABEL_SIZE", "tabLabel" to "TAB_LABEL_SIZE",
+        ).forEach { (name, constant) -> homeType(name, constant) }
+        listOf(
+            "navTitle" to "NAV_TITLE_LINE", "navSubtitle" to "NAV_SUBTITLE_LINE",
+            "body" to "BODY_LINE", "listItem" to "LIST_ITEM_LINE",
+        ).forEach { (name, constant) -> homeType(name, constant, line = true) }
+        colors.forEach { (key, raw) ->
+            val entry = raw as Map<String, Any?>
+            fun asLong(channel: String): Long? =
+                (entry[channel] as? String)?.removePrefix("#")?.let { ("FF" + it).toLong(16) }
+            asLong("light")?.let { home.append("    public const val ${upperSnake(key)}_LIGHT: Long = ${it}L\n") }
+            asLong("dark")?.let { home.append("    public const val ${upperSnake(key)}_DARK: Long = ${it}L\n") }
+        }
+        home.append("\n    /** Shadow helpers: black opacity, SwiftUI blur radius and y offset, in pt. */\n")
+        home.append("    public object Shadow {\n")
+        for ((role, prefix) in listOf("floating" to "FLOATING", "composer" to "COMPOSER")) {
+            val entry = shadows[role] ?: continue
+            for (part in listOf("opacity", "radius", "y")) {
+                home.append("        public const val ${prefix}_${part.uppercase()}: Float = ${(entry.getValue(part) as Number).toFloat()}f\n")
+            }
+        }
+        home.append("    }\n")
+        home.append("    public val types: Map<String, TokenType> = UiTokenData.types\n")
+        home.append("}\n")
+
+        val homeTarget = generatedTokensDir.resolve("com/phonedsh/ui/theme/generated/HomeSpecData.kt")
+        homeTarget.parentFile.mkdirs()
+        homeTarget.writeText(home.toString())
 
         val target = generatedTokensDir.resolve("com/phonedsh/ui/theme/generated/UiTokenData.kt")
         target.parentFile.mkdirs()
@@ -312,6 +474,20 @@ dependencies {
         api(project(":dsh"))
     }
     api(project(":platform"))
+    // The device-connector pages take `:domain` **snapshot value types** as their
+    // factory parameters (the connector's projected state, the transcript items, the
+    // paging window), so a consumer that embeds a page compiles against the same
+    // types instead of a private copy — that is why this is `api`.
+    //
+    // What they do *not* read is the connector machinery: `DeviceConnector`,
+    // `ConnectorStateMachine` and `ReadOnlyDeviceSessionTransport` are referenced only
+    // from `src/test` / `src/androidTest` here, against the in-memory fixtures. The
+    // production wiring (`DeviceConnectionSource` / `DeviceSessionSource`) lives in
+    // `:domain` itself, and the App hands the page an `InMemoryConnector`-backed
+    // source. An earlier version of this comment claimed the pages read that seam —
+    // they do not, and a maintainer who believed it would go looking for a binding
+    // that isn't there.
+    api(project(":domain"))
     implementation(libs.androidx.core.ktx)
 
     // Compose: the AAR's public surface is composable, so the runtime and the
@@ -322,6 +498,8 @@ dependencies {
     api("androidx.compose.ui:ui-text")
     api("androidx.compose.animation:animation")
     api("androidx.compose.material3:material3")
+    // Temporary native Canvas math renderer spike; review before adoption.
+    implementation("io.github.erweixin:ratex-android:0.1.15")
     implementation("androidx.compose.ui:ui-tooling-preview")
     debugImplementation("androidx.compose.ui:ui-tooling")
 
@@ -342,4 +520,50 @@ dependencies {
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test:core:1.6.1")
+}
+
+// ---- the published coordinate ------------------------------------------------
+// `com.phonedsh:lib:0.1.0`, packaging=aar. Version, repository and POM metadata
+// come from android/build.gradle.kts (root `subprojects` block); this module
+// only names the software component. `afterEvaluate` is required, not
+// defensive: AGP creates the `release` component from its variant API after this
+// script has been evaluated, so a script-level
+// `from(components["release"])` fails with
+// "SoftwareComponent with name 'release' not found".
+publishing {
+    publications {
+        create<MavenPublication>("release") {
+            afterEvaluate { from(components["release"]) }
+        }
+    }
+}
+
+// ---- the local-only switch can never become a published artifact -------------
+// `-Ppdsh.uiCoreOnly=true` (line ~325) narrows this module's `api` edge from
+// `:dsh` to `:core` + `:platform` so a mid-flight compile break in a sibling lane
+// cannot block the UI contract. That is a diagnostic build, not a product.
+//
+// Publishing it would write a `com.phonedsh:lib:0.1.0` POM whose `compile` scope
+// is `:core` + `:platform` only — missing `dsh`, `controller`, `shell`, `net` and
+// through `dsh` no `domain` either: five of the eight artifacts — under the SAME
+// version number as the complete publication. The consumer would then fail in R8
+// exactly the way L63 measured (44 missing classes), with nothing on disk saying
+// which of the two 0.1.0 POMs it resolved.
+//
+// So the POM/publish tasks fail loudly instead of writing it. The flag stays
+// usable for `assembleDebug` / `test`, which is all it was ever for.
+tasks.matching {
+    it.name.startsWith("generatePomFileFor") || it.name.startsWith("publish")
+}.configureEach {
+    doFirst {
+        if (uiCoreOnly) {
+            throw org.gradle.api.GradleException(
+                "refusing to publish :lib with -Ppdsh.uiCoreOnly=true: that build's api edge is " +
+                    ":core + :platform only, so the POM would be missing dsh, controller, shell, " +
+                    "net and the domain edge — five of the eight com.phonedsh artifacts — while " +
+                    "carrying the same 0.1.0 coordinate as the complete publication. Re-run " +
+                    "without the flag to produce the real artifact.",
+            )
+        }
+    }
 }

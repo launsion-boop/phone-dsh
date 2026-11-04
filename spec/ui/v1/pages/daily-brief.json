@@ -27,12 +27,12 @@
   },
   "sections": [
     {
-      "id": "n-条内容",
-      "title": "N 条内容",
-      "titleTemplate": "{report.itemCount} 条内容",
-      "dynamicTitle": true,
+      "id": "section-18",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
       "titleExpression": null,
-      "titleSource": "template",
+      "titleSource": "absent",
       "condition": null,
       "collection": null,
       "rows": [
@@ -193,9 +193,14 @@
           "extraction": "manual"
         }
       ],
-      "provenance": "DailyBriefPage.swift:47",
-      "anchor": "Text(\"\\(report.itemCount) 条内容\")",
-      "extraction": "syntax"
+      "provenance": "DailyBriefPage.swift:18",
+      "anchor": "Section {",
+      "extraction": "syntax",
+      "criterion": {
+        "kind": "first-row",
+        "label": "添加来源后，打开页面就会更新",
+        "provenance": "DailyBriefPage.swift:29"
+      }
     },
     {
       "id": "最新一期",
@@ -429,7 +434,7 @@
       "labelExpr": null,
       "kind": "toggle",
       "trigger": "tap",
-      "semantic": null,
+      "semantic": "binding:Binding( get: { source.isEnabled }, set: { enabled in Task { await model.setEnabled(enabled, source: source) } } )",
       "writes": true,
       "destination": null,
       "condition": null,
@@ -538,6 +543,27 @@
       "anchor": "Button(saving ? \"添加中…\" : \"添加\") {",
       "extraction": "syntax",
       "presentedBy": "sheet-153"
+    },
+    {
+      "id": "重试",
+      "label": "重试",
+      "labelExpr": null,
+      "kind": "action",
+      "trigger": "tap",
+      "semantic": null,
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "extraction": "manual",
+      "androidOnly": {
+        "reason": {
+          "baselineLacks": "DailyBriefPage.swift reads the brief from local state, so the read cannot fail and needs no retry",
+          "androidNeeds": "Android reads a host snapshot across a process boundary, so the read can fail and the page must offer recovery without leaving and re-entering",
+          "withoutIt": "a failed read leaves the page blank with no way back except killing the app"
+        },
+        "owner": "android-ui",
+        "reviewBy": "2027-01-31"
+      }
     }
   ],
   "presentations": [
@@ -578,7 +604,7 @@
       ],
       "data": [
         {
-          "renders": "N 条内容 | 最新一期 | untitled section at 74 | 资讯来源 | 本次更新问题",
+          "renders": "untitled section at 18 | 最新一期 | untitled section at 74 | 资讯来源 | 本次更新问题",
           "when": null,
           "provenance": "DailyBriefPage.swift:8",
           "anchor": "struct DailyBriefPage: View {",

@@ -64,6 +64,12 @@ class Fixture(unittest.TestCase):
 
 
 class ReferenceTests(Fixture):
+    def setUp(self):
+        super().setUp()
+        self.write("spec/README.md", "# Protocol baseline\n")
+        self.write("AGENTS.md", "# Collaboration\n")
+        self.write("CLAUDE.md", "@AGENTS.md\n")
+
     def test_reachable_reference_and_placeholder(self):
         self.write("spec/a/README.md", "See spec/a/b.md and spec/v1/file.md.\n")
         self.write("spec/a/b.md", "b\n")
@@ -113,6 +119,63 @@ class ReferenceTests(Fixture):
                 "spec/a/four.py",
             ],
         )
+
+    def test_baseline_links_resolve_sources_tests_and_directories(self):
+        self.write("Sources/wire.ts", "// wire\n")
+        (self.root / "Tests").mkdir()
+        self.write("spec/README.md", "[source](../Sources/wire.ts) [tests](../Tests/)\n")
+        self.write("AGENTS.md", "[baseline](spec/README.md#rules)\n")
+        self.assert_ok(cross_check.check_references(self.root))
+
+    def test_stale_baseline_source_link_fails(self):
+        self.write("spec/README.md", "[source](../Sources/deleted.ts)\n")
+        self.assert_fail(cross_check.check_references(self.root), "missing baseline link")
+
+    def test_baseline_links_accept_titles_and_angle_destinations(self):
+        self.write("Sources/wire.ts", "// wire\n")
+        self.write("Sources/wire notes.md", "notes\n")
+        self.write("spec/README.md", '[wire](../Sources/wire.ts "source") '
+                   '[notes](<../Sources/wire notes.md> "details")\n')
+        self.assert_ok(cross_check.check_references(self.root))
+
+    def test_baseline_link_cannot_escape_repo(self):
+        self.write("spec/README.md", "[outside](../../outside.md)\n")
+        self.assert_fail(cross_check.check_references(self.root), "escapes the repository")
+
+    def test_baseline_symlink_target_cannot_escape_repo(self):
+        (self.root / "outside").symlink_to(self.root.parent, target_is_directory=True)
+        self.write("spec/README.md", "[outside](../outside/)\n")
+        self.assert_fail(cross_check.check_references(self.root), "escapes the repository")
+
+    def test_external_urls_and_local_anchors_are_not_fetched(self):
+        self.write("spec/README.md", "[source](https://example.invalid/a) [section](#rules)\n")
+        self.assert_ok(cross_check.check_references(self.root))
+
+    def test_missing_baseline_entrypoint_fails(self):
+        (self.root / "spec/README.md").unlink()
+        self.assert_fail(cross_check.check_references(self.root), "missing or unreadable baseline")
+
+    def test_copied_claude_rules_fail_even_if_content_is_identical(self):
+        (self.root / "CLAUDE.md").unlink()
+        self.write("CLAUDE.md", (self.root / "AGENTS.md").read_text())
+        self.assert_fail(cross_check.check_references(self.root), "first nonempty line must be @AGENTS.md")
+
+
+    def test_claude_import_allows_initial_blank_lines(self):
+        self.write("CLAUDE.md", "\n\n@AGENTS.md\n")
+        self.assert_ok(cross_check.check_references(self.root))
+
+    def test_claude_symlink_is_rejected(self):
+        (self.root / "CLAUDE.md").unlink()
+        self.write("import.md", "@AGENTS.md\n")
+        (self.root / "CLAUDE.md").symlink_to("import.md")
+        self.assert_fail(cross_check.check_references(self.root), "must be a regular file")
+
+    def test_missing_or_empty_claude_fails(self):
+        (self.root / "CLAUDE.md").unlink()
+        self.assert_fail(cross_check.check_references(self.root), "must be a regular file")
+        self.write("CLAUDE.md", "\n")
+        self.assert_fail(cross_check.check_references(self.root), "first nonempty line")
 
 
 class PlatformContractTests(Fixture):

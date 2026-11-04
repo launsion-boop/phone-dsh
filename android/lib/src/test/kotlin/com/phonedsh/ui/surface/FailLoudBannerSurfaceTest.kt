@@ -66,15 +66,26 @@ class FailLoudBannerSurfaceTest {
     }
 
     @Test
-    fun `a send failure keeps the draft line and offers only dismiss`() {
+    fun `a send failure preserves a supplied retry action and dismiss`() {
+        var retries = 0
+        var dismissals = 0
         compose.setContent {
             PdshTheme {
-                FailLoudBanner(kind = FailLoudKind.SEND, message = "发送被拒", onDismiss = {})
+                FailLoudBanner(
+                    kind = FailLoudKind.SEND,
+                    message = "发送被拒",
+                    onRetry = { retries += 1 },
+                    onDismiss = { dismissals += 1 },
+                )
             }
         }
         compose.onNodeWithText(UiStrings.SEND_FAILED).assertIsDisplayed()
-        compose.onNodeWithTag(UiTags.BANNER_RETRY).assertDoesNotExist()
+        compose.onNodeWithTag(UiTags.BANNER_RETRY).assertIsDisplayed()
         compose.onNodeWithTag(UiTags.BANNER_DISMISS).assertIsDisplayed()
+        compose.onNodeWithTag(UiTags.BANNER_RETRY).performClick()
+        compose.onNodeWithTag(UiTags.BANNER_DISMISS).performClick()
+        assertEquals(1, retries)
+        assertEquals(1, dismissals)
     }
 
     @Test

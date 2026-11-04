@@ -169,13 +169,14 @@ data class ExecRequest(
                 detail = "argv must name the program",
             )
         }
-        if (argv.any { it.isEmpty() }) {
-            throw ExecRequestException(
-                field = "argv",
-                reason = ExecRequestException.Reason.BAD_VALUE,
-                detail = "an argv element is empty",
-            )
-        }
+        // An empty *element* is a legal argument, not a malformed payload.
+        // channel.md §4.2 types argv as "array of strings" and §10's list of
+        // BAD_PAYLOAD causes (bad JSON, identifier, capability set, level or
+        // length field) does not include an element's content; exec.md §1's
+        // canonical-JSON identity and `idem_key` derivation both carry `""`
+        // unchanged. `rg -N ''` is therefore a well-formed request and the host
+        // must dispatch it — rejecting it with BAD_PAYLOAD closed the ordered
+        // channel for a request the Worker is entitled to send.
         if (!cwd.startsWith("/")) {
             throw ExecRequestException(
                 field = "cwd",
@@ -359,9 +360,8 @@ data class ExecRequest(
                 if (element !is String) {
                     fail("argv", ExecRequestException.Reason.WRONG_TYPE, "argv elements must be strings")
                 }
-                if (element.isEmpty()) {
-                    fail("argv", ExecRequestException.Reason.BAD_VALUE, "argv elements must not be empty")
-                }
+                // No emptiness check: see [ExecRequest.init]. `""` is an
+                // argument, and refusing it here is what closed the channel.
                 argv.add(element)
             }
             return argv

@@ -309,7 +309,8 @@ public actor DSHRemoteHarness: AgentHarness {
                 }
             case "error":
                 let error = DSHRemoteError(code: frame["error"]?["code"]?.stringValue ?? "gateway/internal",
-                                           message: frame["error"]?["message"]?.stringValue ?? "")
+                                           message: frame["error"]?["message"]?.stringValue ?? "",
+                                           details: frame["error"]?["details"])
                 throw error
             case "end":
                 return progressed

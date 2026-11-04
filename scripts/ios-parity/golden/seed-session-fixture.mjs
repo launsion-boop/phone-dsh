@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+# SPDX-License-Identifier: MIT
 /**
  * SUPERSEDED — kept as the failure evidence, not as the working seeder.
  *

@@ -33,6 +33,14 @@ async function settle(): Promise<void> {
   await new Promise<void>((resolve) => setTimeout(resolve, 0))
 }
 
+async function waitForResult(condition: () => boolean, label: string): Promise<void> {
+  const deadline = Date.now() + 5_000
+  while (!condition()) {
+    assert.ok(Date.now() < deadline, `Timed out waiting for ${label}`)
+    await settle()
+  }
+}
+
 function collect(client: MemoryChannelClient): Frame[] {
   const frames: Frame[] = []
   client.onFrame((frame) => frames.push(frame))
@@ -630,8 +638,8 @@ test('bootFromInit redacts image token/env from CONSOLE and page errors', async 
         fence: { owner: 'phone', generation: 0, wal_seq: 0 },
       },
     }, runtime)
-    await settle()
-    await settle()
+    await waitForResult(() => pageMessages.some(message => (message as {t?: unknown})?.t === 'pdsh-error'),
+      'the completed redacted boot failure')
     const consoleText = hostFrames
       .filter(frame => frame.type === FrameType.CONSOLE)
       .map(frame => (JSON.parse(decodeUtf8(frame.payload)) as { text: string }).text)
@@ -680,7 +688,7 @@ test('bootFromInit posts a terminal pdsh-error for pre-host failures', async () 
         fence: { owner: '', generation: 0, wal_seq: 0 },
       },
     })
-    await settle()
+    await waitForResult(() => pageMessages.length === 1, 'the field-validation failure')
     bootFromInit({
       image: `http://127.0.0.1:7411/image.tar.gz?token=${token}`,
       overlays: [],
@@ -691,8 +699,7 @@ test('bootFromInit posts a terminal pdsh-error for pre-host failures', async () 
         fence: { owner: 'phone', generation: 0, wal_seq: 0 },
       },
     }, runtime)
-    await settle()
-    await settle()
+    await waitForResult(() => pageMessages.length === 2, 'the channel failure')
     assert.equal(pageMessages.length, 2)
     assert.equal(pageMessages[0]?.t, 'pdsh-error')
     assert.match(String(pageMessages[0]?.message), /fence\.owner is required/)

@@ -41,14 +41,18 @@ public protocol DSHMuxConnection: Sendable {
 }
 
 /// Remote errors carried in `result.error.code`.
-public struct DSHRemoteError: Error, Equatable, Sendable {
+public struct DSHRemoteError: LocalizedError, Equatable, Sendable {
     public var code: String
     public var message: String
+    public var details: JSONValue?
 
-    public init(code: String, message: String) {
+    public init(code: String, message: String, details: JSONValue? = nil) {
         self.code = code
         self.message = message
+        self.details = details
     }
+
+    public var errorDescription: String? { "[\(code)] \(message)" }
 
     public var providerError: ProviderError {
         switch code {
@@ -207,7 +211,8 @@ public actor DSHWebTransport: DSHRemoteTransport {
         guard let result = envelope["result"] else { throw ProviderError.invalidResponse("no result") }
         if result["ok"]?.boolValue == true { return result["value"] ?? .null }
         throw DSHRemoteError(code: result["error"]?["code"]?.stringValue ?? "unknown",
-                             message: result["error"]?["message"]?.stringValue ?? "")
+                             message: result["error"]?["message"]?.stringValue ?? "",
+                             details: result["error"]?["details"])
     }
 }
 

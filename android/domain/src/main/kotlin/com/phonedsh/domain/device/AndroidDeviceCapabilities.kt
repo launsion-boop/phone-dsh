@@ -22,6 +22,13 @@
 // from a measurement to a published manifest is [asDiscoveredDevice], and it fills
 // only the members a measurement answers (a screen target's pixel size), per
 // [LocalDeviceManifest].
+//
+// The measured half is also reachable on its own, through [platformFacts]: a host
+// that has no device manifest to publish (the phone app reading its own permissions,
+// say) still has these runtime facts, and requiring a fabricated manifest to read
+// them would be a fake declaration in exchange for a real reading. The class stays
+// the manifest-bound face of the same measurement, so a caller that *does* publish
+// a manifest gets one consistent snapshot of both halves.
 
 package com.phonedsh.domain.device
 
@@ -47,14 +54,7 @@ class AndroidDeviceCapabilities(
     override fun snapshot(): DeviceCapabilitySnapshot =
         DeviceCapabilitySnapshot(
             manifest = manifest,
-            platform = AndroidPlatformFacts(
-                sdkInt = Build.VERSION.SDK_INT,
-                supportedAbis = Build.SUPPORTED_ABIS.toList(),
-                display = displayFacts(),
-                webView = webViewFacts(),
-                foregroundService = foregroundServiceFacts(),
-                totalMemoryBytes = totalMemoryBytes(),
-            ),
+            platform = platformFacts(context),
         )
 
     /**
@@ -73,70 +73,94 @@ class AndroidDeviceCapabilities(
         return LocalDeviceManifest.of(identity, current.manifest.capabilities, current.platform)
     }
 
-    private fun displayFacts(): DisplayFacts {
-        val metrics = context.resources.displayMetrics
-        return DisplayFacts(
-            widthPx = metrics.widthPixels,
-            heightPx = metrics.heightPixels,
-            densityDpi = metrics.densityDpi,
-            density = metrics.density,
-        )
-    }
-
-    @Suppress("DEPRECATION") // the flags-free getPackageInfo overload predates API 33
-    private fun webViewFacts(): WebViewFacts {
-        val provider = WebView.getCurrentWebViewPackage() ?: return WebViewFacts(null, null)
-        val versionName = try {
-            context.packageManager.getPackageInfo(provider.packageName, 0).versionName
-        } catch (_: PackageManager.NameNotFoundException) {
-            null
+    companion object {
+        /**
+         * Reads the measured half of [DeviceCapabilitySnapshot] with no manifest.
+         *
+         * This is the same measurement [snapshot] folds into its result, exposed for
+         * callers whose question is about the device rather than about a published
+         * contract: the phone-permission host reads its own notification and
+         * foreground-service state through here, so the two never describe different
+         * moments. Nothing is defaulted — a missing WebView provider, memory reading
+         * or API-gated permission keeps its `null`.
+         *
+         * @param context any context; only the application context is used.
+         */
+        fun platformFacts(context: Context): AndroidPlatformFacts {
+            val app = context.applicationContext ?: context
+            return AndroidPlatformFacts(
+                sdkInt = Build.VERSION.SDK_INT,
+                supportedAbis = Build.SUPPORTED_ABIS.toList(),
+                display = displayFacts(app),
+                webView = webViewFacts(app),
+                foregroundService = foregroundServiceFacts(app),
+                totalMemoryBytes = totalMemoryBytes(app),
+            )
         }
-        return WebViewFacts(provider.packageName, versionName)
-    }
 
-    private fun foregroundServiceFacts(): ForegroundServiceFacts {
-        val api = Build.VERSION.SDK_INT
-        return ForegroundServiceFacts(
-            basePermissionGranted = isGranted(PERMISSION_FOREGROUND_SERVICE),
-            notificationPermissionGranted =
-                if (api >= 33) isGranted(PERMISSION_POST_NOTIFICATIONS) else null,
-            microphoneTypeGranted =
-                if (api >= 34) isGranted(PERMISSION_FOREGROUND_SERVICE_MICROPHONE) else null,
-            connectedDeviceTypeGranted =
-                if (api >= 34) isGranted(PERMISSION_FOREGROUND_SERVICE_CONNECTED_DEVICE) else null,
-            dataSyncTypeGranted =
-                if (api >= 34) isGranted(PERMISSION_FOREGROUND_SERVICE_DATA_SYNC) else null,
-            mediaPlaybackTypeGranted =
-                if (api >= 34) isGranted(PERMISSION_FOREGROUND_SERVICE_MEDIA_PLAYBACK) else null,
-        )
-    }
-
-    private fun isGranted(permission: String): Boolean =
-        context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
-
-    private fun totalMemoryBytes(): Long? {
-        val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
-            ?: return null
-        val info = ActivityManager.MemoryInfo()
-        manager.getMemoryInfo(info)
-        // totalMem is 0 only on a failed/absent reading; that is "unknown", and
-        // the caller must not turn it into a tier.
-        return if (info.totalMem > 0L) info.totalMem else null
-    }
-
-    private companion object {
         // String literals rather than `Manifest.permission.*`: the per-type
         // permissions were added in API 34 and a literal keeps the class honest
         // about calling them only behind the version check above.
-        const val PERMISSION_FOREGROUND_SERVICE = "android.permission.FOREGROUND_SERVICE"
-        const val PERMISSION_POST_NOTIFICATIONS = "android.permission.POST_NOTIFICATIONS"
-        const val PERMISSION_FOREGROUND_SERVICE_MICROPHONE =
+        private const val PERMISSION_FOREGROUND_SERVICE = "android.permission.FOREGROUND_SERVICE"
+        private const val PERMISSION_POST_NOTIFICATIONS = "android.permission.POST_NOTIFICATIONS"
+        private const val PERMISSION_FOREGROUND_SERVICE_MICROPHONE =
             "android.permission.FOREGROUND_SERVICE_MICROPHONE"
-        const val PERMISSION_FOREGROUND_SERVICE_CONNECTED_DEVICE =
+        private const val PERMISSION_FOREGROUND_SERVICE_CONNECTED_DEVICE =
             "android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE"
-        const val PERMISSION_FOREGROUND_SERVICE_DATA_SYNC =
+        private const val PERMISSION_FOREGROUND_SERVICE_DATA_SYNC =
             "android.permission.FOREGROUND_SERVICE_DATA_SYNC"
-        const val PERMISSION_FOREGROUND_SERVICE_MEDIA_PLAYBACK =
+        private const val PERMISSION_FOREGROUND_SERVICE_MEDIA_PLAYBACK =
             "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
+
+        private fun displayFacts(context: Context): DisplayFacts {
+            val metrics = context.resources.displayMetrics
+            return DisplayFacts(
+                widthPx = metrics.widthPixels,
+                heightPx = metrics.heightPixels,
+                densityDpi = metrics.densityDpi,
+                density = metrics.density,
+            )
+        }
+
+        @Suppress("DEPRECATION") // the flags-free getPackageInfo overload predates API 33
+        private fun webViewFacts(context: Context): WebViewFacts {
+            val provider = WebView.getCurrentWebViewPackage() ?: return WebViewFacts(null, null)
+            val versionName = try {
+                context.packageManager.getPackageInfo(provider.packageName, 0).versionName
+            } catch (_: PackageManager.NameNotFoundException) {
+                null
+            }
+            return WebViewFacts(provider.packageName, versionName)
+        }
+
+        private fun foregroundServiceFacts(context: Context): ForegroundServiceFacts {
+            val api = Build.VERSION.SDK_INT
+            return ForegroundServiceFacts(
+                basePermissionGranted = isGranted(context, PERMISSION_FOREGROUND_SERVICE),
+                notificationPermissionGranted =
+                    if (api >= 33) isGranted(context, PERMISSION_POST_NOTIFICATIONS) else null,
+                microphoneTypeGranted =
+                    if (api >= 34) isGranted(context, PERMISSION_FOREGROUND_SERVICE_MICROPHONE) else null,
+                connectedDeviceTypeGranted =
+                    if (api >= 34) isGranted(context, PERMISSION_FOREGROUND_SERVICE_CONNECTED_DEVICE) else null,
+                dataSyncTypeGranted =
+                    if (api >= 34) isGranted(context, PERMISSION_FOREGROUND_SERVICE_DATA_SYNC) else null,
+                mediaPlaybackTypeGranted =
+                    if (api >= 34) isGranted(context, PERMISSION_FOREGROUND_SERVICE_MEDIA_PLAYBACK) else null,
+            )
+        }
+
+        private fun isGranted(context: Context, permission: String): Boolean =
+            context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
+
+        private fun totalMemoryBytes(context: Context): Long? {
+            val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+                ?: return null
+            val info = ActivityManager.MemoryInfo()
+            manager.getMemoryInfo(info)
+            // totalMem is 0 only on a failed/absent reading; that is "unknown", and
+            // the caller must not turn it into a tier.
+            return if (info.totalMem > 0L) info.totalMem else null
+        }
     }
 }

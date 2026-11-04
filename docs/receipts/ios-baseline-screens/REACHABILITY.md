@@ -1,13 +1,15 @@
-# iOS page reachability audit (HEAD 2026-10-31)
+# iOS page reachability audit — HEAD `86a39aac` (2026-11-01, post-PR-#13)
 
-Scope: the 24 page contracts in `spec/ui/v1/pages/*.json` (excluding `_baseline`,
-`_whitelist`, `_android-only`). For each contract page: can a user reach it in the
-Debug probe app **without** launch arguments, and what is the evidence?
+Scope: the **32 page contracts** in `spec/ui/v1/pages/*.json` (excluding the
+`_*.json` registries) plus the 3 Android-only screens registered in
+`pages/_android-only.json`. For each: can a user reach it in the Debug probe app
+**without** launch arguments, and what is the evidence?
 
-The audit was done by grepping every call site of the page's `struct` in
-`examples/probe-app/PhoneDSHProbe/` (read-only). "0 call sites" means the page
-type is declared but nothing instantiates it; a lone `.sheet` binding that is
-never set is also unreachable.
+Method: every call site of the page's `struct` was grepped in
+`examples/probe-app/PhoneDSHProbe/` (read-only), and the `PreviewScreen` router
+(`NativeShell.swift:737`) was read case by case. "0 call sites" means the type is
+declared but nothing instantiates it; a `.sheet` binding that is never set is
+unreachable too. This file is the evidence behind the README §1 「入口」 column.
 
 Legend:
 
@@ -17,67 +19,74 @@ Legend:
 
 | # | page id | iOS page | status | evidence |
 |---|---|---|---|---|
-| 1 | `chat` | `ChatPage` | user-reachable | root of the shell: `NativeShell.swift:108` `ChatPage(openDrawer:)` |
-| 2 | `sessions` | `SessionsPage` | user-reachable | drawer body: `NativeShell.swift:284` `SessionsPage(onSelect:)` |
-| 3 | `files` | `FilesPage` | user-reachable | drawer folder → `NativeShell.swift:329`; workbench → `NativeWorkbenchPage.swift:24` |
-| 4 | `settings` | `SettingsPage` | user-reachable | drawer 设置 → `NativeShell.swift:307`; chat toolbar → `ChatPage.swift:255` |
-| 5 | `model-provider-settings` | `ModelProviderSettingsPage` | user-reachable | `SettingsPage.swift:75` row 模型服务; `ChatPage.swift:247`/`:251`; web sheets `RootView.swift:47` |
-| 6 | `web-search-settings` | `WebSearchSettingsPage` | user-reachable | `SettingsPage.swift:88` row 网页搜索; `RootView.swift:56` |
-| 7 | `mcp-settings` | `MCPSettingsPage` | user-reachable | `SettingsPage.swift:76` row MCP; `RootView.swift:68` |
-| 8 | `mcp-editor` | `MCPEditorPage` | user-reachable | pushed by MCP settings: `MCPSettingsPage.swift:61`, `:83`, `:114` |
-| 9 | `native-configuration` | `NativeConfigurationPage` | user-reachable | chat `⋯` → `ChatPage.swift:259`/`:263`; sessions row menu → `SessionsPage.swift:349`; settings 插件与模型 → `SettingsPage.swift:56` |
-| 10 | `native-automation` | `NativeAutomationPage` | user-reachable | drawer 定时任务 → `NativeShell.swift:310`; sessions menu → `SessionsPage.swift:343` |
-| 11 | `egress-allow-list` | `EgressAllowListPage` | user-reachable | `SettingsPage.swift:89` row 网络访问 |
-| 12 | `runtime-details` | `RuntimeDetailsPage` | user-reachable | chat header status dot → `ChatPage.swift:273`; settings about row → `SettingsPage.swift:288` |
-| 13 | `workspace-folders` | `WorkspaceFoldersPage` | user-reachable | drawer 工作文件夹 → `NativeShell.swift:311` |
-| 14 | `pdsh-shell` | `PDSHShellPage` | user-reachable | `SettingsPage.swift:95` row 命令; workbench panel → `NativeWorkbenchPage.swift:26` |
-| 15 | `native-workbench` | `NativeWorkbenchPage` | user-reachable (conditional) | sheet wired at `ChatPage.swift:242`, opened from a tool-written file path |
-| 16 | `export` | `ExportPage` | user-reachable | `SettingsPage.swift:130` 关于 → 导出诊断 sheet |
-| 17 | `web-surface` | `WebSurfacePage` | user-reachable | default surface whenever the local Web host is up: `RootView.swift:17` (not covered by this lane) |
-| 18 | `settings-about` | `SettingsAboutPage` | **preview-only** | only `NativeShell.swift:775` (`settings.about`); in the product the 关于 rows are a group inside `SettingsPage`, not a page |
-| 19 | `session-activity` | `SessionActivityPage` | **unreachable** | only `ChatPage.swift:294` inside `.sheet(isPresented: $showActivity)`. `showActivity` is declared at `ChatPage.swift:51` and never assigned `true` — the sheet can never present. The spec itself says "基線不可达" |
-| 20 | `memory` | `MemoryPage` | **unreachable** | only `SettingsPage.swift:541` inside `DevelopmentToolsPage`; see note below |
-| 21 | `probes` | `ProbesPage` | **unreachable** | only `SettingsPage.swift:540`, same dead branch |
-| 22 | `background` | `BackgroundPage` | **unreachable** | only `SettingsPage.swift:542`, same dead branch |
-| 23 | `task-screen` | `TaskScreenPage` | **unreachable** | only `SettingsPage.swift:543`, same dead branch |
-| 24 | `daily-brief` | `DailyBriefPage` | **unreachable** | **zero** call sites in the whole app (`grep 'DailyBriefPage('` → nothing) |
+| 1 | `chat` | `ChatPage` | user-reachable | root of the shell: `NativeShell.swift:122`; `-uiPreview sample` |
+| 2 | `sessions` | `SessionsPage` | user-reachable | drawer body: `NativeShell.swift:288` |
+| 3 | `settings` | `SettingsPage` | user-reachable | drawer 设置 → `NativeShell.swift:310`; chat `⋯` → `ChatPage.swift:396` |
+| 4 | `native-general` (no contract) | `NativeGeneralSettingsPage` | user-reachable (embedded) | 通用 tab body: `SettingsPage.swift:85` |
+| 5 | `model-provider-settings` | `ModelProviderSettingsPage` | user-reachable | 模型 tab: `SettingsPage.swift:85`; chat start card: `ChatPage.swift:388`/`:392` |
+| 6 | `native-plugin-inventory` | `NativePluginInventoryPage` | user-reachable | 插件 tab: `SettingsPage.swift:86` |
+| 7 | `phone-permissions` | `PhonePermissionsPage` | user-reachable | 手机权限 tab: `SettingsPage.swift:87`; `-uiPreview settings.permissions` |
+| 8 | `native-agent-presets` | `NativeAgentPresetsPage` | user-reachable | 预设 tab: `SettingsPage.swift:88` |
+| 9 | `native-shortcuts` | `NativeShortcutsPage` | user-reachable | 通用 tab row 快捷键: `SettingsPage.swift:145` |
+| 10 | `native-configuration` | `NativeConfigurationPage` | user-reachable | chat `⋯` → 本会话设置: `ChatPage.swift:400`/`:404`; 插件配置 row: `NativePluginInventoryPage.swift:19` |
+| 11 | `web-search-settings` | `WebSearchSettingsPage` | user-reachable | 插件配置 page → 网页搜索: `NativeConfigurationPage.swift:132` |
+| 12 | `runtime-details` | `RuntimeDetailsPage` | user-reachable | chat header device glyph: `ChatPage.swift:414` (the settings 运行时 row is **gone**) |
+| 13 | `session-artifacts` | `SessionArtifactsPage` | user-reachable | chat `⋯` → 产物: `ChatPage.swift:455` |
+| 14 | `native-device-connection` | `NativeDeviceConnectionPage` | user-reachable | chat `⋯` → 设备连接: `ChatPage.swift:461` |
+| 15 | `native-device-session` | `NativeDeviceSessionPage` | user-reachable | device-connection row: `NativeDeviceConnectionPage.swift:126` |
+| 16 | `native-automation` | `NativeAutomationPage` | user-reachable | drawer 定时任务: `NativeShell.swift:313`; sessions menu: `SessionsPage.swift:346` |
+| 17 | `files` | `FilesPage` | user-reachable (workbench only) | `NativeWorkbenchPage.swift:24`; the workbench opens from a tool-written path: `ChatPage.swift:383` |
+| 18 | `pdsh-shell` | `PDSHShellPage` | user-reachable (workbench only) | `NativeWorkbenchPage.swift:26` |
+| 19 | `native-workbench` | `NativeWorkbenchPage` | user-reachable (conditional) | `ChatPage.swift:383`, opened from a tool-written file path |
+| 20 | `mcp-editor` | `MCPEditorPage` | **unreachable** | its only parents are `MCPSettingsPage.swift:38/60/91`, and MCPSettingsPage itself has 0 call sites |
+| 21 | `workspace-folders` | `WorkspaceFoldersPage` | **preview-only** | only `NativeShell.swift:786` (`-uiPreview workspace`); the drawer's 工作文件夹 row was removed — it now holds 定时任务 and 设置 only (`NativeShell.swift:298`–`:305`) |
+| 22 | `egress-allow-list` | `EgressAllowListPage` | **preview-only** | only `NativeShell.swift:778` (`settings.network`) |
+| 23 | `settings-about` | `SettingsAboutPage` | **preview-only** | only `NativeShell.swift:782` (`settings.about`); the product has no standalone About page |
+| 24 | `mcp-settings` | `MCPSettingsPage` | **unreachable** | **zero** call sites; no `-uiPreview` case either |
+| 25 | `export` | `ExportPage` | **unreachable** | zero call sites (the 关于 group's 导出诊断 row left with the flat index) |
+| 26 | `chat-preferences` | `ChatPreferencesPage` | **unreachable** | zero call sites; the settings rewrite dropped whatever opened it |
+| 27 | `native-settings-document` | `NativeSettingsDocumentPage` | **unreachable** | zero call sites (the presets page's 查看配置 is its only would-be parent) |
+| 28 | `session-activity` | `SessionActivityPage` | **unreachable** | only `ChatPage.swift:504` inside `.sheet(isPresented: $showActivity)`; `showActivity` is declared at `ChatPage.swift:79` and never set `true` |
+| 29 | `memory` | `MemoryPage` | **unreachable** | zero call sites; `DevelopmentToolsPage`, its only parent, was deleted with PR #13 |
+| 30 | `probes` | `ProbesPage` | **unreachable** | zero call sites, same reason |
+| 31 | `background` | `BackgroundPage` | **unreachable** | zero call sites, same reason |
+| 32 | `task-screen` | `TaskScreenPage` | **unreachable** | zero call sites, same reason |
+| 33 | `daily-brief` | `DailyBriefPage` | **unreachable** | zero call sites |
+| A1 | `—` | `WebSurfacePage` (Android-only) | **no iOS page** | deleted at `495da9b5` «Remove the app's complete-Web surface»; `RootView.swift:9` renders `NativeShell()` unconditionally |
+| A2 | `—` | `SessionHistoryPage` (Android-only) | **no iOS page** | no `struct SessionHistoryPage`; history is the chat `⋯` → 历史 entry |
+| A3 | `—` | `GoalDetailPage` (Android-only) | **no iOS page** | no `struct GoalDetailPage`; the goal is a bar in ChatPage |
 
-## Why 20–23 are unreachable
+## What PR #13 moved
 
-`SettingsPage.body` mounts exactly three groups:
-
-```swift
-List {
-    mainGroup
-    toolsGroup
-    aboutGroup
-}
-```
-
-`developerGroup` (`SettingsPage.swift:512`) and `developerSection` (`:524`) are
-dead code: neither is mounted, and nothing else references them. They are the
-only parents of `DevelopmentToolsPage` (`:537`), which is the only parent of
-`ProbesPage` / `MemoryPage` / `BackgroundPage` / `TaskScreenPage` / `ExportPage`
-(`:540–:544`). So in the Debug build the 探针工具 screen exists as source but has
-no navigation path. The contract's table ("设置 → 探针工具（仅 DEBUG）") describes a
-link that is no longer mounted. `ExportPage` survives because the 关于 group
-reaches it through `导出诊断` (`:130`).
-
-The visible Settings page confirms this: `ios-settings.png` has 权限 / 写之前 /
-模型服务 / MCP / 后台运行 / 工具 / 关于 and **no 开发者 row**.
+* **Gained an entry:** `phone-permissions`, `native-agent-presets`,
+  `native-plugin-inventory`, `native-shortcuts`, `session-artifacts`,
+  `native-device-connection`/`native-device-session`.
+* **Lost an entry:** `settings-about`, `egress-allow-list`, `mcp-settings`
+  (settings rows removed by the five-tab rewrite), `runtime-details` (settings
+  row gone, chat header glyph remains), `workspace-folders` (drawer row gone),
+  `export` (the 关于 group is gone), `chat-preferences`, `native-settings-document`,
+  `memory`/`probes`/`background`/`task-screen` (their parent `DevelopmentToolsPage`
+  was deleted).
+* `SettingsPage`'s contract `unreachable` list is now **empty**: the two dead
+  sections the old contract recorded (`runtimeSection`, `advancedSection`) were
+  deleted with the rewrite. `ChatPage`'s `showActivity` remains the only
+  declared-but-never-set sheet in the app.
 
 ## Consequence for the P1 lane
 
-* Reachable and captured: chat (+7 states), sessions (+6 states), files,
+* **Captured in this directory (26 states):** chat (8), sessions (6), files,
   settings, settings.model / search / network / plugins / about / runtime,
-  schedules (native-automation), workspace-folders, shell (pdsh-shell),
-  code.block.
-* Reachable by tap only, not in `-uiPreview`, therefore not captured this round:
-  MCP settings, MCP editor, native-workbench (needs a tool-written path), export.
-* Not reachable, not captured, no substitute: background, probes, task-screen,
-  memory, session-activity, daily-brief.
+  schedules, workspace-folders, shell, code-block.
+* **Reachable but not captured** (no `-uiPreview` name; the 27-state list is
+  frozen because `ParityStates.kt` registers it): native-agent-presets,
+  native-plugin-inventory, phone-permissions, native-shortcuts, session-artifacts,
+  native-device-connection, native-device-session, native-workbench,
+  native-configuration. Capturing them needs new `PreviewScreen` cases — an iOS
+  source change, out of this lane — or XCUITest taps.
+* **Not reachable, not captured:** the nine "unreachable" rows above plus
+  `mcp-editor`. Their contracts describe code that exists, not pixels a user can
+  see; the parent lane's rule "don't copy dead code" applies to them.
 
-The six unreachable pages' contracts are therefore contracts over **code that
-exists**, not over pixels a user can see. The parent lane's rule "don't copy
-dead code" applies to them; this audit is the evidence, and no screenshots of
-those pages exist in this receipt.
+The machine-readable version of this audit is
+`python3 spec/ui/v1/tools/page_structure_check.py --strict`, which compares each
+contract against the Android screen it names and prints the remaining workload.

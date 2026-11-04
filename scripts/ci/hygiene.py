@@ -5,10 +5,34 @@
 The scan is deliberately conservative about false positives: absolute home
 paths are only reported at a path boundary (so ``/dsh/home/**`` and a
 ``materialized/home/`` directory name are not findings), and reserved domains
-used by tests (``.example``, ``.example.com``, ``.invalid``, ``.internal``,
-``.test``, ``.localhost``) are accepted hostnames.  Every remaining finding can
-be suppressed by one regular expression per line in
+used by tests (``.example``, ``.example.com``, ``.example.org``, ``.invalid``,
+``.internal``, ``.test``, ``.localhost``) are accepted hostnames.  Every
+remaining finding can be suppressed by one regular expression per line in
 ``scripts/ci/hygiene-allow.txt``.
+
+The ``hostname`` rule asks one question: does this token name infrastructure a
+reader could reach, and therefore attribute to a person or a private network?
+Tokens that merely *look* like a hostname are not findings, and each such
+exemption below is a rule about a class of token, never about a file:
+
+* an XML namespace identifier -- ``xmlns`` values are opaque strings the parser
+  never dereferences, and ``schemas.android.com`` in an ``AndroidManifest.xml``
+  is a required declaration, not an endpoint;
+* a prefix of a longer dotted identifier -- ``com.sun.net`` in
+  ``import com.sun.net.httpserver.HttpServer`` is a Java package, not a host;
+* a macOS/iOS application-bundle name -- ``.app`` is both a real gTLD and the
+  bundle suffix, and a CamelCase label before it (``Google Chrome.app``,
+  ``PhoneDSHProbe.app``) is a file name;
+* an unroutable IPv4 literal -- loopback, link-local, RFC 1918 and RFC 5737
+  addresses name nothing a reader can reach, and a placeholder octet
+  (``192.168.x.x``) is not even a number.  A *public* IPv4 is still a finding;
+* an elided placeholder -- ``/Users/...`` and ``https://…`` are redaction
+  markers, and ``<root>/home/a`` is a path fragment appended to a symbolic
+  root, not an absolute path.
+
+The analogues for the ``email`` rule are a scale suffix on an image asset
+(``running-whale@2x.png``) and a language-labelled receiver
+(``this@drawWithContent``).
 """
 
 from __future__ import annotations
@@ -66,6 +90,11 @@ PACKAGE_PATH_PREFIXES = (
     "org.xmlpull.",
     "sun.",
     "jdk.",
+    # The app's own install id (`com.phonedsh.app`) is an Android package name,
+    # not infrastructure. The rule matched it the moment the applicationId moved
+    # off `com.phonedsh.probe`, which is the same false positive the list above
+    # was created for -- a dotted identifier whose last segment looks like a TLD.
+    "com.phonedsh.",
 )
 
 
@@ -80,9 +109,44 @@ def looks_like_package_path(candidate):
     return tail.isalpha() and tail.isupper() and len(tail) <= 5
 
 
+# Third-party hosts the project deliberately cites or samples.  These are real
+# public services, not infrastructure anyone can attribute to a contributor, so
+# they are the same kind of entry as github.com/nodejs.org above -- and, like
+# those, they are scoped to the *value*: a different host on the same line of
+# the same file is still a finding.
+CITED_PUBLIC_HOSTS = {
+    # `SettingsParitySamples.kt` renders the egress allow-list page for the UI
+    # screenshot diff, so it needs a page of plausible sample entries.
+    "api.open-meteo.com",
+    "geocoding-api.open-meteo.com",
+    "api.github.com",
+    "pypi.org",
+    "files.pythonhosted.org",
+    "registry.npmjs.org",
+    "cdn.jsdelivr.net",
+    "unpkg.com",
+    "en.wikipedia.org",
+    "api.duckduckgo.com",
+    "html.duckduckgo.com",
+    "lite.duckduckgo.com",
+    # Public specifications the JSC compatibility notes quote by section.
+    "webidl.spec.whatwg.org",
+    "streams.spec.whatwg.org",
+    # Licence and product pages cited by the office-conversion research note.
+    "getlocalcode.app",
+    "www.libreoffice.org",
+    "www.collaboraonline.com",
+    "www.gnu.org",
+    "cloudconvert.com",
+    "developers.google.com",
+    "purchase.aspose.com",
+    "learn.microsoft.com",
+}
+
 RESERVED_HOST_SUFFIXES = (
     ".example",
     ".example.com",
+    ".example.org",
     ".invalid",
     ".internal",
     ".test",
@@ -111,6 +175,43 @@ CREDENTIAL_RES = [
     re.compile(r"AKIA[0-9A-Z]{16}"),
     re.compile(r"-----BEGIN"),
 ]
+
+# The attribute value of an XML namespace declaration.  The parser hands the
+# string to an XML resolver as an opaque identifier and never opens a socket, so
+# `xmlns:android="http://schemas.android.com/apk/res/android"` -- required
+# boilerplate in every AndroidManifest.xml and vector drawable -- is not an
+# upstream.  Matching the attribute (rather than the one host) also covers
+# `xmlns:tools`, SVG's `www.w3.org` namespace and any future declaration.
+XMLNS_RE = re.compile(
+    r"""\bxmlns(?::[A-Za-z_][\w.-]*)?\s*=\s*("[^"]*"|'[^']*')""",
+)
+
+# A hostname that is only the ASCII ellipsis or the Unicode one: `https://...`
+# and `https://…` are how the receipts elide a URL they do not want to publish.
+ELLIPSIS_HOST_RE = re.compile(r"^[.…]+$")
+# A path whose "root" is a symbolic placeholder: `<root>/home/a`, `${REPO}/Users/x`.
+# The slash does not start an absolute path there, it continues a relative join.
+PLACEHOLDER_ROOT_RE = re.compile(
+    r"(?:<[^<>\s]{1,40}>|\$\{?[A-Za-z_][A-Za-z0-9_]*\}?)$"
+)
+
+# A dotted identifier that keeps going: `com.sun.net.httpserver.HttpServer` and
+# `io.ktor.utils.io.readAvailable` are Java/Kotlin package and member paths.  The
+# matched prefix is a hostname only if nothing identifier-like follows the dot.
+DOTTED_CONTINUATION_RE = re.compile(r"\.[A-Za-z_]")
+
+# `running-whale@2x.png` is a retina asset name, not a mailbox: `@2x`/`@3x` in
+# front of an image extension is the Apple scale-suffix convention.
+EMAIL_SCALE_SUFFIX_RE = re.compile(
+    r"@\d+x?\.(?:png|jpe?g|gif|webp|avif|heic|heif|tiff?|bmp|svg|pdf|ico)$",
+    re.IGNORECASE,
+)
+# `this@drawWithContent.drawContent()` labels the receiver in Kotlin; the local
+# part of a real address is never a reserved receiver keyword.
+EMAIL_KEYWORD_LOCALS = {"this", "it", "super", "self"}
+
+IPV4_RE = re.compile(r"(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})")
+PLACEHOLDER_IPV4_RE = re.compile(r"^[0-9xX*n]{1,3}(?:\.[0-9xX*n]{1,3}){3}$")
 
 
 def load_allowlist(root):
@@ -144,13 +245,87 @@ def host_allowed(host):
     # The fixed native tool name is an API identifier, not a private hostname.
     if host == "notify.local":
         return True
-    if host in ALLOWED_HOSTS:
+    if host in ALLOWED_HOSTS or host in CITED_PUBLIC_HOSTS:
         return True
     if host.rsplit(":", 1)[-1].isdigit() and host.count(":") == 1:
         host = host.rsplit(":", 1)[0]
-    if host in ALLOWED_HOSTS:
+    if host in ALLOWED_HOSTS or host in CITED_PUBLIC_HOSTS:
+        return True
+    if unroutable_ipv4(host):
         return True
     return any(host.endswith(suffix) for suffix in RESERVED_HOST_SUFFIXES)
+
+
+def unroutable_ipv4(host):
+    """True for an IPv4 literal that cannot name an attributable endpoint.
+
+    Loopback, link-local, RFC 1918 private space, the 100.64/10 carrier-grade
+    NAT block and the RFC 5737 documentation ranges are not addresses a reader
+    can reach, so naming one attributes nothing.  A placeholder octet
+    (``192.168.x.x``) is not even a number.  A *public* IPv4 literal is still a
+    finding: that one does point at infrastructure.
+    """
+    if PLACEHOLDER_IPV4_RE.match(host) and not IPV4_RE.fullmatch(host):
+        return True
+    match = IPV4_RE.fullmatch(host)
+    if match is None:
+        return False
+    if any(int(part) > 255 for part in match.groups()):
+        return False
+    first, second, third = (int(part) for part in match.groups()[:3])
+    if first in (0, 10, 127):
+        return True
+    if first == 169 and second == 254:
+        return True
+    if first == 172 and 16 <= second <= 31:
+        return True
+    if first == 192 and second == 168:
+        return True
+    if first == 100 and 64 <= second <= 127:
+        return True
+    return (first, second, third) in {(192, 0, 2), (198, 51, 100), (203, 0, 113)}
+
+
+def looks_like_bundle_name(host):
+    """True for a macOS/iOS application bundle, e.g. ``Google Chrome.app``.
+
+    ``.app`` is a real gTLD, so the suffix alone decides nothing.  A bundle name
+    carries the product name in CamelCase (``Chrome``, ``PhoneDSHProbe``,
+    ``Probe``) while a hostname in source is written in lower case -- the same
+    case-as-evidence rule ``looks_like_package_path`` already relies on.
+    """
+    if not host.lower().endswith(".app"):
+        return False
+    label = host.rsplit(".", 2)[-2]
+    return any(char.isupper() for char in label)
+
+
+def looks_like_email_asset(line, match):
+    """True for ``running-whale@2x.png``: an asset name with a scale suffix."""
+    return EMAIL_SCALE_SUFFIX_RE.search(line[match.start() : match.end()]) is not None
+
+
+def looks_like_labelled_receiver(text):
+    """True for ``this@drawWithContent``: a Kotlin/Java labelled receiver."""
+    local = text.split("@", 1)[0]
+    return local in EMAIL_KEYWORD_LOCALS
+
+
+def home_path_is_placeholder(line, match):
+    """True when a home-path match is an elided or symbolic fragment.
+
+    ``/Users/...`` is a redaction marker and ``<root>/home/a`` appends a
+    relative component to a symbolic root; neither names a real home directory.
+    """
+    matched = match.group(0)
+    # The marker must be the segment that would name the person. Checking the
+    # LAST segment let `/Users/<real name>/...` through — the ellipsis was in the
+    # tail while the user name sat in the clear, which is the one thing this rule
+    # exists to catch.
+    segments = [seg for seg in matched.split("/") if seg]
+    if segments and ELLIPSIS_HOST_RE.match(segments[1] if len(segments) > 1 else segments[0]):
+        return True
+    return PLACEHOLDER_ROOT_RE.search(line[: match.start()].rstrip()) is not None
 
 
 def url_hosts(line):
@@ -171,8 +346,14 @@ def url_hosts(line):
 
 def scan_line(rel, number, line, patterns, findings):
     for match in HOME_PATH_RE.finditer(line):
+        if home_path_is_placeholder(line, match):
+            continue
         add_finding(findings, patterns, rel, number, line, "home-path", match.group(0))
     for match in EMAIL_RE.finditer(line):
+        if looks_like_email_asset(line, match) or looks_like_labelled_receiver(
+            match.group(0)
+        ):
+            continue
         add_finding(findings, patterns, rel, number, line, "email", match.group(0))
     # The official attribution is allowed verbatim; everything else that looks
     # like an internal codename is still a finding.
@@ -183,29 +364,50 @@ def scan_line(rel, number, line, patterns, findings):
         for match in pattern.finditer(line):
             add_finding(findings, patterns, rel, number, line, "credential", match.group(0))
 
+    namespace_spans = [(m.start(1), m.end(1)) for m in XMLNS_RE.finditer(line)]
     url_spans = url_hosts(line)
     seen_hosts = set()
-    for _start, _end, host in url_spans:
+    for start, _end, host in url_spans:
         if host.lower() in seen_hosts:
             continue
         # A string template, not a host: "http://$LOOPBACK_HOST:$port/",
         # "https://${host}/". There is no literal host to judge.
         if "$" in host or "{" in host or "}" in host or "%" in host:
             continue
+        # `https://:443/...` (a URL with no host at all) and `https://…` (an
+        # elided one) both have nothing to judge.
+        if not host or ELLIPSIS_HOST_RE.match(host):
+            continue
+        if any(ns_start <= start < ns_end for ns_start, ns_end in namespace_spans):
+            continue
         seen_hosts.add(host.lower())
-        if not host_allowed(host):
-            add_finding(findings, patterns, rel, number, line, "hostname", host)
+        report_host(findings, patterns, rel, number, line, host)
     for match in DOMAIN_RE.finditer(line):
         if any(start <= match.start(1) < end for start, end, _host in url_spans):
             continue
         host = match.group(1)
         if host.lower() in seen_hosts:
             continue
-        if looks_like_package_path(host):
+        if looks_like_package_path(host) or looks_like_bundle_name(host):
+            continue
+        # `com.sun.net.httpserver` continues past the match, so the match is a
+        # package prefix, not a host.
+        if DOTTED_CONTINUATION_RE.match(line, match.end(1)):
             continue
         seen_hosts.add(host.lower())
-        if not host_allowed(host):
-            add_finding(findings, patterns, rel, number, line, "hostname", host)
+        report_host(findings, patterns, rel, number, line, host)
+
+
+def report_host(findings, patterns, rel, number, line, host):
+    """Report a bare host unless it is allowed.
+
+    Hostnames are case-insensitive, so the allow-list is consulted with the
+    lower-cased spelling: the shipped provider contract writes
+    ``API.deepseek.com``, which names the same host as ``api.deepseek.com``.
+    """
+    if host_allowed(host):
+        return
+    add_finding(findings, patterns, rel, number, line, "hostname", host.lower())
 
 
 def add_finding(findings, patterns, rel, number, line, rule, matched):

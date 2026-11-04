@@ -28,7 +28,61 @@ Each component carries its own licence text inside the package that ships it (th
 Every redistributed component keeps its own licence; nothing in the MIT
 licence of Phone DSH re-licenses them.
 
-Artwork: the mascot in docs/assets/logo.png and the app icon are fan artwork
+The Android local Ubuntu slice additionally fetches third-party pieces that are
+never committed to this repository and never shipped in this repository's
+source tree. The build-time proot stack is downloaded by
+`android/tools/fetch-termux-proot.sh` from the official Termux package host;
+the Ubuntu Base rootfs is downloaded on demand by the Android app itself from
+the official Ubuntu image host, after the user approves the first `ubuntu run`.
+
+Proot stack (pinned; the script verifies both the `.deb` and every extracted
+file by SHA-256, then packages the files into the APK's generated jniLibs):
+
+  - Termux proot 5.1.107.102 aarch64 (GPL-2.0-or-later), an independent
+    process, not linked into the app. Source and version:
+    https://github.com/termux/proot
+    deb: https://packages.termux.dev/apt/termux-main/pool/main/p/proot/proot_5.1.107.102_aarch64.deb
+    deb SHA-256: 10a394b585c2fc2b2c8502544f4e5f1be581dc8bfff79e8ba62f16207423e030
+    binary SHA-256: 3621937c1c5a98d0d39ca599af573a6bc15128690606d535e8b05da00cec4f41
+  - the same package's loader
+    SHA-256: 1da54355333cca3fb6ee10e3b82a24df24fb230c99241ce83809bf9e240609b5
+  - Termux libtalloc 2.5.0 aarch64 (LGPL-3.0-or-later; Samba talloc)
+    deb: https://packages.termux.dev/apt/termux-main/pool/main/libt/libtalloc/libtalloc_2.5.0_aarch64.deb
+    deb SHA-256: 556591f43bb773ad8777e1a29522640866a55f95dab71914418b94a8c58ad5a7
+    binary SHA-256: 742b438c4d09e276985a61d44164c9de207b6d8cc268f3018cb3001961bcb309
+  - Termux libandroid-shmem 0.7 aarch64 (BSD-3-Clause)
+    deb: https://packages.termux.dev/apt/termux-main/pool/main/liba/libandroid-shmem/libandroid-shmem_0.7_aarch64.deb
+    deb SHA-256: 0da3a24d558b93c92bcf8d611e0826a99ff96e396b148e6cdf33b47c47c57ff6
+    binary SHA-256: 84475798e07c8174dbbfaec70a827fdb02f19ffa69a589380c13e7507fd0e731
+
+  - Patch to proot: the packaged copy rewrites the 15-byte dynamic string
+    `libtalloc.so.2` to `libtalloc.so` in place (`libtalloc.so.2\0` ->
+    `libtalloc.so\0\0\0`) so the jniLibs file name `libtalloc.so` satisfies
+    the `DT_NEEDED` entry. No ELF offset moves and the file length is unchanged;
+    the patched SHA-256 is
+    aad737c5b546ee7471f133be90ef20f765aa98a303522557ceed3dff76605085.
+    `android/tools/fetch-termux-proot.sh` reproduces this byte-for-byte and
+    refuses any other input. `docs/receipts/android-ubuntu-proot-slice.md`
+    records the same version/SHA values.
+
+Ubuntu Base (downloaded on demand; not redistributed by this repository):
+
+  - Ubuntu Base 24.04.5 arm64 (Ubuntu's aggregate distribution licence; the
+    guest userland is not modified, and any redistribution of a modified tree
+    must follow Canonical's intellectual-property policy:
+    https://ubuntu.com/legal/intellectual-property-policy)
+    https://cdimage.ubuntu.com/ubuntu-base/releases/24.04/release/ubuntu-base-24.04.5-base-arm64.tar.gz
+    size: 29,936,675 bytes
+    SHA-256: a91d5a93010193712d346d761372b7c9db6dfcf093893161c64ca107f05914f2
+
+Google Play's executable-code policy may treat the on-demand rootfs
+download as restricted; this repository's slice is for sideload/development
+builds until that question is decided. The app never downloads an arbitrary
+URL: the URL, size and SHA-256 are pinned in
+`android/platform-android/.../UbuntuRootfsStore.kt`.
+
+Artwork: the mascot in docs/assets/logo.png, the community QR image
+(docs/assets/qq-group-714985308.png) and the app icon are fan artwork
 of the DeepSeek assistant character, included as project branding. They are
 not covered by the MIT licence of the source code and are not official
 DeepSeek assets.

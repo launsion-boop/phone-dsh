@@ -1,0 +1,6 @@
+name=page-chat-permission image=page-chat-permission.png profile=ios-parity width=1206 height=2622 dpi=480 density=3.0 fontScale=1.0 scaledDensity=3.0 locale=en-US theme=light textBoxHeightPx=-
+name=page-chat-official image=page-chat-official.png profile=ios-parity width=1206 height=2622 dpi=480 density=3.0 fontScale=1.0 scaledDensity=3.0 locale=en-US theme=light textBoxHeightPx=-
+name=page-chat-route image=page-chat-route.png profile=ios-parity width=1206 height=2622 dpi=480 density=3.0 fontScale=1.0 scaledDensity=3.0 locale=en-US theme=light textBoxHeightPx=-
+name=surface-code-block image=surface-code-block.png profile=ios-parity width=1206 height=2622 dpi=480 density=3.0 fontScale=1.0 scaledDensity=3.0 locale=en-US theme=light textBoxHeightPx=-
+name=page-chat-queued image=page-chat-queued.png profile=ios-parity width=1206 height=2622 dpi=480 density=3.0 fontScale=1.0 scaledDensity=3.0 locale=en-US theme=light textBoxHeightPx=-
+name=page-chat-assistant image=page-chat-assistant.png profile=ios-parity width=1206 height=2622 dpi=480 density=3.0 fontScale=1.0 scaledDensity=3.0 locale=en-US theme=light textBoxHeightPx=-

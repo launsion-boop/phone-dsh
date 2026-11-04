@@ -1,0 +1,300 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "ArchivedSessionsPage",
+  "pageId": "archived-sessions",
+  "structure": "swiftui-view",
+  "sectionModel": "section",
+  "sectionNote": null,
+  "title": {
+    "text": "已归档会话",
+    "provenance": "SettingsPage.swift:372",
+    "anchor": ".navigationTitle(NativeText(\"已归档会话\", \"Archived sessions\"))"
+  },
+  "source": {
+    "file": "SettingsPage.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/SettingsPage.swift",
+    "lines": 434,
+    "structLine": 325,
+    "renderedFrom": [
+      "body"
+    ],
+    "sectionOrder": "declaration order inside the page struct"
+  },
+  "android": {
+    "screen": "ArchivedSessionsPage",
+    "file": "android/lib/src/main/kotlin/com/phonedsh/ui/page/ArchivedSessionsPage.kt",
+    "match": "composable"
+  },
+  "sections": [
+    {
+      "id": "section-331",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "absent",
+      "condition": "management.archivedSessions.isEmpty",
+      "collection": null,
+      "rows": [
+        {
+          "id": "没有已归档的会话",
+          "label": "没有已归档的会话",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "SettingsPage.swift:333",
+          "anchor": "Text(NativeText(\"没有已归档的会话\", \"No archived sessions\"))",
+          "extraction": "syntax"
+        },
+        {
+          "id": "在侧边栏长按会话选-归档-会话会收到这里-随时可以恢复",
+          "label": "在侧边栏长按会话选「归档」，会话会收到这里，随时可以恢复。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "SettingsPage.swift:336",
+          "anchor": "Text(NativeText(\"在侧边栏长按会话选「归档」，会话会收到这里，随时可以恢复。\",",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "SettingsPage.swift:331",
+      "anchor": "Section {",
+      "extraction": "syntax",
+      "criterion": {
+        "kind": "first-row",
+        "label": "没有已归档的会话",
+        "provenance": "SettingsPage.swift:333"
+      }
+    },
+    {
+      "id": "section-344",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "absent",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "text-348",
+          "label": null,
+          "labelExpr": "DrawerTitles.sessionTitle(session.title, index: 1)",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "SettingsPage.swift:348",
+          "anchor": "Text(DrawerTitles.sessionTitle(session.title, index: 1))",
+          "extraction": "manual",
+          "collection": "management.archivedSessions"
+        },
+        {
+          "id": "text-352",
+          "label": null,
+          "labelExpr": "SessionTime.relative(session.updatedAt)",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "SettingsPage.swift:352",
+          "anchor": "Text(SessionTime.relative(session.updatedAt))",
+          "extraction": "manual",
+          "collection": "management.archivedSessions"
+        },
+        {
+          "id": "恢复",
+          "label": "恢复",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "SettingsPage.swift:357",
+          "anchor": "Button(NativeText(\"恢复\", \"Restore\")) {",
+          "extraction": "syntax",
+          "collection": "management.archivedSessions"
+        }
+      ],
+      "provenance": "SettingsPage.swift:344",
+      "anchor": "Section {",
+      "extraction": "syntax",
+      "criterion": {
+        "kind": "first-clickable-row",
+        "label": "恢复",
+        "provenance": "SettingsPage.swift:357"
+      },
+      "footer": {
+        "text": "恢复后，会话回到原来的文件夹。",
+        "labelExpr": null,
+        "provenance": "SettingsPage.swift:367",
+        "anchor": "Text(NativeText(\"恢复后，会话回到原来的文件夹。\", \"Restored sessions return to their folder.\"))"
+      }
+    }
+  ],
+  "actions": [
+    {
+      "id": "恢复",
+      "label": "恢复",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ Task { await management.unarchive(session) }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SettingsPage.swift:357",
+      "anchor": "Button(NativeText(\"恢复\", \"Restore\")) {",
+      "extraction": "syntax",
+      "labelAlternatives": []
+    }
+  ],
+  "presentations": [],
+  "states": {
+    "advisory": true,
+    "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
+    "sites": {
+      "empty": [
+        {
+          "renders": "没有已归档的会话",
+          "when": "management.archivedSessions.isEmpty",
+          "provenance": "SettingsPage.swift:333",
+          "anchor": "Text(NativeText(\"没有已归档的会话\", \"No archived sessions\"))"
+        }
+      ],
+      "data": [
+        {
+          "renders": "untitled section at 331 | untitled section at 344",
+          "when": null,
+          "provenance": "SettingsPage.swift:325",
+          "anchor": "private struct ArchivedSessionsPage: View {",
+          "note": "structural default: the sections above, when no condition overrides them"
+        }
+      ],
+      "failure": [],
+      "unknown": [],
+      "loading": []
+    },
+    "absent": [
+      "failure",
+      "unknown",
+      "loading"
+    ],
+    "coverage": {
+      "empty": 1,
+      "data": 1,
+      "failure": 0,
+      "unknown": 0,
+      "loading": 0
+    }
+  },
+  "subpages": [
+    {
+      "name": "SettingsPage",
+      "line": 45,
+      "private": false,
+      "embedded": false,
+      "sections": [
+        {
+          "title": "模型与智能体",
+          "provenance": "SettingsPage.swift:63"
+        },
+        {
+          "title": "权限与隐私",
+          "provenance": "SettingsPage.swift:73"
+        },
+        {
+          "title": "对话",
+          "provenance": "SettingsPage.swift:81"
+        },
+        {
+          "title": "会话与文件",
+          "provenance": "SettingsPage.swift:106"
+        },
+        {
+          "title": "引擎",
+          "provenance": "SettingsPage.swift:117"
+        },
+        {
+          "title": "关于",
+          "provenance": "SettingsPage.swift:143"
+        }
+      ],
+      "provenance": "SettingsPage.swift:45"
+    },
+    {
+      "name": "FontSizeSettingsPage",
+      "line": 238,
+      "private": true,
+      "embedded": true,
+      "sections": [],
+      "provenance": "SettingsPage.swift:238"
+    },
+    {
+      "name": "ConversationSettingsPage",
+      "line": 276,
+      "private": true,
+      "embedded": true,
+      "sections": [
+        {
+          "title": "工作步骤",
+          "provenance": "SettingsPage.swift:281"
+        },
+        {
+          "title": "发送与用量",
+          "provenance": "SettingsPage.swift:300"
+        }
+      ],
+      "provenance": "SettingsPage.swift:276"
+    },
+    {
+      "name": "PermissionDefaultsPage",
+      "line": 387,
+      "private": true,
+      "embedded": true,
+      "sections": [
+        {
+          "title": "只影响之后新开的会话，当前会话保持不变。",
+          "provenance": "SettingsPage.swift:392"
+        }
+      ],
+      "provenance": "SettingsPage.swift:387"
+    },
+    {
+      "name": "LicensesPage",
+      "line": 425,
+      "private": true,
+      "embedded": true,
+      "sections": [],
+      "provenance": "SettingsPage.swift:425"
+    }
+  ],
+  "unreachable": [],
+  "extraction": {
+    "tool": "extract_ios_pages.py",
+    "mode": "syntax",
+    "sectionKeywordsInPage": 2,
+    "regionsExtracted": 0,
+    "sectionsExtracted": 2,
+    "warnings": []
+  }
+}

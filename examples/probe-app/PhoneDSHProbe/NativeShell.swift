@@ -265,7 +265,6 @@ struct SessionsDrawerPanel: View {
             .frame(width: width)
             .frame(maxHeight: .infinity)
             .background(HomeSpec.page)
-            .environment(\.colorScheme, .light)
             .clipShape(UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: 0,
                                               bottomTrailingRadius: isPersistent ? 0 : 22,
                                               topTrailingRadius: isPersistent ? 0 : 22,
@@ -910,7 +909,9 @@ struct DrawerPreview: View {
     }
 }
 
-/// The 关于 group on its own, for review screenshots.
+#endif
+
+/// The About page is used by production settings in every build configuration.
 struct SettingsAboutPage: View {
     var body: some View {
         List {
@@ -943,8 +944,6 @@ struct SettingsAboutPage: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 }
-#endif
-
 #if DEBUG
 /// 预览用的一份消息,本地造的,不碰宿主。
 enum PreviewChatItems {

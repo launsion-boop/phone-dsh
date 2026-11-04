@@ -28,7 +28,18 @@ import kotlinx.coroutines.channels.ReceiveChannel
 class HostApiException(val code: String, message: String) : Exception("$code: $message")
 
 /** The first API_RES head of one exchange (`channel.md` §4.9). */
-data class HostApiHead(val status: Int, val headers: Map<String, String>)
+data class HostApiHead(val status: Int, val headers: Map<String, String>) {
+    init {
+        require(status in HTTP_STATUS_MINIMUM..HTTP_STATUS_MAXIMUM) {
+            "an API_RES status is an HTTP status (100–599), was $status"
+        }
+    }
+
+    private companion object {
+        const val HTTP_STATUS_MINIMUM: Int = 100
+        const val HTTP_STATUS_MAXIMUM: Int = 599
+    }
+}
 
 /** One completed unary exchange. */
 data class HostApiResponse(val head: HostApiHead, val body: ByteArray) {
@@ -152,10 +163,16 @@ internal object HostApiFrames {
     fun reqId(fields: JsonObject): Int? =
         (fields["req_id"] as? JsonNumber)?.asLongOrNull()?.toInt()
 
-    /** The head of the first API_RES chunk, or `null` on a continuation. */
+    /** The head of the first API_RES chunk, or `null` on a continuation or a bad status. */
     fun head(fields: JsonObject): HostApiHead? {
         val head = fields["head"] as? JsonObject ?: return null
-        val status = (head["status"] as? JsonNumber)?.asLongOrNull()?.toInt() ?: return null
+        // Validate the JSON number as a Long before narrowing it. Converting first
+        // would let a value such as 2^32 + 200 wrap to 200 and pass an HTTP check.
+        val status = (head["status"] as? JsonNumber)?.asLongOrNull() ?: return null
+        // A status outside HTTP's range is a malformed head, not a head the caller
+        // may treat as a response. Leaving it unresolved makes the missing-head
+        // check in `HostChannel.apiRequest` fail the exchange loudly.
+        if (status !in 100L..599L) return null
         val headers = LinkedHashMap<String, String>()
         val rawHeaders = head["headers"] as? JsonObject
         if (rawHeaders != null) {
@@ -163,7 +180,7 @@ internal object HostApiFrames {
                 (value as? JsonString)?.let { headers[name.lowercase()] = it.value }
             }
         }
-        return HostApiHead(status = status, headers = headers)
+        return HostApiHead(status = status.toInt(), headers = headers)
     }
 
     /** The `body_hex` member as bytes; an absent or malformed value is empty. */

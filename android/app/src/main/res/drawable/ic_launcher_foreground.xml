@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: MIT -->
+<!--
+  Adaptive-icon foreground layer: a terminal prompt. `>` plus the block cursor
+  that sits next to it, which is what a shell prompt looks like when it is
+  waiting for input — the app is a terminal-shaped host, so the mark is the
+  thing it actually is, not a letterform.
+
+  Geometry, in the 108x108 viewport the adaptive-icon spec uses:
+
+    chevron  (40,42) -> (60,54) -> (40,66), stroke 8, round cap/join
+    cursor   square (64,46) .. (80,62), filled
+
+  Everything stays inside the 66dp-diameter safe zone (centre 54,54; the
+  farthest painted point is the cursor's outer corner at r≈27.2 plus the
+  chevron's round cap at r≈22.4), so no launcher mask — circle, squircle,
+  rounded square — can clip the mark, and `ic_launcher_round` can reuse these
+  same two layers.
+
+  Colours are the icon palette: `pdsh_icon_mark` (tokens.json
+  colors.onAccent.light) for the chevron, `pdsh_icon_cursor`
+  (colors.accent.light) for the block. Two colours, one shape each.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M40,42 L60,54 L40,66"
+        android:strokeColor="@color/pdsh_icon_mark"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="8" />
+    <path
+        android:fillColor="@color/pdsh_icon_cursor"
+        android:pathData="M64,46h16v16h-16z" />
+</vector>

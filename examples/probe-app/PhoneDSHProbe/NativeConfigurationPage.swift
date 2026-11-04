@@ -288,6 +288,9 @@ struct NativeConfigurationPage: View {
                    let detail = model.defaultPermissionDescription(current) {
                     Text(detail)
                 }
+                if !model.canEditDefaultPermission {
+                    Text(nativeConfigurationError(model.defaultPermissionReadOnlyReason))
+                }
                 Text(NativeText("只影响之后新开的会话。正在聊的这个,权限在输入框里的盾牌菜单里改。", "Only new sessions are affected. Change the current session's permission from the shield menu in the composer."))
                 if let error = model.namespaceErrors["permission"] {
                     Text(nativeConfigurationError(error)).foregroundStyle(ChatPage.danger)

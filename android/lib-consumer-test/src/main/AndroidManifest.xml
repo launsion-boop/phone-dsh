@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SPDX-License-Identifier: MIT
+
+  The consumer app's own manifest. It declares nothing from :lib: the AAR's
+  FileProvider (`${applicationId}.pdsh.preview`) and its
+  `res/xml/pdsh_preview_file_paths.xml` arrive through manifest/resource merge,
+  which is half of what this module is here to prove. If a consumer had to copy
+  the provider entry by hand, that would be a packaging bug worth seeing here
+  first.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      `android:enableOnBackInvokedCallback` is the host's half of predictive
+      back. `:lib` cannot declare it: it belongs on the consumer's <application>,
+      which is why `BackHandler.kt` also owns the `declared` reading. Declaring
+      it is not optional if the settings sheet's 返回手势 row is to be measured
+      rather than guessed — without it the row is a measured NO.
+    -->
+    <application
+        android:enableOnBackInvokedCallback="true"
+        android:label="PDSH AAR consumer probe"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+
+        <!-- One Activity, the way any host embeds the SDK: setContent { ... }. -->
+        <activity
+            android:name=".ConsumerActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+    </application>
+
+</manifest>

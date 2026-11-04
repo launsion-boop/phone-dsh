@@ -47,7 +47,7 @@ import subprocess
 import sys
 import time
 
-PACKAGE = "com.phonedsh.probe"
+PACKAGE = os.environ.get("PDSH_PACKAGE", "com.phonedsh.app")
 COMPONENT = PACKAGE + "/.MainActivity"
 DEFAULT_PROMPT = "只回答一个数字：1+1 等于几？"
 DEFAULT_BASE = "https://api.deepseek.com/anthropic"

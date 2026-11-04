@@ -19,6 +19,12 @@ Exit code 0 means all eight hold; 1 means at least one failed; 2 is a usage/root
    is matched longest-first behind a non-extension lookahead, so `expected.jsonl` stays
    `expected.jsonl` instead of being truncated to `expected.json` (a path that never exists).
    Catches a renamed/deleted contract file that another tree still cites by path.
+   It also checks local Markdown links in the protocol index (`spec/README.md`)
+   and `AGENTS.md`, including source/test paths and directories. These entrypoints
+   must exist, links must stay within the repository, and `CLAUDE.md` must be a regular file
+   whose first nonempty line is `@AGENTS.md` (symlinks and copied rules fail). External URLs and section anchors are not fetched or
+   validated. This prevents a stale index or two diverging agent rulebooks; it
+   does not prove that the linked implementation conforms to its contract.
 2. **Platform whitelist ↔ contract.** Every `spec_ref` target exists, and every
    `platform.<id>` mention in the host/UI trees is a whitelist id. Catches an invented or
    misspelled platform divergence name before an Android owner implements it.
@@ -68,3 +74,66 @@ Exit code 0 means all eight hold; 1 means at least one failed; 2 is a usage/root
   until its owning checker is added there, which keeps the coverage claim executable.
 - When an invariant fails, the finding is for the tree owner. This tool does not choose a
   side or edit a contract to make itself green.
+
+## Protocol registry (same CI stage)
+
+`spec/README.md` §3/§4 修改後，執行 `python3 spec/tools/registry_build.py --write`，
+並把生成的 registry 一起提交。`phone-cross-tree` 執行 `registry_build.py --check`：
+重新生成的 UTF-8、縮排、key 順序與結尾換行必須和 `spec/registry.json` 逐字節相同。
+`--check` 不寫檔；正式生成器不讀現有 registry 作為輸入，也不依賴 evidence 目錄。
+
+Sections 3/4 supply source cells, roles and trigger predicates. Reviewed expansions
+of abbreviated paths/language groupings and explicit status assertions live in
+`registry_build.py`'s `PATH_PROJECTIONS`; update that metadata when changing a
+row's path meaning or adding/removing IDs. The builder does not infer runtime
+implementation status or prove that a path is the semantic authority.
+
+`phone-cross-tree` also runs `registry_check.py --root .` and discovers its mutation
+tests with the existing tool suite. The embedded schema in `spec/registry.json`
+validates each entry; all references must exist, each glob must reach a file, and
+IDs, owner roles, source cells and structured triggers must agree with baseline
+sections 3/4. Brace alternatives and segment-aware `**` are supported. Exclusions
+and bridge content predicates remain explicit. Empty `status` means the row makes
+no implementation-status assertion; it does not mean `implemented`. Source cells
+preserve qualifiers such as draft authority, non-runtime evidence and partial ends.
+This verifies transcription and reachability; it cannot prove semantic conformance
+of a linked implementation. No runtime message/schema/golden is changed.
+
+## Local protocol impact check
+
+```sh
+python3 scripts/ci/protocol_impact.py --base origin/main --body-file pr-body.md
+```
+
+Both diff tools first resolve `git merge-base <base> HEAD`, matching the left
+endpoint of a three-dot PR diff. The merge-base-to-worktree diff includes
+staged/unstaged/untracked files and both paths
+of renames. Conditional bridge triggers inspect both old and new content, so
+removing a call is still covered. A single `Protocol impact: P01, P02` line must
+cover all triggered IDs. `Protocol impact: P01; P09: none — UI comments only`
+declares P01 affected and justifies no impact for P09 only. Every triggered ID must
+have its own declaration; IDs inside reasons do not count. A global
+`Protocol impact: none — reason` is accepted only with zero triggered IDs. The tool
+cannot judge whether a reason is truthful. Missing lines/IDs, unknown IDs, bare
+none and duplicate/contradictory declarations fail. Tests run in `phone-gate-contracts`; this
+checker is local-only until a caller supplies a real PR body. No hosted workflow
+is added.
+
+## Structural schema compatibility
+
+`phone-cross-tree` runs `schema_diff.py --base origin/main`; set `CI_PROTOCOL_BASE`
+to another locally available base ref when appropriate. Missing/invalid bases fail.
+Direct use: `python3 spec/tools/schema_diff.py --base <ref> --root .`. It compares
+all files under `spec/**/schema/*.json` with that merge-base, including deleted
+paths. Changes only on an advanced base branch are not part of the current delta.
+Required/type/enum/domain changes in either direction, removed properties, changed
+unknown-member policy and other changed validation/default/reference keywords are
+conservatively breaking. Optional property additions and annotation-only edits are
+not automatically breaking; the owner still checks documented defaults and peer
+policy. This is structural evidence, not a complete JSON Schema theorem prover.
+
+A breaking change needs a new/modified `docs/protocol-changes/*.md` using the
+change template's YAML summary: `breaking: true`, covered `contracts`, a matching
+comparison merge-base (`base` is resolved with the same rule), frozen-or-later `status`, and concrete `version_decision`. An
+unchanged historical record cannot authorize a new delta. Unknown ownership fails.
+No protocol schema or GAP is changed by this enforcement work.

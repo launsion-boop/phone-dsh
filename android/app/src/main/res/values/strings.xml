@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: MIT -->
+<!--
+  The app's own statement about how this build was signed.
+
+  Why a resource and not only BuildConfig: the 关于 page and anything else that
+  renders text would rather read a string resource than a Java literal, and a
+  resource is what a translator or a store listing can be pointed at. The
+  sentence is deliberately short and unconditional — a build has exactly one
+  signature, so there is no plural form and no fallback wording.
+
+  The *truth* for a given build is `BuildConfig.SIGNING_MODE` /
+  `SIGNING_RELEASABLE` / `SIGNING_NOTICE` (see android/app/build.gradle.kts),
+  which the build computes from whether a real keystore was found. Use
+  `BuildConfig.SIGNING_RELEASABLE` to pick between the two strings below instead
+  of assuming one:
+
+    if (BuildConfig.SIGNING_RELEASABLE) R.string.pdsh_signing_notice_release
+    else                                R.string.pdsh_signing_notice_debug
+
+  The same two sentences are also in the APK's manifest as
+  `com.phonedsh.app.SIGNING_NOTICE` / `.SIGNING_MODE` <meta-data>, injected as
+  manifest placeholders so resource shrinking cannot drop them.
+
+  `android:label` is the literal "PDSH" in AndroidManifest.xml: a brand name is
+  not translated, and a literal label is what `dumpsys package` prints back as
+  `nonLocalizedLabel`.
+-->
+<resources>
+    <string name="pdsh_signing_notice_debug">调试签名，不可发布</string>
+    <string name="pdsh_signing_notice_release">正式签名，可发布</string>
+</resources>

@@ -61,19 +61,22 @@ final class PA_LocalCapabilityToolInvokerTests: XCTestCase {
         XCTAssertEqual(createdRecord["revision"] as? Int, 1)
         XCTAssertEqual(createdRecord["principal"] as? String, "owner")
         XCTAssertEqual(createdRecord["accountScope"] as? String, "account-a")
+        XCTAssertEqual(createdRecord["status"] as? String, "candidate")
+        XCTAssertEqual(createdRecord["origin"] as? String, "modelInference")
 
         let revised = await invoke(owner, "memory_set_preference",
                                    #"{"field":"responseLength","value":"concise"}"#)
         XCTAssertFalse(revised.isError, revised.contentJSON)
         let revisedRecord = try XCTUnwrap(object(revised)["record"] as? [String: Any])
-        XCTAssertEqual(revisedRecord["revision"] as? Int, 2)
-        XCTAssertEqual(revisedRecord["supersedes"] as? String, id.uuidString)
+        XCTAssertEqual(revisedRecord["revision"] as? Int, 1)
+        XCTAssertEqual(revisedRecord["status"] as? String, "candidate")
         XCTAssertEqual(revisedRecord["source"]["kind"] as? String, "phone")
         let active = try await fixture.memories.active(principal: "owner", accountScope: "account-a")
-        XCTAssertEqual(active.count, 1)
-        XCTAssertEqual(active.first?.text, "concise")
+        XCTAssertTrue(active.isEmpty)
+        let candidates = try await fixture.memories.pendingCandidates(principal: "owner")
+        XCTAssertEqual(candidates.count, 2)
         let archivedStatus = try await fixture.memories.record(id)?.status
-        XCTAssertEqual(archivedStatus, .archived)
+        XCTAssertEqual(archivedStatus, .candidate)
 
         let otherPrincipal = LocalCapabilityToolInvoker(profile: StaticProfile(), memories: fixture.memories,
                                                         followUps: fixture.followUps, accountScope: "account-a")
@@ -88,7 +91,7 @@ final class PA_LocalCapabilityToolInvokerTests: XCTestCase {
         let wrongAccount = await invoke(otherAccount, "memory_delete", "{\"id\":\"\(newID)\"}")
         XCTAssertTrue(wrongAccount.isError)
         let crossAccountStatus = try await fixture.memories.record(UUID(uuidString: newID)!)?.status
-        XCTAssertEqual(crossAccountStatus, .active)
+        XCTAssertEqual(crossAccountStatus, .candidate)
     }
 
     func testMemoryLogAndDeleteExecuteAgainstRealStoreAndRejectSecrets() async throws {
@@ -104,6 +107,8 @@ final class PA_LocalCapabilityToolInvokerTests: XCTestCase {
         XCTAssertEqual(persisted.kind, .event)
         XCTAssertEqual(persisted.accountScope, "mail-a")
         XCTAssertEqual(persisted.revision, 1)
+        XCTAssertEqual(persisted.status, .candidate)
+        XCTAssertEqual(persisted.origin, .modelInference)
 
         let deleted = await invoke(local, "memory_delete", "{\"id\":\"\(id.uuidString)\"}")
         XCTAssertFalse(deleted.isError, deleted.contentJSON)

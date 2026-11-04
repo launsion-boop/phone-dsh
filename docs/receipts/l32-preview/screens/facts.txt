@@ -1,0 +1,22 @@
+media failure reason=[播放器无法打开这个文件。]
+capture name=preview-media-failed width=1080 height=2400 file=/storage/emulated/0/Android/data/com.phonedsh.lib.test/files/l32-media/preview-media-failed.png
+media retry recovered duration=时长 0:02
+capture name=preview-media-recovered width=1080 height=2400 file=/storage/emulated/0/Android/data/com.phonedsh.lib.test/files/l32-media/preview-media-recovered.png
+video transport=0:00 / 0:04
+capture name=preview-video-ready width=1080 height=2400 file=/storage/emulated/0/Android/data/com.phonedsh.lib.test/files/l32-media/preview-video-ready.png
+video clock advanced 0:00 / 0:04 -> 0:01 / 0:04 isMusicActive=true
+capture name=preview-video-playing width=1080 height=2400 file=/storage/emulated/0/Android/data/com.phonedsh.lib.test/files/l32-media/preview-video-playing.png
+video isMusicActive after pause=false
+capture name=preview-video-paused width=1080 height=2400 file=/storage/emulated/0/Android/data/com.phonedsh.lib.test/files/l32-media/preview-video-paused.png
+audio isMusicActive before backgrounding=true
+audio isMusicActive in background=false
+audio after returning from background=播放
+audio duration=时长 0:06
+capture name=preview-audio-ready width=1080 height=2400 file=/storage/emulated/0/Android/data/com.phonedsh.lib.test/files/l32-media/preview-audio-ready.png
+audio clock advanced 0:00 / 0:06 -> 0:01 / 0:06 isMusicActive=true
+capture name=preview-audio-playing width=1080 height=2400 file=/storage/emulated/0/Android/data/com.phonedsh.lib.test/files/l32-media/preview-audio-playing.png
+audio isMusicActive after leaving=false
+audio after returning position=0:00 / 0:06
+capture name=preview-audio-returned width=1080 height=2400 file=/storage/emulated/0/Android/data/com.phonedsh.lib.test/files/l32-media/preview-audio-returned.png
+audio focus lost -> 另一个 App 正在使用音频，播放已暂停。
+capture name=preview-audio-focus-lost width=1080 height=2400 file=/storage/emulated/0/Android/data/com.phonedsh.lib.test/files/l32-media/preview-audio-focus-lost.png

@@ -95,6 +95,8 @@ import { pythonToolboxLifecycle, readPythonModuleProbe } from './python-toolbox.
 import type { PythonToolboxOptions, PythonToolboxWiring } from './python-toolbox.ts'
 import { jqToolboxLifecycle } from './jq-toolbox.ts'
 import type { JqToolboxOptions, JqToolboxWiring } from './jq-toolbox.ts'
+import { probeUbuntuHost } from './ubuntu-probe.ts'
+import { setUbuntuCapability } from '../../shell-ext/src/index.ts'
 
 export type { VfsRefusalRecord, VfsResourceErrorCode } from './refusal.ts'
 export {
@@ -498,6 +500,16 @@ async function startPhoneWorkerInternal(options: PhoneWorkerOptions): Promise<Ph
   try {
     await channel.connect()
     consoleForwarder.flush()
+    // Design §4.3: the Agent-facing `ubuntu` command exists only when the host
+    // answered this probe. The answer goes through `globalThis` because the
+    // image's plugin bundle builds the shell table from its own copy of
+    // shell-ext; a module-local value would not cross that boundary.
+    //
+    // A failed probe is not a boot failure: the command simply stays
+    // unregistered and the shell answers `ubuntu: command not found` / 127.
+    const ubuntu = await probeUbuntuHost(channel)
+    setUbuntuCapability(ubuntu)
+    disposers.push(() => setUbuntuCapability(undefined))
 
     // The packed image records the `web` profile template, which names the
     // browser bundle the image deliberately omits. The stub manifest keeps
@@ -640,6 +652,7 @@ async function startPhoneWorkerInternal(options: PhoneWorkerOptions): Promise<Ph
     await publishCapabilityManifest(vfs, buildCapabilityManifest({
       commands: surface.commands,
       accelerators: surface.accelerators,
+      ...ubuntu === undefined ? {} : { ubuntu },
       // A command the table carries but this boot cannot run is not a
       // capability: `curl` needs the host `/v1/http` origin *and* token, and
       // the Android engine injects only the origin. The row keeps the reason

@@ -211,6 +211,27 @@
       "provenance": "TaskScreenPage.swift:69",
       "anchor": "Button {",
       "extraction": "manual"
+    },
+    {
+      "id": "重试",
+      "label": "重试",
+      "labelExpr": null,
+      "kind": "action",
+      "trigger": "tap",
+      "semantic": null,
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "extraction": "manual",
+      "androidOnly": {
+        "reason": {
+          "baselineLacks": "the baseline reads its task list from local state and cannot fail the read",
+          "androidNeeds": "Android reads a host snapshot across a process boundary, so the read can fail and needs recovery in place",
+          "withoutIt": "a failed read leaves the page blank with no way back except killing the app"
+        },
+        "owner": "android-ui",
+        "reviewBy": "2027-01-31"
+      }
     }
   ],
   "presentations": [],

@@ -16,6 +16,7 @@
  */
 import { requireActiveModuleLoader, type WorkerRequire } from '@deepseek-ai/dsh-experimental-webworker-runtime/src/module-system/module-loader.ts'
 import { DEFAULT_ROOT } from '@deepseek-ai/dsh-experimental-webworker-runtime/src/worker-host.ts'
+import { metadataSearchPaths } from './module-paths.ts'
 
 /** The package directory lookup root of the mounted image. */
 const IMAGE_MODULES = `${DEFAULT_ROOT.replace(/\/+$/u, '')}/node_modules`
@@ -44,13 +45,16 @@ export function isBuiltin(specifier: string): boolean {
 export function createRequire(location: string | URL): WorkerRequire {
   const require = requireActiveModuleLoader().createRequire(location)
   const originalPaths = require.resolve.paths
+  const directory = originalPaths('.')?.[0] ?? DEFAULT_ROOT
   require.resolve.paths = (specifier: string): string[] | null => {
     const paths = originalPaths(specifier)
-    if (paths !== null) return paths
+    if (specifier.startsWith('node:') || isBuiltin(specifier)) return paths
     // Builtins have no package directory. A bare specifier served by the
     // static table may still be a real image package (the phone overrides).
-    if (specifier.startsWith('node:') || !/^(?:@[^/]+\/)?[^/]+(?:\/|$)/u.test(specifier)) return null
-    return [IMAGE_MODULES]
+    if (!/^(?:@[^/]+\/)?[^/]+(?:\/|$)/u.test(specifier) || specifier.startsWith('.')) return paths
+    // app-boot resolves declarative bundle package.json/YAML via these paths.
+    // Actual require()/resolve() still use the unmodified pinned image loader.
+    return [...new Set([...metadataSearchPaths(directory), ...(paths ?? []), IMAGE_MODULES])]
   }
   return require
 }

@@ -77,18 +77,29 @@ tasks.matching { it.name == "test" }.configureEach {
 // directory is derived from the Gradle root (no machine-local path is committed).
 // Build it first with: cd shell && cargo build -p pdsh-jni
 val repoRoot: File = rootProject.projectDir.parentFile
-val nativeLibraryDir: File = repoRoot.resolve("shell/target/debug")
-val nativeLibrary: File = nativeLibraryDir.resolve(System.mapLibraryName("pdsh_jni"))
+val nativeLibrary: File = repoRoot.resolve("shell/target/debug/${System.mapLibraryName("pdsh_jni")}")
+val hostJniTestDirectory: File = layout.buildDirectory.dir("generated/host-jni-test").get().asFile
+val stageHostJniForTests = tasks.register("stageHostJniForTests") {
+    description = "Stages the real host Rust JNI artifact for testkit JVM tests"
+    doLast {
+        check(nativeLibrary.isFile) {
+            "missing real Rust JNI artifact ${nativeLibrary.path}; build it with: " +
+                "bash android/tools/with-rust-toolchain.sh cargo build --locked --manifest-path shell/Cargo.toml -p pdsh-jni"
+        }
+        hostJniTestDirectory.mkdirs()
+        nativeLibrary.copyTo(hostJniTestDirectory.resolve(nativeLibrary.name), overwrite = true)
+    }
+}
 
 tasks.withType<Test>().configureEach {
+    dependsOn(stageHostJniForTests)
     systemProperty("pdsh.repo.root", repoRoot.absolutePath)
-    systemProperty("java.library.path", nativeLibraryDir.absolutePath)
-    // Not declared as an input: Gradle validates a declared input BEFORE doFirst
-    // runs, so a missing dylib surfaced as "file ... does not exist" and buried the
-    // actionable message below. The doFirst check is the one people need to see.
+    systemProperty("java.library.path", hostJniTestDirectory.absolutePath)
     doFirst {
-        check(nativeLibrary.isFile) {
-            "missing ${nativeLibrary.path}; build it first with: cd shell && cargo build -p pdsh-jni"
+        val staged = hostJniTestDirectory.resolve(System.mapLibraryName("pdsh_jni"))
+        check(staged.isFile && staged.length() > 0L) {
+            "real host JNI artifact was not staged at ${staged.path}; build it with: " +
+                "bash android/tools/with-rust-toolchain.sh cargo build --locked --manifest-path shell/Cargo.toml -p pdsh-jni"
         }
     }
 }
@@ -119,35 +130,135 @@ val androidJniLibrary: File =
 val androidTestJniDirectory: File =
     layout.buildDirectory.dir("generated/test-jniLibs").get().asFile
 
+fun displayPath(path: File): String =
+    runCatching { path.relativeTo(repoRoot).path }.getOrElse { path.absolutePath }
+
+fun requireWorkerBundleForTests(directory: File) {
+    check(directory.isDirectory) {
+        "the prebuilt worker bundle is missing: " + displayPath(directory) +
+            " (it is a gitignored build input; copy it with " +
+            "examples/probe-app/scripts/copy-bundle-assets.sh)"
+    }
+    val required = listOf(
+        "index.html",
+        "boot.js",
+        "worker-entry.js",
+        "tool-worker-python.js",
+        "workflow-isolate.js",
+        "image.tar.gz",
+    )
+    val missing = required.filter { name ->
+        val file = File(directory, name)
+        !file.isFile || file.length() == 0L
+    }
+    check(missing.isEmpty()) {
+        "the prebuilt worker bundle is incomplete: " + displayPath(directory) +
+            " (missing or empty: " + missing.joinToString(", ") + ")"
+    }
+    val image = File(directory, "image.tar.gz")
+    val magic = ByteArray(2)
+    val read = image.inputStream().use { it.read(magic) }
+    check(read == 2 && magic[0] == 0x1f.toByte() && magic[1] == 0x8b.toByte()) {
+        "the prebuilt worker bundle has an invalid image.tar.gz (not gzip): " +
+            displayPath(image)
+    }
+}
+
+fun requireElfLibrary(file: File) {
+    check(file.isFile) {
+        "missing " + displayPath(file) +
+            "; build it first with: cd shell && cargo ndk -t arm64-v8a build -p pdsh-jni"
+    }
+    check(file.length() > 0L) {
+        "the JNI library is empty: " + displayPath(file) +
+            "; rebuild it with: cd shell && cargo ndk -t arm64-v8a build -p pdsh-jni"
+    }
+    val magic = ByteArray(4)
+    val read = file.inputStream().use { it.read(magic) }
+    check(
+        read == 4 &&
+            magic[0] == 0x7f.toByte() &&
+            magic[1] == 'E'.code.toByte() &&
+            magic[2] == 'L'.code.toByte() &&
+            magic[3] == 'F'.code.toByte(),
+    ) {
+        "the JNI library is not an ELF shared object: " + displayPath(file) +
+            "; rebuild it with: cd shell && cargo ndk -t arm64-v8a build -p pdsh-jni"
+    }
+}
+
+// A Copy/Zip task whose source is missing is NO-SOURCE, and Gradle skips its
+// actions (including doFirst) for NO-SOURCE. The fail-loud checks therefore live
+// in always-running validators that the staging tasks depend on. Only the
+// Android-test packaging graph reaches these validators; a pure JVM test does
+// not, which is the preBuild split this module needs.
+val verifyWorkerBundleForTests = tasks.register("verifyWorkerBundleForTests") {
+    description = "Fails if the device test Worker bundle is missing, empty or incomplete"
+    group = "verification"
+    doLast {
+        requireWorkerBundleForTests(workerBundleDirectory)
+    }
+}
+
+val verifyAndroidTestJni = tasks.register("verifyAndroidTestJni") {
+    description = "Fails if the Android arm64 JNI library is absent, empty or not ELF"
+    group = "verification"
+    doLast {
+        requireElfLibrary(androidJniLibrary)
+    }
+}
+
+// Test-only fixture entry points; NOT dependencies of any Android-test merge or
+// packaging task. Production staging always uses the canonical paths above, so
+// no Gradle property can replace the shipped inputs. Both tasks share the real
+// validators.
+tasks.register("verifyWorkerBundleForTestsFixture") {
+    description = "Test-only: validate a fixture Worker directory through the device-test validator"
+    group = "verification"
+    doLast {
+        val raw = providers.gradleProperty("pdsh.test.testkitWorkerBundleDir").orNull
+            ?: error("pass -Ppdsh.test.testkitWorkerBundleDir=<path> for the test-only Worker validator")
+        requireWorkerBundleForTests(File(raw))
+    }
+}
+
+tasks.register("verifyAndroidTestJniFixture") {
+    description = "Test-only: validate a fixture .so through the device-test JNI validator"
+    group = "verification"
+    doLast {
+        val raw = providers.gradleProperty("pdsh.test.testkitAndroidJni").orNull
+            ?: error("pass -Ppdsh.test.testkitAndroidJni=<path> for the test-only JNI validator")
+        requireElfLibrary(File(raw))
+    }
+}
+
+val verifyScenarioCatalog = tasks.register("verifyScenarioCatalog") {
+    description = "Fails if the checked-in scenario catalog is absent"
+    group = "verification"
+    doLast {
+        check(scenarioCatalogSource.isFile) {
+            "the scenario catalog is missing: " + scenarioCatalogSource.relativeTo(repoRoot).path
+        }
+    }
+}
+
 val packageWorkerBundleForTests = tasks.register<Zip>("packageWorkerBundleForTests") {
     description = "Packs the prebuilt worker bundle into the test APK's assets/worker-bundle.zip"
     group = "verification"
+    dependsOn(verifyWorkerBundleForTests)
     from(workerBundleDirectory)
     archiveFileName.set("worker-bundle.zip")
     destinationDirectory.set(workerBundleAssetDirectory)
     isPreserveFileTimestamps = false
     isReproducibleFileOrder = true
-    doFirst {
-        check(workerBundleDirectory.isDirectory) {
-            "the prebuilt worker bundle is missing: " +
-                workerBundleDirectory.relativeTo(repoRoot).path +
-                " (it is a gitignored build input; copy it with " +
-                "examples/probe-app/scripts/copy-bundle-assets.sh)"
-        }
-    }
 }
 
 val stageAndroidTestJni = tasks.register<Copy>("stageAndroidTestJni") {
     description = "Stages libpdsh_jni.so into the androidTest jniLibs (arm64-v8a)"
     group = "verification"
+    dependsOn(verifyAndroidTestJni)
     from(androidJniLibrary)
     into(androidTestJniDirectory.resolve("arm64-v8a"))
-    doFirst {
-        check(androidJniLibrary.isFile) {
-            "missing " + androidJniLibrary.relativeTo(repoRoot).path +
-                "; build it first with: cd shell && cargo ndk -t arm64-v8a build -p pdsh-jni"
-        }
-    }
 }
 
 // ---- the catalog as a device asset -----------------------------------------
@@ -165,13 +276,9 @@ val scenarioCatalogAssetDirectory: File =
 val packageScenarioCatalogForTests = tasks.register<Copy>("packageScenarioCatalogForTests") {
     description = "Copies the scenario catalog into the test APK's assets/scenario-catalog/"
     group = "verification"
+    dependsOn(verifyScenarioCatalog)
     from(scenarioCatalogSource)
     into(scenarioCatalogAssetDirectory.resolve("scenario-catalog"))
-    doFirst {
-        check(scenarioCatalogSource.isFile) {
-            "the scenario catalog is missing: " + scenarioCatalogSource.relativeTo(repoRoot).path
-        }
-    }
 }
 
 android {
@@ -182,15 +289,18 @@ android {
     sourceSets["androidTest"].jniLibs.srcDir(androidTestJniDirectory)
 }
 
+// Only the Android test *packaging* consumers depend on the real device-only
+// inputs. preBuild deliberately does not: it is a parent of every variant,
+// including testDebugUnitTest, and attaching the 65 MB Worker image + Android
+// .so there made a pure host JVM test fail (or do expensive staging) for inputs
+// it cannot use. The merge tasks below are the actual packaging edges, so a
+// connected/instrumented test APK still fails loudly when an input is missing.
 tasks.matching { it.name.startsWith("merge") && it.name.endsWith("AndroidTestAssets") }
     .configureEach { dependsOn(packageWorkerBundleForTests, packageScenarioCatalogForTests) }
 tasks.matching { it.name.startsWith("merge") && it.name.endsWith("AndroidTestJniLibFolders") }
     .configureEach { dependsOn(stageAndroidTestJni) }
 tasks.matching { it.name.startsWith("merge") && it.name.endsWith("AndroidTestNativeLibs") }
     .configureEach { dependsOn(stageAndroidTestJni) }
-tasks.named("preBuild").configure {
-    dependsOn(packageWorkerBundleForTests, packageScenarioCatalogForTests, stageAndroidTestJni)
-}
 
 dependencies {
     // The turn lane constructs the real engine (WebViewEngine via its factory) and

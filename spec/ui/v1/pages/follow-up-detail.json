@@ -7,14 +7,14 @@
   "sectionNote": null,
   "title": {
     "text": "跟进详情",
-    "provenance": "FollowUpPages.swift:102",
+    "provenance": "FollowUpPages.swift:131",
     "anchor": ".navigationTitle(\"跟进详情\")"
   },
   "source": {
     "file": "FollowUpPages.swift",
     "path": "examples/probe-app/PhoneDSHProbe/PersonalAgent/FollowUpPages.swift",
-    "lines": 117,
-    "structLine": 36,
+    "lines": 146,
+    "structLine": 60,
     "renderedFrom": [
       "body"
     ],
@@ -37,7 +37,7 @@
       "collection": null,
       "rows": [
         {
-          "id": "text-53",
+          "id": "text-82",
           "label": null,
           "labelExpr": "record.followUp.goal",
           "kind": "text",
@@ -47,7 +47,7 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "FollowUpPages.swift:53",
+          "provenance": "FollowUpPages.swift:82",
           "anchor": "Text(record.followUp.goal)",
           "extraction": "manual"
         },
@@ -57,17 +57,17 @@
           "labelExpr": null,
           "kind": "info",
           "value": null,
-          "valueExpr": null,
+          "valueExpr": "reason",
           "clickable": false,
           "destination": null,
           "writes": false,
           "condition": "let reason = record.followUp.waitingReason",
-          "provenance": "FollowUpPages.swift:54",
+          "provenance": "FollowUpPages.swift:83",
           "anchor": "if let reason = record.followUp.waitingReason { LabeledContent(\"等待\", value: reas",
           "extraction": "syntax"
         },
         {
-          "id": "text-55",
+          "id": "text-84",
           "label": null,
           "labelExpr": "summary",
           "kind": "text",
@@ -77,7 +77,7 @@
           "destination": null,
           "writes": false,
           "condition": "let summary = record.lastChangeSummary",
-          "provenance": "FollowUpPages.swift:55",
+          "provenance": "FollowUpPages.swift:84",
           "anchor": "if let summary = record.lastChangeSummary { Text(summary) }",
           "extraction": "manual"
         },
@@ -87,12 +87,12 @@
           "labelExpr": null,
           "kind": "info",
           "value": null,
-          "valueExpr": null,
+          "valueExpr": "verified.formatted(date: .abbreviated, time: .shortened)",
           "clickable": false,
           "destination": null,
           "writes": false,
           "condition": "let verified = record.followUp.lastVerifiedAt",
-          "provenance": "FollowUpPages.swift:57",
+          "provenance": "FollowUpPages.swift:86",
           "anchor": "LabeledContent(\"最近核验\", value: verified.formatted(date: .abbreviated, time: .shor",
           "extraction": "syntax"
         },
@@ -102,17 +102,17 @@
           "labelExpr": null,
           "kind": "info",
           "value": null,
-          "valueExpr": null,
+          "valueExpr": "notified.formatted(date: .abbreviated, time: .shortened)",
           "clickable": false,
           "destination": null,
           "writes": false,
           "condition": "let notified = record.lastNotificationAt",
-          "provenance": "FollowUpPages.swift:60",
+          "provenance": "FollowUpPages.swift:89",
           "anchor": "LabeledContent(\"最近通知\", value: notified.formatted(date: .abbreviated, time: .shor",
           "extraction": "syntax"
         }
       ],
-      "provenance": "FollowUpPages.swift:52",
+      "provenance": "FollowUpPages.swift:81",
       "anchor": "Section(\"目标与当前结果\") {",
       "extraction": "syntax"
     },
@@ -137,7 +137,7 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "FollowUpPages.swift:64",
+          "provenance": "FollowUpPages.swift:93",
           "anchor": "TextField(\"检查条件\", text: $checkExpression, axis: .vertical)",
           "extraction": "syntax"
         },
@@ -152,7 +152,7 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "FollowUpPages.swift:65",
+          "provenance": "FollowUpPages.swift:94",
           "anchor": "TextField(\"停止条件\", text: $stopExpression, axis: .vertical)",
           "extraction": "syntax"
         },
@@ -167,7 +167,7 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "FollowUpPages.swift:66",
+          "provenance": "FollowUpPages.swift:95",
           "anchor": "Picker(\"通知\", selection: Binding(",
           "extraction": "syntax"
         },
@@ -182,17 +182,17 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "FollowUpPages.swift:73",
+          "provenance": "FollowUpPages.swift:102",
           "anchor": "Button(\"保存条件\") {",
           "extraction": "syntax"
         }
       ],
-      "provenance": "FollowUpPages.swift:63",
+      "provenance": "FollowUpPages.swift:92",
       "anchor": "Section(\"条件\") {",
       "extraction": "syntax"
     },
     {
-      "id": "section-84",
+      "id": "section-113",
       "title": null,
       "titleTemplate": null,
       "dynamicTitle": false,
@@ -212,7 +212,7 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "FollowUpPages.swift:85",
+          "provenance": "FollowUpPages.swift:114",
           "anchor": "Button(\"暂停到周五\") {",
           "extraction": "syntax"
         },
@@ -227,18 +227,18 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "FollowUpPages.swift:91",
+          "provenance": "FollowUpPages.swift:120",
           "anchor": "Button(\"结束跟进\", role: .destructive) {",
           "extraction": "syntax"
         }
       ],
-      "provenance": "FollowUpPages.swift:84",
+      "provenance": "FollowUpPages.swift:113",
       "anchor": "Section {",
       "extraction": "syntax",
       "criterion": {
         "kind": "first-clickable-row",
         "label": "暂停到周五",
-        "provenance": "FollowUpPages.swift:85"
+        "provenance": "FollowUpPages.swift:114"
       }
     }
   ],
@@ -249,11 +249,11 @@
       "labelExpr": null,
       "kind": "picker",
       "trigger": "tap",
-      "semantic": null,
+      "semantic": "binding:Binding( get: { record.followUp.notificationPolicy }, set: { record.followUp.notificationPolicy = $0 })",
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "FollowUpPages.swift:66",
+      "provenance": "FollowUpPages.swift:95",
       "anchor": "Picker(\"通知\", selection: Binding(",
       "extraction": "syntax",
       "items": [
@@ -274,11 +274,11 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "FollowUpPages.swift:73",
+      "provenance": "FollowUpPages.swift:102",
       "anchor": "Button(\"保存条件\") {",
       "extraction": "syntax",
       "labelAlternatives": [],
-      "presents": "alert-103"
+      "presents": "alert-132"
     },
     {
       "id": "暂停到周五",
@@ -290,7 +290,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "FollowUpPages.swift:85",
+      "provenance": "FollowUpPages.swift:114",
       "anchor": "Button(\"暂停到周五\") {",
       "extraction": "syntax",
       "labelAlternatives": []
@@ -305,7 +305,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "FollowUpPages.swift:91",
+      "provenance": "FollowUpPages.swift:120",
       "anchor": "Button(\"结束跟进\", role: .destructive) {",
       "extraction": "syntax",
       "labelAlternatives": []
@@ -320,14 +320,14 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "FollowUpPages.swift:104",
+      "provenance": "FollowUpPages.swift:133",
       "anchor": "Button(\"好\") { errorMessage = nil }",
       "extraction": "syntax"
     }
   ],
   "presentations": [
     {
-      "id": "alert-103",
+      "id": "alert-132",
       "kind": "alert",
       "title": "操作失败",
       "destination": null,
@@ -335,10 +335,10 @@
         "errorMessage"
       ],
       "span": [
-        103,
-        105
+        132,
+        134
       ],
-      "provenance": "FollowUpPages.swift:103",
+      "provenance": "FollowUpPages.swift:132",
       "anchor": ".alert(\"操作失败\", isPresented: .constant(errorMessage != nil)) {",
       "triggered": true
     }
@@ -350,9 +350,9 @@
       "empty": [],
       "data": [
         {
-          "renders": "目标与当前结果 | 条件 | untitled section at 84",
+          "renders": "目标与当前结果 | 条件 | untitled section at 113",
           "when": null,
-          "provenance": "FollowUpPages.swift:36",
+          "provenance": "FollowUpPages.swift:60",
           "anchor": "struct FollowUpDetailPage: View {",
           "note": "structural default: the sections above, when no condition overrides them"
         }
@@ -361,7 +361,7 @@
         {
           "renders": "操作失败",
           "when": null,
-          "provenance": "FollowUpPages.swift:103",
+          "provenance": "FollowUpPages.swift:132",
           "anchor": ".alert(\"操作失败\", isPresented: .constant(errorMessage != nil)) {"
         }
       ],
@@ -370,7 +370,7 @@
         {
           "renders": "等待",
           "when": "let reason = record.followUp.waitingReason",
-          "provenance": "FollowUpPages.swift:54",
+          "provenance": "FollowUpPages.swift:83",
           "anchor": "if let reason = record.followUp.waitingReason { LabeledContent(\"等待\", value: reas"
         }
       ]
@@ -392,6 +392,7 @@
       "name": "FollowUpListPage",
       "line": 6,
       "private": false,
+      "embedded": false,
       "sections": [],
       "provenance": "FollowUpPages.swift:6"
     }

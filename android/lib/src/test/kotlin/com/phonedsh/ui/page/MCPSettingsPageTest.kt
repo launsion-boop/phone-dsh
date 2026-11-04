@@ -14,7 +14,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
@@ -45,7 +47,7 @@ class MCPSettingsPageTest {
         facts: MCPRegistryFacts,
         onAdd: () -> Unit = {},
         onEdit: (String) -> Unit = {},
-        onRetry: (() -> Unit)? = null,
+        onRefresh: (() -> Unit)? = null,
     ) {
         val state = MCPScreenState.from(facts)
         compose.setContent {
@@ -56,7 +58,7 @@ class MCPSettingsPageTest {
                     onEdit = onEdit,
                     onToggleServers = {},
                     onBack = {},
-                    onRetry = onRetry,
+                    onRefresh = onRefresh,
                 )
             }
         }
@@ -111,17 +113,53 @@ class MCPSettingsPageTest {
     }
 
     @Test
-    fun `a host that is not running shows its own failure line and retries`() {
+    fun `a host that is not running shows its own failure line and refreshes from 操作`() {
         var retried = 0
         show(
             MCPRegistryFacts(failure = MCPFailureReason.HOST_NOT_RUNNING),
-            onRetry = { retried += 1 },
+            onRefresh = { retried += 1 },
         )
         compose.onNodeWithTag(UiPageTags.MCP_FAILURE).assertIsDisplayed()
         compose.onNodeWithText(UiStrings.MCP_FAILURE_HOST).assertIsDisplayed()
         compose.onNodeWithTag(UiPageTags.MCP_EMPTY).assertDoesNotExist()
-        compose.onNodeWithText(UiStrings.RETRY).performClick()
+        // The baseline has one re-read verb (`MCPSettingsPage.swift:87`), so the
+        // failure line carries no second 重试: 刷新注册表 in 操作 is the recovery.
+        compose.onAllNodesWithText(UiStrings.RETRY).assertCountEquals(0)
+        compose.onNodeWithTag(UiPageTags.MCP_ACTION_REFRESH).performClick()
         assertEquals(1, retried)
+    }
+
+    @Test
+    fun `the 操作 group carries 刷新注册表 and 添加 MCP 服务器 in every state`() {
+        var added = 0
+        var refreshed = 0
+        show(MCPRegistryFacts(servers = emptyList()), onAdd = { added += 1 }, onRefresh = { refreshed += 1 })
+        // The group is outside the list, so the empty state still reaches it.
+        compose.onNodeWithTag(UiPageTags.MCP_ACTIONS_SECTION).assertIsDisplayed()
+        compose.onNodeWithText(UiStrings.MCP_ACTION_SECTION).assertIsDisplayed()
+        compose.onNodeWithText(UiStrings.MCP_ACTION_REFRESH).assertIsDisplayed()
+        compose.onNodeWithTag(UiPageTags.MCP_ACTION_ADD_SERVER).performClick()
+        assertEquals(1, added)
+        compose.onNodeWithTag(UiPageTags.MCP_ACTION_REFRESH).performClick()
+        assertEquals(1, refreshed)
+    }
+
+    @Test
+    fun `a host without a re-read renders 刷新注册表 disabled instead of hiding it`() {
+        show(MCPRegistryFacts(servers = emptyList()))
+        // The action the baseline declares is visible; what it cannot do, it says
+        // by being disabled rather than by disappearing from the page.
+        compose.onNodeWithText(UiStrings.MCP_ACTION_REFRESH).assertIsDisplayed()
+        compose.onNodeWithTag(UiPageTags.MCP_ACTION_REFRESH).assertIsNotEnabled()
+    }
+
+    @Test
+    fun `the server group is the baseline's Streamable HTTP MCP group`() {
+        show(MCPRegistryFacts(servers = listOf(files)))
+        compose.onNodeWithText(UiStrings.MCP_LIST_SECTION).assertIsDisplayed()
+        compose.onNodeWithTag(UiPageTags.MCP_LIST)
+            .performScrollToNode(hasText(UiStrings.MCP_LIST_FOOTER))
+        compose.onNodeWithText(UiStrings.MCP_LIST_FOOTER).assertIsDisplayed()
     }
 
     @Test

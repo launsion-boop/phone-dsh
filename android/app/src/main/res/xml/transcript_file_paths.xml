@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: MIT -->
+<!--
+  The one directory the transcript share may hand to another app.
+
+  `cacheDir/transcript-exports/` is written by `ChatTranscriptExport` when a
+  document is too long for `EXTRA_TEXT`. It holds only generated Markdown; the
+  app's workspace, preferences and credentials are not reachable through this
+  provider.
+-->
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <cache-path name="transcript_exports" path="transcript-exports/" />
+</paths>

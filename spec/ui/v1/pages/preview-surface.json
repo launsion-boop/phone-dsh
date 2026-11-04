@@ -1,0 +1,152 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "PreviewSurface",
+  "pageId": "preview-surface",
+  "structure": "swiftui-view",
+  "sectionModel": "single-region",
+  "sectionNote": "one body under a navigation title: the file's preview (or its honest failure/unsupported card) plus the paging footer. The baseline groups nothing with Section/PageSection/GroupBox, so there is no section title to compare",
+  "title": null,
+  "titleNote": "the navigation title is the file's last path component (`PreviewSurface.swift:295`), i.e. runtime data; the contract pins the actions and the states, not a literal title",
+  "source": {
+    "file": "PreviewSurface.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/PreviewSurface.swift",
+    "lines": 865,
+    "structLine": 230,
+    "renderedFrom": [
+      "body"
+    ],
+    "sectionOrder": "declaration order inside the page struct"
+  },
+  "android": {
+    "screen": "PreviewPage",
+    "file": "android/lib/src/main/kotlin/com/phonedsh/ui/surface/preview/PreviewSurface.kt",
+    "match": "alias",
+    "note": "the mirrored Swift type is `struct PreviewSurface`; the Android entry composable is `public fun PreviewPage(`, the alias this contract asserts. It lives outside `ui/page` because `PdshRoute.Preview` renders it as the app's one preview face, not as a page-layer screen"
+  },
+  "handRegistered": {
+    "reason": "`PreviewSurface` is not a `*Page` struct, so the extractor does not generate a contract for it (PR15 made the preview a standalone surface, `PreviewSurface.swift:230`, replacing the `FilePreviewPage` that used to hide inside `FilesPage.swift`). The surface is still a real entrance with its own actions, so it gets a hand-written contract instead of disappearing from the gate.",
+    "mechanism": "a whole contract file, not a `_spec-required.json` entry: that file merges items into a contract the extractor generated, and no extracted contract exists for this page. `extract_ios_pages.py` never writes or deletes `pages/preview-surface.json` (`discover_pages` walks `*Page` structs only), and `page_structure_check.py` reads it like every other contract, provenance included.",
+    "scope": "the actions the Android entry composable implements. Three baseline controls stay outside this contract's Android comparison set, on purpose: 关闭 (`PreviewSurface.swift:326`) is drawn only for the modal presentation, and Android renders this surface as a pushed route whose frame back is that gesture; 网页网络权限 and 重新加载页面 (`:338`, `:344`) are HTML/page-source-only, and Android does not do an HTML preview — a second page source is blocked by the app-wide single-WebView invariant (§6.3-5; L28 §4) — so the three are not part of this contract's Android comparison set. Everything else the baseline renders a label for is listed above."
+  },
+  "sections": [],
+  "actions": [
+    {
+      "id": "重试",
+      "label": "重试",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ model.retry() }",
+      "writes": true,
+      "destination": null,
+      "condition": "model.error != nil",
+      "provenance": "PreviewSurface.swift:268",
+      "anchor": "Button(\"重试\") { model.retry() }",
+      "extraction": "manual"
+    },
+    {
+      "id": "加载更多",
+      "label": "加载更多",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ model.loadMore() }",
+      "writes": true,
+      "destination": null,
+      "condition": "!model.eof && (model.kind == .text || model.kind == .markdown)",
+      "provenance": "PreviewSurface.swift:285",
+      "anchor": "Label(\"加载更多\", systemImage: \"arrow.down.circle\")",
+      "extraction": "manual"
+    },
+    {
+      "id": "分享",
+      "label": "分享",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "toolbar",
+      "semantic": "{ showShare = true }",
+      "writes": false,
+      "destination": null,
+      "condition": "model.fileURL != nil",
+      "provenance": "PreviewSurface.swift:353",
+      "anchor": ".accessibilityLabel(\"分享\")",
+      "extraction": "manual"
+    },
+    {
+      "id": "分享文件",
+      "label": "分享文件",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "ShareLink(item: url)",
+      "writes": false,
+      "destination": null,
+      "condition": "model.kind is unsupported && model.fileURL != nil",
+      "provenance": "PreviewSurface.swift:535",
+      "anchor": "Label(\"分享文件\", systemImage: \"square.and.arrow.up\")",
+      "extraction": "manual"
+    }
+  ],
+  "presentations": [],
+  "states": {
+    "advisory": true,
+    "note": "advisory only: these are the four rules the surface renders, recorded with provenance; the checker compares actions and sections, never this object",
+    "sites": {
+      "empty": [],
+      "data": [
+        {
+          "renders": "the body for the resolved kind (text / markdown / image / PDF / video)",
+          "when": "model.isLoading == false && model.error == nil && the kind has a renderer",
+          "provenance": "PreviewSurface.swift:272",
+          "anchor": "body(for: model.kind)"
+        }
+      ],
+      "failure": [
+        {
+          "renders": "无法预览 + the host reason + 重试",
+          "when": "model.error != nil",
+          "provenance": "PreviewSurface.swift:266",
+          "anchor": "ContentUnavailableView(\"无法预览\", systemImage: \"doc.questionmark\","
+        }
+      ],
+      "unknown": [
+        {
+          "renders": "暂时不能预览这个文件 + why + 分享文件",
+          "when": "the kind has no renderer",
+          "provenance": "PreviewSurface.swift:520",
+          "anchor": "Text(\"暂时不能预览这个文件\")"
+        }
+      ],
+      "loading": [
+        {
+          "renders": "正在读取… (the first frame)",
+          "when": "model.isLoading && model.text.isEmpty",
+          "provenance": "PreviewSurface.swift:262",
+          "anchor": "ProgressView(\"正在读取…\")"
+        }
+      ]
+    },
+    "absent": [
+      "empty"
+    ],
+    "coverage": {
+      "empty": 0,
+      "data": 1,
+      "failure": 1,
+      "unknown": 1,
+      "loading": 1
+    }
+  },
+  "subpages": [],
+  "unreachable": [],
+  "extraction": {
+    "tool": "manual (hand-registered)",
+    "mode": "manual",
+    "sectionKeywordsInPage": 0,
+    "regionsExtracted": 0,
+    "sectionsExtracted": 0,
+    "warnings": [
+      "not generated by extract_ios_pages.py: PreviewSurface is a standalone surface, not a *Page struct (see handRegistered)"
+    ]
+  }
+}

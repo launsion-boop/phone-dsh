@@ -16,6 +16,7 @@
 
 import Foundation
 import Network
+import PhoneDSHAgentCore
 
 /// One request the mock received, kept for assertions and the smoke report.
 public struct MockModelRequest: Sendable {
@@ -56,6 +57,14 @@ public enum MockModelScript: Sendable {
     /// One fixed tool call per user turn, then a fixed final message after the
     /// tool result. Works for any prompt, which is what a scenario mock needs.
     case generic(command: String, toolText: String, finalText: String)
+    /// Several actual tool executions, one per model reply, then final text.
+    case sequence(tools: [MockModelToolCall], finalText: String)
+}
+
+public struct MockModelToolCall: Sendable {
+    public let name: String
+    public let arguments: JSONValue
+    public init(name: String, arguments: JSONValue) { self.name = name; self.arguments = arguments }
 }
 
 /// The scripted model upstream. Call ``start()`` on any thread, then ``stop()``.
@@ -352,6 +361,8 @@ public final class MockModelUpstream: @unchecked Sendable {
         let toolDescription: String
         let pendingText: String
         let finalText: String
+        var scriptedTool: MockModelToolCall?
+        var scriptedToolID: String?
         switch script {
         case .fileWrite:
             respondWithTool = Self.transcriptHasToolResult(body) == false
@@ -364,6 +375,19 @@ public final class MockModelUpstream: @unchecked Sendable {
             toolCommand = command
             toolDescription = "Run the scenario's fixed command"
             pendingText = toolText
+            finalText = reply
+        case .sequence(let tools, let reply):
+            let object = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any]
+            let messages = object?["messages"] as? [[String: Any]] ?? []
+            let count = messages.flatMap { $0["content"] as? [[String: Any]] ?? [] }
+                .filter { ($0["type"] as? String) == "tool_result"
+                    && ($0["tool_use_id"] as? String)?.hasPrefix("toolu_sequence_") == true }.count
+            let advertised = object?["tools"] as? [[String: Any]] ?? []
+            respondWithTool = count < tools.count && advertised.contains { ($0["name"] as? String) == tools[count].name }
+            if respondWithTool { scriptedTool = tools[count]; scriptedToolID = "toolu_sequence_\(count)" }
+            toolCommand = ""
+            toolDescription = ""
+            pendingText = "Execute the explicitly submitted test task."
             finalText = reply
         }
         var text = pendingText
@@ -400,7 +424,9 @@ public final class MockModelUpstream: @unchecked Sendable {
         ])
         emit("content_block_stop", ["type": "content_block_stop", "index": 0])
         if respondWithTool {
-            let input: [String: Any] = [
+            let input: [String: Any] = scriptedTool.flatMap {
+                try? JSONSerialization.jsonObject(with: $0.arguments.encoded()) as? [String: Any]
+            } ?? [
                 "command": toolCommand,
                 "description": toolDescription,
             ]
@@ -412,8 +438,8 @@ public final class MockModelUpstream: @unchecked Sendable {
                 "index": 1,
                 "content_block": [
                     "type": "tool_use",
-                    "id": "toolu_smoke_\(helper)",
-                    "name": "bash",
+                    "id": scriptedToolID ?? "toolu_smoke_\(helper)",
+                    "name": scriptedTool?.name ?? "bash",
                     "input": [:],
                 ],
             ])

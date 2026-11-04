@@ -1,0 +1,202 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "LicensesPage",
+  "pageId": "licenses",
+  "structure": "swiftui-view",
+  "sectionModel": "single-region",
+  "sectionNote": "one flat List of direct LabeledContent license entries with no Section headers; Android renders its host-reported platform catalog in one grouped card. The catalogs are platform-specific and their rows are not compared here",
+  "title": {
+    "text": "开源许可",
+    "provenance": "SettingsPage.swift:432",
+    "anchor": ".navigationTitle(NativeText(\"开源许可\", \"Open-source licenses\"))"
+  },
+  "source": {
+    "file": "SettingsPage.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/SettingsPage.swift",
+    "lines": 434,
+    "structLine": 425,
+    "renderedFrom": [
+      "body"
+    ],
+    "sectionOrder": "declaration order inside the page struct"
+  },
+  "android": {
+    "screen": "LicensesPage",
+    "file": "android/lib/src/main/kotlin/com/phonedsh/ui/page/LicensesPage.kt",
+    "match": "composable"
+  },
+  "sections": [
+    {
+      "id": "region-425",
+      "kind": "implicit",
+      "title": null,
+      "titleTemplate": null,
+      "titleSource": "absent",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "swiftterm",
+          "label": "SwiftTerm",
+          "labelExpr": null,
+          "kind": "info",
+          "value": null,
+          "valueExpr": "\"MIT\"",
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "SettingsPage.swift:428",
+          "anchor": "LabeledContent(\"SwiftTerm\", value: \"MIT\")",
+          "extraction": "syntax"
+        },
+        {
+          "id": "swift-nio",
+          "label": "swift-nio",
+          "labelExpr": null,
+          "kind": "info",
+          "value": null,
+          "valueExpr": "\"Apache 2.0\"",
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "SettingsPage.swift:429",
+          "anchor": "LabeledContent(\"swift-nio\", value: \"Apache 2.0\")",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "SettingsPage.swift:425",
+      "anchor": "private struct LicensesPage: View {",
+      "extraction": "manual",
+      "criterion": {
+        "kind": "implicit"
+      },
+      "note": "no Section/PageSection/GroupBox/header Text found: the whole body is one region, so a human must say what the group is (or the page has none)"
+    }
+  ],
+  "actions": [],
+  "presentations": [],
+  "states": {
+    "advisory": true,
+    "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
+    "sites": {
+      "empty": [],
+      "data": [
+        {
+          "renders": "untitled section at 425",
+          "when": null,
+          "provenance": "SettingsPage.swift:425",
+          "anchor": "private struct LicensesPage: View {",
+          "note": "structural default: the sections above, when no condition overrides them"
+        }
+      ],
+      "failure": [],
+      "unknown": [],
+      "loading": []
+    },
+    "absent": [
+      "empty",
+      "failure",
+      "unknown",
+      "loading"
+    ],
+    "coverage": {
+      "empty": 0,
+      "data": 1,
+      "failure": 0,
+      "unknown": 0,
+      "loading": 0
+    }
+  },
+  "subpages": [
+    {
+      "name": "SettingsPage",
+      "line": 45,
+      "private": false,
+      "embedded": false,
+      "sections": [
+        {
+          "title": "模型与智能体",
+          "provenance": "SettingsPage.swift:63"
+        },
+        {
+          "title": "权限与隐私",
+          "provenance": "SettingsPage.swift:73"
+        },
+        {
+          "title": "对话",
+          "provenance": "SettingsPage.swift:81"
+        },
+        {
+          "title": "会话与文件",
+          "provenance": "SettingsPage.swift:106"
+        },
+        {
+          "title": "引擎",
+          "provenance": "SettingsPage.swift:117"
+        },
+        {
+          "title": "关于",
+          "provenance": "SettingsPage.swift:143"
+        }
+      ],
+      "provenance": "SettingsPage.swift:45"
+    },
+    {
+      "name": "FontSizeSettingsPage",
+      "line": 238,
+      "private": true,
+      "embedded": true,
+      "sections": [],
+      "provenance": "SettingsPage.swift:238"
+    },
+    {
+      "name": "ConversationSettingsPage",
+      "line": 276,
+      "private": true,
+      "embedded": true,
+      "sections": [
+        {
+          "title": "工作步骤",
+          "provenance": "SettingsPage.swift:281"
+        },
+        {
+          "title": "发送与用量",
+          "provenance": "SettingsPage.swift:300"
+        }
+      ],
+      "provenance": "SettingsPage.swift:276"
+    },
+    {
+      "name": "ArchivedSessionsPage",
+      "line": 325,
+      "private": true,
+      "embedded": true,
+      "sections": [],
+      "provenance": "SettingsPage.swift:325"
+    },
+    {
+      "name": "PermissionDefaultsPage",
+      "line": 387,
+      "private": true,
+      "embedded": true,
+      "sections": [
+        {
+          "title": "只影响之后新开的会话，当前会话保持不变。",
+          "provenance": "SettingsPage.swift:392"
+        }
+      ],
+      "provenance": "SettingsPage.swift:387"
+    }
+  ],
+  "unreachable": [],
+  "extraction": {
+    "tool": "extract_ios_pages.py",
+    "mode": "syntax",
+    "sectionKeywordsInPage": 0,
+    "regionsExtracted": 0,
+    "sectionsExtracted": 1,
+    "warnings": []
+  }
+}

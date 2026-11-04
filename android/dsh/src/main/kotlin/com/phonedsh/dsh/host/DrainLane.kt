@@ -36,13 +36,18 @@
 //     owns those, and this class only reports what it performed.
 //
 // ---- `START_BACKGROUND_TASK` on this platform ------------------------------
-// The probe App declares no service (`AndroidManifest` has none) and its
-// `Notifier` is DISABLED, so there is no OS background window to open. That is
-// not a reason to leave the drain unowned: the effect exists to keep the process
-// alive *while the drain runs*, and a drain that closes in milliseconds needs no
-// window. The honest report is therefore "performed in-process, no background
-// window", not a silent drop — [DrainOutcome.backgroundWindow] carries it and
-// the facade logs it.
+// The APK *does* declare the service. `:dsh`'s own manifest ships
+// `TurnForegroundService`, `TurnJobService`, `TurnStopReceiver` and `BootReceiver`
+// and the manifest merger puts them in the packaged APK (verified with `aapt2`
+// in L41); an earlier revision of this comment said the opposite and the claim
+// travelled into the log line below, which is why it is corrected here.
+//
+// Whether one of those windows is *in place for this turn* is not a manifest fact
+// but a reading: [TurnWindowRead] answers it, and [DefaultPhoneDshHost] only
+// feeds `Running -> Draining` when the answer is "no window" (or when the bounded
+// hold expires, see [WindowHold]). The drain itself therefore opens no window: it
+// is a milliseconds-scale in-process close, which is why [DrainOutcome] carries no
+// "background window" claim at all.
 
 package com.phonedsh.dsh.host
 
@@ -107,14 +112,11 @@ internal class DrainLane(
      * @param durableUpto the close record's watermark, or `null` when the close
      *   did not return (deadline/failure) or no sink is attached.
      * @param workerStopped whether `Parked`'s "WebContent stopped" is true.
-     * @param backgroundWindowAlways `false` on this platform: no service, so the
-     *   drain ran in-process with no OS background window.
      */
     data class DrainOutcome(
         val reason: Reason,
         val durableUpto: Long?,
         val workerStopped: Boolean,
-        val backgroundWindowAlways: Boolean = false,
     )
 
     private val lock = Any()
@@ -169,8 +171,8 @@ internal class DrainLane(
     private suspend fun run(deadlineAtMillis: Long) {
         val remaining = (deadlineAtMillis - clock.monotonicMillis()).coerceAtLeast(0L)
         logger.info(
-            "drain: closing the epoch now (deadline in $remaining ms; " +
-                "no background window: this App declares no service)",
+            "drain: closing the epoch now (deadline in $remaining ms; this row was fed only " +
+                "after the turn-window read said no window is in place)",
         )
         val wait = closeBounded(remaining)
         val attempt = (wait as? CloseWait.Closed)?.attempt
@@ -210,7 +212,7 @@ internal class DrainLane(
         )
         logger.info(
             "drain done: reason=${drained.reason.wireName}, durable_upto=${drained.durableUpto ?: -1}, " +
-                "worker_stopped=${drained.workerStopped}, background_window=false",
+                "worker_stopped=${drained.workerStopped}",
         )
         onDrained(drained)
     }

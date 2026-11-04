@@ -176,5 +176,8 @@ DSH home。
 
 ## 平台边界
 
-这不是远端 PC 包装器，也不是包安装器。iPhone 上镜像不可变，只允许改
-profile/home patch 与扁平的 user skill 目录；页面每次都会展示该边界。
+feature-admin 页面不安装外部包，iPhone 镜像仍不可变。创造模式另外支持使用
+已装载预设模块的本地声明式预设 bundle：校验后保留两份元数据文件的自有副本，
+由真实 Loader 验证生效，继续遵守 DSH 权限审批。npm/Git 依赖、安装脚本、
+`!!js` 和新 JS 代码会明确拒绝。加载失败会恢复 profile 与已拥有 bundle 的原字节，
+不改新会话默认值；手机端创作说明只注入创造模式。

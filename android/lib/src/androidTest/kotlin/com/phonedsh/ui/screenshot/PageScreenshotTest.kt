@@ -12,7 +12,10 @@
 // half-written screen. They get baselines after they land.
 package com.phonedsh.ui.screenshot
 
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.phonedsh.ui.UiTags
 import com.phonedsh.ui.page.ChatPage
 import com.phonedsh.ui.page.SessionsPage
 import com.phonedsh.ui.page.SettingsPage
@@ -39,6 +42,9 @@ class PageScreenshotTest : ScreenshotTestBase() {
                 title = "像素基线复盘",
             )
         }
+        // The two chat baselines must not be able to pass while rendering the same
+        // frame: this one is the no-banner state, so the banner node has to be absent.
+        compose.onNodeWithTag(UiTags.FAIL_LOUD_BANNER).assertDoesNotExist()
         capture("page-chat")
     }
 
@@ -59,6 +65,10 @@ class PageScreenshotTest : ScreenshotTestBase() {
                 title = "像素基线复盘",
             )
         }
+        // Guard against the false green this baseline shipped with: the state must
+        // actually put the fail-loud banner on screen, otherwise the capture is just
+        // `page-chat` under another name.
+        compose.onNodeWithTag(UiTags.FAIL_LOUD_BANNER).assertIsDisplayed()
         capture("page-chat-banner")
     }
 

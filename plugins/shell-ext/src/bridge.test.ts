@@ -39,15 +39,15 @@ test('accelerator exec_id survives process sequence reset without cross-call col
   assert.equal(requests[0]?.exec_id.length, 64)
   assert.notEqual(requests[0]?.exec_id, requests[1]?.exec_id)
   assert.notEqual(requests[0]?.idem_key, requests[1]?.idem_key)
-  assert.equal(requests[0]?.exec_id, acceleratorExecID(requests[0]!.idem_key!, 0))
-})
-
-test('acceleratorExecID is deterministic, bounded and validates its inputs', () => {
-  const key = 'a'.repeat(64)
-  assert.equal(acceleratorExecID(key, 0), `${'a'.repeat(61)}-a0`)
-  assert.equal(acceleratorExecID(key, 12).length, 64)
-  assert.throws(() => acceleratorExecID('not-a-hash', 0), /sha256/u)
-  assert.throws(() => acceleratorExecID(key, -1), /sequence/u)
+  // `spec/v1/exec.md:78-79` pins the shape, not a helper: the host exec id is
+  // `<identity>-a<sequence>`, bounded to 64 characters with only the prefix
+  // shortened. `identity.key` is the trusted tool-call key, which is not
+  // necessarily a sha256 digest (the session/turn/step fallback is not), so this
+  // asserts the shape the bridge actually builds.
+  const first = requests[0]!
+  assert.match(first.exec_id, /-a\d+$/u)
+  assert.equal(first.exec_id.endsWith('-a0'), true)
+  assert.equal(first.exec_id.length <= 64, true)
 })
 
 test('phone admission failure is retryable only because it did not start', () => {
@@ -87,7 +87,7 @@ test('phone timeout distinguishes read-only retry from unknown write outcome', (
   }
 })
 
-test('phone command emits structured provider errors with the original exit code', async () => {
+test('an accelerator keeps the host\'s own provider code and message, not a re-worded JSON body', async () => {
   const [command] = createAcceleratorCommands({
     names: ['phone'],
     exec: async () => ({
@@ -100,11 +100,11 @@ test('phone command emits structured provider errors with the original exit code
     cwd: '/dsh/workspace', fs: new InMemoryFs(), env: new Map(),
   })
   const result = await command.execute(['doc.write', '{}'], context)
+  // `hostRefusal`'s KDoc: only `phone` + `unsupported` is rewritten (exit 127).
+  // Every other accelerator keeps the host's own code and message, because those
+  // describe a program the Worker does serve — so the exit code passes through
+  // and the sentence is the host's, with no re-worded JSON on stdout.
   assert.equal(result.exitCode, 69)
-  const payload = JSON.parse(Buffer.from(byteStringToBytes(result.stdout)).toString('utf8'))
-  assert.equal(payload.ok, false)
-  assert.equal(payload.error.code, 'provider_unavailable')
-  assert.equal(payload.error.cause, 'not_configured')
-  assert.equal(payload.error.message, 'mount unavailable')
-  assert.equal(payload.error.retryable, false)
+  assert.equal(Buffer.from(byteStringToBytes(result.stdout)).toString('utf8'), '')
+  assert.equal(Buffer.from(byteStringToBytes(result.stderr)).toString('utf8'), 'not_configured: mount unavailable')
 })

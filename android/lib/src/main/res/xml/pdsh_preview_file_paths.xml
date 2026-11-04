@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The one directory the preview may hand to another app.
+
+  `xl` is the Android host's workspace directory (`wal.md` §1's `Library/xl/`);
+  `materialized/workspace` is the WAL's derived mirror of the Worker's
+  `/dsh/workspace` (see `PreviewWorkspace`). Nothing else is exposed.
+-->
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <files-path name="workspace" path="xl/materialized/workspace/" />
+</paths>

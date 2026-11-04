@@ -522,6 +522,32 @@ test('copy-bundle-assets rejects a missing image sizes.json', async () => {
   }
 })
 
+test('copy-bundle-assets builds a verified pinned Worker without a Web dist', async () => {
+  const root = await exampleTree({ web: false })
+  try {
+    await installVerifier(root)
+    const checkout = await gitCheckout(root)
+    const commit = execFileSync('git', ['-C', checkout, 'rev-parse', 'HEAD'], {encoding: 'utf8'}).trim()
+    await writeFile(join(root, 'plugins', 'dsh-pin.json'), JSON.stringify({
+      repo: 'https://example.invalid/deepseek-harness', commit, version: WEB_VERSION,
+    }))
+    const {workerOut, imageOut} = await workerOutputs(root, {commit})
+    await mkdir(join(root, 'plugins', 'worker-entry'), {recursive: true})
+    await writeFile(join(root, 'plugins', 'worker-entry', 'build.mjs'), `
+import {cpSync} from 'node:fs'
+cpSync(${JSON.stringify(workerOut)}, process.argv[process.argv.indexOf('--out') + 1], {recursive: true})
+`)
+    const output = bash('bash "$1" --image-out "$2" --checkout "$3"', [
+      join(root, 'examples', 'probe-app', 'scripts', 'copy-bundle-assets.sh'), imageOut, checkout,
+    ])
+    assert.match(output, /verifying Worker checkout against dsh-pin.json/)
+    assert.ok(existsSync(join(root, 'examples', 'probe-app', 'Bundle', 'worker', 'worker-entry.js')))
+    assert.doesNotMatch(output, /unbound variable/)
+  } finally {
+    await rm(root, {recursive: true, force: true})
+  }
+})
+
 test('copy-bundle-assets still stages legacy Worker assets without a Web dist', async () => {
   const root = await exampleTree({ web: false })
   try {

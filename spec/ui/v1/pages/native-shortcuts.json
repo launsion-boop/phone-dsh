@@ -22,8 +22,8 @@
   },
   "android": {
     "screen": "NativeShortcutsPage",
-    "file": null,
-    "match": "missing"
+    "file": "android/lib/src/main/kotlin/com/phonedsh/ui/page/NativeShortcutsPage.kt",
+    "match": "composable"
   },
   "sections": [
     {
@@ -73,7 +73,7 @@
           "labelExpr": null,
           "kind": "info",
           "value": null,
-          "valueExpr": null,
+          "valueExpr": "\"⇧↩\"",
           "clickable": false,
           "destination": null,
           "writes": false,
@@ -88,7 +88,7 @@
           "labelExpr": null,
           "kind": "info",
           "value": null,
-          "valueExpr": null,
+          "valueExpr": "\"↩\"",
           "clickable": false,
           "destination": null,
           "writes": false,
@@ -103,7 +103,7 @@
           "labelExpr": null,
           "kind": "info",
           "value": null,
-          "valueExpr": null,
+          "valueExpr": "\"⌘↩\"",
           "clickable": false,
           "destination": null,
           "writes": false,

@@ -31,6 +31,13 @@ idem_key = sha256( XL_IDEMPOTENCY_KEY ‖ 0x1F ‖ canonical_json(argv)
     the D20 ordinal `step_id` are unsigned decimal ASCII without leading zeros. The rest of the
     formula is unchanged.
   - The checksum is over the byte concatenation; the result is lowercase hex, no prefix.
+- **`argv` elements are opaque strings.** An element may be empty (`rg -N ''` matches every line);
+  it is a value like any other in `canonical_json(argv)` and in the `idem_key`. Only a **zero-length**
+  `argv` array is malformed (`channel.md` §10's `BAD_PAYLOAD` list covers the payload's shape, not an
+  element's content). A host that rejects an empty element, and closes the connection for it
+  (channel.md §10: every ERROR except `VFS_REFUSED` closes), turns one ordinary argument into a lost
+  channel; an `argv[0]` that names no advertised accelerator is a terminal `unsupported` instead
+  (§3), never a payload error.
 
 **One step id per call (D20).** `step_id` is the decimal ordinal of the tool call within its turn:
 the first tool call dispatched in a turn has `step_id = 1`, and every later tool call of the same

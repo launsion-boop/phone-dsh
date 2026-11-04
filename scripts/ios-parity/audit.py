@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
 """iOS × official DSH session-line parity scanner.
 
 Static, dependency-free extractor for the session conversation line:

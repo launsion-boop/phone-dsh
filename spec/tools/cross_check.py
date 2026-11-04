@@ -52,6 +52,8 @@ REF_RE = re.compile(
     r"spec/[A-Za-z0-9_./-]+\.(?:{})(?![A-Za-z0-9_-])".format("|".join(REF_EXTENSIONS))
 )
 PLACEHOLDER_REFS = frozenset({"spec/v1/file.md"})
+BASELINE_ENTRYPOINTS = ("spec/README.md", "AGENTS.md")
+BASELINE_LINK_RE = re.compile(r"\[[^\]\n]+\]\(([^)\n]+)\)")
 PLATFORM_MENTION_RE = re.compile(r"platform\.[A-Za-z0-9_.-]+")
 
 SIGNATURE_SURFACES = (
@@ -169,8 +171,55 @@ def _text_files(root, tree="spec"):
 # 1. Reference reachability -------------------------------------------------
 
 
+def _check_baseline_links(root, res):
+    """Keep the protocol index navigable and the two agent entrypoints unified.
+
+    This checks only the two owned entrypoints, not arbitrary Markdown syntax or
+    external URLs. It proves reachability, never semantic/runtime conformance.
+    """
+    count = 0
+    repo = root.resolve()
+    for rel in BASELINE_ENTRYPOINTS:
+        path = root / rel
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            res.fail("{}: missing or unreadable baseline entrypoint".format(rel))
+            continue
+        for match in BASELINE_LINK_RE.finditer(text):
+            destination = match.group(1).strip()
+            if not destination:
+                continue
+            # Allow ordinary Markdown titles and <paths with spaces>.
+            target = (destination[1:destination.index(">")]
+                      if destination.startswith("<") and ">" in destination
+                      else destination.split()[0])
+            target = target.split("#", 1)[0]
+            if not target or target.startswith("//") or re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", target):
+                continue
+            count += 1
+            where = "{}:{}".format(rel, text.count("\n", 0, match.start()) + 1)
+            resolved = (path.parent / target).resolve()
+            if Path(target).is_absolute() or not resolved.is_relative_to(repo):
+                res.fail("{}: baseline link escapes the repository: {}".format(where, target))
+            elif not resolved.exists():
+                res.fail("{} -> {} (missing baseline link)".format(where, target))
+    alias = root / "CLAUDE.md"
+    if alias.is_symlink() or not alias.is_file():
+        res.fail("CLAUDE.md must be a regular file importing @AGENTS.md")
+    else:
+        try:
+            lines = [line.strip() for line in alias.read_text(encoding="utf-8").splitlines() if line.strip()]
+            if not lines or lines[0] != "@AGENTS.md":
+                res.fail("CLAUDE.md first nonempty line must be @AGENTS.md")
+        except (OSError, UnicodeError):
+            res.fail("CLAUDE.md must be readable UTF-8")
+    return count
+
+
 def check_references(root):
     res = Result("reference-reachability", "spec path references exist")
+    baseline_links = _check_baseline_links(root, res)
     files = _text_files(root)
     if not files:
         res.fail("no README or JSON file found under spec/")
@@ -197,8 +246,8 @@ def check_references(root):
                 continue
             if not (root / ref).is_file():
                 res.fail("{} -> {} (missing)".format(_loc(root, path, lineno), ref))
-    res.summary = "{} references in {} files; {} placeholder(s) ignored".format(
-        occurrences, len(files), placeholders)
+    res.summary = "{} references in {} files; {} placeholder(s) ignored; {} baseline links".format(
+        occurrences, len(files), placeholders, baseline_links)
     return res
 
 
@@ -293,8 +342,20 @@ def _bridge_registry(text):
     for line in lines[start:end]:
         match = re.match(r"^\|\s*`([^`]+)`\s*\|", line)
         if match:
-            methods.append(match.group(1))
+            methods.append((match.group(1), _registry_row_is_declared_unimplemented(line)))
     return methods
+
+
+def _registry_row_is_declared_unimplemented(line):
+    """True when the row's Status cell says the method is not implemented.
+
+    A registered method that no host implements has no shape to pin, so demanding
+    a golden vector for it would make the vector a fabrication. But the exemption
+    must be *earned by the text*: the status cell has to say so, and a method that
+    claims both "not implemented" and a positive vector fails below.
+    """
+    cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+    return any("not implemented" in cell.lower() for cell in cells[1:])
 
 
 def _bridge_envelopes(document):
@@ -324,6 +385,8 @@ def check_bridge_registry(root):
     if not registry:
         res.fail("{}: section 11 lists no method".format(BRIDGE_DOC))
         return res
+    declared_unimplemented = {name for name, pending in registry if pending}
+    registry = [name for name, _ in registry]
     seen = set()
     for method in registry:
         if method in seen:
@@ -366,9 +429,17 @@ def check_bridge_registry(root):
                 positive.add(method)
                 sources.setdefault(method, _rel(root, path))
 
-    for method in sorted(registry - positive):
+    # A method declared `not implemented` has no shape to pin yet, so it needs no
+    # vector — but claiming both is a contradiction, because a vector would be
+    # evidence for a method the same table says does not exist.
+    for method in sorted(declared_unimplemented & positive):
+        res.fail("{}: registry method {!r} is declared not implemented "
+                 "but carries a positive golden vector".format(BRIDGE_DOC, method))
+    for method in sorted(registry - positive - declared_unimplemented):
         res.fail("{}: registry method {!r} has no non-negative golden vector".format(
             BRIDGE_DOC, method))
+    for method in sorted(declared_unimplemented - set(registry)):
+        res.fail("{}: registry method {!r} is not implemented yet".format(BRIDGE_DOC, method))
     for method in sorted(positive - registry):
         res.fail("{}: golden method {!r} is absent from the registry".format(
             sources.get(method, BRIDGE_GOLDEN), method))
@@ -379,8 +450,11 @@ def check_bridge_registry(root):
     if negative_files:
         res.note("negative vectors (method intentionally absent): {}".format(
             ", ".join(sorted(negative_files))))
-    res.summary = "{}/{} registry methods covered; {} positive, {} negative method(s)".format(
-        len(registry & positive), len(registry), len(positive), len(negative))
+    res.summary = ("{}/{} implemented registry methods covered; {} positive, {} negative, "
+                   "{} declared not implemented").format(
+        len((set(registry) - declared_unimplemented) & positive),
+        len(set(registry) - declared_unimplemented),
+        len(positive), len(negative), len(declared_unimplemented))
     return res
 
 

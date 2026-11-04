@@ -46,6 +46,7 @@
 #   bash android/tools/ios-baseline-capture.sh                 # strict HEAD
 #   bash android/tools/ios-baseline-capture.sh --capture-copy  # documented shim
 #   PDSH_CAPTURE_OUT=/tmp/shots bash android/tools/ios-baseline-capture.sh --capture-copy
+#   PDSH_CAPTURE_DEVICE_NAME="PDSH PR14 Latest iOS Baseline" bash android/tools/ios-baseline-capture.sh
 #
 # Writes only docs/receipts/ios-baseline-screens/** (or PDSH_CAPTURE_OUT) plus
 # ephemeral files under ${TMPDIR:-/tmp}. Does not touch Android sources, the
@@ -61,6 +62,7 @@ PROJECT="$ROOT/examples/probe-app/PhoneDSHProbe.xcodeproj"
 SCHEME="PhoneDSHProbe"
 BUNDLE_ID="dev.phone-dsh.probe"
 DEVICE_NAME="PDSH iOS Baseline iPhone 16 Pro"
+DEVICE_NAME="${PDSH_CAPTURE_DEVICE_NAME:-$DEVICE_NAME}"
 DEVICE_TYPE="com.apple.CoreSimulator.SimDeviceType.iPhone-16-Pro"
 RUNTIME="${PDSH_IOS_RUNTIME:-com.apple.CoreSimulator.SimRuntime.iOS-26-5}"
 MODE="head"

@@ -14,6 +14,22 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        // The in-tree publish repository. `./gradlew publishLocalRepository`
+        // (android/build.gradle.kts) writes the eight `com.phonedsh` artifacts
+        // here, and `:lib-consumer-test` resolves `com.phonedsh:lib:0.1.0` from
+        // it — the same way an external app would from a real repository.
+        //
+        // It is a path inside the build tree, not a URL and not ~/.m2: the
+        // artifact is a product of this checkout (the root .gitignore rule
+        // `build/` covers it), resolving needs no network, nothing is written
+        // outside the tree, and no stale 0.1.0 from another project on the
+        // machine can satisfy a resolve. The content filter keeps Gradle from
+        // asking this directory about androidx/google artifacts.
+        maven {
+            name = "pdshLocal"
+            url = uri(rootDir.resolve("build/repo"))
+            content { includeGroup("com.phonedsh") }
+        }
     }
 }
 
@@ -45,3 +61,11 @@ include(":dsh")
 include(":lib")
 include(":testkit")
 include(":app")
+// The consumer probe. `:lib` is the deliverable, but nothing in this tree
+// consumed it the way another product would: `:app` depends on project(":lib"),
+// which shares this build's classpath and variant attributes. This module
+// depends on `lib-release.aar` as a *file* and declares its own Compose
+// dependencies, so it is the only place where "someone else can use the AAR" is
+// actually compiled. It publishes nothing and runs no tests; see
+// docs/design/android-aar-consumer-api-2026-11-02.md.
+include(":lib-consumer-test")

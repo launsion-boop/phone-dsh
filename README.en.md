@@ -2,9 +2,9 @@
 
 # Phone DSH — Jointly open-sourced by Xiaozhi & Tono AI Team
 
-Run DeepSeek Harness, unmodified, on your iPhone.
+Run DeepSeek Harness, unmodified, on your phone.
 
-[简体中文](README.md) · [Architecture](docs/architecture.md) · [Protocol spec](spec/v1/README.md)
+[简体中文](README.md) · [Android](#android-version) · [Architecture](docs/architecture.md) · [Protocol baseline & collaboration](spec/README.md) · [Protocol spec](spec/v1/README.md)
 
 <p align="center"><img src="docs/assets/screenshot-chat.jpg" width="300" alt="Phone DSH generating a PDF and reporting progress in the native chat"></p>
 
@@ -16,7 +16,7 @@ Run DeepSeek Harness, unmodified, on your iPhone.
 
 Phone DSH is an **unofficial** host for DeepSeek Harness. The goal is not to wrap the Web UI; it is to make the phone a first-class runtime:
 
-1. **Use the phone's resources for real.** The Worker runs inside the phone's WKWebView/Web Worker; the native host owns the loopback origin, persistent log, model gateway, credentials, lifecycle, memory/thermal budgets and recoverable restarts. CPU, memory, background execution and OS scheduling participate — the phone is not a remote display.
+1. **Use the phone's resources for real.** The Worker runs in a Web Worker inside WKWebView on iOS or Android WebView; the native host owns the loopback origin, persistent log, model gateway, credentials, lifecycle, memory/thermal budgets and recoverable restarts. CPU, memory, background execution and OS scheduling participate — the phone is not a remote display.
 2. **Cover everyday office work.** Documents, spreadsheets, slides, PDFs, mail drafts, calendars, contacts, file search, web search, code and data processing run through native tools and DSH plugins; artifacts land in the workspace, while permissions and credentials stay on the phone.
 3. **Attach more hardware through connectors.** BLE and LAN connectors let devices (ESP32, Raspberry Pi, car head units, speakers, sensors) become another participant in the same DSH session. One device gets one fixed Session; device-origin messages carry an origin so the UI and model can distinguish "said by the person" from "said by the device"; monitoring is read-only by default and writes go through a capability gate.
 
@@ -27,7 +27,7 @@ If DeepSeek ships an official phone DSH in the future, the host- and connector-l
 
 ## What this is
 
-DeepSeek Harness (DSH) ships a `webworker-runtime` that executes the harness inside a Web Worker. Phone DSH is the host side: a Swift SDK that boots that Worker in the system WebKit engine (WKWebView) and provides the services a phone can honestly offer. The parts a WebView cannot own stay in the app process: the log, the origin, the credentials and the lifecycle.
+DeepSeek Harness (DSH) ships a `webworker-runtime` that executes the harness inside a Web Worker. Phone DSH is the host side: a Swift SDK with system WebKit (WKWebView) on iOS, and a Kotlin host with Android WebView on Android. Both provide native phone services. The parts a WebView cannot own stay in the app process: the log, the origin, the credentials and the lifecycle.
 
 The pinned release is in [`plugins/dsh-pin.json`](plugins/dsh-pin.json): DSH `0.2.1-rc.2`, commit `7be5505b0be06009d74891c869063c9cf19a0df0`. No DSH source tree is copied, vendored or modified. The Worker image is built from that checkout by driving DSH's own packer library from `plugins/scripts/pack-image.mjs`, with this repository's plugins staged beside it. The packer normalizes exactly two built `dispose()` cleanup call sites in two packages; each site is anchored and hashed in `sizes.json`, and `scripts/ci/no_dsh_patch.py` enforces the source boundary.
 
@@ -94,7 +94,7 @@ names it can actually execute. The opt-in link keeps that boundary visible:
 build with `bash shell/build-apple.sh` and link with `PDSH_WITH_XZSHELL=1`;
 without the artifact the SDK advertises no accelerators at all.
 
-## Quick start
+## Quick start (iOS)
 
 All commands run from the repository root unless stated otherwise.
 
@@ -175,6 +175,24 @@ eval "$(node scripts/ci/model-env.mjs)"   # exports PDSH_MODEL_*, prints no key
 bash scripts/ci/scenarios.sh --upstream real
 ```
 
+## Android version
+
+The Android version lives in [`android/`](android/README.md) and supports **Android 8.0 (API 26) and later**, with a native Kotlin and Jetpack Compose interface. It shares the DSH Worker, TypeScript plugins, Rust kernel and host/Worker contracts with iOS. The Worker runs in Android WebView; the native host owns loopback networking, the WAL, model gateway, credentials and lifecycle, with Rust capabilities exposed through JNI.
+
+The native interface includes session content, goal/task input, file browsing, model-provider configuration, the plugin inventory and settings, and continues to follow the iOS baseline. Developers can build the example APK or integrate the host through the `com.phonedsh:lib:0.1.0` AAR.
+
+### Design choice: the iOS implementation, focused on light office work
+
+Android does not introduce a second way of running DSH; it follows the iOS implementation. The DSH Worker runs in the system WebView, the native host owns resources, credentials and the security boundary, and sessions, tool orchestration, context and the WAL behave as on the iOS baseline. The reason is the phone's main use case: **light office work** — documents, spreadsheets, PDFs, calendar, contacts, file organisation, web search and light data processing. These fit in the in-WebView Worker plus the host's read-only accelerators (`rg`, `jq`, tree-sitter and friends) and do not need a resident full Linux environment, which keeps memory, storage and battery use at a level a phone can sustain.
+
+When a task really needs a full Linux userland (for example compiling, running a build or a test toolchain), the session calls up **Ubuntu** on demand: the Agent issues an `ubuntu` request inside the session, the host asks the user for consent, then hands that one command to a local Ubuntu environment as an asynchronous job and returns its output and artifact files. Ubuntu is requested per session and discarded after use; it does not run or stay mounted otherwise. It is only where that command executes — DSH itself and the session state never move into it, and the host seals the app's internal session and storage directories while a build runs. See the [local mounted runtime (Ubuntu) design](docs/design/android-local-build-runtime-2026-11-01.md) (Chinese).
+
+**Current status, stated plainly:** Android now runs a real local Ubuntu on the minimal path — Termux's proot build (with the SIGSYS handling the app's seccomp filter requires) runs from `nativeLibraryDir`, and the Ubuntu Base 24.04.5 arm64 rootfs is downloaded on first use after user consent (about 30 MB, about 150 MB unpacked, pinned SHA-256); `ubuntu run` output says `backend=proot`. `ubuntu run -- uname -a` has been verified to really execute on an API 35 arm64 emulator (see the [receipt](docs/receipts/android-ubuntu-proot-slice.md)). Not yet included: installing a toolchain such as gcc with apt and compiling, artifact retrieval (`ubuntu fetch`), rootfs management in settings, network isolation, and physical-phone / 16 KB device verification; sources and licences of proot and the rootfs are in [NOTICE](NOTICE). If the proot assets are missing or not executable, the boot probe reports the command unavailable with a reason instead of registering an `ubuntu` command that cannot run; the mock is used only by the JVM tests. iOS has no such path yet; the page-bridge methods `ubuntu.exec / status / fetch` are still marked not implemented in [`spec/v1/bridge.md`](spec/v1/bridge.md) §12.
+
+- [Android build and module guide](android/README.md): toolchain bootstrap, Gradle modules, AAR consumption and test commands (Chinese).
+- [Worker assets and WebView requirements](android/engine/README.md): Worker bundle packaging and runtime requirements (Chinese).
+- [Current verification receipt](docs/receipts/android-pr22-alignment/owner-core-final.md): debug/release APK, AAR and R8 consumer builds, plus selected native interactions on an API 35 ARM64 emulator, have been verified. Physical phones, live model providers, a 16 KB page-size runtime and complete iOS interaction/pixel alignment remain unverified; PR14 stays Draft.
+
 ## Repository map
 
 The tree is deliberately asymmetric. The root holds the Swift reference implementation (the
@@ -195,7 +213,7 @@ hundreds of paths for no semantic gain.
 | | `spec/tools/` | Cross-tree invariants that no single contract tree can check alone |
 | | `plugins/` | Worker-side TypeScript: entry, channel client, DSH plugins, phone profile, image packer, `dsh-pin.json`, and the M99 ES-target compatibility gate (the **runtime** WebView baseline is different: see `android/engine/README.md`) |
 | | `shell/` | Rust accelerators built into `PDSHShell.xcframework`, plus `pdsh-wire` and `pdsh-wal`: the shared format and recovery kernel |
-| **Adaptation** (Kotlin, follows the contract) | `android/` | The Android host tree, split `:lib` `:app` `:testkit` and the modules that mirror the Swift ones by package name. Structure only today: the build is blocked on a host with Gradle and the Android SDK |
+| **Adaptation** (Kotlin, follows the contract) | `android/` | Kotlin/Jetpack Compose host, example app, publishable AAR, JNI adapters and test tooling; see the Android guide and verification receipt above |
 | **Tooling** | `scripts/ci/` | Local gates: `check.sh`, `smoke.sh`, `sim.sh`, `scenarios.sh`, `probes.sh` |
 | | `docs/` | Architecture, probe runbook, the device connector contract, the Android module map and the security checklist |
 
@@ -241,3 +259,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Zero DSH source patches is a hard rule; 
 MIT. See [LICENSE](LICENSE). © 2026 Xiaozhi & Tono AI Team.
 
 Third-party components in the Worker image are listed in [plugins/THIRD_PARTY.md](plugins/THIRD_PARTY.md) and [shell/THIRD_PARTY.md](shell/THIRD_PARTY.md). This is a community project, not affiliated with or endorsed by DeepSeek.
+
+## Community
+
+**QQ group: 714985308**. Join to discuss Phone DSH usage, Android/iOS development and issues. Search for the group number in QQ or scan the QR code below.
+
+<p align="center"><img src="docs/assets/qq-group-714985308.png" alt="Phone DSH community QQ group QR code, group number 714985308" width="320"></p>

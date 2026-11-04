@@ -90,6 +90,11 @@ internal sealed interface ApiKeyState {
         override fun toString(): String = "ApiKeyState.Invalid($reason)"
     }
 
+    /** A read failure: callers must not mistake this for an absent/invalid key. */
+    class Unreadable(val reason: String) : ApiKeyState {
+        override fun toString(): String = "ApiKeyState.Unreadable($reason)"
+    }
+
     /** The only state that may be injected; [toString] never prints the value. */
     class Valid(val value: String) : ApiKeyState {
         override fun toString(): String = "ApiKeyState.Valid(***)"
@@ -118,16 +123,16 @@ internal class ApiKeyStore(private val store: SecureStore) : ModelKeySource {
      * synchronous (`ProbeLaunchConfig.workerEnvironment` runs in the composition
      * root), so this blocks on one small file read. There is no network here.
      */
-    fun read(): ApiKeyState {
+    fun read(account: String = ACCOUNT): ApiKeyState {
         val lookup = try {
-            runBlocking { store.get(ACCOUNT) }
+            runBlocking { store.get(account) }
         } catch (failure: Exception) {
-            return ApiKeyState.Invalid(REASON_STORE_UNAVAILABLE)
+            return ApiKeyState.Unreadable(REASON_STORE_UNAVAILABLE)
         }
         return when (lookup) {
             is SecureLookup.Found -> classify(lookup.value)
             SecureLookup.Absent -> ApiKeyState.Absent
-            is SecureLookup.Unreadable -> ApiKeyState.Invalid(lookup.reason)
+            is SecureLookup.Unreadable -> ApiKeyState.Unreadable(lookup.reason)
         }
     }
 
@@ -138,10 +143,13 @@ internal class ApiKeyStore(private val store: SecureStore) : ModelKeySource {
      *   the gateway fails closed with `credential_unavailable` instead of sending
      *   an anonymous request. The message is constant.
      */
-    override fun readKey(): String? = when (val state = read()) {
+    override fun readKey(): String? = readKey(ACCOUNT)
+
+    /** Injection path for one profile's account. */
+    fun readKey(account: String): String? = when (val state = read(account)) {
         is ApiKeyState.Valid -> state.value
         ApiKeyState.Absent -> null
-        is ApiKeyState.Invalid -> throw CredentialUnavailableException(KEY_UNUSABLE)
+        is ApiKeyState.Invalid, is ApiKeyState.Unreadable -> throw CredentialUnavailableException(KEY_UNUSABLE)
     }
 
     /**
@@ -150,11 +158,12 @@ internal class ApiKeyStore(private val store: SecureStore) : ModelKeySource {
      * This is the only key-shaped value the page may receive; the page re-masks it
      * through `maskKeySuffix`, so even a mistake here cannot print a whole key.
      */
-    fun fact(): ProviderKeyFact = when (val state = read()) {
+    fun fact(account: String = ACCOUNT): ProviderKeyFact = when (val state = read(account)) {
         is ApiKeyState.Valid ->
             ProviderKeyFact(ProviderKeyStatus.CONFIGURED, maskKeySuffix(state.value))
         ApiKeyState.Absent -> ProviderKeyFact(ProviderKeyStatus.NOT_CONFIGURED, null)
         is ApiKeyState.Invalid -> ProviderKeyFact(ProviderKeyStatus.INVALID, null)
+        is ApiKeyState.Unreadable -> ProviderKeyFact(ProviderKeyStatus.UNKNOWN, null)
     }
 
     /**
@@ -164,12 +173,12 @@ internal class ApiKeyStore(private val store: SecureStore) : ModelKeySource {
      *   message is constant: an exception must not echo the value it rejected.
      * @throws java.io.IOException when the Keystore envelope cannot be written.
      */
-    fun save(rawKey: String) {
+    fun save(rawKey: String, account: String = ACCOUNT) {
         val key = rawKey.trim()
         require(isUsable(key)) { "the model key must be printable, at least $MIN_KEY_LENGTH characters long" }
         val bytes = key.toByteArray(Charsets.UTF_8)
         try {
-            runBlocking { store.put(ACCOUNT, bytes) }
+            runBlocking { store.put(account, bytes) }
         } finally {
             // Do not keep a second copy of the secret in this frame's garbage.
             bytes.fill(0)
@@ -177,8 +186,11 @@ internal class ApiKeyStore(private val store: SecureStore) : ModelKeySource {
     }
 
     /** Removes the stored key; succeeds when nothing was stored. */
-    fun clear() {
-        runBlocking { store.delete(ACCOUNT) }
+    fun clear(account: String = ACCOUNT) {
+        runBlocking { store.delete(account) }
+        if (read(account) != ApiKeyState.Absent) {
+            throw java.io.IOException("the stored key could not be confirmed deleted")
+        }
     }
 
     /**
@@ -192,9 +204,10 @@ internal class ApiKeyStore(private val store: SecureStore) : ModelKeySource {
     fun credentialProvider(
         baseUrl: String,
         anonymousHosts: Set<String> = emptySet(),
+        account: String = ACCOUNT,
     ): GatewayCredentialProvider? {
         val endpoint = ModelEndpoint.parse(baseUrl) ?: return null
-        return ModelGatewayCredentialProvider(endpoint, this, anonymousHosts)
+        return ModelGatewayCredentialProvider(endpoint, ModelKeySource { readKey(account) }, anonymousHosts)
     }
 
     /**
@@ -289,7 +302,8 @@ internal class ApiKeyStore(private val store: SecureStore) : ModelKeySource {
          * rather than inventing a placeholder, which keeps the "unconfigured" path
          * honest for the demo's acceptance runs.
          */
-        fun activeState(): ApiKeyState = installed.get()?.read() ?: ApiKeyState.Absent
+        fun activeState(account: String = ACCOUNT): ApiKeyState =
+            installed.get()?.read(account) ?: ApiKeyState.Absent
 
         /**
          * The state the settings page uses.
@@ -297,7 +311,7 @@ internal class ApiKeyStore(private val store: SecureStore) : ModelKeySource {
          * Without an installed store the host genuinely cannot read the key state,
          * so this is `UNKNOWN` — the page renders 未知, never 未配置.
          */
-        fun activeFact(): ProviderKeyFact =
-            installed.get()?.fact() ?: ProviderKeyFact(ProviderKeyStatus.UNKNOWN, null)
+        fun activeFact(account: String = ACCOUNT): ProviderKeyFact =
+            installed.get()?.fact(account) ?: ProviderKeyFact(ProviderKeyStatus.UNKNOWN, null)
     }
 }

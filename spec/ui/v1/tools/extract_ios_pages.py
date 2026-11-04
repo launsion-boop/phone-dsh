@@ -46,6 +46,7 @@ Exit code 0 on success, 1 when --check finds a stale contract, 2 on usage/I-O er
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import re
 import sys
@@ -61,12 +62,30 @@ SCHEMA = "pdsh.ui.page-structure/1"
 ANDROID_ALIASES = {"SettingsAboutPage": "AboutPage"}
 
 #: Page structs that stay embedded in their parent (README §1): no contract of their
-#: own unless an Android screen file exists for them.
+#: own unless an Android screen file exists for them. PR22 moved the settings index
+#: from five tabs to one grouped list, which added FontSizeSettingsPage /
+#: ConversationSettingsPage / ArchivedSessionsPage to the PR13 embedded set; the
+#: DevelopmentToolsPage that hosted memory/probes/background/task-screen no longer
+#: exists (it left with PR #13), so it is not listed here as a current page.
 EMBEDDED_HINTS = ("SessionQueuePage", "PermissionDefaultsPage", "LicensesPage",
-                  "DevelopmentToolsPage", "DeveloperPage", "FilePreviewPage",
+                  "FontSizeSettingsPage", "ConversationSettingsPage", "ArchivedSessionsPage",
                   "ScheduleDetailPage", "ScheduleHistoryPage", "ScheduleEditorPage",
                   "ModelProviderEditorPage", "CommandExecutionResultPage")
 TOOL = "extract_ios_pages.py"
+
+#: Home chrome that is not a `*Page` struct but is still a real surface. HomeDrawer
+#: is the PR22 drawer overlay (NativeShell renders it in SessionsDrawerPanel); its
+#: contract is hand-registered in `pages/home-drawer.json`, like `preview-surface`.
+#: `--check` verifies the contract exists so the screen cannot silently leave the gate.
+CHROME_CONTRACTS = {
+    "HomeDrawer": ("HomeDrawer.swift", "home-drawer.json"),
+}
+
+#: HomeSpec.swift holds the 430x932 home design values (colors, type, spacing,
+#: radii). It declares no `View` struct, so it is not a page contract; the surface
+#: contracts cite it (`HomeSpec.swift:NN`) and README §1.1 records it as the value
+#: source. `--check` pins the file so a missing/changed authority is visible.
+CHROME_VALUE_FILES = ("HomeSpec.swift",)
 
 STRUCT_RE = re.compile(
     r"^[ \t]*(?:public |internal |fileprivate |private |final )*struct[ \t]+(\w+)(?:[ \t]*<[^>{]+>)?[ \t]*:"
@@ -104,6 +123,13 @@ STATE_KINDS = ("empty", "data", "failure", "unknown", "loading")
 #: Helpers that are containers, not rows: the row is their first argument.
 CONTAINER_HINTS = ("settingsRow",)
 
+#: Row-label wrappers: their visible wording is the `title`/`text` argument, not a
+#: source expression. PR22's grouped settings index and About page label every row
+#: with `SettingsRowLabel(title: NativeText("模型服务", …))`; without this the
+#: extractor saw a null action label and reported a button-driven section as an
+#: empty (unresolved) group.
+LABEL_WRAPPER_HINTS = ("SettingsRowLabel", "SettingsRow", "SettingsBodyRow", "InfoRow")
+
 #: Non-`Section` group wrappers in the baseline: a titled card is a region.
 REGION_CALLS = ("PageSection", "GroupBox")
 HEADER_FONT_RE = re.compile(
@@ -118,6 +144,8 @@ SINGLE_REGION_PAGES = {
     "WorkspaceFoldersPage": "flat List: one NavigationLink per workspace + one empty-state block; no group header",
     "SettingsAboutPage": "flat List: one version row + one sentence; no group header",
     "NativeWorkbenchPage": "NavigationStack/VStack: a segmented mode switch over two embedded pages; no group header",
+    "NativeDeviceSessionPage": "VStack: a read-only 36 pt header row, an optional error label, then one LazyVStack transcript; no Section anywhere",
+    "LicensesPage": "one flat List of direct LabeledContent license entries with no Section headers; Android renders its host-reported platform catalog in one grouped card. The catalogs are platform-specific and their rows are not compared here",
 }
 
 #: How a Button's surrounding syntax names its trigger.
@@ -300,7 +328,7 @@ class Source:
 
 
 def normalise_label(value: str) -> tuple:
-    """(label, dynamic): `\(count) 个会话` becomes `{count} 个会话`, dynamic=True."""
+    r"""(label, dynamic): `\(count) 个会话` becomes `{count} 个会话`, dynamic=True."""
     if "\\(" in value:
         return template_of(value), True
     return value, False
@@ -608,7 +636,11 @@ def call_parts(source: Source, start: int, end: int) -> dict:
         return {}
     positional, named = [], {}
     for a, b in split_args(masked, open_paren + 1, close_paren):
-        nm = re.match(r"([A-Za-z_]\w*)[ \t]*:", masked[a:b])
+        # `split_args` keeps the whitespace after the comma. Without `\s*` here the
+        # second and later labelled arguments (` icon: "number"`) were positional,
+        # so a row wrapper resolved its SF Symbol name as the row label
+        # (`SettingsRowLabel(title: NativeText("版本", …), icon: "number")` → 版本).
+        nm = re.match(r"\s*([A-Za-z_]\w*)[ \t]*:", masked[a:b])
         if nm:
             named[nm.group(1)] = (a + nm.end(), b)
         else:
@@ -742,11 +774,26 @@ class PageExtractor:
         # A `private struct XxxPage` nested inside the page is an embedded subpage
         # (SettingsPage nests PermissionDefaultsPage/LicensesPage): its Sections
         # belong to that subpage, not to the parent's contract.
+        # A nested `struct` that owns its own `.toolbar` / `navigationTitle` is a
+        # screen of its own even when its name is not `*Page` (ChatPage nests
+        # `NativeJobListSheet`, `NativeScheduleListSheet` and
+        # `CommandExecutionResultPage`; those are presented sheets and a pushed
+        # page). Their toolbar buttons belong to their screen, not to the parent's
+        # contract — the parent never renders them. A nested helper *row* has no
+        # toolbar, so its buttons still count as the page's own.
         self.subpage_spans = [
             (st["body_start"], st["body_end"])
             for st in page_structs(source)
             if st["name"] != self.name and self.body_start < st["body_start"] < self.body_end
         ]
+        for st in view_structs(source):
+            if st["name"] == self.name:
+                continue
+            if not (self.body_start < st["body_start"] < self.body_end):
+                continue
+            body = source.masked[st["body_start"]: st["body_end"]]
+            if ".toolbar" in body or "navigationTitle" in body:
+                self.subpage_spans.append((st["body_start"], st["body_end"]))
         self.dead_spans.extend(self.subpage_spans)
         self.sections = []
         self.actions = []
@@ -775,22 +822,30 @@ class PageExtractor:
                     continue
                 seen.append((kw_pos, section.pop("_content_end")))
                 self.sections.append(section)
+            self.sections = self._expand_titled_section_helpers(self.sections)
             self._scan_page_actions()
             if not self.sections:
-                if self.name in SINGLE_REGION_PAGES:
+                if self.name == "LicensesPage":
+                    # Preserve existing implicit-row extraction; the verified shape
+                    # only classifies this list, it does not invent a header.
+                    self._scan_regions()
+                elif self.name in SINGLE_REGION_PAGES:
                     self.sections = [self._single_region()]
                 else:
                     self._scan_regions()
             self._link_presentations()
             if self.depth == 0:
                 self._inline_presented_actions()
+                if self.name == "ChatPage":
+                    self._inline_verified_chat_helpers()
         return {
             "schema": SCHEMA,
             "page": self.name,
             "pageId": page_id(self.name),
             "structure": "swiftui-view" if self.has_body else "ui-representable",
             "sectionModel": self._section_model(),
-            "sectionNote": SINGLE_REGION_PAGES.get(self.name),
+            "sectionNote": (SINGLE_REGION_PAGES.get(self.name)
+                            if self.name != "LicensesPage" or self._is_flat_licenses_list() else None),
             "title": self._page_title(),
             "source": {
                 "file": self.source.path.name,
@@ -807,6 +862,7 @@ class PageExtractor:
             "states": self._states(),
             "subpages": [
                 {"name": st["name"], "line": st["line"], "private": st["private"],
+                 "embedded": st["name"] in EMBEDDED_HINTS,
                  "sections": self._section_titles_in(st["body_start"], st["body_end"]),
                  "provenance": f"{self.source.path.name}:{st['line']}"}
                 for st in structs if st["name"] != self.name
@@ -901,16 +957,29 @@ class PageExtractor:
             "anchor": None,
             "extraction": "syntax",
             "_content_end": content[1],
+            "_section_pos": kw_pos,
         }
         prov, anchor = source.provenance(title_pos if title_pos is not None else kw_pos)
         section["provenance"], section["anchor"] = prov, anchor
         if (header and title is None and title_template is None and title_pos is None
                 and self._header_has_dynamic_text(header)):
-            section["suppressed"] = True
-            section["suppressReason"] = (
-                "the header renders a runtime value (no literal title); a dynamic menu/list "
-                "header is not a group the implementation can be judged on, and forcing it "
-                "into a disabled menu item would be the gate dictating the UI")
+            expr, expr_pos = self._header_text_expression(header)
+            if expr:
+                # `Section { … } header: { Text(nativeSettingsGroupTitle(group)) }`:
+                # the title *is* data, so README §1 models it as `title: null` +
+                # `titleSource: expression` + a criterion, never as a suppressed
+                # group. Suppression hid real PR22 groups (NativeConfigurationPage's
+                # settings groups) from the gate.
+                section["titleExpression"] = expr
+                section["titleSource"] = "expression"
+                prov, anchor = source.provenance(expr_pos)
+                section["provenance"], section["anchor"] = prov, anchor
+            else:
+                section["suppressed"] = True
+                section["suppressReason"] = (
+                    "the header renders a runtime value (no literal title); a dynamic menu/list "
+                    "header is not a group the implementation can be judged on, and forcing it "
+                    "into a disabled menu item would be the gate dictating the UI")
         if header and title_pos is not None and self._header_is_ternary(header, title_pos):
             section["suppressed"] = True
             section["suppressReason"] = (
@@ -924,6 +993,64 @@ class PageExtractor:
         if footer:
             section["footer"] = self._footer_text(footer)
         return section
+
+    def _expand_titled_section_helpers(self, sections: list) -> list:
+        """Expand the bounded font-size helper whose Section header is `Text(title)`."""
+        source = self.source
+        masked = source.masked
+        expanded = []
+        for section in sections:
+            section_pos = section.pop("_section_pos", None)
+            helper = next((member for member in self.members.values()
+                           if member["kind"] == "func" and section_pos is not None
+                           and member["body_start"] < section_pos < member["body_end"]), None)
+            if helper is None:
+                expanded.append(section)
+                continue
+            # Only this verified helper signature and header binding are expanded;
+            # other helper-defined Sections keep their existing unresolved contract.
+            if re.search(
+                    r"func\s+section\s*\(\s*_\s*role\s*:\s*NativeFontRole\s*,\s*_\s*title\s*:\s*String\s*\)",
+                    helper["head"]) is None:
+                expanded.append(section)
+                continue
+            helper_body = masked[helper["body_start"]:helper["body_end"]]
+            if re.search(r"header\s*:\s*\{\s*Text\s*\(\s*title\s*\)\s*\}", helper_body) is None:
+                expanded.append(section)
+                continue
+
+            call_sites = []
+            for match in re.finditer(r"\bsection\s*\(", masked[self.body_start:self.body_end]):
+                call_pos = self.body_start + match.start()
+                if helper["body_start"] < call_pos < helper["body_end"] or not self._live(call_pos):
+                    continue
+                call = call_parts(source, call_pos, self._statement_end(call_pos, self.body_end + 1))
+                if call is None or len(call["positional"]) < 2:
+                    continue
+                title, title_pos = first_label(source, *call["positional"][1])
+                if title is not None and title_pos is not None:
+                    call_sites.append((title, title_pos, call_pos))
+            if not call_sites:
+                expanded.append(section)
+                continue
+            self.section_total += len(call_sites) - 1
+
+            for title, title_pos, call_pos in call_sites:
+                resolved = copy.deepcopy(section)
+                resolved["id"] = slug(title)
+                resolved["title"] = title
+                resolved["titleTemplate"] = None
+                resolved["dynamicTitle"] = False
+                resolved["titleExpression"] = None
+                resolved["titleSource"] = "literal"
+                resolved["condition"] = innermost_condition(self.if_scopes, call_pos)
+                resolved["collection"] = enclosing_for_each(self.for_each_scopes, call_pos)
+                resolved.pop("criterion", None)
+                resolved.pop("suppressed", None)
+                resolved.pop("suppressReason", None)
+                resolved["provenance"], resolved["anchor"] = source.provenance(title_pos)
+                expanded.append(resolved)
+        return expanded
 
     def _first_labeled_text(self, closure: tuple) -> tuple:
         """First literal inside a header/footer closure, skipping symbol names."""
@@ -951,6 +1078,28 @@ class PageExtractor:
             if literal is None:
                 return True
         return False
+
+    def _header_text_expression(self, header: tuple) -> tuple:
+        """The expression a data-driven `Text(<expr>)` header renders, with its anchor.
+
+        `Section { … } header: { Text(nativeSettingsGroupTitle(group)) }` names the
+        group with host data. The contract keeps that expression in `titleExpression`
+        and identifies the group by a row criterion (README §1); it must never read
+        the expression as a literal title.
+        """
+        masked = self.source.masked
+        for match in re.finditer(r"\bText[ \t]*\(", masked[header[0]: header[1]]):
+            open_paren = header[0] + match.end() - 1
+            close = match_delim(masked, open_paren, "(", ")")
+            if close < 0:
+                continue
+            literal, _pos = first_label(self.source, open_paren + 1, close)
+            if literal is not None:
+                continue
+            expr = self.source.statement_lines(open_paren + 1, close)
+            if expr:
+                return expr, open_paren + 1
+        return None, None
 
     def _header_is_ternary(self, header: tuple, title_pos: int) -> bool:
         """Is the *title literal's own* Text a ternary? (A ternary elsewhere is fine.)
@@ -986,9 +1135,23 @@ class PageExtractor:
         return found
 
     def _template_literal(self, content: tuple) -> tuple:
-        """A headerless section still names its shape: `\\(count) 个会话`."""
+        """A headerless section still names its shape: `\\(count) 个会话`.
+
+        Only a *direct child* of the section body can be that name. A counter
+        template nested one container deeper (`HStack { Text("\\(report.itemCount) 条内容") }`
+        in DailyBriefPage's first group) is one of the group's data rows: the
+        grouping here is positional (a `List` gap), so no header exists at all, and
+        reading the row's own label as a section title invents a section the page
+        never renders. Both header shapes are handled before this fallback — a
+        literal `Section("…")` and `header: { Text("…") }` — so a template that is
+        not the body's own first line has nowhere to be a title.
+        """
+        masked = self.source.masked
         for raw, pos in self.source.literals(content[0] + 1, content[1]):
             if "\\(" in raw and re.search(r"个|条|次|项", raw):
+                depth = masked.count("{", content[0] + 1, pos) - masked.count("}", content[0] + 1, pos)
+                if depth > 0:
+                    continue
                 return template_of(raw), pos
         return None, None
 
@@ -1066,8 +1229,15 @@ class PageExtractor:
             if row.get("condition") is None:
                 row["condition"] = condition
         else_rows = []
+        # Look past `end` for the `else`: `split_statements` splits an
+        # `if cond { … } else { … }` into two statements, so this call's `end` is the
+        # closing brace of the first branch only. Bounding the scan by it made every
+        # `if/else` closure report no label at all — `MCPSettingsPage.swift:239`'s
+        # save button draws `Text(existing == nil ? "保存并连接" : "保存修改并重连")` in
+        # the `else` branch, and the contract ended up with `label: null`.
         k = close + 1
-        while k < end and masked[k] in " \t\r\n":
+        limit = len(masked)
+        while k < limit and masked[k] in " \t\r\n":
             k += 1
         if masked.startswith("else", k):
             rest = k + 4
@@ -1134,8 +1304,8 @@ class PageExtractor:
             r"[ \t]*(Button|Menu)[ \t]*[({^]", source.masked[first_stmt[0][0]: first_stmt[0][1]]) is not None
         if first_is_button:
             inner = call_parts(source, first_stmt[0][0], first_stmt[0][1])
-            label, pos, label_expr = self._button_label(inner, first_stmt[0][0], first_stmt[0][1]) \
-                if inner else (None, None, None)
+            label, pos, label_expr, _alts = self._button_label(inner, first_stmt[0][0], first_stmt[0][1]) \
+                if inner else (None, None, None, [])
             self._add_action(action_of(source, pos if pos is not None else start, label, pos, "button", "tap",
                                        writes=writes(source, start, statement_end),
                                        label_expr=label_expr,
@@ -1159,18 +1329,42 @@ class PageExtractor:
         return [row_of(source, start, None, None, "dynamic", label_expr=expr,
                        templateLabels=template_labels[:6], extraction="manual")]
 
-    def _label_from_view_closure(self, closure: tuple) -> tuple:
+    def _label_from_view_closure(self, closure: tuple, root: bool = True) -> tuple:
         """The visible label of a view closure: first `Text`/`Label`, else its expression.
 
         `HStack { Image(systemName: "plus"); Text("新建会话") }` labels the button
         `新建会话`; `HStack { Image(...); Text(displayWorkspaceTitle(w)) }` has an
         expression label and is reported as `labelExpr` with extraction manual.
+
+        Returns `(label, pos, labelExpr, alternatives)`. `alternatives` is the other
+        wording the same control renders in another state (`if saving { ProgressView() }
+        else { Text("保存修改并重连") }`): see `_label_from_if`.
         """
         source = self.source
-        for s, e in split_statements(source.masked, closure[0] + 1, closure[1]):
+        statements = split_statements(source.masked, closure[0] + 1, closure[1])
+        for index, (s, e) in enumerate(statements):
             head = source.masked[s:e].lstrip()
             offset = s + (len(source.masked[s:e]) - len(head))
             if not head or head.startswith(("Image", "Spacer", "Divider", "Rectangle")):
+                continue
+            # A label closure that *is* one `if` with literal copy in a branch
+            # (`MCPSettingsPage`'s save button:
+            # `label: { if saving { ProgressView() } else { Text(existing == nil ? … : …) } }`)
+            # has no call for `call_parts` to inspect, and the old `if not call: continue`
+            # guard swallowed it before `_label_from_if` was ever reached — the whole
+            # reason a label that resolves when called directly still came out `None`
+            # in a real extraction.
+            #
+            # Bounded so that no closure whose label is not literal today changes:
+            #   * only at the closure's own root — a nested view keeps its old shape,
+            #     so `ZStack { if … { ProgressView() } else { Text("保存") } }.frame(…)`
+            #     (`WebSearchSettingsPage`'s save key) still reports no wording;
+            #   * only when a branch carries a literal — `ChatPage`'s model menu
+            #     branches are all `effortTitle(effort)` and stay `labelExpr`.
+            if root and re.match(r"if\b", head):
+                label, pos, expr, alternatives = self._label_from_if(source, offset, e)
+                if label is not None:
+                    return label, pos, expr, alternatives
                 continue
             call = call_parts(source, offset, e)
             if not call:
@@ -1179,54 +1373,111 @@ class PageExtractor:
             if callee in ("Text", "Label", "LabeledContent"):
                 label, pos = first_label(source, *call["positional"][0]) if call["positional"] else (None, None)
                 if label is not None:
-                    return label, pos, None
+                    return label, pos, None, []
                 expr = source.statement_lines(*call["positional"][0]) if call["positional"] else None
-                return None, None, expr
+                return None, None, expr, []
             if callee in self.members and self.members[callee]["kind"] == "func" and call["positional"]:
                 label, pos = first_label(source, *call["positional"][0])
                 if label is not None:
-                    return label, pos, None
-            if callee in ("HStack", "VStack", "ZStack", "Group", "If"):
-                pass
-            if re.match(r"if\b", head):
-                result = self._label_from_if(source, offset, e)
-                if result[0] is not None or result[2] is not None:
-                    return result
-                continue
+                    return label, pos, None, []
+            if callee in LABEL_WRAPPER_HINTS:
+                span = (call["named"].get("title") or call["named"].get("text")
+                        or (call["positional"][0] if call["positional"] else None))
+                if span:
+                    label, pos = first_label(source, *span)
+                    if label is not None:
+                        return label, pos, None, []
+                    expr = source.statement_lines(*span)
+                    return None, None, expr, []
             if callee in ("HStack", "VStack", "ZStack", "Group"):
                 inner = call["trailing"] or (call["named"].get("label") if "label" in call["named"] else None)
                 if inner is None and call["named"]:
                     inner = next(iter(call["named"].values()))
                 if inner:
-                    result = self._label_from_view_closure(inner)
-                    if result[0] is not None or result[2] is not None:
-                        return result
+                    label, pos, expr, alternatives = self._label_from_view_closure(inner, root=False)
+                    if label is not None or expr is not None:
+                        return label, pos, expr, alternatives
                 continue
             # A non-text view is the label (an icon only): no wording to extract.
-            return None, None, None
-        return None, None, None
+            return None, None, None, []
+        return None, None, None, []
 
     def _label_from_if(self, source: Source, start: int, end: int) -> tuple:
-        """First label inside `if cond { … } else { … }` (both branches, in order)."""
+        """The label inside `if cond { … } else { … }`, plus the branches not chosen.
+
+        Both branches of a label `if` are wordings of the same control, and the
+        steady state is the later one — the same rule `_button_label` already uses
+        for `Button(saving ? "添加中…" : "添加")`, where `添加` is the label and
+        `添加中…` the transient alternative. So
+        `if saving { ProgressView() } else { Text(existing == nil ? "保存并连接" : "保存修改并重连") }`
+        is the button that saves and reconnects in the common (editing) case, with
+        `保存并连接` as the other wording.
+        """
         masked = source.masked
         brace = masked.find("{", start)
         if brace < 0 or brace > end:
-            return None, None, None
+            return None, None, None, []
         close = match_delim(masked, brace)
         if close < 0:
-            return None, None, None
-        result = self._label_from_view_closure((brace, close))
-        if result[0] is not None or result[2] is not None:
-            return result
+            return None, None, None, []
+        first = self._branch_label((brace, close))
         k = close + 1
         while k < end and masked[k] in " \t\r\n":
             k += 1
+        second = None
         if masked.startswith("else", k):
             ebrace = masked.find("{", k)
             if ebrace > 0:
-                eclose = match_delim(masked, ebrace)
-                return self._label_from_view_closure((ebrace, eclose))
-        return None, None, None
+                second = self._branch_label((ebrace, match_delim(masked, ebrace)))
+        if second is None or (second[0] is None and second[2] is None):
+            # The `else` renders no wording (or there is none): the `if` branch is
+            # the whole answer. Before this, an `if` branch that resolved but had no
+            # wording of its own returned `None` without ever looking at `else`.
+            return first
+        if first[0] is None and first[2] is None:
+            return second
+        alternatives = list(second[3])
+        for value in (first[0], *first[3]):
+            if value is not None and value != second[0] and value not in alternatives:
+                alternatives.append(value)
+        return second[0], second[1], second[2], alternatives
+
+    def _branch_label(self, closure: tuple) -> tuple:
+        """A branch's wording, reading a nested `cond ? "A" : "B"` the same way.
+
+        `_label_from_view_closure` answers the first literal; for a ternary the
+        steady state is the last one, exactly as `_button_label` reads
+        `Button(saving ? "添加中…" : "添加")`. Without this the save button's two
+        wordings would be reported with the wrong one as the label, and the other
+        would be lost entirely.
+        """
+        label, pos, expr, alternatives = self._label_from_view_closure(closure, root=False)
+        if label is None:
+            return label, pos, expr, alternatives
+        for s, e in split_statements(self.source.masked, closure[0] + 1, closure[1]):
+            span = self._ternary_span(s, e)
+            if span is None:
+                continue
+            literals = [(unescape(raw), at) for raw, at in self.source.literals(*span)
+                        if unescape(raw).strip() and not SYMBOL_LITERAL_RE.match(unescape(raw))]
+            values = [value for value, _at in literals]
+            if label not in values:
+                continue
+            steady, steady_pos = literals[-1]
+            rest = [value for value in values[:-1] if value not in alternatives]
+            return steady, steady_pos, None, alternatives + rest
+        return label, pos, expr, alternatives
+
+    def _ternary_span(self, start: int, end: int):
+        """The argument span of a `Text(cond ? "A" : "B")` statement, if it is one."""
+        call = call_parts(self.source, start, end)
+        if not call or call["callee"] not in ("Text", "Label", "LabeledContent"):
+            return None
+        if not call["positional"]:
+            return None
+        span = call["positional"][0]
+        expr = self.source.text[span[0]:span[1]]
+        return span if " ? " in expr and " : " in expr else None
 
     def _classify_element(self, callee: str, call: dict, start: int, end: int) -> list:
         source = self.source
@@ -1234,7 +1485,7 @@ class PageExtractor:
         # Buttons/NavigationLinks/Menus take their label from a *view* closure, which
         # is resolved branch by branch (a literal deep inside is not the row's name).
         if label is None and callee not in ("Button", "NavigationLink", "Menu"):
-            for name in ("title", "text", "label", "prompt"):
+            for name in ("title", "text", "label", "prompt", "key"):
                 if name in call["named"]:
                     label, label_pos = first_label(source, *call["named"][name])
                     if label:
@@ -1261,7 +1512,7 @@ class PageExtractor:
                 # The label is a view: take its first real Text, and when that Text is
                 # an expression keep it as `labelExpr` instead of the next literal
                 # (`1 个会话` in WorkspaceFoldersPage's row is a trailing count, not a name).
-                label, label_pos, label_expr = self._label_from_view_closure(call["named"]["label"])
+                label, label_pos, label_expr, _alts = self._label_from_view_closure(call["named"]["label"])
             self._add_action(action_of(source, label_pos if label_pos is not None else start, label, label_pos,
                                        "navigation", "tap", destination=dest, label_expr=label_expr,
                                        semantic=f"navigate:{dest}" if dest else None,
@@ -1270,9 +1521,7 @@ class PageExtractor:
                            clickable=True, destination=dest, label_expr=label_expr,
                            extraction="syntax" if label else "manual")]
         if callee == "Button":
-            self._last_alternatives = []
-            row_label, pos, label_expr = self._button_label(call, start, end)
-            alternatives = self._last_alternatives
+            row_label, pos, label_expr, alternatives = self._button_label(call, start, end)
             effect = source.statement_lines(*call["trailing"]) if call["trailing"] else None
             can_write = writes(source, start, end)
             self._add_action(action_of(source, pos if pos is not None else start, row_label, pos, "button", "tap",
@@ -1284,7 +1533,7 @@ class PageExtractor:
                            extraction="syntax" if row_label else "manual")]
         if callee == "Menu":
             if label is None and "label" in call["named"]:
-                label, label_pos, _expr = self._label_from_view_closure(call["named"]["label"])
+                label, label_pos, _expr, _alts = self._label_from_view_closure(call["named"]["label"])
             self._add_action(action_of(source, start, label, label_pos, "menu", "tap", writes=False,
                                        extraction="syntax" if label else "manual"))
             return [row_of(source, start, label, label_pos, "action", clickable=True,
@@ -1347,15 +1596,14 @@ class PageExtractor:
                         if unescape(raw) == literals[-1]:
                             pos = p
                             break
-                    self._last_alternatives = literals[:-1]
-                    return literals[-1], pos, None
+                    return literals[-1], pos, None, literals[:-1]
             label, pos = first_label(self.source, *span)
             if label is not None:
-                return label, pos, None
+                return label, pos, None, []
         closure = call["named"].get("label") or call["trailing"]
         if closure:
             return self._label_from_view_closure(closure)
-        return None, None, None
+        return None, None, None, []
 
     def _statement_end(self, start: int, end: int) -> int:
         for s, e in split_statements(self.source.masked, start, end + 1):
@@ -1406,7 +1654,7 @@ class PageExtractor:
             call = call_parts(source, pos, stmt_end)
             if not call:
                 continue
-            label, label_pos, label_expr = self._button_label(call, pos, stmt_end)
+            label, label_pos, label_expr, _alternatives = self._button_label(call, pos, stmt_end)
             trigger = self._button_trigger(pos, start, end)
             effect = source.statement_lines(*call["trailing"]) if call["trailing"] else None
             self._add_action(action_of(source, label_pos if label_pos is not None else pos, label, label_pos,
@@ -1436,7 +1684,7 @@ class PageExtractor:
             label = label_pos = None
             menu_call = call_parts(source, pos, self._statement_end(pos, self.body_end + 1))
             if menu_call and "label" in menu_call["named"]:
-                label, label_pos, _expr = self._label_from_view_closure(menu_call["named"]["label"])
+                label, label_pos, _expr, _alts = self._label_from_view_closure(menu_call["named"]["label"])
             if label is None:
                 tail = source.text[pos: min(len(source.text), pos + 900)]
                 acc = re.search(r"\.accessibilityLabel\(\s*\"([^\"]+)\"", tail)
@@ -1551,21 +1799,41 @@ class PageExtractor:
     # -- actions inside a presentation -------------------------------------
 
     def _inline_presented_actions(self) -> None:
-        """A sheet/alert opened by this page renders actions the contract must declare.
+        """A presentation renders a view struct declared *inside this page's own body*.
 
-        The baseline often puts the sheet's content in a sibling `private struct`
-        (`DailyBriefSourceEditor`), so those buttons would otherwise be invisible to the
-        page's contract while the Android page implements them inline. Each inlined
-        action keeps its own `File.swift:line` and gains `presentedBy`.
+        Ownership is positional, exactly like every other action in the contract: an
+        action belongs to this page when its position is inside
+        `body_start..body_end` (that is what `_live` means). So a presented struct is
+        inlined only when the struct itself is declared inside this page struct — a
+        sheet whose content is a nested helper view. Each inlined action keeps its own
+        `File.swift:line` and gains `presentedBy`.
+
+        A presented `private struct` at file scope IS inlined, and that is deliberate:
+        README §1 makes an embedded subpage ship with its parent (`内嵌子页随父页实现、
+        不单独排期`), naming exactly these — CommandExecutionResultPage,
+        ScheduleEditorPage, ModelProviderEditorPage, SessionQueuePage, … — so the
+        parent's contract is the place Android is told to implement them.
+
+        Excluding them was tried and reverted: it hid five real gaps (chat's `完成` /
+        `刷新`, native-automation's `保存` / `修改计划时间`, session-artifacts' `分享`)
+        while turning sixteen faithfully-implemented inline controls into invented
+        `extra-action`s. A contract that hides an unimplemented embedded screen is
+        worth less than one that lists it, because the finding is the work item.
         """
         # Only private view structs are inlined: a *public* presented page
         # (SettingsPage, NativeConfigurationPage) has its own contract and is compared
         # there, so copying its buttons here would count them twice.
-        private_views = {st["name"] for st in view_structs(self.source) if st["private"]}
+        private_views = {st["name"]: st for st in view_structs(self.source) if st["private"]}
         for presentation in self.presentations:
             destination = presentation.get("destination")
             if not destination or destination == self.name or destination not in private_views:
                 continue
+            # Every action of `destination` sits inside that struct's braces, so the
+            # struct's own position decides them all: declared inside this page's body
+            # means "this page renders it", a sibling at file scope means "a screen".
+            # `_live(body_start + 1)` is the inside-the-braces probe: `_live` uses strict
+            # inequalities, so a span that *starts* a dead/subpage span is still "live"
+            # at its first character.
             try:
                 sub = PageExtractor(self.source, destination, depth=self.depth + 1)
                 sub_page = sub.run([])
@@ -1576,7 +1844,194 @@ class PageExtractor:
                 inlined["presentedBy"] = presentation["id"]
                 self._add_action(inlined)
 
+    def _inline_verified_chat_helpers(self) -> None:
+        """Inline only the four external helper views mounted by ChatPage.
+
+        Chat's permission, question takeover, plan-review and todo-dock controls
+        live in separate SwiftUI files. This is deliberately not a general helper
+        string collector: each source control is included only when ChatPage has
+        the production callsite and forwards the callback that makes that control
+        functional. The helper's own literal (or verified static literal) remains
+        the provenance anchor.
+        """
+        if not self.has_body:
+            return
+
+        call = self.source.masked[self.body_start:self.body_end]
+
+        def mounted(call_name: str, required: tuple[str, ...], guard: str | None = None) -> bool:
+            for match in re.finditer(rf"\b{re.escape(call_name)}\s*\(", call):
+                pos = self.body_start + match.start()
+                if not self._live(pos):
+                    continue
+                if guard is not None and innermost_condition(self.if_scopes, pos) != guard:
+                    continue
+                opening = self.source.masked.find("(", pos)
+                closing = match_delim(self.source.masked, opening, "(", ")")
+                if closing < 0:
+                    continue
+                args = self.source.masked[opening + 1:closing]
+                if all(re.search(pattern, args, re.S) for pattern in required):
+                    return True
+            return False
+
+        def helper(name: str) -> Source | None:
+            path = self.source.path.parent / name
+            return Source(path, self.source.path.parents[3]) if path.is_file() else None
+
+        def static_label(source: Source, declaration: str, property_name: str) -> tuple[str, int] | None:
+            match = re.search(rf"\bstatic\s+let\s+{re.escape(property_name)}\s*=",
+                              source.masked)
+            if not match:
+                return None
+            owner = re.search(rf"\b(?:struct|class|enum)\s+{re.escape(declaration)}\b[^{{]*\{{",
+                              source.masked)
+            if not owner:
+                return None
+            owner_open = source.masked.find("{", owner.start(), owner.end())
+            owner_close = match_delim(source.masked, owner_open, "{", "}")
+            if not owner_open < match.start() < owner_close:
+                return None
+            value_start = match.end()
+            line_end = source.masked.find("\n", value_start)
+            end = len(source.text) if line_end < 0 else line_end
+            literals = source.literals(value_start, end)
+            if len(literals) != 1:
+                return None
+            return unescape(literals[0][0]), literals[0][1]
+
+        def add(source: Source, label: str, pos: int, *, writes_value: bool,
+                semantic: str, condition: str) -> None:
+            self._add_action(action_of(source, pos, label, pos, "button", "tap",
+                                       writes=writes_value, semantic=semantic,
+                                       condition=condition, extraction="manual"))
+
+        # ChatPage.permissionCard -> PermissionCardView with both decisions
+        # wired to ChatPage.respond. Only include controls that still call those
+        # exact named closures in the helper source.
+        if mounted("PermissionCardView", (r"onAllow\s*:\s*\{\s*respond\(\.allowOnce\)\s*\}",
+                                           r"onDeny\s*:\s*\{\s*respond\(\.deny\)\s*\}")):
+            source = self.source
+            helper_start = None
+            for st in view_structs(source):
+                if st["name"] == "PermissionCardView":
+                    helper_start = st["body_start"]
+                    helper_end = st["body_end"]
+                    break
+            if helper_start is not None:
+                body = source.masked[helper_start:helper_end]
+                for label, handler in (("允许一次", "onAllow"), ("拒绝", "onDeny")):
+                    button = re.search(rf"Button\s*\{{\s*{handler}\(\)\s*\}}\s*label\s*:\s*\{{", body)
+                    if not button:
+                        continue
+                    label_open = helper_start + button.end() - 1
+                    label_close = match_delim(source.masked, label_open, "{", "}")
+                    text = next(((value, pos) for value, pos in source.literals(label_open, label_close)
+                                 if unescape(value) == label), None)
+                    if text:
+                        pos = text[1]
+                        add(source, label, pos, writes_value=True,
+                            semantic=f"{handler} forwards to ChatPage.respond",
+                            condition="pending permission card")
+
+        # A pending plan-review question mounts NativePlanReviewCard with both
+        # mutation callbacks; its optional full-plan action is intentionally
+        # excluded because ChatPage does not supply onOpenPlan.
+        plan_call = mounted("NativePlanReviewCard", (r"onApprove\s*:\s*\{\s*submitPlanApproval\(item\)\s*\}",
+                                                     r"onRequestChanges\s*:\s*\{\s*model\.dismissQuestion\(\)\s*\}"))
+        if plan_call:
+            source = helper("NativePlanReviewCard.swift")
+            if source:
+                masked = source.masked
+                for prop, expected, handler in (("requestChangesText", "要求修改", "onRequestChanges"),
+                                                ("approveText", "同意执行", "onApprove")):
+                    found = static_label(source, "NativePlanReviewCard", prop)
+                    control = re.search(rf"Button\s*\(\s*action:\s*{handler}\s*\)\s*\{{", masked)
+                    control_end = (match_delim(masked, control.end() - 1, "{", "}")
+                                   if control else -1)
+                    if (found and found[0] == expected and control and control_end > control.end()
+                            and re.search(rf"Text\(Self\.{prop}\)", masked[control.end():control_end])):
+                        add(source, expected, found[1], writes_value=True,
+                            semantic=f"{handler} is forwarded by ChatPage.questionTakeover",
+                            condition="plan-review question")
+
+        # Non-plan questions mount NativeQuestionComposer and provide onDiscard;
+        # its source skip button mutates the current answer and submits/advances.
+        if mounted("NativeQuestionComposer", (r"onDiscard\s*:\s*\{\s*model\.dismissQuestion\(\)\s*\}",
+                                                r"onSubmit\s*:\s*\{\s*submitQuestion\(\$0\)\s*\}")):
+            source = helper("NativeQuestionComposer.swift")
+            if source:
+                found = static_label(source, "NativeQuestionCopy", "skip")
+                control = re.search(
+                    r"NativeQuestionActionButton\(title:\s*NativeQuestionCopy\.skip,"
+                    r"\s*enabled:\s*!isSubmitting\)\s*\{\s*skipCurrent\(\)\s*\}",
+                    source.masked, re.S)
+                implementation = re.search(r"private\s+func\s+skipCurrent\s*\(\)\s*\{", source.masked)
+                if found and found[0] == "跳过" and control and implementation:
+                    add(source, found[0], found[1], writes_value=True,
+                        semantic="skipCurrent marks this question skipped and advances/submits",
+                        condition="non-plan question composer")
+
+        # The todo dock is mounted only for a non-empty model.todoDockItems list;
+        # its collapsed header is a real button whose handler toggles visibility.
+        if mounted("NativeTodoDock", (r"todos:\s*model\.todoDockItems",),
+                   guard="!model.todoDockItems.isEmpty"):
+            source = helper("NativeTodoDock.swift")
+            if source:
+                found = static_label(source, "NativeTodoDock", "title")
+                control = re.search(
+                    r"private\s+var\s+header:\s*some\s+View\s*\{\s*Button\s*\{\s*collapsed\.toggle\(\)\s*\}\s*label:\s*\{.*?Text\(Self\.title\)",
+                    source.masked, re.S)
+                if found and found[0] == "任务" and control:
+                    add(source, found[0], found[1], writes_value=False,
+                        semantic="collapsed.toggle()", condition="todo list is non-empty")
+
     # -- non-Section groups -------------------------------------------------
+
+    def _is_flat_licenses_list(self) -> bool:
+        """Guard LicensesPage's one-region classification against layout drift."""
+        if self.name != "LicensesPage" or not self.has_body:
+            return False
+        masked = self.source.masked
+        lists = []
+        for match in re.finditer(r"\bList[ \t]*\{", masked[self.body_start:self.body_end]):
+            pos = self.body_start + match.start()
+            if not self._live(pos):
+                continue
+            open_brace = self.body_start + match.end() - 1
+            close_brace = match_delim(masked, open_brace)
+            if close_brace < 0:
+                return False
+            lists.append((open_brace, close_brace))
+        if len(lists) != 1:
+            return False
+        open_brace, close_brace = lists[0]
+
+        # The current list has exactly two direct child views, both labeled license rows.
+        # A new Section, wrapper, button, or extra child must stop this classification.
+        children = []
+        for match in re.finditer(r"\b([A-Z]\w*)[ \t]*[({]", masked[open_brace + 1:close_brace]):
+            pos = open_brace + 1 + match.start()
+            depth = (masked.count("{", open_brace + 1, pos)
+                     - masked.count("}", open_brace + 1, pos))
+            if depth != 0:
+                continue
+            if match.group(1) != "LabeledContent":
+                return False
+            children.append(pos)
+        if len(children) != 2:
+            return False
+        labels = []
+        for pos in children:
+            open_paren = masked.find("(", pos)
+            close_paren = match_delim(masked, open_paren, "(", ")")
+            if close_paren < 0 or close_paren > close_brace:
+                return False
+            label, _ = first_label(self.source, open_paren + 1, close_paren)
+            if label is None:
+                return False
+            labels.append(label)
+        return labels == ["SwiftTerm", "swift-nio"]
 
     def _section_model(self) -> str:
         if not self.has_body:
@@ -1585,6 +2040,8 @@ class PageExtractor:
             return "section"
         if any(section.get("kind") == "region" for section in self.sections):
             return "regions"
+        if self.name == "LicensesPage":
+            return "single-region" if self._is_flat_licenses_list() else "unmodeled"
         if self.name in SINGLE_REGION_PAGES:
             return "single-region"
         return "unmodeled"
@@ -1735,10 +2192,28 @@ class PageExtractor:
         Position-based comparison is not used: reordering two untitled groups would then
         read as a difference. A first-row criterion is stable and machine-checkable, and
         the checker reports the group as unresolved instead of silently skipping it.
+
+        A row whose own `Text` is a ternary is *not* a label: `Text(a ? "还没有简报" : "每日简报")`
+        has two renderable strings and the literal the extractor read is whichever
+        branch came first — matching it would mean the criterion only ever exists in
+        one of the two states, and the group would be reported missing whenever the
+        page is in the other. Such a row cannot identify the group; the next really
+        literal row can (DailyBriefPage's untitled first group: criterion
+        `添加来源后，打开页面就会更新`, not the headline's branch).
         """
-        clickable = next((r for r in rows if r.get("clickable") and r.get("label")), None)
-        labelled = next((r for r in rows if r.get("label")), None)
-        expr = next((r for r in rows if r.get("labelExpr")), None)
+        def names_the_group(row: dict) -> bool:
+            anchor = row.get("anchor") or ""
+            return not (" ? " in anchor and " : " in anchor)
+
+        stable = [r for r in rows if names_the_group(r)]
+        # A row whose label is itself a template renders a different string on every
+        # refresh; it can still identify the group (normalisation collapses the slot),
+        # but a plain literal is the stronger anchor, so it wins when one exists.
+        plain = [r for r in stable if r.get("label") and "{" not in r["label"]
+                 and not r.get("dynamicLabel")]
+        clickable = next((r for r in plain + stable if r.get("clickable") and r.get("label")), None)
+        labelled = next((r for r in plain + stable if r.get("label")), None)
+        expr = next((r for r in stable if r.get("labelExpr")), None)
         if clickable:
             return {"kind": "first-clickable-row", "label": clickable["label"],
                     "provenance": clickable["provenance"]}
@@ -1796,8 +2271,18 @@ class PageExtractor:
     # -- action -> presentation link ---------------------------------------
 
     def _assigned_live(self, binding: str) -> bool:
-        """True when `binding = ...` happens outside its `@State`/`var` declaration."""
+        """True when `binding = ...` happens outside its `@State`/`var` declaration.
+
+        A wizard/deep-link state can be seeded in `init` instead of by a button
+        (`SettingsPage.swift:55` `_deepLink = State(initialValue: ...)`, reached by
+        `-uiPreview settings.permissions.tab`). That is a real route, not dead UI:
+        reading only bare `name =` assignments marked the whole navigationDestination
+        dead and hid the PR22 settings deep link from the contract.
+        """
         masked = self.source.masked
+        if re.search(rf"\b_{re.escape(binding)}\s*=\s*State\s*\(\s*initialValue",
+                     masked[self.struct_start:self.body_end]):
+            return True
         for m in re.finditer(rf"\b{re.escape(binding)}\s*=(?!=)", masked[self.body_start:self.body_end]):
             pos = self.body_start + m.start()
             if not self._live(pos):
@@ -1951,7 +2436,12 @@ def android_mapping(root: Path, page_name: str) -> dict:
     screen_name = ANDROID_ALIASES.get(page_name, page_name)
     for path in files:
         text = path.read_text(encoding="utf-8", errors="replace")
-        if re.search(rf"^public fun {re.escape(screen_name)}\s*\(", text, re.M):
+        # Visibility is not the extractor's business: a page composable may be
+        # `internal` (that is the module's own decision) and it is still the
+        # Android screen for this contract. Matching only `public fun` made every
+        # internal page fall through to the `kdoc-mention` branch below, which
+        # reports a guessed file and then produces findings against the wrong one.
+        if re.search(rf"^(?:public|internal) fun {re.escape(screen_name)}\s*\(", text, re.M):
             return {"screen": screen_name, "file": path.relative_to(root).as_posix(),
                     "match": "composable" if screen_name == page_name else "alias"}
     for path in files:
@@ -2006,7 +2496,7 @@ def dumps(page: dict) -> str:
 
 
 def discover_pages(root: Path) -> list:
-    """(Source, page_name) for every page the contract tree covers.
+    """(path, page_name) for every extracted page contract.
 
     Every `*Page` struct in the probe app is a candidate now, not just the ones in a
     `*Page.swift` file: `WorkspaceFoldersPage`/`EgressAllowListPage`/`SettingsAboutPage`
@@ -2014,15 +2504,23 @@ def discover_pages(root: Path) -> list:
     page stays embedded (README §1) unless the Android tree has a screen for it
     (MCPEditorPage does). `SessionHistoryPage`/`GoalDetailPage` exist only on Android
     and are listed in `_android-only.json`.
+
+    Non-`*Page` chrome (HomeDrawer) is not generated here: it has no `*Page` name to
+    key the contract on and its layout is a VStack drawer rather than a Section tree,
+    so it is hand-registered in `pages/home-drawer.json` (see CHROME_CONTRACTS). The
+    `check_chrome_contracts` gate keeps that file and HomeSpec.swift from vanishing.
     """
     probe = root / PROBE_REL
     pages = []
     for path in sorted(probe.rglob("*.swift")):
         source = Source(path, root)
         for struct in page_structs(source):
-            if struct["private"]:
-                # An embedded subpage gets a contract only when it is its own Android
-                # screen file (MCPEditorPage.kt), not a composable inside a parent file.
+            # Embedded subpages (README §1) are contracts only when the Android tree
+            # has a screen of that name. `ModelProviderEditorPage` is a public struct
+            # inside ModelProviderSettingsPage.swift but it is presented as the
+            # parent's sheet, not a separate route; without this test a stale
+            # `model-provider-editor.json` was emitted with android.match=missing.
+            if struct["private"] or struct["name"] in EMBEDDED_HINTS:
                 mapping = android_mapping(root, struct["name"])
                 if mapping["match"] not in ("composable", "alias"):
                     continue
@@ -2030,6 +2528,41 @@ def discover_pages(root: Path) -> list:
                     continue
             pages.append((path, struct["name"]))
     return pages
+
+
+def check_chrome_contracts(root: Path) -> None:
+    """The hand-registered chrome contracts and the HomeSpec authority still exist.
+
+    A hand-written contract is invisible to the regeneration diff, so a deleted file
+    or a renamed Swift struct would otherwise drop the drawer out of the gate without
+    a red check. Fail loudly instead.
+    """
+    probe = root / PROBE_REL
+    problems = []
+    for name, (swift, contract_name) in CHROME_CONTRACTS.items():
+        source = probe / swift
+        if not source.is_file():
+            problems.append(f"{swift} is missing")
+        elif f"struct {name}" not in source.read_text(encoding="utf-8", errors="replace"):
+            problems.append(f"{swift} no longer declares struct {name}")
+        contract_path = root / PAGES_REL / contract_name
+        if not contract_path.is_file():
+            problems.append(f"{PAGES_REL / contract_name} is missing")
+            continue
+        try:
+            contract = json.loads(contract_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            problems.append(f"{contract_name} is not valid JSON: {exc}")
+            continue
+        if contract.get("page") != name:
+            problems.append(f"{contract_name} declares page {contract.get('page')!r}, expected {name!r}")
+        if not contract.get("handRegistered"):
+            problems.append(f"{contract_name} must carry a handRegistered block")
+    for swift in CHROME_VALUE_FILES:
+        if not (probe / swift).is_file():
+            problems.append(f"{swift} (home design values) is missing")
+    if problems:
+        raise ExtractError("; ".join(problems))
 
 
 SPEC_REQUIRED_REL = PAGES_REL / "_spec-required.json"
@@ -2133,6 +2666,7 @@ def main(argv: list) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     try:
+        check_chrome_contracts(root)
         pages = discover_pages(root)
     except ExtractError as exc:
         print(f"extract_ios_pages: {exc}", file=sys.stderr)

@@ -164,7 +164,7 @@
     openAt: never
 
 # ── rows the Worker cannot run or does not need ───────────────────────────────
-- id: plugin-manager             # spawns pnpm/execa
+- id: plugin-manager
   disabled: true
 - id: tool-plugin-manager
   disabled: true
@@ -671,6 +671,13 @@
     - id: feature-admin
       name: '@phone-dsh/dsh-feature-admin'
 
+    - id: phone-cordis-inspect
+      name: '@phone-dsh/dsh-feature-admin/creator-inspect'
+    - id: cordis-inspect-providers
+      name: '@deepseek-ai/dsh-tool-cordis/host'
+    - id: phone-plugin-manager
+      name: '@phone-dsh/dsh-feature-admin/creator-manager'
+
     # Official roster the feature-admin tab lists/selects. The preset
     # declarations are applied from the pinned Web-app bundle by the packer.
     # `standard` is the default again: the Worker serves its
@@ -679,9 +686,10 @@
     # workflow Worker; the official process PTC runtime is still absent).
     # `ptc` is usable because its presentation row falls back to real native
     # presentation when no `ptcRuntime` exists; it does not claim PTC
-    # execution is available. `minimal` and `cordis` stay listed and report
-    # their real broken rows (terminals/PTY, cordisInspect): they are not
-    # hidden or replaced by a healthy-looking stub. `phone` remains only as a
+    # execution is available. `minimal` stays listed with its real PTY error.
+    # `cordis` uses the official Host inspectors and the phone's persistent,
+    # offline preset-bundle manager; no pnpm or desktop VM is claimed.
+    # `phone` remains only as a
     # non-default compatibility preset for sessions created before the
     # standard preset worked on the Worker; it lacks `workflow-ptc`/
     # `tool-workflow`, has no `tool-pwsh` row and no independent Search/Fetch

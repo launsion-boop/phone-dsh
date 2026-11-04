@@ -92,9 +92,11 @@ fn rg_reads_no_bytes_from_a_file_under_an_internal_root() {
 fn rg_files_never_walks_into_an_internal_root() {
     let fixture = fixture("policy-walk");
     let output = run(&fixture, "/dsh/workspace", &["--files", "/dsh/home"]);
-    // The walker reports the refused directories, so the exit code is the error
-    // code rather than 0; what matters is that no path under them is listed.
-    assert_eq!(output.code, 2, "stderr: {}", output.stderr);
+    // Since the host's `read_dir` hides the three internal roots, the walker never
+    // sees them: it cannot refuse what is not listed, so the run succeeds. The
+    // guarantee is now stronger than "refuses with EACCES" — the names never
+    // reach the accelerator at all, which is what the Worker's `ls` already did.
+    assert_eq!(output.code, 0, "stderr: {}", output.stderr);
     for root in EXEC_INTERNAL_ROOTS {
         assert!(
             !output.stdout.contains(root),
@@ -102,8 +104,8 @@ fn rg_files_never_walks_into_an_internal_root() {
             output.stdout
         );
         assert!(
-            output.stderr.contains(&expected(root, root)),
-            "--files must name the refused root {root}: {}",
+            !output.stderr.contains(root),
+            "--files named the hidden root {root} on stderr: {}",
             output.stderr
         );
     }
@@ -120,12 +122,16 @@ fn rg_files_never_walks_into_an_internal_root() {
 fn rg_searches_from_the_home_root_without_leaking() {
     let fixture = fixture("policy-home-root");
     let output = run(&fixture, "/dsh/workspace", &["-n", "secret", "/dsh/home"]);
-    assert_eq!(output.code, 2, "stderr: {}", output.stderr);
+    // A search from the home root now finds nothing at all: the only `secret`
+    // lives under an internal root, and `read_dir` does not return those, so the
+    // walker never descends and never reports a refusal. Exit 1 ("no match") is
+    // the honest outcome; the guarantee is that the name never appears.
+    assert_eq!(output.code, 1, "stderr: {}", output.stderr);
     assert_eq!(output.stdout, "", "a home-root search leaked: {}", output.stdout);
     for root in EXEC_INTERNAL_ROOTS {
         assert!(
-            output.stderr.contains(&expected(root, root)),
-            "the walk must report {root}: {}",
+            !output.stderr.contains(root),
+            "the walk must not name {root}: {}",
             output.stderr
         );
     }

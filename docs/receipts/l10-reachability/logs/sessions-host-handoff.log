@@ -1,0 +1,9 @@
+# L10 sessions-route provenance (final APK, emulator-5624)
+
+The 会话 row pushes PdshRoute.Sessions; HostShell hands HostSessionsScreen into
+PdshNavHost(sessions = ...). Tapping 新建会话 inside the routed page reaches the
+host's own session handoff (PDSHSessions), so the page is the real list, not the
+router's facts-only page.
+
+11-01 17:16:17.982  8553  8553 I PDSHSessions: host session gesture handed off: new
+note: 宿主未实现：新建会话，本次未提交

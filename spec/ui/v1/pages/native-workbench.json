@@ -62,7 +62,7 @@
       "labelExpr": null,
       "kind": "picker",
       "trigger": "tap",
-      "semantic": null,
+      "semantic": "binding:$section",
       "writes": true,
       "destination": null,
       "condition": null,
@@ -90,9 +90,30 @@
       "anchor": "PDSHShellPage()",
       "extraction": "manual",
       "specRequired": true,
-      "specRef": "spec/ui/v1/README.md:64",
+      "specRef": "spec/ui/v1/README.md:81",
       "baselineReachable": false,
       "note": "README §1 names the workbench's command segment. The else branch renders PDSHShellPage directly rather than through a button, so the extractor cannot represent it as an action."
+    },
+    {
+      "id": "重试",
+      "label": "重试",
+      "labelExpr": null,
+      "kind": "action",
+      "trigger": "tap",
+      "semantic": null,
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "extraction": "manual",
+      "androidOnly": {
+        "reason": {
+          "baselineLacks": "NativeWorkbenchPage.swift:6-30 is a composition wrapper, not a data page: a NavigationStack/VStack with a 文件/命令 segmented Picker (`:16`) embedding FilesPage (`:24`) and PDSHShellPage (`:26`), so the baseline page performs no read and has no failure state to retry",
+          "androidNeeds": "Android reads a host snapshot across a process boundary, so the read can fail and the page must offer recovery without leaving and re-entering",
+          "withoutIt": "a failed read leaves the page blank with no way back except killing the app"
+        },
+        "owner": "android-ui",
+        "reviewBy": "2027-01-31"
+      }
     }
   ],
   "presentations": [],

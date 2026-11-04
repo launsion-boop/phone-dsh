@@ -32,7 +32,10 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.text.font.FontWeight
 import com.phonedsh.ui.UiStrings
 import com.phonedsh.ui.UiTags
 import com.phonedsh.ui.theme.LocalUiTokens
@@ -50,12 +53,12 @@ import com.phonedsh.ui.theme.generated.UiTokenNames
 public object ApprovalCardTokens {
     /** Tokens the spec declares for this surface. */
     public val declared: List<String> = listOf(
-        UiTokenNames.COLORS_SELECTOR,
+        UiTokenNames.COLORS_APPROVAL_CARD,
         UiTokenNames.COLORS_CTA_OVERRIDE,
         UiTokenNames.COLORS_ON_ACCENT,
         UiTokenNames.COLORS_SECONDARY,
-        UiTokenNames.TYPOGRAPHY_HEADLINE,
-        UiTokenNames.TYPOGRAPHY_SUBHEADLINE,
+        UiTokenNames.TYPOGRAPHY_PAGE_TITLE,
+        UiTokenNames.TYPOGRAPHY_PROCESS,
         UiTokenNames.RADIUS_CARD,
         UiTokenNames.GEOMETRY_CARD_PADDING,
         UiTokenNames.GEOMETRY_CARD_OUTER_MARGIN_H,
@@ -109,9 +112,12 @@ public fun ApprovalCard(
             .testTag(UiTags.APPROVAL_CARD)
             // A pending ask must interrupt, but politely: it is a live region.
             .semantics(mergeDescendants = false) { liveRegion = LiveRegionMode.Polite }
-            .background(color = tokens.colors.selector, shape = shape)
+            // iOS fills the card with `NativeChatTheme.selector` (#F5F6F7);
+            // `colors.selector` (#F2F3F5) is 3/255 off in the green channel, which
+            // the pixel comparator counts across the card's whole area.
+            .background(color = tokens.colors.approvalCard, shape = shape)
             .padding(tokens.geometry.cardPadding),
-        verticalArrangement = Arrangement.spacedBy(tokens.geometry.cardPadding),
+        verticalArrangement = Arrangement.spacedBy(com.phonedsh.ui.ChatMetrics.PERMISSION_CARD_SPACING_PT.dp),
     ) {
         Box(
             modifier = Modifier
@@ -122,12 +128,12 @@ public fun ApprovalCard(
             Column(verticalArrangement = Arrangement.spacedBy(tokens.spacing.iconText)) {
                 BasicText(
                     text = title,
-                    style = type.headline.copy(color = tokens.colors.primary),
+                    style = type.pageTitle.copy(color = tokens.colors.primary, lineHeight = TextUnit.Unspecified),
                     modifier = Modifier.semantics { heading() },
                 )
                 BasicText(
                     text = subtitle,
-                    style = type.subheadline.copy(color = tokens.colors.secondary),
+                    style = type.processBody.copy(color = tokens.colors.primary, fontWeight = FontWeight.SemiBold, lineHeight = TextUnit.Unspecified),
                 )
             }
         }
@@ -143,7 +149,7 @@ public fun ApprovalCard(
         ) {
             BasicText(
                 text = primaryLabel,
-                style = type.headline.copy(color = tokens.colors.onAccent),
+                style = type.pageTitle.copy(color = tokens.colors.onAccent, lineHeight = TextUnit.Unspecified),
             )
         }
         if (secondaryLabel != null && onSecondary != null) {
@@ -158,7 +164,7 @@ public fun ApprovalCard(
             ) {
                 BasicText(
                     text = secondaryLabel,
-                    style = type.subheadline.copy(color = tokens.colors.secondary),
+                    style = type.processBody.copy(color = tokens.colors.secondary, lineHeight = TextUnit.Unspecified),
                 )
             }
         }
@@ -179,25 +185,36 @@ public fun FoldedPendingRow(
 ) {
     val tokens = LocalUiTokens.current
     val type = LocalUiType.current
+    // The baseline draws this line as flat page chrome, not as a card: 16 pt page
+    // margin, one grey sentence and a trailing `chevron.down`, no fill and no
+    // radius (ios-chat-default.png: the row above the permission card, y 103–140 pt).
+    // The fill + radius it used to draw turned a one-line fold into a second card.
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .clickable(role = Role.Button, onClick = onExpand)
             .padding(
                 horizontal = tokens.geometry.cardOuterMarginH,
                 vertical = tokens.geometry.cardOuterMarginV,
             )
-            .background(color = tokens.colors.selector, shape = RoundedCornerShape(tokens.radius.card))
-            .clickable(role = Role.Button, onClick = onExpand)
-            .padding(tokens.geometry.cardPadding)
             .semantics(mergeDescendants = true) {},
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(tokens.spacing.iconText),
     ) {
         BasicText(
             text = label,
-            style = type.subheadline.copy(color = tokens.colors.secondary),
+            style = type.processBody.copy(color = tokens.colors.secondary, lineHeight = TextUnit.Unspecified),
+            modifier = Modifier.weight(1f),
+        )
+        BasicText(
+            text = FOLD_CHEVRON,
+            style = type.processBody.copy(color = tokens.colors.secondary, lineHeight = TextUnit.Unspecified),
         )
     }
 }
+
+/** The fold line's trailing `chevron.down` (an SF Symbol; drawn as text here). */
+private const val FOLD_CHEVRON: String = "⌄"
 
 /** The standard pair of labels for a permission card. */
 public object ApprovalLabels {

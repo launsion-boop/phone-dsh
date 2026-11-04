@@ -43,8 +43,8 @@
       "collection": null,
       "rows": [
         {
-          "id": "installed",
-          "label": "installed",
+          "id": "bundle-worker",
+          "label": "Bundle/worker",
           "labelExpr": null,
           "kind": "custom",
           "value": null,
@@ -199,9 +199,9 @@
       "collection": null,
       "rows": [
         {
-          "id": "custom-111",
-          "label": null,
-          "labelExpr": "KeyValueLine",
+          "id": "phase",
+          "label": "phase",
+          "labelExpr": null,
           "kind": "custom",
           "value": null,
           "valueExpr": null,
@@ -211,7 +211,7 @@
           "condition": null,
           "provenance": "MemoryPage.swift:111",
           "anchor": "KeyValueLine(key: \"phase\", value: runner.phase.rawValue)",
-          "extraction": "manual",
+          "extraction": "syntax",
           "template": "KeyValueLine"
         },
         {
@@ -230,9 +230,9 @@
           "extraction": "manual"
         },
         {
-          "id": "custom-116",
-          "label": null,
-          "labelExpr": "KeyValueLine",
+          "id": "last-run",
+          "label": "last run",
+          "labelExpr": null,
           "kind": "custom",
           "value": null,
           "valueExpr": null,
@@ -242,7 +242,7 @@
           "condition": "let lastRunAt = runner.lastRunAt",
           "provenance": "MemoryPage.swift:116",
           "anchor": "KeyValueLine(key: \"last run\", value: lastRunAt)",
-          "extraction": "manual",
+          "extraction": "syntax",
           "template": "KeyValueLine"
         }
       ],
@@ -359,9 +359,9 @@
           "collection": "model.store.memory.levels, id: \\.overlayMB"
         },
         {
-          "id": "custom-159",
-          "label": null,
-          "labelExpr": "KeyValueLine",
+          "id": "boot",
+          "label": "boot",
+          "labelExpr": null,
           "kind": "custom",
           "value": null,
           "valueExpr": null,
@@ -371,14 +371,14 @@
           "condition": "level.status == \"MEASURED\" || level.status == \"FAILED\"",
           "provenance": "MemoryPage.swift:159",
           "anchor": "KeyValueLine(key: \"boot\", value: Self.seconds(level.bootSeconds))",
-          "extraction": "manual",
+          "extraction": "syntax",
           "template": "KeyValueLine",
           "collection": "model.store.memory.levels, id: \\.overlayMB"
         },
         {
-          "id": "custom-160",
-          "label": null,
-          "labelExpr": "KeyValueLine",
+          "id": "duration",
+          "label": "duration",
+          "labelExpr": null,
           "kind": "custom",
           "value": null,
           "valueExpr": null,
@@ -388,13 +388,13 @@
           "condition": "level.status == \"MEASURED\" || level.status == \"FAILED\"",
           "provenance": "MemoryPage.swift:160",
           "anchor": "KeyValueLine(key: \"duration\", value: Self.seconds(level.durationSeconds))",
-          "extraction": "manual",
+          "extraction": "syntax",
           "template": "KeyValueLine",
           "collection": "model.store.memory.levels, id: \\.overlayMB"
         },
         {
-          "id": "item",
-          "label": "—",
+          "id": "webcontent-terminations",
+          "label": "WebContent terminations",
           "labelExpr": null,
           "kind": "custom",
           "value": null,
@@ -403,16 +403,16 @@
           "destination": null,
           "writes": false,
           "condition": "level.status == \"MEASURED\" || level.status == \"FAILED\"",
-          "provenance": "MemoryPage.swift:162",
-          "anchor": "value: level.webContentTerminations.map(String.init) ?? \"—\")",
+          "provenance": "MemoryPage.swift:161",
+          "anchor": "KeyValueLine(key: \"WebContent terminations\",",
           "extraction": "syntax",
           "template": "KeyValueLine",
           "collection": "model.store.memory.levels, id: \\.overlayMB"
         },
         {
-          "id": "custom-163",
-          "label": null,
-          "labelExpr": "KeyValueLine",
+          "id": "peak-footprint",
+          "label": "peak footprint",
+          "labelExpr": null,
           "kind": "custom",
           "value": null,
           "valueExpr": null,
@@ -422,14 +422,14 @@
           "condition": "level.status == \"MEASURED\" || level.status == \"FAILED\"",
           "provenance": "MemoryPage.swift:163",
           "anchor": "KeyValueLine(key: \"peak footprint\",",
-          "extraction": "manual",
+          "extraction": "syntax",
           "template": "KeyValueLine",
           "collection": "model.store.memory.levels, id: \\.overlayMB"
         },
         {
-          "id": "custom-165",
-          "label": null,
-          "labelExpr": "KeyValueLine",
+          "id": "min-available",
+          "label": "min available",
+          "labelExpr": null,
           "kind": "custom",
           "value": null,
           "valueExpr": null,
@@ -439,13 +439,13 @@
           "condition": "level.status == \"MEASURED\" || level.status == \"FAILED\"",
           "provenance": "MemoryPage.swift:165",
           "anchor": "KeyValueLine(key: \"min available\",",
-          "extraction": "manual",
+          "extraction": "syntax",
           "template": "KeyValueLine",
           "collection": "model.store.memory.levels, id: \\.overlayMB"
         },
         {
-          "id": "level-samples-count",
-          "label": "{level.samples.count}",
+          "id": "samples",
+          "label": "samples",
           "labelExpr": null,
           "kind": "custom",
           "value": null,
@@ -456,9 +456,8 @@
           "condition": "level.status == \"MEASURED\" || level.status == \"FAILED\"",
           "provenance": "MemoryPage.swift:167",
           "anchor": "KeyValueLine(key: \"samples\", value: \"\\(level.samples.count)\")",
-          "extraction": "manual",
+          "extraction": "syntax",
           "template": "KeyValueLine",
-          "dynamicLabel": true,
           "collection": "model.store.memory.levels, id: \\.overlayMB"
         },
         {
@@ -494,9 +493,9 @@
       "collection": null,
       "rows": [
         {
-          "id": "custom-185",
-          "label": null,
-          "labelExpr": "KeyValueLine",
+          "id": "status",
+          "label": "status",
+          "labelExpr": null,
           "kind": "custom",
           "value": null,
           "valueExpr": null,
@@ -506,12 +505,12 @@
           "condition": null,
           "provenance": "MemoryPage.swift:185",
           "anchor": "KeyValueLine(key: \"status\", value: session.status)",
-          "extraction": "manual",
+          "extraction": "syntax",
           "template": "KeyValueLine"
         },
         {
-          "id": "item",
-          "label": "—",
+          "id": "planned-restarts",
+          "label": "planned restarts",
           "labelExpr": null,
           "kind": "custom",
           "value": null,
@@ -520,14 +519,14 @@
           "destination": null,
           "writes": false,
           "condition": "session.status != \"NOT_VERIFIED\"",
-          "provenance": "MemoryPage.swift:188",
-          "anchor": "value: session.plannedRestarts.map(String.init) ?? \"—\")",
+          "provenance": "MemoryPage.swift:187",
+          "anchor": "KeyValueLine(key: \"planned restarts\",",
           "extraction": "syntax",
           "template": "KeyValueLine"
         },
         {
-          "id": "item",
-          "label": "—",
+          "id": "webcontent-terminations",
+          "label": "WebContent terminations",
           "labelExpr": null,
           "kind": "custom",
           "value": null,
@@ -536,15 +535,15 @@
           "destination": null,
           "writes": false,
           "condition": "session.status != \"NOT_VERIFIED\"",
-          "provenance": "MemoryPage.swift:190",
-          "anchor": "value: session.webContentTerminations.map(String.init) ?? \"—\")",
+          "provenance": "MemoryPage.swift:189",
+          "anchor": "KeyValueLine(key: \"WebContent terminations\",",
           "extraction": "syntax",
           "template": "KeyValueLine"
         },
         {
-          "id": "custom-191",
-          "label": null,
-          "labelExpr": "KeyValueLine",
+          "id": "peak-footprint",
+          "label": "peak footprint",
+          "labelExpr": null,
           "kind": "custom",
           "value": null,
           "valueExpr": null,
@@ -554,12 +553,12 @@
           "condition": "session.status != \"NOT_VERIFIED\"",
           "provenance": "MemoryPage.swift:191",
           "anchor": "KeyValueLine(key: \"peak footprint\",",
-          "extraction": "manual",
+          "extraction": "syntax",
           "template": "KeyValueLine"
         },
         {
-          "id": "session-samples-count",
-          "label": "{session.samples.count}",
+          "id": "samples",
+          "label": "samples",
           "labelExpr": null,
           "kind": "custom",
           "value": null,
@@ -568,11 +567,10 @@
           "destination": null,
           "writes": false,
           "condition": "session.status != \"NOT_VERIFIED\"",
-          "provenance": "MemoryPage.swift:194",
-          "anchor": "value: \"\\(session.samples.count)\")",
-          "extraction": "manual",
-          "template": "KeyValueLine",
-          "dynamicLabel": true
+          "provenance": "MemoryPage.swift:193",
+          "anchor": "KeyValueLine(key: \"samples\",",
+          "extraction": "syntax",
+          "template": "KeyValueLine"
         },
         {
           "id": "empty-until-a-memory-run-records-the-scripted-session",

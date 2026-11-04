@@ -67,7 +67,12 @@ struct HomeDrawer: View {
         }
         .task { await management.refresh() }
         .sheet(isPresented: $showSettings) {
-            NavigationStack { SettingsPage() }
+            NavigationStack {
+                SettingsPage(onOpenSession: {
+                    showSettings = false
+                    isOpen = false
+                })
+            }
                 .homeSheetChrome()
         }
         .sheet(isPresented: $showSchedules) {

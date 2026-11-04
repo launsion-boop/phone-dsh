@@ -1,83 +1,229 @@
 {
-  "schema": "pdsh.ui.page-structure-android-only-items/1",
-  "note": "Items Android MUST have although the iOS baseline has no counterpart. Not a platform difference (that is _whitelist.json) and not an unknown (that is _unrecognized.json): these are deliberate additions caused by a different data source or a different responsibility split. The extractor merges them into the page contract with an `androidOnly` object; the checker counts them as expected on Android, lists them in the report, and fails when `reason` does not answer the three questions, when `reviewBy` is past, or when the item no longer matches anything on the Android page (stale).",
-  "reasonShape": {
-    "baselineLacks": "why the iOS baseline does not need this item",
-    "androidNeeds": "why Android cannot do without it",
-    "withoutIt": "what breaks for the user if it is not there"
+ "schema": "pdsh.ui.page-structure-android-only-items/1",
+ "note": "Items Android MUST have although the iOS baseline has no counterpart. Not a platform difference (that is _whitelist.json) and not an unknown (that is _unrecognized.json): these are deliberate additions caused by a different data source or a different responsibility split. The extractor merges them into the page contract with an `androidOnly` object; the checker counts them as expected on Android, lists them in the report, and fails when `reason` does not answer the three questions, when `reviewBy` is past, or when the item no longer matches anything on the Android page (stale).",
+ "reasonShape": {
+  "baselineLacks": "why the iOS baseline does not need this item",
+  "androidNeeds": "why Android cannot do without it",
+  "withoutIt": "what breaks for the user if it is not there"
+ },
+ "entries": [
+  {
+   "page": "egress-allow-list",
+   "kind": "section",
+   "title": "规则语法",
+   "reason": {
+    "baselineLacks": "the baseline scatters the matching grammar across an input placeholder and a validation sentence, so it has no syntax section",
+    "androidNeeds": "the Android page edits a host-owned list where an empty table means deny-all, so the `*.suffix` / port / scheme rules must be stated once, on the page",
+    "withoutIt": "a mistyped rule silently cuts the network and the user has no on-page reference to correct it"
+   },
+   "owner": "android-ui",
+   "reviewBy": "2027-01-31"
   },
-  "entries": [
-    {
-      "page": "egress-allow-list",
-      "kind": "action",
-      "label": "重试",
-      "reason": {
-        "baselineLacks": "iOS reads its egress rules synchronously from local UserDefaults, so the read cannot fail and needs no retry",
-        "androidNeeds": "Android reads a host snapshot across a process boundary, so the read can fail and the page must offer recovery without leaving and re-entering",
-        "withoutIt": "a failed read leaves the allow list blank with no way back except killing the app, and a blank list silently means deny-all"
-      },
-      "owner": "android-ui",
-      "reviewBy": "2027-01-31"
-    },
-    {
-      "page": "egress-allow-list",
-      "kind": "action",
-      "label": "关闭",
-      "reason": {
-        "baselineLacks": "the iOS page has no failure line at all, so it has nothing to dismiss",
-        "androidNeeds": "the Android failure line is dismissible so the user can clear a stale error and keep reading the rules",
-        "withoutIt": "the error occupies the page after it stops being true, and the user cannot tell it apart from a current failure"
-      },
-      "owner": "android-ui",
-      "reviewBy": "2027-01-31"
-    },
-    {
-      "page": "egress-allow-list",
-      "kind": "section",
-      "title": "规则语法",
-      "reason": {
-        "baselineLacks": "the baseline scatters the matching grammar across an input placeholder and a validation sentence, so it has no syntax section",
-        "androidNeeds": "the Android page edits a host-owned list where an empty table means deny-all, so the `*.suffix` / port / scheme rules must be stated once, on the page",
-        "withoutIt": "a mistyped rule silently cuts the network and the user has no on-page reference to correct it"
-      },
-      "owner": "android-ui",
-      "reviewBy": "2027-01-31"
-    },
-    {
-      "page": "workspace-folders",
-      "kind": "action",
-      "label": "切换",
-      "reason": {
-        "baselineLacks": "the baseline makes the current folder implicit: creating a session inside a folder is the only switch",
-        "androidNeeds": "README §1 makes switching this page's duty, and Android's session creation lives on another page, so the switch has to be explicit here",
-        "withoutIt": "switching folders requires detouring through the sessions page and creating a throwaway session"
-      },
-      "owner": "android-ui",
-      "reviewBy": "2027-01-31"
-    },
-    {
-      "page": "workspace-folders",
-      "kind": "action",
-      "label": "删除",
-      "reason": {
-        "baselineLacks": "the baseline deletes a workspace from the drawer's `⋯` menu (SessionsPage.swift:447), not from this page",
-        "androidNeeds": "README §1 gives this page the add/remove duty, and the Android drawer has no workspace menu, so removal must live here",
-        "withoutIt": "a folder created by mistake can only be removed by going back to the drawer, which does not offer the action"
-      },
-      "owner": "android-ui",
-      "reviewBy": "2027-01-31"
-    },
-    {
-      "page": "workspace-folders",
-      "kind": "action",
-      "label": "重试",
-      "reason": {
-        "baselineLacks": "the iOS list reads local state and cannot fail, so it has no retry affordance",
-        "androidNeeds": "the Android workspace list comes from a host snapshot and can fail, and this page is the only place to recover",
-        "withoutIt": "a failed list read is a dead page: no folders, no way to retry"
-      },
-      "owner": "android-ui",
-      "reviewBy": "2027-01-31"
-    }
-  ]
+  {
+   "page": "workspace-folders",
+   "kind": "action",
+   "label": "删除",
+   "reason": {
+    "baselineLacks": "the baseline deletes a workspace from the drawer's `⋯` menu (SessionsPage.swift:447), not from this page",
+    "androidNeeds": "README §1 gives this page the add/remove duty, and the Android drawer has no workspace menu, so removal must live here",
+    "withoutIt": "a folder created by mistake can only be removed by going back to the drawer, which does not offer the action"
+   },
+   "owner": "android-ui",
+   "reviewBy": "2027-01-31"
+  },
+  {
+   "page": "workspace-folders",
+   "kind": "action",
+   "label": "重试",
+   "reason": {
+    "baselineLacks": "WorkspaceFoldersPage (NativeShell.swift:319) draws `management.workspaces` from the in-process `DSHManagementModel.shared` (`:320`, `:326`); its body has no failure state, so it has no retry to offer",
+    "androidNeeds": "the Android rows are host facts carried by a snapshot read across the process boundary: `WorkspaceFoldersScreenState.from` maps `snapshot.failure` to `FAILED` and deliberately keeps no rows, so the page must be able to re-read in place",
+    "withoutIt": "a failed read leaves only the failure line on an otherwise empty page; dismissing it does not restore the rows, so the user has to leave and re-enter the page to get a list back"
+   },
+   "owner": "android-ui",
+   "reviewBy": "2027-01-31"
+  },
+  {
+   "page": "background",
+   "kind": "action",
+   "label": "重试",
+   "reason": {
+    "baselineLacks": "BackgroundPage.swift reads its run record from local state, so the read cannot fail and needs no retry",
+    "androidNeeds": "Android reads a host snapshot across a process boundary, so the read can fail and the page must offer recovery without leaving and re-entering",
+    "withoutIt": "a failed read leaves the page blank with no way back except killing the app"
+   },
+   "owner": "android-ui",
+   "reviewBy": "2027-01-31"
+  },
+  {
+   "page": "probes",
+   "kind": "action",
+   "label": "重试",
+   "reason": {
+    "baselineLacks": "ProbesPage.swift reads probe results from local state, so the read cannot fail and needs no retry",
+    "androidNeeds": "Android reads a host snapshot across a process boundary, so the read can fail and the page must offer recovery without leaving and re-entering",
+    "withoutIt": "a failed read leaves the page blank with no way back except killing the app"
+   },
+   "owner": "android-ui",
+   "reviewBy": "2027-01-31"
+  },
+  {
+   "page": "daily-brief",
+   "kind": "action",
+   "label": "重试",
+   "reason": {
+    "baselineLacks": "DailyBriefPage.swift reads the brief from local state, so the read cannot fail and needs no retry",
+    "androidNeeds": "Android reads a host snapshot across a process boundary, so the read can fail and the page must offer recovery without leaving and re-entering",
+    "withoutIt": "a failed read leaves the page blank with no way back except killing the app"
+   },
+   "owner": "android-ui",
+   "reviewBy": "2027-01-31"
+  },
+  {
+   "page": "native-workbench",
+   "kind": "action",
+   "label": "重试",
+   "reason": {
+    "baselineLacks": "NativeWorkbenchPage.swift:6-30 is a composition wrapper, not a data page: a NavigationStack/VStack with a 文件/命令 segmented Picker (`:16`) embedding FilesPage (`:24`) and PDSHShellPage (`:26`), so the baseline page performs no read and has no failure state to retry",
+    "androidNeeds": "Android reads a host snapshot across a process boundary, so the read can fail and the page must offer recovery without leaving and re-entering",
+    "withoutIt": "a failed read leaves the page blank with no way back except killing the app"
+   },
+   "owner": "android-ui",
+   "reviewBy": "2027-01-31"
+  },
+  {
+   "page": "mcp-editor",
+   "kind": "action",
+   "label": "本地命令",
+   "reason": {
+    "baselineLacks": "the iOS MCP editor is HTTP-only (`MCPSettingsPage.swift:193`): it has no transport concept, so there is no row to name",
+    "androidNeeds": "the editor form is in place ahead of its transport; the host cannot run a stdio server today (`phone-mcp` accepts HTTP(S) only, and the App's SaveMcpServer is a disclosed no-op), so choosing stdio here ends in an honest refusal rather than a launch",
+    "withoutIt": "a future stdio transport would have no UI to land in, and the editor could only ever describe an HTTP server"
+   },
+   "owner": "android-ui",
+   "reviewBy": "2027-01-31"
+  },
+  {
+   "page": "mcp-editor",
+   "kind": "action",
+   "label": "网络地址",
+   "reason": {
+    "baselineLacks": "same reason: the baseline editor has no transport picker, so the network-address row does not exist there",
+    "androidNeeds": "the editor form is in place ahead of its transport; the host cannot run a stdio server today (`phone-mcp` accepts HTTP(S) only, and the App's SaveMcpServer is a disclosed no-op), so choosing stdio here ends in an honest refusal rather than a launch",
+    "withoutIt": "a future stdio transport would have no UI to land in, and the editor could only ever describe an HTTP server"
+   },
+   "owner": "android-ui",
+   "reviewBy": "2027-01-31"
+  },
+  {
+   "page": "native-automation",
+   "kind": "action",
+   "label": "查看投递记录",
+   "reason": {
+    "baselineLacks": "the contract has no row for it, but iOS does draw it — NativeAutomationPage.swift:140, inside `ScheduleDetailPage` / `ScheduleHistoryPage`, which are NavigationLink destinations. The extractor walks those structs but does not collect a navigated subpage's actions into the parent contract, so the label is absent from the contract while it exists in the app.",
+    "androidNeeds": "Android renders the detail and history in the page's own file, so the row is drawn where the contract does not look.",
+    "withoutIt": "the delivery history could not be opened, or would stop at the first page with no way back."
+   },
+   "owner": "android-ui",
+   "reviewBy": "2027-06-30",
+   "note": "Registered as androidOnly because this gate cannot see it, not because iOS lacks it. The real fix is for the extractor to collect navigated-subpage actions; if it does, this entry should be deleted, not kept."
+  },
+  {
+   "page": "native-automation",
+   "kind": "action",
+   "label": "加载更早记录",
+   "reason": {
+    "baselineLacks": "the contract has no row for it, but iOS does draw it — NativeAutomationPage.swift:199, inside `ScheduleDetailPage` / `ScheduleHistoryPage`, which are NavigationLink destinations. The extractor walks those structs but does not collect a navigated subpage's actions into the parent contract, so the label is absent from the contract while it exists in the app.",
+    "androidNeeds": "Android renders the detail and history in the page's own file, so the row is drawn where the contract does not look.",
+    "withoutIt": "the delivery history could not be opened, or would stop at the first page with no way back."
+   },
+   "owner": "android-ui",
+   "reviewBy": "2027-06-30",
+   "note": "Registered as androidOnly because this gate cannot see it, not because iOS lacks it. The real fix is for the extractor to collect navigated-subpage actions; if it does, this entry should be deleted, not kept."
+  },
+  {
+   "page": "export",
+   "kind": "action",
+   "label": "重试",
+   "reason": {
+    "baselineLacks": "the baseline reads its export state from local storage and cannot fail the read",
+    "androidNeeds": "Android reads a host snapshot across a process boundary, so the read can fail and needs recovery in place",
+    "withoutIt": "a failed read leaves the page blank with no way back except killing the app"
+   },
+   "owner": "android-ui",
+   "reviewBy": "2027-01-31"
+  },
+  {
+   "page": "task-screen",
+   "kind": "action",
+   "label": "重试",
+   "reason": {
+    "baselineLacks": "the baseline reads its task list from local state and cannot fail the read",
+    "androidNeeds": "Android reads a host snapshot across a process boundary, so the read can fail and needs recovery in place",
+    "withoutIt": "a failed read leaves the page blank with no way back except killing the app"
+   },
+   "owner": "android-ui",
+   "reviewBy": "2027-01-31"
+  },
+  {
+   "page": "runtime-details",
+   "kind": "section",
+   "title": "引擎",
+   "reason": {
+    "baselineLacks": "the iOS page has no 引擎 group: it renders 状态 and 已运行 as one untitled row above 本次运行 (`runtimeRow(\"状态\", statusValue)`, ChatPage.swift:4184), and `statusValue` is assembled at runtime from `model.displayStatus` plus the elapsed time, so the extractor's section model has no group to compare",
+    "androidNeeds": "the Android page folds its diagnostics by group, and the engine rows are that group: `RuntimeSectionView(ENGINE_SECTION_ID, 引擎, …)` owns the fold and the `runtime.engine.status`/`runtime.engine.uptime` row ids, while the contract's untitled-group criterion only proves that the 停止本地引擎 row exists somewhere below",
+    "withoutIt": "the status and uptime rows would sit above 本次运行 with no header and no fold id, so the user could not collapse them and the stop action would lose the group it belongs to"
+   },
+   "owner": "android-ui",
+   "reviewBy": "2027-06-30"
+  },
+  {
+   "page": "runtime-details",
+   "kind": "section",
+   "title": "WebView",
+   "reason": {
+    "baselineLacks": "the iOS page shows no WebView row: WebKit ships with the OS, so `platform.webview-version-gate` records that iOS has no separately updatable core version and no boot-time feature probe to display",
+    "androidNeeds": "Android's WebView is a separately updated package that can be missing or disabled, so `platform.webview-version-gate` requires the provider, the version (telemetry only, never the gate) and the `WebViewFeature.isFeatureSupported` probe to be visible; this page is the only surface that shows them",
+    "withoutIt": "a device whose WebView lacks a required feature would degrade the page surface silently, with no on-device evidence of which feature is missing"
+   },
+   "owner": "android-ui",
+   "reviewBy": "2027-06-30"
+  },
+  {
+   "page": "runtime-details",
+   "kind": "section",
+   "title": "内存",
+   "reason": {
+    "baselineLacks": "the iOS page does not show the memory tier, budget or usage; `platform.budgettier-memory` keeps that read in `Sources/PhoneDSHController/Budgets.swift`, behind the budgets policy rather than on the runtime page",
+    "androidNeeds": "the Android host picks the tier once per boot from `ActivityManager.MemoryInfo` and enforces the budget, so the chosen tier and the measured usage are host facts the page must show; `overBudget` also raises a page note",
+    "withoutIt": "an over-budget session would surface only as a generic degradation with no numbers, and the tier chosen for this device could not be checked against what the host enforced"
+   },
+   "owner": "android-ui",
+   "reviewBy": "2027-06-30"
+  },
+  {
+   "page": "runtime-details",
+   "kind": "section",
+   "title": "电源与散热",
+   "reason": {
+    "baselineLacks": "the iOS page exposes neither the thermal state nor battery, charging or battery-saver; `platform.thermal-battery` records that the signals drive the budget policy on both platforms, but iOS does not render them here",
+    "androidNeeds": "`PowerManager.getCurrentThermalStatus` plus the `BatteryManager` signals are the inputs of the conservative policy; Android's thermal granularity is coarser than iOS's, so the page prints the platform's own level and never treats an unread signal as normal",
+    "withoutIt": "a severe thermal level or an enabled battery saver would change background behaviour with no on-page explanation, so the user would read a deliberately conservative engine as a fault"
+   },
+   "owner": "android-ui",
+   "reviewBy": "2027-06-30"
+  },
+  {
+   "page": "runtime-details",
+   "kind": "section",
+   "title": "前台服务",
+   "reason": {
+    "baselineLacks": "iOS has no foreground service: `platform.fgs-turn-notification` records that background progress is presented by the system UI and BGContinuedProcessing, so the baseline page has no availability row to show",
+    "androidNeeds": "whether a foreground service can start is the Android signal that decides whether a background turn can outlive the foreground; the row also carries the host's own reason when it cannot start (this App declares no service), which is a measured fact rather than an assumption",
+    "withoutIt": "the difference between 'the turn stopped because the app went to the background' and 'this build can never keep running in the background' would be invisible to the user"
+   },
+   "owner": "android-ui",
+   "reviewBy": "2027-06-30"
+  }
+ ]
 }

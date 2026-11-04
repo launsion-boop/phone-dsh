@@ -1,0 +1,4 @@
+name=l16-configuration-ready image=l16-configuration-ready.png profile=gate width=1080 height=2400 dpi=420 density=2.625 fontScale=1.0 scaledDensity=2.625 locale=en-US theme=light textBoxHeightPx=-
+name=l16-configuration-about image=l16-configuration-about.png profile=gate width=1080 height=2400 dpi=420 density=2.625 fontScale=1.0 scaledDensity=2.625 locale=en-US theme=light textBoxHeightPx=-
+name=l16-configuration-permission image=l16-configuration-permission.png profile=gate width=1080 height=2400 dpi=420 density=2.625 fontScale=1.0 scaledDensity=2.625 locale=en-US theme=light textBoxHeightPx=-
+name=l16-configuration-add-notice image=l16-configuration-add-notice.png profile=gate width=1080 height=2400 dpi=420 density=2.625 fontScale=1.0 scaledDensity=2.625 locale=en-US theme=light textBoxHeightPx=-

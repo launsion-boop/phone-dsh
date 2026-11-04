@@ -1,11 +1,13 @@
 # iOS → Android visual diff (screenshots only)
 
 Companion to `VISUAL.md`. Structural differences are **not** repeated here — the
-machine list is `spec/ui/v1/tools/page_structure_check.py --strict` (174 items).
+machine list is `spec/ui/v1/tools/page_structure_check.py --strict` (152 items
+after the 2026-11-01 contract refresh; it was 174 against the stale contracts).
 This file lists what a human sees when the two PNG sets are put side by side.
 
 * iOS: `docs/receipts/ios-baseline-screens/*.png`, 1206 × 2622 @3×, status bar
-  included (59 pt), light, zh_CN, content size large.
+  included (59 pt), light, zh_CN, content size large, **re-shot 2026-11-01 at
+  `86a39aac`** (post-PR-#13; the settings shot is now the five-tab sheet).
 * Android: `android/lib/src/test/resources/screenshots/*.png`, 1080 × 2400 at
   420 dpi (density 2.625 → 411 × 914 dp), **no status bar in the capture** (the
   app draws edge-to-edge from y≈15 dp), locale en-US, theme light.
@@ -15,12 +17,14 @@ This file lists what a human sees when the two PNG sets are put side by side.
 * Android typography is in sp with `fontScale=1.0` (receipt:
   `screenshots/metrics.txt`), so sp values are directly comparable to pt.
 
-Both Android pages `page-settings.png` and `page-sessions.png` currently render
-a **different page design** from the current iOS pages (the settings baseline is
-模型 / 搜索 / 平台差异 with a battery banner; sessions is 会话列表 with inline
-重命名/删除). Their structural gap is on the machine list; below I only record
-the *type/rhythm tokens* that will still differ after those structures align.
-`files` has no Android baseline at all.
+The Android PNG set is **older than the iOS set**: `page-settings.png` still
+renders the pre-PR-#13 flat index (模型 / 搜索 / 平台差异 with a battery banner)
+while `SettingsPage.kt` has already been rewritten as the five-tab sheet, and
+`page-sessions.png` still shows 会话列表 with inline 重命名/删除. Neither Android
+screenshot may be diffed against the new `ios-settings.png` / `ios-sessions-*.png`
+until the Android captures are re-run; the structural gap is on the machine list,
+and below I only record the *type/rhythm tokens* that will still differ after
+those structures align. `files` has no Android baseline at all.
 
 ## 1. Chat input dock — the largest visible difference
 

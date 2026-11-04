@@ -139,14 +139,23 @@ LINE_CAPS = {
     # which segment is "the newest close", what proves an epoch durable, the fsync for a
     # removed path, whether the close record is charged, how much to drop, and whether
     # the 512 MiB is per workspace) are contract text now.
-    "wal.md": 370,
+    "wal.md": 374,
     # D16 amendment: `unsupported` was defined as "only an unadvertised argv[0]", but the
     # host also refuses request shapes it cannot honour (no stdin channel, protocol-level
     # refusal). The implementation and the spec disagreed; the spec was the narrower one.
     "exec.md": 232,
     "handoff.md": 200,
     "budgets.md": 200,
-    "bridge.md": 200,
+    # D16 amendment: §12 is **new normative text**, not a document that outgrew its
+    # cap. It gives a home to a contract that had none: `ubuntu.exec` /
+    # `ubuntu.status` / `ubuntu.fetch`, the job state machine with its exhaustive
+    # transition table and boot mapping, the two audit fields (`egress` and
+    # `authorityExited`, which may not be merged), the artifact ingest limits and
+    # the failure table that reuses the existing provider vocabulary. The cap moves
+    # 200 -> 487 because that text exists nowhere else, and a shorter version would
+    # leave the two ports free to disagree about a security surface. The duplicated
+    # cap in `tools/bridge_check.py` now reads this value instead of restating it.
+    "bridge.md": 487,
     # D16 amendment: the two release-blocking rules move from "known gap" to
     # "enforced", which needs lines to say what is now required.
     # D16 amendment: the redirect, refusal-surface and number-rendering rules the

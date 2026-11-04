@@ -1,110 +1,126 @@
 {
-  "schema": "pdsh.ui.page-structure-unrecognized/1",
-  "note": "Structural items that cannot be compared statically, registered explicitly (owner + reviewBy + reason). An entry here is a decision, not debt: the checker prints it as `registered` and it is not a divergence. An entry that matches no observed item is an error (delete it), and a past reviewBy is an error (re-review it). Two shapes so far: (a) an untitled baseline group whose only row text is runtime data (error/notice blocks), so no literal criterion exists by design; (b) an Android section title computed from state while the contract section is titled/criterion-based.",
-  "entries": [
-    {
-      "page": "mcp-settings",
-      "kind": "unresolved-section",
-      "name": "<untitled: error>",
-      "reason": "MCPSettingsPage.swift:97 renders `Section { Text(error) }`: an untitled error block whose only row is runtime text, so no literal criterion exists.",
-      "owner": "ui-contract",
-      "reviewBy": "2027-06-30"
-    },
-    {
-      "page": "mcp-settings",
-      "kind": "unresolved-section",
-      "name": "<untitled: notice>",
-      "reason": "MCPSettingsPage.swift:102 renders `Section { Text(notice) }`: an untitled notice block whose only row is runtime text.",
-      "owner": "ui-contract",
-      "reviewBy": "2027-06-30"
-    },
-    {
-      "page": "mcp-editor",
-      "kind": "unresolved-section",
-      "name": "<untitled: errorText>",
-      "reason": "MCPSettingsPage.swift:257 renders `Section { Text(errorText) }`: an untitled error block whose only row is runtime text.",
-      "owner": "ui-contract",
-      "reviewBy": "2027-06-30"
-    },
-    {
-      "page": "model-provider-settings",
-      "kind": "unresolved-section",
-      "name": "<untitled: empty>",
-      "reason": "ModelProviderSettingsPage.swift:181 groups two Buttons rendered through SettingsRowLabel. The extractor captures the actions but no literal row criterion, so this untitled group cannot be compared statically.",
-      "owner": "ui-contract",
-      "reviewBy": "2027-06-30"
-    },
-    {
-      "page": "native-configuration",
-      "kind": "unresolved-section",
-      "name": "<untitled: nativeConfigurationError(error)>",
-      "reason": "NativeConfigurationPage.swift:26 renders an untitled error section whose first row is the runtime expression nativeConfigurationError(error), so no literal criterion exists.",
-      "owner": "ui-contract",
-      "reviewBy": "2027-06-30"
-    },
-    {
-      "page": "native-configuration",
-      "kind": "unresolved-section",
-      "name": "group.title",
-      "reason": "The Android page supplies this group's title from host state (`group.title`); the contract section is criterion-based, so the title is runtime data and is not comparable statically. The row criterion, not the title, is the judgement.",
-      "owner": "android-parity",
-      "reviewBy": "2027-06-30"
-    },
-    {
-      "page": "native-configuration",
-      "kind": "unresolved-section",
-      "name": "section.title",
-      "reason": "Android composes this section title from its state (`section.title`); the contract section is criterion-based, so there is no literal title to compare.",
-      "owner": "android-parity",
-      "reviewBy": "2027-06-30"
-    },
-    {
-      "page": "runtime-details",
-      "kind": "unresolved-section",
-      "name": "section.title",
-      "reason": "Android composes section titles from its runtime snapshot (`section.title`); the contract's titles are `本次运行`/`最近出错` and cannot be matched against runtime data.",
-      "owner": "android-parity",
-      "reviewBy": "2027-06-30"
-    },
-    {
-      "page": "session-activity",
-      "kind": "unresolved-section",
-      "name": "section.kind.title",
-      "reason": "Android derives this section title from the activity kind (`section.kind.title`); the contract has no title template for it.",
-      "owner": "android-parity",
-      "reviewBy": "2027-06-30"
-    },
-    {
-      "page": "sessions",
-      "kind": "unresolved-section",
-      "name": "row.laneLabel",
-      "reason": "The Android queue section title is the queue lane label (`row.laneLabel`); the baseline keeps that screen in the embedded SessionQueuePage, so the contract has no title for it.",
-      "owner": "android-parity",
-      "reviewBy": "2027-06-30"
-    },
-    {
-      "page": "files",
-      "kind": "unresolved-section",
-      "name": "<untitled: folder>",
-      "reason": "FilesPage.swift:117 takes the group title from data (`fileGroupTitle`, the current folder). Its first row is `Label(folder)`, also data, so no literal criterion exists; the group is identified by the folder expression at runtime.",
-      "owner": "ui-contract",
-      "reviewBy": "2027-06-30"
-    },
-    {
-      "page": "files",
-      "kind": "unresolved-section",
-      "name": "state.groupTitle",
-      "reason": "Android renders the group title from state (`state.groupTitle`), which mirrors the baseline's data-as-title; there is no literal title on either side to compare.",
-      "owner": "android-parity",
-      "reviewBy": "2027-06-30"
-    }
-  ],
-  "notes": [
-    {
-      "page": "chat",
-      "text": "`完全权限` 是 Swift 的字符串比较操作数（ChatPage.swift:1395 `AccessModeWording.title(…) == \"完全权限\"`），不是 section 标题；该组的真实标题是两个三元分支之一，rows 就是 :1376 的菜单按钮、已作为 action 覆盖。契约里该 section 被标 `suppressed`，不给 Android 加假字面量 section。",
-      "owner": "ui-contract",
-      "reviewBy": "2027-06-30"
-    }
-  ]
+ "schema": "pdsh.ui.page-structure-unrecognized/1",
+ "note": "Structural items that cannot be compared statically, registered explicitly (owner + reviewBy + reason). An entry here is a decision, not debt: the checker prints it as `registered` and it is not a divergence. An entry that matches no observed item is an error (delete it), and a past reviewBy is an error (re-review it). Two shapes so far: (a) an untitled baseline group whose only row text is runtime data (error/notice blocks), so no literal criterion exists by design; (b) an Android section title computed from state while the contract section is titled/criterion-based.",
+ "entries": [
+  {
+   "page": "mcp-settings",
+   "kind": "unresolved-section",
+   "name": "<untitled: error>",
+   "reason": "MCPSettingsPage.swift:97 renders `Section { Text(error) }`: an untitled error block whose only row is runtime text, so no literal criterion exists.",
+   "owner": "ui-contract",
+   "reviewBy": "2027-06-30"
+  },
+  {
+   "page": "mcp-settings",
+   "kind": "unresolved-section",
+   "name": "<untitled: notice>",
+   "reason": "MCPSettingsPage.swift:102 renders `Section { Text(notice) }`: an untitled notice block whose only row is runtime text.",
+   "owner": "ui-contract",
+   "reviewBy": "2027-06-30"
+  },
+  {
+   "page": "mcp-editor",
+   "kind": "unresolved-section",
+   "name": "<untitled: errorText>",
+   "reason": "MCPSettingsPage.swift:257 renders `Section { Text(errorText) }`: an untitled error block whose only row is runtime text.",
+   "owner": "ui-contract",
+   "reviewBy": "2027-06-30"
+  },
+  {
+   "page": "native-configuration",
+   "kind": "unresolved-section",
+   "name": "<untitled: nativeConfigurationError(error)>",
+   "reason": "NativeConfigurationPage.swift:17 renders `Section { Label(nativeConfigurationError(error), …) }`: an untitled error block whose row is runtime text, so no literal criterion exists.",
+   "owner": "ui-contract",
+   "reviewBy": "2027-06-30"
+  },
+  {
+   "page": "native-configuration",
+   "kind": "unresolved-section",
+   "name": "group.title",
+   "reason": "The Android page supplies this group's title from host state (`group.title`); the contract section is criterion-based, so the title is runtime data and is not comparable statically. The row criterion, not the title, is the judgement.",
+   "owner": "android-parity",
+   "reviewBy": "2027-06-30"
+  },
+  {
+   "page": "runtime-details",
+   "kind": "unresolved-section",
+   "name": "section.title",
+   "reason": "Android composes section titles from its runtime snapshot (`section.title`); the contract's titles are `本次运行`/`最近出错` and cannot be matched against runtime data.",
+   "owner": "android-parity",
+   "reviewBy": "2027-06-30"
+  },
+  {
+   "page": "files",
+   "kind": "unresolved-section",
+   "name": "<untitled: folder>",
+   "reason": "FilesPage.swift:117 takes the group title from data (`fileGroupTitle`, the current folder). Its first row is `Label(folder)`, also data, so no literal criterion exists; the group is identified by the folder expression at runtime.",
+   "owner": "ui-contract",
+   "reviewBy": "2027-06-30"
+  },
+  {
+   "page": "files",
+   "kind": "unresolved-section",
+   "name": "state.groupTitle",
+   "reason": "Android renders the group title from state (`state.groupTitle`), which mirrors the baseline's data-as-title; there is no literal title on either side to compare.",
+   "owner": "android-parity",
+   "reviewBy": "2027-06-30"
+  },
+  {
+   "page": "daily-brief",
+   "kind": "missing-action",
+   "name": "删除",
+   "reason": "DailyBriefPage.swift:112 is a `.swipeActions` Label(\"删除\"); Android renders the same action as a SwipeToDismissBox background label, and DailyBriefPageTest states that turning it into a visible button must fail on purpose. The action exists on both sides; only the affordance differs.",
+   "owner": "ui-contract",
+   "reviewBy": "2027-06-30"
+  },
+  {
+   "page": "native-settings-document",
+   "kind": "unresolved-section",
+   "name": "<manual region>",
+   "reason": "NativeSettingsDocumentPage.swift:14 is one ungrouped region with no Section/PageSection/GroupBox/header Text; a human has to name the group before any title can be compared.",
+   "owner": "ui-contract",
+   "reviewBy": "2027-06-30"
+  },
+  {
+   "page": "phone-permissions",
+   "kind": "unresolved-section",
+   "name": "<untitled: row(capability)>",
+   "reason": "PhonePermissionsPage.swift:74 iterates `PhoneCapability.allCases`; each row's label is the capability's own title, which is data from the model, not a literal in the view.",
+   "owner": "ui-contract",
+   "reviewBy": "2027-06-30"
+  },
+  {
+   "page": "phone-permissions",
+   "kind": "unresolved-section",
+   "name": "group.title",
+   "reason": "PhonePermissionsPage.swift:70 iterates `PhoneCapabilityGroup.allCases` and uses `group.title` as the Section header; the titles are model data, so no literal exists. The same shape is already registered for native-configuration and session-activity.",
+   "owner": "ui-contract",
+   "reviewBy": "2027-06-30"
+  },
+  {
+   "page": "pdsh-shell",
+   "kind": "unresolved-section",
+   "name": "<untitled: empty>",
+   "reason": "PDSHShellPage.swift:74 is an untitled Section whose only row (PDSHShellPage.swift:75) is a ternary button (运行/运行中…); the literal the extractor reads exists in only one branch, so no stable row criterion exists. The section is the run/stop action block, judged through its actions.",
+   "owner": "ui-contract",
+   "reviewBy": "2027-06-30"
+  },
+  {
+   "page": "runtime-details",
+   "kind": "unresolved-section",
+   "name": "<untitled: empty>",
+   "reason": "The first RuntimeDetailsPage Section (ChatPage.swift:4324) opens with `runtimeRow(\"状态\", model.isStarted ? statusValue : \"已停止\")`; the label's value is a ternary, so no stable first-row criterion exists. The row and the stop/restart action are judged by the actions, not by this group title.",
+   "owner": "ui-contract",
+   "reviewBy": "2027-06-30"
+  }
+ ],
+ "notes": [
+  {
+   "page": "chat",
+   "text": "`完全权限` 是 Swift 的字符串比较操作数（ChatPage.swift:1395 `AccessModeWording.title(…) == \"完全权限\"`），不是 section 标题；该组的真实标题是两个三元分支之一，rows 就是 :1376 的菜单按钮、已作为 action 覆盖。契约里该 section 被标 `suppressed`，不给 Android 加假字面量 section。",
+   "owner": "ui-contract",
+   "reviewBy": "2027-06-30"
+  }
+ ]
 }

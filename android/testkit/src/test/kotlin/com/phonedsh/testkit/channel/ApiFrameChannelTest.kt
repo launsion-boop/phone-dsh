@@ -21,11 +21,48 @@ import com.phonedsh.loopback.LoopbackConnection
 import com.phonedsh.wire.WireCodec
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.launch
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ApiFrameChannelTest {
+    @Test
+    fun muxReaderKeepsSplitUtf8AndQuietReadTimeoutInsideTheSameStream() = runBlocking {
+        val peer = ScriptedWorker()
+        peer.streamScope = this
+        val releaseTail = CompletableDeferred<Unit>()
+        peer.releaseMuxTail = releaseTail
+        peer.delayedMuxTail = byteArrayOf(0x9F.toByte(), 0x99.toByte(), 0x82.toByte()) +
+            "\"}}\n{\"type\":\"end\"}\n".toByteArray(Charsets.UTF_8)
+        val seam = Seam()
+        val api = ApiFrameChannel(seam)
+        seam.handler = object : LoopbackChannelHandler {
+            override suspend fun onOpen(connection: LoopbackConnection) = Unit
+            override suspend fun onBinary(connection: LoopbackConnection, payload: ByteArray) {
+                api.onInbound(payload)
+                peer.receive(payload)
+            }
+            override suspend fun onClosed(connection: LoopbackConnection, cause: com.phonedsh.loopback.ChannelCloseCause) = Unit
+        }
+        seam.onOpenForTest()
+        peer.deliver = { bytes -> seam.handler?.onBinary(seam, bytes) }
+
+        val mux = DshTurnClient(api).openFollow("s-scripted-1")
+        try {
+            assertNull(mux.next(5))
+        } finally {
+            releaseTail.complete(Unit)
+        }
+        val item = mux.next(500)
+        assertEquals("你好🙂", (((item!!["value"] as JsonObject)["text"] as JsonString).value))
+        assertEquals("end", mux.next(500)?.memberText("type"))
+        mux.close()
+    }
+
     @Test
     fun aUnaryCallCrossesTheApiLaneAtSequentialSeqs() = runBlocking {
         val peer = ScriptedWorker()
@@ -146,6 +183,9 @@ class ApiFrameChannelTest {
     private class ScriptedWorker {
         /** Delivers one worker→host frame to the host's seam (never through the host's writer). */
         var deliver: (suspend (ByteArray) -> Unit)? = null
+        var streamScope: CoroutineScope? = null
+        var delayedMuxTail: ByteArray? = null
+        var releaseMuxTail: CompletableDeferred<Unit>? = null
         private val frames = CopyOnWriteArrayList<ReceivedFrame>()
         private var workerSeq = 1L
         private var rpcId = "testkit-rpc-1"
@@ -187,6 +227,21 @@ class ApiFrameChannelTest {
 
         /** The NDJSON stream: a follow snapshot with the four events of one turn. */
         private suspend fun respondMuxStream(reqId: Int) {
+            val delayedTail = delayedMuxTail
+            if (delayedTail != null) {
+                sendApiRes(reqId, status = 200, body = ByteArray(0), withHead = true)
+                val first = """{"type":"item","value":{"text":"你好""".toByteArray(Charsets.UTF_8)
+                // Split inside the four-byte emoji, then leave the receive call
+                // quiet long enough for one short next() timeout to expire.
+                sendApiRes(reqId, status = 200, body = first + byteArrayOf(0xF0.toByte()), withHead = false)
+                val scope = checkNotNull(streamScope)
+                scope.launch {
+                    checkNotNull(releaseMuxTail).await()
+                    sendApiRes(reqId, status = 200, body = delayedTail, withHead = false)
+                    sendApiEnd(reqId)
+                }
+                return
+            }
             val events = listOf(
                 """{"seq":1,"type":"turn/start","data":{"turn":1}}""",
                 """{"seq":2,"type":"tool/call","data":{"turn":1,"name":"phone","callId":"c1"}}""",

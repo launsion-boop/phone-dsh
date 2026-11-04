@@ -13,7 +13,13 @@ the checker is green when the two agree and red for every way they disagree:
   stale or points at an unknown `spec/platform/whitelist.json` id;
 * the known-divergence ratchet: a baselined divergence passes, a new one fails, a
   baseline entry that no longer diverges fails;
-* a stale contract provenance line (the anchor moved) — never ratcheted.
+* a stale contract provenance line (the anchor moved) — never ratcheted;
+* the summary row counts the *labelled* actions and their unique wordings, so a
+  page with 36 labelled actions is never printed beside 29 Android labels as if
+  the difference were missing controls;
+* a label inside `if (callback != null)` is conditional presence, not presence —
+  and a guard the baseline itself uses (`if let errorText`) is accepted;
+* a page title that differs from `.navigationTitle` is a divergence.
 
 Run:
     python3 -m unittest discover -s spec/ui/v1/tools -p 'test_*.py' -v
@@ -117,6 +123,393 @@ def platform_whitelist() -> list:
     return [{"id": "platform.post-notifications-degraded", "capability": "notifier.permission-degraded"}]
 
 
+class PositionalClickableLabelTests(unittest.TestCase):
+    def test_positional_text_is_an_action_only_on_its_own_clickable_modifier(self):
+        source = 'BasicText(UiStrings.RESTORE, modifier = Modifier.clickable { restore() })'
+        labels, unresolved, _ = check.android_actions(source, check.mask_kotlin(source), {"RESTORE": "恢复"}, {})
+        self.assertEqual(["恢复"], labels)
+        self.assertEqual([], unresolved)
+        plain = 'BasicText(UiStrings.RESTORE)'
+        self.assertEqual([], check.android_actions(plain, check.mask_kotlin(plain), {"RESTORE": "恢复"}, {})[0])
+
+    def test_inferred_type_string_constants_are_not_unresolved_actions(self):
+        source = 'private const val IMPORT_LABEL = "导入文件"'
+        self.assertEqual({"IMPORT_LABEL": "导入文件"}, check.local_constants(source))
+
+
+SETTINGS_INDEX_MODEL = '''
+private data class SettingsIndexSection(val id: String, val title: String,
+    val entries: List<SettingsIndexEntry>)
+private data class SettingsIndexEntry(val id: String, val title: String,
+    val callback: (() -> Unit)? = null)
+@Composable public fun SettingsPage() { SettingsIndexList() }
+@Composable private fun SettingsIndexList() {
+    val sections = listOf(
+        SettingsIndexSection("general", "General", listOf(
+            SettingsIndexEntry("providers", "Providers", callback = {}),
+        )),
+    )
+    LazyColumn {
+        sections.forEach { section ->
+            item {
+                SettingsSectionLabel(section.title)
+                section.entries.forEachIndexed { index, entry ->
+                    SettingsIndexRow(entry, dividerBelow = false)
+                }
+            }
+        }
+    }
+}
+'''
+
+
+class VerifiedSettingsIndexModelTests(unittest.TestCase):
+    def _read(self, source: str):
+        return check.verified_settings_index_model(
+            source, check.mask_kotlin(source), {}, {})
+
+    def test_extracts_only_titles_and_actions_from_a_verified_rendered_model(self):
+        model = self._read(SETTINGS_INDEX_MODEL)
+        self.assertIsNotNone(model)
+        self.assertEqual(["General"], model[0])
+        self.assertEqual(["Providers"], model[2])
+
+    def test_arbitrary_section_title_projection_is_not_treated_as_a_model(self):
+        unrelated = '''
+@Composable public fun SettingsPage() { SettingsIndexList() }
+@Composable private fun SettingsIndexList() {
+    val sections = listOf(OtherSection("General"))
+    sections.forEach { section -> SettingsSectionLabel(section.title) }
+}
+'''
+        self.assertIsNone(self._read(unrelated))
+
+    def test_model_must_render_its_entries_through_the_owned_row(self):
+        source = SETTINGS_INDEX_MODEL.replace(
+            "SettingsIndexRow(entry, dividerBelow = false)",
+            "Text(entry.title)")
+        self.assertIsNone(self._read(source))
+
+
+ABOUT_ROW_MODEL = '''
+data class AboutRowView(val id: String, val title: String, val value: String?)
+data class AboutSectionView(val id: String, val title: String,
+    val rows: List<AboutRowView>)
+data class AboutScreenState(val sections: List<AboutSectionView>) {
+    companion object {
+        const val VERSION_SECTION_ID = "about.version"
+        fun from(): AboutScreenState {
+            val versionRows = listOf(
+                AboutRowView(id = "version.version", title = "版本", value = "0.1.0"),
+                AboutRowView(id = "version.build", title = "构建", value = "42"),
+            )
+            val sections = buildList {
+                add(AboutSectionView(VERSION_SECTION_ID, "版本", versionRows))
+            }
+            return AboutScreenState(sections = sections)
+        }
+    }
+}
+@Composable fun AboutPage(state: AboutScreenState) {
+    BasicText(text = "Phone DSH")
+    val cards = state.sections.map { section ->
+        section to section.rows.filter { row -> !row.id.isEmpty() }
+    }
+    cards.forEach { (section, rows) ->
+        SettingsGroupCard {
+            rows.forEach { row -> SettingsFormRow(title = row.title, value = row.value) }
+        }
+    }
+}
+'''
+
+
+class VerifiedAboutRowModelTests(unittest.TestCase):
+    def test_about_rows_are_resolved_only_through_the_page_renderer(self):
+        source = ABOUT_ROW_MODEL
+        rows = check.android_row_positions(source, check.mask_kotlin(source), {}, {})
+        self.assertEqual(["Phone DSH", "版本", "构建"], [label for label, _ in rows])
+
+    def test_about_model_without_the_matching_renderer_does_not_satisfy_rows(self):
+        source = ABOUT_ROW_MODEL.replace(
+            "SettingsFormRow(title = row.title, value = row.value)",
+            "BasicText(text = row.title)",
+        )
+        rows = check.android_row_positions(source, check.mask_kotlin(source), {}, {})
+        self.assertEqual(["Phone DSH"], [label for label, _ in rows])
+
+
+class VerifiedDeveloperToolsRowTests(unittest.TestCase):
+    SOURCE = '''
+@Composable fun ConversationSettingsPage(preferences: SettingsPreferences,
+    onToggleDeveloperTools: ((Boolean) -> Unit)?, languageId: String?) {
+    DeveloperToolsRow(preferences.developerTools, onToggleDeveloperTools, languageId)
+}
+@Composable private fun DeveloperToolsRow(value: FactState,
+    onToggle: ((Boolean) -> Unit)?, languageId: String?) {
+    val label = UiStrings.settingsNativeText(languageId, UiStrings.WORK_DETAILS_CODE_VIEW, UiStrings.WORK_DETAILS_CODE_VIEW_EN)
+    val known = value != FactState.UNKNOWN && onToggle != null
+    val checked = value == FactState.YES
+    if (!known) return
+    SettingsRowFrame(role = Role.Switch, onClick = { onToggle?.invoke(!checked) }) {
+        SettingsRowLabel(text = label)
+        SettingsSwitch(checked = checked, enabled = true)
+    }
+}
+'''
+
+    def _actions(self, source: str):
+        strings = {
+            "WORK_DETAILS_CODE_VIEW": "显示代码工作视图",
+            "WORK_DETAILS_CODE_VIEW_EN": "Show code work",
+        }
+        return check.android_actions(source, check.mask_kotlin(source), strings, {})[0]
+
+    def test_localized_developer_toggle_is_read_from_its_verified_switch_helper(self):
+        self.assertEqual(["显示代码工作视图"], self._actions(self.SOURCE))
+
+    def test_missing_renderer_callback_or_callsite_does_not_count_as_an_action(self):
+        no_callback = self.SOURCE.replace(
+            "onClick = { onToggle?.invoke(!checked) }", "onClick = {}")
+        no_callsite = self.SOURCE.replace(
+            "DeveloperToolsRow(preferences.developerTools, onToggleDeveloperTools, languageId)",
+            "Unit")
+        no_label = self.SOURCE.replace(
+            "SettingsRowLabel(text = label)", "SettingsRowLabel(text = \"\")")
+        self.assertEqual([], self._actions(no_callback))
+        self.assertEqual([], self._actions(no_callsite))
+        self.assertEqual([], self._actions(no_label))
+
+
+class VerifiedChatArtifactsRouteTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.root = Path(tempfile.mkdtemp())
+        (self.root / check.ANDROID_UI_REL / "nav").mkdir(parents=True)
+
+    def tearDown(self) -> None:
+        import shutil
+        shutil.rmtree(self.root)
+
+    def _write(self, body: str) -> bool:
+        path = self.root / check.ANDROID_UI_REL / "nav" / "PdshNavHost.kt"
+        path.write_text(body)
+        return check.verified_chat_artifact_route_binding(self.root)
+
+    def test_direct_chat_route_callback_makes_the_artifact_action_unconditional(self):
+        self.assertTrue(self._write('''
+fun PdshNavHost(route: PdshRoute) {
+    when (route) { PdshRoute.Chat -> ChatRoute() }
+}
+fun ChatRoute() {
+    ChatPage(onOpenArtifacts = {
+        onNavigate(PdshRoute.SessionArtifacts(state?.sessionID.orEmpty()))
+    })
+}
+'''))
+
+    def test_missing_or_conditional_route_callback_is_not_promoted(self):
+        self.assertFalse(self._write('''
+fun PdshNavHost(route: PdshRoute) {
+    when (route) { PdshRoute.Chat -> ChatRoute() }
+}
+fun ChatRoute() { ChatPage() }
+'''))
+        self.assertFalse(self._write('''
+fun PdshNavHost(route: PdshRoute) {
+    when (route) { PdshRoute.Chat -> ChatRoute() }
+}
+fun ChatRoute(available: Boolean) {
+    ChatPage(onOpenArtifacts = if (available) ({ onNavigate(PdshRoute.SessionArtifacts("s")) }) else null)
+}
+'''))
+
+
+    def test_conditional_lambda_bodies_are_not_promoted(self):
+        for condition in ("if(available)", "if (available)", "if\n(available)"):
+            with self.subTest(condition=condition):
+                self.assertFalse(self._write("""
+fun PdshNavHost(route: PdshRoute) {
+    when (route) { PdshRoute.Chat -> ChatRoute() }
+}
+fun ChatRoute(available: Boolean) {
+    ChatPage(onOpenArtifacts = { CONDITION
+        onNavigate(PdshRoute.SessionArtifacts(state?.sessionID.orEmpty()))
+    })
+}
+""".replace("CONDITION", condition)))
+
+
+class DrawerActionExtractionTests(unittest.TestCase):
+    def test_wrapper_trailing_click_lambda_does_not_hide_its_first_label(self):
+        source = '''
+private fun EntryRow(label: String, action: () -> Unit) {
+    Row(Modifier.clickable(onClick = action)) { Text(label) }
+}
+fun HomeDrawer() { EntryRow("新会话") { create() } }
+'''
+        labels, unresolved, _ = check.android_actions(
+            source, check.mask_kotlin(source), {}, {}, wrappers=frozenset())
+        self.assertEqual(["新会话"], labels)
+        self.assertEqual([], unresolved)
+
+    def test_semantics_labeled_clickable_icon_wrapper_supplies_action_label(self):
+        source = '''
+private fun IconAction(label: String, action: () -> Unit) {
+    Box(Modifier.clickable(onClick = action).semantics { contentDescription = label })
+}
+fun HomeDrawer() { IconAction("新建文件夹") { create() } }
+'''
+        labels, unresolved, _ = check.android_actions(
+            source, check.mask_kotlin(source), {}, {}, wrappers=frozenset())
+        self.assertEqual(["新建文件夹"], labels)
+        self.assertEqual([], unresolved)
+
+
+class VerifiedChatHelperProvenanceTests(unittest.TestCase):
+    def _check(self, label: str, provenance: str, anchor: str) -> list[str]:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            probe = root / "examples/probe-app/PhoneDSHProbe"
+            probe.mkdir(parents=True)
+            (probe / "ChatPage.swift").write_text("struct ChatPage: View {}\n", encoding="utf-8")
+            (probe / "NativePlanReviewCard.swift").write_text(
+                'struct NativePlanReviewCard {\n    public static let requestChangesText = "要求修改"\n}\n',
+                encoding="utf-8")
+            contract = {
+                "pageId": "chat", "page": "ChatPage",
+                "source": {"file": "ChatPage.swift", "path": "examples/probe-app/PhoneDSHProbe/ChatPage.swift"},
+                "sections": [],
+                "actions": [{"id": label, "label": label, "provenance": provenance, "anchor": anchor}],
+            }
+            stale = []
+            check.check_provenance(root, contract, stale)
+            return stale
+
+    def test_only_allowlisted_chat_helper_source_and_anchor_are_accepted(self):
+        self.assertEqual([], self._check(
+            "要求修改", "NativePlanReviewCard.swift:2", 'public static let requestChangesText = "要求修改"'))
+        with self.assertRaises(check.CheckError):
+            self._check("未验证", "NativePlanReviewCard.swift:2", 'public static let requestChangesText = "要求修改"')
+        with self.assertRaises(check.CheckError):
+            self._check("要求修改", "Other.swift:2", 'public static let requestChangesText = "要求修改"')
+
+    def test_removed_workspace_folder_switch_is_not_reintroduced_as_android_only_debt(self):
+        root = Path(__file__).resolve().parents[4]
+        android_only = json.loads((root / "spec/ui/v1/pages/_android-only-items.json").read_text())
+        baseline = json.loads((root / "spec/ui/v1/pages/_baseline.json").read_text())
+        self.assertFalse(any(entry.get("page") == "workspace-folders"
+                             and entry.get("label") == "切换"
+                             for entry in android_only["entries"]))
+        self.assertFalse(any(entry.get("page") == "workspace-folders"
+                             and entry.get("name") == "切换"
+                             and entry.get("kind") == "android-only-stale"
+                             for entry in baseline["divergences"]))
+
+    def test_clickable_row_reads_positional_child_text(self):
+        source = 'Row(Modifier.clickable { open() }) { Text("设置") }'
+        labels, _, _ = check.android_actions(source, check.mask_kotlin(source), {}, {})
+        self.assertEqual(["设置"], labels)
+
+    def test_known_when_and_unavailable_label_branches_are_not_unresolved(self):
+        self.assertEqual(["创建", "删除", "保存"], check.kotlin_label_variants(
+            'when (dialog) { "create" -> "创建"; "delete" -> "删除"; else -> "保存" }', {}, {}))
+        self.assertEqual(["归档"], check.kotlin_label_variants(
+            'if (onArchive == null) "归档不可用" else "归档"', {}, {}))
+
+    def test_verified_automation_save_conditional_resolves_steady_action_only(self):
+        strings = {"AUTOMATION_EDITOR_SAVE": "保存"}
+        consts = {"AUTOMATION_EDITOR_SAVING_LABEL": "保存中…"}
+        expression = "if (editor.saving) AUTOMATION_EDITOR_SAVING_LABEL else UiStrings.AUTOMATION_EDITOR_SAVE"
+        self.assertEqual(["保存"], check.kotlin_label_variants(expression, strings, consts))
+        component = f'''SessionTextAction(
+    label = {expression},
+    onClick = {{ onSubmit(draft, UUID.randomUUID().toString()) }},
+    enabled = editor.canSubmit,
+)'''
+        positions = []
+        labels, unresolved, _ = check.android_actions(
+            component, check.mask_kotlin(component), strings, consts, positions=positions)
+        self.assertEqual(["保存"], labels)
+        self.assertEqual([], unresolved)
+        self.assertEqual(["保存"], [label for label, _ in positions])
+        no_callback = f'''SessionTextAction(
+    label = {expression},
+    enabled = editor.canSubmit,
+)'''
+        _, unresolved, _ = check.android_actions(
+            no_callback, check.mask_kotlin(no_callback), strings, consts)
+        self.assertEqual([expression[:check.DYN_EXPR_MAX]], unresolved)
+        arbitrary = 'SessionTextAction(label = if (toggle) "保存" else "取消")'
+        labels, unresolved, _ = check.android_actions(
+            arbitrary, check.mask_kotlin(arbitrary), {}, {})
+        self.assertEqual([], labels)
+        self.assertEqual(['if (toggle) "保存" else "取消"'], unresolved)
+        wrong_enabled = component.replace("editor.canSubmit", "true")
+        labels, unresolved, _ = check.android_actions(
+            wrong_enabled, check.mask_kotlin(wrong_enabled), strings, consts)
+        self.assertNotIn("保存", labels)
+        self.assertEqual([expression[:check.DYN_EXPR_MAX]], unresolved)
+        self.assertEqual([], check.kotlin_label_variants(
+            "if (editor.saving) AUTOMATION_EDITOR_SAVING_LABEL else UiStrings.CANCEL",
+            {"CANCEL": "取消"}, consts))
+        self.assertEqual([], check.kotlin_label_variants(
+            "if (state.saving) AUTOMATION_EDITOR_SAVING_LABEL else UiStrings.AUTOMATION_EDITOR_SAVE",
+            strings, consts))
+        self.assertEqual([], check.kotlin_label_variants(
+            "if (editor.saving) AUTOMATION_EDITOR_SAVING_LABEL else UiStrings.AUTOMATION_EDITOR_SAVE",
+            strings, {"AUTOMATION_EDITOR_SAVING_LABEL": "处理中…"}))
+
+
+FONT_SIZE_ROLE_MODEL = '''
+private data class FontSizeRole(val title: String, val rowId: String)
+@Composable fun FontSizeSettingsPage(embedded: Boolean) {
+    val content: @Composable () -> Unit = {
+        val values = listOf(FontSizeRole("Conversation", "conversation"))
+        values.forEach { role ->
+            SettingsSectionLabel(role.title)
+            FontSizeStepper(role = role)
+        }
+    }
+    if (embedded) content() else SettingsSubPageFrame { content() }
+}
+'''
+
+
+class VerifiedFontSizeRoleModelTests(unittest.TestCase):
+    def _read(self, source: str):
+        return check.verified_font_size_role_model(source, check.mask_kotlin(source), {}, {})
+
+    def test_resolves_roles_only_when_the_page_builds_and_renders_the_role_model(self):
+        model = self._read(FONT_SIZE_ROLE_MODEL)
+        self.assertIsNotNone(model)
+        self.assertEqual(["Conversation"], model[0])
+
+    def test_unrelated_role_title_projection_stays_unresolved(self):
+        source = FONT_SIZE_ROLE_MODEL.replace(
+            "FontSizeStepper(role = role)", "Text(role.title)")
+        self.assertIsNone(self._read(source))
+
+
+class LocalizedLabelResolutionTests(unittest.TestCase):
+    def test_known_translation_keeps_chinese_contract_label(self):
+        value, dynamic = check.resolve_kotlin_expr(
+            'UiStrings.settingsNativeText(state.language, UiStrings.ROW, "English, label")',
+            {"ROW": "工作步骤"},
+        )
+        self.assertEqual(("工作步骤", False), (value, dynamic))
+
+    def test_local_forwarder_requires_verified_declaration(self):
+        self.assertEqual((None, True), check.resolve_kotlin_expr('native("工作步骤", "Steps")', {}))
+        self.assertEqual(("工作步骤", False), check.resolve_kotlin_expr(
+            'native("工作步骤", "Steps")', {}, {"__native_text_forwarder__": True},
+        ))
+
+    def test_dynamic_chinese_label_does_not_become_a_contract_match(self):
+        self.assertEqual((None, True), check.resolve_kotlin_expr(
+            'UiStrings.settingsNativeText(locale, state.title, "Title")', {},
+        ))
+
+
 class Fixture:
     def __init__(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
@@ -150,6 +543,16 @@ class Fixture:
 
     def close(self) -> None:
         self.tmp.cleanup()
+
+
+def approve_baseline(path: Path, lane: str = "H") -> None:
+    """Simulate the human review step that a written baseline requires."""
+    data = json.loads(path.read_text(encoding="utf-8"))
+    for row in data["divergences"]:
+        if row.get("lane") in (None, "", "UNREVIEWED"):
+            row["lane"] = lane
+        row["reason"] = "fixture divergence, reviewed for the test"
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 def run_check(root: Path, **kwargs) -> tuple:
@@ -233,6 +636,64 @@ class PageStructureCheckTests(unittest.TestCase):
         self.fx.write_android(text)
         rc, out = run_check(self.fx.root)
         self.assertEqual(rc, 0, out)
+
+    # -- one control, several wordings -------------------------------------
+
+    def test_an_alternative_wording_satisfies_the_same_action(self) -> None:
+        """`labelAlternatives` is the other string one control renders.
+
+        `Text(existing == nil ? "保存并连接" : "保存修改并重连")` is ONE save button.
+        Rendering either wording must satisfy the contract, and neither may be
+        reported as an invented button.
+        """
+        data = contract()
+        data["actions"][0]["label"] = "Go"
+        data["actions"][0]["labelAlternatives"] = ["Go now"]
+        self.fx.write_contract(data)
+        self.fx.write_android(ANDROID.replace("UiStrings.GO", "UiStrings.GO_NOW"))
+        self.fx._write(UISTRINGS_REL, UISTRINGS.replace(
+            'public const val GO: String = "Go"',
+            'public const val GO: String = "Go"\n    public const val GO_NOW: String = "Go now"'))
+        rc, out = run_check(self.fx.root)
+        self.assertEqual(rc, 0, out)
+
+    def test_an_action_with_only_alternatives_is_still_compared(self) -> None:
+        """A control with no single rendered label is judged on its wordings."""
+        data = contract()
+        data["actions"][0]["label"] = None
+        data["actions"][0]["labelAlternatives"] = ["Go"]
+        self.fx.write_contract(data)
+        rc, out = run_check(self.fx.root)
+        self.assertEqual(rc, 0, out)
+
+    def test_a_shortened_copy_is_one_divergence_not_two(self) -> None:
+        """`保存` for `保存并连接`: one control, different copy — still red.
+
+        Reporting both `missing-action '保存并连接'` and `extra-action '保存'` would
+        put one defect in two ratchet rows and read as "lost one button, invented
+        another". The finding stays red either way; only the count changes.
+        """
+        data = contract()
+        data["actions"][0]["label"] = "Go now"
+        data["actions"][0]["labelAlternatives"] = ["Go later"]
+        self.fx.write_contract(data)
+        rc, out = run_check(self.fx.root)
+        self.assertEqual(rc, 1, out)
+        self.assertIn("missing-action", out)
+        self.assertIn("'Go now'", out)
+        self.assertIn("shortened copy", out)
+        self.assertNotIn("extra-action", out)
+
+    def test_a_different_label_is_still_an_invented_action(self) -> None:
+        """The pairing is prefix-only: an unrelated label stays an extra action."""
+        data = contract()
+        data["actions"][0]["label"] = "Submit"
+        self.fx.write_contract(data)
+        rc, out = run_check(self.fx.root)
+        self.assertEqual(rc, 1, out)
+        self.assertIn("extra-action", out)
+        self.assertIn("'Go'", out)
+        self.assertIn("missing-action", out)
 
     # -- standard Compose controls -----------------------------------------
 
@@ -808,6 +1269,7 @@ class PageStructureCheckTests(unittest.TestCase):
         baseline = self.fx.root / "spec/ui/v1/pages/_baseline.json"
         rc, out = run_check(self.fx.root, write_baseline=baseline)
         self.assertEqual(rc, 0, out)
+        approve_baseline(baseline)
         rc, out = run_check(self.fx.root, baseline_path=baseline)
         self.assertEqual(rc, 0, out)
         self.assertIn("known divergence(s), 0 new", out)
@@ -823,11 +1285,98 @@ class PageStructureCheckTests(unittest.TestCase):
         baseline = self.fx.root / "spec/ui/v1/pages/_baseline.json"
         rc, out = run_check(self.fx.root, write_baseline=baseline)
         self.assertEqual(rc, 0, out)
+        approve_baseline(baseline)
         text = self.fx.android().replace("    SessionSectionLabel(text = \"Gamma\")\n", "")
         self.fx.write_android(text)
         rc, out = run_check(self.fx.root, baseline_path=baseline)
         self.assertEqual(rc, 1, out)
         self.assertIn("stale baseline", out)
+
+    def test_write_baseline_marks_unreviewed_rows(self) -> None:
+        """A bulk write cannot masquerade as a reviewed ratchet move."""
+        self._add_gamma()
+        baseline = self.fx.root / "spec/ui/v1/pages/_baseline.json"
+        rc, out = run_check(self.fx.root, write_baseline=baseline)
+        self.assertEqual(rc, 0, out)
+        data = json.loads(baseline.read_text(encoding="utf-8"))
+        self.assertTrue(data["divergences"])
+        self.assertEqual({"UNREVIEWED"}, {row["lane"] for row in data["divergences"]})
+        rc, out = run_check(self.fx.root, baseline_path=baseline)
+        self.assertEqual(rc, 1, out)
+        self.assertIn("UNREVIEWED", out)
+
+    def test_baseline_entry_needs_an_owning_lane_and_reason(self) -> None:
+        self._add_gamma()
+        baseline = self.fx.root / "spec/ui/v1/pages/_baseline.json"
+        rc, out = run_check(self.fx.root, write_baseline=baseline)
+        self.assertEqual(rc, 0, out)
+        data = json.loads(baseline.read_text(encoding="utf-8"))
+        data["divergences"][0]["lane"] = "X"
+        baseline.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        rc, out = run_check(self.fx.root, baseline_path=baseline)
+        self.assertEqual(rc, 1, out)
+        self.assertIn("not one of C/D/E/F/G/H", out)
+
+    def test_a_reviewed_baseline_loads(self) -> None:
+        self._add_gamma()
+        baseline = self.fx.root / "spec/ui/v1/pages/_baseline.json"
+        rc, out = run_check(self.fx.root, write_baseline=baseline)
+        self.assertEqual(rc, 0, out)
+        approve_baseline(baseline, lane="H")
+        rc, out = run_check(self.fx.root, baseline_path=baseline)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("known divergence(s), 0 new", out)
+
+    def test_a_data_model_section_view_is_not_a_header(self) -> None:
+        """PR22 AboutPage projects cards through `data class AboutSectionView`."""
+        self.fx.write_android(self.fx.android() + """
+public data class AboutSectionView(val id: String, val title: String)
+private fun projection() = listOf(AboutSectionView("about.version", "版本"))
+""")
+        rc, out = run_check(self.fx.root)
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("extra-section", out)
+        self.assertNotIn("版本", out)
+
+    def test_settings_form_row_satisfies_an_untitled_criterion(self) -> None:
+        """A settings wrapper still renders the visible row the criterion names."""
+        data = contract()
+        data["sections"] = [{
+            "id": "version", "title": None, "titleTemplate": None, "titleSource": "absent",
+            "condition": None, "collection": None, "rows": [],
+            "criterion": {"kind": "first-row", "label": "版本", "provenance": "FakePage.swift:3"},
+            "provenance": "FakePage.swift:3", "anchor": 'Section {',
+            "extraction": "syntax",
+        }]
+        data["actions"] = []
+        self.fx.write_contract(data)
+        self.fx.write_swift("""import SwiftUI
+struct FakePage: View { var body: some View {
+        Section {
+            Text("版本")
+        }
+} }
+""")
+        self.fx.write_android("""package com.phonedsh.ui.page
+
+public fun FakePage() {
+    SettingsFormRow(title = "版本", value = "1.0")
+}
+""")
+        rc, out = run_check(self.fx.root)
+        self.assertEqual(rc, 0, out)
+
+    def test_write_baseline_preserves_an_existing_review(self) -> None:
+        self._add_gamma()
+        baseline = self.fx.root / "spec/ui/v1/pages/_baseline.json"
+        rc, out = run_check(self.fx.root, write_baseline=baseline)
+        self.assertEqual(rc, 0, out)
+        approve_baseline(baseline, lane="E")
+        rc, out = run_check(self.fx.root, write_baseline=baseline)
+        self.assertEqual(rc, 0, out)
+        data = json.loads(baseline.read_text(encoding="utf-8"))
+        self.assertTrue(data["divergences"])
+        self.assertEqual({"E"}, {row["lane"] for row in data["divergences"]})
 
     # -- contract scope ----------------------------------------------------
 
@@ -936,6 +1485,224 @@ class PageStructureCheckTests(unittest.TestCase):
         rc, out = run_check(self.fx.root)
         self.assertEqual(rc, 0, out)
         self.assertIn("not compared", out)
+
+    # -- ① the summary row: labelled actions, not the whole inventory -------
+    #
+    # The old row printed `contract 67 labelled` beside `android 29`. Chat's 67
+    # actions were 27 icon-only + 4 dynamicLabel + 36 labelled, and the labelled
+    # set deduplicated to the same keys as Android's labels — so the row said
+    # "38 missing" about a page that matched. The row must print the labelled
+    # count, its exclusions, and the unique wordings actually compared.
+
+    def test_summary_prints_the_labelled_basis_not_the_whole_inventory(self) -> None:
+        """Chat's real shape: 67 actions = 36 labelled + 27 icon-only + 4 dynamic.
+
+        The old row printed `contract 67 labelled` beside `android 29`, reading as
+        38 missing controls; the labelled set dedupes to the 29 wordings Android
+        draws, so this must PASS and the row must show the labelled basis.
+        """
+        wordings = [f"动作{chr(0x4e00 + i)}" for i in range(29)]
+        actions = []
+        for label in wordings + wordings[:7]:          # 36 labelled, 29 wordings
+            actions.append({"id": f"a{len(actions)}", "label": label, "kind": "button",
+                            "trigger": "tap", "semantic": None, "writes": True,
+                            "destination": None, "condition": None,
+                            "provenance": "FakePage.swift:4",
+                            "anchor": 'Button("Go") { open() }', "extraction": "syntax"})
+        for _ in range(27):                            # icon-only controls, no wording
+            actions.append({"id": f"a{len(actions)}", "label": None, "kind": "button",
+                            "trigger": "tap", "semantic": None, "writes": True,
+                            "destination": None, "condition": None,
+                            "provenance": "FakePage.swift:4",
+                            "anchor": 'Button("Go") { open() }', "extraction": "syntax"})
+        for i in range(4):                             # data-driven labels
+            actions.append({"id": f"a{len(actions)}", "label": f"动态{i}", "dynamicLabel": True,
+                            "kind": "button", "trigger": "tap", "semantic": None,
+                            "writes": True, "destination": None, "condition": None,
+                            "provenance": "FakePage.swift:4",
+                            "anchor": 'Button("Go") { open() }', "extraction": "syntax"})
+        data = contract()
+        data["actions"] = actions
+        self.fx.write_contract(data)
+        self.fx.write_android(
+            "package com.phonedsh.ui.page\n\npublic fun FakePage() {\n"
+            "    SessionSectionLabel(text = UiStrings.ALPHA)\n"
+            "    SessionSectionLabel(text = UiStrings.BETA)\n"
+            + "".join(f'    SessionTextAction(label = "{label}", onClick = {{}})\n'
+                      for label in wordings)
+            + "}\n")
+        rc, out = run_check(self.fx.root)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("labelled 36 of 67 actions (27 unlabelled, 4 dynamicLabel) = 29 comparable keys", out)
+        self.assertIn("android 29 labels (29 keys: 29 unconditional, 0 conditional)", out)
+        # The ambiguous shape the finding was about: inventory beside Android labels.
+        self.assertNotIn("contract 67 labelled", out)
+
+    # -- ② null-callback guard: conditional presence, not presence ---------
+
+    def _guarded_page(self, guard: str = "if (onOpenDemo != null) {") -> None:
+        self.fx.write_android(
+            "package com.phonedsh.ui.page\n\n"
+            "public fun FakePage(onOpenDemo: (() -> Unit)? = null) {\n"
+            "    SessionSectionLabel(text = UiStrings.ALPHA)\n"
+            "    SessionSectionLabel(text = UiStrings.BETA)\n"
+            f"    {guard}\n"
+            "        SessionTextAction(label = UiStrings.GO, onClick = onOpenDemo)\n"
+            "    }\n}\n")
+
+    def test_label_inside_a_null_callback_guard_is_conditional_not_present(self) -> None:
+        """The L64 hole: `if (onOpenDemo != null)` used to satisfy the contract.
+
+        `FilesPage.kt:478` carried `3D 示例` under exactly that guard while
+        `PdshNavHost` never passed the callback: the source had the label, the
+        pixels had no control, and the gate was green. Source-level presence must
+        be reported as conditional presence — not as present, and not as missing.
+        """
+        self._guarded_page()
+        rc, out = run_check(self.fx.root)
+        self.assertEqual(rc, 1, out)
+        self.assertIn("conditional-action", out)
+        self.assertIn("only rendered behind `if (onOpenDemo != null)`", out)
+        self.assertIn("conditionally present", out)
+        # The label is in the source: neither direction of the label diff applies.
+        self.assertNotIn("missing-action", out)
+        self.assertNotIn("extra-action", out)
+
+    def test_let_guard_is_conditional_presence_too(self) -> None:
+        """`onOpenDemo?.let { … }` is the same host-wiring condition."""
+        self._guarded_page(guard="onOpenDemo?.let {")
+        rc, out = run_check(self.fx.root)
+        self.assertEqual(rc, 1, out)
+        self.assertIn("conditional-action", out)
+        self.assertIn("onOpenDemo?.let", out)
+
+    def test_a_guard_the_baseline_also_uses_is_not_a_divergence(self) -> None:
+        """`if let onGo { Button("Go") }` in the baseline: Android's guard matches.
+
+        The contract's `condition` is null for syntax-extracted actions (the
+        extractor only fills it for manual ones), so the gate must read the
+        baseline source. Without this, every correct retry-only-on-error control
+        would be reported as a conditional-presence divergence.
+        """
+        self.fx.write_swift("""import SwiftUI
+struct FakePage: View { var body: some View {
+        Section("Alpha") {
+            if let onGo {
+                Button("Go") { onGo() }
+            }
+        }
+        Section("Beta") {
+            Text("hi")
+        }
+} }
+""")
+        data = contract()
+        data["sections"][1]["provenance"] = "FakePage.swift:8"
+        data["actions"][0]["provenance"] = "FakePage.swift:5"
+        data["actions"][0]["anchor"] = 'Button("Go") { onGo() }'
+        self.fx.write_contract(data)
+        self.fx.write_android(
+            "package com.phonedsh.ui.page\n\n"
+            "public fun FakePage(onGo: (() -> Unit)? = null) {\n"
+            "    SessionSectionLabel(text = UiStrings.ALPHA)\n"
+            "    SessionSectionLabel(text = UiStrings.BETA)\n"
+            "    if (onGo != null) {\n"
+            "        SessionTextAction(label = UiStrings.GO, onClick = onGo)\n"
+            "    }\n}\n")
+        rc, out = run_check(self.fx.root)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("matches the contract's own condition (if let onGo)", out)
+
+    def test_section_title_inside_a_null_callback_guard_is_conditional(self) -> None:
+        """The hole is about any labelled UI: a section header counts too."""
+        self.fx.write_android(
+            "package com.phonedsh.ui.page\n\n"
+            "public fun FakePage(onShowBeta: (() -> Unit)? = null) {\n"
+            "    SessionSectionLabel(text = UiStrings.ALPHA)\n"
+            "    if (onShowBeta != null) {\n"
+            "        SessionSectionLabel(text = UiStrings.BETA)\n"
+            "    }\n"
+            '    SessionTextAction(label = UiStrings.GO, onClick = {})\n'
+            "}\n")
+        rc, out = run_check(self.fx.root)
+        self.assertEqual(rc, 1, out)
+        self.assertIn("conditional-section", out)
+        self.assertIn("only rendered behind `if (onShowBeta != null)`", out)
+        self.assertNotIn("missing-section", out)
+
+    def test_a_section_guard_the_contract_also_declares_is_listed_not_failed(self) -> None:
+        data = contract()
+        data["sections"][1]["condition"] = "onShowBeta != nil"
+        self.fx.write_contract(data)
+        self.fx.write_android(
+            "package com.phonedsh.ui.page\n\n"
+            "public fun FakePage(onShowBeta: (() -> Unit)? = null) {\n"
+            "    SessionSectionLabel(text = UiStrings.ALPHA)\n"
+            "    if (onShowBeta != null) {\n"
+            "        SessionSectionLabel(text = UiStrings.BETA)\n"
+            "    }\n"
+            '    SessionTextAction(label = UiStrings.GO, onClick = {})\n'
+            "}\n")
+        rc, out = run_check(self.fx.root)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("section 'Beta'", out)
+        self.assertIn("matches the contract's own condition (onShowBeta != nil)", out)
+
+    # -- ③ the page title is compared --------------------------------------
+
+    def _titled_android(self, title_expr: str) -> None:
+        self.fx.write_android(
+            "package com.phonedsh.ui.page\n\npublic fun FakePage() {\n"
+            f"    PageFrame(title = {title_expr}) {{\n"
+            "        SessionSectionLabel(text = UiStrings.ALPHA)\n"
+            "        SessionSectionLabel(text = UiStrings.BETA)\n"
+            "        SessionTextAction(label = UiStrings.GO, onClick = {})\n"
+            "    }\n}\n")
+
+    def _title(self, text: str, anchor: str = 'struct FakePage: View { var body: some View {') -> None:
+        data = contract()
+        data["title"] = {"text": text, "provenance": "FakePage.swift:2", "anchor": anchor}
+        self.fx.write_contract(data)
+
+    def test_page_title_mismatch_is_red(self) -> None:
+        """Two pages with different headings used to be green: the title was never read."""
+        self._title("Alpha")
+        self._titled_android('"Beta"')
+        rc, out = run_check(self.fx.root)
+        self.assertEqual(rc, 1, out)
+        self.assertIn("title-mismatch", out)
+        self.assertIn("'Beta'", out)
+        self.assertIn("title     contract 'Alpha'", out)
+
+    def test_matching_page_title_passes(self) -> None:
+        self._title("Alpha")
+        self._titled_android("UiStrings.ALPHA")
+        rc, out = run_check(self.fx.root)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("title     contract 'Alpha'   android 'Alpha'", out)
+
+    def test_a_title_only_known_at_runtime_is_unresolved(self) -> None:
+        """`PageFrame(title = state.title)` cannot be compared; say so, do not guess."""
+        self._title("Alpha")
+        self._titled_android("state.title")
+        rc, out = run_check(self.fx.root)
+        self.assertEqual(rc, 1, out)
+        self.assertIn("unresolved-title", out)
+        self.assertIn("cannot be compared", out)
+
+    def test_a_dynamic_title_with_the_contract_wording_is_accepted(self) -> None:
+        """`currentTitle() ?: UiStrings.ALPHA` renders the contract title in a mode."""
+        self._title("Alpha")
+        self._titled_android("currentTitle() ?: UiStrings.ALPHA")
+        rc, out = run_check(self.fx.root)
+        self.assertEqual(rc, 0, out)
+
+    def test_the_baselines_own_dynamic_title_is_not_compared(self) -> None:
+        """`directory.isEmpty ? "手机工作区" : …` fixes no single title: skip, don't guess."""
+        self._title("手机工作区", anchor='.navigationTitle(directory.isEmpty ? "手机工作区" : name)')
+        self._titled_android("state.groupTitle")
+        rc, out = run_check(self.fx.root)
+        self.assertEqual(rc, 0, out)
 
 
 if __name__ == "__main__":

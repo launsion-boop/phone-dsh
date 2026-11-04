@@ -9,11 +9,15 @@ one PASS/FAIL line; the process exits 1 if any check fails.
 Checks:
   settings-includes   include(...) set == module directories, both directions
   module-build-files  every included module has build.gradle.kts
+  module-inventory    the module set is the prepared PR22/PR14 13-module tree
+  page-inventory      the UI page layer still carries the prepared baseline pages
   sdk-levels          :lib and :app declare minSdk 26 and targetSdk 35
   readme-map          all 11 Sources/PhoneDSH* modules appear once in README
   kotlin-stubs        no TODO()/not-implemented stub left in src/main Kotlin
-  repositories        only google() and mavenCentral() are allowed
+  repositories        only google()/mavenCentral() are allowed, plus the in-tree
+                      publish repository (a path, never a URL)
   absolute-paths      no hard-coded home/SDK/toolchain absolute paths
+  local-properties    android/local.properties stays gitignored (machine-local)
   catalog-pins        every [versions] entry is marked "# unverified pin"
   android-16k-link-arg shell/crates/pdsh-jni/build.rs pins 16 KB pages for
                       Android targets only (plan P2a; a commented-out flag
@@ -33,6 +37,32 @@ from pathlib import Path
 
 SWIFT_PREFIX = "PhoneDSH"
 EXPECTED_SWIFT_MODULES = 11
+# The prepared PR14 baseline after the shared-shell merge. This is an inventory,
+# not a generic "number of include lines": a module that disappears (or appears
+# without a reviewed README mapping) is a structural change and must be seen.
+EXPECTED_MODULES = (
+    "platform",
+    "platform-android",
+    "domain",
+    "core",
+    "net",
+    "controller",
+    "engine",
+    "shell",
+    "dsh",
+    "lib",
+    "testkit",
+    "app",
+    "lib-consumer-test",
+)
+# PR22 replaces the old five-tab Chrome with the real App pages. The prepared
+# candidate carries 34 `*Page.kt` files under this directory. Later page lanes
+# may add files (the count is a floor), but deleting below the prepared tree is
+# a regression, not a refactor. `ChatPage.kt` is the PR22 home, so it is the one
+# file the inventory requires by name.
+UI_PAGE_DIR_REL = Path("android") / "lib" / "src" / "main" / "kotlin" / "com" / "phonedsh" / "ui" / "page"
+EXPECTED_UI_PAGES = 34
+REQUIRED_UI_PAGES = ("ChatPage.kt",)
 SDK_MODULES = {"lib": 26, "app": 26}
 TARGET_SDK = 35
 
@@ -56,11 +86,6 @@ ANDROID_SO_CANDIDATES = (
 
 
 SKIP_DIR_NAMES = {".git", ".gradle", "build", "__pycache__"}
-# `local.properties` is the standard machine-local Android file: it must carry an
-# absolute `sdk.dir`, it is gitignored, and nothing in it is ever committed. It is
-# therefore exempt from the "no hard-coded absolute path" rule, which exists to keep
-# committed files portable.
-MACHINE_LOCAL_FILES = {"local.properties"}
 # `TODO()` or `error("... not implemented")` in src/main: an unfinished stub.
 STUB_RE = re.compile(r"\bTODO\(|\berror\(\s*\"[^\"]*not implemented", re.IGNORECASE)
 TEXT_SUFFIXES = {
@@ -83,10 +108,30 @@ PACKAGE_RE = re.compile(r"^package\s+[A-Za-z_][\w.]*\s*;?$")
 IMPORT_RE = re.compile(r"^import\s+(?:static\s+)?[A-Za-z_][\w.*]*\s*;?$")
 MIN_SDK_RE = re.compile(r"\bminSdk\s*=\s*(\d+)\b")
 TARGET_SDK_RE = re.compile(r"\btargetSdk\s*=\s*(\d+)\b")
-FORBIDDEN_REPO_RE = re.compile(
+# Repository policy: a *network* repository must be google() or mavenCentral().
+# The one other thing a build in this tree may declare is the in-tree publish
+# repository (`android/build/repo`), because a published coordinate cannot be
+# declared without a `maven { }` block, and a path inside the build tree is not a
+# network dependency: it is a product of this checkout (root `.gitignore` rule
+# `build/`, so it never ships), resolving from it needs no network, and it writes
+# nothing outside the tree.
+#
+# The exception is narrow on purpose, and the tests pin BOTH directions:
+#   * `maven { }`/`ivy { }` is admitted only in a file that points its url at a
+#     path containing `build/repo` through `uri(...)` — i.e. a path, not a URL;
+#     a `maven { }` naming any URL still fails on the `://` rule below, which is
+#     what keeps `test_external_maven_url_still_fails` red;
+#   * `mavenLocal()`, `gradlePluginPortal()`, `jcenter()` and `flatDir { }` stay
+#     forbidden outright: they resolve against machine state or a dead
+#     repository, which is exactly what this check exists to keep out.
+HARD_FORBIDDEN_REPO_RE = re.compile(
     r"\b(?:mavenLocal|gradlePluginPortal|jcenter|flatDir)\s*\("
-    r"|\b(?:maven|ivy)\s*[({]"
 )
+PATH_REPO_RE = re.compile(r"\b(?:maven|ivy)\s*[({]")
+# Both markers must appear in the file that declares the path repository: the
+# path itself, and `uri(...)` rather than a string literal (a `file:` URL is
+# rejected too — the rule below fails on its `://`).
+IN_TREE_REPO_MARKERS = ("build/repo", "url = uri(")
 # `-Wl,-z,max-page-size=16384` (the value is checked, not assumed).
 MAX_PAGE_RE = re.compile(r"max-page-size=(\d+)")
 # An absolute path starts a token. A slash that follows a path-join character is a
@@ -214,6 +259,48 @@ def check_module_build_files(root):
     return True, "{0}/{0} modules declare build.gradle.kts".format(len(includes))
 
 
+def check_module_inventory(root):
+    """The include set must be exactly the reviewed 13-module tree."""
+    android = root / "android"
+    if not android.is_dir():
+        return False, "missing android/"
+    disk = set(module_dirs(android))
+    expected = set(EXPECTED_MODULES)
+    missing = sorted(expected - disk)
+    unexpected = sorted(disk - expected)
+    if missing or unexpected:
+        parts = []
+        if missing:
+            parts.append("missing modules: " + ", ".join(":" + name for name in missing))
+        if unexpected:
+            parts.append("unreviewed modules: " + ", ".join(":" + name for name in unexpected))
+        return False, "; ".join(parts)
+    return True, "{} modules match the prepared PR22/PR14 inventory".format(len(expected))
+
+
+def check_page_inventory(root):
+    """The UI page layer must keep the prepared PR22 page floor."""
+    directory = root / UI_PAGE_DIR_REL
+    if not directory.is_dir():
+        return False, "missing {}".format(UI_PAGE_DIR_REL.as_posix())
+    pages = sorted(path.name for path in directory.glob("*Page.kt") if path.is_file())
+    problems = []
+    if len(pages) < EXPECTED_UI_PAGES:
+        problems.append(
+            "found {} *Page.kt files, prepared baseline is {} (a page was deleted or renamed)".format(
+                len(pages), EXPECTED_UI_PAGES
+            )
+        )
+    for name in REQUIRED_UI_PAGES:
+        if name not in pages:
+            problems.append("required page missing: {}".format(name))
+    if problems:
+        return False, "; ".join(problems)
+    return True, "{} *Page.kt files (prepared floor {}), required anchors present".format(
+        len(pages), EXPECTED_UI_PAGES
+    )
+
+
 def check_sdk_levels(root):
     problems = []
     details = []
@@ -330,15 +417,22 @@ def check_repositories(root):
         if any(part in SKIP_DIR_NAMES for part in path.parts):
             continue
         cleaned = strip_comments(read_text(path))
+        declares_in_tree_repo = all(marker in cleaned for marker in IN_TREE_REPO_MARKERS)
         for number, line in enumerate(cleaned.splitlines(), start=1):
             if not line.strip():
                 continue
-            if FORBIDDEN_REPO_RE.search(line) or "://" in line:
+            # A URL is never admitted: not for google()/mavenCentral() (they are
+            # function calls), not for the in-tree repo, and not for `file:`.
+            if HARD_FORBIDDEN_REPO_RE.search(line):
+                problems.append("{}:{}: {}".format(path.relative_to(root), number, line.strip()[:80]))
+            elif PATH_REPO_RE.search(line) and not declares_in_tree_repo:
+                problems.append("{}:{}: {}".format(path.relative_to(root), number, line.strip()[:80]))
+            elif "://" in line:
                 problems.append("{}:{}: {}".format(path.relative_to(root), number, line.strip()[:80]))
             allowed += len(re.findall(r"\bgoogle\(\)|\bmavenCentral\(\)", line))
     if problems:
         return False, "non-allowlisted repository: " + "; ".join(problems[:5])
-    return True, "only google()/mavenCentral() ({} declarations)".format(allowed)
+    return True, "only google()/mavenCentral() plus the in-tree publish repo ({} declarations)".format(allowed)
 
 
 def iter_text_files(root):
@@ -356,21 +450,43 @@ def iter_text_files(root):
             yield path
 
 
+def is_machine_local_file(root, path):
+    """Only the checkout's own android/local.properties is machine-local.
+
+    A file merely *named* local.properties elsewhere (for example a vendored or
+    fixture copy) is still a committed file and must stay portable.
+    """
+    try:
+        return path.relative_to(root).as_posix() == "android/local.properties"
+    except ValueError:
+        return False
+
+
 def check_absolute_paths(root):
     """Fail on a hard-coded machine path in a committed, shipped file.
 
-    Test sources are exempt: a fixture that proves "an absolute path is rejected"
-    has to contain an absolute path. A real home directory in a test is still
-    caught by the repository-wide hygiene rule, which scans `android/` too.
+    The only file-level exemption is the gitignored android/local.properties,
+    whose sdk.dir is machine-local by design. Tool tests are NOT blanket-exempt:
+    a fixture that needs an absolute path builds it from parts (or a temporary
+    directory), and raw home/SDK paths in a test fail like any other file.
+    Shebang lines are skipped wherever they appear (fixtures embed small shell
+    scripts), while a non-first-line absolute path in the same file is still a
+    finding.
     """
     problems = []
     for path in iter_text_files(root):
-        if path.name in MACHINE_LOCAL_FILES:
+        if is_machine_local_file(root, path):
             continue
         if "src" in path.parts and "test" in path.parts:
             continue
         for number, line in enumerate(read_text(path).splitlines(), start=1):
-            if number == 1 and line.startswith("#!"):
+            # A shebang-shaped line is an embedded fixture, not a machine path:
+            # skip it wherever it appears, including immediately after a
+            # triple-quote opener (`FAKE = r"""#!/usr/bin/env bash`). A real
+            # absolute path on any other line is still a finding.
+            if line.lstrip().startswith("#!") or any(
+                marker in line for marker in ('"""#!', "'''#!", '"#!', "'#!")
+            ):
                 continue
             match = ABS_POSIX_RE.search(line) or ABS_WINDOWS_RE.search(line)
             if match:
@@ -378,6 +494,21 @@ def check_absolute_paths(root):
     if problems:
         return False, "hard-coded absolute path: " + "; ".join(problems[:5])
     return True, "0 hard-coded absolute paths"
+
+
+def check_local_properties_gitignored(root):
+    """The bootstrap writes sdk.dir into a machine-local, uncommitted file."""
+    path = root / "android" / ".gitignore"
+    if not path.is_file():
+        return False, "missing android/.gitignore"
+    entries = {
+        line.strip()
+        for line in read_text(path).splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    }
+    if "local.properties" not in entries:
+        return False, "android/.gitignore does not ignore local.properties"
+    return True, "android/local.properties is gitignored (machine-local sdk.dir)"
 
 
 def check_catalog_pins(root):
@@ -570,12 +701,15 @@ def check_android_16k_artifact(root):
 CHECKS = (
     ("settings-includes", check_settings_includes),
     ("module-build-files", check_module_build_files),
+    ("module-inventory", check_module_inventory),
+    ("page-inventory", check_page_inventory),
     ("sdk-levels", check_sdk_levels),
     ("readme-map", check_readme_map),
     ("kotlin-stubs", check_kotlin_stubs),
     ("nested-comments", check_nested_comments),
     ("repositories", check_repositories),
     ("absolute-paths", check_absolute_paths),
+    ("local-properties", check_local_properties_gitignored),
     ("catalog-pins", check_catalog_pins),
     ("android-16k-link-arg", check_android_16k_link_arg),
     ("android-16k-artifact", check_android_16k_artifact),

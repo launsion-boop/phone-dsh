@@ -232,8 +232,8 @@
       "collection": null,
       "rows": [
         {
-          "id": "action-237",
-          "label": null,
+          "id": "保存修改并重连",
+          "label": "保存修改并重连",
           "labelExpr": null,
           "kind": "action",
           "value": null,
@@ -242,9 +242,9 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "MCPSettingsPage.swift:237",
-          "anchor": "Button {",
-          "extraction": "manual"
+          "provenance": "MCPSettingsPage.swift:243",
+          "anchor": "Text(existing == nil ? \"保存并连接\" : \"保存修改并重连\")",
+          "extraction": "syntax"
         },
         {
           "id": "删除并撤销授权与密钥",
@@ -279,7 +279,7 @@
       "labelExpr": null,
       "kind": "toggle",
       "trigger": "tap",
-      "semantic": null,
+      "semantic": "binding:$draft.enabled",
       "writes": true,
       "destination": null,
       "condition": null,
@@ -303,8 +303,8 @@
       "labelAlternatives": []
     },
     {
-      "id": "button-237",
-      "label": null,
+      "id": "保存修改并重连",
+      "label": "保存修改并重连",
       "labelExpr": null,
       "kind": "button",
       "trigger": "tap",
@@ -312,10 +312,12 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "MCPSettingsPage.swift:237",
-      "anchor": "Button {",
-      "extraction": "manual",
-      "labelAlternatives": []
+      "provenance": "MCPSettingsPage.swift:243",
+      "anchor": "Text(existing == nil ? \"保存并连接\" : \"保存修改并重连\")",
+      "extraction": "syntax",
+      "labelAlternatives": [
+        "保存并连接"
+      ]
     },
     {
       "id": "删除并撤销授权与密钥",
@@ -331,6 +333,48 @@
       "anchor": "Label(\"删除并撤销授权与密钥\", systemImage: \"trash\")",
       "extraction": "syntax",
       "labelAlternatives": []
+    },
+    {
+      "id": "本地命令",
+      "label": "本地命令",
+      "labelExpr": null,
+      "kind": "action",
+      "trigger": "tap",
+      "semantic": null,
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "extraction": "manual",
+      "androidOnly": {
+        "reason": {
+          "baselineLacks": "the iOS MCP editor is HTTP-only (`MCPSettingsPage.swift:193`): it has no transport concept, so there is no row to name",
+          "androidNeeds": "the editor form is in place ahead of its transport; the host cannot run a stdio server today (`phone-mcp` accepts HTTP(S) only, and the App's SaveMcpServer is a disclosed no-op), so choosing stdio here ends in an honest refusal rather than a launch",
+          "withoutIt": "a future stdio transport would have no UI to land in, and the editor could only ever describe an HTTP server"
+        },
+        "owner": "android-ui",
+        "reviewBy": "2027-01-31"
+      }
+    },
+    {
+      "id": "网络地址",
+      "label": "网络地址",
+      "labelExpr": null,
+      "kind": "action",
+      "trigger": "tap",
+      "semantic": null,
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "extraction": "manual",
+      "androidOnly": {
+        "reason": {
+          "baselineLacks": "same reason: the baseline editor has no transport picker, so the network-address row does not exist there",
+          "androidNeeds": "the editor form is in place ahead of its transport; the host cannot run a stdio server today (`phone-mcp` accepts HTTP(S) only, and the App's SaveMcpServer is a disclosed no-op), so choosing stdio here ends in an honest refusal rather than a launch",
+          "withoutIt": "a future stdio transport would have no UI to land in, and the editor could only ever describe an HTTP server"
+        },
+        "owner": "android-ui",
+        "reviewBy": "2027-01-31"
+      }
     }
   ],
   "presentations": [],
@@ -377,6 +421,7 @@
       "name": "MCPSettingsPage",
       "line": 17,
       "private": false,
+      "embedded": false,
       "sections": [
         {
           "title": "Streamable HTTP MCP",

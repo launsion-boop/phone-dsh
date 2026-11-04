@@ -1,5 +1,13 @@
 # Contributing
 
+- **Agent collaboration.** Start at [AGENTS.md](AGENTS.md) (also `CLAUDE.md`) and the
+  [protocol baseline](spec/README.md): it maps each boundary to its owning contract,
+  implementations, compatibility policy, existing checks and known gaps. Protocol-impacting
+  changes record the delta and producer/consumer coordination using
+  [the change template](docs/protocol-change-template.md) in the task or PR. Behaviour-preserving
+  refactors must justify each triggered ID with `ID: none — reason`; a global
+  `Protocol impact: none — reason` is allowed only when no IDs trigger. Target/draft clauses are not
+  evidence that a feature is implemented.
 - **Zero DSH source patches.** The pinned DeepSeek Harness checkout is never modified or vendored
   (`scripts/ci/check.sh --only phone-no-dsh-patch` enforces that on the source tree). The image packer has one controlled
   exception: it stages DSH's built `@deepseek-ai/dsh-tool-subagent` and `@deepseek-ai/dsh-file-reference-local` packages
@@ -13,6 +21,9 @@
   `phone-image`, `phone-gate-contracts`, `phone-hygiene`, `phone-license` and `phone-no-dsh-patch` green; changes to
   the host path also run `scripts/ci/smoke.sh` (macOS, real WKWebView). The Xcode package-resolution stage is optional
   on developer machines without XcodeGen/Xcode; a run with any skipped stage exits as `INCOMPLETE`, never `PASS`.
+- **Rust codec evidence.** `phone-rust-tests` runs `cargo test -p pdsh-wire -p pdsh-wal`
+  from `shell/`. Missing cargo is SKIP and makes the aggregate INCOMPLETE; a cargo
+  test failure is FAIL. This does not certify Swift/Kotlin interoperability.
 - **Public-repo hygiene.** No credentials, no personal paths, no private hostnames; `scripts/ci/hygiene.py` scans for
   them and `scripts/ci/hygiene-allow.txt` holds the deliberate exceptions.
 - **Licences.** MIT only for first-party code (SPDX header on every source file); third-party code must be MIT,

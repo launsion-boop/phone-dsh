@@ -1,17 +1,28 @@
 {
-  "schema": "pdsh.ui.page-structure-whitelist/1",
-  "note": "Platform-forced section/action differences that this gate accepts. Every entry references a real id in spec/platform/whitelist.json, carries an owner and a reviewBy date, and must still match an observed divergence (an empty match is a failure: promote or delete it). Row-level and chrome-level differences stay governed by README §5; this file only covers structural items (a section title or an action label).",
-  "entries": [
-    {
-      "id": "settings.platform-appendix",
-      "page": "settings",
-      "kind": "extra-section",
-      "name": "平台差异",
-      "side": "android-only",
-      "platformRef": "platform.post-notifications-degraded",
-      "owner": "android-parity",
-      "reviewBy": "2027-06-30",
-      "reason": "Android-only appendix section: POST_NOTIFICATIONS grant, battery-exemption policy and predictive back have no iOS counterpart (README §5 rows fgs-notification / insets / back-gesture). The baseline has no such section, so the contract has no title to match; the three fact rows are status-only, never actions."
-    }
-  ]
+ "schema": "pdsh.ui.page-structure-whitelist/1",
+ "note": "Platform-forced section/action differences that this gate accepts. Every entry references a real id in spec/platform/whitelist.json, carries an owner and a reviewBy date, and must still match an observed divergence (an empty match is a failure: promote or delete it). Row-level and chrome-level differences stay governed by README §5; this file only covers structural items (a section title or an action label).",
+ "entries": [
+  {
+   "page": "native-configuration",
+   "kind": "extra-section",
+   "name": "手机 Worker 限制",
+   "id": "native-configuration-limit-copy-android",
+   "side": "android-only",
+   "platformRef": "platform.phone-worker-copy",
+   "owner": "ui-contract",
+   "reviewBy": "2027-06-30",
+   "reason": "Android says 手机 Worker ��制 where the contract names iPhone Worker 限制. The noun is a fact about the hardware; on an Android build the baseline noun would be false on screen."
+  },
+  {
+   "page": "native-configuration",
+   "kind": "missing-section",
+   "name": "iPhone Worker 限制",
+   "id": "native-configuration-limit-copy-ios",
+   "side": "ios-only",
+   "platformRef": "platform.phone-worker-copy",
+   "owner": "ui-contract",
+   "reviewBy": "2027-06-30",
+   "reason": "The iOS export names iPhone Worker 限制; Android carries the same section under the platform-appropriate noun (see the android half of this pair)."
+  }
+ ]
 }

@@ -1,8 +1,11 @@
 # PDSH UI 参考 v1 — 双端共同规范（normative）
 
-Status: P0 · spec 版本 1 · MIT。适用端：iOS 基线（`examples/probe-app/PhoneDSHProbe/`）与 Android 承接端。
+Status: P0 · spec 版本 1 · MIT。适用端：iOS PR22 基线 `examples/probe-app/PhoneDSHProbe/`（只读，不改）与 Android 承接端。
 
-**当前镜像对象：PR 22 的 HomeSpec 原生外壳（Chat + 抽屉）**。2026-11-02 owner 决定用 `docs/design/ios-home-design-spec-no-overview.html` 的 430pt 设计替换旧官方 Web 402pt 视觉基线；旧 golden 与 receipts 只作历史参照。新规范只定义浅色，深色沿用 PR 22 的基础回退，不视为已完成细调。
+**镜像对象：PR22 的已上线外壳（ChatPage 首页 + HomeDrawer 抽屉）**，设计帧 430×932pt。旧的 402×874 主题和
+`docs/design/phone-dsh-app/DESIGN.md` 的五 Tab 目标稿都已 superseded：`NativeChatTheme` 的 402pt 数值只保留历史
+出处，不再作为颜色/字号/间距权威。权威顺序：`HomeSpec.swift` 的颜色、字号、间距、尺寸与圆角；HomeSpec 没有定义
+的页面层长度来自 owning page，并逐项标 `file:line`。本文件只改 token 层，不改 iOS/Swift 或 Android 代码。
 
 本目录回答一个问题：**同一串 Harness 事件，两个平台必须画出同一个界面状态**。规范从「事件 → UiState 投影」反写，不从 SwiftUI 代码抽取实现细节；只有颜色/字号/间距/几何这类要镜像现状的值，才逐项标注来源 `file.swift:line`。
 
@@ -13,31 +16,45 @@ Status: P0 · spec 版本 1 · MIT。适用端：iOS 基线（`examples/probe-ap
 | 行（row） | UiState 树里的一个可见单位，颜色/字号/折叠态都挂在行上。 |
 | 折叠（folded） | 连续的同类行（工具、上下文）合并成一行；展开只改内容可见性，不改行序。折叠态不跨会话保留。 |
 | 签名面（signature surface） | 只做像素对表的 6 个组件，见 §4；其余一律按语义一致验收。 |
-| 镜像 | Android 用固定 token 复现当前 iOS 默认外观；iOS 视觉变更必须同步更新本基线与契约。 |
+| 镜像 | Android 用固定 token 复现 PR22 HomeSpec 默认外观；iOS 基线不做像素级改造。 |
 | fail-loud | 失败必须上屏、可重试、不静默降级；禁止只写日志。 |
 | 未测项（unmeasured） | 值读不到；记 `null` + `provenance.tier = unmeasured`（来源可写定义处 `file:line`），**禁止编造**。 |
 | 语义等价 | 两端交互结果相同；呈现形式允许不同，差异必须落在 §5 白名单内。 |
 
 MUST / SHOULD / MAY 按 RFC 2119 读。权威顺序：**Harness 事件序列 > 交互状态机 > 语义一致 > 视觉一致**；截图只作辅证，验收比对的是投影出的行序列。
 
-自校验（失败退出 1；`--strict` 连 §4 的已登记无障碍债一起判失败）：
+本 lane 的自校验（失败退出 1；`--strict` 连 §4 的已登记无障碍债一起判失败）：
 
 ```
-python3 spec/ui/v1/tools/ui_check.py --root . && python3 -m unittest discover -s spec/ui/v1/tools -p 'test_*.py' -v
+python3 spec/ui/v1/tools/ui_check.py --root .
+python3 -m unittest spec.ui.v1.tools.test_ui_check -v
 ```
 
-checker 强制：tokens 过 schema；6 个签名面的 token 引用全部存在且含页面层几何；每个叶子 token 都有 `file:line` 来源
-（缺来源、来源过期、颜色不来自 `NativeChatTheme.swift` / `HomeSpec.swift` 都失败）；WCAG 对比度
-（正文 4.5 / 大字与非文本 3.0，已登记债在 `--strict` 下失败）；8 条平台差异与 §5 逐条对齐并带 type-role 映射；
-页面清单覆盖基线里真实存在的每个 `*Page`；README ≤ 280 行；数据文件里不出现外链、邮箱、绝对用户路径。
+**验收顺序（a-tokens 与 a-pages 的依赖边界）**：本 lane 的接受门是 `ui_check.py --root .` 与上面的
+`test_ui_check`；仓库级 `python3 -m unittest discover -s spec/ui/v1/tools -p 'test_*.py'` 还会运行 page-contract
+测试，PR22 的 ChatPage 契约重抽取属于 package A。当前基线在该测试上报 stale page contracts（同样在提交
+`aa2e1aa` 复现），`extract_ios_pages.py --check` 与 `page_structure_check.py --baseline` 也报同样 25 个 stale
+页面；本 lane 不隐藏、不修改 `pages/`、不删除测试，也不把这些失败标成通过。三条全量命令留给 a-pages 刷新契约后
+由 h-verify 在最终集成候选上执行。
 
-`tokens.json` 是 token 的唯一来源；`golden/tokens.golden.json` 只是 schema 示例，不是规范来源。
-来源分级：**颜色来自 NativeChatTheme / HomeSpec；字号与间距来自 NativeChatTheme / HomeSpec / Components / DSHComponents**；
-**圆角、描边、动效与页面层几何允许来自页面层**，标 `tier: page`；系统语义字号标 `tier: system` 且 `needsDeviceMeasure: true`。取不到就 `unmeasured`。
+checker 强制：tokens 过 schema；6 个签名面的 token 引用全部存在且含页面层几何；每个叶子 token 都有 `file:line`
+来源，且该行必须仍存在并包含 token 名/值（页面层长度可用 `expect` 片段；来源过期即失败）；颜色、字号、间距必须
+来自 `HomeSpec.swift`；仍被 PR22 使用的组件 token（0.5 hairline、ShimmerText 动效、发送/复制动效）保留 owning
+page/component 出处；只有页面层几何/动效可标 `tier: page`；WCAG 对比度（正文 4.5 / 大字与非文本 3.0，已登记债
+在 `--strict` 下失败）；8 条平台差异与 §5 逐条对齐并带 type-role 映射；页面清单覆盖基线里真实存在的每个 `*Page`；
+README ≤ 345 行（PR22 新增类型/几何表，cap 319→345，规则变更记录在 `tools/ui_check.py`，不删页面）；数据文件里
+不出现外链、邮箱、绝对用户路径。
+
+`tokens.json` 是生成 Kotlin 的唯一来源；`golden/tokens.golden.json` 只是 schema 示例。来源分级：
+**HomeSpec 主题色/字号/行高/间距来自 `HomeSpec.swift`；PR22 仍在用的组件色/字号/几何来自其当前
+`NativeParityTokens.swift`、`Components.swift` 等 owning 文件；旧名只通过 `aliases` 指向规范 leaf**，不复制第二张表；
+取不到就记 `unmeasured`，不写假值。Swift 只进入已复核的 JSON provenance，生成器不再并行解析 Swift/HTML。
 
 ## 1. 页面清单
 
 页面按真实文件反推。入口 = 从哪儿打开；导航关系 = 打开后怎么回去。P5 列：`must` = 必须 parity，`later` = 可延后。
+
+入口分三类，别混。**可达** = 产品里点得到；**预览专用** = 只有 DEBUG 的 `-uiPreview` 路由（`NativeShell.swift` 的 `PreviewScreen`），产品没有入口；**不可达** = 连预览路由都没有，只剩结构体。PR22 把首页改成 ChatPage、抽屉改成 HomeDrawer、设置改成一组分组索引：SessionsPage 只剩预览路由，about / network / 文件夹回到设置行，MCP 仍不可达。
 
 | 页面 | 职责 | 入口 | 导航关系 | P5 |
 |---|---|---|---|---|
@@ -78,23 +95,31 @@ checker 强制：tokens 过 schema；6 个签名面的 token 引用全部存在�
 | TaskScreenPage | 任务屏预览 | 设置 → 探针工具（仅 DEBUG） | push | later |
 | ExportPage | 导出诊断包 | 设置 → 探针工具（仅 DEBUG） | push / sheet | later |
 | DailyBriefPage | 每日简报 | **基线无入口（孤页）** | 不可达 | later |
+| ChatPreferencesPage | 聊天外观、字号、过程折叠、转录密度 | **不可达（全仓无调用点；设置已改分组索引）** | push | later |
+| NativeSettingsDocumentPage | 配置文件的只读查看与分享 | **不可达（全仓无调用点）** | sheet | later |
 
-内嵌子页随父页实现、不单独排期：CommandExecutionResultPage、ModelProviderEditorPage、SessionQueuePage、PermissionDefaultsPage、DevelopmentToolsPage、DeveloperPage。开发者页由连续点击版本号进入，仅 DEBUG 存在。
+内嵌子页随父页实现、不单独排期：CommandExecutionResultPage、ModelProviderEditorPage、SessionQueuePage、PermissionDefaultsPage、LicensesPage、FontSizeSettingsPage、ConversationSettingsPage、ArchivedSessionsPage、ScheduleDetailPage、ScheduleHistoryPage、ScheduleEditorPage。`DevelopmentToolsPage` 已随 PR #13 删除，PR22 无此 struct；memory / probes / background / task-screen 因此仍不可达。
 
-页面结构另有机器可读契约：`pages/<page-id>.json`（分区 / 行 / 动作 / 呈现，每项带 `file:line` 来源，由 `tools/extract_ios_pages.py` 从基线抽取），`tools/page_structure_check.py` 用它比对 Android 页面；平台被迫差异只走 `pages/_whitelist.json`（每条 MUST 引用 `spec/platform/whitelist.json` 的 id），已知差异记 `pages/_baseline.json`；PR 22 rebaseline 已经 owner 评审，后续差异只减不增，`--strict` 输出待对齐清单。非 `Section` 的分组（`PageSection` / `GroupBox` / 粗体标题 `Text`）记 `kind: region`，识别不出的记 `implicit`（不整页跳过）；`states` 只作人读（`"advisory": true`，比较器不读）；Android 无 iOS 对应的页登记在 `pages/_android-only.json`，有 `public fun *Page()` 却既无契约也不在该文件里即失败。
-契约标题 MUST 是**渲染形态**：`dynamicTitle:true` 只表示「固定模板 + 一个可变量」（`title:"Rows (N)"` + `titleTemplate:"Rows ({model.probeRows.count})"`，比较用 template、数字与模板槽归一到 `#`）；标题**就是数据**（`Section(fileGroupTitle)`）记 `title:null` + `titleSource:"expression"` + `titleExpression` + `criterion`，不许冒充 `dynamicTitle`；`title` 里出现源码表达式即契约错误，Android 把表达式当字面量渲染 → `extra-section`。
-无标题/数据即标题的分区 MUST 带 `criterion`（首个可点行 / 首行标签）：checker 找该行、看它之前**有没有** Android 标题——没有=一致，有=`extra-section`，找不到行=`missing-section`；确无字面判据的项登记在 `pages/_unrecognized.json`（owner + reviewBy + 理由，stale 即失败）；基线自身的死 UI 在契约里标 `deadUi` + 证据，由 checker 归类为「已确认、勿实现」，整页一坨的页记 `sectionModel:"single-region"` + 说明。
-Android 侧的分区 / 动作 MUST 走 `SessionSectionLabel`、`SectionHeader(title=...)`、`*SectionView(_, title)` 与 `SessionTextAction(label=...)`、`InfoRow(..., onClick=...)`；标题是表达式时记 `unresolved`，不当作一致。车道统一用 `SessionTextAction` 会让 gate 变精确——`Row(.clickable){BasicText}` 与 `ImeAction.Search` 搜索框只是兜底启发式。
-判据（决定冲突往哪边修）：gate 看不见正确实现时修 gate；实现把信息藏起来（数据驱动标题、拼出来的字符串）时修实现——区别是信息是否在源码里显式可见。 标准控件也算动作：`Button`/`OutlinedButton`/`TextButton`/`FilledTonalButton`、`SegmentedButton`/`FilterChip`、`Switch`/`Checkbox`、`DropdownMenuItem`、页内 `label:` 包装器取内容里第一个 `Text(text=…)`；`Switch` 只认同一 `Row`/`Column` 直接子节点里最近的 `Text`。
+产品抽屉是 `HomeDrawer`（`HomeDrawer.swift:12`，不是 `*Page`）：新会话 / 定时任务、文件夹分组（默认「日常」）、长按重命名/归档、底部设置栏；它用手写契约 `pages/home-drawer.json` 进 gate，`extract_ios_pages.py` 的 `CHROME_CONTRACTS` 钉住文件与 struct。`HomeSpec.swift` 是 430×932 的页面/文字/间距/圆角值来源（#F7F7F7 page、#1A1A1A ink、16/24 body、16 chrome/20 content），不生成页面契约，由 `CHROME_VALUE_FILES` 钉住。`FilePreviewPage` 已删除（PR15），预览是独立面 `PreviewSurface`（`pages/preview-surface.json`）。
 
-### 1.1 已知基线观察
+页面结构另有机器可读契约：`pages/<page-id>.json`（分区/行/动作/呈现，每项带 `file:line`）由 `tools/extract_ios_pages.py` 抽取，`tools/page_structure_check.py` 比对 Android；平台被迫差异只走 `_whitelist.json`（引用 `spec/platform/whitelist.json` 的 id），已知差异记 `_baseline.json` 只减不增；`states` 只作人读，Android 无对应页登记 `_android-only.json`，有 `public fun *Page()` 无契约即失败。
+标题 MUST 是渲染形态：`dynamicTitle` 只给「固定模板+一个可变量」；数据即标题记 `title:null`+`titleSource:"expression"`+`titleExpression`+`criterion`；无字面判据的项登记 `_unrecognized.json`（owner+reviewBy+理由，stale 即失败）；死 UI 标 `deadUi`+证据；整页一坨记 `single-region`。
+Android 侧 MUST 走 `SessionSectionLabel`/`SectionHeader(title=…)`/`*SectionView(_, title)` 与 `SessionTextAction`/`InfoRow(..., onClick=…)`；标题是表达式记 `unresolved`；标准控件（`Button`、`FilterChip`、`Switch`、`DropdownMenuItem`、`label:` 包装器）也算动作；判据是 gate 看不见正确实现时修 gate、实现藏信息时修实现。
+
+### 1.1 已知基线观察（只记录，不改基线）
 
 | 观察 | 证据 | P5 处置 |
 |---|---|---|
-| SessionActivityPage 的 sheet 已接线但无人置位 | `ChatPage.swift` 声明并接线 `showActivity`，全仓无 `showActivity = true` | 不实现；iOS 恢复入口再开 |
-| DailyBriefPage、ChatPreferencesPage、NativeSettingsDocumentPage 没有任何入口 | 三个 Swift 文件仍声明页面，全仓无调用点；偏好与脱敏配置读取已由 SettingsPage / 配置模型承担 | 不实现；iOS 恢复入口再开 |
-| NativeTab 四 Tab 枚举是死代码 | `NativeShell.swift` 定义、全仓无引用；实际外壳 = Chat + 抽屉 | 按 §1 的抽屉外壳实现，不实现 Tab 栏 |
-| HomeSpec 与 NativeParityTokens 并存 | PR 22 新页面使用 HomeSpec，旧共享组件仍经 NativeChatTheme 复用部分 NativeParityTokens | token 以实际调用点逐项登记，不把旧 402pt 常量当作现行页面几何 |
+| SessionActivityPage 的 sheet 已接线但无人置位 | `ChatPage.swift:85` 声明、`:547` 接线，全仓无 `showActivity = true` | 不实现；iOS 恢复入口再开 |
+| DailyBriefPage 没有任何入口 | `DailyBriefPage.swift:8` 有页面，全仓无调用点 | 不实现；iOS 恢复入口再开 |
+| NativeTab 四 Tab 枚举是死代码 | `NativeShell.swift:14` 定义、全仓无引用；实际外壳 = ChatPage + HomeDrawer | 按 §1 的抽屉外壳实现，不实现 Tab 栏 |
+| SessionsPage 不再是产品抽屉 | 产品抽屉是 `HomeDrawer`（`NativeShell.swift:238`）；SessionsPage 只在 `-uiPreview sessions`（`:724`）和 DrawerPreview（`:826`） | 不把 SessionsPage 当 Android 首页；首页/抽屉分别按 ChatPage/HomeDrawer 实现 |
+| 设置五分页外壳已移除 | `SettingsPage.swift:45` 起是分组 List；`NativeSettingsTab`（`:7`）只剩 `initialTab` 深链，仅 `-uiPreview settings.permissions.tab`（`NativeShell.swift:734`） | 按六个分组索引实现，不保留五 Tab 外壳 |
+| HomeSpec 是 PR22 的首页值来源 | `HomeSpec.swift:26` 起 page/ink/surface，#F7F7F7/#1A1A1A、16/24 body、16 chrome/20 content；`ChatPage.swift:1106-1113` 的 accent/surface/hairline 全部委托 HomeSpec/主题，旧的本地 #2F5BFF 调色板已不存在 | 用 HomeSpec 值做 430×932 基准；不再按旧 402pt 主题取色 |
+| DevelopmentToolsPage 已删除 | PR #13 删除该页；PR22 全仓无 `struct DevelopmentToolsPage` | memory/probes/background/task-screen 保持不可达，不恢复开发者页 |
+
+| HomeSpec 的 dark 是回退值 | `HomeSpec.swift:5` 明说浅色是参考录像的实测值，dark 用既有 parity 调色板 | 按 HomeSpec 给出的 light/dark 对镜像，不另造色 |
+| 用户气泡正文仍调用偏好字号 | `ChatPage.swift:3894` 用 `NativeChatTheme.bodyFont()`，注释却写 16/24；HomeSpec 的 body 是 16 | token 取 HomeSpec 16/24；Android 按 token，不复制旧偏好默认值 |
 
 ## 2. 组件语义清单
 
@@ -102,29 +127,30 @@ Android 侧的分区 / 动作 MUST 走 `SessionSectionLabel`、`SectionHeader(ti
 
 | 组件 | 出现 | 折叠 / 展开 | 消失 |
 |---|---|---|---|
-| 工具行（tool run） | 首个 `tool_call` 起；**连续**的工具行（不分回合）合并为一行 | 默认折叠，行内只留标题 + 首行摘要；运行中摘要扫光；`tool_result` 到达只改状态与摘要，不移动行位；点标题展开，无详情时按钮 disabled | 只随会话切换/回合清理消失，不因结果到达而移除 |
-| thinking_pill（思考行） | `assistant_message` 的 `reasoning` 块且文本非空 | 默认折叠；流式中摘要 = 最后一个双换行段的首行，去 `**`；流式结束保留摘要、停扫光 | 文本为空则整行不出现 |
-| 审批卡 | `permission_requested` | 与问题卡共用一个槽位，合计最多 2 项；两张同时待办时审批卡在上、问题卡折成「还有 1 个待确认」一行；卡片区最高 40% 屏高，超出内部滚动；键盘弹起且未手动展开时整区折成「N 项需要处理」 | 允许一次 / 拒绝后立即消失；停止或切会话时本地清除 |
+| 工具行（tool run） | 首个 `tool_call` 起；连续工具行合并为一行 | 默认折叠，行内只留标题 + 首行摘要；`tool_result` 只改状态与摘要；点标题展开，展开后是白底 r18 列表卡 | 只随会话切换/回合清理消失 |
+| thinking_pill | `colors.textSecondary` `colors.textTertiary` | `typography.process` |  |  |  | `geometry.processRowHeight` `geometry.processIcon` | `motion.disclosure` `motion.shimmer` |
+| 审批卡 | `colors.sessionSelector` `colors.sessionAccent` `colors.sessionOnAccent` `colors.sessionPrimary` `colors.sessionSecondary` | `typography.pageTitle` `typography.process` | `radius.card` |  |  | `geometry.cardPadding` `geometry.cardOuterMarginH` `geometry.cardOuterMarginV` `geometry.primaryButtonHeight` `geometry.secondaryButtonHeight` `geometry.cardAreaMaxHeightRatio` |  |
 | 问题卡 | `question_requested` | 单选/多选/自定义答案，全部必答才能提交；折叠与槽位规则同上 | 提交后消失；同时刻最多一张 |
-| NativeChangedFilesCard | 回合末最后一条非流式 assistant 行 | 按 `turn` 聚合成功的 `write`/`edit`/`str_replace_editor`；同路径后者覆盖前者；>4 个文件只列 4 个 + 「全部 N 个文件」 | 回合结束仍保留；清除随会话切换 |
-| composer | 常驻页面底部 | 有字/无字/运行中三态；运行中发送键变停止键；`steer` 模式插话、`queue` 模式排队（排队显示「排队中 N 条」）；`/` 开指令、`@` 引用 | 审批卡或问题卡在屏时整体禁用（不是隐藏） |
-| fail-loud 横幅 | 发送被拒、回合失败、工具失败 | 发送失败：草稿保留 + 失败行贴在原消息下；回合失败：顶部横幅 + 重试 + 关闭；工具失败：工具行内失败卡 | 只能由用户手势关闭，或下一次发送成功；不允许自动消失 |
+| NativeChangedFilesCard | 回合末最后一条非流式 assistant 行 | 按 `turn` 聚合成功的 write/edit/str_replace_editor；同路径后者覆盖前者；>4 个只列 4 个 + 「全部 N 个文件」 | 回合结束仍保留；清除随会话切换 |
+| composer | `colors.surface` `colors.primaryButton` `colors.primaryButtonInk` `colors.userBubble` `colors.inputPlaceholder` `colors.iconMuted` | `typography.body` | `radius.composerOpen` |  |  | `geometry.composerOpenMinHeight` `geometry.sendButton` `geometry.composerIcon` `geometry.chromeInset` `geometry.composerMaxHeight` `geometry.composerControlHeight` |  |
+| fail-loud 横幅 | `colors.sessionWarning` `colors.sessionDanger` `colors.sessionAccent` `colors.sessionSecondary` | `typography.secondary` |  |  |  | `geometry.bannerGap` `geometry.bannerInsetH` `geometry.bannerInsetV` |  |
 
-页头 `⋯` 里的「导出对话记录」是**页内动作**，parity 到 Android 的平台分享 affordance（形态差异见 §5 `share-sheet`）；Android 不注册为外部分享目标、不做深链。
+页头 `⋯` 里的「导出对话记录」是页内动作，parity 到 Android 的平台分享 affordance（形态差异见 §5 `share-sheet`）；
+Android 不注册为外部分享目标、不做深链。
 
 ## 3. 交互状态机
 
 Event 是 Harness 事件或用户动作；事件名一律用 host kind（`spec/host/v1/schema/harness-event.schema.json`）。
-标 synthetic 的两族没有 host kind，是投影行，规则见 `spec/host/v1/event-kinds.md`。Transition 表即投影规则，两端必须逐行一致。
+标 synthetic 的两族没有 host kind，是投影行，规则见 `spec/host/v1/event-kinds.md`。Transition 表即投影规则。
 
 | Event | From | To | Side effect |
 |---|---|---|---|
 | 用户发送（idle） | idle | running | 清空草稿；插入 user 行；滚到尾部 |
-| 用户发送（running，queue） | running | running | 插入 user 行；行下标签「已排队」；输入坞显示排队条 |
-| 用户发送（running，steer） | running | running | 发 steer；行下标签「已并入当前任务」 |
+| 用户发送（running，queue） | running | running | 插入 user 行；行下「已排队」；输入坞显示排队条 |
+| 用户发送（running，steer） | running | running | 发 steer；行下「已并入当前任务」 |
 | `turn_started` | running | running | 队列标签「已排队」→「发送中…」 |
 | `turn_ended` ok | running | idle | 清全部排队/发送中标签；结束流式 |
-| `turn_ended` error | running | failed | 顶部横幅；失败行；失败消息 id；与「发送中…」互斥 |
+| `turn_ended` error | running | failed | 顶部横幅；失败行；失败消息 id |
 | `turn_ended` aborted / interrupted | running | idle | 本回合 running 的工具行 → stopped |
 | 点击折叠行标题 | collapsed | expanded | 只改该行内容可见性；行序与滚动位置不变 |
 | 展开时新结果到达 | expanded | expanded | 内容原地更新，不自动折叠 |
@@ -149,132 +175,170 @@ Event 是 Harness 事件或用户动作；事件名一律用 host kind（`spec/h
 
 ### 3.1 Two layers: UiState and ScreenState
 
-Parity is asserted on **two different object graphs**, and conflating them is how a port drifts.
+Parity is asserted on **two different object graphs**，混用两者就是端口漂移的开始。
 
 | Layer | What it is | Where it is specified | How parity is asserted |
 |---|---|---|---|
-| **UiState** | The ordered, event-anchored projection of a harness event stream: one node per row that a trace can point at. Its node ids are `session/<sid>/turn/<tid>/event/<seq>[/<slot>]`. | `spec/v1/trajectory.md` §7, `spec/v1/schema/ui-state-sequence.schema.json` | same event stream on both hosts → byte-identical UiState sequence (after trajectory normalisation) |
-| **ScreenState** | The view-local state a screen owns on top of UiState: composer draft, focus, collapsed/expanded rows, scroll anchor, transient banners. It has **no event anchor** by design, so it cannot live in the UiState sequence. | this section | same UiState + same local UI event script → same ScreenState sequence |
+| **UiState** | 事件锚定的有序投影；节点 id 为 `session/<sid>/turn/<tid>/event/<seq>[/<slot>]` | `spec/v1/trajectory.md` §7、`ui-state-sequence.schema.json` | 同一事件流 → 两侧字节一致的 UiState 序列 |
+| **ScreenState** | 屏幕自有的草稿、焦点、折叠、滚动锚点、瞬时横幅；没有事件锚点 | 本节 | 同一 UiState + 同一本地 UI 事件脚本 → 同一 ScreenState 序列 |
 
-**Rules.**
-
-1. A node that cannot be given a legal UiState id belongs to ScreenState, not UiState. `composer` is the canonical example: it reflects local input, not a harness event.
-2. A rendering convenience is ScreenState even when it looks like it re-groups UiState rows. "Consecutive tool calls fold into one row" is a fold over UiState **at render time**; the UiState sequence keeps one node per event so a trace can still be located.
-3. ScreenState is a **pure function** of (UiState, local UI events). **On a page with no harness
-   event anchor** (settings, tools, files, memory, about) the UiState-side input is the host's
-   read-only snapshot of that page's facts; the same purity and the same sequence assertion apply.
-   A page may not read the clock, the network or the engine directly on either kind of page. It may not read the clock, the network, or the engine directly. That is what makes it replayable in a JVM test.
-4. A parity assertion that needs a screenshot is a **third** thing and is limited to the six signature surfaces (§4); it never substitutes for 1 or 3.
-
-This section exists because the first implementation hit exactly this fork: `composer` had no legal UiState id and folding had no place in the sequence. Recording the split here beats deciding it once per port.
+1. 不能给出合法 UiState id 的节点属于 ScreenState；`composer` 是标准例子。
+2. 渲染便利（连续工具折叠）是渲染时折叠，UiState 仍每个事件一个节点。
+3. ScreenState 是 (UiState, 本地 UI 事件) 的纯函数；设置/文件等无事件锚点的页面，其 UiState 输入是宿主只读快照。
+4. 需要截图的 parity 断言是第三件事，只限 §4 的 6 个签名面，不能替代 1 或 3。
 
 ## 4. 签名面
 
-只有这 6 个面做像素对表。页面层几何已按 owner 决定吸收进 `tokens.json` 的 `geometry`（值 + 单位 + `scalesWith`），
-下表引用的就是比对基值；其余页面按语义一致验收。表中每面写出的 token 与 `tokens.json` 的 `signatureSurfaces.<面>.tokens` **集合相等**，由 checker 双向强制（少写、多写都失败），表头也必须给每个 token family 留一列。
+只有这 6 个面做像素对表。页面层几何已吸收进 `tokens.json` 的 `geometry`（值 + 单位 + `scalesWith`），下表引用的
+就是比对基值；表中每面写出的 token 与 `tokens.json` 的 `signatureSurfaces.<面>.tokens` **集合相等**，由 checker
+双向强制（少写、多写都失败），表头也给每个 token family 留一列。
 
-| 签名面 | 颜色 / 字号 / 圆角 / 描边 / 动效 / 间距（`spacing.*`） | 页面层几何（`geometry.*`） |
-|---|---|---|
-| 气泡 | `colors.bubble` `colors.primary` `colors.secondary` `typography.body` `typography.secondary` `radius.bubble` | `bubblePadding` `bubblePaddingH` `bubbleLineSpacing` `bubbleMaxWidth` |
-| 工具行 | `colors.code` `colors.codeBanner` `colors.border` `colors.secondary` `colors.tertiary` `typography.code` `typography.secondary` `typography.codeLabel` `radius.codeBlock` `stroke.hairline` `motion.disclosure` | `disclosureRowHeight` `disclosureIconGap` `toolDetailIndent` `toolDetailVertical` `toolCardInset` `terminalCardMaxHeight` |
-| thinking_pill | `colors.secondary` `colors.tertiary` `colors.caption` `typography.secondary` `typography.shimmer` `motion.shimmer` | `disclosureRowHeight` `summaryDotDiameter` `summaryDotGap` `thinkingContentIndent` `thinkingContentVertical` |
-| 审批卡 | `colors.selector` `colors.primary` `colors.ctaOverride` `colors.onAccent` `colors.secondary` `typography.headline` `typography.subheadline` `radius.card` `spacing.iconText` | `cardPadding` `cardOuterMarginH` `cardOuterMarginV` `primaryButtonHeight` `secondaryButtonHeight` `cardAreaMaxHeightRatio` |
-| composer | `colors.input` `colors.borderLight` `colors.accent` `colors.onAccent` `colors.tertiary` `colors.secondary` `colors.primary` `typography.body` `typography.secondary` `radius.composer` `stroke.hairline` `spacing.iconText` | `composerMinHeight` `composerMaxHeight` `composerControlSize` `sendButtonDiameter` `inlineStopDiameter` `composerTrailingReserve` `composerOuterMarginH` `composerOuterMarginTop` `composerOuterMarginBottom` `statPillMinHeight` |
-| fail-loud 横幅 | `colors.warning` `colors.danger` `colors.secondary` `typography.secondary` `typography.caption` | `bannerGap` `bannerInsetH` `bannerInsetV` `toolFailureBannerInset` |
+| 签名面 | 颜色 `colors.*` | 字号 `typography.*` | 圆角 `radius.*` | 描边 `stroke.*` | 间距 `spacing.*` | 几何 `geometry.*` | 动效 `motion.*` |
+|---|---|---|---|---|---|---|---|
+| 气泡 | `colors.userBubble` `colors.textPrimary` | `typography.body` | `radius.bubble` |  | `spacing.paragraphGap` | `geometry.contentInset` `geometry.bubblePaddingH` `geometry.bubblePaddingV` `geometry.bubbleMaxWidthRatio` |  |
+| 工具行 | `colors.surface` `colors.textSecondary` `colors.textTertiary` `colors.borderList` | `typography.process` `typography.listItem` | `radius.listCard` | `stroke.hairline` | `spacing.disclosureGap` | `geometry.processRowHeight` `geometry.processIcon` `geometry.listRowHeight` | `motion.disclosure` |
+| thinking_pill | `colors.textSecondary` `colors.textTertiary` | `typography.process` |  |  |  | `geometry.processRowHeight` `geometry.processIcon` | `motion.disclosure` `motion.shimmer` |
+| 审批卡 | `colors.sessionSelector` `colors.sessionAccent` `colors.sessionOnAccent` `colors.sessionPrimary` `colors.sessionSecondary` | `typography.pageTitle` `typography.process` | `radius.card` |  |  | `geometry.cardPadding` `geometry.cardOuterMarginH` `geometry.cardOuterMarginV` `geometry.primaryButtonHeight` `geometry.secondaryButtonHeight` `geometry.cardAreaMaxHeightRatio` |  |
+| composer | `colors.surface` `colors.primaryButton` `colors.primaryButtonInk` `colors.userBubble` `colors.inputPlaceholder` `colors.iconMuted` | `typography.body` | `radius.composerOpen` |  |  | `geometry.composerOpenMinHeight` `geometry.sendButton` `geometry.composerIcon` `geometry.chromeInset` `geometry.composerMaxHeight` `geometry.composerControlHeight` |  |
+| fail-loud 横幅 | `colors.sessionWarning` `colors.sessionDanger` `colors.sessionAccent` `colors.sessionSecondary` | `typography.secondary` |  |  |  | `geometry.bannerGap` `geometry.bannerInsetH` `geometry.bannerInsetV` |  |
 
-页面层几何以 430×932pt 为基准；浮动控件左右 16pt，阅读内容左右 20pt。固定值的 `scalesWith` 为 `null`，随系统字高计算的
-`bubbleLineSpacing` 指向 `typography.body`；边距允许为 0，比例几何记录 430pt 下的基值，其他屏宽按实现中的同一比例计算。
+审批卡以实际 `PermissionCardView` 为准（selector、r12、17/15 字号），错误提示以实际 `ChatPage.errorBanner` / `failureLine` 为准；HomeSpec 示例卡不能覆盖仍在使用的组件。气泡段落间距和工具组卡外壳由 `ChatRows` 父级持有，并由检查显式核对。
 
-审批卡的标题/副标题是系统语义字号，记成 `tier: system` 的 token：`headline` 17pt/600、`subheadline` 15pt/400，
-来源 `platform default, not measured in this repo` 且 `needsDeviceMeasure: true`；仍走 `baseSize × 平台缩放系数`，
-不写死渲染尺寸。Android 的 type-role 映射见 §5。
+**颜色（HomeSpec 430×932pt，light / dark）**
 
-字体映射（两端都不打包字体；字形差异归 §5 的 cjk-fallback）：
-
-| 角色 | iOS | Android | 字重 |
+| token | light | dark | 用途 |
 |---|---|---|---|
-| 正文 / 次要文字 | 系统 SF Pro Text | 系统默认无衬线（Roboto 或厂商替代） | 400 |
-| 强调（标题、主按钮） | SF Pro Text + semibold | 系统默认 + w600 | 600 |
-| 等宽（代码、终端、JSON） | SF Mono（monospaced 设计） | `monospace` 等宽族 | 400 |
+| `colors.page` | `#F7F7F7` | `#101012` | 页面底 |
+| `colors.surface` | `#FFFFFF` | `#1C1C1E` | 导航钮、输入卡、列表卡 |
+| `colors.userBubble` | `#E8E8E8` | `#2C2C2E` | 用户气泡 |
+| `colors.primaryButton` | `#191919` | `#F2F2F2` | 主按钮底 |
+| `colors.primaryButtonInk` | `#FFFFFF` | `#111111` | 主按钮墨色 |
+| `colors.textPrimary` | `#1A1A1A` | `#F2F2F2` | 主文字 |
+| `colors.textSecondary` | `#555555` | `#B8B8BD` | 过程行/次要文字 |
+| `colors.textTertiary` | `#717171` | `#9C9CA2` | 列表卡步骤行 |
+| `colors.textSubtle` | `#7D7D7D` | `#8E8E93` | 导航副标题 |
+| `colors.textPlaceholder` | `#888888` | `#7C7C82` | 时间戳/占位值 |
+| `colors.inputPlaceholder` | `#8B8B8B` | `#7C7C82` | 输入占位 |
+| `colors.iconMuted` | `#A9A9A9` | `#6C6C70` | 禁用图标 |
+| `colors.success` | `#3DC979` | `#3DC979` | 状态点/完成对勾 |
+| `colors.borderList` | `#E2E2E2` | `#2E2E32` | 列表卡 1pt 描边 |
+
+**字号 / 行高（HomeSpec，默认 weight 400）**
+
+| token | size / line | weight | role | 来源 |
+|---|---|---|---|---|
+| `typography.navTitle` | 17.5 / 22 | 600 | title | `HomeSpec.swift:43` |
+| `typography.navSubtitle` | 14.5 / 20 | 400 | body | `HomeSpec.swift:45` |
+| `typography.body` | 16 / 24 | 400 | body | `HomeSpec.swift:47` |
+| `typography.process` | 15 / 24 | 400 | body | `HomeSpec.swift:49` |
+| `typography.listItem` | 14 / 22 | 400 | body | `HomeSpec.swift:50` |
+| `typography.tabLabel` | 10.5 / null | 400 | label | `HomeSpec.swift:52`（行高未测，不编造） |
+
+字体映射：两端都不打包字体；iOS 系统 SF Pro/PingFang SC，Android 系统无衬线（Roboto 或厂商替代）；等宽回退见
+§5 `cjk-fallback`。17.5/14.5 这类型值是规范原值，不做取整。`tabLabel` 的 lineHeight 为 null：HomeSpec 只给字号，
+PR22 home 也没有 Tab 栏，按未测处理。
+
+**几何（HomeSpec grid；`spacing.*` 单独列出）**
+
+| 组 | 值 | 来源 |
+|---|---|---|
+| 导航 | `chromeInset`=16 `contentInset`=20 `navTop`=8 `navButton`=44 `navPillWidth`=92 `navIcon`=22 | `HomeSpec.swift:16`、`:18`、`:20`、`:65`–`:67` |
+| 过程/列表 | `processRowHeight`=24 `processIcon`=18 `listRowHeight`=22 `tabBarHeight`=50 `tabIcon`=28 | `HomeSpec.swift:68`–`:70`、`:22`、`:74` |
+| 输入 | `composerOpenMinHeight`=104 `sendButton`=36 `composerIcon`=24 | `HomeSpec.swift:71`–`:73` |
+| 间距 | `blockGap`=20 `paragraphGap`=16 `disclosureGap`=8 | `HomeSpec.swift:57`–`:61` |
+| 圆角 | `radius.bubble`=24 `radius.listCard`=18 `radius.composerOpen`=24 | `HomeSpec.swift:78`–`:80` |
+| 页面层 | `bubblePaddingH`=16 `bubblePaddingV`=12 `bubbleMaxWidthRatio`=0.8 | `ChatPage.swift:3902`–`:3906` |
+| 页面层 | `cardPadding`=14 `cardOuterMarginH`=16 `cardOuterMarginV`=8 `primaryButtonHeight`=48 `secondaryButtonHeight`=44 `cardAreaMaxHeightRatio`=0.4 | `ChatPage.swift:4590`–`:4594`、`:927` |
+| 页面层 | `composerMaxHeight`=336 `composerControlHeight`=44 | `ChatPage.swift:1981`、`:2007` |
+| 页面层 | `bannerGap`=12 `bannerInsetH`=4 `bannerInsetV`=6 | `ChatPage.swift:1023`、`:1045`–`:1046` |
+
+`geometry` 的 `scalesWith` 全部为 null：HomeSpec 使用固定 `frame` / padding，没有 `@ScaledMetric`；字号本身仍按
+`baseSize × 平台缩放系数`。页面级 token 不用 `signatureSurfaces` 的 surface 概念，只在 `geometry` 与 provenance
+（`tier: page`）里记录。
+
+**描边 / 动效（仍被 PR22 使用，不属于 HomeSpec 的六个主 type role）**
+
+| token | 值 | 出处 | 用途 |
+|---|---|---|---|
+| `stroke.hairline` | 0.5pt | `Components.swift:223` | 代码卡/工具卡 0.5pt 描边 |
+| `motion.disclosure` | 160ms easeOut once | `NativeMessageRows.swift:28` | 过程/思考行展开折叠 |
+| `motion.shimmer` | 1500ms linear forever | `DSHComponents.swift:56` | thinking 行运行中摘要扫光 |
+| `motion.composerSend` | 120ms easeOut once | `ChatPage.swift:2076` | 发送键可用态切换 |
+| `motion.copyConfirmHold` | 1000ms linear once | `Components.swift:181` | 「已复制」保持时长 |
 
 ### Baseline accessibility debt（已登记基线无障碍债）
 
-PR 22 已重算全部配对；`onAccent/accent` 与 `onAccent/ctaOverride` 现为 required 且通过，不再列为债。其余 deferred 保留现值，
-checker 逐条打印实测比值，`--strict` 下全部失败；deferred 上限 8 条，新增或超限必须评审。`owner` 与 `reviewBy` 是复核入口。
+按镜像决定保留 PR22 原值，**不改 token 值**。checker 逐条打印实测比值，`--strict` 下全部失败；deferred 上限 7,
+当前 6 条。这些是 **HomeSpec 源值本身达不到 AA** 的 limitation，不是新调色或豁免：不在本 lane 里发明更深颜色，
+也不加新的 deferred 类别。
 
-| 配对 | 类 | 实测（light / dark） | owner | reviewBy | 原因 |
+| 配对 | 类 | 实测（light / dark） | owner | reviewBy | 为什么低于 AA |
 |---|---|---|---|---|---|
-| `success/selector` | 文本 | **1.86** / 5.31 | iOS UI owner | 2027-03-31 | 变更卡 +N 用 success 墨色 |
-| `danger/selector` | 文本 | **3.91** / **3.68** | iOS UI owner | 2027-03-31 | 变更卡 -N 用 danger 墨色 |
-| `tertiary/input` | 文本 | **3.54** / 6.53 | iOS UI owner | 2027-03-31 | 文件名行用弱墨 tertiary |
-| `caption/code` | 文本 | **2.35** / 4.64 | iOS UI owner | 2027-03-31 | 读文件卡的行号列 |
-| `border/input` | 非文本（纯装饰） | **1.30** / **1.03** | iOS UI owner | 2027-03-31 | 纯装饰分隔线，无文本承载；描边不是唯一可见边界 |
-| `borderLight/input` | 非文本（纯装饰） | **1.14** / **1.03** | iOS UI owner | 2027-03-31 | 纯装饰分隔线，无文本承载；输入坞还有投影与底色 |
+| `textSubtle/page` | 文本 | **3.84** / 5.83 | iOS UI owner | 2027-03-31 | 导航副标题 14.5pt，PR22 原值 |
+| `textPlaceholder/surface` | 文本 | **3.54** / **4.10** | iOS UI owner | 2027-03-31 | 时间戳/占位值，两种外观都低于 4.5 |
+| `inputPlaceholder/surface` | 文本 | **3.41** / **4.10** | iOS UI owner | 2027-03-31 | composer 占位文字，PR22 原值 |
+| `iconMuted/userBubble` | 非文本 | **1.92** / **2.67** | iOS UI owner | 2027-03-31 | 禁用发送图标，未达 3.0 |
+| `success/surface` | 非文本 | **2.14** / 7.96 | iOS UI owner | 2027-03-31 | 成功绿在浅色白面上只有 2.14:1 |
+| `borderList/surface` | 非文本 | **1.30** / **1.26** | iOS UI owner | 2027-03-31 | 1pt 描边不是唯一边界，卡片底色与 r18 仍可辨 |
 
 P5 工作项：由 `tokens.json` 生成 Swift/Compose token 文件（P0 不做，消费者在 P5 才存在）；生成物必须与源一同校验。
 
-### 页面级几何（page-level geometry）
-
-`geometry` 里没有被任何 `signatureSurfaces.*.tokens` 引用的条目就是页面级 token；当前 5 条（`pageOuterMarginH` `pageHeaderMinHeight` `pageRowMinHeight` `pageListRowMinHeight` `statusDotDiameter`）。
-`PageGeometryTokenTest` 把它收敛成一条不变量：**每条 geometry 要么被某个签名面引用，要么被 ≥2 个页面源文件使用**——孤儿 token（既无签名面、又不足 2 个页面）直接红。
-
-可以进 token：跨 ≥2 个页面、语义独立于签名面。允许继续复用签名面几何：只有一个页面用的长度（搜索框高度 `composerMinHeight`、分节标签纵向内边距 `cardOuterMarginV`、列表行距 `disclosureIconGap`），
-以及签名面自己的尺寸（审批卡 `cardAreaMaxHeightRatio`），这些调用点保留 `unverified geometry`。页面级值对齐 iOS `NativeHeaderStyle`：页头 `pageHeaderMinHeight` 44、
-状态点 `statusDotDiameter` 8（原 48/2 是误用主按钮高度与误抄摘要点，已修正）。页面级 token 暂记在 `geometry` 与 `provenance`（`tier: page`）：
-`signatureSurfaces` 被 checker 固定为 6 个面，schema 还没有页面 surface 概念。
-
 ## 5. 平台差异白名单
 
-只有下表 8 条允许两端呈现不同（方案 §9.2-5 的 7 条 + owner 追加的 `share-sheet`）；每条都要「语义等价声明」，
-未列入按语义一致验收（像素对表仍限 §4 的 6 个面）。
+只有下表 8 条 + 一个 **`copy-forced` 类**允许两端呈现不同（方案 §9.2-5 的 7 条 + owner 追加的 `share-sheet`）；
+每条都要「语义等价声明」，未列入按语义一致验收（像素对表仍限 §4 的 6 个面）。
 
 | id | Android | iOS | 语义等价声明 |
 |---|---|---|---|
 | back-gesture | 系统预测性返回：页面栈逐级出栈，根页面退出应用 | 左上返回按钮 + 边缘右滑 | 返回后所处页面与栈深度相同；Android MAY 用预测性动画，state 变更序列 MUST 一致 |
-| font-scale | `fontScale` × 基准字号（sp） | Dynamic Type × 基准字号 | 只读系统缩放系数；**缩放曲线由平台决定，可能是非线性**；不裁剪、不横滚。判据见 §5.1 容差 |
+| font-scale | `fontScale` × 基准字号（sp） | Dynamic Type × 基准字号 | 只读系统缩放系数；缩放曲线由平台决定，可能是非线性；不裁剪、不横滚。判据见 §5.1 容差 |
 | ime | IME 候选栏与 insets 动画由系统驱动 | 键盘安全区推挤 composer | composer 始终可见于 IME 之上；发送后列表位置与内容一致 |
 | insets | targetSdk 35 强制 edge-to-edge，显式消费系统栏 insets | safe area | 内容不被系统栏遮挡；页头与 composer 的可点区域等价 |
 | scroll-refresh | 下拉刷新在列表顶部，带平台惯性 | 下拉刷新 + 尾部跟随 | 刷新后停留位置等价；「跟随尾部」在两端都是同一条件触发 |
-| fgs-notification | 前台服务常驻通知：回合状态 + 进度 + 「停止」按钮 | 后台保活静默期，无通知 | 通知是回合执行中的唯一界面；「停止」走同一 cancel 路径，副作用与 App 内停止一致 |
+| fgs-notification | 前台服务常驻通知：回合状态 + 进度 + 「停止」按钮 | 后台保活静默期，无通知 | 通知是回合执行中的唯一界面；「停止」走同一 cancel 路径 |
 | cjk-fallback | 系统 CJK 回退链，等宽字形按字体族回退 | 系统 CJK 回退链 | 同一字符串两端字形可不同，但行数、换行点、复制结果 MUST 一致 |
-| share-sheet | 页内动作「导出对话记录」调系统 share sheet | 系统 activity sheet | 同一动作、同一内容，面板形态由平台提供；**不注册外部分享目标、不做深链** |
+| share-sheet | 页内动作「导出对话记录」调系统 share sheet | 系统 activity sheet | 同一动作、同一内容，面板形态由平台提供；不注册外部分享目标、不做深链 |
 
-系统语义字号的 type-role 映射（只这两档走平台字号；其余字号仍是固定 token）：
+系统语义字号的 type-role 映射（只这两档走平台字号；17.5/14.5 固定值仍按 sp 输出）：
 
 | token | iOS | Android | 容差 |
 |---|---|---|---|
-| `headline`（17/600） | `.headline` | Material `titleMedium` | 平台角色无 17 档，允许 ±2pt，不做像素级 |
-| `subheadline`（15/400） | `.subheadline` | Material `titleSmall` | 同上 |
+| `navTitle`（17.5/600） | `.headline` 附近 | Material `titleMedium` | 平台角色无 17.5 档，允许 ±2pt，不做像素级 |
+| `navSubtitle`（14.5/400） | `.subheadline` 附近 | Material `titleSmall` | 同上 |
 
 ```json
 {"platformDivergences": [
   {"id": "back-gesture", "android": "预测性返回逐级出栈，根页退出", "ios": "返回按钮与边缘右滑", "equivalence": "返回后页面与栈深度相同，state 序列一致", "tokens": ["motion.disclosure"]},
-  {"id": "font-scale", "android": "fontScale 乘基准字号", "ios": "Dynamic Type 乘基准字号", "equivalence": "只读系统缩放系数；曲线可为非线性，按 §5.1 的 ±2sp 容差判定", "tokens": ["typography.body", "typography.secondary"], "mapping": {"typography.headline": "Material titleMedium", "typography.subheadline": "Material titleSmall"}},
-  {"id": "ime", "android": "IME 候选栏与 insets 动画由系统驱动", "ios": "键盘安全区推挤输入坞", "equivalence": "输入坞始终在 IME 之上，发送后列表位置一致", "tokens": ["geometry.composerOuterMarginH"]},
-  {"id": "insets", "android": "targetSdk 35 强制 edge-to-edge 并消费 insets", "ios": "safe area 自动内缩", "equivalence": "内容不被系统栏遮挡，可点区域等价", "tokens": ["geometry.composerOuterMarginTop"]},
+  {"id": "font-scale", "android": "fontScale 乘基准字号", "ios": "Dynamic Type 乘基准字号", "equivalence": "只读系统缩放系数；曲线可为非线性，按 §5.1 的 ±2sp 容差判定", "tokens": ["typography.body", "typography.navSubtitle"], "mapping": {"typography.navTitle": "Material titleMedium", "typography.navSubtitle": "Material titleSmall"}},
+  {"id": "ime", "android": "IME 候选栏与 insets 动画由系统驱动", "ios": "键盘安全区推挤输入坞", "equivalence": "输入坞始终在 IME 之上，发送后列表位置一致", "tokens": ["geometry.composerOpenMinHeight"]},
+  {"id": "insets", "android": "targetSdk 35 强制 edge-to-edge 并消费 insets", "ios": "safe area 自动内缩", "equivalence": "内容不被系统栏遮挡，可点区域等价", "tokens": ["geometry.chromeInset"]},
   {"id": "scroll-refresh", "android": "列表顶部下拉刷新，平台惯性", "ios": "下拉刷新加尾部跟随", "equivalence": "刷新后停留位置等价，跟随尾部条件相同", "tokens": ["motion.disclosure"]},
-  {"id": "fgs-notification", "android": "前台服务通知含回合状态、进度与停止按钮", "ios": "后台保活静默期无通知", "equivalence": "通知是回合执行中的唯一界面，停止走同一 cancel 路径", "tokens": ["motion.composerSend"]},
-  {"id": "cjk-fallback", "android": "系统 CJK 回退链，等宽族回退", "ios": "系统 CJK 回退链", "equivalence": "字形可不同，行数与换行点及复制结果一致", "tokens": ["typography.code", "typography.jsonBody"]},
+  {"id": "fgs-notification", "android": "前台服务通知含回合状态、进度与停止按钮", "ios": "后台保活静默期无通知", "equivalence": "通知是回合执行中的唯一界面，停止走同一 cancel 路径", "tokens": ["motion.disclosure"]},
+  {"id": "cjk-fallback", "android": "系统 CJK 回退链，等宽族回退", "ios": "系统 CJK 回退链", "equivalence": "字形可不同，行数与换行点及复制结果一致", "tokens": ["typography.body", "typography.listItem"]},
   {"id": "share-sheet", "android": "系统 share sheet", "ios": "系统 activity sheet", "equivalence": "同一页内动作与同一内容；不注册外部分享目标，不做深链", "tokens": []}
 ]}
 ```
 
+### §5.1 第 9 类：`copy-forced`（措辞强制）
+
+前 8 条是「同一件事，两端呈现方式不同」。`copy-forced` 是另一种：两端描述同一件事，但照抄另一端的说法就会在屏幕上
+陈述一个假事实。它没有可命名的 Android 机制可填（`os-forced` 要求 `android_mechanism`），所以单列一类，登记在
+`spec/platform/whitelist.json` 的 `platform.phone-worker-copy`。机器可验判据：该 platform 条目必须带非空
+`android_mechanism`，值只能取自 `platform-terms.json` 的 `iPhone` / `iPad` / `iOS` / `App Store` / `TestFlight` /
+`iCloud`；每条 `_whitelist.json` 行两侧 label 删除这些名词后必须逐字节相等；不满足的条目在门禁里是
+`copy-forced-not-forced`。
+
 ### 5.1 Font scaling is not linear (measured), and parity needs a tolerance
 
 Android 14 and later apply a **non-linear** font-scale converter. Measured during the port: `14sp` at
-`fontScale = 2` renders **26px, not 28px**. A rule that says "rendered size = baseSize × factor" is
-therefore wrong on the platform it is meant to describe, and a test built on it fails a correct
-implementation.
+`fontScale = 2` renders **26px, not 28px**. A rule that says "rendered size = baseSize × factor" is therefore wrong
+on the platform it describes, and a test built on it fails a correct implementation.
 
 - A type token carries a **base size in `sp`** (iOS: points). It never carries a pixel value.
-- The rendered size comes from the platform's own scaling, linear or not. Implementing the platform's
-  scaling is correct; re-deriving a linear value and then fighting the platform is not.
-- **Parity tolerance** for a signature surface's typography: same base size, and rendered sizes within
-  **±2sp** of each other at the same user font scale. Dynamic Type and Android font scale are
-  different curves; exact equality is not something either platform can promise.
+- The rendered size comes from the platform's own scaling, linear or not.
+- **Parity tolerance** for a signature surface's typography: same base size, and rendered sizes within **±2sp** at the
+  same user font scale. Dynamic Type and Android font scale are different curves; exact equality is not promised.
 - A layout assertion that depends on text height must use the measured height, never a computed one.
 
-**Tool-row shimmer belongs to `thinking.pill` only.** The component list in §2 asks for a running
-summary sweep; the token inventory for `toolRow` never had `motion.shimmer` / `typography.shimmer`.
-The sweep is the thinking pill's signature effect, and a second animated row competes with it for the
-same attention. `toolRow` therefore shows static state text; the sweep stays on `thinking.pill`.
+**Tool-row shimmer belongs to `thinking_pill` only.** The running summary sweep is the thinking pill's signature effect;
+`toolRow` shows static state text, so `motion.disclosure` is the only motion token in the tool-row composition.

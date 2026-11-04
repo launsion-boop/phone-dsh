@@ -2,12 +2,15 @@
 // SPDX-License-Identifier: MIT
 //
 // Each page is asserted on semantics (the visible copy, the stable tags and the
-// callbacks), never on a screenshot or a font measurement: Robolectric's font
-// metrics are not the device's, so a geometry assertion would be a fake oracle.
+// callbacks), with one exact fixed-height assertion for the source-owned standalone
+// session row floor. Text bounds remain platform-dependent under Robolectric.
 package com.phonedsh.ui.page
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
@@ -26,10 +29,12 @@ import androidx.compose.ui.test.swipeDown
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.phonedsh.agentcore.HarnessGoal
 import com.phonedsh.ui.SpecFixtures
+import com.phonedsh.ui.SessionsMetrics
 import com.phonedsh.ui.UiStrings
 import com.phonedsh.ui.UiTags
 import com.phonedsh.ui.state.GoalBarState
 import com.phonedsh.ui.theme.PdshTheme
+import com.phonedsh.ui.theme.PdshThemeValues
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -74,8 +79,132 @@ class SessionPagesTest {
         compose.onNodeWithText("项目讨论").assertIsDisplayed()
         compose.onNodeWithText(UiStrings.MINUTES_AGO.format(1)).assertIsDisplayed()
         compose.onNodeWithText(UiStrings.RUNNING).assertIsDisplayed()
+        compose.onAllNodesWithTag(UiPageTags.SESSION_ROW)[0].assertHeightIsAtLeast(SessionsMetrics.STANDALONE_SESSION_ROW_HEIGHT_PT.dp)
         compose.onAllNodesWithTag(UiPageTags.SESSION_ROW)[0].performClick()
         assertEquals("s1", selected)
+    }
+
+    @Test
+    fun `search filters host sessions and an unmatched query shows honest no-results copy`() {
+        val matching = drawer(
+            sessions = listOf(SessionListing("s1", "项目讨论"), SessionListing("s2", "周报草稿")),
+            local = SessionsLocalState(query = "项目"),
+        )
+        val state = mutableStateOf(matching)
+        compose.setContent { PdshTheme { Drawer(state = state.value) } }
+        compose.onNodeWithTag(UiPageTags.SESSIONS_SEARCH).assertIsDisplayed()
+        compose.onNodeWithText("项目讨论").assertIsDisplayed()
+        compose.onNodeWithText("周报草稿").assertDoesNotExist()
+
+        val noMatch = drawer(
+            sessions = listOf(SessionListing("s1", "项目讨论")),
+            local = SessionsLocalState(query = "不存在的词"),
+        )
+        compose.runOnIdle { state.value = noMatch }
+        compose.onNodeWithTag(UiPageTags.SESSIONS_LIST)
+            .performScrollToNode(hasTestTag(SESSION_SEARCH_NO_RESULTS_TAG))
+        compose.onNodeWithTag(SESSION_SEARCH_NO_RESULTS_TAG).assertIsDisplayed()
+        compose.onNodeWithText("没有结果").assertIsDisplayed()
+        compose.onNodeWithText("没有找到与“不存在的词”匹配的会话。").assertIsDisplayed()
+        compose.onNodeWithTag(UiPageTags.SESSIONS_SECTION_EMPTY).assertDoesNotExist()
+    }
+
+    @Test
+    fun `daily grouping and unassigned sessions remain visible with unknown folder facts`() {
+        val state = mutableStateOf(drawer(
+            sessions = listOf(
+                SessionListing("daily-1", "日常里的会话"),
+                SessionListing("loose-1", "未归属的会话"),
+            ),
+            workspaces = listOf(SessionWorkspace("daily", "workspace", listOf("daily-1"))),
+        ))
+        compose.setContent { PdshTheme { Drawer(state = state.value) } }
+        compose.onNodeWithText("日常").assertIsDisplayed()
+        compose.onNodeWithText("日常里的会话").assertIsDisplayed()
+        compose.onNodeWithText("未归属的会话").assertIsDisplayed()
+
+        val unknown = drawer(
+            sessions = listOf(SessionListing("loose-1", "未归属的会话")),
+            workspaces = null,
+        )
+        compose.runOnIdle { state.value = unknown }
+        compose.onNodeWithText("未归属的会话").assertIsDisplayed()
+        compose.onNodeWithTag(UiPageTags.SESSIONS_WORKSPACE_UNKNOWN).assertIsDisplayed()
+        compose.onNodeWithText(UiStrings.SESSIONS_WORKSPACE_UNKNOWN_HINT).assertIsDisplayed()
+    }
+
+    @Test
+    fun `session mutation success and context loss require a host receipt`() {
+        val base = drawer(sessions = listOf(SessionListing("s1", "当前会话")))
+        val state = mutableStateOf(base)
+        compose.setContent { PdshTheme { Drawer(state = state.value) } }
+        compose.onNodeWithTag(PAGE_MUTATION_RECEIPT_TAG).assertDoesNotExist()
+
+        val confirmed = base.copy(
+            mutationReceipt = PageMutationReceipt(
+                operation = PageMutationOperation.SESSION_ARCHIVE,
+                outcome = PageMutationOutcome.SUCCEEDED,
+                subject = "当前会话",
+                contextLost = true,
+            ),
+        )
+        compose.runOnIdle { state.value = confirmed }
+        compose.onNodeWithTag(PAGE_MUTATION_RECEIPT_TAG).assertIsDisplayed()
+        compose.onNodeWithText("当前会话已归档；当前上下文已离开。").assertIsDisplayed()
+    }
+
+    @Test
+    fun `archive callback alone never displays a success receipt`() {
+        val base = drawer(
+            sessions = listOf(SessionListing("s1", "待归档会话")),
+            local = SessionsLocalState(sessionMenuID = "s1"),
+        )
+        val state = mutableStateOf(base)
+        var dispatched = 0
+        compose.setContent {
+            PdshTheme {
+                Drawer(
+                    state = state.value,
+                    onArchiveSession = { dispatched += 1 },
+                )
+            }
+        }
+        compose.onNodeWithTag(UiPageTags.SESSIONS_SESSION_ARCHIVE).performClick()
+        assertEquals(1, dispatched)
+        compose.onNodeWithTag(PAGE_MUTATION_RECEIPT_TAG).assertDoesNotExist()
+
+        compose.runOnIdle {
+            state.value = base.copy(
+                mutationReceipt = PageMutationReceipt(
+                    operation = PageMutationOperation.SESSION_ARCHIVE,
+                    outcome = PageMutationOutcome.SUCCEEDED,
+                    subject = "待归档会话",
+                ),
+            )
+        }
+        compose.onNodeWithText("待归档会话已归档，可在已归档会话中恢复").assertIsDisplayed()
+    }
+
+    @Test
+    fun `workspace delete receipt confirms sessions remain unfiled`() {
+        val base = drawer(
+            sessions = listOf(SessionListing("s1", "保留的会话")),
+            workspaces = listOf(SessionWorkspace("w1", "Project A", listOf("s1"))),
+        )
+        val state = mutableStateOf(base)
+        compose.setContent { PdshTheme { Drawer(state = state.value) } }
+        compose.onNodeWithTag(PAGE_MUTATION_RECEIPT_TAG).assertDoesNotExist()
+
+        compose.runOnIdle {
+            state.value = base.copy(
+                mutationReceipt = PageMutationReceipt(
+                    operation = PageMutationOperation.WORKSPACE_DELETE,
+                    outcome = PageMutationOutcome.SUCCEEDED,
+                    subject = "Project A",
+                ),
+            )
+        }
+        compose.onNodeWithText("Project A已删除；其中的会话已保留").assertIsDisplayed()
     }
 
     @Test
@@ -110,6 +239,91 @@ class SessionPagesTest {
     }
 
     @Test
+    fun `the failure line is the baseline's message plus 重试 and has no dismiss glyph`() {
+        // `SessionsPage.swift:176-197`: the row is Text(errorText) + Button("重试").
+        // Android used to add a ✕ that the baseline never draws, so a reader could
+        // hide a failure the baseline keeps until the read succeeds.
+        val state = drawer(failure = UiStrings.SESSION_LOAD_FAILED)
+        compose.setContent { PdshTheme { Drawer(state = state, onRetry = {}) } }
+        compose.onNodeWithTag(UiPageTags.SESSIONS_FAILURE).assertIsDisplayed()
+        compose.onNodeWithText(UiStrings.DISMISS).assertDoesNotExist()
+        compose.onNodeWithContentDescription(UiStrings.DISMISS).assertDoesNotExist()
+    }
+
+    @Test
+    fun `the bar band belongs to the page whether or not the host routes it`() {
+        // `SessionsPage.swift:137-322` draws an empty navigation bar and the search
+        // field below it; the back control is Android's addition for a routed page.
+        // So the search field must not move when the host passes (or omits) onBack —
+        // only the glyph appears — and `null` must draw no back control at all
+        // (`ios-sessions-*.png` shows none).
+        val state = drawer(sessions = listOf(SessionListing("s1", "项目讨论")))
+        var back = 0
+        val onBack = mutableStateOf<(() -> Unit)?>(null)
+        // The reserved band is a token, not a measurement: Robolectric's font
+        // metrics are fake, so the row's exact height is not an oracle here — that
+        // the band exists at all is.
+        var reserved = 0.dp
+        compose.setContent {
+            PdshTheme {
+                reserved = PdshThemeValues.tokens.geometry.pageHeaderMinHeight +
+                    PdshThemeValues.tokens.geometry.cardOuterMarginV
+                Drawer(state = state, onBack = onBack.value)
+            }
+        }
+        val withoutBack = compose.onNodeWithTag(UiPageTags.SESSIONS_SEARCH)
+            .getUnclippedBoundsInRoot()
+        assertTrue(
+            "no back control must still leave the baseline's empty bar above the search " +
+                "(top=${withoutBack.top})",
+            withoutBack.top >= reserved,
+        )
+        compose.onNodeWithContentDescription(UiStrings.BACK).assertDoesNotExist()
+
+        compose.runOnIdle { onBack.value = { back += 1 } }
+        val withBack = compose.onNodeWithTag(UiPageTags.SESSIONS_SEARCH)
+            .getUnclippedBoundsInRoot()
+        assertTrue(
+            "the routed page must not lose the band it already had " +
+                "(${withoutBack.top} -> ${withBack.top})",
+            withBack.top >= withoutBack.top,
+        )
+        compose.onNodeWithContentDescription(UiStrings.BACK).performClick()
+        assertEquals(1, back)
+    }
+
+    @Test
+    fun `the drawer action occupies the existing navigation band without adding a page header`() {
+        var opened = 0
+        val state = drawer(sessions = listOf(SessionListing("s1", "项目讨论")))
+        compose.setContent {
+            PdshTheme {
+                Drawer(state = state, onOpenDrawer = { opened += 1 })
+            }
+        }
+        compose.onNodeWithTag("sessions.drawer").assertIsDisplayed().performClick()
+        assertEquals(1, opened)
+        compose.onNodeWithText(UiStrings.SESSIONS).assertDoesNotExist()
+    }
+
+    @Test
+    fun `a fixed single-root host hides workspace mutations it cannot perform`() {
+        val state = drawer(
+            sessions = listOf(SessionListing("chat-1", "项目讨论")),
+            workspaces = listOf(SessionWorkspace("/dsh/workspace", "/dsh/workspace", listOf("chat-1"))),
+            local = SessionsLocalState(workspaceMenuID = "/dsh/workspace"),
+        )
+        compose.setContent {
+            PdshTheme {
+                Drawer(state = state, workspaceActionsAvailable = false)
+            }
+        }
+        compose.onNodeWithTag(UiPageTags.SESSIONS_WORKSPACE_ROW).assertIsDisplayed()
+        compose.onNodeWithTag(UiPageTags.SESSIONS_WORKSPACE_MENU).assertDoesNotExist()
+        compose.onNodeWithTag(UiPageTags.SESSIONS_ADD_WORKSPACE).assertDoesNotExist()
+    }
+
+    @Test
     fun `section two shows the big empty block only when the drawer is completely empty`() {
         val empty = drawer()
         var added = 0
@@ -137,6 +351,20 @@ class SessionPagesTest {
         compose.onNodeWithTag(UiPageTags.SESSIONS_LIST)
             .performScrollToNode(hasTestTag(UiPageTags.SESSIONS_ARCHIVED_SECTION))
         compose.onNodeWithTag(UiPageTags.SESSIONS_ARCHIVED_SECTION).assertIsDisplayed()
+    }
+
+    @Test
+    fun `the 已归档 header is the baseline's fold header, and the drawer has no invented title`() {
+        val state = drawer(sessions = listOf(SessionListing("s1", "项目讨论")))
+        compose.setContent { PdshTheme { Drawer(state = state) } }
+        compose.onNodeWithTag(UiPageTags.SESSIONS_LIST)
+            .performScrollToNode(hasTestTag(UiPageTags.SESSIONS_ARCHIVED_SECTION))
+        // `SessionsPage.swift:303`–`:317`: a Button in the Section header, so the
+        // title is the fold's own label and the count sits at its trailing edge.
+        compose.onNodeWithText(UiStrings.SESSIONS_ARCHIVED).assertIsDisplayed()
+        // The baseline's group at `:139` is untitled; only the page's name (会话列表)
+        // says otherwise, and the drawer must not draw it.
+        compose.onNodeWithText(UiStrings.SESSIONS).assertDoesNotExist()
     }
 
     @Test
@@ -466,140 +694,15 @@ class SessionPagesTest {
         compose.onNodeWithText(UiStrings.RUNNING).assertIsDisplayed()
     }
 
-    // --------------------------------------------------------------- sessions queue
-
-    @Test
-    fun `the queue page shows the loading line until the host reads it`() {
-        val state = SessionQueueScreenState.from(sessionID = "s1")
-        compose.setContent { PdshTheme { SessionQueuePage(state = state) } }
-        compose.onNodeWithTag(UiPageTags.SESSION_QUEUE_LOADING).assertIsDisplayed()
-        compose.onNodeWithText(UiStrings.SESSIONS_QUEUE_LOADING).assertIsDisplayed()
-        compose.onNodeWithTag(UiPageTags.SESSION_QUEUE_EMPTY).assertDoesNotExist()
-    }
-
-    @Test
-    fun `an empty queue shows the baseline empty copy`() {
-        val state = SessionQueueScreenState.from(
-            sessionID = "s1",
-            items = emptyList(),
-            queueSessionID = "s1",
-        )
-        compose.setContent { PdshTheme { SessionQueuePage(state = state) } }
-        compose.onNodeWithTag(UiPageTags.SESSION_QUEUE_EMPTY).assertIsDisplayed()
-        compose.onNodeWithText(UiStrings.SESSIONS_QUEUE_EMPTY).assertIsDisplayed()
-        compose.onNodeWithText(UiStrings.SESSIONS_QUEUE_EMPTY_HINT).assertIsDisplayed()
-    }
-
-    @Test
-    fun `the queue lists both lanes with their three actions`() {
-        val state = SessionQueueScreenState.from(
-            sessionID = "s1",
-            items = listOf(
-                SessionQueueItem("q1", QueueLane.NEXT_TURN, "first"),
-                SessionQueueItem("q2", QueueLane.CURRENT_STEP, ""),
-            ),
-            queueSessionID = "s1",
-        )
-        var edited: String? = null
-        var steered: String? = null
-        var removed: String? = null
-        compose.setContent {
-            PdshTheme {
-                SessionQueuePage(
-                    state = state,
-                    onEdit = { edited = it.id },
-                    onSteer = { steered = it.id },
-                    onRemove = { removed = it.id },
-                )
-            }
-        }
-        compose.onAllNodesWithTag(UiPageTags.SESSION_QUEUE_SECTION).assertCountEquals(2)
-        compose.onNodeWithText(UiStrings.SESSIONS_QUEUE_NEXT_TURN).assertIsDisplayed()
-        compose.onNodeWithText("first").assertIsDisplayed()
-        compose.onAllNodesWithTag(UiPageTags.SESSION_QUEUE_EDIT)[0].performClick()
-        compose.onAllNodesWithTag(UiPageTags.SESSION_QUEUE_STEER)[0].performClick()
-        compose.onAllNodesWithTag(UiPageTags.SESSION_QUEUE_REMOVE)[0].performClick()
-        assertEquals("q1", edited)
-        assertEquals("q1", steered)
-        assertEquals("q1", removed)
-        compose.onNodeWithTag(UiPageTags.SESSION_QUEUE_LIST)
-            .performScrollToNode(hasTestTag(UiPageTags.SESSION_QUEUE_ROW))
-        compose.onNodeWithText(UiStrings.SESSIONS_QUEUE_CURRENT_STEP).assertIsDisplayed()
-        compose.onNodeWithText(UiStrings.SESSIONS_QUEUE_NO_TEXT).assertIsDisplayed()
-    }
-
-    @Test
-    fun `editing a queued message shows the editor and saves`() {
-        val state = SessionQueueScreenState.from(
-            sessionID = "s1",
-            items = listOf(SessionQueueItem("q1", QueueLane.NEXT_TURN, "text")),
-            queueSessionID = "s1",
-            local = SessionQueueLocalState(editingID = "q1", editDraft = "replacement"),
-        )
-        var saved: String? = null
-        var cancelled = 0
-        var draft: String? = null
-        compose.setContent {
-            PdshTheme {
-                SessionQueuePage(
-                    state = state,
-                    onEditDraftChange = { draft = it },
-                    onEditSave = { saved = it.id },
-                    onEditCancel = { cancelled += 1 },
-                )
-            }
-        }
-        compose.onNodeWithTag(UiPageTags.SESSION_QUEUE_EDIT_FIELD).assertIsDisplayed()
-        compose.onNodeWithText("replacement").assertIsDisplayed()
-        compose.onNodeWithTag(UiPageTags.SESSION_QUEUE_EDIT_FIELD).performTextInput("!")
-        assertEquals("!replacement", draft)
-        compose.onNodeWithTag(UiPageTags.SESSION_QUEUE_SAVE).performClick()
-        compose.onNodeWithTag(UiPageTags.SESSION_QUEUE_CANCEL).performClick()
-        assertEquals("q1", saved)
-        assertEquals(1, cancelled)
-    }
-
-    @Test
-    fun `the queue page exposes pull to refresh`() {
-        val state = SessionQueueScreenState.from(
-            sessionID = "s1",
-            items = listOf(SessionQueueItem("q1", QueueLane.NEXT_TURN, "text")),
-            queueSessionID = "s1",
-        )
-        var refreshed = 0
-        compose.setContent {
-            PdshTheme { SessionQueuePage(state = state, onRefresh = { refreshed += 1 }) }
-        }
-        compose.onNodeWithTag(UiPageTags.SESSION_QUEUE_REFRESH).assertIsDisplayed()
-        compose.onNodeWithTag(UiPageTags.SESSION_QUEUE_LIST).performTouchInput { swipeDown() }
-        compose.waitForIdle()
-        assertEquals(1, refreshed)
-    }
-
-    @Test
-    fun `a failed queue read is its own error section`() {
-        val state = SessionQueueScreenState.from(
-            sessionID = "s1",
-            items = null,
-            queueSessionID = "s1",
-            failure = UiStrings.SESSION_LOAD_FAILED,
-        )
-        var retried = 0
-        compose.setContent {
-            PdshTheme { SessionQueuePage(state = state, onRetry = { retried += 1 }) }
-        }
-        compose.onNodeWithTag(UiPageTags.SESSION_QUEUE_ERROR).assertIsDisplayed()
-        compose.onNodeWithText(UiStrings.SESSION_LOAD_FAILED).assertIsDisplayed()
-        compose.onNodeWithText(UiStrings.RETRY).performClick()
-        assertEquals(1, retried)
-    }
-
     // ----------------------------------------------------------------- helpers
 
     /** The drawer with every local callback defaulted; a test passes only what it asserts. */
     @Composable
     private fun Drawer(
         state: SessionsScreenState,
+        onBack: (() -> Unit)? = null,
+        onOpenDrawer: (() -> Unit)? = null,
+        workspaceActionsAvailable: Boolean = true,
         onSelect: (SessionRowView) -> Unit = {},
         onQueryChange: (String) -> Unit = {},
         onNewSession: () -> Unit = {},
@@ -635,6 +738,9 @@ class SessionPagesTest {
             onRenameCancel = onRenameCancel,
             onNewSession = onNewSession,
             onRetry = onRetry,
+            onBack = onBack,
+            onOpenDrawer = onOpenDrawer,
+            workspaceActionsAvailable = workspaceActionsAvailable,
             onToggleWorkspace = onToggleWorkspace,
             onWorkspaceMenuToggle = onWorkspaceMenuToggle,
             onNewSessionInWorkspace = onNewSessionInWorkspace,
@@ -673,269 +779,5 @@ class SessionPagesTest {
         archivedSessions = archived,
         currentSessionID = currentSessionID,
         newSessionBlock = newSessionBlock,
-    )
-
-    // ------------------------------------------------------------------- history
-
-    @Test
-    fun `a waiting history page shows the waiting copy`() {
-        compose.setContent {
-            PdshTheme {
-                SessionHistoryPage(
-                    state = SessionHistoryScreenState.from(emptyList(), waiting = true),
-                    onSelectTurn = {},
-                    onToggleRow = {},
-                )
-            }
-        }
-        compose.onNodeWithTag(UiPageTags.HISTORY_EMPTY).assertIsDisplayed()
-        compose.onNodeWithText(UiStrings.WAITING_ENGINE).assertIsDisplayed()
-    }
-
-    @Test
-    fun `an empty history page shows the empty copy`() {
-        compose.setContent {
-            PdshTheme {
-                SessionHistoryPage(
-                    state = SessionHistoryScreenState.from(emptyList()),
-                    onSelectTurn = {},
-                    onToggleRow = {},
-                )
-            }
-        }
-        compose.onNodeWithText(UiStrings.HISTORY_EMPTY).assertIsDisplayed()
-        compose.onNodeWithTag(UiPageTags.HISTORY_LIST).assertDoesNotExist()
-    }
-
-    @Test
-    fun `the turn list renders and opens a turn`() {
-        val state = SessionHistoryScreenState.from(SpecFixtures.projectCase("chat-basic"))
-        var selected: String? = null
-        compose.setContent {
-            PdshTheme {
-                SessionHistoryPage(
-                    state = state,
-                    onSelectTurn = { selected = it },
-                    onToggleRow = {},
-                )
-            }
-        }
-        compose.onNodeWithTag(UiPageTags.HISTORY_LIST).assertIsDisplayed()
-        compose.onNodeWithText(UiStrings.TURN_LABEL.format(1)).assertIsDisplayed()
-        compose.onNodeWithTag(UiPageTags.HISTORY_TURN).performClick()
-        assertEquals("turn-0001", selected)
-    }
-
-    @Test
-    fun `a selected turn renders its own rows and its own banner`() {
-        val nodes = SpecFixtures.projectCase("turn-error-vs-complete")
-        val state = SessionHistoryScreenState.from(
-            nodes,
-            local = SessionHistoryLocalState(selectedTurnID = "turn-0001"),
-        )
-        compose.setContent {
-            PdshTheme {
-                SessionHistoryPage(state = state, onSelectTurn = {}, onToggleRow = {})
-            }
-        }
-        compose.onNodeWithTag(UiPageTags.HISTORY_DETAIL).assertIsDisplayed()
-        compose.onNodeWithTag(UiPageTags.HISTORY_ROWS).assertIsDisplayed()
-        compose.onNodeWithTag(UiTags.FAIL_LOUD_BANNER).assertIsDisplayed()
-        // The banner's label distinguishes it from the tool row that carries the
-        // same failure text.
-        compose.onNodeWithText(UiStrings.TURN_FAILED).assertIsDisplayed()
-    }
-
-    @Test
-    fun `a turn with no rows shows the detail empty state`() {
-        // A turn node with no events is a real turn whose detail has nothing to show.
-        val nodes = SpecFixtures.projectCase("chat-basic")
-        val turnOnly = nodes.filter { it.kind == com.phonedsh.ui.projection.UiStateKind.TURN } +
-            nodes.filter { it.kind == com.phonedsh.ui.projection.UiStateKind.ROOT } +
-            nodes.filter { it.kind == com.phonedsh.ui.projection.UiStateKind.SESSION }
-        val state = SessionHistoryScreenState.from(
-            turnOnly,
-            local = SessionHistoryLocalState(selectedTurnID = "turn-0001"),
-        )
-        compose.setContent {
-            PdshTheme {
-                SessionHistoryPage(state = state, onSelectTurn = {}, onToggleRow = {})
-            }
-        }
-        compose.onNodeWithTag(UiPageTags.HISTORY_DETAIL_EMPTY).assertIsDisplayed()
-        compose.onNodeWithText(UiStrings.HISTORY_DETAIL_EMPTY).assertIsDisplayed()
-    }
-
-    @Test
-    fun `a failed history read shows a retryable failure line`() {
-        var retried = 0
-        compose.setContent {
-            PdshTheme {
-                SessionHistoryPage(
-                    state = SessionHistoryScreenState.from(
-                        SpecFixtures.projectCase("chat-basic"),
-                        failure = UiStrings.HISTORY_LOAD_FAILED,
-                    ),
-                    onSelectTurn = {},
-                    onToggleRow = {},
-                    onRetry = { retried += 1 },
-                )
-            }
-        }
-        compose.onNodeWithTag(UiPageTags.HISTORY_FAILURE).assertIsDisplayed()
-        compose.onNodeWithText(UiStrings.RETRY).performClick()
-        assertEquals(1, retried)
-    }
-
-    // ---------------------------------------------------------------------- goal
-
-    @Test
-    fun `a goal detail page without a goal shows the empty state`() {
-        compose.setContent {
-            PdshTheme {
-                GoalDetailPage(
-                    state = GoalDetailScreenState.from(null),
-                    onPause = {},
-                    onResume = {},
-                    onClear = {},
-                )
-            }
-        }
-        compose.onNodeWithTag(UiPageTags.GOAL_EMPTY).assertIsDisplayed()
-        compose.onNodeWithText(UiStrings.GOAL_EMPTY).assertIsDisplayed()
-    }
-
-    @Test
-    fun `a waiting goal detail page shows the waiting copy`() {
-        compose.setContent {
-            PdshTheme {
-                GoalDetailPage(
-                    state = GoalDetailScreenState.from(null, waiting = true),
-                    onPause = {},
-                    onResume = {},
-                    onClear = {},
-                )
-            }
-        }
-        compose.onNodeWithText(UiStrings.WAITING_ENGINE).assertIsDisplayed()
-    }
-
-    @Test
-    fun `an active goal renders its objective and pauses`() {
-        var paused = 0
-        compose.setContent {
-            PdshTheme {
-                GoalDetailPage(
-                    state = GoalDetailScreenState.from(activeGoal()),
-                    onPause = { paused += 1 },
-                    onResume = {},
-                    onClear = {},
-                )
-            }
-        }
-        compose.onNodeWithTag(UiPageTags.GOAL_OBJECTIVE).assertIsDisplayed()
-        compose.onNodeWithText("ship the port").assertIsDisplayed()
-        compose.onNodeWithText(UiStrings.GOAL_ACTIVE).assertIsDisplayed()
-        compose.onNodeWithTag(UiPageTags.GOAL_PAUSE).performClick()
-        assertEquals(1, paused)
-        compose.onNodeWithTag(UiPageTags.GOAL_CLEAR).assertIsDisplayed()
-        compose.onNodeWithTag(UiPageTags.GOAL_RESUME).assertDoesNotExist()
-        // A blocked reason exists only for a blocked goal: an active goal has no
-        // such fact, so the row is absent rather than empty or "无".
-        compose.onNodeWithTag(UiPageTags.GOAL_REASON).assertDoesNotExist()
-    }
-
-    @Test
-    fun `a blocked goal renders its reason and resumes`() {
-        var resumed = 0
-        val blocked = HarnessGoal(
-            objective = "ship the port",
-            phase = HarnessGoal.Phase.BLOCKED,
-            roundsStarted = 1,
-            maxGoalRounds = 4,
-            blockedReason = "the protocol is not frozen",
-        )
-        compose.setContent {
-            PdshTheme {
-                GoalDetailPage(
-                    state = GoalDetailScreenState.from(blocked),
-                    onPause = {},
-                    onResume = { resumed += 1 },
-                    onClear = {},
-                )
-            }
-        }
-        compose.onNodeWithTag(UiPageTags.GOAL_REASON).assertIsDisplayed()
-        compose.onNodeWithText("the protocol is not frozen").assertIsDisplayed()
-        compose.onNodeWithTag(UiPageTags.GOAL_RESUME).performClick()
-        assertEquals(1, resumed)
-    }
-
-    @Test
-    fun `a failed goal read with no goal offers a retry`() {
-        var retried = 0
-        compose.setContent {
-            PdshTheme {
-                GoalDetailPage(
-                    state = GoalDetailScreenState.from(null, failure = UiStrings.GOAL_LOAD_FAILED),
-                    onPause = {},
-                    onResume = {},
-                    onClear = {},
-                    onRetry = { retried += 1 },
-                )
-            }
-        }
-        compose.onNodeWithTag(UiPageTags.GOAL_FAILURE).assertIsDisplayed()
-        compose.onNodeWithText(UiStrings.RETRY).performClick()
-        assertEquals(1, retried)
-    }
-
-    @Test
-    fun `the goal bar is hidden without a goal and pauses an active one`() {
-        compose.setContent {
-            PdshTheme { GoalBar(goal = GoalBarState.Hidden) }
-        }
-        compose.onNodeWithTag(UiTags.GOAL_BAR).assertDoesNotExist()
-    }
-
-    @Test
-    fun `the goal bar opens the detail sheet`() {
-        var opened = false
-        compose.setContent {
-            PdshTheme {
-                GoalBar(
-                    goal = GoalBarState.Visible(phase = "active", objective = "ship the port"),
-                    onPause = {},
-                    onClear = {},
-                    onOpenDetail = { opened = true },
-                )
-            }
-        }
-        compose.onNodeWithTag(UiTags.GOAL_BAR).assertIsDisplayed()
-        compose.onNodeWithText("ship the port").assertIsDisplayed()
-        compose.onNodeWithTag(UiPageTags.GOAL_BAR_DETAIL).performClick()
-        assertEquals(true, opened)
-    }
-
-    @Test
-    fun `the goal bar shows resume for a paused goal`() {
-        var resumed = 0
-        compose.setContent {
-            PdshTheme {
-                GoalBar(
-                    goal = GoalBarState.Visible(phase = "paused", objective = "ship the port"),
-                    onResume = { resumed += 1 },
-                )
-            }
-        }
-        compose.onNodeWithText(UiStrings.GOAL_RESUME).performClick()
-        assertEquals(1, resumed)
-    }
-
-    private fun activeGoal(): HarnessGoal = HarnessGoal(
-        objective = "ship the port",
-        phase = HarnessGoal.Phase.ACTIVE,
-        roundsStarted = 2,
-        maxGoalRounds = 5,
     )
 }

@@ -46,6 +46,15 @@ final class DSHRemoteHarnessResumeTests: XCTestCase {
         XCTAssertEqual(calls.map(\.endpoint), ["session/create"])
         XCTAssertEqual(calls.first?.args["request"]?["cwd"]?.stringValue, "/dsh/workspace")
     }
+
+    func testExplicitPresetReachesCreateWithoutSendingATask() async throws {
+        let transport = RecordingSessionTransport(page: .object(["sessionId": .string("preset-session")]))
+        let harness = DSHRemoteHarness(transport: transport)
+        _ = try await harness.openSession(HarnessSessionRequest(preset: "ptc", workspace: "/dsh/workspace"))
+        let calls = await transport.recordedCalls()
+        XCTAssertEqual(calls.map(\.endpoint), ["session/create"])
+        XCTAssertEqual(calls.first?.args["request"]?["agentPreset"]?.stringValue, "ptc")
+    }
 }
 
 private actor RecordingSessionTransport: DSHRemoteTransport {

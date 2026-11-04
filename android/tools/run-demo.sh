@@ -30,7 +30,7 @@ if [ -z "${JAVA_HOME:-}" ] && command -v java >/dev/null 2>&1; then
 fi
 PDSH_AVD="${PDSH_AVD:-pdsh35}"
 PDSH_WAIT_S="${PDSH_WAIT_S:-25}"
-PACKAGE="com.phonedsh.probe"
+PACKAGE="${PDSH_PACKAGE:-com.phonedsh.app}"
 ARTIFACTS="$ROOT/android/build/demo-artifacts"
 
 BUILD=1

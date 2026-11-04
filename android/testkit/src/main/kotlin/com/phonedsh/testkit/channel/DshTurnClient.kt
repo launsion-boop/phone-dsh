@@ -232,7 +232,7 @@ class DshTurnClient(
         val muxId: String,
         private val stream: ApiFrameChannel.ApiStream,
     ) {
-        private val pending = StringBuilder()
+        private val pending = MuxByteBuffer()
         private var finished = false
 
         /**
@@ -243,10 +243,9 @@ class DshTurnClient(
             if (finished) return null
             val deadline = System.currentTimeMillis() + timeoutMillis
             while (true) {
-                val newline = pending.indexOf("\n")
-                if (newline >= 0) {
-                    val line = pending.substring(0, newline).trim()
-                    pending.delete(0, newline + 1)
+                val lineBytes = pending.nextLine()
+                if (lineBytes != null) {
+                    val line = lineBytes.toString(Charsets.UTF_8).trim()
                     if (line.isEmpty()) continue
                     onMuxLine?.invoke(line)
                     val parsed = parseObject(line) ?: continue
@@ -256,7 +255,7 @@ class DshTurnClient(
                 val remaining = deadline - System.currentTimeMillis()
                 if (remaining <= 0) return null
                 val chunk = withTimeoutOrNull(remaining) { readNextChunk() } ?: return null
-                pending.append(String(chunk, Charsets.UTF_8))
+                pending.append(chunk)
             }
         }
 
@@ -267,8 +266,14 @@ class DshTurnClient(
         ): List<TurnEvent> {
             val events = ArrayList<TurnEvent>()
             val deadline = System.currentTimeMillis() + timeoutMillis
-            while (System.currentTimeMillis() < deadline) {
-                val item = next() ?: break
+            while (true) {
+                val remaining = deadline - System.currentTimeMillis()
+                if (remaining <= 0) break
+                val item = next(remaining)
+                if (item == null) {
+                    if (finished) break
+                    continue
+                }
                 if (item.memberText("type") != "item") {
                     if (item.memberText("type") == "error") break
                     continue
@@ -304,6 +309,7 @@ class DshTurnClient(
             val result = channel.receiveCatching()
             if (result.isClosed) {
                 finished = true
+                result.exceptionOrNull()?.let { throw it }
                 return null
             }
             return result.getOrNull()
@@ -386,5 +392,50 @@ class DshTurnClient(
         const val COLLECT_TIMEOUT_MILLIS = 120_000L
         const val CLOSE_TIMEOUT_MILLIS = 5_000L
         const val CALL_TIMEOUT_MILLIS = 60_000L
+    }
+}
+
+/** Byte queue that scans each received byte once until its LF delimiter arrives. */
+private class MuxByteBuffer(initialCapacity: Int = 256) {
+    private var bytes = ByteArray(initialCapacity.coerceAtLeast(1))
+    private var start = 0
+    private var size = 0
+    private var scanOffset = 0
+
+    fun append(chunk: ByteArray) {
+        if (size + chunk.size > bytes.size && start > 0) {
+            val remaining = size - start
+            bytes.copyInto(bytes, 0, start, size)
+            size = remaining
+            scanOffset = (scanOffset - start).coerceAtLeast(0)
+            start = 0
+        }
+        if (size + chunk.size > bytes.size) {
+            var capacity = bytes.size
+            while (capacity < size + chunk.size) capacity = (capacity * 2).coerceAtLeast(size + chunk.size)
+            bytes = bytes.copyOf(capacity)
+        }
+        chunk.copyInto(bytes, size)
+        size += chunk.size
+    }
+
+    fun nextLine(): ByteArray? {
+        var index = scanOffset
+        while (index < size) {
+            if (bytes[index] == '\n'.code.toByte()) {
+                val line = bytes.copyOfRange(start, index)
+                start = index + 1
+                scanOffset = start
+                if (start == size) {
+                    start = 0
+                    size = 0
+                    scanOffset = 0
+                }
+                return line
+            }
+            index++
+        }
+        scanOffset = size
+        return null
     }
 }

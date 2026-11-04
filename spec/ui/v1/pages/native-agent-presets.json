@@ -7,14 +7,14 @@
   "sectionNote": null,
   "title": {
     "text": "Agent 预设",
-    "provenance": "NativeAgentPresetsPage.swift:160",
+    "provenance": "NativeAgentPresetsPage.swift:192",
     "anchor": ".navigationTitle(NativeText(\"Agent 预设\", \"Agent Presets\"))"
   },
   "source": {
     "file": "NativeAgentPresetsPage.swift",
     "path": "examples/probe-app/PhoneDSHProbe/NativeAgentPresetsPage.swift",
-    "lines": 180,
-    "structLine": 99,
+    "lines": 217,
+    "structLine": 109,
     "renderedFrom": [
       "body"
     ],
@@ -22,12 +22,12 @@
   },
   "android": {
     "screen": "NativeAgentPresetsPage",
-    "file": null,
-    "match": "missing"
+    "file": "android/lib/src/main/kotlin/com/phonedsh/ui/page/NativeAgentPresetsPage.kt",
+    "match": "composable"
   },
   "sections": [
     {
-      "id": "section-106",
+      "id": "section-116",
       "title": null,
       "titleTemplate": null,
       "dynamicTitle": false,
@@ -47,7 +47,7 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "NativeAgentPresetsPage.swift:113",
+          "provenance": "NativeAgentPresetsPage.swift:122",
           "anchor": "Label(NativeText(\"让 Agent 创建预设\", \"Create a preset with Agent\"), systemImage: \"pl",
           "extraction": "syntax"
         },
@@ -62,22 +62,52 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "NativeAgentPresetsPage.swift:115",
+          "provenance": "NativeAgentPresetsPage.swift:126",
           "anchor": "Text(NativeText(\"进入创造模式但不自动发送任务，现有草稿会保留。\", \"Opens creator mode without sending a",
+          "extraction": "syntax"
+        },
+        {
+          "id": "可创建使用手机内建工具的本地-agent-预设-外部套件与新-javascript-插件需使用桌面-dsh",
+          "label": "可创建使用手机内建工具的本地 Agent 预设。外部套件与新 JavaScript 插件需使用桌面 DSH。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "NativeAgentPresetsPage.swift:128",
+          "anchor": "Text(NativeText(\"可创建使用手机内建工具的本地 Agent 预设。外部套件与新 JavaScript 插件需使用桌面 DSH。\", \"Creat",
+          "extraction": "syntax"
+        },
+        {
+          "id": "创造模式当前不可用",
+          "label": "创造模式当前不可用：",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "let reason = model.creatorUnavailableReason, !model.isLoading",
+          "provenance": "NativeAgentPresetsPage.swift:131",
+          "anchor": "Text(NativeText(\"创造模式当前不可用：\", \"Creator mode is unavailable: \") + reason)",
           "extraction": "syntax"
         }
       ],
-      "provenance": "NativeAgentPresetsPage.swift:106",
+      "provenance": "NativeAgentPresetsPage.swift:116",
       "anchor": "Section {",
       "extraction": "syntax",
       "criterion": {
         "kind": "first-clickable-row",
         "label": "让 Agent 创建预设",
-        "provenance": "NativeAgentPresetsPage.swift:113"
+        "provenance": "NativeAgentPresetsPage.swift:122"
       }
     },
     {
-      "id": "section-118",
+      "id": "section-135",
       "title": null,
       "titleTemplate": null,
       "dynamicTitle": false,
@@ -97,12 +127,27 @@
           "destination": null,
           "writes": false,
           "condition": "model.isLoading && model.presets.isEmpty",
-          "provenance": "NativeAgentPresetsPage.swift:120",
+          "provenance": "NativeAgentPresetsPage.swift:137",
           "anchor": "ProgressView(NativeText(\"正在读取预设…\", \"Loading presets…\"))",
           "extraction": "syntax"
         },
         {
-          "id": "text-125",
+          "id": "当前引擎没有预设",
+          "label": "当前引擎没有预设。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "!model.isLoading && model.presets.isEmpty && model.error == nil",
+          "provenance": "NativeAgentPresetsPage.swift:140",
+          "anchor": "Text(NativeText(\"当前引擎没有预设。\", \"This engine has no presets.\"))",
+          "extraction": "syntax"
+        },
+        {
+          "id": "text-145",
           "label": null,
           "labelExpr": "preset.title",
           "kind": "text",
@@ -112,7 +157,7 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "NativeAgentPresetsPage.swift:125",
+          "provenance": "NativeAgentPresetsPage.swift:145",
           "anchor": "Text(preset.title).font(.system(size: HomeSpec.bodySize, weight: .semibold))",
           "extraction": "manual",
           "collection": "model.presets"
@@ -128,7 +173,7 @@
           "destination": null,
           "writes": false,
           "condition": "preset.isDefault",
-          "provenance": "NativeAgentPresetsPage.swift:127",
+          "provenance": "NativeAgentPresetsPage.swift:147",
           "anchor": "HomeTag(text: NativeText(\"默认\", \"Default\"))",
           "extraction": "syntax",
           "template": "HomeTag",
@@ -145,14 +190,14 @@
           "destination": null,
           "writes": false,
           "condition": "preset.custom",
-          "provenance": "NativeAgentPresetsPage.swift:130",
+          "provenance": "NativeAgentPresetsPage.swift:150",
           "anchor": "HomeTag(text: NativeText(\"自定义\", \"Custom\"))",
           "extraction": "syntax",
           "template": "HomeTag",
           "collection": "model.presets"
         },
         {
-          "id": "text-133",
+          "id": "text-153",
           "label": null,
           "labelExpr": "preset.id",
           "kind": "text",
@@ -162,13 +207,13 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "NativeAgentPresetsPage.swift:133",
+          "provenance": "NativeAgentPresetsPage.swift:153",
           "anchor": "Text(preset.id).font(.system(size: 13).monospaced()).foregroundStyle(.secondary)",
           "extraction": "manual",
           "collection": "model.presets"
         },
         {
-          "id": "text-135",
+          "id": "text-155",
           "label": null,
           "labelExpr": "preset.detail",
           "kind": "text",
@@ -178,13 +223,13 @@
           "destination": null,
           "writes": false,
           "condition": "!preset.detail.isEmpty",
-          "provenance": "NativeAgentPresetsPage.swift:135",
+          "provenance": "NativeAgentPresetsPage.swift:155",
           "anchor": "Text(preset.detail).font(.system(size: 13)).foregroundStyle(.secondary)",
           "extraction": "manual",
           "collection": "model.presets"
         },
         {
-          "id": "text-138",
+          "id": "text-158",
           "label": null,
           "labelExpr": "broken",
           "kind": "text",
@@ -194,7 +239,7 @@
           "destination": null,
           "writes": false,
           "condition": "let broken = preset.broken",
-          "provenance": "NativeAgentPresetsPage.swift:138",
+          "provenance": "NativeAgentPresetsPage.swift:158",
           "anchor": "Text(broken).font(.system(size: 13)).foregroundStyle(.orange)",
           "extraction": "manual",
           "collection": "model.presets"
@@ -210,14 +255,14 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "NativeAgentPresetsPage.swift:141",
+          "provenance": "NativeAgentPresetsPage.swift:161",
           "anchor": "Button(NativeText(\"查看配置\", \"View configuration\")) {",
           "extraction": "syntax",
           "collection": "model.presets"
         },
         {
-          "id": "设为默认",
-          "label": "设为默认",
+          "id": "使用预设",
+          "label": "使用预设",
           "labelExpr": null,
           "kind": "action",
           "value": null,
@@ -226,23 +271,45 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "NativeAgentPresetsPage.swift:146",
-          "anchor": "Button(NativeText(\"设为默认\", \"Make default\")) {",
+          "provenance": "NativeAgentPresetsPage.swift:167",
+          "anchor": "Button(NativeText(\"使用预设\", \"Use preset\")) {",
+          "extraction": "syntax",
+          "collection": "model.presets"
+        },
+        {
+          "id": "默认已锁定",
+          "label": "默认已锁定",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "NativeAgentPresetsPage.swift:174",
+          "anchor": "Label(NativeText(\"默认已锁定\", \"Default locked\"), systemImage: \"lock\")",
           "extraction": "syntax",
           "collection": "model.presets"
         }
       ],
-      "provenance": "NativeAgentPresetsPage.swift:118",
+      "provenance": "NativeAgentPresetsPage.swift:135",
       "anchor": "Section {",
       "extraction": "syntax",
       "criterion": {
         "kind": "first-clickable-row",
         "label": "查看配置",
-        "provenance": "NativeAgentPresetsPage.swift:141"
+        "provenance": "NativeAgentPresetsPage.swift:161"
+      },
+      "footer": {
+        "text": null,
+        "labelExpr": "model.defaultReadOnlyReason",
+        "provenance": "NativeAgentPresetsPage.swift:182",
+        "anchor": "Text(model.defaultReadOnlyReason)"
       }
     },
     {
-      "id": "section-156",
+      "id": "section-185",
       "title": null,
       "titleTemplate": null,
       "dynamicTitle": false,
@@ -252,7 +319,7 @@
       "collection": null,
       "rows": [
         {
-          "id": "text-156",
+          "id": "text-186",
           "label": null,
           "labelExpr": "error",
           "kind": "text",
@@ -262,18 +329,33 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "NativeAgentPresetsPage.swift:156",
-          "anchor": "Section { Text(error).foregroundStyle(.red) }",
+          "provenance": "NativeAgentPresetsPage.swift:186",
+          "anchor": "Text(error).foregroundStyle(.red)",
           "extraction": "manual"
+        },
+        {
+          "id": "重新读取",
+          "label": "重新读取",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "NativeAgentPresetsPage.swift:187",
+          "anchor": "Button(NativeText(\"重新读取\", \"Reload\")) { Task { await model.refresh() } }",
+          "extraction": "syntax"
         }
       ],
-      "provenance": "NativeAgentPresetsPage.swift:156",
-      "anchor": "Section { Text(error).foregroundStyle(.red) }",
+      "provenance": "NativeAgentPresetsPage.swift:185",
+      "anchor": "Section {",
       "extraction": "syntax",
       "criterion": {
-        "kind": "first-row-expression",
-        "labelExpr": "error",
-        "provenance": "NativeAgentPresetsPage.swift:156"
+        "kind": "first-clickable-row",
+        "label": "重新读取",
+        "provenance": "NativeAgentPresetsPage.swift:187"
       }
     }
   ],
@@ -284,11 +366,11 @@
       "labelExpr": null,
       "kind": "button",
       "trigger": "tap",
-      "semantic": "{ Task { await model.startCreator() dismiss() }",
+      "semantic": "{ Task { if await model.openSession(presetID: \"cordis\") { onOpenSession() } }",
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "NativeAgentPresetsPage.swift:113",
+      "provenance": "NativeAgentPresetsPage.swift:122",
       "anchor": "Label(NativeText(\"让 Agent 创建预设\", \"Create a preset with Agent\"), systemImage: \"pl",
       "extraction": "syntax",
       "labelAlternatives": []
@@ -303,29 +385,44 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "NativeAgentPresetsPage.swift:141",
+      "provenance": "NativeAgentPresetsPage.swift:161",
       "anchor": "Button(NativeText(\"查看配置\", \"View configuration\")) {",
       "extraction": "syntax",
       "labelAlternatives": [],
-      "presents": "sheet-164"
+      "presents": "sheet-196"
     },
     {
-      "id": "设为默认",
-      "label": "设为默认",
+      "id": "使用预设",
+      "label": "使用预设",
       "labelExpr": null,
       "kind": "button",
       "trigger": "tap",
-      "semantic": "{ Task { await model.selectDefault(preset) }",
+      "semantic": "{ Task { if await model.openSession(presetID: preset.id) { onOpenSession() } }",
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "NativeAgentPresetsPage.swift:146",
-      "anchor": "Button(NativeText(\"设为默认\", \"Make default\")) {",
+      "provenance": "NativeAgentPresetsPage.swift:167",
+      "anchor": "Button(NativeText(\"使用预设\", \"Use preset\")) {",
       "extraction": "syntax",
       "labelAlternatives": []
     },
     {
-      "id": "gesture-162",
+      "id": "重新读取",
+      "label": "重新读取",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ Task { await model.refresh() }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "NativeAgentPresetsPage.swift:187",
+      "anchor": "Button(NativeText(\"重新读取\", \"Reload\")) { Task { await model.refresh() } }",
+      "extraction": "syntax",
+      "labelAlternatives": []
+    },
+    {
+      "id": "gesture-194",
       "label": null,
       "labelExpr": null,
       "kind": "gesture",
@@ -334,7 +431,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "NativeAgentPresetsPage.swift:162",
+      "provenance": "NativeAgentPresetsPage.swift:194",
       "anchor": ".refreshable { await model.refresh() }",
       "extraction": "syntax"
     },
@@ -348,14 +445,14 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "NativeAgentPresetsPage.swift:174",
+      "provenance": "NativeAgentPresetsPage.swift:210",
       "anchor": "Button(NativeText(\"完成\", \"Done\")) { showYAML = false }",
       "extraction": "syntax"
     }
   ],
   "presentations": [
     {
-      "id": "sheet-164",
+      "id": "sheet-196",
       "kind": "sheet",
       "title": null,
       "destination": "NavigationStack",
@@ -363,10 +460,10 @@
         "showYAML"
       ],
       "span": [
-        164,
-        178
+        196,
+        215
       ],
-      "provenance": "NativeAgentPresetsPage.swift:164",
+      "provenance": "NativeAgentPresetsPage.swift:196",
       "anchor": ".sheet(isPresented: $showYAML) {",
       "triggered": true
     }
@@ -375,12 +472,19 @@
     "advisory": true,
     "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
     "sites": {
-      "empty": [],
+      "empty": [
+        {
+          "renders": "当前引擎没有预设。",
+          "when": "!model.isLoading && model.presets.isEmpty && model.error == nil",
+          "provenance": "NativeAgentPresetsPage.swift:140",
+          "anchor": "Text(NativeText(\"当前引擎没有预设。\", \"This engine has no presets.\"))"
+        }
+      ],
       "data": [
         {
-          "renders": "untitled section at 106 | untitled section at 118 | untitled section at 156",
+          "renders": "untitled section at 116 | untitled section at 135 | untitled section at 185",
           "when": null,
-          "provenance": "NativeAgentPresetsPage.swift:99",
+          "provenance": "NativeAgentPresetsPage.swift:109",
           "anchor": "struct NativeAgentPresetsPage: View {",
           "note": "structural default: the sections above, when no condition overrides them"
         }
@@ -391,24 +495,23 @@
         {
           "renders": "正在读取预设…",
           "when": "model.isLoading && model.presets.isEmpty",
-          "provenance": "NativeAgentPresetsPage.swift:120",
+          "provenance": "NativeAgentPresetsPage.swift:137",
           "anchor": "ProgressView(NativeText(\"正在读取预设…\", \"Loading presets…\"))"
         },
         {
           "renders": "ProgressView",
           "when": "model.isLoading && model.presets.isEmpty",
-          "provenance": "NativeAgentPresetsPage.swift:120",
+          "provenance": "NativeAgentPresetsPage.swift:137",
           "anchor": "ProgressView(NativeText(\"正在读取预设…\", \"Loading presets…\"))"
         }
       ]
     },
     "absent": [
-      "empty",
       "failure",
       "unknown"
     ],
     "coverage": {
-      "empty": 0,
+      "empty": 1,
       "data": 1,
       "failure": 0,
       "unknown": 0,

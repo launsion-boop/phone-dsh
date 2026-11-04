@@ -3,67 +3,162 @@
   "oneOf": [
     {
       "type": "object",
-      "required": ["kind", "version", "colors", "typography", "spacing", "radius", "motion", "signatureSurfaces", "contrast", "provenance"],
+      "required": [
+        "kind",
+        "version",
+        "colors",
+        "typography",
+        "spacing",
+        "radius",
+        "motion",
+        "signatureSurfaces",
+        "contrast",
+        "provenance"
+      ],
       "additionalProperties": false,
       "properties": {
-        "kind": {"const": "tokens"},
-        "version": {"const": 1},
-        "note": {"type": "string", "maxLength": 400},
+        "kind": {
+          "const": "tokens"
+        },
+        "version": {
+          "const": 1
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 400
+        },
         "colors": {
           "type": "object",
-          "required": ["primary", "secondary", "tertiary", "caption", "background", "input", "selector", "code", "codeBanner", "inlineCode", "border", "borderLight", "accent", "success", "danger", "warning", "onAccent"],
+          "required": [
+            "page",
+            "surface",
+            "userBubble",
+            "primaryButton",
+            "primaryButtonInk",
+            "textPrimary",
+            "textSecondary",
+            "textTertiary",
+            "textSubtle",
+            "textPlaceholder",
+            "inputPlaceholder",
+            "iconMuted",
+            "success",
+            "borderList"
+          ],
           "additionalProperties": {
             "type": "object",
-            "required": ["light", "dark"],
+            "required": [
+              "light",
+              "dark"
+            ],
             "additionalProperties": false,
             "properties": {
               "light": {
-                "type": ["string", "null"],
+                "type": [
+                  "string",
+                  "null"
+                ],
                 "pattern": "^#[0-9A-F]{6}$"
               },
               "dark": {
-                "type": ["string", "null"],
+                "type": [
+                  "string",
+                  "null"
+                ],
                 "pattern": "^#[0-9A-F]{6}$"
               },
-              "note": {"type": "string", "maxLength": 240},
-              "baselineInconsistency": {"type": "boolean"}
+              "note": {
+                "type": "string",
+                "maxLength": 240
+              },
+              "baselineInconsistency": {
+                "type": "boolean"
+              },
+              "lightAlpha": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "darkAlpha": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "semantic": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 80
+              }
             }
           }
         },
         "typography": {
           "type": "object",
-          "required": ["scale", "styles"],
+          "required": [
+            "scale",
+            "styles"
+          ],
           "additionalProperties": false,
           "properties": {
             "scale": {
               "type": "object",
-              "required": ["mode", "unit", "drivers", "rule"],
+              "required": [
+                "mode",
+                "unit",
+                "drivers",
+                "rule"
+              ],
               "additionalProperties": false,
               "properties": {
-                "mode": {"const": "system"},
-                "unit": {"const": "pt"},
+                "mode": {
+                  "const": "system"
+                },
+                "unit": {
+                  "const": "pt"
+                },
                 "drivers": {
                   "type": "object",
-                  "required": ["ios", "android"],
+                  "required": [
+                    "ios",
+                    "android"
+                  ],
                   "additionalProperties": false,
                   "properties": {
                     "ios": {
-                      "enum": ["dynamic-type"]
+                      "enum": [
+                        "dynamic-type"
+                      ]
                     },
                     "android": {
-                      "enum": ["font-scale"]
+                      "enum": [
+                        "font-scale"
+                      ]
                     }
                   }
                 },
-                "rule": {"type": "string", "minLength": 20, "maxLength": 300},
+                "rule": {
+                  "type": "string",
+                  "minLength": 20,
+                  "maxLength": 300
+                },
                 "clamp": {
                   "type": "object",
-                  "required": ["min", "max"],
+                  "required": [
+                    "min",
+                    "max"
+                  ],
                   "additionalProperties": false,
                   "properties": {
-                    "min": {"type": "number", "minimum": 0.5, "maximum": 2},
+                    "min": {
+                      "type": "number",
+                      "minimum": 0.5,
+                      "maximum": 2
+                    },
                     "max": {
-                      "type": ["number", "null"],
+                      "type": [
+                        "number",
+                        "null"
+                      ],
                       "minimum": 1,
                       "maximum": 4
                     }
@@ -75,19 +170,60 @@
               "type": "object",
               "additionalProperties": {
                 "type": "object",
-                "required": ["baseSize", "weight", "mono", "role"],
+                "required": [
+                  "baseSize",
+                  "lineHeight",
+                  "weight",
+                  "mono",
+                  "role"
+                ],
                 "additionalProperties": false,
                 "properties": {
-                  "baseSize": {"type": "integer", "minimum": 8, "maximum": 72},
+                  "baseSize": {
+                    "type": [
+                      "number"
+                    ],
+                    "minimum": 8,
+                    "maximum": 72,
+                    "description": "PR22 HomeSpec uses half-point sizes (17.5, 14.5, 10.5), so the base size is a number, not an integer. The platform scale still multiplies it; no rendered px is stored."
+                  },
                   "weight": {
-                    "enum": [400, 500, 600, 700]
+                    "enum": [
+                      400,
+                      500,
+                      600,
+                      700
+                    ]
                   },
-                  "mono": {"type": "boolean"},
+                  "mono": {
+                    "type": "boolean"
+                  },
                   "role": {
-                    "enum": ["body", "label", "code", "caption", "control", "title"]
+                    "enum": [
+                      "body",
+                      "label",
+                      "code",
+                      "caption",
+                      "control",
+                      "title"
+                    ]
                   },
-                  "note": {"type": "string", "maxLength": 240},
-                  "needsDeviceMeasure": {"type": "boolean"}
+                  "note": {
+                    "type": "string",
+                    "maxLength": 240
+                  },
+                  "needsDeviceMeasure": {
+                    "type": "boolean"
+                  },
+                  "lineHeight": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "minimum": 8,
+                    "maximum": 96,
+                    "description": "HomeSpec line box in pt. null means HomeSpec defines the size but no line height for that role (tabLabel); it is recorded as unmeasured instead of invented."
+                  }
                 }
               }
             }
@@ -95,198 +231,388 @@
         },
         "spacing": {
           "type": "object",
-          "additionalProperties": {"type": "number", "minimum": 0, "maximum": 64}
+          "additionalProperties": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 64
+          }
         },
         "radius": {
           "type": "object",
-          "additionalProperties": {"type": "number", "minimum": 0, "maximum": 64}
+          "additionalProperties": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 64
+          }
         },
         "stroke": {
           "type": "object",
-          "additionalProperties": {"type": "number", "minimum": 0, "maximum": 8}
+          "additionalProperties": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 8
+          }
         },
         "motion": {
           "type": "object",
           "additionalProperties": {
             "type": "object",
-            "required": ["durationMs", "curve", "repeat"],
+            "required": [
+              "durationMs",
+              "curve",
+              "repeat"
+            ],
             "additionalProperties": false,
             "properties": {
-              "durationMs": {"type": "integer", "minimum": 0, "maximum": 60000},
+              "durationMs": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 60000
+              },
               "curve": {
-                "enum": ["linear", "easeOut", "easeInOut"]
+                "enum": [
+                  "linear",
+                  "easeOut",
+                  "easeInOut"
+                ]
               },
               "repeat": {
-                "enum": ["once", "forever"]
+                "enum": [
+                  "once",
+                  "forever"
+                ]
               },
-              "note": {"type": "string", "maxLength": 200}
+              "note": {
+                "type": "string",
+                "maxLength": 200
+              }
             }
           }
         },
         "signatureSurfaces": {
           "type": "object",
-          "required": ["bubble", "toolRow", "thinkingPill", "approvalCard", "composer", "failLoudBanner"],
+          "required": [
+            "bubble",
+            "toolRow",
+            "thinkingPill",
+            "approvalCard",
+            "composer",
+            "failLoudBanner"
+          ],
           "additionalProperties": false,
           "properties": {
             "bubble": {
               "type": "object",
-              "required": ["surface", "parity", "tokens", "typographyUnmeasured", "unmeasured"],
+              "required": [
+                "surface",
+                "parity",
+                "tokens",
+                "typographyUnmeasured",
+                "unmeasured"
+              ],
               "additionalProperties": false,
               "properties": {
-                "surface": {"const": "bubble"},
-                "typographyUnmeasured": {"type": "boolean"},
+                "surface": {
+                  "const": "bubble"
+                },
+                "typographyUnmeasured": {
+                  "type": "boolean"
+                },
                 "parity": {
-                  "enum": ["pixel", "deferred"]
+                  "enum": [
+                    "pixel",
+                    "deferred"
+                  ]
                 },
                 "tokens": {
                   "type": "array",
                   "minItems": 1,
                   "maxItems": 24,
-                  "items": {"type": "string", "pattern": "^(colors|geometry|typography|spacing|radius|stroke|motion)\\.[A-Za-z][A-Za-z0-9]*$"}
+                  "items": {
+                    "type": "string",
+                    "pattern": "^(colors|geometry|typography|spacing|radius|stroke|motion)\\.[A-Za-z][A-Za-z0-9]*$"
+                  }
                 },
                 "unmeasured": {
                   "type": "array",
                   "maxItems": 12,
-                  "items": {"type": "string", "minLength": 4, "maxLength": 200}
+                  "items": {
+                    "type": "string",
+                    "minLength": 4,
+                    "maxLength": 200
+                  }
                 },
-                "note": {"type": "string", "maxLength": 300}
+                "note": {
+                  "type": "string",
+                  "maxLength": 300
+                }
               }
             },
             "toolRow": {
               "type": "object",
-              "required": ["surface", "parity", "tokens", "typographyUnmeasured", "unmeasured"],
+              "required": [
+                "surface",
+                "parity",
+                "tokens",
+                "typographyUnmeasured",
+                "unmeasured"
+              ],
               "additionalProperties": false,
               "properties": {
-                "surface": {"const": "toolRow"},
-                "typographyUnmeasured": {"type": "boolean"},
+                "surface": {
+                  "const": "toolRow"
+                },
+                "typographyUnmeasured": {
+                  "type": "boolean"
+                },
                 "parity": {
-                  "enum": ["pixel", "deferred"]
+                  "enum": [
+                    "pixel",
+                    "deferred"
+                  ]
                 },
                 "tokens": {
                   "type": "array",
                   "minItems": 1,
                   "maxItems": 24,
-                  "items": {"type": "string", "pattern": "^(colors|geometry|typography|spacing|radius|stroke|motion)\\.[A-Za-z][A-Za-z0-9]*$"}
+                  "items": {
+                    "type": "string",
+                    "pattern": "^(colors|geometry|typography|spacing|radius|stroke|motion)\\.[A-Za-z][A-Za-z0-9]*$"
+                  }
                 },
                 "unmeasured": {
                   "type": "array",
                   "maxItems": 12,
-                  "items": {"type": "string", "minLength": 4, "maxLength": 200}
+                  "items": {
+                    "type": "string",
+                    "minLength": 4,
+                    "maxLength": 200
+                  }
                 },
-                "note": {"type": "string", "maxLength": 300}
+                "note": {
+                  "type": "string",
+                  "maxLength": 300
+                }
               }
             },
             "thinkingPill": {
               "type": "object",
-              "required": ["surface", "parity", "tokens", "typographyUnmeasured", "unmeasured"],
+              "required": [
+                "surface",
+                "parity",
+                "tokens",
+                "typographyUnmeasured",
+                "unmeasured"
+              ],
               "additionalProperties": false,
               "properties": {
-                "surface": {"const": "thinkingPill"},
-                "typographyUnmeasured": {"type": "boolean"},
+                "surface": {
+                  "const": "thinkingPill"
+                },
+                "typographyUnmeasured": {
+                  "type": "boolean"
+                },
                 "parity": {
-                  "enum": ["pixel", "deferred"]
+                  "enum": [
+                    "pixel",
+                    "deferred"
+                  ]
                 },
                 "tokens": {
                   "type": "array",
                   "minItems": 1,
                   "maxItems": 24,
-                  "items": {"type": "string", "pattern": "^(colors|geometry|typography|spacing|radius|stroke|motion)\\.[A-Za-z][A-Za-z0-9]*$"}
+                  "items": {
+                    "type": "string",
+                    "pattern": "^(colors|geometry|typography|spacing|radius|stroke|motion)\\.[A-Za-z][A-Za-z0-9]*$"
+                  }
                 },
                 "unmeasured": {
                   "type": "array",
                   "maxItems": 12,
-                  "items": {"type": "string", "minLength": 4, "maxLength": 200}
+                  "items": {
+                    "type": "string",
+                    "minLength": 4,
+                    "maxLength": 200
+                  }
                 },
-                "note": {"type": "string", "maxLength": 300}
+                "note": {
+                  "type": "string",
+                  "maxLength": 300
+                }
               }
             },
             "approvalCard": {
               "type": "object",
-              "required": ["surface", "parity", "tokens", "typographyUnmeasured", "unmeasured"],
+              "required": [
+                "surface",
+                "parity",
+                "tokens",
+                "typographyUnmeasured",
+                "unmeasured"
+              ],
               "additionalProperties": false,
               "properties": {
-                "surface": {"const": "approvalCard"},
-                "typographyUnmeasured": {"type": "boolean"},
+                "surface": {
+                  "const": "approvalCard"
+                },
+                "typographyUnmeasured": {
+                  "type": "boolean"
+                },
                 "parity": {
-                  "enum": ["pixel", "deferred"]
+                  "enum": [
+                    "pixel",
+                    "deferred"
+                  ]
                 },
                 "tokens": {
                   "type": "array",
                   "minItems": 1,
                   "maxItems": 24,
-                  "items": {"type": "string", "pattern": "^(colors|geometry|typography|spacing|radius|stroke|motion)\\.[A-Za-z][A-Za-z0-9]*$"}
+                  "items": {
+                    "type": "string",
+                    "pattern": "^(colors|geometry|typography|spacing|radius|stroke|motion)\\.[A-Za-z][A-Za-z0-9]*$"
+                  }
                 },
                 "unmeasured": {
                   "type": "array",
                   "maxItems": 12,
-                  "items": {"type": "string", "minLength": 4, "maxLength": 200}
+                  "items": {
+                    "type": "string",
+                    "minLength": 4,
+                    "maxLength": 200
+                  }
                 },
-                "note": {"type": "string", "maxLength": 300}
+                "note": {
+                  "type": "string",
+                  "maxLength": 300
+                }
               }
             },
             "composer": {
               "type": "object",
-              "required": ["surface", "parity", "tokens", "typographyUnmeasured", "unmeasured"],
+              "required": [
+                "surface",
+                "parity",
+                "tokens",
+                "typographyUnmeasured",
+                "unmeasured"
+              ],
               "additionalProperties": false,
               "properties": {
-                "surface": {"const": "composer"},
-                "typographyUnmeasured": {"type": "boolean"},
+                "surface": {
+                  "const": "composer"
+                },
+                "typographyUnmeasured": {
+                  "type": "boolean"
+                },
                 "parity": {
-                  "enum": ["pixel", "deferred"]
+                  "enum": [
+                    "pixel",
+                    "deferred"
+                  ]
                 },
                 "tokens": {
                   "type": "array",
                   "minItems": 1,
-                  "maxItems": 24,
-                  "items": {"type": "string", "pattern": "^(colors|geometry|typography|spacing|radius|stroke|motion)\\.[A-Za-z][A-Za-z0-9]*$"}
+                  "maxItems": 26,
+                  "description": "Cap 24 -> 26 (L22, 2026-11-01): the composer genuinely gained composerControlRowHeight and composerPortTop. The cap tracks the surface's real size; it is not raised per edit.",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^(colors|geometry|typography|spacing|radius|stroke|motion)\\.[A-Za-z][A-Za-z0-9]*$"
+                  }
                 },
                 "unmeasured": {
                   "type": "array",
                   "maxItems": 12,
-                  "items": {"type": "string", "minLength": 4, "maxLength": 200}
+                  "items": {
+                    "type": "string",
+                    "minLength": 4,
+                    "maxLength": 200
+                  }
                 },
-                "note": {"type": "string", "maxLength": 300}
+                "note": {
+                  "type": "string",
+                  "maxLength": 300
+                }
               }
             },
             "failLoudBanner": {
               "type": "object",
-              "required": ["surface", "parity", "tokens", "typographyUnmeasured", "unmeasured"],
+              "required": [
+                "surface",
+                "parity",
+                "tokens",
+                "typographyUnmeasured",
+                "unmeasured"
+              ],
               "additionalProperties": false,
               "properties": {
-                "surface": {"const": "failLoudBanner"},
-                "typographyUnmeasured": {"type": "boolean"},
+                "surface": {
+                  "const": "failLoudBanner"
+                },
+                "typographyUnmeasured": {
+                  "type": "boolean"
+                },
                 "parity": {
-                  "enum": ["pixel", "deferred"]
+                  "enum": [
+                    "pixel",
+                    "deferred"
+                  ]
                 },
                 "tokens": {
                   "type": "array",
                   "minItems": 1,
                   "maxItems": 24,
-                  "items": {"type": "string", "pattern": "^(colors|geometry|typography|spacing|radius|stroke|motion)\\.[A-Za-z][A-Za-z0-9]*$"}
+                  "items": {
+                    "type": "string",
+                    "pattern": "^(colors|geometry|typography|spacing|radius|stroke|motion)\\.[A-Za-z][A-Za-z0-9]*$"
+                  }
                 },
                 "unmeasured": {
                   "type": "array",
                   "maxItems": 12,
-                  "items": {"type": "string", "minLength": 4, "maxLength": 200}
+                  "items": {
+                    "type": "string",
+                    "minLength": 4,
+                    "maxLength": 200
+                  }
                 },
-                "note": {"type": "string", "maxLength": 300}
+                "note": {
+                  "type": "string",
+                  "maxLength": 300
+                }
               }
             }
           }
         },
         "contrast": {
           "type": "object",
-          "required": ["roles", "pairs", "exempt"],
+          "required": [
+            "roles",
+            "pairs",
+            "exempt"
+          ],
           "additionalProperties": false,
           "properties": {
             "roles": {
               "type": "object",
-              "required": ["body", "large", "nonText"],
+              "required": [
+                "body",
+                "large",
+                "nonText"
+              ],
               "additionalProperties": false,
               "properties": {
-                "body": {"const": 4.5},
-                "large": {"const": 3.0},
-                "nonText": {"const": 3.0}
+                "body": {
+                  "const": 4.5
+                },
+                "large": {
+                  "const": 3.0
+                },
+                "nonText": {
+                  "const": 3.0
+                }
               }
             },
             "pairs": {
@@ -294,26 +620,65 @@
               "minItems": 4,
               "items": {
                 "type": "object",
-                "required": ["id", "foreground", "background", "role", "required", "sites"],
+                "required": [
+                  "id",
+                  "foreground",
+                  "background",
+                  "role",
+                  "required",
+                  "sites"
+                ],
                 "additionalProperties": false,
                 "properties": {
-                  "id": {"type": "string", "pattern": "^[a-z][A-Za-z0-9]*/[a-z][A-Za-z0-9]*$"},
-                  "foreground": {"type": "string", "pattern": "^[a-zA-Z][A-Za-z0-9]*$"},
-                  "background": {"type": "string", "pattern": "^[a-zA-Z][A-Za-z0-9]*$"},
-                  "role": {
-                    "enum": ["body", "large", "nonText"]
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[a-z][A-Za-z0-9]*/[a-z][A-Za-z0-9]*$"
                   },
-                  "required": {"type": "boolean"},
+                  "foreground": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z][A-Za-z0-9]*$"
+                  },
+                  "background": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z][A-Za-z0-9]*$"
+                  },
+                  "role": {
+                    "enum": [
+                      "body",
+                      "large",
+                      "nonText"
+                    ]
+                  },
+                  "required": {
+                    "type": "boolean"
+                  },
                   "sites": {
                     "type": "array",
                     "minItems": 1,
                     "maxItems": 6,
-                    "items": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"
+                    }
                   },
-                  "note": {"type": "string", "maxLength": 300},
-                  "owner": {"type": "string", "minLength": 3, "maxLength": 120},
-                  "reviewBy": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
-                  "debtReason": {"type": "string", "minLength": 12, "maxLength": 300}
+                  "note": {
+                    "type": "string",
+                    "maxLength": 300
+                  },
+                  "owner": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 120
+                  },
+                  "reviewBy": {
+                    "type": "string",
+                    "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+                  },
+                  "debtReason": {
+                    "type": "string",
+                    "minLength": 12,
+                    "maxLength": 300
+                  }
                 }
               }
             },
@@ -321,14 +686,27 @@
               "type": "array",
               "items": {
                 "type": "object",
-                "required": ["token", "reason"],
+                "required": [
+                  "token",
+                  "reason"
+                ],
                 "additionalProperties": false,
                 "properties": {
-                  "token": {"type": "string", "pattern": "^[a-zA-Z][A-Za-z0-9]*$"},
-                  "reason": {
-                    "enum": ["dynamic", "decorative", "composite"]
+                  "token": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z][A-Za-z0-9]*$"
                   },
-                  "note": {"type": "string", "maxLength": 240}
+                  "reason": {
+                    "enum": [
+                      "dynamic",
+                      "decorative",
+                      "composite"
+                    ]
+                  },
+                  "note": {
+                    "type": "string",
+                    "maxLength": 240
+                  }
                 }
               }
             }
@@ -338,15 +716,38 @@
           "type": "object",
           "additionalProperties": {
             "type": "object",
-            "required": ["source", "tier"],
+            "required": [
+              "source",
+              "tier"
+            ],
             "additionalProperties": false,
             "properties": {
-              "source": {"type": "string", "pattern": "^(unmeasured|system:[A-Za-z0-9 .,'()#-]+|platform default, not measured in this repo|[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+)$"},
-              "tier": {
-                "enum": ["theme", "component", "page", "system", "unmeasured"]
+              "source": {
+                "type": "string",
+                "pattern": "^(unmeasured|system:[A-Za-z0-9 .,'()#-]+|platform default, not measured in this repo|Sources/PhoneDSH/Background/TaskScreen\\.swift:[0-9]+|[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+)$"
               },
-              "note": {"type": "string", "maxLength": 240},
-              "needsDeviceMeasure": {"type": "boolean"}
+              "tier": {
+                "enum": [
+                  "theme",
+                  "component",
+                  "page",
+                  "system",
+                  "unmeasured"
+                ]
+              },
+              "note": {
+                "type": "string",
+                "maxLength": 240
+              },
+              "needsDeviceMeasure": {
+                "type": "boolean"
+              },
+              "expect": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 120,
+                "description": "Optional literal snippet the cited source line must still contain. page-layer lengths and motion use it because the token name is not a Swift identifier on that line."
+              }
             }
           }
         },
@@ -354,18 +755,150 @@
           "type": "object",
           "additionalProperties": {
             "type": "object",
-            "required": ["value", "unit", "scalesWith"],
+            "required": [
+              "value",
+              "unit",
+              "scalesWith"
+            ],
             "additionalProperties": false,
             "properties": {
-              "value": {"type": "number", "minimum": 0, "maximum": 2000},
+              "value": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 2000,
+                "description": "0 is a legal length (it means 'no inset'). Rule change L22 2026-11-01: the minimum used to be 0.05, which forced a fake value for a real 0 (commit 86a39aac sets composerOuterMarginBottom to 0); the floor is 0 now, negative lengths stay invalid."
+              },
               "unit": {
-                "enum": ["pt", "screenRatio"]
+                "enum": [
+                  "pt",
+                  "screenRatio"
+                ]
               },
               "scalesWith": {
-                "type": ["string", "null"],
+                "type": [
+                  "string",
+                  "null"
+                ],
                 "pattern": "^typography\\.[A-Za-z][A-Za-z0-9]*$"
               },
-              "note": {"type": "string", "maxLength": 240}
+              "note": {
+                "type": "string",
+                "maxLength": 240
+              }
+            }
+          }
+        },
+        "aliases": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "pattern": "^(colors|geometry|typography|spacing|radius|stroke|motion)\\.[A-Za-z][A-Za-z0-9]*$"
+            }
+          }
+        },
+        "shadows": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "opacity",
+              "radius",
+              "y",
+              "source",
+              "note"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "opacity": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "radius": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "y": {
+                "type": "number",
+                "minimum": -100,
+                "maximum": 100
+              },
+              "source": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+"
+              },
+              "note": {
+                "type": "string",
+                "maxLength": 240
+              }
+            }
+          }
+        },
+        "componentCompatibility": {
+          "type": "object",
+          "description": "Active platform component roles kept distinct from canonical HomeSpec signature inventories.",
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "tokens",
+              "note"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "tokens": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 24,
+                "items": {
+                  "type": "string",
+                  "pattern": "^(colors|geometry|typography|spacing|radius|stroke|motion)\\.[A-Za-z][A-Za-z0-9]*$"
+                }
+              },
+              "note": {
+                "type": "string",
+                "maxLength": 240
+              }
+            }
+          }
+        },
+        "componentMetrics": {
+          "type": "object",
+          "description": "Non-token HomeSpec behaviour values generated into HomeSpecData from their owning source.",
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "value",
+              "unit",
+              "source",
+              "expect",
+              "note"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "value": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "unit": {
+                "const": "opacity"
+              },
+              "source": {
+                "type": "string",
+                "pattern": "^HomeSpec\\.swift:[0-9]+$"
+              },
+              "expect": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 120
+              },
+              "note": {
+                "type": "string",
+                "maxLength": 240
+              }
             }
           }
         }
@@ -373,23 +906,50 @@
     },
     {
       "type": "object",
-      "required": ["kind", "version", "events", "rows", "note"],
+      "required": [
+        "kind",
+        "version",
+        "events",
+        "rows",
+        "note"
+      ],
       "additionalProperties": false,
       "properties": {
-        "kind": {"const": "surface-projection"},
-        "version": {"const": 1},
-        "note": {"type": "string", "maxLength": 400},
+        "kind": {
+          "const": "surface-projection"
+        },
+        "version": {
+          "const": 1
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 400
+        },
         "events": {
           "type": "array",
           "minItems": 2,
           "items": {
             "type": "object",
-            "required": ["seq", "type", "data"],
+            "required": [
+              "seq",
+              "type",
+              "data"
+            ],
             "additionalProperties": false,
             "properties": {
-              "seq": {"type": "integer", "minimum": 1, "maximum": 1000000},
-              "type": {"type": "string", "minLength": 3, "maxLength": 64},
-              "data": {"type": "object"}
+              "seq": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000000
+              },
+              "type": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 64
+              },
+              "data": {
+                "type": "object"
+              }
             }
           }
         },
@@ -398,20 +958,45 @@
           "minItems": 6,
           "items": {
             "type": "object",
-            "required": ["row", "surface", "state", "tokens"],
+            "required": [
+              "row",
+              "surface",
+              "state",
+              "tokens"
+            ],
             "additionalProperties": false,
             "properties": {
-              "row": {"type": "string", "minLength": 2, "maxLength": 40},
-              "surface": {
-                "enum": ["bubble", "toolRow", "thinkingPill", "approvalCard", "composer", "failLoudBanner"]
+              "row": {
+                "type": "string",
+                "minLength": 2,
+                "maxLength": 40
               },
-              "state": {"type": "string", "minLength": 2, "maxLength": 40},
-              "collapsed": {"type": "boolean"},
+              "surface": {
+                "enum": [
+                  "bubble",
+                  "toolRow",
+                  "thinkingPill",
+                  "approvalCard",
+                  "composer",
+                  "failLoudBanner"
+                ]
+              },
+              "state": {
+                "type": "string",
+                "minLength": 2,
+                "maxLength": 40
+              },
+              "collapsed": {
+                "type": "boolean"
+              },
               "tokens": {
                 "type": "array",
                 "minItems": 1,
                 "maxItems": 24,
-                "items": {"type": "string", "pattern": "^(colors|geometry|typography|spacing|radius|stroke|motion)\\.[A-Za-z][A-Za-z0-9]*$"}
+                "items": {
+                  "type": "string",
+                  "pattern": "^(colors|geometry|typography|spacing|radius|stroke|motion)\\.[A-Za-z][A-Za-z0-9]*$"
+                }
               }
             }
           }

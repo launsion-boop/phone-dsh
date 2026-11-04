@@ -128,7 +128,6 @@ again; after a live reconnect in the same process the host re-requests the path 
 the repair has not arrived by the next epoch close (the Worker is dead or unresponsive), admission
 closes and the state becomes `Failed`; a starting host then performs the full-tree reconcile of
 §7.2. A path that is no longer a regular file is answered with `VFS_CONFLICT` (channel.md §10).
-A materialization I/O failure is a host defect → `Failed`.
 
 ### 5.2 Epoch close (D18)
 
@@ -169,8 +168,6 @@ records; it is never the input to a WAL write and never edited by the worker.
 | 2 mkdir | create the directory (and missing parents) with `mode`; an existing directory is not an error |
 | 3 remove | remove the file or the **whole directory subtree** at the path (the VFS collapses `rm -rf` into one remove); a missing path is a no-op (the tombstone replays idempotently). A rename appears as remove of the source plus `mkdir` for each moved directory and a complete `write` for each moved file |
 | 4 chmod | set `mode` on the existing path; a missing path is a host defect → `Failed` |
-
-The host removes a subtree under its own recursive delete, so no separate child removes are needed.
 
 ### 6.2 D9 idempotent appended replay
 
@@ -251,6 +248,9 @@ applied position that the materialized copy has not reached.
   `materialized_upto_mseq`; that is legal. The effective tail is
   `max(last_mseq, highest mutation mseq in the retained WAL)`. Host HELLO carries `acked_mseq` =
   effective tail and `next_mseq` = `max(last_mseq, WAL tail) + 1` (D17); mseq is never reused.
+- **Host-side writes.** An App-lane write (`appendMutation`, not a `VFS_MUT`) advances this allocator
+  like any record: `next_mseq` is read from the log when a HELLO is sent and when the sink checks a
+  frame (never cached from recovery), and a Worker frame at that number is `BAD_MSEQ` (channel.md §8).
 - **Manifest range versus file range.** A segment file may hold fewer records than `segments[]`
   records for it only when all three hold: it is the newest segment, recovery truncated it under
   D19, and the recorded range lies at or below `materialized_upto_mseq`. A short file in any other
@@ -291,9 +291,14 @@ applied position that the materialized copy has not reached.
 
 ## 8. Boot overlay
 
-After recovery, reconcile and tail replay, the host packs the materialized tree as an **uncompressed**
-ustar archive (the boot overlay) whose entries are only `home/...` and `workspace/...`; the loopback
-service hands it to the worker at boot. It contains no `tmp`, WAL, manifest or step files; `/dsh/tmp`
+After recovery, reconcile and tail replay, the host packs the materialized tree as a **ustar archive**
+(the boot overlay) whose entries are only `home/...` and `workspace/...`; the loopback service hands it
+to the worker at boot. The archive **format** is plain ustar; the **transport envelope** is a single
+gzip member around it (`1f 8b …`), because the pinned runtime's `readImage` accepts only gzip bodies and
+the overlay shares that reader with the image shards. Sending a bare ustar is not "tolerated" — it fails
+to boot. This has no unpacking consequence: both the packer and the loader admit only `home/` and
+`workspace/` as a first segment and refuse symlinks and special files outright, so the envelope changes
+neither the entry set nor the traversal rules. It contains no `tmp`, WAL, manifest or step files; `/dsh/tmp`
 is volatile and recreated empty. The overlay is rebuilt for each boot and is an input, not an authority.
 
 Image shards `lazy/<sha256>.tar.gz` are produced by the packaging tooling, served with
@@ -336,8 +341,7 @@ worker has the bytes.
   an epoch to save 33 bytes would trade the D18 order for a byte count, which is the wrong trade; the
   next append enforces the limit instead.
 - "Compact droppable data first" means **drop oldest first and stop as soon as
-  `used + reserve <= limit`**. Deleting every droppable segment would discard history that still has
-  value for a number that is already under the limit.
+  `used + reserve <= limit`**.
 - The 512 MiB limit is **per workspace log** (one `manifest.json`), not a sum over every workspace on
   the host.
 ## 10. Recovery (D19)

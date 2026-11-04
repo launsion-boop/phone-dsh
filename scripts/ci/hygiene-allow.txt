@@ -3,6 +3,18 @@ json-schema\.org
 # public documentation host used by the G2 network scenarios (scripts/ci/scenarios/catalog.json)
 raw\.githubusercontent\.com
 schemas\.openxmlformats\.org
+# Official pinned toolchain distribution hosts used by
+# android/tools/bootstrap-android-toolchain.sh: Android command-line tools and
+# the Gradle 8.13 distribution. Both are public vendor download endpoints, not
+# private infrastructure.
+dl\.google\.com
+downloads\.gradle\.org
+cdn\.azul\.com
+api\.azul\.com
+# Transport-only mirrors for the pinned Gradle archive; SHA-256 from the
+# official endpoint still verifies every byte before use.
+mirrors\.huaweicloud\.com
+mirrors\.cloud\.tencent\.com
 # the gateway allow-list wildcard entry (`https://*`) is a rule, not a hostname
 ^\*$
 
@@ -28,6 +40,10 @@ tag:yaml\.org,2002
 Bearer mcp-device-token-never-in-document
 password@api\.example\.com
 userinfo-password@channel\.invalid
+# `validateEgressEntry` is asserted to reject an entry that carries userinfo, so
+# the fixture has to be address-shaped; `api.example.com` is a reserved
+# documentation host and names no mailbox.
+user@api\.example\.com
 docs\.example\.org
 
 # legacy-project provenance: these design docs cite literal sibling-repository
@@ -115,3 +131,8 @@ learn\.microsoft\.com
 # invalid_request" vector, so its input really is `https://:443/v1/models` and
 # URL_RE yields an empty host for it. Scoped to that file and that URL.
 spec/v1/golden/gateway/fail-003\.json:.*https://:443
+
+# Public official Protobuf documentation repository name in pinned research
+# links (github.com/protocolbuffers/protocolbuffers.github.io), not a private
+# hostname. Exact matched spelling only; credentials/home paths remain checked.
+^protocolbuffers\.github\.io$

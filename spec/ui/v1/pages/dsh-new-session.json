@@ -52,8 +52,8 @@
           "extraction": "syntax"
         },
         {
-          "id": "navigation-26",
-          "label": null,
+          "id": "agent-预设",
+          "label": "Agent 预设",
           "labelExpr": null,
           "kind": "navigation",
           "value": null,
@@ -62,9 +62,9 @@
           "destination": "NativeAgentPresetsPage",
           "writes": false,
           "condition": null,
-          "provenance": "DSHNewSessionPage.swift:26",
-          "anchor": "NavigationLink {",
-          "extraction": "manual"
+          "provenance": "DSHNewSessionPage.swift:29",
+          "anchor": "SettingsRowLabel(title: NativeText(\"Agent 预设\", \"Agent presets\"), icon: \"person.2",
+          "extraction": "syntax"
         }
       ],
       "provenance": "DSHNewSessionPage.swift:33",
@@ -131,8 +131,8 @@
       "labelAlternatives": []
     },
     {
-      "id": "navigation-26",
-      "label": null,
+      "id": "agent-预设",
+      "label": "Agent 预设",
       "labelExpr": null,
       "kind": "navigation",
       "trigger": "tap",
@@ -140,9 +140,9 @@
       "writes": false,
       "destination": "NativeAgentPresetsPage",
       "condition": null,
-      "provenance": "DSHNewSessionPage.swift:26",
-      "anchor": "NavigationLink {",
-      "extraction": "manual"
+      "provenance": "DSHNewSessionPage.swift:29",
+      "anchor": "SettingsRowLabel(title: NativeText(\"Agent 预设\", \"Agent presets\"), icon: \"person.2",
+      "extraction": "syntax"
     },
     {
       "id": "取消",

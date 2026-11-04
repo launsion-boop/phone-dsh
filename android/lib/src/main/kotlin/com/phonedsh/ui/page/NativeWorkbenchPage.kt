@@ -49,10 +49,12 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
+import com.phonedsh.ui.HomeMetrics
 import com.phonedsh.ui.UiStrings
 import com.phonedsh.ui.theme.LocalUiTokens
 import com.phonedsh.ui.theme.LocalUiType
-import com.phonedsh.ui.theme.generated.UiTokenNames
+import com.phonedsh.ui.theme.UiColors
 
 // ---------------------------------------------------------------------------
 // Facts
@@ -389,6 +391,8 @@ public data class WorkbenchLocalState(
  * @param onClosePreview close the preview sub-page.
  * @param onDone dismiss the sheet (the baseline's `完成`).
  * @param onRetry retry a failed snapshot read.
+ * @param onRefreshPending request a fresh host snapshot while a requested path is
+ *   not listed yet; `null` keeps the page honest and says the host cannot refresh.
  * @param onDismissFailure dismiss the failure line.
  */
 @Composable
@@ -401,6 +405,7 @@ public fun NativeWorkbenchPage(
     modifier: Modifier = Modifier,
     onRetry: (() -> Unit)? = null,
     onDismissFailure: (() -> Unit)? = null,
+    onRefreshPending: (() -> Unit)? = null,
 ) {
     val tokens = LocalUiTokens.current
     val type = LocalUiType.current
@@ -415,7 +420,7 @@ public fun NativeWorkbenchPage(
         actions = {
             BasicText(
                 text = UiStrings.WORKBENCH_DONE,
-                style = type.secondary.copy(color = tokens.colors.accent),
+                style = type.listItem.copy(color = tokens.colors.pageAccent),
                 modifier = Modifier
                     .testTag(UiPageTags.WORKBENCH_DONE)
                     .clickable(role = Role.Button, onClick = onDone)
@@ -435,7 +440,10 @@ public fun NativeWorkbenchPage(
                 )
             }
             when {
-                state.isPreviewing -> PreviewBody(preview = state.preview)
+                state.isPreviewing -> PreviewBody(
+                    preview = state.preview,
+                    onRefreshPending = onRefreshPending,
+                )
 
                 // A failed read with no rows to keep is the failure line only: showing
                 // "no files" next to "read failed" would claim a fact we lack.
@@ -460,21 +468,24 @@ private fun SegmentBody(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(
-                    horizontal = tokens.geometry.pageOuterMarginH,
+                    horizontal = HomeMetrics.contentInset,
                     vertical = tokens.spacing.badgeInsetV,
-                ),
-            horizontalArrangement = Arrangement.spacedBy(tokens.spacing.iconText),
+                )
+                .clip(RoundedCornerShape(HomeMetrics.bubbleRadius))
+                .background(tokens.colors.userBubble),
         ) {
             SegmentTab(
                 label = UiStrings.WORKBENCH_FILES,
                 isSelected = state.section == WorkbenchSection.FILES,
                 tag = UiPageTags.WORKBENCH_FILES_TAB,
+                modifier = Modifier.weight(1f),
                 onClick = { onSelectSection(WorkbenchSection.FILES) },
             )
             SegmentTab(
                 label = UiStrings.WORKBENCH_COMMANDS,
                 isSelected = state.section == WorkbenchSection.COMMANDS,
                 tag = UiPageTags.WORKBENCH_COMMANDS_TAB,
+                modifier = Modifier.weight(1f),
                 onClick = { onSelectSection(WorkbenchSection.COMMANDS) },
             )
         }
@@ -492,22 +503,24 @@ private fun SegmentTab(
     label: String,
     isSelected: Boolean,
     tag: String,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     val tokens = LocalUiTokens.current
     val type = LocalUiType.current
     BasicText(
         text = label,
-        style = type.secondary.copy(
-            color = if (isSelected) tokens.colors.primary else tokens.colors.tertiary,
+        style = type.listItem.copy(
+            color = if (isSelected) tokens.colors.textPrimary else tokens.colors.textTertiary,
+            textAlign = TextAlign.Center,
         ),
-        modifier = Modifier
+        modifier = modifier
             .testTag(tag)
             // Page-level geometry: a segment tab is a page control, so its floor is
             // the page row minimum rather than a signature button height.
-            .defaultMinSize(minHeight = tokens.geometry.pageRowMinHeight)
+            .defaultMinSize(minHeight = HomeMetrics.defaultMinListRowHeight)
             .clip(RoundedCornerShape(tokens.radius.card))
-            .background(if (isSelected) tokens.colors.selector else tokens.colors.input)
+            .then(if (isSelected) Modifier.background(tokens.colors.surface, RoundedCornerShape(tokens.radius.card)) else Modifier)
             .clickable(role = Role.Tab, onClick = onClick)
             .semantics(mergeDescendants = true) { this.selected = isSelected }
             .padding(horizontal = tokens.spacing.iconText, vertical = tokens.spacing.badgeInsetV),
@@ -608,7 +621,7 @@ private fun SegmentStateBlock(
                     .fillMaxWidth()
                     .testTag(stateTag)
                     .padding(
-                        horizontal = tokens.geometry.pageOuterMarginH,
+                        horizontal = HomeMetrics.contentInset,
                         vertical = tokens.spacing.iconText,
                     )
                     .semantics(mergeDescendants = true) {
@@ -616,8 +629,8 @@ private fun SegmentStateBlock(
                     },
                 verticalArrangement = Arrangement.spacedBy(tokens.spacing.badgeInsetV),
             ) {
-                BasicText(text = title, style = type.body.copy(color = tokens.colors.tertiary))
-                BasicText(text = hint, style = type.caption.copy(color = tokens.colors.tertiary))
+                BasicText(text = title, style = type.body.copy(color = tokens.colors.textTertiary))
+                BasicText(text = hint, style = type.listItem.copy(color = tokens.colors.textTertiary))
             }
         }
     }
@@ -630,12 +643,12 @@ private fun ReadOnlyHint(tag: String) {
     val type = LocalUiType.current
     BasicText(
         text = UiStrings.HOST_READ_ONLY_HINT,
-        style = type.caption.copy(color = tokens.colors.tertiary),
+        style = type.listItem.copy(color = tokens.colors.textTertiary),
         modifier = Modifier
             .fillMaxWidth()
             .testTag(tag)
             .padding(
-                horizontal = tokens.geometry.pageOuterMarginH,
+                horizontal = HomeMetrics.contentInset,
                 vertical = tokens.spacing.badgeInsetV,
             ),
     )
@@ -657,9 +670,9 @@ private fun FileRow(
             .clickable(enabled = enabled, role = Role.Button, onClick = { onOpenFile(file) })
             // Page-level geometry: a file row is a compact list row and uses the
             // page margin.
-            .defaultMinSize(minHeight = tokens.geometry.pageListRowMinHeight)
+            .defaultMinSize(minHeight = HomeMetrics.defaultMinListRowHeight)
             .padding(
-                horizontal = tokens.geometry.pageOuterMarginH,
+                horizontal = HomeMetrics.contentInset,
                 vertical = tokens.spacing.iconText,
             )
             .semantics(mergeDescendants = true) {},
@@ -672,20 +685,20 @@ private fun FileRow(
         ) {
             BasicText(
                 text = file.name,
-                style = type.body.copy(color = tokens.colors.primary),
+                style = type.body.copy(color = tokens.colors.textPrimary),
                 maxLines = 1,
                 modifier = Modifier.weight(1f),
             )
             BasicText(
                 text = file.byteCount?.let { formatByteSize(it) } ?: UiStrings.UNKNOWN,
-                style = type.secondary.copy(
-                    color = if (file.byteCount == null) tokens.colors.tertiary else tokens.colors.secondary,
+                style = type.listItem.copy(
+                    color = if (file.byteCount == null) tokens.colors.textTertiary else tokens.colors.textSecondary,
                 ),
             )
         }
         BasicText(
             text = UiStrings.WORKBENCH_WRITTEN_BY.format(file.toolName ?: UiStrings.UNKNOWN),
-            style = type.caption.copy(color = tokens.colors.tertiary),
+            style = type.listItem.copy(color = tokens.colors.textTertiary),
         )
     }
 }
@@ -699,22 +712,23 @@ private fun CommandRow(command: WorkbenchCommandView) {
         modifier = Modifier
             .fillMaxWidth()
             .testTag(UiPageTags.WORKBENCH_COMMAND_ROW)
+            .defaultMinSize(minHeight = HomeMetrics.defaultMinListRowHeight)
             .padding(
-                horizontal = tokens.geometry.pageOuterMarginH,
+                horizontal = HomeMetrics.contentInset,
                 vertical = tokens.spacing.badgeInsetV,
             ),
         verticalArrangement = Arrangement.spacedBy(tokens.spacing.badgeInsetV),
     ) {
         BasicText(
             text = command.command,
-            style = type.code.copy(color = tokens.colors.secondary),
+            style = type.code.copy(color = tokens.colors.textSecondary),
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(tokens.radius.codeBlock))
-                .background(tokens.colors.code)
+                .background(tokens.colors.sessionCode)
                 .border(
                     width = tokens.stroke.hairline,
-                    color = tokens.colors.border,
+                    color = tokens.colors.borderList,
                     shape = RoundedCornerShape(tokens.radius.codeBlock),
                 )
                 // unverified geometry: the tool row's terminal card inset reused for
@@ -726,7 +740,7 @@ private fun CommandRow(command: WorkbenchCommandView) {
             text = UiStrings.WORKBENCH_EXIT_CODE.format(
                 command.exitCode?.toString() ?: UiStrings.UNKNOWN,
             ),
-            style = type.caption.copy(color = command.exitCode.ink(tokens)),
+            style = type.listItem.copy(color = command.exitCode.ink(tokens)),
         )
     }
 }
@@ -738,11 +752,11 @@ private fun UnmeasuredHint() {
     val type = LocalUiType.current
     BasicText(
         text = UiStrings.WORKBENCH_UNMEASURED_HINT,
-        style = type.caption.copy(color = tokens.colors.tertiary),
+        style = type.listItem.copy(color = tokens.colors.textTertiary),
         modifier = Modifier
             .fillMaxWidth()
             .padding(
-                horizontal = tokens.geometry.pageOuterMarginH,
+                horizontal = HomeMetrics.contentInset,
                 vertical = tokens.spacing.badgeInsetV,
             ),
     )
@@ -753,7 +767,7 @@ private fun UnmeasuredHint() {
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun PreviewBody(preview: WorkbenchPreview) {
+private fun PreviewBody(preview: WorkbenchPreview, onRefreshPending: (() -> Unit)?) {
     val tokens = LocalUiTokens.current
     val type = LocalUiType.current
     when (preview) {
@@ -761,11 +775,34 @@ private fun PreviewBody(preview: WorkbenchPreview) {
 
         // A tapped path the host has not listed yet: the write may still be in flight,
         // so the page waits instead of claiming the file is missing.
-        is WorkbenchPreview.Pending -> EmptyHint(
-            title = UiStrings.WORKBENCH_PREVIEW_PENDING,
-            hint = UiStrings.WORKBENCH_PREVIEW_PENDING_HINT,
-            tag = UiPageTags.WORKBENCH_PREVIEW_PENDING,
-        )
+        is WorkbenchPreview.Pending -> Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .testTag(UiPageTags.WORKBENCH_PREVIEW_PENDING)
+                .padding(horizontal = HomeMetrics.contentInset),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(tokens.spacing.iconText, Alignment.CenterVertically),
+        ) {
+            BasicText(
+                text = UiStrings.WORKBENCH_PREVIEW_PENDING,
+                style = type.body.copy(color = tokens.colors.textPrimary),
+            )
+            BasicText(
+                text = UiStrings.WORKBENCH_PREVIEW_PENDING_HINT,
+                style = type.listItem.copy(color = tokens.colors.textSecondary, textAlign = TextAlign.Center),
+            )
+            BasicText(
+                text = if (onRefreshPending == null) PENDING_REFRESH_UNAVAILABLE else PENDING_REFRESH_LABEL,
+                style = type.listItem.copy(color = tokens.colors.pageAccent),
+                modifier = Modifier
+                    .defaultMinSize(minHeight = HomeMetrics.defaultMinListRowHeight)
+                    .then(
+                        if (onRefreshPending == null) Modifier
+                        else Modifier.clickable(role = Role.Button, onClick = onRefreshPending),
+                    )
+                    .semantics { contentDescription = if (onRefreshPending == null) PENDING_REFRESH_UNAVAILABLE else PENDING_REFRESH_LABEL },
+            )
+        }
 
         is WorkbenchPreview.Loading -> EmptyHint(
             title = UiStrings.FILES_PREVIEW_LOADING,
@@ -777,7 +814,7 @@ private fun PreviewBody(preview: WorkbenchPreview) {
             modifier = Modifier
                 .fillMaxSize()
                 .testTag(UiPageTags.WORKBENCH_PREVIEW)
-                .padding(horizontal = tokens.geometry.pageOuterMarginH),
+                .padding(horizontal = HomeMetrics.contentInset),
             verticalArrangement = Arrangement.spacedBy(tokens.spacing.iconText),
         ) {
             Column(
@@ -788,10 +825,10 @@ private fun PreviewBody(preview: WorkbenchPreview) {
                     // the preview card's outer vertical breathing room.
                     .padding(vertical = tokens.geometry.toolDetailVertical)
                     .clip(RoundedCornerShape(tokens.radius.codeBlock))
-                    .background(tokens.colors.code)
+                    .background(tokens.colors.sessionCode)
                     .border(
                         width = tokens.stroke.hairline,
-                        color = tokens.colors.border,
+                        color = tokens.colors.borderList,
                         shape = RoundedCornerShape(tokens.radius.codeBlock),
                     )
                     // unverified geometry: no page-level preview card exists in the
@@ -801,13 +838,13 @@ private fun PreviewBody(preview: WorkbenchPreview) {
             ) {
                 BasicText(
                     text = preview.content,
-                    style = type.code.copy(color = tokens.colors.secondary),
+                    style = type.code.copy(color = tokens.colors.textSecondary),
                 )
             }
             if (preview.truncated) {
                 BasicText(
                     text = UiStrings.FILES_PREVIEW_TRUNCATED,
-                    style = type.caption.copy(color = tokens.colors.tertiary),
+                    style = type.listItem.copy(color = tokens.colors.textTertiary),
                 )
             }
         }
@@ -852,26 +889,26 @@ private fun PreviewCard(title: String, hint: String, detail: String?) {
             // unverified geometry: the tool card's vertical inset reused as the
             // degradation card's outer vertical breathing room.
             .padding(
-                horizontal = tokens.geometry.pageOuterMarginH,
+                horizontal = HomeMetrics.contentInset,
                 vertical = tokens.geometry.toolDetailVertical,
             )
             .clip(RoundedCornerShape(tokens.radius.card))
-            .background(tokens.colors.codeBanner)
+            .background(tokens.colors.sessionCodeBanner)
             .padding(tokens.spacing.cardInset),
         verticalArrangement = Arrangement.spacedBy(tokens.spacing.iconText),
     ) {
         BasicText(
             text = title,
-            style = type.secondary.copy(color = tokens.colors.warning),
+            style = type.listItem.copy(color = tokens.colors.pageWarning),
         )
         BasicText(
             text = hint,
-            style = type.caption.copy(color = tokens.colors.tertiary),
+            style = type.listItem.copy(color = tokens.colors.textTertiary),
         )
         if (detail != null) {
             BasicText(
                 text = detail,
-                style = type.caption.copy(color = tokens.colors.tertiary),
+                style = type.listItem.copy(color = tokens.colors.textTertiary),
             )
         }
     }
@@ -889,13 +926,20 @@ private fun previewTitle(preview: WorkbenchPreview): String? = when (preview) {
 
 /** The exit-code ink: unmeasured is neutral, zero is success, non-zero is failure. */
 private fun Int?.ink(tokens: com.phonedsh.ui.theme.UiTokens): androidx.compose.ui.graphics.Color = when {
-    this == null -> tokens.colors.tertiary
-    this == 0 -> tokens.colors.success
-    else -> tokens.colors.danger
+    this == null -> tokens.colors.textTertiary
+    this == 0 -> tokens.colors.sessionSuccess
+    else -> tokens.colors.pageDanger
 }
 
 /** The one path separator the display helper splits on. */
 private const val PATH_SEPARATOR: Char = '/'
+private const val PENDING_REFRESH_LABEL: String = "重新检查文件"
+private const val PENDING_REFRESH_UNAVAILABLE: String = "宿主暂不支持重新检查"
+
+/** Canonical spec names backed by the legacy resolved palette roles. */
+private val UiColors.sessionSuccess get() = success
+private val UiColors.sessionCode get() = code
+private val UiColors.sessionCodeBanner get() = codeBanner
 
 /**
  * The token inventory of this page.
@@ -907,32 +951,28 @@ private const val PATH_SEPARATOR: Char = '/'
  */
 internal object NativeWorkbenchPageTokens {
     val refs: List<String> = listOf(
-        UiTokenNames.COLORS_PRIMARY,
-        UiTokenNames.COLORS_SECONDARY,
-        UiTokenNames.COLORS_TERTIARY,
-        UiTokenNames.COLORS_ACCENT,
-        UiTokenNames.COLORS_SUCCESS,
-        UiTokenNames.COLORS_DANGER,
-        UiTokenNames.COLORS_SELECTOR,
-        UiTokenNames.COLORS_INPUT,
-        UiTokenNames.COLORS_CODE,
-        UiTokenNames.COLORS_CODE_BANNER,
-        UiTokenNames.COLORS_BORDER,
-        UiTokenNames.COLORS_WARNING,
-        UiTokenNames.TYPOGRAPHY_BODY,
-        UiTokenNames.TYPOGRAPHY_SECONDARY,
-        UiTokenNames.TYPOGRAPHY_CAPTION,
-        UiTokenNames.TYPOGRAPHY_CODE,
-        UiTokenNames.SPACING_ICON_TEXT,
-        UiTokenNames.SPACING_BADGE_INSET_V,
-        UiTokenNames.SPACING_CARD_INSET,
-        UiTokenNames.RADIUS_CARD,
-        UiTokenNames.RADIUS_CODE_BLOCK,
-        UiTokenNames.STROKE_HAIRLINE,
-        UiTokenNames.GEOMETRY_PAGE_OUTER_MARGIN_H,
-        UiTokenNames.GEOMETRY_PAGE_LIST_ROW_MIN_HEIGHT,
-        UiTokenNames.GEOMETRY_PAGE_ROW_MIN_HEIGHT,
-        UiTokenNames.GEOMETRY_TOOL_CARD_INSET,
-        UiTokenNames.GEOMETRY_TOOL_DETAIL_VERTICAL,
+        "colors.borderList",
+        "colors.pageAccent",
+        "colors.pageDanger",
+        "colors.pageWarning",
+        "colors.sessionCode",
+        "colors.sessionCodeBanner",
+        "colors.sessionSuccess",
+        "colors.surface",
+        "colors.textPrimary",
+        "colors.textSecondary",
+        "colors.textTertiary",
+        "colors.userBubble",
+        "geometry.toolCardInset",
+        "geometry.toolDetailVertical",
+        "radius.card",
+        "radius.codeBlock",
+        "spacing.badgeInsetV",
+        "spacing.cardInset",
+        "spacing.iconText",
+        "stroke.hairline",
+        "typography.body",
+        "typography.code",
+        "typography.listItem",
     )
 }

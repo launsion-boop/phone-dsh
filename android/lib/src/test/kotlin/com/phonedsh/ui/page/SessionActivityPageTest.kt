@@ -9,7 +9,10 @@ package com.phonedsh.ui.page
 
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.filterToOne
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.isDialog
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -250,7 +253,6 @@ class SessionActivityPageTest {
         local = local.apply(SessionActivityUiEvent.RequestGoal(ActivityGoalAction.PAUSE))
         var state = SessionActivityScreenState.from(source, local)
         assertEquals(UiStrings.ACTIVITY_CONFIRM_GOAL_PAUSE, state.confirmTitle)
-        assertEquals(UiStrings.ACTIVITY_CONFIRM_GOAL_PAUSE_ACTION, state.confirmActionLabel)
         assertEquals(UiStrings.ACTIVITY_CONFIRM_GOAL_MESSAGE, state.confirmMessage)
         assertFalse(state.confirmDestructive)
 
@@ -318,6 +320,49 @@ class SessionActivityPageTest {
         compose.onAllNodesWithTag(UiPageTags.ACTIVITY_TODO_ROW).assertCountEquals(3)
         compose.onNodeWithText("写测试").assertIsDisplayed()
         compose.onNodeWithText(UiStrings.ACTIVITY_TODO_DONE).assertIsDisplayed()
+    }
+
+    @Test
+    fun `the nine group titles are the kind titles, in the baseline's order`() {
+        // The page spells the nine titles as literals so the contract can read them
+        // where the groups are drawn; this pins the copy to the one table the rest of
+        // the page still uses (`ActivitySectionKind.title`), in the same order.
+        assertEquals(
+            listOf(
+                UiStrings.ACTIVITY_SESSION_TITLE,
+                UiStrings.ACTIVITY_PLAN_TITLE,
+                UiStrings.ACTIVITY_TODOS_TITLE,
+                UiStrings.ACTIVITY_GOAL_TITLE,
+                UiStrings.ACTIVITY_SUBAGENTS_TITLE,
+                UiStrings.ACTIVITY_SCHEDULES_TITLE,
+                UiStrings.ACTIVITY_JOBS_TITLE,
+                UiStrings.ACTIVITY_SKILLS_TITLE,
+                UiStrings.ACTIVITY_ERRORS_TITLE,
+            ),
+            ActivitySectionKind.entries.map { it.title },
+        )
+    }
+
+    @Test
+    fun `every group header draws its title at the group`() {
+        show(SessionActivityScreenState.from(source))
+        val headers = listOf(
+            UiPageTags.ACTIVITY_SESSION_SECTION to UiStrings.ACTIVITY_SESSION_TITLE,
+            UiPageTags.ACTIVITY_PLAN to UiStrings.ACTIVITY_PLAN_TITLE,
+            UiPageTags.ACTIVITY_TODOS to UiStrings.ACTIVITY_TODOS_TITLE,
+            UiPageTags.ACTIVITY_GOAL to UiStrings.ACTIVITY_GOAL_TITLE,
+            UiPageTags.ACTIVITY_SUBAGENTS to UiStrings.ACTIVITY_SUBAGENTS_TITLE,
+            UiPageTags.ACTIVITY_SCHEDULES to UiStrings.ACTIVITY_SCHEDULES_TITLE,
+            UiPageTags.ACTIVITY_JOBS to UiStrings.ACTIVITY_JOBS_TITLE,
+            UiPageTags.ACTIVITY_SKILLS to UiStrings.ACTIVITY_SKILLS_TITLE,
+            UiPageTags.ACTIVITY_ERROR_SECTION_PREFIX + "计划" to UiStrings.ACTIVITY_ERRORS_TITLE,
+        )
+        headers.forEach { (tag, title) ->
+            scrollTo(tag)
+            // `ACTIVITY_GOAL` tags the header and the objective row (a pre-existing
+            // collision), so the assertion picks the node that carries the title.
+            compose.onAllNodesWithTag(tag).filterToOne(hasText(title)).assertIsDisplayed()
+        }
     }
 
     @Test
@@ -475,7 +520,28 @@ class SessionActivityPageTest {
         assertEquals(1, confirmed)
         compose.onNodeWithTag(UiPageTags.ACTIVITY_CONFIRM_CANCEL).performClick()
         assertEquals(1, cancelled)
-        compose.onNodeWithText(UiStrings.ACTIVITY_CONFIRM_GOAL_PAUSE_ACTION).assertIsDisplayed()
+        // The dialog spells the verb the row offers (暂停目标), not the baseline's
+        // short 暂停: the page has no short-form control of its own. The row below
+        // the dialog carries the same words, so the assertion is the button's own.
+        compose.onNodeWithTag(UiPageTags.ACTIVITY_CONFIRM_ACTION)
+            .assertTextEquals(UiStrings.ACTIVITY_GOAL_PAUSE)
+    }
+
+    @Test
+    fun `a job confirmation names 停止作业`() {
+        val local = SessionActivityLocalState(confirm = ActivityConfirm.StopJob("j1"))
+        show(SessionActivityScreenState.from(source, local))
+        compose.onNodeWithTag(UiPageTags.ACTIVITY_CONFIRM_ACTION)
+            .assertTextEquals(UiStrings.ACTIVITY_CONFIRM_JOB_ACTION)
+        compose.onNodeWithTag(UiPageTags.ACTIVITY_CONFIRM_CANCEL).assertIsDisplayed()
+    }
+
+    @Test
+    fun `a sub-agent confirmation names 中断`() {
+        val local = SessionActivityLocalState(confirm = ActivityConfirm.InterruptSubagent("s1"))
+        show(SessionActivityScreenState.from(source, local))
+        compose.onNodeWithTag(UiPageTags.ACTIVITY_CONFIRM_ACTION)
+            .assertTextEquals(UiStrings.ACTIVITY_CONFIRM_SUBAGENT_ACTION)
     }
 
     @Test

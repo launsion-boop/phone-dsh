@@ -4,3 +4,13 @@ build/
 local.properties
 .idea/
 *.iml
+.kotlin/
+
+# Release signing material. `keystore.properties` holds the store path and the
+# two passwords, and the store itself is a *.jks next to the project (see
+# keystore.properties.example). Neither may ever be committed: a leaked signing
+# key cannot be rotated for an app that is already installed, only for a new
+# applicationId. The example file IS committed; it carries no values.
+keystore.properties
+*.jks
+*.keystore

@@ -10,9 +10,35 @@ rounded to 0.5 pt; a "≈" means the edge is antialiased or the fill is within
 
 Shots used as evidence are named inline, e.g. `ios-chat-draft.png`.
 
-> Preview harness artifact: the blue-grey ✕ circle at the top-left of most
-> shots is the DEBUG cover's close button, **not page UI**. Do not measure it.
-> `ios-chat-default.png` (route `sample`, no cover) has none.
+> Preview harness artifact — **gone at HEAD**: the blue-grey ✕ circle that used to
+> sit at the top-left of most shots was the DEBUG cover's close button. The cover
+> no longer draws one (`NativeShell.swift:179`), so the 2026-11-01 set has no ✕
+> on any page. Measurements taken from the 2026-10-31 set that included it are off
+> by that button only.
+
+> ## ⚠️ Re-shot 2026-11-01 at `86a39aac` — numbers below are from the old batch
+>
+> The **PNGs in this directory were re-captured at HEAD `86a39aac`** (post-PR-#13,
+> strict build, no shim; `conditions.txt` records the SHA). The **measurements
+> below were taken from the 2026-10-31 pixels**, so they are valid only where the
+> pixels did not move. Per the pixel diff in `INDEX.md`:
+>
+> * **still exact** — `ios-settings-about`, `ios-settings-network`,
+>   `ios-settings-runtime`, `ios-settings-search`, `ios-shell` (0 px different
+>   outside the removed ✕), and `ios-files` / `ios-code-block` / `ios-settings-model`
+>   / `ios-sessions-*` for everything except the ~10–18 pt upward shift the ✕
+>   removal caused.
+> * **stale** — §2 (SettingsPage) describes the five-tab sheet from source while
+>   the measurements that follow the screenshot paragraph are from the flat index;
+>   §1.5 (input dock) predates `86a39aac` "tighten composer bottom spacing"; the
+>   chat header's 运行中 label is now a device glyph. Re-measure those against the
+>   new PNGs before quoting them.
+>
+> **Where current truth lives:** `examples/probe-app/PhoneDSHProbe/NativeParityTokens.swift`
+> (chat chrome and radii), `docs/receipts/ui-metrics/L6-ios-ui-metrics.md` (186 metrics,
+> 2026-11-01), the per-family declarations in
+> `android/lib/src/main/kotlin/com/phonedsh/ui/{ChatMetrics,SessionsMetrics,SettingsMetrics,ShellFilesMetrics}.kt`,
+> and `spec/ui/v1/tokens.json` for cross-page tokens.
 
 ## 0. Global tokens observed
 
@@ -45,6 +71,11 @@ References: `ios-chat-default.png` (clean header + running host),
 `ios-chat-official.png` (stats row + back-to-latest pill).
 
 ### 1.1 Header (44 pt bar under the 59 pt status area)
+
+> ⛔ **SUPERSEDED (2026-11-01, PR #13).** The 44 pt bar, the 17 pt semibold title and the
+> missing hairline are all wrong now: `NativeParityTokens.swift:99 headerHeight = 50`, the
+> title is 14 pt medium (`NativeParityTokens.swift:65-66`), and there is a 0.5 pt divider
+> (`ChatPage.swift:199`). Use `ChatMetrics.headerHeight` / `headerTitle` / `headerDivider`.
 
 | element | measurement |
 |---|---|
@@ -82,6 +113,15 @@ is the same geometry.
 
 ### 1.4 Transcript rows
 
+> ⛔ **SUPERSEDED (2026-11-01, PR #13).** The bubble is **radius 20** (a constant, not
+> height/2), padding **16 h / 10 v**, max width **277**, line box **22**; the tool row is
+> **24** and the turn-process row **33**, not 44; the standalone code block radius is **12**,
+> not 16. Sources: `NativeParityTokens.swift:98,100-101,115` and `ChatPage.swift:3738-3742`;
+> use `ChatMetrics`. The 17 pt body is also contested: the token says 14
+> (`typography.body`), the iOS preference default is 17 and the PNG renders 14 (L6 §3.9) —
+> owner decision pending, so this section's 17 pt is not evidence. `tokens.json` now carries
+> bubble radius 20 and max width 277.
+
 | row | measurement |
 |---|---|
 | user bubble | fill `#F2F3F5`, **radius 20 pt = height/2** (capsule for one line), text 17 pt `#000000`, padding **13.3 pt** left/right and **15 pt** top/bottom; one-line bubble 40.7 pt tall, right-aligned to x 385.7 |
@@ -93,6 +133,12 @@ is the same geometry.
 | back-to-latest pill | capsule 94 × 30 pt centered at x 200.3, y 651.7–681.7; near-white glass fill, 0.5 pt border, `arrow.down` + “回到最新” **17 pt** `#2F5BFF`; 23 pt above the composer card |
 
 ### 1.5 Input dock (chat) — the detailed section
+
+> ⛔ **SUPERSEDED (2026-11-01, PR #13).** The dock is **370 × 98 with radius 28**, not
+> 369.7 × 93.7 with radius 22; outer margins are **16 / 12 / 8**
+> (`NativeParityTokens.swift:96,97,116`; `ChatPage.swift:1884,1892-1894`), port **min 36 /
+> max 336**, control row **32**, send **34** with a 44 pt hit frame. Use `ChatMetrics`;
+> `spec/ui/v1/tokens.json` now carries `radius.composer: 28`.
 
 All measurements from `ios-chat-assistant.png` (collapsed), `ios-chat-draft.png`
 (max height) and `ios-chat-official.png` (stats row). The dock is **not a single
@@ -182,6 +228,14 @@ Not present in the assistant/draft/default states (empty session stats).
 
 ## 2. SettingsPage (`ios-settings.png`)
 
+> ⛔ **SUPERSEDED (2026-11-01).** This whole section describes the old **flat settings index**
+> (no grouped cards, 44 pt rows, 15 pt values, 0.33 pt hairlines). The current page is a
+> 5-tab segmented `Picker` over a default inset-grouped `List`
+> (`SettingsPage.swift:64-72,99-167`): row **52.33**, card radius **26**, separator **1 pt**
+> inset 16, value **17 pt**, section headers gone. Use `SettingsMetrics.kt` and
+> `docs/receipts/ui-metrics/L6-ios-ui-metrics.md` §2.2. The flat page itself predates even
+> the 2026-10-31 capture: `SettingsPage.swift` switched to the tabbed layout in `952fb081`.
+
 | property | measurement |
 |---|---|
 | chrome | inline nav title “设置” **17 pt semibold** centered at y 76.7–91.7; glass “完成” capsule top-left (17 pt `#2F5BFF` label in a ≈44 pt Liquid-Glass circle); pure white page, **no grouped card backgrounds** |
@@ -201,6 +255,11 @@ Row pitch is exactly 44 pt (132 px): separators at 194.7, 238.7, 282.7, 326.7,
 
 ### 2.1 Subpages
 
+> ⚠️ **Source stale (2026-11-01).** These subpage shots are from the same pre-rewrite set and
+> some of the pages are no longer reachable from the 5-tab index. The 34 pt large title is
+> corroborated by L6, but every other number here must be re-checked against the page source
+> and `SettingsMetrics.kt` before it is used.
+
 | page / shot | measured headline geometry |
 |---|---|
 | `ios-settings-model.png` | large title “模型服务” **34 pt bold**, glyph y 125.7–155, x 17.7; section headers “服务”/“生效方式” **20 pt**, `#66666B` (glyph 181–195.7); service name 17 pt semibold + “默认” 12 pt blue on `#E8EDFF` capsule; URL 15 pt `#66666B`; “读不到密钥” 13 pt orange `#C77700`; checkmark `checkmark.circle.fill` 22 pt `#2F5BFF` at x 360; action rows “添加模型服务”/“编辑默认服务” 17 pt `#2F5BFF` with `plus.circle` / `slider.horizontal.3`; 0.33 pt `#DDDCE2` separators inset 16 |
@@ -214,6 +273,13 @@ Row pitch is exactly 44 pt (132 px): separators at 194.7, 238.7, 282.7, 326.7,
 | `ios-code-block.png` | code block swatch: mono 15 pt, line pitch 20.7 pt, `#F2F3F5` chrome, 16 pt radius |
 
 ## 3. SessionsPage (`ios-sessions-default.png`, `ios-sessions-many.png`)
+
+> ⚠️ **Source stale (2026-11-01).** Captured before `f39acd0a` rewrote `SessionsPage.swift`
+> (29 added / 25 removed). Two known conflicts with L6: this section's search field is
+> **40 pt / r20**,
+> while L6 measured **44 / r22** on the 2026-11-01 `darkfinal-sessions-light.png`; the
+> drawer row pitch here (44/56) has no declared inter-row spacing in the source (L6 §3.3).
+> Use `SessionsMetrics.kt` and L6 §2.1.
 
 | property | measurement |
 |---|---|
@@ -229,6 +295,12 @@ Row pitch is exactly 44 pt (132 px): separators at 194.7, 238.7, 282.7, 326.7,
 | background | `#FFFFFF`; no card grouping |
 
 ## 4. FilesPage (`ios-files.png`)
+
+> ⚠️ **Source stale (2026-11-01).** `FilesPage.swift` geometry did not change in `f39acd0a`
+> (that commit only touched colours and `@ScaledMetric`), but this section's search field
+> **43.7 / r16** conflicts with L6's **44 / r22** measured on `darkpass-files-light.png`
+> — iOS 26's `.searchable` drawer is a capsule. The 34 pt large title is corroborated.
+> Use `ShellFilesMetrics.kt`.
 
 | property | measurement |
 |---|---|
@@ -248,3 +320,45 @@ These are deliberately **not** in the spec because no screenshot exists:
 * permission-card destination states (allowed/denied), long-press menus;
 * MCP settings/editor, native workbench, export sheet, Web surface;
 * the six unreachable pages (see `REACHABILITY.md`).
+
+## 6. Which commit these shots belong to — and how to judge one shot
+
+**Answered for this set: `captured_at=2026-11-01T08:43:26Z`, HEAD `86a39aac`,
+strict build, no shim.** Both facts are recorded in `conditions.txt`; the
+2026-10-31 forensic reconstruction below is kept because it is the reason this
+lane exists.
+
+| fact | value | evidence |
+|---|---|---|
+| recorded capture time | `2026-11-01T08:43:26Z` | `conditions.txt` |
+| recorded commit | `86a39aac` (PR #13 `9d46fc3c` is an ancestor) | `conditions.txt` `ios_head=` |
+| build under test | HEAD as it is; `** BUILD SUCCEEDED **`, no added constant | `$TMPDIR/pdsh-ios-baseline/build.log` |
+| harness chrome | none — the DEBUG cover has no close button at HEAD | `NativeShell.swift:179` |
+| how to judge a shot | compare the page with the current source, not the timestamp | rule below |
+
+History (2026-10-31 batch, for the record): that set had no commit SHA, was built
+from a copy with one added constant, and mixed at least two capture batches —
+`ios-settings.png` still showed the flat settings index that `SettingsPage.swift`
+had replaced hours earlier, and the ✕ button appeared on most pages. Nothing in
+this directory is older than `86a39aac` any more, but **the numbers in §0–§4 were
+measured on those older pixels**; see the banner at the top for which ones still
+hold.
+
+Rules for judging a shot (unchanged, still worth following):
+
+1. **The date is not a staleness test.** Compare the page/control the shot shows
+   with the current source (or the L6 metrics), not its filename or timestamp.
+2. A shot is valid only for the build that produced it. Before quoting a number,
+   confirm the page in the image still matches `examples/probe-app/PhoneDSHProbe/*.swift`
+   at HEAD.
+
+Per group, against the re-shot set:
+
+| group | count | status after the re-shoot |
+|---|---|---|
+| `ios-chat-*.png` | 8 | **re-shot**; composer spacing and the header's device glyph are new — re-measure §1.5/§1.1 |
+| `ios-sessions-*.png` | 7 | **re-shot**; chrome identical, content shifted up ~18 pt (✕ removed) |
+| `ios-settings*.png` | 7 | **re-shot**; `ios-settings.png` is now the five-tab sheet, so §2's source description and the image finally agree |
+| `ios-files.png`, `ios-workspace-folders.png`, `ios-shell.png` | 3 | **re-shot**; geometry unchanged, shifted up |
+| `ios-code-block.png` | 1 | **re-shot**; block geometry unchanged (radius is `radius.codeBlock` = 12 per `Components.swift:223`, not the 16 measured here) |
+| `ios-environment-home.png` | 1 | carried over (environment proof only) |

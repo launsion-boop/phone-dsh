@@ -33,7 +33,7 @@ ANDROID_HOME="${ANDROID_HOME:-$(sed -n 's/^sdk\.dir=//p' "$ROOT/android/local.pr
 if [ -z "${JAVA_HOME:-}" ] && command -v java >/dev/null 2>&1; then
   JAVA_HOME="$(cd "$(dirname "$(command -v java)")/.." && pwd)"
 fi
-PACKAGE="com.phonedsh.probe"
+PACKAGE="${PDSH_PACKAGE:-com.phonedsh.app}"
 ARTIFACTS="$ROOT/android/build/nav-artifacts"
 
 BUILD=1
@@ -262,7 +262,16 @@ expect "workspace page" "宿主未提供写命令：本页只读"
 # The baseline's toolbar verb is 添加 (NativeShell.swift:376), and the empty-state
 # carries the longer 添加工作文件夹 call to action.
 expect_disabled "workspace page" "添加"
-expect "workspace note" "只读：本宿主未实现文件夹的新建、切换、删除与文件读取"
+expect "workspace note" "只读：本宿主未实现文件夹的新建、切换、删除"
+
+say "entry: 抽屉「文件」 → FilesPage"
+# The files page had no touch entry in the App: the workspace-folders row it
+# normally hangs from is drawn disabled while that page is read-only. This drawer
+# row is the direct read entry; on a fresh install the workspace tree may not have
+# been materialized yet, so both honest states are accepted.
+start_app && tap "打开抽屉" && tap "文件"
+expect "files page" "手机工作区"
+expect_any "files page" "还没有文件" "等待引擎连接…"
 
 say "entry: 抽屉「定时任务」 → NativeAutomationPage"
 start_app && tap "打开抽屉" && tap "定时任务"

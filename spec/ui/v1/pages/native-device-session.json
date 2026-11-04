@@ -3,8 +3,8 @@
   "page": "NativeDeviceSessionPage",
   "pageId": "native-device-session",
   "structure": "swiftui-view",
-  "sectionModel": "unmodeled",
-  "sectionNote": null,
+  "sectionModel": "single-region",
+  "sectionNote": "VStack: a read-only 36 pt header row, an optional error label, then one LazyVStack transcript; no Section anywhere",
   "title": null,
   "source": {
     "file": "NativeDeviceSessionPage.swift",
@@ -18,15 +18,16 @@
   },
   "android": {
     "screen": "NativeDeviceSessionPage",
-    "file": null,
-    "match": "missing"
+    "file": "android/lib/src/main/kotlin/com/phonedsh/ui/page/NativeDeviceSessionPage.kt",
+    "match": "composable"
   },
   "sections": [
     {
-      "id": "region-362",
-      "kind": "implicit",
+      "id": "single-region-362",
+      "kind": "single-region",
       "title": null,
       "titleTemplate": null,
+      "dynamicTitle": false,
       "titleSource": "absent",
       "condition": null,
       "collection": null,
@@ -141,11 +142,11 @@
       ],
       "provenance": "NativeDeviceSessionPage.swift:362",
       "anchor": "struct NativeDeviceSessionPage: View {",
-      "extraction": "manual",
       "criterion": {
-        "kind": "implicit"
+        "kind": "single-region"
       },
-      "note": "no Section/PageSection/GroupBox/header Text found: the whole body is one region, so a human must say what the group is (or the page has none)"
+      "extraction": "manual",
+      "note": "VStack: a read-only 36 pt header row, an optional error label, then one LazyVStack transcript; no Section anywhere"
     }
   ],
   "actions": [

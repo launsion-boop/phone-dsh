@@ -49,7 +49,23 @@ class TurnForegroundService : Service() {
             return START_NOT_STICKY
         }
         if (!TurnRuntime.snapshot().isRunning) {
-            TurnRuntime.begin(TurnRuntime.Backend.FOREGROUND_SERVICE, request)
+            when (val begun = TurnRuntime.begin(TurnRuntime.Backend.FOREGROUND_SERVICE, request)) {
+                is TurnRuntime.BeginResult.Refused -> {
+                    // A start queued before the user stopped the turn: the same
+                    // ghost window the UIDT path refuses (L60 #7). Nothing was
+                    // promoted to the foreground, so there is nothing to detach;
+                    // stop what the platform started and write no marker.
+                    Log.w(
+                        TAG,
+                        "start for epoch=${request.epoch} refused (${begun.reason.wire}); " +
+                            "the turn already ended, stopping without running",
+                    )
+                    stopSelf(startId)
+                    return START_NOT_STICKY
+                }
+
+                is TurnRuntime.BeginResult.Started -> Unit
+            }
         }
         val snapshot = TurnRuntime.snapshot()
         val started = try {

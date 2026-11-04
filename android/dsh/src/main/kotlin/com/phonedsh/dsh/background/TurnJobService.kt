@@ -33,7 +33,26 @@ class TurnJobService : JobService() {
             jobFinished(params, false)
             return false
         }
-        TurnRuntime.begin(TurnRuntime.Backend.USER_INITIATED_JOB, request)
+        when (val begun = TurnRuntime.begin(TurnRuntime.Backend.USER_INITIATED_JOB, request)) {
+            is TurnRuntime.BeginResult.Refused -> {
+                // The turn ended while this job was queued on the main thread
+                // (the audit's interleaving: stop() closed the window, cancel()
+                // could not take back a callback already dispatched). Running it
+                // now would reopen a `RUNNING` window nobody owns, exempt the
+                // drain guard and rewrite the interrupted marker. Close what the
+                // platform started instead — no binding, no marker, no
+                // notification (L60 #7).
+                Log.w(
+                    TAG,
+                    "job ${params.jobId} epoch=${request.epoch} refused (${begun.reason.wire}); " +
+                        "the turn already ended, finishing without work",
+                )
+                finishJobQuietly(params)
+                return false
+            }
+
+            is TurnRuntime.BeginResult.Started -> Unit
+        }
         TurnRuntime.bindJob(this, params)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             attachNotification(params)
@@ -50,7 +69,11 @@ class TurnJobService : JobService() {
         // admission, keep the durable marker, and let the system reschedule.
         if (TurnRuntime.snapshot().backend == TurnRuntime.Backend.USER_INITIATED_JOB) {
             TurnRuntime.closeAdmission(TurnRuntime.StopReason.JOB_STOPPED)
-            TurnRuntime.finish(TurnRuntime.StopReason.JOB_STOPPED)
+            // `true` below asks the platform to reschedule *this same job/epoch*,
+            // so the stop is retriable: the next `onStartJob` for it is the
+            // documented resume. Every terminal close clears the flag, which is
+            // what keeps a user stop from being undone by a queued start.
+            TurnRuntime.finish(TurnRuntime.StopReason.JOB_STOPPED, retriable = true)
         }
         InterruptedTurnStore(this).noteInterruption(TurnRuntime.StopReason.JOB_STOPPED)
         TurnNotifications.cancelProgress(this)
@@ -88,6 +111,21 @@ class TurnJobService : JobService() {
             step = extras.getInt(TurnRequest.EXTRA_STEP, 0),
             totalSteps = extras.getInt(TurnRequest.EXTRA_TOTAL_STEPS, 0),
         )
+    }
+
+    /**
+     * `jobFinished` for a job this component refused.
+     *
+     * The platform may have cancelled the job between dispatching `onStartJob`
+     * and this call, and `jobFinished` then throws. Swallowing that is correct:
+     * the window is already closed, and a crash inside a refused start would
+     * turn "nothing ran" into "the process died".
+     */
+    private fun finishJobQuietly(params: JobParameters) {
+        runCatching { jobFinished(params, false) }
+            .onFailure {
+                Log.w(TAG, "jobFinished(${params.jobId}) failed: ${it.javaClass.simpleName}")
+            }
     }
 
     private fun stopReasonName(params: JobParameters): String = if (

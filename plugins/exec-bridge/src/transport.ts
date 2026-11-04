@@ -184,7 +184,66 @@ export function withPhoneExecFields(request: ExecRequest, lastMseq: bigint): Exe
       )
     }
   }
-  return { ...request, requires_mseq: requiresMseq, idem_key: idemKey }
+  return { ...request, env: withTrustedSession(request), requires_mseq: requiresMseq, idem_key: idemKey }
+}
+
+/**
+ * The env member that carries the tool call's session to the host, so the host
+ * can bind an approval to it without trusting anything the model wrote.
+ *
+ * It lives here, not in `shell-ext`'s accelerator wrapper, because **this** is
+ * where the production Worker builds the EXEC_REQ. The wrapper marks the
+ * `ubuntu` command's own request with {@link markTrustedToolCallSession}; every
+ * other dispatch — including a script that types `phone ubuntu run` itself —
+ * has the member deleted, because argv shape cannot prove who built the call.
+ */
+export const TOOL_CALL_SESSION_ENV = 'PDSH_TOOL_CALL_SESSION'
+
+/** channel.md §6 / D6 identifier shape; a session id follows it. */
+const TRUSTED_SESSION_ID = /^[A-Za-z0-9._-]{1,64}$/u
+
+/**
+ * Session marks for the `ubuntu` command's own dispatch.
+ *
+ * The mark is keyed by the request object itself: it is an out-of-band fact
+ * created by the bridge, not an EXEC_REQ member, so it adds nothing to the
+ * `channel.md` §4.2 wire and no caller can set it through env or argv.
+ */
+const trustedToolCallSessions = new WeakMap<ExecRequest, string>()
+
+/**
+ * Mark `request` as the `ubuntu` command's own dispatch and record its trusted
+ * session.
+ *
+ * Only {@link withPhoneExecFields} reads this mark, and only the bridge's
+ * `ubuntu` dispatch path calls it. The id must satisfy D6; a malformed value is
+ * a producer bug, not something to forward.
+ * @param request - the EXEC_REQ the bridge is about to hand to a transport.
+ * @param session - the D6 session id taken from `AcceleratorRequest.sessionId`.
+ */
+export function markTrustedToolCallSession(request: ExecRequest, session: string): void {
+  if (!TRUSTED_SESSION_ID.test(session)) {
+    throw new TypeError(`trusted tool-call session ${JSON.stringify(session)} is not a D6 identifier`)
+  }
+  trustedToolCallSessions.set(request, session)
+}
+
+/**
+ * Delete every caller-supplied session member and re-add the one explicit mark,
+ * if the request has it. The forwarded env is always a copy: neither the shell's
+ * value nor the bridge's own env object is mutated.
+ */
+function withTrustedSession(
+  request: ExecRequest,
+): Record<string, string | null> | undefined {
+  const session = trustedToolCallSessions.get(request)
+  if (request.env === undefined) {
+    return session === undefined ? undefined : { [TOOL_CALL_SESSION_ENV]: session }
+  }
+  const next: Record<string, string | null> = { ...request.env }
+  delete next[TOOL_CALL_SESSION_ENV]
+  if (session !== undefined) next[TOOL_CALL_SESSION_ENV] = session
+  return next
 }
 
 /** Derive the D10 key from the request env or the ambient tool-call context; undefined outside both. */

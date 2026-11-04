@@ -23,8 +23,8 @@
   },
   "android": {
     "screen": "NativeDeviceConnectionPage",
-    "file": null,
-    "match": "missing"
+    "file": "android/lib/src/main/kotlin/com/phonedsh/ui/page/NativeDeviceConnectionPage.kt",
+    "match": "composable"
   },
   "sections": [
     {

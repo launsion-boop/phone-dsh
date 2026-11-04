@@ -7,9 +7,7 @@
 // an older or incomplete contract), or a known member carries a type/value the
 // schema forbids (the peer is wrong and the manifest cannot be trusted). The
 // codes are stable because they may be logged, retried on or quarantined on;
-// `:domain`'s `DomainStoreException` is the local precedent for a declared
-// failure carrying the numbers it used, and `WalErrorCode` for a code table that
-// callers match on.
+// `WalErrorCode` is the local precedent for a code table that callers match on.
 
 package com.phonedsh.domain.device
 

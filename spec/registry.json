@@ -1,0 +1,1191 @@
+{
+  "format_version": 1,
+  "schema": {
+    "type": "array",
+    "minItems": 1,
+    "items": {
+      "type": "object",
+      "required": [
+        "id",
+        "owner_role",
+        "authority",
+        "ends",
+        "triggers",
+        "status",
+        "evidence",
+        "source"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "P[0-9]{2}"
+        },
+        "owner_role": {
+          "type": "string",
+          "minLength": 1
+        },
+        "authority": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "ends": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 1,
+            "uniqueItems": true
+          }
+        },
+        "triggers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "glob"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "glob": {
+                "type": "string",
+                "minLength": 1
+              },
+              "exclude": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "minItems": 1,
+                "uniqueItems": true
+              },
+              "contains_any": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "minItems": 1,
+                "uniqueItems": true
+              }
+            }
+          },
+          "minItems": 1
+        },
+        "status": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "implemented",
+              "partial",
+              "target",
+              "draft",
+              "legacy",
+              "deprecated"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "source": {
+          "type": "object",
+          "required": [
+            "authority",
+            "ends",
+            "evidence",
+            "triggers"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "authority": {
+              "type": "string",
+              "minLength": 1
+            },
+            "ends": {
+              "type": "string",
+              "minLength": 1
+            },
+            "evidence": {
+              "type": "string",
+              "minLength": 1
+            },
+            "triggers": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    }
+  },
+  "contracts": [
+    {
+      "id": "P01",
+      "owner_role": "channel／wire owner",
+      "authority": [
+        "spec/v1/channel.md",
+        "spec/v1/schema",
+        "spec/v1/golden/frames"
+      ],
+      "ends": {
+        "Swift": [
+          "Sources/PhoneDSHWire",
+          "Sources/PhoneDSHLoopback/ChannelServer.swift",
+          "Sources/PhoneDSH/PhoneDSHChannel.swift"
+        ],
+        "TypeScript": [
+          "plugins/channel/src"
+        ],
+        "Rust": [
+          "shell/crates/pdsh-wire",
+          "shell/crates/pdsh-jni"
+        ],
+        "Kotlin": [
+          "android/core/src/main/kotlin/com/phonedsh/wire",
+          "android/dsh/src/main/kotlin/com/phonedsh/dsh/host/{HostHello,HostChannel,VfsFrames}.kt"
+        ]
+      },
+      "triggers": [
+        {
+          "glob": "spec/v1/{channel.md,README.md}"
+        },
+        {
+          "glob": "spec/v1/schema/{hello,exec-req,exec-ctl,lifecycle,fence,error,console,api-*}.schema.json"
+        },
+        {
+          "glob": "spec/v1/golden/frames/**"
+        },
+        {
+          "glob": "Sources/PhoneDSHWire/**",
+          "exclude": [
+            "Sources/PhoneDSHWire/WAL.swift"
+          ]
+        },
+        {
+          "glob": "Sources/PhoneDSHLoopback/{ChannelServer,DefaultChannelHandling,WebSocket,LoopbackServer}.swift"
+        },
+        {
+          "glob": "Sources/PhoneDSH/PhoneDSHChannel.swift"
+        },
+        {
+          "glob": "plugins/channel/src/**",
+          "exclude": [
+            "plugins/channel/src/wal*"
+          ]
+        },
+        {
+          "glob": "shell/crates/pdsh-wire/**"
+        },
+        {
+          "glob": "shell/crates/pdsh-jni/src/{lib,bridge}.rs"
+        },
+        {
+          "glob": "android/core/src/main/kotlin/com/phonedsh/wire/**"
+        },
+        {
+          "glob": "android/dsh/src/main/kotlin/com/phonedsh/dsh/host/{HostHello,HostChannel,VfsFrames,VfsSink,BootId}.kt"
+        },
+        {
+          "glob": "android/engine/src/main/kotlin/com/phonedsh/engine/{FrameType,HelloFields,ChannelReopenLane,ObservedChannelHandler}.kt"
+        }
+      ],
+      "status": [],
+      "evidence": [
+        "Tests/PhoneDSHWireTests/GoldenFrameTests.swift",
+        "plugins/channel/src/golden-frames.test.ts",
+        "android/core/src/test/kotlin/com/phonedsh/wire/WireGoldenFramesTest.kt",
+        "shell/crates/pdsh-wire/tests/golden_frames.rs"
+      ],
+      "source": {
+        "authority": "[v1/channel.md](v1/channel.md)、[v1/schema](v1/schema)、[golden/frames](v1/golden/frames)",
+        "ends": "Swift [PhoneDSHWire](../Sources/PhoneDSHWire/)、[ChannelServer](../Sources/PhoneDSHLoopback/ChannelServer.swift)、[PhoneDSHChannel](../Sources/PhoneDSH/PhoneDSHChannel.swift)；TS [channel](../plugins/channel/src/)；Rust [pdsh-wire](../shell/crates/pdsh-wire/) 經 [pdsh-jni](../shell/crates/pdsh-jni/) 供 Android；Kotlin [core/wire](../android/core/src/main/kotlin/com/phonedsh/wire/)（JNI 殼）、[dsh/host](../android/dsh/src/main/kotlin/com/phonedsh/dsh/host/) 的 HostHello／HostChannel／VfsFrames",
+        "evidence": "[Swift](../Tests/PhoneDSHWireTests/GoldenFrameTests.swift)、[TS](../plugins/channel/src/golden-frames.test.ts)、[Kotlin](../android/core/src/test/kotlin/com/phonedsh/wire/WireGoldenFramesTest.kt)、[Rust](../shell/crates/pdsh-wire/tests/golden_frames.rs)（`phone-rust-tests`；GAP-08 的其餘證據仍開放）",
+        "triggers": "`spec/v1/{channel.md,README.md}`、`spec/v1/schema/{hello,exec-req,exec-ctl,lifecycle,fence,error,console,api-*}.schema.json`、`spec/v1/golden/frames/**`、`Sources/PhoneDSHWire/**`（除 `WAL.swift`）、`Sources/PhoneDSHLoopback/{ChannelServer,DefaultChannelHandling,WebSocket,LoopbackServer}.swift`、`Sources/PhoneDSH/PhoneDSHChannel.swift`、`plugins/channel/src/**`（除 `wal*`）、`shell/crates/pdsh-wire/**`、`shell/crates/pdsh-jni/src/{lib,bridge}.rs`、`android/core/src/main/kotlin/com/phonedsh/wire/**`、`android/dsh/src/main/kotlin/com/phonedsh/dsh/host/{HostHello,HostChannel,VfsFrames,VfsSink,BootId}.kt`、`android/engine/src/main/kotlin/com/phonedsh/engine/{FrameType,HelloFields,ChannelReopenLane,ObservedChannelHandler}.kt`"
+      }
+    },
+    {
+      "id": "P02",
+      "owner_role": "VFS／WAL owner",
+      "authority": [
+        "spec/v1/wal.md",
+        "spec/v1/schema/manifest.schema.json",
+        "spec/v1/golden/wal"
+      ],
+      "ends": {
+        "Swift": [
+          "Sources/PhoneDSHLog",
+          "Sources/PhoneDSHWire/WAL.swift"
+        ],
+        "Rust": [
+          "shell/crates/pdsh-wal"
+        ],
+        "Kotlin": [
+          "android/core/src/main/kotlin/com/phonedsh/log",
+          "android/dsh/src/main/kotlin/com/phonedsh/dsh/host/{HostWal,WalUplink}.kt"
+        ],
+        "TypeScript": [
+          "plugins/channel/src/wal.ts"
+        ]
+      },
+      "triggers": [
+        {
+          "glob": "spec/v1/wal.md"
+        },
+        {
+          "glob": "spec/v1/schema/manifest.schema.json"
+        },
+        {
+          "glob": "spec/v1/golden/wal/**"
+        },
+        {
+          "glob": "Sources/PhoneDSHWire/WAL.swift"
+        },
+        {
+          "glob": "Sources/PhoneDSHLog/**"
+        },
+        {
+          "glob": "plugins/channel/src/{wal,vfs-mutation}.ts"
+        },
+        {
+          "glob": "shell/crates/pdsh-wal/**"
+        },
+        {
+          "glob": "shell/crates/pdsh-jni/src/wal.rs"
+        },
+        {
+          "glob": "android/core/src/main/kotlin/com/phonedsh/log/**"
+        },
+        {
+          "glob": "android/core/src/main/kotlin/com/phonedsh/wire/{NativeWal,WalException}.kt"
+        },
+        {
+          "glob": "android/dsh/src/main/kotlin/com/phonedsh/dsh/host/{HostWal,WalUplink,HostLog}.kt"
+        },
+        {
+          "glob": "android/engine/src/main/kotlin/com/phonedsh/engine/BootOverlay*.kt"
+        }
+      ],
+      "status": [],
+      "evidence": [
+        "Tests/PhoneDSHWireTests/WALTests.swift",
+        "Tests/PhoneDSHLogTests",
+        "android/core/src/test/kotlin/com/phonedsh/wire/NativeWalGoldenTest.kt",
+        "shell/crates/pdsh-wal/tests/golden_wal.rs"
+      ],
+      "source": {
+        "authority": "[v1/wal.md](v1/wal.md)、[manifest schema](v1/schema/manifest.schema.json)、[golden/wal](v1/golden/wal)",
+        "ends": "Swift [PhoneDSHLog](../Sources/PhoneDSHLog/)、[WAL.swift](../Sources/PhoneDSHWire/WAL.swift)；Rust [pdsh-wal](../shell/crates/pdsh-wal/)；Kotlin [core/log](../android/core/src/main/kotlin/com/phonedsh/log/)、`dsh/host/{HostWal,WalUplink}.kt`；TS `plugins/channel/src/wal.ts` 只是**對拍 codec**，無生產消費者",
+        "evidence": "Swift `WALTests`、`PhoneDSHLogTests`；Kotlin `NativeWalGoldenTest`；Rust [golden_wal.rs](../shell/crates/pdsh-wal/tests/golden_wal.rs)（`phone-rust-tests`）",
+        "triggers": "`spec/v1/wal.md`、`spec/v1/schema/manifest.schema.json`、`spec/v1/golden/wal/**`、`Sources/PhoneDSHWire/WAL.swift`、`Sources/PhoneDSHLog/**`、`plugins/channel/src/{wal,vfs-mutation}.ts`、`shell/crates/pdsh-wal/**`、`shell/crates/pdsh-jni/src/wal.rs`、`android/core/src/main/kotlin/com/phonedsh/log/**`、`android/core/src/main/kotlin/com/phonedsh/wire/{NativeWal,WalException}.kt`、`android/dsh/src/main/kotlin/com/phonedsh/dsh/host/{HostWal,WalUplink,HostLog}.kt`、`android/engine/src/main/kotlin/com/phonedsh/engine/BootOverlay*.kt`"
+      }
+    },
+    {
+      "id": "P03",
+      "owner_role": "exec／journal／handoff owner",
+      "authority": [
+        "spec/v1/exec.md",
+        "spec/v1/handoff.md",
+        "spec/v1/budgets.md",
+        "spec/v1/golden/perturbations"
+      ],
+      "ends": {
+        "Swift": [
+          "Sources/PhoneDSHController",
+          "Sources/PhoneDSH/Handoff",
+          "Sources/PhoneDSH/Background",
+          "Sources/PhoneDSH/{PhoneDSHLedger,PhoneDSHHost}.swift"
+        ],
+        "TypeScript": [
+          "plugins/{exec-bridge,tool-journal,lifecycle-gate,subprocess-xl}/**"
+        ],
+        "Kotlin": [
+          "android/controller/src/main",
+          "android/dsh/src/main/kotlin/com/phonedsh/dsh/{exec,journal,background}/**"
+        ]
+      },
+      "triggers": [
+        {
+          "glob": "spec/v1/{exec,handoff,budgets}.md"
+        },
+        {
+          "glob": "spec/v1/schema/{handoff-*,perturbation}.schema.json"
+        },
+        {
+          "glob": "spec/v1/golden/perturbations/**"
+        },
+        {
+          "glob": "Sources/PhoneDSHController/**"
+        },
+        {
+          "glob": "Sources/PhoneDSH/{Handoff,Background}/**"
+        },
+        {
+          "glob": "Sources/PhoneDSH/{PhoneDSHLedger,PhoneDSHHost,PhoneDSHLifecycle,PhoneDSHInactivity,HostFault}.swift"
+        },
+        {
+          "glob": "Sources/PhoneDSHAgentCore/{ExecBridgeHosting,Delegation}.swift"
+        },
+        {
+          "glob": "plugins/{exec-bridge,tool-journal,lifecycle-gate,subprocess-xl}/src/**"
+        },
+        {
+          "glob": "android/controller/src/main/**"
+        },
+        {
+          "glob": "android/dsh/src/main/kotlin/com/phonedsh/dsh/{exec,journal,background}/**"
+        }
+      ],
+      "status": [],
+      "evidence": [
+        "Tests/PhoneDSHControllerTests/{StepMachineJournalContractTests,SideEffectLedgerTests}.swift",
+        "Tests/PhoneDSHTests/PhoneDSHDrainRecoveryContractTests.swift",
+        "plugins/tests/journal-sync.test.ts",
+        "android/**/PerturbationFixtureTest.kt"
+      ],
+      "source": {
+        "authority": "[v1/exec.md](v1/exec.md)、[v1/handoff.md](v1/handoff.md)、[v1/budgets.md](v1/budgets.md)、[golden/perturbations](v1/golden/perturbations)",
+        "ends": "Swift [PhoneDSHController](../Sources/PhoneDSHController/)、[Handoff](../Sources/PhoneDSH/Handoff/)、[Background](../Sources/PhoneDSH/Background/)、`PhoneDSHLedger.swift`、`PhoneDSHHost.swift`；TS `plugins/{exec-bridge,tool-journal,lifecycle-gate,subprocess-xl}`；Kotlin [android/controller](../android/controller/src/main/)、`android/dsh/.../dsh/{exec,journal,background}`",
+        "evidence": "`StepMachineJournalContractTests`、`SideEffectLedgerTests`、`PhoneDSHDrainRecoveryContractTests`、`plugins/tests/journal-sync.test.ts`、Kotlin `PerturbationFixtureTest`",
+        "triggers": "`spec/v1/{exec,handoff,budgets}.md`、`spec/v1/schema/{handoff-*,perturbation}.schema.json`、`spec/v1/golden/perturbations/**`、`Sources/PhoneDSHController/**`、`Sources/PhoneDSH/{Handoff,Background}/**`、`Sources/PhoneDSH/{PhoneDSHLedger,PhoneDSHHost,PhoneDSHLifecycle,PhoneDSHInactivity,HostFault}.swift`、`Sources/PhoneDSHAgentCore/{ExecBridgeHosting,Delegation}.swift`、`plugins/{exec-bridge,tool-journal,lifecycle-gate,subprocess-xl}/src/**`、`android/controller/src/main/**`、`android/dsh/src/main/kotlin/com/phonedsh/dsh/{exec,journal,background}/**`"
+      }
+    },
+    {
+      "id": "P04",
+      "owner_role": "page bridge owner",
+      "authority": [
+        "spec/v1/bridge.md",
+        "spec/v1/schema/bridge-message.schema.json",
+        "spec/v1/golden/bridge"
+      ],
+      "ends": {
+        "Swift": [
+          "Sources/PhoneDSHEngine/WebEngine{NativePreview,DirectoryImport,Scripts}.swift",
+          "examples/probe-app/ProbeKit/MCPControlBridge.swift"
+        ],
+        "TypeScript": [
+          "plugins/phone-native-preview/src/protocol.ts"
+        ],
+        "Kotlin": [
+          "android/engine/src/main/kotlin/com/phonedsh/engine/{WebViewEngine,NavigationPolicy}.kt"
+        ]
+      },
+      "triggers": [
+        {
+          "glob": "spec/v1/bridge.md"
+        },
+        {
+          "glob": "spec/v1/schema/bridge-message.schema.json"
+        },
+        {
+          "glob": "spec/v1/golden/bridge/**"
+        },
+        {
+          "glob": "Sources/PhoneDSHEngine/WebEngine*.swift"
+        },
+        {
+          "glob": "examples/probe-app/ProbeKit/MCPControlBridge.swift"
+        },
+        {
+          "glob": "plugins/phone-native-preview/src/**"
+        },
+        {
+          "glob": "plugins/*/src/client/**",
+          "contains_any": [
+            "postMessage",
+            "webkit.messageHandlers"
+          ]
+        },
+        {
+          "glob": "android/engine/src/main/kotlin/com/phonedsh/engine/{WebViewEngine,WebViewKernel,NavigationPolicy,EngineCapabilities}.kt"
+        }
+      ],
+      "status": [
+        "target",
+        "legacy"
+      ],
+      "evidence": [
+        "spec/v1/tools/bridge_check.py"
+      ],
+      "source": {
+        "authority": "[v1/bridge.md](v1/bridge.md)、[bridge schema](v1/schema/bridge-message.schema.json)、[golden/bridge](v1/golden/bridge)",
+        "ends": "**規範大半是 `target`**。現行 handler：`pdshNativePreview`（Swift `Sources/PhoneDSHEngine/WebEngineNativePreview.swift` ↔ [protocol.ts](../plugins/phone-native-preview/src/protocol.ts)，`legacy` 形狀）、directory import、`xlEngine` console、`pdshMcpControl`（↔ `examples/probe-app/ProbeKit/MCPControlBridge.swift`）、`pdshOpenModelSettings`（**倉內無接收端**）；Kotlin `android/engine/.../{WebViewEngine,NavigationPolicy}.kt`",
+        "evidence": "bridge goldens **沒有任何 runtime 消費者**，只有 `bridge_check.py`",
+        "triggers": "`spec/v1/bridge.md`、`spec/v1/schema/bridge-message.schema.json`、`spec/v1/golden/bridge/**`、`Sources/PhoneDSHEngine/WebEngine*.swift`、`examples/probe-app/ProbeKit/MCPControlBridge.swift`、`plugins/phone-native-preview/src/**`、任何 `plugins/*/src/client/**` 中的 `postMessage`／`webkit.messageHandlers`、`android/engine/src/main/kotlin/com/phonedsh/engine/{WebViewEngine,WebViewKernel,NavigationPolicy,EngineCapabilities}.kt`"
+      }
+    },
+    {
+      "id": "P05",
+      "owner_role": "HTTP／MCP gateway owner",
+      "authority": [
+        "spec/v1/gateway-security.md",
+        "spec/v1/schema/gateway-vector.schema.json",
+        "spec/v1/golden/gateway"
+      ],
+      "ends": {
+        "Swift": [
+          "Sources/PhoneDSHGateway",
+          "Sources/PhoneDSHLoopback/{HTTPTransport,StreamingForward}.swift"
+        ],
+        "TypeScript": [
+          "plugins/llm-bridge",
+          "plugins/phone-mcp/src/{manager,schema}.ts"
+        ],
+        "Kotlin": [
+          "android/net/src/main"
+        ]
+      },
+      "triggers": [
+        {
+          "glob": "spec/v1/gateway-security.md"
+        },
+        {
+          "glob": "spec/v1/schema/gateway-vector.schema.json"
+        },
+        {
+          "glob": "spec/v1/golden/gateway/**"
+        },
+        {
+          "glob": "Sources/PhoneDSHGateway/**"
+        },
+        {
+          "glob": "Sources/PhoneDSHLoopback/{HTTPTransport,HTTPEgressFailure,StreamingForward,Loopback,Support}.swift"
+        },
+        {
+          "glob": "Sources/PhoneDSHAgentCore/{Credentials,HTTPSupport,ProviderError}.swift"
+        },
+        {
+          "glob": "plugins/llm-bridge/src/**"
+        },
+        {
+          "glob": "plugins/phone-mcp/src/{manager,schema,protocol}.ts"
+        },
+        {
+          "glob": "plugins/worker-entry/src/model-route.ts"
+        },
+        {
+          "glob": "android/net/src/main/**"
+        }
+      ],
+      "status": [],
+      "evidence": [
+        "android/net/src/test/kotlin/com/phonedsh/gateway/GatewayVectorConformanceTest.kt",
+        "Tests/PhoneDSHGatewayTests"
+      ],
+      "source": {
+        "authority": "[v1/gateway-security.md](v1/gateway-security.md)、[gateway schema](v1/schema/gateway-vector.schema.json)、[golden/gateway](v1/golden/gateway)",
+        "ends": "Swift [PhoneDSHGateway](../Sources/PhoneDSHGateway/)、Loopback 中的 HTTP 部分（`HTTPTransport`、`StreamingForward` 等；ChannelServer／WebSocket 屬 P01）；TS `plugins/llm-bridge`、`plugins/phone-mcp/src/{manager,schema}.ts`；Kotlin [android/net](../android/net/src/main/)",
+        "evidence": "只有 Kotlin `GatewayVectorConformanceTest` 讀 golden；Swift `Tests/PhoneDSHGatewayTests` 不讀",
+        "triggers": "`spec/v1/gateway-security.md`、`spec/v1/schema/gateway-vector.schema.json`、`spec/v1/golden/gateway/**`、`Sources/PhoneDSHGateway/**`、`Sources/PhoneDSHLoopback/{HTTPTransport,HTTPEgressFailure,StreamingForward,Loopback,Support}.swift`、`Sources/PhoneDSHAgentCore/{Credentials,HTTPSupport,ProviderError}.swift`、`plugins/llm-bridge/src/**`、`plugins/phone-mcp/src/{manager,schema,protocol}.ts`、`plugins/worker-entry/src/model-route.ts`、`android/net/src/main/**`"
+      }
+    },
+    {
+      "id": "P06",
+      "owner_role": "harness／host owner",
+      "authority": [
+        "spec/host/v1/README.md",
+        "spec/host/v1/event-kinds.md",
+        "spec/host/v1/golden"
+      ],
+      "ends": {
+        "Swift": [
+          "Sources/PhoneDSHAgentCore/AgentHarness.swift",
+          "Sources/PhoneDSHAgentCore/DSH",
+          "Sources/PhoneDSH/PhoneDSHEvents.swift"
+        ],
+        "Kotlin": [
+          "android/core/src/main/kotlin/com/phonedsh/{agentcore,hostevents}/**",
+          "android/dsh/src/main/kotlin/com/phonedsh/dsh/turn"
+        ]
+      },
+      "triggers": [
+        {
+          "glob": "spec/host/v1/**",
+          "exclude": [
+            "spec/host/v1/**/device-*"
+          ]
+        },
+        {
+          "glob": "Sources/PhoneDSHAgentCore/{AgentHarness.swift,DSH/**}"
+        },
+        {
+          "glob": "Sources/PhoneDSH/PhoneDSHEvents.swift"
+        },
+        {
+          "glob": "android/core/src/main/kotlin/com/phonedsh/{agentcore,hostevents}/**"
+        },
+        {
+          "glob": "android/dsh/src/main/kotlin/com/phonedsh/dsh/turn/**"
+        }
+      ],
+      "status": [],
+      "evidence": [
+        "android/core/src/test/kotlin/com/phonedsh/agentcore/HarnessKindClosureTest.kt",
+        "android/core/src/test/kotlin/com/phonedsh/hostevents/HostEventKindSchemaTest.kt",
+        "Tests/PhoneDSHAgentCoreTests"
+      ],
+      "source": {
+        "authority": "[host/v1/README.md](host/v1/README.md)、[event-kinds](host/v1/event-kinds.md)、[host goldens](host/v1/golden)",
+        "ends": "Swift [AgentHarness](../Sources/PhoneDSHAgentCore/AgentHarness.swift)、[DSH/](../Sources/PhoneDSHAgentCore/DSH/)、`PhoneDSHEvents.swift`；Kotlin `android/core/.../{agentcore,hostevents}`、`android/dsh/.../turn`",
+        "evidence": "只有 Kotlin `HarnessKindClosureTest`、`HostEventKindSchemaTest` 讀 golden；Swift AgentCore tests 不讀",
+        "triggers": "`spec/host/v1/**`（除 `device-*`）、`Sources/PhoneDSHAgentCore/{AgentHarness.swift,DSH/**}`、`Sources/PhoneDSH/PhoneDSHEvents.swift`、`android/core/src/main/kotlin/com/phonedsh/{agentcore,hostevents}/**`、`android/dsh/src/main/kotlin/com/phonedsh/dsh/turn/**`"
+      }
+    },
+    {
+      "id": "P07",
+      "owner_role": "device／connector owner",
+      "authority": [
+        "spec/host/v1/schema/device-*.schema.json",
+        "docs/design/device-adapter-contract-draft.md"
+      ],
+      "ends": {
+        "Swift": [
+          "examples/probe-app/ProbeKit/Devices"
+        ],
+        "Kotlin": [
+          "android/domain/src/main/kotlin/com/phonedsh/domain/{device,connector}/**"
+        ]
+      },
+      "triggers": [
+        {
+          "glob": "spec/host/v1/schema/device-*"
+        },
+        {
+          "glob": "spec/host/v1/golden/device-*"
+        },
+        {
+          "glob": "docs/design/device-*.md"
+        },
+        {
+          "glob": "android/domain/src/main/kotlin/com/phonedsh/domain/{device,connector}/**"
+        },
+        {
+          "glob": "examples/probe-app/ProbeKit/Devices/**"
+        }
+      ],
+      "status": [
+        "draft"
+      ],
+      "evidence": [
+        "android/domain/src/test/kotlin/com/phonedsh/domain/device/DeviceCapabilitiesSchemaTest.kt"
+      ],
+      "source": {
+        "authority": "host/v1 的 envelope／caps／receipt schema；[adapter draft](../docs/design/device-adapter-contract-draft.md)（`draft`）",
+        "ends": "Kotlin `android/domain/.../{device,connector}`；Swift `examples/probe-app/ProbeKit/Devices`",
+        "evidence": "Kotlin `DeviceCapabilitiesSchemaTest`；第三方傳輸與端到端回執不由 schema 保證",
+        "triggers": "`spec/host/v1/schema/device-*`、`spec/host/v1/golden/device-*`、`docs/design/device-*.md`、`android/domain/src/main/kotlin/com/phonedsh/domain/{device,connector}/**`、`examples/probe-app/ProbeKit/Devices/**`"
+      }
+    },
+    {
+      "id": "P08",
+      "owner_role": "platform owner",
+      "authority": [
+        "spec/platform/README.md",
+        "spec/platform/whitelist.json"
+      ],
+      "ends": {
+        "Swift": [
+          "Sources/PhoneDSH/Background"
+        ],
+        "Kotlin": [
+          "android/{platform,engine,net}/src/main/**"
+        ]
+      },
+      "triggers": [
+        {
+          "glob": "spec/platform/**"
+        },
+        {
+          "glob": "android/platform*/src/main/**"
+        },
+        {
+          "glob": "Sources/PhoneDSHController/Signals/**"
+        },
+        {
+          "glob": "Sources/PhoneDSH/Background/**"
+        }
+      ],
+      "status": [],
+      "evidence": [
+        "spec/platform/tools/platform_check.py"
+      ],
+      "source": {
+        "authority": "[platform/README.md](platform/README.md)、[whitelist](platform/whitelist.json)",
+        "ends": "Swift OS API、`Sources/PhoneDSH/Background`；Android `:platform`／`:engine`／`:net`",
+        "evidence": "`platform_check.py`；whitelist 不代替 conformance",
+        "triggers": "`spec/platform/**`、`android/platform*/src/main/**`、`Sources/PhoneDSHController/Signals/**`、`Sources/PhoneDSH/Background/**`"
+      }
+    },
+    {
+      "id": "P09",
+      "owner_role": "UI projection owner",
+      "authority": [
+        "spec/ui/v1/README.md",
+        "spec/ui/v1/tokens.json",
+        "spec/ui/v1/pages",
+        "spec/v1/trajectory.md"
+      ],
+      "ends": {
+        "Swift": [
+          "examples/probe-app/PhoneDSHProbe"
+        ],
+        "Kotlin": [
+          "android/lib"
+        ]
+      },
+      "triggers": [
+        {
+          "glob": "spec/ui/v1/**"
+        },
+        {
+          "glob": "spec/v1/trajectory.md"
+        },
+        {
+          "glob": "spec/v1/schema/{trajectory,ui-state-sequence}.schema.json"
+        },
+        {
+          "glob": "spec/v1/golden/trajectory/**"
+        },
+        {
+          "glob": "examples/probe-app/PhoneDSHProbe/**"
+        },
+        {
+          "glob": "android/lib/src/main/**"
+        }
+      ],
+      "status": [],
+      "evidence": [
+        "android/**/UiStateProjectorGoldenTest.kt",
+        "android/**/TrajectoryNormalizerTest.kt",
+        "spec/ui/v1/tools/ui_check.py",
+        "spec/ui/v1/tools/page_structure_check.py"
+      ],
+      "source": {
+        "authority": "[ui/v1/README.md](ui/v1/README.md)、[tokens](ui/v1/tokens.json)、[pages](ui/v1/pages)、[v1/trajectory.md](v1/trajectory.md)",
+        "ends": "iOS `examples/probe-app/PhoneDSHProbe`；Android `android/lib`",
+        "evidence": "Kotlin `UiStateProjectorGoldenTest`、`TrajectoryNormalizerTest`；`ui_check.py`、`page_structure_check.py`",
+        "triggers": "`spec/ui/v1/**`、`spec/v1/trajectory.md`、`spec/v1/schema/{trajectory,ui-state-sequence}.schema.json`、`spec/v1/golden/trajectory/**`、`examples/probe-app/PhoneDSHProbe/**`、`android/lib/src/main/**`"
+      }
+    },
+    {
+      "id": "P10",
+      "owner_role": "workflow isolate owner",
+      "authority": [
+        "plugins/workflow-worker/src/protocol.ts"
+      ],
+      "ends": {
+        "TypeScript": [
+          "plugins/workflow-worker/src"
+        ]
+      },
+      "triggers": [
+        {
+          "glob": "plugins/workflow-worker/src/**"
+        },
+        {
+          "glob": "plugins/types/dsh-workflow-*.d.ts"
+        }
+      ],
+      "status": [],
+      "evidence": [
+        "plugins/tests/workflow-worker.test.ts"
+      ],
+      "source": {
+        "authority": "[workflow-worker/src/protocol.ts](../plugins/workflow-worker/src/protocol.ts)",
+        "ends": "同 plugin 的 isolate",
+        "evidence": "[workflow tests](../plugins/tests/workflow-worker.test.ts)。structured-clone；不傳 Agent、token、VFS handle、function；無 wire version，不冒稱 proto 1；DSH pin 升級會牽動型別",
+        "triggers": "`plugins/workflow-worker/src/**`、`plugins/types/dsh-workflow-*.d.ts`"
+      }
+    },
+    {
+      "id": "P11",
+      "owner_role": "WASI VFS proxy owner",
+      "authority": [
+        "plugins/wasi-toolbox/src/vfs-protocol.ts",
+        "plugins/wasi-toolbox/src/types.ts"
+      ],
+      "ends": {
+        "TypeScript": [
+          "plugins/wasi-toolbox/src/{vfs-server,vfs-client,sab-client-worker,message-endpoint}.ts"
+        ]
+      },
+      "triggers": [
+        {
+          "glob": "plugins/wasi-toolbox/src/{vfs-*,sab-client-worker,message-endpoint,worker-scope,tool-worker-runtime,stdin-delivery,types}.ts"
+        }
+      ],
+      "status": [],
+      "evidence": [
+        "plugins/wasi-toolbox/src/{vfs-proxy,vfs-sab}.test.ts"
+      ],
+      "source": {
+        "authority": "[vfs-protocol.ts](../plugins/wasi-toolbox/src/vfs-protocol.ts)、[types.ts](../plugins/wasi-toolbox/src/types.ts)",
+        "ends": "`vfs-server.ts`、`vfs-client.ts`、`sab-client-worker.ts`、`message-endpoint.ts`",
+        "evidence": "[proxy](../plugins/wasi-toolbox/src/vfs-proxy.test.ts)、[SAB](../plugins/wasi-toolbox/src/vfs-sab.test.ts)。u32 長度是 **little-endian**，不可套用 P01 header",
+        "triggers": "`plugins/wasi-toolbox/src/{vfs-*,sab-client-worker,message-endpoint,worker-scope,tool-worker-runtime,stdin-delivery,types}.ts`"
+      }
+    },
+    {
+      "id": "P12",
+      "owner_role": "native ABI owner",
+      "authority": [
+        "shell/include/xzshell.h"
+      ],
+      "ends": {
+        "Rust": [
+          "shell/crates/{pdsh-ffi,pdsh-jni}/**"
+        ],
+        "Swift": [
+          "Sources/PhoneDSHShell"
+        ],
+        "Kotlin": [
+          "android/shell/src/main/kotlin/com/phonedsh/shell",
+          "android/core/src/main/kotlin/com/phonedsh/wire/Native*.kt"
+        ]
+      },
+      "triggers": [
+        {
+          "glob": "shell/include/**"
+        },
+        {
+          "glob": "shell/crates/{pdsh-ffi,pdsh-jni,pdsh-core}/**"
+        },
+        {
+          "glob": "shell/build-apple.sh"
+        },
+        {
+          "glob": "Sources/PhoneDSHShell/**"
+        },
+        {
+          "glob": "android/shell/src/main/**"
+        },
+        {
+          "glob": "android/core/src/main/kotlin/com/phonedsh/wire/Native*.kt"
+        }
+      ],
+      "status": [],
+      "evidence": [
+        "Package.swift",
+        "android/tools/check-native-alignment.py"
+      ],
+      "source": {
+        "authority": "[shell/include/xzshell.h](../shell/include/xzshell.h)",
+        "ends": "Rust [pdsh-ffi](../shell/crates/pdsh-ffi/)、[pdsh-jni](../shell/crates/pdsh-jni/)；Swift [PhoneDSHShell](../Sources/PhoneDSHShell/)（含必須與 header 同步的 `PDSHShellCSurface.swift` stub）；Kotlin [android/shell](../android/shell/src/main/kotlin/com/phonedsh/shell/)、`core/wire/Native*.kt`",
+        "evidence": "以 [Package.swift](../Package.swift)、Android build wiring、`android/tools/check-native-alignment.py` 判斷是否真的連結；source 存在不等於可用",
+        "triggers": "`shell/include/**`、`shell/crates/{pdsh-ffi,pdsh-jni,pdsh-core}/**`、`shell/build-apple.sh`、`Sources/PhoneDSHShell/**`、`Package.swift`、`android/shell/src/main/**`、`android/core/src/main/kotlin/com/phonedsh/wire/Native*.kt`"
+      }
+    },
+    {
+      "id": "P13",
+      "owner_role": "plugin Remote owner",
+      "authority": [
+        "plugins/phone-shell/src/contract.ts",
+        "plugins/phone-feature-admin/src/contracts.ts",
+        "plugins/phone-mcp/src/protocol.ts",
+        "plugins/phone-directory-import/src/types.ts",
+        "plugins/phone-model-config/src/remote.ts",
+        "plugins/surface-phone/src/management-remote.ts"
+      ],
+      "ends": {
+        "TypeScript": [
+          "plugins/{phone-shell,phone-feature-admin,phone-mcp,phone-directory-import,phone-model-config}/src/client/**"
+        ],
+        "Swift": [
+          "Sources/PhoneDSH/PhoneDSHWorkspaceImportSink.swift"
+        ]
+      },
+      "triggers": [
+        {
+          "glob": "plugins/{phone-shell,phone-feature-admin,phone-mcp,phone-directory-import,phone-model-config}/src/{contract*,protocol,types,remote,service,index}.ts"
+        },
+        {
+          "glob": "plugins/surface-phone/src/management-remote.ts"
+        },
+        {
+          "glob": "Sources/PhoneDSH/PhoneDSHWorkspaceImportSink.swift"
+        }
+      ],
+      "status": [],
+      "evidence": [
+        "plugins/tests/{phone-shell,phone-feature-admin,phone-mcp,phone-directory-import}.test.ts"
+      ],
+      "source": {
+        "authority": "[phone-shell](../plugins/phone-shell/src/contract.ts)、[feature-admin](../plugins/phone-feature-admin/src/contracts.ts)、[phone-mcp](../plugins/phone-mcp/src/protocol.ts)、[directory-import](../plugins/phone-directory-import/src/types.ts)、`phone-model-config/src/remote.ts`、`surface-phone/src/management-remote.ts`",
+        "ends": "Web client、Swift `PhoneDSHWorkspaceImportSink.swift`",
+        "evidence": "[shell](../plugins/tests/phone-shell.test.ts)、[admin](../plugins/tests/phone-feature-admin.test.ts)、[mcp](../plugins/tests/phone-mcp.test.ts)、[import](../plugins/tests/phone-directory-import.test.ts)。至少 6 個 service 共用 `phone` namespace，**沒有方法名登記表**（GAP-10）",
+        "triggers": "`plugins/{phone-shell,phone-feature-admin,phone-mcp,phone-directory-import,phone-model-config}/src/{contract*,protocol,types,remote,service,index}.ts`、`plugins/surface-phone/src/management-remote.ts`、`Sources/PhoneDSH/PhoneDSHWorkspaceImportSink.swift`"
+      }
+    },
+    {
+      "id": "P14",
+      "owner_role": "DSH Remote mux owner",
+      "authority": [
+        "Sources/PhoneDSH/ChannelDSHTransport.swift"
+      ],
+      "ends": {
+        "TypeScript": [
+          "plugins/worker-entry/src/mux-{bridge,tunnel,json}.ts"
+        ],
+        "Swift": [
+          "Sources/PhoneDSHAgentCore/DSH/DSHRemoteTransport.swift"
+        ],
+        "Kotlin": [
+          "android/dsh/src/main/kotlin/com/phonedsh/dsh/turn/DshTurnClient.kt"
+        ]
+      },
+      "triggers": [
+        {
+          "glob": "Sources/PhoneDSH/ChannelDSHTransport.swift"
+        },
+        {
+          "glob": "Sources/PhoneDSHAgentCore/DSH/DSHRemoteTransport.swift"
+        },
+        {
+          "glob": "plugins/worker-entry/src/mux-*.ts"
+        },
+        {
+          "glob": "android/dsh/src/main/kotlin/com/phonedsh/dsh/turn/DshTurnClient.kt"
+        }
+      ],
+      "status": [],
+      "evidence": [],
+      "source": {
+        "authority": "[ChannelDSHTransport.swift](../Sources/PhoneDSH/ChannelDSHTransport.swift)（`PhoneDSHMuxProtocol`，D22／D23）",
+        "ends": "`plugins/worker-entry/src/mux-{bridge,tunnel,json}.ts`；Swift `DSHRemoteTransport.swift`；Kotlin `android/dsh/.../turn/DshTurnClient.kt`",
+        "evidence": "`/api/remote.mux`：`x-pdsh-mux-id`、`x-pdsh-mux-op`、NDJSON、4 MiB 分塊。D21–D24 不在 v1 決策表（GAP-11）",
+        "triggers": "`Sources/PhoneDSH/ChannelDSHTransport.swift`、`Sources/PhoneDSHAgentCore/DSH/DSHRemoteTransport.swift`、`plugins/worker-entry/src/mux-*.ts`、`android/dsh/src/main/kotlin/com/phonedsh/dsh/turn/DshTurnClient.kt`"
+      }
+    },
+    {
+      "id": "P15",
+      "owner_role": "host 控制端點 owner",
+      "authority": [
+        "Sources/PhoneDSH/{PhoneDSHWorkerCommand,PhoneDSHRecovery,PhoneDSHDescendantDrain}.swift"
+      ],
+      "ends": {
+        "JavaScript": [
+          "plugins/surface-phone/src/*-controller.js"
+        ]
+      },
+      "triggers": [
+        {
+          "glob": "Sources/PhoneDSH/{PhoneDSHWorkerCommand,PhoneDSHRecovery,PhoneDSHDescendantDrain}.swift"
+        },
+        {
+          "glob": "plugins/surface-phone/src/*-controller.js"
+        }
+      ],
+      "status": [],
+      "evidence": [
+        "Tests/PhoneDSHTests/PhoneDSHWorkerCommandTests.swift",
+        "plugins/tests/worker-command-controller.test.ts"
+      ],
+      "source": {
+        "authority": "Swift `Sources/PhoneDSH/{PhoneDSHWorkerCommand,PhoneDSHRecovery,PhoneDSHDescendantDrain}.swift`",
+        "ends": "`plugins/surface-phone/src/*-controller.js`",
+        "evidence": "`/api/pdsh-worker-command/execute`（receipt `pdsh-worker-command/1`）、`/api/pdsh-recovery/*`、`/api/pdsh-descendant-drain`；`PhoneDSHWorkerCommandTests`、`plugins/tests/worker-command-controller.test.ts`",
+        "triggers": "`Sources/PhoneDSH/{PhoneDSHWorkerCommand,PhoneDSHRecovery,PhoneDSHDescendantDrain}.swift`、`plugins/surface-phone/src/*-controller.js`"
+      }
+    },
+    {
+      "id": "P16",
+      "owner_role": "Worker 啟動契約 owner",
+      "authority": [
+        "Sources/PhoneDSH/PhoneDSH.swift",
+        "Sources/PhoneDSHEngine/WebEngineConfiguration.swift"
+      ],
+      "ends": {
+        "Kotlin": [
+          "android/engine/src/main/kotlin/com/phonedsh/engine/WorkerEnvironment.kt"
+        ],
+        "JavaScript": [
+          "plugins/worker-entry/www/boot.js"
+        ],
+        "TypeScript": [
+          "plugins/worker-entry/src/{web-boot,entry}.ts"
+        ]
+      },
+      "triggers": [
+        {
+          "glob": "Sources/PhoneDSH/PhoneDSH.swift"
+        },
+        {
+          "glob": "Sources/PhoneDSHEngine/{WebEngineConfiguration,WebEngineScripts}.swift"
+        },
+        {
+          "glob": "android/engine/src/main/kotlin/com/phonedsh/engine/WorkerEnvironment.kt"
+        },
+        {
+          "glob": "plugins/worker-entry/{www/boot.js,src/web-boot.ts,src/entry.ts}"
+        }
+      ],
+      "status": [],
+      "evidence": [],
+      "source": {
+        "authority": "Swift `PhoneDSHWorkerEnvironment`（[PhoneDSH.swift](../Sources/PhoneDSH/PhoneDSH.swift)）、`Sources/PhoneDSHEngine/WebEngineConfiguration.swift`",
+        "ends": "Kotlin `android/engine/.../WorkerEnvironment.kt`；Worker **兩份**解析器 `plugins/worker-entry/www/boot.js`、`src/web-boot.ts`，及 `src/entry.ts`",
+        "evidence": "URL 參數、init 幀、`PDSH_*` 環境變數（D24）、`__PDSH_*` 全域變數。兩份解析器必須同改",
+        "triggers": "`Sources/PhoneDSH/PhoneDSH.swift`、`Sources/PhoneDSHEngine/{WebEngineConfiguration,WebEngineScripts}.swift`、`android/engine/src/main/kotlin/com/phonedsh/engine/WorkerEnvironment.kt`、`plugins/worker-entry/{www/boot.js,src/web-boot.ts,src/entry.ts}`"
+      }
+    },
+    {
+      "id": "P17",
+      "owner_role": "exec-bridge loopback owner",
+      "authority": [
+        "plugins/exec-bridge/src/client.ts"
+      ],
+      "ends": {
+        "Swift": [
+          "Sources/PhoneDSHLoopback/LoopbackServer.swift",
+          "Sources/PhoneDSHAgentCore/ExecBridgeHosting.swift",
+          "Sources/PhoneDSHGateway/ModelGateway.swift"
+        ]
+      },
+      "triggers": [
+        {
+          "glob": "plugins/exec-bridge/src/{client,transport}.ts"
+        },
+        {
+          "glob": "Sources/PhoneDSHLoopback/LoopbackServer.swift"
+        },
+        {
+          "glob": "Sources/PhoneDSHAgentCore/ExecBridgeHosting.swift"
+        },
+        {
+          "glob": "Sources/PhoneDSHGateway/ModelGateway.swift"
+        },
+        {
+          "glob": "Sources/PhoneDSHShell/PDSHShellTypes.swift"
+        }
+      ],
+      "status": [],
+      "evidence": [],
+      "source": {
+        "authority": "**權威缺失**：代碼引用的 `spec/exec-bridge-v1` 不在倉內（GAP-06）；現暫以 `plugins/exec-bridge/src/client.ts` 為準",
+        "ends": "Swift `LoopbackServer.swift`、`ExecBridgeHosting.swift`、`PhoneDSHGateway/ModelGateway.swift`",
+        "evidence": "`/v1/hello`、`/v1/exec*`、`/v1/fs*`、`/v1/lifecycle`，NDJSON",
+        "triggers": "`plugins/exec-bridge/src/{client,transport}.ts`、`Sources/PhoneDSHLoopback/LoopbackServer.swift`、`Sources/PhoneDSHAgentCore/ExecBridgeHosting.swift`、`Sources/PhoneDSHGateway/ModelGateway.swift`、`Sources/PhoneDSHShell/PDSHShellTypes.swift`"
+      }
+    },
+    {
+      "id": "P18",
+      "owner_role": "持久化設定 owner",
+      "authority": [
+        "plugins/worker-entry/src/capabilities.ts",
+        "plugins/phone-mcp/src/schema.ts",
+        "plugins/phone-model-config/src/model-config.ts"
+      ],
+      "ends": {
+        "Swift": [
+          "Sources/PhoneDSHLog/MaterializedInvariant.swift",
+          "Sources/PhoneDSHScenario/ScenarioBudgets.swift",
+          "Sources/PhoneDSH/Phone*Settings.swift"
+        ]
+      },
+      "triggers": [
+        {
+          "glob": "plugins/worker-entry/src/capabilities.ts"
+        },
+        {
+          "glob": "plugins/shell-ext/src/contract.ts"
+        },
+        {
+          "glob": "plugins/phone-mcp/src/schema.ts"
+        },
+        {
+          "glob": "plugins/phone-model-config/src/model-config.ts"
+        },
+        {
+          "glob": "Sources/PhoneDSH/Phone*Settings.swift"
+        },
+        {
+          "glob": "Sources/PhoneDSHLog/MaterializedInvariant.swift"
+        },
+        {
+          "glob": "Sources/PhoneDSHScenario/ScenarioBudgets.swift"
+        }
+      ],
+      "status": [],
+      "evidence": [],
+      "source": {
+        "authority": "`/dsh/home/capabilities.json`：`plugins/worker-entry/src/capabilities.ts`；`mcp.json`：`plugins/phone-mcp/src/schema.ts`（`MCP_CONFIG_VERSION`）；`PDSH_MODEL_PROVIDER_JSON`：`plugins/phone-model-config/src/model-config.ts`",
+        "ends": "Swift `MaterializedInvariant.swift`、`ScenarioBudgets.swift`、`Sources/PhoneDSH/Phone*Settings.swift`；未查得 Kotlin 讀寫這三種設定的對應端",
+        "evidence": "讀寫兩端、舊資料、降級一起評估；UserDefaults key 名也是協議",
+        "triggers": "`plugins/worker-entry/src/capabilities.ts`、`plugins/shell-ext/src/contract.ts`、`plugins/phone-mcp/src/schema.ts`、`plugins/phone-model-config/src/model-config.ts`、`Sources/PhoneDSH/Phone*Settings.swift`、`Sources/PhoneDSHLog/MaterializedInvariant.swift`、`Sources/PhoneDSHScenario/ScenarioBudgets.swift`"
+      }
+    },
+    {
+      "id": "P19",
+      "owner_role": "phone 工具 envelope owner",
+      "authority": [
+        "examples/probe-app/ProbeKit/Capabilities/PhoneToolEnvelope.swift",
+        "shell/crates/pdsh-phone/src/lib.rs"
+      ],
+      "ends": {
+        "Rust": [
+          "shell/crates/pdsh-phone/src/lib.rs"
+        ],
+        "Kotlin": [
+          "android/dsh/src/main/kotlin/com/phonedsh/dsh/host/PhoneInfoTool.kt"
+        ]
+      },
+      "triggers": [
+        {
+          "glob": "shell/crates/pdsh-phone/**"
+        },
+        {
+          "glob": "examples/probe-app/ProbeKit/Capabilities/PhoneTool*.swift"
+        },
+        {
+          "glob": "android/dsh/src/main/kotlin/com/phonedsh/dsh/host/PhoneInfoTool.kt"
+        }
+      ],
+      "status": [],
+      "evidence": [],
+      "source": {
+        "authority": "[PhoneToolEnvelope.swift](../examples/probe-app/ProbeKit/Capabilities/PhoneToolEnvelope.swift) 定義成功／失敗 envelope；Rust `shell/crates/pdsh-phone/src/lib.rs` 只定義 `phone.<tool>` 呼叫詞彙並原樣轉送結果",
+        "ends": "Rust host bridge 消費結果；Kotlin `android/dsh/.../host/PhoneInfoTool.kt` 是獨立的 `phone info` exec 子集，回傳 exec outcome，不是同一 envelope 的實作",
+        "evidence": "Swift 成功回覆 `{ok,tool,egress,scope,data,nextCursor,truncated}`，上限 256 KiB；不據此宣稱 Kotlin envelope 對齊",
+        "triggers": "`shell/crates/pdsh-phone/**`、`examples/probe-app/ProbeKit/Capabilities/PhoneTool*.swift`、`android/dsh/src/main/kotlin/com/phonedsh/dsh/host/PhoneInfoTool.kt`"
+      }
+    },
+    {
+      "id": "P20",
+      "owner_role": "Worker image 產物 owner",
+      "authority": [
+        "plugins/scripts/pack-image.mjs",
+        "plugins/dsh-pin.json"
+      ],
+      "ends": {
+        "Swift": [
+          "Sources/PhoneDSHLoopback/LoopbackServer.swift"
+        ],
+        "Kotlin": [
+          "android/engine/src/main/kotlin/com/phonedsh/engine/*WorkerAssetSource.kt"
+        ]
+      },
+      "triggers": [
+        {
+          "glob": "plugins/scripts/pack-image.mjs"
+        },
+        {
+          "glob": "plugins/dsh-pin.json"
+        },
+        {
+          "glob": "plugins/bundle/**"
+        },
+        {
+          "glob": "Sources/PhoneDSHLoopback/LoopbackServer.swift"
+        },
+        {
+          "glob": "android/engine/src/main/kotlin/com/phonedsh/engine/{WorkerAssets,*WorkerAssetSource}.kt"
+        }
+      ],
+      "status": [],
+      "evidence": [],
+      "source": {
+        "authority": "`plugins/scripts/pack-image.mjs`、[dsh-pin.json](../plugins/dsh-pin.json)",
+        "ends": "Swift `LoopbackServer.swift`；Kotlin `android/engine/.../*WorkerAssetSource.kt`",
+        "evidence": "`manifest.json`、`sizes.json`、`config/vfs-manifest.json`、lazy／overlay tar",
+        "triggers": "`plugins/scripts/pack-image.mjs`、`plugins/dsh-pin.json`、`plugins/bundle/**`、`Sources/PhoneDSHLoopback/LoopbackServer.swift`、`android/engine/src/main/kotlin/com/phonedsh/engine/{WorkerAssets,*WorkerAssetSource}.kt`"
+      }
+    },
+    {
+      "id": "P21",
+      "owner_role": "render-media／office IR owner",
+      "authority": [
+        "spec/v1/render-media-v1.md",
+        "spec/v1/office-ir-v1.json"
+      ],
+      "ends": {
+        "Swift": [
+          "Sources/PhoneDSHEngine/{PageSchemeHandler,PageSurface}.swift",
+          "examples/probe-app/ProbeKit/Office/OfficeIR.swift"
+        ]
+      },
+      "triggers": [
+        {
+          "glob": "spec/v1/render-media-v1.md"
+        },
+        {
+          "glob": "spec/v1/office-ir-v1.json"
+        },
+        {
+          "glob": "Sources/PhoneDSHEngine/{PageSchemeHandler,PageSurface}.swift"
+        },
+        {
+          "glob": "examples/probe-app/ProbeKit/Office/**"
+        }
+      ],
+      "status": [
+        "draft"
+      ],
+      "evidence": [],
+      "source": {
+        "authority": "[render-media-v1.md](v1/render-media-v1.md)（`draft`）、[office-ir-v1.json](v1/office-ir-v1.json)",
+        "ends": "Swift `PageSchemeHandler.swift`、`PageSurface.swift`、`ProbeKit/Office/OfficeIR.swift`",
+        "evidence": "無 gate 檢查；normative 文件已引用此 draft（GAP-09）",
+        "triggers": "`spec/v1/render-media-v1.md`、`spec/v1/office-ir-v1.json`、`Sources/PhoneDSHEngine/{PageSchemeHandler,PageSurface}.swift`、`examples/probe-app/ProbeKit/Office/**`"
+      }
+    },
+    {
+      "id": "P22",
+      "owner_role": "scenario／perturbation fixtures owner",
+      "authority": [
+        "spec/v1/schema/{scenario-*,perturbation,upstream-script}.schema.json"
+      ],
+      "ends": {
+        "Swift": [
+          "Sources/PhoneDSH{Scenario,Harness}/**"
+        ],
+        "Kotlin": [
+          "android/testkit"
+        ],
+        "Python": [
+          "scripts/ci/scenarios"
+        ]
+      },
+      "triggers": [
+        {
+          "glob": "spec/v1/schema/{scenario-*,perturbation,upstream-script}.schema.json"
+        },
+        {
+          "glob": "spec/v1/golden/upstream/**"
+        },
+        {
+          "glob": "scripts/ci/scenarios/**"
+        },
+        {
+          "glob": "Sources/PhoneDSH{Scenario,Harness}/**"
+        },
+        {
+          "glob": "android/testkit/**"
+        }
+      ],
+      "status": [],
+      "evidence": [],
+      "source": {
+        "authority": "`spec/v1/schema/{scenario-*,perturbation,upstream-script}.schema.json`",
+        "ends": "`Sources/PhoneDSH{Scenario,Harness}`、`android/testkit`、`scripts/ci/scenarios`",
+        "evidence": "`golden/upstream` 無 runtime 消費者",
+        "triggers": "`spec/v1/schema/{scenario-*,perturbation,upstream-script}.schema.json`、`spec/v1/golden/upstream/**`、`scripts/ci/scenarios/**`、`Sources/PhoneDSH{Scenario,Harness}/**`、`android/testkit/**`"
+      }
+    }
+  ]
+}

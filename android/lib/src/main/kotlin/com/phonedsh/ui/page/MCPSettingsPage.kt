@@ -1,9 +1,19 @@
 // MCP servers: the list, each server's connection and its measured tool count.
 // SPDX-License-Identifier: MIT
 //
-// Spec: `spec/ui/v1/README.md` §1 row MCPSettingsPage (MCP 服务器列表与编辑; entry:
-// 设置行; navigation: push/sheet, 编辑子页 MCPEditorPage) and §3.1 (the
-// ScreenState layer). P5 `must`.
+// Spec: `spec/ui/v1/pages/mcp-settings.json` (extracted from
+// `MCPSettingsPage.swift:17` in the probe app) and `spec/ui/v1/README.md` §1 row
+// MCPSettingsPage (MCP 服务器列表与编辑; entry: 设置行; navigation: push/sheet,
+// 编辑子页 MCPEditorPage), plus §3.1 (the ScreenState layer).
+//
+// The baseline's two groups, in its order:
+//   * `Streamable HTTP MCP` (`MCPSettingsPage.swift:46`) — the server rows, with
+//     the baseline's own footer (`:69`), and its 主机尚未启动 / 正在读取 MCP 注册表…
+//     / 尚未添加 MCP 服务器 states inside it;
+//   * `操作` (`:83`) — 刷新注册表 (`:87`) and 添加 MCP 服务器 (`:93`).
+// The two untitled blocks at `:73` and `:78` are the error and notice lines; they
+// carry runtime text only and are the contract's own unresolved entries, so this
+// page keeps its failure line (same copy family) without a group title.
 //
 // Nothing is invented:
 //   * a server the host did not describe is 未知, never "未连接";
@@ -13,15 +23,24 @@
 //     URLs and credentials live in the editor, and the stored ones never leave
 //     the host (see `MCPEditorPage.kt`): a list row cannot leak a URL.
 //
+// 刷新注册表 replaces the old inline 重试: the baseline has exactly one re-read
+// verb in 操作, and a failure line with its own second retry would be two names
+// for one command. `onRefresh` is the host's hook; a host that offers no re-read
+// renders the row disabled rather than hiding it, so the action's absence is
+// visible instead of surprising.
+//
 // ScreenState: `MCPScreenState.from(facts, local)` is pure. The only local event
 // is the server group's fold; row taps navigate to the editor and are host
 // actions.
 //
 // Geometry: page-level tokens only (`geometry.pageOuterMarginH`,
-// `geometry.pageRowMinHeight`); the list gap is the shared `pageListGap`.
+// `geometry.pageRowMinHeight`); the list gap is the shared `pageListGap` and the
+// 操作 group borrows the shared chrome (`SessionSectionLabel`,
+// `SessionTextAction`), so this file still reads no token name directly.
 package com.phonedsh.ui.page
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.LazyColumn
@@ -31,6 +50,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import com.phonedsh.ui.UiStrings
 import com.phonedsh.ui.theme.generated.UiTokenNames
+import com.phonedsh.ui.surface.SettingsSubPageFootnote
+import com.phonedsh.ui.surface.SettingsSubPageFrame
+import com.phonedsh.ui.surface.SettingsFormRow
+import com.phonedsh.ui.surface.SettingsSectionHeader
+import com.phonedsh.ui.surface.SETTINGS_CLOSE_GLYPH
 
 // ---------------------------------------------------------------------------
 // Facts
@@ -212,12 +236,16 @@ public data class MCPLocalState(public val fold: FoldState = FoldState()) {
  * The MCP server list.
  *
  * @param state the pure screen state ([MCPScreenState.from]).
- * @param onAdd open the editor for a new server.
+ * @param onAdd open the editor for a new server (the frame's 添加 MCP 服务器 and the
+ *   操作 group's second row are the same command, exactly as in the baseline).
  * @param onEdit open the editor for an existing server, by id.
  * @param onToggleServers collapse/expand the server group; the host applies
  *   `MCPUiEvent.ToggleServers` and re-projects.
- * @param onRetry retry a failed read.
  * @param onBack leave the page.
+ * @param onRefresh re-read the registry (`PdshHostAction.RefreshMcp`); it is also
+ *   the retry after a failed read, so the page has one re-read verb instead of
+ *   two. `null` renders 刷新注册表 disabled — a host without the command says so
+ *   by greying it out rather than by hiding the action the baseline declares.
  */
 @Composable
 public fun MCPSettingsPage(
@@ -227,16 +255,19 @@ public fun MCPSettingsPage(
     onToggleServers: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
-    onRetry: (() -> Unit)? = null,
+    onRefresh: (() -> Unit)? = null,
 ) {
-    PageFrame(
-        title = UiStrings.MCP_TITLE,
+    SettingsSubPageFrame(
+        backGlyph = SETTINGS_CLOSE_GLYPH,
+        // The baseline's heading (`MCPSettingsPage.swift:101`), not the drawer
+        // row's word: iOS titles this sheet "MCP 网络与密钥".
+        largeTitle = UiStrings.MCP_NETWORK_TITLE,
         onBack = onBack,
         rootTag = UiPageTags.MCP_ROOT,
         modifier = modifier,
-        actions = {
+        trailing = {
             SessionTextAction(
-                label = UiStrings.MCP_ADD,
+                label = UiStrings.MCP_ACTION_ADD_SERVER,
                 onClick = onAdd,
                 tone = SessionActionTone.ACCENT,
                 modifier = Modifier.testTag(UiPageTags.MCP_ADD),
@@ -248,58 +279,83 @@ public fun MCPSettingsPage(
                 SessionFailureLine(
                     message = state.failure,
                     tag = UiPageTags.MCP_FAILURE,
-                    retryLabel = UiStrings.RETRY,
-                    onRetry = onRetry,
                 )
             }
-            when {
-                state.isUnknown -> EmptyHint(
-                    title = UiStrings.MCP_UNKNOWN_STATE,
-                    hint = UiStrings.MCP_UNKNOWN_HINT,
-                    tag = UiPageTags.MCP_UNKNOWN,
-                )
+            // The group takes the room above 操作; every state keeps 操作 reachable,
+            // so a reader can recover without leaving the page.
+            Box(modifier = Modifier.weight(1f)) {
+                when {
+                    state.isUnknown -> EmptyHint(
+                        title = UiStrings.MCP_UNKNOWN_STATE,
+                        hint = UiStrings.MCP_UNKNOWN_HINT,
+                        tag = UiPageTags.MCP_UNKNOWN,
+                    )
 
-                state.isFailed && state.rows.isEmpty() -> Unit
+                    state.isFailed && state.rows.isEmpty() -> Unit
 
-                state.isEmpty -> EmptyHint(
-                    title = UiStrings.MCP_EMPTY,
-                    hint = UiStrings.MCP_EMPTY_HINT,
-                    tag = UiPageTags.MCP_EMPTY,
-                )
+                    state.isEmpty -> EmptyHint(
+                        title = UiStrings.MCP_EMPTY,
+                        hint = UiStrings.MCP_EMPTY_HINT,
+                        tag = UiPageTags.MCP_EMPTY,
+                    )
 
-                else -> LazyColumn(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .testTag(UiPageTags.MCP_LIST),
-                    verticalArrangement = Arrangement.spacedBy(pageListGap),
-                ) {
-                    item(key = "header.servers") {
-                        SectionHeader(
-                            title = UiStrings.MCP_SERVERS,
-                            expanded = state.serversExpanded,
-                            onToggle = onToggleServers,
-                            trailing = UiStrings.ROW_COUNT.format(state.rows.size),
-                            tag = UiPageTags.MCP_SERVERS_SECTION,
-                        )
-                    }
-                    if (state.serversExpanded) {
-                        items(
-                            count = state.rows.size,
-                            key = { index -> "row.${state.rows[index].id}" },
-                        ) { index ->
-                            val row = state.rows[index]
-                            InfoRow(
-                                title = row.name,
-                                value = row.connection,
-                                tone = row.connectionTone,
-                                subtitle = row.tools,
-                                modifier = Modifier.testTag(UiPageTags.MCP_ROW_PREFIX + row.id),
-                                onClick = { onEdit(row.id) },
+                    else -> LazyColumn(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .testTag(UiPageTags.MCP_LIST),
+                        verticalArrangement = Arrangement.Top,
+                    ) {
+                        item(key = "header.servers") {
+                            SettingsSectionHeader(
+                                title = UiStrings.MCP_LIST_SECTION,
+                                expanded = state.serversExpanded,
+                                onToggle = onToggleServers,
+                                trailing = UiStrings.ROW_COUNT.format(state.rows.size),
+                                tag = UiPageTags.MCP_SERVERS_SECTION,
                             )
+                        }
+                        if (state.serversExpanded) {
+                            items(
+                                count = state.rows.size,
+                                key = { index -> "row.${state.rows[index].id}" },
+                            ) { index ->
+                                val row = state.rows[index]
+                                SettingsFormRow(
+                                    title = row.name,
+                                    value = row.connection,
+                                    tone = row.connectionTone,
+                                    subtitle = row.tools,
+                                    modifier = Modifier.testTag(UiPageTags.MCP_ROW_PREFIX + row.id),
+                                    onClick = { onEdit(row.id) },
+                                )
+                            }
+                            // The baseline's group footer (`MCPSettingsPage.swift:69`):
+                            // the exact-origin rule belongs next to the rows it governs.
+                            item(key = "footer.servers") {
+                                SettingsSubPageFootnote(text = UiStrings.MCP_LIST_FOOTER)
+                            }
                         }
                     }
                 }
             }
+            // 操作 (`MCPSettingsPage.swift:83`): the two verbs, in the baseline's order.
+            SessionSectionLabel(
+                text = UiStrings.MCP_ACTION_SECTION,
+                modifier = Modifier.testTag(UiPageTags.MCP_ACTIONS_SECTION),
+            )
+            SessionTextAction(
+                label = UiStrings.MCP_ACTION_REFRESH,
+                onClick = { onRefresh?.invoke() },
+                tone = SessionActionTone.ACCENT,
+                enabled = onRefresh != null,
+                modifier = Modifier.testTag(UiPageTags.MCP_ACTION_REFRESH),
+            )
+            SessionTextAction(
+                label = UiStrings.MCP_ACTION_ADD_SERVER,
+                onClick = onAdd,
+                tone = SessionActionTone.ACCENT,
+                modifier = Modifier.testTag(UiPageTags.MCP_ACTION_ADD_SERVER),
+            )
         }
     }
 }

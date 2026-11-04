@@ -117,9 +117,12 @@ test('the production-shaped document fits the cap, and an overflowing one is no 
     /\[truncated to \d+ B: /u,
     'the real surface fits: no note, nothing silently missing',
   )
-  // A surface the budget cannot hold must say so, in the document itself.
-  const over = clampMarkdown(`${fits.markdown}\n## Extra\n${'y'.repeat(1500)}\n`, AGENTS_MD_MAX_BYTES - 800)
-  assert.ok(Buffer.byteLength(over, 'utf8') <= AGENTS_MD_MAX_BYTES - 800)
+  // A surface the budget cannot hold must say so, in the document itself. The
+  // cap is derived from the document (not from AGENTS_MD_MAX_BYTES) so this
+  // stays an overflow test when the budget grows for a new section.
+  const tightCap = Buffer.byteLength(fits.markdown, 'utf8') + 150
+  const over = clampMarkdown(`${fits.markdown}\n## Extra\n${'y'.repeat(1500)}\n`, tightCap)
+  assert.ok(Buffer.byteLength(over, 'utf8') <= tightCap)
   assert.match(over, /\[truncated to \d+ B: /u)
   // Whether the cut lands inside `Extra` (partial) or after it (fully dropped),
   // the note has to name it — a generic "shortened" would not.

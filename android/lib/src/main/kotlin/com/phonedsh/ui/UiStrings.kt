@@ -10,6 +10,16 @@ package com.phonedsh.ui
 
 /** The copy the UI owns. Tests reference these constants, never a literal. */
 public object UiStrings {
+    /** Resolves only copy that has an iOS NativeText English pair. */
+    public fun settingsNativeText(languageId: String?, chinese: String, english: String): String {
+        val useEnglish = when (languageId) {
+            "en" -> true
+            "zh" -> false
+            else -> java.util.Locale.getDefault().language.equals("en", ignoreCase = true)
+        }
+        return if (useEnglish) english else chinese
+    }
+
     // Chat page
     public const val WAITING_ENGINE: String = "等待引擎连接…"
     public const val WAITING_ENGINE_HINT: String = "引擎就绪后这里显示对话"
@@ -206,9 +216,10 @@ public object UiStrings {
     public const val SETTINGS_ROW_SEND: String = "发送消息时"
     public const val SETTINGS_ROW_EXPORT: String = "导出诊断"
 
-    // Android has no LicensesPage: the iOS one lists SwiftTerm and swift-nio.
+    // The iOS list names SwiftTerm/swift-nio, which this app does not ship. The
+    // Android build distributes AndroidX/Compose, Kotlin and kotlinx instead.
     public const val SETTINGS_LICENSES_ANDROID_ONLY: String =
-        "iOS 依赖的许可清单在 Android 不适用（这个 App 没有 SwiftTerm / swift-nio）。"
+        "Android 分发 AndroidX / Jetpack Compose、Kotlin、kotlinx.coroutines 与 Ktor；不含 iOS 的 SwiftTerm / swift-nio。"
 
     // The permission pair. 未设置 is the baseline's wording for a tier it cannot name.
     public const val SETTINGS_PERMISSION_UNSET: String = "未设置"
@@ -240,10 +251,23 @@ public object UiStrings {
     // The 权限 row's sub-page (the baseline's PermissionDefaultsPage): its title,
     // its scope sentence, and the three presets in menu order.
     public const val PERMISSION_DEFAULTS_TITLE: String = "新会话默认权限"
-    public const val PERMISSION_DEFAULTS_NOTE: String = "只影响之后新开的会话。正在聊的这个不跟着变。"
+    public const val PERMISSION_DEFAULTS_NOTE: String = "只影响之后新开的会话，当前会话保持不变。"
     public const val PERMISSION_TIER_VIEW_ONLY: String = "仅可查看"
     public const val PERMISSION_TIER_WORKSPACE_WRITE: String = "工作区内修改"
     public const val PERMISSION_TIER_FULL_ACCESS: String = "完全权限"
+    // The phone image's home patch pins permission.defaultPreset from
+    // PDSH_SANDBOX_MODE. The provider's global writable flag does not grant a
+    // write through that startup overlay, so the selector is read-only and says
+    // exactly which layer owns the value, what makes it writable, and that the
+    // running conversation keeps its permission.
+    public const val DEFAULT_PERMISSION_STARTUP_LOCKED_REASON: String =
+        "只读：新会话默认权限由启动配置（home patch / PDSH_SANDBOX_MODE）锁定，优先于可编辑设置。请修改启动配置并重启本地引擎；现有会话的权限不受影响。"
+    public const val DEFAULT_PERMISSION_STARTUP_LOCKED_REASON_EN: String =
+        "Read only: the startup configuration (home patch / PDSH_SANDBOX_MODE) locks the default permission for new sessions above editable settings. Change the startup configuration and restart the local engine; existing sessions keep their permission."
+    public const val DEFAULT_PERMISSION_READ_ONLY_FALLBACK_REASON: String =
+        "只读：引擎没有报告这一项可写。请在启动配置中修改并重启本地引擎；现有会话的权限不受影响。"
+    public const val DEFAULT_PERMISSION_READ_ONLY_FALLBACK_REASON_EN: String =
+        "Read only: the engine does not report this setting as writable. Change the startup configuration and restart the local engine; existing sessions keep their permission."
 
     // Tools (`PDSHShellPage`: the read-only accelerators advertised in the caps)
     public const val TOOLS: String = "命令"
@@ -369,7 +393,7 @@ public object UiStrings {
     // ---------------------------------------------------------------------
 
     // NativeWorkbenchPage: the turn's written files and the commands it ran.
-    public const val WORKBENCH_TITLE: String = "工作面板"
+    public const val WORKBENCH_TITLE: String = "工作区"
     public const val WORKBENCH_DONE: String = "完成"
     public const val WORKBENCH_FILES: String = "文件"
     public const val WORKBENCH_COMMANDS: String = "命令"
@@ -389,7 +413,7 @@ public object UiStrings {
     // WorkspaceFoldersPage: the folders, their current selection and removal.
     public const val WORKSPACE_FOLDERS: String = "工作文件夹"
     public const val WORKSPACE_EMPTY: String = "还没有工作文件夹"
-    public const val WORKSPACE_EMPTY_HINT: String = "新建一个文件夹，会话和文件都放在里面"
+    public const val WORKSPACE_EMPTY_HINT: String = "会话把生成的文件放在文件夹里。新建一个文件夹给它用。"
     public const val WORKSPACE_UNKNOWN_HINT: String = "宿主没有报告工作文件夹，无法判断有没有"
     public const val WORKSPACE_LOAD_FAILED: String = "工作文件夹读取失败"
     public const val WORKSPACE_NEW: String = "新建文件夹"
@@ -440,7 +464,7 @@ public object UiStrings {
     public const val PROVIDER_FAILURE_KEY: String = "读取不到这台设备上的密钥"
     public const val PROVIDER_FAILURE_UNKNOWN: String = "模型服务读取失败"
     public const val PROVIDER_PRIVACY: String = "密钥不会写进配置、日志或页面文本里，界面最多显示后四位"
-    public const val PROVIDER_EFFECT: String = "配置从下一次启动引擎起生效"
+    public const val PROVIDER_EFFECT: String = "配置从下一次启动 App 起生效"
 
     // Web search: the switch, the backend choice, and why a switch is held.
     public const val WEB_SEARCH_TITLE: String = "网页搜索"
@@ -486,6 +510,11 @@ public object UiStrings {
     public const val MCP_TRANSPORT: String = "传输方式"
     public const val MCP_TRANSPORT_STDIO: String = "本地命令"
     public const val MCP_TRANSPORT_HTTP: String = "网络地址"
+    // 本地命令 / 网络地址 are Android's own two transports (the baseline is HTTP
+    // only); each row carries one line saying what choosing it means, so the
+    // choice needs no group caption of its own.
+    public const val MCP_TRANSPORT_STDIO_HINT: String = "宿主直接在这台手机上启动这个命令"
+    public const val MCP_TRANSPORT_HTTP_HINT: String = "宿主连接一个 http 或 https 地址"
     public const val MCP_FIELD_NAME: String = "名称"
     public const val MCP_FIELD_NAME_PLACEHOLDER: String = "A-Z a-z 0-9 _ -"
     public const val MCP_FIELD_NAME_HINT: String = "用于在列表和对话里识别这个服务器"
@@ -499,6 +528,8 @@ public object UiStrings {
     public const val MCP_ENABLED_ON: String = "已启用"
     public const val MCP_ENABLED_OFF: String = "已停用"
     public const val MCP_SAVE: String = "保存"
+    public const val MCP_SAVE_CONNECT: String = "保存并连接"
+    public const val MCP_SAVE_RECONNECT: String = "保存修改并重连"
     public const val MCP_ERR_NAME_REQUIRED: String = "名称不能为空"
     public const val MCP_ERR_NAME_INVALID: String = "名称只能用字母、数字、下划线和连字符"
     public const val MCP_ERR_COMMAND_REQUIRED: String = "命令不能为空"
@@ -525,7 +556,10 @@ public object UiStrings {
      * 与设置行文案一致，见 `spec/ui/v1/README.md` §1（设置内「运行时详情」）：
      * 同一个名字既是设置行的入口文案，也是本页标题，两处不再各写一套。
      */
-    public const val RUNTIME_TITLE: String = "运行时详情"
+    // The page title is the contract's `运行状态` (`ChatPage.swift:4242`
+    // `.navigationTitle("运行状态")`), not the settings row's wording: the
+    // baseline has no "运行时详情" string anywhere.
+    public const val RUNTIME_TITLE: String = "运行状态"
     public const val RUNTIME_SECTION_ENGINE: String = "引擎"
     public const val RUNTIME_SECTION_WEBVIEW: String = "WebView"
     public const val RUNTIME_SECTION_MEMORY: String = "内存"
@@ -588,13 +622,50 @@ public object UiStrings {
     public const val RUNTIME_UNMEASURED_HINT: String =
         "未测量的值显示为未知，不会当成 0 或默认档位"
 
+    // RuntimeDetailsPage's iOS trio, on top of the Android diagnostics groups
+    // (ChatPage.swift:4189 `本次运行`, :4198 `最近出错`). Every row is a host read,
+    // so an absent read says 未知 / 读取不到: 0 is a measurement, never a placeholder.
+    public const val RUNTIME_SECTION_RUN: String = "本次运行"
+    public const val RUNTIME_SECTION_ERROR: String = "最近出错"
+    public const val RUNTIME_MODEL_REQUESTS: String = "模型调用"
+    public const val RUNTIME_INPUT_TOKENS: String = "输入 Token"
+    public const val RUNTIME_OUTPUT_TOKENS: String = "输出 Token"
+    public const val RUNTIME_NO_ERROR: String = "最近没有出错"
+    public const val RUNTIME_ERROR_UNREAD: String = "读取不到最近一次出错"
+
+    // L76: the two sentences the runtime page says ONCE instead of under every row.
+    /**
+     * The iOS status line, folded the way the baseline folds it.
+     *
+     * `ChatPage.swift:4168-4176` builds `statusValue` as
+     * `"\(model.displayStatus) · 已运行\(elapsed)"` and `:4183-4186` prints it in
+     * one `状态` row; Android used to split that row into 状态 + 已运行. `%s` is
+     * the engine word (`运行中`) and the second one the formatted duration.
+     */
+    public const val RUNTIME_STATUS_UPTIME_FORMAT: String = "%s · 已运行%s"
+
+    /**
+     * The page's single explanation for unmeasured values: which groups the host
+     * did not report.
+     *
+     * L64 counted six copies of `SETTINGS_UNKNOWN_HINT` on one screen (16 in the
+     * whole page). The baseline has no such sentence at all, so the Android read
+     * says it once, with the group names, and the rows say only 未知.
+     */
+    public const val RUNTIME_UNMEASURED_GROUPS: String = "这台宿主没有报告这些状态：%s"
+
+    /** The separator between group names in [RUNTIME_UNMEASURED_GROUPS]. */
+    public const val RUNTIME_UNMEASURED_GROUPS_SEPARATOR: String = "、"
+
     // EgressAllowListPage: the effective rules, the deny-all empty table and
     // the matching form each entry stands for.
     /**
      * 与设置行文案一致，见 `spec/ui/v1/README.md` §1（设置内「出网白名单」）：
      * 同一个名字既是设置行的入口文案，也是本页标题，两处不再各写一套。
      */
-    public const val EGRESS_TITLE: String = "出网白名单"
+    // `NativeShell.swift:541` `.navigationTitle("网络访问")`; the allow-list
+    // wording stays in the body copy (`EGRESS_FAILED`…), never in the title.
+    public const val EGRESS_TITLE: String = "网络访问"
     public const val EGRESS_RULES: String = "地址"
     public const val EGRESS_RULE_COUNT: String = "%d 个地址"
     public const val EGRESS_POLICY: String = "当前策略"
@@ -635,10 +706,34 @@ public object UiStrings {
     // reads a clock.
     public const val AUTOMATION_TITLE: String = "定时任务"
     public const val AUTOMATION_EMPTY: String = "还没有定时任务"
-    public const val AUTOMATION_EMPTY_HINT: String = "到点让它自己跑，结果回到原会话。"
+    // `NativeAutomationPage.swift:23`: the baseline's sentence uses a half-width
+    // comma; L11 recorded the difference and left the copy alone, L82 aligns it.
+    public const val AUTOMATION_EMPTY_HINT: String = "到点让它自己跑,结果回到原会话。"
     public const val AUTOMATION_NEW: String = "新建任务"
+    // The bar's 新建 and the empty block's 新建任务 are two different labels in the
+    // baseline: the toolbar item is 新建 (`NativeAutomationPage.swift:83`), the
+    // CTA under the empty-state hint is 新建任务 (:30).
+    public const val AUTOMATION_NEW_SHORT: String = "新建"
+    // The failure section's header: `Section("需要处理")` (:70) on the catalog,
+    // `Section("错误")` on the detail (:150) and the history (:203).
+    public const val AUTOMATION_ATTENTION: String = "需要处理"
+    public const val AUTOMATION_ERROR: String = "错误"
     public const val AUTOMATION_EDIT: String = "编辑任务"
+    // The detail row's verb. The baseline's swipe action and menu item are both the
+    // short 编辑 (`NativeAutomationPage.swift:63`, `:157`); the host handoff's own
+    // label above stays 编辑任务, so this one is appended rather than renamed.
+    public const val AUTOMATION_EDIT_SHORT: String = "编辑"
+    // The row's other destructive affordance and its confirmation
+    // (`NativeAutomationPage.swift:64`, `:102`–`:109`; the detail page's menu
+    // carries the same two verbs at `:157`–`:158`).
+    public const val AUTOMATION_DELETE: String = "删除"
+    public const val AUTOMATION_DELETE_TASK: String = "删除任务"
+    public const val AUTOMATION_CONFIRM_DELETE: String = "删除此自动化任务？"
+    public const val AUTOMATION_CONFIRM_DELETE_MESSAGE: String =
+        "删除会停止后续投递，并保留已保存的会话历史。"
     public const val AUTOMATION_REFRESH: String = "刷新"
+    // Retired by L11: the aligned page prints the host's own sentence under
+    // `需要处理` (NativeAutomationPage.swift:70) instead of a page-authored label.
     public const val AUTOMATION_LOAD_FAILED: String = "定时任务读取失败"
     public const val AUTOMATION_UNKNOWN_STATE: String = "定时任务状态未知"
     public const val AUTOMATION_UNKNOWN_HINT: String =
@@ -676,12 +771,27 @@ public object UiStrings {
     public const val AUTOMATION_HISTORY_MORE: String = "加载更早记录"
     public const val AUTOMATION_DELIVERED_AT: String = "投递时间"
     public const val AUTOMATION_PLANNED_AT: String = "计划时间"
-    public const val AUTOMATION_PLANNED_AT_FORMAT: String = "计划时间 %s"
+    // `Text("计划时间：\(item.scheduledAt)")` (`NativeAutomationPage.swift:193`):
+    // the baseline's line is one sentence with a full-width colon, not a label plus
+    // a value.
+    public const val AUTOMATION_PLANNED_AT_FORMAT: String = "计划时间：%s"
     public const val AUTOMATION_META_FORMAT: String = "%s · %s"
+
+    // L82: the four row labels `ScheduleDetailPage` / `ScheduleHistoryPage` draw and
+    // this page did not have (`NativeAutomationPage.swift:129`, `:130`, `:136`,
+    // `:142`–`:145`). `AUTOMATION_LATEST_DELIVERY` above is a detail *row* label the
+    // baseline does not draw there; the baseline's line is the one below it.
+    public const val AUTOMATION_SECTION_REMINDER: String = "提醒"
+    public const val AUTOMATION_NAME: String = "名称"
+    public const val AUTOMATION_SECTION_HISTORY: String = "投递记录"
+    public const val AUTOMATION_LATEST_DELIVERY_FORMAT: String = "最近投递：%s"
 
     // NativeConfigurationPage: the session-level settings groups and the plugin
     // inventory. Values are host-formatted; an unread value is 未知.
-    public const val CONFIGURATION_TITLE: String = "本会话设置"
+    // `NativeConfigurationPage.swift:28` `.navigationTitle("插件")`; the iOS
+    // page never titles itself 本会话设置 (that is only a menu item wording,
+    // `ChatPage.swift:274`).
+    public const val CONFIGURATION_TITLE: String = "插件与工具"
     public const val CONFIGURATION_DONE: String = "完成"
     public const val CONFIGURATION_REFRESH: String = "刷新"
     public const val CONFIGURATION_INTRO: String = "安装、启用和配置插件"
@@ -797,7 +907,15 @@ public object UiStrings {
     public const val NO: String = "否"
 
     // ProbesPage: the environment reads, the run actions and the G0 report.
-    public const val PROBES_TITLE: String = "设备探针"
+    //
+    // L75: the page title is the baseline's own word, not a translation of it.
+    // `ProbesPage.swift:38` is `.navigationTitle("Probes")` — an English title on
+    // an English-only probe page, exactly like `MEMORY_PROBE_TITLE` below
+    // (`MemoryPage.swift:40`). The previous 设备探针 was the one string on the
+    // screen that existed nowhere in the baseline (page_structure_check
+    // `title-mismatch`), and the page's own sections and actions were already
+    // English, so the Chinese title was also the only non-English control on it.
+    public const val PROBES_TITLE: String = "Probes"
     public const val PROBES_SECTION_ENVIRONMENT: String = "运行环境"
     public const val PROBES_ENVIRONMENT: String = "环境"
     public const val PROBES_OS: String = "系统"
@@ -836,14 +954,24 @@ public object UiStrings {
     public const val PROBES_UNMEASURED_HINT: String = "未测量的值显示为未知，不会当成 0"
 
     // BackgroundPage: the matrix cell being run, its observation and the log.
-    public const val BACKGROUND_TITLE: String = "后台保活"
+    //
+    // L75: `BackgroundPage.swift:171` is `.navigationTitle("Background")`, and the
+    // page's sections and actions are English too (`Start cell`, `Cancel`,
+    // `Scenario`), so 后台保活 was a translation the baseline never had. The
+    // dev-tools index row that opens this page shows this same constant, so the
+    // row a person taps and the header they land on stay the same word.
+    public const val BACKGROUND_TITLE: String = "Background"
     public const val BACKGROUND_SECTION_RUN: String = "运行"
     public const val BACKGROUND_SECTION_OBSERVATION: String = "观测"
     public const val BACKGROUND_SECTION_CELLS: String = "矩阵结果"
     public const val BACKGROUND_SECTION_TRANSITIONS: String = "迁移记录"
     public const val BACKGROUND_SCENARIO: String = "场景"
-    public const val BACKGROUND_SCENARIO_BACKGROUND: String = "退到后台"
-    public const val BACKGROUND_SCENARIO_LOCK: String = "锁屏"
+    // The two segment words the baseline's `Picker("Scenario")` draws
+    // (`BackgroundPage.swift:31` -> `ProbeKit/BackgroundProbe.swift:37-38`:
+    // "Background" / "Lock"). The L82 lane reads the picker's own options as
+    // control labels, so they keep the baseline language like the section titles.
+    public const val BACKGROUND_SCENARIO_BACKGROUND: String = "Background"
+    public const val BACKGROUND_SCENARIO_LOCK: String = "Lock"
     public const val BACKGROUND_PHASE: String = "阶段"
     public const val BACKGROUND_STATUS: String = "状态说明"
     public const val BACKGROUND_RUNNING: String = "运行中"
@@ -877,7 +1005,12 @@ public object UiStrings {
         "未测量的值显示为未知，不会当成 0 或未运行"
 
     // TaskScreenPage: the status line, the best-effort dimming and its report.
-    public const val TASK_SCREEN_TITLE: String = "任务屏"
+    //
+    // L75: `TaskScreenPage.swift:60` is `.navigationTitle("Screen")` — the page is
+    // the probe app's "Screen" page, not a 任务屏 in the product's vocabulary. The
+    // in-page section label keeps `TASK_SCREEN_SECTION_EN` ("Task screen", the
+    // baseline's `PageSection` title); only the bar title takes the baseline word.
+    public const val TASK_SCREEN_TITLE: String = "Screen"
     public const val TASK_SCREEN_SECTION: String = "任务屏"
     public const val TASK_SCREEN_DESCRIPTION: String =
         "纯黑低亮度屏：没有计时器，没有动画，只有状态行会随调用方重建而改变。"
@@ -904,7 +1037,7 @@ public object UiStrings {
         "未测量的值显示为未知，不会当成 0 或未显示"
 
     // ExportPage: the report facts, the written file and its preview.
-    public const val EXPORT_TITLE: String = "导出诊断包"
+    public const val EXPORT_TITLE: String = "导出诊断"
     public const val EXPORT_SECTION_REPORT: String = "报告"
     public const val EXPORT_STATUS: String = "状态"
     public const val EXPORT_ENVIRONMENT: String = "环境"
@@ -926,6 +1059,11 @@ public object UiStrings {
     public const val EXPORT_FAILED: String = "导出诊断包读取失败"
     public const val EXPORT_WRITE_FAILED: String = "写报告失败，上一份报告还在"
     public const val EXPORT_UNMEASURED_HINT: String = "未测量的值显示为未知，不会当成空报告"
+    // L81: 写报告 answers with this because this host carries no diagnostic-bundle
+    // command (no format, no writer, no provider root to share one from). The page
+    // is a real settings row, so the verb stays and the answer names the gap.
+    public const val EXPORT_UNAVAILABLE: String =
+        "本宿主没有导出诊断包的命令，本次没有写出任何文件。"
 
     // DailyBriefPage: the snapshot, the items, the sources and this run's issues.
     public const val DAILY_BRIEF_TITLE: String = "每日简报"
@@ -939,7 +1077,10 @@ public object UiStrings {
     public const val DAILY_BRIEF_ITEMS_EMPTY: String = "还没有可显示的内容"
     public const val DAILY_BRIEF_ITEMS_EMPTY_NO_SOURCE: String =
         "先添加一个 RSS 或 Atom 来源。已有内容会保存在本机，离线也能看。"
-    public const val DAILY_BRIEF_ITEMS_EMPTY_SOURCES: String = "下拉或点刷新；失败时不会清空上一期。"
+    // `DailyBriefPage.swift:82`: "下拉或点右上角刷新；失败时不会清空上一期。" The
+    // toolbar's 刷新 is the top-right control on both platforms, and the baseline
+    // sentence names it.
+    public const val DAILY_BRIEF_ITEMS_EMPTY_SOURCES: String = "下拉或点右上角刷新；失败时不会清空上一期。"
     public const val DAILY_BRIEF_SOURCE_COUNT: String = "%d 个来源"
     public const val DAILY_BRIEF_SECTION_SOURCES: String = "资讯来源"
     public const val DAILY_BRIEF_SHARE: String = "分享本期"
@@ -1101,6 +1242,8 @@ public object UiStrings {
     public const val SHELL_ARGUMENTS_PLACEHOLDER: String = "例如:--help\n文件名"
     public const val SHELL_RUN: String = "运行"
     public const val SHELL_CANCEL: String = "取消"
+    /** PDSHShellPage's in-flight command action (`PDSHShellPage.swift:69`). */
+    public const val SHELL_STOP_RUNNING: String = "停止运行"
     public const val SHELL_OUTPUT_TITLE: String = "输出"
     public const val SHELL_OUTPUT_EMPTY: String = "运行结果会显示在这里。"
     public const val SHELL_LIMITS_TITLE: String = "限制"
@@ -1216,8 +1359,9 @@ public object UiStrings {
         "宿主会为这一格请求一个持续处理窗口；被系统拒绝时退回普通后台任务。" +
             "设备跑过并记录下 arm 之前，这一项记为未验证。"
     public const val BACKGROUND_REQUIRED_WINDOW: String = "要求的窗口"
-    public const val BACKGROUND_WINDOW_10MIN: String = "10 分钟（PLAN）"
-    public const val BACKGROUND_WINDOW_60S: String = "60 秒（UI 检查）"
+    // `Picker("Required window")`'s two segment words (`BackgroundPage.swift:44-45`).
+    public const val BACKGROUND_WINDOW_10MIN: String = "10 minutes (PLAN)"
+    public const val BACKGROUND_WINDOW_60S: String = "60 seconds (UI check)"
     public const val BACKGROUND_REQUIRED_NOTE: String =
         "只有 10 分钟这一格满足 PLAN 矩阵；60 秒那次只是 UI 冒烟，导出为 PARTIAL。"
     public const val BACKGROUND_INSTRUCTION_BACKGROUND: String =
@@ -1288,9 +1432,19 @@ public object UiStrings {
     public const val RUN_STATUS_STOPPED: String = "未启动"
     public const val HEADER_DRAWER: String = "打开会话列表"
     public const val HEADER_RUN_STATUS: String = "运行状态"
-    public const val HEADER_MORE: String = "更多操作"
+    public const val HEADER_MORE: String = "更多"
     public const val HEADER_EXPORT: String = "导出对话记录"
-    public const val HEADER_SESSION_SETTINGS: String = "本会话设置"
+    public const val CHAT_EXPORT_CHOOSER: String = "分享对话记录"
+    public const val CHAT_EXPORT_FAILED: String = "没有可用的分享应用，对话记录未导出。"
+    public const val CHAT_EXPORT_TOO_LONG: String = "对话记录过长，且本机没有可用的文件分享通道，未导出。"
+    public const val CHAT_EXPORT_TITLE_YOU: String = "你"
+    public const val CHAT_EXPORT_TITLE_STEERING: String = "你（补充说明）"
+    public const val CHAT_EXPORT_TITLE_DSH: String = "DSH"
+    public const val CHAT_EXPORT_TITLE_TOOL_CALL: String = "工具调用"
+    public const val CHAT_EXPORT_TITLE_TOOL_RESULT: String = "工具结果"
+    public const val CHAT_EXPORT_TITLE_TOOL_ERROR: String = "工具错误"
+    public const val CHAT_EXPORT_TITLE_CONTEXT: String = "上下文注入"
+    public const val HEADER_SESSION_SETTINGS: String = "插件与工具"
     public const val SESSION_TITLE_NEW: String = "新会话"
     public const val SESSION_TITLE_CURRENT: String = "当前会话"
     public const val RENAME_DIALOG_TITLE: String = "重命名会话"
@@ -1301,6 +1455,9 @@ public object UiStrings {
     public const val SEND_FAILED_LINE: String = "没发出去"
     public const val DOT_SEPARATOR: String = "·"
     public const val CLOSE_HINT: String = "关闭提示"
+
+    // Markdown surface (NativeMarkdownBody.swift): an external link the OS cannot open.
+    public const val MARKDOWN_LINK_OPEN_FAILED: String = "打不开这个链接"
 
     // Transcript chrome (ChatPage.swift `transcript`).
     public const val LOAD_EARLIER: String = "加载更早消息"
@@ -1313,6 +1470,16 @@ public object UiStrings {
     public const val ENGINE_NOT_STARTED_HINT: String = "启动之后就能开始。"
     public const val START_ENGINE: String = "启动本地引擎"
     public const val STARTING_ENGINE: String = "正在启动…"
+    public const val ENGINE_STATE_LABEL: String = "引擎状态"
+    public const val ENGINE_STATE: String = "引擎状态"
+    public const val ENGINE_STATE_STOPPED: String = "stopped"
+    public const val ENGINE_STATE_STARTING: String = "starting"
+    public const val ENGINE_STATE_RUNNING: String = "running"
+    public const val ENGINE_STATE_RECOVERING: String = "recovering"
+    public const val ENGINE_STATE_FAILED: String = "failed"
+    public const val ENGINE_STATE_UNKNOWN: String = "unknown"
+    public const val ENGINE_RESTART: String = "重新启动引擎"
+    public const val ENGINE_RESTART_HINT: String = "上次启动失败后引擎不会自动重试。重新启动会确认这次失败并重新启动宿主，会话数据不受影响。"
     public const val PROVIDER_SETUP_TITLE: String = "还差一步:配好模型服务"
     public const val PROVIDER_SETUP_HINT: String = "选一个模型服务,就能开始。"
     public const val PROVIDER_SETUP_ACTION: String = "去配置模型服务"
@@ -1339,9 +1506,23 @@ public object UiStrings {
     public const val SYSTEM_EVENT_COMPACTION: String = "上下文整理"
     public const val SYSTEM_EVENT_HOST: String = "主机事件"
 
+    // Changed-files card (NativeChangedFilesCard.swift:31-32, :78). The count and
+    // the file name are the card's own data; the words are the baseline's.
+    public const val CHANGED_FILES_TITLE: String = "已编辑 %d 个文件"
+    public const val CHANGED_FILES_SINGLE: String = "已编辑 %s"
+    public const val CHANGED_FILES_ALL: String = "全部 %d 个文件"
+    public const val CHANGED_FILES_COLLAPSE: String = "收起"
+
     // Message actions (NativeMessageActions.swift) and attachments.
     public const val MESSAGE_COPY: String = "复制"
     public const val MESSAGE_COPIED: String = "已复制"
+
+    // Code block chrome (`Components.swift:151-225`).
+    public const val CODE_COPY_ACTION: String = "拷贝代码"
+    public const val CODE_WRAP_OFF: String = "关闭自动换行"
+    public const val CODE_WRAP_ON: String = "自动换行"
+    public const val CODE_EXPAND_ALL: String = "展开全部 %d 行"
+    public const val CODE_COLLAPSE: String = "收起"
 
     // Pending cards.
     public const val WAITING_AUTHORIZATION: String = "等待授权"
@@ -1435,4 +1616,1098 @@ public object UiStrings {
     // (`NativeShell.swift:356` / `:376`).
     public const val WORKSPACE_ADD_FOLDER: String = "添加工作文件夹"
     public const val WORKSPACE_ADD: String = "添加"
+
+    // -----------------------------------------------------------------------
+    // Appended by the L5 lane: the three device-connector pages. The copy is the
+    // iOS baseline's own wording (`NativeDeviceConnectionPage.swift`,
+    // `NativeDeviceSessionPage.swift`, `SessionArtifactsPage.swift`), including the
+    // two `ContentUnavailableView` bodies that state what this build does *not* do.
+    // -----------------------------------------------------------------------
+
+    // 设备连接 (`NativeDeviceConnectionPage.swift:33-118`). The page title stays
+    // the baseline's English word: it is that sheet's navigation title too.
+    public const val DEVICE_TITLE: String = "Device"
+    public const val DEVICE_DONE: String = "完成"
+    public const val DEVICE_SECTION_DEVICES: String = "真实连接设备"
+    public const val DEVICE_SECTION_TRANSPORT: String = "传输能力"
+    public const val DEVICE_TRANSPORT_FOOTER: String =
+        "真实传输尚未实现。此页只展示已注入连接器发布的状态，不会主动发起扫描。"
+    public const val DEVICE_TRANSPORT_NOT_PROVIDED: String = "未提供"
+    public const val DEVICE_TRANSPORT_PROVIDED: String = "已提供"
+    public const val DEVICE_CONNECTOR_UNAVAILABLE: String = "未接入设备连接器"
+    public const val DEVICE_CONNECTOR_UNAVAILABLE_HINT: String =
+        "当前版本不会扫描、配对或伪造在线设备。"
+    public const val DEVICE_NO_DEVICES: String = "没有在线设备"
+    public const val DEVICE_NO_DEVICES_HINT: String = "连接器尚未发布真实在线设备。"
+    public const val DEVICE_BLUETOOTH_CONNECTOR: String = "蓝牙连接器"
+    public const val DEVICE_LOCAL_NETWORK_CONNECTOR: String = "局域网连接器"
+    public const val DEVICE_FORGET_MAPPING: String = "解除该设备的会话映射"
+    public const val DEVICE_SOURCE_LABEL: String = "注入的连接器"
+    public const val DEVICE_SOURCE_NONE: String = "无"
+    public const val DEVICE_CONNECTOR_FAILED: String = "连接器报告失败：%s"
+    public const val DEVICE_OPEN_FAILED_UNAVAILABLE: String =
+        "打不开这个设备的会话：没有可用的会话来源。"
+    public const val DEVICE_OPEN_FAILED_MISMATCH: String =
+        "保存的会话是 %s，但打开的是 %s；映射没有改动。"
+    public const val DEVICE_OPEN_FAILED: String = "打不开这个设备的会话：%s"
+
+    // 设备会话 (`NativeDeviceSessionPage.swift:362-441`).
+    public const val DEVICE_SESSION_TITLE: String = "设备会话 · 只读监视"
+    public const val DEVICE_SESSION_READ_EARLIER: String = "读取更早消息"
+    public const val DEVICE_SESSION_READING_EARLIER: String = "正在读取…"
+    public const val DEVICE_SESSION_LOADING: String = "正在读取设备会话…"
+    public const val DEVICE_SESSION_EMPTY: String = "还没有交互记录"
+    public const val DEVICE_SESSION_EMPTY_HINT: String =
+        "设备与这个固定 Session 的真实交互会显示在这里。"
+    public const val DEVICE_SESSION_READ_ONLY: String = "只读监视，请在设备上处理输入与确认"
+    public const val DEVICE_SESSION_READ_FAILED: String = "读取设备会话失败：%s"
+    public const val DEVICE_SESSION_NO_PROGRESS: String = "设备会话历史没有前进到 seq %s 之前。"
+    public const val DEVICE_TOOL_INPUT: String = "输入"
+    public const val DEVICE_TOOL_OUTPUT: String = "输出"
+    public const val DEVICE_TOOL_WAITING: String = "等待工具结果"
+    public const val DEVICE_TOOL_RUNNING: String = "运行中"
+    public const val DEVICE_TOOL_DONE: String = "已完成"
+    public const val DEVICE_TOOL_FAILED: String = "失败"
+    public const val DEVICE_TOOL_STOPPED: String = "已停止"
+    public const val DEVICE_IMAGE: String = "图片"
+    public const val DEVICE_FILE: String = "文件"
+    public const val DEVICE_DEVICE_LABEL: String = "设备"
+    public const val DEVICE_CONTEXT_LABEL: String = "设备上下文"
+    public const val DEVICE_REASONING_LABEL: String = "思考"
+
+    // 本会话产物 (`SessionArtifactsPage.swift:31-188`).
+    public const val ARTIFACTS_TITLE: String = "本会话产物"
+    public const val ARTIFACTS_LOADING: String = "正在读取产物…"
+    public const val ARTIFACTS_EMPTY_TITLE: String = "本会话 还没有已确认归属的产物"
+    public const val ARTIFACTS_EMPTY_HINT: String =
+        "此会话生成或导入的文件会显示在这里。没有真实会话来源的记录不会被归入本会话。"
+    public const val ARTIFACTS_SECTION_SESSION: String = "本会话"
+    public const val ARTIFACTS_SECTION_UNASSIGNED: String = "未归属"
+    public const val ARTIFACTS_UNASSIGNED_FOOTER: String =
+        "这些记录没有当前会话的真实来源信息，不计为本会话产物。"
+    public const val ARTIFACTS_LOAD_FAILED: String = "无法读取产物：%s"
+    public const val ARTIFACTS_OPEN_FAILED: String = "无法打开产物"
+    public const val ARTIFACTS_MISSING_FILE: String = "文件已不在本机产物存储中。"
+    public const val ARTIFACTS_NO_PREVIEW: String = "此文件无法预览"
+    public const val ARTIFACTS_NO_PREVIEW_HINT: String = "可通过系统分享用其他应用打开。"
+    // The open-failure alert's single button (`SessionArtifactsPage.swift:108`,
+    // `role: .cancel`).
+    public const val ARTIFACTS_ACKNOWLEDGE: String = "好"
+    // L81: the workspace-backed store's one extra read state. The workspace tree is
+    // created by the first write into it, so "not there yet" is a waiting state with
+    // a retry, never "this session produced nothing".
+    public const val ARTIFACTS_NO_WORKSPACE: String =
+        "宿主还没有可读的工作区；第一轮写入后这里会列出产物。"
+    // -----------------------------------------------------------------------
+    // L14 lane: the three B-group pages (appended, never reordered).
+    // -----------------------------------------------------------------------
+
+    // Agent 预设 (`NativeAgentPresetsPage.swift`).
+    public const val AGENT_PRESETS_TITLE: String = "Agent 预设"
+    public const val AGENT_PRESETS_CREATE: String = "让 Agent 创建预设"
+    public const val AGENT_PRESETS_CREATE_NOTE: String =
+        "进入创造模式但不自动发送任务，现有草稿会保留。"
+    public const val AGENT_PRESETS_CREATE_NOTE_BUILTIN: String =
+        "可创建使用手机内建工具的本地 Agent 预设。外部套件与新 JavaScript 插件需使用桌面 DSH。"
+    public const val AGENT_PRESETS_CREATE_UNAVAILABLE: String =
+        "宿主没有可用的新建会话动作，无法进入创造模式。"
+    public const val AGENT_PRESETS_CREATOR_UNAVAILABLE_PREFIX: String = "创造模式当前不可用："
+    public const val AGENT_PRESETS_CREATOR_MISSING: String = "当前引擎没有提供创造模式预设。"
+    public const val AGENT_PRESETS_LOADING: String = "正在读取预设…"
+    public const val AGENT_PRESETS_UNREAD: String = "宿主还没有返回预设清单，暂不判断有没有预设。"
+    public const val AGENT_PRESETS_EMPTY: String = "当前引擎没有预设。"
+    public const val AGENT_PRESETS_DEFAULT: String = "默认"
+    public const val AGENT_PRESETS_CUSTOM: String = "自定义"
+    public const val AGENT_PRESETS_VIEW_CONFIG: String = "查看配置"
+    public const val AGENT_PRESETS_USE_PRESET: String = "使用预设"
+    public const val AGENT_PRESETS_DEFAULT_LOCKED: String = "默认已锁定"
+    public const val AGENT_PRESETS_DEFAULT_READ_ONLY_REASON: String =
+        "默认预设由此 Worker 的启动配置锁定。可用“使用预设”创建指定预设的新会话。"
+    public const val AGENT_PRESETS_RELOAD: String = "重新读取"
+    public const val AGENT_PRESETS_PRESET_GONE: String = "这个预设已不可用，请刷新后重试。"
+    public const val AGENT_PRESETS_SESSION_FAILED: String = "会话没有创建成功，请稍后重试。"
+    @Deprecated("The roster verb is 使用预设 (the PR26 iOS rename).", ReplaceWith("AGENT_PRESETS_USE_PRESET"))
+    public const val AGENT_PRESETS_MAKE_DEFAULT: String = AGENT_PRESETS_USE_PRESET
+
+    // 已加载插件 (`NativePluginInventoryPage.swift`).
+    public const val PLUGIN_INVENTORY_TITLE: String = "已加载插件"
+    /** Destination title from NativeConfigurationPage; retained for callers. */
+    public const val PLUGIN_INVENTORY_CONFIG: String = "插件与工具"
+    @Deprecated("The source inventory page has no separate read-only CTA row.")
+    public const val PLUGIN_INVENTORY_READ_ONLY: String =
+        "这台手机没有 pnpm、execa 或子进程安装环境。插件和 bundle 可以在这里查看；安装、启用和停用请在桌面 DSH 完成。"
+    @Deprecated("The source inventory page is an untitled list section.")
+    public const val PLUGIN_INVENTORY_SECTION: String = "插件列表"
+    public const val PLUGIN_INVENTORY_SEARCH: String = "搜索插件"
+    public const val PLUGIN_INVENTORY_LOADING: String = "正在读取插件…"
+    public const val PLUGIN_INVENTORY_EMPTY: String = "没有匹配的插件。"
+    public const val PLUGIN_INVENTORY_UNREAD: String = "宿主还没有返回插件清单，暂不判断有没有插件。"
+    public const val PLUGIN_INVENTORY_ENTRY: String = "条目"
+    public const val PLUGIN_INVENTORY_MODULE: String = "模块"
+    public const val PLUGIN_INVENTORY_ENABLED: String = "启用"
+    public const val PLUGIN_INVENTORY_PHASE: String = "运行状态"
+    public const val PLUGIN_INVENTORY_YES: String = "是"
+    public const val PLUGIN_INVENTORY_NO: String = "否"
+    public const val PLUGIN_INVENTORY_MANAGEMENT_NOTICE: String =
+        "这台手机没有 pnpm、execa 或子进程安装环境。插件和 bundle 可以在这里查看；安装、启用和停用请在桌面 DSH 完成。"
+
+    // 手机权限 (`PhonePermissionsPage.swift`, `CapabilityStatus.swift`).
+    public const val PHONE_PERMISSIONS_TITLE: String = "手机权限"
+    public const val PHONE_PERMISSIONS_AUDIT_SECTION: String = "最近使用审计"
+    public const val PHONE_PERMISSIONS_AUDIT_EMPTY: String = "暂无使用记录"
+    public const val PHONE_PERMISSIONS_AUDIT_UNKNOWN: String = "宿主没有报告使用审计，暂不判断有没有记录。"
+    public const val PHONE_PERMISSIONS_CONFIRM_TITLE: String = "允许使用这项能力？"
+    public const val PHONE_PERMISSIONS_CONTINUE: String = "继续"
+    public const val PHONE_PERMISSIONS_DISABLE_TITLE: String = "已停用应用内使用"
+    public const val PHONE_PERMISSIONS_DISABLE_BODY: String =
+        "这只停用 Phone DSH 的%s能力，不会撤销系统权限。撤销或修改系统授权请前往系统设置。"
+    public const val PHONE_PERMISSIONS_DISABLE_ACK: String = "知道了"
+    public const val PHONE_PERMISSIONS_OPEN_SETTINGS: String = "去系统设置"
+    public const val PHONE_PERMISSIONS_MANAGE_PHOTOS: String = "管理可访问照片"
+    public const val PHONE_PERMISSIONS_STATUS_NOT_DETERMINED: String = "未请求"
+    public const val PHONE_PERMISSIONS_STATUS_AUTHORIZED: String = "已允许"
+    public const val PHONE_PERMISSIONS_STATUS_LIMITED: String = "部分允许（%d）"
+    public const val PHONE_PERMISSIONS_STATUS_DENIED: String = "已拒绝"
+    public const val PHONE_PERMISSIONS_STATUS_RESTRICTED: String = "受系统限制"
+    public const val PHONE_PERMISSIONS_STATUS_REQUESTED: String = "已请求（系统不告知是否被拒）"
+    public const val PHONE_PERMISSIONS_STATUS_UNAVAILABLE: String = "当前设备不可用"
+    public const val PHONE_PERMISSIONS_STATUS_ALWAYS_ON: String = "常开"
+    public const val PHONE_PERMISSIONS_STATUS_LOCAL_NETWORK_UNVERIFIED: String = "未验证 · 点击测试"
+    public const val PHONE_PERMISSIONS_STATUS_LOCAL_NETWORK_DENIED: String = "可能已拒绝"
+    public const val PHONE_PERMISSIONS_STATUS_BIOMETRIC_CONFIRM: String = "已允许 · 写操作前确认"
+    public const val PHONE_PERMISSIONS_BIOMETRIC_UNAVAILABLE: String = "此宿主未提供面容确认，开关不可用"
+    public const val PHONE_PERMISSIONS_APP_SWITCH_UNAVAILABLE: String = "此宿主由系统授权决定，暂无应用内开关"
+
+    // ---------------------------------------------------------------------
+    // L13 lane: the three iOS pages Android did not carry
+    // (`chat-preferences`, `native-settings-document`, `native-shortcuts`).
+    // Every literal below is the Swift page's own wording at iOS HEAD; the
+    // picker/row labels are also the contract's section titles and action
+    // labels, so they are declared once here and read by both the page and the
+    // contract checker's resolver.
+    // ---------------------------------------------------------------------
+
+    // 聊天外观 (`ChatPreferencesPage.swift:76`).
+    public const val CHAT_PREFERENCES_TITLE: String = "聊天外观"
+    public const val CHAT_PREFERENCES_SECTION_APPEARANCE: String = "外观"
+    public const val CHAT_PREFERENCES_SECTION_FONT: String = "字号"
+    public const val CHAT_PREFERENCES_SECTION_COLLAPSE: String = "过程折叠"
+    public const val CHAT_PREFERENCES_SECTION_TRANSCRIPT: String = "转录"
+    public const val CHAT_PREFERENCES_ROW_APPEARANCE: String = "外观"
+    public const val CHAT_PREFERENCES_ROW_FONT_TEXT: String = "正文"
+    public const val CHAT_PREFERENCES_ROW_FONT_CODE: String = "代码"
+    public const val CHAT_PREFERENCES_ROW_COLLAPSE: String = "折叠时机"
+    public const val CHAT_PREFERENCES_ROW_TRANSCRIPT: String = "转录密度"
+    public const val CHAT_PREFERENCES_APPEARANCE_SYSTEM: String = "跟随系统"
+    public const val CHAT_PREFERENCES_APPEARANCE_LIGHT: String = "浅色"
+    public const val CHAT_PREFERENCES_APPEARANCE_DARK: String = "深色"
+    public const val CHAT_PREFERENCES_COLLAPSE_COMPLETION: String = "完成时"
+    public const val CHAT_PREFERENCES_COLLAPSE_NEXT_INPUT: String = "下一条消息"
+    public const val CHAT_PREFERENCES_DENSITY_COMPACT: String = "紧凑"
+    public const val CHAT_PREFERENCES_DENSITY_STANDARD: String = "标准"
+    public const val CHAT_PREFERENCES_DENSITY_DETAILED: String = "详细"
+    public const val CHAT_PREFERENCES_DENSITY_VERBOSE: String = "完整"
+    public const val CHAT_PREFERENCES_FOOTER_APPEARANCE: String =
+        "深色仍在适配中；默认浅色与官方 402pt 基线一致。"
+    public const val CHAT_PREFERENCES_FOOTER_FONT: String =
+        "正文字号作用于消息正文；代码字号作用于代码块与工具详情。"
+    public const val CHAT_PREFERENCES_FOOTER_COLLAPSE: String = "与页头 more 菜单中的选择同步。"
+    public const val CHAT_PREFERENCES_FONT_SIZE_FORMAT: String = "%dpt"
+    public const val CHAT_PREFERENCES_STEPPER_DECREASE: String = "减小"
+    public const val CHAT_PREFERENCES_STEPPER_INCREASE: String = "增大"
+
+    // 配置文件 (`NativeSettingsDocumentPage.swift:12-31`).
+    public const val SETTINGS_DOCUMENT_TITLE: String = "配置文件"
+    public const val SETTINGS_DOCUMENT_REDACTION_NOTE: String =
+        "仅显示 DSH 已脱敏的设置描述与 revision；密钥和本机路径不会出现在这里。"
+    public const val SETTINGS_DOCUMENT_LOADING: String = "正在读取配置…"
+    public const val SETTINGS_DOCUMENT_EMPTY: String = "DSH 没有可显示的自定义设置"
+    public const val SETTINGS_DOCUMENT_UNKNOWN: String = "读取不到脱敏配置"
+    public const val SETTINGS_DOCUMENT_UNKNOWN_HINT: String = "宿主尚未提供设置描述，这里不显示编造的内容。"
+    public const val SETTINGS_DOCUMENT_FAILED: String = "读取配置失败：%s"
+    public const val SETTINGS_DOCUMENT_READ_ONLY: String = "只读：内容来自宿主的脱敏快照，不能在这里编辑。"
+    public const val SETTINGS_DOCUMENT_SHARE: String = "导出脱敏配置"
+    public const val SETTINGS_DOCUMENT_SHARE_UNAVAILABLE: String = "宿主未提供系统分享，内容只能在本页查看。"
+
+    // 快捷键 (`NativeShortcutsPage.swift:29-31`).
+    public const val SHORTCUTS_TITLE: String = "快捷键"
+    public const val SHORTCUTS_SECTION_COMMANDS: String = "应用命令"
+    public const val SHORTCUTS_SECTION_FIXED: String = "固定输入操作（只读）"
+    public const val SHORTCUTS_ACTION_SEND: String = "发送消息"
+    public const val SHORTCUTS_ACTION_ALTERNATE: String = "另一种发送行为"
+    public const val SHORTCUTS_ACTION_STOP: String = "停止当前回复"
+    public const val SHORTCUTS_ACTION_SETTINGS: String = "打开设置"
+    public const val SHORTCUTS_ACTION_SHORTCUTS: String = "打开快捷键速查"
+    public const val SHORTCUTS_ACTION_LATEST: String = "回到最新"
+    public const val SHORTCUTS_FIXED_NEW_LINE: String = "换行"
+    public const val SHORTCUTS_FIXED_SEND: String = "发送"
+    public const val SHORTCUTS_FIXED_ALTERNATE: String = "另一种发送行为"
+    public const val SHORTCUTS_FIXED_NEW_LINE_KEYS: String = "⇧↩"
+    public const val SHORTCUTS_FIXED_SEND_KEYS: String = "↩"
+    public const val SHORTCUTS_FIXED_ALTERNATE_KEYS: String = "⌘↩"
+    public const val SHORTCUTS_RESET_ALL: String = "恢复全部默认"
+    public const val SHORTCUTS_UNKNOWN_HINT: String = "宿主没有报告快捷键存储，这里不显示默认绑定。"
+    public const val SHORTCUTS_READ_ONLY_HINT: String = "快捷键由宿主读写；本页只显示当前绑定，编辑入口尚未接入。"
+
+    // ---------------------------------------------------------------------
+    // L18 lane: the two MCP pages as the iOS HEAD `86a39aac` contract states
+    // them (`spec/ui/v1/pages/mcp-settings.json`, `mcp-editor.json`), which is
+    // `MCPSettingsPage.swift` in the probe app. Appended only: every entry
+    // above belongs to another lane and is never rewritten.
+    // ---------------------------------------------------------------------
+
+    // The list's one titled group (`MCPSettingsPage.swift:46`) and its footer
+    // (`:69`). The rows, the empty/loading/unavailable states and the fold stay
+    // the page's own; the title is the baseline's.
+    public const val MCP_LIST_SECTION: String = "Streamable HTTP MCP"
+    public const val MCP_LIST_FOOTER: String =
+        "每个服务器只放行它自己的地址和端口。这里填的授权和密钥只留在本机；模型和搜索用的密钥不会拿来给服务器用。"
+
+    // 操作 (`MCPSettingsPage.swift:83`): 刷新注册表 (`:87`) and 添加 MCP 服务器
+    // (`:93`, the same copy as the editor's own title at `:266`).
+    public const val MCP_ACTION_SECTION: String = "操作"
+    public const val MCP_ACTION_REFRESH: String = "刷新注册表"
+    public const val MCP_ACTION_ADD_SERVER: String = "添加 MCP 服务器"
+
+    // The editor's two titled groups: 服务器 (`MCPSettingsPage.swift:188`, the form)
+    // and 认证头与设备密钥 (`:203`, the header list) with its footer (`:229`).
+    public const val MCP_SECTION_SERVER: String = "服务器"
+    public const val MCP_SECTION_AUTH: String = "认证头与设备密钥"
+    public const val MCP_AUTH_FOOTER: String =
+        "值只写入本机应用私有存储；设备支持时使用 Android Keystore 加密。不会写进配置文件，也不会进日志。留空就是保留已经存过的值。"
+
+    // The editor's header rows and the two verbs that add and delete them
+    // (`MCPSettingsPage.swift:206,209,213,224,260`).
+    public const val MCP_ACTION_ADD_HEADER: String = "添加认证头"
+    public const val MCP_ACTION_DELETE_SERVER: String = "删除并撤销授权与密钥"
+    public const val MCP_REMOVE_HEADER: String = "移除这个认证头"
+    public const val MCP_FIELD_HEADER_NAME: String = "Header，例如 Authorization"
+    public const val MCP_FIELD_HEADER_ENV: String = "环境变量名（可留空自动生成）"
+    public const val MCP_FIELD_HEADER_VALUE: String = "认证值（只写入应用私有存储）"
+    public const val MCP_FIELD_HEADER_VALUE_STORED: String = "已保存；留空保持不变"
+    public const val MCP_FIELD_HEADER_HINT: String = "留空这一行不会覆盖已经存过的值"
+
+    // 工具调用超时 (`MCPSettingsPage.swift:199`): a number the host executes with,
+    // so an empty field means the host's own default rather than a zero here.
+    public const val MCP_FIELD_TIMEOUT: String = "工具调用超时（毫秒）"
+    public const val MCP_FIELD_TIMEOUT_PLACEHOLDER: String = "留空使用宿主默认值"
+    public const val MCP_FIELD_TIMEOUT_HINT: String = "以毫秒计；留空表示不改宿主的默认超时"
+    public const val MCP_DELETE_HINT: String = "删除会一并撤销这条服务器的精确授权和设备密钥"
+
+    // ---------------------------------------------------------------------
+    // L21 lane: the probes record count. `ProbesPage.swift:112` renders
+    // `PageSection("Rows (\(model.probeRows.count))")` — a fixed template plus one
+    // measured number — so the copy keeps a `%d` slot and the page formats the
+    // count. `PROBES_SECTION_ROWS_COUNT_EN` above is the literal copy of the Swift
+    // interpolation source, which the page must never render. Appended only.
+    // ---------------------------------------------------------------------
+    public const val PROBES_SECTION_ROWS_COUNT: String = "Rows (%d)"
+
+    // ---------------------------------------------------------------------
+    // L16 lane: `NativeConfigurationPage`'s missing contract controls
+    // (`spec/ui/v1/pages/native-configuration.json`, iOS HEAD `86a39aac`).
+    //
+    // The section titles and verbs are the baseline's, with one deliberate
+    // copy divergence: the baseline's section is "iPhone Worker 限制". This
+    // page runs on an Android phone, so it says 手机 Worker 限制 — printing
+    // "iPhone" here would be a false statement about the device (the same rule
+    // `NativePluginInventoryPage` follows for its management sentence).
+    //
+    // The two prose constants below are the baseline's own wording; the
+    // limitation *sentence* is not copied: the host's measured sentence (or
+    // `PLUGIN_INVENTORY_MANAGEMENT_NOTICE`) is shown instead.
+    // ---------------------------------------------------------------------
+    public const val CONFIGURATION_BUILT_IN_SECTION: String = "内置插件设置"
+    public const val CONFIGURATION_SCOPE_SECTION: String = "本机管理范围"
+    public const val CONFIGURATION_LIMITS_SECTION: String = "手机 Worker 限制"
+    public const val CONFIGURATION_SCOPE_TEXT: String =
+        "这一页显示引擎里真正装着的插件。保存后马上生效。"
+    public const val CONFIGURATION_ONLY_LOADED_TEXT: String =
+        "只有真正加载起来的插件才会显示为已启用。没装的,这里不会假装它在跑。"
+    public const val CONFIGURATION_SAVE: String = "保存"
+    public const val CONFIGURATION_SAVE_DEFAULT: String = "保存默认"
+    public const val CONFIGURATION_DISCARD: String = "撤销"
+    public const val CONFIGURATION_RESET: String = "恢复默认"
+    public const val CONFIGURATION_INSTALL_THIRD_PARTY: String = "安装第三方插件"
+    public const val CONFIGURATION_CREATE_WITH_AGENT: String = "让 Agent 创建插件"
+    // ---------------------------------------------------------------------
+    // L15 lane: the 2026-11-01 iOS contract for the two pages whose structure
+    // changed at `86a39aac` (PR #13). The model-provider page gained the
+    // contract's 生效方式 group and the editor's per-model rows, and the
+    // web-search page became a mode/address/key page. Appended only: the copy
+    // table is one file per lane, and every label the contract compares is
+    // quoted verbatim (`添加模型服务` / `编辑默认服务` / `启动本地引擎` / `删除 %@`).
+    // ---------------------------------------------------------------------
+    public const val PROVIDER_ADD_SERVICE: String = "添加模型服务"
+    public const val PROVIDER_EDIT_DEFAULT: String = "编辑默认服务"
+    public const val PROVIDER_SECTION_APPLY: String = "生效方式"
+    public const val PROVIDER_START_ENGINE: String = "启动本地引擎"
+    public const val PROVIDER_RESTART_HINT_IDLE: String = "配置会在下次启动主机时生效。"
+    public const val PROVIDER_RESTART_HINT_RUNNING: String = "保存已落盘。新的服务和模型在下一次启动 App 时装配进引擎——停止并重启主机不会重读配置（引擎的环境在进程启动时就建好了）。"
+    public const val PROVIDER_EDIT: String = "编辑"
+    public const val PROVIDER_DELETE: String = "删除"
+    public const val PROVIDER_DELETE_CONFIRM_TITLE: String = "删除模型服务？"
+    public const val PROVIDER_DELETE_CONFIRM_TEXT: String = "会删掉这个服务的配置,以及存在这台手机上的密钥。"
+    // iOS spells this `String(format: "删除 %@", name)`; Kotlin's `String.format`
+    // has no Object conversion, so the template carries `%s` and renders the same
+    // sentence (`删除 DeepSeek`). The argument is a name, never a key.
+    public const val PROVIDER_DELETE_NAMED: String = "删除 %s"
+    public const val PROVIDER_EDITOR_EDIT_TITLE: String = "编辑模型服务"
+    public const val PROVIDER_MODEL_CATALOG: String = "模型目录"
+    public const val PROVIDER_KEY_SECTION: String = "密钥"
+    public const val PROVIDER_FIELD_NAME: String = "显示名称"
+    public const val PROVIDER_FIELD_ID: String = "标识"
+    public const val PROVIDER_FIELD_ID_NEW: String = "标识（留空自动生成）"
+    public const val PROVIDER_FIELD_URL: String = "服务 URL"
+    public const val PROVIDER_DEFAULT_MODEL: String = "默认模型"
+    public const val PROVIDER_REASONING_EFFORT: String = "推理强度"
+    public const val PROVIDER_EFFORT_OFF: String = "关闭"
+    public const val PROVIDER_EFFORT_LOW: String = "低"
+    public const val PROVIDER_EFFORT_HIGH: String = "高"
+    public const val PROVIDER_EFFORT_MAX: String = "最高"
+    public const val PROVIDER_TEXT_INPUT: String = "文本输入"
+    public const val PROVIDER_IMAGE_INPUT: String = "图片输入"
+    public const val PROVIDER_DELETE_MODEL: String = "删除此模型"
+    public const val PROVIDER_ADD_MODEL: String = "添加模型"
+    public const val PROVIDER_MODEL_ID: String = "模型 ID"
+    public const val PROVIDER_IMPORT_CLIPBOARD: String = "从剪贴板导入"
+    public const val PROVIDER_DELETE_SAVED_KEY: String = "删除已保存的密钥"
+    public const val PROVIDER_SAVING: String = "保存中…"
+    public const val PROVIDER_KEY_FIELD: String = "API 密钥"
+    public const val PROVIDER_KEY_FIELD_REPLACE: String = "输入新密钥以替换"
+    public const val PROVIDER_KEY_SAVED_LINE: String = "此设备已保存密钥"
+    public const val PROVIDER_KEY_NONE_LINE: String = "尚未保存密钥"
+    public const val PROVIDER_KEY_UNREADABLE_LINE: String = "无法读取此设备的密钥"
+    public const val PROVIDER_KEY_STORE_HINT: String = "密钥只存在这台手机上,手机解锁过一次之后才读得到。配置、日志、网页里都没有它。"
+    public const val PROVIDER_PROTOCOL_ANTHROPIC: String = "地址以 /anthropic 结尾：使用 Anthropic Messages（请求 /v1/messages，密钥走 x-api-key）。"
+    public const val PROVIDER_PROTOCOL_OPENAI: String = "按 OpenAI 兼容协议请求 /chat/completions（密钥走 Authorization: Bearer）。"
+    public const val PROVIDER_TEST: String = "测试"
+
+    // Web search, same lane: the mode the page follows, the address, the key
+    // state, and when a change applies. 保存 is the one button on the page; it is
+    // drawn by the page's own button composable because the contract models that
+    // button without a label (its visible text is the copy below).
+    public const val WEB_SEARCH_SECTION_MODE: String = "用哪一份搜索"
+    public const val WEB_SEARCH_MODE_FOLLOW: String = "用模型服务自带的"
+    public const val WEB_SEARCH_MODE_FOLLOW_HINT: String = "不填地址,用那边配好的搜索。"
+    public const val WEB_SEARCH_MODE_API: String = "自己填一个"
+    public const val WEB_SEARCH_MODE_API_HINT: String = "填地址和密钥,单独连一个搜索服务。"
+    public const val WEB_SEARCH_FOLLOW_NO_PROFILE: String = "还没有设置模型服务。要么先去「模型服务」配一个,要么在这一页自己填。"
+    public const val WEB_SEARCH_FOLLOW_SUPPORTED: String = "现在这个模型服务自带搜索,可以直接用它。"
+    public const val WEB_SEARCH_FOLLOW_UNSUPPORTED: String = "现在这个模型服务不带搜索。要么换一个,要么在这一页自己填。"
+    public const val WEB_SEARCH_FOLLOW_UNKNOWN: String = "读不到这个模型服务有没有搜索能力，先确认再切过去。"
+    public const val WEB_SEARCH_SECTION_ADDRESS: String = "地址"
+    public const val WEB_SEARCH_ADDRESS_PLACEHOLDER: String = "api.deepseek.com"
+    public const val WEB_SEARCH_ADDRESS_FOOTER: String = "照服务商给的那段整段粘过来就行。"
+    public const val WEB_SEARCH_SECTION_KEY: String = "密钥状态"
+    public const val WEB_SEARCH_KEY_LABEL: String = "密钥"
+    public const val WEB_SEARCH_KEY_STORED: String = "存好了"
+    public const val WEB_SEARCH_KEY_NOT_STORED: String = "还没存"
+    public const val WEB_SEARCH_KEY_TAIL: String = "尾号 %s"
+    public const val WEB_SEARCH_KEY_PLACEHOLDER: String = "粘贴密钥"
+    public const val WEB_SEARCH_KEY_FOOTER: String = "这里只看得到尾巴四位,看不到密钥本身。密钥只存在这台手机上,不进配置、日志和报错。"
+    public const val WEB_SEARCH_SAVE_KEY: String = "保存"
+    public const val WEB_SEARCH_CLEAR_KEY: String = "清除密钥"
+    public const val WEB_SEARCH_CLEAR: String = "清除"
+    public const val WEB_SEARCH_CLEAR_TITLE: String = "清除密钥?"
+    public const val WEB_SEARCH_CLEAR_TEXT: String = "清除之后这台手机就用不了模型,得重新粘一遍。"
+    public const val WEB_SEARCH_DELETE_SERVICE: String = "删除这个搜索服务"
+    public const val WEB_SEARCH_DELETE: String = "删除"
+    public const val WEB_SEARCH_DELETE_FOOTER: String = "只改这台手机上的设置,不会立刻联网。"
+    public const val WEB_SEARCH_DELETE_TITLE: String = "删除这个搜索服务?"
+    public const val WEB_SEARCH_DELETE_TEXT: String = "地址和密钥都会删掉,搜索回到用模型服务自带的那份。"
+    public const val WEB_SEARCH_SECTION_APPLY: String = "什么时候生效"
+    public const val WEB_SEARCH_START_ENGINE: String = "启动本地引擎"
+    public const val WEB_SEARCH_STOP_ENGINE: String = "停止本地引擎"
+    public const val WEB_SEARCH_RESTART_HINT_IDLE: String = "下次启动本地引擎时才生效。"
+    public const val WEB_SEARCH_RESTART_HINT_RUNNING: String = "重启本地引擎之后生效;工作文件夹和会话都不变。"
+    public const val WEB_SEARCH_SECTION_WARNING: String = "需要处理"
+    public const val WEB_SEARCH_WARNING_TAIL: String = "重启本地引擎之后这行提示会自己消失。"
+    public const val WEB_SEARCH_SECTION_NOTES: String = "还要知道"
+    public const val WEB_SEARCH_NOTE_MODEL: String = "用模型服务自带的搜索时,抓网页这件事也归它管,这里不再单独设。"
+    public const val WEB_SEARCH_NOTE_KEY: String = "密钥只存在这台手机上,本地引擎拿到的只是一个占位。"
+    public const val WEB_SEARCH_NOTE_RESTART: String = "存好或删掉之后要重启本地引擎才生效;重启不会动你的文件夹和会话。"
+    public const val WEB_SEARCH_FAILURE_KEY: String = "读取不到这台设备上的密钥"
+    public const val WEB_SEARCH_COMMIT_SAVED: String = "存好了"
+    public const val WEB_SEARCH_COMMIT_FAILED: String = "没存上，改一下再试"
+
+    // The chat page-head menu's two session-scoped rows (`ChatPage.swift:256`,
+    // `:260`). They are visible menu copy, not screen-reader strings.
+    public const val HEADER_ARTIFACTS: String = "产物"
+    public const val HEADER_WORKBENCH: String = "工作区"
+
+    // -----------------------------------------------------------------------
+    // L25 lane: the two embedded subpages of README §1's
+    // 「内嵌子页随父页实现、不单独排期」 rule. Appended only: no entry above is
+    // rewritten, and each block says which baseline page it ports.
+    // -----------------------------------------------------------------------
+
+    // ScheduleEditorPage (`NativeAutomationPage.swift:212`–`:420`): the form the
+    // schedule catalog presents. Every literal is the baseline's own word, in its
+    // own order — the two editor titles (`:278`), the two section titles (`:252`
+    // `:258`), the 修改计划时间 toggle (`:260`), the 规则 picker's six options
+    // (`:264`–`:269`), the six rule-field labels/placeholders (`:294`–`:310`) and
+    // the six validation sentences (`:397`–`:406`).
+    public const val AUTOMATION_EDITOR_NEW_TITLE: String = "新建自动化"
+    public const val AUTOMATION_EDITOR_EDIT_TITLE: String = "编辑自动化"
+    public const val AUTOMATION_EDITOR_CONTENT_SECTION: String = "任务内容"
+    public const val AUTOMATION_EDITOR_TIMING_SECTION: String = "计划时间"
+    public const val AUTOMATION_EDITOR_NAME_FIELD: String = "名称"
+    // The second field reuses AUTOMATION_PROMPT (提醒内容): the baseline's form
+    // and its detail page name the same string `prompt` with the same word.
+    public const val AUTOMATION_EDITOR_CHANGE_TIMING: String = "修改计划时间"
+    public const val AUTOMATION_EDITOR_CURRENT_RULE: String = "当前规则"
+    // A switch's position has to be readable as text as well as as a role: the row
+    // prints the state the way every other row in this app does.
+    public const val AUTOMATION_EDITOR_TOGGLE_ON: String = "已开启"
+    public const val AUTOMATION_EDITOR_TOGGLE_OFF: String = "已关闭"
+    public const val AUTOMATION_EDITOR_RULE_AFTER: String = "延迟一次"
+    public const val AUTOMATION_EDITOR_RULE_AT: String = "指定时间"
+    public const val AUTOMATION_EDITOR_RULE_EVERY: String = "固定间隔"
+    public const val AUTOMATION_EDITOR_RULE_DAILY: String = "每天"
+    public const val AUTOMATION_EDITOR_RULE_WEEKLY: String = "每周"
+    public const val AUTOMATION_EDITOR_RULE_CRON: String = "自定义时间表"
+    // The 规则 row's own label is AUTOMATION_RULE above; the picker's is the
+    // same word (`Picker("规则", …)`, `:263`).
+    public const val AUTOMATION_EDITOR_DELAY_FIELD: String = "延迟秒数"
+    public const val AUTOMATION_EDITOR_DELAY_EDIT_FIELD: String = "延迟到期秒数"
+    public const val AUTOMATION_EDITOR_AT_HINT: String =
+        "需要包含时区，例如 2026-10-26T09:00:00+08:00。"
+    public const val AUTOMATION_EDITOR_AT_FIELD: String = "ISO-8601 日期时间"
+    public const val AUTOMATION_EDITOR_EVERY_FIELD: String = "间隔秒数（至少 60）"
+    public const val AUTOMATION_EDITOR_TIME_FIELD: String = "本地时间 HH:mm:ss"
+    public const val AUTOMATION_EDITOR_TIME_ZONE_FIELD: String = "IANA 时区"
+    public const val AUTOMATION_EDITOR_WEEKDAYS_FIELD: String = "星期（ISO 1–7，以逗号分隔）"
+    public const val AUTOMATION_EDITOR_CRON_FIELD: String = "五段 Cron 表达式"
+    // 保存 / 取消 (`:281`, `:283`). 取消 is UiStrings.CANCEL: the baseline's word,
+    // already carried for the delete confirmation.
+    public const val AUTOMATION_EDITOR_SAVE: String = "保存"
+    // The rule validation sentences, verbatim (`timingValidationMessage()`, `:397`).
+    public const val AUTOMATION_EDITOR_ERROR_AFTER: String = "请输入大于0的延迟秒数。"
+    public const val AUTOMATION_EDITOR_ERROR_AT: String = "请输入带时区的有效 ISO-8601 日期时间。"
+    public const val AUTOMATION_EDITOR_ERROR_EVERY: String = "固定间隔至少为60秒。"
+    public const val AUTOMATION_EDITOR_ERROR_DAILY: String = "每天提醒需要有效的本地时间和 IANA 时区。"
+    public const val AUTOMATION_EDITOR_ERROR_WEEKLY: String =
+        "每周提醒需要有效时间/时区，并选择 1–7 的星期。"
+    public const val AUTOMATION_EDITOR_ERROR_CRON: String = "Cron 需要五段表达式和有效 IANA 时区。"
+    public const val AUTOMATION_EDITOR_ERROR_UNKNOWN_RULE: String = "请检查计划规则。"
+    // Android's own disclosure, not the baseline's: §1 makes a save a handoff on
+    // this host, and a form that silently keeps its values must say why.
+    public const val AUTOMATION_EDITOR_HANDOFF_HINT: String =
+        "保存会提交给宿主；本宿主未实现定时任务存储，表单会保留已填内容"
+
+    // SessionArtifactPreviewPage (`SessionArtifactsPage.swift:296`–`:319`): the
+    // preview 分享 verb (`:313`). iOS renders the file in a `QLPreviewController`
+    // and shares its URL; Android has no system previewer, so the page shows the
+    // baseline's own fallback sentence (`:304`–`:305`) plus the one platform fact
+    // the iOS page does not need, and shares through the system chooser.
+    public const val ARTIFACTS_PREVIEW_SHARE: String = "分享"
+    public const val ARTIFACTS_PREVIEW_SHARE_CHOOSER: String = "分享产物"
+    public const val ARTIFACTS_PREVIEW_PLATFORM_NOTE: String =
+        "Android 没有系统预览器；分享给其他应用即可打开。"
+    // What the chooser carries when the store has no content uri for the file:
+    // the artifact's own name, size and id, so the receiving app knows what it is.
+    public const val ARTIFACTS_PREVIEW_SHARE_TEXT: String = "%s（%s，%s）"
+
+    // L24 lane: the chat family's three embedded subpages, which the iOS page keeps
+    // in its own file (`ChatPage.swift:3504` NativeScheduleListSheet, `:3554`
+    // NativeJobListSheet, `:4243` CommandExecutionResultPage). README §1 lists them
+    // as 内嵌子页, so they are implemented with the parent page. Appended only.
+    /** The two list sheets' trailing toolbar verb (`ChatPage.swift:3544`, `:3593`). */
+    public const val CHAT_SUBPAGE_REFRESH: String = "刷新"
+
+    /** The command-result page's trailing toolbar verb (`ChatPage.swift:4276`). */
+    public const val CHAT_SUBPAGE_DONE: String = "完成"
+
+    // 定时任务 sheet (`ChatPage.swift:3504`–`:3552`): the navigation title and the
+    // `ContentUnavailableView` pair the baseline shows when it has no rows.
+    public const val CHAT_SCHEDULES_TITLE: String = "定时任务"
+    public const val CHAT_SCHEDULES_EMPTY_TITLE: String = "没有定时任务"
+    public const val CHAT_SCHEDULES_EMPTY_DETAIL: String = "这个会话暂时没有定时任务。"
+
+    // Android's own line, not the baseline's: the empty sentence above claims the
+    // host *reported* no schedules. "Not reported" is a different fact, so a host
+    // that made no read says this instead of claiming an empty session.
+    public const val CHAT_SCHEDULES_UNREAD: String = "读取不到这个会话的定时任务。"
+
+    // 后台任务 sheet (`ChatPage.swift:3554`–`:3601`).
+    public const val CHAT_JOBS_TITLE: String = "后台任务"
+    public const val CHAT_JOBS_EMPTY_TITLE: String = "没有后台任务"
+    public const val CHAT_JOBS_EMPTY_DETAIL: String = "这个会话暂时没有后台任务。"
+    public const val CHAT_JOBS_UNREAD: String = "读取不到这个会话的后台任务。"
+
+    // 命令结果 (`ChatPage.swift:4243`–`:4299`): the status line, the empty-output
+    // sentence and the Android-only unread line (this host owns no
+    // `commands/execute`, so there is no execution to show by default).
+    public const val CHAT_COMMAND_RESULT_TITLE: String = "命令结果"
+    public const val CHAT_COMMAND_RESULT_SUCCESS: String = "命令已完成"
+    public const val CHAT_COMMAND_RESULT_FAILED: String = "命令执行失败"
+    public const val CHAT_COMMAND_RESULT_EMPTY: String = "这次没有更多输出。"
+    public const val CHAT_COMMAND_RESULT_UNREAD: String = "读取不到这次命令的结果。"
+
+    // -----------------------------------------------------------------------
+    // Appended by the L29 lane: the single preview face. iOS PR #15 (`8dd17496`,
+    // `PreviewSurface.swift`) replaced the files page's private preview sheet with
+    // one full-screen surface; these are the sentences that surface owns.
+    //
+    // `FILES_PREVIEW_LOADING` (「正在读取…」) is reused as the first frame's word
+    // and `FILES_PREVIEW_SHARE` (「分享」) / `RETRY` (「重试」) as the two verbs, so
+    // the preview does not grow a second spelling of a word the app already has.
+    //
+    // The `PREVIEW_REASON_*` block has no iOS counterpart on purpose: Quick Look, a
+    // library page and PDFKit cover all eleven kinds on iOS, so its unsupported card
+    // never explains itself. Android has no renderer for six of them, and "temporarily
+    // cannot preview" without a reason is the same lie as "the file is gone".
+    // -----------------------------------------------------------------------
+
+    /** `:275`: the paging footer while the next 512 KiB page is in flight. */
+    public const val PREVIEW_LOADING_MORE: String = "正在加载更多…"
+
+    /** `:283`: the paging footer's action while the file has more bytes. */
+    public const val PREVIEW_LOAD_MORE: String = "加载更多"
+
+    /** Android-only: how much of the file the paged body has read, and its size. */
+    public const val PREVIEW_PROGRESS: String = "已读 %s / 共 %s"
+
+    /** `:265`: the failure card's title. */
+    public const val PREVIEW_UNAVAILABLE: String = "无法预览"
+
+    /** `:158`: the bounded retry's answer after twelve waits (`:148`). */
+    public const val PREVIEW_STILL_WRITING: String = "这个文件还在写入，或已不在工作区。等待同步后重试。"
+
+    /** Android-only: the path names a directory, which no renderer can open. */
+    public const val PREVIEW_NOT_A_FILE: String = "这个路径是文件夹，不是文件。"
+
+    /** `:510`: the unsupported card's title. */
+    public const val PREVIEW_UNSUPPORTED_TITLE: String = "暂时不能预览这个文件"
+
+    /** `:512`: the unsupported card's way out. */
+    public const val PREVIEW_UNSUPPORTED_HINT: String = "可以分享文件，或使用其他 App 打开。"
+
+    /** `:537`: the unsupported card's share verb (the toolbar's is 「分享」). */
+    public const val PREVIEW_SHARE_FILE: String = "分享文件"
+
+    /** Android-only: `startActivity` found nothing that accepts the file. */
+    public const val PREVIEW_SHARE_FAILED: String = "没有可以接收这个文件的 App。"
+
+    /** Android-only reasons: what this host is missing, per kind. */
+    public const val PREVIEW_REASON_OFFICE: String = "本机没有 Office 渲染器。"
+    public const val PREVIEW_REASON_HTML: String = "HTML 预览需要第二个 WebView；本机只允许一个。"
+    public const val PREVIEW_REASON_VIDEO: String = "视频播放器还没接上。"
+    public const val PREVIEW_REASON_AUDIO: String = "音频播放器还没接上。"
+    public const val PREVIEW_REASON_MODEL: String = "3D 预览需要 WebView。"
+    public const val PREVIEW_REASON_WEB_MEDIA: String = "这个媒体格式需要 WebView。"
+
+    /** Android-only: a page whose bytes stop being UTF-8 mid-file. */
+    public const val PREVIEW_NOTICE_BINARY: String = "后面的内容不是 UTF-8 文本，已停止读取。"
+
+    /** Android-only: `BitmapFactory` decodes a GIF's first frame and nothing more. */
+    public const val PREVIEW_NOTICE_GIF: String = "动图只显示第一帧。"
+
+    /** Android-only: `PdfRenderer` is bounded so a 900-page manual cannot OOM. */
+    public const val PREVIEW_NOTICE_PDF_CAPPED: String = "只渲染了前 %s 页（共 %s 页）。"
+
+    /** Android-only: the image body could not decode the file. */
+    public const val PREVIEW_IMAGE_FAILED: String = "无法显示图片"
+    public const val PREVIEW_IMAGE_FAILED_HINT: String = "图片格式不受支持，或文件仍在写入。"
+
+    /** Android-only: the PDF body's two states. */
+    public const val PREVIEW_PDF_RENDERING: String = "正在打开 PDF…"
+    public const val PREVIEW_PDF_FAILED: String = "无法打开 PDF"
+    public const val PREVIEW_PDF_FAILED_HINT: String = "文件可能已加密或仍在写入。"
+
+    // -----------------------------------------------------------------------
+    // Appended by the L32 lane: the video and audio bodies. PR #15 renders both
+    // with one `AVPlayer` (`PreviewSurface.swift:305`) and `VideoPlayer` draws the
+    // chrome; this host keeps the one-player shape (`PreviewPlayback.kt`) and
+    // draws its own transport, so the three words that transport needs live here
+    // instead of being spelled inline in the surface.
+    //
+    // `PREVIEW_MEDIA_TIME` is the clock both bodies print (`0:07 / 0:32`); the
+    // `PREVIEW_PLAYBACK_FAILED_*` block is the decoder's error taxonomy in words a
+    // person can act on (the page's 无法预览 card prints one of them as its reason).
+    // -----------------------------------------------------------------------
+
+    /** `:389`: the frame between a resolved file and a prepared player. */
+    public const val PREVIEW_VIDEO_PREPARING: String = "准备播放器…"
+
+    /** The transport's two verbs; `PREVIEW_PLAYBACK_FOCUS_PAUSED` explains a third state. */
+    public const val PREVIEW_PLAY: String = "播放"
+    public const val PREVIEW_PAUSE: String = "暂停"
+
+    /** The audio card's duration line, and its honest answer when the codec has none. */
+    public const val PREVIEW_MEDIA_DURATION: String = "时长 %s"
+    public const val PREVIEW_MEDIA_DURATION_UNKNOWN: String = "时长未知"
+
+    /** `0:07 / 0:32`; the second placeholder is absent when the duration is unknown. */
+    public const val PREVIEW_MEDIA_TIME: String = "%s / %s"
+
+    /** Audio focus was taken by something else, so the pause was not the user's. */
+    public const val PREVIEW_PLAYBACK_FOCUS_PAUSED: String = "另一个 App 正在使用音频，播放已暂停。"
+
+    /** `MediaPlayer`'s `MEDIA_ERROR_*` taxonomy, one sentence per actionable cause. */
+    public const val PREVIEW_PLAYBACK_FAILED_IO: String = "读不到这个媒体文件。"
+    public const val PREVIEW_PLAYBACK_FAILED_MALFORMED: String =
+        "文件已损坏或不是完整的媒体文件。"
+    public const val PREVIEW_PLAYBACK_FAILED_UNSUPPORTED: String = "本机没有这个媒体格式的解码器。"
+    public const val PREVIEW_PLAYBACK_FAILED_TIMED_OUT: String = "播放器等待超时。"
+    public const val PREVIEW_PLAYBACK_FAILED_CRASHED: String = "播放器出错了，请重试。"
+    public const val PREVIEW_PLAYBACK_FAILED_UNKNOWN: String = "播放器无法打开这个文件。"
+
+    // -----------------------------------------------------------------------
+    // Appended by the L33 lane: the unsupported card's reasons, rewritten per
+    // *file* instead of per kind.
+    //
+    // The L29 sentences these supersede (`PREVIEW_REASON_HTML`,
+    // `PREVIEW_REASON_MODEL`, `PREVIEW_REASON_WEB_MEDIA`) told the reader about a
+    // "WebView" and answered one sentence for three different media formats. A
+    // person can act on neither. This object is append-only for the lane, so those
+    // three stay declared (and unreachable) instead of being edited away; the
+    // mapping that replaces them is `PreviewUnsupported.kt`, whose test fails the
+    // build if implementation vocabulary comes back.
+    // -----------------------------------------------------------------------
+
+    /** L33 / `HTML`: the file's own scripts, in a surface this host does not have. */
+    public const val PREVIEW_REASON_HTML_PAGE: String =
+        "网页预览会执行这个文件里的脚本；App 里还没有能安全运行网页的预览页。"
+
+    /** L33 / `MODEL`: three.js needs the same surface. */
+    public const val PREVIEW_REASON_MODEL_VIEWER: String =
+        "3D 模型要用 three.js 在网页里渲染；App 里还没有能安全运行网页的预览页。"
+
+    /** L33 / `WEB_MEDIA` × `.gif`: an animated decoder, not a page and not a player. */
+    public const val PREVIEW_REASON_WEB_MEDIA_GIF: String =
+        "动图预览还没接上；这里的图片解码只取第一帧，所以不假装它在动。"
+
+    /** L33 / `WEB_MEDIA` × `.webm`: a player route, not a page. */
+    public const val PREVIEW_REASON_WEB_MEDIA_VIDEO: String =
+        "这个视频格式还没有接到播放器上。"
+
+    /** L33 / `WEB_MEDIA` × `.ogv`: `Theora` has no decoder in the platform. */
+    public const val PREVIEW_REASON_WEB_MEDIA_OGV: String =
+        "本机没有 OGV（Theora）解码器。"
+
+    // -----------------------------------------------------------------------
+    // Appended by the L74 lane: two page titles the settings family was
+    // rendering with another page's words. Appended only — nothing above is
+    // rewritten.
+    // -----------------------------------------------------------------------
+
+    /**
+     * 通用设置 — the 通用 tab's own navigation title.
+     *
+     * `SettingsPage.swift:14` (`NativeSettingsTab.general.title`) and the page's
+     * `.navigationTitle` at `:168`. The shell's bar draws the active tab's title,
+     * so this is the one tab whose bar title is not the sheet's own 设置.
+     */
+    public const val SETTINGS_GENERAL_TITLE: String = "通用设置"
+
+    /**
+     * The MCP list page's title. `MCPSettingsPage.swift:101`
+     * (`.navigationTitle("MCP 网络与密钥")`); `MCP_TITLE` above ("MCP 服务器") is
+     * the drawer row's word and is not this page's heading.
+     */
+    public const val MCP_NETWORK_TITLE: String = "MCP 网络与密钥"
+
+    /**
+     * The 关于 card's one footnote, verbatim from `NativeShell.swift:902`
+     * (`Text("会话记录和文件都保存在这台手机上。")`).
+     */
+    public const val ABOUT_LOCAL_NOTE: String = "会话记录和文件都保存在这台手机上。"
+
+    // ---------------------------------------------------------------------
+    // PR22 visible copy (iOS `edd68746`, 430x932pt HomeSpec language).
+    //
+    // Appended by the PR14/PR22 alignment lane. Everything below is product
+    // copy the PR22 iOS sources actually render, character for character; `_EN`
+    // is the same label's English fallback where the baseline is bilingual
+    // (`NativeText(zh, en)`). Existing constants above are reused when the
+    // literal already exists (a few semantic aliases point at the existing
+    // constant instead of re-typing it), so this block never spells one visible
+    // string twice. Dynamic lines are `%` templates and never contain a Swift
+    // interpolation.
+    // ---------------------------------------------------------------------
+
+    // Home header and menu (PR22 `ChatPage.swift` chatHeader / chatHeaderMenu)
+    public const val HOME_RENAME_HINT: String = "点按重命名会话"
+    public const val HOME_DEVICE: String = "连接设备"
+    public const val HOME_DEVICE_ONLINE: String = "连接设备，有在线设备"
+    public const val HOME_MENU_SUBAGENTS: String = "子智能体（%d）"
+    public const val HOME_MENU_JOBS: String = "后台任务（%d）"
+    public const val HOME_MENU_SCHEDULES: String = "定时任务（%d）"
+    public const val HOME_MENU_PRESET: String = "Agent 预设：%s"
+    public const val HOME_EXPORT_SUBJECT: String = "对话记录"
+
+    // Home drawer (PR22 `HomeDrawer.swift`)
+    public const val DRAWER_DEFAULT_FOLDER: String = "日常"
+    public const val DRAWER_DEFAULT_FOLDER_INDEXED: String = "日常 %d"
+    public const val DRAWER_CREATE_DETAIL: String = "会在工作区里新建同名文件夹，之后的会话和文件都可以放进去。"
+    public const val DRAWER_EDIT_NAME: String = "编辑名称"
+    public const val DRAWER_RENAME_FOLDER: String = "重命名文件夹"
+    public const val DRAWER_DELETE_FOLDER: String = "删除文件夹"
+    public const val DRAWER_DELETE_FOLDER_CONFIRM: String = "删除「%s」？"
+    public const val DRAWER_DELETE_FOLDER_DETAIL: String = "里面的会话会留着，只是不再放在这个文件夹里。"
+    public const val DRAWER_EMPTY_FOLDERS: String = "还没有文件夹。点右上角的 + 新建一个，会话和文件都能放进去。"
+    public const val DRAWER_SESSION_ARCHIVE: String = "归档"
+    public const val DRAWER_ARCHIVED_TOAST: String = "已归档，可在 设置 › 已归档会话 里找回"
+    public const val DRAWER_COLLAPSED: String = "已收起"
+    public const val DRAWER_ENGINE_STARTING: String = "引擎启动中"
+    public const val DRAWER_ENGINE_STOPPED: String = "引擎未启动"
+    public const val DRAWER_ENGINE_NEEDS_MODEL: String = "待配置模型"
+    public const val DRAWER_ENGINE_READY: String = "引擎就绪"
+    public const val DRAWER_NEW_BLOCKED_TURN: String = "本轮结束后可用"
+    public const val DRAWER_SETTINGS_A11Y: String = "设置，%s"
+
+    // Settings index and its sub-pages (PR22 `SettingsPage.swift`)
+    public const val SETTINGS_SECTION_MODELS_AGENTS: String = "模型与智能体"
+    public const val SETTINGS_SECTION_MODELS_AGENTS_EN: String = "Models and agents"
+    public const val SETTINGS_SECTION_PERMISSIONS_PRIVACY: String = "权限与隐私"
+    public const val SETTINGS_SECTION_PERMISSIONS_PRIVACY_EN: String = "Permissions and privacy"
+    public const val SETTINGS_SECTION_CONVERSATION: String = "对话"
+    public const val SETTINGS_SECTION_CONVERSATION_EN: String = "Conversation"
+    public const val SETTINGS_SECTION_SESSIONS_FILES: String = "会话与文件"
+    public const val SETTINGS_SECTION_SESSIONS_FILES_EN: String = "Sessions and files"
+    public const val SETTINGS_ROW_LANGUAGE: String = "语言"
+    public const val SETTINGS_ROW_LANGUAGE_EN: String = "Language"
+    public const val SETTINGS_ROW_WORK_DETAILS: String = "工作过程"
+    public const val SETTINGS_ROW_WORK_DETAILS_EN: String = "Work details"
+    public const val SETTINGS_ROW_ARCHIVED_SESSIONS: String = "已归档会话"
+    public const val SETTINGS_ROW_ARCHIVED_SESSIONS_EN: String = "Archived sessions"
+    public const val SETTINGS_ROW_PHONE_PERMISSION_COUNT: String = "%d / %d 已允许"
+    public const val SETTINGS_ROW_PHONE_PERMISSION_COUNT_EN: String = "%d / %d allowed"
+    public const val SETTINGS_LANGUAGE_ZH: String = "中文"
+    public const val SETTINGS_LANGUAGE_EN: String = "English"
+    public const val SETTINGS_ENGINE_RESET_FOOTER: String = "上次启动失败后引擎不会自动重试。重新启动会确认这次失败并重新启动，会话数据不受影响。"
+    public const val SETTINGS_ENGINE_RESET_FOOTER_EN: String =
+        "The engine does not retry after a failure. Restarting acknowledges it and boots again; session data is kept."
+    public const val WORK_DETAILS_SHOW: String = "显示方式"
+    public const val WORK_DETAILS_SHOW_EN: String = "Show"
+    public const val WORK_DETAILS_COMPACT: String = "简洁"
+    public const val WORK_DETAILS_COMPACT_EN: String = "Compact"
+    public const val WORK_DETAILS_VERBOSE: String = "完全展开"
+    public const val WORK_DETAILS_VERBOSE_EN: String = "Verbose"
+    public const val WORK_DETAILS_COLLAPSE: String = "收起时机"
+    public const val WORK_DETAILS_COLLAPSE_EN: String = "Collapse"
+    public const val WORK_DETAILS_COLLAPSE_DONE: String = "回答结束后"
+    public const val WORK_DETAILS_COLLAPSE_DONE_EN: String = "After completion"
+    public const val WORK_DETAILS_COLLAPSE_NEXT: String = "下次有新消息时"
+    public const val WORK_DETAILS_COLLAPSE_NEXT_EN: String = "With the next input"
+    public const val WORK_DETAILS_CODE_VIEW: String = "显示代码工作视图"
+    public const val WORK_DETAILS_CODE_VIEW_EN: String = "Show code work"
+    public const val WORK_DETAILS_STEPS: String = "工作步骤"
+    public const val WORK_DETAILS_STEPS_EN: String = "Work steps"
+    public const val WORK_DETAILS_BUSY: String = "任务进行中发送"
+    public const val WORK_DETAILS_BUSY_EN: String = "While busy"
+    public const val WORK_DETAILS_QUEUE: String = "排队发送"
+    public const val WORK_DETAILS_QUEUE_EN: String = "Queue"
+    public const val WORK_DETAILS_STEER: String = "引导当前任务"
+    public const val WORK_DETAILS_STEER_EN: String = "Steer"
+    public const val WORK_DETAILS_PERF: String = "性能与用量"
+    public const val WORK_DETAILS_PERF_EN: String = "Performance and usage"
+    public const val WORK_DETAILS_SENDING: String = "发送与用量"
+    public const val WORK_DETAILS_SENDING_EN: String = "Sending and usage"
+    public const val WORK_DETAILS_QUEUE_FOOTER: String = "排队发送会等当前任务结束再处理；引导会把新消息交给正在进行的任务。"
+    public const val WORK_DETAILS_QUEUE_FOOTER_EN: String =
+        "Queue waits for the current task; steer hands the message to the running task."
+    public const val FONT_SIZE_TERMINAL: String = "终端"
+    public const val FONT_SIZE_TERMINAL_EN: String = "Terminal"
+    public const val FONT_SIZE_FAMILY_PLACEHOLDER: String = "字体（留空使用系统默认）"
+    public const val FONT_SIZE_FAMILY_PLACEHOLDER_EN: String = "Font family (system default)"
+    public const val FONT_SIZE_MISSING_FORMAT: String = "未安装字体 %s，将使用系统回退字体"
+    public const val FONT_SIZE_MISSING_FORMAT_EN: String = "Font %s is unavailable; system fallback will be used"
+    public const val SESSIONS_ARCHIVED_EMPTY_EN: String = "No archived sessions"
+    public const val ARCHIVED_EMPTY_HINT: String = "在侧边栏长按会话选「归档」，会话会收到这里，随时可以恢复。"
+    public const val ARCHIVED_EMPTY_HINT_EN: String =
+        "Long-press a session in the drawer and choose Archive; restore it here any time."
+    public const val ARCHIVED_RESTORE_FOOTER: String = "恢复后，会话回到原来的文件夹。"
+    public const val ARCHIVED_RESTORE_FOOTER_EN: String = "Restored sessions return to their folder."
+    public const val PERMISSION_DEFAULTS_SCOPE: String = PERMISSION_DEFAULTS_NOTE
+    public const val PERMISSION_DEFAULTS_SCOPE_EN: String =
+        "Only new sessions use this default; the current session is unchanged."
+    // Legacy constant names retained for source compatibility. The values name
+    // the libraries this Android artifact actually distributes, not iOS's
+    // SwiftTerm/swift-nio (which the app does not ship).
+    public const val LICENSES_SWIFTTERM: String = "AndroidX / Jetpack Compose"
+    public const val LICENSES_SWIFT_NIO: String = "Kotlin · kotlinx.coroutines · Ktor"
+    public const val LICENSES_MIT: String = "MIT"
+    public const val LICENSES_APACHE: String = "Apache 2.0"
+    public const val SETTINGS_EN: String = "Settings"
+    public const val SETTINGS_DONE_EN: String = "Done"
+    public const val MODEL_PROVIDER_TITLE_EN: String = "Model providers"
+    public const val PERMISSION_DEFAULTS_TITLE_EN: String = "Default permission"
+    public const val PHONE_PERMISSIONS_TITLE_EN: String = "Phone permissions"
+    public const val SETTINGS_ROW_NETWORK_EN: String = "Network access"
+    public const val SETTINGS_ROW_APPEARANCE_EN: String = "Appearance"
+    public const val SETTINGS_ROW_FONT_SIZE_EN: String = "Text size"
+    public const val SETTINGS_ROW_SHORTCUTS_EN: String = "Shortcuts"
+    public const val SETTINGS_ROW_ENGINE_EN: String = "Engine"
+    public const val SETTINGS_ROW_RESTART_EN: String = "Restart engine"
+    public const val SETTINGS_ROW_RUNTIME_EN: String = "Runtime details"
+
+    // Provider list and editor (PR22 `ModelProviderSettingsPage.swift`)
+    public const val PROVIDER_SAVED_FORMAT: String = "已保存“%s”。%s"
+    public const val PROVIDER_SAVED_FORMAT_EN: String = "Saved “%s”. %s"
+    public const val PROVIDER_SELECTED_FORMAT: String = "已选择“%s”。%s"
+    public const val PROVIDER_SELECTED_FORMAT_EN: String = "Selected “%s”. %s"
+    public const val PROVIDER_DELETED_FORMAT: String = "已删除“%s”。%s"
+    public const val PROVIDER_DELETED_FORMAT_EN: String = "Deleted “%s”. %s"
+    public const val PROVIDER_EMPTY_TITLE: String = "尚未配置模型服务"
+    public const val PROVIDER_EMPTY_TITLE_EN: String = "No Model Providers"
+    public const val PROVIDER_EMPTY_BODY: String = "添加一个模型服务并填入密钥;密钥只存在这台手机上。"
+    public const val PROVIDER_EMPTY_BODY_EN: String =
+        "Add a model provider and its key. The key is stored only on this phone."
+    public const val PROVIDER_PRIVACY_FOOTER: String = "这个选择从下一次启动本地引擎起生效。密钥不会写进配置、日志或网页。"
+    public const val PROVIDER_PRIVACY_FOOTER_EN: String =
+        "This selection takes effect the next time the local engine starts. Keys are never written to configuration, logs or web pages."
+    public const val PROVIDER_KEY_SAVED: String = "密钥已保存"
+    public const val PROVIDER_KEY_SAVED_EN: String = "Key saved"
+    public const val PROVIDER_KEY_MISSING: String = "未保存密钥"
+    public const val PROVIDER_KEY_MISSING_EN: String = "No key saved"
+    public const val PROVIDER_KEY_UNREADABLE: String = "读不到密钥"
+    public const val PROVIDER_KEY_UNREADABLE_EN: String = "Key unavailable"
+    public const val PROVIDER_RESTART_RUNNING: String = "保存后需要停止并重新启动主机，新的服务和模型才会用于后续请求。"
+    public const val PROVIDER_RESTART_RUNNING_EN: String =
+        "After saving, stop and restart the host so subsequent requests use the new provider and model."
+    public const val PROVIDER_DELETE_BLOCKED: String = "无法读取此设备的密钥，不能删除服务或密钥。请解锁设备后重新载入页面再试。"
+    public const val PROVIDER_DELETE_BLOCKED_EN: String =
+        "The key on this device could not be read, so the provider and its key cannot be deleted. Unlock the device, reload this page, and try again."
+    public const val PROVIDER_NAME_PLACEHOLDER: String = "例如 DeepSeek"
+    public const val PROVIDER_KEY_PLACEHOLDER_SAVED: String = "已保存，输入以替换"
+    public const val PROVIDER_KEY_PLACEHOLDER: String = "粘贴或输入 API 密钥"
+    public const val PROVIDER_API_URL: String = "API 地址"
+    public const val PROVIDER_API_URL_EN: String = "API URL"
+    public const val PROVIDER_URL_PLACEHOLDER: String = "https://api.deepseek.com/v1"
+    public const val PROVIDER_SECTION_CONNECTION: String = "连接信息"
+    public const val PROVIDER_SECTION_CONNECTION_EN: String = "Connection"
+    public const val PROVIDER_CONNECTION_FOOTER: String =
+        "填写这三项，然后获取模型。密钥保存在本机应用私有存储中；设备支持时使用 Android Keystore 加密。"
+    public const val PROVIDER_CONNECTION_FOOTER_EN: String =
+        "Enter these three fields, then fetch models. Keys stay in this app’s private storage; Android Keystore encryption is used when available."
+    public const val PROVIDER_FETCHING: String = "正在获取模型…"
+    public const val PROVIDER_FETCH: String = "获取模型"
+    public const val PROVIDER_MODEL_FOOTER: String = "获取后选择默认模型。接口不支持模型列表时，可在高级设置中手动添加。"
+    public const val PROVIDER_ADVANCED: String = "高级设置"
+    public const val PROVIDER_ADVANCED_EN: String = "Advanced settings"
+    public const val PROVIDER_ADVANCED_FOOTER: String = "推理强度、上下文和输出长度沿用默认值。"
+    public const val PROVIDER_SAVE_EN: String = "Save"
+    public const val PROVIDER_KEY_READ_FAILED_FORMAT: String = "无法读取此设备的密钥：%s"
+    public const val PROVIDER_KEY_READ_FAILED_FORMAT_EN: String = "Could not read the key on this device: %s"
+    public const val PROVIDER_ADVANCED_SECTION: String = "服务选项"
+    public const val PROVIDER_IDENTIFIER_PLACEHOLDER: String = "留空自动生成"
+    public const val PROVIDER_IDENTIFIER_PLACEHOLDER_EN: String = "Generated if empty"
+    public const val PROVIDER_DEFAULT_OPTION_EN: String = "Default"
+    public const val PROVIDER_OPTIONAL: String = "可选"
+    public const val PROVIDER_OPTIONAL_EN: String = "Optional"
+    public const val PROVIDER_TOKENS: String = "Token 数"
+    public const val PROVIDER_TOKENS_EN: String = "Tokens"
+    public const val PROVIDER_MAX_OUTPUT: String = "最大输出"
+    public const val PROVIDER_MAX_OUTPUT_EN: String = "Max output"
+    public const val PROVIDER_EFFORT_FIELD: String = "推理档位"
+    public const val PROVIDER_EFFORT_FIELD_EN: String = "Effort"
+    public const val PROVIDER_DELETE_MODEL_PR22: String = "删除这个模型"
+    public const val PROVIDER_DELETE_MODEL_PR22_EN: String = "Delete This Model"
+    public const val PROVIDER_SECTION_KEY_CONNECTION: String = "密钥与连接"
+    public const val PROVIDER_TESTING: String = "正在测试…"
+    public const val PROVIDER_TEST_CONNECTION: String = "测试连接"
+    public const val PROVIDER_CONNECTED: String = "连接正常"
+    public const val PROVIDER_CONNECTED_EN: String = "Connected"
+    public const val PROVIDER_ERR_URL_HTTPS: String = "请输入有效的 HTTPS API 地址。"
+    public const val PROVIDER_ERR_KEY_READ: String = "无法读取已保存的密钥，请解锁手机后重试。"
+    public const val PROVIDER_ERR_KEY_REQUIRED: String = "请先填写 API 密钥。"
+    public const val PROVIDER_ERR_RESPONSE: String = "接口未返回有效响应。"
+    public const val PROVIDER_ERR_AUTH: String = "密钥未被接受，请检查密钥与 API 地址是否属于同一服务。"
+    public const val PROVIDER_ERR_MODELS_UNSUPPORTED: String = "此地址不支持获取模型，请检查 API 地址或在高级设置中手动添加。"
+    public const val PROVIDER_ERR_RATE: String = "请求过于频繁，请稍后再试。"
+    public const val PROVIDER_ERR_HTTP: String = "获取模型失败（HTTP %d），请稍后重试。"
+    public const val PROVIDER_ERR_LIST_TOO_LARGE: String = "模型列表过大，请在高级设置中手动添加。"
+    public const val PROVIDER_ERR_LIST_EMPTY: String = "服务未返回可用的模型列表。"
+    public const val PROVIDER_ERR_NETWORK: String = "暂时无法获取模型，请检查网络与 API 地址，或在高级设置中手动添加。"
+    public const val PROVIDER_FETCHED_FORMAT: String = "已获取 %d 个模型，选择后点保存。"
+    public const val PROVIDER_VALIDATION_NO_MODEL: String = "至少添加一个模型"
+    public const val PROVIDER_VALIDATION_NO_MODEL_EN: String = "Add at least one model"
+    public const val PROVIDER_VALIDATION_ID_EMPTY: String = "模型 ID 不能为空"
+    public const val PROVIDER_VALIDATION_ID_EMPTY_EN: String = "Model IDs cannot be empty"
+    public const val PROVIDER_VALIDATION_ID_DUPLICATE: String = "模型 ID 不能重复"
+    public const val PROVIDER_VALIDATION_ID_DUPLICATE_EN: String = "Model IDs must be unique"
+    public const val PROVIDER_VALIDATION_INPUT: String = "每个模型至少保留文本或图片一种输入类型"
+    public const val PROVIDER_VALIDATION_INPUT_EN: String = "Each model must support text or image input"
+    public const val PROVIDER_VALIDATION_POSITIVE: String = "上下文窗口和最大输出必须是正整数"
+    public const val PROVIDER_VALIDATION_POSITIVE_EN: String =
+        "Context window and maximum output must be positive integers"
+    public const val PROVIDER_TEST_NO_KEY: String = "还没有保存密钥。"
+    public const val PROVIDER_TEST_NO_KEY_EN: String = "No API key has been saved."
+    public const val PROVIDER_TEST_KEY_READ_FORMAT: String = "读不到已保存的密钥：%s"
+    public const val PROVIDER_TEST_KEY_READ_FORMAT_EN: String = "Could not read the saved key: %s"
+    public const val PROVIDER_TEST_URL_EMPTY: String = "接口地址是空的。"
+    public const val PROVIDER_TEST_URL_EMPTY_EN: String = "The service URL is empty."
+    public const val PROVIDER_TEST_OK: String = "连接正常（HTTP %d，%s，%s）。密钥可用。"
+    public const val PROVIDER_TEST_OK_EN: String = "Connected (HTTP %d, %s, %s). The key is valid."
+    public const val PROVIDER_TEST_REJECTED: String = "密钥被拒绝（HTTP %d，%s）。确认密钥与“%s”属于同一个平台。"
+    public const val PROVIDER_TEST_REJECTED_EN: String =
+        "The key was rejected (HTTP %d, %s). Make sure the key and “%s” belong to the same platform."
+    public const val PROVIDER_TEST_RATE: String = "请求太频繁（HTTP %d），密钥本身是有效的。"
+    public const val PROVIDER_TEST_RATE_EN: String = "Too many requests (HTTP %d). The key itself is valid."
+    public const val PROVIDER_TEST_NOT_FOUND: String = "%s 路径不存在（HTTP 404）"
+    public const val PROVIDER_TEST_NOT_FOUND_EN: String = "%s path not found (HTTP 404)"
+    public const val PROVIDER_TEST_HTTP: String = "HTTP %d：%s"
+    public const val PROVIDER_TEST_HTTP_EN: String = "HTTP %d: %s"
+    public const val PROVIDER_TEST_UNREACHABLE: String = "连不上：%s"
+    public const val PROVIDER_TEST_UNREACHABLE_EN: String = "Connection failed: %s"
+    public const val PROVIDER_TEST_FAILED: String = "测试失败：%s。检查接口地址与模型名“%s”。"
+    public const val PROVIDER_TEST_FAILED_EN: String =
+        "Test failed: %s. Check the service URL and model name “%s”."
+    public const val PROVIDER_TEST_NO_PROTOCOL: String = "没有可用协议"
+    public const val PROVIDER_TEST_NO_PROTOCOL_EN: String = "No protocol available"
+    public const val PROVIDER_TEST_BAD_URL: String = "接口地址填得不对"
+    public const val PROVIDER_TEST_BAD_URL_EN: String = "Invalid service URL"
+    public const val PROVIDER_PROTOCOL_OPENAI_LABEL: String = "OpenAI 兼容"
+    public const val PROVIDER_PROTOCOL_OPENAI_LABEL_EN: String = "OpenAI-compatible"
+    public const val PROVIDER_PROTOCOL_ANTHROPIC_LABEL: String = "Anthropic Messages"
+    public const val PROVIDER_EFFORT_OFF_EN: String = "Off"
+    public const val PROVIDER_EFFORT_LOW_EN: String = "Low"
+    public const val PROVIDER_EFFORT_MEDIUM_EN: String = "Medium"
+    public const val PROVIDER_EFFORT_HIGH_EN: String = "High"
+    public const val PROVIDER_EFFORT_MAX_EN: String = "Max"
+    public const val PROVIDER_EFFORT_MODEL_DEFAULT: String = "按模型默认"
+    public const val PROVIDER_EFFORT_MODEL_DEFAULT_EN: String = "Model default"
+    public const val PROVIDER_SERVICES_EN: String = "Providers"
+    public const val PROVIDER_NAME_LABEL_EN: String = "Name"
+    public const val PROVIDER_KEY_LABEL_EN: String = "API key"
+    public const val PROVIDER_IDENTIFIER_LABEL_EN: String = "Identifier"
+    public const val PROVIDER_DEFAULT_MODEL_EN: String = "Default model"
+    public const val PROVIDER_REASONING_EFFORT_EN: String = "Reasoning effort"
+    public const val PROVIDER_MODEL_ID_EN: String = "Model ID"
+    public const val PROVIDER_TEXT_INPUT_EN: String = "Text input"
+    public const val PROVIDER_IMAGE_INPUT_EN: String = "Image input"
+    public const val PROVIDER_ADD_MODEL_EN: String = "Add Model"
+    public const val PROVIDER_DELETE_SAVED_KEY_EN: String = "Delete saved key"
+
+    // Composer, queue and message actions (PR22 `ChatPage.swift`)
+    public const val CHAT_TOOL_FAILED_TITLE: String = "工具执行失败"
+    public const val CHAT_QUEUE_EDIT_TITLE: String = "编辑排队消息"
+    public const val CHAT_QUEUE_EDIT_CONTENT: String = "消息内容"
+    public const val CHAT_QUEUE_EDIT_NOT_SAVED: String = "这条排队消息还没有落盘，暂时不能编辑"
+    public const val CHAT_QUEUE_EDIT_NOT_TEXT: String = "包含非文本内容，暂不支持编辑"
+    public const val CHAT_QUEUE_DELETE: String = "删除排队消息"
+    public const val CHAT_QUEUE_STEER_SEND: String = "插话发送"
+    public const val CHAT_QUEUE_STEER_UNAVAILABLE: String = "仅运行中可插话发送"
+    public const val CHAT_QUEUE_LOCAL_ACTION_UNAVAILABLE: String = "这条排队消息还没有落盘，暂时不能操作"
+    public const val CHAT_QUEUE_ACTION_BUSY: String = "正在处理队列操作…"
+    public const val CHAT_QUEUE_ACTION_PENDING: String = "等待队列操作确认"
+    public const val CHAT_QUEUE_ACTION_STALE: String = "操作状态已过期，等待队列刷新"
+    public const val CHAT_QUEUE_ACTION_FAILED: String = "队列操作失败"
+    public const val CHAT_QUEUE_EDIT_ITEM_GONE: String = "这条排队消息已不在队列里，编辑已关闭"
+    public const val CHAT_QUEUE_HEADER_COUNT: String = "%d 条排队消息"
+    public const val CHAT_QUEUE_SENDING: String = "发送中…"
+    public const val CHAT_STEER_IMAGE_NOTICE_ALT: String = "补充说明不支持附带图片；请先移除图片，或改用排队发送。"
+    public const val CHAT_COMMAND_NOT_RUN: String = "没执行成功，再试一次。"
+    public const val CHAT_PREVIEW_UNSAFE_PATH: String = "这个路径不能预览。"
+    public const val CHAT_COMMAND_WORD: String = "指令"
+    public const val CHAT_IMPORT_NO_ENGINE: String = "本地引擎还没启动，启动之后才能把文件放进工作区。"
+    public const val CHAT_IMPORT_CAP: String = "一次最多导入 128 MiB。"
+    public const val CHAT_COMMAND_SHARE: String = "分享命令结果"
+    public const val CHAT_ENGINE_STOP_TITLE: String = "停止本地引擎?"
+    public const val CHAT_ENGINE_STOP_DETAIL: String = "正在跑的任务会停下来。会话和文件都还在。"
+    public const val CHAT_ENGINE_STOP_FOOTER: String = "停止后,正在跑的任务会停下来,不会再接着做。"
+    public const val CHAT_EVENT_USER: String = "用户消息"
+    public const val CHAT_EVENT_ASSISTANT: String = "助手消息"
+    public const val CHAT_EVENT_SYSTEM: String = "系统提示"
+    public const val CHAT_EVENT_STEER: String = "补充说明"
+    public const val CHAT_EVENT_DEVELOPER: String = "开发者消息"
+    public const val CHAT_EVENT_TOOL_RESULT: String = "工具结果"
+    public const val CHAT_EVENT_MODEL_REQUEST: String = "模型请求"
+    public const val CHAT_EVENT_COMMAND: String = "DSH 命令"
+    public const val CHAT_EVENT_BOUNDARY: String = "会话边界"
+    public const val CHAT_EVENT_SESSION: String = "会话事件"
+    public const val CHAT_EVENT_FORMAT_FAILED: String = "无法格式化此事件的原始数据。"
+    public const val CHAT_EVENT_READ_FAILED: String = "无法读取此事件的原始数据。"
+    public const val CHAT_EVENT_COPY: String = "复制事件数据"
+    public const val CHAT_ADD_FILE: String = "添加文件"
+    public const val COMPOSER_QUEUE_LABEL: String = "排队"
+
+    // Question dock (PR22 `NativeQuestionComposer.swift`)
+    public const val QUESTION_DOCK_TITLE: String = "问题"
+    public const val QUESTION_INCOMPLETE: String = "请先完成这道问题。"
+    public const val QUESTION_UNANSWERED: String = "请选择一个选项或填写自定义答案。"
+    public const val QUESTION_UNAVAILABLE: String = "当前无法提交，请稍候再试。"
+    public const val QUESTION_TAKE_TIME: String = "慢慢回答"
+    public const val QUESTION_HELD: String = "会一直等你回答"
+    public const val QUESTION_CONTINUED: String = "已继续工作，仍可回答"
+    public const val QUESTION_ANSWERED: String = "已回答"
+    public const val QUESTION_SKIPPED_REVIEW: String = "这道问题当时被跳过。"
+    public const val QUESTION_PREV: String = "上一题"
+    public const val QUESTION_NEXT: String = "下一题"
+    public const val QUESTION_MINIMIZE: String = "收起问题卡片"
+    public const val QUESTION_MAXIMIZE: String = "展开问题卡片"
+    public const val QUESTION_CANCEL_GROUP: String = "放弃整组问题"
+    public const val QUESTION_CLOSE: String = "收起问题面板，可从工具调用重新打开"
+    public const val QUESTION_RECOMMENDED: String = "推荐"
+    public const val QUESTION_CUSTOM_PLACEHOLDER: String = "输入你的答案"
+    public const val QUESTION_SKIP: String = "跳过"
+    public const val QUESTION_SUBMITTING: String = "正在提交…"
+    public const val QUESTION_PAGE_FORMAT: String = "第 %d 题，共 %d 题"
+    public const val QUESTION_ERROR_FORMAT: String = "错误：%s"
+    public const val QUESTION_SELECTED: String = "已选中"
+    public const val QUESTION_UNSELECTED: String = "未选中"
+    public const val QUESTION_MULTIPLE: String = "可多选"
+
+    // Todo / plan docks (PR22 `NativeTodoDock.swift`, `NativePlan*.swift`)
+    public const val TODO_DOCK_TITLE: String = "任务"
+    public const val TODO_EXPAND: String = "展开任务清单"
+    public const val TODO_COLLAPSE: String = "折叠任务清单"
+    public const val TODO_DONE_COUNT: String = "%d 已完成"
+    public const val TODO_ACTIVE_COUNT: String = "%d 进行中"
+    public const val TODO_PENDING_COUNT: String = "%d 待处理"
+    public const val TODO_STATUS_PENDING: String = "待处理"
+    public const val PLAN_CHIP_A11Y: String = "计划模式已开启，按下关闭"
+    public const val PLAN_CHIP_HINT: String = "计划模式已开启 — 点击关闭（/plan off）"
+    public const val PLAN_CHIP_EXIT_FAILED: String = "退出计划模式失败"
+    public const val PLAN_REVIEW_HEADER: String = "计划待审"
+    public const val PLAN_REVIEW_CHANGES: String = "要求修改"
+    public const val PLAN_REVIEW_APPROVE: String = "同意执行"
+    public const val PLAN_REVIEW_OPEN: String = "查看全文"
+    public const val PLAN_REVIEW_OPEN_A11Y: String = "在侧边栏打开计划"
+    public const val PLAN_CARD_SUBTITLE: String = "计划 · Markdown"
+    public const val PLAN_CARD_OPEN: String = "打开"
+    public const val PLAN_CARD_OPEN_A11Y: String = "打开计划：%s"
+
+    // Schedules (PR22 `NativeAutomationPage.swift`)
+    public const val AUTOMATION_REFRESH_A11Y: String = "刷新自动化任务"
+    public const val AUTOMATION_HISTORY_OPEN_A11Y: String = "查看 DSH 已保存的投递记录"
+
+    // Preview / files / share (PR22 `PreviewSurface.swift`, `FilesPage.swift`)
+    public const val PREVIEW_NETWORK_PERMISSION: String = "网页网络权限"
+    public const val PREVIEW_NETWORK_ALLOW: String = "允许本次加载外部图片/字体/媒体"
+    public const val PREVIEW_RELOAD: String = "重新加载页面"
+    public const val PREVIEW_LOCAL_NOTICE: String = "页面在本地 pdsh-page:// 源下运行；JavaScript 已启用，外部网络默认关闭。"
+    public const val PREVIEW_OUTSIDE_WORKSPACE: String = "这个页面不在工作区里"
+    public const val PREVIEW_OUTSIDE_WORKSPACE_HINT: String = "页面预览需要它所属的工作区；散落文件请用文本或分享打开。"
+    public const val PREVIEW_MODEL_OUTSIDE_WORKSPACE: String = "这个模型不在工作区里"
+    public const val PREVIEW_MODEL_OUTSIDE_WORKSPACE_HINT: String = "3D 预览需要文件所属的会话工作区。"
+    public const val PREVIEW_MEDIA_OUTSIDE_WORKSPACE: String = "这个媒体不在工作区里"
+    public const val PREVIEW_MEDIA_OUTSIDE_WORKSPACE_HINT: String = "动图/视频预览需要文件所属的会话工作区。"
+
+    // Runtime, about and honest unread states (PR22 `ChatPage.swift`, `SettingsPage.swift`)
+    public const val RUNTIME_MODEL_REQUESTS_FORMAT: String = "模型调用 %d"
+    public const val ABOUT_LICENSES_EN: String = "Open-source licenses"
+    public const val MODEL_LIST_UNAVAILABLE: String = "暂时读不到模型列表。"
+    public const val MODEL_LIST_UNAVAILABLE_EN: String = "The model list is temporarily unavailable."
+    public const val SUBTASK_MODELS_EMPTY: String = "没有可给子任务用的模型。"
+    public const val SUBTASK_MODELS_EMPTY_EN: String = "No models are available for subtasks."
+    public const val ABOUT_APP_TITLE: String = "关于 Phone DSH"
+    public const val ABOUT_APP_TITLE_EN: String = "About Phone DSH"
+
+    // Shared labels (one literal, used by several PR22 surfaces)
+    public const val PLUGINS_AND_TOOLS: String = "插件与工具"
+    public const val PLUGINS_AND_TOOLS_EN: String = "Plugins and tools"
+    public const val FOLDERS_LABEL: String = "文件夹"
+    public const val FOLDERS_LABEL_EN: String = "Folders"
+
+    public const val FONT_SIZE_CONVERSATION: String = "会话内容"
+    public const val PROVIDER_EFFORT_PLACEHOLDER: String = "可留空"
+
+    // Semantic aliases: the literal already exists above; no second spelling is created.
+    public const val PROVIDER_NAME_LABEL: String = MCP_FIELD_NAME
+    public const val PROVIDER_KEY_LABEL: String = PROVIDER_KEY_SECTION
+    public const val PROVIDER_IDENTIFIER_LABEL: String = PROVIDER_FIELD_ID
 }

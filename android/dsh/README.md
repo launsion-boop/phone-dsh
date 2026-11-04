@@ -144,7 +144,10 @@ epoch 61 / step 3，`reason == null`（**没有编造的停止原因**），Work
 `ContextCompat.startForegroundService`（真实 `startForegroundService`），断言：
 
 1. 返回值 `== TurnStartResult.DataSyncForegroundServiceStarted`（不是 UIDT、不是 ForegroundOnly）；
-2. `TurnRuntime.snapshot()` 进入 RUNNING 且 `backend == FOREGROUND_SERVICE`；
+2. `TurnRuntime.snapshot()` 进入 **`SCHEDULED`** 且 `backend == FOREGROUND_SERVICE`——
+   `startForegroundService` 只说明**启动请求被接受**，`onStartCommand` 才是执行开始；
+   相位随后由 `onStartCommand` 升级为 `RUNNING`。宿主把 `SCHEDULED | RUNNING` 都当作
+   「后台窗口在位」（`TurnWindow.InPlace(backend, phase)`），所以切后台不会在排队期间被 drain；
 3. `NotificationManager.activeNotifications` 里有 `PROGRESS_NOTIFICATION_ID`；
 4. 安装包的**声明类型** `getServiceInfo(...).foregroundServiceType == FOREGROUND_SERVICE_TYPE_DATA_SYNC`；
 5. `dumpsys activity services <pkg>` 的 ServiceRecord 里：

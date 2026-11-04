@@ -12,9 +12,9 @@ The stable English `PersonalAgentCorePrompt.text` is the first system section. I
 | --- | --- | --- |
 | `assistant_name` | Shared `personalAgent.displayName` profile | `小肥鱼` only when unset |
 | `user_name` | Onboarding/user-approved `displayName` Memory | `null`; never inferred |
-| `preferred_language` | Current user text, then preference | `zh-Hans`; current language overrides |
+| `preferred_language` | Explicit `language` Memory, then the native language preference | System preferred language when no explicit preference exists; never inferred from Han characters |
 | `now` | Host clock, RFC 3339 with offset | Assembly fails if unavailable |
-| `user_timezone` | Validated device IANA timezone | `null` if invalid; timezone-dependent work must resolve it |
+| `user_timezone` | Explicit valid `timeZone` Memory, then the device IANA timezone | Device timezone when no explicit preference exists; timezone-dependent work must resolve it |
 | `delegated_scopes` | Active host-issued `WorkMandate` records | Empty array; expired scopes are removed |
 | `capabilities` | Actual `ConnectorToolDescriptor` handlers and model-name codec | Empty array; no invented handlers |
 | `interaction_state` | Pending questions, unresolved operations, scoped suggestion history | Verified empty only when stores are empty |
@@ -25,11 +25,11 @@ The stable English `PersonalAgentCorePrompt.text` is the first system section. I
 | Operation | Registered handler and state authority | Result contract |
 | --- | --- | --- |
 | `rename_assistant` | `LocalCapabilityToolInvoker` → `PersonalAgentProfileStore` | Shared settings/Header/onboarding value, read-after-write, restart persistence, explicit failure on mismatch |
-| `memory_set_profile`, `memory_set_preference`, `memory_log`, `memory_delete` | `LocalCapabilityToolInvoker` → `MemoryStore` | Principal/account/source/revision checked; confirmed revised/unchanged/forgotten result |
-| `memory_open_loop` | `LocalCapabilityToolInvoker` → `FollowUpStore` | Real waiting-user/waiting-external/done/cancelled/expired state; no duplicate task ledger |
+| `memory_set_profile`, `memory_set_preference`, `memory_log`, `memory_delete` | `LocalCapabilityToolInvoker` → `MemoryStore` | Principal/account/source/revision checked; model-written records stay `candidate` with `modelInference`; explicit delete is verified |
+| `memory_open_loop` | `LocalCapabilityToolInvoker` → `FollowUpStore` | Real waiting-user/waiting-external/done/cancelled/expired state, immutable principal/account owner, no duplicate task ledger |
 | `memory_get_suggestion_history`, `memory_record_suggestion` | `SuggestionStoreHistoryAdapter` → `SuggestionStore` | Scoped canonical history with independent shown/selected/dismissed/declined/superseded/expired outcomes |
 | `suggest_card` | `NativeSuggestionGenerator` structured tool output → `PersonalAgentModel` and native card | `none`, `next_steps`, or `clarification`; never approval; no fixed fallback |
-| `schedule_list/create/update/delete` | `DSHScheduleAdapter` → `DSHManagementModel` and existing DSH scheduler | Actual catalog state, dedupe, timezone validation, cancellation and next-run status; `after(seconds)` creation only in this adapter |
+| `schedule_list/create/update/delete` | `DSHScheduleAdapter` → `DSHManagementModel` and existing DSH scheduler | Requested session ID, typed `afterSeconds`, host-owned principal/account mapping, scoped catalog/mutation, dedupe and read-back reconciliation; `after(seconds)` creation only in this adapter |
 | Approval | Existing `WorkMandate`, `DefaultWriteGate`, grant versions, operation ledger | Separate host workflow; no model-authorized approval tool and no unconditional allow |
 
 The DSH schedule adapter is injected by `PhoneDSHProbeApp`. Hostless tests use only capabilities available in that environment. Background execution remains bounded by the running DSH host and iOS scheduling; exact-time execution is not promised.
@@ -43,7 +43,9 @@ Cards contain host-owned schema version, card/conversation/turn/principal/accoun
 - `none`: exactly no card. Invalid, duplicate, stale, failed, or unavailable generation produces no card.
 - Approval is independent and suppresses optional suggestions.
 
-`selected`, `dismissed`, `declined`, `superseded`, and `expired` are separate events. Selection persists before sending the option's `user_request` through normal ingress and the write gate. It is not dismissal and cannot authorize an external write. A double click or retry uses a host selection event ID and cannot create duplicate turns. Late results cannot revive a dismissed, superseded, expired, account-switched, or conversation-switched card.
+`selected`, `dismissed`, `declined`, `superseded`, and `expired` are separate events. Selection persists a typed event containing the visible label, option/card version, and the original host Mandate. The next turn sends the visible label, not the hidden model `user_request`; its Mandate can only retain or reduce the original actions, evidence, and targets. Selection is not dismissal and cannot mint an external or local write. A double click or retry uses a host selection event ID and cannot create duplicate turns. Late results cannot revive a dismissed, superseded, expired, account-switched, or conversation-switched card.
+
+Blocking clarification is generated before the original turn completes. The original answer and Mandate stay suspended with that turn; answering resolves and completes the original turn before starting the selected follow-up, while dismissal terminates it without replaying tools. Semantic cooldown keys derive from action and structured target rather than model option IDs. Corrupt or future-version suggestion state remains byte-for-byte untouched, becomes visibly unhealthy, and blocks card reads/writes and ordinary sends that cannot supersede old cards.
 
 Dismissal suppresses the canonical action/target across turns for 7 days. Explicit declines use 30 days and stop unsolicited repeats after two. Moving on supersedes optional cards without counting as a refusal. New direct user requests are handled normally. Legacy records keep their old same-turn suppression and an `unknown` outcome rather than inventing intent.
 

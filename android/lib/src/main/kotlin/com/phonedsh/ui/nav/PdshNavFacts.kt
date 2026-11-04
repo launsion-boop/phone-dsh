@@ -11,16 +11,18 @@
 // state; it never becomes `0`, `emptyList()` or a fabricated success. A host
 // fills a field only from a measurement it actually made.
 //
-// [PdshHostAction] is the other direction. This host implements no settings
-// write, no folder mutation and no MCP save (§1 names no such command), so the
-// router hands those gestures back as an action. The Android host logs the
-// handoff and performs only the three actions it really owns (engine stop,
-// engine start/restart, Web-surface retry). A page is never told a write
-// succeeded: the facts only change when a real read reports a new value.
+// [PdshHostAction] is the other direction. This file only names the gestures; a
+// host performs the ones it owns and answers the rest with that fact. The Android
+// host, for instance, performs the engine stop/start, the Web-surface retry and
+// the model-service save (into its own device store), and says so on the routes
+// whose writes it cannot perform. A page is never told a write succeeded: the
+// facts only change when a real read reports a new value.
 package com.phonedsh.ui.nav
 
 import androidx.compose.runtime.Immutable
 import com.phonedsh.ui.page.AutomationFacts
+import com.phonedsh.ui.page.AutomationScheduleDraft
+import com.phonedsh.ui.page.BackgroundFacts
 import com.phonedsh.ui.page.BusyEnterMode
 import com.phonedsh.ui.page.ConfigurationFacts
 import com.phonedsh.ui.page.EgressAllowListFacts
@@ -29,8 +31,11 @@ import com.phonedsh.ui.page.MCPRegistryFacts
 import com.phonedsh.ui.page.MCPServerDraft
 import com.phonedsh.ui.page.ModelProviderFacts
 import com.phonedsh.ui.page.PermissionTier
+import com.phonedsh.ui.page.PhonePermissionsFacts
+import com.phonedsh.ui.page.ProviderDraft
 import com.phonedsh.ui.page.RuntimeFacts
 import com.phonedsh.ui.page.SettingsFacts
+import com.phonedsh.ui.page.ShellSnapshot
 import com.phonedsh.ui.page.WebSearchFacts
 import com.phonedsh.ui.page.WebSurfaceFacts
 import com.phonedsh.ui.page.WorkbenchSnapshot
@@ -82,6 +87,19 @@ public sealed interface SettingsWrite {
  * @param webSurface the engine/WebView/page facts; no read by default.
  * @param settings the mirrored settings index's row values, one field per row,
  *   including the platform appendix.
+ * @param shell the command surface the host really carries: the accelerators it
+ *   advertises, their read-only limits and the run being shown. The default is
+ *   the empty snapshot, which the page renders as 还没接上命令 — never as "no
+ *   commands exist".
+ * @param phonePermissions the phone-capability matrix's read-only input: what this
+ *   host read about its own permissions, and the use audit it has (or has not). The
+ *   default reports no read at all, so a host that never wired the matrix renders
+ *   未知 on every row instead of borrowing a status.
+ * @param background 后台保活的诊断读数. It was missing until the L55 lane wired
+ *   `BackgroundPage`: without a field the page could only be handed
+ *   `BackgroundFacts()` inline, which made "the host never reads this" and "this
+ *   router does not accept the read" look the same. The default still reports no
+ *   snapshot — an unread host renders 未知, never 0 seconds.
  */
 @Immutable
 public data class PdshNavFacts(
@@ -97,15 +115,137 @@ public data class PdshNavFacts(
     public val configuration: ConfigurationFacts = ConfigurationFacts(),
     public val webSurface: WebSurfaceFacts = WebSurfaceFacts(),
     public val settings: SettingsFacts = SettingsFacts(),
+    public val shell: ShellSnapshot = ShellSnapshot(),
+    public val phonePermissions: PhonePermissionsFacts = PhonePermissionsFacts(),
+    public val background: BackgroundFacts = BackgroundFacts(),
+    /** Per-operation host availability; omitted actions remain unavailable. */
+    public val actionAvailability: PdshActionAvailabilities = PdshActionAvailabilities(),
+    /** Current chat/session identity; null means the host has not read it. */
+    public val sessionIdentity: PdshSessionIdentity? = null,
+    /** Session list; null means unread, while an empty list means read and empty. */
+    public val sessions: List<PdshSessionRecord>? = null,
+    /** Workspace target, preserving 日常 default, explicit unassigned, and unknown. */
+    public val workspaceSelection: PdshWorkspaceSelection? = null,
+    /** Device and connection facts; null means the host supplied no device read. */
+    public val device: PdshDeviceFacts? = null,
+    /** Permission summary; null means the host did not measure it. */
+    public val permissionSummary: PdshPermissionSummary? = null,
+    /** Artifact catalog; null means unread, empty means read with no artifacts. */
+    public val artifacts: List<PdshArtifactFact>? = null,
+    /** Durable context-loss fact; null means none was reported to this snapshot. */
+    public val contextLost: PdshContextLostFact? = null,
+    /** License catalog; null means the host has not read or does not expose one. */
+    public val licenses: List<PdshLicenseFact>? = null,
+    /** Request-bound provider result receipts; null means no result read was supplied. */
+    public val providerOperations: List<PdshProviderOperationFact>? = null,
+    /** Archived-session scan state; unknown is distinct from an empty archive. */
+    public val sessionsWaiting: Boolean = true,
+    /** Host-reported session scan failure, if present. */
+    public val sessionsFailure: String? = null,
+)
+
+/** Session identity facts kept distinct from route and local draft state. */
+public data class PdshSessionIdentity(
+    /** Host session id; null when a current session is not known. */
+    public val sessionId: String?,
+    /** Host-reported title; null when unread or untitled. */
+    public val title: String?,
+    /** Host-reported workspace id; null when unassigned or unknown. */
+    public val workspaceId: String?,
+)
+
+/** One host-read session row, including archive status. */
+public data class PdshSessionRecord(
+    /** Stable session id from the host. */
+    public val id: String,
+    /** Host-reported title; null remains unknown. */
+    public val title: String?,
+    /** Host-reported archive state; null remains unknown. */
+    public val archived: Boolean?,
+    /** Host-reported workspace id; null remains unassigned or unknown. */
+    public val workspaceId: String?,
+    /** Host-reported update timestamp; null means it was not measured. */
+    public val updatedAt: String?,
+)
+
+/** Workspace selection without conflating default, unassigned, and unread. */
+public sealed interface PdshWorkspaceSelection {
+    /** The host selected its built-in 日常 default group. */
+    public data object DailyDefault : PdshWorkspaceSelection
+    /** The host selected this identified workspace. */
+    public data class Assigned(public val workspaceId: String) : PdshWorkspaceSelection
+    /** The host explicitly reported no workspace assignment. */
+    public data object Unassigned : PdshWorkspaceSelection
+    /** The host did not report a selection. */
+    public data object Unknown : PdshWorkspaceSelection
+}
+
+/** Device facts retain unknown collection and capability states. */
+public data class PdshDeviceFacts(
+    /** Host-read devices; null means catalog unread and empty means none found. */
+    public val devices: List<PdshDeviceRecord>?,
+    /** Whether this host can connect; null means unknown. */
+    public val canConnect: Boolean?,
+)
+
+/** One device row returned by a host read. */
+public data class PdshDeviceRecord(
+    /** Stable host/device identity. */
+    public val id: String,
+    /** Host-reported display name; null remains unknown. */
+    public val name: String?,
+    /** Host-reported connected state; null remains unknown. */
+    public val connected: Boolean?,
+)
+
+/** Compact permission read without inferred grants. */
+public data class PdshPermissionSummary(
+    /** Permissions measured by the host; null means unread. */
+    public val permissions: Map<String, Boolean>?,
+    /** Host-reported read failure, if any. */
+    public val failure: String?,
+)
+
+/** Host-reported artifact facts preserve attribution uncertainty. */
+public data class PdshArtifactFact(
+    /** Stable artifact id. */
+    public val id: String,
+    /** Host-reported display name; null remains unknown. */
+    public val name: String?,
+    /** Original resource URI when the host read one. */
+    public val originalUri: String?,
+    /** Session attribution; null means the host did not establish one. */
+    public val sessionId: String?,
+)
+
+/** Durable context-loss report associated with the request and session that produced it. */
+public data class PdshContextLostFact(
+    /** Correlation id of the operation that reported the loss. */
+    public val requestId: String,
+    /** Session whose context was lost. */
+    public val sessionId: String,
+    /** Host-reported explanation. */
+    public val reason: String,
+)
+
+/** One license row read from the host's actual catalog. */
+public data class PdshLicenseFact(
+    /** Stable catalog identity. */
+    public val id: String,
+    /** Host-reported display name. */
+    public val name: String?,
+    /** Host-reported license text or URI, if available. */
+    public val source: String?,
 )
 
 /**
  * One gesture this host cannot complete itself, handed to the composition root.
  *
- * Every action is token-free: no action carries a prompt, a credential or a
- * command line the host did not already own. [wire] is the stable label the host
- * logs, so an acceptance run can prove the handoff happened without quoting user
- * content.
+ * Every action's [wire] label is token-free, and a host logs only that label: no
+ * log line quotes a prompt, a credential, a URL or a command line. A payload may
+ * still carry what the person just typed (a draft's key, a shell argument) —
+ * that is the gesture's data, handed to the host once, never a fact the page
+ * reads back.
  */
 public sealed interface PdshHostAction {
     /** The stable, token-free label a host may log. */
@@ -146,14 +286,61 @@ public sealed interface PdshHostAction {
         override val wire: String = "automation.history.more"
     }
 
+    /** Read one schedule's history page, carrying its opaque cursor when present. */
+    public data class LoadAutomationHistory(
+        public val id: String,
+        public val before: String? = null,
+    ) : PdshHostAction {
+        override val wire: String = "automation.history"
+    }
+
     /** Open the host's schedule editor; `null` means a new schedule. */
     public data class OpenAutomationEditor(public val id: String?) : PdshHostAction {
         override val wire: String = "automation.editor"
     }
 
+    /** Save one validated schedule draft; the host reports a reread receipt. */
+    public data class SaveAutomationSchedule(
+        public val draft: AutomationScheduleDraft,
+        public val submissionID: String,
+    ) : PdshHostAction {
+        override val wire: String = "automation.save"
+    }
+
+    /** Delete one schedule after the confirmation the page displayed. */
+    public data class DeleteAutomationSchedule(public val id: String) : PdshHostAction {
+        override val wire: String = "automation.delete"
+    }
+
     /** Re-read the session configuration. */
     public data object RefreshConfiguration : PdshHostAction {
         override val wire: String = "configuration.refresh"
+    }
+
+    /** Save one staged namespace patch with the host's revision CAS. */
+    public data class SaveConfigurationGroup(
+        public val namespace: String,
+        public val patch: Map<String, String>,
+        public val requestId: String = "",
+    ) : PdshHostAction {
+        override val wire: String = "configuration.save"
+    }
+
+    /** Reset one overridden field to the DSH default. */
+    public data class ResetConfigurationField(
+        public val namespace: String,
+        public val field: String,
+        public val requestId: String = "",
+    ) : PdshHostAction {
+        override val wire: String = "configuration.reset"
+    }
+
+    /** Save the new-session permission preset with the permission CAS. */
+    public data class SaveDefaultPermission(
+        public val modeId: String,
+        public val requestId: String = "",
+    ) : PdshHostAction {
+        override val wire: String = "configuration.permission"
     }
 
     /** Open the model-service editor; `null` means a new service. */
@@ -164,6 +351,64 @@ public sealed interface PdshHostAction {
     /** Re-read the model-service list. */
     public data object RefreshModelProvider : PdshHostAction {
         override val wire: String = "provider.refresh"
+    }
+
+    /**
+     * Persist one model-service draft that the person finished editing.
+     *
+     * The draft is the page's own view state, so it may carry the key the person
+     * just typed. [wire] never does, and no host logs a payload: the host hands
+     * the key to its device store and keeps nothing else. A host that cannot
+     * persist the draft reports that instead of moving the facts.
+     */
+    public data class SaveProvider(
+        public val draft: ProviderDraft,
+        /** Non-secret UI correlation id; never included in the action wire/log. */
+        public val requestId: String = "",
+    ) : PdshHostAction {
+        override val wire: String = "provider.save"
+    }
+
+    /** Persist the removal of one service, by id. */
+    public data class DeleteProvider(public val id: String) : PdshHostAction {
+        override val wire: String = "provider.delete"
+    }
+
+    /** Make one stored service the default for the next host start. */
+    public data class SelectProvider(public val id: String) : PdshHostAction {
+        override val wire: String = "provider.select"
+    }
+
+    /** Read the real `/models` catalog for one draft, bound to this request id. */
+    public data class GetProviderModels(
+        public val draft: ProviderDraft,
+        public val requestId: String = "",
+    ) : PdshHostAction {
+        override val wire: String = "provider.models"
+    }
+
+    /**
+     * Drop the approval this session already gave the local Ubuntu environment.
+     *
+     * Design §3 promises the person can revoke "at any time within this session";
+     * until this action existed the only way was to stop the whole local engine,
+     * which ends the session the approval belonged to. The host clears its gate
+     * for the current session and the next `ubuntu run` asks again. A host that
+     * granted nothing answers that nothing was revoked rather than claiming a
+     * change it did not make.
+     */
+    public data object RevokeUbuntuApproval : PdshHostAction {
+        override val wire: String = "ubuntu.approval.revoke"
+    }
+
+    /**
+     * Ask the host to test one draft against its endpoint.
+     *
+     * A host with no test command answers with that fact; the page never claims a
+     * test ran.
+     */
+    public data class TestProvider(public val draft: ProviderDraft) : PdshHostAction {
+        override val wire: String = "provider.test"
     }
 
     /** Re-read the web-search configuration. */
@@ -206,6 +451,22 @@ public sealed interface PdshHostAction {
         override val wire: String = "runtime.refresh"
     }
 
+    /**
+     * Run one command from the commands page's form.
+     *
+     * The form is local view state; this action is the person's 运行 gesture with
+     * the command, the working directory and the arguments they typed. A host
+     * with no exec entry point answers with that fact (and the page keeps the
+     * form), instead of handing a live-looking button to nothing.
+     */
+    public data class RunShellCommand(
+        public val command: String,
+        public val workingDirectory: String,
+        public val arguments: String,
+    ) : PdshHostAction {
+        override val wire: String = "shell.run"
+    }
+
     /** Re-read the allow list. */
     public data object RefreshEgress : PdshHostAction {
         override val wire: String = "egress.refresh"
@@ -219,5 +480,19 @@ public sealed interface PdshHostAction {
     /** Retry the engine start from the Web surface's failure panel. */
     public data object RetryWebSurface : PdshHostAction {
         override val wire: String = "websurface.retry"
+    }
+
+    /**
+     * Re-read this session's activity: its background jobs and its schedules.
+     *
+     * One action, not two, because the baseline reads both with one call: both
+     * chat sheets pass `management.refreshActivity(sessionID:)`
+     * (`ChatPage.swift:441` and `:449`), which fills `jobs` and `scheduleRecords`
+     * together. A host that owns that read fills `ChatSubpageFacts.jobs`/
+     * `.schedules` after performing it; a host that does not reports the handoff
+     * back as one honest line instead of moving the facts.
+     */
+    public data object RefreshSessionActivity : PdshHostAction {
+        override val wire: String = "activity.refresh"
     }
 }

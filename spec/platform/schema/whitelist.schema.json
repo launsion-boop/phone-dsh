@@ -50,7 +50,8 @@
         "enum": [
           "os-forced",
           "hardware-absent",
-          "policy-forbidden"
+          "policy-forbidden",
+          "copy-forced"
         ]
       },
       "rationale": {

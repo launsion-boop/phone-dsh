@@ -67,8 +67,8 @@
           "extraction": "syntax"
         },
         {
-          "id": "navigation-27",
-          "label": null,
+          "id": "字号",
+          "label": "字号",
           "labelExpr": null,
           "kind": "navigation",
           "value": null,
@@ -77,9 +77,9 @@
           "destination": "makeFontSizeSettingsView()",
           "writes": false,
           "condition": null,
-          "provenance": "ProfileGeneralSettingsPage.swift:27",
-          "anchor": "NavigationLink {",
-          "extraction": "manual"
+          "provenance": "ProfileGeneralSettingsPage.swift:30",
+          "anchor": "SettingsRowLabel(title: NativeText(\"字号\", \"Text size\"), icon: \"textformat.size\")",
+          "extraction": "syntax"
         }
       ],
       "provenance": "ProfileGeneralSettingsPage.swift:10",
@@ -97,8 +97,8 @@
       "collection": null,
       "rows": [
         {
-          "id": "navigation-34",
-          "label": null,
+          "id": "工作过程",
+          "label": "工作过程",
           "labelExpr": null,
           "kind": "navigation",
           "value": null,
@@ -107,13 +107,13 @@
           "destination": "makeConversationSettingsView()",
           "writes": false,
           "condition": null,
-          "provenance": "ProfileGeneralSettingsPage.swift:34",
-          "anchor": "NavigationLink {",
-          "extraction": "manual"
+          "provenance": "ProfileGeneralSettingsPage.swift:37",
+          "anchor": "SettingsRowLabel(title: NativeText(\"工作过程\", \"Work details\"), icon: \"list.bullet.r",
+          "extraction": "syntax"
         },
         {
-          "id": "navigation-39",
-          "label": null,
+          "id": "快捷键",
+          "label": "快捷键",
           "labelExpr": null,
           "kind": "navigation",
           "value": null,
@@ -122,9 +122,9 @@
           "destination": "NativeShortcutsPage",
           "writes": false,
           "condition": null,
-          "provenance": "ProfileGeneralSettingsPage.swift:39",
-          "anchor": "NavigationLink {",
-          "extraction": "manual"
+          "provenance": "ProfileGeneralSettingsPage.swift:42",
+          "anchor": "SettingsRowLabel(title: NativeText(\"快捷键\", \"Shortcuts\"), icon: \"command\")",
+          "extraction": "syntax"
         }
       ],
       "provenance": "ProfileGeneralSettingsPage.swift:33",
@@ -178,8 +178,8 @@
       "style": "default"
     },
     {
-      "id": "navigation-27",
-      "label": null,
+      "id": "字号",
+      "label": "字号",
       "labelExpr": null,
       "kind": "navigation",
       "trigger": "tap",
@@ -187,13 +187,13 @@
       "writes": false,
       "destination": "makeFontSizeSettingsView()",
       "condition": null,
-      "provenance": "ProfileGeneralSettingsPage.swift:27",
-      "anchor": "NavigationLink {",
-      "extraction": "manual"
+      "provenance": "ProfileGeneralSettingsPage.swift:30",
+      "anchor": "SettingsRowLabel(title: NativeText(\"字号\", \"Text size\"), icon: \"textformat.size\")",
+      "extraction": "syntax"
     },
     {
-      "id": "navigation-34",
-      "label": null,
+      "id": "工作过程",
+      "label": "工作过程",
       "labelExpr": null,
       "kind": "navigation",
       "trigger": "tap",
@@ -201,13 +201,13 @@
       "writes": false,
       "destination": "makeConversationSettingsView()",
       "condition": null,
-      "provenance": "ProfileGeneralSettingsPage.swift:34",
-      "anchor": "NavigationLink {",
-      "extraction": "manual"
+      "provenance": "ProfileGeneralSettingsPage.swift:37",
+      "anchor": "SettingsRowLabel(title: NativeText(\"工作过程\", \"Work details\"), icon: \"list.bullet.r",
+      "extraction": "syntax"
     },
     {
-      "id": "navigation-39",
-      "label": null,
+      "id": "快捷键",
+      "label": "快捷键",
       "labelExpr": null,
       "kind": "navigation",
       "trigger": "tap",
@@ -215,9 +215,9 @@
       "writes": false,
       "destination": "NativeShortcutsPage",
       "condition": null,
-      "provenance": "ProfileGeneralSettingsPage.swift:39",
-      "anchor": "NavigationLink {",
-      "extraction": "manual"
+      "provenance": "ProfileGeneralSettingsPage.swift:42",
+      "anchor": "SettingsRowLabel(title: NativeText(\"快捷键\", \"Shortcuts\"), icon: \"command\")",
+      "extraction": "syntax"
     }
   ],
   "presentations": [],

@@ -1074,6 +1074,7 @@
       "name": "SessionQueuePage",
       "line": 665,
       "private": true,
+      "embedded": true,
       "sections": [
         {
           "title": "next-turn",

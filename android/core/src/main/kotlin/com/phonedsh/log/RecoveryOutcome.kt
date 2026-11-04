@@ -117,7 +117,12 @@ sealed interface RecoveryOutcome {
      * @property fullReconcile whether the staged `wal.md` §7.2 reconcile ran.
      * @property resyncRequired paths whose appended base did not match, in
      *   `mseq` order; the caller sends `VFS_RESYNC` and holds the watermark
-     *   below them (`wal.md` §5.1).
+     *   below them (`wal.md` §5.1). Kept as paths for callers that only need
+     *   the wire request.
+     * @property resyncRequests the same requests with the mseq each one was
+     *   discovered at. The host re-sends these after HELLO (`wal.md` §10 step
+     *   4, `channel.md` §9 item 6) and the periodic epoch-close guard uses the
+     *   pair for its diagnostic.
      */
     data class Recovered(
         val manifest: Manifest,
@@ -136,6 +141,7 @@ sealed interface RecoveryOutcome {
         val materializedUptoMseq: Long,
         val fullReconcile: Boolean,
         val resyncRequired: List<String>,
+        val resyncRequests: List<ResyncRequest> = emptyList(),
     ) : RecoveryOutcome {
         /** The retained segment names, in `<epoch,segment>` order. */
         val segmentNames: List<WalSegmentName>

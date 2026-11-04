@@ -182,7 +182,7 @@
       "labelExpr": null,
       "kind": "picker",
       "trigger": "tap",
-      "semantic": null,
+      "semantic": "binding:$filter",
       "writes": true,
       "destination": null,
       "condition": null,

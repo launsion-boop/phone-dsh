@@ -44,7 +44,9 @@ final class PA_SuggestionLifecycleTests: XCTestCase {
         XCTAssertFalse(oneCard.multiSelect)
         let fourCard = try card(from: fourResult)
         XCTAssertEqual(fourCard.options.count, 4)
-        XCTAssertEqual(fourCard.suppressionKeys.count, 4)
+        XCTAssertEqual(fourCard.suppressionKeys.count, 1)
+        XCTAssertEqual(fourCard.suppressionKeys[0].action, "read")
+        XCTAssertEqual(fourCard.suppressionKeys[0].target, "请起草回复，不要发送")
 
         let request = try XCTUnwrap(transport.requests.first)
         XCTAssertEqual(request.tools.map(\.name), ["suggest_card"])

@@ -741,7 +741,8 @@ private fun ProbeThresholdView(threshold: ProbeThreshold, modifier: Modifier = M
  * @param onRunAll run every probe; the host applies it and re-projects.
  * @param modifier the caller's modifier.
  * @param onReset clear the recorded rows (the baseline's trailing Reset toolbar
- *   action); `null` hides the action.
+ *   action). The control is always drawn; `null` renders it disabled, because the
+ *   baseline draws it unconditionally (`ProbesPage.swift:42`).
  * @param onRunGroup run one group from the Run one group menu; `null` disables it.
  * @param onRetry retry the host read; `null` hides the retry.
  * @param onDismissFailure dismiss the failure line; `null` hides it.
@@ -762,18 +763,23 @@ public fun ProbesPage(
         onBack = onBack,
         rootTag = UiPageTags.PROBES_ROOT,
         modifier = modifier,
-        actions = if (onReset != null) {
-            {
-                SessionTextAction(
-                    label = UiStrings.PROBES_ACTION_RESET_EN,
-                    onClick = onReset,
-                    tone = SessionActionTone.SECONDARY,
-                    enabled = !state.running,
-                    modifier = Modifier.testTag(UiPageTags.PROBES_RESET),
-                )
-            }
-        } else {
-            null
+        // L75: the baseline's `Reset` is an unconditional toolbar item
+        // (`ProbesPage.swift:42`), so it is drawn unconditionally here too. Before
+        // this it sat behind `if (onReset != null)`, and the only caller
+        // (`SettingsSurfaces.kt`) passes no `onReset` — the label existed in the
+        // source and never rendered (the L64 false-green shape that
+        // `page_structure_check` now reports as `conditional-action`). A host that
+        // cannot reset says so by leaving the control disabled, not by deleting it:
+        // the control stays where the baseline puts it, and a disabled control is a
+        // state a screen reader reports, unlike an absent one.
+        actions = {
+            SessionTextAction(
+                label = UiStrings.PROBES_ACTION_RESET_EN,
+                onClick = { onReset?.invoke() },
+                tone = SessionActionTone.SECONDARY,
+                enabled = onReset != null && !state.running,
+                modifier = Modifier.testTag(UiPageTags.PROBES_RESET),
+            )
         },
     ) {
         ProbeControlsTheme {
@@ -879,7 +885,12 @@ private fun LazyListScope.rowsSection(state: ProbesScreenState) {
     }
     item(key = "probes.rows.label") {
         SessionSectionLabel(
-            text = UiStrings.PROBES_SECTION_ROWS_COUNT_EN,
+            // `ProbesPage.swift:112` is `PageSection("Rows (\(model.probeRows.count))")`:
+            // the title is a template plus one rendered value, so the page formats the
+            // measured count instead of showing the baseline's interpolation source.
+            // `PROBES_SECTION_ROWS_COUNT_EN` is that source copied verbatim and must
+            // never be rendered; it stays because this lane only appends copy.
+            text = UiStrings.PROBES_SECTION_ROWS_COUNT.format(state.rows.size),
             modifier = Modifier.testTag(UiPageTags.PROBES_ROWS),
         )
     }

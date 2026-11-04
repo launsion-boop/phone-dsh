@@ -48,7 +48,7 @@ final class PA_AppCompositionTests: XCTestCase {
         XCTAssertEqual(snapshot.currentText, "现在继续")
         XCTAssertEqual(snapshot.messages.map(\.text), ["上周先处理 A", "好的"])
         XCTAssertEqual(snapshot.memory.map(\.text), ["回答保持简短"])
-        XCTAssertTrue(snapshot.responseStylePrompt.contains("结论先行"))
+        XCTAssertTrue(snapshot.responseStylePrompt.contains("Lead with the answer"))
     }
 
     @MainActor

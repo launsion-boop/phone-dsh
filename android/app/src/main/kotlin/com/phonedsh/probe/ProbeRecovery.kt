@@ -14,7 +14,9 @@
 //     [walSink] and nothing is silent.
 //   * interrupted turn -- `InterruptedTurnStore` is the durable tombstone written
 //     before a turn starts and removed only when the turn ends explicitly. The
-//     probe app never wrote it, so `kill -9` during a turn left no report at all.
+//     marker is written here and removed through `HostBackground`, which also
+//     closes the turn's background window, so the marker and the window belong to
+//     the same turn.
 //   * reclaim token -- the vault's `SecureLookup.Unreadable` is fail-closed
 //     (plan section 11-R11): it must never be shown as "no token". The probe has
 //     no handoff endpoint, so what this file can prove is the vault primitive the
@@ -176,20 +178,32 @@ internal object ProbeRecovery {
     }
 
     /**
-     * Writes the durable turn marker before the turn starts.
+     * Writes the durable turn marker before the turn starts and returns its epoch.
      *
      * `commit()` inside the store is what makes this survive a process kill; a
-     * turn that ends through an explicit path calls [endTurn].
+     * turn that ends through an explicit path calls [endTurn]. The epoch is
+     * returned because the background window is opened for the *same* turn: the
+     * services write the marker again with the epoch in the request, and two
+     * different epochs for one turn would make the tombstone name the wrong one.
      */
-    fun beginTurn(context: Context) {
+    fun beginTurn(context: Context): Long {
         val epoch = System.currentTimeMillis()
         InterruptedTurnStore(context.applicationContext).begin(epoch = epoch, step = 0)
         Log.i(TAG_RECOVERY, "TURN_MARKER_WRITTEN epoch=$epoch")
+        return epoch
     }
 
-    /** Removes the marker: only an explicit end (completed, failed, user stop) calls this. */
+    /**
+     * Removes the marker and closes the turn's background window.
+     *
+     * Only an explicit end (completed, failed, cancelled) calls this. The window
+     * is closed through `HostBackground` because that is the one place that knows
+     * both channels; clearing the marker here as well is what keeps a turn that
+     * never opened a window (foreground-only) from reporting a fake interruption
+     * on the next launch.
+     */
     fun endTurn(context: Context) {
-        InterruptedTurnStore(context.applicationContext).complete()
+        HostBackground.endTurn(context)
         Log.i(TAG_RECOVERY, "TURN_MARKER_CLEARED")
     }
 

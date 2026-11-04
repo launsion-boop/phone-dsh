@@ -7,14 +7,14 @@
   "sectionNote": "flat List: one NavigationLink per workspace + one empty-state block; no group header",
   "title": {
     "text": "工作文件夹",
-    "provenance": "NativeShell.swift:349",
+    "provenance": "NativeShell.swift:345",
     "anchor": ".navigationTitle(\"工作文件夹\")"
   },
   "source": {
     "file": "NativeShell.swift",
     "path": "examples/probe-app/PhoneDSHProbe/NativeShell.swift",
-    "lines": 1077,
-    "structLine": 294,
+    "lines": 1073,
+    "structLine": 290,
     "renderedFrom": [
       "body"
     ],
@@ -27,7 +27,7 @@
   },
   "sections": [
     {
-      "id": "single-region-294",
+      "id": "single-region-290",
       "kind": "single-region",
       "title": null,
       "titleTemplate": null,
@@ -37,7 +37,7 @@
       "collection": null,
       "rows": [
         {
-          "id": "navigation-302",
+          "id": "navigation-298",
           "label": null,
           "labelExpr": "Self.displayName(workspace)",
           "kind": "navigation",
@@ -47,7 +47,7 @@
           "destination": "FilesPage",
           "writes": false,
           "condition": null,
-          "provenance": "NativeShell.swift:302",
+          "provenance": "NativeShell.swift:298",
           "anchor": "NavigationLink {",
           "extraction": "manual",
           "collection": "management.workspaces"
@@ -63,7 +63,7 @@
           "destination": null,
           "writes": false,
           "condition": "management.workspaces.isEmpty",
-          "provenance": "NativeShell.swift:323",
+          "provenance": "NativeShell.swift:319",
           "anchor": "Text(\"还没有工作文件夹\")",
           "extraction": "syntax"
         },
@@ -78,7 +78,7 @@
           "destination": null,
           "writes": false,
           "condition": "management.workspaces.isEmpty",
-          "provenance": "NativeShell.swift:325",
+          "provenance": "NativeShell.swift:321",
           "anchor": "Text(\"会话把生成的文件放在文件夹里。新建一个文件夹给它用。\")",
           "extraction": "syntax"
         },
@@ -93,12 +93,12 @@
           "destination": null,
           "writes": true,
           "condition": "management.workspaces.isEmpty",
-          "provenance": "NativeShell.swift:332",
+          "provenance": "NativeShell.swift:328",
           "anchor": "Text(\"添加工作文件夹\")",
           "extraction": "syntax"
         }
       ],
-      "provenance": "NativeShell.swift:294",
+      "provenance": "NativeShell.swift:290",
       "anchor": "struct WorkspaceFoldersPage: View {",
       "criterion": {
         "kind": "single-region"
@@ -118,10 +118,10 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "NativeShell.swift:332",
+      "provenance": "NativeShell.swift:328",
       "anchor": "Text(\"添加工作文件夹\")",
       "extraction": "syntax",
-      "presents": "alert-358"
+      "presents": "alert-354"
     },
     {
       "id": "添加",
@@ -133,7 +133,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "NativeShell.swift:353",
+      "provenance": "NativeShell.swift:349",
       "anchor": "Button(\"添加\") { showingNewWorkspace = true }",
       "extraction": "syntax"
     },
@@ -147,7 +147,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "NativeShell.swift:361",
+      "provenance": "NativeShell.swift:357",
       "anchor": "Button(\"取消\", role: .cancel) { newWorkspaceName = \"\" }",
       "extraction": "syntax"
     },
@@ -161,12 +161,12 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "NativeShell.swift:362",
+      "provenance": "NativeShell.swift:358",
       "anchor": "Button(\"创建\") {",
       "extraction": "syntax"
     },
     {
-      "id": "navigation-302",
+      "id": "navigation-298",
       "label": null,
       "labelExpr": "Self.displayName(workspace)",
       "kind": "navigation",
@@ -175,30 +175,9 @@
       "writes": false,
       "destination": "FilesPage",
       "condition": null,
-      "provenance": "NativeShell.swift:302",
+      "provenance": "NativeShell.swift:298",
       "anchor": "NavigationLink {",
       "extraction": "manual"
-    },
-    {
-      "id": "切换",
-      "label": "切换",
-      "labelExpr": null,
-      "kind": "action",
-      "trigger": "tap",
-      "semantic": null,
-      "writes": false,
-      "destination": null,
-      "condition": null,
-      "extraction": "manual",
-      "androidOnly": {
-        "reason": {
-          "baselineLacks": "the baseline makes the current folder implicit: creating a session inside a folder is the only switch",
-          "androidNeeds": "README §1 makes switching this page's duty, and Android's session creation lives on another page, so the switch has to be explicit here",
-          "withoutIt": "switching folders requires detouring through the sessions page and creating a throwaway session"
-        },
-        "owner": "android-ui",
-        "reviewBy": "2027-01-31"
-      }
     },
     {
       "id": "删除",
@@ -234,9 +213,9 @@
       "extraction": "manual",
       "androidOnly": {
         "reason": {
-          "baselineLacks": "the iOS list reads local state and cannot fail, so it has no retry affordance",
-          "androidNeeds": "the Android workspace list comes from a host snapshot and can fail, and this page is the only place to recover",
-          "withoutIt": "a failed list read is a dead page: no folders, no way to retry"
+          "baselineLacks": "WorkspaceFoldersPage (NativeShell.swift:319) draws `management.workspaces` from the in-process `DSHManagementModel.shared` (`:320`, `:326`); its body has no failure state, so it has no retry to offer",
+          "androidNeeds": "the Android rows are host facts carried by a snapshot read across the process boundary: `WorkspaceFoldersScreenState.from` maps `snapshot.failure` to `FAILED` and deliberately keeps no rows, so the page must be able to re-read in place",
+          "withoutIt": "a failed read leaves only the failure line on an otherwise empty page; dismissing it does not restore the rows, so the user has to leave and re-enter the page to get a list back"
         },
         "owner": "android-ui",
         "reviewBy": "2027-01-31"
@@ -245,7 +224,7 @@
   ],
   "presentations": [
     {
-      "id": "alert-358",
+      "id": "alert-354",
       "kind": "alert",
       "title": "新建工作文件夹",
       "destination": null,
@@ -253,10 +232,10 @@
         "showingNewWorkspace"
       ],
       "span": [
-        358,
-        367
+        354,
+        363
       ],
-      "provenance": "NativeShell.swift:358",
+      "provenance": "NativeShell.swift:354",
       "anchor": ".alert(\"新建工作文件夹\", isPresented: $showingNewWorkspace) {",
       "triggered": true
     }
@@ -269,15 +248,15 @@
         {
           "renders": "还没有工作文件夹",
           "when": "management.workspaces.isEmpty",
-          "provenance": "NativeShell.swift:323",
+          "provenance": "NativeShell.swift:319",
           "anchor": "Text(\"还没有工作文件夹\")"
         }
       ],
       "data": [
         {
-          "renders": "untitled section at 294",
+          "renders": "untitled section at 290",
           "when": null,
-          "provenance": "NativeShell.swift:294",
+          "provenance": "NativeShell.swift:290",
           "anchor": "struct WorkspaceFoldersPage: View {",
           "note": "structural default: the sections above, when no condition overrides them"
         }
@@ -302,22 +281,24 @@
   "subpages": [
     {
       "name": "EgressAllowListPage",
-      "line": 418,
+      "line": 414,
       "private": false,
+      "embedded": false,
       "sections": [
         {
           "title": "地址",
-          "provenance": "NativeShell.swift:447"
+          "provenance": "NativeShell.swift:443"
         }
       ],
-      "provenance": "NativeShell.swift:418"
+      "provenance": "NativeShell.swift:414"
     },
     {
       "name": "SettingsAboutPage",
-      "line": 917,
+      "line": 915,
       "private": false,
+      "embedded": false,
       "sections": [],
-      "provenance": "NativeShell.swift:917"
+      "provenance": "NativeShell.swift:915"
     }
   ],
   "unreachable": [],

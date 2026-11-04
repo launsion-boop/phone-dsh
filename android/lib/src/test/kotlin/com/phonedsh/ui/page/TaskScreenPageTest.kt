@@ -17,9 +17,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -227,6 +229,51 @@ class TaskScreenPageTest {
         compose.onNodeWithContentDescription(UiStrings.DISMISS).performClick()
         assertEquals(1, retried)
         assertEquals(1, dismissed)
+    }
+
+    // -------------------------------------------------------------- L75: the cover
+    //
+    // `onShowTaskScreen` used to be the button's only effect, and the host wired it
+    // to `{ _, _ -> }` (`SettingsSurfaces.kt:255`), so tapping 显示黑屏 did nothing at
+    // all. The baseline does not ask the host to present the screen: it sets its own
+    // `@State presenting` and mounts a `.fullScreenCover`
+    // (`TaskScreenPage.swift:15`, `:65`–`:84`). This test pins that the page now
+    // behaves like the baseline — the cover appears, it carries the status line, its
+    // ✕ closes it, and the host handoff still fires.
+
+    @Test
+    fun `showing the task screen mounts the black cover and its close control`() {
+        var handed: Pair<String, Double>? = null
+        show(
+            state = TaskScreenScreenState.from(TaskScreenFacts(snapshot = measuredSnapshot())),
+            onShowTaskScreen = { line, brightness -> handed = line to brightness },
+        )
+
+        scrollTo(UiPageTags.TASK_SCREEN_SHOW)
+        compose.onNodeWithTag(UiPageTags.TASK_SCREEN_SHOW).performClick()
+
+        compose.onNodeWithTag(UiPageTags.TASK_SCREEN_ROOT + ".presented").assertIsDisplayed()
+        compose.onNodeWithText("phone DSH probe").assertIsDisplayed()
+        compose.onNodeWithText(
+            "Screen dimmed for long tasks. The phone can still lock manually.",
+        ).assertIsDisplayed()
+        compose.onNodeWithTag(UiPageTags.TASK_SCREEN_ROOT + ".presented").assertHasNoClickAction()
+        // The baseline passes the *current* status line into the cover
+        // (`TaskScreenConfiguration(status: statusLine)`), and the host is told the
+        // same pair the person asked for.
+        assertTrue(compose.onAllNodesWithText("准备中").fetchSemanticsNodes().isNotEmpty())
+        // The brightness handed over is the *Slider's* value, not the host's reported
+        // one: the baseline passes its local `minimumBrightness` (initial 0.0,
+        // `TaskScreenPage.swift:16`), which is why 0.0 is the expected pair here even
+        // though the host reported 0.2.
+        assertEquals("准备中" to 0.0, handed)
+
+        compose.onNodeWithContentDescription(UiStrings.TASK_SCREEN_CLOSE).performClick()
+        assertTrue(
+            "the cover must close on ✕",
+            compose.onAllNodesWithTag(UiPageTags.TASK_SCREEN_ROOT + ".presented")
+                .fetchSemanticsNodes().isEmpty(),
+        )
     }
 
     @Test

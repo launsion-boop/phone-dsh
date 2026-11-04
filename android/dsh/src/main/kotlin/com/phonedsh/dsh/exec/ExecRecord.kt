@@ -54,7 +54,10 @@ data class ExecRecord(
         if (!ExecRequest.EXEC_ID_PATTERN.matches(execId)) {
             throw ExecRecordException(ExecRecordException.CODE_CORRUPT, "exec_id is not a D6 identifier")
         }
-        if (argv.isEmpty() || argv.any { it.isEmpty() }) {
+        if (argv.isEmpty()) {
+            // Empty *elements* are legal arguments ([ExecRequest]); refusing
+            // them here would make a record this host wrote unreadable, so a
+            // legal `rg -N ''` replay would fail with `record_corrupt`.
             throw ExecRecordException(ExecRecordException.CODE_CORRUPT, "argv is empty")
         }
         if (!cwd.startsWith("/")) {

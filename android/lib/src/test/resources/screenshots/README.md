@@ -17,4 +17,26 @@ Full rationale (capture chain, fixed conditions, threshold, coverage gaps):
 density, fontScale, scaledDensity, locale, theme and the font-scale probe's
 measured text box height.
 
-Do not hand-edit these files. Re-capture with `--update` and review the diff.
+## Three directories, three profiles
+
+| directory | profile | frame | contents |
+|---|---|---|---|
+| `./` (this directory) | `gate` | 1080 × 2400 px @ 420 dpi | 11 PNGs + `metrics.txt` |
+| `ios-parity/` | `ios-parity` | 1206 × 2622 px @ 480 dpi (402 × 874 pt @ 3×) | one PNG per CAPTURED iOS state name (21 of 27 today) + `metrics.txt` + `parity-registry.txt` |
+| `android-only/` | `android-only` | same frame as `gate` | 22 PNGs from the L13/L14/L16/L24 suites + `metrics.txt` |
+
+The three directories are three *baseline sets*, not three frames with different
+meaning: `gate` is the 11 historical baselines and keeps its count, `ios-parity`
+is the iOS state contract, and `android-only` is the Android-only pages that have
+no iOS counterpart. Every one of them is compared against Android's own previous
+capture; none of them is a cross-platform pixel diff.
+
+The `ios-parity/` PNGs carry the iOS **state** names (`page-chat-default.png`,
+`page-settings-default.png`, …). They are the same-frame capture the iOS baseline
+can be laid next to; they are **not** a pixel-parity claim — no cross-platform
+pixel diff exists, by design. See
+[`android/tools/README.md`](../../../../tools/README.md) for the 27-state mapping,
+which suites capture which states, and the frame conditions.
+
+Do not hand-edit these files. Re-capture with `--update` (and the matching
+`--profile`) and review the diff.

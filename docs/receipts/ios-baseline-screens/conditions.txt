@@ -1,5 +1,7 @@
 # iOS baseline capture conditions
-captured_at=2026-10-31T15:55:18Z
+captured_at=2026-11-01T08:43:26Z
+ios_head=86a39aac (fix: tighten composer bottom spacing; PR #13 = 9d46fc3c is an ancestor)
+git_branch=android-port-2026-11-01
 device_name=PDSH iOS Baseline iPhone 16 Pro
 device_udid=4AAA363B-7B29-4415-9303-C692640BCF77
 device_type=com.apple.CoreSimulator.SimDeviceType.iPhone-16-Pro
@@ -7,7 +9,8 @@ runtime=com.apple.CoreSimulator.SimRuntime.iOS-26-5
 xcode=Xcode 26.5 Build version 17F42 
 app_bundle_id=dev.phone-dsh.probe
 build_configuration=Debug
-build_mode=capture-copy (+1 constant defaultOfficeInteractionTimeout=60; HEAD does not compile)
+build_mode=head (strict: xcodebuild -project examples/probe-app/PhoneDSHProbe.xcodeproj -scheme PhoneDSHProbe -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' build CODE_SIGNING_ALLOWED=NO; no source shim)
+build_note=the 2026-10-31 one-constant shim (ChatHostConfiguration.defaultOfficeInteractionTimeout=60) is no longer needed: ChatHostConfiguration.swift:28 declares it again (600 s), so HEAD compiles as it is
 screen_px=1206x2622
 screen_pt=402x874
 scale=3
@@ -23,3 +26,8 @@ status_bar_WiFi Mode: 3, WiFi Bars: 3
 status_bar_Cell Mode: 3, Cell Bars: 4
 status_bar_Operator Name: 
 status_bar_Battery State: 2, Battery Level: 100, Not Charging: 0
+preview_chrome=none: the DEBUG fullScreenCover at NativeShell.swift:179 has no close button at HEAD, so no ✕ artifact appears in any shot
+capture_command=PDSH_CAPTURE_OUT=<tmpdir> bash android/tools/ios-baseline-capture.sh   (26 shots, then copied into this directory)
+capture_out_note=simctl io screenshot cannot overwrite the provenance-tagged PNGs under ~/Desktop on this machine (NSCocoaErrorDomain 513 / EPERM); capturing to $TMPDIR and copying in gives byte-identical pixels
+app_screenshots=26
+environment_proof=ios-environment-home.png (carried over from the 2026-10-31 batch; same device, runtime, status-bar override and 1206x2622 geometry, not re-shot)

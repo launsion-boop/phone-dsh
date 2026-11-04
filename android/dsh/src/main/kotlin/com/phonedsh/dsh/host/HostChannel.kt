@@ -317,7 +317,12 @@ class HostChannel(
             )
             return
         }
-        sendHostHello(connection)
+        if (sendHostHello(connection)) {
+            // channel.md §9 item 6: a path still waiting for a resync is
+            // re-requested after HELLO. Called after sendHostHello released
+            // sendMutex, because the sink's send takes it again.
+            vfs?.onHelloAnswered()
+        }
     }
 
     /**
@@ -643,10 +648,17 @@ class HostChannel(
                 throw ChannelLoss.failure(reason, exchange.reqId)
             }
             val head = if (exchange.head.isCompleted) exchange.head.await() else null
-            return HostApiResponse(
-                head = head ?: HostApiHead(status = 0, headers = emptyMap()),
-                body = exchange.drain(),
-            )
+            if (head == null) {
+                // channel.md §3.8: the first API_RES chunk carries the head. An
+                // API_END with no head is a protocol violation; returning a
+                // fabricated status 0 would make the caller believe it has a
+                // response it never received.
+                throw HostApiException(
+                    "invalid_response",
+                    "API_END ${exchange.reqId} arrived before the first API_RES head",
+                )
+            }
+            return HostApiResponse(head = head, body = exchange.drain())
         } catch (failure: Throwable) {
             apiExchanges.remove(exchange.reqId)
             throw failure
@@ -896,13 +908,13 @@ class HostChannel(
      * decode. A transport failure is recorded the same way; `:net` reports the
      * close through [onClosed].
      */
-    private suspend fun sendHostHello(connection: LoopbackConnection) {
+    private suspend fun sendHostHello(connection: LoopbackConnection): Boolean {
         if (!ready()) {
             logger.info(
                 "worker HELLO on ${connection.id} before recovery finished; " +
                     "not answering yet (the HELLO watermark is not final)",
             )
-            return
+            return false
         }
         val firstHello = synchronized(lock) {
             val first = answered.add(connection.id)
@@ -919,7 +931,7 @@ class HostChannel(
                 "worker sent a second HELLO on ${connection.id}; not answering it " +
                     "(duplicate host HELLO is PROTO_MISMATCH, channel.md §4.1)",
             )
-            return
+            return false
         }
         sendMutex.withLock {
             val value = hello()
@@ -932,7 +944,7 @@ class HostChannel(
                 val reason = describeFailure(failure)
                 noteError(reason)
                 logger.error("host HELLO not encoded: $reason")
-                return
+                return false
             }
             try {
                 connection.sendBinary(frame)
@@ -942,7 +954,7 @@ class HostChannel(
                 val reason = "host HELLO not sent (${failure.javaClass.simpleName})"
                 noteError(reason)
                 logger.error("$reason on ${connection.id}")
-                return
+                return false
             }
             synchronized(lock) {
                 framesToWorkerInternal += 1
@@ -956,6 +968,7 @@ class HostChannel(
                     "session_epoch=${value.sessionEpoch}, ${value.watermark.provenance}",
             )
         }
+        return true
     }
 
     /**

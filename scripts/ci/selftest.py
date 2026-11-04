@@ -266,11 +266,11 @@ class HygieneTests(CheckerFixture):
             }
         )
         proc = self.run_checker("hygiene", tree)
-        # `banned_words_sample()` writes the four spellings `BANNED_WORD_RE`
-        # forbids, so all four lines are findings. The two middle lines used to
-        # be asserted absent, from when the regex only carried two of them; the
-        # fixture's own docstring has said "the four spellings are exactly the
-        # set BANNED_WORD_RE forbids" since the regex grew.
+        # The fixture carries exactly the four spellings BANNED_WORD_RE forbids
+        # (see banned_words_sample), one per line, so all four must be reported.
+        # The two `assertNotIn` checks that used to sit here described a
+        # six-line fixture that no longer exists and had been failing since the
+        # fixture was shortened.
         for line in (1, 2, 3, 4):
             self.assert_finding(proc, "spec/v1/bad/words.md", line, "banned-word")
         self.assert_finding(proc, "spec/v1/bad/contact.txt", 1, "email")
@@ -281,6 +281,47 @@ class HygieneTests(CheckerFixture):
         for line in (1, 2, 3, 4):
             self.assert_finding(proc, "spec/v1/bad/creds.txt", line, "credential")
         self.assertNotIn("ignored.txt", proc.stdout)
+
+    def test_tokens_that_only_look_like_hosts_pass(self):
+        # Every line here is a token the hostname/email/home-path rules used to
+        # report and must not: an XML namespace identifier, a Java package
+        # prefix, a macOS bundle name, an unroutable IPv4 literal, an elided
+        # placeholder, an image scale suffix and a labelled receiver.
+        tree = self.make_tree(
+            {
+                "spec/v1/ok/tokens.txt": (
+                    '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n'
+                    "import com.sun.net.httpserver.HttpServer\n"
+                    "import io.ktor.utils.io.readAvailable\n"
+                    'APP="$DERIVED/Build/Products/Debug-iphonesimulator/Probe.app"\n'
+                    "val chrome = \"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome\"\n"
+                    "allow.matches(url(\"http://" + "10.1.2.3" + "/x\"))\n"
+                    "user types `http://" + "192.168.1.5" + ":3000` or `http://192.168.x.x`\n"
+                    "non-workspace (`/tmp/a.png`, `/Users/...`) is normalized\n"
+                    '<img src="https://…"> makes a real request\n'
+                    "`<root>/home/a` is a relative join, not an absolute path\n"
+                    "mask: `running-whale@2x.png`\n"
+                    "this@drawWithContent.drawContent()\n"
+                ),
+            }
+        )
+        proc = self.run_checker("hygiene", tree)
+        self.assert_pass(proc)
+
+    def test_public_endpoints_still_fail(self):
+        # The exemptions above are narrow: a public IPv4 literal, an internal
+        # hostname and a real (lower-case) `.app` domain are all still findings.
+        tree = self.make_tree(
+            {
+                "spec/v1/bad/public-ip.txt": "http://" + "8.8.4.4/status\n",
+                "spec/v1/bad/private-host.txt": "https://" + "infra." + "corp.lan/x\n",
+                "spec/v1/bad/app-host.txt": "https://" + "telemetry." + "evil.app/x\n",
+            }
+        )
+        proc = self.run_checker("hygiene", tree)
+        self.assert_finding(proc, "spec/v1/bad/public-ip.txt", 1, "hostname")
+        self.assert_finding(proc, "spec/v1/bad/private-host.txt", 1, "hostname")
+        self.assert_finding(proc, "spec/v1/bad/app-host.txt", 1, "hostname")
 
     def test_bare_reserved_documentation_hosts_pass(self):
         tree = self.make_tree(

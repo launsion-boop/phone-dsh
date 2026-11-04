@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
 # Capture the native session screens used by the PR 22 HomeSpec parity review.
 # Run it on a 430pt-wide simulator to match the design canvas.
 #

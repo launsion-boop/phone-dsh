@@ -22,7 +22,7 @@ ANDROID_HOME="${ANDROID_HOME:-$(sed -n 's/^sdk\.dir=//p' "$ROOT/android/local.pr
 [ -n "$ANDROID_HOME" ] || { echo "ERROR: set ANDROID_HOME or android/local.properties sdk.dir" >&2; exit 2; }
 export PATH="$ANDROID_HOME/platform-tools:$PATH"
 
-PACKAGE="com.phonedsh.probe"
+PACKAGE="${PDSH_PACKAGE:-com.phonedsh.app}"
 WAIT_S=8
 while [ $# -gt 0 ]; do
   case "$1" in

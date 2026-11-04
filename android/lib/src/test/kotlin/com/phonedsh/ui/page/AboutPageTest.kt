@@ -1,23 +1,23 @@
-// About page: version/platform facts, the fold sequence and the honest unknowns.
+// About page: real branding content, package facts and honest unknowns.
 // SPDX-License-Identifier: MIT
 package com.phonedsh.ui.page
 
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.phonedsh.ui.SettingsMetrics
 import com.phonedsh.ui.UiStrings
 import com.phonedsh.ui.UiTags
+import com.phonedsh.ui.surface.SETTINGS_CLOSE_GLYPH
 import com.phonedsh.ui.theme.PdshTheme
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -29,17 +29,7 @@ class AboutPageTest {
     @get:Rule
     val compose = createComposeRule()
 
-    private val facts = AboutFacts(
-        version = "0.1.0",
-        build = "42",
-        platform = PlatformInfo(
-            sdkInt = 34,
-            release = "14",
-            abi = "arm64-v8a",
-            deviceModel = "test-device",
-            webViewVersion = "120.0",
-        ),
-    )
+    private val facts = AboutFacts(version = "0.1.0", buildNumber = "42")
 
     private fun show(
         facts: AboutFacts,
@@ -61,35 +51,33 @@ class AboutPageTest {
         }
     }
 
-    /** No facts at all: every value is 未知, and no version is invented. */
+    /** `NativeShell.swift:842-864`: branding content plus one package facts card. */
     @Test
-    fun `about with no facts renders unknown values instead of a fallback version`() {
+    fun `about with no package facts renders actual brand content and no invented values`() {
         val state = AboutScreenState.from(AboutFacts())
-        val version = state.sections.single { it.id == "about.version" }.rows
-        assertEquals(listOf(UiStrings.UNKNOWN, UiStrings.UNKNOWN), version.map { it.value })
-        val system = state.sections.single { it.id == "about.system" }.rows
-        assertEquals(5, system.size)
-        assertEquals(7, system.plus(version).count { it.value == UiStrings.UNKNOWN })
-        // The DEBUG-only developer entry does not exist in this build, so its row is absent.
-        assertEquals(
-            listOf(AboutScreenState.LICENSES_ROW_ID),
-            state.sections.single { it.id == "about.more" }.rows.map { it.id },
-        )
+        assertEquals(listOf(AboutScreenState.VERSION_SECTION_ID), state.sections.map { it.id })
+        val rows = state.sections.single().rows
+        assertEquals(listOf(UiStrings.ABOUT_SECTION_VERSION, "构建"), rows.map { it.title })
+        assertEquals(listOf(UiStrings.UNKNOWN, UiStrings.UNKNOWN), rows.map { it.value })
         show(AboutFacts())
         compose.onNodeWithTag(UiTags.ABOUT_LIST).assertIsDisplayed()
-        compose.onAllNodesWithText(UiStrings.UNKNOWN).assertCountEquals(7)
+        compose.onNodeWithTag("pdsh.about.brand-logo").assertIsDisplayed()
+        compose.onNodeWithText("Phone DSH").assertIsDisplayed()
+        compose.onNodeWithText("运行在手机上的 DeepSeek Harness").assertIsDisplayed()
+        compose.onAllNodesWithText(UiStrings.UNKNOWN).assertCountEquals(2)
+        compose.onNodeWithText(UiStrings.ABOUT_LOCAL_NOTE).assertIsDisplayed()
         compose.onNodeWithText(UiStrings.ABOUT_DEVELOPER).assertDoesNotExist()
     }
 
     @Test
-    fun `measured facts render their values and the licenses action navigates`() {
+    fun `measured package version and build render and the licenses row navigates when wired`() {
         var licenses = 0
         show(facts, onOpenLicenses = { licenses += 1 })
+        compose.onNodeWithText(UiStrings.ABOUT_LICENSES).assertIsDisplayed()
         compose.onNodeWithText("0.1.0").assertIsDisplayed()
+        compose.onNodeWithText("构建").assertIsDisplayed()
         compose.onNodeWithText("42").assertIsDisplayed()
-        compose.onNodeWithText("14").assertIsDisplayed()
-        compose.onNodeWithText("34").assertIsDisplayed()
-        compose.onNodeWithText("arm64-v8a").assertIsDisplayed()
+        compose.onNodeWithText(UiStrings.ABOUT_LOCAL_NOTE).assertIsDisplayed()
         compose.onNodeWithText(UiStrings.ABOUT_LICENSES).performClick()
         assertEquals(1, licenses)
         compose.onNodeWithText(UiStrings.ABOUT_DEVELOPER).assertDoesNotExist()
@@ -108,33 +96,52 @@ class AboutPageTest {
     }
 
     /**
-     * A host that cannot read the platform still gets five honest 未知 rows; a
-     * sub-page without a callback reads 不可用 instead of pretending it opens.
+     * A host that cannot read the platform draws no 系统 card, and a sub-page with
+     * no callback is **not drawn at all** rather than drawn as 不可用: the
+     * baseline's about page has no licenses row to disable.
      */
     @Test
-    fun `an unread platform and an unwired sub-page are reported as unknown and unavailable`() {
-        show(facts.copy(platform = null, version = null, build = null), onOpenLicenses = null)
-        compose.onAllNodesWithText(UiStrings.UNKNOWN).assertCountEquals(7)
-        compose.onNodeWithText(UiStrings.UNAVAILABLE).assertIsDisplayed()
+    fun `unread version and build are explicit and an unwired sub-page draws no row`() {
+        show(facts.copy(version = null, buildNumber = null), onOpenLicenses = null)
+        compose.onAllNodesWithText(UiStrings.UNKNOWN).assertCountEquals(2)
+        compose.onNodeWithText(UiStrings.ABOUT_API_LEVEL).assertDoesNotExist()
+        compose.onNodeWithText(UiStrings.ABOUT_LICENSES).assertDoesNotExist()
+        compose.onNodeWithText(UiStrings.UNAVAILABLE).assertDoesNotExist()
+    }
+
+    /**
+     * L74: there is no section header to fold.
+     *
+     * The baseline draws no header and no disclosure (`NativeShell.swift:842-864`),
+     * so the section titles are no longer on screen and a tap on the card does not
+     * hide the rows it holds.
+     */
+    @Test
+    fun `branding and package rows are content rather than section headers`() {
+        show(facts)
+        compose.onNodeWithText("Phone DSH").assertIsDisplayed()
+        compose.onNodeWithText("构建").assertIsDisplayed()
+        compose.onNodeWithText(UiStrings.ABOUT_SECTION_SYSTEM).assertDoesNotExist()
+        compose.onNodeWithText(UiStrings.ABOUT_API_LEVEL).assertDoesNotExist()
     }
 
     @Test
-    fun `a section folds and unfolds from its header`() {
-        compose.setContent {
-            var local by remember { mutableStateOf(AboutLocalState()) }
-            PdshTheme {
-                AboutPage(
-                    state = AboutScreenState.from(facts, local),
-                    onToggleSection = { id -> local = local.apply(AboutUiEvent.ToggleSection(id)) },
-                    onBack = {},
-                )
-            }
-        }
-        compose.onNodeWithText(UiStrings.ABOUT_API_LEVEL).assertIsDisplayed()
-        compose.onNodeWithText(UiStrings.ABOUT_SECTION_SYSTEM).performClick()
-        compose.onNodeWithText(UiStrings.ABOUT_API_LEVEL).assertDoesNotExist()
-        compose.onNodeWithText(UiStrings.ABOUT_SECTION_SYSTEM).performClick()
-        compose.onNodeWithText(UiStrings.ABOUT_API_LEVEL).assertIsDisplayed()
+    fun `about footnote is on the page background below the package card`() {
+        show(facts)
+        val card = compose.onNodeWithTag("pdsh.settings.about.version-card").getUnclippedBoundsInRoot()
+        val footnote = compose.onNodeWithText(UiStrings.ABOUT_LOCAL_NOTE).getUnclippedBoundsInRoot()
+        assertTrue("About footnote must begin below the white package card", footnote.top >= card.bottom)
+        assertEquals(SettingsMetrics.ROW_CONTENT_INSET_PT.toFloat(), footnote.left.value, 1f)
+    }
+
+    @Test
+    fun `pushed about returns through back chrome without sheet handle`() {
+        var back = 0
+        show(facts, onBack = { back += 1 })
+        compose.onNodeWithText(PAGE_BACK_GLYPH).performClick()
+        assertEquals(1, back)
+        compose.onNodeWithTag("settings-sheet-drag-handle").assertDoesNotExist()
+        compose.onNodeWithText(SETTINGS_CLOSE_GLYPH).assertDoesNotExist()
     }
 
     /** §3.1: same facts + same fold script → same state sequence, sections in order. */
@@ -153,10 +160,13 @@ class AboutPageTest {
             }
         }
         states.forEach { state ->
-            assertEquals(listOf("about.version", "about.system", "about.more"), state.sections.map { it.id })
+            // One card only: the 系统 appendix is not part of the page (L79), and
+            // `facts` carries no developer entry so the 更多 card is absent too.
+            assertEquals(listOf(AboutScreenState.VERSION_SECTION_ID), state.sections.map { it.id })
         }
+        // The fold script still folds the model (it is the host's vocabulary); the
+        // page simply has no header to drive it with any more.
         assertEquals(listOf(true, false, false), states.map { it.sections[0].expanded })
-        assertEquals(listOf(true, true, false), states.map { state -> state.sections[1].expanded })
         var replay = AboutLocalState()
         val replayed = buildList {
             add(AboutScreenState.from(facts, replay))

@@ -12,12 +12,15 @@ import com.phonedsh.agentcore.HarnessEvent
 import com.phonedsh.agentcore.HarnessKind
 import com.phonedsh.agentcore.HarnessPermissionRequest
 import com.phonedsh.agentcore.HarnessQuestion
+import com.phonedsh.agentcore.HarnessQuestionItem
 import com.phonedsh.agentcore.HarnessToolRisk
 import com.phonedsh.agentcore.HarnessTurnEnd
+import com.phonedsh.agentcore.JsonArray
 import com.phonedsh.agentcore.JsonNumber
 import com.phonedsh.agentcore.JsonObject
 import com.phonedsh.agentcore.JsonString
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
@@ -141,6 +144,11 @@ class UiStateProjectorRulesTest {
         val pill = nodes.single { it.kind == UiStateKind.THINKING_PILL }
         val bubble = nodes.single { it.kind == UiStateKind.BUBBLE }
         assertEquals("归档方式：按天分组。", pill.text)
+        assertEquals(
+            "先看目录结构。\n再决定归档方式。\n\n**归档方式**：按天分组。",
+            (pill.props["fullReasoning"] as com.phonedsh.agentcore.JsonString).value,
+        )
+        assertEquals(false, (pill.props["fullReasoningTruncated"] as com.phonedsh.agentcore.JsonBool).value)
         assertEquals("thinking-pill", pill.surface.wire)
         assertEquals("session/sess-1/turn/turn-0001/event/2/thinking", pill.nodeID)
         assertEquals("session/sess-1/turn/turn-0001/event/2/assistant-message", bubble.nodeID)
@@ -155,6 +163,21 @@ class UiStateProjectorRulesTest {
             event(HarnessKind.AssistantMessage("answer"), 2),
         )
         assertTrue(UiStateProjector.project(events).none { it.kind == UiStateKind.THINKING_PILL })
+    }
+
+    @Test
+    fun `over-limit full reasoning is marked truncated without changing settled summary or node id`() {
+        val full = "x".repeat(UiStateProjector.TEXT_LIMIT + 10) + "\n\n**Settled summary**: done"
+        val events = listOf(
+            event(HarnessKind.TurnStarted("1"), 1),
+            event(HarnessKind.ReasoningDelta(full), seq = null),
+            event(HarnessKind.AssistantMessage("answer"), 2),
+        )
+        val pill = UiStateProjector.project(events).single { it.kind == UiStateKind.THINKING_PILL }
+        assertEquals("Settled summary: done", pill.text)
+        assertEquals("session/$SESSION/turn/turn-0001/event/2/thinking", pill.nodeID)
+        assertEquals(UiStateProjector.TEXT_LIMIT, (pill.props["fullReasoning"] as com.phonedsh.agentcore.JsonString).value.length)
+        assertEquals(true, (pill.props["fullReasoningTruncated"] as com.phonedsh.agentcore.JsonBool).value)
     }
 
     @Test
@@ -267,6 +290,39 @@ class UiStateProjectorRulesTest {
         val card = UiStateProjector.project(events).single { it.kind == UiStateKind.APPROVAL_CARD }
         assertEquals("question", (card.props["kind"] as JsonString).value)
         assertEquals("pick one", card.text)
+        val items = (card.props["questionItems"] as JsonArray).values
+        assertEquals(1, items.size)
+        assertEquals("answer", ((items.single() as JsonObject)["id"] as JsonString).value)
+    }
+
+    @Test
+    fun `a question row retains every host question item without inventing metadata`() {
+        val card = UiStateProjector.project(
+            listOf(
+                event(
+                    HarnessKind.QuestionRequested(
+                        HarnessQuestion(
+                            requestId = "q-multi",
+                            prompt = "fallback",
+                            questions = listOf(
+                                HarnessQuestionItem(
+                                    id = "color", prompt = "Pick a color", options = listOf("blue"), multiple = false,
+                                ),
+                                HarnessQuestionItem(
+                                    id = "days", prompt = "Which days?", options = listOf("Mon", "Tue"), multiple = true,
+                                ),
+                            ),
+                        ),
+                    ),
+                    seq = null,
+                ),
+            ),
+        ).single { it.kind == UiStateKind.APPROVAL_CARD }
+        val items = (card.props["questionItems"] as JsonArray).values.map { it as JsonObject }
+        assertEquals(listOf("color", "days"), items.map { (it["id"] as JsonString).value })
+        assertEquals("Which days?", (items.last()["prompt"] as JsonString).value)
+        assertFalse(items.last().members.containsKey("detail"))
+        assertFalse(items.last().members.containsKey("intentKind"))
     }
 
     @Test

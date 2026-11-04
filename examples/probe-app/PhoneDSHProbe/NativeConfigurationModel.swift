@@ -117,7 +117,14 @@ final class NativeConfigurationModel {
             return NativeExperimentalPlugin(id: id, title: title, status: status, loaded: loaded)
         }
     }
-    var canEditDefaultPermission: Bool { settingsWritable && namespaceValues["permission"] != nil }
+    // The shipped phone profile owns this value in its home patch, above the
+    // editable profile layer. settings.writable describes the provider as a
+    // whole; it does not grant writes through that startup overlay.
+    var defaultPermissionReadOnlyReason: String {
+        NativeText("只读：此 iPhone Worker 的默认权限由启动配置（home patch / PDSH_SANDBOX_MODE）指定，优先于可编辑设置。请在启动配置中调整并重新启动引擎；现有会话保持原权限。",
+                   "Read only: this iPhone Worker's startup profile (home patch / PDSH_SANDBOX_MODE) locks the default permission above editable settings. Change the startup profile and restart the engine; existing sessions keep their permission.")
+    }
+    var canEditDefaultPermission: Bool { false }
 
     func group(_ namespace: String) -> NativeSettingsGroup? {
         settingsGroups.first { $0.namespace == namespace }
@@ -344,6 +351,7 @@ final class NativeConfigurationModel {
     }
 
     func stageDefaultPermissionMode(_ id: String) {
+        guard canEditDefaultPermission else { return }
         guard defaultPermissionModes.contains(where: { $0.id == id }) else { return }
         defaultPermissionDraft = id == defaultPermissionMode ? nil : id
     }
@@ -351,6 +359,10 @@ final class NativeConfigurationModel {
     func discardDefaultPermissionMode() { defaultPermissionDraft = nil }
 
     func setDefaultPermissionMode(_ id: String) async -> Bool {
+        guard canEditDefaultPermission else {
+            error = defaultPermissionReadOnlyReason
+            return false
+        }
         guard let mode = defaultPermissionModes.first(where: { $0.id == id }),
               namespaceValues["permission"] != nil,
               let revision = namespaceRevisions["permission"],

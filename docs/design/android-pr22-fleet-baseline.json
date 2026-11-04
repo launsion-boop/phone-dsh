@@ -1,0 +1,47 @@
+{
+  "android_pr14": "8c2eeab7b29728ebd0a54b71b5deaab07e5ac6eb",
+  "ios_pr22": "edd687463cd24b9c969914a13fa1da268df016fe",
+  "shared_main": "45de1121ee8b6df4323609ae45e66caa0d0fe29a",
+  "android_candidate": "aa2e1aa (prepared Fleet tree; candidate changes pinned in 9f09ef1)",
+  "status": "UNACCEPTED_BASELINE_CANDIDATE",
+  "audit_status": "AUDIT_COMPLETE_CANDIDATE_UNACCEPTED",
+  "draft_reuse": "Android changes and tests from stopped local alignment; requires fresh review and all relevant tests",
+  "ci_policy": "Do not recreate .github workflows; maintainer deleted them",
+  "ui_authority": "PR22 native iOS source and docs/design/ios-home-design-spec-no-overview.html; 430x932pt, not old 402pt DSH theme",
+  "source_map": "docs/design/android-pr22-source-map.json",
+  "source_map_schema": "pdsh.android-pr22-source-map/1",
+  "baseline_audit_receipt": "docs/receipts/android-pr22-alignment/00-baseline-audit.md",
+  "known_limitations_receipt": "docs/receipts/android-pr22-alignment/00-known-limitations.md",
+  "audited_at": "2026-11-02",
+  "checked_refs": {
+    "android_candidate_tree": "aa2e1aa",
+    "android_pr14": "8c2eeab7b29728ebd0a54b71b5deaab07e5ac6eb",
+    "ios_pr22": "edd687463cd24b9c969914a13fa1da268df016fe",
+    "shared_main": "45de1121ee8b6df4323609ae45e66caa0d0fe29a"
+  },
+  "source_map_counts": {
+    "entries": 80,
+    "implemented_on_candidate": 36,
+    "partial": 37,
+    "missing": 6,
+    "unverifiable": 1
+  },
+  "known_gaps": [
+    "The product home is still HostSessionsScreen (sessions list), not the PR22 ChatPage home; the drawer is PdshDrawer, not HomeDrawer.",
+    "The shared theme is still the old 402x874pt / 17pt-body / 20pt-bubble token set; the PR22 430x932pt HomeSpec values are not implemented.",
+    "Settings is still the five-tab sheet; FontSizeSettingsPage, ConversationSettingsPage and ArchivedSessionsPage are not pages, and LicensesPage is absent.",
+    "The settings tree has no grouped PR22 navigation, and the chat header lacks the PR22 subagent/jobs/schedules/plugins entries; ChatSubpageFacts.jobs is never populated.",
+    "The model-provider editor has no get-models flow or advanced settings; web-search, MCP-save, shell-run and export host actions are honest refusals.",
+    "The spec/ui contracts are stale: ui_check (README page inventory), extract_ios_pages --check (25 pages) and page_structure_check all fail."
+  ],
+  "acceptance": "NOT ACCEPTED: this baseline records audit provenance only. No receipt, screenshot, build or source scan in this tree is acceptance.",
+  "limitations": {
+    "apple_xcode": "NOT_RUN on this Linux host",
+    "ios_device_capture": "NOT_RUN; Mac-owned",
+    "android_emulator_or_hardware": "NOT_RUN on this Linux host",
+    "installed_app_runtime": "NOT_RUN",
+    "real_model_provider": "NOT_RUN; only labelled scripted upstreams are allowed",
+    "instrumented_tests": "NOT_RUN; no emulator/device",
+    "ci_workflows": "NOT RESTORED; maintainer deleted .github"
+  }
+}

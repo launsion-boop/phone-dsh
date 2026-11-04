@@ -2043,11 +2043,29 @@ P9 问：0–39 字节但非 0 的 header 现在仍按「非零 header 损坏」
 
 | 段长度 | 可能有几条记录 | 处理 |
 |---|---|---|
-| `0` | **0 条** | 可丢弃 ✅（已实现） |
-| `0 < len < header_size`（40） | **0 条**（连一个完整 header 都没有） | **可丢弃**（本轮放宽） |
+| `0` | **0 条** | 可丢弃 ✅（**已实现**） |
+| `0 < len < header_size`（40） | **0 条**（连一个完整 header 都没有） | **建议可丢弃——本文的裁定，但未实现，且与 landed spec 冲突** |
 | `len >= header_size` 且 header magic/CRC 坏 | 可能 > 0 条，但无法可信解析 | **fail loud**（不变） |
 
-前两行的共同点是「**结构上不可能含记录**」，所以丢弃不丢数据；第三行才可能丢。**用一个 `len < header_size` 的判断覆盖前两行，比逐个特例更硬。**
+前两行的共同点是「**结构上不可能含记录**」，所以丢弃不丢数据；第三行才可能丢。
+
+> **⚠️ 更正（2026-11-01 独立审计发现）：本文上一版把第二行写成「本轮放宽」，那是错的。**
+>
+> - **实现**：`core/.../WorkspaceLog.kt` 只特判了 `bytes.isEmpty()`。`1 ≤ len < 40` 的段仍然走到
+>   `recovery.rs` 的 `header_error` → `unlisted + !header_ok` → **`WAL_CORRUPT`**。
+> - **spec**：`wal.md:248-249` 明确写着「a non-zero segment whose header magic, format,
+>   reserved, length or CRC is wrong is **not** this case … so `WAL_CORRUPT` stands」。
+> - **测试**：`ZeroLengthSegmentTest` 五条用例全是 `ByteArray(0)` 或完整 40 字节坏 magic，
+>   **没有一条覆盖 1–39 字节**。
+>
+> 所以「放宽」只存在于这一节文字里。**这条裁定需要一次 spec 决定**（`wal.md` 那句把
+> 「没有完整 header」和「header 被覆盖」两种情形混在一起），**不是实现能单方面决定的**。
+> 在 spec 改之前，实现照 spec fail loud 是**正确的**——但**它是一条与原 🔴 形态 1 同类的砖化路径**：
+> 掉电撕裂 40 字节 header 写会留下 1–39 字节的段，那会让工作区进 `Failed`。
+>
+> 保留本裁定作为**待决提案**，附上它需要的三件事：改 `wal.md:248`、改
+> `WorkspaceLog.kt:779` 的判据为 `bytes.size < WalSegmentHeader.BYTES`（仅 unlisted 段）、
+> 给 `ZeroLengthSegmentTest` 补 1–39 字节向量（含 listed 不可放宽的反例）。
 
 ## 47. Draining 死胡同已闭（P10）——第三个 🔴 关闭
 

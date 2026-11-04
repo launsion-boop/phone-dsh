@@ -115,6 +115,43 @@ class ChannelLossExitTest {
     }
 
     @Test
+    fun apiEndWithoutAHeadFailsAsInvalidResponse() {
+        FakePlatform().use { platform ->
+            val host = newHost(platform)
+            host.start()
+            runBlocking { withTimeout(5_000) { host.ready.first { it } } }
+            try {
+                val connection = connect(host)
+                runBlocking {
+                    val inFlight = async(start = CoroutineStart.UNDISPATCHED) {
+                        runCatching { host.channel.apiRequest(method = "POST", path = "/api/x") }
+                    }
+                    val request = HostApiFrames.fields(connection.sent.last())
+                        ?: error("the API_REQ was not encoded")
+                    val reqId = HostApiFrames.reqId(request) ?: error("the API_REQ carried no req_id")
+
+                    // channel.md §3.8 requires the first API_RES to carry the head.
+                    // Ending without one must not become a fabricated status 0.
+                    host.channel.onBinary(
+                        connection,
+                        WireCodec.encode("""{"type":"API_END","fields":{"req_id":$reqId}}""", seq = 2L),
+                    )
+
+                    val failure = inFlight.await().exceptionOrNull()
+                    assertTrue("a headless end must fail the request: $failure", failure is HostApiException)
+                    assertEquals(
+                        "a missing head is a protocol failure, not a 0-status response",
+                        "invalid_response",
+                        (failure as HostApiException).code,
+                    )
+                }
+            } finally {
+                host.stop()
+            }
+        }
+    }
+
+    @Test
     fun theSessionCreateRetryScheduleIsBoundedOverTheFirstThirtySeconds() {
         assertEquals(250L, CREATE_RETRY_FIRST_DELAY_MILLIS)
         assertEquals(500L, nextCreateRetryDelay(CREATE_RETRY_FIRST_DELAY_MILLIS))

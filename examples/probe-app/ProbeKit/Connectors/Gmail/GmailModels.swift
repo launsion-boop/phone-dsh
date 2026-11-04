@@ -7,6 +7,20 @@ public enum GmailScope {
     public static let compose = "https://www.googleapis.com/auth/gmail.compose"
 }
 
+public struct GmailWriteGrantSelection: Equatable, Sendable {
+    public var drafts: Bool
+    public var reply: Bool
+    public var sendNew: Bool
+    public var forward: Bool
+
+    public init(drafts: Bool = false, reply: Bool = false, sendNew: Bool = false, forward: Bool = false) {
+        self.drafts = drafts
+        self.reply = reply
+        self.sendNew = sendNew
+        self.forward = forward
+    }
+}
+
 public enum GmailLimits {
     public static let maximumSearchResults = 50
     public static let maximumResponseBytes = 2 * 1024 * 1024

@@ -97,8 +97,9 @@ struct ChatPage: View {
     @State private var manuallyExpandedTurns: Set<Int> = []
     @State private var tailUsage: NativeTurnUsage?
     @State private var copiedTurn: Int?
+    @State private var queue = ComposerQueueStore()
     @State private var queueExpanded = false
-    @State private var queueEditItem: ManagedQueueItem?
+    @State private var queueEditItem: ComposerQueue.Item?
     @State private var queueEditText = ""
     /// The queue row whose edit/remove/steer RPC is in flight; every queue
     /// action is disabled while it runs (official `busy` in `QueueDock`).
@@ -238,6 +239,7 @@ struct ChatPage: View {
             }
             .buttonStyle(.plain)
             .disabled(model.currentSessionID == nil)
+            .accessibilityIdentifier("chat.session-title")
             .accessibilityHint("点按重命名会话")
             .padding(.horizontal, 16)
 
@@ -447,7 +449,7 @@ struct ChatPage: View {
                 .homeSheetChrome()
         }
         .sheet(isPresented: $showSettings) {
-            NavigationStack { SettingsPage() }
+            NavigationStack { SettingsPage(onOpenSession: { showSettings = false }) }
                 .homeSheetChrome()
         }
         .sheet(isPresented: $showSessionSettings) {
@@ -700,16 +702,29 @@ struct ChatPage: View {
             previewTarget = .workspaceFile(match.relativePath)
         }
         .task(id: model.currentSessionID) {
-            guard let id = model.currentSessionID else { return }
+            guard let id = model.currentSessionID else {
+                queue.prepare(for: nil)
+                return
+            }
+            queue.prepare(for: id)
             await management.refreshActivity(sessionID: id)
-            await management.refreshQueue(for: id)
             await model.refreshAgentPresetNames()
+        }
+        // Re-read the durable queue after session open, Worker ready/restart,
+        // stream resync, a successful send, any inbox splice and every turn
+        // boundary. This is the event-driven half of I-2.
+        .task(id: queueRefreshKey) {
+            await refreshComposerQueue(debounced: true)
         }
         .task(id: model.turnRunning) {
             guard model.turnRunning else { return }
             while !Task.isCancelled, model.turnRunning {
                 model.refreshFiles()
                 try? await Task.sleep(for: .seconds(2))
+                guard !Task.isCancelled, model.turnRunning else { return }
+                // Polling covers a claim/removal splice that maps to no event
+                // kind (the second half of I-2, matching Android's 2 s poll).
+                await refreshComposerQueue()
             }
         }
     }
@@ -1575,54 +1590,81 @@ struct ChatPage: View {
         text.components(separatedBy: .newlines).first ?? text
     }
 
-    /// One dock row: a durable `session/projections.inbox` item, or a local
-    /// line whose durable row has not landed yet.
-    private struct ComposerQueueRow: Identifiable {
-        enum State: Equatable { case queued, sending }
-        let id: String
-        let text: String
-        let state: State
-        /// Present for a durable inbox row; the queue RPC needs it.
-        var item: ManagedQueueItem?
-        var editable: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-    }
-
-    /// The one queue list above the composer: durable inbox rows first, then
-    /// local lines the projection has not echoed yet, exactly the shape of
-    /// official `QueueDock` (`queue` + `pendingQueue`, `QueueDock.tsx:105-125`).
-    ///
-    /// Official dedupes by `source.rpcId`. The phone inbox projection drops
-    /// that id (`ManagedQueueItem` keeps only id/lane/text), so the pairing is
-    /// count-preserving instead: one local line consumes at most one durable
-    /// row with the same text, and a message the person queued twice still
-    /// renders twice.
-    private var composerQueueRows: [ComposerQueueRow] {
-        var rows: [ComposerQueueRow] = management.queueItems
-            .filter { $0.sessionID == model.currentSessionID }
-            .map { ComposerQueueRow(id: "durable:\($0.id)", text: $0.text, state: .queued, item: $0) }
-        let local: [(id: String, text: String, state: ComposerQueueRow.State)] = model.queueLineOrder.compactMap { id in
+    /// Local queue lines in submission order. Each carries the prompt RPC id
+    /// that official `QueueDock` uses to retire it when the durable inbox echo
+    /// arrives.
+    private var localQueueLines: [ComposerQueue.LocalLine] {
+        model.queueLineOrder.compactMap { id in
             guard let state = model.queueLines[id] else { return nil }
             guard state == .queued || state == .sending else { return nil }
             guard let item = visibleItems.first(where: { $0.id == id }) else { return nil }
-            return (id, item.text, state == .sending ? .sending : .queued)
+            return ComposerQueue.LocalLine(
+                id: id,
+                text: item.text,
+                state: state == .sending ? .sending : .queued,
+                requestID: model.queueLineRequests[id])
         }
-        var unmatched: [ComposerQueueRow] = []
-        for line in local {
-            let key = Self.queueTextKey(line.text)
-            if let index = rows.firstIndex(where: { Self.queueTextKey($0.text) == key }) {
-                rows.remove(at: index)
-            }
-            unmatched.append(ComposerQueueRow(id: "local:\(line.id)", text: line.text,
-                                              state: line.state, item: nil))
-        }
-        // A local `sending` line owns the independent pending row above the
-        // composer (B1); the dock never repeats it as a second 发送中… row.
-        rows.append(contentsOf: unmatched.filter { $0.state == .queued })
-        return rows
     }
 
-    private static func queueTextKey(_ text: String) -> String {
-        text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    /// The one queue list above the composer: durable `inbox["next-turn"]`
+    /// rows first, then local lines whose request id has not been echoed.
+    /// Matching is by `source.rpcId`, never by text, so two identical messages
+    /// stay two rows and a durable row never loses its inbox id.
+    private var composerQueueRows: [ComposerQueue.Row] {
+        queue.rows(for: model.currentSessionID,
+                   local: localQueueLines,
+                   running: model.canSteer)
+    }
+
+    /// Everything that can change the durable queue projection: session open,
+    /// host/Worker ready or resumed, turn boundaries, a successful send and any
+    /// inbox splice. `.task(id:)` coalesces bursts and re-reads the inbox.
+    private struct QueueRefreshKey: Equatable {
+        let sessionID: String?
+        let hostState: String
+        let startedAt: Date?
+        let transcriptReady: Bool
+        let recovering: Bool
+        let turnRunning: Bool
+        let turnBoundary: Int
+        let promptRequestID: String?
+        let inboxSpliced: Int
+    }
+
+    private var queueRefreshKey: QueueRefreshKey {
+        QueueRefreshKey(sessionID: model.currentSessionID,
+                        hostState: model.hostState,
+                        startedAt: model.startedAt,
+                        transcriptReady: model.isTranscriptReady,
+                        recovering: model.eventStreamRecovering,
+                        turnRunning: model.turnRunning,
+                        turnBoundary: model.turnBoundaryRevision,
+                        promptRequestID: model.lastPromptRequestID,
+                        inboxSpliced: model.inboxSplicedRevision)
+    }
+
+    /// Reads the durable next-turn queue. A failure keeps the last rows; the
+    /// lifecycle/event triggers retry when the host is ready again.
+    @MainActor
+    private func refreshComposerQueue(debounced: Bool = false) async {
+        guard let sessionID = model.currentSessionID else {
+            queue.prepare(for: nil)
+            return
+        }
+        queue.prepare(for: sessionID)
+        if debounced {
+            try? await Task.sleep(for: .milliseconds(120))
+            guard !Task.isCancelled else { return }
+        }
+        guard model.currentSessionID == sessionID, model.isStarted else { return }
+        do {
+            let transport = try await model.transportForManagement()
+            guard !Task.isCancelled, model.currentSessionID == sessionID else { return }
+            await queue.refresh(sessionID: sessionID, using: transport)
+        } catch {
+            // Host starting/stopped: keep the rows already read. The next
+            // lifecycle or inbox event retries.
+        }
     }
 
     /// Official `QueueDock` geometry: one row renders without a header; two or
@@ -1683,7 +1725,7 @@ struct ChatPage: View {
                 let text = queueEditText.trimmingCharacters(in: .whitespacesAndNewlines)
                 queueEditItem = nil
                 guard !text.isEmpty else { return }
-                Task { await updateQueueItem(item, action: "edit", replacement: text) }
+                Task { await updateQueueItem(item, action: .edit(text)) }
             }
         }
     }
@@ -1691,7 +1733,7 @@ struct ChatPage: View {
     /// One queue line. The state word and the disabled actions are the official
     /// `queue.sending` row; a durable row offers edit / remove / steer with the
     /// official disabled reasons.
-    private func queueRow(_ row: ComposerQueueRow, showsLeadingGlyph: Bool) -> some View {
+    private func queueRow(_ row: ComposerQueue.Row, showsLeadingGlyph: Bool) -> some View {
         HStack(spacing: 8) {
             if showsLeadingGlyph {
                 Image(systemName: "list.bullet.rectangle")
@@ -1718,8 +1760,7 @@ struct ChatPage: View {
                 }
             } else {
                 queueRowAction(symbol: "pencil", label: "编辑排队消息",
-                               reason: row.item == nil ? "这条排队消息还没有落盘，暂时不能编辑"
-                                   : (row.editable ? nil : "包含非文本内容，暂不支持编辑")) {
+                               reason: queueEditUnavailableReason(row)) {
                     guard let item = row.item, row.editable else { return }
                     queueEditText = item.text
                     queueEditItem = item
@@ -1727,13 +1768,12 @@ struct ChatPage: View {
                 queueRowAction(symbol: "trash", label: "删除排队消息",
                                reason: row.item == nil ? "这条排队消息还没有落盘，暂时不能删除" : nil) {
                     guard let item = row.item else { return }
-                    Task { await updateQueueItem(item, action: "remove") }
+                    Task { await updateQueueItem(item, action: .remove) }
                 }
                 queueRowAction(symbol: "paperplane", label: "插话发送",
-                               reason: row.item == nil ? "这条排队消息还没有落盘，暂时不能插话发送"
-                                   : (model.turnRunning ? nil : "仅运行中可插话发送")) {
-                    guard let item = row.item, model.turnRunning else { return }
-                    Task { await updateQueueItem(item, action: "steer") }
+                               reason: queueSteerUnavailableReason(row)) {
+                    guard let item = row.item, row.canSteer else { return }
+                    Task { await updateQueueItem(item, action: .steer) }
                 }
             }
         }
@@ -1758,11 +1798,43 @@ struct ChatPage: View {
         .help(reason ?? label)
     }
 
+    /// The edit action is available only for a durable, purely textual entry
+    /// with non-empty content; DSH rejects everything else.
+    private func queueEditUnavailableReason(_ row: ComposerQueue.Row) -> String? {
+        guard let item = row.item else { return "这条排队消息还没有落盘，暂时不能编辑" }
+        guard item.isPlainText else { return "包含非文本内容，暂不支持编辑" }
+        guard row.editable else { return "消息内容为空，暂不支持编辑" }
+        return nil
+    }
+
+    /// Official `QueueDock` gates steering on the running agent; this app also
+    /// waits for transcript/stream readiness (`model.canSteer`).
+    private func queueSteerUnavailableReason(_ row: ComposerQueue.Row) -> String? {
+        guard let item = row.item else { return "这条排队消息还没有落盘，暂时不能插话发送" }
+        guard item.lane == "next-turn" else { return "仅下一轮排队消息可以插话发送" }
+        guard model.turnRunning else { return "仅运行中可插话发送" }
+        guard model.canSteer else { return "当前暂时不能插话发送" }
+        return nil
+    }
+
+    /// Runs one queue action on the dedicated store. The store re-reads the
+    /// durable inbox on success and failure; edit/remove failures become a
+    /// composer notice, while steer's two convergence codes stay silent.
     @MainActor
-    private func updateQueueItem(_ item: ManagedQueueItem, action: String, replacement: String? = nil) async {
+    private func updateQueueItem(_ item: ComposerQueue.Item, action: ComposerQueue.Action) async {
         queueActionBusyID = item.id
         defer { queueActionBusyID = nil }
-        await management.updateQueue(item, action: action, replacement: replacement)
+        do {
+            let transport = try await model.transportForManagement()
+            let result = await queue.perform(action, on: item, sessionID: item.sessionID,
+                                             using: transport)
+            if let message = result.visibleError {
+                composerNotice = ComposerNotice(level: .error, text: message)
+            }
+        } catch {
+            composerNotice = ComposerNotice(level: .error,
+                                            text: "排队消息操作失败：\(error.localizedDescription)")
+        }
     }
 
     /// Independent pending row above the composer: spinner + 「发送中…」+ the
@@ -2094,7 +2166,7 @@ struct ChatPage: View {
             .disabled(!canSubmit)
             .transition(.scale(scale: 0.8).combined(with: .opacity))
             .animation(.easeOut(duration: 0.12), value: canSubmit)
-            .accessibilityLabel("发送消息")
+            .accessibilityLabel(sendButtonLabel)
         }
     }
 

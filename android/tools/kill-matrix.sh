@@ -20,7 +20,7 @@ export ANDROID_HOME="${ANDROID_HOME:-/opt/homebrew/share/android-commandlinetool
 ADB="$ANDROID_HOME/platform-tools/adb"
 SERIAL="${SERIAL:-emulator-5566}"
 AVD="${AVD:-pdsh-p6-5566}"
-P=com.phonedsh.probe
+P="${PDSH_PACKAGE:-com.phonedsh.app}"
 CELL="${1:?usage: p6-kill.sh <cell> <method> [prompt]}"
 METHOD="${2:?usage: p6-kill.sh <cell> <method> [prompt]}"
 PROMPT="${3:-用 shell 工具执行这一条命令：sleep 20; echo slept。只做这一件事，然后把输出贴出来。}"
@@ -71,7 +71,7 @@ assert_running() {
 launch() {
   # One remote command string: `adb shell` joins its arguments, so an unquoted
   # multi-word prompt would arrive as `--es pdsh.prompt <first-word>` only.
-  D shell "am start -W -n $P/.MainActivity --es pdsh.deepseek.baseUrl 'https://api.deepseek.com/anthropic' --es pdsh.prompt '$PROMPT'" >/dev/null 2>&1
+  D shell "am start -W -n $P/.MainActivity --ez pdsh.face.probe true --es pdsh.deepseek.baseUrl 'https://api.deepseek.com/anthropic' --es pdsh.prompt '$PROMPT'" >/dev/null 2>&1
 }
 
 wait_ready() { # seconds

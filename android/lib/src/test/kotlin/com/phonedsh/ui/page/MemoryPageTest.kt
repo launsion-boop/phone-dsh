@@ -74,7 +74,12 @@ class MemoryPageTest {
             UiStrings.MEMORY_SECTION_LIVE,
             UiStrings.MEMORY_SECTION_MEASURED,
             UiStrings.MEMORY_SECTION_SESSION,
-        ).forEach { title -> compose.onNodeWithText(title).assertIsDisplayed() }
+        ).forEach { title ->
+            // LazyColumn only composes nearby sections; scroll to each card before
+            // asserting its visible state instead of treating offscreen as absent.
+            scrollTo(title)
+            compose.onNodeWithText(title).assertIsDisplayed()
+        }
         // The cards' contents say 未知 when nothing was read; no card disappears.
         val state = MemoryScreenState.from(MemoryFacts())
         assertEquals(UiStrings.UNKNOWN, state.session.statusLine?.value)

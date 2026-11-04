@@ -27,8 +27,8 @@
   },
   "android": {
     "screen": "PhonePermissionsPage",
-    "file": null,
-    "match": "missing"
+    "file": "android/lib/src/main/kotlin/com/phonedsh/ui/page/PhonePermissionsPage.kt",
+    "match": "composable"
   },
   "sections": [
     {

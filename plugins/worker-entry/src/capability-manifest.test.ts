@@ -29,7 +29,7 @@ import { fileURLToPath } from 'node:url'
 import { getCommandNames } from 'just-bash/browser'
 import { loadBaselineInstructions } from '@deepseek-ai/dsh-agent-instructions'
 import { createMemoryChannelPair } from '../../channel/src/index.ts'
-import { createWorkerCommands } from '../../shell-ext/src/index.ts'
+import { UBUNTU_DESCRIPTION, createWorkerCommands, ubuntuDescription } from '../../shell-ext/src/index.ts'
 import { SHELL_MANIFEST_PATH } from '../../shell-ext/src/contract.ts'
 import type { WorkerToolbox } from '../../wasi-toolbox/src/index.ts'
 import {
@@ -455,6 +455,20 @@ test('the phone section publishes only the tools the host declares', () => {
   assert.deepEqual(exact.json.phone?.tools.map(tool => tool.name), ['info', 'github.repository.get'])
   assert.ok(!exact.jsonText.includes('github.pull.get'))
 
+  const gmail = buildCapabilityManifest(manifestInput({
+    commands: ['bash', 'phone'],
+    accelerators: ['phone'],
+    hostCaps: [
+      'accelerator:phone', 'phone-tool:gmail.search', 'phone-tool:gmail.message.get',
+      'phone-tool:gmail.thread.get', 'phone-tool:gmail.draft.create', 'phone-tool:gmail.message.send',
+    ],
+  }))
+  assert.deepEqual(gmail.json.phone?.tools.map(tool => tool.name), [
+    'info', 'gmail.search', 'gmail.message.get', 'gmail.thread.get',
+  ])
+  assert.ok(!gmail.json.phone?.tools.some(tool => tool.name === 'gmail.draft.create'))
+  assert.ok(!gmail.json.phone?.tools.some(tool => tool.name === 'gmail.message.send'))
+
   // A host that never advertised `accelerator:phone` gets no section at all:
   // the block is a host fact, not a constant of the Worker.
   const withoutPhone = buildCapabilityManifest(manifestInput())
@@ -728,4 +742,71 @@ test('boot publishes both files before ready and a second boot emits no VFS_MUT'
     await second.stop()
   }
   assert.equal(SHELL_MANIFEST_PATH, CAPABILITIES_JSON_PATH, 'the 127 trailer points at the published file')
+})
+
+test('a proot ubuntu section describes the real environment, not the mock', () => {
+  const withUbuntu = buildCapabilityManifest(manifestInput({
+    commands: ['bash', 'phone', 'ubuntu'],
+    accelerators: ['phone'],
+    ubuntu: { env: 'ubuntu-24.04', backend: 'proot', commands: ['run', 'status', 'close', 'fetch'] },
+  }))
+  assert.equal(withUbuntu.json.ubuntu?.backend, 'proot')
+  assert.equal(withUbuntu.json.ubuntu?.description, ubuntuDescription('proot'))
+  const text = withUbuntu.markdown.replace(/\s+/gu, ' ')
+  assert.match(text, /real local Ubuntu environment/u)
+  assert.match(text, /backend=proot/u)
+  assert.doesNotMatch(text, /MOCK adapter/u)
+  assert.doesNotMatch(text, /exit code is synthetic/u)
+})
+
+test('the ubuntu section exists only when the host answered the probe', () => {
+  const base = { commands: ['bash', 'phone', 'ubuntu'], accelerators: ['phone'] }
+  // No probe answer: no section and no row. The command may still be in the
+  // command list a caller handed in, but the manifest must not describe an
+  // environment that did not answer.
+  const without = buildCapabilityManifest(manifestInput(base))
+  assert.equal(without.json.ubuntu, undefined)
+  assert.doesNotMatch(without.markdown, /## Local Ubuntu environment/u)
+  assert.deepEqual(without.json.phone?.tools.map(tool => tool.name), ['info'])
+
+  // The probe answered: the section is the exact text `ubuntu --help` prints,
+  // every cost fact is in the injected instructions, and the document still
+  // fits the budget.
+  const withUbuntu = buildCapabilityManifest(manifestInput({
+    ...base,
+    ubuntu: { env: 'ubuntu-24.04', backend: 'mock', commands: ['run', 'status', 'close', 'fetch'] },
+  }))
+  assert.equal(withUbuntu.json.ubuntu?.backend, 'mock')
+  assert.equal(withUbuntu.json.ubuntu?.env, 'ubuntu-24.04')
+  // The JSON block's command list is the manifest's own (capabilities.ts); the
+  // `fetch` op lives in UBUNTU_DESCRIPTION, which `ubuntu --help` and AGENTS.md
+  // both carry.
+  assert.deepEqual(withUbuntu.json.ubuntu?.commands, ['run', 'status', 'close', 'fetch'])
+  assert.ok(withUbuntu.markdown.includes(UBUNTU_DESCRIPTION), 'the help text and the manifest are one constant')
+  const text = withUbuntu.markdown.replace(/\s+/gu, ' ')
+  for (const fact of [
+    /separate local Linux environment/u,
+    /does not run DSH/u,
+    /takes time, uses disk and battery/u,
+    // The approval gate is built now; the text must say what it does and that a
+    // refusal is a real failure, not a timeout or a silent success.
+    /first `run` of a session asks the user to approve it/u,
+    /One approval covers every later `run` in the same session/u,
+    /cause=approval_denied/u,
+    /Close it when you are done/u,
+    /must not start this environment/u,
+    /MOCK adapter/u,
+    // The fetch surface and its refusal rule.
+    /ubuntu fetch <jobId> <name>/u,
+    /VFS_REFUSED/u,
+    /never a truncated file/u,
+  ]) {
+    assert.match(text, fact)
+  }
+  assert.doesNotMatch(text, /asks for no approval/u)
+  assert.deepEqual(withUbuntu.json.phone?.tools.map(tool => tool.name), ['info', 'ubuntu'])
+  assert.ok(
+    Buffer.byteLength(withUbuntu.markdown, 'utf8') <= AGENTS_MD_MAX_BYTES,
+    `the ubuntu section must fit the budget (${String(Buffer.byteLength(withUbuntu.markdown, 'utf8'))} B)`,
+  )
 })

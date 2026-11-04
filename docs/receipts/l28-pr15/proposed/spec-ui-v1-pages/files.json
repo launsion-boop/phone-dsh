@@ -1,0 +1,254 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "FilesPage",
+  "pageId": "files",
+  "structure": "swiftui-view",
+  "sectionModel": "section",
+  "sectionNote": null,
+  "title": {
+    "text": "手机工作区",
+    "provenance": "FilesPage.swift:51",
+    "anchor": ".navigationTitle(directory.isEmpty ? NativeText(\"手机工作区\", \"Phone Workspace\") : St"
+  },
+  "source": {
+    "file": "FilesPage.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/FilesPage.swift",
+    "lines": 219,
+    "structLine": 9,
+    "renderedFrom": [
+      "body",
+      "fileList"
+    ],
+    "sectionOrder": "declaration order inside the page struct"
+  },
+  "android": {
+    "screen": "FilesPage",
+    "file": "android/lib/src/main/kotlin/com/phonedsh/ui/page/FilesPage.kt",
+    "match": "composable"
+  },
+  "sections": [
+    {
+      "id": "section-112",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": "fileGroupTitle",
+      "titleSource": "expression",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "navigation-114",
+          "label": null,
+          "labelExpr": "folder",
+          "kind": "navigation",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": "FilesPage",
+          "writes": false,
+          "condition": null,
+          "provenance": "FilesPage.swift:114",
+          "anchor": "NavigationLink {",
+          "extraction": "manual",
+          "collection": "folders, id: \\.self"
+        },
+        {
+          "id": "action-122",
+          "label": null,
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "FilesPage.swift:122",
+          "anchor": "Button {",
+          "extraction": "manual",
+          "collection": "children"
+        }
+      ],
+      "provenance": "FilesPage.swift:112",
+      "anchor": "Section(fileGroupTitle) {",
+      "extraction": "syntax",
+      "criterion": {
+        "kind": "first-row-expression",
+        "labelExpr": "folder",
+        "provenance": "FilesPage.swift:114"
+      }
+    }
+  ],
+  "actions": [
+    {
+      "id": "navigation-114",
+      "label": null,
+      "labelExpr": "folder",
+      "kind": "navigation",
+      "trigger": "tap",
+      "semantic": "navigate:FilesPage",
+      "writes": false,
+      "destination": "FilesPage",
+      "condition": null,
+      "provenance": "FilesPage.swift:114",
+      "anchor": "NavigationLink {",
+      "extraction": "manual"
+    },
+    {
+      "id": "button-122",
+      "label": null,
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ // Always open the preview page: it either shows the // file, Quick Look, or says why it cannot, instead // of a tap that silently does nothing. previewTarget = .workspaceFile(file.relativePath)",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "FilesPage.swift:122",
+      "anchor": "Button {",
+      "extraction": "manual",
+      "labelAlternatives": [],
+      "presents": "navigationDestination-59"
+    },
+    {
+      "id": "搜索文件",
+      "label": "搜索文件",
+      "labelExpr": null,
+      "kind": "search",
+      "trigger": "search",
+      "semantic": null,
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "FilesPage.swift:56",
+      "anchor": ".searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always),",
+      "extraction": "syntax"
+    },
+    {
+      "id": "gesture-57",
+      "label": null,
+      "labelExpr": null,
+      "kind": "gesture",
+      "trigger": "pull-to-refresh",
+      "semantic": "refresh",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "FilesPage.swift:57",
+      "anchor": ".refreshable { model.refreshFiles() }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "完成",
+      "label": "完成",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "toolbar",
+      "semantic": "{ showingDemo = false",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "FilesPage.swift:70",
+      "anchor": "Button(NativeText(\"完成\", \"Done\")) { showingDemo = false }",
+      "extraction": "syntax",
+      "presents": "sheet-62"
+    },
+    {
+      "id": "3d-示例",
+      "label": "3D 示例",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "toolbar",
+      "semantic": "{ showingDemo = true",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "FilesPage.swift:79",
+      "anchor": "Label(NativeText(\"3D 示例\", \"3D Example\"), systemImage: \"cube\")",
+      "extraction": "syntax"
+    }
+  ],
+  "presentations": [
+    {
+      "id": "navigationDestination-59",
+      "kind": "navigationDestination",
+      "title": null,
+      "destination": "PreviewSurface",
+      "triggerBindings": [
+        "previewTarget"
+      ],
+      "span": [
+        59,
+        61
+      ],
+      "provenance": "FilesPage.swift:59",
+      "anchor": ".navigationDestination(item: $previewTarget) { target in",
+      "triggered": true
+    },
+    {
+      "id": "sheet-62",
+      "kind": "sheet",
+      "title": null,
+      "destination": "NavigationStack",
+      "triggerBindings": [
+        "showingDemo"
+      ],
+      "span": [
+        62,
+        75
+      ],
+      "provenance": "FilesPage.swift:62",
+      "anchor": ".sheet(isPresented: $showingDemo) {",
+      "triggered": true
+    }
+  ],
+  "states": {
+    "advisory": true,
+    "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
+    "sites": {
+      "empty": [
+        {
+          "renders": "还没有文件",
+          "when": "model.files.isEmpty",
+          "provenance": "FilesPage.swift:101",
+          "anchor": "Text(NativeText(\"还没有文件\", \"No Files Yet\"))"
+        }
+      ],
+      "data": [
+        {
+          "renders": "untitled section at 112",
+          "when": null,
+          "provenance": "FilesPage.swift:9",
+          "anchor": "struct FilesPage: View {",
+          "note": "structural default: the sections above, when no condition overrides them"
+        }
+      ],
+      "failure": [],
+      "unknown": [],
+      "loading": []
+    },
+    "absent": [
+      "failure",
+      "unknown",
+      "loading"
+    ],
+    "coverage": {
+      "empty": 1,
+      "data": 1,
+      "failure": 0,
+      "unknown": 0,
+      "loading": 0
+    }
+  },
+  "subpages": [],
+  "unreachable": [],
+  "extraction": {
+    "tool": "extract_ios_pages.py",
+    "mode": "syntax",
+    "sectionKeywordsInPage": 1,
+    "regionsExtracted": 0,
+    "sectionsExtracted": 1,
+    "warnings": []
+  }
+}

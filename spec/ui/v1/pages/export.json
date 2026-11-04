@@ -37,9 +37,9 @@
       "collection": null,
       "rows": [
         {
-          "id": "custom-21",
-          "label": null,
-          "labelExpr": "KeyValueLine",
+          "id": "状态",
+          "label": "状态",
+          "labelExpr": null,
           "kind": "custom",
           "value": null,
           "valueExpr": null,
@@ -49,13 +49,13 @@
           "condition": null,
           "provenance": "ExportPage.swift:21",
           "anchor": "KeyValueLine(key: \"状态\", value: model.store.status)",
-          "extraction": "manual",
+          "extraction": "syntax",
           "template": "KeyValueLine"
         },
         {
-          "id": "custom-22",
-          "label": null,
-          "labelExpr": "KeyValueLine",
+          "id": "环境",
+          "label": "环境",
+          "labelExpr": null,
           "kind": "custom",
           "value": null,
           "valueExpr": null,
@@ -65,13 +65,13 @@
           "condition": null,
           "provenance": "ExportPage.swift:22",
           "anchor": "KeyValueLine(key: \"环境\", value: model.store.environment)",
-          "extraction": "manual",
+          "extraction": "syntax",
           "template": "KeyValueLine"
         },
         {
-          "id": "custom-23",
-          "label": null,
-          "labelExpr": "KeyValueLine",
+          "id": "设备",
+          "label": "设备",
+          "labelExpr": null,
           "kind": "custom",
           "value": null,
           "valueExpr": null,
@@ -81,12 +81,12 @@
           "condition": null,
           "provenance": "ExportPage.swift:23",
           "anchor": "KeyValueLine(key: \"设备\",",
-          "extraction": "manual",
+          "extraction": "syntax",
           "template": "KeyValueLine"
         },
         {
-          "id": "1",
-          "label": "1",
+          "id": "格式版本",
+          "label": "格式版本",
           "labelExpr": null,
           "kind": "custom",
           "value": null,
@@ -101,9 +101,9 @@
           "template": "KeyValueLine"
         },
         {
-          "id": "custom-27",
-          "label": null,
-          "labelExpr": "KeyValueLine",
+          "id": "文件",
+          "label": "文件",
+          "labelExpr": null,
           "kind": "custom",
           "value": null,
           "valueExpr": null,
@@ -113,12 +113,12 @@
           "condition": "let exportURL",
           "provenance": "ExportPage.swift:27",
           "anchor": "KeyValueLine(key: \"文件\",",
-          "extraction": "manual",
+          "extraction": "syntax",
           "template": "KeyValueLine"
         },
         {
-          "id": "还没写",
-          "label": "还没写",
+          "id": "文件",
+          "label": "文件",
           "labelExpr": null,
           "kind": "custom",
           "value": null,
@@ -259,6 +259,27 @@
       "provenance": "ExportPage.swift:44",
       "anchor": "Label(\"分享文件\", systemImage: \"square.and.arrow.up\")",
       "extraction": "syntax"
+    },
+    {
+      "id": "重试",
+      "label": "重试",
+      "labelExpr": null,
+      "kind": "action",
+      "trigger": "tap",
+      "semantic": null,
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "extraction": "manual",
+      "androidOnly": {
+        "reason": {
+          "baselineLacks": "the baseline reads its export state from local storage and cannot fail the read",
+          "androidNeeds": "Android reads a host snapshot across a process boundary, so the read can fail and needs recovery in place",
+          "withoutIt": "a failed read leaves the page blank with no way back except killing the app"
+        },
+        "owner": "android-ui",
+        "reviewBy": "2027-01-31"
+      }
     }
   ],
   "presentations": [],

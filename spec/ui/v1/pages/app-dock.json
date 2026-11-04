@@ -9,7 +9,7 @@
   "source": {
     "file": "AppDock.swift",
     "path": "examples/probe-app/PhoneDSHProbe/Shell/AppDock.swift",
-    "lines": 111,
+    "lines": 135,
     "structLine": 5,
     "renderedFrom": ["body", "dockButton", "dockBadge"],
     "sectionOrder": "chat, dsh, discover, profile"
@@ -31,7 +31,7 @@
       "writes": false,
       "destination": "PersonalAgentChatPage",
       "condition": null,
-      "provenance": "AppDock.swift:23",
+      "provenance": "AppDock.swift:29",
       "anchor": ".accessibilityLabel(AppTab.chat.title)",
       "extraction": "manual"
     },
@@ -45,7 +45,7 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "AppDock.swift:65",
+      "provenance": "AppDock.swift:71",
       "anchor": ".accessibilityLabel(tab.title)",
       "extraction": "manual"
     }

@@ -23,8 +23,8 @@
   },
   "android": {
     "screen": "SessionArtifactsPage",
-    "file": null,
-    "match": "missing"
+    "file": "android/lib/src/main/kotlin/com/phonedsh/ui/page/SessionArtifactsPage.kt",
+    "match": "composable"
   },
   "sections": [
     {
@@ -439,6 +439,7 @@
       "name": "SessionArtifactPreviewPage",
       "line": 294,
       "private": true,
+      "embedded": false,
       "sections": [],
       "provenance": "SessionArtifactsPage.swift:294"
     }

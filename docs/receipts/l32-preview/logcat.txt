@@ -1,0 +1,39 @@
+--------- beginning of main
+11-01 19:50:58.105  4568  4568 I PdshPreview: prepare kind=AUDIO file=broken.wav
+11-01 19:50:58.115  4568  4568 I PdshPreview: failed reason=播放器无法打开这个文件。
+11-01 19:50:58.153  4568  4568 I PdshPreview: release
+11-01 19:50:58.292  4568  4568 I PdshPreview: prepare kind=AUDIO file=broken.wav
+11-01 19:50:58.308  4568  4568 I PdshPreview: prepared kind=AUDIO durationMs=2000 aspect=null
+11-01 19:50:58.931  4568  4568 I PdshPreview: release
+11-01 19:50:59.499  4568  4568 I PdshPreview: prepare kind=VIDEO file=clip.mp4
+11-01 19:50:59.528  4568  4568 I PdshPreview: prepared kind=VIDEO durationMs=4046 aspect=1.3333334
+11-01 19:51:00.659  4568  4568 I PdshPreview: audio focus requested granted=true
+11-01 19:51:00.663  4568  4568 I PdshPreview: start positionMs=0
+11-01 19:51:02.048  4568  4568 I PdshPreview: audio focus abandoned
+11-01 19:51:02.060  4568  4568 I PdshPreview: pause byFocus=false positionMs=1429
+11-01 19:51:03.192  4568  4568 I PdshPreview: release
+11-01 19:51:03.809  4568  4568 I PdshPreview: prepare kind=AUDIO file=tone.m4a
+11-01 19:51:03.829  4568  4568 I PdshPreview: prepared kind=AUDIO durationMs=6046 aspect=null
+11-01 19:51:03.884  4568  4568 I PdshPreview: audio focus requested granted=true
+11-01 19:51:03.888  4568  4568 I PdshPreview: start positionMs=0
+11-01 19:51:04.026  4568  4568 I PdshPreview: audio focus abandoned
+11-01 19:51:04.027  4568  4568 I PdshPreview: pause byFocus=false positionMs=5
+11-01 19:51:04.027  4568  4568 I PdshPreview: pause for background
+11-01 19:51:04.930  4568  4568 I PdshPreview: release
+11-01 19:51:05.433  4568  4568 I PdshPreview: prepare kind=AUDIO file=tone.m4a
+11-01 19:51:05.445  4568  4568 I PdshPreview: prepared kind=AUDIO durationMs=6046 aspect=null
+11-01 19:51:05.670  4568  4568 I PdshPreview: audio focus requested granted=true
+11-01 19:51:05.673  4568  4568 I PdshPreview: start positionMs=0
+11-01 19:51:07.155  4568  4568 I PdshPreview: audio focus abandoned
+11-01 19:51:07.200  4568  4568 I PdshPreview: release
+11-01 19:51:07.407  4568  4568 I PdshPreview: prepare kind=AUDIO file=tone.m4a
+11-01 19:51:07.421  4568  4568 I PdshPreview: prepared kind=AUDIO durationMs=6046 aspect=null
+11-01 19:51:08.291  4568  4568 I PdshPreview: release
+11-01 19:51:08.863  4568  4568 I PdshPreview: prepare kind=AUDIO file=tone.m4a
+11-01 19:51:08.874  4568  4568 I PdshPreview: prepared kind=AUDIO durationMs=6046 aspect=null
+11-01 19:51:08.931  4568  4568 I PdshPreview: audio focus requested granted=true
+11-01 19:51:08.933  4568  4568 I PdshPreview: start positionMs=0
+11-01 19:51:08.969  4568  4568 I PdshPreview: pause byFocus=true positionMs=0
+11-01 19:51:08.969  4568  4568 I PdshPreview: audio focus abandoned
+11-01 19:51:08.971  4568  4568 I PdshPreview: focus change=-1 pause resumeOnGain=false
+11-01 19:51:09.226  4568  4568 I PdshPreview: release

@@ -22,14 +22,29 @@
 // * No reconnect/seq state. The channel owns seq numbers; this sink only sees
 //   the decoded frame and the inbound `ref_seq` for an ERROR.
 //
-// ---- duplicate mseq (D9) ---------------------------------------------------
+// ---- duplicate mseq (D9) and the one allocator ------------------------------
 // The worker re-sends mutations above `acked_mseq` after a reconnect, so a
-// `VFS_MUT` whose mseq is below `next_mseq` is a replay, not a protocol error:
-// the WAL already holds it, the sink appends nothing and answers with the
-// current level-1 watermark. A forward gap is still `BAD_MSEQ` and closes. The
+// `VFS_MUT` whose mseq this sink already admitted is a replay: the WAL holds it,
+// the sink appends nothing and answers with the current level-1 watermark. The
 // sink treats `mseq` as the idempotency key; it does not compare the body of a
 // replayed frame, because a worker that changed the body under the same mseq
 // would be violating the reconnect rule in §9.2.
+//
+// The number itself is never this class's to allocate. `channel.md` §8 makes the
+// host the allocator and `wal.md` §7.2 derives `next_mseq` from the WAL tail, so
+// the expected mseq is read from [HostWal.allocator] at the moment the frame is
+// handled and the append is re-checked inside the log's lock. An earlier version
+// cached the pair at `open()`; an App-side workspace write then advanced the log
+// behind the sink, the next `VFS_MUT` was appended at a number the host had
+// already spent, and the mismatch closed the ordered channel for the rest of the
+// session (`WAL allocated mseq N+1 for the worker's N`, measured on API 35).
+//
+// A frame below the tail that this sink never admitted is therefore not a replay
+// but a Worker whose numbering the **host lane** overtook: it is answered
+// `BAD_MSEQ` (§8/§10 closes) and never appended anywhere. The next connection's
+// HELLO carries the live numbers and re-anchors the Worker (§9.2); the facade
+// also restarts a live Worker after a host-lane write so its VFS sees the file
+// at all (wal.md §7.2 "Host-side writes").
 
 // ---- admission (D14): the write path is deliberately NOT gated by it ------
 // P26 removed an `AdmissionGate` check from this file. It used to answer a
@@ -163,8 +178,33 @@ class VfsSink(
     /** The one connection currently allowed to receive VFS frames. */
     private var sender: VfsSender? = null
 
-    private var nextMseq: Long = 0L
-    private var ackedMseq: Long = 0L
+    /**
+     * Paths whose §5.1 repair is still outstanding, with the mseq that raised
+     * it. `wal.md` §5.1 allows at most one outstanding resync per path; this
+     * map is that "one", retained across a connection loss so a reconnect can
+     * re-request it (`channel.md` §9 item 6).
+     *
+     * Guarded by [senderLock] because [attach]/[detach] are not suspending.
+     */
+    private val outstandingResyncs = LinkedHashMap<String, Long>()
+
+    /** Outstanding paths already requested on the current connection. */
+    private val requestedResyncs = HashSet<String>()
+
+    /**
+     * The highest mseq **this sink** appended for the Worker.
+     *
+     * It is the only counter the sink owns, and it is not the allocator: the
+     * number a mutation receives is decided by [HostWal.allocator] under the
+     * log's lock. This value answers one question the log cannot — "did *I*
+     * append this mseq?" — which is what separates a D9 replay (the Worker
+     * re-sending what the host already has) from a stale Worker whose next
+     * number an App-side write consumed. Seeded from recovery's effective tail
+     * because every record at or below it came from an earlier Worker lane; a
+     * re-send of one of those is a replay by the §9.2 rule.
+     */
+    private var acceptedThrough: Long = 0L
+
     private var durableMseq: Long = 0L
     private var opened: Boolean = false
 
@@ -189,16 +229,29 @@ class VfsSink(
         require(recovered.nextMseq >= 0L) { "nextMseq must be non-negative" }
         require(recovered.ackedMseq >= 0L) { "ackedMseq must be non-negative" }
         require(recovered.durableMseq >= 0L) { "durableMseq must be non-negative" }
-        nextMseq = recovered.nextMseq
-        ackedMseq = recovered.ackedMseq
+        // The allocator itself is never seeded here: it lives in the log and
+        // `open` only remembers what this sink has accepted so far.
+        acceptedThrough = recovered.ackedMseq
         durableMseq = recovered.durableMseq
+        synchronized(senderLock) {
+            outstandingResyncs.clear()
+            for (request in recovered.resync) {
+                outstandingResyncs.putIfAbsent(request.path, request.mseq)
+            }
+            requestedResyncs.clear()
+        }
         opened = true
         Wired.issuedBySink()
     }
 
     /** Attaches the connection that receives ACKs/RESYNC/ERROR. */
     fun attach(sender: VfsSender) {
-        synchronized(senderLock) { this.sender = sender }
+        synchronized(senderLock) {
+            this.sender = sender
+            // A new connection has not received the outstanding requests yet;
+            // `onHelloAnswered` re-sends one per path after the host HELLO.
+            requestedResyncs.clear()
+        }
     }
 
     /**
@@ -213,8 +266,37 @@ class VfsSink(
         }
     }
 
-    /** The highest mseq admitted at level 1 (for tests and diagnostics). */
-    val ackedWatermark: Long get() = ackedMseq
+    /**
+     * Re-requests every outstanding repair once on this connection, after the
+     * host HELLO has opened its direction (`channel.md` §9 item 6,
+     * `wal.md` §10 step 4).
+     *
+     * The outstanding set survives [detach]; only [open] replaces it from a new
+     * recovery. A path already requested on this connection is skipped, which
+     * keeps the "at most one resync outstanding per path" rule across
+     * reconnects as well as live appends.
+     */
+    internal suspend fun onHelloAnswered() = mutex.withLock {
+        if (!opened) return@withLock
+        val toRequest = synchronized(senderLock) {
+            outstandingResyncs.keys.filter { it !in requestedResyncs }
+        }
+        for (path in toRequest) {
+            if (emit(VfsFrame.Resync(path))) {
+                synchronized(senderLock) { requestedResyncs.add(path) }
+            }
+        }
+    }
+
+    /**
+     * The highest mseq admitted at level 1, read live from the WAL.
+     *
+     * It is the allocator's tail, not a value this sink counted: an App-side
+     * workspace write is also level-1 durable, so a cumulative ACK that names it
+     * is true. A value cached at `open` would understate the log forever after
+     * one import.
+     */
+    val ackedWatermark: Long get() = wal.allocator().lastMseq
 
     /** The highest mseq durable at level 2 (for tests and diagnostics). */
     val durableWatermark: Long get() = durableMseq
@@ -291,15 +373,16 @@ class VfsSink(
                 )
 
             is VfsBarrierFrame.Parsed -> {
+                val acked = ackedWatermark
                 val covered = when (decoded.wantLevel) {
-                    1 -> ackedMseq >= decoded.uptoMseq
+                    1 -> acked >= decoded.uptoMseq
                     else -> durableMseq >= decoded.uptoMseq
                 }
                 if (covered) {
                     emit(
                         VfsFrame.Ack(
                             level = decoded.wantLevel,
-                            uptoMseq = if (decoded.wantLevel == 1) ackedMseq else durableMseq,
+                            uptoMseq = if (decoded.wantLevel == 1) acked else durableMseq,
                         ),
                     )
                 } else {
@@ -350,23 +433,46 @@ class VfsSink(
     // Write path
     // -----------------------------------------------------------------------
 
+    /**
+     * Decides one `VFS_MUT` against the **live** allocator and appends it.
+     *
+     * The three answers of `channel.md` §8 are decided here, and none of them
+     * keeps a private counter (the L77 defect: the sink compared against a
+     * boot-time snapshot, so one App-side workspace write made every following
+     * Worker mutation "misnumbered" and the `IllegalStateException` closed the
+     * channel; 600 records were then appended at the wrong mseqs by the retries):
+     *
+     * * `mseq == next_mseq` — the record is appended, level-1 acked and
+     *   materialized. The append itself is re-checked inside the log's lock
+     *   ([HostWal.appendWorker]), so an App-side write that landed between the
+     *   read and the append turns into one of the two cases below instead of a
+     *   record with a different number;
+     * * `mseq <= last_mseq` and this sink already accepted it — a D9 replay
+     *   (§9.2): nothing is appended, the cumulative level-1 watermark answers;
+     * * `mseq <= last_mseq` and this sink never accepted it — a **stale Worker**:
+     *   the number was consumed by a host-side workspace write while the Worker's
+     *   VFS was the authority, so its view of the workspace is behind. The frame
+     *   is not a replay, and appending it at another number would silently
+     *   renumber the Worker's stream; it is answered `BAD_MSEQ` (§8/§10) and the
+     *   connection closes. The Worker's next HELLO carries the live numbers and
+     *   re-anchors it (§9.2, and `plugins/channel`'s client adopts them), so the
+     *   channel recovers instead of dying.
+     */
     private suspend fun append(decoded: VfsMutFrame.Parsed, refSeq: Long) {
         val mseq = decoded.mseq
-        if (mseq < nextMseq) {
-            // D9 replay: the WAL already holds this mseq. No append; the worker
-            // still gets the cumulative level-1 watermark.
-            emit(VfsFrame.Ack(level = 1, uptoMseq = ackedMseq))
+        val allocator = wal.allocator()
+        if (mseq <= allocator.lastMseq) {
+            if (mseq <= acceptedThrough) {
+                // D9 replay: the WAL already holds this mseq. No append; the
+                // worker still gets the cumulative level-1 watermark.
+                emit(VfsFrame.Ack(level = 1, uptoMseq = allocator.lastMseq))
+            } else {
+                refuseStaleMseq(mseq, allocator.lastMseq, refSeq)
+            }
             return
         }
-        if (mseq > nextMseq) {
-            emit(
-                VfsFrame.Error(
-                    code = "BAD_MSEQ",
-                    message = "expected mseq $nextMseq, got $mseq",
-                    refSeq = refSeq,
-                    closeConnection = true,
-                ),
-            )
+        if (mseq > allocator.nextMseq) {
+            refuseGap(mseq, allocator.nextMseq, refSeq)
             return
         }
 
@@ -390,8 +496,8 @@ class VfsSink(
             return
         }
 
-        val appended = try {
-            wal.append(decoded.body)
+        val outcome = try {
+            wal.appendWorker(decoded.body, mseq)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
@@ -403,25 +509,114 @@ class VfsSink(
             reportFailure("VFS append", failure)
             throw failure
         }
-        if (appended.mseq != mseq) {
-            logger.error("WAL allocated mseq ${appended.mseq} for the worker's $mseq; closing the transport")
-            throw IllegalStateException("WAL allocated mseq ${appended.mseq}, expected $mseq")
-        }
 
-        ackedMseq = appended.mseq
-        nextMseq = appended.mseq + 1
-        // The level-1 ACK is emitted only after appendMutation returned: that is
-        // exactly the §3.2 "WAL write() returned" fact.
-        emit(VfsFrame.Ack(level = 1, uptoMseq = ackedMseq))
-        appended.resyncPath?.let { path -> emit(VfsFrame.Resync(path)) }
-        satisfyLevel1Barriers()
+        when (outcome) {
+            is WalWorkerAppend.Appended -> {
+                val appended = outcome.append
+                acceptedThrough = maxOf(acceptedThrough, appended.mseq)
+                // The level-1 ACK is emitted only after the append returned: that
+                // is exactly the §3.2 "WAL write() returned" fact.
+                emit(VfsFrame.Ack(level = 1, uptoMseq = appended.mseq))
+                // wal.md §5.1: at most one resync outstanding per path. The
+                // append path reports the *current* held request on every
+                // mutation while the repair is pending; only the first one on
+                // this connection becomes a frame.
+                appended.resyncPath?.let { path -> requestResyncOnce(path, appended.mseq) }
+                clearSettledResyncs(appended.materializedUptoMseq)
+                satisfyLevel1Barriers()
+            }
+
+            is WalWorkerAppend.Behind -> {
+                // The App lane took this mseq between the read above and the
+                // append. Same two answers, decided on the log's own numbers.
+                if (mseq <= acceptedThrough) {
+                    emit(VfsFrame.Ack(level = 1, uptoMseq = outcome.lastMseq))
+                } else {
+                    refuseStaleMseq(mseq, outcome.lastMseq, refSeq)
+                }
+            }
+
+            is WalWorkerAppend.Ahead -> refuseGap(mseq, outcome.nextMseq, refSeq)
+        }
+    }
+
+    /**
+     * One `BAD_MSEQ` for a Worker whose numbering the host lane has overtaken.
+     *
+     * The frame is not appended anywhere: §8 accepts only `mseq == expected`,
+     * and the Worker's view of the workspace no longer matches the WAL, so the
+     * only honest answer is the protocol's own refusal. Nothing is logged from
+     * the body; the numbers are host facts.
+     */
+    private suspend fun refuseStaleMseq(mseq: Long, tail: Long, refSeq: Long) {
+        logger.error(
+            "VFS_MUT mseq $mseq is behind the WAL tail $tail and was not appended by the VFS " +
+                "lane: a host-side workspace write consumed it, so the Worker's VFS is stale. " +
+                "Answering BAD_MSEQ and closing this connection; the next HELLO carries " +
+                "next_mseq=${tail + 1} and re-anchors the Worker (channel.md §8, §9.2)",
+        )
+        emit(
+            VfsFrame.Error(
+                code = "BAD_MSEQ",
+                message = "expected mseq ${tail + 1}, got $mseq",
+                refSeq = refSeq,
+                closeConnection = true,
+            ),
+        )
+    }
+
+    /** One `BAD_MSEQ` for a forward gap (no record is appended). */
+    private suspend fun refuseGap(mseq: Long, next: Long, refSeq: Long) {
+        emit(
+            VfsFrame.Error(
+                code = "BAD_MSEQ",
+                message = "expected mseq $next, got $mseq",
+                refSeq = refSeq,
+                closeConnection = true,
+            ),
+        )
+    }
+
+    /**
+     * Records one outstanding path and sends `VFS_RESYNC` at most once on the
+     * current connection.
+     *
+     * The watermark is a strictly contiguous mseq, so a path whose held mseq
+     * is at or below the watermark has been settled; [clearSettledResyncs]
+     * drops it and allows a genuinely new mismatch on the same path to be
+     * requested again.
+     */
+    private suspend fun requestResyncOnce(path: String, mseq: Long) {
+        val shouldSend = synchronized(senderLock) {
+            outstandingResyncs.putIfAbsent(path, mseq)
+            path !in requestedResyncs
+        }
+        if (!shouldSend) return
+        if (emit(VfsFrame.Resync(path))) {
+            synchronized(senderLock) { requestedResyncs.add(path) }
+        }
+    }
+
+    /** Drops paths whose held mseq the contiguous materialized watermark passed. */
+    private fun clearSettledResyncs(materializedUptoMseq: Long) {
+        synchronized(senderLock) {
+            val iterator = outstandingResyncs.entries.iterator()
+            while (iterator.hasNext()) {
+                val entry = iterator.next()
+                if (entry.value <= materializedUptoMseq) {
+                    iterator.remove()
+                    requestedResyncs.remove(entry.key)
+                }
+            }
+        }
     }
 
     private suspend fun satisfyLevel1Barriers() {
-        val covered = pending.filter { it.wantLevel == 1 && it.uptoMseq <= ackedMseq }
+        val acked = ackedWatermark
+        val covered = pending.filter { it.wantLevel == 1 && it.uptoMseq <= acked }
         if (covered.isEmpty()) return
         pending.removeAll(covered)
-        emit(VfsFrame.Ack(level = 1, uptoMseq = ackedMseq))
+        emit(VfsFrame.Ack(level = 1, uptoMseq = acked))
     }
 
     /**
@@ -498,25 +693,25 @@ class VfsSink(
      */
     private fun reportFailure(operation: String, failure: Exception) {
         val reported = HostFailureRules.wal(failure)
+        // The store's own message is workspace-relative for every attributable
+        // code (LogException/WalException); it is what carries the held path and
+        // mseq from `WorkspaceLog.closeEpoch` into logcat and the D14 reason
+        // (budgets.md §1/§2 "record the condition").
+        val detail = "$operation failed (${reported?.code ?: failure.javaClass.simpleName}): " +
+            (failure.message ?: failure.javaClass.simpleName)
         if (reported != null) {
-            failures.reportQuietly(
-                reported.reason,
-                "$operation failed (${reported.code})",
-                logger,
-            )
+            failures.reportQuietly(reported.reason, detail, logger)
         }
-        logger.error(
-            "$operation failed (${reported?.code ?: failure.javaClass.simpleName}); " +
-                "closing the transport without a protocol ERROR",
-        )
+        logger.error("$detail; closing the transport without a protocol ERROR")
     }
 
-    private suspend fun emit(frame: VfsFrame) {
+    private suspend fun emit(frame: VfsFrame): Boolean {
         val target = synchronized(senderLock) { sender }
         if (target == null) {
             logger.warn("no VFS connection attached; dropping ${frame.javaClass.simpleName}")
-            return
+            return false
         }
         target.send(frame)
+        return true
     }
 }

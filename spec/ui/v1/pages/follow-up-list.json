@@ -7,13 +7,13 @@
   "sectionNote": null,
   "title": {
     "text": "持续跟进",
-    "provenance": "FollowUpPages.swift:23",
+    "provenance": "FollowUpPages.swift:36",
     "anchor": ".navigationTitle(\"持续跟进\")"
   },
   "source": {
     "file": "FollowUpPages.swift",
     "path": "examples/probe-app/PhoneDSHProbe/PersonalAgent/FollowUpPages.swift",
-    "lines": 117,
+    "lines": 146,
     "structLine": 6,
     "renderedFrom": [
       "body"
@@ -46,23 +46,23 @@
           "destination": null,
           "writes": false,
           "condition": "records.isEmpty",
-          "provenance": "FollowUpPages.swift:14",
+          "provenance": "FollowUpPages.swift:27",
           "anchor": "Text(\"没有进行中的跟进\").foregroundStyle(HomeSpec.textSecondary)",
           "extraction": "syntax"
         },
         {
-          "id": "navigation-17",
+          "id": "navigation-30",
           "label": null,
           "labelExpr": null,
           "kind": "navigation",
           "value": null,
           "valueExpr": null,
           "clickable": true,
-          "destination": "FollowUpDetailPage",
+          "destination": "Text",
           "writes": false,
           "condition": null,
-          "provenance": "FollowUpPages.swift:17",
-          "anchor": "NavigationLink(record.followUp.goal) {",
+          "provenance": "FollowUpPages.swift:30",
+          "anchor": "NavigationLink(value: record.id) {",
           "extraction": "manual",
           "collection": "records"
         }
@@ -87,29 +87,45 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "FollowUpPages.swift:26",
+      "provenance": "FollowUpPages.swift:48",
       "anchor": "Button(\"好\") { errorMessage = nil }",
       "extraction": "syntax",
-      "presents": "alert-25"
+      "presents": "alert-47"
     },
     {
-      "id": "navigation-17",
+      "id": "navigation-30",
       "label": null,
       "labelExpr": null,
       "kind": "navigation",
       "trigger": "tap",
-      "semantic": "navigate:FollowUpDetailPage",
+      "semantic": "navigate:Text",
       "writes": false,
-      "destination": "FollowUpDetailPage",
+      "destination": "Text",
       "condition": null,
-      "provenance": "FollowUpPages.swift:17",
-      "anchor": "NavigationLink(record.followUp.goal) {",
+      "provenance": "FollowUpPages.swift:30",
+      "anchor": "NavigationLink(value: record.id) {",
       "extraction": "manual"
     }
   ],
   "presentations": [
     {
-      "id": "alert-25",
+      "id": "navigationDestination-37",
+      "kind": "navigationDestination",
+      "title": null,
+      "destination": "FollowUpDetailPage",
+      "triggerBindings": [],
+      "span": [
+        37,
+        44
+      ],
+      "provenance": "FollowUpPages.swift:37",
+      "anchor": ".navigationDestination(for: UUID.self) { id in",
+      "triggered": false,
+      "deadUi": true,
+      "deadUiEvidence": "the state binding (none extracted) is never assigned outside its declaration, so nothing opens this navigationDestination"
+    },
+    {
+      "id": "alert-47",
       "kind": "alert",
       "title": "无法读取跟进",
       "destination": null,
@@ -117,10 +133,10 @@
         "errorMessage"
       ],
       "span": [
-        25,
-        27
+        47,
+        49
       ],
-      "provenance": "FollowUpPages.swift:25",
+      "provenance": "FollowUpPages.swift:47",
       "anchor": ".alert(\"无法读取跟进\", isPresented: .constant(errorMessage != nil)) {",
       "triggered": true
     }
@@ -133,7 +149,7 @@
         {
           "renders": "没有进行中的跟进",
           "when": "records.isEmpty",
-          "provenance": "FollowUpPages.swift:14",
+          "provenance": "FollowUpPages.swift:27",
           "anchor": "Text(\"没有进行中的跟进\").foregroundStyle(HomeSpec.textSecondary)"
         }
       ],
@@ -150,7 +166,7 @@
         {
           "renders": "无法读取跟进",
           "when": null,
-          "provenance": "FollowUpPages.swift:25",
+          "provenance": "FollowUpPages.swift:47",
           "anchor": ".alert(\"无法读取跟进\", isPresented: .constant(errorMessage != nil)) {"
         }
       ],
@@ -172,19 +188,20 @@
   "subpages": [
     {
       "name": "FollowUpDetailPage",
-      "line": 36,
+      "line": 60,
       "private": false,
+      "embedded": false,
       "sections": [
         {
           "title": "目标与当前结果",
-          "provenance": "FollowUpPages.swift:52"
+          "provenance": "FollowUpPages.swift:81"
         },
         {
           "title": "条件",
-          "provenance": "FollowUpPages.swift:63"
+          "provenance": "FollowUpPages.swift:92"
         }
       ],
-      "provenance": "FollowUpPages.swift:36"
+      "provenance": "FollowUpPages.swift:60"
     }
   ],
   "unreachable": [],

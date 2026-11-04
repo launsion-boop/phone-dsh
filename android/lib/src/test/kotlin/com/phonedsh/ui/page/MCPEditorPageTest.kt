@@ -11,17 +11,24 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextReplacement
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.phonedsh.ui.UiStrings
 import com.phonedsh.ui.theme.PdshTheme
@@ -54,6 +61,7 @@ class MCPEditorPageTest {
     private fun show(
         facts: MCPEditorFacts,
         onSubmit: (MCPServerDraft) -> Unit = {},
+        onDelete: (() -> Unit)? = null,
     ) {
         compose.setContent {
             var local by remember { mutableStateOf(MCPEditorLocalState()) }
@@ -63,16 +71,33 @@ class MCPEditorPageTest {
                     onEditName = { local = local.apply(MCPEditorUiEvent.EditName(it), facts) },
                     onEditCommand = { local = local.apply(MCPEditorUiEvent.EditCommand(it), facts) },
                     onEditUrl = { local = local.apply(MCPEditorUiEvent.EditUrl(it), facts) },
+                    onEditTimeout = {
+                        local = local.apply(MCPEditorUiEvent.EditTimeout(it), facts)
+                    },
                     onSelectTransport = {
                         local = local.apply(MCPEditorUiEvent.SelectTransport(it), facts)
                     },
                     onToggleEnabled = {
                         local = local.apply(MCPEditorUiEvent.ToggleEnabled(it), facts)
                     },
+                    onAddHeader = { local = local.apply(MCPEditorUiEvent.AddHeader, facts) },
+                    onRemoveHeader = { index ->
+                        local = local.apply(MCPEditorUiEvent.RemoveHeader(index), facts)
+                    },
+                    onEditHeaderName = { index, value ->
+                        local = local.apply(MCPEditorUiEvent.EditHeaderName(index, value), facts)
+                    },
+                    onEditHeaderEnv = { index, value ->
+                        local = local.apply(MCPEditorUiEvent.EditHeaderEnv(index, value), facts)
+                    },
+                    onEditHeaderValue = { index, value ->
+                        local = local.apply(MCPEditorUiEvent.EditHeaderValue(index, value), facts)
+                    },
                     onSubmit = { draft ->
                         local = local.apply(MCPEditorUiEvent.Submit, facts)
                         onSubmit(draft)
                     },
+                    onDeleteServer = onDelete,
                     onBack = {},
                 )
             }
@@ -144,7 +169,7 @@ class MCPEditorPageTest {
     }
 
     @Test
-    fun `a failed save keeps the form on screen and retries`() {
+    fun `a failed save keeps the form on screen and 保存 is the retry`() {
         var submitted: MCPServerDraft? = null
         show(
             MCPEditorFacts(server = stored, failure = MCPEditorFailureReason.SAVE_FAILED),
@@ -153,8 +178,131 @@ class MCPEditorPageTest {
         compose.onNodeWithTag(UiPageTags.MCP_EDITOR_FAILURE).assertIsDisplayed()
         compose.onNodeWithText(UiStrings.MCP_EDITOR_FAILURE_SAVE).assertIsDisplayed()
         compose.onNodeWithTag(UiPageTags.MCP_EDITOR_NAME).assertIsDisplayed()
-        compose.onNodeWithText(UiStrings.RETRY).performClick()
+        // The baseline's error block (`MCPSettingsPage.swift:233`) has no retry of
+        // its own: the save row below it is the one verb that re-submits.
+        compose.onAllNodesWithText(UiStrings.RETRY).assertCountEquals(0)
+        clickSave()
         assertEquals("files", submitted?.name)
+    }
+
+    // -------------------------------------------------------- baseline groups
+
+    @Test
+    fun `the two groups the baseline declares are the page's groups`() {
+        show(MCPEditorFacts(server = stored))
+        compose.onNodeWithText(UiStrings.MCP_SECTION_SERVER).assertIsDisplayed()
+        compose.onNodeWithTag(UiPageTags.MCP_EDITOR_SERVER_SECTION).assertIsDisplayed()
+        scrollTo(UiPageTags.MCP_EDITOR_AUTH_SECTION)
+        compose.onNodeWithText(UiStrings.MCP_SECTION_AUTH).assertIsDisplayed()
+        // 添加认证头 is the group's own verb, and the value-only footer explains
+        // where the secret goes once there is a row to explain it for.
+        scrollTo(UiPageTags.MCP_EDITOR_ADD_HEADER)
+        compose.onNodeWithText(UiStrings.MCP_ACTION_ADD_HEADER).assertIsDisplayed()
+        compose.onNodeWithText(UiStrings.MCP_AUTH_FOOTER).assertIsDisplayed()
+    }
+
+    @Test
+    fun `enabling is a labelled row whose tap toggles the draft`() {
+        show(MCPEditorFacts())
+        scrollTo(UiPageTags.MCP_EDITOR_ENABLED)
+        compose.onNodeWithText(UiStrings.MCP_ENABLED_ON).assertIsDisplayed()
+        compose.onNodeWithTag(UiPageTags.MCP_EDITOR_ENABLED).performClick()
+        compose.onNodeWithText(UiStrings.MCP_ENABLED_OFF).assertIsDisplayed()
+        compose.onNodeWithTag(UiPageTags.MCP_EDITOR_ENABLED).performClick()
+        compose.onNodeWithText(UiStrings.MCP_ENABLED_ON).assertIsDisplayed()
+    }
+
+    @Test
+    fun `添加认证头 appends an editable header row and its glyph drops it again`() {
+        val secret = "Bearer " + "tok" + "en"
+        show(MCPEditorFacts())
+        scrollTo(UiPageTags.MCP_EDITOR_ADD_HEADER)
+        compose.onNodeWithTag(UiPageTags.MCP_EDITOR_ADD_HEADER).performClick()
+        val nameTag = UiPageTags.MCP_EDITOR_HEADER_PREFIX + 0 + UiPageTags.MCP_EDITOR_HEADER_NAME_SUFFIX
+        val valueTag = UiPageTags.MCP_EDITOR_HEADER_PREFIX + 0 + UiPageTags.MCP_EDITOR_HEADER_VALUE_SUFFIX
+        val removeTag = UiPageTags.MCP_EDITOR_HEADER_PREFIX + 0 + UiPageTags.MCP_EDITOR_HEADER_REMOVE_SUFFIX
+        scrollTo(nameTag)
+        compose.onNodeWithTag(nameTag).performTextInput("Authorization")
+        compose.onNodeWithTag(nameTag).assertTextContains("Authorization")
+        scrollTo(valueTag)
+        // A fresh row has nothing stored: it must not claim "a value is kept".
+        compose.onAllNodesWithText(UiStrings.MCP_FIELD_HEADER_VALUE_STORED).assertCountEquals(0)
+        compose.onNodeWithTag(valueTag).performTextInput(secret)
+        // The old contract pinned the plaintext into the composed tree. A secret
+        // field must mask both the drawing and the semantics, so the plaintext
+        // is now a failure, not an expectation.
+        compose.onAllNodesWithText(secret, substring = true).assertCountEquals(0)
+        compose.onNodeWithTag(valueTag)
+            .assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.Password))
+        compose.onNodeWithTag(nameTag)
+            .assert(SemanticsMatcher.keyNotDefined(SemanticsProperties.Password))
+        scrollTo(removeTag)
+        compose.onNodeWithTag(removeTag).performClick()
+        compose.onNodeWithTag(nameTag).assertDoesNotExist()
+    }
+
+    @Test
+    fun `a stored header row says keep and never shows the stored value`() {
+        show(
+            MCPEditorFacts(
+                server = stored.copy(
+                    headers = listOf(
+                        MCPStoredHeader(
+                            name = "Authorization",
+                            envName = "MCP_FILES_TOKEN",
+                            hasStoredValue = FactState.YES,
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val nameTag = UiPageTags.MCP_EDITOR_HEADER_PREFIX + 0 + UiPageTags.MCP_EDITOR_HEADER_NAME_SUFFIX
+        scrollTo(nameTag)
+        compose.onNodeWithTag(nameTag).assertTextContains("Authorization")
+        val valueTag = UiPageTags.MCP_EDITOR_HEADER_PREFIX + 0 + UiPageTags.MCP_EDITOR_HEADER_VALUE_SUFFIX
+        scrollTo(valueTag)
+        // "已保存；留空保持不变" instead of the fresh-row placeholder: the field is
+        // blank and the page says what a blank field means.
+        compose.onNodeWithText(UiStrings.MCP_FIELD_HEADER_VALUE_STORED).assertIsDisplayed()
+        // The value itself never reaches the page: there is nothing to show.
+        compose.onNodeWithTag(valueTag).assertTextContains("")
+    }
+
+    @Test
+    fun `删除并撤销授权与密钥 only exists for a registered server`() {
+        var deleted = 0
+        show(MCPEditorFacts(server = stored), onDelete = { deleted += 1 })
+        scrollTo(UiPageTags.MCP_EDITOR_DELETE)
+        compose.onNodeWithText(UiStrings.MCP_ACTION_DELETE_SERVER).assertIsDisplayed()
+        compose.onNodeWithText(UiStrings.MCP_DELETE_HINT).assertIsDisplayed()
+        compose.onNodeWithTag(UiPageTags.MCP_EDITOR_DELETE).performClick()
+        assertEquals(1, deleted)
+    }
+
+    @Test
+    fun `a new server has no delete row at all`() {
+        show(MCPEditorFacts(), onDelete = {})
+        // Nothing is registered yet, so a delete would be a verb with no object.
+        compose.onNodeWithTag(UiPageTags.MCP_EDITOR_DELETE).assertDoesNotExist()
+        compose.onNodeWithText(UiStrings.MCP_ACTION_DELETE_SERVER).assertDoesNotExist()
+    }
+
+    @Test
+    fun `a host without a delete renders the row disabled instead of a silent tap`() {
+        show(MCPEditorFacts(server = stored))
+        scrollTo(UiPageTags.MCP_EDITOR_DELETE)
+        compose.onNodeWithTag(UiPageTags.MCP_EDITOR_DELETE).assertIsDisplayed()
+        compose.onNodeWithTag(UiPageTags.MCP_EDITOR_DELETE).assertIsNotEnabled()
+    }
+
+    @Test
+    fun `the timeout field is seeded from the stored server and editable`() {
+        show(MCPEditorFacts(server = stored.copy(toolCallTimeoutMs = "5000")))
+        scrollTo(UiPageTags.MCP_EDITOR_TIMEOUT)
+        // The stored timeout is not a secret, so the field starts with it.
+        compose.onNodeWithTag(UiPageTags.MCP_EDITOR_TIMEOUT).assertTextContains("5000")
+        compose.onNodeWithTag(UiPageTags.MCP_EDITOR_TIMEOUT).performTextReplacement("3000")
+        compose.onNodeWithTag(UiPageTags.MCP_EDITOR_TIMEOUT).assertTextContains("3000")
     }
 
     @Test

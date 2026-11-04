@@ -102,10 +102,10 @@ class ProbeLaunchConfigInstrumentedTest {
 
     @Test
     fun aLaunchWithoutAnEndpointProducesNoEnvAtAll() {
-        assertNull(ProbeLaunchConfig.from(null).workerEnvironment())
+        assertNull(ProbeLaunchConfig.from(null, debuggable = true).workerEnvironment())
         assertNull(
             "a non-http endpoint is dropped, and with it the env",
-            ProbeLaunchConfig.from(intent(baseExtra = "ftp://api.example.com/v1")).workerEnvironment(),
+            ProbeLaunchConfig.from(intent(baseExtra = "ftp://api.example.com/v1"), debuggable = true).workerEnvironment(),
         )
     }
 
@@ -159,7 +159,7 @@ class ProbeLaunchConfigInstrumentedTest {
         store.save(fakeKey)
         assertNull(
             "both facts absent means nothing to send — the pre-existing contract",
-            ProbeLaunchConfig.from(null).workerEnvironment(singleFileLimitBytes = null),
+            ProbeLaunchConfig.from(null, debuggable = true).workerEnvironment(singleFileLimitBytes = null),
         )
         assertNull(
             "a config with no base and no limit is the same nothing",
@@ -191,7 +191,7 @@ class ProbeLaunchConfigInstrumentedTest {
         store.save(fakeKey)
 
         val env = JSONObject(
-            ProbeLaunchConfig.from(intent())
+            ProbeLaunchConfig.from(intent(), debuggable = true)
                 .workerEnvironment(modelProxyMounted = true, singleFileLimitBytes = LIMIT),
         )
 
@@ -341,11 +341,11 @@ class ProbeLaunchConfigInstrumentedTest {
         .putExtra(ProbeLaunchConfig.EXTRA_BASE_URL, baseExtra)
         .putExtra(ProbeLaunchConfig.EXTRA_EGRESS_ORIGIN, egressOrigin)
 
-    private fun config(): ProbeLaunchConfig = ProbeLaunchConfig.from(intent())
+    private fun config(): ProbeLaunchConfig = ProbeLaunchConfig.from(intent(), debuggable = true)
 
     /** The production no-base shape: the tier limit is passed, no base URL extra. */
     private fun environmentWithoutBase(): String {
-        val env = ProbeLaunchConfig.from(Intent().putExtra(ProbeLaunchConfig.EXTRA_EGRESS_ORIGIN, egressOrigin))
+        val env = ProbeLaunchConfig.from(Intent().putExtra(ProbeLaunchConfig.EXTRA_EGRESS_ORIGIN, egressOrigin), debuggable = true)
             .workerEnvironment(singleFileLimitBytes = LIMIT)
         assertNotNull("the limit alone must still produce an env", env)
         return env!!

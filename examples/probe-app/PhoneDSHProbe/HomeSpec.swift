@@ -203,6 +203,17 @@ extension View {
     func homeSheetChrome() -> some View {
         presentationDragIndicator(.visible)
             .presentationBackground(HomeSpec.page)
+            .modifier(HomeSheetAppearance())
+    }
+}
+
+/// A sheet is a separate presentation host; its appearance must observe the
+/// saved preference at that host, including changes made while it is open.
+private struct HomeSheetAppearance: ViewModifier {
+    @State private var preferences = NativeChatPreferences.shared
+
+    func body(content: Content) -> some View {
+        content.preferredColorScheme(preferences.appearance.colorScheme)
     }
 }
 

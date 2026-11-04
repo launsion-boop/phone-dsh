@@ -29,6 +29,7 @@ package com.phonedsh.dsh.turn
 import com.phonedsh.agentcore.JsonArray
 import com.phonedsh.agentcore.JsonBool
 import com.phonedsh.agentcore.JsonNull
+import com.phonedsh.agentcore.JsonNumber
 import com.phonedsh.agentcore.JsonObject
 import com.phonedsh.agentcore.JsonString
 import com.phonedsh.agentcore.JsonValue
@@ -40,10 +41,13 @@ import com.phonedsh.hostevents.HostEvent
 import com.phonedsh.hostevents.HostEventKind
 import com.phonedsh.hostevents.HostEventProjection
 import java.security.SecureRandom
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /** A typed `/api` failure raised by this client; [code] is stable and token-free. */
@@ -74,6 +78,68 @@ data class TurnRun(
         }
 }
 
+/** One live approval/question waterfall delivered on the `$events` stream. */
+data class PendingRemoteRequest(
+    val eventID: String,
+    val clientID: String,
+    val request: JsonValue,
+    val eventKind: String,
+)
+
+/** Parses a waterfall addressed to this active session; unknown event kinds can be passed to the next listener. */
+fun pendingRemoteRequest(
+    value: JsonObject,
+    sessionId: String,
+    clientId: String?,
+): PendingRemoteRequest? {
+    if (value.text("type") != "waterfall" || value.text("agentId") != sessionId) return null
+    val eventKind = value.text("event") ?: return null
+    val eventID = value.text("eventId") ?: return null
+    val clientID = clientId ?: return null
+    val request = value["request"] ?: return null
+    return PendingRemoteRequest(eventID, clientID, request, eventKind)
+}
+
+/** Exact mux-open frame for live permission/question events. */
+fun remoteEventsOpenFrame(): JsonObject = JsonObject(
+    linkedMapOf(
+        "type" to JsonString("open"),
+        "streamId" to JsonString("events"),
+        "endpoint" to JsonString("\$events"),
+        "payload" to JsonObject(linkedMapOf("args" to JsonObject(emptyMap()))),
+    ),
+)
+
+/** Exact mux-open frame for the session event/history stream. */
+fun sessionFollowOpenFrame(
+    sessionId: String,
+    maxMessages: Int = 64,
+    assistantStream: Boolean = false,
+): JsonObject {
+    val request = JsonObject(
+        linkedMapOf(
+            "address" to JsonObject(
+                linkedMapOf(
+                    "kind" to JsonString("session"),
+                    "sessionId" to JsonString(sessionId),
+                ),
+            ),
+            "maxMessages" to JsonNumber(maxMessages.toString()),
+            "assistantStream" to JsonBool(assistantStream),
+        ),
+    )
+    return JsonObject(
+        linkedMapOf(
+            "type" to JsonString("open"),
+            "streamId" to JsonString("follow"),
+            "endpoint" to JsonString("session/follow"),
+            "payload" to JsonObject(
+                linkedMapOf("args" to JsonObject(linkedMapOf("request" to request))),
+            ),
+        ),
+    )
+}
+
 /**
  * The host-side `/api` client for one connected worker.
  *
@@ -85,8 +151,21 @@ class DshTurnClient(
     private val log: (String) -> Unit = {},
 ) {
     private val rpcIds = AtomicInteger(0)
-    private val promptIds = AtomicInteger(0)
     private val random = SecureRandom()
+
+    /** Answers the exact live waterfall request carried by the active mux. */
+    suspend fun answerRemoteRequest(request: PendingRemoteRequest, outcome: JsonValue) {
+        call(
+            endpoint = "\$events/result",
+            args = JsonObject(
+                linkedMapOf(
+                    "clientId" to JsonString(request.clientID),
+                    "eventId" to JsonString(request.eventID),
+                    "outcome" to outcome,
+                ),
+            ),
+        )
+    }
 
     /**
      * One unary remote-API call, unwrapping the `server-response`.
@@ -136,13 +215,23 @@ class DshTurnClient(
         return result["value"] ?: JsonNull
     }
 
-    /** `session/create`; returns the Worker's new session id. */
+    /**
+     * `session/create`; returns the Worker's new session id.
+     *
+     * @param cwd the Worker working directory, or `null` to let the Worker decide.
+     * @param agentPreset the preset the new session starts with, or `null` for the
+     *   Worker's configured default. The value is carried as `request.agentPreset`
+     *   (`plugins/worker-entry` and the real Worker both read it there); an absent
+     *   argument leaves the request body exactly as it was before presets existed.
+     */
     suspend fun createSession(
         cwd: String? = null,
+        agentPreset: String? = null,
         timeoutMillis: Long = CALL_TIMEOUT_MILLIS,
     ): String {
         val request = LinkedHashMap<String, JsonValue>()
         if (cwd != null) request["cwd"] = JsonString(cwd)
+        if (agentPreset != null) request["agentPreset"] = JsonString(agentPreset)
         val args = JsonObject(linkedMapOf("request" to JsonObject(request)))
         val value = call("session/create", args, timeoutMillis) as? JsonObject
             ?: throw DshTurnException("invalid_response", "session/create returned no object")
@@ -164,6 +253,7 @@ class DshTurnClient(
      */
     suspend fun createSessionWhenReady(
         cwd: String? = null,
+        agentPreset: String? = null,
         totalTimeoutMillis: Long = CREATE_RETRY_TIMEOUT_MILLIS,
         perAttemptMillis: Long = FIRST_CALL_TIMEOUT_MILLIS,
     ): String {
@@ -174,7 +264,11 @@ class DshTurnClient(
         while (System.currentTimeMillis() < deadline) {
             attempt++
             try {
-                return createSession(cwd = cwd, timeoutMillis = perAttemptMillis)
+                return createSession(
+                    cwd = cwd,
+                    agentPreset = agentPreset,
+                    timeoutMillis = perAttemptMillis,
+                )
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
@@ -193,17 +287,31 @@ class DshTurnClient(
         ).also { if (last != null) it.initCause(last) }
     }
 
-    /** `session/prompt` in `queue` mode: the user message that starts the turn. */
+    /**
+     * `session/prompt` in `queue` mode: the user message that starts the turn.
+     *
+     * @param requestId the client-minted identity DSH persists on the accepted
+     *   `user/message`. It must be **new for every submission**: the Worker
+     *   answers `{accepted: true}` without delivering anything when the durable
+     *   Session already holds a prompt with the same id
+     *   (`hasPromptRequest`, `dsh-api-session-controller` `lib/index.js`), which
+     *   looks exactly like a turn that never starts (`no_turn_started` after the
+     *   first-event deadline) and was the P0 defect of the chat lane. Pass an id
+     *   only to retry *the same* submission.
+     */
     suspend fun prompt(
         sessionId: String,
         text: String,
+        requestId: String = newPromptRequestId(),
+        mode: String = "queue",
         timeoutMillis: Long = CALL_TIMEOUT_MILLIS,
     ) {
+        require(mode == "queue" || mode == "steer") { "session/prompt mode must be queue or steer" }
         val request = JsonObject(
             linkedMapOf(
-                "requestId" to JsonString("pdsh-prompt-${promptIds.incrementAndGet()}"),
+                "requestId" to JsonString(requestId),
                 "sessionId" to JsonString(sessionId),
-                "mode" to JsonString("queue"),
+                "mode" to JsonString(mode),
                 "content" to JsonArray(
                     listOf(
                         JsonObject(
@@ -224,39 +332,11 @@ class DshTurnClient(
         val muxId = ByteArray(16).also(random::nextBytes).hex()
         sendMuxFrame(
             muxId,
-            JsonObject(
-                linkedMapOf(
-                    "type" to JsonString("open"),
-                    "streamId" to JsonString("events"),
-                    "endpoint" to JsonString("\$events"),
-                    "payload" to JsonObject(linkedMapOf("args" to JsonObject(emptyMap()))),
-                ),
-            ).toJsonString(),
-        )
-        val follow = JsonObject(
-            linkedMapOf(
-                "address" to JsonObject(
-                    linkedMapOf(
-                        "kind" to JsonString("session"),
-                        "sessionId" to JsonString(sessionId),
-                    ),
-                ),
-                "maxMessages" to com.phonedsh.agentcore.JsonNumber(maxMessages.toString()),
-                "assistantStream" to JsonBool(false),
-            ),
+            remoteEventsOpenFrame().toJsonString(),
         )
         sendMuxFrame(
             muxId,
-            JsonObject(
-                linkedMapOf(
-                    "type" to JsonString("open"),
-                    "streamId" to JsonString("follow"),
-                    "endpoint" to JsonString("session/follow"),
-                    "payload" to JsonObject(
-                        linkedMapOf("args" to JsonObject(linkedMapOf("request" to follow))),
-                    ),
-                ),
-            ).toJsonString(),
+            sessionFollowOpenFrame(sessionId, maxMessages, assistantStream = false).toJsonString(),
         )
         val stream = api.openApiStream(
             method = "POST",
@@ -331,21 +411,38 @@ class DshTurnClient(
         private val log: (String) -> Unit,
     ) {
         private val chunks: ReceiveChannel<ByteArray> = stream.chunks()
-        private val pending = StringBuilder()
+
+        /**
+         * NDJSON bytes, split into lines at the byte level.
+         *
+         * A mux line is UTF-8, and the Worker writes one line per 4 MiB chunk
+         * boundary (see `plugins/worker-entry/src/mux-bridge.ts` `writeMuxFrame`),
+         * so a multi-byte character can straddle two chunks. Decoding each chunk
+         * on its own replaces that character with U+FFFD: inside a JSON string the
+         * line can still parse with silently corrupted text, while elsewhere the
+         * damage can make the line unparsable and it is dropped. Splitting the raw
+         * bytes and decoding only complete lines keeps every character intact.
+         */
+        private val lines = NdjsonLineBuffer()
         private var finished = false
+
+        /** True once the stream reached its `end` frame or the transport closed. */
+        val ended: Boolean get() = finished
 
         /**
          * The next complete mux item, or `null` when the stream ended or the
-         * deadline elapsed.
+         * read deadline elapsed.
+         *
+         * A `null` return does not by itself mean the stream is over: [ended]
+         * distinguishes a timeout from the terminal `end` frame.
          */
         suspend fun next(timeoutMillis: Long = NEXT_TIMEOUT_MILLIS): JsonObject? {
             if (finished) return null
             val deadline = System.currentTimeMillis() + timeoutMillis
             while (true) {
-                val newline = pending.indexOf("\n")
-                if (newline >= 0) {
-                    val line = pending.substring(0, newline).trim()
-                    pending.delete(0, newline + 1)
+                val buffered = lines.nextLine()
+                if (buffered != null) {
+                    val line = buffered.trim()
                     if (line.isEmpty()) continue
                     val parsed = parseObject(line) ?: continue
                     if (parsed.text("type") == "end") finished = true
@@ -363,22 +460,45 @@ class DshTurnClient(
                     }
                     return null
                 }
-                pending.append(String(result.getOrNull() ?: return null, Charsets.UTF_8))
+                val chunk = result.getOrNull()
+                if (chunk == null) {
+                    finished = true
+                    return null
+                }
+                lines.append(chunk)
             }
         }
 
         /**
          * Drains the follow stream into projected host events until [stopWhen]
          * is true or the deadline elapses.
+         *
+         * A quiet period shorter than [nextTimeoutMillis] is **not** the end of
+         * the turn: it only returns control so the caller can re-check its own
+         * deadline. Breaking on it (the previous behaviour) ended the turn after
+         * 45 s of silence even though [timeoutMillis] allowed 180 s, which is
+         * exactly what a long tool run or a slow first token looks like.
+         *
+         * Each read is also capped by the overall remaining budget: a final quiet
+         * window must not extend the caller's [timeoutMillis] by a full
+         * [nextTimeoutMillis].
          */
         suspend fun collectEvents(
             timeoutMillis: Long = TURN_TIMEOUT_MILLIS,
+            nextTimeoutMillis: Long = NEXT_TIMEOUT_MILLIS,
             stopWhen: (HostEvent) -> Boolean,
         ): List<HostEvent> {
             val events = ArrayList<HostEvent>()
             val deadline = System.currentTimeMillis() + timeoutMillis
-            while (System.currentTimeMillis() < deadline) {
-                val item = next() ?: break
+            while (true) {
+                val remainingBudget = deadline - System.currentTimeMillis()
+                if (remainingBudget <= 0L) break
+                val readWindow = minOf(nextTimeoutMillis.coerceAtLeast(1L), remainingBudget)
+                val item = next(readWindow)
+                if (item == null) {
+                    if (finished) break
+                    continue
+                }
                 val type = item.text("type")
                 if (type == "error") {
                     val error = item["error"] as? JsonObject
@@ -401,8 +521,14 @@ class DshTurnClient(
         /** Closes the logical mux and forgets the receive stream. */
         suspend fun close() {
             stream.close()
-            runCatching {
-                apiClose?.invoke(muxId)
+            withContext(NonCancellable) {
+                try {
+                    withTimeoutOrNull(CLOSE_TIMEOUT_MILLIS) {
+                        apiClose?.invoke(muxId)
+                    }
+                } catch (_: Exception) {
+                    // A best-effort close must not replace the caller's turn result.
+                }
             }
         }
 
@@ -463,6 +589,80 @@ class DshTurnClient(
         const val HEX = "0123456789abcdef"
     }
 }
+
+private fun JsonObject.text(name: String): String? = (this[name] as? JsonString)?.value
+
+/**
+ * Byte-accurate NDJSON line buffer.
+ *
+ * The stream delivers arbitrary byte chunks, and a UTF-8 character may straddle
+ * two of them (the Worker splits a line at 4 MiB, which is not a character
+ * boundary). Decoding each chunk before looking for `\n` would corrupt that
+ * character and drop the line; this buffer finds the newline in the raw bytes
+ * and decodes only the complete line.
+ *
+ * Not thread-safe: one receive loop owns it.
+ */
+internal class NdjsonLineBuffer(initialCapacity: Int = 1024) {
+    private var buffer = ByteArray(initialCapacity.coerceAtLeast(MINIMUM_CAPACITY))
+    private var size = 0
+
+    /** Bytes held for the line that has not been terminated yet. */
+    val pendingBytes: Int get() = size
+
+    /** Appends one transport chunk without decoding it. */
+    fun append(chunk: ByteArray) {
+        if (chunk.isEmpty()) return
+        ensureCapacity(size + chunk.size)
+        chunk.copyInto(buffer, size)
+        size += chunk.size
+    }
+
+    /**
+     * The next complete line (without its `\n`), or `null` when no newline has
+     * been received yet. The remaining bytes stay buffered for the next call.
+     */
+    fun nextLine(): String? {
+        var newline = -1
+        for (index in 0 until size) {
+            if (buffer[index] == NEWLINE) {
+                newline = index
+                break
+            }
+        }
+        if (newline < 0) return null
+        val line = String(buffer, 0, newline, Charsets.UTF_8)
+        val remaining = size - newline - 1
+        if (remaining > 0) buffer.copyInto(buffer, destinationOffset = 0, startIndex = newline + 1, endIndex = size)
+        size = remaining
+        return line
+    }
+
+    private fun ensureCapacity(required: Int) {
+        if (required <= buffer.size) return
+        var capacity = buffer.size
+        while (capacity < required) capacity = capacity shl 1
+        buffer = buffer.copyOf(capacity)
+    }
+
+    private companion object {
+        const val MINIMUM_CAPACITY: Int = 64
+        const val NEWLINE: Byte = 0x0A
+    }
+}
+
+/**
+ * A fresh `session/prompt` identity for one submission.
+ *
+ * The Worker deduplicates a prompt by this value against the Session's durable
+ * `user/message` sources, so a value that repeats inside one Session is
+ * swallowed (`{accepted: true}`, no turn, no events). A per-client counter is
+ * not enough: the chat builds a new client for every send, so every send used
+ * to be `pdsh-prompt-1` and the second turn of a conversation never reached the
+ * model. The official Web client mints `randomUUID()` per submission for the
+ * same reason.
+ */
+internal fun newPromptRequestId(): String = "pdsh-prompt-${UUID.randomUUID()}"
 
 /**
  * The `session/create` retry schedule: 250 ms, doubling to a 2 s cap.

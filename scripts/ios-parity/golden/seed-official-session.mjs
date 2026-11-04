@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+# SPDX-License-Identifier: MIT
 /**
  * Seed one recorded official session fixture into a throwaway DSH_HOME through
  * the official JSONL persistence API.

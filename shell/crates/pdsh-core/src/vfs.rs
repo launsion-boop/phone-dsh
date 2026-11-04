@@ -191,6 +191,17 @@ impl Vfs for StdFsVfs {
                 },
             });
         }
+        // The three DSH-internal roots are not listed. Reading *into* them is
+        // already `EACCES` (see `host()`), but their names are information too: a
+        // listing that shows `sessions`, `storages` and `tool-journal` tells a
+        // caller what the host hides and why. This matches the Worker, whose
+        // `ls /dsh/home` filters the same three (`execEntryVisible` /
+        // `filterExecListing`) — the earlier version of this function did not, so
+        // the two execution surfaces disagreed about what `/dsh/home` contains.
+        entries.retain(|entry| {
+            let child = path.join(&entry.name);
+            crate::policy::exec_read_denial(&child).is_none()
+        });
         entries.sort_by(|left, right| left.name.cmp(&right.name));
         Ok(entries)
     }
@@ -417,15 +428,19 @@ mod tests {
             .expect("the capability manifest is not DSH-internal state");
         drop(capability);
         assert!(vfs.metadata(Path::new("/dsh/home/capabilities.json")).unwrap().is_file());
-        // The names of the internal roots are not bytes: a listing of their
-        // parent still shows them, exactly like the Worker's `ls /dsh/home`.
+        // A listing of the parent does not name the internal roots: the Worker's
+        // `ls /dsh/home` does not, and after this fix neither does the host. The
+        // positive control matters as much as the negative one — the rest of
+        // `/dsh/home` is still a normal readable directory.
         let names: Vec<String> = vfs
             .read_dir(Path::new("/dsh/home"))
             .unwrap()
             .into_iter()
             .map(|entry| entry.name)
             .collect();
-        assert!(names.contains(&"sessions".to_string()));
+        assert!(!names.contains(&"sessions".to_string()));
+        assert!(!names.contains(&"storages".to_string()));
+        assert!(!names.contains(&"tool-journal".to_string()));
         assert!(names.contains(&"capabilities.json".to_string()));
     }
 

@@ -17,7 +17,7 @@
     "remoteDebuggingPort": 56413
   },
   "screenshot": {
-    "path": "~/Desktop/TonoTeam/phone-dsh/docs/receipts/ios-session-audit/screens/official/official-session-chat-long-user-turn-402x874-dpr3.png",
+    "path": "official-session-chat-long-user-turn-402x874-dpr3.png",
     "width": 1206,
     "height": 2622,
     "bytes": 254627,
@@ -52,7 +52,15 @@
     "ok": true,
     "reason": null,
     "sentinel": "[data-dsh-boot]",
-    "bodyTextHead": "You are the evidence-reading and\n对话\n轨迹\nYou are the evidence-reading and proposal stage of the <internal-project> technical-intelligence pipeline.\n\nYour job is not to summarize AI news. Your job is to read the supplied source material completely and skeptically, determine what it actually proves, compare it with the current <internal-project> repository and the supplied `gap_evidence_registry`, and propose only transfer mechanisms that can be tested. A fluent abstract-level paraphrase is a failure: extract the real mechanism, experiment, result, boundary condition, and missing evidence. You are not the final verifier and cannot create product, architecture, hardware, Runtime, Work, Canvas, Connection, release, or TODO decisions.\n\n## Required reading protocol\n\nPerform these passes in order before writing JSON:\n\n1. **Source sufficiency.** Identify whether the packet contains full text, an abstract, release notes, a blog excerpt, or only a trigger. Do not claim to have read sections that are absent. An abstract-only packet cannot support details that are not in the abstract.\n2. **Source facts.** Extract the method, experimental subject, baselines, metrics, limitations, and material claims. Every material …[truncated 173285 chars]"
+    "bodyTextHead": "You are the evidence-reading and\n对话\n轨迹\nYou are the evidence-reading and proposal stage of the <internal-project> technical-intelligence pipeline.\n\nYour job is not to summarize AI news. Your job is to read the supplied source material completely and skeptically, determine what it actually proves, compare it with the current <internal-project> repository and the supplied `gap_evidence_registry`, and propose only transfer mechanisms that can be tested. A fluent abstract-level paraphrase is a failure: extract the real mechanism, experiment, result, boundary condition, and missing evidence. You are not the final verifier and cannot create product, architecture, hardware, Runtime, Work, Canvas, Connection, release, or TODO decisions.\n\n## Required reading protocol\n\nPerform these passes in order before writing JSON:\n\n1. **Source sufficiency.** Identify whether the packet contains full text, an abstract, release notes, a blog excerpt, or only a trigger. Do not claim to have read sections that are absent. An abstract-only packet cannot support details that are not in the abstract.\n2. **Source facts.** Extract the method, experimental subject, baselines, metrics, limitations, and material claims. Every material …[truncated 173285 chars]",
+    "bodyTextRedactions": [
+      {
+        "kind": "internal-codename",
+        "with": "<internal-project>",
+        "reason": "the repository forbids this internal service spelling in the public tree; it sits in the captured text, not in the rendered viewport, so the PNG is unaffected and needs no re-capture",
+        "replacements": 2
+      }
+    ]
   },
   "session": {
     "requestedId": "session-d81de3d6-526a-4894-b3aa-1520db906f62",

@@ -21,7 +21,7 @@
  */
 import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -54,9 +54,12 @@ interface WorkspaceProbe {
   importedWorkspacePath?: string
   importedAbsolutePath?: string
   readText?: string
+  settingsLocks?: Record<string, {code: string; message: string}>
+  presetDocument?: string
   presets?: { id: string; isDefault: boolean; broken?: string }[]
   presetSessions?: Record<string, string>
   presetErrors?: Record<string, string>
+  creator?: Record<string, any>
   workflowFileText?: string
   workflowChildResultSeen?: boolean
   workflowTextSeen?: boolean
@@ -269,6 +272,12 @@ test('the packed phone image boots DSH 0.2.1 with every roster row live or docum
   )
   assert.equal(probe.readText, 'hello workspace')
 
+  for (const ns of ['permission', 'agent-preset-registry']) {
+    assert.equal(probe.settingsLocks?.[ns]?.code, 'settings/rejected')
+    assert.match(probe.settingsLocks?.[ns]?.message ?? '', /overridden by a home patch or command-line overlay/)
+  }
+  assert.match(probe.presetDocument ?? '', /name:/, 'the official read endpoint must return real YAML at content')
+
   // The official roster, through the real agent-preset Remote.
   const presets = new Map((probe.presets ?? []).map(row => [row.id, row]))
   for (const id of ['standard', 'ptc', 'phone', 'minimal', 'cordis']) {
@@ -280,11 +289,42 @@ test('the packed phone image boots DSH 0.2.1 with every roster row live or docum
   assert.equal(presets.get('phone')?.broken, undefined, `legacy phone preset must stay usable: ${presets.get('phone')?.broken ?? ''}`)
   assert.equal(presets.get('phone')?.isDefault, false, 'phone is legacy compatibility, not the default')
   assert.match(presets.get('minimal')?.broken ?? '', /terminal/i, 'minimal must report its real missing terminal/PTY capability')
-  assert.match(presets.get('cordis')?.broken ?? '', /cordisInspect/i, 'cordis must report its real missing inspector service')
+  assert.equal(presets.get('cordis')?.broken, undefined, 'creator preset must mount its real inspection and profile services')
 
   assert.match(probe.presetSessions?.standard ?? '', /^session-/, `standard session/create failed: ${probe.presetErrors?.standard ?? ''}`)
   assert.match(probe.presetSessions?.ptc ?? '', /^session-/, `ptc session/create failed: ${probe.presetErrors?.ptc ?? ''}`)
-  for (const preset of ['minimal', 'cordis']) {
+  assert.match(probe.presetSessions?.cordis ?? '', /^session-/, `creator session/create failed: ${probe.presetErrors?.cordis ?? ''}`)
+  assert.equal(probe.creator?.modelRequestsAtEntry, 0, 'opening Creator cannot auto-send a task')
+  assert.equal(probe.creator?.modelRequestsBeforePrompt, 0, 'inspection/local management must not synthesize a model request')
+  assert.equal(probe.creator?.install?.application, 'applied', JSON.stringify(probe.creator?.install))
+  assert.ok(probe.creator?.roster?.presets?.some((row: {id: string; broken?: string}) => row.id === 'phone-created-review' && row.broken === undefined))
+  assert.match(probe.creator?.document?.content ?? '', /Review only\./)
+  assert.equal(probe.creator?.projection?.values?.agentPreset, 'phone-created-review')
+  assert.equal(probe.creator?.rollback?.application, 'failed', 'incompatible activation must fail, not replace the working preset')
+  assert.equal(probe.creator?.rollbackBytesPreserved, true)
+  assert.equal(probe.creator?.externalRefusal?.application, 'failed', 'an npm spec cannot silently become a successful local installation')
+  assert.match(probe.creator?.externalRefusal?.error?.diagnostic ?? '', /workspace-local/)
+  assert.equal(probe.creator?.cancellation?.status, 'cancelled')
+  assert.equal(probe.creator?.cancelledResult?.application, 'cancelled')
+  assert.equal(probe.creator?.recoveredCancellation?.application, 'cancelled')
+  assert.equal(probe.creator?.cancelBytesPreserved, true)
+
+  // A different OS process and Worker instance receives only the three actual
+  // files read from the first Worker's VFS; no preset row is synthesized.
+  const persistedFile = join(directory, 'creator-persisted-files.json')
+  writeFileSync(persistedFile, JSON.stringify(probe.creator?.persistedFiles))
+  const cold = await run(process.execPath, [harness, join(imageDirectory, 'image.tar.gz'), persistedFile], {
+    ...environment, PDSH_WORKFLOW_ISOLATE_PATH: join(workerOut, 'workflow-isolate.js'), PDSH_EMULATE_JSC: '1',
+  })
+  const coldMarker = cold.stdout.split('\n').find(line => line.startsWith('__PDSH_BOOT_RESULT__ '))
+  assert.ok(coldMarker, `Cold creator boot returned no result: ${cold.stderr}`)
+  const coldResult = JSON.parse(coldMarker.slice('__PDSH_BOOT_RESULT__ '.length)) as BootResult
+  assert.equal(coldResult.ok, true, coldResult.thrown)
+  assert.equal(coldResult.thrown, undefined, cold.stderr)
+  assert.equal(coldResult.probe?.creator?.coldBoot, true)
+  assert.equal(coldResult.probe?.creator?.projection?.values?.agentPreset, 'phone-created-review')
+  assert.equal(coldResult.probe?.creator?.modelRequestsAtEntry, 0)
+  for (const preset of ['minimal']) {
     assert.match(probe.presetErrors?.[preset] ?? '', /agent-preset\/invalid/,
       `${preset} session/create must fail with the real invalid-preset diagnostic, not pretend to succeed`)
   }

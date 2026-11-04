@@ -1,24 +1,12 @@
 {
-  "schema": "pdsh.ui.page-structure-android-only/1",
-  "note": "Android screens with no counterpart in the iOS probe baseline. They have no page contract (there is nothing to extract), so this file is their explicit registration; a screen that is neither here nor in a contract is an `unmapped-android-screen` failure. Each entry names the evidence that the baseline really lacks the page.",
-  "screens": [
-    {
-      "screen": "SessionHistoryPage",
-      "file": "android/lib/src/main/kotlin/com/phonedsh/ui/page/SessionHistoryPage.kt",
-      "reason": "The baseline has no `struct SessionHistoryPage`: history is the ChatPage's `⋯` → 历史 entry in README §1, which the probe app never implemented as its own page. Android implemented it as a full screen, so there is no iOS structure to mirror.",
-      "evidence": "grep -rn 'struct SessionHistoryPage' examples/probe-app → no match (README §1 lists it as `later`)"
-    },
-    {
-      "screen": "GoalDetailPage",
-      "file": "android/lib/src/main/kotlin/com/phonedsh/ui/page/GoalDetailPage.kt",
-      "reason": "The baseline has no `struct GoalDetailPage`: the goal is a bar in ChatPage (`GoalBar`) with sheet-based detail that the probe app never split into a page. Android implemented a standalone screen.",
-      "evidence": "grep -rn 'struct GoalDetailPage' examples/probe-app → no match (README §1 lists it as `later`)"
-    },
-    {
-      "screen": "WebSurfacePage",
-      "file": "android/lib/src/main/kotlin/com/phonedsh/ui/page/WebSurfacePage.kt",
-      "reason": "PR 22 has no native `struct WebSurfacePage`: the iOS probe uses the native HomeSpec shell, while Android retains this additional Web surface.",
-      "evidence": "grep -rn 'struct WebSurfacePage' examples/probe-app → no match; the stale iOS web-surface contract was removed during the PR 22 rebaseline"
-    }
-  ]
+ "schema": "pdsh.ui.page-structure-android-only/1",
+ "note": "Android screens with no counterpart in the iOS probe baseline. They have no page contract (there is nothing to extract), so this file is their explicit registration; a screen that is neither here nor in a contract is an `unmapped-android-screen` failure. Each entry names the evidence that the baseline really lacks the page.",
+ "screens": [
+  {
+   "screen": "WebSurfacePage",
+   "file": "android/lib/src/main/kotlin/com/phonedsh/ui/page/WebSurfacePage.kt",
+   "reason": "iOS deleted its complete-Web surface (495da9b5 'Remove the app's complete-Web surface'): no `struct WebSurfacePage` is left, RootView.swift renders NativeShell unconditionally, and WebKit survives only as a 2-pt invisible anchor. Android still ships a full-screen Web host route, so there is no iOS page structure to mirror.",
+   "evidence": "git show --stat 495da9b5 (deletes examples/probe-app/PhoneDSHProbe/WebSurfacePage.swift); grep -rn 'struct WebSurfacePage' examples/probe-app -> no match; RootView.swift:9 `NativeShell()`"
+  }
+ ]
 }
