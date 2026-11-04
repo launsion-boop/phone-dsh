@@ -31,7 +31,8 @@ Audit HEAD: `8c753c8c69c04bb5db87ddd57137505d4b5d93a9`. Remediation commit: `25d
 - `python3 -m unittest spec/ui/v1/tools/test_extract_ios_pages.py spec/ui/v1/tools/test_page_structure_check.py`: **134/134 PASS**.
 - Focused consumers for onboarding, Personal Agent Chat, App Dock and Home Drawer: PASS.
 - Negated Mandate, read-only local write and scheduler isolated harnesses: PASS.
-- Protocol/public-repository checks: see final PR evidence.
+- `ui_check.py`: PASS, including light/dark contrast pairs and 132 source anchors. `phone-spec`, `phone-no-dsh-patch`, and `protocol_impact.py` (P09/P16/P18): PASS.
+- `phone-cross-tree`: FAIL on pre-existing P08 schema changes outside this task. `phone-hygiene` / `phone-license`: FAIL on existing Android files outside this task. These are not relabeled as passes.
 - Full `plugins npm test`: attempted but not green due unrelated existing tests/environment requirements (including `PDSH_DSH_CHECKOUT`); it is not reported as PASS.
 - Independent current `origin/main` page consumer also has pre-existing stale contracts/divergences. Unrelated Android/page differences are not counted as Personal Agent validation failures or fixed by enlarging the baseline.
 

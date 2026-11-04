@@ -6,20 +6,21 @@
 
 ```yaml
 change: PC-20261104-personal-agent-audit-remediation
-contracts: [P09, P18]
-status: implemented
+contracts: [P09, P16, P18]
+status: verified
 breaking: true
 version_decision: Existing records remain readable; newly introduced local Mandate actions and account bindings are not rollback-compatible. Suggestion schema remains v1 with optional fields, while corrupt or future disk schema is rejected without writes. Worker Gmail rows are optional and projected only by exact host capabilities.
 base: 451429acc0f3ebe3bc244666f23a3acba3bdf12f
 contract_revision: personal-agent-contracts@25d6e966
 ```
 
-Protocol impact: P09; P18
+Protocol impact: P09; P16; P18
 
 ## 1. Scope and authority
 
 - Coordinator/contract owner and reviewer-integrator: the PR #29 integrator.
 - P09 authority: `spec/ui/v1/README.md`, its page contracts and the real iOS view source. Onboarding interpolated titles now have rendered `N` text plus a template; Dock/Drawer contracts retain every action with current source anchors. Appearance tokens support both light and dark modes.
+- P16 authority: `plugins/worker-entry/src/entry.ts` and the existing native `PDSH_HOST_TOOL_CAPABILITIES` injection. Host capabilities flow into manifest construction without exposing credentials; no new environment variable is introduced.
 - P18 authority: `plugins/worker-entry/src/capabilities.ts`. Gmail read tools appear only when their exact `phone-tool:<name>` host capabilities are declared; DSH receives no Gmail write projection. Ubuntu projection from current `main` remains intact.
 - Personal Agent code contracts: `Contracts.swift`, `SuggestionContract.swift`, `FollowUpStore.swift`, `MainContext.swift`, connector grants and their real consumers. Local write actions are explicit: profile, memory, FollowUp, suggestion history and schedule scopes are separate from connector writes.
 - No DSH source, SDK `Sources/**` protocol implementation, P01/P02 wire/WAL, or remote workflow is changed by this remediation.
