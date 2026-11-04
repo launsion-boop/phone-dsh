@@ -14,12 +14,21 @@ public struct GitHubWriteReconciler: Sendable {
     }
 
     public func reconcile(_ operation: OperationRecord) async throws -> ProviderReceipt? {
-        guard operation.intent.toolName == "github.issue.comment",
-              let arguments = try JSONSerialization.jsonObject(
+        guard let arguments = try JSONSerialization.jsonObject(
                 with: Data(operation.intent.argumentsJSON.utf8)) as? [String: Any],
               let repository = arguments["repository"] as? String,
-              let number = arguments["number"] as? Int,
               let body = arguments["body"] as? String else { return nil }
+        if operation.intent.toolName == "github.issue.create", let title = arguments["title"] as? String {
+            let issues = try await client.recentIssues(repository: repository)
+            let matches = issues.filter {
+                $0.title == title && Self.digest($0.body ?? "") == Self.digest(body) &&
+                    Self.isWithinWindow($0.createdAt, operation: operation, window: window)
+            }
+            guard matches.count == 1, let match = matches.first else { return nil }
+            return ProviderReceipt(providerObjectID: String(match.number), url: match.htmlURL, rawJSON: "{}")
+        }
+        guard operation.intent.toolName == "github.issue.comment",
+              let number = arguments["number"] as? Int else { return nil }
         let snapshot = try await client.issue(repository: repository, number: number, commentLimit: 100)
         let digest = Self.digest(body)
         guard let match = snapshot.comments.filter({ comment in

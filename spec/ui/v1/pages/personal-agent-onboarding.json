@@ -25,10 +25,11 @@
   },
   "sections": [
     {
-      "id": "第-step-步-共-2-步",
+      "id": "第-n-步-共-2-步",
       "kind": "region",
-      "title": "第 \\(step) 步，共 2 步",
-      "titleTemplate": null,
+      "title": "第 N 步，共 2 步",
+      "titleTemplate": "第 {step} 步，共 2 步",
+      "dynamicTitle": true,
       "titleSource": "header-text",
       "condition": null,
       "collection": null,
@@ -43,6 +44,7 @@
       "kind": "region",
       "title": "给你的 Personal Agent 取个名字",
       "titleTemplate": null,
+      "dynamicTitle": false,
       "titleSource": "header-text",
       "condition": null,
       "collection": null,
@@ -57,6 +59,7 @@
       "kind": "region",
       "title": "以后会显示在 Chat 顶栏。默认叫小肥鱼，也可以改成你喜欢的名字。",
       "titleTemplate": null,
+      "dynamicTitle": false,
       "titleSource": "header-text",
       "condition": null,
       "collection": null,
@@ -105,7 +108,7 @@
       "empty": [],
       "data": [
         {
-          "renders": "第 \\(step) 步，共 2 步 | 给你的 Personal Agent 取个名字 | 以后会显示在 Chat 顶栏。默认叫小肥鱼，也可以改成你喜欢的名字。",
+          "renders": "第 N 步，共 2 步 | 给你的 Personal Agent 取个名字 | 以后会显示在 Chat 顶栏。默认叫小肥鱼，也可以改成你喜欢的名字。",
           "when": null,
           "provenance": "PersonalAgentOnboardingPage.swift:5",
           "anchor": "struct PersonalAgentOnboardingPage: View {",

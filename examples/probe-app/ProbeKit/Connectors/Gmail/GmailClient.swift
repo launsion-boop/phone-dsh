@@ -12,6 +12,18 @@ public struct GmailHistoryChange: Sendable, Equatable {
     }
 }
 
+public struct GmailDraftSnapshot: Sendable, Equatable {
+    public let id: String
+    public let messageID: String
+    public let raw: String
+
+    public init(id: String, messageID: String, raw: String) {
+        self.id = id
+        self.messageID = messageID
+        self.raw = raw
+    }
+}
+
 public protocol GmailReading: Sendable {
     func search(_ query: GmailSearchQuery) async throws -> GmailSearchResult
     func message(id: String, includeBody: Bool) async throws -> GmailMessage
@@ -86,6 +98,19 @@ public struct GmailClient: GmailReading {
             pageToken = next
         }
         throw GmailError.responseTooLarge
+    }
+
+    public func recentDrafts() async throws -> [GmailDraftSnapshot] {
+        let list: DraftListDTO = try await get(path: "/gmail/v1/users/me/drafts",
+                                               query: ["maxResults": "100", "includeSpamTrash": "false"])
+        var snapshots: [GmailDraftSnapshot] = []
+        for reference in list.drafts ?? [] {
+            let draft: DraftDTO = try await get(path: "/gmail/v1/users/me/drafts/\(try Self.pathComponent(reference.id, name: "draft id"))",
+                                                query: ["format": "raw"])
+            guard let raw = draft.message.raw else { throw GmailError.invalidResponse }
+            snapshots.append(GmailDraftSnapshot(id: draft.id, messageID: draft.message.id, raw: raw))
+        }
+        return snapshots
     }
 
     public func profile() async throws -> GmailProfile {
@@ -216,7 +241,10 @@ private struct MessageDTO: Decodable {
     let internalDate: String?
     let snippet: String?
     let payload: PayloadDTO?
+    let raw: String?
 }
+private struct DraftListDTO: Decodable { let drafts: [ReferenceDTO]? }
+private struct DraftDTO: Decodable { let id: String; let message: MessageDTO }
 private struct ThreadDTO: Decodable {
     let id: String
     let historyId: String?

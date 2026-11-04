@@ -176,6 +176,12 @@ public struct GitHubClient: Sendable {
         return GitHubWriteReceipt(providerObjectID: String(comment.id), url: comment.htmlURL, number: nil)
     }
 
+    public func recentIssues(repository: String, limit: Int = 100) async throws -> [GitHubIssue] {
+        let result: GitHubCollection<GitHubIssue> = try await collection(
+            path: "/repos/\(try repositoryPath(repository))/issues", limit: limit)
+        return result.items
+    }
+
     public func createIssue(repository: String, title: String,
                             body: String) async throws -> GitHubWriteReceipt {
         let data = try JSONSerialization.data(withJSONObject: ["title": title, "body": body])

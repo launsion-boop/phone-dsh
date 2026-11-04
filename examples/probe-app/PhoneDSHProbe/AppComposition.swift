@@ -68,7 +68,7 @@ struct PersonalAgentContextProvider: MainContextProviding {
         async let memory = memories.context(for: MemoryContextRequest(
             authenticatedPrincipal: turn.principal, conversationID: turn.conversationID,
             source: .phone, replyTo: .phoneChat, grantVersion: 0, query: turn.text))
-        async let followUpRecords = followUps.records()
+        async let followUpRecords = followUps.records(principal: turn.principal, accountScope: accountID)
         let pending = await operations.pending()
         let context = try await conversation
         let recent = context.recentMessages.filter { $0.turnID != turn.turnID }.map {
@@ -83,11 +83,16 @@ struct PersonalAgentContextProvider: MainContextProviding {
         }
         let memoryDocuments = try await memory.records.map {
             MainContextDocument(id: $0.id.uuidString, sourceRef: $0.source.reference,
-                                revision: $0.revision, text: $0.text)
+                                revision: $0.revision, text: $0.text, kind: $0.kind.rawValue,
+                                scope: $0.scope, origin: $0.origin.rawValue,
+                                observedAt: $0.source.observedAt, validFrom: $0.validFrom,
+                                expiresAt: $0.expiresAt)
         }
-        let ownerName = try await memories.active(principal: turn.principal)
-            .first(where: { $0.field == .displayName })?.text
-        let language = turn.text.range(of: #"\p{Han}"#, options: .regularExpression) != nil ? "zh-Hans" : "en"
+        let preferences = try await memories.active(principal: turn.principal)
+        let ownerName = preferences.first(where: { $0.field == .displayName })?.text
+        let language = preferences.first(where: { $0.field == .language })?.text ?? configuredLanguage
+        let preferredZone = preferences.first(where: { $0.field == .timeZone })?.text
+        let timeZone = preferredZone.flatMap(TimeZone.init(identifier:))?.identifier ?? TimeZone.current.identifier
         let scopes: [MainDelegatedScope] = try turn.mandate.map { mandate in
             var targets = mandate.targets.gmailThreadIDs + mandate.targets.recipientIdentities
             if let repository = mandate.targets.repository { targets.append(repository) }
@@ -98,13 +103,15 @@ struct PersonalAgentContextProvider: MainContextProviding {
                                        targets: targets, expiry: mandate.validUntil)]
         } ?? []
         let history = await suggestionStore?.suppressionHistory() ?? []
+        let suggestionsHealthy = await suggestionStore?.isHealthy ?? true
         let interaction = MainInteractionState(
             pendingClarifications: context.pendingQuestions,
             unresolvedOperations: pending.map { "\($0.intent.toolName): \($0.phase.rawValue)" },
-            suggestionHistory: history)
+            suggestionHistory: history,
+            storageError: suggestionsHealthy ? nil : "suggestion_store_unreadable")
         let runtime = try MainRuntimeContext(
             assistantName: assistantName(), userName: ownerName, preferredLanguage: language,
-            userTimezone: TimeZone.current.identifier, delegatedScopes: scopes,
+            userTimezone: timeZone, delegatedScopes: scopes,
             interactionState: interaction)
         return MainConversationSnapshot(
             currentText: turn.text, mandate: turn.mandate,
@@ -117,6 +124,14 @@ struct PersonalAgentContextProvider: MainContextProviding {
             pendingReconciliations: pending.map { "\($0.intent.toolName): \($0.phase.rawValue)" },
             responseStylePrompt: PersonalAgentTextPolicy.conciseSystemPrompt,
             runtimeContext: runtime, currentLanguage: language)
+    }
+
+    private var configuredLanguage: String {
+        switch NativeChatPreferences.shared.language {
+        case .zh: return "zh-Hans"
+        case .en: return "en"
+        case .system: return Locale.preferredLanguages.first ?? "en"
+        }
     }
 }
 
@@ -131,6 +146,8 @@ final class AppComposition {
     let connectorStore: SQLiteConnectorStore
     let registry: PersistentConnectorRegistry
     let operations: FileOperationLedger
+    let breaker: CircuitBreaker
+    let gmailBindings: GmailAccountBindingStore
     let ingress: MainIngress
     let writeGate: DefaultWriteGate
     let githubClient: GitHubClient
@@ -168,17 +185,21 @@ final class AppComposition {
         connectorStore = try SQLiteConnectorStore(databaseURL: root.appendingPathComponent("connectors/registry.sqlite"))
         registry = try PersistentConnectorRegistry(store: connectorStore, credentials: credentials)
         operations = try FileOperationLedger(root: root)
+        breaker = try CircuitBreaker(root: root)
+        gmailBindings = GmailAccountBindingStore()
         ingress = try MainIngress(root: root)
-        writeGate = try DefaultWriteGate(root: root)
+        writeGate = DefaultWriteGate(tokens: try MandateTokenStore(root: root), breaker: breaker,
+                                     evidenceAudits: try EvidenceAuditStore(root: root))
 
         githubClient = GitHubClient(transport: githubTransport, credentials: credentials)
         githubBridge = GitHubToolBridge(client: githubClient, registry: registry,
-                                        writeGate: writeGate, ledger: operations)
+                                        writeGate: writeGate, ledger: operations, breaker: breaker)
 
         gmailTransport = GmailURLSessionTransport()
-        let oauthConfiguration = GmailOAuthConfiguration.loadFromInfoBundle()
+        let oauthScopes = [GmailScope.readOnly, GmailScope.compose]
+        let oauthConfiguration = GmailOAuthConfiguration.loadFromInfoBundle(scopes: oauthScopes)
         let tokenConfiguration = oauthConfiguration ?? GmailOAuthConfiguration(
-            clientID: "", redirectURI: URL(string: "phonedsh://gmail-oauth")!, scopes: [GmailScope.readOnly])
+            clientID: "", redirectURI: URL(string: "phonedsh://gmail-oauth")!, scopes: oauthScopes)
         gmailTokens = GmailTokenManager(configuration: tokenConfiguration,
                                         store: GmailKeychainTokenStore(), transport: gmailTransport)
         gmailClient = GmailClient(tokens: gmailTokens, transport: gmailTransport)
@@ -186,7 +207,7 @@ final class AppComposition {
                                            sessions: GmailASWebAuthenticationSessionProvider(), tokens: gmailTokens)
         let gmailGrants = GmailRegistryGrantProvider(registry: registry)
         let gmailWrites = GmailWriteCoordinator(client: gmailClient, gate: writeGate, ledger: operations,
-                                                grants: gmailGrants)
+                                                grants: gmailGrants, bindings: gmailBindings, breaker: breaker)
         gmailBridge = GmailToolBridge(client: gmailClient, grants: gmailGrants, writes: gmailWrites)
         dshToolBridge = CompositePhoneToolBridge(bridges: [
             OfficeToolBridge(presenter: OfficePresenter()), PhoneCapabilityBridge(),
@@ -217,7 +238,8 @@ final class AppComposition {
         personalModel = PersonalAgentModel(conversationID: Self.conversationID(), principal: "phone-owner",
                                            agent: agent, conversations: conversations, memories: memories,
                                            followUps: followUps, operations: operations, ingress: ingress,
-                                           suggestionGenerator: suggestionGenerator, suggestionStore: suggestionStore)
+                                           suggestionGenerator: suggestionGenerator, suggestionStore: suggestionStore,
+                                           userLanguage: { NativeText("zh-Hans", "en") })
         personalModel.isModelConfigured = Self.modelIsConfigured()
 
         let incremental = GmailIncrementalSynchronizer(client: gmailClient,
@@ -225,20 +247,47 @@ final class AppComposition {
         followUpCoordinator = FollowUpCoordinator(store: followUps, checkers: [
             GitHubFollowUpChecker(client: githubClient, store: connectorStore),
             GmailFollowUpChecker(client: gmailClient, incremental: incremental),
-        ], notifier: NotificationRouter(sender: PersonalAgentNotificationSender()))
+        ], notifier: NotificationRouter(sender: PersonalAgentNotificationSender()),
+           principal: personalModel.principal, accountScope: personalModel.accountID)
         chatAttention = ChatAttentionSource(conversationID: personalModel.conversationID,
-                                            conversations: conversations, followUps: followUps, operations: operations)
+                                            conversations: conversations, followUps: followUps, operations: operations,
+                                            principal: personalModel.principal, accountScope: personalModel.accountID)
     }
 
-    func connectGmail() async throws {
+    func connectGmail(writeGrants: GmailWriteGrantSelection = GmailWriteGrantSelection()) async throws {
         try await gmailOAuth.signIn()
         let profile = try await gmailClient.profile()
-        let scopes = GmailOAuthConfiguration.loadFromInfoBundle()?.scopes ?? [GmailScope.readOnly]
+        try gmailBindings.bind(principal: personalModel.principal, account: profile.emailAddress)
+        let scopes = try await gmailTokens.tokenScopes()
         let previous = await registry.grant(of: "gmail")
         let grant = ConnectorGrant(connectorID: "gmail", version: (previous?.version ?? 0) + 1,
-                                   allowedActions: [.read],
+                                   allowedActions: gmailActions(writeGrants, scopes: scopes),
                                    scope: GrantScope(gmailAccount: profile.emailAddress, rawScopes: scopes))
         _ = try await registry.connect("gmail", grant: grant, credentialRef: "gmail.oauth") {}
+    }
+
+    func updateGmailGrants(_ selection: GmailWriteGrantSelection) async throws {
+        guard let previous = await registry.grant(of: "gmail"),
+              let account = previous.scope.gmailAccount,
+              gmailBindings.isBound(principal: personalModel.principal, account: account) else {
+            throw ConnectorRegistryError.verificationFailed("请先连接并绑定 Gmail 账号")
+        }
+        let scopes = try await gmailTokens.tokenScopes()
+        let updated = ConnectorGrant(connectorID: "gmail", version: previous.version + 1,
+                                     allowedActions: gmailActions(selection, scopes: scopes),
+                                     scope: GrantScope(gmailAccount: account, rawScopes: scopes),
+                                     rateLimit: previous.rateLimit, paused: previous.paused)
+        _ = try await registry.connect("gmail", grant: updated, credentialRef: "gmail.oauth") {}
+    }
+
+    private func gmailActions(_ selection: GmailWriteGrantSelection, scopes: [String]) -> Set<MandateAction> {
+        var actions: Set<MandateAction> = [.read]
+        guard scopes.contains(GmailScope.compose) else { return actions }
+        if selection.drafts { actions.insert(.gmailCreateDraft) }
+        if selection.reply { actions.insert(.gmailReplyInThread) }
+        if selection.sendNew { actions.insert(.gmailSendNew) }
+        if selection.forward { actions.insert(.gmailForward) }
+        return actions
     }
 
     func revoke(_ connectorID: String) async throws {
@@ -285,10 +334,16 @@ final class AppComposition {
         let github = GitHubWriteReconciler(client: githubClient)
         for record in await operations.pending() {
             if record.intent.toolName.hasPrefix("gmail.") {
-                _ = await gmail.reconcile(record)
-            } else if record.intent.toolName == "github.issue.comment",
-                      let receipt = try? await github.reconcile(record) {
-                _ = try? await operations.reconcile(record.id, receipt: receipt)
+                let result = await gmail.reconcile(record)
+                let resolved = if case .reconciled = result { true } else { false }
+                try? await breaker.setUnknown(connectorID: "gmail", operationID: record.id, isUnknown: !resolved)
+                if resolved { try? await breaker.recordProviderSuccess(connectorID: "gmail") }
+            } else if record.intent.toolName.hasPrefix("github.") {
+                let receipt = try? await github.reconcile(record)
+                if let receipt { _ = try? await operations.reconcile(record.id, receipt: receipt) }
+                try? await breaker.setUnknown(connectorID: "github", operationID: record.id,
+                                              isUnknown: receipt == nil)
+                if receipt != nil { try? await breaker.recordProviderSuccess(connectorID: "github") }
             }
         }
     }

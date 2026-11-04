@@ -12,14 +12,17 @@
 
 import SwiftUI
 import PhoneDSH
+import UserNotifications
 
 @main
 struct PhoneDSHProbeApp: App {
     @Environment(\.scenePhase) private var scenePhase
     @State private var model = AppModel()
     @State private var preferences = NativeChatPreferences.shared
+    private let notificationDelegate = PersonalAgentNotificationDelegate()
 
     init() {
+        UNUserNotificationCenter.current().delegate = notificationDelegate
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("-resetPersonalOnboarding") {
             let defaults = UserDefaults.standard
@@ -33,18 +36,13 @@ struct PhoneDSHProbeApp: App {
         Self.seedProviderFromEnvironment()
         #endif
         AppComposition.scheduleProviderFactory = {
-            DSHScheduleAdapter(model: .shared, sessionID: {
-                ChatModel.shared.currentSessionID ?? "personal-agent"
-            })
+            DSHScheduleAdapter(model: .shared, boundPrincipal: "phone-owner", boundAccountScope: nil)
         }
     }
 
     var body: some Scene {
         WindowGroup {
             RootView()
-                // The native shell is a light design (hard-coded ink and
-                // surface colors); without this the system's dark appearance
-                // turns the page background black under a light layout.
                 .preferredColorScheme(preferences.appearance.colorScheme)
                 .environment(model)
                 .onChange(of: scenePhase) { _, newPhase in

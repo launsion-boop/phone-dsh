@@ -14,16 +14,19 @@ public final class GitHubToolBridge: PhoneToolBridge, ConnectorToolInvoker, @unc
     private let registry: any ConnectorRegistry
     private let writeGate: (any WriteGate)?
     private let ledger: (any OperationLedger)?
+    private let breaker: CircuitBreaker?
 
     public init(client: GitHubClient,
                 registry: any ConnectorRegistry,
                 writeGate: (any WriteGate)? = nil,
                 ledger: (any OperationLedger)? = nil,
+                breaker: CircuitBreaker? = nil,
                 includeWriteTools: Bool? = nil) {
         self.client = client
         self.registry = registry
         self.writeGate = writeGate
         self.ledger = ledger
+        self.breaker = breaker
         let includeWriteTools = includeWriteTools ?? (writeGate != nil && ledger != nil)
         var descriptors = [
             Self.descriptor("github.repository.get", "读取 GitHub 仓库", schema: Self.repositorySchema),
@@ -138,6 +141,7 @@ public final class GitHubToolBridge: PhoneToolBridge, ConnectorToolInvoker, @unc
             }
             _ = try await ledger.prepare(intent)
             try await ledger.markCommitting(intent.id)
+            try await breaker?.recordOperation(connectorID: Self.connectorID)
             committingIntent = intent
             let receipt: GitHubWriteReceipt
             switch descriptor.internalName {
@@ -155,6 +159,8 @@ public final class GitHubToolBridge: PhoneToolBridge, ConnectorToolInvoker, @unc
             let providerReceipt = ProviderReceipt(providerObjectID: receipt.providerObjectID,
                                                   url: receipt.url, rawJSON: "{}")
             try await ledger.commit(intent.id, receipt: providerReceipt)
+            try await breaker?.recordProviderSuccess(connectorID: Self.connectorID)
+            try await breaker?.setUnknown(connectorID: Self.connectorID, operationID: intent.id, isUnknown: false)
             committingIntent = nil
             let payload: [String: Any] = ["ok": true, "tool": descriptor.internalName,
                                           "id": receipt.providerObjectID, "url": receipt.url]
@@ -162,18 +168,24 @@ public final class GitHubToolBridge: PhoneToolBridge, ConnectorToolInvoker, @unc
             return ToolInvocationResult(toolCallID: "", contentJSON: String(decoding: data, as: UTF8.self))
         } catch let error as GitHubClientError {
             if let intent = committingIntent {
-                try? await ledger?.markUnknown(intent.id, reason: "GitHub 写入结果未知，需要反查对账")
+                try? await markUnknown(intent.id)
             }
             return Self.failure(name: descriptor.internalName, error: error)
         } catch let error as GateDenial {
             return Self.failure(name: descriptor.internalName, code: error.code, message: error.message)
         } catch {
             if let intent = committingIntent {
-                try? await ledger?.markUnknown(intent.id, reason: "GitHub 写入结果未知，需要反查对账")
+                try? await markUnknown(intent.id)
             }
             return Self.failure(name: descriptor.internalName, code: "write_failed",
                                 message: "GitHub 写入未完成；如网络结果未知，请通过操作账本对账，不要重复提交")
         }
+    }
+
+    private func markUnknown(_ operationID: UUID) async throws {
+        try await ledger?.markUnknown(operationID, reason: "GitHub 写入结果未知，需要反查对账")
+        try await breaker?.recordProviderFailure(connectorID: Self.connectorID)
+        try await breaker?.setUnknown(connectorID: Self.connectorID, operationID: operationID, isUnknown: true)
     }
 
     private static func gateFailure(name: String, decision: GateDecision) -> ToolInvocationResult {

@@ -261,7 +261,7 @@ public struct MemoryStore: MemoryPort {
         let replacement = MemoryRecord(principal: previous.principal, accountScope: previous.accountScope,
                                        kind: previous.kind, field: previous.field, text: text,
                                        scope: scope ?? previous.scope, source: source ?? previous.source,
-                                       origin: .userExplicit, revision: previous.revision + 1,
+                                       origin: previous.origin, revision: previous.revision + 1,
                                        validFrom: validFrom, expiresAt: expiresAt, status: .active,
                                        supersedes: previous.id, createdAt: now, updatedAt: now)
         guard !Self.containsSensitiveContent(text) else { throw MemoryError.sensitiveContent }

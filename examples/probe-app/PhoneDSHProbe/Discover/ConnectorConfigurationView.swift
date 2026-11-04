@@ -10,6 +10,7 @@ final class ConnectorConfigurationModel {
     let githubModel: GitHubConnectorModel
     var followUpRepository = ""
     var followUpPRNumber = ""
+    var gmailWriteGrants = GmailWriteGrantSelection()
     private(set) var isConnecting = false
     private(set) var errorMessage: String?
 
@@ -22,7 +23,11 @@ final class ConnectorConfigurationModel {
     }
 
     func connectGmail() async {
-        await perform { try await composition.connectGmail() }
+        await perform { try await composition.connectGmail(writeGrants: gmailWriteGrants) }
+    }
+
+    func updateGmailGrants() async {
+        await perform { try await composition.updateGmailGrants(gmailWriteGrants) }
     }
 
     func createGitHubFollowUp() async {
@@ -35,7 +40,8 @@ final class ConnectorConfigurationModel {
                   grant.scope.repositories.contains(where: { $0.lowercased() == repository.lowercased() }) else {
                 throw ConnectorRegistryError.verificationFailed("请输入已授权仓库和有效的 PR 编号")
             }
-            let existing = try await composition.followUps.records()
+            let existing = try await composition.followUps.records(
+                principal: composition.personalModel.principal, accountScope: composition.personalModel.accountID)
             guard !existing.contains(where: {
                 $0.followUp.target.repository?.lowercased() == repository.lowercased() &&
                 $0.followUp.target.number == number
@@ -49,7 +55,9 @@ final class ConnectorConfigurationModel {
                 nextCheckCondition: CheckCondition(expression: "new_blockers"),
                 stopCondition: StopCondition(expression: "manual"),
                 validUntil: Date().addingTimeInterval(7 * 86_400))
-            _ = try await composition.followUps.create(followUp)
+            _ = try await composition.followUps.create(
+                followUp, principal: composition.personalModel.principal,
+                accountScope: composition.personalModel.accountID)
             _ = try await composition.requestNotificationAuthorization()
             _ = try await composition.followUpCoordinator.checkAll()
             await composition.personalModel.foreground()
@@ -114,10 +122,27 @@ struct ConnectorConfigurationView: View {
     }
 
     private var gmail: some View {
-        Button(NativeText("使用 Google 账号连接", "Connect with Google")) {
-            Task { await model.connectGmail() }
+        Group {
+            Button(NativeText("使用 Google 账号连接", "Connect with Google")) {
+                Task { await model.connectGmail() }
+            }
+            .disabled(model.isConnecting)
+            .accessibilityIdentifier("connector.gmail.connect")
+            grantToggle(NativeText("自动创建/更新草稿", "Create and update drafts"), \.drafts)
+            grantToggle(NativeText("自动在线程内回复", "Reply in threads"), \.reply)
+            grantToggle(NativeText("自动发送新邮件", "Send new mail"), \.sendNew)
+            grantToggle(NativeText("自动转发（默认关闭）", "Forward mail (off by default)"), \.forward)
+            Text(NativeText("写入还必须有本次用户委托；发送保留五秒撤销。", "Writes also require a current user mandate; sends retain the five-second undo window."))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
         }
+    }
+
+    private func grantToggle(_ title: String, _ keyPath: WritableKeyPath<GmailWriteGrantSelection, Bool>) -> some View {
+        Toggle(title, isOn: Binding(get: { model.gmailWriteGrants[keyPath: keyPath] }, set: { enabled in
+            model.gmailWriteGrants[keyPath: keyPath] = enabled
+            Task { await model.updateGmailGrants() }
+        }))
         .disabled(model.isConnecting)
-        .accessibilityIdentifier("connector.gmail.connect")
     }
 }

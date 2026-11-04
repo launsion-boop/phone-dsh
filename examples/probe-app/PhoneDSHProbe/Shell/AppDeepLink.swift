@@ -18,7 +18,8 @@ enum AppDeepLink {
             normalized.scheme = "phonedsh"
             if let url = normalized.url, let route = NotificationRouter.route(forDeepLink: url) { return route }
         }
-        let values = Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).map { ($0.name, $0.value ?? "") })
+        let values = Dictionary((components.queryItems ?? []).map { ($0.name, $0.value ?? "") },
+                                uniquingKeysWith: { first, _ in first })
         switch components.host?.lowercased() ?? components.path.lowercased() {
         case "chat":
             if let raw = values["followUp"], let id = UUID(uuidString: raw) { return .chat(focus: .followUp(id)) }

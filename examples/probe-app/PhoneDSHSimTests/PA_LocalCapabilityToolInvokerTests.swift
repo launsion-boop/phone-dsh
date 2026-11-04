@@ -251,6 +251,46 @@ final class PA_LocalCapabilityToolInvokerTests: XCTestCase {
         XCTAssertEqual(try object(deleted)["error"]["code"] as? String, "verification_failed")
     }
 
+    func testReadOnlyMandateCannotRenameOrWriteMemory() async throws {
+        let fixture = try await makeFixture()
+        let profile = StaticProfile()
+        let local = LocalCapabilityToolInvoker(profile: profile, memories: fixture.memories,
+                                               followUps: fixture.followUps)
+        let readOnly = WorkMandate(mandateID: UUID(), version: 1, requestID: UUID(), principal: "owner",
+                                   source: .phone, goal: "Read only", allowedActions: [.read],
+                                   allowedEvidenceRefs: [], targets: MandateTargets(origin: .userNamed),
+                                   validUntil: Date().addingTimeInterval(300))
+        let renamed = await local.invoke("rename_assistant", argumentsJSON: #"{"name":"Changed"}"#,
+                                         caller: .personalAgent(mandate: readOnly))
+        XCTAssertTrue(renamed.isError)
+        XCTAssertEqual(try object(renamed)["error"]["code"] as? String, "action_not_delegated")
+        XCTAssertEqual(try profile.profile().assistantName, "Test Agent")
+        let logged = await local.invoke("memory_log", argumentsJSON: #"{"text":"must not persist"}"#,
+                                        caller: .personalAgent(mandate: readOnly))
+        XCTAssertTrue(logged.isError)
+        let active = try await fixture.memories.active(principal: "owner")
+        XCTAssertFalse(active.contains(where: { $0.text == "must not persist" }))
+    }
+
+    func testFollowUpListAndCompletionCannotCrossPrincipalScope() async throws {
+        let fixture = try await makeFixture()
+        let local = LocalCapabilityToolInvoker(profile: StaticProfile(), memories: fixture.memories,
+                                               followUps: fixture.followUps, accountScope: "account-a")
+        let opened = await invoke(local, "memory_open_loop", """
+        {"action":"open","goal":"Scoped","target":{"kind":"gmailThread","thread_id":"thread-a"},
+         "check_condition":"newMail","stop_condition":"done"}
+        """)
+        let id = try XCTUnwrap(object(opened)["follow_up"]["id"] as? String)
+        let otherList = await invoke(local, "memory_open_loop", #"{"action":"list"}"#, principal: "other")
+        XCTAssertEqual(try object(otherList)["count"] as? Int, 0)
+        let otherDone = await invoke(local, "memory_open_loop", "{\"action\":\"done\",\"id\":\"\(id)\"}",
+                                     principal: "other")
+        XCTAssertTrue(otherDone.isError)
+        let ownerRecord = try await fixture.followUps.record(UUID(uuidString: id)!, principal: "owner",
+                                                             accountScope: "account-a")
+        XCTAssertNil(ownerRecord?.endedAt)
+    }
+
     private func makeFixture() async throws -> (memories: MemoryStore, followUps: FollowUpStore) {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("PA-LocalCapability-\(UUID().uuidString)/domain.sqlite")
@@ -270,7 +310,9 @@ final class PA_LocalCapabilityToolInvokerTests: XCTestCase {
 
     private func mandate(principal: String) -> WorkMandate {
         WorkMandate(mandateID: UUID(), version: 3, requestID: UUID(), principal: principal,
-                    source: .phone, goal: "Manage personal local state", allowedActions: [.read],
+                    source: .phone, goal: "Manage personal local state",
+                    allowedActions: [.read, .personalProfileWrite, .personalMemoryWrite, .personalFollowUpWrite,
+                                     .personalSuggestionHistoryWrite, .personalScheduleWrite],
                     allowedEvidenceRefs: [], targets: MandateTargets(origin: .userNamed),
                     validUntil: Date(timeIntervalSince1970: 4_000_000_000))
     }

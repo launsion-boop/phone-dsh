@@ -1781,8 +1781,11 @@ class PageExtractor:
             if "isEmpty" in masked[max(0, pos - 600): pos][-600:]:
                 continue
             prov, anchor = source.provenance(label_pos)
+            rendered = human_title(label)
+            dynamic = "\\(" in label
             out.append({
-                "id": slug(label), "kind": "region", "title": label, "titleTemplate": None,
+                "id": slug(rendered), "kind": "region", "title": rendered,
+                "titleTemplate": template_of(label) if dynamic else None, "dynamicTitle": dynamic,
                 "titleSource": "header-text", "condition": innermost_condition(self.if_scopes, pos),
                 "collection": None, "rows": [], "provenance": prov, "anchor": anchor,
                 "extraction": "syntax",

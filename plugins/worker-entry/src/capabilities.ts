@@ -833,6 +833,11 @@ const HOST_PROJECTED_PHONE_TOOLS: readonly CapabilityPhoneTool[] = Object.freeze
     usage: `${PHONE_COMMAND_NAME} github.${name} <json-object>`,
     note: 'write; DSH direct calls require native per-operation approval and never inherit Chat grants',
   })),
+  ...['search', 'message.get', 'thread.get'].map(name => Object.freeze({
+    name: `gmail.${name}`,
+    usage: `${PHONE_COMMAND_NAME} gmail.${name} <json-object>`,
+    note: 'read-only; returns bounded Gmail data from the host connector; writes are not projected to DSH',
+  })),
 ])
 
 /**
@@ -840,8 +845,9 @@ const HOST_PROJECTED_PHONE_TOOLS: readonly CapabilityPhoneTool[] = Object.freeze
  *
  * Android's verified `info` row is always retained. Connector rows are projected
  * only from explicit `phone-tool:<name>` host capabilities; `phone-tool:github.*`
- * is the host's declaration for the complete GitHub bridge. No connector row is
- * inferred from `accelerator:phone` alone.
+ * is the host's declaration for the complete GitHub bridge. Gmail rows are read-only
+ * and use their exact host descriptor names. No connector row is inferred from
+ * `accelerator:phone` alone.
  * @param hostCaps - effective wire HELLO and App-declared host capabilities.
  * @returns the `phone` document section.
  */

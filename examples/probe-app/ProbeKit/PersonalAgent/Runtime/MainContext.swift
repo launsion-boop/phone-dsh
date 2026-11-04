@@ -29,12 +29,26 @@ public struct MainContextDocument: Codable, Sendable, Equatable {
     public let sourceRef: String
     public let revision: Int
     public let text: String
+    public let kind: String?
+    public let scope: String?
+    public let origin: String?
+    public let observedAt: Date?
+    public let validFrom: Date?
+    public let expiresAt: Date?
 
-    public init(id: String, sourceRef: String, revision: Int, text: String) {
+    public init(id: String, sourceRef: String, revision: Int, text: String,
+                kind: String? = nil, scope: String? = nil, origin: String? = nil,
+                observedAt: Date? = nil, validFrom: Date? = nil, expiresAt: Date? = nil) {
         self.id = id
         self.sourceRef = sourceRef
         self.revision = revision
         self.text = text
+        self.kind = kind
+        self.scope = scope
+        self.origin = origin
+        self.observedAt = observedAt
+        self.validFrom = validFrom
+        self.expiresAt = expiresAt
     }
 }
 
@@ -397,7 +411,15 @@ public struct MainConversationCompactor: Sendable {
         for (heading, documents) in [("Memory", memory), ("Connector materials", connectors)] {
             var headingAdded = false
             for document in documents {
-                let metadata = "\(document.id) source=\(document.sourceRef) revision=\(document.revision)"
+                var fields = ["source=\(document.sourceRef)", "revision=\(document.revision)"]
+                if let kind = document.kind { fields.append("kind=\(kind)") }
+                if let scope = document.scope { fields.append("scope=\(scope)") }
+                if let origin = document.origin { fields.append("origin=\(origin)") }
+                for (name, date) in [("observedAt", document.observedAt), ("validFrom", document.validFrom),
+                                     ("expiresAt", document.expiresAt)] {
+                    if let date { fields.append("\(name)=\(ISO8601DateFormatter().string(from: date))") }
+                }
+                let metadata = "\(document.id) \(fields.joined(separator: " "))"
                 let overhead = heading.utf8.count + metadata.utf8.count + 16
                 let remaining = byteLimit - used - overhead
                 guard remaining > 0 else { break }

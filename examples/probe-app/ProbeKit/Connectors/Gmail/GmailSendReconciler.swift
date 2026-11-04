@@ -10,10 +10,12 @@ public enum GmailReconcileResult: Sendable, Equatable {
 
 public struct GmailSendReconciler: Sendable {
     private let client: any GmailReading
+    private let draftsClient: GmailClient?
     private let ledger: any OperationLedger
 
     public init(client: any GmailReading, ledger: any OperationLedger) {
         self.client = client
+        self.draftsClient = client as? GmailClient
         self.ledger = ledger
     }
 
@@ -27,8 +29,11 @@ public struct GmailSendReconciler: Sendable {
     }
 
     public func reconcile(_ record: OperationRecord) async -> GmailReconcileResult {
-        guard record.phase == .unknown || record.phase == .committing,
-              ["gmail.message.reply", "gmail.message.send", "gmail.message.forward"].contains(record.intent.toolName),
+        guard record.phase == .unknown || record.phase == .committing else { return .notApplicable }
+        if ["gmail.draft.create", "gmail.draft.update"].contains(record.intent.toolName) {
+            return await reconcileDraft(record)
+        }
+        guard ["gmail.message.reply", "gmail.message.send", "gmail.message.forward"].contains(record.intent.toolName),
               let arguments = try? GmailJSON.decoder.decode(ReconcileSendArguments.self,
                                                              from: Data(record.intent.argumentsJSON.utf8)) else {
             return .notApplicable
@@ -55,6 +60,37 @@ public struct GmailSendReconciler: Sendable {
             return .unknown
         }
     }
+
+    private func reconcileDraft(_ record: OperationRecord) async -> GmailReconcileResult {
+        guard let draftsClient else { return .unknown }
+        do {
+            let input: GmailDraftInput
+            if record.intent.toolName == "gmail.draft.update" {
+                input = try GmailJSON.decoder.decode(ReconcileDraftUpdateArguments.self,
+                                                     from: Data(record.intent.argumentsJSON.utf8)).draft.input
+            } else {
+                input = try GmailJSON.decoder.decode(ReconcileDraftArguments.self,
+                                                     from: Data(record.intent.argumentsJSON.utf8)).input
+            }
+            let expectedRaw = GmailMIME.rawMessage(input: input, operationID: nil, digest: nil)
+            let matches = try await draftsClient.recentDrafts().filter { $0.raw == expectedRaw }
+            guard matches.count == 1, let draft = matches.first else { return .unknown }
+            let raw = String(decoding: try JSONSerialization.data(withJSONObject: [
+                "id": draft.id, "messageID": draft.messageID, "reconciled": true,
+            ], options: [.sortedKeys]), as: UTF8.self)
+            let receipt = ProviderReceipt(providerObjectID: draft.id,
+                                          url: "https://mail.google.com/mail/#all/\(draft.id)", rawJSON: raw)
+            _ = try await ledger.reconcile(record.id, receipt: receipt)
+            return .reconciled(receipt)
+        } catch {
+            return .unknown
+        }
+    }
+}
+
+private struct ReconcileDraftUpdateArguments: Decodable {
+    let draftID: String
+    let draft: ReconcileDraftArguments
 }
 
 private struct ReconcileSendArguments: Decodable {

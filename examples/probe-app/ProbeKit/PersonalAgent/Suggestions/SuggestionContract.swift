@@ -204,6 +204,7 @@ public struct SuggestionCard: Codable, Sendable, Equatable, Identifiable {
     public let allowCustom: Bool
     public let dismissOnMoveOn: Bool
     public let multiSelect: Bool
+    public let originalMandate: WorkMandate?
     public internal(set) var outcome: SuggestionOutcome
 
     public var id: UUID { cardID }
@@ -213,7 +214,7 @@ public struct SuggestionCard: Codable, Sendable, Equatable, Identifiable {
 
     enum CodingKeys: String, CodingKey {
         case schemaVersion, cardID, conversationID, turnID, principal, accountID, createdAt, expiresAt
-        case suppressionKeys, kind, question, options, outcome
+        case suppressionKeys, kind, question, options, originalMandate, outcome
         case allowCustom = "allow_custom"
         case dismissOnMoveOn = "dismiss_on_move_on"
         case multiSelect = "multi_select"
@@ -225,7 +226,7 @@ public struct SuggestionCard: Codable, Sendable, Equatable, Identifiable {
                 suppressionKeys: [SuggestionSuppressionKey], kind: SuggestionKind,
                 question: String, options: [SuggestionOption], allowCustom: Bool,
                 dismissOnMoveOn: Bool, multiSelect: Bool = false,
-                outcome: SuggestionOutcome = .shown) {
+                originalMandate: WorkMandate? = nil, outcome: SuggestionOutcome = .shown) {
         self.schemaVersion = schemaVersion
         self.cardID = cardID
         self.conversationID = conversationID
@@ -241,6 +242,7 @@ public struct SuggestionCard: Codable, Sendable, Equatable, Identifiable {
         self.allowCustom = allowCustom
         self.dismissOnMoveOn = dismissOnMoveOn
         self.multiSelect = multiSelect
+        self.originalMandate = originalMandate
         self.outcome = outcome
     }
 
@@ -250,10 +252,7 @@ public struct SuggestionCard: Codable, Sendable, Equatable, Identifiable {
             throw SuggestionValidationError.invalid("none cannot be materialized as a card")
         }
         let keys = proposal.options.flatMap { option -> [SuggestionSuppressionKey] in
-            metadata.suppressionKeysByOptionID[option.id] ?? [
-                SuggestionSuppressionKey(action: option.id,
-                                         target: "conversation:\(turn.conversationID.uuidString.lowercased())"),
-            ]
+            metadata.suppressionKeysByOptionID[option.id] ?? [Self.semanticSuppressionKey(option)]
         }
         self.init(schemaVersion: Self.currentSchemaVersion, cardID: metadata.cardID,
                   conversationID: turn.conversationID, turnID: turn.turnID, principal: turn.principal,
@@ -261,7 +260,7 @@ public struct SuggestionCard: Codable, Sendable, Equatable, Identifiable {
                   suppressionKeys: Array(Set(keys)).sorted { $0.canonical < $1.canonical },
                   kind: proposal.kind, question: question, options: proposal.options,
                   allowCustom: proposal.allowCustom, dismissOnMoveOn: proposal.dismissOnMoveOn,
-                  multiSelect: proposal.multiSelect)
+                  multiSelect: proposal.multiSelect, originalMandate: turn.mandate)
     }
 
     func validate() throws {
@@ -273,6 +272,20 @@ public struct SuggestionCard: Codable, Sendable, Equatable, Identifiable {
         try SuggestionProposal(kind: kind, question: question, options: options,
                                allowCustom: allowCustom, dismissOnMoveOn: dismissOnMoveOn,
                                multiSelect: multiSelect).validate()
+    }
+
+    private static func semanticSuppressionKey(_ option: SuggestionOption) -> SuggestionSuppressionKey {
+        let draft = RuleBasedMandateFactory().draft(userText: option.userRequest)
+        let action = draft.allowedActions.map(\.rawValue).sorted().joined(separator: "+")
+        let targets = draft.targets
+        var targetParts = [targets.repository ?? "", targets.gmailThreadIDs.sorted().joined(separator: ","),
+                           targets.recipientIdentities.sorted().joined(separator: ","),
+                           targets.issueOrPRNumbers.sorted().map(String.init).joined(separator: ",")]
+        if targetParts.allSatisfy(\.isEmpty) {
+            targetParts = [option.userRequest.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+                .trimmingCharacters(in: .whitespacesAndNewlines)]
+        }
+        return SuggestionSuppressionKey(action: action, target: targetParts.joined(separator: "|"))
     }
 }
 
@@ -295,24 +308,28 @@ public struct SuggestionSelection: Codable, Sendable, Equatable {
     public let cardID: UUID
     public let cardVersion: Int
     public let optionID: String
+    public let visibleLabel: String?
     public let userRequest: String
     public let conversationID: UUID
     public let principal: String
     public let accountID: String
     public let createdAt: Date
+    public let originalMandate: WorkMandate?
 
     public init(selectionEventID: UUID, cardID: UUID, cardVersion: Int, optionID: String,
-                userRequest: String, conversationID: UUID, principal: String, accountID: String,
-                createdAt: Date) {
+                visibleLabel: String = "", userRequest: String, conversationID: UUID, principal: String, accountID: String,
+                createdAt: Date, originalMandate: WorkMandate? = nil) {
         self.selectionEventID = selectionEventID
         self.cardID = cardID
         self.cardVersion = cardVersion
         self.optionID = optionID
+        self.visibleLabel = visibleLabel
         self.userRequest = userRequest
         self.conversationID = conversationID
         self.principal = principal
         self.accountID = accountID
         self.createdAt = createdAt
+        self.originalMandate = originalMandate
     }
 }
 
@@ -321,6 +338,11 @@ public struct SuggestionSelectionResult: Sendable, Equatable {
     public let shouldSend: Bool
 
     public var userRequest: String { selection.userRequest }
+    public var textToSend: String {
+        guard let label = selection.visibleLabel?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !label.isEmpty else { return selection.userRequest }
+        return label
+    }
 }
 
 public struct SuggestionPolicy: Sendable, Equatable {

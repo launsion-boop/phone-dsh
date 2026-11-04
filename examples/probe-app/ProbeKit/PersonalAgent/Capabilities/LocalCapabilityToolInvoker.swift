@@ -33,18 +33,25 @@ public actor LocalCapabilityToolInvoker: ConnectorToolInvoker {
         self.now = now
 
         var descriptors = [
-            Self.descriptor("rename_assistant", effect: .write, summary: "Rename the shared Personal Agent profile", schema: Self.renameSchema),
-            Self.descriptor("memory_set_profile", effect: .write, summary: "Save a field in the shared personal profile memory", schema: Self.profileSchema),
-            Self.descriptor("memory_set_preference", effect: .write, summary: "Save or revise an explicit personal preference", schema: Self.profileSchema),
-            Self.descriptor("memory_log", effect: .write, summary: "Append an explicit event to personal memory", schema: Self.memoryLogSchema),
-            Self.descriptor("memory_delete", effect: .write, summary: "Forget a memory owned by the current principal and account", schema: Self.memoryDeleteSchema),
-            Self.descriptor("memory_open_loop", effect: .write, summary: "Open, inspect, finish, or cancel a persisted FollowUp", schema: Self.openLoopSchema),
+            Self.descriptor("rename_assistant", effect: .write, action: .personalProfileWrite,
+                            summary: "Rename the shared Personal Agent profile", schema: Self.renameSchema),
+            Self.descriptor("memory_set_profile", effect: .write, action: .personalMemoryWrite,
+                            summary: "Save a field in the shared personal profile memory", schema: Self.profileSchema),
+            Self.descriptor("memory_set_preference", effect: .write, action: .personalMemoryWrite,
+                            summary: "Save or revise an explicit personal preference", schema: Self.profileSchema),
+            Self.descriptor("memory_log", effect: .write, action: .personalMemoryWrite,
+                            summary: "Append an explicit event to personal memory", schema: Self.memoryLogSchema),
+            Self.descriptor("memory_delete", effect: .write, action: .personalMemoryWrite,
+                            summary: "Forget a memory owned by the current principal and account", schema: Self.memoryDeleteSchema),
+            Self.descriptor("memory_open_loop", effect: .write, action: .personalFollowUpWrite,
+                            summary: "Open, inspect, finish, or cancel a persisted FollowUp", schema: Self.openLoopSchema),
         ]
         if suggestionHistory != nil {
             descriptors.append(Self.descriptor("memory_get_suggestion_history", effect: .read,
                                                action: .read, summary: "Read scoped suggestion interaction history",
                                                schema: Self.suggestionHistorySchema))
             descriptors.append(Self.descriptor("memory_record_suggestion", effect: .write,
+                                               action: .personalSuggestionHistoryWrite,
                                                summary: "Record a distinct suggestion interaction outcome",
                                                schema: Self.recordSuggestionSchema))
         }
@@ -52,13 +59,13 @@ public actor LocalCapabilityToolInvoker: ConnectorToolInvoker {
             descriptors.append(Self.descriptor("schedule_list", effect: .read, action: .read,
                                                summary: "List schedules from the bound DSH scheduler",
                                                schema: Self.emptySchema))
-            descriptors.append(Self.descriptor("schedule_create", effect: .write,
+            descriptors.append(Self.descriptor("schedule_create", effect: .write, action: .personalScheduleWrite,
                                                summary: "Create a deduplicated schedule in the bound DSH scheduler",
                                                schema: Self.scheduleCreateSchema))
-            descriptors.append(Self.descriptor("schedule_update", effect: .write,
+            descriptors.append(Self.descriptor("schedule_update", effect: .write, action: .personalScheduleWrite,
                                                summary: "Update an existing schedule in the bound DSH scheduler",
                                                schema: Self.scheduleUpdateSchema))
-            descriptors.append(Self.descriptor("schedule_delete", effect: .write,
+            descriptors.append(Self.descriptor("schedule_delete", effect: .write, action: .personalScheduleWrite,
                                                summary: "Cancel an existing schedule in the bound DSH scheduler",
                                                schema: Self.scheduleDeleteSchema))
         }
@@ -80,9 +87,16 @@ public actor LocalCapabilityToolInvoker: ConnectorToolInvoker {
                                 message: "The Personal Agent WorkMandate is missing or expired")
         }
         let descriptor = descriptors.first { $0.internalName == name }!
-        if descriptor.effect == .read, !mandate.allowedActions.contains(.read) {
-            return Self.failure(name: name, code: "read_not_delegated",
-                                message: "The current WorkMandate does not allow reading this local state")
+        let isFollowUpRead: Bool = {
+            guard name == "memory_open_loop",
+                  let object = try? JSONSerialization.jsonObject(with: Data(argumentsJSON.utf8)) as? [String: Any]
+            else { return false }
+            return object["action"] as? String == "list"
+        }()
+        let requiredAction = isFollowUpRead ? MandateAction.read : descriptor.mandateAction
+        guard let requiredAction, mandate.allowedActions.contains(requiredAction) else {
+            return Self.failure(name: name, code: "action_not_delegated",
+                                message: "The current WorkMandate does not allow \(requiredAction?.rawValue ?? "this local operation")")
         }
         do {
             switch name {
@@ -91,7 +105,7 @@ public actor LocalCapabilityToolInvoker: ConnectorToolInvoker {
                 return try await setMemoryField(name, argumentsJSON: argumentsJSON, mandate: mandate)
             case "memory_log": return try await logMemory(argumentsJSON, mandate: mandate)
             case "memory_delete": return try await deleteMemory(argumentsJSON, mandate: mandate)
-            case "memory_open_loop": return try await openLoop(argumentsJSON)
+            case "memory_open_loop": return try await openLoop(argumentsJSON, mandate: mandate)
             case "memory_get_suggestion_history":
                 return try await getSuggestionHistory(argumentsJSON, mandate: mandate)
             case "memory_record_suggestion":
@@ -152,7 +166,7 @@ public actor LocalCapabilityToolInvoker: ConnectorToolInvoker {
         } else {
             let record = MemoryRecord(principal: mandate.principal, accountScope: accountScope,
                                       kind: .longTerm, field: field, text: value, source: source,
-                                      origin: .userExplicit, revision: 1, validFrom: now(), status: .active,
+                                      origin: .modelInference, revision: 1, validFrom: now(), status: .active,
                                       createdAt: now(), updatedAt: now())
             try await memories.save(record)
             saved = record
@@ -176,7 +190,7 @@ public actor LocalCapabilityToolInvoker: ConnectorToolInvoker {
         let source = memorySource("memory_log", mandate: mandate)
         let record = MemoryRecord(principal: mandate.principal, accountScope: accountScope,
                                   kind: .event, text: text, scope: scope, source: source,
-                                  origin: .userExplicit, revision: 1, validFrom: now(), status: .active,
+                                  origin: .modelInference, revision: 1, validFrom: now(), status: .active,
                                   createdAt: now(), updatedAt: now())
         try await memories.save(record)
         let verified = try await verifiedMemory(record.id, principal: mandate.principal)
@@ -212,7 +226,7 @@ public actor LocalCapabilityToolInvoker: ConnectorToolInvoker {
                                          "revision": verified.revision])
     }
 
-    private func openLoop(_ argumentsJSON: String) async throws -> ToolInvocationResult {
+    private func openLoop(_ argumentsJSON: String, mandate: WorkMandate) async throws -> ToolInvocationResult {
         let object = try Self.object(argumentsJSON,
                                      allowed: ["action", "id", "goal", "target", "waiting_for",
                                                "check_condition", "stop_condition", "valid_until",
@@ -262,20 +276,24 @@ public actor LocalCapabilityToolInvoker: ConnectorToolInvoker {
                                     allowedActions: [.read], waitingReason: "waiting-\(waitingFor)",
                                     nextCheckCondition: check, stopCondition: stop,
                                     validUntil: validUntil, notificationPolicy: policy)
-            let created = try await followUps.create(followUp)
-            guard let verified = try await followUps.record(created.id), verified == created else {
+            let created = try await followUps.create(followUp, principal: mandate.principal,
+                                                     accountScope: accountScope)
+            guard let verified = try await followUps.record(created.id, principal: mandate.principal,
+                                                            accountScope: accountScope), verified == created else {
                 throw LocalCapabilityError.verificationFailed("FollowUp read-after-write did not match")
             }
             return try Self.success(tool: "memory_open_loop", outcome: "opened",
                                     values: ["follow_up": followUpJSON(verified)])
         case "list":
             let includeEnded = try Self.optionalBool(object, key: "include_ended") ?? false
-            let records = try await followUps.records(includeEnded: includeEnded)
+            let records = try await followUps.records(includeEnded: includeEnded, principal: mandate.principal,
+                                                      accountScope: accountScope)
             return try Self.success(tool: "memory_open_loop", outcome: "listed",
                                     values: ["follow_ups": records.map(followUpJSON), "count": records.count])
         case "done", "cancelled":
             let id = try Self.uuid(object, key: "id")
-            guard var record = try await followUps.record(id), record.endedAt == nil else {
+            guard var record = try await followUps.record(id, principal: mandate.principal,
+                                                          accountScope: accountScope), record.endedAt == nil else {
                 throw LocalCapabilityError.notFound("an open FollowUp with this id was not found")
             }
             record.followUp.waitingReason = action
@@ -283,7 +301,8 @@ public actor LocalCapabilityToolInvoker: ConnectorToolInvoker {
             record.needsAttention = false
             record.revision += 1
             try await followUps.save(record)
-            guard let verified = try await followUps.record(id), verified.endedAt != nil,
+            guard let verified = try await followUps.record(id, principal: mandate.principal,
+                                                            accountScope: accountScope), verified.endedAt != nil,
                   verified.followUp.waitingReason == action, verified.revision == record.revision else {
                 throw LocalCapabilityError.verificationFailed("FollowUp completion was not persisted")
             }

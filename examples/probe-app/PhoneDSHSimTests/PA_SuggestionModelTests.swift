@@ -16,7 +16,8 @@ final class PA_SuggestionModelTests: XCTestCase {
     func testChoosingSuggestionStartsARealTurnAndIsNotDismissal() async throws {
         let fixture = try await makeFixture(results: [
             .card(makeCard(options: [
-                SuggestionOption(id: "blockers", label: "查看这个 PR 的新阻塞", userRequest: "查看这个 PR 的新阻塞"),
+                SuggestionOption(id: "blockers", label: "查看这个 PR 的新阻塞",
+                                 userRequest: "请评论 owner/repo #29：Approved"),
                 SuggestionOption(id: "reply", label: "整理成简短邮件", userRequest: "整理成简短邮件"),
             ])), .none,
         ])
@@ -26,6 +27,7 @@ final class PA_SuggestionModelTests: XCTestCase {
         await fixture.model.chooseSuggestion(suggestion.options[0])
         try await settle()
         XCTAssertEqual(fixture.agent.inputs, ["分析当前 PR", "查看这个 PR 的新阻塞"])
+        XCTAssertEqual(fixture.agent.inputs.last, suggestion.options[0].label)
         XCTAssertNil(fixture.model.suggestion)
         let outcome = await fixture.store.outcome(cardID: suggestion.cardID)
         XCTAssertEqual(outcome, .selected)
@@ -82,9 +84,12 @@ final class PA_SuggestionModelTests: XCTestCase {
         let question = try XCTUnwrap(fixture.model.pendingQuestion)
         XCTAssertNil(fixture.model.suggestion)
         await fixture.model.answerPendingQuestion("选择 A")
-        XCTAssertEqual(fixture.agent.inputs, ["需要先确认方案", "按 A 方案继续，但不要发送"])
+        XCTAssertEqual(fixture.agent.inputs, ["需要先确认方案", "选择 A"])
         let outcome = await fixture.store.outcome(cardID: question.id)
         XCTAssertEqual(outcome, .selected)
+        let turns = try await fixture.conversations.turns(conversationID: fixture.model.conversationID)
+        XCTAssertEqual(turns.count, 2)
+        XCTAssertTrue(turns.allSatisfy { $0.state == .completed })
     }
 
     func testClosingClarificationLeavesTaskSafelyPausedWithoutGuessing() async throws {

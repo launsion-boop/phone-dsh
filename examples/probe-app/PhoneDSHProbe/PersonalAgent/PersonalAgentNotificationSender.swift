@@ -3,6 +3,22 @@
 import ProbeKit
 import UserNotifications
 
+final class PersonalAgentNotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
+    func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
+        [.banner, .list, .sound]
+    }
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                didReceive response: UNNotificationResponse) async {
+        guard let raw = response.notification.request.content.userInfo["deepLink"] as? String,
+              let url = URL(string: raw) else { return }
+        await MainActor.run {
+            NotificationCenter.default.post(name: AppDeepLink.notificationName, object: url)
+        }
+    }
+}
+
 final class PersonalAgentNotificationSender: LocalNotificationSending {
     func requestAuthorization() async throws -> Bool {
         try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])

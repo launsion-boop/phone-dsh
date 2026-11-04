@@ -334,6 +334,30 @@ final class PA_SuggestionLifecycleTests: XCTestCase {
         XCTAssertEqual(disk?["schemaVersion"] as? Int, 2)
     }
 
+    func testCorruptedOrFutureStateIsPreservedAndBlocksAllWrites() async throws {
+        for bytes in [Data("not-json".utf8), Data(#"{"schemaVersion":999}"#.utf8)] {
+            let root = try temporaryRoot()
+            let file = root.appendingPathComponent("conversation-suggestions.json")
+            try bytes.write(to: file)
+            let store = SuggestionStore(rootDirectory: root)
+            let healthy = await store.isHealthy
+            XCTAssertFalse(healthy)
+            do {
+                _ = try await store.shown(makeCard(scope: scope()))
+                XCTFail("corrupt state must not be overwritten")
+            } catch {
+                XCTAssertEqual(error as? SuggestionStoreError, .unreadableState)
+            }
+            do {
+                _ = try await store.outstanding(scope: scope())
+                XCTFail("corrupt state must not expose a replacement empty catalog")
+            } catch {
+                XCTAssertEqual(error as? SuggestionStoreError, .unreadableState)
+            }
+            XCTAssertEqual(try Data(contentsOf: file), bytes)
+        }
+    }
+
     private func metadata() -> SuggestionHostMetadata {
         SuggestionHostMetadata(accountID: "account-a", createdAt: now, expiresAt: now.addingTimeInterval(600))
     }

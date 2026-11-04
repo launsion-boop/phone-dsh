@@ -5,22 +5,44 @@ import SwiftUI
 
 struct FollowUpListPage: View {
     let store: FollowUpStore
+    let focusID: UUID?
+    let principal: String?
+    let accountScope: String?
     @State private var records: [FollowUpRecord] = []
+    @State private var path: [UUID] = []
     @State private var errorMessage: String?
 
+    init(store: FollowUpStore, focusID: UUID? = nil,
+         principal: String? = nil, accountScope: String? = nil) {
+        self.store = store
+        self.focusID = focusID
+        self.principal = principal
+        self.accountScope = accountScope
+    }
+
     var body: some View {
-        List {
-            if records.isEmpty {
-                Text("没有进行中的跟进").foregroundStyle(HomeSpec.textSecondary)
-            }
-            ForEach(records) { record in
-                NavigationLink(record.followUp.goal) {
-                    FollowUpDetailPage(store: store, record: record)
+        NavigationStack(path: $path) {
+            List {
+                if records.isEmpty {
+                    Text("没有进行中的跟进").foregroundStyle(HomeSpec.textSecondary)
                 }
-                .accessibilityHint(record.needsAttention ? "需要你处理" : "跟进中")
+                ForEach(records) { record in
+                    NavigationLink(value: record.id) {
+                        Text(record.followUp.goal)
+                    }
+                    .accessibilityHint(record.needsAttention ? "需要你处理" : "跟进中")
+                }
+            }
+            .navigationTitle("持续跟进")
+            .navigationDestination(for: UUID.self) { id in
+                if let record = records.first(where: { $0.id == id }) {
+                    FollowUpDetailPage(store: store, record: record,
+                                       principal: principal, accountScope: accountScope)
+                } else {
+                    Text("跟进不存在或不在当前账号范围")
+                }
             }
         }
-        .navigationTitle("持续跟进")
         .task { await reload() }
         .alert("无法读取跟进", isPresented: .constant(errorMessage != nil)) {
             Button("好") { errorMessage = nil }
@@ -28,20 +50,27 @@ struct FollowUpListPage: View {
     }
 
     private func reload() async {
-        do { records = try await store.records() }
-        catch { errorMessage = error.localizedDescription }
+        do {
+            records = try await store.records(principal: principal, accountScope: accountScope)
+            if let focusID, records.contains(where: { $0.id == focusID }) { path = [focusID] }
+        } catch { errorMessage = error.localizedDescription }
     }
 }
 
 struct FollowUpDetailPage: View {
     let store: FollowUpStore
+    let principal: String?
+    let accountScope: String?
     @State var record: FollowUpRecord
     @State private var checkExpression: String
     @State private var stopExpression: String
     @State private var errorMessage: String?
 
-    init(store: FollowUpStore, record: FollowUpRecord) {
+    init(store: FollowUpStore, record: FollowUpRecord,
+         principal: String? = nil, accountScope: String? = nil) {
         self.store = store
+        self.principal = principal
+        self.accountScope = accountScope
         self._record = State(initialValue: record)
         self._checkExpression = State(initialValue: record.followUp.nextCheckCondition.expression)
         self._stopExpression = State(initialValue: record.followUp.stopCondition.expression)

@@ -9,16 +9,21 @@ public final class ChatAttentionSource: AttentionSource, @unchecked Sendable {
     private let conversations: ConversationStore
     private let followUps: FollowUpStore
     private let operations: (any OperationLedger)?
+    private let principal: String?
+    private let accountScope: String?
     private let lock = NSLock()
     private var current: [AttentionItem] = []
     private var continuations: [UUID: AsyncStream<[AttentionItem]>.Continuation] = [:]
 
     public init(conversationID: UUID, conversations: ConversationStore,
-                followUps: FollowUpStore, operations: (any OperationLedger)? = nil) {
+                followUps: FollowUpStore, operations: (any OperationLedger)? = nil,
+                principal: String? = nil, accountScope: String? = nil) {
         self.conversationID = conversationID
         self.conversations = conversations
         self.followUps = followUps
         self.operations = operations
+        self.principal = principal
+        self.accountScope = accountScope
     }
 
     public func items() -> AsyncStream<[AttentionItem]> {
@@ -50,7 +55,8 @@ public final class ChatAttentionSource: AttentionSource, @unchecked Sendable {
                                        reason: turn.failure ?? "请查看恢复方式",
                                        route: .chat(focus: .message(turn.userMessageID))))
         }
-        for record in try await followUps.records() where record.needsAttention {
+        for record in try await followUps.records(principal: principal, accountScope: accountScope)
+        where record.needsAttention {
             items.append(AttentionItem(id: record.id, title: "跟进需要你处理",
                                        reason: record.lastChangeSummary ?? record.followUp.goal,
                                        route: .chat(focus: .followUp(record.id))))

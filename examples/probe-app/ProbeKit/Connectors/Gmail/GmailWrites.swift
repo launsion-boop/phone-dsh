@@ -87,28 +87,35 @@ public struct GmailWriteCoordinator: Sendable {
     private let ledger: any OperationLedger
     private let undoWindow: any GmailUndoWindow
     private let grants: (any GmailGrantProviding)?
+    private let bindings: (any GmailAccountBindingProviding)?
+    private let breaker: CircuitBreaker?
     private let now: @Sendable () -> Date
 
     public init(client: GmailClient, gate: any WriteGate, ledger: any OperationLedger,
                 undoWindow: any GmailUndoWindow = GmailFiveSecondUndoWindow(),
                 grants: (any GmailGrantProviding)? = nil,
+                bindings: (any GmailAccountBindingProviding)? = nil,
+                breaker: CircuitBreaker? = nil,
                 now: @escaping @Sendable () -> Date = { Date() }) {
         self.client = client
         self.gate = gate
         self.ledger = ledger
         self.undoWindow = undoWindow
         self.grants = grants
+        self.bindings = bindings
+        self.breaker = breaker
         self.now = now
     }
 
     public func createDraft(_ input: GmailDraftInput, caller: ToolCaller,
                             grant: ConnectorGrant, argumentsJSON: String) async throws -> ProviderReceipt {
         let descriptor = GmailToolBridge.descriptor(named: "gmail.draft.create")
-        try await Self.authorizeDraft(input, caller: caller, grant: grant, now: now())
+        try await authorizeDraft(input, caller: caller, grant: grant, now: now())
         let intent = try await authorizeWithHost(descriptor: descriptor, argumentsJSON: argumentsJSON,
                                                  caller: caller, grant: grant)
         let record = try await ledger.prepare(intent)
         try await ledger.markCommitting(record.id)
+        try await breaker?.recordOperation(connectorID: "gmail")
         do {
             let response: DraftResponseDTO = try await client.post(
                 path: "/gmail/v1/users/me/drafts", body: DraftRequestDTO(input: input),
@@ -116,7 +123,7 @@ public struct GmailWriteCoordinator: Sendable {
             return try await commit(record.id, id: response.id,
                                     raw: ["id": response.id, "messageID": response.message.id])
         } catch let error as GmailError where error == .timeout || error == .transport {
-            try await ledger.markUnknown(record.id, reason: "草稿请求结果未知")
+            try await markUnknown(record.id, reason: "草稿请求结果未知")
             throw GmailError.outcomeUnknown
         }
     }
@@ -124,7 +131,7 @@ public struct GmailWriteCoordinator: Sendable {
     public func updateDraft(_ input: GmailDraftUpdateInput, caller: ToolCaller,
                             grant: ConnectorGrant, argumentsJSON: String) async throws -> ProviderReceipt {
         let descriptor = GmailToolBridge.descriptor(named: "gmail.draft.update")
-        try await Self.authorizeDraft(input.draft, caller: caller, grant: grant, now: now())
+        try await authorizeDraft(input.draft, caller: caller, grant: grant, now: now())
         guard input.draftID.allSatisfy({ $0.isLetter || $0.isNumber || "-_".contains($0) }), !input.draftID.isEmpty else {
             throw GmailError.invalidArguments("draftID 含非法字符")
         }
@@ -132,6 +139,7 @@ public struct GmailWriteCoordinator: Sendable {
                                                  caller: caller, grant: grant)
         let record = try await ledger.prepare(intent)
         try await ledger.markCommitting(record.id)
+        try await breaker?.recordOperation(connectorID: "gmail")
         do {
             let response: DraftResponseDTO = try await client.put(
                 path: "/gmail/v1/users/me/drafts/\(input.draftID)", body: DraftRequestDTO(input: input.draft),
@@ -139,7 +147,7 @@ public struct GmailWriteCoordinator: Sendable {
             return try await commit(record.id, id: response.id,
                                     raw: ["id": response.id, "messageID": response.message.id])
         } catch let error as GmailError where error == .timeout || error == .transport {
-            try await ledger.markUnknown(record.id, reason: "草稿更新结果未知")
+            try await markUnknown(record.id, reason: "草稿更新结果未知")
             throw GmailError.outcomeUnknown
         }
     }
@@ -174,6 +182,7 @@ public struct GmailWriteCoordinator: Sendable {
                 try await authorizeSend(input, caller: caller, grant: activeGrant)
             }
             try await ledger.markCommitting(record.id)
+        try await breaker?.recordOperation(connectorID: "gmail")
         } catch {
             if let undoLedger { _ = try? await undoLedger.markCancelled(record.id, reason: "发送前授权已变化") }
             throw error
@@ -186,7 +195,7 @@ public struct GmailWriteCoordinator: Sendable {
             return try await commit(record.id, id: response.id,
                                     raw: ["id": response.id, "threadID": response.threadId])
         } catch let error as GmailError where error == .timeout || error == .transport {
-            try await ledger.markUnknown(record.id, reason: "发送超时或网络中断；不会自动重发")
+            try await markUnknown(record.id, reason: "发送超时或网络中断；不会自动重发")
             throw GmailError.outcomeUnknown
         }
     }
@@ -207,21 +216,34 @@ public struct GmailWriteCoordinator: Sendable {
                              as: UTF8.self)
         let receipt = ProviderReceipt(providerObjectID: providerID,
                                       url: "https://mail.google.com/mail/#all/\(providerID)", rawJSON: rawJSON)
-        try await ledger.commit(id, receipt: receipt)
-        return receipt
+        do {
+            try await ledger.commit(id, receipt: receipt)
+            try await breaker?.recordProviderSuccess(connectorID: "gmail")
+            try await breaker?.setUnknown(connectorID: "gmail", operationID: id, isUnknown: false)
+            return receipt
+        } catch {
+            try await markUnknown(id, reason: "Gmail 已返回回执，但本地提交未完成")
+            throw GmailError.outcomeUnknown
+        }
     }
 
-    private static func authorizeDraft(_ input: GmailDraftInput, caller: ToolCaller,
-                                       grant: ConnectorGrant, now: Date) async throws {
-        try validateMessage(input, grant: grant)
+    private func markUnknown(_ id: UUID, reason: String) async throws {
+        try await ledger.markUnknown(id, reason: reason)
+        try await breaker?.recordProviderFailure(connectorID: "gmail")
+        try await breaker?.setUnknown(connectorID: "gmail", operationID: id, isUnknown: true)
+    }
+
+    private func authorizeDraft(_ input: GmailDraftInput, caller: ToolCaller,
+                                grant: ConnectorGrant, now: Date) async throws {
+        try Self.validateMessage(input, grant: grant)
         try GmailProductScopeGate.authorizeEndpoint(path: "/gmail/v1/users/me/drafts",
                                                     action: .gmailCreateDraft, grant: grant)
-        let mandate = try personalMandate(caller)
+        let mandate = try Self.personalMandate(caller)
         guard mandate.validUntil > now, mandate.allowedActions.contains(.gmailCreateDraft),
               mandate.source != .device, principal(mandate, matches: grant) else {
             throw GmailError.permissionDenied("本次委托不允许创建或更新 Gmail 草稿")
         }
-        try validateEvidence(input.evidenceRefs, mandate: mandate)
+        try Self.validateEvidence(input.evidenceRefs, mandate: mandate)
     }
 
     private func authorizeSend(_ input: GmailSendInput, caller: ToolCaller,
@@ -232,7 +254,7 @@ public struct GmailWriteCoordinator: Sendable {
         let mandate = try Self.personalMandate(caller)
         guard mandate.validUntil > now(), mandate.allowedActions.contains(input.kind.action),
               mandate.targets.origin != .modelInferred, mandate.source != .device,
-              Self.principal(mandate, matches: grant) else {
+              principal(mandate, matches: grant) else {
             throw GmailError.permissionDenied("本次委托不允许该 Gmail 发送类型、账号或目标")
         }
         try Self.validateEvidence(input.draft.evidenceRefs, mandate: mandate)
@@ -272,8 +294,9 @@ public struct GmailWriteCoordinator: Sendable {
         }
     }
 
-    private static func principal(_ mandate: WorkMandate, matches grant: ConnectorGrant) -> Bool {
+    private func principal(_ mandate: WorkMandate, matches grant: ConnectorGrant) -> Bool {
         guard let account = grant.scope.gmailAccount else { return false }
+        if let bindings { return bindings.isBound(principal: mandate.principal, account: account) }
         return mandate.principal.caseInsensitiveCompare(account) == .orderedSame
     }
 

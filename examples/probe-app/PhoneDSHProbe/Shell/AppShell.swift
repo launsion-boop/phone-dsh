@@ -287,6 +287,7 @@ struct AppShell: View {
         switch route {
         case .chat(let focus):
             composition.refreshModelConfiguration()
+            chatPath.removeAll()
             chatFocus = focus
             selection = .chat
         case .dsh(let sessionID, let approvalID):

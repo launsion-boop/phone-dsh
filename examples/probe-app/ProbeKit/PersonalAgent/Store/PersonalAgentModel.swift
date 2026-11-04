@@ -18,6 +18,7 @@ public final class PersonalAgentModel {
     @ObservationIgnored private let ingress: MainIngress?
     @ObservationIgnored private let suggestionGenerator: (any StructuredSuggestionGenerating)?
     @ObservationIgnored private let suggestionStore: SuggestionStore?
+    @ObservationIgnored private let userLanguage: @Sendable () -> String
     @ObservationIgnored private var suggestionTask: Task<Void, Never>?
     @ObservationIgnored private var suggestionTurnID: UUID?
 
@@ -41,6 +42,7 @@ public final class PersonalAgentModel {
     public private(set) var didLoad = false
     @ObservationIgnored private var responseBuffer = ""
     @ObservationIgnored private var currentTurnID: UUID?
+    @ObservationIgnored private var pendingAnswer: (turn: ConversationTurn, message: AssistantMessage)?
     @ObservationIgnored private var operationPollingTask: Task<Void, Never>?
 
     public var streamingText: String {
@@ -57,7 +59,8 @@ public final class PersonalAgentModel {
                 agent: any MainAgentPort, conversations: ConversationStore, memories: MemoryStore,
                 followUps: FollowUpStore, operations: (any OperationLedger)? = nil, ingress: MainIngress? = nil,
                 suggestionGenerator: (any StructuredSuggestionGenerating)? = nil,
-                suggestionStore: SuggestionStore? = nil) {
+                suggestionStore: SuggestionStore? = nil,
+                userLanguage: @escaping @Sendable () -> String = { Locale.preferredLanguages.first ?? "en" }) {
         self.conversationID = conversationID
         self.principal = principal
         self.accountID = accountID
@@ -69,6 +72,7 @@ public final class PersonalAgentModel {
         self.ingress = ingress
         self.suggestionGenerator = suggestionGenerator
         self.suggestionStore = suggestionStore
+        self.userLanguage = userLanguage
     }
 
     public func load() async {
@@ -92,25 +96,31 @@ public final class PersonalAgentModel {
         }
     }
 
-    public func send(_ text: String? = nil) async {
+    public func send(_ text: String? = nil, selection: SuggestionSelection? = nil) async {
         let content = (text ?? draft).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !content.isEmpty, isModelConfigured else { return }
         if text == nil { draft = "" }
         failureNotice = nil
-        if let suggestion, suggestion.outcome == .shown {
-            try? await suggestionStore?.supersede(cardID: suggestion.cardID)
-        }
-        if let suggestionTurnID {
-            try? await suggestionStore?.supersede(turnID: suggestionTurnID, scope: suggestionScope)
-        }
         suggestionTask?.cancel()
-        suggestion = nil
-        suggestionTurnID = nil
         let requestID = UUID()
         let source = SourceEnvelope(requestID: requestID, principal: principal, source: .phone,
                                     replyTo: .phoneChat, grantVersion: 0, receivedAt: Date())
         do {
-            if let ingress { _ = try await ingress.ingest(envelope: source, userText: content) }
+            if let suggestion, suggestion.outcome == .shown {
+                try await suggestionStore?.supersede(cardID: suggestion.cardID)
+            }
+            if let suggestionTurnID {
+                try await suggestionStore?.supersede(turnID: suggestionTurnID, scope: suggestionScope)
+            }
+            suggestion = nil
+            suggestionTurnID = nil
+            if let ingress {
+                if let selection {
+                    _ = try await ingress.ingestSelection(envelope: source, selection: selection)
+                } else {
+                    _ = try await ingress.ingest(envelope: source, userText: content)
+                }
+            }
             _ = try await memories.ingestUserInstruction(
                 content, principal: principal,
                 source: MemorySource(kind: .phone, reference: requestID.uuidString, detail: "用户在 Chat 中明确要求记住"))
@@ -166,7 +176,7 @@ public final class PersonalAgentModel {
                 return
             }
             self.suggestion = nil
-            await send(result.userRequest)
+            await send(result.textToSend, selection: result.selection)
         } catch {
             self.suggestion = nil
             failureNotice = "选择未能持久保存，未发起后续操作。"
@@ -176,19 +186,24 @@ public final class PersonalAgentModel {
     public func answerPendingQuestion(_ answer: String) async {
         guard let question = pendingQuestion else { return }
         do {
-            var request = answer
+            var selection: SuggestionSelection?
             if let card = try await suggestionStore?.outstanding(scope: suggestionScope)
                 .first(where: { $0.cardID == question.id && $0.kind == .clarification }) {
                 if let option = card.options.first(where: { $0.label == answer }) {
                     let result = try await suggestionStore?.select(cardID: card.cardID, optionID: option.id)
-                    if let result, result.shouldSend { request = result.userRequest }
+                    if let result, result.shouldSend { selection = result.selection }
                 } else {
                     try await suggestionStore?.supersede(cardID: card.cardID)
                 }
             }
             try await conversations.resolveQuestion(question.id)
+            if let pendingAnswer {
+                try await conversations.complete(pendingAnswer.turn, message: pendingAnswer.message)
+                self.pendingAnswer = nil
+                try await reloadMessages()
+            }
             pendingQuestion = nil
-            await send(request)
+            await send(selection?.visibleLabel ?? answer, selection: selection)
         } catch {
             failureNotice = error.localizedDescription
         }
@@ -206,6 +221,7 @@ public final class PersonalAgentModel {
                 .first(where: { $0.state == .waitingForUser }) {
                 try await conversations.fail(waiting.id, reason: "问题已关闭，任务暂停。", interrupted: true)
             }
+            pendingAnswer = nil
             pendingQuestion = nil
         } catch {
             failureNotice = error.localizedDescription
@@ -301,12 +317,16 @@ public final class PersonalAgentModel {
                         pendingQuestion = question
                         try await conversations.recordQuestion(question, turnID: turn.id)
                     case .completed(let message):
-                        try await conversations.complete(turn, message: message)
+                        let waitsForClarification = await generateSuggestions(for: input, answer: message)
+                        if waitsForClarification {
+                            pendingAnswer = (turn, message)
+                        } else {
+                            try await conversations.complete(turn, message: message)
+                            pendingQuestion = nil
+                            try await reloadMessages()
+                        }
                         responseBuffer = ""
                         activeStatus = nil
-                        pendingQuestion = nil
-                        try await reloadMessages()
-                        generateSuggestions(for: input, answer: message)
                     case .failed(let failure):
                         let visible = PersonalAgentTextPolicy.failureText(failure)
                         try await conversations.fail(turn.id, reason: visible)
@@ -341,44 +361,41 @@ public final class PersonalAgentModel {
         SuggestionScope(conversationID: conversationID, principal: principal, accountID: accountID)
     }
 
-    private func generateSuggestions(for turn: MainTurnInput, answer: AssistantMessage) {
-        guard let suggestionGenerator, let suggestionStore else { return }
+    private func generateSuggestions(for turn: MainTurnInput, answer: AssistantMessage) async -> Bool {
+        guard let suggestionGenerator, let suggestionStore else { return false }
         suggestionTask?.cancel()
         suggestion = nil
         suggestionTurnID = turn.turnID
-        suggestionTask = Task { [weak self] in
-            guard let self else { return }
-            do {
-                let metadata = SuggestionHostMetadata(
-                    accountID: accountID,
-                    suppressionHistory: await suggestionStore.suppressionHistory(),
-                    userLanguage: turn.text.range(of: #"\p{Han}"#, options: .regularExpression) != nil
-                        ? "zh-Hans" : "en")
-                let result = await suggestionGenerator.generateCard(turn: turn, answer: answer,
-                                                                    metadata: metadata)
-                guard !Task.isCancelled else { return }
-                switch result {
-                case .none, .suppressed:
-                    self.suggestion = nil
-                case .card(let card):
-                    guard let shown = try await suggestionStore.shown(card) else {
-                        self.suggestion = nil
-                        return
-                    }
-                    if shown.kind == .clarification {
-                        let question = PendingQuestion(id: shown.cardID, text: shown.question,
-                                                       choices: shown.options.map(\.label))
-                        try await conversations.recordQuestion(question, turnID: turn.turnID)
-                        pendingQuestion = question
-                        self.suggestion = nil
-                    } else {
-                        self.suggestion = shown
-                    }
-                }
-            } catch {
+        do {
+            let metadata = SuggestionHostMetadata(
+                accountID: accountID,
+                suppressionHistory: await suggestionStore.suppressionHistory(),
+                userLanguage: userLanguage())
+            let result = await suggestionGenerator.generateCard(turn: turn, answer: answer,
+                                                                metadata: metadata)
+            guard !Task.isCancelled else { return false }
+            switch result {
+            case .none, .suppressed:
                 self.suggestion = nil
+            case .card(let card):
+                guard let shown = try await suggestionStore.shown(card) else {
+                    self.suggestion = nil
+                    return false
+                }
+                if shown.kind == .clarification {
+                    let question = PendingQuestion(id: shown.cardID, text: shown.question,
+                                                   choices: shown.options.map(\.label))
+                    try await conversations.recordQuestion(question, turnID: turn.turnID)
+                    pendingQuestion = question
+                    self.suggestion = nil
+                    return true
+                }
+                self.suggestion = shown
             }
+        } catch {
+            self.suggestion = nil
         }
+        return false
     }
 
     private func reloadSuggestions() async {
@@ -396,6 +413,7 @@ public final class PersonalAgentModel {
             }
         } catch {
             suggestion = nil
+            recoveryNotice = "建议状态无法读取，原始文件已保留；相关操作已停止。"
         }
     }
 
@@ -417,7 +435,7 @@ public final class PersonalAgentModel {
         try await reloadMessages()
         pendingQuestion = try await conversations.pendingQuestions(conversationID: conversationID).last
         candidates = try await memories.pendingCandidates(principal: principal)
-        followUpRecords = try await followUps.records()
+        followUpRecords = try await followUps.records(principal: principal, accountScope: accountID)
         if let operations { operationRecords = await operations.pending() }
         await reloadSuggestions()
     }

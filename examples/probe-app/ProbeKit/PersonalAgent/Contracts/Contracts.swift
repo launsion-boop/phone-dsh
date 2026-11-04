@@ -36,6 +36,8 @@ public struct SourceEnvelope: Codable, Sendable, Equatable {
 public enum MandateAction: String, Codable, Sendable {
     case read, githubComment, githubCreateIssue, githubPush, githubOpenPR
     case gmailCreateDraft, gmailReplyInThread, gmailSendNew, gmailForward
+    case personalProfileWrite, personalMemoryWrite, personalFollowUpWrite
+    case personalSuggestionHistoryWrite, personalScheduleWrite
 }
 
 public enum TargetOrigin: String, Codable, Sendable {

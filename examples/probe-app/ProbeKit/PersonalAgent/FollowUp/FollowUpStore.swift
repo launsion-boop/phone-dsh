@@ -4,6 +4,8 @@ import Foundation
 
 public struct FollowUpRecord: Codable, Sendable, Equatable, Identifiable {
     public var followUp: FollowUp
+    public let principal: String?
+    public let accountScope: String?
     public var cursor: String?
     public var needsAttention: Bool
     public var lastChangeSummary: String?
@@ -14,10 +16,13 @@ public struct FollowUpRecord: Codable, Sendable, Equatable, Identifiable {
 
     public var id: UUID { followUp.id }
 
-    public init(followUp: FollowUp, cursor: String? = nil, needsAttention: Bool = false,
+    public init(followUp: FollowUp, principal: String? = nil, accountScope: String? = nil,
+                cursor: String? = nil, needsAttention: Bool = false,
                 lastChangeSummary: String? = nil, lastNotificationAt: Date? = nil,
                 lastNotifiedCursor: String? = nil, endedAt: Date? = nil, revision: Int = 1) {
         self.followUp = followUp
+        self.principal = principal
+        self.accountScope = accountScope
         self.cursor = cursor
         self.needsAttention = needsAttention
         self.lastChangeSummary = lastChangeSummary
@@ -62,27 +67,34 @@ public struct FollowUpStore: Sendable {
         }
     }
 
-    public func create(_ followUp: FollowUp) async throws -> FollowUpRecord {
-        let record = FollowUpRecord(followUp: followUp)
+    public func create(_ followUp: FollowUp, principal: String? = nil,
+                       accountScope: String? = nil) async throws -> FollowUpRecord {
+        let record = FollowUpRecord(followUp: followUp, principal: principal, accountScope: accountScope)
         try await save(record)
         return record
     }
 
-    public func record(_ id: UUID) async throws -> FollowUpRecord? {
+    public func record(_ id: UUID, principal: String? = nil,
+                       accountScope: String? = nil) async throws -> FollowUpRecord? {
         try await domain.read { database in
             let rows = try Self.database(database).query("SELECT record_json FROM fu_followups WHERE id = ?",
                                                           bindings: [.text(id.uuidString)])
             return try rows.first.flatMap { $0["recordJson"]?.blob }
-                .map { try Self.decoder.decode(FollowUpRecord.self, from: $0) }
+                .flatMap { data -> FollowUpRecord? in
+                    let record = try Self.decoder.decode(FollowUpRecord.self, from: data)
+                    return Self.isInScope(record, principal: principal, accountScope: accountScope) ? record : nil
+                }
         }
     }
 
-    public func records(includeEnded: Bool = false) async throws -> [FollowUpRecord] {
+    public func records(includeEnded: Bool = false, principal: String? = nil,
+                        accountScope: String? = nil) async throws -> [FollowUpRecord] {
         try await domain.read { database in
             let rows = try Self.database(database).query(
                 "SELECT record_json FROM fu_followups ORDER BY needs_attention DESC, last_verified_at DESC, id")
             return try rows.compactMap { $0["recordJson"]?.blob }
                 .map { try Self.decoder.decode(FollowUpRecord.self, from: $0) }
+                .filter { Self.isInScope($0, principal: principal, accountScope: accountScope) }
                 .filter { includeEnded || $0.endedAt == nil }
         }
     }
@@ -141,6 +153,11 @@ public struct FollowUpStore: Sendable {
         try await save(record)
     }
 
+    private static func isInScope(_ record: FollowUpRecord, principal: String?, accountScope: String?) -> Bool {
+        guard principal != nil || accountScope != nil else { return true }
+        return record.principal == principal && record.accountScope == accountScope
+    }
+
     private static func bindings(_ record: FollowUpRecord, data: Data) -> [SQLiteValue] {
         [.text(record.id.uuidString), .text(record.followUp.target.kind.rawValue),
          .text(record.followUp.goal), record.cursor.map(SQLiteValue.text) ?? .null,
@@ -182,12 +199,17 @@ public actor FollowUpCoordinator {
     private let store: FollowUpStore
     private var checkers: [FollowUpTarget.Kind: any FollowUpChecker]
     private let notifier: any FollowUpNotificationDelivering
+    private let principal: String?
+    private let accountScope: String?
 
     public init(store: FollowUpStore, checkers: [any FollowUpChecker],
-                notifier: any FollowUpNotificationDelivering) {
+                notifier: any FollowUpNotificationDelivering,
+                principal: String? = nil, accountScope: String? = nil) {
         self.store = store
         self.checkers = Dictionary(uniqueKeysWithValues: checkers.map { ($0.targetKind, $0) })
         self.notifier = notifier
+        self.principal = principal
+        self.accountScope = accountScope
     }
 
     public func register(_ checker: any FollowUpChecker) {
@@ -195,8 +217,9 @@ public actor FollowUpCoordinator {
     }
 
     public func checkAll(now: Date = Date()) async throws -> [FollowUpCheckOutcome] {
-        let records = try await store.records()
+        let records = try await store.records(principal: principal, accountScope: accountScope)
         var outcomes: [FollowUpCheckOutcome] = []
+        var sharedNewMailResult: FollowUpCheckResult?
         for record in records {
             if let validUntil = record.followUp.validUntil, validUntil <= now {
                 try await store.end(record.id, now: now)
@@ -204,7 +227,19 @@ public actor FollowUpCoordinator {
             }
             if let pausedUntil = record.followUp.pausedUntil, pausedUntil > now { continue }
             guard let checker = checkers[record.followUp.target.kind] else { continue }
-            let result = await checker.check(record.followUp, since: record.cursor)
+            let result: FollowUpCheckResult
+            if record.followUp.target.kind == .gmailThread,
+               record.followUp.nextCheckCondition.expression == "newMail" {
+                if let sharedNewMailResult {
+                    result = sharedNewMailResult
+                } else {
+                    let fetched = await checker.check(record.followUp, since: record.cursor)
+                    sharedNewMailResult = fetched
+                    result = fetched
+                }
+            } else {
+                result = await checker.check(record.followUp, since: record.cursor)
+            }
             let updated = try await store.apply(result, to: record.id)
             var notification: PersonalNotification?
             if result.changed, let summary = result.summary,
@@ -217,7 +252,8 @@ public actor FollowUpCoordinator {
                 try await store.markNotified(updated.id, at: now)
                 notification = candidate
             }
-            let final = try await store.record(updated.id) ?? updated
+            let final = try await store.record(updated.id, principal: principal,
+                                               accountScope: accountScope) ?? updated
             outcomes.append(FollowUpCheckOutcome(record: final, notification: notification))
         }
         return outcomes

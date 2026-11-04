@@ -179,6 +179,10 @@ public actor GmailTokenManager {
         return try await body(task.value)
     }
 
+    public func tokenScopes() throws -> [String] {
+        try store.read { $0?.scopes ?? [] }
+    }
+
     public func revoke() async throws {
         let snapshot = try store.read { $0 }
         defer { try? store.write(nil) }

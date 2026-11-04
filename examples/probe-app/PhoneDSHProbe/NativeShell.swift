@@ -165,10 +165,7 @@ struct NativeShell: View {
                     .accessibilityHidden(!sidebarVisible && !modalDrawerVisible)
             }
             .ignoresSafeArea()
-            // 菜单盖着状态栏那一条,那上面的字必须深色;只有抽屉开着时把外观压成浅色。
-            .preferredColorScheme(preferences.appearance == .system
-                                 ? (sidebarVisible || modalDrawerVisible ? .light : nil)
-                                 : preferences.appearance.colorScheme)
+            .preferredColorScheme(preferences.appearance.colorScheme)
             .onChange(of: usesSidebar) { _, _ in
                 drawerOpen = false
                 dragOffset = 0

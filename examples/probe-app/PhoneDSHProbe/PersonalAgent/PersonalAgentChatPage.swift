@@ -82,8 +82,12 @@ struct PersonalAgentChatPage: View {
         }
         .onChange(of: dailyBrief?.snapshot?.id) { _, _ in publishDailyBriefIfChanged() }
         .sheet(isPresented: $showFollowUps) {
-            NavigationStack {
-                FollowUpListPage(store: model.followUps)
+            if case .followUp(let id) = focus {
+                FollowUpListPage(store: model.followUps, focusID: id,
+                                 principal: model.principal, accountScope: model.accountID)
+            } else {
+                FollowUpListPage(store: model.followUps,
+                                 principal: model.principal, accountScope: model.accountID)
             }
         }
     }
@@ -367,13 +371,8 @@ struct PersonalAgentChatPage: View {
                     Divider()
                     Button("管理连接器") { onManageConnector(nil) }
                 } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "plus")
-                            .font(.system(size: 15, weight: .medium))
-                        Text(sourceTitle(model.sourceSelection))
-                            .font(.caption)
-                            .lineLimit(1)
-                    }
+                    Image(systemName: "plus")
+                        .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(HomeSpec.textSecondary)
                     .padding(.horizontal, 6)
                     .frame(minHeight: 44)

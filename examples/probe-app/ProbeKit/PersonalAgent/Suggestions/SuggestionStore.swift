@@ -4,6 +4,7 @@ import Foundation
 
 public enum SuggestionStoreError: Error, Sendable, Equatable {
     case selectionEventConflict
+    case unreadableState
 }
 
 public actor SuggestionStore {
@@ -38,38 +39,50 @@ public actor SuggestionStore {
 
     private let fileURL: URL
     private let policy: SuggestionPolicy
+    private let loadError: Error?
     private var state: State
+
+    public var isHealthy: Bool { loadError == nil }
 
     public init(rootDirectory: URL, policy: SuggestionPolicy = SuggestionPolicy()) {
         self.fileURL = rootDirectory.appendingPathComponent("conversation-suggestions.json")
         self.policy = policy
-        if let data = try? Data(contentsOf: fileURL),
-           let disk = try? JSONDecoder().decode(DiskState.self, from: data),
-           disk.schemaVersion == Self.diskSchemaVersion {
-            var restored = State()
-            restored.cards = Dictionary(disk.cards.map { ($0.cardID, $0) }, uniquingKeysWith: { _, last in last })
-            restored.events = disk.events
-            restored.selections = Dictionary(disk.selections.map { ($0.selectionEventID, $0) },
-                                             uniquingKeysWith: { _, last in last })
-            restored.legacy = Dictionary(disk.legacy.map { ($0.suggestion.turnID, $0) },
-                                         uniquingKeysWith: { _, last in last })
-            restored.turnTombstones = Set(disk.turnTombstones)
-            self.state = restored
-        } else if let data = try? Data(contentsOf: fileURL),
-                  let legacy = try? JSONDecoder().decode([ConversationSuggestion].self, from: data) {
-            var migrated = State()
-            migrated.legacy = Dictionary(legacy.map {
-                ($0.turnID, LegacyRecord(suggestion: $0, outcome: .unknown))
-            }, uniquingKeysWith: { _, last in last })
-            self.state = migrated
-        } else {
-            self.state = State()
+        self.state = State()
+        var recoveredError: Error?
+        if FileManager.default.fileExists(atPath: fileURL.path) {
+            do {
+                let data = try Data(contentsOf: fileURL)
+                if let disk = try? JSONDecoder().decode(DiskState.self, from: data),
+                   disk.schemaVersion == Self.diskSchemaVersion {
+                    var restored = State()
+                    restored.cards = Dictionary(disk.cards.map { ($0.cardID, $0) }, uniquingKeysWith: { _, last in last })
+                    restored.events = disk.events
+                    restored.selections = Dictionary(disk.selections.map { ($0.selectionEventID, $0) },
+                                                     uniquingKeysWith: { _, last in last })
+                    restored.legacy = Dictionary(disk.legacy.map { ($0.suggestion.turnID, $0) },
+                                                 uniquingKeysWith: { _, last in last })
+                    restored.turnTombstones = Set(disk.turnTombstones)
+                    self.state = restored
+                } else if let legacy = try? JSONDecoder().decode([ConversationSuggestion].self, from: data) {
+                    var migrated = State()
+                    migrated.legacy = Dictionary(legacy.map {
+                        ($0.turnID, LegacyRecord(suggestion: $0, outcome: .unknown))
+                    }, uniquingKeysWith: { _, last in last })
+                    self.state = migrated
+                } else {
+                    recoveredError = SuggestionStoreError.unreadableState
+                }
+            } catch {
+                recoveredError = error
+            }
         }
+        self.loadError = recoveredError
     }
 
     @discardableResult
     public func shown(_ card: SuggestionCard, now: Date = Date(),
                       directlyRequested: Bool = false) throws -> SuggestionCard? {
+        try requireHealthy()
         try card.validate()
         guard card.outcome == .shown, now < card.expiresAt else { return nil }
         if let existing = state.cards[card.cardID] {
@@ -103,6 +116,7 @@ public actor SuggestionStore {
     }
 
     public func outstanding(scope: SuggestionScope, now: Date = Date()) throws -> [SuggestionCard] {
+        try requireHealthy()
         var updated = state
         var changed = false
         for card in state.cards.values where card.scope == scope && card.outcome == .shown && now >= card.expiresAt {
@@ -121,6 +135,7 @@ public actor SuggestionStore {
 
     public func select(cardID: UUID, optionID: String, selectionEventID: UUID = UUID(),
                        now: Date = Date()) throws -> SuggestionSelectionResult? {
+        try requireHealthy()
         if let existing = state.selections[selectionEventID] {
             guard existing.cardID == cardID, existing.optionID == optionID else {
                 throw SuggestionStoreError.selectionEventConflict
@@ -135,8 +150,10 @@ public actor SuggestionStore {
         }
         let selection = SuggestionSelection(selectionEventID: selectionEventID, cardID: cardID,
                                             cardVersion: card.schemaVersion, optionID: option.id,
-                                            userRequest: option.userRequest, conversationID: card.conversationID,
-                                            principal: card.principal, accountID: card.accountID, createdAt: now)
+                                            visibleLabel: option.label, userRequest: option.userRequest,
+                                            conversationID: card.conversationID,
+                                            principal: card.principal, accountID: card.accountID, createdAt: now,
+                                            originalMandate: card.originalMandate)
         var updated = state
         updated.cards[cardID]?.outcome = .selected
         updated.events.append(SuggestionLifecycleEvent(cardID: cardID, outcome: .selected, createdAt: now))
@@ -304,6 +321,7 @@ public actor SuggestionStore {
     }
 
     private func transition(cardID: UUID, outcome: SuggestionOutcome, now: Date) throws {
+        try requireHealthy()
         guard let card = state.cards[cardID], card.outcome == .shown else { return }
         var updated = state
         updated.cards[cardID]?.outcome = outcome
@@ -312,7 +330,12 @@ public actor SuggestionStore {
         state = updated
     }
 
+    private func requireHealthy() throws {
+        if loadError != nil { throw SuggestionStoreError.unreadableState }
+    }
+
     private func persist(_ state: State) throws {
+        try requireHealthy()
         try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(),
                                                 withIntermediateDirectories: true)
         let disk = DiskState(

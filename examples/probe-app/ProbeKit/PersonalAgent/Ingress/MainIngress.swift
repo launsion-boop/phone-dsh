@@ -97,6 +97,29 @@ public actor MainIngress {
         return MainIngressResult(envelope: envelope, mandate: mandate, duplicate: false, connectorContent: content)
     }
 
+    public func ingestSelection(envelope: SourceEnvelope, selection: SuggestionSelection) async throws -> MainIngressResult {
+        guard envelope.source == .phone, envelope.principal == selection.principal else {
+            throw MainIngressError.unsupportedSource(envelope.source)
+        }
+        let isNew = try await envelopes.persist(envelope)
+        if !isNew, await envelopes.envelope(requestID: envelope.requestID) != envelope {
+            throw MainIngressError.envelopeConflict(envelope.requestID)
+        }
+        if let existing = await mandates.mandate(for: envelope.requestID) {
+            return MainIngressResult(envelope: envelope, mandate: existing, duplicate: true)
+        }
+        let original = selection.originalMandate
+        let draft = MandateDraft(
+            goal: selection.visibleLabel ?? "Selected suggestion",
+            allowedActions: original?.allowedActions ?? [.read],
+            allowedEvidenceRefs: original?.allowedEvidenceRefs ?? [],
+            targets: original?.targets ?? MandateTargets(origin: .userNamed),
+            validUntil: min(original?.validUntil ?? now().addingTimeInterval(factory.validityInterval),
+                            now().addingTimeInterval(factory.validityInterval)))
+        let mandate = try await mandates.issue(envelope: envelope, draft: draft)
+        return MainIngressResult(envelope: envelope, mandate: mandate, duplicate: false)
+    }
+
     public func mandate(for requestID: UUID) async -> WorkMandate? {
         await mandates.mandate(for: requestID)
     }

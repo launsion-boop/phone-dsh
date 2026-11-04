@@ -82,6 +82,40 @@ final class PA_GmailIncrementalTests: XCTestCase {
         XCTAssertEqual(changed.newMessages.count, 25)
         XCTAssertEqual(changed.state.historyID, "11")
     }
+
+    func testNewMailBatchFansOutToEveryScopedFollowUp() async throws {
+        let first = PA_GmailMessage(id: "m1", historyID: "10")
+        let reading = PA_GmailReadingMock()
+        await reading.setInitial(search: GmailSearchResult(messages: [first], nextPageToken: nil),
+                                 messages: [first.id: first])
+        let synchronizer = GmailIncrementalSynchronizer(client: reading,
+                                                        store: PA_GmailMemoryIncrementalStore())
+        let checker = GmailFollowUpChecker(client: reading, incremental: synchronizer)
+        let domain = try SQLiteDomainStore(fileURL: FileManager.default.temporaryDirectory
+            .appendingPathComponent("PA-GmailFanOut-\(UUID().uuidString)/domain.sqlite"))
+        let store = FollowUpStore(domain: domain)
+        try await store.prepare()
+        for index in 0..<2 {
+            _ = try await store.create(FollowUp(
+                goal: "watch \(index)", target: FollowUpTarget(kind: .gmailThread, threadID: "thread-\(index)"),
+                nextCheckCondition: CheckCondition(expression: "newMail"),
+                stopCondition: StopCondition(expression: "done")), principal: "owner", accountScope: "local")
+        }
+        _ = try await store.create(FollowUp(
+            goal: "other", target: FollowUpTarget(kind: .gmailThread, threadID: "other"),
+            nextCheckCondition: CheckCondition(expression: "newMail"),
+            stopCondition: StopCondition(expression: "done")), principal: "other", accountScope: "local")
+        let coordinator = FollowUpCoordinator(store: store, checkers: [checker],
+                                             notifier: PA_GmailFollowUpNotifier(),
+                                             principal: "owner", accountScope: "local")
+        let outcomes = try await coordinator.checkAll()
+        XCTAssertEqual(outcomes.count, 2)
+        XCTAssertTrue(outcomes.allSatisfy { $0.record.lastChangeSummary == "Gmail 有 1 封新邮件" })
+    }
+}
+
+private actor PA_GmailFollowUpNotifier: FollowUpNotificationDelivering {
+    func deliver(_ notification: PersonalNotification) async throws {}
 }
 
 private extension PA_GmailReadingMock {
