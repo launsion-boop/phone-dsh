@@ -39,52 +39,68 @@ final class SilentAudioKeepAlive {
         }
     }
 
-    /// Activates the session and starts rendering silence. Idempotent.
+    /// Activates the session and starts rendering silence. Registers the lease
+    /// before activation so a failed start rolls it back. Idempotent.
     func start() throws {
         guard !isActive else { return }
-        let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
-        try session.setActive(true, options: [])
-        if !engine.attachedNodes.contains(player) {
-            guard let format = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 1) else {
-                throw KeepAliveError.noFormat
-            }
-            // One second of silence, scheduled in a loop.
-            let frames = AVAudioFrameCount(format.sampleRate)
-            guard let pcm = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames) else {
-                throw KeepAliveError.noBuffer
-            }
-            pcm.frameLength = frames
-            buffer = pcm
-            engine.attach(player)
-            engine.connect(player, to: engine.mainMixerNode, format: format)
-        }
-        engine.mainMixerNode.outputVolume = 1.0
-        try engine.start()
-        if let buffer {
-            player.scheduleBuffer(buffer, at: nil, options: [.loops])
-        }
-        player.play()
-        isActive = true
-        observeSession()
         PhoneAudioSessionLease.beginKeepAlive { [weak self] in
-            self?.reclaimAfterForeignRelease()
+            self?.reclaimSilentRendering()
         }
-        onEvent?("keep-alive audio session active (playback, mixWithOthers)")
+        do {
+            try PhoneAudioSessionLease.activateKeepAliveSession()
+            if !engine.attachedNodes.contains(player) {
+                guard let format = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 1) else {
+                    throw KeepAliveError.noFormat
+                }
+                // One second of silence, scheduled in a loop.
+                let frames = AVAudioFrameCount(format.sampleRate)
+                guard let pcm = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames) else {
+                    throw KeepAliveError.noBuffer
+                }
+                pcm.frameLength = frames
+                buffer = pcm
+                engine.attach(player)
+                engine.connect(player, to: engine.mainMixerNode, format: format)
+            }
+            engine.mainMixerNode.outputVolume = 1.0
+            try engine.start()
+            if let buffer {
+                player.scheduleBuffer(buffer, at: nil, options: [.loops])
+            }
+            player.play()
+            isActive = true
+            observeSession()
+            onEvent?("keep-alive audio session active")
+        } catch {
+            player.stop()
+            if engine.isRunning { engine.stop() }
+            PhoneAudioSessionLease.endKeepAlive()
+            throw error
+        }
     }
 
-    /// Re-applies `.playback` + `.mixWithOthers` on the shared session. WebKit
-    /// sets its own category when page media starts; a session that mixes with
-    /// others is not eligible to be the system's Now Playing app, so nothing is
-    /// shown in the Dynamic Island, Control Center or the lock screen.
+    /// Re-applies the lease's current mixable profile: playback for a plain
+    /// keep-alive, playAndRecord while its sticky microphone profile is held.
+    /// WebKit sets its own category when page media starts; a session that
+    /// mixes with others is not eligible to be the system's Now Playing app,
+    /// so nothing is shown in the Dynamic Island, Control Center or the lock
+    /// screen. A healthy mixable session is left alone, so the heartbeat does
+    /// not reconfigure the shared session on every tick.
     func reassertCategory() {
+        guard PhoneAudioSessionLease.isKeepAliveHeld else { return }
+        guard !PhoneAudioSessionLease.isMicrophoneHeld else {
+            onEvent?("audio session re-assert deferred: microphone is active")
+            return
+        }
         let session = AVAudioSession.sharedInstance()
         let mixing = session.categoryOptions.contains(.mixWithOthers)
-        if session.category == .playback && mixing { return }
+        let expectedCategory: AVAudioSession.Category =
+            PhoneAudioSessionLease.isMicrophoneProfileSticky ? .playAndRecord : .playback
+        if session.category == expectedCategory && mixing { return }
+        let previousCategory = session.category.rawValue
         do {
-            try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
-            try session.setActive(true, options: [])
-            onEvent?("audio session re-asserted: playback + mixWithOthers (was \(session.category.rawValue), mixing=\(mixing))")
+            try PhoneAudioSessionLease.activateKeepAliveSession()
+            onEvent?("audio session re-asserted: \(session.category.rawValue) + mixWithOthers (was \(previousCategory), mixing=\(mixing))")
         } catch {
             onEvent?("audio session re-assert failed: \(error)")
         }
@@ -115,11 +131,8 @@ final class SilentAudioKeepAlive {
         if hadInfo { onEvent?("now-playing item cleared (WebKit had registered one)") }
     }
 
-    /// Stops rendering and releases the session. Idempotent.
-    ///
-    /// The lease is cleared before `setActive(false)`. A microphone release
-    /// that re-enters during teardown then deactivates, and does not start
-    /// the player again.
+    /// Stops rendering and releases the keep-alive claim. The lease deactivates
+    /// only when no microphone owner remains. Idempotent.
     func stop() {
         guard isActive else { return }
         player.stop()
@@ -127,26 +140,19 @@ final class SilentAudioKeepAlive {
         isActive = false
         PhoneAudioSessionLease.endKeepAlive()
         unobserveSession()
-        try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
-        onEvent?("keep-alive audio session released")
+        onEvent?("keep-alive audio rendering released")
     }
 
-    /// Restores `.playback` + `.mixWithOthers` after dictation or the record
-    /// tool finishes. Those callers share this session and would otherwise
-    /// leave it inactive. A healthy silent player is left alone.
-    private func reclaimAfterForeignRelease() {
+    /// Restarts silent rendering after the lease commits a microphone or
+    /// playback profile. A healthy player is left alone.
+    private func reclaimSilentRendering() {
         guard isActive else { return }
-        let session = AVAudioSession.sharedInstance()
-        let previousCategory = session.category
-        let wasMixing = session.categoryOptions.contains(.mixWithOthers)
         let engineWasRunning = engine.isRunning
         let playerWasPlaying = player.isPlaying
-        if previousCategory == .playback && wasMixing && engineWasRunning && playerWasPlaying {
+        if engineWasRunning && playerWasPlaying {
             return
         }
         do {
-            try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
-            try session.setActive(true, options: [])
             if !engine.isRunning {
                 engine.mainMixerNode.outputVolume = 1.0
                 try engine.start()
@@ -155,7 +161,7 @@ final class SilentAudioKeepAlive {
                 player.scheduleBuffer(buffer, at: nil, options: [.loops])
                 player.play()
             }
-            onEvent?("keep-alive audio reclaimed (was \(previousCategory.rawValue), mixing=\(wasMixing), engine=\(engineWasRunning))")
+            onEvent?("keep-alive audio rendering reclaimed (engine=\(engineWasRunning), player=\(playerWasPlaying))")
         } catch {
             onEvent?("keep-alive audio reclaim failed: \(error)")
         }
@@ -194,7 +200,7 @@ final class SilentAudioKeepAlive {
             // A phone call or another exclusive session ended: render again so the
             // background assertion comes back.
             do {
-                try AVAudioSession.sharedInstance().setActive(true, options: [])
+                try PhoneAudioSessionLease.activateKeepAliveSession()
                 if !engine.isRunning { try engine.start() }
                 if let buffer { player.scheduleBuffer(buffer, at: nil, options: [.loops]) }
                 player.play()

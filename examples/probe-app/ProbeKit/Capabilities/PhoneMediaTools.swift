@@ -42,17 +42,12 @@ public struct PhoneMediaTools {
         _ = try PhoneToolEnvelope.text(object, "purpose", limit: 200)
         let duration = try PhoneToolEnvelope.integer(object, "maxSeconds", default: 5,
                                                      minimum: 1, maximum: 600)
-        let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
-        try session.setActive(true)
+        let token = try PhoneAudioSessionLease.acquireMicrophoneUser()
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("phone-dsh-audio-\(UUID().uuidString).m4a")
         defer {
             try? FileManager.default.removeItem(at: url)
-            // `.playAndRecord` replaced the silent keep-alive's category for
-            // this recording. Reclaim playback when that session is held;
-            // otherwise deactivate as before.
-            PhoneAudioSessionLease.releaseMicrophoneUser()
+            PhoneAudioSessionLease.releaseMicrophoneUser(token)
         }
         let recorder = try AVAudioRecorder(url: url, settings: [
             AVFormatIDKey: kAudioFormatMPEG4AAC,

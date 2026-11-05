@@ -12,6 +12,7 @@ final class ComposerVoiceInput: NSObject, AVSpeechSynthesizerDelegate {
     private(set) var speaking = false
     private(set) var status = ""
     private var engine: AVAudioEngine?
+    private var microphoneToken: PhoneAudioSessionLease.MicrophoneToken?
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private var generation = UUID()
@@ -49,9 +50,7 @@ final class ComposerVoiceInput: NSObject, AVSpeechSynthesizerDelegate {
                 cancel(); status = "当前语言的设备端语音识别暂不可用。"; return
             }
             do {
-                let session = AVAudioSession.sharedInstance()
-                try session.setCategory(.record, mode: .measurement, options: .duckOthers)
-                try session.setActive(true)
+                microphoneToken = try PhoneAudioSessionLease.acquireMicrophoneUser()
                 let engine = AVAudioEngine()
                 self.engine = engine
                 let request = SFSpeechAudioBufferRecognitionRequest()
@@ -104,9 +103,10 @@ final class ComposerVoiceInput: NSObject, AVSpeechSynthesizerDelegate {
         engine?.inputNode.removeTap(onBus: 0)
         engine = nil
         recording = false
-        // Deactivating the shared session also drops the silent keep-alive.
-        // The lease reclaims playback when that session is held.
-        PhoneAudioSessionLease.releaseMicrophoneUser()
+        if let token = microphoneToken {
+            microphoneToken = nil
+            PhoneAudioSessionLease.releaseMicrophoneUser(token)
+        }
     }
 
     func speak(_ text: String) {

@@ -43,18 +43,24 @@ final class ProbeScenePhaseWiringTests: XCTestCase {
         let root = repoRoot()
         let voice = try contents(root.appendingPathComponent(
             "examples/probe-app/PhoneDSHProbe/ComposerVoiceInput.swift"))
-        XCTAssertFalse(voice.contains("setActive(false"))
-        XCTAssertEqual(occurrences(of: "PhoneAudioSessionLease.releaseMicrophoneUser()", in: voice), 1)
+        XCTAssertFalse(voice.contains("setActive("))
+        XCTAssertFalse(voice.contains("setCategory("))
+        XCTAssertTrue(voice.contains("PhoneAudioSessionLease.acquireMicrophoneUser()"))
+        XCTAssertEqual(occurrences(of: "PhoneAudioSessionLease.releaseMicrophoneUser(", in: voice), 1)
 
         let media = try contents(root.appendingPathComponent(
             "examples/probe-app/ProbeKit/Capabilities/PhoneMediaTools.swift"))
-        XCTAssertFalse(media.contains("setActive(false"))
-        XCTAssertEqual(occurrences(of: "PhoneAudioSessionLease.releaseMicrophoneUser()", in: media), 1)
+        XCTAssertFalse(media.contains("setActive("))
+        XCTAssertFalse(media.contains("setCategory("))
+        XCTAssertTrue(media.contains("PhoneAudioSessionLease.acquireMicrophoneUser()"))
+        XCTAssertEqual(occurrences(of: "PhoneAudioSessionLease.releaseMicrophoneUser(", in: media), 1)
 
         let keepAlive = try contents(root.appendingPathComponent(
             "examples/probe-app/PhoneDSHProbe/BackgroundKeepAlive.swift"))
         XCTAssertEqual(occurrences(of: "PhoneAudioSessionLease.beginKeepAlive", in: keepAlive), 1)
-        XCTAssertEqual(occurrences(of: "PhoneAudioSessionLease.endKeepAlive()", in: keepAlive), 2)
+        XCTAssertTrue(keepAlive.contains("PhoneAudioSessionLease.endKeepAlive()"))
+        XCTAssertFalse(keepAlive.contains("setCategory("))
+        XCTAssertFalse(keepAlive.contains("setActive("))
     }
 
     private func probeRoot() -> URL {
