@@ -1,7 +1,9 @@
 # iOS audio handoff closeout, 2026-11-05
 
-This run closes the device failures found during PR31/32 validation on top of
-PR33. PR31 and PR32 are closed, unmerged; PR33 is the integration base.
+This run verifies the audio ownership fix on top of PR33. Recording across
+lock and keep-alive handoff pass. Starting a new recording after lock fails
+on the tested device. PR31 and PR32 are closed without merging. PR33 is the
+integration base.
 
 ## Revisions and scope
 
@@ -79,7 +81,8 @@ with the tool receipt, then inspect decoded sample count using afinfo and ffprob
 | Recording then lock, microphone release back to keep-alive | Ownership candidate, PASS; start 03:44:34, lock/background 03:44:53; new test artifact has 59.952472 valid seconds and matching stored SHA. The bash tool became a background job at 60 seconds; direct job_output receipt was not collected for this case. |
 | Earlier seven-minute locked stream | Ownership candidate, PASS; 410-second heartbeat, native event progression, turn ends locked at 03:51:50. Installation followed before idle parking was fully observed, so that run does not prove park completion. |
 | Voice input with actual human speech | Final audio code, PASS; nonempty six-character device transcript at 04:04:30, capture and recognition inactive at 04:04:42. Transcript content is not saved in evidence. |
-| Final retained-profile locked reacquisition | INCOMPLETE, awaiting physical unlock for the dedicated run; pre-lock results from the delayed-control round do not count. |
+| Final retained-profile locked reacquisition | FAIL on final audio code. First recording starts at 06:17:15 UTC, then the device locks and keep-alive starts at 06:17:24. The first recording finishes at 06:17:45 with 29.952290 valid seconds, 1,320,896 decoded frames and a matching artifact SHA. Two new five-second requests start after lock at 06:17:51 and 06:17:56. Both reach `AVAudioRecorder.record(forDuration:)`, which returns false. Both return `microphone/unavailable` without an artifact. |
+| Locked task completion after two failed recorder starts | PASS. The fixture emits all 73 ticks. The final heartbeat at 388 seconds reports 100 events and live audio. The turn completes at 06:23:57 UTC, releases keep-alive audio and logs Host parked. Device lock state still requires a passcode. Native conversation metrics report error 12 during parking, but the explicit completion and park events are present. |
 | Final voice-input then locked streaming completion and idle park | Final audio code, PASS; recording active before lock/background at 04:05:49, 360-second heartbeat with native event progression, locked turn completion and Host parked at 04:11:53. The preceding two recordings occurred before lock and do not validate locked reacquisition. |
 
 ## Automated verification
@@ -104,14 +107,18 @@ XCTest logs, native receipts and sanitized metadata are retained in local eviden
 
 ## Limits and handoff
 
-Status per affected end is implemented. The dedicated locked reacquisition
-acceptance remains pending physical unlock; all other results above are observed. A microphone first activated only after entering the background
-is not promised by this API. Media-service reset, interruption recovery, process
+The dedicated locked reacquisition run establishes that retaining the
+playAndRecord profile is insufficient to start a new recording after the prior
+capture stops. The tool reaches the recorder start guard after obtaining the
+lease. This is consistent with the background recording activation restriction
+[described by Apple DTS](https://developer.apple.com/forums/thread/816408). The
+recorder returns a Boolean, so this trace does not identify its internal OS error.
+PR35 remains on hold if locked recording initiation is required for acceptance.
+Media-service reset, interruption recovery, process
 termination, power loss, other iOS versions, speech accuracy and real-model
 end-to-end behavior are not certified by this run. Raw microphone files and
 transcript content stay local and are not included in shared evidence.
 
-No SDK or WAL workaround is introduced. The fresh-base park failure is tracked
-as part of the audio transition repro; final idle park must be observed after all
-native recording calls finish. The unrelated baseline gate failures remain
+No SDK or WAL workaround is introduced. The fresh-base park failure is tracked as part of the audio transition repro.
+The final run records idle park after all native recording calls finish. The unrelated baseline gate failures remain
 outside this change.
