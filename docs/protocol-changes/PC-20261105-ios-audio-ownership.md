@@ -3,7 +3,7 @@
 ```yaml
 change: PC-20261105-ios-audio-ownership
 contracts: [P08]
-status: frozen
+status: implemented
 breaking: true
 version_decision: app-local source API revision 2; migrate all callers in one bundle, no wire version
 base: 515e3395a4b7c80a522bd4f12f76edd0b5c2a058
