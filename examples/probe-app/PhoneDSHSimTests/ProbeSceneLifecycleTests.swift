@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-import ProbeKit
+@testable import ProbeKit
 import XCTest
 
 @MainActor
@@ -85,40 +85,245 @@ final class ProbeScenePhaseForwardingTests: XCTestCase {
 
 @MainActor
 final class PhoneAudioSessionLeaseTests: XCTestCase {
-    override func setUp() {
-        super.setUp()
-        PhoneAudioSessionLease.endKeepAlive()
+    func testMicrophoneThenKeepAliveKeepsMixableProfileUntilZeroOwners() throws {
+        let backend = LeaseBackend()
+        let state = backend.state()
+        let reclaims = Counter()
+
+        let token = try state.acquireMicrophoneUser()
+        XCTAssertEqual(backend.microphone.value, 1)
+        state.beginKeepAlive {
+            XCTAssertFalse(state.hasMicrophoneOwner)
+            reclaims.increment()
+        }
+        try state.activateKeepAliveSession()
+        XCTAssertEqual(backend.playback.value, 0, "playback was forced while the microphone was held")
+        XCTAssertEqual(backend.activation.value, 1)
+
+        state.releaseMicrophoneUser(token)
+        XCTAssertEqual(backend.playback.value, 0, "releasing the microphone forced playback while the keep-alive remained")
+        XCTAssertEqual(reclaims.value, 1)
+        XCTAssertEqual(backend.deactivation.value, 0)
+        XCTAssertFalse(state.hasMicrophoneOwner)
+        XCTAssertTrue(state.isMicrophoneProfileSticky)
+
+        state.endKeepAlive()
+        XCTAssertEqual(backend.deactivation.value, 1)
+        XCTAssertFalse(state.isKeepAliveHeld)
+        XCTAssertFalse(state.isMicrophoneProfileSticky)
     }
 
-    override func tearDown() {
-        PhoneAudioSessionLease.endKeepAlive()
-        super.tearDown()
+    func testKeepAliveThenMicrophoneDefersTeardownUntilLastOwnerGone() throws {
+        let backend = LeaseBackend()
+        let state = backend.state()
+        let reclaims = Counter()
+
+        state.beginKeepAlive {
+            XCTAssertTrue(state.hasMicrophoneOwner)
+            reclaims.increment()
+        }
+        try state.activateKeepAliveSession()
+        XCTAssertEqual(backend.playback.value, 1)
+        XCTAssertEqual(backend.microphone.value, 0)
+
+        let token = try state.acquireMicrophoneUser()
+        XCTAssertEqual(reclaims.value, 1, "the committed microphone profile did not recover rendering")
+        state.endKeepAlive()
+        XCTAssertEqual(backend.deactivation.value, 0)
+        XCTAssertFalse(state.isKeepAliveHeld)
+
+        state.releaseMicrophoneUser(token)
+        XCTAssertEqual(backend.playback.value, 1, "the last release configured playback instead of deactivating")
+        XCTAssertEqual(reclaims.value, 1)
+        XCTAssertEqual(backend.deactivation.value, 1)
+        XCTAssertFalse(state.hasMicrophoneOwner)
+        XCTAssertFalse(state.isMicrophoneProfileSticky)
     }
 
-    func testReleaseDeactivatesWhenKeepAliveIsIdle() {
-        let deactivated = Counter()
-        PhoneAudioSessionLease.releaseMicrophoneUser { deactivated.increment() }
-        XCTAssertEqual(deactivated.value, 1)
-        XCTAssertFalse(PhoneAudioSessionLease.isKeepAliveHeld)
+    func testKeepAliveStopLeavesAnActiveMicrophoneSessionAlone() throws {
+        let backend = LeaseBackend()
+        let state = backend.state()
+        let reclaims = Counter()
+
+        let token = try state.acquireMicrophoneUser()
+        state.beginKeepAlive { reclaims.increment() }
+        try state.activateKeepAliveSession()
+        state.endKeepAlive()
+        XCTAssertEqual(backend.deactivation.value, 0)
+        XCTAssertEqual(backend.playback.value, 0)
+        XCTAssertTrue(state.hasMicrophoneOwner)
+
+        state.releaseMicrophoneUser(token)
+        XCTAssertEqual(backend.deactivation.value, 1)
     }
 
-    func testReleaseReclaimsWhileKeepAliveHoldsTheSession() {
-        let deactivated = Counter()
-        let reclaimed = Counter()
-        PhoneAudioSessionLease.beginKeepAlive { reclaimed.increment() }
-        PhoneAudioSessionLease.releaseMicrophoneUser { deactivated.increment() }
-        XCTAssertEqual(deactivated.value, 0)
-        XCTAssertEqual(reclaimed.value, 1)
-        XCTAssertTrue(PhoneAudioSessionLease.isKeepAliveHeld)
+    func testIdleReleaseWithoutAnAcquiredTokenDoesNotDeactivate() {
+        let backend = LeaseBackend()
+        let state = backend.state()
+
+        state.releaseMicrophoneUser(PhoneAudioSessionLease.MicrophoneToken())
+        XCTAssertEqual(backend.deactivation.value, 0)
+        XCTAssertEqual(backend.playback.value, 0)
+        XCTAssertFalse(state.hasMicrophoneOwner)
     }
 
-    func testEndingKeepAliveRestoresDeactivation() {
-        let deactivated = Counter()
-        PhoneAudioSessionLease.beginKeepAlive {}
-        PhoneAudioSessionLease.endKeepAlive()
-        PhoneAudioSessionLease.releaseMicrophoneUser { deactivated.increment() }
-        XCTAssertEqual(deactivated.value, 1)
-        XCTAssertFalse(PhoneAudioSessionLease.isKeepAliveHeld)
+    func testRepeatedAndStaleMicrophoneReleasesAreIgnored() throws {
+        let backend = LeaseBackend()
+        let state = backend.state()
+
+        let first = try state.acquireMicrophoneUser()
+        state.releaseMicrophoneUser(first)
+        XCTAssertEqual(backend.deactivation.value, 1)
+
+        state.releaseMicrophoneUser(first)
+        XCTAssertEqual(backend.deactivation.value, 1)
+
+        let second = try state.acquireMicrophoneUser()
+        state.releaseMicrophoneUser(first)
+        XCTAssertEqual(backend.deactivation.value, 1)
+        XCTAssertTrue(state.hasMicrophoneOwner)
+
+        state.releaseMicrophoneUser(second)
+        XCTAssertEqual(backend.deactivation.value, 2)
+        XCTAssertFalse(state.hasMicrophoneOwner)
+    }
+
+    /// A re-acquisition while the retained mixable playAndRecord profile is
+    /// active must commit a new token without re-running the category setter,
+    /// and only the current token may tear the session down.
+    func testReacquisitionOfRetainedProfileSkipsConfigureAndKeepsNewOwner() throws {
+        let backend = LeaseBackend()
+        let state = backend.state()
+        let reclaims = Counter()
+
+        state.beginKeepAlive { reclaims.increment() }
+        let first = try state.acquireMicrophoneUser()
+        XCTAssertEqual(backend.microphone.value, 1)
+        state.releaseMicrophoneUser(first)
+        XCTAssertEqual(backend.deactivation.value, 0)
+        XCTAssertTrue(state.isMicrophoneProfileSticky)
+
+        let second = try state.acquireMicrophoneUser()
+        XCTAssertEqual(backend.microphone.value, 1, "re-acquisition reconfigured the retained microphone profile")
+        XCTAssertEqual(backend.deactivation.value, 0)
+        XCTAssertEqual(reclaims.value, 3)
+        XCTAssertTrue(state.hasMicrophoneOwner)
+
+        state.releaseMicrophoneUser(first)
+        XCTAssertTrue(state.hasMicrophoneOwner, "a stale release closed the current microphone owner")
+        XCTAssertEqual(backend.deactivation.value, 0)
+
+        state.endKeepAlive()
+        XCTAssertTrue(state.hasMicrophoneOwner)
+        XCTAssertEqual(backend.deactivation.value, 0)
+        XCTAssertTrue(state.isMicrophoneProfileSticky)
+
+        state.releaseMicrophoneUser(second)
+        XCTAssertFalse(state.hasMicrophoneOwner)
+        XCTAssertEqual(backend.deactivation.value, 1)
+        XCTAssertFalse(state.isMicrophoneProfileSticky)
+
+        let third = try state.acquireMicrophoneUser()
+        XCTAssertEqual(backend.microphone.value, 2, "a fresh acquisition after zero owners did not reconfigure")
+        state.releaseMicrophoneUser(third)
+        XCTAssertEqual(backend.deactivation.value, 2)
+    }
+
+    func testSecondMicrophoneAcquisitionFailsBeforeTouchingTheSession() throws {
+        let backend = LeaseBackend()
+        let state = backend.state()
+
+        let token = try state.acquireMicrophoneUser()
+        XCTAssertEqual(backend.microphone.value, 1)
+        XCTAssertThrowsError(try state.acquireMicrophoneUser()) { error in
+            guard case let PhoneToolError.unavailable(capability, _) = error,
+                  capability == .microphone else {
+                return XCTFail("unexpected error: \(error)")
+            }
+        }
+        XCTAssertEqual(backend.microphone.value, 1)
+        XCTAssertEqual(backend.deactivation.value, 0)
+        XCTAssertTrue(state.hasMicrophoneOwner)
+
+        state.releaseMicrophoneUser(token)
+        XCTAssertEqual(backend.deactivation.value, 1)
+    }
+
+    func testFailedMicrophoneActivationKeepsTheKeepAliveOwner() throws {
+        struct ActivationFailure: Error {}
+        let backend = LeaseBackend()
+        backend.microphoneError = ActivationFailure()
+        let state = backend.state()
+        let reclaims = Counter()
+
+        state.beginKeepAlive { reclaims.increment() }
+        try state.activateKeepAliveSession()
+        XCTAssertEqual(backend.playback.value, 1)
+
+        XCTAssertThrowsError(try state.acquireMicrophoneUser())
+        XCTAssertFalse(state.hasMicrophoneOwner)
+        XCTAssertTrue(state.isKeepAliveHeld)
+        XCTAssertEqual(backend.playback.value, 2)
+        XCTAssertEqual(reclaims.value, 1)
+        XCTAssertEqual(backend.deactivation.value, 0)
+
+        state.endKeepAlive()
+        XCTAssertEqual(backend.deactivation.value, 1)
+    }
+
+    /// The mixable playAndRecord profile outlives the microphone token while the
+    /// keep-alive remains, and only zero owners clear it. Releasing the mic and
+    /// re-asserting the session must never fall back to playback; a fresh
+    /// keep-alive after zero owners must arm playback again.
+    func testStickyProfileSurvivesMicrophoneReleaseAndResetsAtZeroOwners() throws {
+        let backend = LeaseBackend()
+        let state = backend.state()
+        let reclaims = Counter()
+
+        let token = try state.acquireMicrophoneUser()
+        XCTAssertEqual(backend.microphone.value, 1)
+        state.beginKeepAlive { reclaims.increment() }
+
+        state.releaseMicrophoneUser(token)
+        XCTAssertEqual(backend.playback.value, 0, "releasing the microphone forced playback")
+        XCTAssertEqual(backend.deactivation.value, 0)
+        XCTAssertEqual(reclaims.value, 1)
+        XCTAssertTrue(state.isMicrophoneProfileSticky)
+
+        try state.activateKeepAliveSession()
+        XCTAssertEqual(backend.playback.value, 0, "re-asserting a sticky keep-alive forced playback")
+        XCTAssertEqual(backend.microphone.value, 2, "re-asserting did not reuse the sticky microphone profile")
+
+        state.endKeepAlive()
+        XCTAssertEqual(backend.deactivation.value, 1)
+        XCTAssertFalse(state.isMicrophoneProfileSticky)
+
+        state.beginKeepAlive { reclaims.increment() }
+        try state.activateKeepAliveSession()
+        XCTAssertEqual(backend.playback.value, 1, "a fresh keep-alive after zero owners did not arm playback")
+        XCTAssertEqual(reclaims.value, 1)
+        state.endKeepAlive()
+        XCTAssertEqual(backend.deactivation.value, 2)
+    }
+}
+
+@MainActor
+private final class LeaseBackend {
+    let playback = Counter()
+    let microphone = Counter()
+    let activation = Counter()
+    let deactivation = Counter()
+    var microphoneError: Error?
+
+    func state() -> PhoneAudioSessionLease.State {
+        PhoneAudioSessionLease.State(
+            configurePlayback: { self.playback.increment() },
+            configureMicrophone: {
+                if let error = self.microphoneError { throw error }
+                self.microphone.increment()
+            },
+            activate: { self.activation.increment() },
+            deactivate: { self.deactivation.increment() })
     }
 }
 
@@ -158,8 +363,8 @@ private final class Counter: @unchecked Sendable {
     /// Increments and returns the new value.
     func incrementAndGet() -> Int {
         lock.lock()
-        stored += 1
-        let value = stored
+        let value = stored + 1
+        stored = value
         lock.unlock()
         return value
     }

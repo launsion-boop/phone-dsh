@@ -1,47 +1,152 @@
 // SPDX-License-Identifier: MIT
 // The silent keep-alive, dictation, and the phone record tool share one
-// AVAudioSession. `setActive(false)` drops every owner. A microphone user
-// deactivates the session only while the keep-alive does not hold it;
-// otherwise the keep-alive reclaims `.playback` + `.mixWithOthers`.
+// AVAudioSession. A pure keep-alive run uses playback + mixWithOthers; while a
+// microphone caller holds a token the session keeps the same mixable
+// playAndRecord profile until the last owner releases it. The last owner
+// deactivates the session.
 
 import AVFoundation
 import Foundation
 
 @MainActor
 public enum PhoneAudioSessionLease {
-    private static var reclaim: (@MainActor () -> Void)?
-
-    /// True between ``beginKeepAlive(reclaim:)`` and ``endKeepAlive()``.
-    public static var isKeepAliveHeld: Bool { reclaim != nil }
-
-    /// Marks the silent playback session as the owner that must survive a
-    /// later microphone release. `reclaim` restores that session.
-    public static func beginKeepAlive(reclaim: @escaping @MainActor () -> Void) {
-        self.reclaim = reclaim
+    public struct MicrophoneToken: Hashable, Sendable {
+        let id: UUID
+        init() { id = UUID() }
     }
 
-    /// Drops the keep-alive claim. The next microphone release deactivates
-    /// the shared session.
-    public static func endKeepAlive() {
-        reclaim = nil
-    }
+    @MainActor
+    final class State {
+        private let configurePlayback: @MainActor () throws -> Void
+        private let configureMicrophone: @MainActor () throws -> Void
+        private let activate: @MainActor () throws -> Void
+        private let deactivate: @MainActor () -> Void
+        private var reclaim: (@MainActor () -> Void)?
+        private var microphoneToken: MicrophoneToken?
+        /// Once a microphone configures the session, keep its mixable
+        /// playAndRecord profile until no owners remain.
+        private var microphoneProfile = false
 
-    /// Ends a microphone user's claim. Production callers use
-    /// ``releaseMicrophoneUser()``; tests pass `deactivate` so they never
-    /// touch the real session.
-    public static func releaseMicrophoneUser(deactivate: @MainActor () -> Void) {
-        if let reclaim {
-            reclaim()
-        } else {
+        init(configurePlayback: @escaping @MainActor () throws -> Void,
+             configureMicrophone: @escaping @MainActor () throws -> Void,
+             activate: @escaping @MainActor () throws -> Void,
+             deactivate: @escaping @MainActor () -> Void) {
+            self.configurePlayback = configurePlayback
+            self.configureMicrophone = configureMicrophone
+            self.activate = activate
+            self.deactivate = deactivate
+        }
+
+        /// True between ``beginKeepAlive(reclaim:)`` and ``endKeepAlive()``.
+        var isKeepAliveHeld: Bool { reclaim != nil }
+
+        var hasMicrophoneOwner: Bool { microphoneToken != nil }
+
+        var isMicrophoneProfileSticky: Bool { microphoneProfile }
+
+        func beginKeepAlive(reclaim: @escaping @MainActor () -> Void) {
+            self.reclaim = reclaim
+        }
+
+        func activateKeepAliveSession() throws {
+            if hasMicrophoneOwner {
+                try activate()
+                return
+            }
+            if microphoneProfile {
+                try configureMicrophone()
+            } else {
+                try configurePlayback()
+            }
+        }
+
+        func endKeepAlive() {
+            guard isKeepAliveHeld else { return }
+            reclaim = nil
+            guard !hasMicrophoneOwner else { return }
             deactivate()
+            microphoneProfile = false
+        }
+
+        func acquireMicrophoneUser() throws -> MicrophoneToken {
+            guard !hasMicrophoneOwner else {
+                throw PhoneToolError.unavailable(.microphone, "麦克风正被另一个录音使用")
+            }
+            do {
+                // Reapplying this category under lock can fail and clear mixWithOthers.
+                // Reuse the profile until its last owner releases it.
+                if !microphoneProfile {
+                    try configureMicrophone()
+                }
+            } catch {
+                if isKeepAliveHeld {
+                    try? configurePlayback()
+                    reclaim?()
+                } else {
+                    deactivate()
+                    microphoneProfile = false
+                }
+                throw error
+            }
+            microphoneProfile = true
+            let token = MicrophoneToken()
+            microphoneToken = token
+            reclaim?()
+            return token
+        }
+
+        func releaseMicrophoneUser(_ token: MicrophoneToken) {
+            guard microphoneToken == token else { return }
+            microphoneToken = nil
+            if isKeepAliveHeld {
+                reclaim?()
+                return
+            }
+            deactivate()
+            microphoneProfile = false
         }
     }
 
-    /// Ends a microphone user's claim on the shared session.
-    public static func releaseMicrophoneUser() {
-        releaseMicrophoneUser {
-            try? AVAudioSession.sharedInstance().setActive(
-                false, options: .notifyOthersOnDeactivation)
-        }
+    private static let state = State(
+        configurePlayback: {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
+            try session.setActive(true)
+        },
+        configureMicrophone: {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playAndRecord, mode: .default,
+                                    options: [.mixWithOthers, .defaultToSpeaker, .allowBluetooth])
+            try session.setActive(true)
+        },
+        activate: {
+            try AVAudioSession.sharedInstance().setActive(true)
+        },
+        deactivate: {
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        })
+
+    public static var isKeepAliveHeld: Bool { state.isKeepAliveHeld }
+    public static var isMicrophoneHeld: Bool { state.hasMicrophoneOwner }
+    public static var isMicrophoneProfileSticky: Bool { state.isMicrophoneProfileSticky }
+
+    public static func beginKeepAlive(reclaim: @escaping @MainActor () -> Void) {
+        state.beginKeepAlive(reclaim: reclaim)
+    }
+
+    public static func activateKeepAliveSession() throws {
+        try state.activateKeepAliveSession()
+    }
+
+    public static func endKeepAlive() {
+        state.endKeepAlive()
+    }
+
+    public static func acquireMicrophoneUser() throws -> MicrophoneToken {
+        try state.acquireMicrophoneUser()
+    }
+
+    public static func releaseMicrophoneUser(_ token: MicrophoneToken) {
+        state.releaseMicrophoneUser(token)
     }
 }
