@@ -73,14 +73,14 @@ public enum PhoneAudioSessionLease {
                 throw PhoneToolError.unavailable(.microphone, "麦克风正被另一个录音使用")
             }
             do {
-                try configureMicrophone()
+                // Reapplying this category under lock can fail and clear mixWithOthers.
+                // Reuse the profile until its last owner releases it.
+                if !microphoneProfile {
+                    try configureMicrophone()
+                }
             } catch {
                 if isKeepAliveHeld {
-                    if microphoneProfile {
-                        try? configureMicrophone()
-                    } else {
-                        try? configurePlayback()
-                    }
+                    try? configurePlayback()
                     reclaim?()
                 } else {
                     deactivate()
