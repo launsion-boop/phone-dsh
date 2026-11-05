@@ -188,6 +188,47 @@ final class PhoneAudioSessionLeaseTests: XCTestCase {
         XCTAssertFalse(state.hasMicrophoneOwner)
     }
 
+    /// A re-acquisition while the retained mixable playAndRecord profile is
+    /// active must commit a new token without re-running the category setter,
+    /// and only the current token may tear the session down.
+    func testReacquisitionOfRetainedProfileSkipsConfigureAndKeepsNewOwner() throws {
+        let backend = LeaseBackend()
+        let state = backend.state()
+        let reclaims = Counter()
+
+        state.beginKeepAlive { reclaims.increment() }
+        let first = try state.acquireMicrophoneUser()
+        XCTAssertEqual(backend.microphone.value, 1)
+        state.releaseMicrophoneUser(first)
+        XCTAssertEqual(backend.deactivation.value, 0)
+        XCTAssertTrue(state.isMicrophoneProfileSticky)
+
+        let second = try state.acquireMicrophoneUser()
+        XCTAssertEqual(backend.microphone.value, 1, "re-acquisition reconfigured the retained microphone profile")
+        XCTAssertEqual(backend.deactivation.value, 0)
+        XCTAssertEqual(reclaims.value, 3)
+        XCTAssertTrue(state.hasMicrophoneOwner)
+
+        state.releaseMicrophoneUser(first)
+        XCTAssertTrue(state.hasMicrophoneOwner, "a stale release closed the current microphone owner")
+        XCTAssertEqual(backend.deactivation.value, 0)
+
+        state.endKeepAlive()
+        XCTAssertTrue(state.hasMicrophoneOwner)
+        XCTAssertEqual(backend.deactivation.value, 0)
+        XCTAssertTrue(state.isMicrophoneProfileSticky)
+
+        state.releaseMicrophoneUser(second)
+        XCTAssertFalse(state.hasMicrophoneOwner)
+        XCTAssertEqual(backend.deactivation.value, 1)
+        XCTAssertFalse(state.isMicrophoneProfileSticky)
+
+        let third = try state.acquireMicrophoneUser()
+        XCTAssertEqual(backend.microphone.value, 2, "a fresh acquisition after zero owners did not reconfigure")
+        state.releaseMicrophoneUser(third)
+        XCTAssertEqual(backend.deactivation.value, 2)
+    }
+
     func testSecondMicrophoneAcquisitionFailsBeforeTouchingTheSession() throws {
         let backend = LeaseBackend()
         let state = backend.state()
