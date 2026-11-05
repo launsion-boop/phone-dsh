@@ -597,11 +597,15 @@
       "owner_role": "platform owner",
       "authority": [
         "spec/platform/README.md",
-        "spec/platform/whitelist.json"
+        "spec/platform/whitelist.json",
+        "spec/platform/ios-audio-session.md"
       ],
       "ends": {
         "Swift": [
-          "Sources/PhoneDSH/Background"
+          "Sources/PhoneDSH/Background",
+          "examples/probe-app/ProbeKit/PhoneAudioSessionLease.swift",
+          "examples/probe-app/ProbeKit/Capabilities/PhoneMediaTools.swift",
+          "examples/probe-app/PhoneDSHProbe/{BackgroundKeepAlive,ComposerVoiceInput}.swift"
         ],
         "Kotlin": [
           "android/{platform,engine,net}/src/main/**"
@@ -619,17 +623,28 @@
         },
         {
           "glob": "Sources/PhoneDSH/Background/**"
+        },
+        {
+          "glob": "examples/probe-app/ProbeKit/PhoneAudioSessionLease.swift"
+        },
+        {
+          "glob": "examples/probe-app/ProbeKit/Capabilities/PhoneMediaTools.swift"
+        },
+        {
+          "glob": "examples/probe-app/PhoneDSHProbe/{BackgroundKeepAlive,ComposerVoiceInput}.swift"
         }
       ],
       "status": [],
       "evidence": [
-        "spec/platform/tools/platform_check.py"
+        "spec/platform/tools/platform_check.py",
+        "examples/probe-app/PhoneDSHSimTests/ProbeSceneLifecycleTests.swift",
+        "Tests/PhoneDSHTests/ProbeScenePhaseWiringTests.swift"
       ],
       "source": {
-        "authority": "[platform/README.md](platform/README.md)、[whitelist](platform/whitelist.json)",
-        "ends": "Swift OS API、`Sources/PhoneDSH/Background`；Android `:platform`／`:engine`／`:net`",
+        "authority": "[platform/README.md](platform/README.md)、[whitelist](platform/whitelist.json)、[iOS audio ownership](platform/ios-audio-session.md)",
+        "ends": "Swift OS API、`Sources/PhoneDSH/Background`、`ProbeKit/PhoneAudioSessionLease.swift` 与 app 的录音／保活调用方；Android `:platform`／`:engine`／`:net`",
         "evidence": "`platform_check.py`；whitelist 不代替 conformance",
-        "triggers": "`spec/platform/**`、`android/platform*/src/main/**`、`Sources/PhoneDSHController/Signals/**`、`Sources/PhoneDSH/Background/**`"
+        "triggers": "`spec/platform/**`、`android/platform*/src/main/**`、`Sources/PhoneDSHController/Signals/**`、`Sources/PhoneDSH/Background/**`、`examples/probe-app/ProbeKit/PhoneAudioSessionLease.swift`、`examples/probe-app/ProbeKit/Capabilities/PhoneMediaTools.swift`、`examples/probe-app/PhoneDSHProbe/{BackgroundKeepAlive,ComposerVoiceInput}.swift`"
       }
     },
     {
