@@ -80,13 +80,27 @@ The scoped Worker preset and its packed Worker image must be delivered with the 
 
 | `spec/device/v1/task-delegation.md@f510fbc1ce51f5672f7ec800dba9fc2fab15b102` | Coordinator | Fix old-phone compatibility: negotiate task exposure using a separate local HELLO app capability, retain the old HELLO fixture, and share positive/negative negotiation vectors. | Swift BLE host, C wire and reference firmware |
 
-## Open contract change request: duplicate JSON members
+## Resolved contract change request: duplicate JSON members
 
 CONTRACT CHANGE REQUEST
 Contract: P07 @ `spec/device/v1/task-delegation.md@f510fbc1ce51f5672f7ec800dba9fc2fab15b102`   Clause: Task and result
 Problem: Swift Foundation and cJSON retain the first occurrence of a repeated object key while Python `json.loads` retains the last. Device task interpretation can therefore diverge before validation. Evidence: Foundation decodes `{"x":1,"x":2}` as 1; Python decodes it as 2; cJSON's lookup returns the first member.
 Proposal: reject duplicate object member names at every nesting level using raw JSON before decoding; publish positive and negative raw-wire fixtures, update Swift task intake, Python producer/parser and C validation and re-run both device bindings. Affects: Swift host, LAN Python reference, BLE C firmware.
 
-The profile remains `target`. `PDSH_ENABLE_DEVICE_TASKS` is intentionally absent from the application build settings: the prepared authorization entry and coordinator must not be enabled before this request is resolved, both runtimes pass, and the combined head is reviewed. Device-originated DSH dispatch is therefore not yet available in the installed app.
+The owner froze rejection of duplicate members at `spec/device/v1/task-delegation.md@96ed6f8f5f43e4f27aa90f1b1e846a881d8d921e`. The Swift, Python and C decoders consume `golden/task-raw-json-cases.jsonl`; their tests passed at `c9d95b31`. GAP-15 records that fix. The overall profile remains `target`: `PDSH_ENABLE_DEVICE_TASKS` is intentionally absent from application build settings until combined application acceptance. Device-originated DSH dispatch is not yet available in the installed app.
 
 | `spec/device/v1/task-delegation.md@96ed6f8f5f43e4f27aa90f1b1e846a881d8d921e` | Coordinator | Reject duplicate object names at every depth before decoding; share raw JSON positive and negative vectors across Swift, Python and C. | Swift host, LAN Python device, BLE C firmware |
+
+
+## Integration evidence at `1caf8846`
+
+- Base / head: `48ea9bdd26a6c5f20fff74d1fff06f7c14efde5e` / `1caf8846` (this evidence update follows that head).
+- Protocol impact: P06; P07; P08; P09; P16; P18; P20; P03: none — existing exec/handoff semantics unchanged; P05: none — native task intake has a separate explicit grant; P12: none — Swift package linkage only, no native ABI change.
+- Contract revision: `spec/device/v1/task-delegation.md@96ed6f8f5f43e4f27aa90f1b1e846a881d8d921e`; BLE Link negotiation uses the shared capability vectors.
+- Swift task executor, LAN inbox and BLE client: implemented and tested in host processes; application authorization UI and lifecycle integration: partial, behind an unset compile condition. Reference LAN device and BLE C firmware: implemented, host-tested; Worker no-tool preset and global guard: implemented, packed and exercised in a scripted Worker test. Kotlin/Rust/Harmony do not advertise the new task profile.
+- `swift test --filter 'DeviceTaskTests|DeviceDSHRunnerTests|DeviceTaskIntakeTests|BLETaskCrossRuntimeTests|PDSHLinkTests'` → PASS at the implementation head; the BLE cross-runtime test drives the real Swift Link client and real C firmware state machine through a simulated transport. The DSH runner test uses real harness mapping with scripted events, not a live model.
+- `python3 -m unittest test_tasks test_server` in `examples/lan-mcp-device` → PASS (10 tests, including actual local HTTPS/MCP, SSE and duplicate handling).
+- `bash firmware/tests/run.sh` → PASS, including shared task, raw JSON, outcome, store and negotiation fixtures, C Link task state machine and sanitizers.
+- `idf.py -B /tmp/pdsh-esp32-task-build build` with ESP-IDF 6.1 → PASS in an isolated build directory. `xcodebuild -project PhoneDSHProbe.xcodeproj -scheme PhoneDSHProbe -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO 'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) DEBUG PDSH_ENABLE_DEVICE_TASKS' build` → PASS for the prepared UI configuration before the final minor source changes; re-run on the final head.
+- `bash scripts/ci/check.sh --only phone-no-dsh-patch` → PASS. `bash scripts/ci/check.sh --only phone-spec,phone-p0-conformance,phone-cross-tree` → FAIL on existing `exec.md` line cap, stale UI provenance, and four native-MCP fixtures already consumed by tests but not registered by the cross-tree reader inventory. These were not weakened or deleted.
+- Not verified: actual model-to-device task end-to-end, iPhone and ESP32 BLE air link, a trusted-LAN-device/iPhone run, power loss on physical hardware, final signed installation, Android/Harmony implementations. The current installed app does not expose device-originated tasks. The application feature condition remains unset pending combined acceptance and a review of the remaining baseline gate failures.
