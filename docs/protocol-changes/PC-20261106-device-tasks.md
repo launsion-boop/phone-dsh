@@ -7,7 +7,7 @@ status: frozen
 breaking: false
 version_decision: Adopt the existing task-inbox message semantics as a new negotiated device profile; retain P07 host envelope version 1 and existing BLE Link Tools v1.
 base: 48ea9bdd26a6c5f20fff74d1fff06f7c14efde5e
-contract_revision: spec/device/v1/task-delegation.md@facc4276ad421f1d989a69ad929e7d4efac7978f
+contract_revision: spec/device/v1/task-delegation.md@4338ff67726eb008d4c157cc542a2df118d34268
 ```
 
 ## Trigger, scope and roles
@@ -51,3 +51,5 @@ The scoped Worker preset and its packed Worker image must be delivered with the 
 | `spec/device/v1/task-delegation.md@81af7b8255640e58d4bedada674a0f166a96da7b` | Coordinator | Reserve HTTP 409 for identical terminal reports and use 422 for conflicting results, so retries cannot mistake a conflict for success. | Swift host, Worker DSH, BLE C firmware, LAN reference device |
 | `spec/device/v1/task-delegation.md@aa96005178b35c220cb4909a0daf3dad2cd41b5f` | Coordinator | Bound timestamp precision to milliseconds so Swift and device deadline comparisons agree. | Swift host, Worker DSH, BLE C firmware, LAN reference device |
 | `spec/device/v1/task-delegation.md@facc4276ad421f1d989a69ad929e7d4efac7978f` | Coordinator | Pin the verified preset document and add an immutable-session-header global guard against a blank-session preset-switch race. | Swift host, Worker DSH, BLE C firmware, LAN reference device |
+
+| `spec/device/v1/task-delegation.md@4338ff67726eb008d4c157cc542a2df118d34268` | Coordinator | Bind LAN identity to the authorized endpoint and verify the live global guard before each task. | Swift host, Worker DSH, LAN reference device |
