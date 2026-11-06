@@ -19,6 +19,25 @@ import PhoneDSHDeviceTasks
     @ObservationIgnored private var runner: DeviceDSHRunner?
     @ObservationIgnored private var creating: Task<(DeviceTaskIntake, DeviceDSHRunner), Error>?
     private var foreground = true
+    @ObservationIgnored private let settings: PhoneMCPAccessSettings
+    @ObservationIgnored private let makeLANInbox: (URL, String) throws -> LANDeviceTaskInbox
+    @ObservationIgnored private let isLANConnected: (MCPServerSummary) async throws -> Bool
+
+    init(settings: PhoneMCPAccessSettings = .shared,
+         makeLANInbox: @escaping (URL, String) throws -> LANDeviceTaskInbox = {
+             try LANDeviceTaskInbox(mcpURL: $0, authorization: $1)
+         },
+         isLANConnected: @escaping (MCPServerSummary) async throws -> Bool = { row in
+             let transport = try await ChatModel.shared.transportForManagement()
+             let snapshot = try await transport.call("phone/mcpList", args: .object([:]))
+             let current = (snapshot["servers"]?.arrayValue ?? []).first { $0["serverName"]?.stringValue == row.serverName }
+             return snapshot["error"] == nil && current?["url"]?.stringValue == row.url &&
+                 current?["enabled"]?.boolValue != false && current?["status"]?.stringValue == "connected"
+         }) {
+        self.settings = settings
+        self.makeLANInbox = makeLANInbox
+        self.isLANConnected = isLANConnected
+    }
 
     func isActive(_ key: String) -> Bool { active.contains(key) || starting.contains(key) }
     static func lanKey(_ name: String) -> String { "lan-ui:" + name }
@@ -40,10 +59,10 @@ import PhoneDSHDeviceTasks
         catch { creating = nil; throw error }
     }
 
-    private static func validLAN(name: String, grant: PhoneMCPAccessGrant, secrets: [String: String]) -> Bool {
-        guard let snapshot = try? PhoneMCPAccessSettings.shared.load(), !snapshot.unreadableSecrets.contains(name),
+    private func validLAN(name: String, grant: PhoneMCPAccessGrant, secrets: [String: String]) -> Bool {
+        guard let snapshot = try? settings.load(), !snapshot.unreadableSecrets.contains(name),
               snapshot.grants.first(where: { $0.serverName == name }) == grant else { return false }
-        return PhoneMCPAccessSettings.shared.secretValues(for: name) == secrets
+        return settings.secretValues(for: name) == secrets
     }
 
     func startLAN(_ row: MCPServerSummary) async {
@@ -54,17 +73,17 @@ import PhoneDSHDeviceTasks
         error = nil
         do {
             guard row.enabled, row.status == "connected", let grant = row.grant, grant.url == row.url,
-                  let url = URL(string: grant.url), let secrets = PhoneMCPAccessSettings.shared.secretValues(for: row.serverName),
+                  let url = URL(string: grant.url), let secrets = settings.secretValues(for: row.serverName),
                   let auth = secrets.first(where: { $0.key.lowercased() == "authorization" })?.value else { throw DeviceTaskError.unauthorized }
-            let inbox = try LANDeviceTaskInbox(mcpURL: url, authorization: auth)
+            let inbox = try makeLANInbox(url, auth)
             let pair = try await engine()
-            guard foreground, generation[key] == token, Self.validLAN(name: row.serverName, grant: grant, secrets: secrets) else { throw DeviceTaskError.unauthorized }
+            guard foreground, generation[key] == token, validLAN(name: row.serverName, grant: grant, secrets: secrets) else { throw DeviceTaskError.unauthorized }
             guard !deviceIDs.values.contains(inbox.deviceID) else { throw DeviceTaskError.deviceBusy }
             deviceIDs[key] = inbox.deviceID; active.insert(key)
             let ok = try await pair.0.start(deviceID: inbox.deviceID, authorized: true, inbox: inbox,
-                onStopped: { [weak self] in await self?.finished(key: key, token: token) }) {
+                onStopped: { [weak self] in await self?.finished(key: key, token: token) }) { [weak self] in
                     for try await task in inbox.tasks() {
-                        guard await MainActor.run(body: { Self.validLAN(name: row.serverName, grant: grant, secrets: secrets) }) else { throw DeviceTaskError.unauthorized }
+                        guard await MainActor.run(body: { self?.validLAN(name: row.serverName, grant: grant, secrets: secrets) == true }) else { throw DeviceTaskError.unauthorized }
                         return task
                     }
                     throw DeviceTaskError.unauthorized
@@ -75,13 +94,9 @@ import PhoneDSHDeviceTasks
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(1))
                     guard !Task.isCancelled, let self else { return }
-                    guard Self.validLAN(name: row.serverName, grant: grant, secrets: secrets), self.foreground else { await self.stop(key); return }
+                    guard self.validLAN(name: row.serverName, grant: grant, secrets: secrets), self.foreground else { await self.stop(key); return }
                     do {
-                        let transport = try await ChatModel.shared.transportForManagement()
-                        let snapshot = try await transport.call("phone/mcpList", args: .object([:]))
-                        let current = (snapshot["servers"]?.arrayValue ?? []).first { $0["serverName"]?.stringValue == row.serverName }
-                        guard snapshot["error"] == nil, current?["url"]?.stringValue == row.url,
-                              current?["enabled"]?.boolValue != false, current?["status"]?.stringValue == "connected" else { await self.stop(key); return }
+                        guard try await self.isLANConnected(row) else { await self.stop(key); return }
                     } catch { await self.stop(key); return }
                 }
             }
