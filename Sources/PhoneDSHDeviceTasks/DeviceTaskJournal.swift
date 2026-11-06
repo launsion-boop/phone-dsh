@@ -159,6 +159,43 @@ final class DeviceTaskJournal: @unchecked Sendable {
         return record
     }
 
+    /// This method runs under the owning journal lock. `fresh` is true only in
+    /// the call which durably created the intent; every later call must query.
+    func prepareBLETransition(record: DeviceTaskRecord, action: BLETaskIntent.Action,
+                              arguments: JSONValue) throws -> (intent: BLETaskIntent, fresh: Bool) {
+        guard try find(deviceID: record.deviceID, key: record.task.idempotencyKey) == record else {
+            throw DeviceTaskError.corruptJournal
+        }
+        let intent = try BLETaskIntent.make(record: record, action: action, arguments: arguments)
+        let ops = directory.appendingPathComponent("ble-ops", isDirectory: true)
+        try FileManager.default.createDirectory(at: ops, withIntermediateDirectories: true)
+        let opsValues = try ops.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+        guard opsValues.isDirectory == true, opsValues.isSymbolicLink != true else { throw DeviceTaskError.corruptJournal }
+        let file = ops.appendingPathComponent(intent.msgID + "-" + action.rawValue + ".json")
+        if FileManager.default.fileExists(atPath: file.path) {
+            let values = try file.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+            guard values.isRegularFile == true, values.isSymbolicLink != true else { throw DeviceTaskError.corruptJournal }
+            let data = try Data(contentsOf: file)
+            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            guard Set(object?.keys.map { $0 } ?? []) == Set(["v", "msg_id", "device_id", "task_id", "action", "request_id", "idem_key", "arguments_sha256"]),
+                  let saved = try? JSONDecoder().decode(BLETaskIntent.self, from: data),
+                  saved == intent else { throw DeviceTaskError.corruptJournal }
+            return (saved, false)
+        }
+        try encoder.encode(intent).write(to: file, options: .atomic)
+        let handle = try FileHandle(forWritingTo: file)
+        try handle.synchronize()
+        try handle.close()
+        for path in [ops, directory] {
+            let fd = Darwin.open(path.path, O_RDONLY)
+            guard fd >= 0 else { throw DeviceTaskError.corruptJournal }
+            let result = Darwin.fsync(fd)
+            Darwin.close(fd)
+            guard result == 0 else { throw DeviceTaskError.corruptJournal }
+        }
+        return (intent, true)
+    }
+
     func save(_ record: DeviceTaskRecord) throws {
         let target = directory.appendingPathComponent(record.msgID + ".json")
         try encoder.encode(record).write(to: target, options: .atomic)

@@ -1,10 +1,23 @@
 // SPDX-License-Identifier: MIT
 import Foundation
+import PhoneDSHAgentCore
 
 /// The binding sends only confirmed acceptance and terminal reports.
 public protocol DeviceTaskInbox: Sendable {
     func accept(id: String) async throws
     func report(id: String, outcome: DeviceTaskOutcome) async throws
+}
+
+/// A negotiated Link binding receives the durable request identity and must
+/// query rather than upload whenever `fresh` is false.
+public protocol BLETaskLinkInbox: DeviceTaskInbox {
+    func invokeOrQuery(requestID: UUID, name: String, arguments: JSONValue,
+                       idempotencyKey: String, fresh: Bool) async throws -> JSONValue
+}
+
+public extension BLETaskLinkInbox {
+    func accept(id: String) async throws { throw DeviceTaskError.unauthorized }
+    func report(id: String, outcome: DeviceTaskOutcome) async throws { throw DeviceTaskError.unauthorized }
 }
 
 /// A runner must verify its isolated no-tools DSH scope before accepting work.
@@ -39,7 +52,7 @@ public actor DeviceTaskExecutor {
             record = existing
             if record.phase == .terminal {
                 guard let outcome = record.outcome else { throw DeviceTaskError.corruptJournal }
-                try await inbox.report(id: task.id, outcome: outcome)
+                try await report(record: record, outcome: outcome, inbox: inbox)
                 return
             }
             if record.phase == .accepted || record.phase == .running {
@@ -59,7 +72,7 @@ public actor DeviceTaskExecutor {
             throw DeviceTaskError.unauthorized
         }
         // A lost accept response is safe to retry: no task has been dispatched.
-        try await inbox.accept(id: task.id)
+        try await accept(record: record, inbox: inbox)
         record.phase = .accepted
         try journal.save(record)
         if Int64(clock().timeIntervalSince1970 * 1000) >= record.deadlineMS {
@@ -107,6 +120,37 @@ public actor DeviceTaskExecutor {
         record.phase = .terminal
         record.outcome = bounded
         try journal.save(record)
-        try await inbox.report(id: record.task.id, outcome: bounded)
+        try await report(record: record, outcome: bounded, inbox: inbox)
+    }
+
+    private func accept(record: DeviceTaskRecord, inbox: any DeviceTaskInbox) async throws {
+        guard let link = inbox as? any BLETaskLinkInbox else { try await inbox.accept(id: record.task.id); return }
+        try await linkOperation(record: record, action: .accept,
+                                arguments: .object(["id": .string(record.task.id)]), link: link)
+    }
+
+    private func report(record: DeviceTaskRecord, outcome: DeviceTaskOutcome, inbox: any DeviceTaskInbox) async throws {
+        guard let link = inbox as? any BLETaskLinkInbox else { try await inbox.report(id: record.task.id, outcome: outcome); return }
+        let action: BLETaskIntent.Action
+        let args: JSONValue
+        switch outcome {
+        case .completed(let output, let truncated):
+            action = .complete
+            args = .object(["id": .string(record.task.id), "output": .string(output), "truncated": .bool(truncated)])
+        case .failed(let kind, let message):
+            action = .fail
+            args = .object(["id": .string(record.task.id), "failure": .object(["kind": .string(kind.rawValue), "message": .string(message)])])
+        }
+        try await linkOperation(record: record, action: action, arguments: args, link: link)
+    }
+
+    private func linkOperation(record: DeviceTaskRecord, action: BLETaskIntent.Action,
+                               arguments: JSONValue, link: any BLETaskLinkInbox) async throws {
+        let (intent, fresh) = try journal.prepareBLETransition(record: record, action: action, arguments: arguments)
+        guard let requestID = UUID(uuidString: intent.requestID) else { throw DeviceTaskError.corruptJournal }
+        let result = try await link.invokeOrQuery(requestID: requestID, name: "pdsh.task." + action.rawValue,
+                                                  arguments: arguments, idempotencyKey: intent.idemKey, fresh: fresh)
+        guard result["request_id"]?.stringValue == intent.requestID,
+              result["status"]?.stringValue == "completed" else { throw DeviceTaskError.unauthorized }
     }
 }

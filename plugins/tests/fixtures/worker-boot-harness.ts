@@ -692,7 +692,8 @@ try {
   }
   probe.workflowChildResultSeen = sessionLog.includes('WORKFLOW_BASH_OK')
   probe.workflowTextSeen = sessionLog.includes('WORKFLOW_DONE') && sessionLog.includes('"kind":"completed"')
-  const deviceTurn = await call('session/create', {request: {workspaceId, agentPreset: 'pdsh-device-task'}})
+  // Match the native DeviceDSHRunner request, including its cwd form.
+  const deviceTurn = await call('session/create', {request: {cwd: '/dsh/workspace', agentPreset: 'pdsh-device-task'}})
   if (typeof deviceTurn.sessionId !== 'string' || deviceTurn.agentPreset !== 'pdsh-device-task') throw new Error('Device session creation failed')
   const deviceRequest = `dev:${'a'.repeat(64)}`
   await call('session/prompt', {request: {requestId: deviceRequest, sessionId: deviceTurn.sessionId,
