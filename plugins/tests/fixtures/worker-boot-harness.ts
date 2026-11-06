@@ -692,6 +692,21 @@ try {
   }
   probe.workflowChildResultSeen = sessionLog.includes('WORKFLOW_BASH_OK')
   probe.workflowTextSeen = sessionLog.includes('WORKFLOW_DONE') && sessionLog.includes('"kind":"completed"')
+  const deviceTurn = await call('session/create', {request: {workspaceId, agentPreset: 'pdsh-device-task'}})
+  if (typeof deviceTurn.sessionId !== 'string' || deviceTurn.agentPreset !== 'pdsh-device-task') throw new Error('Device session creation failed')
+  const deviceRequest = `dev:${'a'.repeat(64)}`
+  await call('session/prompt', {request: {requestId: deviceRequest, sessionId: deviceTurn.sessionId,
+    mode: 'queue', content: [{type: 'text', text: 'DEVICE_TASK_PROBE'}]}})
+  let deviceLog = ''
+  const deviceDeadline = Date.now() + 20_000
+  while (Date.now() < deviceDeadline) {
+    deviceLog = sessionLogOf(deviceTurn.sessionId).text
+    if (deviceLog.includes('turn/end')) break
+    await new Promise<void>(resolveWait => { rawSetTimeout(resolveWait, 100) })
+  }
+  if (!deviceLog.includes(deviceRequest) || !deviceLog.includes('DEVICE_TASK_RESULT') || !deviceLog.includes('"kind":"completed"')) {
+    throw new Error(`Device task turn did not complete: ${deviceLog}`)
+  }
   const workflowRead = await call('workspaceFiles/read', {
     workspaceFileScopeId: workflowSession,
     path: 'workflow.txt',

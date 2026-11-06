@@ -53,6 +53,11 @@ public actor DeviceTaskExecutor {
             record = try journal.create(deviceID: deviceID, task: task, sessionID: session, now: clock())
         }
 
+        // Revalidate on every delivery, including a crash before acceptance;
+        // an old received record does not prove isolation is still installed.
+        guard try await runner.session(for: deviceID, existingSession: record.sessionID) == record.sessionID else {
+            throw DeviceTaskError.unauthorized
+        }
         // A lost accept response is safe to retry: no task has been dispatched.
         try await inbox.accept(id: task.id)
         record.phase = .accepted

@@ -6,6 +6,7 @@ import PhoneDSHAgentCore
 
 @MainActor @Observable public final class BLEDeviceStore: NSObject, @preconcurrency CBCentralManagerDelegate, @preconcurrency CBPeripheralDelegate {
     public static let shared = BLEDeviceStore()
+    static func isReservedTaskTool(_ name: String) -> Bool { name.hasPrefix("pdsh.task.") }
     public struct Device: Identifiable {
         public let id: UUID
         public var name: String
@@ -31,6 +32,7 @@ import PhoneDSHAgentCore
     @ObservationIgnored private var linkCharacteristics: [UUID: [String: CBCharacteristic]] = [:]
     @ObservationIgnored private var linkChannels: [UUID: BLELinkChannel] = [:]
     @ObservationIgnored private var linkClients: [UUID: PDSHLinkClient] = [:]
+    @ObservationIgnored private var linkTaskTools: [UUID: Set<String>] = [:]
     @ObservationIgnored private var linkTasks: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored private var linkBusy = Set<UUID>()
     @ObservationIgnored private var scanRequested = false
@@ -102,7 +104,7 @@ import PhoneDSHAgentCore
     private func clearConnection(_ id: UUID) {
         linkTasks.removeValue(forKey: id)?.cancel()
         linkChannels.removeValue(forKey: id)?.fail(BLEFailure("Link disconnected; outcome_unknown"))
-        linkClients[id] = nil; linkCharacteristics[id] = nil; linkBootIDs[id] = nil; linkEventSequences[id] = nil
+        linkClients[id] = nil; linkTaskTools[id] = nil; linkCharacteristics[id] = nil; linkBootIDs[id] = nil; linkEventSequences[id] = nil
         update(id) { $0.linkState = "未连接"; $0.linkIdentity = ""; $0.linkTools = []; $0.linkToolDescriptors = []; $0.grantedTools = []; $0.homeOrigins = ""; $0.events = [] }
         connectionTimers.removeValue(forKey: id)?.cancel(); characteristics[id] = nil; ambiguousProfiles[id] = nil
         update(id) { $0.state = "未连接"; $0.profiles = []; $0.readings = [:]; $0.allowRead = false; $0.allowAlert = false }
@@ -249,12 +251,16 @@ import PhoneDSHAgentCore
                 }
                 guard Set(names).count == names.count, !Task.isCancelled, linkChannels[id] === channel else { throw BLEFailure("Duplicate tools or stale connection") }
                 linkClients[id] = client; linkBootIDs[id] = peer.bootID
-                update(id) { $0.linkIdentity = deviceID.lowercased(); $0.linkTools = names; $0.linkToolDescriptors = tools; $0.linkState += " · PDSH Tools v1" }
+                linkTaskTools[id] = Set(names.filter(Self.isReservedTaskTool))
+                let ordinaryTools = tools.filter { !Self.isReservedTaskTool($0["name"]?.stringValue ?? "") }
+                update(id) { $0.linkIdentity = deviceID.lowercased(); $0.linkTools = names.filter { !Self.isReservedTaskTool($0) }; $0.linkToolDescriptors = ordinaryTools; $0.linkState += " · PDSH Tools v1" }
             } catch { if !Task.isCancelled { status = error.localizedDescription; disconnect(id) } }
         }
     }
     public func grantLinkTool(_ id: UUID, name: String, enabled: Bool) {
         guard !linkBusy.contains(id) else { status = "请等待当前设备操作结束，或断开连接"; return }
+        // These are host control-plane operations, never model device skills.
+        guard !Self.isReservedTaskTool(name) else { return }
         update(id) { if enabled && $0.linkTools.contains(name) { $0.grantedTools.insert(name) } else { $0.grantedTools.remove(name) } }
     }
     public func setHomeOrigins(_ id: UUID, text: String) {
@@ -262,7 +268,8 @@ import PhoneDSHAgentCore
         update(id) { $0.homeOrigins = text }
     }
     public func authorizeLink(_ id: UUID, name: String, arguments: JSONValue?) throws {
-        guard let device = devices.first(where: { $0.id == id }), linkClients[id] != nil,
+        guard !Self.isReservedTaskTool(name),
+              let device = devices.first(where: { $0.id == id }), linkClients[id] != nil,
               device.grantedTools.contains(name), device.linkTools.contains(name) else { throw BLEFailure("Authorize this Link tool in Settings → Bluetooth devices") }
         if name == "home.http", let arguments {
             _ = try HomeHTTPPolicy.validate(arguments, allowedOrigins: HomeHTTPPolicy.origins(device.homeOrigins))
