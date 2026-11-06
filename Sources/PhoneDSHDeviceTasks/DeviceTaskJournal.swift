@@ -2,6 +2,7 @@
 import CryptoKit
 import Darwin
 import Foundation
+import PhoneDSHAgentCore
 
 public struct DeviceTaskRecord: Codable, Equatable, Sendable {
     public enum Phase: String, Codable, Sendable { case received, accepted, running, terminal }
@@ -21,6 +22,14 @@ public struct DeviceTaskRecord: Codable, Equatable, Sendable {
         case v, task, fingerprint, seq, phase, outcome
         case deviceID = "device_id", msgID = "msg_id", requestID = "request_id"
         case sessionID = "session_id", deadlineMS = "deadline_ms"
+    }
+
+    /// The P07 uplink is derived from the authenticated journal identity,
+    /// never from a device-supplied session or origin.
+    var uplinkEnvelope: JSONValue {
+        .object(["v": .number(1), "msg_id": .string(msgID), "device_id": .string(deviceID),
+                 "session_id": .string(sessionID), "dir": .string("up"), "kind": .string("text"),
+                 "origin": .string("device"), "seq": .number(Double(seq)), "text": .string(task.body.text)])
     }
 }
 
@@ -105,7 +114,7 @@ final class DeviceTaskJournal: @unchecked Sendable {
                   (try? DeviceTask.decode(encoder.encode(record.task))) == record.task,
                   record.fingerprint == (try? fingerprint(record.task)),
                   record.msgID == expectedID, record.requestID == "dev:" + expectedID,
-                  url.lastPathComponent == expectedID + ".json", record.seq > 0,
+                  url.lastPathComponent == expectedID + ".json", (1...4096).contains(record.seq),
                   (1...256).contains(record.sessionID.utf8.count), record.deadlineMS > 0,
                   (record.phase == .terminal) == (record.outcome != nil),
                   sequences[record.deviceID, default: []].insert(record.seq).inserted else { throw DeviceTaskError.corruptJournal }

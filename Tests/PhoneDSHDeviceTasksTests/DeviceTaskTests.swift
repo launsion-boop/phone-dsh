@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 import Foundation
 import XCTest
+import PhoneDSHAgentCore
 @testable import PhoneDSHDeviceTasks
 
 private actor TestInbox: DeviceTaskInbox {
@@ -55,6 +56,24 @@ final class DeviceTaskTests: XCTestCase {
         guard case .completed(let text, let truncated) = outcome else { return XCTFail("missing output") }
         XCTAssertEqual(text.utf8.count, 1023)
         XCTAssertTrue(truncated)
+    }
+
+    func testP07UplinkUsesSharedGolden() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let fixture = root.appendingPathComponent("spec/host/v1/golden/device-envelope-uplink-text-task.json")
+        let golden = try JSONValue.parse(Data(contentsOf: fixture))
+        let expected = try XCTUnwrap(golden["instance"])
+        let dir = directory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let journal = try DeviceTaskJournal(directory: dir)
+        let input: [String: Any] = ["id": "task-1", "idempotency_key": "goal-1", "requester": "sensor", "created_at": "2026-11-06T00:00:00Z", "body": ["type": "goal", "text": "Summarize the temperature reading."]]
+        let task = try DeviceTask.decode(JSONSerialization.data(withJSONObject: input))
+        let device = try XCTUnwrap(expected["device_id"]?.stringValue)
+        let inbox = try LANDeviceTaskInbox(mcpURL: XCTUnwrap(URL(string: "https://device.example/mcp")), authorization: "Bearer fixture")
+        XCTAssertEqual(inbox.deviceID, device)
+        let record = try journal.create(deviceID: device, task: task, sessionID: "session-task-1", now: Date())
+        XCTAssertEqual(record.uplinkEnvelope, expected)
+        XCTAssertEqual(record.requestID, "dev:" + (expected["msg_id"]?.stringValue ?? ""))
     }
 
     func testJournalLockAndCorruptionFailClosed() throws {

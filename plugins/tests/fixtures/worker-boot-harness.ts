@@ -707,6 +707,16 @@ try {
   if (!deviceLog.includes(deviceRequest) || !deviceLog.includes('DEVICE_TASK_RESULT') || !deviceLog.includes('"kind":"completed"')) {
     throw new Error(`Device task turn did not complete: ${deviceLog}`)
   }
+  const deviceEvents = deviceLog.split('\n').filter(Boolean).map(line => JSON.parse(line) as Record<string, any>)
+  const turnStart = deviceEvents.find(event => event.type === 'turn/start')
+  const deviceInput = deviceEvents.find(event => event.type === 'user/message' && event.data?.source?.rpcId === deviceRequest)
+  const runtimeInput = deviceEvents.find(event => event.type === 'user/message' && event.data?.source?.kind === 'runtime-context')
+  const turnEnd = deviceEvents.find(event => event.type === 'turn/end')
+  if (!turnStart || !deviceInput || !runtimeInput || !turnEnd || turnStart.data.turn !== turnEnd.data.turn ||
+      !(turnStart.seq < deviceInput.seq && deviceInput.seq < runtimeInput.seq && runtimeInput.seq < turnEnd.seq) ||
+      deviceEvents.some(event => event.type === 'tool/call')) {
+    throw new Error('Device task event attribution or no-tools invariant failed')
+  }
   const workflowRead = await call('workspaceFiles/read', {
     workspaceFileScopeId: workflowSession,
     path: 'workflow.txt',

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 import Foundation
+import CryptoKit
 
 public enum LANDeviceTaskInboxError: Error, Equatable, Sendable {
     case invalidEndpoint, invalidCredential, invalidResponse, unauthorized, unavailable, conflict, overflow
@@ -14,6 +15,9 @@ private final class NoTaskRedirects: NSObject, URLSessionTaskDelegate, @unchecke
 
 /// The caller must obtain an explicit task grant for the selected authenticated device.
 public final class LANDeviceTaskInbox: DeviceTaskInbox, @unchecked Sendable {
+    /// This identifier may be trusted only after the TLS endpoint has
+    /// authenticated and accepted the user's credential.
+    public let deviceID: String
     private let tasksURL: URL
     private let credential: String
     private let session: URLSession
@@ -33,6 +37,7 @@ public final class LANDeviceTaskInbox: DeviceTaskInbox, @unchecked Sendable {
               authorization.utf8.dropFirst(7).allSatisfy({ (33...126).contains($0) }) else { throw LANDeviceTaskInboxError.invalidCredential }
         parts.path = "/tasks"
         guard let url = parts.url else { throw LANDeviceTaskInboxError.invalidEndpoint }
+        self.deviceID = "lan:" + SHA256.hash(data: Data(mcpURL.absoluteString.utf8)).map { String(format: "%02x", $0) }.joined()
         self.tasksURL = url
         self.credential = authorization
         self.session = session

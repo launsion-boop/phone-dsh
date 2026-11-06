@@ -33,6 +33,10 @@ public actor DeviceDSHRunner: DeviceTaskRunner {
     }
 
     public func run(task: DeviceTask, record: DeviceTaskRecord) async -> DeviceTaskOutcome {
+        guard task == record.task,
+              let goal = record.uplinkEnvelope["text"]?.stringValue else {
+            return .failed(kind: .denied, message: "Device task identity did not match its journal.")
+        }
         let cursor: UInt64?
         do {
             try await verifyGuard()
@@ -43,7 +47,7 @@ public actor DeviceDSHRunner: DeviceTaskRunner {
         }
         let events = harness.events(sessionID: record.sessionID, after: cursor)
         do {
-            try await harness.send(.prompt(text: task.body.text, attachments: [], requestID: record.requestID), to: record.sessionID)
+            try await harness.send(.prompt(text: goal, attachments: [], requestID: record.requestID), to: record.sessionID)
         } catch {
             return .failed(kind: .unknownOutcome, message: "Prompt submission was not confirmed.")
         }
