@@ -1,0 +1,7 @@
+{"name":"goal","valid":true,"task":{"id":"task-1","idempotency_key":"goal-1","requester":"sensor","created_at":"2026-11-06T00:00:00Z","body":{"type":"goal","text":"Summarize the temperature reading."}}}
+{"name":"deadline_and_unknown_field","valid":true,"task":{"id":"task-2","idempotency_key":"goal-2","requester":"device","created_at":"2026-11-06T00:00:00Z","deadline":"2026-11-06T00:05:00Z","body":{"type":"goal","text":"Translate this sentence.","future":true},"future":true}}
+{"name":"missing_id","valid":false,"task":{"idempotency_key":"key","requester":"device","created_at":"2026-11-06T00:00:00Z","body":{"type":"goal","text":"Hello"}}}
+{"name":"unsafe_id","valid":false,"task":{"id":"../escape","idempotency_key":"key","requester":"device","created_at":"2026-11-06T00:00:00Z","body":{"type":"goal","text":"Hello"}}}
+{"name":"unsupported_body","valid":false,"task":{"id":"task-3","idempotency_key":"key","requester":"device","created_at":"2026-11-06T00:00:00Z","body":{"type":"tool","text":"Hello"}}}
+{"name":"bad_deadline","valid":false,"task":{"id":"task-4","idempotency_key":"key","requester":"device","created_at":"2026-11-06T00:00:00Z","deadline":"2026-11-05T23:59:00Z","body":{"type":"goal","text":"Hello"}}}
+{"name":"control_character","valid":false,"task":{"id":"task-5","idempotency_key":"key","requester":"device","created_at":"2026-11-06T00:00:00Z","body":{"type":"goal","text":"Bad\u0000text"}}}

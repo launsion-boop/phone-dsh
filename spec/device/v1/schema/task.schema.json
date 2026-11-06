@@ -1,0 +1,18 @@
+{
+  "title": "Device delegated goal task",
+  "type": "object",
+  "required": ["id", "idempotency_key", "requester", "created_at", "body"],
+  "properties": {
+    "id": {"type": "string", "pattern": "^[A-Za-z0-9._:-]{1,64}$"},
+    "idempotency_key": {"type": "string", "pattern": "^[A-Za-z0-9._:-]{1,64}$"},
+    "requester": {"type": "string", "minLength": 1, "maxLength": 128},
+    "created_at": {"type": "string", "minLength": 20, "maxLength": 35},
+    "deadline": {"type": "string", "minLength": 20, "maxLength": 35},
+    "body": {
+      "type": "object", "required": ["type", "text"],
+      "properties": {"type": {"const": "goal"}, "text": {"type": "string", "minLength": 1, "maxLength": 768}},
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}
