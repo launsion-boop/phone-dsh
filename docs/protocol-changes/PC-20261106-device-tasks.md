@@ -110,3 +110,9 @@ The owner froze rejection of duplicate members at `spec/device/v1/task-delegatio
 | `spec/device/v1/task-delegation.md@6504cd95499a2d3f4e573a4596972b8f2c8c6328` | Coordinator | Require calendar-valid ASCII RFC 3339 timestamps; Foundation otherwise normalizes invalid dates that Python and firmware reject. | Swift host, LAN Python device, BLE C firmware |
 
 | `spec/device/v1/task-delegation.md@6495ae24a9127ff04f8afa27abe66e63a489e605` | Coordinator | Define duplicate member comparison on decoded Unicode scalar sequences, avoiding Swift-only canonical-equivalence rejection. | Swift host, LAN Python device, BLE C firmware |
+
+## Physical iPhone Worker evidence at `35809e76`
+
+- `xcodebuild test-without-building -xctestrun /tmp/pdsh-lzz-device-build/Build/Products/PhoneDSHDevice_iphoneos27.1-arm64.xctestrun -destination 'id=00008130-001474120091401C' -only-testing:PhoneDSHDeviceTests/DeviceTaskProductionTests/testDeviceTaskRunsInRealWorkerWithoutTools -parallel-testing-enabled NO -resultBundlePath /tmp/pdsh-device-task-real-worker2.xcresult` → PASS, 1 test on iPhonelzzzzzz. The real iOS WKWebView Worker, real `DeviceDSHRunner` and task executor completed a task against a scripted local model; the captured model request had no tools. This is not an external model or device transport E2E.
+- Installed and launched the ordinary (task UI condition unset) app on that iPhone. A fresh regular chat prompt returned `PDSH_TEST_OK`; this verifies ordinary model chat only.
+- Physical ESP32 air link, trusted physical LAN task peer, full device → real model → device, foreground grant revocation in the application and power-loss recovery → NOT_RUN. The separately negotiated device-task profile remains `target` and the task UI remains disabled. Reference BLE task/Link journals have finite non-evicting capacity and require a production lifecycle design.
