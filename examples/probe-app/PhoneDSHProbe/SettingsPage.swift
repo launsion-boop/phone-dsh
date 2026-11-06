@@ -76,9 +76,7 @@ struct SettingsPage: View {
                 link(NativeText("手机权限", "Phone permissions"), icon: "hand.raised",
                      value: phonePermissionSummary) { PhonePermissionsPage(embedded: true) }
                 link(NativeText("网络访问", "Network access"), icon: "network") { EgressAllowListPage() }
-                #if PDSH_ENABLE_DEVICE_TASKS
                 link(NativeText("MCP 与局域网设备", "MCP and LAN devices"), icon: "server.rack") { MCPSettingsPage() }
-                #endif
                 link(NativeText("SSH 主机", "SSH hosts"), icon: "terminal",
                      value: "\(SSHSettingsStore.shared.connections.count)") { SSHSettingsPage() }
                 link(NativeText("蓝牙设备", "Bluetooth devices"), icon: "dot.radiowaves.left.and.right") {
