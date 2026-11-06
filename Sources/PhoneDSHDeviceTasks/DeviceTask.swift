@@ -30,6 +30,8 @@ public struct DeviceTask: Codable, Equatable, Sendable {
     }
 
     public static func decode(_ data: Data) throws -> DeviceTask {
+        var unique = UniqueJSONKeys(data)
+        guard unique.check() else { throw DeviceTaskError.invalidTask }
         guard let json = try? JSONSerialization.jsonObject(with: data), !containsNUL(json),
               let object = json as? [String: Any], !(object["deadline"] is NSNull) else {
             throw DeviceTaskError.invalidTask

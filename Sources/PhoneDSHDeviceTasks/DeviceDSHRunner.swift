@@ -16,9 +16,14 @@ public actor DeviceDSHRunner: DeviceTaskRunner {
         self.harness = DSHRemoteHarness(transport: transport)
     }
 
-    public func session(for deviceID: String, existingSession: String?) async throws -> String {
+    /// Check the running image before any device task intake is enabled.
+    public func verifyIsolation() async throws {
         try await verifyGuard()
         try await verifyDocument()
+    }
+
+    public func session(for deviceID: String, existingSession: String?) async throws -> String {
+        try await verifyIsolation()
         if let existingSession {
             _ = try await verifiedCursor(sessionID: existingSession)
             return existingSession

@@ -6,7 +6,7 @@
 #include <string.h>
 
 int main(int argc, char **argv) {
-    assert(argc == 2);
+    assert(argc == 3);
     FILE *file = fopen(argv[1], "rb"); assert(file);
     char line[16384]; int count = 0;
     while (fgets(line, sizeof(line), file)) {
@@ -24,5 +24,15 @@ int main(int argc, char **argv) {
     fclose(file);
     assert(count > 0);
     printf("device task shared vectors: %d PASS\n", count);
+    file=fopen(argv[2],"rb"); assert(file); count=0;
+    while (fgets(line,sizeof(line),file)) {
+        cJSON *row=cJSON_Parse(line); assert(row);
+        const cJSON *valid=cJSON_GetObjectItemCaseSensitive(row,"valid"), *raw=cJSON_GetObjectItemCaseSensitive(row,"json");
+        assert(cJSON_IsBool(valid) && cJSON_IsString(raw));
+        assert(pdsh_task_validate_json(raw->valuestring)==cJSON_IsTrue(valid));
+        cJSON_Delete(row); count++;
+    }
+    fclose(file); assert(count>0);
+    printf("device task raw JSON vectors: %d PASS\n",count);
     return 0;
 }

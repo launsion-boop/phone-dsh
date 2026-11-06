@@ -29,7 +29,19 @@ public actor DeviceTaskIntake {
                     let received = try await next()
                     try Task.checkCancellation()
                     if let received {
-                        try await executor.process(deviceID: deviceID, task: received, authorized: true, inbox: inbox)
+                        // Keep the same durable task across a lost accept or
+                        // terminal reply. The executor reuses the recorded
+                        // Link request or re-sends only an idempotent LAN
+                        // receipt; it never replays the DSH turn.
+                        while true {
+                            do {
+                                try await executor.process(deviceID: deviceID, task: received, authorized: true, inbox: inbox)
+                                break
+                            } catch is CancellationError { throw CancellationError() }
+                            catch let error as DeviceTaskError { throw error }
+                            catch let error as LANDeviceTaskInboxError where error != .unavailable { throw error }
+                            catch { try await Task.sleep(for: .seconds(1)) }
+                        }
                     } else {
                         try await Task.sleep(for: .seconds(1))
                     }

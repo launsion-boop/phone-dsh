@@ -20,6 +20,7 @@ import PhoneDSHAgentCore
         public var linkTools: [String] = []
         public var linkToolDescriptors: [JSONValue] = []
         public var allowDeviceTasks = false
+        public var supportsDeviceTasks = false
         public var grantedTools: Set<String> = []
         public var homeOrigins = ""
         public var events: [String] = []
@@ -33,6 +34,7 @@ import PhoneDSHAgentCore
     @ObservationIgnored private var linkCharacteristics: [UUID: [String: CBCharacteristic]] = [:]
     @ObservationIgnored private var linkChannels: [UUID: BLELinkChannel] = [:]
     @ObservationIgnored private var linkClients: [UUID: PDSHLinkClient] = [:]
+    @ObservationIgnored private var deviceTaskDiscoveryEnabled = false
     @ObservationIgnored private var linkTaskTools: [UUID: Set<String>] = [:]
     @ObservationIgnored private var linkTasks: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored private var linkBusy = Set<UUID>()
@@ -48,6 +50,12 @@ import PhoneDSHAgentCore
 
     public var bluetoothDiagnostics: String {
         "authorization=\(CBManager.authorization.rawValue) state=\(central?.state.rawValue ?? -1) scanning=\(central?.isScanning ?? false) delegate=\(central?.delegate === self)"
+    }
+    /// Must be selected before connecting; changing it never upgrades an
+    /// already-negotiated connection.
+    public func setDeviceTaskDiscoveryEnabled(_ enabled: Bool) {
+        guard linkClients.isEmpty, linkTasks.isEmpty else { return }
+        deviceTaskDiscoveryEnabled = enabled
     }
     public func scan() {
         if central == nil { scanRequested = true; status = "正在初始化蓝牙"; central = CBCentralManager(delegate: self, queue: .main); return }
@@ -106,7 +114,7 @@ import PhoneDSHAgentCore
         linkTasks.removeValue(forKey: id)?.cancel()
         linkChannels.removeValue(forKey: id)?.fail(BLEFailure("Link disconnected; outcome_unknown"))
         linkClients[id] = nil; linkTaskTools[id] = nil; linkCharacteristics[id] = nil; linkBootIDs[id] = nil; linkEventSequences[id] = nil
-        update(id) { $0.linkState = "未连接"; $0.linkIdentity = ""; $0.linkTools = []; $0.linkToolDescriptors = []; $0.allowDeviceTasks = false; $0.grantedTools = []; $0.homeOrigins = ""; $0.events = [] }
+        update(id) { $0.linkState = "未连接"; $0.linkIdentity = ""; $0.linkTools = []; $0.linkToolDescriptors = []; $0.allowDeviceTasks = false; $0.supportsDeviceTasks = false; $0.grantedTools = []; $0.homeOrigins = ""; $0.events = [] }
         connectionTimers.removeValue(forKey: id)?.cancel(); characteristics[id] = nil; ambiguousProfiles[id] = nil
         update(id) { $0.state = "未连接"; $0.profiles = []; $0.readings = [:]; $0.allowRead = false; $0.allowAlert = false }
         if pending?.device == id { finish(.failure(BLEFailure("Device disconnected"))) }
@@ -237,7 +245,7 @@ import PhoneDSHAgentCore
         guard let channel = linkChannels[id], channel.tx.isNotifying, channel.audio.isNotifying, linkTasks[id] == nil else { return }
         linkTasks[id] = Task {
             do {
-                let client = PDSHLinkClient(transport: channel), peer = try await client.handshake()
+                let client = PDSHLinkClient(transport: channel, allowTaskProfile: deviceTaskDiscoveryEnabled), peer = try await client.handshake()
                 guard !Task.isCancelled, linkChannels[id] === channel else { return }
                 update(id) { $0.linkState = "Link \(peer.version >> 8).\(peer.version & 255) · boot \(peer.bootID)" }
                 guard peer.supportsTools else { update(id) { $0.linkState += " · 旧固件，未协商工具扩展" }; return }
@@ -254,7 +262,8 @@ import PhoneDSHAgentCore
                 linkClients[id] = client; linkBootIDs[id] = peer.bootID
                 linkTaskTools[id] = Set(names.filter(Self.isReservedTaskTool))
                 let ordinaryTools = tools.filter { !Self.isReservedTaskTool($0["name"]?.stringValue ?? "") }
-                update(id) { $0.linkIdentity = deviceID.lowercased(); $0.linkTools = names.filter { !Self.isReservedTaskTool($0) }; $0.linkToolDescriptors = ordinaryTools; $0.linkState += " · PDSH Tools v1" }
+                let required: Set<String> = ["pdsh.task.next", "pdsh.task.accept", "pdsh.task.complete", "pdsh.task.fail"]
+                update(id) { $0.linkIdentity = deviceID.lowercased(); $0.linkTools = names.filter { !Self.isReservedTaskTool($0) }; $0.linkToolDescriptors = ordinaryTools; $0.supportsDeviceTasks = required.isSubset(of: Set(names)); $0.linkState += " · PDSH Tools v1" }
             } catch { if !Task.isCancelled { status = error.localizedDescription; disconnect(id) } }
         }
     }

@@ -108,7 +108,7 @@ bool pdsh_task_store_init(nvs_handle_t storage) {
         if (store && cJSON_AddNumberToObject(store,"v",1) && cJSON_AddArrayToObject(store,"slots")) healthy=true;
     } else if (error==ESP_OK && n>1 && n<=STORE_MAX && buffer[n-1]==0 && strlen(buffer)==n-1 && pdsh_task_json_no_nul(buffer)) {
         store=cJSON_ParseWithOpts(buffer,NULL,true);
-        healthy=store && valid_store(store);
+        healthy=store && pdsh_task_unique_keys(store) && valid_store(store);
     }
     free(buffer);
     return healthy;

@@ -30,6 +30,7 @@ static receipt_t receipts[RECEIPTS], readonly_result;
 static pdsh_upload_t upload;
 static nvs_handle_t storage;
 static bool healthy, busy, light_available;
+static bool task_profile;
 static uint32_t boot, revision;
 static char device_id[37];
 static SemaphoreHandle_t lock;
@@ -125,7 +126,7 @@ static cJSON *tool_list(void) {
                       "\"required\":[\"method\",\"url\"],\"additionalProperties\":false}");
         cJSON_AddItemToArray(list, t);
     }
-    if (pdsh_task_store_healthy()) {
+    if (task_profile && pdsh_task_store_healthy()) {
         const char *names[] = {"pdsh.task.next", "pdsh.task.accept", "pdsh.task.complete", "pdsh.task.fail"};
         const char *schemas[] = {
             "{\"type\":\"object\",\"properties\":{},\"additionalProperties\":false}",
@@ -214,6 +215,7 @@ void tools_init(uint32_t boot_id) {
     memset(&readonly_result, 0, sizeof(readonly_result));
     memset(&upload, 0, sizeof(upload));
     busy = false;
+    task_profile = false;
     revision = 0;
     boot = boot_id;
     lock = xSemaphoreCreateMutex();
@@ -277,6 +279,12 @@ void tools_reset_upload(void) {
     xSemaphoreTake(lock, portMAX_DELAY);
     memset(&upload, 0, sizeof(upload));
     memset(&readonly_result, 0, sizeof(readonly_result));
+    task_profile = false;
+    xSemaphoreGive(lock);
+}
+void tools_set_task_profile(uint32_t app_caps) {
+    xSemaphoreTake(lock, portMAX_DELAY);
+    task_profile = pdsh_task_capable(app_caps);
     xSemaphoreGive(lock);
 }
 static bool bounded_json(const uint8_t *text, size_t length) {
@@ -350,7 +358,7 @@ static int commit(const uint8_t id[16], uint8_t *state) {
             goto done;
         }
         if (cJSON_GetArraySize(args) != 0 || (!strcmp(name, "light.get") && !light_available) ||
-            (!strcmp(name,"pdsh.task.next") && !pdsh_task_store_healthy()))
+            (!strcmp(name,"pdsh.task.next") && (!task_profile || !pdsh_task_store_healthy())))
             goto done;
         memset(&readonly_result, 0, sizeof(readonly_result));
         readonly_result.magic = MAGIC;
@@ -386,7 +394,7 @@ static int commit(const uint8_t id[16], uint8_t *state) {
         }
         if (!valid)
             goto done;
-    } else if ((!strcmp(name,"pdsh.task.accept") || !strcmp(name,"pdsh.task.complete") || !strcmp(name,"pdsh.task.fail")) && pdsh_task_store_healthy()) {
+    } else if ((!strcmp(name,"pdsh.task.accept") || !strcmp(name,"pdsh.task.complete") || !strcmp(name,"pdsh.task.fail")) && task_profile && pdsh_task_store_healthy()) {
         /* The task store validates the exact arguments after durable Link intent. */
     } else {
         error = 14;

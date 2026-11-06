@@ -64,6 +64,21 @@ static const char *str(const cJSON *obj, const char *key) {
     const cJSON *v = cJSON_GetObjectItemCaseSensitive(obj, key);
     return cJSON_IsString(v) ? v->valuestring : NULL;
 }
+bool pdsh_task_unique_keys(const cJSON *value) {
+    if (cJSON_IsObject(value)) {
+        const cJSON *item;
+        cJSON_ArrayForEach(item,value) {
+            if (!item->string) return false;
+            for (const cJSON *other=item->next; other; other=other->next)
+                if (other->string && !strcmp(item->string,other->string)) return false;
+            if (!pdsh_task_unique_keys(item)) return false;
+        }
+    } else if (cJSON_IsArray(value)) {
+        const cJSON *item;
+        cJSON_ArrayForEach(item,value) if (!pdsh_task_unique_keys(item)) return false;
+    }
+    return true;
+}
 static bool id_ok(const char *s) {
     if (!s) return false;
     size_t n = strlen(s);
@@ -127,7 +142,7 @@ bool pdsh_task_validate_json(const char *json) {
     if (!pdsh_task_json_no_nul(json)) return false;
     const char *end = NULL;
     cJSON *task = cJSON_ParseWithOpts(json, &end, true);
-    bool ok = task && end && pdsh_task_validate(task);
+    bool ok = task && end && pdsh_task_unique_keys(task) && pdsh_task_validate(task);
     cJSON_Delete(task);
     return ok;
 }

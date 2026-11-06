@@ -10,6 +10,16 @@ IDENTIFIER = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$')
 UTC_TIME = re.compile(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$')
 FAILURES = {'denied', 'unavailable', 'expired', 'failed', 'unknown_outcome'}
 
+def decode_task_json(raw):
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError('duplicate object member')
+            result[key] = value
+        return result
+    return decode_task(json.loads(raw, object_pairs_hook=unique))
+
 
 def decode_task(task):
     def contains_nul(value):
@@ -55,7 +65,7 @@ def ensure_tables(con):
 
 
 def enqueue(con, task):
-    task = decode_task(task)
+    task = decode_task_json(task) if isinstance(task, (str, bytes, bytearray)) else decode_task(task)
     encoded = json.dumps(task, sort_keys=True, separators=(',', ':'), ensure_ascii=False)
     con.execute('BEGIN IMMEDIATE')
     try:

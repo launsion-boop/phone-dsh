@@ -34,7 +34,7 @@ cc -std=c11 -Wall -Wextra -Werror -Wno-deprecated-declarations -fsanitize=addres
   -I"$ROOT/firmware/esp32-reference/main" -I"$CJSON" \
   "$ROOT/firmware/tests/test_task_validate.c" "$ROOT/firmware/esp32-reference/main/pdsh_task_validate.c" \
   "$CJSON/cJSON.c" -o "$OUT/task-validate"
-"$OUT/task-validate" "$ROOT/spec/device/v1/golden/task-cases.jsonl"
+"$OUT/task-validate" "$ROOT/spec/device/v1/golden/task-cases.jsonl" "$ROOT/spec/device/v1/golden/task-raw-json-cases.jsonl"
 cc -std=c11 -Wall -Wextra -Werror -Wno-deprecated-declarations -fsanitize=address,undefined \
   -I"$ROOT/firmware/tests/stubs" -I"$ROOT/firmware/esp32-reference/main" -I"$CJSON" \
   "$ROOT/firmware/tests/test_task_store.c" "$ROOT/firmware/esp32-reference/main/pdsh_task_store.c" \
@@ -50,3 +50,12 @@ cc -std=c11 -Wall -Wextra -Werror -Wno-deprecated-declarations -fsanitize=addres
   "$ROOT/firmware/components/pdsh_home/vendor/xl_home_policy.c" "$CJSON/cJSON.c" -o "$OUT/link-tools"
 "$OUT/link-tools"
 "$OUT/link-tools" --task
+"$OUT/link-tools" --negotiation "$ROOT/spec/device/v1/golden/ble-task-negotiation.jsonl"
+cc -std=c11 -Wall -Wextra -Werror -Wno-deprecated-declarations -fsanitize=address,undefined \
+  -I"$ROOT/firmware/tests/stubs" -I"$ROOT/firmware/components/pdsh_link_wire/include" \
+  -I"$ROOT/firmware/esp32-reference/main" -I"$ROOT/firmware/components/pdsh_home/include" \
+  -I"$ROOT/firmware/components/pdsh_home/vendor/include" -I"$CJSON" \
+  "$ROOT/firmware/tests/test_task_bridge.c" "$ROOT/firmware/esp32-reference/main/link_tools.c" \
+  "$ROOT/firmware/esp32-reference/main/pdsh_task_store.c" "$ROOT/firmware/esp32-reference/main/pdsh_task_validate.c" \
+  "$ROOT/firmware/components/pdsh_link_wire/pdsh_link_wire.c" "$ROOT/firmware/components/pdsh_home/pdsh_home.c" \
+  "$ROOT/firmware/components/pdsh_home/vendor/xl_home_policy.c" "$CJSON/cJSON.c" -o "$OUT/task-bridge"

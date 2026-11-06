@@ -280,6 +280,7 @@ static void io_task(void *arg) {
                     count = 33;
                 }
                 tools_reset_upload();
+                tools_set_task_profile(app_caps);
                 atomic_store(&ready, true);
                 notify_frame(0x81, id, out, count, message.generation);
                 if (!out[0]) {

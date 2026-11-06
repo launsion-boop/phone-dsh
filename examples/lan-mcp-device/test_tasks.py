@@ -7,6 +7,19 @@ from tasks import decode_task, enqueue, ensure_tables, accept, finish
 
 
 class DeviceTaskTest(unittest.TestCase):
+    def test_shared_raw_json(self):
+        path = Path(__file__).resolve().parents[2] / 'spec/device/v1/golden/task-raw-json-cases.jsonl'
+        for line in path.read_text(encoding='utf-8').splitlines():
+            row = json.loads(line)
+            con = sqlite3.connect(':memory:', isolation_level=None)
+            ensure_tables(con)
+            try:
+                enqueue(con, row['json'])
+                valid = True
+            except (ValueError, UnicodeError):
+                valid = False
+            self.assertEqual(valid, row['valid'], row['name'])
+            con.close()
     def test_shared_outcomes(self):
         path = Path(__file__).resolve().parents[2] / 'spec/device/v1/golden/task-outcome-cases.jsonl'
         for line in path.read_text(encoding='utf-8').splitlines():

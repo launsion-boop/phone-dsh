@@ -51,3 +51,59 @@ final class DeviceTaskIntakeTests: XCTestCase {
         XCTAssertEqual(reports, 1)
     }
 }
+
+private actor SlowIntakeInbox: DeviceTaskInbox {
+    private var entered = false
+    func accept(id: String) async throws { entered = true; try await Task.sleep(for: .seconds(30)) }
+    func report(id: String, outcome: DeviceTaskOutcome) async throws {}
+    func acceptedStarted() -> Bool { entered }
+}
+
+extension DeviceTaskIntakeTests {
+    func testRevocationDuringAcceptanceNeverStartsDSH() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let task = try DeviceTask.decode(Data(#"{"id":"task-1","idempotency_key":"key-1","requester":"device","created_at":"2026-11-06T00:00:00Z","body":{"type":"goal","text":"Hello"}}"#.utf8))
+        let runner = IntakeRunner(), inbox = SlowIntakeInbox(), feed = IntakeFeed(task)
+        let intake = DeviceTaskIntake(executor: try DeviceTaskExecutor(directory: dir, runner: runner))
+        _ = try await intake.start(deviceID: "device-1", authorized: true, inbox: inbox) { try await feed.next() }
+        for _ in 0..<100 {
+            if await inbox.acceptedStarted() { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let started = await inbox.acceptedStarted()
+        XCTAssertTrue(started)
+        await intake.stop(deviceID: "device-1")
+        let runs = await runner.runs()
+        XCTAssertEqual(runs, 0)
+    }
+}
+
+private actor RetryIntakeInbox: DeviceTaskInbox {
+    private var reportCount = 0
+    func accept(id: String) async throws {}
+    func report(id: String, outcome: DeviceTaskOutcome) async throws {
+        reportCount += 1
+        if reportCount == 1 { throw LANDeviceTaskInboxError.unavailable }
+    }
+    func reports() -> Int { reportCount }
+}
+
+extension DeviceTaskIntakeTests {
+    func testLostTerminalReplyRetriesWithoutRerunningDSH() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let task = try DeviceTask.decode(Data(#"{"id":"task-1","idempotency_key":"key-1","requester":"device","created_at":"2026-11-06T00:00:00Z","body":{"type":"goal","text":"Hello"}}"#.utf8))
+        let runner = IntakeRunner(), inbox = RetryIntakeInbox(), feed = IntakeFeed(task)
+        let intake = DeviceTaskIntake(executor: try DeviceTaskExecutor(directory: dir, runner: runner))
+        _ = try await intake.start(deviceID: "device-1", authorized: true, inbox: inbox) { try await feed.next() }
+        for _ in 0..<200 {
+            if await inbox.reports() >= 2 { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        await intake.stop(deviceID: "device-1")
+        let runs = await runner.runs(), reports = await inbox.reports()
+        XCTAssertEqual(runs, 1)
+        XCTAssertEqual(reports, 2)
+    }
+}

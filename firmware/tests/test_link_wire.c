@@ -97,6 +97,8 @@ int main(int argc, char **argv) {
         vector("tool_upload_ack", 0xd4, 0x1234, ack, 3);
         uint8_t hello[] = {2, 1, 0, 4, 0, 0};
         vector("hello_pdsh", 1, 1, hello, 6);
+        uint8_t hello_tasks[] = {2, 1, 0, 12, 0, 0};
+        vector("hello_pdsh_tasks", 1, 1, hello_tasks, 6);
     } else
         puts("link wire: CRC, bounds, reassembly, upload conflict and monotonic deadline PASS");
     return 0;

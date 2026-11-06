@@ -50,6 +50,17 @@ final class DeviceTaskTests: XCTestCase {
         }
     }
 
+    func testSharedRawJSONFixturesRejectDuplicateMembers() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let fixture = root.appendingPathComponent("spec/device/v1/golden/task-raw-json-cases.jsonl")
+        for line in try String(contentsOf: fixture, encoding: .utf8).split(separator: "\n") {
+            let row = try JSONValue.parse(Data(line.utf8))
+            let raw = try XCTUnwrap(row["json"]?.stringValue)
+            XCTAssertEqual((try? DeviceTask.decode(Data(raw.utf8))) != nil, row["valid"]?.boolValue,
+                           row["name"]?.stringValue ?? "")
+        }
+    }
+
     func testUTF8LimitsAndSafeOutput() throws {
         XCTAssertThrowsError(try task(text: String(repeating: "中", count: 257)))
         let outcome = DeviceTaskOutcome.boundedOutput(String(repeating: "中", count: 400))

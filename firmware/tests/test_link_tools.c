@@ -270,6 +270,7 @@ static void task_tests(void) {
     uint8_t out[505]; int state;
     const char *task = "{\"id\":\"task-1\",\"idempotency_key\":\"key-1\",\"requester\":\"sensor\",\"created_at\":\"2026-11-06T00:00:00Z\",\"body\":{\"type\":\"goal\",\"text\":\"Hello\"}}";
     tools_init(1);
+    tools_set_task_profile(PDSH_APP_TOOLS | PDSH_APP_TASKS);
     assert(tools_task_submit(task));
     assert(submit(100,"pdsh.task.next","{}","next-1",out)==0 && !job_fn);
     cJSON *reply=query(100,&state);
@@ -279,6 +280,7 @@ static void task_tests(void) {
     run_job(); reply=query(101,&state);
     assert(state==2 && !strcmp(cJSON_GetObjectItemCaseSensitive(reply,"status")->valuestring,"completed")); cJSON_Delete(reply);
     tools_init(2);
+    tools_set_task_profile(PDSH_APP_TOOLS | PDSH_APP_TASKS);
     reply=query(101,&state); assert(state==2); cJSON_Delete(reply);
     assert(submit(102,"pdsh.task.complete","{\"id\":\"task-1\",\"output\":\"done\",\"truncated\":false}","complete-1",out)==0 && job_fn);
     run_job(); reply=query(102,&state);
@@ -293,15 +295,35 @@ static void task_tests(void) {
     assert(state==2 && cJSON_IsNull(value)); cJSON_Delete(reply);
     puts("Link task inbox: submit, next, durable accept, reboot, complete PASS");
 }
+static void negotiation_tests(const char *path) {
+    FILE *f=fopen(path,"rb"); assert(f);
+    char line[1024]; int rows=0;
+    while (fgets(line,sizeof(line),f)) {
+        cJSON *row=cJSON_Parse(line); assert(row);
+        cJSON *caps=cJSON_GetObjectItemCaseSensitive(row,"app_caps"), *enabled=cJSON_GetObjectItemCaseSensitive(row,"task_tools");
+        assert(cJSON_IsNumber(caps) && cJSON_IsBool(enabled));
+        tools_init(1); tools_set_task_profile((uint32_t)caps->valuedouble);
+        uint8_t out[505]; int state;
+        assert(submit(100,"tools/list","{}","discover",out)==0);
+        cJSON *reply=query(100,&state);
+        cJSON *list=cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(reply,"result"),"tools");
+        assert(cJSON_GetArraySize(list)==(cJSON_IsTrue(enabled) ? 7 : 3)); cJSON_Delete(reply);
+        int status=submit(101,"pdsh.task.next","{}","next",out);
+        assert((status==0)==cJSON_IsTrue(enabled));
+        cJSON_Delete(row); rows++;
+    }
+    fclose(f); assert(rows>0); printf("BLE task negotiation vectors: %d PASS\n",rows);
+}
 int main(int argc, char **argv) {
     if (argc == 2 && !strcmp(argv[1], "--task")) { task_tests(); return 0; }
+    if (argc == 3 && !strcmp(argv[1], "--negotiation")) { negotiation_tests(argv[2]); return 0; }
     uint8_t out[505];
     int state;
     tools_init(1);
     assert(submit(100, "tools/list", "{}", "discover", out) == 0 && !job_fn);
     cJSON *list_result = query(100, &state);
     cJSON *listed = cJSON_GetObjectItem(cJSON_GetObjectItem(list_result, "result"), "tools");
-    assert(cJSON_GetArraySize(listed) == 7);
+    assert(cJSON_GetArraySize(listed) == 3);
     assert(cJSON_IsObject(cJSON_GetObjectItem(cJSON_GetArrayItem(listed, 0), "inputSchema")));
     cJSON_Delete(list_result);
     int before = gpio_writes;

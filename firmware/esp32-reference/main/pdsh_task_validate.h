@@ -7,3 +7,4 @@ bool pdsh_task_validate_json(const char *json);
 bool pdsh_task_validate(const cJSON *task);
 bool pdsh_task_json_no_nul(const char *json);
 bool pdsh_task_valid_output(const char *text, size_t max_bytes);
+bool pdsh_task_unique_keys(const cJSON *value);

@@ -7,6 +7,10 @@
 #define PDSH_RPC_MAX 4096
 #define PDSH_CAP_TOOLS (1UL << 20)
 #define PDSH_APP_TOOLS (1UL << 10)
+#define PDSH_APP_TASKS (1UL << 11)
+static inline bool pdsh_task_capable(uint32_t caps) {
+    return (caps & (PDSH_APP_TOOLS | PDSH_APP_TASKS)) == (PDSH_APP_TOOLS | PDSH_APP_TASKS);
+}
 #define PDSH_UPLOAD 0x54
 #define PDSH_COMMIT 0x55
 #define PDSH_RESULT 0x56

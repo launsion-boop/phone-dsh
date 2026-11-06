@@ -10,6 +10,7 @@ public enum PDSHLink {
     public static let audioUp = "6e400103-7f1b-4c5a-9a1e-786c696e6b00"
     public static let capability: UInt32 = 1 << 20
     public static let appCapability: UInt32 = 1 << 10
+    public static let appTaskCapability: UInt32 = 1 << 11
     public static let maxRPC = 4096
 
     public struct Envelope: Equatable, Sendable {
@@ -69,6 +70,7 @@ public enum PDSHLink {
         }
     }
     public static var hello: Data { var data = Data(); data.put(UInt16(0x0102)); data.put(appCapability); return data }
+    public static var helloWithTasks: Data { var data = Data(); data.put(UInt16(0x0102)); data.put(appCapability | appTaskCapability); return data }
 }
 
 @MainActor public protocol PDSHLinkTransport: AnyObject {
@@ -77,11 +79,14 @@ public enum PDSHLink {
 
 @MainActor public final class PDSHLinkClient {
     private let transport: any PDSHLinkTransport
+    private let allowTaskProfile: Bool
     private var peer: PDSHLink.Peer?
-    public init(transport: any PDSHLinkTransport) { self.transport = transport }
+    public init(transport: any PDSHLinkTransport, allowTaskProfile: Bool = false) {
+        self.transport = transport; self.allowTaskProfile = allowTaskProfile
+    }
     public func handshake() async throws -> PDSHLink.Peer {
         peer = nil
-        let value = try await PDSHLink.Peer(helloACK: transport.exchange(opcode: 1, body: PDSHLink.hello))
+        let value = try await PDSHLink.Peer(helloACK: transport.exchange(opcode: 1, body: allowTaskProfile ? PDSHLink.helloWithTasks : PDSHLink.hello))
         peer = value; return value
     }
     public func invoke(requestID: UUID, name: String, arguments: JSONValue, idempotencyKey: String, ttlMS: UInt32 = 15000) async throws -> JSONValue {

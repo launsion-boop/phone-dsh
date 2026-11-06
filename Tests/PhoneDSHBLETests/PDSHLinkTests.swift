@@ -5,6 +5,20 @@ import PDSHLinkWire
 @testable import PhoneDSHBLE
 
 final class PDSHLinkTests: XCTestCase {
+    func testTaskCapabilityMatchesSharedNegotiationAndHello() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let path = root.appendingPathComponent("spec/device/v1/golden/ble-task-negotiation.jsonl")
+        for line in try String(contentsOf: path, encoding: .utf8).split(separator: "\n") {
+            let row = try JSONValue.parse(Data(line.utf8))
+            let caps = try XCTUnwrap(row["app_caps"]?.intValue), enabled = try XCTUnwrap(row["task_tools"]?.boolValue)
+            XCTAssertEqual(pdsh_task_capable(UInt32(caps)), enabled, row["name"]?.stringValue ?? "")
+        }
+        let wire = try PDSHLink.Envelope(opcode: 1, requestID: 1, body: PDSHLink.helloWithTasks).encoded()
+        let frames = root.appendingPathComponent("spec/device/v1/golden/pdsh-link.jsonl")
+        let rows = try String(contentsOf: frames, encoding: .utf8).split(separator: "\n").map { try JSONValue.parse(Data($0.utf8)) }
+        let expected = try XCTUnwrap(rows.first { $0["name"]?.stringValue == "hello_pdsh_tasks" }?["hex"]?.stringValue)
+        XCTAssertEqual(wire.map { String(format: "%02x", $0) }.joined(), expected)
+    }
     func testAllPinnedLegacyVectorsRoundTripAndSegmentAtMinimumMTU() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let fixtures = root.appendingPathComponent("spec/device/v1/golden")
