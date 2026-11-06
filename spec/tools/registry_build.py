@@ -88,7 +88,7 @@ PATH_PROJECTIONS = {'P01': {'authority': ['spec/v1/channel.md', 'spec/v1/schema'
          'evidence': ['android/core/src/test/kotlin/com/phonedsh/agentcore/HarnessKindClosureTest.kt',
                       'android/core/src/test/kotlin/com/phonedsh/hostevents/HostEventKindSchemaTest.kt',
                       'Tests/PhoneDSHAgentCoreTests']},
- 'P07': {'authority': ['spec/device/v1/ble-link.md', 'spec/host/v1/schema/device-*.schema.json',
+ 'P07': {'authority': ['spec/device/v1/ble-link.md', 'spec/device/v1/lan-mcp.md', 'spec/host/v1/schema/device-*.schema.json',
                        'docs/design/device-adapter-contract-draft.md'],
          'ends': {'Swift': ['examples/probe-app/ProbeKit/Devices', 'Sources/PhoneDSHBLE'],
                   'C': ['firmware/components/pdsh_link_wire', 'firmware/esp32-reference'],
