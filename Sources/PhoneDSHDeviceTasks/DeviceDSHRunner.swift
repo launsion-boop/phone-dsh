@@ -86,10 +86,11 @@ public actor DeviceDSHRunner: DeviceTaskRunner {
                     case .failed, .budgetExhausted: return .failed(kind: .failed, message: "The device task did not complete.")
                     }
                 case .toolCall, .permissionRequested, .questionRequested:
-                    if observedInput {
-                        try? await harness.send(.cancel, to: record.sessionID)
-                        return .failed(kind: .denied, message: "Device task requested a disallowed capability.")
-                    }
+                    // The follow and remote-event streams can interleave, so
+                    // a permission request may arrive before the durable
+                    // user/message event. Fail closed for the whole session.
+                    try? await harness.send(.cancel, to: record.sessionID)
+                    return .failed(kind: .denied, message: "Device task requested a disallowed capability.")
                 default: break
                 }
             }
