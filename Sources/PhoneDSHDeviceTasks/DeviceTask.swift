@@ -30,6 +30,10 @@ public struct DeviceTask: Codable, Equatable, Sendable {
     }
 
     public static func decode(_ data: Data) throws -> DeviceTask {
+        guard let json = try? JSONSerialization.jsonObject(with: data), !containsNUL(json),
+              let object = json as? [String: Any], !(object["deadline"] is NSNull) else {
+            throw DeviceTaskError.invalidTask
+        }
         let task: DeviceTask
         do { task = try JSONDecoder().decode(DeviceTask.self, from: data) }
         catch { throw DeviceTaskError.invalidTask }
@@ -44,6 +48,15 @@ public struct DeviceTask: Codable, Equatable, Sendable {
             guard let end = parseTime(deadline), end > created else { throw DeviceTaskError.invalidTask }
         }
         return task
+    }
+
+    private static func containsNUL(_ value: Any) -> Bool {
+        if let text = value as? String { return text.unicodeScalars.contains { $0.value == 0 } }
+        if let items = value as? [Any] { return items.contains(where: containsNUL) }
+        if let object = value as? [String: Any] {
+            return object.contains { containsNUL($0.key) || containsNUL($0.value) }
+        }
+        return false
     }
 
     public var deadlineDate: Date? { deadline.flatMap(Self.parseTime) }

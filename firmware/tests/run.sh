@@ -31,6 +31,11 @@ if [ ! -f "$CJSON/cJSON.c" ]; then
   exit 1
 fi
 cc -std=c11 -Wall -Wextra -Werror -Wno-deprecated-declarations -fsanitize=address,undefined \
+  -I"$ROOT/firmware/esp32-reference/main" -I"$CJSON" \
+  "$ROOT/firmware/tests/test_task_validate.c" "$ROOT/firmware/esp32-reference/main/pdsh_task_validate.c" \
+  "$CJSON/cJSON.c" -o "$OUT/task-validate"
+"$OUT/task-validate" "$ROOT/spec/device/v1/golden/task-cases.jsonl"
+cc -std=c11 -Wall -Wextra -Werror -Wno-deprecated-declarations -fsanitize=address,undefined \
   -I"$ROOT/firmware/tests/stubs" -I"$ROOT/firmware/components/pdsh_link_wire/include" \
   -I"$ROOT/firmware/esp32-reference/main" -I"$ROOT/firmware/components/pdsh_home/include" \
   -I"$ROOT/firmware/components/pdsh_home/vendor/include" -I"$CJSON" \

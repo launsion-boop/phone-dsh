@@ -12,6 +12,16 @@ FAILURES = {'denied', 'unavailable', 'expired', 'failed', 'unknown_outcome'}
 
 
 def decode_task(task):
+    def contains_nul(value):
+        if isinstance(value, str):
+            return '\x00' in value
+        if isinstance(value, list):
+            return any(contains_nul(item) for item in value)
+        if isinstance(value, dict):
+            return any(contains_nul(key) or contains_nul(item) for key, item in value.items())
+        return False
+    if contains_nul(task):
+        raise ValueError('NUL in task')
     if not isinstance(task, dict):
         raise ValueError('invalid task')
     task_id, key, requester, created, body = (task.get(k) for k in ('id', 'idempotency_key', 'requester', 'created_at', 'body'))
@@ -25,6 +35,8 @@ def decode_task(task):
         return datetime.datetime.fromisoformat(value.replace('Z', '+00:00'))
     created_date = timestamp(created)
     deadline = task.get('deadline')
+    if 'deadline' in task and deadline is None:
+        raise ValueError('invalid deadline')
     if deadline is not None and timestamp(deadline) <= created_date:
         raise ValueError('invalid deadline')
     if not isinstance(body, dict) or body.get('type') != 'goal':
