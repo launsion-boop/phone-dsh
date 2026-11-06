@@ -10,3 +10,6 @@
 {"name":"requester_nul","valid":false,"task":{"id":"task-7","idempotency_key":"key-7","requester":"bad\u0000label","created_at":"2026-11-06T00:00:00Z","body":{"type":"goal","text":"Hello"}}}
 {"name":"unknown_nested_nul","valid":false,"task":{"id":"task-8","idempotency_key":"key-8","requester":"sensor","created_at":"2026-11-06T00:00:00Z","body":{"type":"goal","text":"Hello"},"extra":{"future":"a\u0000b"}}}
 {"name":"null_deadline","valid":false,"task":{"id":"task-9","idempotency_key":"key-9","requester":"sensor","created_at":"2026-11-06T00:00:00Z","deadline":null,"body":{"type":"goal","text":"Hello"}}}
+{"name":"invalid_calendar_day","valid":false,"task":{"id":"task-10","idempotency_key":"key-10","requester":"sensor","created_at":"2026-02-31T00:00:00Z","body":{"type":"goal","text":"Hello"}}}
+{"name":"valid_leap_day","valid":true,"task":{"id":"task-10","idempotency_key":"key-10","requester":"sensor","created_at":"2024-02-29T12:34:56Z","body":{"type":"goal","text":"Hello"}}}
+{"name":"non_ascii_date","valid":false,"task":{"id":"task-10","idempotency_key":"key-10","requester":"sensor","created_at":"２０２６-01-01T00:00:00Z","body":{"type":"goal","text":"Hello"}}}
