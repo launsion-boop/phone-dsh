@@ -7,7 +7,7 @@ status: frozen
 breaking: false
 version_decision: Adopt the existing task-inbox message semantics as a new negotiated device profile; retain P07 host envelope version 1 and existing BLE Link Tools v1.
 base: 48ea9bdd26a6c5f20fff74d1fff06f7c14efde5e
-contract_revision: spec/device/v1/task-delegation.md@f510fbc1ce51f5672f7ec800dba9fc2fab15b102
+contract_revision: spec/device/v1/task-delegation.md@96ed6f8f5f43e4f27aa90f1b1e846a881d8d921e
 ```
 
 ## Trigger, scope and roles
@@ -79,3 +79,14 @@ The scoped Worker preset and its packed Worker image must be delivered with the 
 | `spec/device/v1/golden/device-task-preset.yaml` | Coordinator | Preserve the exact real Worker preset document used by the pinned digest and adapter conformance tests. | Swift host, Worker DSH |
 
 | `spec/device/v1/task-delegation.md@f510fbc1ce51f5672f7ec800dba9fc2fab15b102` | Coordinator | Fix old-phone compatibility: negotiate task exposure using a separate local HELLO app capability, retain the old HELLO fixture, and share positive/negative negotiation vectors. | Swift BLE host, C wire and reference firmware |
+
+## Open contract change request: duplicate JSON members
+
+CONTRACT CHANGE REQUEST
+Contract: P07 @ `spec/device/v1/task-delegation.md@f510fbc1ce51f5672f7ec800dba9fc2fab15b102`   Clause: Task and result
+Problem: Swift Foundation and cJSON retain the first occurrence of a repeated object key while Python `json.loads` retains the last. Device task interpretation can therefore diverge before validation. Evidence: Foundation decodes `{"x":1,"x":2}` as 1; Python decodes it as 2; cJSON's lookup returns the first member.
+Proposal: reject duplicate object member names at every nesting level using raw JSON before decoding; publish positive and negative raw-wire fixtures, update Swift task intake, Python producer/parser and C validation and re-run both device bindings. Affects: Swift host, LAN Python reference, BLE C firmware.
+
+The profile remains `target`. `PDSH_ENABLE_DEVICE_TASKS` is intentionally absent from the application build settings: the prepared authorization entry and coordinator must not be enabled before this request is resolved, both runtimes pass, and the combined head is reviewed. Device-originated DSH dispatch is therefore not yet available in the installed app.
+
+| `spec/device/v1/task-delegation.md@96ed6f8f5f43e4f27aa90f1b1e846a881d8d921e` | Coordinator | Reject duplicate object names at every depth before decoding; share raw JSON positive and negative vectors across Swift, Python and C. | Swift host, LAN Python device, BLE C firmware |

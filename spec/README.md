@@ -192,6 +192,7 @@ GAP-12／GAP-13 是同一批實作要修的 iOS 缺口，不是合約變更。
 | GAP-12／P02（iOS） | iOS `WorkspaceLog` 定義 `defaultEpochIntervalSeconds = 45` 與 30–60 s 邊界，但沒有任何 timer 調用 `closeEpoch`；[wal.md](v1/wal.md) §5.2 的週期 close 在 iOS 缺席（Android 在 PR14 已有 lane）。由 [PC-20261104-wal-superseded-drain](../docs/protocol-changes/PC-20261104-wal-superseded-drain.md) 的 iOS implementer 修 | iOS 在 `Running` 且無 held resync 時按 30–60 s 週期 close；regression 在 60 s 視窗內斷言 `closeEpoch` 被調用一次，held 時不 close。runtime 證據後才關閉 |
 | GAP-13／P02（iOS） | iOS `WorkspaceLogService.pendingResyncPaths()` 沒有生產調用者；recovery 留下的 resync 不會在 HELLO 後重新請求，違反 wal.md §10 step 4 與 channel.md §9 item 6。由同一變更單的 iOS implementer 修 | `pendingResyncPaths()` 接到 HELLO 後路徑；regression 斷言每個 pending path 恰好一個帶 `mseq` 的 VFS_RESYNC，settle 後不重發。runtime 證據後才關閉 |
 | GAP-14／HarmonyOS | 新平台为 partial；尚未完成全量页面、模型流、取消、恢复及平台能力验收。边界登记与迁移见 [PC-20261104-harmony-host](../docs/protocol-changes/PC-20261104-harmony-host.md) | 真实 HAP 的每个受影响端通过有效/非法、断开/取消/恢复场景；平台限制单独登记，不由编译或模拟器替代真机/掉电证据 |
+| GAP-15／P07 | Device task JSON 中重複 object key 尚無共同規則：Swift Foundation 與 cJSON 取首個值，Python `json.loads` 預設取最後值；不可信設備可能讓兩端理解不同內容。任務 profile 仍為 `target`，不得啟用 | 在 task owning contract 凍結重複鍵策略與 raw JSON 正反向量，Swift／Python／C 真實 parser 一致拒絕或一致解讀；重跑斷線與設備路徑驗收 |
 
 只有修正來源、相關端測試及必要的 integration 證據齊備，才在此記錄關閉與修復 commit。
 
