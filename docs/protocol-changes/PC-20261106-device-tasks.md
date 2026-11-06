@@ -7,7 +7,7 @@ status: frozen
 breaking: false
 version_decision: Adopt the existing task-inbox message semantics as a new negotiated device profile; retain P07 host envelope version 1 and existing BLE Link Tools v1.
 base: 48ea9bdd26a6c5f20fff74d1fff06f7c14efde5e
-contract_revision: spec/device/v1/task-delegation.md@6504cd95499a2d3f4e573a4596972b8f2c8c6328
+contract_revision: spec/device/v1/task-delegation.md@6495ae24a9127ff04f8afa27abe66e63a489e605
 ```
 
 ## Trigger, scope and roles
@@ -108,3 +108,5 @@ The owner froze rejection of duplicate members at `spec/device/v1/task-delegatio
 | `spec/device/v1/task-delegation.md@23a827ac628a03eb330760fac82bf885038c59d4` | Coordinator | Clarify that a received-state deadline is provisional and the five-minute cap starts with durable acceptance. | Swift host |
 
 | `spec/device/v1/task-delegation.md@6504cd95499a2d3f4e573a4596972b8f2c8c6328` | Coordinator | Require calendar-valid ASCII RFC 3339 timestamps; Foundation otherwise normalizes invalid dates that Python and firmware reject. | Swift host, LAN Python device, BLE C firmware |
+
+| `spec/device/v1/task-delegation.md@6495ae24a9127ff04f8afa27abe66e63a489e605` | Coordinator | Define duplicate member comparison on decoded Unicode scalar sequences, avoiding Swift-only canonical-equivalence rejection. | Swift host, LAN Python device, BLE C firmware |
