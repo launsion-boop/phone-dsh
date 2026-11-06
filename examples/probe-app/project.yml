@@ -93,6 +93,8 @@ targets:
         product: PhoneDSHLAN
       - package: PhoneDSH
         product: PhoneDSHBLE
+      - package: PhoneDSH
+        product: PhoneDSHDeviceTasks
       - package: SwiftMarkdown
         product: Markdown
       - package: SwiftMath

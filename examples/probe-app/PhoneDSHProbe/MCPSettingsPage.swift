@@ -17,6 +17,9 @@ import SwiftUI
 
 struct MCPSettingsPage: View {
     @State private var discovery = LANDeviceDiscovery()
+    #if PDSH_ENABLE_DEVICE_TASKS
+    @State private var taskManager = DeviceTaskManager.shared
+    #endif
     @State private var model: MCPSettingsModel
     private let draft: MCPControlDraft?
 
@@ -58,10 +61,20 @@ struct MCPSettingsPage: View {
                                            description: Text("在网页版里加过的服务器,这里也能看到;两边是同一份列表。"))
                 } else {
                     ForEach(model.rows) { row in
-                        NavigationLink {
-                            MCPEditorPage(model: model, server: row)
-                        } label: {
-                            MCPSummaryRow(server: row)
+                        VStack(alignment: .leading) {
+                            NavigationLink {
+                                MCPEditorPage(model: model, server: row)
+                            } label: {
+                                MCPSummaryRow(server: row)
+                            }
+                            #if PDSH_ENABLE_DEVICE_TASKS
+                            if row.url.lowercased().hasPrefix("https://"), row.grant != nil {
+                                let key = DeviceTaskManager.lanKey(row.serverName)
+                                Toggle("允许设备向手机派任务", isOn: Binding(get: { taskManager.isActive(key) }, set: { enabled in
+                                    Task { if enabled { await taskManager.startLAN(row) } else { await taskManager.stop(key) } }
+                                })).font(.footnote)
+                            }
+                            #endif
                         }
                     }
                 }
@@ -76,6 +89,9 @@ struct MCPSettingsPage: View {
                     Text(error).foregroundStyle(.red)
                 }
             }
+            #if PDSH_ENABLE_DEVICE_TASKS
+            if let error = taskManager.error { Section { Text(error).foregroundStyle(.red) } }
+            #endif
             if let notice = model.notice {
                 Section {
                     Text(notice).foregroundStyle(.green)

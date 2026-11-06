@@ -5,6 +5,9 @@ import PhoneDSHBLE
 struct BluetoothDevicesPage: View {
     @State private var store = BLEDeviceStore.shared
     @State private var message = ""
+    #if PDSH_ENABLE_DEVICE_TASKS
+    @State private var taskManager = DeviceTaskManager.shared
+    #endif
     var body: some View {
         List {
             Section {
@@ -46,6 +49,16 @@ struct BluetoothDevicesPage: View {
                             if let value = device.readings[profile.rawValue] { Text(value).font(.caption) }
                         }
                         Text(device.linkState).font(.footnote)
+                        #if PDSH_ENABLE_DEVICE_TASKS
+                        if device.supportsDeviceTasks {
+                            let key = DeviceTaskManager.bleKey(device.id)
+                            Toggle("允许设备向手机派任务", isOn: Binding(get: { taskManager.isActive(key) }, set: { enabled in
+                                Task { if enabled { await taskManager.startBLE(device.id) } else { await taskManager.stop(key) } }
+                            }))
+                            Text("仅当前连接和前台有效，设备只能提交文字任务并接收最终答复。")
+                                .font(.footnote).foregroundStyle(.secondary)
+                        }
+                        #endif
                         if !device.linkIdentity.isEmpty { Text("设备 ID：\(device.linkIdentity)").font(.caption).textSelection(.enabled) }
                         ForEach(device.linkTools, id: \.self) { name in
                             Toggle("允许工具：\(name)", isOn: Binding(get: {
@@ -66,6 +79,9 @@ struct BluetoothDevicesPage: View {
                 } header: { Text(device.name) }
             }
             if !message.isEmpty { Section("结果") { Text(message).textSelection(.enabled) } }
+            #if PDSH_ENABLE_DEVICE_TASKS
+            if let error = taskManager.error { Section { Text(error).foregroundStyle(.red) } }
+            #endif
             Section("支持范围") {
                 Text("标准电量、环境温度 / 湿度、厂商 / 型号与 Immediate Alert；兼容 xiaozhi-link 握手的 PDSH Link 工具扩展支持 light.set 和 home.http。提醒是标准 Write Without Response，只能确认提交，不能确认硬件执行。暂不支持音频、HID 控制、HomeKit / Matter 或私有 GATT 协议。")
             }
