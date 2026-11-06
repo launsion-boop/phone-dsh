@@ -6,7 +6,7 @@ import PhoneDSHAgentCore
 
 @MainActor @Observable public final class BLEDeviceStore: NSObject, @preconcurrency CBCentralManagerDelegate, @preconcurrency CBPeripheralDelegate {
     public static let shared = BLEDeviceStore()
-    static func isReservedTaskTool(_ name: String) -> Bool { name.hasPrefix("pdsh.task.") }
+    static func isReservedTaskTool(_ name: String) -> Bool { name.hasPrefix("pdsh.task.") || name.hasPrefix("pdsh.identity.") }
     public struct Device: Identifiable {
         public let id: UUID
         public var name: String
@@ -21,6 +21,10 @@ import PhoneDSHAgentCore
         public var linkToolDescriptors: [JSONValue] = []
         public var allowDeviceTasks = false
         public var supportsDeviceTasks = false
+        /// Identity proven on the current connection and confirmed by the user ("ble:" + key hash).
+        public var taskIdentity = ""
+        /// Identity proven on the current connection but not yet confirmed by the user.
+        public var pendingIdentity = ""
         public var grantedTools: Set<String> = []
         public var homeOrigins = ""
         public var events: [String] = []
@@ -114,7 +118,7 @@ import PhoneDSHAgentCore
         linkTasks.removeValue(forKey: id)?.cancel()
         linkChannels.removeValue(forKey: id)?.fail(BLEFailure("Link disconnected; outcome_unknown"))
         linkClients[id] = nil; linkTaskTools[id] = nil; linkCharacteristics[id] = nil; linkBootIDs[id] = nil; linkEventSequences[id] = nil
-        update(id) { $0.linkState = "未连接"; $0.linkIdentity = ""; $0.linkTools = []; $0.linkToolDescriptors = []; $0.allowDeviceTasks = false; $0.supportsDeviceTasks = false; $0.grantedTools = []; $0.homeOrigins = ""; $0.events = [] }
+        update(id) { $0.linkState = "未连接"; $0.linkIdentity = ""; $0.linkTools = []; $0.linkToolDescriptors = []; $0.allowDeviceTasks = false; $0.supportsDeviceTasks = false; $0.taskIdentity = ""; $0.pendingIdentity = ""; $0.grantedTools = []; $0.homeOrigins = ""; $0.events = [] }
         connectionTimers.removeValue(forKey: id)?.cancel(); characteristics[id] = nil; ambiguousProfiles[id] = nil
         update(id) { $0.state = "未连接"; $0.profiles = []; $0.readings = [:]; $0.allowRead = false; $0.allowAlert = false }
         if pending?.device == id { finish(.failure(BLEFailure("Device disconnected"))) }
@@ -262,10 +266,13 @@ import PhoneDSHAgentCore
                 linkClients[id] = client; linkBootIDs[id] = peer.bootID
                 linkTaskTools[id] = Set(names.filter(Self.isReservedTaskTool))
                 let ordinaryTools = tools.filter { !Self.isReservedTaskTool($0["name"]?.stringValue ?? "") }
-                // GAP-16: a peer's advertised tools and successful GATT
-                // subscriptions do not prove a bond to the iOS central.
-                // Do not surface task eligibility without authenticated proof.
-                update(id) { $0.linkIdentity = deviceID.lowercased(); $0.linkTools = names.filter { !Self.isReservedTaskTool($0) }; $0.linkToolDescriptors = ordinaryTools; $0.supportsDeviceTasks = false; $0.linkState += " · PDSH Tools v1" }
+                // Advertised tools and GATT subscriptions are claims, not proof.
+                // Task eligibility needs a fresh signed identity proof on this
+                // connection plus the user's first-use confirmation (GAP-16 closure).
+                update(id) { $0.linkIdentity = deviceID.lowercased(); $0.linkTools = names.filter { !Self.isReservedTaskTool($0) }; $0.linkToolDescriptors = ordinaryTools; $0.supportsDeviceTasks = false; $0.taskIdentity = ""; $0.pendingIdentity = ""; $0.linkState += " · PDSH Tools v1" }
+                if linkTaskTools[id]?.contains("pdsh.identity.prove") == true {
+                    try await proveIdentity(id, client: client)
+                }
             } catch { if !Task.isCancelled { status = error.localizedDescription; disconnect(id) } }
         }
     }
@@ -276,23 +283,60 @@ import PhoneDSHAgentCore
         update(id) { if enabled && $0.linkTools.contains(name) { $0.grantedTools.insert(name) } else { $0.grantedTools.remove(name) } }
     }
 
-    /// Task grants fail closed until GAP-16 authenticated peer binding exists.
+    /// Sends a fresh nonce and verifies the device's signed identity proof.
+    /// A verified identity the user has not confirmed yet is held as pending.
+    private func proveIdentity(_ id: UUID, client: PDSHLinkClient) async throws {
+        let nonce = try BLEIdentity.randomNonce()
+        let reply = try await client.invoke(requestID: UUID(), name: "pdsh.identity.prove",
+            arguments: .object(["nonce": .string(BLEIdentity.hexEncode([UInt8](nonce)))]),
+            idempotencyKey: UUID().uuidString.lowercased())
+        guard case .object(let root) = reply, root["status"] == .string("completed"),
+              case .object(let result) = root["result"],
+              case .string(let publicKey) = result["pubkey"],
+              case .string(let signature) = result["signature"] else {
+            throw BLEFailure("设备身份证明返回无效")
+        }
+        let identity = try BLEIdentity.verify(nonce: nonce, publicKeyHex: publicKey, signatureHex: signature)
+        guard !Task.isCancelled else { return }
+        if BLETrustedIdentities.contains(identity) {
+            update(id) { $0.taskIdentity = identity; $0.pendingIdentity = ""; $0.supportsDeviceTasks = true }
+        } else {
+            update(id) { $0.taskIdentity = ""; $0.pendingIdentity = identity; $0.supportsDeviceTasks = false }
+        }
+    }
+
+    /// The user confirms the fingerprint shown for a newly proven device (first use).
+    public func trustPendingIdentity(_ id: UUID) {
+        guard let device = devices.first(where: { $0.id == id }), !device.pendingIdentity.isEmpty,
+              linkClients[id] != nil else {
+            status = "请先连接设备并完成身份证明"
+            return
+        }
+        let identity = device.pendingIdentity
+        BLETrustedIdentities.insert(identity)
+        update(id) { $0.taskIdentity = identity; $0.pendingIdentity = ""; $0.supportsDeviceTasks = true }
+    }
+
+    /// Task grants require a proof on this connection and a user-confirmed identity.
     /// Revocation remains available and disconnect still clears all grants.
     public func grantDeviceTasks(_ id: UUID, enabled: Bool) throws {
         if enabled {
-            // Fail closed until the device identity is authenticated; a BLE
-            // service or task-tool declaration is not evidence of pairing.
-            throw BLEFailure("蓝牙设备身份尚无法验证，暂不能授权设备派任务")
+            guard let device = devices.first(where: { $0.id == id }), device.supportsDeviceTasks,
+                  !device.taskIdentity.isEmpty, BLETrustedIdentities.contains(device.taskIdentity) else {
+                throw BLEFailure("设备身份尚未证明或尚未确认信任，暂不能授权设备派任务")
+            }
+            update(id) { $0.allowDeviceTasks = true }
+            return
         }
-        update(id) { $0.allowDeviceTasks = enabled }
-        if !enabled && linkBusy.contains(id) { disconnect(id) }
+        update(id) { $0.allowDeviceTasks = false }
+        if linkBusy.contains(id) { disconnect(id) }
     }
 
     func invokeTaskLink(_ id: UUID, identity: String, requestID: UUID, name: String,
                         arguments: JSONValue, key: String, fresh: Bool) async throws -> JSONValue {
         let allowed: Set<String> = ["pdsh.task.next", "pdsh.task.accept", "pdsh.task.complete", "pdsh.task.fail"]
         guard allowed.contains(name), let device = devices.first(where: { $0.id == id }),
-              device.allowDeviceTasks, device.linkIdentity == identity,
+              device.allowDeviceTasks, !device.taskIdentity.isEmpty, device.taskIdentity == identity,
               linkTaskTools[id]?.contains(name) == true, let client = linkClients[id],
               !linkBusy.contains(id) else { throw BLEFailure("Device task grant or Link connection unavailable") }
         linkBusy.insert(id); defer { linkBusy.remove(id) }

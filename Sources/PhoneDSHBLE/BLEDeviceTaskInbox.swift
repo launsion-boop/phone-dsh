@@ -13,13 +13,13 @@ public struct BLEDeviceTaskInbox: BLETaskLinkInbox, Sendable {
 
     @MainActor public init(peripheralID: UUID, store: BLEDeviceStore = .shared) throws {
         guard let device = store.devices.first(where: { $0.id == peripheralID }),
-              device.allowDeviceTasks, UUID(uuidString: device.linkIdentity) != nil else {
+              device.allowDeviceTasks, device.taskIdentity.hasPrefix("ble:") else {
             throw BLEFailure("Device task grant is unavailable")
         }
         self.peripheralID = peripheralID
-        self.identity = device.linkIdentity
+        self.identity = device.taskIdentity
         self.store = store
-        self.deviceID = "ble:" + device.linkIdentity
+        self.deviceID = device.taskIdentity
     }
 
     public func next() async throws -> DeviceTask? {

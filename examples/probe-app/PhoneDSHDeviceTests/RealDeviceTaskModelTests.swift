@@ -331,7 +331,9 @@ extension RealDeviceTaskModelTests {
 
     private func verifyOrdinaryLink(name: String) async throws {
         let store = BLEDeviceStore.shared
-        store.setDeviceTaskDiscoveryEnabled(false)
+        // Only the ESP32 identity path negotiates the task profile; the other
+        // ordinary-link fixtures stay without it.
+        store.setDeviceTaskDiscoveryEnabled(name == "PDSH ESP32 Link")
         defer { store.stopScan() }
         store.scan()
         var selected: UUID?
@@ -347,13 +349,35 @@ extension RealDeviceTaskModelTests {
             if store.devices.first(where: { $0.id == id })?.linkState.contains("PDSH Tools v1") == true { break }
             try await Task.sleep(for: .milliseconds(100))
         }
+        if name == "PDSH ESP32 Link" {
+            // The identity proof runs after tools/list; wait for its verdict.
+            for _ in 0..<100 {
+                let current = store.devices.first(where: { $0.id == id })
+                if current?.pendingIdentity.isEmpty == false || current?.taskIdentity.isEmpty == false { break }
+                try await Task.sleep(for: .milliseconds(100))
+            }
+        }
         let device = try XCTUnwrap(store.devices.first(where: { $0.id == id }))
         guard device.linkState.contains("PDSH Tools v1") else {
             return XCTFail("Link discovery failed: \(device.linkState); \(store.status)")
         }
         XCTAssertNotNil(UUID(uuidString: device.linkIdentity))
-        XCTAssertFalse(device.supportsDeviceTasks)
-        XCTAssertThrowsError(try store.grantDeviceTasks(id, enabled: true))
+        if name == "PDSH ESP32 Link" {
+            // The reference device must prove its identity key on this connection.
+            XCTAssertTrue(device.pendingIdentity.hasPrefix("ble:") || device.taskIdentity.hasPrefix("ble:"),
+                          "identity proof did not verify: \(device.linkState); status=\(store.status); pending=\(device.pendingIdentity); task=\(device.taskIdentity)")
+        }
+        print("PDSH_IDENTITY_STATE name=\(name) trusted=\(!device.taskIdentity.isEmpty) pending=\(!device.pendingIdentity.isEmpty) supports=\(device.supportsDeviceTasks)")
+        if name == "PDSH ESP32 Link" && !device.taskIdentity.isEmpty {
+            // Trusted: the proof verified on this connection and the user had
+            // already confirmed the identity, so the grant must now be allowed.
+            XCTAssertTrue(device.supportsDeviceTasks)
+            XCTAssertNoThrow(try store.grantDeviceTasks(id, enabled: true))
+            try? store.grantDeviceTasks(id, enabled: false)
+        } else {
+            XCTAssertFalse(device.supportsDeviceTasks)
+            XCTAssertThrowsError(try store.grantDeviceTasks(id, enabled: true))
+        }
         if device.linkTools.contains("light.get") {
             store.grantLinkTool(id, name: "light.get", enabled: true)
             let request = UUID()

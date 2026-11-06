@@ -110,6 +110,9 @@ targets:
         # errSecMissingEntitlement for every keychain query.
         CODE_SIGN_ENTITLEMENTS: Config/PhoneDSHProbe.entitlements
         SUPPORTS_MACCATALYST: NO
+        # LAN-only device tasks: exposes the per-server, default-off LAN grant.
+        # Bluetooth task grants stay fail-closed in BLEDeviceStore (GAP-16).
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) PDSH_ENABLE_DEVICE_TASKS"
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks"
 
   ProbeKit:

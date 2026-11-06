@@ -60,6 +60,8 @@ struct PhoneDSHProbeApp: App {
                 .task {
                     #if PDSH_ENABLE_DEVICE_TASKS
                     await DeviceTaskManager.shared.sceneActive(scenePhase == .active)
+                    // Negotiates the task capability on BLE Link HELLO. Tasks still need
+                    // a signed identity proof and the user's first-use confirmation.
                     BLEDeviceStore.shared.setDeviceTaskDiscoveryEnabled(true)
                     #endif
                     model.refreshLockdown()

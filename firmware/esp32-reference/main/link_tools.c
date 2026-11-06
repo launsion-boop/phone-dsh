@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #include "link_tools.h"
 #include "driver/gpio.h"
+#include "esp_log.h"
 #include "esp_random.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -8,6 +9,7 @@
 #include "freertos/task.h"
 #include "nvs.h"
 #include "pdsh_home.h"
+#include "pdsh_identity.h"
 #include "pdsh_link_wire.h"
 #include "pdsh_task_store.h"
 #include "pdsh_task_validate.h"
@@ -126,6 +128,14 @@ static cJSON *tool_list(void) {
                       "\"required\":[\"method\",\"url\"],\"additionalProperties\":false}");
         cJSON_AddItemToArray(list, t);
     }
+    if (task_profile && pdsh_identity_ready()) {
+        cJSON *t = cJSON_CreateObject();
+        cJSON_AddStringToObject(t, "name", "pdsh.identity.prove");
+        cJSON_AddStringToObject(t, "description", "Sign a phone nonce with the device identity key; host only.");
+        add_schema(t, "{\"type\":\"object\",\"properties\":{\"nonce\":{\"type\":\"string\"}},"
+                      "\"required\":[\"nonce\"],\"additionalProperties\":false}");
+        cJSON_AddItemToArray(list, t);
+    }
     if (task_profile && pdsh_task_store_healthy()) {
         const char *names[] = {"pdsh.task.next", "pdsh.task.accept", "pdsh.task.complete", "pdsh.task.fail"};
         const char *schemas[] = {
@@ -221,6 +231,8 @@ void tools_init(uint32_t boot_id) {
     lock = xSemaphoreCreateMutex();
     healthy = psa_crypto_init() == PSA_SUCCESS &&
               nvs_open("pdsh_tools", NVS_READWRITE, &storage) == ESP_OK;
+    /* Identity failure only disables pdsh.identity.prove; ordinary Link tools stay. */
+    if (!pdsh_identity_init()) ESP_LOGW("pdsh", "device identity key unavailable");
     uint8_t id[16] = {0};
     size_t len = sizeof(id);
     esp_err_t identity = healthy ? nvs_get_blob(storage, "device_id", id, &len) : ESP_FAIL;
@@ -352,6 +364,29 @@ static int commit(const uint8_t id[16], uint8_t *state) {
     if (!keys(root, fields, 4) || !request_id || strcmp(request_id, expected) || !name || !idem ||
         strlen(idem) > 128 || !strlen(idem) || !cJSON_IsObject(args))
         goto done;
+    if (!strcmp(name, "pdsh.identity.prove")) {
+        static const char *const prove_fields[] = {"nonce"};
+        if (busy) {
+            error = 6;
+            goto done;
+        }
+        if (!task_profile || !pdsh_identity_ready() || !keys(args, prove_fields, 1))
+            goto done;
+        cJSON *nonce = cJSON_GetObjectItemCaseSensitive(args, "nonce");
+        cJSON *proof = cJSON_IsString(nonce) ? pdsh_identity_prove(nonce->valuestring) : NULL;
+        if (!proof) {
+            error = 11;
+            goto done;
+        }
+        memset(&readonly_result, 0, sizeof(readonly_result));
+        readonly_result.magic = MAGIC;
+        memcpy(readonly_result.id, id, 16);
+        result_json(&readonly_result, "completed", proof);
+        *state = readonly_result.state;
+        error = 0;
+        upload.active = false;
+        goto done;
+    }
     if (!strcmp(name, "tools/list") || !strcmp(name, "light.get") || !strcmp(name,"pdsh.task.next")) {
         if (busy) {
             error = 6;
