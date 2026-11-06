@@ -1,0 +1,68 @@
+{
+  "title": "BLE reference device task store",
+  "type": "object",
+  "required": [
+    "v",
+    "slots"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "slots": {
+      "type": "array",
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "required": [
+          "task",
+          "phase"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "task": {
+            "$ref": "task.schema.json"
+          },
+          "phase": {
+            "enum": [
+              "queued",
+              "accepted",
+              "completed",
+              "failed"
+            ]
+          },
+          "outcome": {
+            "type": "object"
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "phase": {
+                  "enum": [
+                    "completed",
+                    "failed"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "outcome"
+              ]
+            },
+            "else": {
+              "not": {
+                "required": [
+                  "outcome"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

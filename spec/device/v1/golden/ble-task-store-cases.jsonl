@@ -1,0 +1,5 @@
+{"name":"empty","valid":true,"store":{"v":1,"slots":[]}}
+{"name":"queued","valid":true,"store":{"v":1,"slots":[{"task":{"id":"task-1","idempotency_key":"goal-1","requester":"sensor","created_at":"2026-11-06T00:00:00Z","body":{"type":"goal","text":"Hello"}},"phase":"queued"}]}}
+{"name":"completed","valid":true,"store":{"v":1,"slots":[{"task":{"id":"task-1","idempotency_key":"goal-1","requester":"sensor","created_at":"2026-11-06T00:00:00Z","body":{"type":"goal","text":"Hello"}},"phase":"completed","outcome":{"output":"OK","truncated":false}}]}}
+{"name":"terminal_missing_outcome","valid":false,"store":{"v":1,"slots":[{"task":{"id":"task-1","idempotency_key":"goal-1","requester":"sensor","created_at":"2026-11-06T00:00:00Z","body":{"type":"goal","text":"Hello"}},"phase":"completed"}]}}
+{"name":"unknown_version","valid":false,"store":{"v":2,"slots":[]}}
