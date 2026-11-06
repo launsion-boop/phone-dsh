@@ -38,6 +38,8 @@ import PhoneDSHDeviceTasks
 
 @MainActor private final class CrossRuntimeInbox: BLETaskLinkInbox {
     let client: PDSHLinkClient
+    var dropAcceptReply = false
+    var dropCompleteReply = false
     init(_ client: PDSHLinkClient) { self.client = client }
     func next() async throws -> DeviceTask {
         let reply = try await client.invoke(requestID: UUID(), name: "pdsh.task.next", arguments: .object([:]), idempotencyKey: UUID().uuidString)
@@ -46,15 +48,22 @@ import PhoneDSHDeviceTasks
     }
     func invokeOrQuery(requestID: UUID, name: String, arguments: JSONValue,
                        idempotencyKey: String, fresh: Bool) async throws -> JSONValue {
-        if fresh { return try await client.invoke(requestID: requestID, name: name, arguments: arguments, idempotencyKey: idempotencyKey) }
+        if fresh {
+            let value = try await client.invoke(requestID: requestID, name: name, arguments: arguments, idempotencyKey: idempotencyKey)
+            if name == "pdsh.task.accept" && dropAcceptReply { dropAcceptReply = false; throw BLEFailure("simulated lost accept reply") }
+            if name == "pdsh.task.complete" && dropCompleteReply { dropCompleteReply = false; throw BLEFailure("simulated lost completion reply") }
+            return value
+        }
         guard let value = try await client.query(requestID: requestID) else { throw BLEFailure("pending") }
         return value
     }
 }
 private actor CrossRuntimeRunner: DeviceTaskRunner {
+    private var count = 0
     func session(for deviceID: String, existingSession: String?) async throws -> String { existingSession ?? "session-1" }
-    func run(task: DeviceTask, record: DeviceTaskRecord) async -> DeviceTaskOutcome { .completed(output: "answer from phone", truncated: false) }
+    func run(task: DeviceTask, record: DeviceTaskRecord) async -> DeviceTaskOutcome { count += 1; return .completed(output: "answer from phone", truncated: false) }
     func cancel(sessionID: String) async {}
+    func runs() -> Int { count }
 }
 
 final class BLETaskCrossRuntimeTests: XCTestCase {
@@ -72,11 +81,17 @@ final class BLETaskCrossRuntimeTests: XCTestCase {
         let discovery = try await client.invoke(requestID: UUID(), name: "tools/list", arguments: .object([:]), idempotencyKey: UUID().uuidString)
         let deviceID = try XCTUnwrap(discovery["result"]?["device_id"]?.stringValue)
         let inbox = CrossRuntimeInbox(client), task = try await inbox.next()
+        inbox.dropAcceptReply = true; inbox.dropCompleteReply = true
         XCTAssertEqual(task.body.text, "Hello from device")
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
-        let executor = try DeviceTaskExecutor(directory: dir, runner: CrossRuntimeRunner())
+        let runner = CrossRuntimeRunner()
+        let executor = try DeviceTaskExecutor(directory: dir, runner: runner)
+        do { try await executor.process(deviceID: "ble:" + deviceID, task: task, authorized: true, inbox: inbox); XCTFail("lost accept reply") } catch {}
+        do { try await executor.process(deviceID: "ble:" + deviceID, task: task, authorized: true, inbox: inbox); XCTFail("lost completion reply") } catch {}
         try await executor.process(deviceID: "ble:" + deviceID, task: task, authorized: true, inbox: inbox)
+        let runs = await runner.runs()
+        XCTAssertEqual(runs, 1)
         let local = try JSONValue.parse(await bridge.exchange(opcode: 254, body: Data()))
         XCTAssertEqual(local["phase"]?.stringValue, "completed")
         XCTAssertEqual(local["outcome"]?["output"]?.stringValue, "answer from phone")
