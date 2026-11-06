@@ -89,6 +89,8 @@ targets:
         product: PhoneDSHSSH
       - package: PhoneDSH
         product: PhoneDSHADB
+      - package: PhoneDSH
+        product: PhoneDSHBLE
       - package: SwiftMarkdown
         product: Markdown
       - package: SwiftMath
@@ -351,6 +353,27 @@ targets:
         TEST_TARGET_NAME: PhoneDSHProbe
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @loader_path/Frameworks"
 
+  PhoneDSHBLEHardwareTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: PhoneDSHBLEHardwareTests
+    dependencies:
+      - target: PhoneDSHProbe
+      - package: PhoneDSH
+        product: PhoneDSHBLE
+      - package: PhoneDSH
+        product: PhoneDSHAgentCore
+      - package: PhoneDSH
+        product: PhoneDSHLoopback
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.phone-dsh.probe.blehardwaretests
+        PRODUCT_NAME: PhoneDSHBLEHardwareTests
+        GENERATE_INFOPLIST_FILE: YES
+        SKIP_INSTALL: YES
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @loader_path/Frameworks"
+
 schemes:
   PhoneDSHProbe:
     build:
@@ -468,3 +491,13 @@ schemes:
       config: Debug
     archive:
       config: Debug
+
+  PhoneDSHBLEHardware:
+    build:
+      targets:
+        PhoneDSHProbe: all
+        PhoneDSHBLEHardwareTests: [test]
+    test:
+      config: Debug
+      targets:
+        - PhoneDSHBLEHardwareTests

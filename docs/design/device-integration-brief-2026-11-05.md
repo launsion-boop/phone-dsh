@@ -8,7 +8,7 @@
 
 ## 已有资产
 
-- `codex/pdsh-ble-link` 的 `e76cecd4`：标准 GATT，以及基于 xiaozhi-link 的 PDSH Link Tools Profile；支持 `tools/list`、调用和结果查询，含 iOS、ESP32 参考实现与测试。该分支文档记录了 iPhone 14 Pro / ESP32-S3 真机验证；本工作单未重新运行。
+- `codex/pdsh-ble-link` 的 `e76cecd4`：标准 GATT，以及基于 上游 Link 的 PDSH Link Tools Profile；支持 `tools/list`、调用和结果查询，含 iOS、ESP32 参考实现与测试。该分支文档记录了 iPhone 14 Pro / ESP32-S3 真机验证；本工作单未重新运行。
 - 同一固件族的 `tonolink-ag00a/main/link_tools.c` 已有 `tools/list`；实际固件版本和手机侧支持情况需要逐设备协商，不能根据设备名推断。
 - 旧 TonoLink 分支有 BLE 控制、USB NCM OTA 和手机上的局域网调试 relay；relay 曾设计为局域网无凭证访问，不能直接作为通用设备接入入口。
 - 当前仓库 P07 提供设备能力、信封、回执的 schema 和 connector 接口；真实 BLE/LAN 开放协议、通用 Skill 清单及两端映射尚未冻结。

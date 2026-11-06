@@ -5,7 +5,7 @@ change: PC-20261105-device-ble
 contracts: [P05, P07, P09, P12, P18]
 status: frozen
 breaking: false
-version_decision: Existing xiaozhi-link 1.2 framing and explicitly negotiated PDSH Tools v1; P07 host contract 1 unchanged.
+version_decision: Existing 上游 Link 1.2 framing and explicitly negotiated PDSH Tools v1; P07 host contract 1 unchanged.
 base: 8ab1dde58abd21b5d057e995afd3cd1d93ba8e6f
 contract_revision: spec/device/v1/ble-link.md@929361da4d3922b7ab78082f5d93bbeced2ec2e9
 ```
@@ -38,10 +38,10 @@ App, native MCP and reference firmware must be released after their respective t
 - Contract owner: `spec/device/v1/**`, `spec/v1/native-mcp.md`, `spec/v1/golden/native-mcp/**`, registry and this record.
 - Swift implementer: `Sources/PhoneDSHBLE/**`, `Tests/PhoneDSHBLETests/**`, package and app wiring; C implementer: `firmware/**`. Coordinator owns both sets in this task.
 - Shared valid vectors: `spec/device/v1/golden/{xiaozhi-ctl,pdsh-link}.jsonl`; invalid: `spec/device/v1/golden/invalid-ctl.jsonl` (CRC, length, truncation). Both production decoders must consume the same files. Additional tests cover unsupported negotiation, duplicate/conflicting requests, cancellation, reconnect and unknown results.
-- `bash scripts/ci/check.sh --only phone-spec,phone-p0-conformance,phone-cross-tree` → NOT_RUN.
-- `swift test --filter PhoneDSHBLETests` → NOT_RUN.
-- `bash firmware/tests/run.sh` → NOT_RUN.
-- `bash scripts/ci/smoke.sh` and applicable hygiene/license checks → NOT_RUN.
+- `bash scripts/ci/check.sh --only phone-spec,phone-p0-conformance,phone-cross-tree` → FAIL: pre-existing exec.md line cap, stale UI provenance and pre-existing Android MCP golden coverage; BLE golden now has a real reader.
+- `swift test --filter PhoneDSHBLETests` → PASS (20 tests on macOS).
+- `bash firmware/tests/run.sh` → PASS (host C with sanitizers, shared 170 valid and 3 invalid frames and tool/policy tests).
+- `xcodebuild -project PhoneDSHProbe.xcodeproj -scheme PhoneDSHProbe -destination generic/platform=iOS\ Simulator CODE_SIGNING_ALLOWED=NO build` → PASS. `xcodebuild -project PhoneDSHProbe.xcodeproj -scheme PhoneDSHBLEHardware -destination generic/platform=iOS CODE_SIGNING_ALLOWED=NO build-for-testing` → PASS. `phone-no-dsh-patch` → PASS. Hygiene and license → FAIL on existing unrelated files; smoke → NOT_RUN.
 - Real iPhone/ESP32, BLE pairing/reconnect, HTTP integration and device power loss → NOT_VERIFIED on this head. Source-branch evidence in `docs/ble-hardware-testing.md` is historical only.
 
 ## Revisions
