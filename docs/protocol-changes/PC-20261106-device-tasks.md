@@ -7,7 +7,7 @@ status: frozen
 breaking: false
 version_decision: Adopt the existing task-inbox message semantics as a new negotiated device profile; retain P07 host envelope version 1 and existing BLE Link Tools v1.
 base: 48ea9bdd26a6c5f20fff74d1fff06f7c14efde5e
-contract_revision: spec/device/v1/task-delegation.md@e9f10f57eacd6e5203ee10501bf75b97eb27f680
+contract_revision: spec/device/v1/task-delegation.md@cf2239edf5d35963c62b058af47f55e2e12be7f9
 ```
 
 ## Trigger, scope and roles
@@ -63,3 +63,5 @@ The scoped Worker preset and its packed Worker image must be delivered with the 
 | `spec/device/v1/task-delegation.md@86a6a6aba853b4834cbafb665de247ba53f704be` | Coordinator | Freeze the BLE transition intent journal, deterministic Link operation IDs and shared positive/negative vectors. | Swift host, BLE C firmware |
 
 | `spec/device/v1/task-delegation.md@e9f10f57eacd6e5203ee10501bf75b97eb27f680` | Coordinator | Freeze bounded reference firmware task storage and transition results, including shared valid/invalid store fixtures. | BLE C firmware, Swift host |
+
+| `spec/device/v1/task-delegation.md@cf2239edf5d35963c62b058af47f55e2e12be7f9` | Coordinator | Reject control and format characters in requester labels across Swift, Python and C, avoiding cJSON embedded-NUL truncation. | Swift host, LAN Python device, BLE C firmware |
