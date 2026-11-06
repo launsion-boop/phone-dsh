@@ -27,9 +27,14 @@ final class Peripheral: NSObject, CBPeripheralManagerDelegate {
     func peripheralManagerDidUpdateState(_ peripheral: CBPeripheralManager) {
         print("bluetooth state \(peripheral.state.rawValue)"); fflush(stdout)
         guard peripheral.state == .poweredOn else { return }
-        let rx = CBMutableCharacteristic(type: rxID, properties: [.write], value: nil, permissions: [.writeEncryptionRequired])
-        tx = CBMutableCharacteristic(type: txID, properties: [.notify, .notifyEncryptionRequired], value: nil, permissions: [.readEncryptionRequired])
-        let audio = CBMutableCharacteristic(type: audioID, properties: [.notify, .notifyEncryptionRequired], value: nil, permissions: [.readEncryptionRequired])
+        // Explicit negative-test mode: never use this peer for real traffic.
+        let insecure = ProcessInfo.processInfo.environment["PDSH_TEST_INSECURE"] == "1"
+        let rx = CBMutableCharacteristic(type: rxID, properties: [.write], value: nil,
+                                         permissions: insecure ? [.writeable] : [.writeEncryptionRequired])
+        let notifyProperties: CBCharacteristicProperties = insecure ? [.notify] : [.notify, .notifyEncryptionRequired]
+        let notifyPermissions: CBAttributePermissions = insecure ? [.readable] : [.readEncryptionRequired]
+        tx = CBMutableCharacteristic(type: txID, properties: notifyProperties, value: nil, permissions: notifyPermissions)
+        let audio = CBMutableCharacteristic(type: audioID, properties: notifyProperties, value: nil, permissions: notifyPermissions)
         let service = CBMutableService(type: serviceID, primary: true); service.characteristics = [rx, tx, audio]
         peripheral.add(service)
     }
@@ -54,9 +59,10 @@ final class Peripheral: NSObject, CBPeripheralManagerDelegate {
     }
     func handleFrame() {
         var op: UInt8 = 0; var id: UInt16 = 0; var body: UnsafePointer<UInt8>?; var length = 0
+        let frameLength = assembly.len
         let response: Data? = withUnsafePointer(to: &assembly.data) { p in
             p.withMemoryRebound(to: UInt8.self, capacity: 512) { bytes in
-                guard pdsh_decode(bytes, assembly.len, &op, &id, &body, &length) == 0, let body else { return nil }
+                guard pdsh_decode(bytes, frameLength, &op, &id, &body, &length) == 0, let body else { return nil }
                 let hex = (0..<length).map { String(format: "%02x", body[$0]) }.joined()
                 do { try input.fileHandleForWriting.write(contentsOf: Data("\(op) \(hex)\n".utf8)) } catch { return nil }
                 var line = Data()

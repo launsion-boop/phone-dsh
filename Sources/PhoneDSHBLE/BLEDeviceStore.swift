@@ -262,8 +262,10 @@ import PhoneDSHAgentCore
                 linkClients[id] = client; linkBootIDs[id] = peer.bootID
                 linkTaskTools[id] = Set(names.filter(Self.isReservedTaskTool))
                 let ordinaryTools = tools.filter { !Self.isReservedTaskTool($0["name"]?.stringValue ?? "") }
-                let required: Set<String> = ["pdsh.task.next", "pdsh.task.accept", "pdsh.task.complete", "pdsh.task.fail"]
-                update(id) { $0.linkIdentity = deviceID.lowercased(); $0.linkTools = names.filter { !Self.isReservedTaskTool($0) }; $0.linkToolDescriptors = ordinaryTools; $0.supportsDeviceTasks = required.isSubset(of: Set(names)); $0.linkState += " · PDSH Tools v1" }
+                // GAP-16: a peer's advertised tools and successful GATT
+                // subscriptions do not prove a bond to the iOS central.
+                // Do not surface task eligibility without authenticated proof.
+                update(id) { $0.linkIdentity = deviceID.lowercased(); $0.linkTools = names.filter { !Self.isReservedTaskTool($0) }; $0.linkToolDescriptors = ordinaryTools; $0.supportsDeviceTasks = false; $0.linkState += " · PDSH Tools v1" }
             } catch { if !Task.isCancelled { status = error.localizedDescription; disconnect(id) } }
         }
     }
@@ -277,12 +279,10 @@ import PhoneDSHAgentCore
     /// This is a separate, foreground-only user grant; it is cleared on every
     /// disconnect and cannot be granted to an older or partial task profile.
     public func grantDeviceTasks(_ id: UUID, enabled: Bool) throws {
-        let required: Set<String> = ["pdsh.task.next", "pdsh.task.accept", "pdsh.task.complete", "pdsh.task.fail"]
         if enabled {
-            guard linkClients[id] != nil, required.isSubset(of: linkTaskTools[id] ?? []),
-                  let device = devices.first(where: { $0.id == id }), !device.linkIdentity.isEmpty else {
-                throw BLEFailure("设备未协商完整的任务协议")
-            }
+            // Fail closed until the device identity is authenticated; a BLE
+            // service or task-tool declaration is not evidence of pairing.
+            throw BLEFailure("蓝牙设备身份尚无法验证，暂不能授权设备派任务")
         }
         update(id) { $0.allowDeviceTasks = enabled }
         if !enabled && linkBusy.contains(id) { disconnect(id) }

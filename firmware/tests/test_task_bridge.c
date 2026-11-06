@@ -27,7 +27,7 @@ int main(void) {
             if (count/2!=6) return 7;
             uint32_t caps=(uint32_t)body[2] | (uint32_t)body[3]<<8 | (uint32_t)body[4]<<16 | (uint32_t)body[5]<<24;
             tools_set_task_profile(caps);
-            memset(out,0,33); out[1]=2; out[2]=1; out[5]=0x10; out[24]=2;
+            memset(out,0,33); out[1]=2; out[2]=1; out[5]=0x10; out[19]=1; out[24]=2;
             memcpy(out+25,"PDSH",4); out[29]=1; out[32]=16; n=33;
         } else if (op==254) {
             cJSON *local=tools_task_result("task-1");

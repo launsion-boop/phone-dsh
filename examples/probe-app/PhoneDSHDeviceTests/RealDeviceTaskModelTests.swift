@@ -277,3 +277,32 @@ extension RealDeviceTaskModelTests {
         XCTAssertNil(remaining, "The reference-device task remained nonterminal")
     }
 }
+
+
+extension RealDeviceTaskModelTests {
+    func testUnprotectedBluetoothPeerCannotBecomeTaskDevice() async throws {
+        guard ProcessInfo.processInfo.environment["PDSH_TEST_BLE_UNPROTECTED"] == "1" else {
+            throw XCTSkip("Unprotected Bluetooth radio fixture not supplied")
+        }
+        let store = BLEDeviceStore.shared
+        store.setDeviceTaskDiscoveryEnabled(true)
+        defer { store.stopScan(); store.setDeviceTaskDiscoveryEnabled(false) }
+        store.scan()
+        var selected: UUID?
+        for _ in 0..<200 {
+            if let device = store.devices.first(where: { $0.name == "PDSHRT" }) { selected = device.id; break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        let id = try XCTUnwrap(selected, "The unprotected fixture was not discovered")
+        store.connect(id)
+        defer { store.disconnect(id) }
+        for _ in 0..<150 {
+            if store.devices.first(where: { $0.id == id })?.linkState.contains("PDSH Tools v1") == true { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        let device = try XCTUnwrap(store.devices.first(where: { $0.id == id }))
+        XCTAssertTrue(device.linkState.contains("PDSH Tools v1"), "Negative control did not complete ordinary Link discovery: \(device.linkState); \(store.status)")
+        XCTAssertFalse(device.supportsDeviceTasks, "An unprotected BLE peer was accepted for device tasks")
+        XCTAssertThrowsError(try store.grantDeviceTasks(id, enabled: true))
+    }
+}
