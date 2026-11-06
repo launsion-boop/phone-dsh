@@ -17,7 +17,7 @@ def decode_task(task):
     task_id, key, requester, created, body = (task.get(k) for k in ('id', 'idempotency_key', 'requester', 'created_at', 'body'))
     if not isinstance(task_id, str) or not IDENTIFIER.fullmatch(task_id) or not isinstance(key, str) or not IDENTIFIER.fullmatch(key):
         raise ValueError('invalid task identity')
-    if not isinstance(requester, str) or not 1 <= len(requester.encode('utf-8')) <= 128:
+    if not isinstance(requester, str) or not 1 <= len(requester.encode('utf-8')) <= 128 or any(unicodedata.category(c) in {'Cc', 'Cf'} for c in requester):
         raise ValueError('invalid requester')
     def timestamp(value):
         if not isinstance(value, str) or not 20 <= len(value.encode()) <= 35 or not UTC_TIME.fullmatch(value):

@@ -19,6 +19,7 @@ import PhoneDSHAgentCore
         public var linkState = "未发现 Link"
         public var linkTools: [String] = []
         public var linkToolDescriptors: [JSONValue] = []
+        public var allowDeviceTasks = false
         public var grantedTools: Set<String> = []
         public var homeOrigins = ""
         public var events: [String] = []
@@ -105,7 +106,7 @@ import PhoneDSHAgentCore
         linkTasks.removeValue(forKey: id)?.cancel()
         linkChannels.removeValue(forKey: id)?.fail(BLEFailure("Link disconnected; outcome_unknown"))
         linkClients[id] = nil; linkTaskTools[id] = nil; linkCharacteristics[id] = nil; linkBootIDs[id] = nil; linkEventSequences[id] = nil
-        update(id) { $0.linkState = "未连接"; $0.linkIdentity = ""; $0.linkTools = []; $0.linkToolDescriptors = []; $0.grantedTools = []; $0.homeOrigins = ""; $0.events = [] }
+        update(id) { $0.linkState = "未连接"; $0.linkIdentity = ""; $0.linkTools = []; $0.linkToolDescriptors = []; $0.allowDeviceTasks = false; $0.grantedTools = []; $0.homeOrigins = ""; $0.events = [] }
         connectionTimers.removeValue(forKey: id)?.cancel(); characteristics[id] = nil; ambiguousProfiles[id] = nil
         update(id) { $0.state = "未连接"; $0.profiles = []; $0.readings = [:]; $0.allowRead = false; $0.allowAlert = false }
         if pending?.device == id { finish(.failure(BLEFailure("Device disconnected"))) }
@@ -262,6 +263,33 @@ import PhoneDSHAgentCore
         // These are host control-plane operations, never model device skills.
         guard !Self.isReservedTaskTool(name) else { return }
         update(id) { if enabled && $0.linkTools.contains(name) { $0.grantedTools.insert(name) } else { $0.grantedTools.remove(name) } }
+    }
+
+    /// This is a separate, foreground-only user grant; it is cleared on every
+    /// disconnect and cannot be granted to an older or partial task profile.
+    public func grantDeviceTasks(_ id: UUID, enabled: Bool) throws {
+        let required: Set<String> = ["pdsh.task.next", "pdsh.task.accept", "pdsh.task.complete", "pdsh.task.fail"]
+        if enabled {
+            guard linkClients[id] != nil, required.isSubset(of: linkTaskTools[id] ?? []),
+                  let device = devices.first(where: { $0.id == id }), !device.linkIdentity.isEmpty else {
+                throw BLEFailure("设备未协商完整的任务协议")
+            }
+        }
+        update(id) { $0.allowDeviceTasks = enabled }
+        if !enabled && linkBusy.contains(id) { disconnect(id) }
+    }
+
+    func invokeTaskLink(_ id: UUID, identity: String, requestID: UUID, name: String,
+                        arguments: JSONValue, key: String, fresh: Bool) async throws -> JSONValue {
+        let allowed: Set<String> = ["pdsh.task.next", "pdsh.task.accept", "pdsh.task.complete", "pdsh.task.fail"]
+        guard allowed.contains(name), let device = devices.first(where: { $0.id == id }),
+              device.allowDeviceTasks, device.linkIdentity == identity,
+              linkTaskTools[id]?.contains(name) == true, let client = linkClients[id],
+              !linkBusy.contains(id) else { throw BLEFailure("Device task grant or Link connection unavailable") }
+        linkBusy.insert(id); defer { linkBusy.remove(id) }
+        if fresh { return try await client.invoke(requestID: requestID, name: name, arguments: arguments, idempotencyKey: key) }
+        guard let result = try await client.query(requestID: requestID) else { throw BLEFailure("Link operation still running") }
+        return result
     }
     public func setHomeOrigins(_ id: UUID, text: String) {
         guard !linkBusy.contains(id) else { return }

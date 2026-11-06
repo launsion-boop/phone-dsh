@@ -85,6 +85,7 @@ final class DeviceTaskTests: XCTestCase {
         XCTAssertEqual(record.requestID, "dev:" + record.msgID)
         XCTAssertEqual(record.seq, 1)
         XCTAssertThrowsError(try journal.create(deviceID: "device-1", task: task("different", key: "key-1"), sessionID: "s1", now: Date()))
+        XCTAssertThrowsError(try journal.create(deviceID: "device-1", task: task("task-1", key: "different"), sessionID: "s1", now: Date()))
         let file = dir.appendingPathComponent(record.msgID + ".json")
         try Data("not-json".utf8).write(to: file)
         XCTAssertThrowsError(try journal.records())

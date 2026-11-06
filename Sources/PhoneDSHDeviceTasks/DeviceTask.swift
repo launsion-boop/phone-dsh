@@ -35,6 +35,7 @@ public struct DeviceTask: Codable, Equatable, Sendable {
         catch { throw DeviceTaskError.invalidTask }
         guard validID(task.id), validID(task.idempotencyKey),
               (1...128).contains(task.requester.utf8.count),
+              task.requester.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) }),
               task.body.type == "goal", (1...768).contains(task.body.text.utf8.count),
               task.body.text.unicodeScalars.allSatisfy({ scalar in
                   !CharacterSet.controlCharacters.contains(scalar) || [9, 10, 13].contains(scalar.value)

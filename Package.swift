@@ -29,7 +29,7 @@ let withShell = shellRequested && FileManager.default.fileExists(atPath: shellXC
 let modules: [Module] = [
     Module(name: "PhoneDSHDeviceTasks", dependencies: ["PhoneDSHAgentCore"]),
     Module(name: "PhoneDSHLAN"),
-    Module(name: "PhoneDSHBLE", dependencies: ["PhoneDSHAgentCore", "PhoneDSHLoopback", "PhoneDSHADB", "PDSHLinkWire", "PDSHHomePolicy"], testDependencies: ["PDSHLinkWire"]),
+    Module(name: "PhoneDSHBLE", dependencies: ["PhoneDSHAgentCore", "PhoneDSHDeviceTasks", "PhoneDSHLoopback", "PhoneDSHADB", "PDSHLinkWire", "PDSHHomePolicy"], testDependencies: ["PDSHLinkWire"]),
     // Dependency boundary: the agent/provider abstractions the host modules use
     // (exec provider, credentials, harness session, DSH remote client).
     Module(name: "PhoneDSHAgentCore"),

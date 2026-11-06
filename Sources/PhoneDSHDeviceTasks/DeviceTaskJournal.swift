@@ -102,6 +102,7 @@ final class DeviceTaskJournal: @unchecked Sendable {
         guard urls.count <= 4096 else { throw DeviceTaskError.corruptJournal }
         var result: [DeviceTaskRecord] = []
         var sequences: [String: Set<UInt64>] = [:]
+        var taskIDs: [String: Set<String>] = [:]
         var sessions: [String: String] = [:]
         for url in urls {
             let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
@@ -117,6 +118,7 @@ final class DeviceTaskJournal: @unchecked Sendable {
                   url.lastPathComponent == expectedID + ".json", (1...4096).contains(record.seq),
                   (1...256).contains(record.sessionID.utf8.count), record.deadlineMS > 0,
                   (record.phase == .terminal) == (record.outcome != nil),
+                  taskIDs[record.deviceID, default: []].insert(record.task.id).inserted,
                   sequences[record.deviceID, default: []].insert(record.seq).inserted else { throw DeviceTaskError.corruptJournal }
             if let session = sessions[record.deviceID], session != record.sessionID { throw DeviceTaskError.corruptJournal }
             sessions[record.deviceID] = record.sessionID
@@ -143,6 +145,9 @@ final class DeviceTaskJournal: @unchecked Sendable {
         if let existing = all.first(where: { $0.deviceID == deviceID && $0.task.idempotencyKey == task.idempotencyKey }) {
             guard existing.fingerprint == (try fingerprint(task)) else { throw DeviceTaskError.idempotencyConflict }
             return existing
+        }
+        guard !all.contains(where: { $0.deviceID == deviceID && $0.task.id == task.id }) else {
+            throw DeviceTaskError.idempotencyConflict
         }
         guard all.filter({ $0.deviceID == deviceID }).allSatisfy({ $0.sessionID == sessionID }) else { throw DeviceTaskError.corruptJournal }
         guard all.count < 4096 else { throw DeviceTaskError.storageFull }
