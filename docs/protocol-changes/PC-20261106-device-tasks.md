@@ -7,7 +7,7 @@ status: frozen
 breaking: false
 version_decision: Adopt the existing task-inbox message semantics as a new negotiated device profile; retain P07 host envelope version 1 and existing BLE Link Tools v1.
 base: 48ea9bdd26a6c5f20fff74d1fff06f7c14efde5e
-contract_revision: spec/device/v1/task-delegation.md@594075cf198a03f5dfcd119c30ca708e927bc084
+contract_revision: spec/device/v1/task-delegation.md@feb7f951e69923a6004c62017e9fc4cd3c056b0b
 ```
 
 ## Trigger, scope and roles
@@ -67,3 +67,5 @@ The scoped Worker preset and its packed Worker image must be delivered with the 
 | `spec/device/v1/task-delegation.md@cf2239edf5d35963c62b058af47f55e2e12be7f9` | Coordinator | Reject control and format characters in requester labels across Swift, Python and C, avoiding cJSON embedded-NUL truncation. | Swift host, LAN Python device, BLE C firmware |
 
 | `spec/device/v1/task-delegation.md@594075cf198a03f5dfcd119c30ca708e927bc084` | Coordinator | Reject embedded NUL throughout task JSON before cJSON parsing so unknown members cannot hide truncated strings. | Swift host, LAN Python device, BLE C firmware |
+
+| `spec/device/v1/task-delegation.md@feb7f951e69923a6004c62017e9fc4cd3c056b0b` | Coordinator | Clarify that an optional deadline, when present, cannot be null as required by the existing schema. | Swift host, LAN Python device, BLE C firmware |
