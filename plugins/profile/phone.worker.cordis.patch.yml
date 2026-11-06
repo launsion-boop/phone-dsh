@@ -648,6 +648,10 @@
         bridge: true
         file: !!js process.env.PDSH_LIFECYCLE_FILE
 
+    # Independent global backstop: the immutable creation header identifies device tasks.
+    - id: device-task-guard
+      name: '@phone-dsh/dsh-lifecycle-gate/device-guard'
+
     # The App's own MCP server (phone tools) on loopback, streamable HTTP.
     - id: mcp-phone
       name: '@deepseek-ai/dsh-mcp-client'

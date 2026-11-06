@@ -43,3 +43,23 @@ test('device scope hides present and future global tools and denies scoped tools
     await ctx.fiber.dispose()
   }
 })
+
+test('immutable device session header denies tools even after scope changes', async () => {
+  const ctx = new Context()
+  await ctx.plugin(SystemPrompt)
+  await ctx.plugin(ToolRuntime)
+  const guard = await import('../lifecycle-gate/src/device-guard.ts')
+  await ctx.plugin(guard)
+  let ran = 0
+  ctx.tools.register(tool('available', () => { ran++ }))
+  try {
+    const deviceAgent = { session: { id: 'device-session', header: { agentPreset: 'pdsh-device-task' } } }
+    const denied = await ctx.tools.execute({callId: ToolCallId('device'), name: 'available', arguments: {}, agent: deviceAgent as never, signal: new AbortController().signal})
+    assert.equal(denied.isError, true)
+    assert.equal(ran, 0)
+    const normalAgent = { session: { id: 'normal-session', header: { agentPreset: 'standard' } } }
+    const allowed = await ctx.tools.execute({callId: ToolCallId('normal2'), name: 'available', arguments: {}, agent: normalAgent as never, signal: new AbortController().signal})
+    assert.equal(allowed.isError, false)
+    assert.equal(ran, 1)
+  } finally { await ctx.fiber.dispose() }
+})

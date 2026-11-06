@@ -54,6 +54,13 @@ interface WorkspaceProbe {
   presets?: { id: string; isDefault: boolean; broken?: string }[]
   presetSessions?: Record<string, string>
   presetErrors?: Record<string, string>
+  deviceTaskTools?: string[]
+  deviceTaskDenied?: boolean
+  deviceTaskProjection?: unknown
+  deviceTaskPreset?: unknown
+  deviceTaskHeaderPreset?: string
+  deviceTaskSwitchTools?: string[]
+  deviceTaskSwitchDenied?: boolean
   creator?: Record<string, unknown>
   workflowFileText?: string
   workflowChildResultSeen?: boolean
@@ -315,7 +322,7 @@ interface LiveHostContext {
       signal: AbortSignal
       agent?: unknown
     }): Promise<{ isError: boolean; content: unknown; value?: unknown }>
-    schemas(): { name: string }[]
+    schemas(scope?: object): { name: string }[]
   }
 }
 let hostContext: LiveHostContext | undefined
@@ -547,7 +554,7 @@ try {
   }))
   probe.presetSessions = {}
   probe.presetErrors = {}
-  for (const preset of ['standard', 'ptc', 'minimal', 'cordis']) {
+  for (const preset of ['standard', 'ptc', 'minimal', 'cordis', 'pdsh-device-task']) {
     const created = await tryCall('session/create', { request: { workspaceId, agentPreset: preset } })
     if (created.ok && typeof created.value.sessionId === 'string') {
       probe.presetSessions[preset] = created.value.sessionId
@@ -555,6 +562,28 @@ try {
       probe.presetErrors[preset] = JSON.stringify(created.error)
     }
   }
+
+  const taskSession = probe.presetSessions['pdsh-device-task']
+  if (taskSession === undefined || hostContext === undefined) throw new Error(`Device task preset did not mount: ${probe.presetErrors['pdsh-device-task'] ?? 'unknown'}`)
+  const taskInventory = await call('phone/pluginList', {})
+  const taskEntries = (taskInventory.value as {entries?: Array<Record<string, unknown>>} | undefined)?.entries
+  const guardRows = taskEntries?.filter(row => row.entryId === 'include:device-task-guard') ?? []
+  if (taskInventory.ok !== true || guardRows.length !== 1 || guardRows[0]?.moduleName !== '@phone-dsh/dsh-lifecycle-gate/device-guard' || guardRows[0]?.enabled !== true || guardRows[0]?.fiberPhase !== 'active') {
+    throw new Error(`Device task guard is not live: ${JSON.stringify(guardRows)}`)
+  }
+  const taskLookup = (hostContext.get('typert') as {lookups: Map<string, {resolve(id: string): Promise<unknown>}>}).lookups.get('agent')
+  const taskAgent = await taskLookup?.resolve(taskSession)
+  if (taskAgent === undefined || typeof taskAgent !== 'object' || taskAgent === null) throw new Error('Device task Agent is missing')
+  probe.deviceTaskProjection = await call('session/projections', {request: {sessionId: taskSession}})
+  probe.deviceTaskPreset = await call('agentPresets/read', {agentPreset: 'pdsh-device-task'})
+  probe.deviceTaskTools = hostContext.tools.schemas(taskAgent).map(tool => tool.name)
+  const denied = await hostContext.tools.execute({callId: randomUUID(), name: 'bash', arguments: {command: 'echo unsafe'}, agent: taskAgent, signal: new AbortController().signal})
+  probe.deviceTaskDenied = denied.isError
+  probe.deviceTaskHeaderPreset = (taskAgent as {session?: {header?: {agentPreset?: string}}}).session?.header?.agentPreset
+  await call('agentPresets/select', {agentId: taskSession, agentPreset: 'standard'})
+  probe.deviceTaskSwitchTools = hostContext.tools.schemas(taskAgent).map(tool => tool.name)
+  const deniedAfterSwitch = await hostContext.tools.execute({callId: randomUUID(), name: 'bash', arguments: {command: 'echo unsafe'}, agent: taskAgent, signal: new AbortController().signal})
+  probe.deviceTaskSwitchDenied = deniedAfterSwitch.isError
 
   const creatorId = probe.presetSessions.cordis
   if (creatorId === undefined || hostContext === undefined) throw new Error('Creator did not mount')
