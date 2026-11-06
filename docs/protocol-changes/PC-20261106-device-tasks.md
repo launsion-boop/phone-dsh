@@ -7,7 +7,7 @@ status: frozen
 breaking: false
 version_decision: Adopt the existing task-inbox message semantics as a new negotiated device profile; retain P07 host envelope version 1 and existing BLE Link Tools v1.
 base: 48ea9bdd26a6c5f20fff74d1fff06f7c14efde5e
-contract_revision: spec/device/v1/task-delegation.md@abc9046d68e852e36f738dcb3f82a3a82d47d576
+contract_revision: spec/device/v1/task-delegation.md@562b87282d988b9933f988d1961097a58b5710dd
 ```
 
 ## Trigger, scope and roles
@@ -57,3 +57,5 @@ The scoped Worker preset and its packed Worker image must be delivered with the 
 | `spec/device/v1/task-delegation.md@abc9046d68e852e36f738dcb3f82a3a82d47d576` | Coordinator | Use the Loader-qualified inventory entry ID observed in the real packed Worker. | Swift host, Worker DSH |
 
 | `spec/host/v1/golden/device-envelope-uplink-text-task.json` | Coordinator | Freeze the existing P07 uplink mapping for a LAN-originated task, including the derived identity and message ID. | Swift host |
+
+| `spec/device/v1/task-delegation.md@562b87282d988b9933f988d1961097a58b5710dd` | Coordinator | Resolve the interaction with Link persistent receipts: task mutations are query-only after an uncertain upload; specify the remaining journal freeze before enabling the client. | Swift host, BLE C firmware |

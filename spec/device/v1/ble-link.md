@@ -72,6 +72,8 @@ status 为 completed / failed / outcome_unknown。COMMIT 的 state=1 只是接�
 
 `tools/list` 和 `light.get` 是只读请求，结果可暂存在 RAM，不占持久写回执。tools/list 返回 `device_id`（NVS 随机 UUID，不是 MAC）、`boot_id`（与 HELLO 相同）、`tools`（含 name、description、inputSchema）。不会把设备文本解释成系统指令。
 
+The separately negotiated [task profile](task-delegation.md) additionally defines `pdsh.task.next` as read-only. Its acceptance and terminal task tools are mutations and retain the durable Link receipt and query-only recovery rules below.
+
 ## 持久化、重连和权限
 
 1. 手机在上传前落盘工具意图，绑定 journal key、device UUID、工具名、参数摘要和 request UUID。相同 key 只查询同一个 request UUID，不重新上传或提交；参数冲突拒绝。即使第一次还没有到达设备，也宁可报告未知而不盲目重试。
