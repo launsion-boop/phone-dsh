@@ -33,10 +33,10 @@ struct UniqueJSONKeys {
         guard index < bytes.count else { return false }
         switch bytes[index] {
         case 123:
-            index += 1; whitespace(); var keys = Set<String>()
+            index += 1; whitespace(); var keys = Set<Data>()
             if index < bytes.count && bytes[index] == 125 { index += 1; return true }
             while index < bytes.count {
-                whitespace(); guard let key = string(), keys.insert(key).inserted else { return false }
+                whitespace(); guard let key = string(), keys.insert(Data(key.utf8)).inserted else { return false }
                 whitespace(); guard index < bytes.count && bytes[index] == 58 else { return false }
                 index += 1; guard value(depth: depth + 1) else { return false }; whitespace()
                 guard index < bytes.count else { return false }
