@@ -173,3 +173,31 @@ final class DeviceTaskTests: XCTestCase {
         XCTAssertEqual(count, 1)
     }
 }
+
+private final class MutableTaskClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var instant: Date
+    init(_ instant: Date) { self.instant = instant }
+    func now() -> Date { lock.lock(); defer { lock.unlock() }; return instant }
+    func advance(_ seconds: TimeInterval) { lock.lock(); instant.addTimeInterval(seconds); lock.unlock() }
+}
+private actor AdvancingTaskInbox: DeviceTaskInbox {
+    let clock: MutableTaskClock
+    init(_ clock: MutableTaskClock) { self.clock = clock }
+    func accept(id: String) async throws { clock.advance(60) }
+    func report(id: String, outcome: DeviceTaskOutcome) async throws {}
+}
+extension DeviceTaskTests {
+    func testDeadlineStartsWhenAcceptanceIsDurable() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let start = Date(timeIntervalSince1970: 1_793_952_000)
+        let clock = MutableTaskClock(start), runner = TestRunner(), inbox = AdvancingTaskInbox(clock)
+        let task = try DeviceTask.decode(Data(#"{"id":"task-1","idempotency_key":"key-1","requester":"device","created_at":"2026-11-06T00:00:00Z","body":{"type":"goal","text":"Hello"}}"#.utf8))
+        let executor = try DeviceTaskExecutor(directory: dir, runner: runner, clock: { clock.now() })
+        try await executor.process(deviceID: "device-1", task: task, authorized: true, inbox: inbox)
+        let file = try XCTUnwrap(FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil).first { $0.pathExtension == "json" })
+        let record = try JSONDecoder().decode(DeviceTaskRecord.self, from: Data(contentsOf: file))
+        XCTAssertEqual(record.deadlineMS, Int64(start.addingTimeInterval(360).timeIntervalSince1970 * 1000))
+    }
+}

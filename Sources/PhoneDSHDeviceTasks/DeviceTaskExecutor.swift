@@ -76,6 +76,9 @@ public actor DeviceTaskExecutor {
         try Task.checkCancellation()
         // A lost accept response is safe to retry: no task has been dispatched.
         try await accept(record: record, inbox: inbox)
+        let acceptedAt = clock()
+        let deadline = min(task.deadlineDate ?? acceptedAt.addingTimeInterval(300), acceptedAt.addingTimeInterval(300))
+        record.deadlineMS = Int64(deadline.timeIntervalSince1970 * 1000)
         record.phase = .accepted
         try journal.save(record)
         try Task.checkCancellation()

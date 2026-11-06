@@ -15,7 +15,7 @@ public struct DeviceTaskRecord: Codable, Equatable, Sendable {
     public let seq: UInt64
     public let sessionID: String
     public var phase: Phase
-    public let deadlineMS: Int64
+    public var deadlineMS: Int64
     public var outcome: DeviceTaskOutcome?
 
     enum CodingKeys: String, CodingKey {

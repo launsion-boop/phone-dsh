@@ -74,7 +74,17 @@ public struct DeviceTask: Codable, Equatable, Sendable {
 
     private static func parseTime(_ value: String) -> Date? {
         guard (20...35).contains(value.utf8.count),
-              value.range(of: #"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$"#, options: .regularExpression) != nil else { return nil }
+              value.range(of: #"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,3})?Z$"#, options: .regularExpression) != nil else { return nil }
+        let bytes = Array(value.utf8)
+        func number(_ start: Int, _ count: Int) -> Int {
+            bytes[start..<(start + count)].reduce(0) { $0 * 10 + Int($1 - 48) }
+        }
+        let year = number(0, 4), month = number(5, 2), day = number(8, 2)
+        let hour = number(11, 2), minute = number(14, 2), second = number(17, 2)
+        guard year >= 1, (1...12).contains(month), hour <= 23, minute <= 59, second <= 59 else { return nil }
+        let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
+        let days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+        guard (1...days[month - 1]).contains(day) else { return nil }
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = value.contains(".") ? [.withInternetDateTime, .withFractionalSeconds] : [.withInternetDateTime]
         return formatter.date(from: value)

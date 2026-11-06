@@ -7,7 +7,7 @@ import sqlite3
 import unicodedata
 
 IDENTIFIER = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$')
-UTC_TIME = re.compile(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$')
+UTC_TIME = re.compile(r'^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,3})?Z$')
 FAILURES = {'denied', 'unavailable', 'expired', 'failed', 'unknown_outcome'}
 
 def decode_task_json(raw):
