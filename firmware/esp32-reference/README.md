@@ -65,6 +65,8 @@ idf.py -p /dev/cu.usbmodemYOUR_DEVICE flash monitor
 
 参考回执表为 16 条有副作用命令，满后 STORE_FULL；没有自动驱逐或擦除。它是幂等安全参考，不是无限容量的生产日志。若需要清理 / 更换机主，应先核对未决动作、设计新的执行命名空间 / 所有权生命周期，再清理；擦除 Flash 会同时丢失绑定与幂等历史。启动遇到 NVS 错误会停止，不会自行 erase 修复。
 
+设备向手机派任务时，设备本地应用可调用 `tools_task_submit` 并传入 [任务协议](../../spec/device/v1/task-delegation.md) 的 JSON goal。返回 true 表示设备已确认持久保存；false 包括存储结果不确定，不能据此假设没有保存。手机单独授权后通过 Link 查询和确认，设备可调用 `tools_task_result(id)` 获取阶段和最终结果，返回的 JSON 对象由调用方释放。参考队列保留最多 4 条历史任务，满后拒绝新任务；Link 的 16 条写回执限制仍独立生效。这是参考实现，不能当作无限队列。新增任务路径尚未在实体 ESP32 与 iPhone 之间验证。
+
 LE Secure Connections + Just Works + 物理窗口提供本参考的绑定流程，不包含设备证书 / ATTEST、MITM 数字比较或加密 NVS；生产设备可另接入身份认证与 Flash / NVS 加密。本版手机每次连接仍独立授权，设备 UUID / 广播名不能当作密码学身份。
 
 ## 本地验证

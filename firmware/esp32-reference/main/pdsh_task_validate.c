@@ -33,10 +33,10 @@ static bool control(uint32_t cp) {
         if (cp >= ranges[i][0] && cp <= ranges[i][1]) return true;
     return false;
 }
-static bool utf8_text(const char *text, size_t max, bool whitespace) {
+static bool utf8_text(const char *text, size_t max, bool whitespace, bool allow_empty, bool allow_controls) {
     if (!text) return false;
     size_t len = strlen(text);
-    if (!len || len > max) return false;
+    if ((!len && !allow_empty) || len > max) return false;
     const unsigned char *p = (const unsigned char *)text;
     while (*p) {
         uint32_t cp; size_t width;
@@ -52,10 +52,13 @@ static bool utf8_text(const char *text, size_t max, bool whitespace) {
         if ((width == 2 && cp < 0x80) || (width == 3 && cp < 0x800) ||
             (width == 4 && cp < 0x10000) || cp > 0x10ffff ||
             (cp >= 0xd800 && cp <= 0xdfff)) return false;
-        if (control(cp) && !(whitespace && (cp == 9 || cp == 10 || cp == 13))) return false;
+        if (!allow_controls && control(cp) && !(whitespace && (cp == 9 || cp == 10 || cp == 13))) return false;
         p += width;
     }
     return true;
+}
+bool pdsh_task_valid_output(const char *text, size_t max_bytes) {
+    return utf8_text(text,max_bytes,false,true,true);
 }
 static const char *str(const cJSON *obj, const char *key) {
     const cJSON *v = cJSON_GetObjectItemCaseSensitive(obj, key);
@@ -98,16 +101,16 @@ static bool timestamp(const char *s, uint64_t *value) {
 }
 bool pdsh_task_validate(const cJSON *task) {
     if (!cJSON_IsObject(task) || !id_ok(str(task,"id")) || !id_ok(str(task,"idempotency_key")) ||
-        !utf8_text(str(task,"requester"),128,false)) return false;
+        !utf8_text(str(task,"requester"),128,false,false,false)) return false;
     uint64_t created, deadline;
     if (!timestamp(str(task,"created_at"), &created)) return false;
     const cJSON *end = cJSON_GetObjectItemCaseSensitive(task,"deadline");
     if (end && (!cJSON_IsString(end) || !timestamp(end->valuestring,&deadline) || deadline<=created)) return false;
     const cJSON *body = cJSON_GetObjectItemCaseSensitive(task,"body");
     const char *type = str(body,"type");
-    return cJSON_IsObject(body) && type && !strcmp(type,"goal") && utf8_text(str(body,"text"),768,true);
+    return cJSON_IsObject(body) && type && !strcmp(type,"goal") && utf8_text(str(body,"text"),768,true,false,false);
 }
-bool pdsh_task_validate_json(const char *json) {
+bool pdsh_task_json_no_nul(const char *json) {
     if (!json) return false;
     // Reject an actual JSON NUL escape, but allow the printable literal "\\u0000".
     bool inside=false;
@@ -118,6 +121,10 @@ bool pdsh_task_validate_json(const char *json) {
             p++;
         }
     }
+    return true;
+}
+bool pdsh_task_validate_json(const char *json) {
+    if (!pdsh_task_json_no_nul(json)) return false;
     const char *end = NULL;
     cJSON *task = cJSON_ParseWithOpts(json, &end, true);
     bool ok = task && end && pdsh_task_validate(task);

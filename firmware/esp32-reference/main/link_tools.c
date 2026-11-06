@@ -9,6 +9,8 @@
 #include "nvs.h"
 #include "pdsh_home.h"
 #include "pdsh_link_wire.h"
+#include "pdsh_task_store.h"
+#include "pdsh_task_validate.h"
 #include "psa/crypto.h"
 #include "sdkconfig.h"
 #include <math.h>
@@ -123,6 +125,21 @@ static cJSON *tool_list(void) {
                       "\"required\":[\"method\",\"url\"],\"additionalProperties\":false}");
         cJSON_AddItemToArray(list, t);
     }
+    if (pdsh_task_store_healthy()) {
+        const char *names[] = {"pdsh.task.next", "pdsh.task.accept", "pdsh.task.complete", "pdsh.task.fail"};
+        const char *schemas[] = {
+            "{\"type\":\"object\",\"properties\":{},\"additionalProperties\":false}",
+            "{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"additionalProperties\":false}",
+            "{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"},\"output\":{\"type\":\"string\"},\"truncated\":{\"type\":\"boolean\"}},\"required\":[\"id\",\"output\",\"truncated\"],\"additionalProperties\":false}",
+            "{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"},\"failure\":{\"type\":\"object\"}},\"required\":[\"id\",\"failure\"],\"additionalProperties\":false}"
+        };
+        for (size_t i=0; i<4; i++) {
+            cJSON *t=cJSON_CreateObject();
+            cJSON_AddStringToObject(t,"name",names[i]);
+            cJSON_AddStringToObject(t,"description","Device task control operation; host only.");
+            add_schema(t,schemas[i]); cJSON_AddItemToArray(list,t);
+        }
+    }
     cJSON_AddStringToObject(o, "device_id", device_id);
     cJSON_AddNumberToObject(o, "boot_id", boot);
     return o;
@@ -143,6 +160,13 @@ static void execute(void *arg) {
         status = "failed";
         result = cJSON_CreateObject();
         cJSON_AddStringToObject(result, "failure_reason", "expired");
+    } else if (name && (!strcmp(name,"pdsh.task.accept") || !strcmp(name,"pdsh.task.complete") || !strcmp(name,"pdsh.task.fail"))) {
+        xSemaphoreTake(lock, portMAX_DELAY);
+        bool ok=pdsh_task_store_transition(name+strlen("pdsh.task."),args);
+        bool task_healthy=pdsh_task_store_healthy();
+        xSemaphoreGive(lock);
+        result=cJSON_CreateObject();
+        if (!ok) status=task_healthy ? "failed" : "outcome_unknown";
     } else if (name && !strcmp(name, "light.set")) {
         const cJSON *on = cJSON_GetObjectItemCaseSensitive(args, "on");
         if (!light_available || gpio_set_level(CONFIG_PDSH_LED_GPIO, cJSON_IsTrue(on)) != ESP_OK) {
@@ -228,11 +252,26 @@ void tools_init(uint32_t boot_id) {
             receipts[i].len = 0;
         }
     }
+    if (healthy) (void)pdsh_task_store_init(storage); else pdsh_task_store_disable();
     light_available = CONFIG_PDSH_LED_GPIO >= 0 &&
                       CONFIG_PDSH_LED_GPIO != CONFIG_PDSH_BUTTON_GPIO &&
                       gpio_reset_pin(CONFIG_PDSH_LED_GPIO) == ESP_OK &&
                       gpio_set_direction(CONFIG_PDSH_LED_GPIO, GPIO_MODE_INPUT_OUTPUT) == ESP_OK &&
                       gpio_set_level(CONFIG_PDSH_LED_GPIO, 0) == ESP_OK;
+}
+bool tools_task_submit(const char *json) {
+    if (!lock) return false;
+    xSemaphoreTake(lock, portMAX_DELAY);
+    bool ok=healthy && pdsh_task_store_submit(json);
+    xSemaphoreGive(lock);
+    return ok;
+}
+cJSON *tools_task_result(const char *id) {
+    if (!lock) return NULL;
+    xSemaphoreTake(lock, portMAX_DELAY);
+    cJSON *result=healthy ? pdsh_task_store_result(id) : NULL;
+    xSemaphoreGive(lock);
+    return result;
 }
 void tools_reset_upload(void) {
     xSemaphoreTake(lock, portMAX_DELAY);
@@ -290,7 +329,7 @@ static int commit(const uint8_t id[16], uint8_t *state) {
         return 9;
     // JSON C strings cannot represent embedded NUL. Reject before any parser can truncate them.
     if (!bounded_json(upload.data, upload.total) || memchr(upload.data, 0, upload.total) ||
-        strstr((char *)upload.data, "\\u0000")) {
+        !pdsh_task_json_no_nul((char *)upload.data)) {
         upload.active = false;
         return 2;
     }
@@ -305,18 +344,21 @@ static int commit(const uint8_t id[16], uint8_t *state) {
     if (!keys(root, fields, 4) || !request_id || strcmp(request_id, expected) || !name || !idem ||
         strlen(idem) > 128 || !strlen(idem) || !cJSON_IsObject(args))
         goto done;
-    if (!strcmp(name, "tools/list") || !strcmp(name, "light.get")) {
+    if (!strcmp(name, "tools/list") || !strcmp(name, "light.get") || !strcmp(name,"pdsh.task.next")) {
         if (busy) {
             error = 6;
             goto done;
         }
-        if (cJSON_GetArraySize(args) != 0 || (!strcmp(name, "light.get") && !light_available))
+        if (cJSON_GetArraySize(args) != 0 || (!strcmp(name, "light.get") && !light_available) ||
+            (!strcmp(name,"pdsh.task.next") && !pdsh_task_store_healthy()))
             goto done;
         memset(&readonly_result, 0, sizeof(readonly_result));
         readonly_result.magic = MAGIC;
         memcpy(readonly_result.id, id, 16);
-        result_json(&readonly_result, "completed",
-                    !strcmp(name, "tools/list") ? tool_list() : light_state());
+        cJSON *result = !strcmp(name, "tools/list") ? tool_list() :
+                        !strcmp(name,"pdsh.task.next") ? pdsh_task_store_next() : light_state();
+        if (!result) { error = 11; goto done; }
+        result_json(&readonly_result, "completed", result);
         *state = readonly_result.state;
         error = 0;
         upload.active = false;
@@ -344,6 +386,8 @@ static int commit(const uint8_t id[16], uint8_t *state) {
         }
         if (!valid)
             goto done;
+    } else if ((!strcmp(name,"pdsh.task.accept") || !strcmp(name,"pdsh.task.complete") || !strcmp(name,"pdsh.task.fail")) && pdsh_task_store_healthy()) {
+        /* The task store validates the exact arguments after durable Link intent. */
     } else {
         error = 14;
         goto done;

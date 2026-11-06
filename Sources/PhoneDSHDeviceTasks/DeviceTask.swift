@@ -90,6 +90,13 @@ public enum DeviceTaskOutcome: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey { case kind, output, truncated, message; case failureKind = "failure_kind" }
     private enum Kind: String, Codable { case completed, failed }
 
+    var isTransportSafe: Bool {
+        switch self {
+        case .completed(let output, _): return output.utf8.count <= 1024 && !output.unicodeScalars.contains { $0.value == 0 }
+        case .failed(_, let message): return message.utf8.count <= 256 && !message.unicodeScalars.contains { $0.value == 0 }
+        }
+    }
+
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         switch try values.decode(Kind.self, forKey: .kind) {
@@ -118,6 +125,9 @@ public enum DeviceTaskOutcome: Codable, Equatable, Sendable {
 
     /// Limits output by UTF-8 bytes without splitting a Unicode scalar.
     public static func boundedOutput(_ text: String) -> Self {
+        guard !text.unicodeScalars.contains(where: { $0.value == 0 }) else {
+            return .failed(kind: .failed, message: "Model output contains an unsupported NUL character.")
+        }
         var result = ""
         var bytes = 0
         for scalar in text.unicodeScalars {

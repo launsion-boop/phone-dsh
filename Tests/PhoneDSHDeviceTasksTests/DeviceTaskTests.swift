@@ -58,6 +58,24 @@ final class DeviceTaskTests: XCTestCase {
         XCTAssertTrue(truncated)
     }
 
+    func testSharedTerminalOutcomeVectors() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let file = root.appendingPathComponent("spec/device/v1/golden/task-outcome-cases.jsonl")
+        for line in try String(contentsOf: file, encoding: .utf8).split(separator: "\n") {
+            let row = try JSONValue.parse(Data(line.utf8)), body = try XCTUnwrap(row["body"])
+            let outcome: DeviceTaskOutcome
+            if row["action"]?.stringValue == "complete" {
+                outcome = .completed(output: try XCTUnwrap(body["output"]?.stringValue), truncated: try XCTUnwrap(body["truncated"]?.boolValue))
+            } else {
+                let failure = try XCTUnwrap(body["failure"])
+                let kind = try XCTUnwrap(DeviceTaskFailureKind(rawValue: XCTUnwrap(failure["kind"]?.stringValue)))
+                outcome = .failed(kind: kind, message: try XCTUnwrap(failure["message"]?.stringValue))
+            }
+            XCTAssertEqual(outcome.isTransportSafe, row["valid"]?.boolValue, row["name"]?.stringValue ?? "")
+        }
+        if case .failed(kind: .failed, _) = DeviceTaskOutcome.boundedOutput("bad\0text") {} else { XCTFail("NUL output must fail") }
+    }
+
     func testP07UplinkUsesSharedGolden() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let fixture = root.appendingPathComponent("spec/host/v1/golden/device-envelope-uplink-text-task.json")

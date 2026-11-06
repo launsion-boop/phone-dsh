@@ -266,14 +266,42 @@ static cJSON *query(int value, int *state) {
     assert(used == total);
     return cJSON_Parse(result);
 }
-int main(void) {
+static void task_tests(void) {
+    uint8_t out[505]; int state;
+    const char *task = "{\"id\":\"task-1\",\"idempotency_key\":\"key-1\",\"requester\":\"sensor\",\"created_at\":\"2026-11-06T00:00:00Z\",\"body\":{\"type\":\"goal\",\"text\":\"Hello\"}}";
+    tools_init(1);
+    assert(tools_task_submit(task));
+    assert(submit(100,"pdsh.task.next","{}","next-1",out)==0 && !job_fn);
+    cJSON *reply=query(100,&state);
+    const cJSON *value=cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(reply,"result"),"task");
+    assert(state==2 && cJSON_IsObject(value)); cJSON_Delete(reply);
+    assert(submit(101,"pdsh.task.accept","{\"id\":\"task-1\"}","accept-1",out)==0 && job_fn);
+    run_job(); reply=query(101,&state);
+    assert(state==2 && !strcmp(cJSON_GetObjectItemCaseSensitive(reply,"status")->valuestring,"completed")); cJSON_Delete(reply);
+    tools_init(2);
+    reply=query(101,&state); assert(state==2); cJSON_Delete(reply);
+    assert(submit(102,"pdsh.task.complete","{\"id\":\"task-1\",\"output\":\"done\",\"truncated\":false}","complete-1",out)==0 && job_fn);
+    run_job(); reply=query(102,&state);
+    assert(state==2 && !strcmp(cJSON_GetObjectItemCaseSensitive(reply,"status")->valuestring,"completed")); cJSON_Delete(reply);
+    cJSON *local=tools_task_result("task-1");
+    assert(local && !strcmp(cJSON_GetObjectItemCaseSensitive(local,"phase")->valuestring,"completed"));
+    assert(!strcmp(cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(local,"outcome"),"output")->valuestring,"done"));
+    cJSON_Delete(local);
+    assert(submit(103,"pdsh.task.next","{}","next-2",out)==0);
+    reply=query(103,&state);
+    value=cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(reply,"result"),"task");
+    assert(state==2 && cJSON_IsNull(value)); cJSON_Delete(reply);
+    puts("Link task inbox: submit, next, durable accept, reboot, complete PASS");
+}
+int main(int argc, char **argv) {
+    if (argc == 2 && !strcmp(argv[1], "--task")) { task_tests(); return 0; }
     uint8_t out[505];
     int state;
     tools_init(1);
     assert(submit(100, "tools/list", "{}", "discover", out) == 0 && !job_fn);
     cJSON *list_result = query(100, &state);
     cJSON *listed = cJSON_GetObjectItem(cJSON_GetObjectItem(list_result, "result"), "tools");
-    assert(cJSON_GetArraySize(listed) == 3);
+    assert(cJSON_GetArraySize(listed) == 7);
     assert(cJSON_IsObject(cJSON_GetObjectItem(cJSON_GetArrayItem(listed, 0), "inputSchema")));
     cJSON_Delete(list_result);
     int before = gpio_writes;

@@ -123,10 +123,7 @@ final class DeviceTaskJournal: @unchecked Sendable {
             if let session = sessions[record.deviceID], session != record.sessionID { throw DeviceTaskError.corruptJournal }
             sessions[record.deviceID] = record.sessionID
             if let outcome = record.outcome {
-                switch outcome {
-                case .completed(let output, _): guard output.utf8.count <= 1024 else { throw DeviceTaskError.corruptJournal }
-                case .failed(_, let message): guard message.utf8.count <= 256 else { throw DeviceTaskError.corruptJournal }
-                }
+                guard outcome.isTransportSafe else { throw DeviceTaskError.corruptJournal }
             }
             result.append(record)
         }

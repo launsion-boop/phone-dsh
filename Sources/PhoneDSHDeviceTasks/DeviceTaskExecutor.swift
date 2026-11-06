@@ -44,6 +44,7 @@ public actor DeviceTaskExecutor {
     public func process(deviceID: String, task: DeviceTask, authorized: Bool,
                         inbox: any DeviceTaskInbox) async throws {
         guard authorized else { throw DeviceTaskError.unauthorized }
+        try Task.checkCancellation()
         guard activeDevices.insert(deviceID).inserted else { throw DeviceTaskError.deviceBusy }
         defer { activeDevices.remove(deviceID) }
         var record: DeviceTaskRecord
@@ -52,6 +53,7 @@ public actor DeviceTaskExecutor {
             record = existing
             if record.phase == .terminal {
                 guard let outcome = record.outcome else { throw DeviceTaskError.corruptJournal }
+                try Task.checkCancellation()
                 try await report(record: record, outcome: outcome, inbox: inbox)
                 return
             }
@@ -71,16 +73,19 @@ public actor DeviceTaskExecutor {
         guard try await runner.session(for: deviceID, existingSession: record.sessionID) == record.sessionID else {
             throw DeviceTaskError.unauthorized
         }
+        try Task.checkCancellation()
         // A lost accept response is safe to retry: no task has been dispatched.
         try await accept(record: record, inbox: inbox)
         record.phase = .accepted
         try journal.save(record)
+        try Task.checkCancellation()
         if Int64(clock().timeIntervalSince1970 * 1000) >= record.deadlineMS {
             try await finish(&record, outcome: .failed(kind: .expired, message: "Task expired before submission."), inbox: inbox)
             return
         }
         record.phase = .running
         try journal.save(record)
+        try Task.checkCancellation()
         let outcome = await runWithDeadline(task: task, record: record)
         try await finish(&record, outcome: outcome, inbox: inbox)
     }
@@ -111,7 +116,8 @@ public actor DeviceTaskExecutor {
             } else { bounded = .failed(kind: .failed, message: "Invalid result.") }
         case .failed(let kind, let message):
             var text = ""
-            for scalar in message.unicodeScalars {
+            let safeMessage = message.unicodeScalars.contains(where: { $0.value == 0 }) ? "Invalid failure message." : message
+            for scalar in safeMessage.unicodeScalars {
                 if text.utf8.count + String(scalar).utf8.count > 256 { break }
                 text.unicodeScalars.append(scalar)
             }
@@ -120,6 +126,7 @@ public actor DeviceTaskExecutor {
         record.phase = .terminal
         record.outcome = bounded
         try journal.save(record)
+        try Task.checkCancellation()
         try await report(record: record, outcome: bounded, inbox: inbox)
     }
 

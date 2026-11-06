@@ -82,14 +82,13 @@ public final class LANDeviceTaskInbox: DeviceTaskInbox, @unchecked Sendable {
     }
 
     public func report(id: String, outcome: DeviceTaskOutcome) async throws {
+        guard outcome.isTransportSafe else { throw LANDeviceTaskInboxError.invalidResponse }
         let body: [String: Any]
         let action: String
         switch outcome {
         case .completed(let output, let truncated):
-            guard output.utf8.count <= 1024 else { throw LANDeviceTaskInboxError.invalidResponse }
             action = "complete"; body = ["output": output, "truncated": truncated]
         case .failed(let kind, let message):
-            guard message.utf8.count <= 256 else { throw LANDeviceTaskInboxError.invalidResponse }
             action = "fail"; body = ["failure": ["kind": kind.rawValue, "message": message]]
         }
         try await post(id: id, action: action, body: JSONSerialization.data(withJSONObject: body), terminal: true)

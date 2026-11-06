@@ -93,13 +93,13 @@ def accept(con, task_id):
 
 def finish(con, task_id, action, body):
     if action == 'complete':
-        if not isinstance(body, dict) or set(body) != {'output', 'truncated'} or not isinstance(body['output'], str) or len(body['output'].encode('utf-8')) > 1024 or type(body['truncated']) is not bool:
+        if not isinstance(body, dict) or set(body) != {'output', 'truncated'} or not isinstance(body['output'], str) or '\x00' in body['output'] or len(body['output'].encode('utf-8')) > 1024 or type(body['truncated']) is not bool:
             return 400
     elif action == 'fail':
         if not isinstance(body, dict) or set(body) != {'failure'} or not isinstance(body['failure'], dict):
             return 400
         failure = body['failure']
-        if set(failure) != {'kind', 'message'} or failure['kind'] not in FAILURES or not isinstance(failure['message'], str) or len(failure['message'].encode('utf-8')) > 256:
+        if set(failure) != {'kind', 'message'} or failure['kind'] not in FAILURES or not isinstance(failure['message'], str) or '\x00' in failure['message'] or len(failure['message'].encode('utf-8')) > 256:
             return 400
     else:
         return 404
