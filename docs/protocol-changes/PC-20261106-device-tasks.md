@@ -75,3 +75,5 @@ The scoped Worker preset and its packed Worker image must be delivered with the 
 | `spec/device/v1/golden/task-outcome-cases.jsonl` | Coordinator | Share positive and negative terminal output cases across the two device bindings. | Swift host, LAN Python device, BLE C firmware |
 
 | `spec/device/v1/task-delegation.md@67b37633990413d53f9ae0c4f778796222a0a7ac` | Coordinator | Freeze a local firmware result accessor so the device producer can consume the stored terminal outcome. | BLE C firmware |
+
+| `spec/device/v1/golden/device-task-preset.yaml` | Coordinator | Preserve the exact real Worker preset document used by the pinned digest and adapter conformance tests. | Swift host, Worker DSH |
