@@ -71,3 +71,5 @@ The scoped Worker preset and its packed Worker image must be delivered with the 
 | `spec/device/v1/task-delegation.md@feb7f951e69923a6004c62017e9fc4cd3c056b0b` | Coordinator | Clarify that an optional deadline, when present, cannot be null as required by the existing schema. | Swift host, LAN Python device, BLE C firmware |
 
 | `spec/device/v1/task-delegation.md@e66d71ff0d6aa0757ca96bc6ac4dc446e4f8b965` | Coordinator | Define NUL-free terminal output across the Link and LAN bindings; fail the task explicitly when model output cannot be represented. | Swift host, LAN Python device, BLE C firmware |
+
+| `spec/device/v1/golden/task-outcome-cases.jsonl` | Coordinator | Share positive and negative terminal output cases across the two device bindings. | Swift host, LAN Python device, BLE C firmware |
