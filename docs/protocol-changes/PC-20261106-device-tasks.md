@@ -2,7 +2,7 @@
 
 ```yaml
 change: PC-20261106-device-tasks
-contracts: [P05, P06, P07, P08, P09, P12, P16, P18, P20]
+contracts: [P03, P05, P06, P07, P08, P09, P12, P16, P18, P20]
 status: frozen
 breaking: false
 version_decision: Adopt the existing task-inbox message semantics as a new negotiated device profile; retain P07 host envelope version 1 and existing BLE Link Tools v1.
@@ -12,7 +12,7 @@ contract_revision: spec/device/v1/task-delegation.md@101d051f1f92bc2e4474859c510
 
 ## Trigger, scope and roles
 
-A connected device must be able to submit a task to phoneDSH and receive the final result. The existing BLE/LAN integration provides phone-to-device tools only. The existing P07 host contract requires untrusted device turns to start with no tools, but the current DSH Remote harness cannot set a per-session tool allowlist. The coordinator owns the contract, implements all ends and reviews the combined head. Protocol impact: P06; P07; P08; P09; P16; P18; P20; P05: none — LAN task intake uses a separate native, explicitly granted HTTPS path and does not change the existing gateway or MCP envelope; P12: none — package wiring only, no FFI/JNI/native ABI change.
+A connected device must be able to submit a task to phoneDSH and receive the final result. The existing BLE/LAN integration provides phone-to-device tools only. The existing P07 host contract requires untrusted device turns to start with no tools, but the current DSH Remote harness cannot set a per-session tool allowlist. The coordinator owns the contract, implements all ends and reviews the combined head. Protocol impact: P03: none — scoped tool isolation does not change exec, handoff or existing journal semantics; P06; P07; P08; P09; P16; P18; P20; P05: none — LAN task intake uses a separate native, explicitly granted HTTPS path and does not change the existing gateway or MCP envelope; P12: none — package wiring only, no FFI/JNI/native ABI change.
 
 The owning profile is `spec/device/v1/task-delegation.md` plus its task schema and shared task fixtures. Existing P07 envelope, harness and BLE Link schemas remain authoritative. Producers/consumers: authenticated LAN device SSE inbox ↔ Swift phone, BLE firmware task tools ↔ Swift Link client, and Swift task executor ↔ isolated Worker DSH session. Kotlin, Rust and Harmony have no registered implementation of this new profile; they do not advertise it and existing P07 behavior is unchanged. The user-visible result goes to the requesting device; tool output, approvals and questions do not.
 

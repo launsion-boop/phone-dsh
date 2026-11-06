@@ -6,7 +6,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./gate": "./src/gate.ts"
+    "./gate": "./src/gate.ts",
+    "./device-scope": "./src/device-scope.ts"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "~4.0.4",
