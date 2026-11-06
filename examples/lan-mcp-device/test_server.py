@@ -12,6 +12,8 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
+from server import db
+from tasks import enqueue
 
 
 class ReferenceDeviceTest(unittest.TestCase):
@@ -49,7 +51,7 @@ class ReferenceDeviceTest(unittest.TestCase):
         cls.stop_server()
         cls.temp.cleanup()
 
-    def request(self, method, params=None, token=True, host=None):
+    def request(self, method, params=None, token=True, host=None, path="/mcp", raw_body=None):
         context = ssl.create_default_context(cafile=str(self.cert))
         connection = http.client.HTTPSConnection('localhost', self.port, context=context, timeout=5)
         headers = {'Content-Type': 'application/json'}
@@ -57,8 +59,8 @@ class ReferenceDeviceTest(unittest.TestCase):
             headers['Authorization'] = 'Bearer ' + (self.token if token is True else token)
         if host:
             headers['Host'] = host
-        body = json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': method, 'params': params or {}})
-        connection.request('POST', '/mcp', body=body, headers=headers)
+        body = json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': method, 'params': params or {}}) if raw_body is None else json.dumps(raw_body)
+        connection.request('POST', path, body=body, headers=headers)
         response = connection.getresponse()
         result = response.status, response.read()
         connection.close()
@@ -126,6 +128,27 @@ await client.close();
         env = dict(os.environ, NODE_EXTRA_CA_CERTS=str(self.cert))
         result = subprocess.run(['node', '--input-type=module', '-e', script, f'https://localhost:{self.port}/mcp', str(self.tokenfile)], cwd=ROOT / 'plugins', env=env, capture_output=True, text=True, timeout=20)
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_authenticated_task_stream_and_idempotent_result(self):
+        task = {'id': 'task:device', 'idempotency_key': 'goal-1', 'requester': 'sensor', 'created_at': '2026-11-06T00:00:00Z', 'body': {'type': 'goal', 'text': 'Summarize this reading.'}}
+        con = db(str(self.state))
+        enqueue(con, task)
+        con.close()
+        self.assertEqual(self.request('', token=None, path='/tasks/task%3Adevice/accept', raw_body={})[0], 401)
+        connection = http.client.HTTPSConnection('localhost', self.port, context=ssl.create_default_context(cafile=str(self.cert)), timeout=5)
+        connection.request('GET', '/tasks', headers={'Authorization': 'Bearer ' + self.token})
+        response = connection.getresponse()
+        self.assertEqual(response.status, 200)
+        self.assertEqual(response.readline(), b'event: task\n')
+        self.assertEqual(json.loads(response.readline().removeprefix(b'data: ')), task)
+        self.assertEqual(response.readline(), b'\n')
+        connection.close()
+        self.assertEqual(self.request('', path='/tasks/task%3Adevice/accept', raw_body={})[0], 204)
+        result = {'output': 'answer', 'truncated': False}
+        self.assertEqual(self.request('', path='/tasks/task%3Adevice/complete', raw_body=result)[0], 204)
+        self.assertEqual(self.request('', path='/tasks/task%3Adevice/complete', raw_body=result)[0], 409)
+        self.assertEqual(self.request('', path='/tasks/task%3Adevice/complete', raw_body={'output': 'other', 'truncated': False})[0], 422)
+        self.assertEqual(self.request('', path='/tasks/%2e%2e/accept', raw_body={})[0], 404)
 
     def test_real_phonedsh_manager_registers_and_calls_device_skill(self):
         script = """

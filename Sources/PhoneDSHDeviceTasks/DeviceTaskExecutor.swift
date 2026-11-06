@@ -9,7 +9,7 @@ public protocol DeviceTaskInbox: Sendable {
 
 /// A runner must verify its isolated no-tools DSH scope before accepting work.
 public protocol DeviceTaskRunner: Sendable {
-    func session(for deviceID: String) async throws -> String
+    func session(for deviceID: String, existingSession: String?) async throws -> String
     func run(task: DeviceTask, record: DeviceTaskRecord) async -> DeviceTaskOutcome
     func cancel(sessionID: String) async
 }
@@ -48,7 +48,8 @@ public actor DeviceTaskExecutor {
                 return
             }
         } else {
-            let session = try await runner.session(for: deviceID)
+            let prior = try journal.records().filter { $0.deviceID == deviceID }.max { $0.seq < $1.seq }?.sessionID
+            let session = try await runner.session(for: deviceID, existingSession: prior)
             record = try journal.create(deviceID: deviceID, task: task, sessionID: session, now: clock())
         }
 

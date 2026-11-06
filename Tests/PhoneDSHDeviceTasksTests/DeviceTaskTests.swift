@@ -20,7 +20,7 @@ private actor TestInbox: DeviceTaskInbox {
 private actor TestRunner: DeviceTaskRunner {
     var runs = 0
     var delayMS = 0
-    func session(for deviceID: String) async throws -> String { "session-" + deviceID }
+    func session(for deviceID: String, existingSession: String?) async throws -> String { "session-" + deviceID }
     func run(task: DeviceTask, record: DeviceTaskRecord) async -> DeviceTaskOutcome {
         runs += 1
         if delayMS > 0 { try? await Task.sleep(for: .milliseconds(delayMS)) }

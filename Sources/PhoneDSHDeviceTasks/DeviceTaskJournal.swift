@@ -93,6 +93,7 @@ final class DeviceTaskJournal: @unchecked Sendable {
         guard urls.count <= 4096 else { throw DeviceTaskError.corruptJournal }
         var result: [DeviceTaskRecord] = []
         var sequences: [String: Set<UInt64>] = [:]
+        var sessions: [String: String] = [:]
         for url in urls {
             let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
             guard values.isRegularFile == true, values.isSymbolicLink != true else { throw DeviceTaskError.corruptJournal }
@@ -108,6 +109,8 @@ final class DeviceTaskJournal: @unchecked Sendable {
                   (1...256).contains(record.sessionID.utf8.count), record.deadlineMS > 0,
                   (record.phase == .terminal) == (record.outcome != nil),
                   sequences[record.deviceID, default: []].insert(record.seq).inserted else { throw DeviceTaskError.corruptJournal }
+            if let session = sessions[record.deviceID], session != record.sessionID { throw DeviceTaskError.corruptJournal }
+            sessions[record.deviceID] = record.sessionID
             if let outcome = record.outcome {
                 switch outcome {
                 case .completed(let output, _): guard output.utf8.count <= 1024 else { throw DeviceTaskError.corruptJournal }
@@ -132,6 +135,7 @@ final class DeviceTaskJournal: @unchecked Sendable {
             guard existing.fingerprint == (try fingerprint(task)) else { throw DeviceTaskError.idempotencyConflict }
             return existing
         }
+        guard all.filter({ $0.deviceID == deviceID }).allSatisfy({ $0.sessionID == sessionID }) else { throw DeviceTaskError.corruptJournal }
         guard all.count < 4096 else { throw DeviceTaskError.storageFull }
         let previous = all.filter { $0.deviceID == deviceID }.map(\.seq).max() ?? 0
         guard previous < UInt64.max else { throw DeviceTaskError.storageFull }

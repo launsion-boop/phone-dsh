@@ -20,3 +20,12 @@ python3 examples/lan-mcp-device/server.py \
 `light.set` 要求调用方提供 `operation_id`：相同 ID 与参数返回原结果，不同参数发生冲突。模拟状态和结果在同一 SQLite 事务持久化，最多保留 4096 条后拒绝新操作；`light.result` 查询原 ID，未找到返回 `outcome_unknown`。设备接真实执行器时需要自行实现断电、持久化与回执的边界，不能把本示例的 SQLite 事务当作物理动作的原子保证。
 
 验证：`python3 examples/lan-mcp-device/test_discovery.py` 和 `python3 examples/lan-mcp-device/test_server.py`。后者生成临时证书与私有凭证，测试认证失败、TLS 证书验证、断线查询、持久去重，以及真实 MCP SDK 和 phoneDSH MCP 管理器的工具注册与调用。该测试需要项目 `plugins` 的既有依赖和 Node；它不声称完成 iPhone 或 ESP32 真机验证。
+
+设备要请求手机 DSH 执行文本任务，可由设备本地进程调用 `tasks.enqueue`，或在参考设备上运行：
+
+```sh
+python3 examples/lan-mcp-device/taskctl.py --state device-state.sqlite submit --text "请总结今天的温度读数"
+python3 examples/lan-mcp-device/taskctl.py --state device-state.sqlite list
+```
+
+手机任务接收器需要另行授权；本示例的 SSE 收件箱、确认和结果回执使用与 MCP 相同的 TLS 身份和凭证。设备离线后保留未完成任务，重复提交同一键时必须内容一致。任务进入 DSH 的执行范围仍依赖手机的隔离策略和授权；此仓库尚未宣称已完成真机端到端验证。

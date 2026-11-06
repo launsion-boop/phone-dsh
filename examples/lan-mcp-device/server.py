@@ -8,10 +8,14 @@ import os
 from pathlib import Path
 import sqlite3
 import ssl
+import time
+import re
 import subprocess
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import unquote_to_bytes
 
 from discovery import PROFILE, SERVICE
+from tasks import ensure_tables, accept, finish
 
 MAX_BODY = 16384
 SUPPORTED = {'2025-03-26', '2025-06-18', '2025-11-25'}
@@ -32,7 +36,21 @@ def db(path):
     con.execute('CREATE TABLE IF NOT EXISTS state (id INTEGER PRIMARY KEY CHECK(id=1), on_value INTEGER NOT NULL, revision INTEGER NOT NULL)')
     con.execute('INSERT OR IGNORE INTO state VALUES (1, 0, 0)')
     con.execute('CREATE TABLE IF NOT EXISTS receipts (operation_id TEXT PRIMARY KEY, on_value INTEGER NOT NULL, revision INTEGER NOT NULL)')
+    ensure_tables(con)
     return con
+
+
+def task_route(path):
+    match = re.fullmatch(r'/tasks/([^/]+)/(accept|complete|fail)', path)
+    if not match or re.search(r'%(?![0-9A-Fa-f]{2})', match.group(1)):
+        return None
+    try:
+        task_id = unquote_to_bytes(match.group(1)).decode('ascii')
+    except UnicodeDecodeError:
+        return None
+    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,63}', task_id):
+        return None
+    return task_id, match.group(2)
 
 
 def tool_definitions():
@@ -110,20 +128,55 @@ class Handler(BaseHTTPRequestHandler):
         expected = 'Bearer ' + self.server.token
         return len(headers) == 1 and hmac.compare_digest(headers[0], expected)
 
+    def allowed(self):
+        # The Host header must equal the TLS hostname used for provisioning.
+        expected = self.server.hostname if self.server.server_port == 443 else f'{self.server.hostname}:{self.server.server_port}'
+        hosts = self.headers.get_all('Host', [])
+        if len(hosts) != 1 or hosts[0].lower() != expected.lower() or self.headers.get('Origin'):
+            return 403
+        return 200 if self.auth() else 401
+
     def do_GET(self):
-        self.reply(405)
+        if self.path != '/tasks':
+            return self.reply(405 if self.path == '/mcp' else 404)
+        status = self.allowed()
+        if status != 200:
+            return self.reply(status)
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/event-stream')
+        self.send_header('Cache-Control', 'no-store')
+        self.send_header('Connection', 'close')
+        self.end_headers()
+        self.close_connection = True
+        self.connection.settimeout(10)
+        sent = set()
+        heartbeat = time.monotonic()
+        try:
+            while True:
+                con = db(self.server.state_path)
+                try:
+                    rows = con.execute("SELECT id, task FROM tasks WHERE phase != 'terminal' ORDER BY rowid").fetchall()
+                finally:
+                    con.close()
+                for task_id, task in rows:
+                    if task_id not in sent:
+                        self.wfile.write(b'event: task\ndata: ' + task.encode('utf-8') + b'\n\n')
+                        self.wfile.flush()
+                        sent.add(task_id)
+                if time.monotonic() - heartbeat >= 15:
+                    self.wfile.write(b': ping\n\n'); self.wfile.flush(); heartbeat = time.monotonic()
+                time.sleep(0.25)
+        except (BrokenPipeError, ConnectionResetError, TimeoutError, ssl.SSLError):
+            return
 
     def do_POST(self):
         self.connection.settimeout(10)
-        if self.path != '/mcp':
+        task_path = task_route(self.path)
+        if self.path != '/mcp' and task_path is None:
             return self.reply(404)
-        # The Host header must equal the TLS hostname used for provisioning.
-        expected_host = self.server.hostname if self.server.server_port == 443 else f'{self.server.hostname}:{self.server.server_port}'
-        hosts = self.headers.get_all('Host', [])
-        if len(hosts) != 1 or hosts[0].lower() != expected_host.lower() or self.headers.get('Origin'):
-            return self.reply(403)
-        if not self.auth():
-            return self.reply(401)
+        status = self.allowed()
+        if status != 200:
+            return self.reply(status)
         lengths = self.headers.get_all('Content-Length', [])
         if len(lengths) != 1 or not lengths[0].isdigit() or self.headers.get('Transfer-Encoding'):
             return self.reply(400)
@@ -132,9 +185,22 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(413)
         try:
             message = json.loads(self.rfile.read(size), object_pairs_hook=unique_object)
-            if not isinstance(message, dict) or message.get('jsonrpc') != '2.0' or not isinstance(message.get('method'), str):
-                raise ValueError('invalid JSON-RPC request')
         except (ValueError, UnicodeDecodeError):
+            return self.reply(400)
+        if task_path is not None:
+            task_id, action = task_path
+            con = db(self.server.state_path)
+            try:
+                if action == 'accept':
+                    status = accept(con, task_id) if message == {} else 400
+                else:
+                    status = finish(con, task_id, action, message)
+            except sqlite3.Error:
+                status = 503
+            finally:
+                con.close()
+            return self.reply(status)
+        if not isinstance(message, dict) or message.get('jsonrpc') != '2.0' or not isinstance(message.get('method'), str):
             return self.reply(400)
         method, request_id = message['method'], message.get('id')
         if 'id' not in message:

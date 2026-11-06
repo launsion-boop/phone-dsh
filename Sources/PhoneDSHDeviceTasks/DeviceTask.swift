@@ -58,7 +58,7 @@ public struct DeviceTask: Codable, Equatable, Sendable {
 
     private static func parseTime(_ value: String) -> Date? {
         guard (20...35).contains(value.utf8.count),
-              value.range(of: #"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?Z$"#, options: .regularExpression) != nil else { return nil }
+              value.range(of: #"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$"#, options: .regularExpression) != nil else { return nil }
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = value.contains(".") ? [.withInternetDateTime, .withFractionalSeconds] : [.withInternetDateTime]
         return formatter.date(from: value)
