@@ -103,6 +103,15 @@ private final class TaskTestSecrets: ModelProviderSecretStore, @unchecked Sendab
     func deleteSecret(for reference: String) throws { lock.lock(); defer { lock.unlock() }; values.removeValue(forKey: reference) }
 }
 
+@MainActor private final class TaskTestConnection {
+    var connected = true
+    var fail = false
+    func status() throws -> Bool {
+        if fail { throw NSError(domain: "TaskTestConnection", code: 1) }
+        return connected
+    }
+}
+
 extension RealDeviceTaskModelTests {
     func testLANManagerGrantAndForegroundLifecycle() async throws {
         let env = ProcessInfo.processInfo.environment
@@ -120,9 +129,10 @@ extension RealDeviceTaskModelTests {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let settings = PhoneMCPAccessSettings(defaults: defaults, secretStore: TaskTestSecrets())
+        let connection = TaskTestConnection()
         let manager = DeviceTaskManager(settings: settings, makeLANInbox: { url, auth in
             try LANDeviceTaskInbox(mcpURL: url, authorization: auth, session: session)
-        }, isLANConnected: { _ in true })
+        }, isLANConnected: { _ in try connection.status() })
         let key = DeviceTaskManager.lanKey("fixture")
         func row(_ grant: PhoneMCPAccessGrant?) -> PhoneDSHProbe.MCPServerSummary {
             PhoneDSHProbe.MCPServerSummary(serverName: "fixture", url: url.absoluteString, enabled: true,
@@ -168,6 +178,25 @@ extension RealDeviceTaskModelTests {
             try await Task.sleep(for: .milliseconds(100))
         }
         XCTAssertFalse(manager.isActive(key), "Revoking the underlying MCP credential must stop intake")
+        let newGrant = try settings.grant(serverName: "fixture", url: url.absoluteString,
+                                          headers: ["Authorization"], values: ["Authorization": "Bearer " + token])
+        await manager.startLAN(row(newGrant))
+        XCTAssertTrue(manager.isActive(key))
+        connection.connected = false
+        for _ in 0..<40 {
+            if !manager.isActive(key) { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTAssertFalse(manager.isActive(key), "A disconnected registry entry must stop intake")
+        connection.connected = true
+        await manager.startLAN(row(newGrant))
+        XCTAssertTrue(manager.isActive(key))
+        connection.fail = true
+        for _ in 0..<40 {
+            if !manager.isActive(key) { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTAssertFalse(manager.isActive(key), "An unreadable registry must fail closed")
         await manager.stop(key)
     }
 }
