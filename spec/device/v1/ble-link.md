@@ -26,6 +26,7 @@ Status: `target` on this branch. Contract frozen for the BLE adapter import; imp
 - 支持本扩展且 App 声明 bit10 时，在 HELLO_ACK 尾部追加 8 字节：ASCII `PDSH`、`extension_version u16 LE=1`、`max_rpc u16 LE=4096`。
 - 手机必须同时确认 bit20、完整标签、版本 1 和 max_rpc=4096；仅一个 capability 位不算协商成功，避免未来上游占用同一位时误发命令。
 - 设备必须同时确认 app_caps bit10 才接受新请求 / 推新事件；否则返回短格式 UNSUPPORTED。major 不同的 HELLO 返回 BAD_VERSION。
+- Device task inbox v1 additionally requires local `app_caps` bit11 (`PDSH_TASKS`) together with bit10. A device must neither advertise nor accept `pdsh.task.*` tools unless both bits were declared in the current HELLO. Older phones declaring only bit10 retain the exact existing ordinary tool list. This allocation is local, subject to upstream coordination, and does not alter older HELLO frames.
 - 参考固件接受加密 + bonded 链路；手机先订阅 ctl_tx 和 audio_up 再 HELLO，后者仅为旧协议布局兼容，不传音频。
 
 这些分配须在未来上游合并时协调；若发生冲突应升级扩展协商，不能静默改写已有部署。

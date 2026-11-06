@@ -1,0 +1,4 @@
+{"name":"old_phone","app_caps":1024,"task_tools":false}
+{"name":"new_phone","app_caps":3072,"task_tools":true}
+{"name":"tasks_without_tools","app_caps":2048,"task_tools":false}
+{"name":"no_extensions","app_caps":0,"task_tools":false}

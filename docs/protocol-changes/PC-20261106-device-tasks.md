@@ -7,7 +7,7 @@ status: frozen
 breaking: false
 version_decision: Adopt the existing task-inbox message semantics as a new negotiated device profile; retain P07 host envelope version 1 and existing BLE Link Tools v1.
 base: 48ea9bdd26a6c5f20fff74d1fff06f7c14efde5e
-contract_revision: spec/device/v1/task-delegation.md@67b37633990413d53f9ae0c4f778796222a0a7ac
+contract_revision: spec/device/v1/task-delegation.md@f510fbc1ce51f5672f7ec800dba9fc2fab15b102
 ```
 
 ## Trigger, scope and roles
@@ -77,3 +77,5 @@ The scoped Worker preset and its packed Worker image must be delivered with the 
 | `spec/device/v1/task-delegation.md@67b37633990413d53f9ae0c4f778796222a0a7ac` | Coordinator | Freeze a local firmware result accessor so the device producer can consume the stored terminal outcome. | BLE C firmware |
 
 | `spec/device/v1/golden/device-task-preset.yaml` | Coordinator | Preserve the exact real Worker preset document used by the pinned digest and adapter conformance tests. | Swift host, Worker DSH |
+
+| `spec/device/v1/task-delegation.md@f510fbc1ce51f5672f7ec800dba9fc2fab15b102` | Coordinator | Fix old-phone compatibility: negotiate task exposure using a separate local HELLO app capability, retain the old HELLO fixture, and share positive/negative negotiation vectors. | Swift BLE host, C wire and reference firmware |
