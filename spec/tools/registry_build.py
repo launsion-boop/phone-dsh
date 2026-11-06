@@ -90,7 +90,7 @@ PATH_PROJECTIONS = {'P01': {'authority': ['spec/v1/channel.md', 'spec/v1/schema'
                       'Tests/PhoneDSHAgentCoreTests']},
  'P07': {'authority': ['spec/device/v1/ble-link.md', 'spec/device/v1/lan-mcp.md', 'spec/device/v1/task-delegation.md', 'spec/host/v1/schema/device-*.schema.json',
                        'docs/design/device-adapter-contract-draft.md'],
-         'ends': {'Swift': ['examples/probe-app/ProbeKit/Devices', 'Sources/PhoneDSHBLE', 'Sources/PhoneDSHLAN'],
+         'ends': {'Swift': ['examples/probe-app/ProbeKit/Devices', 'Sources/PhoneDSHBLE', 'Sources/PhoneDSHLAN', 'Sources/PhoneDSHDeviceTasks'],
                   'C': ['firmware/components/pdsh_link_wire', 'firmware/esp32-reference'],
                   'Python': ['examples/lan-mcp-device'],
                   'Kotlin': ['android/domain/src/main/kotlin/com/phonedsh/domain/{device,connector}/**']},

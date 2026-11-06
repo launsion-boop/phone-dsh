@@ -39,7 +39,7 @@ The scoped Worker preset and its packed Worker image must be delivered with the 
 - Swift host: task inboxes, authenticated task grants, durable per-device ledger, DSH session adapter, app lifecycle and minimal UI; Worker: scoped no-tools preset and its packed assets; reference devices: LAN inbox server and BLE reference firmware. All are owned by the coordinator in this task.
 - The Swift parser, reference LAN device and BLE firmware parser must drive their actual decoders using `golden/task-cases.jsonl`, with invalid shapes, ID collisions and timestamp/UTF-8 limits. Each binding needs real failure/reconnect tests, not copied JSON structs.
 - Required: `swift test` for the task executor and both transports; firmware host tests; reference LAN TLS/SSE and duplicate/crash tests; Worker tests proving the device preset suppresses and denies tools; affected Worker asset rebuild; `bash scripts/ci/check.sh --only phone-spec,phone-p0-conformance,phone-cross-tree`; iOS app build; and real device evidence where available.
-- All task implementation commands → NOT_RUN at freeze. No DSH model, iPhone, BLE board or LAN device task E2E is claimed.
+- `swift test --filter DeviceTaskTests` → PASS (6 tests: shared task vectors, UTF-8 bounds, lock/corruption, duplicate completion, interrupted run and unauthorized/concurrent delivery). Other task implementation commands → NOT_RUN. The task executor is not wired to either transport or a DSH runner yet. No DSH model, iPhone, BLE board or LAN device task E2E is claimed.
 
 ## Revisions
 
