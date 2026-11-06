@@ -7,7 +7,7 @@ status: frozen
 breaking: false
 version_decision: Adopt the existing task-inbox message semantics as a new negotiated device profile; retain P07 host envelope version 1 and existing BLE Link Tools v1.
 base: 48ea9bdd26a6c5f20fff74d1fff06f7c14efde5e
-contract_revision: spec/device/v1/task-delegation.md@96ed6f8f5f43e4f27aa90f1b1e846a881d8d921e
+contract_revision: spec/device/v1/task-delegation.md@23a827ac628a03eb330760fac82bf885038c59d4
 ```
 
 ## Trigger, scope and roles
@@ -104,3 +104,5 @@ The owner froze rejection of duplicate members at `spec/device/v1/task-delegatio
 - `idf.py -B /tmp/pdsh-esp32-task-build build` with ESP-IDF 6.1 → PASS in an isolated build directory. `xcodebuild -project PhoneDSHProbe.xcodeproj -scheme PhoneDSHProbe -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO 'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) DEBUG PDSH_ENABLE_DEVICE_TASKS' build` → PASS at `8fa6f9d5` for the prepared UI configuration.
 - `bash scripts/ci/check.sh --only phone-no-dsh-patch` → PASS. `bash scripts/ci/check.sh --only phone-spec,phone-p0-conformance,phone-cross-tree` → FAIL on existing `exec.md` line cap, stale UI provenance, and four native-MCP fixtures already consumed by tests but not registered by the cross-tree reader inventory. These were not weakened or deleted.
 - Not verified: actual model-to-device task end-to-end, iPhone and ESP32 BLE air link, a trusted-LAN-device/iPhone run, power loss on physical hardware, final signed installation, Android/Harmony implementations. The current installed app does not expose device-originated tasks. The application feature condition remains unset pending combined acceptance and a review of the remaining baseline gate failures.
+
+| `spec/device/v1/task-delegation.md@23a827ac628a03eb330760fac82bf885038c59d4` | Coordinator | Clarify that a received-state deadline is provisional and the five-minute cap starts with durable acceptance. | Swift host |
