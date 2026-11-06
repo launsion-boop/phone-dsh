@@ -193,6 +193,7 @@ GAP-12／GAP-13 是同一批實作要修的 iOS 缺口，不是合約變更。
 | GAP-13／P02（iOS） | iOS `WorkspaceLogService.pendingResyncPaths()` 沒有生產調用者；recovery 留下的 resync 不會在 HELLO 後重新請求，違反 wal.md §10 step 4 與 channel.md §9 item 6。由同一變更單的 iOS implementer 修 | `pendingResyncPaths()` 接到 HELLO 後路徑；regression 斷言每個 pending path 恰好一個帶 `mseq` 的 VFS_RESYNC，settle 後不重發。runtime 證據後才關閉 |
 | GAP-14／HarmonyOS | 新平台为 partial；尚未完成全量页面、模型流、取消、恢复及平台能力验收。边界登记与迁移见 [PC-20261104-harmony-host](../docs/protocol-changes/PC-20261104-harmony-host.md) | 真实 HAP 的每个受影响端通过有效/非法、断开/取消/恢复场景；平台限制单独登记，不由编译或模拟器替代真机/掉电证据 |
 | GAP-15／P07（已修復 `c9d95b31`） | Swift Foundation、cJSON 與 Python 預設對重複 object key 的取值不一致 | task contract 已凍結全層拒絕；Swift、Python 與 C 讀同一組 raw JSON 正反向量，設備傳輸及恢復測試已重跑。任務 profile 的完整應用驗收仍另行開放 |
+| GAP-16／P07（iOS BLE 任務） | 真機負向測試中，未加密、未配對的 Mac 測試外設可成功協商 task tools；iOS 不能把外設聲明或訂閱成功當作 bond 證據 | iOS 先拒絕全部 BLE task grant；凍結可驗證的設備身分與配對方案、相容／復原決策和正反向 fixture，實作手機與固件兩端，並用真機證明偽造／未配對對端被拒、已配對對端成功後才可啟用 |
 
 只有修正來源、相關端測試及必要的 integration 證據齊備，才在此記錄關閉與修復 commit。
 
