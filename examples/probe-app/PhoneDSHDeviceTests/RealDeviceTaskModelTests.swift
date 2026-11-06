@@ -4,6 +4,7 @@ import Foundation
 import XCTest
 import Security
 import PhoneDSH
+import PhoneDSHBLE
 @testable import PhoneDSHDeviceTasks
 @testable import PhoneDSHProbe
 
@@ -225,5 +226,54 @@ extension RealDeviceTaskModelTests {
         }
         XCTAssertFalse(manager.isActive(key), "An unreadable registry must fail closed")
         await manager.stop(key)
+    }
+}
+
+
+extension RealDeviceTaskModelTests {
+    func testBluetoothRadioReferenceDeviceToConfiguredModelAndBack() async throws {
+        guard ProcessInfo.processInfo.environment["PDSH_TEST_BLE_RADIO"] == "1" else {
+            throw XCTSkip("Bluetooth radio fixture not supplied")
+        }
+        let store = BLEDeviceStore.shared
+        store.setDeviceTaskDiscoveryEnabled(true)
+        defer { store.stopScan(); store.setDeviceTaskDiscoveryEnabled(false) }
+        store.scan()
+        var selected: UUID?
+        for _ in 0..<200 {
+            if let device = store.devices.first(where: { $0.name == "PDSHRT" }) { selected = device.id; break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        let id = try XCTUnwrap(selected, "The Bluetooth radio fixture was not discovered: \(store.bluetoothDiagnostics)")
+        store.connect(id)
+        defer { store.disconnect(id) }
+        for _ in 0..<400 {
+            if store.devices.first(where: { $0.id == id })?.supportsDeviceTasks == true { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        let device = try XCTUnwrap(store.devices.first(where: { $0.id == id }))
+        guard device.supportsDeviceTasks else {
+            return XCTFail("Link task capability was not negotiated: \(device.linkState); \(store.status)")
+        }
+        try store.grantDeviceTasks(id, enabled: true)
+        let inbox = try BLEDeviceTaskInbox(peripheralID: id, store: store)
+        let received = try await inbox.next()
+        let task = try XCTUnwrap(received)
+        XCTAssertEqual(task.id, "task-1")
+        let runner = try await configuredRunner()
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("pdsh-real-ble-task-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let executor = try DeviceTaskExecutor(directory: directory, runner: runner)
+        try await executor.process(deviceID: inbox.deviceID, task: task, authorized: true, inbox: inbox)
+        let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+        let records = files.compactMap { url -> DeviceTaskRecord? in
+            guard url.pathExtension == "json", let data = try? Data(contentsOf: url) else { return nil }
+            return try? JSONDecoder().decode(DeviceTaskRecord.self, from: data)
+        }
+        let record = try XCTUnwrap(records.first(where: { $0.task.id == task.id }))
+        guard case let .completed(output, _) = record.outcome else { return XCTFail("Model task did not complete successfully") }
+        XCTAssertFalse(output.isEmpty)
+        let remaining = try await inbox.next()
+        XCTAssertNil(remaining, "The reference-device task remained nonterminal")
     }
 }
