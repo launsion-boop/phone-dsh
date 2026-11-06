@@ -17,4 +17,4 @@ clang -c "$root/firmware/components/pdsh_link_wire/pdsh_link_wire.c" -I"$root/fi
 swiftc "$root/firmware/tests/macos_radio_peer.swift" -import-objc-header "$root/firmware/components/pdsh_link_wire/include/pdsh_link_wire.h" "$work/pdsh_link_wire.o" -o "$app/Contents/MacOS/PDSHRadio"
 codesign --force --sign - "$app"
 printf 'Test-only peer: %s\n' "$app"
-PDSH_TEST_BRIDGE="$bridge" "$app/Contents/MacOS/PDSHRadio"
+exec env PDSH_TEST_BRIDGE="$bridge" "$app/Contents/MacOS/PDSHRadio"

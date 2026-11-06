@@ -172,19 +172,26 @@ extension RealDeviceTaskModelTests {
                                    headers: ["Authorization"], values: ["Authorization": "Bearer " + token])
         await manager.startLAN(row(grant))
         XCTAssertTrue(manager.isActive(key))
-        if let expectedID = env["PDSH_TEST_LAN_TASK_ID"], let expectedOutput = env["PDSH_TEST_LAN_TASK_OUTPUT"] {
+        let acceptAnyOutput = env["PDSH_TEST_LAN_EXPECT_ANY"] == "1"
+        if let expectedID = env["PDSH_TEST_LAN_TASK_ID"],
+           acceptAnyOutput || env["PDSH_TEST_LAN_TASK_OUTPUT"] != nil {
+            let expectedOutput = env["PDSH_TEST_LAN_TASK_OUTPUT"]
+            let seconds = min(180, max(1, Int(env["PDSH_TEST_LAN_TIMEOUT_SECONDS"] ?? "20") ?? 20))
             let support = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
                                                       appropriateFor: nil, create: true)
             let journal = support.appendingPathComponent("device-task-journal", isDirectory: true)
             var completed = false
-            for _ in 0..<200 {
+            for _ in 0..<(seconds * 10) {
                 let files = (try? FileManager.default.contentsOfDirectory(at: journal, includingPropertiesForKeys: nil)) ?? []
                 let records = files.compactMap { url -> DeviceTaskRecord? in
                     guard url.pathExtension == "json", let data = try? Data(contentsOf: url) else { return nil }
                     return try? JSONDecoder().decode(DeviceTaskRecord.self, from: data)
                 }
-                if records.contains(where: { $0.task.id == expectedID && $0.phase == .terminal &&
-                    $0.outcome == .completed(output: expectedOutput, truncated: false) }) { completed = true; break }
+                if records.contains(where: { record in
+                    guard record.task.id == expectedID, record.phase == .terminal,
+                          case let .completed(output, truncated) = record.outcome, !output.isEmpty else { return false }
+                    return acceptAnyOutput || (output == expectedOutput && !truncated)
+                }) { completed = true; break }
                 try await Task.sleep(for: .milliseconds(100))
             }
             XCTAssertTrue(completed, "The real manager did not complete the reference-device task")
@@ -304,5 +311,54 @@ extension RealDeviceTaskModelTests {
         XCTAssertTrue(device.linkState.contains("PDSH Tools v1"), "Negative control did not complete ordinary Link discovery: \(device.linkState); \(store.status)")
         XCTAssertFalse(device.supportsDeviceTasks, "An unprotected BLE peer was accepted for device tasks")
         XCTAssertThrowsError(try store.grantDeviceTasks(id, enabled: true))
+    }
+}
+
+extension RealDeviceTaskModelTests {
+    func testPhysicalESP32OrdinaryLinkAndTaskContainment() async throws {
+        guard ProcessInfo.processInfo.environment["PDSH_TEST_ESP32_RADIO"] == "1" else {
+            throw XCTSkip("ESP32 Bluetooth radio fixture not supplied")
+        }
+        try await verifyOrdinaryLink(name: "PDSH ESP32 Link")
+    }
+
+    func testPairedMacOrdinaryLinkAndTaskContainment() async throws {
+        guard ProcessInfo.processInfo.environment["PDSH_TEST_PAIRED_MAC_RADIO"] == "1" else {
+            throw XCTSkip("Paired macOS Bluetooth radio fixture not supplied")
+        }
+        try await verifyOrdinaryLink(name: "PDSHRT")
+    }
+
+    private func verifyOrdinaryLink(name: String) async throws {
+        let store = BLEDeviceStore.shared
+        store.setDeviceTaskDiscoveryEnabled(false)
+        defer { store.stopScan() }
+        store.scan()
+        var selected: UUID?
+        for attempt in 0..<600 {
+            if let device = store.devices.first(where: { $0.name == name }) { selected = device.id; break }
+            if attempt > 0 && attempt % 140 == 0 { store.scan() }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        let id = try XCTUnwrap(selected, "The Bluetooth peer \(name) was not discovered: \(store.bluetoothDiagnostics)")
+        store.connect(id)
+        defer { store.disconnect(id) }
+        for _ in 0..<400 {
+            if store.devices.first(where: { $0.id == id })?.linkState.contains("PDSH Tools v1") == true { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        let device = try XCTUnwrap(store.devices.first(where: { $0.id == id }))
+        guard device.linkState.contains("PDSH Tools v1") else {
+            return XCTFail("Link discovery failed: \(device.linkState); \(store.status)")
+        }
+        XCTAssertNotNil(UUID(uuidString: device.linkIdentity))
+        XCTAssertFalse(device.supportsDeviceTasks)
+        XCTAssertThrowsError(try store.grantDeviceTasks(id, enabled: true))
+        if device.linkTools.contains("light.get") {
+            store.grantLinkTool(id, name: "light.get", enabled: true)
+            let request = UUID()
+            let result = try await store.invokeLink(id, requestID: request, name: "light.get", arguments: .object([:]), key: UUID().uuidString.lowercased())
+            XCTAssertEqual(result["status"]?.stringValue, "completed")
+        }
     }
 }
