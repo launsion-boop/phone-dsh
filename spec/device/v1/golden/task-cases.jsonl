@@ -6,3 +6,4 @@
 {"name":"bad_deadline","valid":false,"task":{"id":"task-4","idempotency_key":"key","requester":"device","created_at":"2026-11-06T00:00:00Z","deadline":"2026-11-05T23:59:00Z","body":{"type":"goal","text":"Hello"}}}
 {"name":"control_character","valid":false,"task":{"id":"task-5","idempotency_key":"key","requester":"device","created_at":"2026-11-06T00:00:00Z","body":{"type":"goal","text":"Bad\u0000text"}}}
 {"name":"dot_segment","valid":false,"task":{"id":"..","idempotency_key":"key","requester":"device","created_at":"2026-11-06T00:00:00Z","body":{"type":"goal","text":"Hello"}}}
+{"name":"too_precise_timestamp","valid":false,"task":{"id":"task-6","idempotency_key":"key","requester":"device","created_at":"2026-11-06T00:00:00.1234Z","body":{"type":"goal","text":"Hello"}}}
