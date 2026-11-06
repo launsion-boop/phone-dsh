@@ -636,6 +636,7 @@
       "id": "P07",
       "owner_role": "device／connector owner",
       "authority": [
+        "spec/device/v1/ble-link.md",
         "spec/host/v1/schema/device-*.schema.json",
         "docs/design/device-adapter-contract-draft.md"
       ],
@@ -648,6 +649,9 @@
         ]
       },
       "triggers": [
+        {
+          "glob": "spec/device/v1/**"
+        },
         {
           "glob": "spec/host/v1/schema/device-*"
         },
@@ -665,16 +669,17 @@
         }
       ],
       "status": [
-        "draft"
+        "draft",
+        "target"
       ],
       "evidence": [
         "android/domain/src/test/kotlin/com/phonedsh/domain/device/DeviceCapabilitiesSchemaTest.kt"
       ],
       "source": {
-        "authority": "host/v1 的 envelope／caps／receipt schema；[adapter draft](../docs/design/device-adapter-contract-draft.md)（`draft`）",
+        "authority": "host/v1 的 envelope／caps／receipt schema；[BLE Link profile](device/v1/ble-link.md)（`target`）；[adapter draft](../docs/design/device-adapter-contract-draft.md)（`draft`）",
         "ends": "Kotlin `android/domain/.../{device,connector}`；Swift `examples/probe-app/ProbeKit/Devices`",
         "evidence": "Kotlin `DeviceCapabilitiesSchemaTest`；第三方傳輸與端到端回執不由 schema 保證",
-        "triggers": "`spec/host/v1/schema/device-*`、`spec/host/v1/golden/device-*`、`docs/design/device-*.md`、`android/domain/src/main/kotlin/com/phonedsh/domain/{device,connector}/**`、`examples/probe-app/ProbeKit/Devices/**`"
+        "triggers": "`spec/device/v1/**`、`spec/host/v1/schema/device-*`、`spec/host/v1/golden/device-*`、`docs/design/device-*.md`、`android/domain/src/main/kotlin/com/phonedsh/domain/{device,connector}/**`、`examples/probe-app/ProbeKit/Devices/**`"
       }
     },
     {
