@@ -78,6 +78,11 @@ import PhoneDSHDeviceTasks
             let inbox = try makeLANInbox(url, auth)
             let pair = try await engine()
             guard foreground, generation[key] == token, validLAN(name: row.serverName, grant: grant, secrets: secrets) else { throw DeviceTaskError.unauthorized }
+            // The row may have gone stale while the engine was starting. Check
+            // the live registry before intake, then recheck authorization after
+            // the suspension point so revocation cannot race the lookup.
+            guard try await isLANConnected(row) else { throw DeviceTaskError.unauthorized }
+            guard foreground, generation[key] == token, validLAN(name: row.serverName, grant: grant, secrets: secrets) else { throw DeviceTaskError.unauthorized }
             guard !deviceIDs.values.contains(inbox.deviceID) else { throw DeviceTaskError.deviceBusy }
             deviceIDs[key] = inbox.deviceID; active.insert(key)
             let ok = try await pair.0.start(deviceID: inbox.deviceID, authorized: true, inbox: inbox,

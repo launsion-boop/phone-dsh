@@ -106,7 +106,11 @@ private final class TaskTestSecrets: ModelProviderSecretStore, @unchecked Sendab
 @MainActor private final class TaskTestConnection {
     var connected = true
     var fail = false
-    func status() throws -> Bool {
+    var paused = false
+    var reading = false
+    func status() async throws -> Bool {
+        reading = true
+        while paused { try await Task.sleep(for: .milliseconds(20)) }
         if fail { throw NSError(domain: "TaskTestConnection", code: 1) }
         return connected
     }
@@ -132,7 +136,7 @@ extension RealDeviceTaskModelTests {
         let connection = TaskTestConnection()
         let manager = DeviceTaskManager(settings: settings, makeLANInbox: { url, auth in
             try LANDeviceTaskInbox(mcpURL: url, authorization: auth, session: session)
-        }, isLANConnected: { _ in try connection.status() })
+        }, isLANConnected: { _ in try await connection.status() })
         let key = DeviceTaskManager.lanKey("fixture")
         func row(_ grant: PhoneMCPAccessGrant?) -> PhoneDSHProbe.MCPServerSummary {
             PhoneDSHProbe.MCPServerSummary(serverName: "fixture", url: url.absoluteString, enabled: true,
@@ -140,8 +144,31 @@ extension RealDeviceTaskModelTests {
         }
         await manager.startLAN(row(nil))
         XCTAssertFalse(manager.isActive(key), "MCP connection without an explicit task grant must not start intake")
-        let grant = try settings.grant(serverName: "fixture", url: url.absoluteString,
+        var grant = try settings.grant(serverName: "fixture", url: url.absoluteString,
                                        headers: ["Authorization"], values: ["Authorization": "Bearer " + token])
+        connection.connected = false
+        await manager.startLAN(row(grant))
+        XCTAssertFalse(manager.isActive(key), "A stale connected UI row must not start intake")
+        connection.connected = true
+        connection.fail = true
+        await manager.startLAN(row(grant))
+        XCTAssertFalse(manager.isActive(key), "A failed registry read must not start intake")
+        connection.fail = false
+        connection.reading = false
+        connection.paused = true
+        let staleGrant = grant
+        let pending = Task { await manager.startLAN(row(staleGrant)) }
+        for _ in 0..<100 {
+            if connection.reading { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertTrue(connection.reading, "The registry read did not start")
+        try settings.revoke(serverName: "fixture")
+        connection.paused = false
+        await pending.value
+        XCTAssertFalse(manager.isActive(key), "Revocation during the registry lookup must prevent intake")
+        grant = try settings.grant(serverName: "fixture", url: url.absoluteString,
+                                   headers: ["Authorization"], values: ["Authorization": "Bearer " + token])
         await manager.startLAN(row(grant))
         XCTAssertTrue(manager.isActive(key))
         if let expectedID = env["PDSH_TEST_LAN_TASK_ID"], let expectedOutput = env["PDSH_TEST_LAN_TASK_OUTPUT"] {
