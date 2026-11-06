@@ -7,7 +7,7 @@ status: frozen
 breaking: false
 version_decision: Adopt the existing task-inbox message semantics as a new negotiated device profile; retain P07 host envelope version 1 and existing BLE Link Tools v1.
 base: 48ea9bdd26a6c5f20fff74d1fff06f7c14efde5e
-contract_revision: spec/device/v1/task-delegation.md@063cd484c4bed807315f4210e6ff56bff4819efd
+contract_revision: spec/device/v1/task-delegation.md@121963de5f204b5f4334126bc57150dc0bd92533
 ```
 
 ## Trigger, scope and roles
@@ -46,3 +46,4 @@ The scoped Worker preset and its packed Worker image must be delivered with the 
 | Revision | Owner | Reason | Affected ends |
 | --- | --- | --- | --- |
 | `spec/device/v1/task-delegation.md@063cd484c4bed807315f4210e6ff56bff4819efd` | Coordinator | Device-origin task submission and result return requested; preserve P07 isolation and unknown-outcome semantics. | Swift host, Worker DSH, BLE C firmware, LAN reference device |
+| `spec/device/v1/task-delegation.md@121963de5f204b5f4334126bc57150dc0bd92533` | Coordinator | Require alphanumeric first character on device task identifiers so HTTP path segments cannot be dot segments; add shared negative vector. | Swift host, Worker DSH, BLE C firmware, LAN reference device |
