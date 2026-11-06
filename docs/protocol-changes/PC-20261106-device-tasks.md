@@ -7,7 +7,7 @@ status: frozen
 breaking: false
 version_decision: Adopt the existing task-inbox message semantics as a new negotiated device profile; retain P07 host envelope version 1 and existing BLE Link Tools v1.
 base: 48ea9bdd26a6c5f20fff74d1fff06f7c14efde5e
-contract_revision: spec/device/v1/task-delegation.md@e66d71ff0d6aa0757ca96bc6ac4dc446e4f8b965
+contract_revision: spec/device/v1/task-delegation.md@67b37633990413d53f9ae0c4f778796222a0a7ac
 ```
 
 ## Trigger, scope and roles
@@ -73,3 +73,5 @@ The scoped Worker preset and its packed Worker image must be delivered with the 
 | `spec/device/v1/task-delegation.md@e66d71ff0d6aa0757ca96bc6ac4dc446e4f8b965` | Coordinator | Define NUL-free terminal output across the Link and LAN bindings; fail the task explicitly when model output cannot be represented. | Swift host, LAN Python device, BLE C firmware |
 
 | `spec/device/v1/golden/task-outcome-cases.jsonl` | Coordinator | Share positive and negative terminal output cases across the two device bindings. | Swift host, LAN Python device, BLE C firmware |
+
+| `spec/device/v1/task-delegation.md@67b37633990413d53f9ae0c4f778796222a0a7ac` | Coordinator | Freeze a local firmware result accessor so the device producer can consume the stored terminal outcome. | BLE C firmware |
