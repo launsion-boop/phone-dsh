@@ -276,8 +276,8 @@ import PhoneDSHAgentCore
         update(id) { if enabled && $0.linkTools.contains(name) { $0.grantedTools.insert(name) } else { $0.grantedTools.remove(name) } }
     }
 
-    /// This is a separate, foreground-only user grant; it is cleared on every
-    /// disconnect and cannot be granted to an older or partial task profile.
+    /// Task grants fail closed until GAP-16 authenticated peer binding exists.
+    /// Revocation remains available and disconnect still clears all grants.
     public func grantDeviceTasks(_ id: UUID, enabled: Bool) throws {
         if enabled {
             // Fail closed until the device identity is authenticated; a BLE
