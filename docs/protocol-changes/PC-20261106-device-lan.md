@@ -44,3 +44,7 @@ The profile remains `target` pending physical-device evidence and the separate d
 | Revision | Owner | Reason | Affected ends |
 | --- | --- | --- | --- |
 | `spec/device/v1/lan-mcp.md@0c207dc742f337b9a7e301bb34acca0af1a0b03a` | Coordinator | Freeze discoverable TLS MCP profile and existing-host mapping before implementation. | Swift phone, reference device, Worker MCP client |
+
+## Runtime status
+
+The ordinary phone-to-device profile is implemented for its registered Swift and reference device ends. Host runtime, shared fixture and application simulator build evidence is recorded above and in the device task change record. Current-head iPhone / physical-device E2E and power-loss behavior remain unverified. The separate device-originated task profile remains `target` and disabled by default.

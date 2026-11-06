@@ -1,6 +1,6 @@
 # PDSH BLE Link Tools Profile v1
 
-Status: `target` on this branch. Contract frozen for the BLE adapter import; implementation and runtime evidence are tracked in [the change record](../../../docs/protocol-changes/PC-20261105-device-ble.md). Prior hardware results describe the source branch, not this integration.
+Status: `implemented` for the ordinary BLE Link tools profile in the registered Swift and reference C ends; runtime evidence is recorded in [the change record](../../../docs/protocol-changes/PC-20261105-device-ble.md). Current-head iPhone/ESP32 air-link and physical power-loss evidence is not available. The separately negotiated device-task profile remains `target`.
 
 
 实现位置：`Sources/PhoneDSHBLE`（Swift SDK / CoreBluetooth）、`firmware/components/pdsh_link_wire`（纯 C wire 核心）、`firmware/esp32-reference`（ESP-IDF / NimBLE 参考外设）。本版包含 Link Core 工具、事件、Home HTTP；不包含音频、HID、通话或自动 Agent 触发。

@@ -1,6 +1,6 @@
 # LAN device discovery and MCP profile v1
 
-Status: `target`; the device and phone implementations must pass the acceptance commands in the change record before use. This profile reuses the existing phoneDSH Streamable HTTP MCP client, native MCP grant store and MCP tool catalog. It does not redefine MCP JSON-RPC, add an envelope, or alter the existing host device receipt schema.
+Status: `implemented` for LAN discovery and phone-to-device MCP in the registered Swift and reference Python ends; host runtime evidence is in the change record. An iPhone and physical LAN-device run remains unverified. The separately authorized device-task profile remains `target`. This profile reuses the existing phoneDSH Streamable HTTP MCP client, native MCP grant store and MCP tool catalog. It does not redefine MCP JSON-RPC, add an envelope, or alter the existing host device receipt schema.
 
 ## Discovery
 

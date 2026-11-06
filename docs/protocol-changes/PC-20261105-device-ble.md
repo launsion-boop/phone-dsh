@@ -49,3 +49,7 @@ App, native MCP and reference firmware must be released after their respective t
 | Revision | Owner | Reason | Affected ends |
 | --- | --- | --- | --- |
 | `spec/device/v1/ble-link.md@929361da4d3922b7ab78082f5d93bbeced2ec2e9` | Coordinator | Freeze the existing profile and P07 uncertain-outcome mapping before implementation. | Swift host, C firmware, Worker MCP client |
+
+## Runtime status
+
+The ordinary phone-to-device profile is implemented for its registered Swift and reference device ends. Host runtime, shared fixture and application simulator build evidence is recorded above and in the device task change record. Current-head iPhone / physical-device E2E and power-loss behavior remain unverified. The separate device-originated task profile remains `target` and disabled by default.
