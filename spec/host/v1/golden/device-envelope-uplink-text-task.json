@@ -1,0 +1,16 @@
+{
+  "name": "device-envelope-uplink-text-task",
+  "schema": "schema/device-envelope.schema.json",
+  "instance": {
+    "v": 1,
+    "msg_id": "02d39a65b5db47d811a7634dd6db7d811c8249f3976de9747d34ba0ccecd6bcc",
+    "device_id": "lan:94fca6cc9d5adf5971e2c6590830eea69322a3f344b3f8a56aa25ce2cc4cd3fc",
+    "session_id": "session-task-1",
+    "dir": "up",
+    "kind": "text",
+    "origin": "device",
+    "seq": 1,
+    "text": "Summarize the temperature reading."
+  },
+  "notes": "Device task goal-1 from the authenticated https://device.example/mcp connection. The host derives the message ID from device ID, NUL and the task idempotency key."
+}

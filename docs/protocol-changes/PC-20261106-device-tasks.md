@@ -55,3 +55,5 @@ The scoped Worker preset and its packed Worker image must be delivered with the 
 | `spec/device/v1/task-delegation.md@4338ff67726eb008d4c157cc542a2df118d34268` | Coordinator | Bind LAN identity to the authorized endpoint and verify the live global guard before each task. | Swift host, Worker DSH, LAN reference device |
 
 | `spec/device/v1/task-delegation.md@abc9046d68e852e36f738dcb3f82a3a82d47d576` | Coordinator | Use the Loader-qualified inventory entry ID observed in the real packed Worker. | Swift host, Worker DSH |
+
+| `spec/host/v1/golden/device-envelope-uplink-text-task.json` | Coordinator | Freeze the existing P07 uplink mapping for a LAN-originated task, including the derived identity and message ID. | Swift host |
