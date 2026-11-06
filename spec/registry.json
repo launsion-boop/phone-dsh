@@ -647,11 +647,15 @@
       "ends": {
         "Swift": [
           "examples/probe-app/ProbeKit/Devices",
-          "Sources/PhoneDSHBLE"
+          "Sources/PhoneDSHBLE",
+          "Sources/PhoneDSHLAN"
         ],
         "C": [
           "firmware/components/pdsh_link_wire",
           "firmware/esp32-reference"
+        ],
+        "Python": [
+          "examples/lan-mcp-device"
         ],
         "Kotlin": [
           "android/domain/src/main/kotlin/com/phonedsh/domain/{device,connector}/**"
@@ -660,6 +664,12 @@
       "triggers": [
         {
           "glob": "spec/device/v1/**"
+        },
+        {
+          "glob": "Sources/PhoneDSHLAN/**"
+        },
+        {
+          "glob": "examples/lan-mcp-device/**"
         },
         {
           "glob": "Sources/PhoneDSHBLE/**"
@@ -692,9 +702,9 @@
       ],
       "source": {
         "authority": "host/v1 的 envelope／caps／receipt schema；[BLE Link profile](device/v1/ble-link.md)（`target`）；[LAN MCP profile](device/v1/lan-mcp.md)（`target`）；[adapter draft](../docs/design/device-adapter-contract-draft.md)（`draft`）",
-        "ends": "Kotlin `android/domain/.../{device,connector}`；Swift `examples/probe-app/ProbeKit/Devices`、`Sources/PhoneDSHBLE`；C `firmware/components/pdsh_link_wire`、`firmware/esp32-reference`",
+        "ends": "Kotlin `android/domain/.../{device,connector}`；Swift `examples/probe-app/ProbeKit/Devices`、`Sources/PhoneDSHBLE`、`Sources/PhoneDSHLAN`；C `firmware/components/pdsh_link_wire`、`firmware/esp32-reference`；Python `examples/lan-mcp-device`",
         "evidence": "Kotlin `DeviceCapabilitiesSchemaTest`；第三方傳輸與端到端回執不由 schema 保證",
-        "triggers": "`spec/device/v1/**`、`Sources/PhoneDSHBLE/**`、`firmware/**`、`spec/host/v1/schema/device-*`、`spec/host/v1/golden/device-*`、`docs/design/device-*.md`、`android/domain/src/main/kotlin/com/phonedsh/domain/{device,connector}/**`、`examples/probe-app/ProbeKit/Devices/**`"
+        "triggers": "`spec/device/v1/**`、`Sources/PhoneDSHLAN/**`、`examples/lan-mcp-device/**`、`Sources/PhoneDSHBLE/**`、`firmware/**`、`spec/host/v1/schema/device-*`、`spec/host/v1/golden/device-*`、`docs/design/device-*.md`、`android/domain/src/main/kotlin/com/phonedsh/domain/{device,connector}/**`、`examples/probe-app/ProbeKit/Devices/**`"
       }
     },
     {

@@ -29,7 +29,7 @@ A DNS-SD `_pdsh-mcp._tcp` service with a mandatory profile marker discovers an H
 | New → new | Explicit discovery, selection, TLS/credential confirmation, normal MCP initialization and tool listing. Unknown profile markers are rejected. |
 | Old persisted data → new / rollback | Existing MCP settings and Keychain grants retain their format. Discovery candidates are transient. Rollback leaves new MCP rows readable by the existing manager; any in-flight effect must be reconciled at the device. |
 
-The profile is `target` until Swift discovery, reference device, shared valid/invalid vectors, the real MCP client/server, authentication failures and disconnect cases pass. Existing BLE Link remains a separate wire adapter and does not claim LAN MCP support.
+The profile remains `target` pending physical-device evidence and the separate device-initiated DSH task contract. Swift discovery, reference device, shared vectors, real MCP client/server, authentication failures and disconnect cases have host-side evidence below. Existing BLE Link remains a separate wire adapter and does not claim LAN MCP support.
 
 ## Paths and acceptance
 
@@ -37,7 +37,7 @@ The profile is `target` until Swift discovery, reference device, shared valid/in
 - Swift host implementer: `Sources/PhoneDSHLAN/**`, `Tests/PhoneDSHLANTests/**`, package and minimal MCP settings discovery UI.
 - Reference device implementer: `examples/lan-mcp-device/**` with authenticated TLS MCP endpoint and DNS-SD announcement; the reference and Swift parser consume the same valid/invalid discovery vectors.
 - Acceptance: `swift test --filter PhoneDSHLANTests`; reference fixture test for every shared vector; real MCP initialize/list/call over TLS including missing/incorrect token; cancellation and transport-loss behavior; `bash scripts/ci/check.sh --only phone-spec,phone-p0-conformance,phone-cross-tree`; iOS app build; physical phone and device discovery/connect/call where available.
-- All acceptance commands → NOT_RUN at contract freeze. Physical device, pairing and network isolation → NOT_VERIFIED. Do not claim deployment or exactly-once execution from unit tests.
+- `swift test --filter LANAdvertisementTests` → PASS (4 tests, including actual Bonjour publish/discovery on macOS). `python3 examples/lan-mcp-device/test_discovery.py` → PASS (2 tests). `python3 examples/lan-mcp-device/test_server.py` → PASS (5 tests: real TLS authentication, rejected invalid credentials/certificate, lost response and persisted deduplication, MCP SDK and phoneDSH MCP manager tool registration/call). `swift test --filter MCPEgressPolicyTests` → PASS (28 tests). `xcodebuild -project PhoneDSHProbe.xcodeproj -scheme PhoneDSHProbe -destination generic/platform=iOS\ Simulator CODE_SIGNING_ALLOWED=NO build` → PASS. Physical iPhone/device, pairing and network isolation → NOT_VERIFIED. These tests do not verify device-initiated DSH tasks, which require a separate P06/P07 contract and implementation.
 
 ## Revisions
 

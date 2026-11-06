@@ -27,6 +27,7 @@ let shellRequested = shellEnvironment["PDSH_WITH_XZSHELL"] == "1"
 let withShell = shellRequested && FileManager.default.fileExists(atPath: shellXCFramework.path)
 
 let modules: [Module] = [
+    Module(name: "PhoneDSHLAN"),
     Module(name: "PhoneDSHBLE", dependencies: ["PhoneDSHAgentCore", "PhoneDSHLoopback", "PhoneDSHADB", "PDSHLinkWire", "PDSHHomePolicy"], testDependencies: ["PDSHLinkWire"]),
     // Dependency boundary: the agent/provider abstractions the host modules use
     // (exec provider, credentials, harness session, DSH remote client).

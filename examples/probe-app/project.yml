@@ -90,6 +90,8 @@ targets:
       - package: PhoneDSH
         product: PhoneDSHADB
       - package: PhoneDSH
+        product: PhoneDSHLAN
+      - package: PhoneDSH
         product: PhoneDSHBLE
       - package: SwiftMarkdown
         product: Markdown
