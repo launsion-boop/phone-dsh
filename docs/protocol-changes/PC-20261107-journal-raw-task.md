@@ -7,7 +7,7 @@ status: frozen
 breaking: true
 version_decision: Preserve journal v1 and task v1; refuse ambiguous/corrupt old records instead of interpreting or rewriting them.
 base: f0d6c759724d5b889aad319ddbfecf7cbfa6a64d
-contract_revision: spec/device/v1/task-delegation.md@sha256:b6624cf0614d8739a67818a1300e7d18d5643f5a8321c5d7f47accc4f4f852d7
+contract_revision: spec/device/v1/task-delegation.md@sha256:c9a42fdc21c718dc7fcfbbe1dba8144d6a61b1aff8f08cde7c078e269eee1bbd
 ```
 
 ## Trigger and delta
@@ -146,7 +146,7 @@ The shared raw task JSON vectors now cover a 5,000-digit valid unknown integer,
 valid exponent overflow/underflow, invalid non-JSON numeric tokens and raw
 control characters. The additional raw-byte vectors
 `spec/device/v1/golden/task-raw-bytes.jsonl`
-(`sha256:5e6d68e46d7eb88a1a331bef219a27fbac7944747127812771d9677282d27113`)
+(`sha256:6497afd4ae5fd4179068c380a5335972f044c2938d72adcb26b45380c0060ac7`)
 use `schema/task-raw-bytes-vector.schema.json`
 (`sha256:7d6ed3bafb7cd1a88ad51d815ff541eb9288f369825a0f2435b1129e72766c2c`)
 to carry invalid UTF-8, non-UTF-8 standalone task bytes, invalid outer whitespace and valid multibyte input as hex. Unlike a legacy parent journal, the standalone task wire is UTF-8. Decode the bytes without
@@ -163,3 +163,15 @@ Test known fields with numbers to make sure they are still rejected.
 Nesting-depth behavior remains a separate unresolved cross-end gap; these
 fixtures do not establish agreement for arbitrary nesting. No task enablement,
 legacy BLE identity migration or physical-device claim follows from this fix.
+
+## Revision 6 — task-wire BOM versus legacy parent BOM
+
+Standalone task JSON is UTF-8 without a leading byte-order mark. The old
+Swift decoder already rejected a standalone BOM, while the C and Python
+reference decoders previously accepted it; the shared raw-byte fixture now
+requires all three to reject it. This tightens previously accepted malformed
+wire input: old BOM-emitting producers must remove it before interoperating
+with the new consumers. The separate compatibility decision for an existing
+parent journal remains unchanged: its supported initial BOMs are accepted, and
+a task extracted from such a parent has no added marker. Rejection must not
+rewrite a journal or authorize or replay a task.
