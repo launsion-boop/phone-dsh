@@ -44,8 +44,8 @@ are in [PC-20261107-web-search-note](../protocol-changes/PC-20261107-web-search-
   subsequently run against a temporary loopback SSH fixture (8 tests PASS,
   0 skip). The other skipped SDK checks remain incomplete. Android structure
   returned PASS with three skips and the 16 KB JNI artifact unverified. The
-  real Android Compose test for the P09 note was still pending dependency
-  setup at this receipt. Neither result is physical-device evidence.
+  real Android Compose test for the P09 note → INCOMPLETE: dependency download
+  stalled and the run was stopped before the test executed (exit 130). Neither result is physical-device evidence.
 * `phone-hygiene` remains FAIL (42 findings, also present on the base) and
   `phone-gate-contracts` remains FAIL because its hygiene self-test runs that
   scanner. No allowlist, scanner, baseline, or license was weakened to hide it.
