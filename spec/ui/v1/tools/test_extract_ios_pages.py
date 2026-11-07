@@ -900,6 +900,13 @@ class PageSourceCompletenessTests(unittest.TestCase):
                     (probe / "AnotherPage.swift").write_text(
                         "import SwiftUI\nstruct AnotherPage: View { var body: some View { Text(\"new\") } }\n", encoding="utf-8"
                     )
+                    # The old README-name-only inventory is green even though
+                    # AnotherPage has no structure contract. The real extractor
+                    # below must still make this shared case red.
+                    import ui_check
+                    readme = root / "spec/ui/v1/README.md"
+                    readme.write_text("FixturePage\nAnotherPage\n", encoding="utf-8")
+                    self.assertEqual(ui_check.check_pages(root, readme.read_text(encoding="utf-8")), (2, True))
                 elif mutation == "remove_chrome":
                     chrome.unlink()
                 elif mutation != "none":
