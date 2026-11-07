@@ -75,8 +75,18 @@ are in [PC-20261107-web-search-note](../protocol-changes/PC-20261107-web-search-
   `phone-gate-contracts` remains FAIL because its hygiene self-test runs that
   scanner. No allowlist, scanner, baseline, or license was weakened to hide it.
 
-Not verified: physical iPhone/ESP32 BLE task round trip, protected session,
+Not verified: physical iPhone/ESP32 BLE task round trip, production protected task session,
 changed-key rejection and persistence after device reboot; actual Android BLE
 or LAN device integration; production TLS provisioning, UI and disconnect
 acceptance. BLE task grants remain fail-closed and the PR remains draft. The
 simulator-only TLS experiment and its limits are recorded in the session CCR.
+
+An isolated iPhone/ESP32-S3 CoC/TLS 1.3 laboratory test subsequently passed
+mutual test-certificate authentication and PING/PONG, with both wrong-client
+and wrong-server leaf-pin negatives rejected. It did not run production task
+code or the production key lifecycle. The ESP test exposed a separate receive
+credit crash and used a one-credit laboratory configuration; resistance to
+malicious over-credit input remains unverified. The test app was uninstalled,
+and the board's original flash image was restored and device-side verified;
+original application functionality after reset was not independently checked.
+See `PC-20261107-ble-session-binding-ccr.md` for the full limits.

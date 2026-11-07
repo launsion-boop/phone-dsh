@@ -255,3 +255,33 @@ succeeded. The original application's functioning after reset was not
 independently verified. The experiment was a separate test firmware with test
 credentials, not the reference task implementation or an authorized task
 session; no eFuse changes were made. These failures do not close GAP-16.
+
+Subsequent isolated physical iPhone/ESP32-S3 experiment: after retaining the
+iPhone's CoreBluetooth channel and correcting the experiment's receive-credit
+handling, an upstream Mbed TLS 4.1.1 iPhone client and the ESP-IDF 6.1 Mbed TLS
+server completed TLS 1.3 mutual-certificate authentication over native LE
+CoC. The iPhone verified the test CA, hostname and exact server leaf DER, then
+read the expected `PONG` for its `PING`. A different client leaf signed by the
+same test CA was rejected by the ESP's exact-leaf pin (`BADCERT_OTHER`); an
+incorrect expected server leaf was rejected by the iPhone before its PING.
+Neither negative case produced a PONG. All three runs used separate connections
+and per-run result identifiers. The temporary phone app was uninstalled. The
+original entire board image was written back, verified against the protected
+backup, and a reset command succeeded; original application functionality after
+reset was not independently checked.
+
+This laboratory firmware used embedded, exportable test keys and a test CA;
+the ESP ignored certificate date flags for its untrusted clock. It did not use
+Keychain signing, independent provisioning, the production Link/task code,
+device-task receipts, persistent trust, ESP reboot recovery or Android. It is
+not a production security review or a completed authenticated task session.
+The earlier ESP crash exposed a specific CoC flow-control hazard: with RX MTU
+512 and MPS 504 the fixed NimBLE build initially grants two credits despite a
+single application receive slot, so another SDU can arrive while the slot is
+empty. A 256-byte lab MTU produced one initial credit and worked with this
+cooperating iPhone. The recorded packets did not prove the precise fragment
+sequence of the crash. Source inspection also found that the receive path
+dereferences its slot before checking credits; resistance to an over-credit
+peer remains unverified and the laboratory workaround is not a production DoS
+fix. Record sizing, supported-platform compatibility, resource bounds and a
+safe upstream resolution remain open.
