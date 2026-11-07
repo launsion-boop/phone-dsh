@@ -619,7 +619,7 @@ class SDKManagerListingFixtureTests(unittest.TestCase):
         toolchain = SPEC_DIR.parent / "toolchain" / "v1"
         schema = json.loads((toolchain / "schema" / "sdk-manager-listing.schema.json").read_text())
         rows = [json.loads(line) for line in (toolchain / "golden" / "sdk-manager-listing.jsonl").read_text().splitlines()]
-        self.assertEqual(len(rows), 12)
+        self.assertEqual(len(rows), 17)
         self.assertEqual(len(rows), len({row["name"] for row in rows}))
         for row in rows:
             spec_golden.validate_json(row, schema, row["name"])

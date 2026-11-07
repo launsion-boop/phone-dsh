@@ -6,7 +6,7 @@ contracts: [P23]
 status: frozen
 breaking: false for documented SDK listings; false-positive classifications are rejected
 base: 529cbee4cc2a3352de8af2d4fcf179fe0607aa52
-contract_revision: spec/toolchain/v1/sdk-manager.md@sha256:ee003b03dd2749839f765561b03bef1caaeb300cf464b6df152c4dce1d163f8b
+contract_revision: spec/toolchain/v1/sdk-manager.md@sha256:e9d2e2d45d8c3d8f13be2751a154083cef8b0439b4599b7fff53273f89e2d140
 ```
 
 Protocol impact: P23. The real SDK command-line tools 23.0 produced slash
@@ -48,3 +48,34 @@ spec/tools -p 'test_registry*.py'` → PASS (24 tests); `bash scripts/ci/check.s
 --only phone-spec,phone-p0-conformance,phone-cross-tree` → PASS / FAIL / PASS.
 The P0 failure predates this change. These checks validate the frozen cases and
 registry, not the not-yet-implemented adapter.
+
+
+## Revision 2 — reject unrecognized listing structure
+
+Independent review of the unmerged first adapter draft found that a section
+header with parentheses and a non-table text line could be ignored, allowing
+rows from an untrusted or unknown section to satisfy the check; an embedded
+CR was also erased instead of rejected. Freeze all three as negative cases.
+Valid CRLF removes only the line-ending CR. Within the installed section,
+the legacy column header/separator, numeric-version rows and the observed
+`unknown -> <numeric version>` row are the supported syntax; unrecognized
+nonempty lines invalidate the entire listing. This is fail-closed behavior for
+unknown layouts, not a promise about future external manager versions.
+
+The revision 2 owner contract SHA-256 is
+`e9d2e2d45d8c3d8f13be2751a154083cef8b0439b4599b7fff53273f89e2d140`;
+the 17-vector fixture SHA-256 is
+`4fa0da65d54be2be37a0265c65eb636d27d65b906f0bb36feb61a66e865d6f11`;
+and its updated schema SHA-256 is
+`4305e312a56470cf0205c62c898db91c71836c26011d5f32eb00c97582842901`.
+SDK output on stderr must remain visible but cannot supply package rows; the
+fixture explicitly tests a forged stderr table. Package IDs and versions use
+the contract’s ASCII grammar, independent of the host locale. Compatibility,
+ownership and acceptance commands remain unchanged.
+The earlier candidate is not merged; the external producer remains unchanged.
+
+Revision 2 freeze checks: `python3 -m unittest discover -s spec/v1/tools -p
+test_spec_golden.py` → PASS, 66 tests; `bash scripts/ci/check.sh --only
+phone-spec,phone-p0-conformance,phone-cross-tree` → PASS / FAIL / PASS. These
+are contract checks only; the adapter has not yet been implemented against
+this revision, and P0 remains incomplete.
