@@ -107,3 +107,11 @@ processes it created and read the item, deleted it, and observed not-found on a
 subsequent launch. This corrects the narrower unentitled-process observations
 above, but is not evidence for permanent P-256 `SecKey` creation, signing,
 export, Secure Enclave, physical iPhone or integration with the TLS library.
+
+A later App-hosted iOS 27.1 Simulator test created a permanent P-256 Keychain
+software key, then queried and used it to sign/verify in a second process. The
+65-byte public point and its SHA-256 matched across launches; deletion followed
+by a third query returned not-found. This Simulator key was exportable as 97
+bytes and did not use a Secure Enclave token. The test key was deleted. These
+results are not a claim about physical iPhone key export, Secure Enclave,
+Keychain lock/reboot policy or TLS use of the persisted key.
