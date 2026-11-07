@@ -14,6 +14,11 @@ Page titles are subject to the owning-page and fail-closed ambiguity rules in
 `page-title-ownership.md`; a title belonging to a destination cannot stand in
 for its parent merely because its source occurs first.
 
+The default probe's local history-inspection affordance is specified in
+`../../device/v1/legacy-task-inspection.md`. Its iOS app-container observation
+does not establish Android device capability or waive any existing parity
+check; incomplete cross-platform behavior remains visible to the gate.
+
 The source inventory is deliberately broader than a production build: the
 current extractor scans inactive conditional branches. A successful inventory
 check therefore cannot prove that a feature is compiled, enabled, secure or

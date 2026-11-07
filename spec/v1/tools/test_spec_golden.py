@@ -651,5 +651,46 @@ class DeviceTaskPlaintextAdmissionFixtureTests(unittest.TestCase):
                 spec_golden.validate_json(bad, schema, "mutation")
 
 
+class LegacyTaskInspectionFixtureTests(unittest.TestCase):
+    def test_scenarios_and_schema(self):
+        device = SPEC_DIR.parent / "device" / "v1"
+        schema = json.loads((device / "schema" / "legacy-task-inspection.schema.json").read_text())
+        rows = [json.loads(line) for line in (device / "golden" / "legacy-task-inspection.jsonl").read_text().splitlines()]
+        self.assertEqual(len(rows), 14)
+        self.assertEqual(len(rows), len({row["name"] for row in rows}))
+        self.assertEqual(len(rows), len({row["scenario"] for row in rows}))
+        for row in rows:
+            spec_golden.validate_json(row, schema, row["name"])
+        for bad in ({**rows[0], "expected": "complete"}, {**rows[0], "scenario": "invented"},
+                    {**rows[0], "extra": True}):
+            with self.assertRaises(spec_golden.SpecError):
+                spec_golden.validate_json(bad, schema, "mutation")
+
+    def test_path_vectors_and_schema(self):
+        device = SPEC_DIR.parent / "device" / "v1"
+        schema = json.loads((device / "schema" / "legacy-task-inspection-path.schema.json").read_text())
+        rows = [json.loads(line) for line in (device / "golden" / "legacy-task-inspection-paths.jsonl").read_text().splitlines()]
+        self.assertEqual(len(rows), 10)
+        self.assertEqual(len(rows), len({row["name"] for row in rows}))
+        for row in rows:
+            spec_golden.validate_json(row, schema, row["name"])
+            self.assertEqual(row["valid"], row["escaped"] is not None)
+            for component in row["components_hex"]:
+                bytes.fromhex(component)
+        with self.assertRaises(spec_golden.SpecError):
+            spec_golden.validate_json({**rows[0], "components_hex": ["fg"]}, schema, "mutation")
+
+    def test_claim_vectors_and_schema(self):
+        device = SPEC_DIR.parent / "device" / "v1"
+        schema = json.loads((device / "schema" / "legacy-task-inspection-claims.schema.json").read_text())
+        rows = [json.loads(line) for line in (device / "golden" / "legacy-task-inspection-claims.jsonl").read_text().splitlines()]
+        self.assertEqual(len(rows), 13)
+        self.assertEqual(len(rows), len({row["name"] for row in rows}))
+        for row in rows:
+            spec_golden.validate_json(row, schema, row["name"])
+        with self.assertRaises(spec_golden.SpecError):
+            spec_golden.validate_json({**rows[0], "role": "unknown"}, schema, "mutation")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -13,6 +13,10 @@ not mean that a phone received or accepted a task. This interim restriction
 does not authenticate or migrate legacy receipts and does not change the
 target status of the authenticated task profile.
 
+The separate [legacy inspection contract](legacy-task-inspection.md) defines
+the limited, read-only local inspection of old phone records; it is not task
+intake, authenticated recovery or authorization to replay.
+
 A task's authenticated `device_id` comes from the connection, never from task text. The phone maps it to its device session. For a device/idempotency-key pair, `msg_id` is lowercase SHA-256 of UTF-8 device ID, a zero byte, then UTF-8 idempotency key. It is used in a P07 uplink envelope with `origin=device`, `dir=up`, `kind=text`, a host-assigned persistent monotonically increasing per-device sequence, the mapped session ID, and the goal text. The harness request ID is exactly `dev:` plus that `msg_id`. The host records this mapping durably; device text is never promoted to system instructions. Session and source attribution must be retained independently of message text.
 
 For LAN, the connection identity is `lan:` followed by lowercase SHA-256 of the UTF-8 exact selected MCP URL. It is meaningful only after the HTTPS connection has authenticated the host and accepted its credential; it is not an identity claimed by discovery or task content. An endpoint or credential change requires a new explicit grant. Grant state is in memory, defaults off and ends on disconnect, revocation or app suspension.

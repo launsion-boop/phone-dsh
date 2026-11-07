@@ -1,0 +1,10 @@
+{"name":"ordinary","components_hex":["6162632e6a736f6e"],"valid":true,"escaped":"abc.json"}
+{"name":"intent","components_hex":["626c652d6f7073","612d6163636570742e6a736f6e"],"valid":true,"escaped":"ble-ops/a-accept.json"}
+{"name":"percent","components_hex":["7573252e6a736f6e"],"valid":true,"escaped":"us%25.json"}
+{"name":"bidi_control","components_hex":["e280ae612e6a736f6e"],"valid":true,"escaped":"%E2%80%AEa.json"}
+{"name":"invalid_utf8","components_hex":["ff2e6a736f6e"],"valid":true,"escaped":"%FF.json"}
+{"name":"empty","components_hex":[""],"valid":false,"escaped":null}
+{"name":"dot","components_hex":["2e"],"valid":false,"escaped":null}
+{"name":"dotdot","components_hex":["2e2e"],"valid":false,"escaped":null}
+{"name":"embedded_nul","components_hex":["610062"],"valid":false,"escaped":null}
+{"name":"embedded_slash","components_hex":["612f62"],"valid":false,"escaped":null}
