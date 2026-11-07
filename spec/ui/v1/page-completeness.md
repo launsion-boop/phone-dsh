@@ -10,6 +10,10 @@ README alone does not substitute for a structure contract. The existing
 `page_structure_check.py` and all its provenance, parity, whitelist and
 baseline checks remain mandatory and unchanged.
 
+Page titles are subject to the owning-page and fail-closed ambiguity rules in
+`page-title-ownership.md`; a title belonging to a destination cannot stand in
+for its parent merely because its source occurs first.
+
 The source inventory is deliberately broader than a production build: the
 current extractor scans inactive conditional branches. A successful inventory
 check therefore cannot prove that a feature is compiled, enabled, secure or
