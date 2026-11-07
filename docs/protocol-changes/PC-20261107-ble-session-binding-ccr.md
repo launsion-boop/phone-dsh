@@ -76,3 +76,14 @@ and an unentitled test app; a separately entitled temporary simulator app failed
 to launch. Thus neither persistent Keychain retrieval nor a non-exportable
 Secure Enclave signing callback has been established. This experiment does not
 select an iOS production key-storage or certificate policy.
+
+A cross-version Simulator experiment used the official Mbed TLS 4.1.1 release
+archive (SHA-256 `3359a349e23db3d5536fcee032ae7b2ecbfc08972fab643089b5cbf2a375c98c`,
+including TF-PSA-Crypto 1.2.0). AppleClang built the iOS Simulator arm64 library
+without the two temporary Espressif-fork compatibility shims. Its Simulator
+client completed mutual TLS 1.3 and ping/pong with the fixed ESP-IDF-fork host
+server; 21 pin, CA, hostname and simulated date-policy cases passed. This is a
+candidate, not an approved or vendored dependency. It used test PEM keys, host
+certificate verification and localhost; ESP32 compilation, true no-clock
+configuration, production licensing/integration, Keychain signing, GATT,
+physical devices and memory budgets remain unverified.
