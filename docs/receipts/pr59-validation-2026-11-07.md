@@ -172,3 +172,11 @@ compression or offsets. The regenerated Worker contained the Python and jq
 artifacts, while the optional full Web page was not staged;
 `phone-bundle-fresh` → PASS with that Web asset absent. No APK was installed
 or published, and this result is not a physical Android or device-task test.
+
+`bash scripts/ci/check.sh --only phone-xcode-resolve` → PASS: SwiftPM's
+manifest graph had no test-to-test dependency and Xcode resolved the
+`PhoneDSHSim` package graph. Xcode rewrote the tracked root `Package.resolved`
+during this command; the task restored its pre-run content. Consequently the
+result is package-resolution evidence, not proof that the existing lockfile
+is stable or reproducible under this Xcode version. No simulator was booted by
+this gate.

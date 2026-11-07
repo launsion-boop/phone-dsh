@@ -61,3 +61,25 @@ versions, license, minimum Rust version and reproducible distributions would
 need review; the candidate has not been built, measured or tested. The shell
 manifest declares Rust 1.85 while one existing Android toolchain lane specifies
 1.99.1, so dependency MSRV compatibility requires an explicit decision.
+
+A standalone macOS Rust probe subsequently built `idna` 1.1.0 with
+`idna_adapter` 1.2.2 and ICU normalizer/property data 2.2.0. On the sampled
+names, both the library's strict and non-strict APIs rejected `xn--a`,
+`xn--x`, `xn--8i7caa`, `xn--a-0hc` and `xn--a-ugn`; both accepted and retained
+`xn--zckzah`, `xn--ls8h`, `xn--4u8c` and `xn--bcher-kva`. It accepted
+`foo.123`, so the separately frozen numeric-final-label rule is still needed.
+This is not evidence for the actual Worker URL parser, a C/JNI bridge or a
+mobile device. The exact Unicode data version and official full-suite results
+still require verification. The resolved dependency graph included components
+with an MSRV of Rust 1.88, above the repository manifest's 1.85; an existing
+1.99.1 test lane is not a resolution of that mismatch. Artifact size, licensing
+and all cross-platform packaging remain unverified. No dependency was added
+to the repository and no new hostname contract was frozen.
+
+Further probing found `domain_to_ascii_strict` rejects ordinary existing LDH
+names such as `ab--cd.local` and `zz--xx.local`; applying it globally would
+change the current profile. An explicit UTS #46 call with hyphens allowed
+retained those sampled names and had the same results on the sampled A-labels,
+but that small sample does not establish full A-label, Bidi or ContextJ
+correctness. No candidate option is approved without the shared compatibility
+and invalid vectors and actual end-to-end verification.
