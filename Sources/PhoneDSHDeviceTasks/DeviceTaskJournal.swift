@@ -127,7 +127,93 @@ final class DeviceTaskJournal: @unchecked Sendable {
             }
             result.append(record)
         }
+        try inventoryBLEIntents(parents: result)
         return result
+    }
+
+    /// Verify all persisted Link intents before any task can be used. The
+    /// journal lock is already held; inventory is strictly read-only.
+    private func inventoryBLEIntents(parents: [DeviceTaskRecord]) throws {
+        let ops = directory.appendingPathComponent("ble-ops", isDirectory: true)
+        var metadata = stat()
+        if Darwin.lstat(ops.path, &metadata) != 0 {
+            if errno == ENOENT { return }
+            throw DeviceTaskError.corruptJournal
+        }
+        guard (metadata.st_mode & S_IFMT) == S_IFDIR else { throw DeviceTaskError.corruptJournal }
+        let directoryFD = Darwin.open(ops.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+        guard directoryFD >= 0 else { throw DeviceTaskError.corruptJournal }
+        defer { Darwin.close(directoryFD) }
+        let streamFD = Darwin.dup(directoryFD)
+        guard streamFD >= 0 else { throw DeviceTaskError.corruptJournal }
+        guard let stream = Darwin.fdopendir(streamFD) else {
+            Darwin.close(streamFD)
+            throw DeviceTaskError.corruptJournal
+        }
+        defer { Darwin.closedir(stream) }
+        let byID = Dictionary(uniqueKeysWithValues: parents.map { ($0.msgID, $0) })
+        let keys: Set<String> = ["v", "msg_id", "device_id", "task_id", "action", "request_id", "idem_key", "arguments_sha256"]
+        var count = 0
+        while true {
+            errno = 0
+            guard let entry = Darwin.readdir(stream) else {
+                guard errno == 0 else { throw DeviceTaskError.corruptJournal }
+                break
+            }
+            let name = withUnsafePointer(to: &entry.pointee.d_name) {
+                $0.withMemoryRebound(to: CChar.self, capacity: Int(NAME_MAX) + 1) { String(cString: $0) }
+            }
+            if name == "." || name == ".." { continue }
+            count += 1
+            guard count <= 12288 else { throw DeviceTaskError.corruptJournal }
+            let fd = Darwin.openat(directoryFD, name, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
+            guard fd >= 0 else { throw DeviceTaskError.corruptJournal }
+            let data: Data
+            do {
+                defer { Darwin.close(fd) }
+                var info = stat()
+                guard Darwin.fstat(fd, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG,
+                      info.st_size >= 0, info.st_size <= 65536 else { throw DeviceTaskError.corruptJournal }
+                let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: false)
+                var buffer = Data()
+                while buffer.count <= 65536 {
+                    let chunk = try handle.read(upToCount: 65537 - buffer.count) ?? Data()
+                    if chunk.isEmpty { break }
+                    buffer.append(chunk)
+                }
+                guard buffer.count <= 65536, buffer.count == info.st_size else { throw DeviceTaskError.corruptJournal }
+                data = buffer
+            } catch { throw DeviceTaskError.corruptJournal }
+            var unique = UniqueJSONKeys(data)
+            guard unique.check(),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  Set(object.keys) == keys,
+                  let intent = try? JSONDecoder().decode(BLETaskIntent.self, from: data),
+                  let parent = byID[intent.msgID],
+                  name == intent.msgID + "-" + intent.action.rawValue + ".json" else {
+                throw DeviceTaskError.corruptJournal
+            }
+            let arguments = try canonicalBLEArguments(record: parent, action: intent.action)
+            guard let expected = try? BLETaskIntent.make(record: parent, action: intent.action, arguments: arguments),
+                  intent == expected else { throw DeviceTaskError.corruptJournal }
+        }
+    }
+
+    private func canonicalBLEArguments(record: DeviceTaskRecord, action: BLETaskIntent.Action) throws -> JSONValue {
+        switch action {
+        case .accept:
+            return .object(["id": .string(record.task.id)])
+        case .complete:
+            guard record.phase == .terminal, case .completed(let output, let truncated) = record.outcome else {
+                throw DeviceTaskError.corruptJournal
+            }
+            return .object(["id": .string(record.task.id), "output": .string(output), "truncated": .bool(truncated)])
+        case .fail:
+            guard record.phase == .terminal, case .failed(let kind, let message) = record.outcome else {
+                throw DeviceTaskError.corruptJournal
+            }
+            return .object(["id": .string(record.task.id), "failure": .object(["kind": .string(kind.rawValue), "message": .string(message)])])
+        }
     }
 
     func find(deviceID: String, key: String) throws -> DeviceTaskRecord? {
@@ -166,6 +252,9 @@ final class DeviceTaskJournal: @unchecked Sendable {
     func prepareBLETransition(record: DeviceTaskRecord, action: BLETaskIntent.Action,
                               arguments: JSONValue) throws -> (intent: BLETaskIntent, fresh: Bool) {
         guard try find(deviceID: record.deviceID, key: record.task.idempotencyKey) == record else {
+            throw DeviceTaskError.corruptJournal
+        }
+        guard try canonicalBLEArguments(record: record, action: action) == arguments else {
             throw DeviceTaskError.corruptJournal
         }
         let intent = try BLETaskIntent.make(record: record, action: action, arguments: arguments)

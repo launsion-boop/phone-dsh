@@ -45,3 +45,34 @@ Isolated iOS Simulator feasibility spike (2026-11-07): the exact ESP-IDF v6.1 Mb
 Further host/simulator evidence: an isolated experiment using the same pinned Mbed TLS source and temporary private-header shims completed a TLS 1.3 mutual-certificate handshake between a macOS host and an iOS Simulator, exchanged application bytes, and rejected a modified encrypted record and two mismatched leaf certificates. The test pins complete DER test certificates and uses a temporary test CA and localhost TCP; it does not validate the intended device public-key provisioning, GATT stream, hardware resources, or physical devices. TLS handshake success alone is not task authorization.
 
 Legacy recovery evidence: the reference firmware's existing persistent Link receipt stores request UUID, a hash of the idempotency key, a hash of the complete request bytes, state and result, but no tool classification. Its existing plaintext RESULT returns a result by UUID without returning those digests. A claimed old completed result therefore cannot safely be matched to the persisted task intent using that RESULT alone, and new protected task receipts must not become readable through the plaintext path. A future authenticated recovery contract must define how the old exact request and idempotency hashes are verified, and how ambiguous, orphaned, missing, corrupted or previously untrusted records stay unresolved without replay. `pdsh_task_store_next` does not distinguish queued from accepted tasks in its response; blindly treating a legacy returned task as new can re-execute it. These observations do not select an automatic migration or claim old plaintext requests were authenticated.
+
+Additional isolated feasibility evidence (2026-11-07): a host-to-iOS-Simulator
+TLS experiment sent the pinned Mbed TLS byte stream through a simulated Link
+fragmentation/reassembly proxy with a 512-byte envelope and a 19-byte fragment
+budget. A handshake and ping/pong succeeded including 5 ms per-fragment delay;
+a modified encrypted record with a recomputed Link CRC failed TLS MAC
+verification, and a disconnect during handshake delivered no application
+data. A separate post-handshake disconnect showed that a successful sender write
+can coexist with no completed receiver read. This proxy is not the repository's
+GATT implementation, and it does not prove physical radio behavior, bounded
+queue/backpressure, loss recovery or ESP32 memory use.
+
+A separate host/Simulator experiment verified a SHA-256 pin over a checked
+65-byte uncompressed P-256 certificate public point: both peers accepted the
+same key under a reissued certificate and rejected a changed key. With a test
+CA it also rejected the wrong CA and wrong hostname despite a matching key. A
+no-clock experiment cleared only certificate not-yet-valid/expired flags while
+continuing to reject the other tested errors; this deliberately forfeits date
+validity checks and is **not** an approved deployment policy. These experiments
+used CA-issued test certificates, not a production provisioning, revocation or
+no-clock trust design, ESP32 hardware, or a production iOS Keychain-backed TLS
+signing integration. They do not freeze a session or authorize task grants.
+
+A further Simulator-only probe imported the exported bytes of a temporary P-256
+`SecKey` into PSA and used the wrapped key in the same mutual TLS 1.3 handshake;
+the exchange completed, but the private key entered process memory. Attempts to
+persist that key in Keychain failed with error -34018 in a command-line process
+and an unentitled test app; a separately entitled temporary simulator app failed
+to launch. Thus neither persistent Keychain retrieval nor a non-exportable
+Secure Enclave signing callback has been established. This experiment does not
+select an iOS production key-storage or certificate policy.
