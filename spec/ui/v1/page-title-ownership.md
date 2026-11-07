@@ -40,7 +40,11 @@ When source ownership or precedence is not established, including multiple
 potential page titles, conditional compilation ambiguity, title modifiers in
 label/toolbar contexts, unrecognized presentation boundaries containing a
 title, or malformed source, the extractor must fail visibly instead of guessing
-a title or silently returning null. This raw-source check does not determine an
+a title or silently returning null. A matching method name alone does not prove
+that its receiver is a returned SwiftUI view: non-View calls, unused local
+views, calls in arguments and any unproven modifier chain require an explicit
+failure when they could affect the title. Receiver type alone does not prove
+that a view reaches the page output. This raw-source check does not determine an
 active build profile, runtime SwiftUI preference propagation, Android parity,
 or the presence of security controls. GAP-19 and GAP-21 remain open.
 

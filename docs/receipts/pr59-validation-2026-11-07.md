@@ -90,3 +90,12 @@ malicious over-credit input remains unverified. The test app was uninstalled,
 and the board's original flash image was restored and device-side verified;
 original application functionality after reset was not independently checked.
 See `PC-20261107-ble-session-binding-ccr.md` for the full limits.
+
+A later baseline comparison rebuilt the Worker and image from `9b3b31e` in
+an isolated checkout. The same two terminal/connection-browser startup
+errors appeared there, so those log messages are not specific to this PR.
+The baseline smoke was FAIL (two tests passed and two failed because the
+WKWebView was not visible while the macOS session was locked). A run of the
+eight abort-journal and WebContent-kill scenarios had five PASS and three
+SKIP; the skipped cases were precisely the three previously failing cases.
+This baseline run cannot establish whether those failures reproduce on main.

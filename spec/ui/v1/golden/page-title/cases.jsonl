@@ -32,3 +32,7 @@
 {"name":"invalid_title_escape","file":"invalid_title_escape.swift","page":"FixturePage","syntax":"invalid","outcome":"error"}
 {"name":"valid_string_escapes","file":"valid_string_escapes.swift","page":"FixturePage","syntax":"valid","outcome":"title","title":{"text":"P\tQ","provenance":"valid_string_escapes.swift:5","anchor":"Text(\"Root\\nLine\").navigationTitle(\"P\\tQ\")"}}
 {"name":"bare_regex_after_operator","file":"bare_regex_after_operator.swift","page":"FixturePage","syntax":"valid","outcome":"error","note":"Bare regex after an operator is valid with -enable-bare-slash-regex; unknown build profile must not yield a guessed title."}
+{"name": "nonview_receiver", "file": "nonview_receiver.swift", "page": "FixturePage", "syntax": "valid", "outcome": "error", "note": "Unknown non-View receiver in local binding; do not assert a page title."}
+{"name": "unused_local_view", "file": "unused_local_view.swift", "page": "FixturePage", "syntax": "valid", "outcome": "error", "note": "A View-valued local binding alone does not prove it reaches the returned page."}
+{"name": "nonview_argument", "file": "nonview_argument.swift", "page": "FixturePage", "syntax": "valid", "outcome": "error", "note": "A method call used as a Text argument is not a proved View modifier."}
+{"name": "bare_regex_after_where", "file": "bare_regex_after_where.swift", "page": "FixturePage", "syntax": "valid", "outcome": "error", "note": "Valid with -enable-bare-slash-regex; unresolved build profile must fail rather than treating regex content as a title."}

@@ -7,7 +7,7 @@ status: frozen
 breaking: false
 version_decision: Preserve page-structure/1; reject ambiguous extraction instead of guessing.
 base: 00402003f6efde6c5fdda3032053443dd5a7d76f
-contract_revision: spec/ui/v1/page-title-ownership.md@sha256:e52cbb9bb1b9d449a2af393f84c71327c85469afffee74c79bb3981920408c6b
+contract_revision: spec/ui/v1/page-title-ownership.md@sha256:4c112455a386e6425f41389dc67eaae6779aff0056a7d96d17c3b4b009550cfe
 ```
 
 ## Trigger and delta
@@ -126,3 +126,35 @@ repository pages did not detect every one of these cases. The scratch patch is
 not merged; implementation must establish receiver, expression and returned-view
 ownership or fail closed for unsupported forms. No dynamic page contracts were
 refreshed.
+
+
+## Revision 6 — prove the receiver reaches page output
+
+The original owner clause required failure when ownership cannot be proved;
+this revision makes explicit that an identically named method, a View-valued
+local binding or a call used as another expression's argument does not prove
+a page modifier reaches the returned view. Add four shared error cases for
+non-View receiver, unused local view, non-View argument and bare regex after
+`where`. All four parse and typecheck with the iOS Simulator SDK; the bare
+regex uses `-enable-bare-slash-regex`, which is not evidence of the product
+profile. The current real extractor incorrectly selects `Fake` for all four.
+
+The owning title contract is now SHA-256
+`4c112455a386e6425f41389dc67eaae6779aff0056a7d96d17c3b4b009550cfe`;
+the 38-case manifest is SHA-256
+`709e036a078f840f079d99f38938494ab628953bff81958e8dbfc8a4fb0f0c8e`;
+the sorted Swift fixture hash manifest is SHA-256
+`8a5e3156c05f7dd83e868a43c3720022bd6cf78b076a974144305d50fdc18e7b`.
+No stored schema, reader compatibility, rollback decision, runtime parity or
+file ownership changes. The coordinator still owns the spec, extractor and
+tests; independent reviewers may investigate in isolation. Acceptance remains
+the actual extractor and CLI on all shared cases, mutation tests, whole-tree
+field comparison and the three required repository gates.
+
+Revision 6 freeze verification: the real extractor returned the incorrect
+literal `Fake` on all four new negative inputs; this is a known pre-existing
+implementation failure, not a passing conformance result. `python3 -m unittest
+discover -s spec/v1/tools -p test_spec_golden.py` → PASS, 65 tests after updating
+the exact expected fixture count from 34 to 38. `bash scripts/ci/check.sh --only
+phone-spec,phone-p0-conformance,phone-cross-tree` → PASS / FAIL / PASS; P0
+remains incomplete for the previously recorded missing and stale contracts.
