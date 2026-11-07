@@ -19,7 +19,9 @@ Each user attempt has a fresh generation and callback. Permission results,
 scan callbacks, timers, and OS failures are serialized and accepted only for
 their owning still-active generation. A pending permission request keeps its
 original generation until the platform responds; a later request cannot claim
-its result. A new user action while that request is pending reports
+its result. While the original generation is still active and requesting
+permission, repeated start is a no-op; its eventual grant may continue that
+original attempt. After that generation is invalidated, a new user action while the old request is pending reports
 `PERMISSION_PENDING`, launches no new request, and does not start when the old
 answer arrives. A fresh user action is required after the answer is consumed.
 Permission result registration must use a request-specific key that is never
@@ -28,9 +30,15 @@ before accepting results, and any result whose owner is unknown is discarded.
 Restored results never automatically start a scan. If the Android platform
 cannot preserve this ownership across recreation, the adapter must fail closed
 and this slice remains unimplemented until a reviewed revision resolves it.
+Install request ownership before registering a callback because registration
+may synchronously deliver a cached result. Test the actual registration seam,
+including reentrant delivery, rotation and an unowned restored result.
 Stop, page exit or host `ON_STOP` invalidates the local generation
 before requesting system stop, discards late results and does not automatically
-restart on resume. A scan has a 15-second monotonic deadline. Stop uses the
+restart on resume. Immediately before invoking platform start, record a
+15-second absolute monotonic deadline. Expiration during `STARTING` invalidates
+locally and enters `STOPPING`; once start returns, request stop with the same
+callback, or quarantine on exception. Stop uses the
 same callback instance as start. Errors, unavailable hardware, Bluetooth off,
 denied permission and a successful scan with no results remain distinguishable.
 Repeated start while starting or scanning does not create another scan. The
@@ -40,8 +48,10 @@ until that call returns. A stop during start invalidates local delivery
 immediately, reports `STOPPING`, and blocks further starts until the call has
 returned and a stop using that same callback has been attempted. A timed-out
 or abandoned start cannot release this reservation while its outcome is
-unknown. Events received while start is in flight are bounded and cannot be
-published after invalidation.
+unknown. Candidate events received while start is in flight are dropped;
+an asynchronous scan failure invalidates locally and enters `STOPPING`, then
+is reported as failed once start returns and the stop request has returned.
+No event can be published after invalidation.
 
 At most 100 in-memory candidates are retained for a scan. The app uses a
 private platform key only to coalesce repeated callbacks in that scan and
@@ -54,14 +64,19 @@ log, persist or transmit platform address fields or raw advertisements. An
 untrusted name may itself contain address-like text; this does not promise to
 sanitize all arbitrary text. Names,
 RSSI and random identifiers may be displayed in the local discovery UI only;
-they are not logged, persisted or transmitted. Candidates are cleared
+they are not logged, persisted or transmitted. Candidate and snapshot default
+string representations redact their values; callers must not explicitly log
+their fields. This does not prevent external consumers from doing so.
+Candidates are cleared
 when a new user scan begins and when the page is disposed; they never restore
 after process restart. This differs from iOS's current cross-scan in-memory
 retention and is not a claim of complete cross-platform parity.
 
 An exception from the platform start call does not prove it had no side
 effects. Preserve its scanner and callback, invalidate the local generation,
-and enter `CLEANUP_REQUIRED` without an automatic retry. A permission check
+and enter process-wide `CLEANUP_REQUIRED` without an automatic retry; this
+quarantine survives page and Activity recreation just as a stop failure does.
+A permission check
 that fails before entering that platform call does not register a callback.
 
 If requesting system stop throws (including permission loss), local callbacks

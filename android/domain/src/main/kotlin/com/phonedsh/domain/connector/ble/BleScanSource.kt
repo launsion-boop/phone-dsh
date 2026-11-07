@@ -4,7 +4,9 @@ package com.phonedsh.domain.connector.ble
 import kotlinx.coroutines.flow.StateFlow
 
 /** A transient, unauthenticated BLE advertisement; not a device identity. */
-data class BleScanCandidate(val id: String, val name: String, val rssi: Int)
+data class BleScanCandidate(val id: String, val name: String, val rssi: Int) {
+    override fun toString(): String = "BleScanCandidate(redacted)"
+}
 
 enum class BleScanPhase {
     IDLE, REQUESTING_PERMISSION, PERMISSION_PENDING, STARTING, SCANNING, STOPPING, STOPPED, PERMISSION_DENIED,
@@ -17,7 +19,9 @@ data class BleScanSnapshot(
     val phase: BleScanPhase = BleScanPhase.IDLE,
     val candidates: List<BleScanCandidate> = emptyList(),
     val failure: BleScanFailure? = null,
-)
+) {
+    override fun toString(): String = "BleScanSnapshot(phase=$phase, candidates=redacted, failure=$failure)"
+}
 
 /** Main-thread user actions. Implementations own lifecycle and permission checks. */
 interface BleScanSource {

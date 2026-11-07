@@ -7,7 +7,7 @@ status: frozen
 breaking: false
 version_decision: Add local untrusted discovery UI and API only; no wire or persistence version change.
 base: 46c4c57b9c40e87baa5b70cb37018e9abee6c6d4
-contract_revision: spec/device/v1/android-ble-discovery.md@discovery-v2
+contract_revision: spec/device/v1/android-ble-discovery.md@discovery-v3
 ```
 
 Protocol impact: P07; P08; P09. The Android app has no production BLE
@@ -61,3 +61,11 @@ quarantine, single-flight permission ownership, and real callback identity and
 failure observations. Address fields must never be output; arbitrary advertised
 names may themselves contain address-like text. Implementers were paused
 before they could rely on v1 and must use this revision.
+
+Revision v3: the process-wide quarantine also applies to start exceptions.
+Repeated start while the original permission request remains active is a no-op;
+after invalidation a new action must not claim the old result. Ownership is
+installed before registering result callbacks, which may deliver synchronously.
+The 15-second monotonic deadline is recorded before invoking platform start;
+candidate callbacks while starting are dropped and early failure is retained
+until cleanup. Kotlin candidate and snapshot stringification redact values.
