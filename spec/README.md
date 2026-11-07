@@ -202,6 +202,8 @@ GAP-12／GAP-13 是同一批實作要修的 iOS 缺口，不是合約變更。
 | GAP-22／P09（队列动作结果） | iOS 与 Android 对队列动作的成功回执、读回失败和 not-found 提示不一致；异步结果仅按 session ID 检查，静态代码审计发现切换后返回同一 ID 的旧结果可能污染当前会话 | 按 [CCR](../docs/protocol-changes/PC-20261107-queue-action-ccr.md) 核对上游语义并冻结正反 fixture 与会话代数；两端真实状态机、页面提示和失败／切换路径通过后关闭。未完成前不得把任一端现状当作共同契约 |
 | GAP-23／P06、P07（任务 JSON 深度） | 合法任务的未知值深度很大时，Swift、Python 和 C 的实际解析深度不同；任务契约尚未规定共同的深度或恢复策略 | 按 [CCR](../docs/protocol-changes/PC-20261107-task-json-depth-ccr.md) 冻结有依据的跨端限制及旧记录兼容，再用三端真实解码器、边界向量和设备资源证据验证；数字／Unicode 修复不关闭本项 |
 | GAP-24／P07、P18（任务日志路径） | 父记录读取先检查路径再重新打开；锁、读取与部分写入仍分别解析路径，并发替换可造成检查对象与实际对象不一致。现有意图子目录局部使用 descriptor 不证明整个日志安全 | 按 [CCR](../docs/protocol-changes/PC-20261107-journal-path-ccr.md) 冻结目录、锁、文件身份及崩溃兼容规则，用真实读写与确定性竞态测试验证；不得凭 advisory lock 或单次 no-follow 读取关闭 |
+| GAP-25／P22（场景 mock 关联） | 真实 Worker 的辅助标题请求和主回合请求共用 mock 响应序号；标题请求可消费预期给工具的回复，delivery 检查又把辅助响应与主回合 usage 混算 | 按 [CCR](../docs/protocol-changes/PC-20261107-worker-scenario-ccr.md) 冻结请求分类、重试和消费证据，覆盖请求重排和真实工具执行；不得简单扣减响应数或放宽文件断言 |
+| GAP-26／P16、P22（Worker 启动诊断） | 带真实 Worker 的预算中止场景记录到不支持 PTY 的 terminal mount 异常和 browser connection pending 错误；`no_console_error` 正确看到这些事件 | 按同一 CCR 明确可见能力与启动行为，保留不支持能力 fail-loud、浏览器 bundle 和真实诊断；不得过滤日志、隐藏 preset 或放宽错误断言 |
 
 只有修正來源、相關端測試及必要的 integration 證據齊備，才在此記錄關閉與修復 commit。
 

@@ -37,6 +37,18 @@ are in [PC-20261107-web-search-note](../protocol-changes/PC-20261107-web-search-
   PDSH_CHROMIUM='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' \
   bash scripts/ci/check.sh --only phone-plugins
   ```
+
+* With the same pinned DSH checkout and verified Python/jq artifacts,
+  `bash scripts/ci/check.sh --only phone-image` → PASS. `bash
+  scripts/ci/smoke.sh` built a fresh Worker bundle and image, then ran the real
+  macOS WKWebView smoke suite → PASS, 4 tests, 0 skipped; the smoke report's
+  `ok` was true. These are host/runtime checks, not physical-device task proof.
+  A subsequent targeted run of the previously skipped Worker scenarios with
+  that freshly built bundle and image → FAIL: 8 tests, 4 assertion failures
+  in 3 test cases. Two budget-abort cases observed Worker console errors, and
+  the WebContent-kill case failed recovery and its expected output-file check.
+  These are real observed failures under the supplied assets, not skips; their
+  causes and whether they reproduce on the base are still under investigation.
 * `bash scripts/ci/check.sh --only phone-spec,phone-p0-conformance,phone-cross-tree`
   → PASS / FAIL / PASS. P0 reports eight missing/stale UI structures; this
   is not page parity or device runtime acceptance.

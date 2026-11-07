@@ -32,7 +32,7 @@ Proof and trust UI results must be bound to the current connection generation. D
 
 ## Candidate for investigation, not a contract
 
-One candidate is a mutually authenticated TLS 1.3 session over an explicitly negotiated, bounded BLE byte-stream transport. Both endpoints would authenticate a previously confirmed peer key; all task requests, responses, identifiers and receipts would be inside the session, and 0-RTT and unauthenticated fallback would be disabled. See RFC 8446. This is not yet a selected design: the phone-key provisioning and mutual-confirmation model, iOS and ESP-IDF API feasibility, memory and framing bounds, stream fragmentation and flow control, reconnection, failure behavior and physical-device interoperability still need proof. TLS records cannot be assumed to fit one existing Link envelope or RPC. A transport timeout or failed session still does not authorize replay of a possibly applied task; the durable task and query-only recovery rules remain necessary.
+One candidate is a mutually authenticated TLS 1.3 session over an explicitly negotiated, bounded BLE byte-stream transport. Both endpoints would authenticate a previously confirmed peer key; all task requests, responses, identifiers and receipts would be inside the session, and 0-RTT and unauthenticated fallback would be disabled. See RFC 9846, which obsoletes RFC 8446. The tested libraries are not thereby proven compliant with every updated requirement. This is not yet a selected design: the phone-key provisioning and mutual-confirmation model, iOS and ESP-IDF API feasibility, memory and framing bounds, stream fragmentation and flow control, reconnection, failure behavior and physical-device interoperability still need proof. TLS records cannot be assumed to fit one existing Link envelope or RPC. A transport timeout or failed session still does not authorize replay of a possibly applied task; the durable task and query-only recovery rules remain necessary.
 
 A feasibility spike must establish whether the Apple host can attach a TLS implementation to a custom GATT stream and whether the pinned ESP-IDF supports the required server authentication, pinning, and no-clock certificate policy. The reference board's lack of an independent display also leaves phone-key provisioning unresolved. Stream design must bound memory, handshake size, queues and deadlines on real hardware, respect existing Link and ATT frame limits, and distinguish a byte-identical retransmitted fragment from conflicting or out-of-order data without delivering it twice. Downgraded negotiation must never enable old plaintext tasks; the device must reject plaintext task access when the secure profile is required. None of these feasibility claims has been verified by this record.
 
@@ -181,6 +181,11 @@ so the earlier static TLS measurement did not include CoC. Android's public
 LE CoC client API starts at API 29; older supported Android releases require a
 separate compatibility decision. PSM discovery, peer binding, lifecycle,
 backpressure, bounds and real iPhone/ESP32 interoperability remain undecided.
+Apple documents a PSM characteristic with a two-byte little-endian value;
+using that existing characteristic inside a dedicated service is a candidate,
+not an authorization mechanism. A PSM read must be tied to the current
+connection and re-read on reconnect; a modified value can affect availability
+but must never bypass the independently provisioned key pins.
 
 The pinned NimBLE send implementation can return `BLE_HS_ESTALLED` after taking
 ownership of and queueing an SDU; blindly retrying that buffer can duplicate
@@ -188,3 +193,33 @@ bytes. Other error paths and examples need explicit ownership and cancellation
 tests before defining a wrapper. A CoC byte stream is not itself peer
 authentication or an authorized task session. Neither this candidate nor the
 physical iPhone TLS test changes the default denial of BLE task grants.
+
+Isolated physical CoC feasibility (2026-11-07): after the user allowed Bluetooth,
+an iPhone 15 Pro Max and a Mac used native CoreBluetooth LE CoC with a randomly
+generated test service and the system PSM characteristic. The test reported
+two 65,536-byte synthetic-data echo cycles with byte-for-byte agreement, a BLE
+disconnect and reconnect with a fresh PSM read, and 44 observed output-stream
+backpressure pauses followed by completion. The temporary phone and Mac apps,
+source and run files were removed after the test; raw logs were not retained,
+so this observation alone is not independently replayable acceptance evidence.
+The channel was intentionally unencrypted and carried no TLS or private data;
+there was no ESP32, production provisioning, authenticated peer, hostile relay,
+or persistence test. Future acceptance must retain suitable sanitized evidence
+and exercise the real two-end implementation and its failure paths.
+
+The fixed ESP-IDF TLS 1.3 sources also indicate that small application frames or
+CoC SDUs do not by themselves bound TLS record size. The prior cross-compile
+used a 16 KiB input buffer and did not include CoC. Its record-size-limit option
+and the candidate client's negotiation, omitted-extension behavior, handshake
+peak memory and real ESP32 resource limits remain unverified. No smaller TLS
+buffer or production ALPN/version policy is selected by this observation.
+
+The draft review also requires the secure receipt namespace to remain separate
+from legacy plaintext RESULT and to bind authorized device identity, request
+UUID, idempotency key and request hash. Old UUID-labeled intents and receipts
+cannot be upgraded solely from a later key claim; unprovable history remains
+preserved and unresolved. An authenticated end-to-end session can protect
+message integrity and confidentiality but cannot prove physical proximity or
+prevent a transparent radio relay. Initial independent fingerprint comparison,
+phone-key provisioning, certificate validation and no-clock policy, persistent
+revocation, and safe handling of unresolved old records remain contract decisions.
