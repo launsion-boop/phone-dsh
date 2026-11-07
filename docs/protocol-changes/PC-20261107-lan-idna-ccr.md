@@ -19,3 +19,32 @@ Feasibility observation (2026-11-07): in a local iOS Simulator experiment, the S
 A local macOS WKWebView experiment also accepted `xn--4u8c.example` and rejected `foo.123`; this differs from Node for the former. The Node execution of the real `validateServerInput` function tests that code path but does not establish the URL behavior of an iOS WKWebView Worker. Any final policy must test the actual Worker runtime and distinguish it from Node test evidence.
 
 An independent iOS Simulator 27.1 `WKWebView.evaluateJavaScript` URL experiment (not the product app or a physical iPhone) also accepted `xn--a.example`, `xn--x.example`, `xn--zckzah.example`, `xn--ls8h.example` and `xn--4u8c.example`, while rejecting `foo.123`; it exited successfully with a simulator `/tmp` sandbox warning. Thus the Node validator regression is explicitly a Node-runtime check, not proof of the iOS Worker URL outcome. Product Worker and other supported OS/runtime versions remain to be tested.
+
+## Additional cross-runtime evidence
+
+A separate audit compiled the real Swift `LANDeviceCandidate` on macOS and
+called the real Python reference `candidate`; both accepted and retained
+`xn--a`, `xn--x`, `xn--8i7caa`, and `xn--4u8c`. The repository's actual
+`validateServerInput` function was imported and called under Node 22.21.1
+(ICU 77 / Unicode 16) and Node 24.18.0 (ICU 78 / Unicode 17). Both rejected
+the first three values; Node 22 rejected `xn--4u8c` while Node 24 accepted it.
+Both accepted `xn--bcher-kva`, `xn--zckzah`, and `xn--ls8h`. Python's separate
+IDNA2008 library rejected `xn--ls8h`, showing that substituting that library
+for UTS #46 would itself change accepted names. Android was source-reviewed
+only. These are host and Node observations, not production iOS Worker or
+physical Android runtime evidence.
+
+A local system ICU 78.1 UTS #46 experiment using nontransitional processing,
+Bidi and ContextJ checks reported errors for the first three and no errors for
+`xn--4u8c`, `xn--ls8h`, and `xn--bcher-kva`. It did not enable every candidate
+strict option, so it is not a complete proposed validator. The currently
+specified WHATWG non-strict domain-to-ASCII behavior is not itself evidence
+that every `xn--` label is a valid A-label. Choosing a shared Unicode/UTS #46
+version and options still needs compatibility and rollback decisions, a
+versioned implementation on all ends, and actual Worker-runtime endpoint
+verification. A valid label unsupported by an older runtime must not silently
+be relabeled as invalid or altered. The existing save flow has side effects;
+`phone/mcpUpsert` cannot be treated as a read-only validation probe without a
+separately verified transaction and rollback. No contract or implementation is
+frozen by this evidence, and no TLS, authorization, or discovery acceptance
+follows from it.
