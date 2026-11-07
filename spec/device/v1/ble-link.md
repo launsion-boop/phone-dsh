@@ -128,3 +128,43 @@ The shared positive ctl vectors are `golden/xiaozhi-ctl.jsonl` and `golden/pdsh-
 ## Android decoder registration
 
 The Android Link wire decoder, encoder and segment reassembler are a `target` implementation of this unchanged profile. They must consume the same `golden/xiaozhi-ctl.jsonl`, `golden/pdsh-link.jsonl` and `golden/invalid-ctl.jsonl` as the existing Swift and C endpoints and preserve the 512-byte envelope, CRC and ATT segmentation limits above. This registration does not claim Android GATT discovery, pairing, authorization, task intake or device runtime support. The separately negotiated task profile remains `target` and must not be called.
+
+## Android Link channel target
+
+The Android ordinary-Link channel is a `target` implementation of the existing
+profile, not an authorization to call the device-task profile. Its
+platform-independent state machine is tested before being connected to Android
+GATT. It does not implement pairing, device identity, user grants, tool RPC,
+durable intents or automatic reconnection. A future adapter must supply a new
+connection generation and confirm both notification subscriptions before
+starting the channel. It must deliver each write callback with the generation
+and the identity of the exact outstanding write; stale callbacks cannot advance
+a newer connection or a later write.
+
+A channel starts by transmitting the existing HELLO with app capability bit10
+and without bit11. Until a valid HELLO_ACK is received, application requests
+are refused. A legacy valid HELLO_ACK without the complete Tools extension
+permits ordinary Link but not opcodes 0x54–0x56. No other request can be in
+flight. IDs are assigned once per connection from 1 through 65535 and are not
+reused; exhaustion requires disconnect and a new channel. Transmit each ATT
+segment by a write with response, waiting for the matching successful callback
+before issuing the next. A matching response may arrive before the final write
+callback; retain it but do not complete the request or begin another one until
+the callback succeeds. Mismatched IDs and unexpected opcodes do not complete the
+request. Link NAK 0xff with the current ID is a terminal explicit NAK; matching
+0x6c/ID 0 is a separate best-effort event after handshake, not a response.
+
+A timeout, cancellation, transport error, malformed incoming frame or disconnect
+terminates the channel, clears its reassembler and pending data, and asks the
+adapter to disconnect; if an operation has started, its remote outcome is
+unknown. The channel never resends requests or treats a write callback as
+execution. Callbacks from an old generation are ignored. Application-level
+tool permissions, intent persistence, result queries and side-effect recovery
+remain governed by the preceding profile and are not supplied by this state
+machine. The state machine has no timer of its own: its owner supplies a
+monotonic timeout event; its eventual adapter must enforce the existing Swift
+three-second per-exchange deadline. The shared valid and invalid transition
+scenarios are in `golden/android-link-channel.jsonl`; normal frame bytes remain
+those in the existing shared ctl vectors. This target is not wired to a user
+feature until an actual GATT adapter, authorization, persistence and runtime
+evidence are available.
