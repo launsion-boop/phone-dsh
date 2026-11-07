@@ -150,7 +150,7 @@ android/
 | PhoneDSHController | `com.phonedsh.controller` | `:controller` | mapped | 1:1 |
 | PhoneDSHEngine | `com.phonedsh.engine` | `:engine` | mapped | 1:1（WebView / EngineHost） |
 | PhoneDSHShell | `com.phonedsh.shell` | `:shell` | mapped | 1:1（JNI 绑定） |
-| PhoneDSH | `com.phonedsh.dsh` | `:dsh` | mapped | 1:1（门面聚合） |
+| PhoneDSH | `com.phonedsh.dsh` | `:dsh` | mapped | DSH 实现在子包；根包仅为 marker，不能据此声称门面完成 |
 | PhoneDSHScenario | `com.phonedsh.testkit.scenario` | `:testkit` | mapped | 合并进 `:testkit` |
 | PhoneDSHHarness | `com.phonedsh.testkit.harness` | `:testkit` | mapped | 合并进 `:testkit` |
 | PhoneDSHADB | — | — | absent | Android 无对应实现 |

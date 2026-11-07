@@ -7,7 +7,7 @@ status: frozen
 breaking: false
 version_decision: Add a version-1 repository inventory and validate the existing README projection; no application, package ABI or wire change.
 base: 9b968ee054d504ae2af5dc26f6c2181a8bfeaa49
-contract_revision: spec/platform/android-module-map.json@sha256:d997d82e1424c5b4bb4acd1bbc8bf5f4af63b70157777cff7174ba8899b7cc54; spec/platform/README.md@sha256:9460c4364a050d69eb292c15616b125c1788dbd9c4f9696e3815259871311aba
+contract_revision: spec/platform/android-module-map.json@sha256:d997d82e1424c5b4bb4acd1bbc8bf5f4af63b70157777cff7174ba8899b7cc54; spec/platform/README.md@sha256:9460c4364a050d69eb292c15616b125c1788dbd9c4f9696e3815259871311aba; spec/platform/schema/android-module-map.schema.json@sha256:f07671d3df5f4608a4c734112e90b6bc3ab22df0c94d5eec6f18853db77dbd0f
 ```
 
 ## Trigger and authority
@@ -72,3 +72,15 @@ this record. Acceptance: `python3 android/tools/structure_check.py --root .`;
 No built Android 16 KB artifact is assumed; its absence is SKIP, not artifact
 PASS. Android GATT, BLE device tasks, UI parity and physical devices remain
 unimplemented or NOT_RUN as applicable.
+
+## Revision 2 — one schema authority
+
+Integrator review found that the repository JSON Schema validator returns after
+`oneOf`; the two schema branches therefore now each carry their complete object
+constraints. The checker must consume this same schema through the existing
+`spec_golden.load_json` and `validate_json`, not duplicate schema fields, enums
+or patterns in Python. It retains semantic checks not expressible in this schema
+(unique module names, actual sources and packages, README and Gradle). A second
+review found the Android DSH root package is a marker with implementation in
+subpackages; README now says so and makes no unsupported facade claim. No
+inventory status or application capability changed. Implementer notified.
