@@ -6,6 +6,7 @@ struct BluetoothDevicesPage: View {
     @State private var store = BLEDeviceStore.shared
     @State private var message = ""
     @State private var showOtherDevices = false
+    @State private var legacyInspection = LegacyTaskInspectionModel()
     #if PDSH_ENABLE_DEVICE_TASKS
     @State private var taskManager = DeviceTaskManager.shared
     #endif
@@ -44,6 +45,7 @@ struct BluetoothDevicesPage: View {
                 }
             }
             if !message.isEmpty { Section("结果") { Text(message).textSelection(.enabled) } }
+            LegacyTaskInspectionSection(model: legacyInspection, language: NativeChatPreferences.shared.language)
             #if PDSH_ENABLE_DEVICE_TASKS
             if let error = taskManager.error { Section { Text(error).foregroundStyle(.red) } }
             #endif
@@ -52,7 +54,7 @@ struct BluetoothDevicesPage: View {
             }
         }
         .navigationTitle("蓝牙设备")
-        .onDisappear { store.stopScan() }
+        .onDisappear { legacyInspection.cancelAndClear(); store.stopScan() }
     }
 
     @ViewBuilder

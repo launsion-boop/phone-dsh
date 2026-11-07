@@ -138,44 +138,73 @@ struct UniqueJSONKeys {
         }
         return nil
     }
+    private enum ValueState { case objectKey, objectAfterValue, arrayValue, arrayAfterValue }
+    private struct ValueFrame {
+        var state: ValueState
+        // Data preserves decoded scalar bytes; String equality normalizes keys.
+        var keys = Set<Data>()
+    }
+
     private mutating func value(depth: Int, rejectDuplicates: Bool = true, rejectNUL: Bool = false) -> Bool {
-        guard depth <= 1000 else { return false }
-        whitespace()
-        guard index < bytes.count else { return false }
-        switch bytes[index] {
-        case 123:
-            index += 1; whitespace(); var keys = Set<Data>()
-            if index < bytes.count && bytes[index] == 125 { index += 1; return true }
-            while index < bytes.count {
-                whitespace(); guard let key = string() else { return false }
-                if rejectNUL && key.utf8.contains(0) { return false }
-                if rejectDuplicates && !keys.insert(Data(key.utf8)).inserted { return false }
-                whitespace(); guard index < bytes.count && bytes[index] == 58 else { return false }
-                index += 1; guard value(depth: depth + 1, rejectDuplicates: rejectDuplicates, rejectNUL: rejectNUL) else { return false }; whitespace()
+        var frames: [ValueFrame] = []
+        var needValue = true
+        var valueDepth = depth
+        while true {
+            if needValue {
+                guard valueDepth <= 1000 else { return false }
+                whitespace()
                 guard index < bytes.count else { return false }
-                if bytes[index] == 125 { index += 1; return true }
-                guard bytes[index] == 44 else { return false }; index += 1
+                switch bytes[index] {
+                case 123:
+                    index += 1; whitespace()
+                    if index < bytes.count && bytes[index] == 125 { index += 1 }
+                    else { frames.append(ValueFrame(state: .objectKey)) }
+                case 91:
+                    index += 1; whitespace()
+                    if index < bytes.count && bytes[index] == 93 { index += 1 }
+                    else { frames.append(ValueFrame(state: .arrayValue)) }
+                case 34:
+                    guard let text = string(), !rejectNUL || !text.utf8.contains(0) else { return false }
+                default:
+                    let start = index
+                    while index < bytes.count && ![9, 10, 13, 32, 44, 93, 125].contains(bytes[index]) { index += 1 }
+                    let token = bytes[start..<index]
+                    guard token.elementsEqual("true".utf8) || token.elementsEqual("false".utf8) ||
+                            token.elementsEqual("null".utf8) || Self.isJSONNumber(token) else { return false }
+                }
+                needValue = false
             }
-            return false
-        case 91:
-            index += 1; whitespace()
-            if index < bytes.count && bytes[index] == 93 { index += 1; return true }
-            while index < bytes.count {
-                guard value(depth: depth + 1, rejectDuplicates: rejectDuplicates, rejectNUL: rejectNUL) else { return false }; whitespace()
+            guard !frames.isEmpty else { return true }
+            let last = frames.count - 1
+            switch frames[last].state {
+            case .objectKey:
+                whitespace()
+                guard let key = string(), !rejectNUL || !key.utf8.contains(0) else { return false }
+                if rejectDuplicates && !frames[last].keys.insert(Data(key.utf8)).inserted { return false }
+                whitespace()
+                guard index < bytes.count, bytes[index] == 58 else { return false }
+                index += 1
+                frames[last].state = .objectAfterValue
+                valueDepth = depth + frames.count
+                needValue = true
+            case .arrayValue:
+                frames[last].state = .arrayAfterValue
+                valueDepth = depth + frames.count
+                needValue = true
+            case .objectAfterValue:
+                whitespace()
                 guard index < bytes.count else { return false }
-                if bytes[index] == 93 { index += 1; return true }
-                guard bytes[index] == 44 else { return false }; index += 1
+                if bytes[index] == 125 { index += 1; frames.removeLast() }
+                else if bytes[index] == 44 { index += 1; frames[last].state = .objectKey }
+                else { return false }
+            case .arrayAfterValue:
+                whitespace()
+                guard index < bytes.count else { return false }
+                if bytes[index] == 93 { index += 1; frames.removeLast() }
+                else if bytes[index] == 44 { index += 1; frames[last].state = .arrayValue }
+                else { return false }
             }
-            return false
-        case 34:
-            guard let text = string() else { return false }
-            return !rejectNUL || !text.utf8.contains(0)
-        default:
-            let start = index
-            while index < bytes.count && ![9, 10, 13, 32, 44, 93, 125].contains(bytes[index]) { index += 1 }
-            let token = bytes[start..<index]
-            return token.elementsEqual("true".utf8) || token.elementsEqual("false".utf8) ||
-                token.elementsEqual("null".utf8) || Self.isJSONNumber(token)
         }
     }
+
 }

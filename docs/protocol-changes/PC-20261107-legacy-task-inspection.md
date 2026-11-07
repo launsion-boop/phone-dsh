@@ -121,3 +121,43 @@ Both implementers must update to the new API after this revision is committed.
 The scanner must drive the root vectors through actual filesystem operations,
 and the UI integration must verify the OS-derived default in an isolated
 app container, not inspect the user's unrelated Application Support files.
+
+## Implementation evidence
+
+The frozen revision at `8b013fc2` is implemented as a bounded local inspection
+and user-initiated probe presentation. It does not recover or authenticate old
+identities, establish journal consistency, replay tasks, or enable BLE task
+grants. The iterative parser retains the prior raw-key policies; the scanner
+extracts only scalar claims. An independent review exercised the actual scanner
+against root-symlink and URL-authority counterexamples and found no remaining
+blocker in that scope.
+
+* `swift test --filter PhoneDSHDeviceTasksTests` → PASS: 49 tests, zero
+  failures or skips. The APFS invalid-UTF-8 filename case could not be created;
+  the byte-escaping vectors passed, but that actual filesystem case is NOT_RUN.
+* `swift test --filter UniqueJSONKeysIterativeTests` → PASS: three tests, all
+  12 deep shared vectors. Independent differential checks against the old
+  parser covered 18,062 inputs in each of three modes with zero differences.
+* `swift build -c release --target PhoneDSHDeviceTasks` → PASS. Debug-only
+  test hooks were absent from the inspected release objects.
+* `bash firmware/tests/run.sh` → PASS with ASan/UBSan, using the pinned cJSON
+  component temporarily; `python3 examples/lan-mcp-device/test_tasks.py` →
+  PASS, seven tests.
+* An isolated simulator `xcodebuild build-for-testing` and
+  `xcodebuild test-without-building` using the real core and presentation
+  sources → PASS, five tests, zero failures or skips, including manual
+  Chinese/English language overrides and system-language fallback. The full
+  `PhoneDSHSim` target also built for testing. The full hostless
+  simulator suite separately failed to load `libswiftWebKit.dylib`; no tests
+  ran there. These results do not establish physical-device acceptance.
+* A uniquely identified, separately signed iPhone test app built and installed
+  with synthetic journal data in its own container. Its XCTest runner lost
+  its IDE connection; the test command timed out after 240 seconds, with zero
+  tests executed: INCOMPLETE. Both the app and runner were uninstalled and
+  their absence independently checked.
+* `bash scripts/ci/check.sh --only phone-spec,phone-p0-conformance,phone-cross-tree`
+  → PASS / FAIL / PASS. P0 still reports eight stale or missing structures;
+  no baseline or checker was weakened.
+
+GAP-23, GAP-24, production secure-session and identity recovery, Android
+capabilities and physical end-to-end device-task acceptance remain open.

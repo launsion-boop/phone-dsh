@@ -38,6 +38,16 @@ public struct DeviceTaskRecord: Codable, Equatable, Sendable {
 final class DeviceTaskJournal: @unchecked Sendable {
     private static let ownershipLock = NSLock()
     private static var ownedPaths = Set<String>()
+    // A scan must not open a hard link to any process-held journal lock.
+    // Protect only bookkeeping under this lock, never filesystem operations.
+    private static var pendingInitializers = 0
+    private static var inspectionActive = false
+    #if DEBUG
+    // Test-only synchronization at real lifecycle boundaries; no I/O occurs
+    // while the bookkeeping mutex is held.
+    static var testAfterInitializationReservation: (() -> Void)?
+    static var testBeforeOwnerClose: (() -> Void)?
+    #endif
     private static let knownRecordMembers: Set<String> = [
         "v", "device_id", "task", "fingerprint", "msg_id", "request_id", "seq",
         "session_id", "phase", "deadline_ms", "outcome",
@@ -49,6 +59,11 @@ final class DeviceTaskJournal: @unchecked Sendable {
     private let encoder: JSONEncoder
 
     init(directory: URL) throws {
+        guard Self.beginInitialization() else { throw DeviceTaskError.deviceBusy }
+        defer { Self.endInitialization() }
+        #if DEBUG
+        Self.testAfterInitializationReservation?()
+        #endif
         self.directory = directory
         let fm = FileManager.default
         try fm.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -73,6 +88,34 @@ final class DeviceTaskJournal: @unchecked Sendable {
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
     }
 
+    private static func beginInitialization() -> Bool {
+        ownershipLock.lock()
+        defer { ownershipLock.unlock() }
+        guard !inspectionActive else { return false }
+        pendingInitializers += 1
+        return true
+    }
+
+    private static func endInitialization() {
+        ownershipLock.lock()
+        pendingInitializers -= 1
+        ownershipLock.unlock()
+    }
+
+    static func reserveInspection() -> Bool {
+        ownershipLock.lock()
+        defer { ownershipLock.unlock() }
+        guard !inspectionActive, pendingInitializers == 0, ownedPaths.isEmpty else { return false }
+        inspectionActive = true
+        return true
+    }
+
+    static func releaseInspection() {
+        ownershipLock.lock()
+        inspectionActive = false
+        ownershipLock.unlock()
+    }
+
     private static func release(_ path: String) {
         ownershipLock.lock()
         ownedPaths.remove(path)
@@ -80,6 +123,9 @@ final class DeviceTaskJournal: @unchecked Sendable {
     }
 
     deinit {
+        #if DEBUG
+        Self.testBeforeOwnerClose?()
+        #endif
         Darwin.lockf(lockFD, F_ULOCK, 0)
         Darwin.close(lockFD)
         Self.release(lockPath)
