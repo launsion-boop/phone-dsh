@@ -32,7 +32,12 @@ an absent or visibly invalid value remains false.
 
 The old void insertion method remains as a compatibility wrapper and discards
 the result; newer probe code uses the result-bearing method. Operations through
-this API serialize participating callers within the current process. UserDefaults
+this API serialize participating callers within the current process. A
+synchronous reentrant call on the same thread during an operation is refused
+without reading or writing: membership and the result-bearing insertion return
+false and the old void wrapper discards that failure. Other threads wait for
+the current operation. The caller can explicitly retry a refused insertion.
+`golden/legacy-identity-reentrant.jsonl` specifies these cases. UserDefaults
 does not expose an atomic cross-process transaction or a reliable distinction
 between a genuinely absent value and all lower-level unreadable/corrupt storage
 cases. A successful readback is not proof of durable flush, cross-process

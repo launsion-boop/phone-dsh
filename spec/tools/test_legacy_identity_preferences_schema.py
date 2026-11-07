@@ -2,27 +2,32 @@
 """Validate executable fixture shapes without treating them as runtime proof."""
 import json
 from pathlib import Path
+import runpy
 import unittest
 
-from jsonschema import Draft202012Validator
-
-
-ROOT = Path(__file__).resolve().parents[1] / "device" / "v1"
+SPEC = Path(__file__).resolve().parents[1]
+ROOT = SPEC / "device" / "v1"
+VALIDATOR = runpy.run_path(str(SPEC / "v1/tools/spec_golden.py"))
+validate_json = VALIDATOR["validate_json"]
+SpecError = VALIDATOR["SpecError"]
 SCHEMA = json.loads((ROOT / "schema/legacy-identity-preferences.schema.json").read_text())
+REENTRANT_SCHEMA = json.loads((ROOT / "schema/legacy-identity-reentrant.schema.json").read_text())
 
 
 class LegacyIdentityPreferenceFixtureSchemaTest(unittest.TestCase):
     def test_shared_cases_are_executable_property_lists(self):
-        validator = Draft202012Validator(SCHEMA)
         lines = (ROOT / "golden/legacy-identity-preferences.jsonl").read_text().splitlines()
         rows = [json.loads(line) for line in lines if line]
         self.assertEqual(len({row["id"] for row in rows}), len(rows))
         for row in rows:
             with self.subTest(row=row["id"]):
-                self.assertFalse(list(validator.iter_errors(row)))
+                validate_json(row, SCHEMA, row["id"])
+        lines = (ROOT / "golden/legacy-identity-reentrant.jsonl").read_text().splitlines()
+        for row in (json.loads(line) for line in lines if line):
+            with self.subTest(row=row["id"]):
+                validate_json(row, REENTRANT_SCHEMA, row["id"])
 
     def test_inconsistent_presence_and_null_values_are_rejected(self):
-        validator = Draft202012Validator(SCHEMA)
         base = {"id": "x", "present": False, "incoming": "a", "accepted": False, "expected": []}
         for mutation in (
             {**base, "present": True},
@@ -31,7 +36,8 @@ class LegacyIdentityPreferenceFixtureSchemaTest(unittest.TestCase):
             {**base, "expected": [None]},
         ):
             with self.subTest(row=mutation):
-                self.assertTrue(list(validator.iter_errors(mutation)))
+                with self.assertRaises(SpecError):
+                    validate_json(mutation, SCHEMA, "invalid")
 
 
 if __name__ == "__main__":
