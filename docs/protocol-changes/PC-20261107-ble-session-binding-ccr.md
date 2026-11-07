@@ -100,3 +100,10 @@ XCFramework or upstream source is committed by this change.
 A separate local SwiftPM consumer subsequently resolved and built the temporary
 binary target for macOS; SwiftPM resolution for iOS and its Simulator remains
 NOT_RUN.
+
+A separate signed, App-hosted iOS 27.1 Simulator XCTest succeeded in adding,
+reading and deleting a unique Keychain password item. Across separate app
+processes it created and read the item, deleted it, and observed not-found on a
+subsequent launch. This corrects the narrower unentitled-process observations
+above, but is not evidence for permanent P-256 `SecKey` creation, signing,
+export, Secure Enclave, physical iPhone or integration with the TLS library.

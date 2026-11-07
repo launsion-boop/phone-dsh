@@ -97,3 +97,16 @@ phone-spec,phone-p0-conformance,phone-cross-tree` → PASS / FAIL / PASS; P0 fir
 fails because the UI README omits three existing iOS page names. No Android
 GATT, Android device, iPhone/ESP32 air-link, secure session or hardware E2E was
 tested. The Android channel remains internal and is not wired to production.
+
+Subsequent gate evidence: `bash scripts/ci/check.sh --only phone-sdk` with the
+system Node 18 → FAIL because the official DSH MCP client uses an unavailable
+`Promise.withResolvers`. The affected client test passed when retried alone
+with Node 22. A full Node 22 run → FAIL on a TCP connect timeout in
+`LoopbackKeepAliveDeliveryTests`; the failed test passed on isolated retry,
+which is not a full-gate pass. A separate defect in the private TCP test helper
+was then reproduced and fixed with a passing real-socket regression; a later
+full Node 22 SDK run was deliberately terminated when free disk fell below
+1 GiB. The wrapper printed FAIL for exit 143; the interrupted run is INCOMPLETE,
+not a successful test or proof of a product failure. The incomplete plugin
+installation was stopped and its generated `node_modules` removed to recover
+space; plugin/image gates require a fresh complete installation before rerun.
