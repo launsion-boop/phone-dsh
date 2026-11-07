@@ -1,0 +1,7 @@
+import SwiftUI
+
+struct FixturePage: View {
+    var body: some View {
+        Text("Root\q").navigationTitle("Parent")
+    }
+}

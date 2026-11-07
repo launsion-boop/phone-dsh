@@ -24,6 +24,9 @@ cannot supply its label. Unterminated raw strings fail visibly. Because the
 structural mask is shared by the extractor, a change to it must also be checked
 against the existing row, action and source-provenance fixtures and the full
 repository extraction diff; it is not confined to title metadata.
+Unbalanced structural delimiters and invalid Swift string escapes anywhere in
+the analyzed source must fail rather than yielding a partial page title;
+supported escapes must preserve the rendered title and original anchor.
 
 Swift extended regex literals (`#/.../#` and multiple-hash variants) are also
 lexical boundaries, including embedded fake title syntax; an unterminated

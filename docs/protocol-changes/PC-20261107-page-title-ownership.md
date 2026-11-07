@@ -7,7 +7,7 @@ status: frozen
 breaking: false
 version_decision: Preserve page-structure/1; reject ambiguous extraction instead of guessing.
 base: 00402003f6efde6c5fdda3032053443dd5a7d76f
-contract_revision: spec/ui/v1/page-title-ownership.md@sha256:de5a2e1e6b6d4f0675290bdb95774a6486b0fa6cfe472a249ab105b76950661b
+contract_revision: spec/ui/v1/page-title-ownership.md@sha256:e52cbb9bb1b9d449a2af393f84c71327c85469afffee74c79bb3981920408c6b
 ```
 
 ## Trigger and delta
@@ -44,9 +44,9 @@ Owning `spec/ui/v1/page-title-ownership.md` is frozen at the SHA above;
 registers its requirement. `schema/page-title-cases.schema.json` has SHA-256
 `30460a1373c549bc2c2b90580502101ca8bbb1c95f9b117fd75ebf53ecce54c0`;
 `golden/page-title/cases.jsonl` has SHA-256
-`58ccaeb043aa269db3344140b079054474b05df3829163986d5623a9dceff291`.
-The 29 Swift source fixture manifest has SHA-256
-`b096b5a4471912c91690ce5031e296d56c114f73dbf6b658d86ce06caff71ee3`,
+`88d5bdb4bb1d89be0e0b00ff6ab213b10856ed62fffcec0bf5c6bf0e9a9126c0`.
+The 33 Swift source fixture manifest has SHA-256
+`75d04e1bb2f970b2799847f2c51f2f94c1ce4b9c21a58fa3d30896789604c80e`,
 calculated by concatenating sorted `<sha256>  <filename>\n` entries. Their
 expected title text, source line and anchor are specified independently of the
 extractor. The schema checker also rejects malformed fixture rows.
@@ -90,3 +90,14 @@ with title-affecting syntax, the source extractor must fail rather than guess;
 the bare-regex case is valid when the compiler's bare-slash flag is enabled.
 This does not declare all Swift grammar supported or resolve GAP-19. The same
 full-repository field comparison and existing regression requirements apply.
+
+## Revision 4 — malformed delimiters and escapes
+
+A real extractor probe found that unbalanced parentheses and invalid Swift
+string escapes could still yield a guessed or absent title. Freeze negative
+fixtures for a missing delimiter and invalid escapes inside and outside a title,
+and a positive fixture for valid escapes with its rendered title and exact
+source anchor. Shared lexical analysis must validate delimiter balance and
+Swift string escapes, including valid Unicode and multiline continuation
+forms; no other page fields or fixtures may be weakened. Run the full existing
+extractor tests and compare all repository extraction fields after the fix.

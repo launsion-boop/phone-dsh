@@ -27,3 +27,7 @@
 {"name":"unclosed_regex","file":"unclosed_regex.swift","page":"FixturePage","syntax":"invalid","outcome":"error"}
 {"name":"bare_regex_ambiguous","file":"bare_regex_ambiguous.swift","page":"FixturePage","syntax":"valid","outcome":"error","note":"Bare regex is valid with -enable-bare-slash-regex; without the resolved profile its slash ownership must not be guessed."}
 {"name":"ordinary_division","file":"ordinary_division.swift","page":"FixturePage","syntax":"valid","outcome":"title","title":{"text":"Parent","provenance":"ordinary_division.swift:7","anchor":".navigationTitle(\"Parent\")"},"note":"A spaced arithmetic division must not be mistaken for a regex literal."}
+{"name":"missing_parenthesis","file":"missing_parenthesis.swift","page":"FixturePage","syntax":"invalid","outcome":"error"}
+{"name":"invalid_string_escape","file":"invalid_string_escape.swift","page":"FixturePage","syntax":"invalid","outcome":"error"}
+{"name":"invalid_title_escape","file":"invalid_title_escape.swift","page":"FixturePage","syntax":"invalid","outcome":"error"}
+{"name":"valid_string_escapes","file":"valid_string_escapes.swift","page":"FixturePage","syntax":"valid","outcome":"title","title":{"text":"P\tQ","provenance":"valid_string_escapes.swift:5","anchor":"Text(\"Root\\nLine\").navigationTitle(\"P\\tQ\")"}}
