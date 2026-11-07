@@ -44,9 +44,9 @@ Owning `spec/ui/v1/page-title-ownership.md` is frozen at the SHA above;
 registers its requirement. `schema/page-title-cases.schema.json` has SHA-256
 `30460a1373c549bc2c2b90580502101ca8bbb1c95f9b117fd75ebf53ecce54c0`;
 `golden/page-title/cases.jsonl` has SHA-256
-`88d5bdb4bb1d89be0e0b00ff6ab213b10856ed62fffcec0bf5c6bf0e9a9126c0`.
-The 33 Swift source fixture manifest has SHA-256
-`75d04e1bb2f970b2799847f2c51f2f94c1ce4b9c21a58fa3d30896789604c80e`,
+`cad429862dacfaa0c55cdcbe960ad1029390ad296373fbc7c57f31743e22ef51`.
+The 34 Swift source fixture manifest has SHA-256
+`64e4e8bc78d03d3e9e0604c017a269c3b81ba314f07f6722b016a9e2b9fa758c`,
 calculated by concatenating sorted `<sha256>  <filename>\n` entries. Their
 expected title text, source line and anchor are specified independently of the
 extractor. The schema checker also rejects malformed fixture rows.
@@ -101,3 +101,12 @@ source anchor. Shared lexical analysis must validate delimiter balance and
 Swift string escapes, including valid Unicode and multiline continuation
 forms; no other page fields or fixtures may be weakened. Run the full existing
 extractor tests and compare all repository extraction fields after the fix.
+
+## Revision 5 — regex after an operator
+
+The revision 3 rule already requires a profile-dependent bare regex that can
+affect ownership to fail closed. Add a shared case where such a regex follows
+an operator; a scratch extractor had incorrectly treated its contents as a
+parent title. The contract is unchanged. The fixture is syntactically valid
+when Swift's bare-slash-regex flag is enabled and does not infer the active
+product build profile.

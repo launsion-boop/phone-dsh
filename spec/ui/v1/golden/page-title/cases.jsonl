@@ -31,3 +31,4 @@
 {"name":"invalid_string_escape","file":"invalid_string_escape.swift","page":"FixturePage","syntax":"invalid","outcome":"error"}
 {"name":"invalid_title_escape","file":"invalid_title_escape.swift","page":"FixturePage","syntax":"invalid","outcome":"error"}
 {"name":"valid_string_escapes","file":"valid_string_escapes.swift","page":"FixturePage","syntax":"valid","outcome":"title","title":{"text":"P\tQ","provenance":"valid_string_escapes.swift:5","anchor":"Text(\"Root\\nLine\").navigationTitle(\"P\\tQ\")"}}
+{"name":"bare_regex_after_operator","file":"bare_regex_after_operator.swift","page":"FixturePage","syntax":"valid","outcome":"error","note":"Bare regex after an operator is valid with -enable-bare-slash-regex; unknown build profile must not yield a guessed title."}
