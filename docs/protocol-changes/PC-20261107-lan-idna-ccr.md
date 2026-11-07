@@ -48,3 +48,16 @@ be relabeled as invalid or altered. The existing save flow has side effects;
 separately verified transaction and rollback. No contract or implementation is
 frozen by this evidence, and no TLS, authorization, or discovery acceptance
 follows from it.
+
+The current Swift LAN module, Android domain module and Python reference do
+not share pinned IDNA data. System ICU data varies with the OS; merely checking
+its version cannot provide a fixed Unicode release on older supported devices.
+A shared pinned Rust implementation exposed through C and JNI is one candidate,
+not an implemented solution: it would add P12 ABI and multi-architecture
+packaging obligations, including standalone Python distribution and Android
+16 KB artifact verification. The existing optional shell XCFramework cannot
+silently stand in for a mandatory LAN validator. Exact crate and Unicode-data
+versions, license, minimum Rust version and reproducible distributions would
+need review; the candidate has not been built, measured or tested. The shell
+manifest declares Rust 1.85 while one existing Android toolchain lane specifies
+1.99.1, so dependency MSRV compatibility requires an explicit decision.
