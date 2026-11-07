@@ -7,7 +7,7 @@ status: frozen
 breaking: false
 version_decision: Add local untrusted discovery UI and API only; no wire or persistence version change.
 base: 46c4c57b9c40e87baa5b70cb37018e9abee6c6d4
-contract_revision: spec/device/v1/android-ble-discovery.md@discovery-v6
+contract_revision: spec/device/v1/android-ble-discovery.md@discovery-v7
 ```
 
 Protocol impact: P07; P08; P09. The Android app has no production BLE
@@ -84,3 +84,10 @@ Revision v6: implementer CCR noted a sleep/frozen process cannot run a timer
 at a guaranteed elapsed-realtime deadline. The deadline rejects late results;
 stop is requested at the next relevant event including host start or screen-on.
 No physical stop-time or background-power guarantee is inferred.
+
+Revision v7: independent review found that an old Activity's onStop or a
+page's delayed dispose could stop a newer owner's scan. The process coordinator
+now issues host facades and non-reusable page sessions; all actions and
+candidate snapshots are owner-scoped. Other owners see BUSY without candidates.
+Host lifecycle and permission launch are bound to that host, never a global
+last-attached Activity. New users or recreated Activities need a fresh action.

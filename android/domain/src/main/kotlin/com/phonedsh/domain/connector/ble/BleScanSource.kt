@@ -9,7 +9,7 @@ data class BleScanCandidate(val id: String, val name: String, val rssi: Int) {
 }
 
 enum class BleScanPhase {
-    IDLE, REQUESTING_PERMISSION, PERMISSION_PENDING, STARTING, SCANNING, STOPPING, STOPPED, PERMISSION_DENIED,
+    IDLE, HOST_INACTIVE, BUSY, REQUESTING_PERMISSION, PERMISSION_PENDING, STARTING, SCANNING, STOPPING, STOPPED, PERMISSION_DENIED,
     BLUETOOTH_OFF, UNSUPPORTED, FAILED, CLEANUP_REQUIRED,
 }
 
@@ -23,8 +23,15 @@ data class BleScanSnapshot(
     override fun toString(): String = "BleScanSnapshot(phase=$phase, candidates=redacted, failure=$failure)"
 }
 
-/** Main-thread user actions. Implementations own lifecycle and permission checks. */
+/** One Activity-owned facade. Host lifecycle methods never act on another host. */
 interface BleScanSource {
+    fun open(): BleScanSession
+    fun hostStarted()
+    fun hostStopped()
+}
+
+/** One non-reusable page lease; actions and state are scoped to its owner. */
+interface BleScanSession {
     val state: StateFlow<BleScanSnapshot>
     fun start()
     fun stop()

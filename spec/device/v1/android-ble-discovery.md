@@ -15,6 +15,30 @@ denial or prove that no device exists. The unfiltered Android system scan may
 be suspended when the screen is off. Successful `startScan` return means only
 that the call returned, not that radio coverage or delivery is guaranteed.
 
+The process owns a single coordinator, worker, pending permission request and
+quarantine. Each Activity gets a new, non-reusable host token and each page
+mount gets a new, non-reusable page lease. Each attempt is owned by exactly
+one host, page and generation. A host may start only while started; its return
+to foreground permits a new user action but never restarts a scan. A late stop
+from host A or dispose from page A must not stop, clear or otherwise modify a
+new attempt owned by host/page B. A page close permanently invalidates only
+that lease and clears only its own candidates. Results from one page are not
+published to another. A different owner attempting to scan while an active
+owner's permission, start, scanning or stop is occupied sees `BUSY`, no
+candidates, and no automatic retry. A cancelled owner's still-pending system
+permission result instead produces `PERMISSION_PENDING` for a new attempt.
+`HOST_INACTIVE` indicates the owning host is not started. Once the
+resource is free, a waiting owner's state becomes `IDLE` without starting;
+a fresh user action is required. At most one candidate set
+of 100 is retained in the process; a new owner starting clears the previous
+owner's retained candidates, but old owners cannot clear the new set.
+Process-wide quarantine is
+visible to all leases and survives closing/reopening a page or Activity.
+Permission launch is routed to the owning live host, not a process-global
+last-attached Activity; its result remains bound to the original owner. Host
+and page ownership is tested through the actual process coordinator and facade,
+not by simulating repeated calls on one lease.
+
 Each user attempt has a fresh generation and callback. Permission results,
 scan callbacks, timers, and OS failures are serialized. Discovery data and
 ordinary callbacks are accepted only for their owning still-active generation.
@@ -104,8 +128,10 @@ silently clear this condition. A fresh process is a new source, not evidence
 about the old process or radio; physical stop and power use remain unverified.
 Even normal `stopScan` return is an unacknowledged OS request, not radio proof.
 
-The shared Kotlin UI interface is `BleScanSource`; its state does not expose
-platform objects or authenticated identities. `close()` performs local stop
+The shared Kotlin interface is `BleScanSource` for a host and `BleScanSession`
+for each page; the session state does not expose platform objects or
+authenticated identities. `hostStarted()` and `hostStopped()` affect only
+their own host. `close()` performs local stop
 and clears candidates on page disposal; it must preserve `CLEANUP_REQUIRED` if
 system cleanup is unresolved. `STARTING` and `STOPPING` are local asynchronous
 operations; neither asserts radio state. `SCANNING` means the platform
