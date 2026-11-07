@@ -200,6 +200,7 @@ GAP-12／GAP-13 是同一批實作要修的 iOS 缺口，不是合約變更。
 | GAP-20／P07、P08（Android GATT） | Android 普通 Link 目标通道要求区分每次写回调，但 API 26–35 的同连接同特征回调没有写入 token；bond 状态也不能证明当前链路加密。尚无已接入的 Android GATT adapter | 按 [CCR](../docs/protocol-changes/PC-20261107-android-gatt-ccr.md) 冻结可验证的回调归属、权限及安全语义；实际 Android adapter 与通道共同覆盖陈旧/重复回调、失败和断线，并以真机证据验证后才关闭 |
 | GAP-21／P09（UI 语义抽取） | 结构抽取以语法启发式为主，可能遗漏私有 editor 的安全控件，把调用 helper 的副作用标为只读，或漏掉 disabled guard；仅记录页面名称及语法锚点不能证明安全 UI parity | 由 P09 owner 冻结可执行的 helper／私有子页／授权与 busy guard 语义，两端用实际状态和失败路径验证；不得凭页面清单或 source inventory 通过即关闭 |
 | GAP-22／P09（队列动作结果） | iOS 与 Android 对队列动作的成功回执、读回失败和 not-found 提示不一致；异步结果仅按 session ID 检查，静态代码审计发现切换后返回同一 ID 的旧结果可能污染当前会话 | 按 [CCR](../docs/protocol-changes/PC-20261107-queue-action-ccr.md) 核对上游语义并冻结正反 fixture 与会话代数；两端真实状态机、页面提示和失败／切换路径通过后关闭。未完成前不得把任一端现状当作共同契约 |
+| GAP-23／P06、P07（任务 JSON 深度） | 合法任务的未知值深度很大时，Swift、Python 和 C 的实际解析深度不同；任务契约尚未规定共同的深度或恢复策略 | 按 [CCR](../docs/protocol-changes/PC-20261107-task-json-depth-ccr.md) 冻结有依据的跨端限制及旧记录兼容，再用三端真实解码器、边界向量和设备资源证据验证；数字／Unicode 修复不关闭本项 |
 
 只有修正來源、相關端測試及必要的 integration 證據齊備，才在此記錄關閉與修復 commit。
 
