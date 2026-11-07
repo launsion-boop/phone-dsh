@@ -73,3 +73,34 @@ write the legacy preference.
 Revision v4: test each connection interruption with both successful and failed
 preference writes. This adds no runtime behavior; neither outcome may update
 the replacement connection. The dormant proof case remains a no-write case.
+
+## Partial storage implementation
+
+The storage API implements the visible-value and same-process reentry rules.
+The compatibility wrapper keeps its void signature; its caller in
+`BLEDeviceStore` still ignores failure. The required confirmation-generation,
+observable UI and stale-proof behavior remains unimplemented and GAP-28 stays
+open. A registered-domain value was not exercised in these tests; no claim is
+made about hidden values, other processes, durable flush, reboot or recovery.
+
+At parent `5eccaf6a4948100d123e77e3772bc02943a840e0`, the implementation and
+its tests are in the commit containing this note. Protocol impact: P07; P09;
+P18. The changed end is Swift storage and its tests; no firmware, Android or
+Worker implementation changed. Status: storage partial; confirmation and
+authenticated session not implemented.
+
+- `swift test --filter 'BLETrustedIdentitiesTests|BLEDeviceMCPTests|BLEIdentityTests'`:
+  PASS, 22 tests on macOS.
+- `swift test --filter PhoneDSHBLETests`: PASS, 39 tests on macOS after
+  supplying the previously resolved, locally cached locked cJSON component;
+  its bundled 233 file checksums matched. The initial run without that
+  component failed both C-bridge tests. This is host runtime evidence, not a
+  phone or device test.
+- `swift build -c release --target PhoneDSHBLE -j 2`: PASS on macOS.
+- `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest spec.tools.test_legacy_identity_preferences_schema`:
+  PASS, 2 tests.
+- `bash scripts/ci/check.sh --only phone-spec,phone-p0-conformance,phone-cross-tree`:
+  phone-spec PASS, phone-p0-conformance FAIL (stale page contracts and page
+  checker test), phone-cross-tree PASS.
+- iPhone, ESP32, restart, physical power loss and Android acceptance for this
+  change: NOT_RUN. Production task grants remain disabled.

@@ -67,19 +67,51 @@ public enum BLEIdentity {
     }
 }
 
-/// Identities the user has confirmed on this phone (first-use trust, SSH style).
-/// Only public identifiers are stored; no secrets.
+/// Legacy labels only; these records do not authenticate a peer or grant tasks.
 public enum BLETrustedIdentities {
     static let key = "pdsh.ble.trustedIdentities"
+    private static let lock = NSRecursiveLock()
+    // UserDefaults can synchronously call back into this API. Refuse nested
+    // operations instead of deadlocking or interleaving their read/write cycle.
+    private static var active = false
+
+    private static func access(_ action: () -> Bool) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !active else { return false }
+        active = true
+        defer { active = false }
+        return action()
+    }
 
     public static func contains(_ identity: String, defaults: UserDefaults = .standard) -> Bool {
-        (defaults.stringArray(forKey: key) ?? []).contains(identity)
+        access { (defaults.object(forKey: key) as? [String])?.contains(identity) ?? false }
     }
 
     public static func insert(_ identity: String, defaults: UserDefaults = .standard) {
-        var current = defaults.stringArray(forKey: key) ?? []
-        guard !current.contains(identity) else { return }
-        current.append(identity)
-        defaults.set(current, forKey: key)
+        _ = insertIfVisibleValid(identity, defaults: defaults)
+    }
+
+    /// A successful readback confirms only what this process can currently see;
+    /// it does not establish durable storage or authenticate a device.
+    @discardableResult
+    public static func insertIfVisibleValid(_ identity: String, defaults: UserDefaults = .standard) -> Bool {
+        access {
+            let visible = defaults.object(forKey: key)
+            var current: [String]
+            if let visible {
+                guard let strings = visible as? [String] else { return false }
+                current = strings
+            } else {
+                current = []
+            }
+            if current.contains(identity) { return true }
+            current.append(identity)
+            defaults.set(current, forKey: key)
+            guard let readback = defaults.object(forKey: key) as? [String], readback.count == current.count else {
+                return false
+            }
+            return zip(readback, current).allSatisfy { $0.0.unicodeScalars.elementsEqual($0.1.unicodeScalars) }
+        }
     }
 }

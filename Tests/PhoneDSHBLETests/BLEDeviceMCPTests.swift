@@ -5,15 +5,14 @@ import PhoneDSHLoopback
 @testable import PhoneDSHBLE
 
 final class BLEDeviceMCPTests: XCTestCase {
-    @MainActor func testTaskGrantRejectsEvenPreviouslyTrustedIdentity() async throws {
+    @MainActor func testTaskGrantRejectsOptimisticIdentityState() async throws {
         let id = UUID()
         let identity = "ble:" + UUID().uuidString.lowercased()
-        BLETrustedIdentities.insert(identity)
-        defer {
-            let defaults = UserDefaults.standard
-            defaults.set((defaults.stringArray(forKey: BLETrustedIdentities.key) ?? []).filter { $0 != identity },
-                         forKey: BLETrustedIdentities.key)
-        }
+        let suite = "BLEDeviceMCPTests." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        BLETrustedIdentities.insert(identity, defaults: defaults)
+        XCTAssertTrue(BLETrustedIdentities.contains(identity, defaults: defaults))
         var device = BLEDeviceStore.Device(id: id, name: "test", rssi: 0)
         device.taskIdentity = identity
         device.supportsDeviceTasks = true // Exercise the grant boundary even with stale optimistic state.

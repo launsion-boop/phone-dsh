@@ -25,8 +25,12 @@ disconnect or replacement is also unacceptable.
 The observation ordering is supported by the Swift upstream
 [`Observable` macro](https://github.com/swiftlang/swift/blob/main/lib/Macros/Sources/ObservationMacros/ObservableMacro.swift)
 and [`ObservationRegistrar`](https://github.com/swiftlang/swift/blob/main/stdlib/public/Observation/Sources/Observation/ObservationRegistrar.swift)
-source. The exact candidate interleaving has not been executed on this host or
-an iPhone; do not present a static inference as a device reproduction.
+source. An isolated Swift 6.4 macOS model has since exercised a synchronous
+observation callback that disconnects during a devices or status mutation:
+the ordinary setter overwrote the disconnect, while a conditional mutation
+that checked the epoch inside the mutation closure preserved it. This model
+does not execute `BLEDeviceStore`, CoreBluetooth, or an iPhone and is not a
+device reproduction or acceptance evidence for the candidate.
 
 One unapproved approach is a conditional observable mutation whose generation,
 client and pending checks occur inside the registrar mutation closure, after
@@ -42,6 +46,18 @@ than once or alter pending operations while a replacement is installed. Their
 ordering and possibly repeated reentrant disconnects also need an explicit
 decision; no lifecycle event may be silently discarded.
 
+Review also identified operations whose lifetime must be accounted for before
+freezing the transition: a disconnect currently cancels and fails resources
+while it is still clearing tables by device UUID; a callback can install a
+new generation during that work. A stale channel failure and an old task's
+`linkBusy` cleanup likewise refer only to the UUID. Standard-read completion
+also publishes a device update before finishing the pending operation. A
+repair must establish ownership of the captured generation and operation at
+each callback and suspension point, and must not clear or finish a newer
+operation. It must explicitly account for CoreBluetooth delegate callbacks
+that do not themselves contain an application generation. These findings
+are source review, not proof that every listed interleaving occurred at runtime.
+
 Required evidence: real `withObservationTracking` tests that trigger
 disconnect, channel/client replacement and same-spelling pending replacement
 from both device and status notifications during successful and failed
@@ -56,6 +72,7 @@ disabled.
 The uncommitted candidate and its provisional transition fixtures were saved
 outside the worktree as a local patch for later investigation; they are not an
 implementation or acceptance result. Local storage was below 2 GiB, so no
-Swift build or XCTest for that candidate was run. The current confirmed branch
-retains the pre-amendment implementation; this CCR does not authorize enabling
-the target session or declaring the preservation amendment implemented.
+Swift build or XCTest for that candidate was run at that time. The branch now
+implements and tests the storage subset, but retains the old confirmation and
+observation behavior; this CCR does not authorize enabling the target session
+or declaring the preservation amendment implemented.

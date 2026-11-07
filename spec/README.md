@@ -209,7 +209,7 @@ GAP-12／GAP-13 是同一批實作要修的 iOS 缺口，不是合約變更。
 | GAP-25／P22（场景 mock 关联） | 真实 Worker 的辅助标题请求和主回合请求共用 mock 响应序号；标题请求可消费预期给工具的回复，delivery 检查又把辅助响应与主回合 usage 混算 | 按 [CCR](../docs/protocol-changes/PC-20261107-worker-scenario-ccr.md) 冻结请求分类、重试和消费证据，覆盖请求重排和真实工具执行；不得简单扣减响应数或放宽文件断言 |
 | GAP-26／P16、P22（Worker 启动诊断） | 带真实 Worker 的预算中止场景记录到不支持 PTY 的 terminal mount 异常和 browser connection pending 错误；`no_console_error` 正确看到这些事件 | 按同一 CCR 明确可见能力与启动行为，保留不支持能力 fail-loud、浏览器 bundle 和真实诊断；不得过滤日志、隐藏 preset 或放宽错误断言 |
 | GAP-27／P09（动态页面标题） | 页面契约的 `title:null` 同时表示无标题和动态标题，Android checker 对 null 不比较；既有 `dynamic-both` 仅比较表达式存在，不验证状态与文案 | 按 [CCR](../docs/protocol-changes/PC-20261107-dynamic-page-title-ccr.md) 冻结无标题／动态表达式的可区分语义及两端验证；不得仅把标题改为 null 或凭动态表达式存在称通过 |
-| GAP-28／P07、P09、P18（旧身份偏好） | 当前 `BLETrustedIdentities.insert` 把可见的非字符串数组值当成空数组，随后写入可覆盖该值；[保全契约](device/v1/legacy-identity-preferences.md) 已冻结但尚未实现。候选还存在 Observation 同步重入未解决问题 | 按[变更单](../docs/protocol-changes/PC-20261107-legacy-identity-preservation.md)及 [CCR](../docs/protocol-changes/PC-20261107-identity-observation-ccr.md) 实作并验证真实隔离 UserDefaults、代次与 Observation 重入；隐藏域、跨进程和落盘恢复须另有证据，不能据此开启设备任务或认证历史身份 |
+| GAP-28／P07、P09、P18（旧身份偏好） | [保全契约](device/v1/legacy-identity-preferences.md) 已冻结。`BLETrustedIdentities` 存储部分拒绝覆盖可见的错误类型，但确认界面仍未检查写入结果，也未完成连接代次与 Observation 同步重入保护；完整契约仍是 partial | 按[变更单](../docs/protocol-changes/PC-20261107-legacy-identity-preservation.md)及 [CCR](../docs/protocol-changes/PC-20261107-identity-observation-ccr.md) 实作并验证真实隔离 UserDefaults、代次与 Observation 重入；隐藏域、跨进程和落盘恢复须另有证据，不能据此开启设备任务或认证历史身份 |
 
 只有修正來源、相關端測試及必要的 integration 證據齊備，才在此記錄關閉與修復 commit。
 
