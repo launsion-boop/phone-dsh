@@ -110,3 +110,8 @@ README status to the same invalid value; the real checker must still reject it.
 The tests must also lint and validate the real vector schema. Human-readable
 README explanations remain reviewable prose rather than machine claims.
 Implementer notified.
+
+Registry review also adds both schema files and the shared vector file to P12
+triggers, and registers the actual mapping checker and mutation tests as P08
+and P12 evidence. This prevents a schema-only change from omitting its package
+boundary impact; it does not change the frozen inventory or version.
