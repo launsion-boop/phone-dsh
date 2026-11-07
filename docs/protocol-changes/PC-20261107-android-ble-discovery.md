@@ -101,3 +101,28 @@ Revision v9: the profile remains target because Android radio and peer runtime
 evidence is unavailable. Retain the implementation only as unwired internal
 code and tests; do not add production callers or scan permissions solely for
 this target. This is containment, not Android discovery acceptance.
+
+## Candidate evidence and current limitations
+
+The app-internal state machine and process owner are retained as target code;
+the production Activity, settings UI and manifest do not call or enable them.
+The app source's Robolectric dependencies are test-only and reuse versions
+already used by `:lib`.
+
+Before production disconnection, the targeted app JVM/Robolectric tests passed
+against the actual coordinator, machine and AndroidX permission registry;
+the machine suite ran 32 shared ordered cases plus reentrancy and retained
+candidate cleanup tests. These use fake platform events and do not prove BLE
+radio behavior. Domain candidate redaction tests passed 3 tests without skips.
+The candidate UI and its tests were also exercised before disconnection, but
+are not part of this production source revision. An earlier full Android test
+run and APK build passed before subsequent fixes and disconnection; they are
+not evidence for this final tree.
+
+The final app full-test/APK run was interrupted because available disk fell
+below 2 GiB. Exact final-tree app build, merged manifest, Activity recreation,
+physical Android permissions, and phone/peripheral discovery are NOT_RUN.
+The earlier installed simulator and fake registry tests do not replace those
+checks. Final acceptance must run the commands above after storage is restored,
+verify absence of target callers and permissions before enabling, then freeze
+and review a separate target-to-implemented change with runtime evidence.
