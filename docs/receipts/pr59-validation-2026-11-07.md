@@ -52,6 +52,10 @@ are in [PC-20261107-web-search-note](../protocol-changes/PC-20261107-web-search-
 * `bash scripts/ci/check.sh --only phone-spec,phone-p0-conformance,phone-cross-tree`
   → PASS / FAIL / PASS. P0 reports eight missing/stale UI structures; this
   is not page parity or device runtime acceptance.
+  A separate rerun at `75942c01` of `bash scripts/ci/check.sh --only
+  phone-p0-conformance` also → FAIL (exit 1): the same eight stale contracts,
+  and the real per-page checker test errors on stale source anchors. The
+  candidate title extractor was not applied after independent counterexamples.
 * The updated `phone-sdk` stage now selects the BLE, LAN and device-task
   modules as well as the prior suites. Its first full run failed because the
   locked cJSON component was absent; after temporarily supplying the fully
