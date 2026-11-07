@@ -12,12 +12,18 @@ import PhoneDSHDeviceTasks
     private(set) var error: String?
     private(set) var starting = Set<String>()
     @ObservationIgnored private var generation: [String: UUID] = [:]
+    @ObservationIgnored private let grants = DeviceTaskGrantCoordinator()
     @ObservationIgnored private var deviceIDs: [String: String] = [:]
     @ObservationIgnored private var bleIDs: [String: UUID] = [:]
     @ObservationIgnored private var monitors: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var intake: DeviceTaskIntake?
     @ObservationIgnored private var runner: DeviceDSHRunner?
     @ObservationIgnored private var creating: Task<(DeviceTaskIntake, DeviceDSHRunner), Error>?
+    #if PDSH_TEST_HOOKS
+    @ObservationIgnored var testEngine: (DeviceTaskIntake, DeviceDSHRunner)?
+    @ObservationIgnored var testMonitorFinished: ((UUID) -> Void)?
+    func testGeneration(_ key: String) -> UUID? { generation[key] }
+    #endif
     private var foreground = true
     @ObservationIgnored private let settings: PhoneMCPAccessSettings
     @ObservationIgnored private let makeLANInbox: (URL, String) throws -> LANDeviceTaskInbox
@@ -44,6 +50,9 @@ import PhoneDSHDeviceTasks
     static func bleKey(_ id: UUID) -> String { "ble-ui:" + id.uuidString.lowercased() }
 
     private func engine() async throws -> (DeviceTaskIntake, DeviceDSHRunner) {
+        #if PDSH_TEST_HOOKS
+        if let testEngine { intake = testEngine.0; runner = testEngine.1; return testEngine }
+        #endif
         if let intake, let runner { try await runner.verifyIsolation(); return (intake, runner) }
         if let creating { return try await creating.value }
         let task = Task { @MainActor in
@@ -85,7 +94,7 @@ import PhoneDSHDeviceTasks
             guard foreground, generation[key] == token, validLAN(name: row.serverName, grant: grant, secrets: secrets) else { throw DeviceTaskError.unauthorized }
             guard !deviceIDs.values.contains(inbox.deviceID) else { throw DeviceTaskError.deviceBusy }
             deviceIDs[key] = inbox.deviceID; active.insert(key)
-            let ok = try await pair.0.start(deviceID: inbox.deviceID, authorized: true, inbox: inbox,
+            let start = try grants.start(key: key, token: token, deviceID: inbox.deviceID, intake: pair.0, inbox: inbox,
                 onStopped: { [weak self] in await self?.finished(key: key, token: token) }) { [weak self] in
                     for try await task in inbox.tasks() {
                         guard await MainActor.run(body: { self?.validLAN(name: row.serverName, grant: grant, secrets: secrets) == true }) else { throw DeviceTaskError.unauthorized }
@@ -93,22 +102,30 @@ import PhoneDSHDeviceTasks
                     }
                     throw DeviceTaskError.unauthorized
                 }
+            let ok = try await start.value
             guard ok else { throw DeviceTaskError.deviceBusy }
             guard generation[key] == token, active.contains(key) else { return }
             monitors[key] = Task { [weak self] in
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(1))
                     guard !Task.isCancelled, let self else { return }
+                    guard self.generation[key] == token else { return }
                     guard self.validLAN(name: row.serverName, grant: grant, secrets: secrets), self.foreground else { await self.stop(key); return }
-                    do {
-                        guard try await self.isLANConnected(row) else { await self.stop(key); return }
-                    } catch { await self.stop(key); return }
+                    await self.grants.checkConnection(key: key, token: token, check: {
+                        try await self.isLANConnected(row)
+                    }, onDisconnected: {
+                        _ = self.invalidate(key)
+                    })
+                    #if PDSH_TEST_HOOKS
+                    self.testMonitorFinished?(token)
+                    #endif
+                    guard self.generation[key] == token else { return }
                 }
             }
         } catch {
             if generation[key] == token {
-                await stop(key)
                 self.error = "无法启用设备派任务：请确认设备已连接、已授权且引擎隔离可用。"
+                await stop(key)
             }
         }
     }
@@ -126,8 +143,9 @@ import PhoneDSHDeviceTasks
             guard foreground, generation[key] == token, BLEDeviceStore.shared.devices.first(where: { $0.id == id })?.allowDeviceTasks == true else { throw DeviceTaskError.unauthorized }
             guard !deviceIDs.values.contains(inbox.deviceID) else { throw DeviceTaskError.deviceBusy }
             deviceIDs[key] = inbox.deviceID; active.insert(key)
-            let ok = try await pair.0.start(deviceID: inbox.deviceID, authorized: true, inbox: inbox,
+            let start = try grants.start(key: key, token: token, deviceID: inbox.deviceID, intake: pair.0, inbox: inbox,
                 onStopped: { [weak self] in await self?.finished(key: key, token: token) }) { try await inbox.next() }
+            let ok = try await start.value
             guard ok else { throw DeviceTaskError.deviceBusy }
             guard generation[key] == token, active.contains(key) else { return }
             monitors[key] = Task { [weak self] in
@@ -139,15 +157,20 @@ import PhoneDSHDeviceTasks
             }
         } catch {
             if generation[key] == token {
-                await stop(key)
                 self.error = "无法启用设备派任务：请确认设备已连接、支持任务协议且引擎隔离可用。"
+                await stop(key)
             }
         }
     }
-    func stop(_ key: String) async {
+    private func invalidate(_ key: String) -> Task<Void, Never>? {
         generation[key] = nil; active.remove(key); starting.remove(key); monitors.removeValue(forKey: key)?.cancel()
         if let id = bleIDs.removeValue(forKey: key) { try? BLEDeviceStore.shared.grantDeviceTasks(id, enabled: false) }
-        if let deviceID = deviceIDs.removeValue(forKey: key), let intake { await intake.stop(deviceID: deviceID) }
+        deviceIDs[key] = nil
+        return grants.invalidate(key: key)
+    }
+    func stop(_ key: String) async {
+        let pending = invalidate(key)
+        await pending?.value
     }
     private func finished(key: String, token: UUID) async {
         guard generation[key] == token else { return }
@@ -159,6 +182,7 @@ import PhoneDSHDeviceTasks
         foreground = active
         guard !active else { return }
         creating?.cancel()
-        for key in Array(generation.keys) { await stop(key) }
+        let pending = Array(generation.keys).compactMap { invalidate($0) }
+        for task in pending { await task.value }
     }
 }

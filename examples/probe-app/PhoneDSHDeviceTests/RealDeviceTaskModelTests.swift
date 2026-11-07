@@ -5,6 +5,7 @@ import XCTest
 import Security
 import PhoneDSH
 import PhoneDSHBLE
+import PhoneDSHAgentCore
 @testable import PhoneDSHDeviceTasks
 @testable import PhoneDSHProbe
 
@@ -369,3 +370,88 @@ extension RealDeviceTaskModelTests {
         }
     }
 }
+
+#if PDSH_TEST_HOOKS
+private actor GrantTestRunner: DeviceTaskRunner {
+    func session(for deviceID: String, existingSession: String?) async throws -> String { existingSession ?? "test" }
+    func run(task: DeviceTask, record: DeviceTaskRecord) async -> DeviceTaskOutcome { .completed(output: "test", truncated: false) }
+    func cancel(sessionID: String) async {}
+}
+private struct GrantTestTransport: DSHRemoteTransport {
+    func call(_ endpoint: String, args: JSONValue) async throws -> JSONValue { throw DeviceTaskError.unauthorized }
+    func openMux() async throws -> any DSHMuxConnection { throw DeviceTaskError.unauthorized }
+}
+private final class GrantTestURLProtocol: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {}
+    override func stopLoading() {}
+}
+@MainActor private final class GrantTestMonitorGate {
+    var count = 0
+    var held = false
+    var continuation: CheckedContinuation<Void, Never>?
+    var finished = false
+    func markFinished() { finished = true }
+    func check() async -> Bool {
+        count += 1
+        if count == 2 {
+            held = true
+            await withCheckedContinuation { continuation = $0 }
+            return false
+        }
+        return true
+    }
+    func release() { continuation?.resume(); continuation = nil }
+}
+
+extension RealDeviceTaskModelTests {
+    /// A real manager starts twice while an old connection monitor is held.
+    /// No external network, configured model, or physical device is required.
+    func testOldLANMonitorCannotRevokeNewGeneration() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let executor = try DeviceTaskExecutor(directory: directory, runner: GrantTestRunner())
+        let intake = DeviceTaskIntake(executor: executor)
+        let runner = DeviceDSHRunner(transport: GrantTestTransport())
+        let suite = "DeviceTaskManagerGeneration." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = PhoneMCPAccessSettings(defaults: defaults, secretStore: TaskTestSecrets())
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [GrantTestURLProtocol.self]
+        let session = URLSession(configuration: config)
+        defer { session.invalidateAndCancel() }
+        let gate = GrantTestMonitorGate()
+        let manager = DeviceTaskManager(settings: settings, makeLANInbox: { url, auth in
+            try LANDeviceTaskInbox(mcpURL: url, authorization: auth, session: session)
+        }, isLANConnected: { _ in await gate.check() })
+        manager.testEngine = (intake, runner)
+        let url = "https://fixture.example/mcp"
+        let grant = try settings.grant(serverName: "fixture", url: url,
+                                       headers: ["Authorization"], values: ["Authorization": "Bearer test"])
+        let row = PhoneDSHProbe.MCPServerSummary(serverName: "fixture", url: url, enabled: true,
+                          toolCallTimeoutMs: 10_000, headers: [], status: "connected", error: nil, tools: [], grant: grant)
+        let key = DeviceTaskManager.lanKey("fixture")
+        await manager.startLAN(row)
+        XCTAssertTrue(manager.isActive(key))
+        let oldGeneration = try XCTUnwrap(manager.testGeneration(key))
+        let monitorReturned = expectation(description: "old monitor returned after its connection check")
+        manager.testMonitorFinished = { token in if token == oldGeneration { gate.markFinished(); monitorReturned.fulfill() } }
+        for _ in 0..<200 {
+            if gate.held { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        guard gate.held else { await manager.stop(key); return XCTFail("old monitor did not reach the gate") }
+        await manager.stop(key)
+        await manager.startLAN(row)
+        XCTAssertTrue(manager.isActive(key))
+        gate.release()
+        await fulfillment(of: [monitorReturned], timeout: 10)
+        XCTAssertTrue(gate.finished)
+        XCTAssertTrue(manager.isActive(key), "late old monitor revoked the new generation")
+        await manager.stop(key)
+    }
+}
+
+#endif

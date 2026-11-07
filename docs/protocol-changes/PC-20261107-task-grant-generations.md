@@ -12,8 +12,9 @@ contract_revision: spec/device/v1/task-delegation.md@grant-generations-v5
 
 ## Trigger, contract, and roles
 
-Protocol impact: P07; P09: none — the UI control and presentation do not
-change; its asynchronous authorization lifetime is made consistent with P07.
+Protocol impact: P07; P09. The existing control's active, starting and error
+state follows the corrected asynchronous authorization lifetime; no UI
+layout or page schema is added by this change.
 The iOS manager marks a device active, then awaits an actor start. A stop
 may invalidate its UI generation before that start is delivered. A controlled
 experiment with an inserted delivery gate demonstrates an orphaned job under
@@ -126,3 +127,38 @@ waits for the notification in the test; it is not a promise that stop waits.
 The held-notification case must observe that stop has returned while the
 notification remains blocked. The stop-all callback case explicitly starts a
 separate external stop-all before awaiting it.
+
+## Implementation and verification evidence
+
+The Swift intake joins the actual worker and retains a device reservation until
+it exits; its notification runs separately. The probe manager registers a
+generation-specific pending start before suspension, cancels all generations
+before joining any on backgrounding, and checks a connection monitor's token
+after its asynchronous registry read. Existing BLE task grants remain refused.
+
+`swift test --filter PhoneDSHDeviceTasksTests` → PASS, 52 tests, no failures or
+skips. `swift test --filter DeviceTaskGrantGenerationTests` → PASS, 3 tests,
+including 13 ordered shared scenarios, timeout-cleanup observations and an
+uncooperative real inbox acceptance against the real executor. The latter
+checks busy during acceptance, no runner or report after cancellation, and a
+fresh start after release; it does not cover every executor phase. The scenario
+peak counts activity in `next`, not the entire worker lifetime. The shared
+fixtures independently validate against their JSON Schema. Timeout cleanup is
+bounded and reports failure if a task does not stop; it cannot force-kill an
+uncooperative Swift task.
+
+`swift build -c release --target PhoneDSHDeviceTasks` → PASS. A simulator
+`xcodebuild build-for-testing` of `PhoneDSHDevice` with the dedicated
+`PDSH_TEST_HOOKS` condition → PASS; the named manager test exists in the test
+bundle. `xcodebuild test-without-building` for that manager test → FAIL during
+app launch, before any test ran: the only installed iOS 18.4 simulator lacks
+`libswiftWebKit.dylib` required by this Xcode/SDK. The actual manager runtime
+test is NOT_RUN; the injection bypass exists only with the dedicated test
+condition. No physical-device behavior is inferred.
+
+`bash scripts/ci/check.sh --only phone-spec,phone-p0-conformance,phone-cross-tree`
+→ `phone-spec` PASS; `phone-p0-conformance` FAIL on the existing three
+missing and five stale Android page contracts; `phone-cross-tree` PASS. No
+page checker or fixture was weakened. Authenticated BLE sessions, legacy
+identity/task recovery, Android production transport, and device acceptance
+remain open; this change is not merge readiness evidence.
