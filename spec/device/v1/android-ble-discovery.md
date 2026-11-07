@@ -50,11 +50,12 @@ callback, or quarantine on exception. Stop uses the
 same callback instance as start. Errors, unavailable hardware, Bluetooth off,
 denied permission and a successful scan with no results remain distinguishable.
 Repeated start while starting or scanning does not create another scan. The
-owner establishes the generation synchronously and invokes the potentially
-blocking platform start on a serialized worker; the public phase is `STARTING`
-until that call returns. A stop during start invalidates local delivery
-immediately, reports `STOPPING`, and blocks further starts until the call has
-returned and a stop using that same callback has been attempted. A timed-out
+owner establishes the generation synchronously and invokes potentially
+blocking platform start and stop calls on the same serialized worker; local
+invalidation never waits for that worker on the UI thread. The public phase is `STARTING`
+until that call returns. A stop after or during start invalidates local delivery
+immediately, reports `STOPPING`, and blocks further starts until the start has
+returned and a stop using that same callback has completed. A timed-out
 or abandoned start cannot release this reservation while its outcome is
 unknown. Candidate events received while start is in flight are dropped;
 an asynchronous scan failure invalidates locally and enters `STOPPING`, then
@@ -106,7 +107,7 @@ system cleanup is unresolved. `STARTING` and `STOPPING` are local asynchronous
 operations; neither asserts radio state. `SCANNING` means the platform
 start call returned and local generation remains active, not that discovery
 succeeded. `STOPPED` means local generation is invalidated; if platform start
-was invoked, stop was requested without a synchronous exception, while an
+was invoked, the stop call returned without a synchronous exception, while an
 attempt cancelled before platform start needs no stop. It is not a platform
 acknowledgement.
 The schema and `golden/android-ble-discovery.jsonl` prescribe real-state-machine
