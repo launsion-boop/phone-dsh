@@ -25,6 +25,14 @@ structural mask is shared by the extractor, a change to it must also be checked
 against the existing row, action and source-provenance fixtures and the full
 repository extraction diff; it is not confined to title metadata.
 
+Swift extended regex literals (`#/.../#` and multiple-hash variants) are also
+lexical boundaries, including embedded fake title syntax; an unterminated
+extended regex fails. Bare-slash regex interpretation depends on compiler
+profile and cannot be assumed from raw source alone: when that ambiguity can
+affect title ownership, fail rather than guess. Ordinary arithmetic division
+must not be treated as a regex. This does not resolve GAP-19's build-profile
+problem or claim a complete Swift parser.
+
 When source ownership or precedence is not established, including multiple
 potential page titles, conditional compilation ambiguity, title modifiers in
 label/toolbar contexts, unrecognized presentation boundaries containing a

@@ -7,7 +7,7 @@ status: frozen
 breaking: false
 version_decision: Preserve page-structure/1; reject ambiguous extraction instead of guessing.
 base: 00402003f6efde6c5fdda3032053443dd5a7d76f
-contract_revision: spec/ui/v1/page-title-ownership.md@sha256:89d9fc20c8ac440235e35d223b06b5852cdabce55b5afedf97c9910a9ce0f2ef
+contract_revision: spec/ui/v1/page-title-ownership.md@sha256:de5a2e1e6b6d4f0675290bdb95774a6486b0fa6cfe472a249ab105b76950661b
 ```
 
 ## Trigger and delta
@@ -44,9 +44,9 @@ Owning `spec/ui/v1/page-title-ownership.md` is frozen at the SHA above;
 registers its requirement. `schema/page-title-cases.schema.json` has SHA-256
 `30460a1373c549bc2c2b90580502101ca8bbb1c95f9b117fd75ebf53ecce54c0`;
 `golden/page-title/cases.jsonl` has SHA-256
-`c63a71a9b8eefd2c22d99683a5591a93bff557613a33a6953b989cc809456b01`.
-The 25 Swift source fixture manifest has SHA-256
-`7cdd249c53f7887062f2fb88e33c71e5e26e219e48746e88a8890da0a2703827`,
+`58ccaeb043aa269db3344140b079054474b05df3829163986d5623a9dceff291`.
+The 29 Swift source fixture manifest has SHA-256
+`b096b5a4471912c91690ce5031e296d56c114f73dbf6b658d86ce06caff71ee3`,
 calculated by concatenating sorted `<sha256>  <filename>\n` entries. Their
 expected title text, source line and anchor are specified independently of the
 extractor. The schema checker also rejects malformed fixture rows.
@@ -79,3 +79,14 @@ title to fail rather than invent text, and `navigationDestination(item:)` to
 be treated as a destination. The case schema only permits a successful title
 or absent result for syntactically valid source; schema mutation tests cover
 that restriction. These cases do not decide SwiftUI runtime preferences.
+
+## Revision 3 — regex lexical boundaries
+
+An independent valid Swift extended regex containing a fake title and brace
+was previously misclassified by the shared structural mask. Add cases for
+`#/.../#`, multiple hashes, an unterminated extended regex, and ordinary
+division. When an unqualified slash could be a profile-dependent bare regex
+with title-affecting syntax, the source extractor must fail rather than guess;
+the bare-regex case is valid when the compiler's bare-slash flag is enabled.
+This does not declare all Swift grammar supported or resolve GAP-19. The same
+full-repository field comparison and existing regression requirements apply.
