@@ -105,3 +105,15 @@ separate initially undotted inputs, one-dot variants and invalid double-dot
 inputs; that work is still in progress. The earlier zero-mismatch observations
 are retained only as results of the stated experimental harness, not as P07
 conformance evidence.
+
+Further correction: 94 of the 2,046 initially selected rows already had a
+trailing dot; 24 of those had the specific length-oracle mismatch described
+above. An isolated Rust 1.85.0 build using `idna` 1.1.0, `idna_adapter` 1.2.1
+and ICU data 2.1.1 compiled successfully without changing the user's default
+toolchain. After excluding all 94 originally dotted rows, the experimental
+candidate matched the selected oracle for 1,952 inputs and separately for
+uppercased and single-root-dot variants. These are bounded macOS CLI
+experiments; they do not establish full Unicode conformance, a safe production
+implementation, mobile FFI, actual Worker compatibility, packaging or license
+closure. Double-root-dot rejection and the other existing P07 host rules still
+need their own real cross-end tests.
