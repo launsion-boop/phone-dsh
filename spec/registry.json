@@ -734,7 +734,8 @@
       "authority": [
         "spec/platform/README.md",
         "spec/platform/whitelist.json",
-        "spec/platform/ios-audio-session.md"
+        "spec/platform/ios-audio-session.md",
+        "spec/platform/android-module-map.json"
       ],
       "ends": {
         "Swift": [
@@ -785,7 +786,7 @@
         "Tests/PhoneDSHTests/ProbeScenePhaseWiringTests.swift"
       ],
       "source": {
-        "authority": "[platform/README.md](platform/README.md)、[whitelist](platform/whitelist.json)、[iOS audio ownership](platform/ios-audio-session.md)",
+        "authority": "[platform/README.md](platform/README.md)、[whitelist](platform/whitelist.json)、[iOS audio ownership](platform/ios-audio-session.md)、[Android module mapping](platform/android-module-map.json)",
         "ends": "Swift OS API、`Sources/PhoneDSH/Background`、`ProbeKit/PhoneAudioSessionLease.swift` 与 app 的录音／保活调用方；Android `:platform`／`:engine`／`:net` ；HarmonyOS partial `harmony/entry/src/main/ets/entryability/EntryAbility.ets`",
         "evidence": "`platform_check.py`；whitelist 不代替 conformance",
         "triggers": "`spec/platform/**`、`android/platform*/src/main/**`、`Sources/PhoneDSHController/Signals/**`、`Sources/PhoneDSH/Background/**`、`examples/probe-app/ProbeKit/PhoneAudioSessionLease.swift`、`examples/probe-app/ProbeKit/Capabilities/PhoneMediaTools.swift`、`examples/probe-app/PhoneDSHProbe/{BackgroundKeepAlive,ComposerVoiceInput}.swift` 、`harmony/entry/src/main/ets/entryability/EntryAbility.ets`"
@@ -917,7 +918,8 @@
       "owner_role": "native ABI owner",
       "authority": [
         "shell/include/xzshell.h",
-        "harmony/host-rust/include/pdsh_host.h"
+        "harmony/host-rust/include/pdsh_host.h",
+        "spec/platform/android-module-map.json"
       ],
       "ends": {
         "Rust": [
@@ -934,6 +936,9 @@
           "harmony/host-rust/include/pdsh_host.h",
           "harmony/entry/src/main/cpp/napi_init.cpp",
           "harmony/entry/src/main/cpp/types/libpdshhost/index.d.ts"
+        ],
+        "Python": [
+          "android/tools/structure_check.py"
         ]
       },
       "triggers": [
@@ -948,6 +953,18 @@
         },
         {
           "glob": "Sources/PhoneDSHShell/**"
+        },
+        {
+          "glob": "spec/platform/android-module-map.json"
+        },
+        {
+          "glob": "android/README.md"
+        },
+        {
+          "glob": "android/tools/structure_check.py"
+        },
+        {
+          "glob": "android/tools/test_structure_check.py"
         },
         {
           "glob": "android/shell/src/main/**"
@@ -973,10 +990,10 @@
         "android/tools/check-native-alignment.py"
       ],
       "source": {
-        "authority": "[shell/include/xzshell.h](../shell/include/xzshell.h) ；平台 host ABI [pdsh_host.h](../harmony/host-rust/include/pdsh_host.h)",
+        "authority": "[shell/include/xzshell.h](../shell/include/xzshell.h) ；平台 host ABI [pdsh_host.h](../harmony/host-rust/include/pdsh_host.h)；[Android module mapping](platform/android-module-map.json)",
         "ends": "Rust [pdsh-ffi](../shell/crates/pdsh-ffi/)、[pdsh-jni](../shell/crates/pdsh-jni/)；Swift [PhoneDSHShell](../Sources/PhoneDSHShell/)（含必須與 header 同步的 `PDSHShellCSurface.swift` stub）；Kotlin [android/shell](../android/shell/src/main/kotlin/com/phonedsh/shell/)、`core/wire/Native*.kt` ；HarmonyOS partial `harmony/host-rust/include/pdsh_host.h`, `harmony/entry/src/main/cpp/napi_init.cpp`, `harmony/entry/src/main/cpp/types/libpdshhost/index.d.ts`",
-        "evidence": "以 [Package.swift](../Package.swift)、Android build wiring、`android/tools/check-native-alignment.py` 判斷是否真的連結；source 存在不等於可用",
-        "triggers": "`shell/include/**`、`shell/crates/{pdsh-ffi,pdsh-jni,pdsh-core}/**`、`shell/build-apple.sh`、`Sources/PhoneDSHShell/**`、`Package.swift`、`android/shell/src/main/**`、`android/core/src/main/kotlin/com/phonedsh/wire/Native*.kt` 、`harmony/host-rust/include/pdsh_host.h`、`harmony/entry/src/main/cpp/napi_init.cpp`、`harmony/entry/src/main/cpp/types/libpdshhost/index.d.ts`"
+        "evidence": "以 [Package.swift](../Package.swift)、Android build wiring、`android/tools/check-native-alignment.py` 判斷是否真的連結；[Android mapping projection](../android/README.md) 由 `android/tools/structure_check.py` 核對；source 存在不等於可用",
+        "triggers": "`shell/include/**`、`shell/crates/{pdsh-ffi,pdsh-jni,pdsh-core}/**`、`shell/build-apple.sh`、`Sources/PhoneDSHShell/**`、`Package.swift`、`spec/platform/android-module-map.json`、`android/README.md`、`android/tools/structure_check.py`、`android/tools/test_structure_check.py`、`android/shell/src/main/**`、`android/core/src/main/kotlin/com/phonedsh/wire/Native*.kt` 、`harmony/host-rust/include/pdsh_host.h`、`harmony/entry/src/main/cpp/napi_init.cpp`、`harmony/entry/src/main/cpp/types/libpdshhost/index.d.ts`"
       }
     },
     {

@@ -2,7 +2,7 @@
 # PDSH Android 适配树
 
 > **状态：可构建、可测试、可在模拟器上跑通 boot→HELLO。**
-> 13 个 Gradle 模块：11 个 Swift 模块由 **7 个模块镜像**（合并规则见下），另 6 个不镜像 Swift
+> 13 个 Gradle 模块：原有 11 个 Swift 模块由 **7 个模块映射**（合并规则见下）；新增加的 Swift 模块中，BLE/LAN 仅有未接入的 target 解码器，ADB/SSH/DeviceTasks 在 Android 无对应实现。另 6 个模块不属于原有 7 个映射
 > （`:platform` 承载 SPI、`:platform-android` 承载 SPI 的 Android 实现、`:domain` 承载设备能力契约
 > 与手机权限读数、`:lib` 是可发布 AAR、`:app` 是 probe-app、`:lib-consumer-test` 以发布坐标
 > `com.phonedsh:lib:0.1.0` 消费 AAR）。`:domain` 的 **DomainStore 已删除**（2026-11-01：
@@ -138,21 +138,26 @@ android/
 └── tools/                     # bootstrap + structure_check.py + test-count.sh + unittest
 ```
 
-## Swift 模块 → Kotlin 包 → Gradle 模块（11/11）
+## Swift 模块 → Kotlin 包 → Gradle 模块（16/16）
 
-| Swift 模块（`Sources/`） | Kotlin 包 | Gradle 模块 | 说明 |
-| --- | --- | --- | --- |
-| PhoneDSHAgentCore | `com.phonedsh.agentcore` | `:core` | 合并进 `:core`；宿主语义底层 |
-| PhoneDSHWire | `com.phonedsh.wire` | `:core` | 合并进 `:core`；纯字节/金标 |
-| PhoneDSHLog | `com.phonedsh.log` | `:core` | 合并进 `:core` |
-| PhoneDSHLoopback | `com.phonedsh.loopback` | `:net` | 合并进 `:net` |
-| PhoneDSHGateway | `com.phonedsh.gateway` | `:net` | 合并进 `:net` |
-| PhoneDSHController | `com.phonedsh.controller` | `:controller` | 1:1 |
-| PhoneDSHEngine | `com.phonedsh.engine` | `:engine` | 1:1（WebView / EngineHost） |
-| PhoneDSHShell | `com.phonedsh.shell` | `:shell` | 1:1（JNI 绑定） |
-| PhoneDSH | `com.phonedsh.dsh` | `:dsh` | 1:1（门面聚合） |
-| PhoneDSHScenario | `com.phonedsh.testkit.scenario` | `:testkit` | 合并进 `:testkit` |
-| PhoneDSHHarness | `com.phonedsh.testkit.harness` | `:testkit` | 合并进 `:testkit` |
+| Swift 模块（`Sources/`） | Kotlin 包 | Gradle 模块 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| PhoneDSHAgentCore | `com.phonedsh.agentcore` | `:core` | mapped | 合并进 `:core`；宿主语义底层 |
+| PhoneDSHWire | `com.phonedsh.wire` | `:core` | mapped | 合并进 `:core`；纯字节/金标 |
+| PhoneDSHLog | `com.phonedsh.log` | `:core` | mapped | 合并进 `:core` |
+| PhoneDSHLoopback | `com.phonedsh.loopback` | `:net` | mapped | 合并进 `:net` |
+| PhoneDSHGateway | `com.phonedsh.gateway` | `:net` | mapped | 合并进 `:net` |
+| PhoneDSHController | `com.phonedsh.controller` | `:controller` | mapped | 1:1 |
+| PhoneDSHEngine | `com.phonedsh.engine` | `:engine` | mapped | 1:1（WebView / EngineHost） |
+| PhoneDSHShell | `com.phonedsh.shell` | `:shell` | mapped | 1:1（JNI 绑定） |
+| PhoneDSH | `com.phonedsh.dsh` | `:dsh` | mapped | 1:1（门面聚合） |
+| PhoneDSHScenario | `com.phonedsh.testkit.scenario` | `:testkit` | mapped | 合并进 `:testkit` |
+| PhoneDSHHarness | `com.phonedsh.testkit.harness` | `:testkit` | mapped | 合并进 `:testkit` |
+| PhoneDSHADB | — | — | absent | Android 无对应实现 |
+| PhoneDSHSSH | — | — | absent | Android 无对应实现 |
+| PhoneDSHBLE | `com.phonedsh.domain.connector.ble` | `:domain` | target | 仅未接线的 Link 编解码与状态机；没有 GATT、授权或设备任务 |
+| PhoneDSHLAN | `com.phonedsh.domain.connector.lan` | `:domain` | target | 仅未接线的 DNS-SD 候选解码；没有发现或连接 |
+| PhoneDSHDeviceTasks | — | — | absent | Android 无对应实现 |
 
 **合并规则**：`:core`（wire + log + agentcore）、`:net`（loopback + gateway）、`:testkit`
 （scenario + harness）是 Gradle 构建边界的合并；**1:1 由包名承载，不是 module 数量**。

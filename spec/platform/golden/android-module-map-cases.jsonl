@@ -1,0 +1,14 @@
+{"mutation":"baseline","valid":true}
+{"mutation":"readme_missing","valid":false}
+{"mutation":"readme_duplicate","valid":false}
+{"mutation":"readme_unknown","valid":false}
+{"mutation":"readme_wrong_package","valid":false}
+{"mutation":"readme_wrong_module","valid":false}
+{"mutation":"readme_wrong_status","valid":false}
+{"mutation":"absent_claims_package","valid":false}
+{"mutation":"source_missing","valid":false}
+{"mutation":"source_added","valid":false}
+{"mutation":"package_missing","valid":false}
+{"mutation":"gradle_missing","valid":false}
+{"mutation":"manifest_duplicate","valid":false}
+{"mutation":"manifest_invalid_status","valid":false}

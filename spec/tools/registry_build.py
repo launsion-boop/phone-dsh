@@ -225,7 +225,9 @@ for _contract, _paths in HARMONY_ENDS.items():
     PATH_PROJECTIONS[_contract]['ends']['HarmonyOS'] = _paths
     if 'partial' not in PATH_PROJECTIONS[_contract]['status']:
         PATH_PROJECTIONS[_contract]['status'].append('partial')
-PATH_PROJECTIONS['P12']['authority'].append('harmony/host-rust/include/pdsh_host.h')
+PATH_PROJECTIONS['P12']['authority'].extend(['harmony/host-rust/include/pdsh_host.h', 'spec/platform/android-module-map.json'])
+PATH_PROJECTIONS['P08']['authority'].append('spec/platform/android-module-map.json')
+PATH_PROJECTIONS['P12']['ends']['Python'] = ['android/tools/structure_check.py']
 PATH_PROJECTIONS['P18']['authority'].append('harmony/entry/src/main/ets/host/HostPersistence.ets')
 
 

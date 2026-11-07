@@ -1,0 +1,32 @@
+{
+  "title": "Android module mapping mutation scenario",
+  "type": "object",
+  "required": [
+    "mutation",
+    "valid"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "mutation": {
+      "enum": [
+        "baseline",
+        "readme_missing",
+        "readme_duplicate",
+        "readme_unknown",
+        "readme_wrong_package",
+        "readme_wrong_module",
+        "readme_wrong_status",
+        "absent_claims_package",
+        "source_missing",
+        "source_added",
+        "package_missing",
+        "gradle_missing",
+        "manifest_duplicate",
+        "manifest_invalid_status"
+      ]
+    },
+    "valid": {
+      "type": "boolean"
+    }
+  }
+}
