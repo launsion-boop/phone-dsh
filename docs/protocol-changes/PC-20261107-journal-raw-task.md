@@ -49,9 +49,9 @@ Shared task positives and negatives are `spec/device/v1/golden/task-raw-json-cas
 including unknown values, nested duplicate names, escaped names, distinct
 Unicode scalar sequences and NUL in unknown keys/values. Parent inventory cases
 are `spec/device/v1/golden/ble-task-inventory.jsonl`
-(`sha256:1d1b53c7ce76265a3b2d6f4d4a175be748b91c055e2668f2425e1a32814bcd81`),
+(`sha256:10ccf816e91a95cc03a52f035c50a45e2bd618223b05cec4a4b6ef88fefe0953`),
 with schema `spec/device/v1/schema/ble-task-inventory-vector.schema.json`
-(`sha256:bc3ae30e4b36ca2212232e791faf3f44d63cfa3d6231034888b1190efe176ffb`).
+(`sha256:7350d73e861c3e4228dd1830796a68aac96800c6c1c11386e485b5b891e35624`).
 The `embedded_task_raw_vectors` scenario must run every raw task case through
 actual journal `records()` using a real valid parent and unchanged fingerprint,
 expect each task vector's own `valid`, and compare rejected bytes before/after.
@@ -196,3 +196,12 @@ known parent and outcome name, escaped and same-value duplicates, and valid
 duplicate unknown outcome members; tests must drive actual received and
 terminal records and verify failed recovery leaves evidence unchanged.
 The rev6 19-byte-vector count must also replace the previous exact count of 18.
+
+## Revision 8 — inactive and identical outcome duplicate evidence
+
+The revision 7 outcome rule already applies to known fields irrespective of
+variant and rejects identical repeated values. Add shared real-journal negative
+cases for an inactive `failure_kind` repeated inside a completed outcome and
+for identical repeated `output`; the contract and decoder behavior are
+unchanged. The implementer must drive them through `records()` and prove that
+the rejected evidence remains unchanged.

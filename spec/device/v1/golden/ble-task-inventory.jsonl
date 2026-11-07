@@ -70,3 +70,5 @@
 {"name":"duplicate_outcome_message","mutation":"duplicate_outcome_message","valid":false}
 {"name":"duplicate_outcome_escaped_kind","mutation":"duplicate_outcome_escaped_kind","valid":false}
 {"name":"duplicate_outcome_unknown_valid","mutation":"duplicate_outcome_unknown_valid","valid":true}
+{"name":"duplicate_outcome_inactive_known","mutation":"duplicate_outcome_inactive_known","valid":false}
+{"name":"duplicate_outcome_same_value","mutation":"duplicate_outcome_same_value","valid":false}

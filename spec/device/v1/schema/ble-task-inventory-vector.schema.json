@@ -85,7 +85,9 @@
         "duplicate_outcome_failure_kind",
         "duplicate_outcome_message",
         "duplicate_outcome_escaped_kind",
-        "duplicate_outcome_unknown_valid"
+        "duplicate_outcome_unknown_valid",
+        "duplicate_outcome_inactive_known",
+        "duplicate_outcome_same_value"
       ]
     },
     "valid": {
