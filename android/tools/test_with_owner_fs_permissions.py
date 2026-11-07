@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
 """Tests for the root-container permission adapter used by the isolated JVM stage.
 
 The adapter is not product policy: it only makes UID 0 behave like the ordinary

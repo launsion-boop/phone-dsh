@@ -1,8 +1,8 @@
+// SPDX-License-Identifier: MIT
 // The Android queue transaction over the real ViewModel state: success, failure,
 // not-found and the local SENDING echo. The transport is scripted because the
 // Worker is the external edge; every assertion here is on the published
 // ChatUiState the page consumes.
-// SPDX-License-Identifier: MIT
 package com.phonedsh.probe
 
 import com.phonedsh.dsh.turn.DshTurnException
