@@ -7,7 +7,7 @@ status: frozen
 breaking: false
 version_decision: Preserve page-structure/1; reject ambiguous extraction instead of guessing.
 base: 00402003f6efde6c5fdda3032053443dd5a7d76f
-contract_revision: spec/ui/v1/page-title-ownership.md@sha256:865e0a5dfbf7d4212fba31d1231832574a9e8eca9376b41ba3a1d3f6a705e575
+contract_revision: spec/ui/v1/page-title-ownership.md@sha256:db7d7ce2ccd74cb3181dc9f495b2ff77337b73888baf0a0410494641c44f3fc8
 ```
 
 ## Trigger and delta
@@ -215,3 +215,31 @@ Freeze verification: `python3 -m unittest discover -s spec/v1/tools -p test_spec
 --only phone-spec,phone-p0-conformance,phone-cross-tree` → PASS / FAIL / PASS.
 This checks fixture structure only. The title extractor is not yet implemented
 against the frozen cases, and the P0 gate remains incomplete.
+
+
+## Revision 9 — conditional, chained and shadowed output
+
+The unmerged candidate passed the previous 44 shared cases but independent
+Simulator-SDK typechecks produced false ownership claims in conditional
+children, multiline unused bindings, multiple root views and a locally
+shadowed `sheet`. Freeze those four cases as errors. The owner contract is
+SHA-256 `db7d7ce2ccd74cb3181dc9f495b2ff77337b73888baf0a0410494641c44f3fc8`;
+the 48-case manifest is
+`0304c0f205185bc9fc77426c1f2d1e236f4d805f59d42a98a8e46d03a987165f`;
+the sorted Swift fixture manifest is
+`14372fd5bffc864f6e2a7dfcb6cb9e02d1eba617a647a653b671f73ce87a766f`.
+
+A further two-file typechecked example resolves `.navigationTitle` to a
+custom extension defined in the other file; the source-only candidate instead
+reported its literal as a SwiftUI title. The same page file alone cannot
+prove which declaration the compiler selects. This is evidence for the
+existing unresolved-symbol rule, not a claim that the single-file fixture
+format tests a full build graph. The candidate remains unmerged. A compatible
+implementation needs verified build/symbol context or must fail closed, and
+must not erase existing dynamic-title assertions to obtain a passing gate.
+
+Revision 9 freeze checks: `python3 -m unittest discover -s spec/v1/tools -p
+test_spec_golden.py` → PASS, 66 tests; `bash scripts/ci/check.sh --only
+phone-spec,phone-p0-conformance,phone-cross-tree` → PASS / FAIL / PASS. These
+checks validate fixture structure and registry consistency; the extractor
+implementation and P0 gate remain incomplete.
