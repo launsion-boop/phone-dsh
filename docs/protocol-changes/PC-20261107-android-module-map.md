@@ -115,3 +115,17 @@ Registry review also adds both schema files and the shared vector file to P12
 triggers, and registers the actual mapping checker and mutation tests as P08
 and P12 evidence. This prevents a schema-only change from omitting its package
 boundary impact; it does not change the frozen inventory or version.
+
+## Implementation and gate evidence
+
+At implementation head `1eb49bff`, `python3 android/tools/structure_check.py
+--root .` passed all 14 structural checks, including exact mapping, while its
+16 KB artifact probe explicitly SKIPPED because no Android JNI artifact was
+built. `python3 -m unittest discover -s android/tools -p
+ test_structure_check.py` → PASS, 37 tests. A later
+`bash scripts/ci/check.sh --only phone-android-structure` reported PASS after
+87 tool tests and 17 packaged-alignment mutation tests, with 3 tool tests
+SKIPPED. That stage result does not establish the actual 16 KB Android
+artifact, Android GATT or device-task support. The protocol and cross-tree gates
+passed separately; `phone-p0-conformance` remains FAIL on the missing page
+inventory/contract issues recorded in GAP-19 and GAP-21.
