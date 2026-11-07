@@ -7,12 +7,15 @@ change the packed preset. The frozen P09 revision and compatibility decision
 are in [PC-20261107-web-search-note](../protocol-changes/PC-20261107-web-search-note.md).
 
 * Fixed DSH checkout `7be5505b0be06009d74891c869063c9cf19a0df0`:
-  `pnpm run build:artifacts` → PASS, 7/7; `PDSH_DSH_CHECKOUT=<checkout> node
+  `pnpm run build:artifacts` → PASS, 7/7; `PDSH_DSH_CHECKOUT=/private/tmp/pdsh59-upstream-dsh node
   plugins/scripts/dsh-checkout.mjs --verify` → PASS, 7 artifacts, tracked source
   clean. The checkout and artifacts are temporary and are not vendored.
 * Actual WASI Python build and `bash plugins/wasi-toolbox/python/build.sh
-  --check --out <artifacts>` → PASS; 33 selected runtime tests → PASS, 0 skip.
-  jq `build.sh --check` → PASS; 24 selected runtime tests → PASS, 0 skip.
+  --check --out /private/tmp/pdsh59-python-wasi` → PASS with Node 22 in PATH;
+  33 selected runtime tests → PASS, 0 skip. `bash plugins/wasi-toolbox/jq/build.sh
+  --check --out /private/tmp/pdsh59-jq-wasi --cache /private/tmp/pdsh59-jq-cache`
+  → PASS with the isolated Rust toolchain; 24 selected runtime tests → PASS,
+  0 skip.
 * `bash scripts/ci/check.sh --only phone-plugins` with Node 22.21.1, the verified
   `PDSH_DSH_CHECKOUT`, `PDSH_PYTHON_ARTIFACTS`, `PDSH_PYTHON_WASM`,
   `PDSH_PYTHON_STDLIB`, `PDSH_JQ_ARTIFACTS` and `PDSH_CHROMIUM` set to the
@@ -20,6 +23,20 @@ are in [PC-20261107-web-search-note](../protocol-changes/PC-20261107-web-search-
   0 skipped. Earlier failures in two outdated test inputs were fixed without
   changing the implementations under test. The new device-task preset is now
   explicitly checked for its isolation gate and absence of tool plugins.
+
+  The precise gate invocation was:
+
+  ```sh
+  PATH="$HOME/.nvm/versions/node/v22.21.1/bin:$PATH" \
+  RUSTUP_HOME=/private/tmp/pdsh59-rustup CARGO_HOME=/private/tmp/pdsh59-cargo \
+  PDSH_DSH_CHECKOUT=/private/tmp/pdsh59-upstream-dsh \
+  PDSH_PYTHON_ARTIFACTS=/private/tmp/pdsh59-python-wasi \
+  PDSH_PYTHON_WASM=/private/tmp/pdsh59-python-wasi/python.wasm \
+  PDSH_PYTHON_STDLIB=/private/tmp/pdsh59-python-wasi/python313.zip \
+  PDSH_JQ_ARTIFACTS=/private/tmp/pdsh59-jq-wasi \
+  PDSH_CHROMIUM='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' \
+  bash scripts/ci/check.sh --only phone-plugins
+  ```
 * `bash scripts/ci/check.sh --only phone-spec,phone-p0-conformance,phone-cross-tree`
   → PASS / FAIL / PASS. P0 reports eight missing/stale UI structures; this
   is not page parity or device runtime acceptance.
