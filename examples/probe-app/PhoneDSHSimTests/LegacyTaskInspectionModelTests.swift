@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 import Foundation
+import Observation
 import SwiftUI
 import UIKit
 import XCTest
@@ -23,6 +24,38 @@ final class LegacyTaskInspectionModelTests: XCTestCase {
             return DeviceTaskLegacyInspection(status: .incomplete, entries: [], cancelled: true, reasons: [.cancelled])
         }
         func release() { continuation?.resume(); continuation = nil }
+    }
+
+    private final class ObservationCount: @unchecked Sendable {
+        var value = 0 // Accessed only on the main actor by the test callback.
+    }
+
+    private actor ControlledInspector {
+        private(set) var calls = 0
+        private(set) var cancellations: [Bool] = []
+        private var continuations: [Int: CheckedContinuation<Void, Never>] = [:]
+
+        func inspect() async -> DeviceTaskLegacyInspection {
+            calls += 1
+            let call = calls
+            await withCheckedContinuation { continuations[call] = $0 }
+            let cancelled = Task.isCancelled
+            cancellations.append(cancelled)
+            return DeviceTaskLegacyInspection(
+                status: .incomplete, entries: [], cancelled: cancelled,
+                reasons: [cancelled ? .cancelled : (call == 1 ? .rootUnreadable : .byteBudget)])
+        }
+
+        func release(_ call: Int) { continuations.removeValue(forKey: call)?.resume() }
+    }
+
+    private func waitForCalls(_ expected: Int, inspector: ControlledInspector,
+                              file: StaticString = #filePath, line: UInt = #line) async throws {
+        for _ in 0..<200 {
+            if await inspector.calls >= expected { return }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTFail("Timed out waiting for inspector call \(expected)", file: file, line: line)
     }
 
     private func waitUntil(_ predicate: @escaping @MainActor () -> Bool,
@@ -70,6 +103,95 @@ final class LegacyTaskInspectionModelTests: XCTestCase {
         XCTAssertEqual(model.result?.status, .incomplete)
         XCTAssertEqual(model.result?.cancelled, true)
         XCTAssertFalse(model.cancellationRequested)
+    }
+
+    func testReentrantCancellationBeforeInspectorDoesNotStartIt() async throws {
+        let inspector = ControlledInspector()
+        let model = LegacyTaskInspectionModel(inspect: { await inspector.inspect() })
+        let callback = ObservationCount()
+        withObservationTracking { _ = model.isInspecting } onChange: {
+            MainActor.assumeIsolated {
+                callback.value += 1
+                if callback.value == 1 { model.cancel() }
+            }
+        }
+        model.start()
+        try await waitUntil { !model.isInspecting }
+        let calls = await inspector.calls
+        XCTAssertEqual(calls, 0)
+        XCTAssertNil(model.result)
+        XCTAssertFalse(model.cancellationRequested)
+    }
+
+    func testReentrantClearCannotRestoreCompletedResult() async throws {
+        let inspector = ControlledInspector()
+        let model = LegacyTaskInspectionModel(inspect: { await inspector.inspect() })
+        model.start()
+        try await waitForCalls(1, inspector: inspector)
+        let callback = ObservationCount()
+        withObservationTracking { _ = model.result } onChange: {
+            MainActor.assumeIsolated {
+                callback.value += 1
+                if callback.value == 1 { model.cancelAndClear() }
+            }
+        }
+        await inspector.release(1)
+        try await waitUntil { !model.isInspecting }
+        XCTAssertGreaterThanOrEqual(callback.value, 1)
+        XCTAssertNil(model.result)
+        let calls = await inspector.calls
+        XCTAssertEqual(calls, 1)
+    }
+
+    func testReentrantStartAtCompletionPreservesNewOperationAndItsCancellation() async throws {
+        let inspector = ControlledInspector()
+        let model = LegacyTaskInspectionModel(inspect: { await inspector.inspect() })
+        model.start()
+        try await waitForCalls(1, inspector: inspector)
+        let callback = ObservationCount()
+        withObservationTracking { _ = model.isInspecting } onChange: {
+            MainActor.assumeIsolated {
+                callback.value += 1
+                if callback.value == 1 {
+                    model.start()
+                    model.cancel()
+                }
+            }
+        }
+        await inspector.release(1)
+        try await waitUntil { !model.isInspecting }
+        XCTAssertGreaterThanOrEqual(callback.value, 1)
+        let calls = await inspector.calls
+        XCTAssertEqual(calls, 1, "The cancelled new operation must not enter the inspector")
+        XCTAssertNil(model.result)
+        XCTAssertFalse(model.cancellationRequested)
+    }
+
+    func testReentrantDuplicateCancelDoesNotReleasePausedInspection() async throws {
+        let inspector = ControlledInspector()
+        let model = LegacyTaskInspectionModel(inspect: { await inspector.inspect() })
+        model.start()
+        try await waitForCalls(1, inspector: inspector)
+        let callback = ObservationCount()
+        withObservationTracking { _ = model.cancellationRequested } onChange: {
+            MainActor.assumeIsolated {
+                callback.value += 1
+                if callback.value == 1 { model.cancel() }
+            }
+        }
+        model.cancel()
+        XCTAssertEqual(callback.value, 1, "Repeated cancellation must not recursively notify")
+        XCTAssertTrue(model.isInspecting)
+        XCTAssertTrue(model.cancellationRequested)
+        model.start()
+        let calls = await inspector.calls
+        XCTAssertEqual(calls, 1)
+        await inspector.release(1)
+        try await waitUntil { !model.isInspecting }
+        let cancellations = await inspector.cancellations
+        XCTAssertEqual(cancellations, [true])
+        XCTAssertEqual(model.result, DeviceTaskLegacyInspection(status: .incomplete, entries: [],
+                                                               cancelled: true, reasons: [.cancelled]))
     }
 
     func testRealScannerLeavesEvidenceUnchangedAndDoesNotCreateLock() async throws {

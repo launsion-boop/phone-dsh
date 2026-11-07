@@ -56,3 +56,46 @@ scripts/ci/check.sh --only phone-spec,phone-p0-conformance,phone-cross-tree`.
 Report exact commands and any simulator/device NOT_RUN. The model harness does
 not demonstrate hardware, durable recovery, production session security, or
 Android parity.
+
+## Implementation evidence
+
+The model uses an internally owned operation and a single observable
+presentation snapshot; it rechecks the publication revision after synchronous
+Observation notifications. Existing method and getter names remain. The
+following were run on the implementation tree based on frozen revision
+`602e8000`:
+
+- `bash examples/probe-app/scripts/legacy-inspection-ui-test.sh`: PASS, all
+  18 shared scenarios, repeated-clear and advisory-cancellation checks on macOS, using
+  the real model and a test-only inspector/result stub. Compiling the same
+  harness with the pre-fix model made `start_reentered` FAIL: two inspector
+  calls instead of one.
+- `swiftc -typecheck -I .build/out/Products/Debug examples/probe-app/PhoneDSHProbe/LegacyTaskInspectionModel.swift`:
+  PASS against the locally built macOS `PhoneDSHDeviceTasks` module.
+- The iOS simulator test target built successfully with `xcodebuild -project
+  PhoneDSHProbe.xcodeproj -scheme PhoneDSHSim -configuration Debug
+  -destination 'platform=iOS Simulator,id=4166F406-E0EB-4A13-97A9-059E12B81E2C'
+  -derivedDataPath /private/tmp/pdsh59-legacy-ui-derived
+  -clonedSourcePackagesDirPath /private/tmp/pdsh59-legacy-ui-packages
+  -only-testing:PhoneDSHSimTests/LegacyTaskInspectionModelTests
+  CODE_SIGNING_ALLOWED=NO build-for-testing`. This compiles the added iOS
+  tests but does not run them. The build changed the root `Package.resolved`;
+  its pre-build contents were restored after inspection.
+- `bash examples/probe-app/scripts/legacy-inspection-ui-test.sh --ios-simulator`:
+  PASS, the 18 shared scenarios and both additional checks in a temporary iOS
+  18.4 simulator, using the real model and the stub inspector/result. A linker
+  warning reported a macOS sysroot while targeting the simulator; a separate
+  `xcrun vtool -show-build` inspection of the identically built executable
+  reported platform `IOSSIMULATOR`, minimum iOS 18.4, SDK 27.0. The test
+  simulator was shut down and deleted. This is model runtime evidence, not
+  evidence for the real inspector or SwiftUI presentation.
+- `swift test --filter DeviceTaskLegacyInspectorTests`: PASS, 20 tests on
+  macOS. The fixture schema command above: PASS, 6 tests. The three-gate
+  command above: phone-spec PASS, phone-p0-conformance FAIL (stale page
+  contracts and page checker test), phone-cross-tree PASS.
+
+The actual iOS test bundle was NOT_RUN on this tree; an earlier attempt with
+the available 18.4 runtime failed to load `libswiftWebKit.dylib`. iPhone,
+ESP32, Android, physical power loss and authenticated task-session acceptance
+are NOT_RUN. This implementation does not close GAP-16 or the unrelated
+identity-confirmation Observation gap.
