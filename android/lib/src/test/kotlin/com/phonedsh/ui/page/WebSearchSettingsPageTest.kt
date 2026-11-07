@@ -461,7 +461,7 @@ class WebSearchSettingsPageTest {
     @Test
     fun `还要知道 folds and unfolds from the live event`() {
         val contractPath = SpecFixtures.repoRoot.resolve("spec/ui/v1/pages/web-search-settings.json")
-        val contract = JsonValue.parse(Files.readString(contractPath)) as JsonObject
+        val contract = JsonValue.parse(String(Files.readAllBytes(contractPath), Charsets.UTF_8)) as JsonObject
         val sections = (contract["sections"] as JsonArray).values.map { it as JsonObject }
         val notes = sections.single { (it["id"] as? JsonString)?.value == "还要知道" }
         val rows = (notes["rows"] as JsonArray).values.map { it as JsonObject }
