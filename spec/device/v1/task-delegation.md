@@ -95,11 +95,17 @@ UTF-8, UTF-16 and UTF-32 JSON encodings accepted by the platform's existing
 record decoder, including its supported initial encoding markers; lossless
 text transcoding is allowed, but decoding to an object and re-encoding it is
 not. Reject malformed JSON syntax or invalid Unicode scalars anywhere in the
-record, including unknown outer values. There must be exactly
-one top-level `task` member (names compared as decoded Unicode scalar
-sequences). The original task bytes must satisfy the task rules in § Task and
+record, including unknown outer values. Each known top-level record member
+(`v`, `device_id`, `task`, `fingerprint`, `msg_id`, `request_id`, `seq`,
+`session_id`, `phase`, `deadline_ms`, `outcome`) may occur at most once, and
+`task` must occur exactly once. Within an `outcome` object each known member
+(`kind`, `output`, `truncated`, `failure_kind`, `message`) may occur at most
+once regardless of outcome kind. Compare names as decoded Unicode scalar
+sequences without normalization; escaped spellings count as the same name.
+Unknown outer and outcome members retain their existing duplicate-name policy.
+The original task bytes must satisfy the task rules in § Task and
 result, including unknown nested members, duplicate names and NUL rejection;
-valid unknown task members remain ignored. An ambiguous or invalid task makes
+valid unknown task members remain ignored. An ambiguous or invalid record or task makes
 the journal corrupt, without rewriting or deleting evidence, acknowledging a
 task, or replaying an operation. Other valid top-level record members keep
 their existing compatibility policy. `golden/task-raw-json-cases.jsonl` is also

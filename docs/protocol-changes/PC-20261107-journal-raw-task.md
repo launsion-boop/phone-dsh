@@ -7,7 +7,7 @@ status: frozen
 breaking: true
 version_decision: Preserve journal v1 and task v1; refuse ambiguous/corrupt old records instead of interpreting or rewriting them.
 base: f0d6c759724d5b889aad319ddbfecf7cbfa6a64d
-contract_revision: spec/device/v1/task-delegation.md@sha256:c9a42fdc21c718dc7fcfbbe1dba8144d6a61b1aff8f08cde7c078e269eee1bbd
+contract_revision: spec/device/v1/task-delegation.md@sha256:834b74f58e3bc2d077bbcaea032dc20cb4b4d01f3648360490229834d8ec844a
 ```
 
 ## Trigger and delta
@@ -49,9 +49,9 @@ Shared task positives and negatives are `spec/device/v1/golden/task-raw-json-cas
 including unknown values, nested duplicate names, escaped names, distinct
 Unicode scalar sequences and NUL in unknown keys/values. Parent inventory cases
 are `spec/device/v1/golden/ble-task-inventory.jsonl`
-(`sha256:bfb01ffc9d843ae2993565fcdc2f7ab58a6c3e67bae93c051e589352e1325699`),
+(`sha256:1d1b53c7ce76265a3b2d6f4d4a175be748b91c055e2668f2425e1a32814bcd81`),
 with schema `spec/device/v1/schema/ble-task-inventory-vector.schema.json`
-(`sha256:a2750beb594f3874c161dcb12d0f3fef19b657d1ffcb1db7c091b78eec69283c`).
+(`sha256:bc3ae30e4b36ca2212232e791faf3f44d63cfa3d6231034888b1190efe176ffb`).
 The `embedded_task_raw_vectors` scenario must run every raw task case through
 actual journal `records()` using a real valid parent and unchanged fingerprint,
 expect each task vector's own `valid`, and compare rejected bytes before/after.
@@ -175,3 +175,24 @@ with the new consumers. The separate compatibility decision for an existing
 parent journal remains unchanged: its supported initial BOMs are accepted, and
 a task extracted from such a parent has no added marker. Rejection must not
 rewrite a journal or authorize or replay a task.
+
+## Revision 7 — unambiguous journal identity and outcome
+
+Independent real-journal tests demonstrated that Foundation silently picks
+one of repeated known parent `device_id` and outcome `output` fields; another
+consumer can select a different identity or terminal result. Freeze the owning
+contract's complete list of known parent and outcome members as unique by
+decoded Unicode scalar sequence, including escaped and same-value duplicates.
+`task` is required exactly once; other known members retain their existing
+required/optional rules. Apply the outcome rule regardless of which outcome
+variant is selected. Preserve duplicate unknown members at both parent and
+outcome levels, and preserve valid outer NUL and encoding compatibility.
+
+This intentionally refuses ambiguous old records previously accepted by the
+Foundation decoder; the actual v1 writer never emitted duplicate names. Keep
+such bytes untouched and unresolved; do not automatically select a value,
+replay, acknowledge or migrate them. The shared inventory cases cover every
+known parent and outcome name, escaped and same-value duplicates, and valid
+duplicate unknown outcome members; tests must drive actual received and
+terminal records and verify failed recovery leaves evidence unchanged.
+The rev6 19-byte-vector count must also replace the previous exact count of 18.
