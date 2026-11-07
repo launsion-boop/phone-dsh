@@ -21,6 +21,20 @@ A task's authenticated `device_id` comes from the connection, never from task te
 
 For LAN, the connection identity is `lan:` followed by lowercase SHA-256 of the UTF-8 exact selected MCP URL. It is meaningful only after the HTTPS connection has authenticated the host and accepted its credential; it is not an identity claimed by discovery or task content. An endpoint or credential change requires a new explicit grant. Grant state is in memory, defaults off and ends on disconnect, revocation or app suspension.
 
+An intake grant is scoped to one non-reusable connection generation, including
+while an asynchronous start is pending. Revocation invalidates that generation
+before waiting for its start or stop to finish. Once revocation returns, no
+intake job belonging to that generation may remain, even when the start reaches
+the intake after revocation began. Cleanup of an old generation must not stop,
+remove, or restore the grant of a later generation, including when two UI
+entries map to the same device identity. A later start may fail busy while an
+old job is still stopping; it requires a fresh user action to retry. A late
+completion or stop callback from an old generation cannot alter the new one.
+Cancellation does not prove that a task submitted before cancellation had no
+effect; its existing journal and unknown-outcome rules remain in force. The
+shared `golden/task-grant-generations.jsonl` cases describe these ordering
+requirements. This does not enable BLE tasks or change the target status.
+
 A device-origin session starts with no model-callable tools: the Worker must create it with a dedicated scoped preset that hides all global tools and denies all tool execution, including future registrations and scoped tools. A missing, changed or unverified isolation preset fails closed before prompting. The host verifies `session/create` and `session/projections` select `pdsh-device-task` and verifies the UTF-8 `agentPresets/read` document SHA-256 equals `fee91c0e29e6cde569076ee899b32935fda12bdb3824501cca58b5b233a12887`. A separate global Worker guard denies all tool execution when the immutable session header records `agentPreset=pdsh-device-task`, even if a blank session is recomposed to a different preset between verification and prompt. The guard and scoped restriction must both be installed before task intake is enabled. This profile does not grant phone or device control tools to the task; adding per-device tool grants requires a later contract revision. A static system-level policy may identify the session as device-originated. Tool results, permission requests and question requests are never sent to the device. Only the final assistant text or an explicit terminal failure is returned. No background availability is promised while iOS suspends the app.
 
 Immediately before creating a session and before every prompt, the host checks the existing `phone/pluginList` inventory for exactly one `include:device-task-guard` entry whose module is `@phone-dsh/dsh-lifecycle-gate/device-guard`, enabled is true and fiber phase is `active`. Missing inventory, duplicate or non-active entries fail closed. This inventory check is in addition to the preset document and session checks; it adds no Remote method.

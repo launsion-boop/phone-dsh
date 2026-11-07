@@ -1,0 +1,6 @@
+{"id":"cancel-before-start","case":"cancel-before-start","expected":{"old_running":false,"new_running":false,"old_may_dispatch":false}}
+{"id":"stop-after-start","case":"stop-after-start","expected":{"old_running":false,"new_running":false,"old_may_dispatch":true}}
+{"id":"old-stop-after-new-start","case":"old-stop-after-new-start","expected":{"old_running":false,"new_running":true,"old_may_dispatch":true}}
+{"id":"same-device-other-entry","case":"same-device-other-entry","expected":{"old_running":false,"new_running":true,"old_may_dispatch":true}}
+{"id":"old-finished-after-new-start","case":"old-finished-after-new-start","expected":{"old_running":false,"new_running":true,"old_may_dispatch":true}}
+{"id":"busy-until-old-stops","case":"busy-until-old-stops","expected":{"old_running":false,"new_running":false,"old_may_dispatch":true}}
