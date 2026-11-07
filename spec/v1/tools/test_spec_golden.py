@@ -594,5 +594,25 @@ class GoldenCheckerTests(unittest.TestCase):
         self.assert_fails(completed, "contains an internal task identifier")
 
 
+class DeviceTaskRawBytesFixtureTests(unittest.TestCase):
+    """The shared byte vectors must be decodable without altering their bytes."""
+
+    def test_task_raw_byte_vectors_match_schema(self):
+        device = SPEC_DIR.parent / "device" / "v1"
+        schema = json.loads((device / "schema" / "task-raw-bytes-vector.schema.json").read_text())
+        rows = [json.loads(line) for line in (device / "golden" / "task-raw-bytes.jsonl").read_text().splitlines()]
+        self.assertTrue(any(row["valid"] for row in rows))
+        self.assertTrue(any(not row["valid"] for row in rows))
+        self.assertEqual(len(rows), len({row["name"] for row in rows}))
+        for row in rows:
+            spec_golden.validate_json(row, schema, row["name"])
+            self.assertTrue(bytes.fromhex(row["hex"]))
+        for bad in ("a", "00zz", "AB"):
+            with self.assertRaises(spec_golden.SpecError):
+                spec_golden.validate_json({"name": "invalid", "valid": False, "hex": bad}, schema, "mutation")
+        with self.assertRaises(spec_golden.SpecError):
+            spec_golden.validate_json({**rows[0], "extra": True}, schema, "mutation")
+
+
 if __name__ == "__main__":
     unittest.main()

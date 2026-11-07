@@ -2,12 +2,12 @@
 
 ```yaml
 change: PC-20261107-journal-raw-task
-contracts: [P07, P18]
+contracts: [P06, P07, P18]
 status: frozen
 breaking: true
 version_decision: Preserve journal v1 and task v1; refuse ambiguous/corrupt old records instead of interpreting or rewriting them.
 base: f0d6c759724d5b889aad319ddbfecf7cbfa6a64d
-contract_revision: spec/device/v1/task-delegation.md@sha256:9cd23d1b318fc0e7951986e5de9dcb549897b1983cda1f89ec44d70526a51531
+contract_revision: spec/device/v1/task-delegation.md@sha256:b6624cf0614d8739a67818a1300e7d18d5643f5a8321c5d7f47accc4f4f852d7
 ```
 
 ## Trigger and delta
@@ -18,7 +18,7 @@ task members can thus disappear before validation. In the owning P07 target
 contract, unknown task members are allowed, but duplicate decoded member names
 and NUL anywhere inside the original task are forbidden. Recovery must apply
 that same rule to the original embedded bytes before any use or mutation.
-Protocol impact: P07, P18. No new wire field, task format, or journal version
+Protocol impact: P06, P07, P18. P06 is triggered by the owning task specification; no Worker session-isolation code is changed. No new wire field, task format, or journal version
 is introduced.
 
 A parent record must contain exactly one top-level `task` name, compared by
@@ -45,7 +45,7 @@ closed and unresolved evidence must remain intact. No C or Python wire
 producer changes: they must still consume the same task fixtures.
 
 Shared task positives and negatives are `spec/device/v1/golden/task-raw-json-cases.jsonl`
-(`sha256:7a5a5b71ddfce2bad775fe6ef13728774fc1fdf9130d53d0e448c5f914fe5b6a`),
+(`sha256:e2b5dde8ae9354daca78f23d486e224a852d59749d1dc2e03ef5ffdf8379c1b8`),
 including unknown values, nested duplicate names, escaped names, distinct
 Unicode scalar sequences and NUL in unknown keys/values. Parent inventory cases
 are `spec/device/v1/golden/ble-task-inventory.jsonl`
@@ -129,3 +129,37 @@ valid exponent to remain accepted. This is not a new numeric-domain limit.
 
 A lossless transcoder must not silently discard trailing incomplete code units;
 shared UTF-16 and UTF-32 parent negatives cover that case.
+
+## Revision 5 — raw task JSON grammar and UTF-8 across all ends
+
+Independent tests found further violations of the existing unknown-member
+contract: Swift eagerly materializes unknown numbers and rejects valid large
+values, Python's default decoder accepts NaN and Infinity and rejects long valid
+integers, and cJSON accepts invalid number spellings, raw controls in strings,
+and invalid UTF-8 in unknown members. A valid ignored JSON number is not bounded
+by native floating-point range or Python's global integer digit limit; it must
+not become an accepted value for a known string field. Invalid syntax and UTF-8
+are rejected, without widening the existing transport size limits. These are
+existing input compatibility/security corrections, not a new wire format.
+
+The shared raw task JSON vectors now cover a 5,000-digit valid unknown integer,
+valid exponent overflow/underflow, invalid non-JSON numeric tokens and raw
+control characters. The additional raw-byte vectors
+`spec/device/v1/golden/task-raw-bytes.jsonl`
+(`sha256:5e6d68e46d7eb88a1a331bef219a27fbac7944747127812771d9677282d27113`)
+use `schema/task-raw-bytes-vector.schema.json`
+(`sha256:7d6ed3bafb7cd1a88ad51d815ff541eb9288f369825a0f2435b1129e72766c2c`)
+to carry invalid UTF-8, non-UTF-8 standalone task bytes, invalid outer whitespace and valid multibyte input as hex. Unlike a legacy parent journal, the standalone task wire is UTF-8. Decode the bytes without
+replacement and run each case through the real Swift, C and Python task
+validators. Also exercise those inputs inside a real Swift journal and preserve
+invalid record bytes. The Swift implementer additionally owns
+`Tests/PhoneDSHDeviceTasksTests/DeviceTaskTests.swift`; the C/Python implementer
+additionally owns `firmware/esp32-reference/main/pdsh_task_validate.c`,
+`firmware/tests/test_task_validate.c`, and `firmware/tests/run.sh`. Do not
+modify the user's global Python integer limit, relax input checks, add a new
+wire field or dependency, or convert ignored numbers to unbounded native values.
+Test known fields with numbers to make sure they are still rejected.
+
+Nesting-depth behavior remains a separate unresolved cross-end gap; these
+fixtures do not establish agreement for arbitrary nesting. No task enablement,
+legacy BLE identity migration or physical-device claim follows from this fix.
