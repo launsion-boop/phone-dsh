@@ -37,13 +37,16 @@ Freeze this revision before implementation. Acceptance: the real extractor's
 actual Android page test, and the standard contract gates. Report skipped Android
 toolchains, stale unrelated pages, and remaining runtime/parity gaps explicitly.
 
-## Verification at ba1b6947
+## Verification at a7e8a724
 
 `python3 spec/ui/v1/tools/extract_ios_pages.py --page WebSearchSettingsPage --check`
-→ PASS. The Android source text matches the unique frozen JSON row; the actual
-Compose test → INCOMPLETE: Gradle entered dependency resolution and compilation
-but stalled downloading a remote artifact; the run was stopped (exit 130) before
-the test executed. No Compose PASS or test failure is claimed. `bash scripts/ci/check.sh --only
+→ PASS. The Android source text matches the unique frozen JSON row. The first actual
+Compose run stalled on dependency download and was stopped before testing; a
+retry exposed a test compilation error, fixed at `a7e8a724`. With a temporary
+repository mirror and isolated Gradle cache, the real `WebSearchSettingsPageTest`
+then passed: 22 tests, 0 failures, 0 skips on Robolectric. The Android 14
+Robolectric jar matched Maven Central's published SHA-256; only a sample of
+the other mirrored dependencies was checked. This is not a physical device test. `bash scripts/ci/check.sh --only
 phone-spec,phone-p0-conformance,phone-cross-tree` → PASS / FAIL / PASS; P0 now
 reports eight other missing or stale page contracts. This does not prove overall
 Android page parity or any physical-device behavior.

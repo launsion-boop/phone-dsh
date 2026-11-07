@@ -1,7 +1,7 @@
 # PR 59 validation, 2026-11-07
 
-Base: `9b3b31e7291695530765c7d61a32753d902748f9`. Test head: `ba1b6947`
-(the subsequent receipt changes documentation only). Protocol impact: P09
+Base: `9b3b31e7291695530765c7d61a32753d902748f9`. Plugin test head:
+`ba1b6947`; Android page test head: `a7e8a724`. Protocol impact: P09
 for the shared web-search note; the plugin change updates a test and does not
 change the packed preset. The frozen P09 revision and compatibility decision
 are in [PC-20261107-web-search-note](../protocol-changes/PC-20261107-web-search-note.md).
@@ -44,8 +44,10 @@ are in [PC-20261107-web-search-note](../protocol-changes/PC-20261107-web-search-
   subsequently run against a temporary loopback SSH fixture (8 tests PASS,
   0 skip). The other skipped SDK checks remain incomplete. Android structure
   returned PASS with three skips and the 16 KB JNI artifact unverified. The
-  real Android Compose test for the P09 note → INCOMPLETE: dependency download
-  stalled and the run was stopped before the test executed (exit 130). Neither result is physical-device evidence.
+  Android `WebSearchSettingsPageTest` subsequently passed on Robolectric: 22
+  tests, 0 failures, 0 skipped. This used a temporary mirror and isolated cache;
+  the Robolectric Android 14 jar matched Maven Central's published SHA-256,
+  while other mirror artifacts were only sampled. Neither result is physical-device evidence.
 * `phone-hygiene` remains FAIL (42 findings, also present on the base) and
   `phone-gate-contracts` remains FAIL because its hygiene self-test runs that
   scanner. No allowlist, scanner, baseline, or license was weakened to hide it.
