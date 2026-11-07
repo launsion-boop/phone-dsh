@@ -197,6 +197,7 @@ GAP-12／GAP-13 是同一批實作要修的 iOS 缺口，不是合約變更。
 | GAP-17／P07（LAN 參考發布） | `examples/lan-mcp-device/server.py` 的 `dns-sd -R` 由系統選擇 SRV target，未驗證其符合 LAN discovery 名稱規則及與設定的 TLS hostname 一致；decoder 向量不能證明實際發佈值 | 經契約 owner 確定並實作有界、可觀察的發佈驗證或一致性策略；真實 DNS-SD 發佈／解析、名稱不符與失敗路徑有 runtime 證據後才關閉 |
 | GAP-18／P07、P13（LAN A-label） | LAN 三端按 ASCII DNS 标签形状接受部分 A-label；Node 运行的 MCP URL parser 与 macOS／iOS Simulator WKWebView 对 `xn--a.example` 的接受结果不同，产品内 iOS Worker 行为未验证。仅已有正例通过不证明所有候选可消费 | 由 [CCR](../docs/protocol-changes/PC-20261107-lan-idna-ccr.md) 冻结跨端 IDNA/A-label 验证与兼容策略；Swift、Python、Android 和真实 Worker parser 共同运行正反向向量后关闭 |
 | GAP-19／P09（条件编译抽取） | 页面抽取器同时读取 Swift `#if` 的活动与非活动分支；默认关闭的设备任务 UI 仍进入 parity 结果，构建条件与实际产物无法对照 | 按 [CCR](../docs/protocol-changes/PC-20261107-ui-build-profile-ccr.md) 冻结可复核 profile、保留旧数据及正反向 fixture；真实编译条件、提取器 mutation 和跨平台 parity 均通过后关闭 |
+| GAP-20／P07、P08（Android GATT） | Android 普通 Link 目标通道要求区分每次写回调，但 API 26–35 的同连接同特征回调没有写入 token；bond 状态也不能证明当前链路加密。尚无已接入的 Android GATT adapter | 按 [CCR](../docs/protocol-changes/PC-20261107-android-gatt-ccr.md) 冻结可验证的回调归属、权限及安全语义；实际 Android adapter 与通道共同覆盖陈旧/重复回调、失败和断线，并以真机证据验证后才关闭 |
 
 只有修正來源、相關端測試及必要的 integration 證據齊備，才在此記錄關閉與修復 commit。
 
