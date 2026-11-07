@@ -1484,6 +1484,46 @@
         "evidence": "`golden/upstream` 無 runtime 消費者",
         "triggers": "`spec/v1/schema/{scenario-*,perturbation,upstream-script}.schema.json`、`spec/v1/golden/upstream/**`、`scripts/ci/scenarios/**`、`Sources/PhoneDSH{Scenario,Harness}/**`、`android/testkit/**`"
       }
+    },
+    {
+      "id": "P23",
+      "owner_role": "Android SDK toolchain listing owner",
+      "authority": [
+        "spec/toolchain/v1/sdk-manager.md",
+        "spec/toolchain/v1/schema/sdk-manager-listing.schema.json",
+        "spec/toolchain/v1/golden/sdk-manager-listing.jsonl"
+      ],
+      "ends": {
+        "Shell": [
+          "android/tools/bootstrap-android-toolchain.sh"
+        ],
+        "Python": [
+          "android/tools/test_gradle_build_inputs.py"
+        ]
+      },
+      "triggers": [
+        {
+          "glob": "spec/toolchain/v1/**"
+        },
+        {
+          "glob": "android/tools/bootstrap-android-toolchain.sh"
+        },
+        {
+          "glob": "android/tools/test_bootstrap_android_toolchain.py"
+        }
+      ],
+      "status": [
+        "partial"
+      ],
+      "evidence": [
+        "android/tools/test_bootstrap_android_toolchain.py"
+      ],
+      "source": {
+        "authority": "[SDK manager contract](toolchain/v1/sdk-manager.md)、[listing schema](toolchain/v1/schema/sdk-manager-listing.schema.json)、[listing vectors](toolchain/v1/golden/sdk-manager-listing.jsonl)",
+        "ends": "External Android SDK manager（不由倉庫控制）→ `android/tools/bootstrap-android-toolchain.sh` → `android/tools/test_gradle_build_inputs.py`",
+        "evidence": "`android/tools/test_bootstrap_android_toolchain.py` 真實 adapter 正反例；不代替真機測試",
+        "triggers": "`spec/toolchain/v1/**`、`android/tools/bootstrap-android-toolchain.sh`、`android/tools/test_bootstrap_android_toolchain.py`"
+      }
     }
   ]
 }

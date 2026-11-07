@@ -614,6 +614,21 @@ class PageTitleFixtureTests(unittest.TestCase):
                 spec_golden.validate_json(bad, schema, "mutation")
 
 
+class SDKManagerListingFixtureTests(unittest.TestCase):
+    def test_listing_cases_match_schema(self):
+        toolchain = SPEC_DIR.parent / "toolchain" / "v1"
+        schema = json.loads((toolchain / "schema" / "sdk-manager-listing.schema.json").read_text())
+        rows = [json.loads(line) for line in (toolchain / "golden" / "sdk-manager-listing.jsonl").read_text().splitlines()]
+        self.assertEqual(len(rows), 12)
+        self.assertEqual(len(rows), len({row["name"] for row in rows}))
+        for row in rows:
+            spec_golden.validate_json(row, schema, row["name"])
+        for bad in ({**rows[0], "extra": True}, {**rows[0], "exit_code": -1},
+                    {**rows[0], "installed": ["not-a-package"]}):
+            with self.assertRaises(spec_golden.SpecError):
+                spec_golden.validate_json(bad, schema, "mutation")
+
+
 class DeviceTaskRawBytesFixtureTests(unittest.TestCase):
     """The shared byte vectors must be decodable without altering their bytes."""
 
