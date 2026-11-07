@@ -77,6 +77,11 @@ locally and enters `STOPPING`; once start returns, request stop with the same
 callback, or quarantine on exception. Stop uses the
 same callback instance as start. Errors, unavailable hardware, Bluetooth off,
 denied permission and a successful scan with no results remain distinguishable.
+Recheck the required scan permission when platform start returns, on each
+candidate, and on host start or screen-on. If permission has been revoked,
+invalidate locally and request stop; a stop exception requires quarantine.
+An ordinary app has no guaranteed immediate permission-change callback here;
+without a relevant event the UI may temporarily show the previous state.
 Repeated start while starting or scanning does not create another scan. The
 owner establishes the generation synchronously and invokes potentially
 blocking platform start and stop calls on the same serialized worker; local

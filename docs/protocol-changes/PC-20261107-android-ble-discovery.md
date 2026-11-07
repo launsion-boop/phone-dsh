@@ -7,7 +7,7 @@ status: frozen
 breaking: false
 version_decision: Add local untrusted discovery UI and API only; no wire or persistence version change.
 base: 46c4c57b9c40e87baa5b70cb37018e9abee6c6d4
-contract_revision: spec/device/v1/android-ble-discovery.md@discovery-v7
+contract_revision: spec/device/v1/android-ble-discovery.md@discovery-v8
 ```
 
 Protocol impact: P07; P08; P09. The Android app has no production BLE
@@ -91,3 +91,8 @@ now issues host facades and non-reusable page sessions; all actions and
 candidate snapshots are owner-scoped. Other owners see BUSY without candidates.
 Host lifecycle and permission launch are bound to that host, never a global
 last-attached Activity. New users or recreated Activities need a fresh action.
+
+Revision v8: recheck scanning permission at start completion and on the next
+host/screen event, as well as candidate delivery. Revocation causes local
+invalidation and a stop request; without an event no immediate observation is
+promised, and synchronous stop errors remain quarantined.
