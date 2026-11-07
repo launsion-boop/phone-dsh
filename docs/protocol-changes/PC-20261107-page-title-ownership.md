@@ -7,7 +7,7 @@ status: frozen
 breaking: false
 version_decision: Preserve page-structure/1; reject ambiguous extraction instead of guessing.
 base: 00402003f6efde6c5fdda3032053443dd5a7d76f
-contract_revision: spec/ui/v1/page-title-ownership.md@sha256:0147368ae18bce4668d21e5c8e85a40a671c52b2d8624728db91a9016b4f7a65
+contract_revision: spec/ui/v1/page-title-ownership.md@sha256:89d9fc20c8ac440235e35d223b06b5852cdabce55b5afedf97c9910a9ce0f2ef
 ```
 
 ## Trigger and delta
@@ -42,11 +42,11 @@ the ambiguity and is not evidence of page parity.
 Owning `spec/ui/v1/page-title-ownership.md` is frozen at the SHA above;
 `spec/ui/v1/page-completeness.md@sha256:7c2226e5d1da39fb2bb65a38b19fcd925f324904f56aa29bd33192769aad64ec`
 registers its requirement. `schema/page-title-cases.schema.json` has SHA-256
-`a866581c8d40e3cbdb0cc469544ea56f50ac6d93a0070092538fe5182259cfe5`;
+`30460a1373c549bc2c2b90580502101ca8bbb1c95f9b117fd75ebf53ecce54c0`;
 `golden/page-title/cases.jsonl` has SHA-256
-`77af0b6e32e0267d23430016fedc7612088a42e3024f57129731f0ade67885b0`.
-The 18 Swift source fixture manifest has SHA-256
-`cf106652d52f52426e735763879fcbc428478a46beba7aa57833cc4025b256dc`,
+`c63a71a9b8eefd2c22d99683a5591a93bff557613a33a6953b989cc809456b01`.
+The 25 Swift source fixture manifest has SHA-256
+`7cdd249c53f7887062f2fb88e33c71e5e26e219e48746e88a8890da0a2703827`,
 calculated by concatenating sorted `<sha256>  <filename>\n` entries. Their
 expected title text, source line and anchor are specified independently of the
 extractor. The schema checker also rejects malformed fixture rows.
@@ -61,3 +61,21 @@ repository's full extraction diff and existing mutation suite. Acceptance:
 `bash scripts/ci/check.sh --only phone-spec,phone-p0-conformance,phone-cross-tree`.
 Record failures and skips exactly. Source-extraction results are not proof of
 Android parity, a production build profile, or SwiftUI runtime behavior.
+
+## Revision 2 — raw-string, comment and dynamic-expression ownership
+
+Independent Swift frontend and extractor tests found that raw Swift string
+delimiters can expose fake titles and braces to the shared structural mask,
+and title-argument comments can supply an incorrect label. Repair may change
+`mask_comments` only as needed to correctly mask ordinary/raw single and
+multiline strings and detect an unterminated raw string while preserving offsets
+and newlines. Since this helper is shared, compare the complete repository
+extraction, including rows, actions and provenance, and run all existing
+extractor mutations; do not silently rewrite or delete contracts.
+
+Shared cases also require interpolation and a ternary parent expression to
+remain non-literal/null, an unsupported Unicode escape in a would-be static
+title to fail rather than invent text, and `navigationDestination(item:)` to
+be treated as a destination. The case schema only permits a successful title
+or absent result for syntactically valid source; schema mutation tests cover
+that restriction. These cases do not decide SwiftUI runtime preferences.

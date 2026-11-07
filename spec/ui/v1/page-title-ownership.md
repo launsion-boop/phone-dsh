@@ -12,6 +12,18 @@ can be either a destination or a label depending on the call form. A child
 title must never be selected merely because it appears first or is a literal
 while the parent's title is dynamic. A page without a supported literal parent
 title remains `title: null` under the existing `/1` representation.
+An interpolated literal, ternary or other nontrivial dynamic expression is not
+a static title merely because it contains a string literal; the existing
+supported `NativeText` form keeps its established source representation. If a
+literal's escaping cannot be decoded reliably, fail rather than invent text.
+
+Lexical classification must ignore fake syntax in ordinary and Swift raw
+strings (including multiple-hash and multiline delimiters) and comments,
+preserving source offsets and line numbers. A comment inside a title argument
+cannot supply its label. Unterminated raw strings fail visibly. Because the
+structural mask is shared by the extractor, a change to it must also be checked
+against the existing row, action and source-provenance fixtures and the full
+repository extraction diff; it is not confined to title metadata.
 
 When source ownership or precedence is not established, including multiple
 potential page titles, conditional compilation ambiguity, title modifiers in

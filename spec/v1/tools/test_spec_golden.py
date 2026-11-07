@@ -600,7 +600,7 @@ class PageTitleFixtureTests(unittest.TestCase):
         schema = json.loads((ui / "schema" / "page-title-cases.schema.json").read_text())
         directory = ui / "golden" / "page-title"
         rows = [json.loads(line) for line in (directory / "cases.jsonl").read_text().splitlines()]
-        self.assertEqual(len(rows), 18)
+        self.assertEqual(len(rows), 25)
         self.assertEqual(len(rows), len({row["name"] for row in rows}))
         self.assertEqual({row["file"] for row in rows}, {path.name for path in directory.glob("*.swift")})
         self.assertEqual({row["outcome"] for row in rows}, {"title", "absent", "error"})
@@ -608,7 +608,8 @@ class PageTitleFixtureTests(unittest.TestCase):
             spec_golden.validate_json(row, schema, row["name"])
         title = next(row for row in rows if row["outcome"] == "title")
         for bad in ({**title, "extra": True}, {k: v for k, v in title.items() if k != "title"},
-                    {**title, "outcome": "guess"}):
+                    {**title, "outcome": "guess"}, {**title, "syntax": "invalid"},
+                    {**next(row for row in rows if row["outcome"] == "absent"), "syntax": "invalid"}):
             with self.assertRaises(spec_golden.SpecError):
                 spec_golden.validate_json(bad, schema, "mutation")
 

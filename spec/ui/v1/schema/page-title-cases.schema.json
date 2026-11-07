@@ -26,10 +26,7 @@
           "minLength": 1
         },
         "syntax": {
-          "enum": [
-            "valid",
-            "invalid"
-          ]
+          "const": "valid"
         },
         "outcome": {
           "const": "title"
@@ -83,10 +80,7 @@
           "minLength": 1
         },
         "syntax": {
-          "enum": [
-            "valid",
-            "invalid"
-          ]
+          "const": "valid"
         },
         "outcome": {
           "const": "absent"

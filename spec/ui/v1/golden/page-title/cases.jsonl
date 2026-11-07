@@ -16,3 +16,10 @@
 {"name":"conditional_title_ambiguous","file":"conditional_title_ambiguous.swift","page":"FixturePage","syntax":"valid","outcome":"error","note":"Raw-source profile cannot decide active #if branch; GAP-19 remains open."}
 {"name":"removed_destination_wrapper","file":"removed_destination_wrapper.swift","page":"FixturePage","syntax":"valid","outcome":"error","note":"Negative mutation: removing NavigationLink removes evidence the child title is separate."}
 {"name":"unclosed_destination","file":"unclosed_destination.swift","page":"FixturePage","syntax":"invalid","outcome":"error","note":"Malformed source must fail visibly instead of selecting a partial title."}
+{"name":"raw_strings","file":"raw_strings.swift","page":"FixturePage","syntax":"valid","outcome":"title","title":{"text":"Parent","provenance":"raw_strings.swift:12","anchor":".navigationTitle(\"Parent\")"}}
+{"name":"title_argument_comment","file":"title_argument_comment.swift","page":"FixturePage","syntax":"valid","outcome":"title","title":{"text":"Real","provenance":"title_argument_comment.swift:6","anchor":".navigationTitle(/* \"Fake\" .navigationTitle(\"Not a title\") */ \"Real\")"}}
+{"name":"unclosed_raw_string","file":"unclosed_raw_string.swift","page":"FixturePage","syntax":"invalid","outcome":"error","note":"Unclosed raw string must fail visibly."}
+{"name":"interpolated_parent","file":"interpolated_parent.swift","page":"FixturePage","syntax":"valid","outcome":"absent"}
+{"name":"ternary_parent","file":"ternary_parent.swift","page":"FixturePage","syntax":"valid","outcome":"absent"}
+{"name":"unsupported_unicode_escape","file":"unsupported_unicode_escape.swift","page":"FixturePage","syntax":"valid","outcome":"error"}
+{"name":"navigation_item","file":"navigation_item.swift","page":"FixturePage","syntax":"valid","outcome":"title","title":{"text":"Parent","provenance":"navigation_item.swift:9","anchor":".navigationTitle(\"Parent\")"}}
