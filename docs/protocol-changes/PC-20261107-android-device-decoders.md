@@ -39,4 +39,24 @@ Clarifies receiver FIRST/reset semantics and the limits of detecting reordered f
 
 Android BLE and LAN decoders are implemented as internal, non-wired code; Android GATT, discovery, authorization and UI are not implemented by this change. The BLE decoder reads all 171 shared valid and 3 invalid frame vectors; LAN reads the existing and raw TXT vector sets. With a locally configured JDK 17 and Android SDK, `cd android && ./gradlew :domain:testDebugUnitTest --tests '*BleLink*' --tests '*LanDiscovery*'` → PASS (10 tests, no skips). `swift test --filter 'LANAdvertisementTests|PDSHLinkTests'` → PASS (5 LAN and 11 BLE tests). `bash firmware/tests/run.sh` → PASS with the locked cJSON sources and the explicitly unavailable identity host stub; this is not identity or radio evidence. Physical Android, iPhone, ESP32, DNS-SD/GATT lifecycle, authentication and device-task E2E → NOT_RUN. Existing P0 and hygiene gates remain FAIL. GAP-17 and GAP-18 remain open.
 
+## Raw DNS-SD provider candidate, not adopted
+
+An isolated macOS single-interface UDP experiment evaluated JmDNS 3.6.5.
+Its actual resolved callback preserved the SRV hostname and raw TXT bytes,
+including case-insensitive duplicate profile entries, and reported an updated
+TXT record. An independent listener confirmed every transmitted experiment
+packet arrived byte-for-byte. In a separate case the TXT TTL was four seconds
+while PTR, SRV and address TTLs were 120 seconds: the library's cache no longer
+contained TXT after approximately ten seconds, but the higher-level listener
+did not receive a new resolved or removed callback within 32 seconds. Keeping
+the last valid callback as a live candidate can therefore retain expired TXT.
+The test used a uniquely named temporary service and sent a goodbye afterward.
+
+This result does not establish Android behavior, multi-interface isolation,
+TLS or a general library defect. It does mean raw-byte preservation alone is
+insufficient to select this provider. Any future adapter must define and test
+record-specific expiry, invalid updates, cancellation and interface lifetime
+against the existing decoder before exposing candidates or granting authority.
+No dependency or production provider is added by this observation.
+
 Additional gate observations: `bash scripts/ci/check.sh --only phone-android-structure,phone-gate-contracts` → FAIL / FAIL. The structure checker expects 11 Swift module directories and reports 16 on this branch; the base main reports 13 against the same expected 11. The gate-contract selftest fails because the repository hygiene scan reports existing findings. `bash scripts/ci/check.sh --only phone-plugins,phone-image,phone-sdk` → SKIP / SKIP / FAIL on the first run: plugin dependencies were absent, and one WebEngine JIT benchmark returned no duration. The same JIT test passed when rerun alone; that does not turn the original aggregate failure into a pass. These gate failures and skips remain open pending full reruns and diagnosis.
