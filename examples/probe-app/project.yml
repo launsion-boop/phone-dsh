@@ -89,6 +89,12 @@ targets:
         product: PhoneDSHSSH
       - package: PhoneDSH
         product: PhoneDSHADB
+      - package: PhoneDSH
+        product: PhoneDSHLAN
+      - package: PhoneDSH
+        product: PhoneDSHBLE
+      - package: PhoneDSH
+        product: PhoneDSHDeviceTasks
       - package: SwiftMarkdown
         product: Markdown
       - package: SwiftMath
@@ -104,6 +110,7 @@ targets:
         # errSecMissingEntitlement for every keychain query.
         CODE_SIGN_ENTITLEMENTS: Config/PhoneDSHProbe.entitlements
         SUPPORTS_MACCATALYST: NO
+        # The target device-task profile is enabled only in explicit test builds.
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks"
 
   ProbeKit:
@@ -234,6 +241,8 @@ targets:
         product: PhoneDSHLoopback
       - package: PhoneDSH
         product: PhoneDSHAgentCore
+      - package: PhoneDSH
+        product: PhoneDSHDeviceTasks
       # The simulator suites import the linked shell provider exposed by the
       # shared WebHostConfiguration assembly.
       - package: PhoneDSH
@@ -283,6 +292,7 @@ targets:
     platform: iOS
     sources:
       - path: PhoneDSHSimTests
+      - path: PhoneDSHDeviceTests
       # Keep the device twin at parity with PhoneDSHSimTests: each shared
       # production presentation source is compiled into this test module too.
       - path: PhoneDSHProbe/MCPSettingsModel.swift
@@ -322,6 +332,8 @@ targets:
       - package: PhoneDSH
         product: PhoneDSHAgentCore
       - package: PhoneDSH
+        product: PhoneDSHDeviceTasks
+      - package: PhoneDSH
         product: PhoneDSHShell
     settings:
       base:
@@ -349,6 +361,27 @@ targets:
         SKIP_INSTALL: YES
         TARGETED_DEVICE_FAMILY: "1"
         TEST_TARGET_NAME: PhoneDSHProbe
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @loader_path/Frameworks"
+
+  PhoneDSHBLEHardwareTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: PhoneDSHBLEHardwareTests
+    dependencies:
+      - target: PhoneDSHProbe
+      - package: PhoneDSH
+        product: PhoneDSHBLE
+      - package: PhoneDSH
+        product: PhoneDSHAgentCore
+      - package: PhoneDSH
+        product: PhoneDSHLoopback
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.phone-dsh.probe.blehardwaretests
+        PRODUCT_NAME: PhoneDSHBLEHardwareTests
+        GENERATE_INFOPLIST_FILE: YES
+        SKIP_INSTALL: YES
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @loader_path/Frameworks"
 
 schemes:
@@ -468,3 +501,13 @@ schemes:
       config: Debug
     archive:
       config: Debug
+
+  PhoneDSHBLEHardware:
+    build:
+      targets:
+        PhoneDSHProbe: all
+        PhoneDSHBLEHardwareTests: [test]
+    test:
+      config: Debug
+      targets:
+        - PhoneDSHBLEHardwareTests

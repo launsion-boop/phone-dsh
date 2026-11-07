@@ -71,3 +71,7 @@ The app sets the independent Worker shell backstop to 3600000 ms; caller
 timeouts/abort signals remain authoritative. Normal action replies summarize
 the result and location; raw logs and repeated failure explanations are omitted
 unless requested.
+
+## BLE tools (target)
+
+The existing authenticated native MCP endpoint may additionally expose `ble_devices`, `ble_read`, `ble_alert`, `ble_link_tools`, `ble_link_call` and `ble_link_result`. These are additive tool names; older servers do not advertise them. Device scans, connection and per-tool grants require user action. The Link call and result semantics, bounded frames, per-connection grants and side-effect journal rules are defined by [BLE Link](../device/v1/ble-link.md). An Immediate Alert write has no execution acknowledgement and is reported as submitted, never applied. Uncertain effects must not be automatically replayed. Android tools remain available on the same endpoint.

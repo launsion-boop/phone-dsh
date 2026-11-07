@@ -2024,7 +2024,7 @@ public object UiStrings {
     public const val WEB_SEARCH_SECTION_WARNING: String = "需要处理"
     public const val WEB_SEARCH_WARNING_TAIL: String = "重启本地引擎之后这行提示会自己消失。"
     public const val WEB_SEARCH_SECTION_NOTES: String = "还要知道"
-    public const val WEB_SEARCH_NOTE_MODEL: String = "用模型服务自带的搜索时,抓网页这件事也归它管,这里不再单独设。"
+    public const val WEB_SEARCH_NOTE_MODEL: String = "沿用模型服务时，网页搜索和抓取共用官方 DeepSeek 模型密钥。"
     public const val WEB_SEARCH_NOTE_KEY: String = "密钥只存在这台手机上,本地引擎拿到的只是一个占位。"
     public const val WEB_SEARCH_NOTE_RESTART: String = "存好或删掉之后要重启本地引擎才生效;重启不会动你的文件夹和会话。"
     public const val WEB_SEARCH_FAILURE_KEY: String = "读取不到这台设备上的密钥"

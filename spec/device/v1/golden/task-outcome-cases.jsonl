@@ -1,0 +1,4 @@
+{"name":"completed","valid":true,"action":"complete","body":{"output":"OK","truncated":false}}
+{"name":"failed","valid":true,"action":"fail","body":{"failure":{"kind":"failed","message":"Unavailable"}}}
+{"name":"output_nul","valid":false,"action":"complete","body":{"output":"bad\u0000text","truncated":false}}
+{"name":"failure_nul","valid":false,"action":"fail","body":{"failure":{"kind":"failed","message":"bad\u0000text"}}}

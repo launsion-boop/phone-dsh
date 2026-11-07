@@ -23,6 +23,7 @@ import struct PhoneDSHController.RestartPolicy
 import PhoneDSHEngine
 import PhoneDSHShell
 import PhoneDSHADB
+import PhoneDSHBLE
 
 // MARK: - Settings persistence
 
@@ -1095,7 +1096,7 @@ final class ChatModel {
         configuration.execProvider = ADBExecProvider(workspace: materializedWorkspace, fallback: sshProvider,
                                                       byteLimit: configuration.budgets.singleFileBytes)
         configuration.acceleratorNames = shell.channelAcceleratorNames + ["ssh", "scp", "adb"]
-        configuration.nativeMCP = ADBMCPServer.shared
+        configuration.nativeMCP = DeviceMCPServer.shared
         configuration.engine.bootTimeout = ChatHostConfiguration.defaultBootTimeout
         configuration.engine.environment = environment
         let anchor = self.anchor

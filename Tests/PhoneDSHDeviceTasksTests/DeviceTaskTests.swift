@@ -1,0 +1,247 @@
+// SPDX-License-Identifier: MIT
+import Foundation
+import XCTest
+import PhoneDSHAgentCore
+@testable import PhoneDSHDeviceTasks
+
+struct SharedRawBytesCase: Decodable {
+    let name: String
+    let valid: Bool
+    let hex: String
+
+    func data() throws -> Data {
+        let characters = Array(hex.utf8)
+        guard characters.count.isMultiple(of: 2) else { throw DeviceTaskError.invalidTask }
+        return Data(try stride(from: 0, to: characters.count, by: 2).map { index in
+            try XCTUnwrap(UInt8(String(decoding: characters[index..<(index + 2)], as: UTF8.self), radix: 16))
+        })
+    }
+}
+
+func sharedRawTaskBytesCases() throws -> [SharedRawBytesCase] {
+    let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    let fixture = root.appendingPathComponent("spec/device/v1/golden/task-raw-bytes.jsonl")
+    return try String(contentsOf: fixture, encoding: .utf8).split(separator: "\n").map {
+        try JSONDecoder().decode(SharedRawBytesCase.self, from: Data($0.utf8))
+    }
+}
+
+private actor TestInbox: DeviceTaskInbox {
+    var accepted: [String] = []
+    var reports: [(String, DeviceTaskOutcome)] = []
+    var failReport = false
+    func accept(id: String) async throws { accepted.append(id) }
+    func report(id: String, outcome: DeviceTaskOutcome) async throws {
+        if failReport { throw CocoaError(.fileWriteUnknown) }
+        reports.append((id, outcome))
+    }
+    func setFailReport(_ value: Bool) { failReport = value }
+    func reportValues() -> [DeviceTaskOutcome] { reports.map(\.1) }
+    func acceptCount() -> Int { accepted.count }
+}
+
+private actor TestRunner: DeviceTaskRunner {
+    var runs = 0
+    var delayMS = 0
+    func session(for deviceID: String, existingSession: String?) async throws -> String { "session-" + deviceID }
+    func run(task: DeviceTask, record: DeviceTaskRecord) async -> DeviceTaskOutcome {
+        runs += 1
+        if delayMS > 0 { try? await Task.sleep(for: .milliseconds(delayMS)) }
+        return .completed(output: "Answer", truncated: false)
+    }
+    func cancel(sessionID: String) async {}
+    func count() -> Int { runs }
+    func setDelay(_ value: Int) { delayMS = value }
+}
+
+final class DeviceTaskTests: XCTestCase {
+    private func task(_ id: String = "task-1", key: String = "key-1", text: String = "Hello") throws -> DeviceTask {
+        let body: [String: Any] = ["id": id, "idempotency_key": key, "requester": "device", "created_at": "2026-11-06T00:00:00Z", "body": ["type": "goal", "text": text]]
+        return try DeviceTask.decode(JSONSerialization.data(withJSONObject: body))
+    }
+    private func directory() -> URL { FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString) }
+
+    func testSharedTaskFixtures() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let fixture = root.appendingPathComponent("spec/device/v1/golden/task-cases.jsonl")
+        for line in try String(contentsOf: fixture, encoding: .utf8).split(separator: "\n") {
+            let row = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])
+            let bytes = try JSONSerialization.data(withJSONObject: XCTUnwrap(row["task"]))
+            let value = try? DeviceTask.decode(bytes)
+            XCTAssertEqual(value != nil, row["valid"] as? Bool, row["name"] as? String ?? "")
+        }
+    }
+
+    func testSharedRawJSONFixturesRejectDuplicateMembers() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let fixture = root.appendingPathComponent("spec/device/v1/golden/task-raw-json-cases.jsonl")
+        for line in try String(contentsOf: fixture, encoding: .utf8).split(separator: "\n") {
+            let row = try JSONValue.parse(Data(line.utf8))
+            let raw = try XCTUnwrap(row["json"]?.stringValue)
+            XCTAssertEqual((try? DeviceTask.decode(Data(raw.utf8))) != nil, row["valid"]?.boolValue,
+                           row["name"]?.stringValue ?? "")
+        }
+    }
+
+    func testSharedRawTaskBytes() throws {
+        let vectors = try sharedRawTaskBytesCases()
+        XCTAssertEqual(vectors.count, 19)
+        for vector in vectors {
+            XCTAssertEqual((try? DeviceTask.decode(vector.data())) != nil, vector.valid, vector.name)
+        }
+    }
+
+    func testKnownFieldsRemainTypedAndNullDeadlineRejected() throws {
+        let valid = #"{"id":"task-1","idempotency_key":"key-1","requester":"sensor","created_at":"2026-11-06T00:00:00Z","body":{"type":"goal","text":"Hello"}}"#
+        XCTAssertNoThrow(try DeviceTask.decode(Data(valid.utf8)))
+        for bad in [
+            valid.replacingOccurrences(of: #""id":"task-1""#, with: #""id":1e9999"#),
+            valid.replacingOccurrences(of: #""requester":"sensor""#, with: #""requester":42"#),
+            valid.replacingOccurrences(of: #""text":"Hello""#, with: #""text":1"#),
+            valid.replacingOccurrences(of: #""body":"#, with: #""deadline":null,"body":"#),
+            valid.replacingOccurrences(of: #""body":"#, with: #""deadline":42,"body":"#),
+        ] {
+            XCTAssertThrowsError(try DeviceTask.decode(Data(bad.utf8)))
+        }
+    }
+
+    func testUTF8LimitsAndSafeOutput() throws {
+        XCTAssertThrowsError(try task(text: String(repeating: "中", count: 257)))
+        let outcome = DeviceTaskOutcome.boundedOutput(String(repeating: "中", count: 400))
+        guard case .completed(let text, let truncated) = outcome else { return XCTFail("missing output") }
+        XCTAssertEqual(text.utf8.count, 1023)
+        XCTAssertTrue(truncated)
+    }
+
+    func testSharedTerminalOutcomeVectors() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let file = root.appendingPathComponent("spec/device/v1/golden/task-outcome-cases.jsonl")
+        for line in try String(contentsOf: file, encoding: .utf8).split(separator: "\n") {
+            let row = try JSONValue.parse(Data(line.utf8)), body = try XCTUnwrap(row["body"])
+            let outcome: DeviceTaskOutcome
+            if row["action"]?.stringValue == "complete" {
+                outcome = .completed(output: try XCTUnwrap(body["output"]?.stringValue), truncated: try XCTUnwrap(body["truncated"]?.boolValue))
+            } else {
+                let failure = try XCTUnwrap(body["failure"])
+                let kind = try XCTUnwrap(DeviceTaskFailureKind(rawValue: XCTUnwrap(failure["kind"]?.stringValue)))
+                outcome = .failed(kind: kind, message: try XCTUnwrap(failure["message"]?.stringValue))
+            }
+            XCTAssertEqual(outcome.isTransportSafe, row["valid"]?.boolValue, row["name"]?.stringValue ?? "")
+        }
+        if case .failed(kind: .failed, _) = DeviceTaskOutcome.boundedOutput("bad\0text") {} else { XCTFail("NUL output must fail") }
+    }
+
+    func testP07UplinkUsesSharedGolden() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let fixture = root.appendingPathComponent("spec/host/v1/golden/device-envelope-uplink-text-task.json")
+        let golden = try JSONValue.parse(Data(contentsOf: fixture))
+        let expected = try XCTUnwrap(golden["instance"])
+        let dir = directory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let journal = try DeviceTaskJournal(directory: dir)
+        let input: [String: Any] = ["id": "task-1", "idempotency_key": "goal-1", "requester": "sensor", "created_at": "2026-11-06T00:00:00Z", "body": ["type": "goal", "text": "Summarize the temperature reading."]]
+        let task = try DeviceTask.decode(JSONSerialization.data(withJSONObject: input))
+        let device = try XCTUnwrap(expected["device_id"]?.stringValue)
+        let inbox = try LANDeviceTaskInbox(mcpURL: XCTUnwrap(URL(string: "https://device.example/mcp")), authorization: "Bearer fixture")
+        XCTAssertEqual(inbox.deviceID, device)
+        let record = try journal.create(deviceID: device, task: task, sessionID: "session-task-1", now: Date())
+        XCTAssertEqual(record.uplinkEnvelope, expected)
+        XCTAssertEqual(record.requestID, "dev:" + (expected["msg_id"]?.stringValue ?? ""))
+    }
+
+    func testJournalLockAndCorruptionFailClosed() throws {
+        let dir = directory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let journal = try DeviceTaskJournal(directory: dir)
+        XCTAssertThrowsError(try DeviceTaskJournal(directory: dir))
+        let record = try journal.create(deviceID: "device-1", task: task(), sessionID: "s1", now: Date())
+        XCTAssertEqual(record.requestID, "dev:" + record.msgID)
+        XCTAssertEqual(record.seq, 1)
+        XCTAssertThrowsError(try journal.create(deviceID: "device-1", task: task("different", key: "key-1"), sessionID: "s1", now: Date()))
+        XCTAssertThrowsError(try journal.create(deviceID: "device-1", task: task("task-1", key: "different"), sessionID: "s1", now: Date()))
+        let file = dir.appendingPathComponent(record.msgID + ".json")
+        try Data("not-json".utf8).write(to: file)
+        XCTAssertThrowsError(try journal.records())
+    }
+
+    func testDuplicateDeliveryReplaysResultOnly() async throws {
+        let dir = directory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let runner = TestRunner(), inbox = TestInbox()
+        let executor = try DeviceTaskExecutor(directory: dir, runner: runner)
+        let value = try task()
+        await inbox.setFailReport(true)
+        do { try await executor.process(deviceID: "device-1", task: value, authorized: true, inbox: inbox); XCTFail("lost report") } catch {}
+        await inbox.setFailReport(false)
+        try await executor.process(deviceID: "device-1", task: value, authorized: true, inbox: inbox)
+        let count = await runner.count(), accepts = await inbox.acceptCount(), reports = await inbox.reportValues()
+        XCTAssertEqual(count, 1)
+        XCTAssertEqual(accepts, 1)
+        XCTAssertEqual(reports, [.completed(output: "Answer", truncated: false)])
+        do { try await executor.process(deviceID: "device-1", task: task("task-2", key: "key-1"), authorized: true, inbox: inbox); XCTFail("conflict") }
+        catch { XCTAssertEqual(error as? DeviceTaskError, .idempotencyConflict) }
+    }
+
+    func testInterruptedRunNeverReplays() async throws {
+        let dir = directory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let value = try task()
+        do {
+            let journal = try DeviceTaskJournal(directory: dir)
+            var record = try journal.create(deviceID: "device-1", task: value, sessionID: "s1", now: Date())
+            record.phase = .running
+            try journal.save(record)
+        }
+        let runner = TestRunner(), inbox = TestInbox()
+        let executor = try DeviceTaskExecutor(directory: dir, runner: runner)
+        try await executor.process(deviceID: "device-1", task: value, authorized: true, inbox: inbox)
+        let count = await runner.count(), reports = await inbox.reportValues()
+        XCTAssertEqual(count, 0)
+        XCTAssertEqual(reports, [.failed(kind: .unknownOutcome, message: "Previous execution was interrupted; its outcome is unknown.")])
+    }
+
+    func testUnauthorizedAndConcurrentTasksDoNotDispatch() async throws {
+        let dir = directory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let runner = TestRunner(), inbox = TestInbox()
+        await runner.setDelay(200)
+        let executor = try DeviceTaskExecutor(directory: dir, runner: runner)
+        do { try await executor.process(deviceID: "device-1", task: task(), authorized: false, inbox: inbox); XCTFail("unauthorized") }
+        catch { XCTAssertEqual(error as? DeviceTaskError, .unauthorized) }
+        let first = Task { try await executor.process(deviceID: "device-1", task: task(), authorized: true, inbox: inbox) }
+        try await Task.sleep(for: .milliseconds(50))
+        do { try await executor.process(deviceID: "device-1", task: task("task-2", key: "key-2"), authorized: true, inbox: inbox); XCTFail("concurrent") }
+        catch { XCTAssertEqual(error as? DeviceTaskError, .deviceBusy) }
+        try await first.value
+        let count = await runner.count()
+        XCTAssertEqual(count, 1)
+    }
+}
+
+private final class MutableTaskClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var instant: Date
+    init(_ instant: Date) { self.instant = instant }
+    func now() -> Date { lock.lock(); defer { lock.unlock() }; return instant }
+    func advance(_ seconds: TimeInterval) { lock.lock(); instant.addTimeInterval(seconds); lock.unlock() }
+}
+private actor AdvancingTaskInbox: DeviceTaskInbox {
+    let clock: MutableTaskClock
+    init(_ clock: MutableTaskClock) { self.clock = clock }
+    func accept(id: String) async throws { clock.advance(60) }
+    func report(id: String, outcome: DeviceTaskOutcome) async throws {}
+}
+extension DeviceTaskTests {
+    func testDeadlineStartsWhenAcceptanceIsDurable() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let start = Date(timeIntervalSince1970: 1_793_952_000)
+        let clock = MutableTaskClock(start), runner = TestRunner(), inbox = AdvancingTaskInbox(clock)
+        let task = try DeviceTask.decode(Data(#"{"id":"task-1","idempotency_key":"key-1","requester":"device","created_at":"2026-11-06T00:00:00Z","body":{"type":"goal","text":"Hello"}}"#.utf8))
+        let executor = try DeviceTaskExecutor(directory: dir, runner: runner, clock: { clock.now() })
+        try await executor.process(deviceID: "device-1", task: task, authorized: true, inbox: inbox)
+        let file = try XCTUnwrap(FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil).first { $0.pathExtension == "json" })
+        let record = try JSONDecoder().decode(DeviceTaskRecord.self, from: Data(contentsOf: file))
+        XCTAssertEqual(record.deadlineMS, Int64(start.addingTimeInterval(360).timeIntervalSince1970 * 1000))
+    }
+}

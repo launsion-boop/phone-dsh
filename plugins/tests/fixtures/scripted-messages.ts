@@ -91,6 +91,7 @@ const CHILD_MARKER = 'WORKFLOW_CHILD_TASK'
 /** Decide the next turn from the real transcript. */
 function decide(messages: readonly WireMessage[]): Turn {
   const { uses, results, firstUserText } = transcript(messages)
+  if (firstUserText.includes('DEVICE_TASK_PROBE')) return { text: 'DEVICE_TASK_RESULT' }
   const last = uses.at(-1)
   if (last === undefined) {
     if (firstUserText.includes(CHILD_MARKER)) {

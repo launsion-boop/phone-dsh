@@ -476,12 +476,18 @@ test('the production manifest fits its byte budget with SSH/SCP/ADB, advice and 
   // names it per list, the full one in the header.
   assert.ok(manifest.markdown.includes('/dsh/home/capabilities.json'))
   // An over-budget surface still falls back to the count-plus-example summary,
-  // which is what keeps the document inside the hard cap. The command names are
-  // padded: the bounded list carries up to 120 of them, so the full rendering
-  // exceeds the cap only when the names themselves are long (P24 raised the cap
-  // to 6144, and a 400-name list of short names now fits the full shape).
+  // which is what keeps the document inside the hard cap. Make the bounded
+  // 120-name list alone exceed the current cap, even if the cap changes.
+  const commandPadding = Math.ceil(AGENTS_MD_MAX_BYTES / 60)
+  const oversizedCommands = Array.from(
+    { length: 400 }, (_, index) => `program-${String(index)}-${'x'.repeat(commandPadding)}`,
+  )
+  assert.ok(
+    Buffer.byteLength([...oversizedCommands].sort().slice(0, 120).join(', '), 'utf8') > AGENTS_MD_MAX_BYTES,
+    'the full bounded command list alone exceeds the budget',
+  )
   const overBudget = buildCapabilityManifest(manifestInput({
-    commands: Array.from({ length: 400 }, (_, index) => `program-${String(index)}-${'x'.repeat(20)}`),
+    commands: oversizedCommands,
     pythonModules: Array.from({ length: 400 }, (_, index) => `module_${String(index)}`),
     python: { available: true, version: '3.13' },
     egressAllow: Array.from({ length: 80 }, (_, index) => `host-${String(index)}.example.test`),
@@ -490,6 +496,11 @@ test('the production manifest fits its byte budget with SSH/SCP/ADB, advice and 
     overBudget.markdown.includes('Commands: 400'),
     'an over-budget surface uses the compact command summary',
   )
+  const commandSummary = overBudget.markdown.split('\n').find(line => line.includes('Commands: 400'))
+  assert.ok(commandSummary?.includes(`${CAPABILITIES_JSON_PATH} commands[]`),
+    'the compact summary points to the complete command list')
+  assert.deepEqual(overBudget.json.commands, [...oversizedCommands].sort(),
+    'the machine-readable manifest retains every command')
   assert.ok(
     Buffer.byteLength(overBudget.markdown, 'utf8') <= AGENTS_MD_MAX_BYTES,
     'the over-budget fallback still honors the cap',

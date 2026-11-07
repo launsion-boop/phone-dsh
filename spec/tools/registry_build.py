@@ -78,7 +78,7 @@ PATH_PROJECTIONS = {'P01': {'authority': ['spec/v1/channel.md', 'spec/v1/schema'
          'status': [],
          'evidence': ['android/net/src/test/kotlin/com/phonedsh/gateway/GatewayVectorConformanceTest.kt',
                       'Tests/PhoneDSHGatewayTests']},
- 'P06': {'authority': ['spec/host/v1/README.md', 'spec/host/v1/event-kinds.md', 'spec/host/v1/golden'],
+ 'P06': {'authority': ['spec/device/v1/task-delegation.md', 'spec/host/v1/README.md', 'spec/host/v1/event-kinds.md', 'spec/host/v1/golden'],
          'ends': {'Swift': ['Sources/PhoneDSHAgentCore/AgentHarness.swift',
                             'Sources/PhoneDSHAgentCore/DSH',
                             'Sources/PhoneDSH/PhoneDSHEvents.swift'],
@@ -88,11 +88,13 @@ PATH_PROJECTIONS = {'P01': {'authority': ['spec/v1/channel.md', 'spec/v1/schema'
          'evidence': ['android/core/src/test/kotlin/com/phonedsh/agentcore/HarnessKindClosureTest.kt',
                       'android/core/src/test/kotlin/com/phonedsh/hostevents/HostEventKindSchemaTest.kt',
                       'Tests/PhoneDSHAgentCoreTests']},
- 'P07': {'authority': ['spec/host/v1/schema/device-*.schema.json',
+ 'P07': {'authority': ['spec/device/v1/ble-link.md', 'spec/device/v1/lan-mcp.md', 'spec/device/v1/task-delegation.md', 'spec/host/v1/schema/device-*.schema.json',
                        'docs/design/device-adapter-contract-draft.md'],
-         'ends': {'Swift': ['examples/probe-app/ProbeKit/Devices'],
+         'ends': {'Swift': ['examples/probe-app/ProbeKit/Devices', 'Sources/PhoneDSHBLE', 'Sources/PhoneDSHLAN', 'Sources/PhoneDSHDeviceTasks'],
+                  'C': ['firmware/components/pdsh_link_wire', 'firmware/esp32-reference'],
+                  'Python': ['examples/lan-mcp-device'],
                   'Kotlin': ['android/domain/src/main/kotlin/com/phonedsh/domain/{device,connector}/**']},
-         'status': ['draft'],
+         'status': ['draft', 'target'],
          'evidence': ['android/domain/src/test/kotlin/com/phonedsh/domain/device/DeviceCapabilitiesSchemaTest.kt']},
  'P08': {'authority': ['spec/platform/README.md', 'spec/platform/whitelist.json',
                        'spec/platform/ios-audio-session.md'],
@@ -223,7 +225,13 @@ for _contract, _paths in HARMONY_ENDS.items():
     PATH_PROJECTIONS[_contract]['ends']['HarmonyOS'] = _paths
     if 'partial' not in PATH_PROJECTIONS[_contract]['status']:
         PATH_PROJECTIONS[_contract]['status'].append('partial')
-PATH_PROJECTIONS['P12']['authority'].append('harmony/host-rust/include/pdsh_host.h')
+PATH_PROJECTIONS['P12']['authority'].extend(['harmony/host-rust/include/pdsh_host.h', 'spec/platform/android-module-map.json'])
+PATH_PROJECTIONS['P08']['authority'].append('spec/platform/android-module-map.json')
+PATH_PROJECTIONS['P09']['authority'].append('spec/ui/v1/page-completeness.md')
+PATH_PROJECTIONS['P09']['evidence'].extend(['spec/ui/v1/tools/extract_ios_pages.py', 'spec/ui/v1/tools/test_extract_ios_pages.py'])
+PATH_PROJECTIONS['P12']['ends']['Python'] = ['android/tools/structure_check.py']
+PATH_PROJECTIONS['P08']['evidence'].extend(['android/tools/structure_check.py', 'android/tools/test_structure_check.py'])
+PATH_PROJECTIONS['P12']['evidence'].extend(['android/tools/structure_check.py', 'android/tools/test_structure_check.py'])
 PATH_PROJECTIONS['P18']['authority'].append('harmony/entry/src/main/ets/host/HostPersistence.ets')
 
 

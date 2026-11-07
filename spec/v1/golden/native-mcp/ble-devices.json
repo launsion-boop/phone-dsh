@@ -1,0 +1,6 @@
+{
+  "path": "/mcp/native",
+  "method": "POST",
+  "request": {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "ble_devices", "arguments": {}}},
+  "response": {"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": "No devices. Open Settings → Bluetooth devices to scan and connect."}], "isError": false}}
+}
