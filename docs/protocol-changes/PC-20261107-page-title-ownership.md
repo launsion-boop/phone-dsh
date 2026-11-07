@@ -261,3 +261,24 @@ Revision 10 verification: the exact source line and anchor were checked for all
 phone-license,phone-spec,phone-p0-conformance,phone-cross-tree` → PASS / PASS /
 FAIL / PASS. The P0 failure remains open and these checks do not establish
 extractor runtime conformance.
+
+## Revision 11 — typecheck the item-destination fixture
+
+The `navigation_item` fixture referenced `$selection` without declaring its
+backing state. Add a `String?` `@State` property on the existing struct line;
+the fixture still exercises the same `navigationDestination(item:)` child
+and parent title, and its expected source line and anchor do not move. With
+the iOS Simulator 27.1 SDK and arm64 iOS 18.4 target, the actual Swift compiler
+now typechecks this fixture and its diagnostic AST selects SwiftUI's
+`navigationDestination(item:destination:)` and `navigationTitle` methods.
+This single compiler observation does not establish SwiftUI runtime behavior
+or fix the other fixtures' missing build context.
+
+The 48-case JSONL manifest is unchanged; the sorted Swift fixture hash manifest
+is now `819f79f0efa38eef5e2217a0b08583d4280998999da4a16b60b939e03d0a430c`.
+The owner contract remains at revision 9, and the extractor is still pending.
+
+Revision 11 validation: `swiftc -typecheck` and `-dump-ast` against the stated
+Simulator SDK → PASS for this fixture; `bash scripts/ci/check.sh --only
+phone-license,phone-spec,phone-p0-conformance,phone-cross-tree` → PASS / PASS /
+FAIL / PASS. P0 and extractor implementation remain incomplete.
