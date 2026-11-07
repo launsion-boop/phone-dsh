@@ -147,3 +147,28 @@ failed on uncached Android dependencies; the successful run used the temporary
 mirror and host JVM. It does not cover the broader suggested randomized corpus
 or an Android device. The external P4 snapshot remains unavailable and its
 Rust and Android tests remain skipped.
+
+The Android arm64 JNI artifact was subsequently built from the pinned Rust
+workspace using the NDK 28.2 API-26 compiler. The initial attempt failed
+because the C cross-compiler was not configured; setting the NDK compiler and
+archiver allowed `cargo build --locked --target aarch64-linux-android -p
+pdsh-jni` → PASS. The repository's native alignment checker found all four
+PT_LOAD segments at 16 KB. This was a debug JNI build used by the release
+gate, not a claim that a production release-mode JNI build was tested.
+
+The first `phone-android-release` run built all eight local Maven artifacts,
+the AAR and its consumer probes, then failed because the existing Worker
+bundle directory was empty. A second run, after the documented pinned-checkout
+Worker/image build, failed on missing Termux proot assets. The repository's
+fetch script subsequently downloaded and SHA-256-verified the four pinned
+assets; its `--check` and individual ELF alignment checks passed.
+
+A final `bash scripts/ci/check.sh --only phone-android-release` with the
+isolated toolchain and Gradle cache → PASS. The AAR and debug/release consumer
+probes built; the final app APK passed the actual packaged-library checker:
+22 PT_LOAD segments with minimum alignment 16 KB. The manifest requests
+extracted native libraries, so the check explicitly did not assert ZIP
+compression or offsets. The regenerated Worker contained the Python and jq
+artifacts, while the optional full Web page was not staged;
+`phone-bundle-fresh` → PASS with that Web asset absent. No APK was installed
+or published, and this result is not a physical Android or device-task test.
