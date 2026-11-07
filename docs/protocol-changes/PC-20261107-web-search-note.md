@@ -36,3 +36,13 @@ Freeze this revision before implementation. Acceptance: the real extractor's
 `--page WebSearchSettingsPage --check`, existing P09 provenance mutations, the
 actual Android page test, and the standard contract gates. Report skipped Android
 toolchains, stale unrelated pages, and remaining runtime/parity gaps explicitly.
+
+## Verification at ba1b6947
+
+`python3 spec/ui/v1/tools/extract_ios_pages.py --page WebSearchSettingsPage --check`
+→ PASS. The Android source text matches the unique frozen JSON row; the actual
+Compose test was started but its Gradle toolchain was still downloading, so its
+runtime result is pending. `bash scripts/ci/check.sh --only
+phone-spec,phone-p0-conformance,phone-cross-tree` → PASS / FAIL / PASS; P0 now
+reports eight other missing or stale page contracts. This does not prove overall
+Android page parity or any physical-device behavior.

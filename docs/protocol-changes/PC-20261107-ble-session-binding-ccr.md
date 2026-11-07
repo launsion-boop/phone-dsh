@@ -128,3 +128,31 @@ a guarantee that system or library copies were erased. This is not a
 non-exportable key, physical iPhone, ESP32, GATT, no-clock or production
 session test. The experiment stopped when available disk dropped below its
 predefined safety threshold.
+
+A later independent iOS 18.4 Simulator rerun used two permanent Keychain
+software keys and a matching client certificate with upstream Mbed TLS 4.1.1.
+After handling TLS 1.3 post-handshake messages, the client exchanged actual
+HTTP request/response data with the local Python/OpenSSL server (HTTP 200,
+`pong`, certificate verification flags 0). Supplying the other Keychain key
+with the original certificate caused the server to report BAD_SIGNATURE before
+receiving a request. The isolated App was built with `xcodebuild build` for
+its temporary Simulator; each case ran in a separate `simctl launch` process.
+Both keys were deleted and subsequent separate-process lookups returned
+`errSecItemNotFound`; temporary CA/server private keys and the dedicated
+Simulator were also deleted. Logs and source of the experiment are under
+`/private/tmp/pdsh59-mtls-again/` on the test machine. These results do not
+establish a non-exportable signing path, ESP32, GATT, no-clock behavior,
+physical-device identity recovery, or a production security design.
+
+An isolated ESP32-S3 reference-firmware copy was cross-compiled with the fixed
+ESP-IDF 6.1 and a temporary probe referencing the TLS 1.3 server handshake,
+own certificate and client-certificate verification APIs. The build passed;
+the linked ELF contains the handshake and probe symbols. Relative to the
+previous reference build, the image grew from 728,927 to 752,727 bytes and
+static DIRAM from 160,343 to 160,359 bytes. This rough delta includes the
+temporary probe and configuration effects. The trial enabled ephemeral KEX,
+peer-certificate retention and the default PSK mode, with early data disabled;
+it is not a frozen session policy. No flash, BLE transport, real certificate
+handshake, handshake heap peak or production resource budget was tested.
+Build and `esp_idf_size` logs are under `/private/tmp/pdsh59-esp-tls/` on the
+test machine; no trial code or build artifact is included in this repository.
