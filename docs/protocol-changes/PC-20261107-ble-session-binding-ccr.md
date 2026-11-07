@@ -223,3 +223,17 @@ message integrity and confidentiality but cannot prove physical proximity or
 prevent a transparent radio relay. Initial independent fingerprint comparison,
 phone-key provisioning, certificate validation and no-clock policy, persistent
 revocation, and safe handling of unresolved old records remain contract decisions.
+
+A later isolated ESP32-S3 build enabled one native NimBLE CoC alongside the
+same TLS 1.3 test configuration, with temporary probe code referencing the
+actual CoC and mutual-certificate TLS APIs so the relevant symbols linked. The
+fixed ESP-IDF and complete locked cJSON component were verified. The firmware
+binary was 757,888 bytes: 5,040 bytes more than the earlier TLS-only probe and
+28,848 bytes more than the reference build. Static DIRAM was 160,375 bytes,
+versus 160,359 for TLS-only and 160,343 for the reference. These comparisons
+include temporary probe code and are not a runtime memory budget. The probe was
+not flashed and does not connect CoC I/O to TLS. Real handshake heap peaks,
+credit exhaustion, ownership on each send error, certificates, provisioning,
+ESP32/iPhone radio behavior and device power loss remain untested. The test
+configuration enabled PSK support for feasibility and is not the proposed
+production policy.
