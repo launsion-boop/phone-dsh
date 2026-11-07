@@ -5,10 +5,30 @@
 #include "pdsh_identity.h"
 #include "test_platform.h"
 #include <stdio.h>
-// These Link/task fixtures do not test identity or provide a signing key.
-bool pdsh_identity_init(void) { return false; }
-bool pdsh_identity_ready(void) { return false; }
-cJSON *pdsh_identity_prove(const char *nonce_hex) { (void)nonce_hex; return NULL; }
+// The controlled stub tests dispatch only, not signing or key authentication.
+static bool identity_ready;
+static int identity_proofs;
+bool pdsh_identity_init(void) { return identity_ready; }
+bool pdsh_identity_ready(void) { return identity_ready; }
+cJSON *pdsh_identity_prove(const char *nonce_hex) {
+    if (!identity_ready || strcmp(nonce_hex, "test-nonce")) return NULL;
+    identity_proofs++;
+    cJSON *proof = cJSON_CreateObject();
+    cJSON_AddStringToObject(proof, "stub", "not-a-signature");
+    return proof;
+}
+#ifdef PDSH_TASK_HOST_TEST
+size_t tools_request_target_test(uint8_t op, const uint8_t *body, size_t n, uint8_t out[505]);
+#endif
+static bool test_target_core;
+static size_t request(uint8_t op, const uint8_t *body, size_t n, uint8_t out[505]) {
+#ifdef PDSH_TASK_HOST_TEST
+    if (test_target_core) return tools_request_target_test(op, body, n, out);
+#else
+    assert(!test_target_core);
+#endif
+    return tools_request(op, body, n, out);
+}
 static uint64_t clock_us = 1000000;
 static int gpio_level, gpio_writes, http_requests, fail_commit;
 static void (*job_fn)(void *);
@@ -230,7 +250,7 @@ static int upload_json(const uint8_t id[16], const char *json) {
         body[21] = 0x3a;
         body[22] = body[23] = 0;
         memcpy(body + 24, json + off, take);
-        size_t n = tools_request(PDSH_UPLOAD, body, take + 24, out);
+        size_t n = request(PDSH_UPLOAD, body, take + 24, out);
         if (out[0])
             return out[0];
         assert(n == 3);
@@ -248,7 +268,7 @@ static int submit(int value, const char *name, const char *args, const char *key
     int error = upload_json(id, json);
     if (error)
         return error;
-    tools_request(PDSH_COMMIT, id, 16, out);
+    request(PDSH_COMMIT, id, 16, out);
     return out[0];
 }
 static cJSON *query(int value, int *state) {
@@ -258,7 +278,7 @@ static cJSON *query(int value, int *state) {
     size_t used = 0, total = 0;
     do {
         put16(id + 16, used);
-        size_t n = tools_request(PDSH_RESULT, id, 18, out);
+        size_t n = request(PDSH_RESULT, id, 18, out);
         assert(out[0] == 0 && n >= 6);
         *state = out[1];
         if (*state != 2)
@@ -272,6 +292,7 @@ static cJSON *query(int value, int *state) {
     return cJSON_Parse(result);
 }
 static void task_tests(void) {
+    test_target_core = true;
     uint8_t out[505]; int state;
     const char *task = "{\"id\":\"task-1\",\"idempotency_key\":\"key-1\",\"requester\":\"sensor\",\"created_at\":\"2026-11-06T00:00:00Z\",\"body\":{\"type\":\"goal\",\"text\":\"Hello\"}}";
     tools_init(1);
@@ -301,6 +322,7 @@ static void task_tests(void) {
     puts("Link task inbox: submit, next, durable accept, reboot, complete PASS");
 }
 static void negotiation_tests(const char *path) {
+    test_target_core = true;
     FILE *f=fopen(path,"rb"); assert(f);
     char line[1024]; int rows=0;
     while (fgets(line,sizeof(line),f)) {
@@ -319,9 +341,105 @@ static void negotiation_tests(const char *path) {
     }
     fclose(f); assert(rows>0); printf("BLE task negotiation vectors: %d PASS\n",rows);
 }
+static bool has_tool(cJSON *list, const char *name) {
+    for (const cJSON *item = list ? list->child : NULL; item; item = item->next) {
+        const cJSON *value = cJSON_GetObjectItemCaseSensitive(item, "name");
+        if (cJSON_IsString(value) && !strcmp(value->valuestring, name)) return true;
+    }
+    return false;
+}
+static void plaintext_admission_tests(const char *path) {
+    static const char *const names[] = {
+        "pdsh.task.next", "pdsh.task.accept", "pdsh.task.complete", "pdsh.task.fail", "pdsh.task.future"
+    };
+    static const char *const args[] = {
+        "{}", "{\"id\":\"task-1\"}",
+        "{\"id\":\"task-1\",\"output\":\"done\",\"truncated\":false}",
+        "{\"id\":\"task-1\",\"failure\":{\"kind\":\"failed\",\"message\":\"failed\"}}",
+        "{\"id\":\"task-1\"}"
+    };
+    const char *task = "{\"id\":\"task-1\",\"idempotency_key\":\"key-1\",\"requester\":\"sensor\",\"created_at\":\"2026-11-06T00:00:00Z\",\"body\":{\"type\":\"goal\",\"text\":\"Hello\"}}";
+    test_target_core = false;
+    identity_ready = true;
+    tools_init(1);
+    assert(tools_task_submit(task));
+    uint8_t out[505]; int state;
+    assert(submit(1, "light.set", "{\"on\":true}", "old-ordinary", out) == 0 && job_fn);
+    run_job();
+    cJSON *old = query(1, &state);
+    assert(state == 2 && old);
+    char *old_json = cJSON_PrintUnformatted(old);
+    assert(old_json); cJSON_Delete(old);
+    entry_t snapshot[40];
+    memcpy(snapshot, disk, sizeof(snapshot));
+
+    FILE *f = fopen(path, "rb"); assert(f);
+    char line[1024]; int rows = 0;
+    while (fgets(line, sizeof(line), f)) {
+        cJSON *row = cJSON_Parse(line); assert(row);
+        cJSON *caps = cJSON_GetObjectItemCaseSensitive(row, "app_caps");
+        cJSON *proof = cJSON_GetObjectItemCaseSensitive(row, "identity_visible");
+        cJSON *visible = cJSON_GetObjectItemCaseSensitive(row, "task_visible");
+        cJSON *denied = cJSON_GetObjectItemCaseSensitive(row, "new_task_status");
+        assert(cJSON_IsNumber(caps) && cJSON_IsBool(proof) && cJSON_IsFalse(visible) &&
+               cJSON_IsNumber(denied) && denied->valueint == 14);
+        uint32_t app_caps = (uint32_t)caps->valuedouble;
+        tools_reset_upload(); tools_set_task_profile(app_caps);
+        assert(submit(100, "tools/list", "{}", "discover", out) == 0);
+        cJSON *reply = query(100, &state);
+        cJSON *list = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(reply, "result"), "tools");
+        assert(state == 2 && cJSON_IsArray(list));
+        assert(has_tool(list, "light.get") && has_tool(list, "light.set") && has_tool(list, "home.http"));
+        assert(has_tool(list, "pdsh.identity.prove") == cJSON_IsTrue(proof));
+        for (const cJSON *item = list->child; item; item = item->next) {
+            const cJSON *value = cJSON_GetObjectItemCaseSensitive(item, "name");
+            assert(cJSON_IsString(value) && strncmp(value->valuestring, "pdsh.task.", sizeof("pdsh.task.") - 1));
+        }
+        cJSON_Delete(reply);
+
+        int before_proofs = identity_proofs;
+        int proof_status = submit(101, "pdsh.identity.prove", "{\"nonce\":\"test-nonce\"}", "prove", out);
+        if (cJSON_IsTrue(proof)) {
+            assert(proof_status == 0 && identity_proofs == before_proofs + 1);
+            reply = query(101, &state);
+            cJSON *stub = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(reply, "result"), "stub");
+            assert(state == 2 && cJSON_IsString(stub) && !strcmp(stub->valuestring, "not-a-signature"));
+            cJSON_Delete(reply);
+        } else {
+            assert(proof_status != 0 && identity_proofs == before_proofs);
+            tools_reset_upload(); tools_set_task_profile(app_caps);
+        }
+        for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+            assert(submit(110 + (int)i, names[i], args[i], names[i], out) == denied->valueint);
+            assert(!job_fn && !staged && memcmp(snapshot, disk, sizeof(snapshot)) == 0);
+            assert(query(110 + (int)i, &state) == NULL && state == 0);
+        }
+        tools_reset_upload(); tools_set_task_profile(app_caps);
+        assert(submit(120, names[0], args[0], "after-reconnect", out) == denied->valueint);
+        assert(!job_fn && memcmp(snapshot, disk, sizeof(snapshot)) == 0);
+        old = query(1, &state);
+        assert(old && state == 2);
+        char *again = cJSON_PrintUnformatted(old);
+        assert(again && !strcmp(again, old_json));
+        free(again); cJSON_Delete(old);
+        cJSON *local = tools_task_result("task-1");
+        assert(local && !strcmp(cJSON_GetObjectItemCaseSensitive(local, "phase")->valuestring, "queued"));
+        cJSON_Delete(local); cJSON_Delete(row); rows++;
+    }
+    fclose(f); free(old_json);
+    assert(rows == 5);
+    tools_init(2);
+    assert(memcmp(snapshot, disk, sizeof(snapshot)) == 0);
+    old = query(1, &state); assert(old && state == 2); cJSON_Delete(old);
+    cJSON *local = tools_task_result("task-1");
+    assert(local && !strcmp(cJSON_GetObjectItemCaseSensitive(local, "phase")->valuestring, "queued"));
+    cJSON_Delete(local);
+    puts("BLE plaintext task admission vectors: 5 PASS");
+}
 int main(int argc, char **argv) {
     if (argc == 2 && !strcmp(argv[1], "--task")) { task_tests(); return 0; }
     if (argc == 3 && !strcmp(argv[1], "--negotiation")) { negotiation_tests(argv[2]); return 0; }
+    if (argc == 3 && !strcmp(argv[1], "--plaintext-admission")) { plaintext_admission_tests(argv[2]); return 0; }
     uint8_t out[505];
     int state;
     tools_init(1);

@@ -9,7 +9,11 @@ static int hexval(char c) {
     if (c >= 'a' && c <= 'f') return c-'a'+10;
     return -1;
 }
-int main(void) {
+int main(int argc, char **argv) {
+    /* Ordinary production admission is the default. The explicit alternate
+     * mode exercises only the target core and is not an authenticated path. */
+    if (argc == 2 && !strcmp(argv[1], "--target-core")) test_target_core = true;
+    else if (argc != 1) return 8;
     const char *task="{\"id\":\"task-1\",\"idempotency_key\":\"goal-1\",\"requester\":\"sensor\",\"created_at\":\"2026-11-06T00:00:00Z\",\"body\":{\"type\":\"goal\",\"text\":\"Hello from device\"}}";
     tools_init(1); if (!tools_task_submit(task)) return 2;
     char line[9000];
@@ -35,7 +39,7 @@ int main(void) {
             if (!json || strlen(json)>sizeof(out)) return 6;
             n=strlen(json); memcpy(out,json,n); free(json); cJSON_Delete(local);
         } else {
-            n=tools_request((uint8_t)op,body,count/2,out);
+            n=request((uint8_t)op,body,count/2,out);
             if (op==PDSH_COMMIT && job_fn) run_job();
         }
         for (size_t i=0;i<n;i++) printf("%02x",out[i]);

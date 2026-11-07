@@ -99,7 +99,7 @@ static cJSON *light_state(void) {
 static void add_schema(cJSON *tool, const char *schema) {
     cJSON_AddItemToObject(tool, "inputSchema", cJSON_Parse(schema));
 }
-static cJSON *tool_list(void) {
+static cJSON *tool_list(bool task_admitted) {
     cJSON *o = cJSON_CreateObject(), *list = cJSON_AddArrayToObject(o, "tools");
     if (light_available) {
         cJSON *t = cJSON_CreateObject();
@@ -136,7 +136,7 @@ static cJSON *tool_list(void) {
                       "\"required\":[\"nonce\"],\"additionalProperties\":false}");
         cJSON_AddItemToArray(list, t);
     }
-    if (task_profile && pdsh_task_store_healthy()) {
+    if (task_admitted && task_profile && pdsh_task_store_healthy()) {
         const char *names[] = {"pdsh.task.next", "pdsh.task.accept", "pdsh.task.complete", "pdsh.task.fail"};
         const char *schemas[] = {
             "{\"type\":\"object\",\"properties\":{},\"additionalProperties\":false}",
@@ -323,7 +323,7 @@ static bool bounded_json(const uint8_t *text, size_t length) {
     }
     return !string && depth == 0;
 }
-static int commit(const uint8_t id[16], uint8_t *state) {
+static int commit(const uint8_t id[16], uint8_t *state, bool task_admitted) {
     for (int i = 0; i < RECEIPTS; i++)
         if (receipts[i].magic == MAGIC && !memcmp(id, receipts[i].id, 16)) {
             if (upload.active && !memcmp(upload.id, id, 16)) {
@@ -364,6 +364,14 @@ static int commit(const uint8_t id[16], uint8_t *state) {
     if (!keys(root, fields, 4) || !request_id || strcmp(request_id, expected) || !name || !idem ||
         strlen(idem) > 128 || !strlen(idem) || !cJSON_IsObject(args))
         goto done;
+    /* The ordinary Link channel does not authenticate subsequent task bytes.
+     * Hide and reject new task calls even if the peer declares PDSH_TASKS.
+     * Existing UUIDs were resolved above and retain their legacy semantics. */
+    if (!task_admitted && !strncmp(name, "pdsh.task.", sizeof("pdsh.task.") - 1)) {
+        upload.active = false;
+        error = 14;
+        goto done;
+    }
     if (!strcmp(name, "pdsh.identity.prove")) {
         static const char *const prove_fields[] = {"nonce"};
         if (busy) {
@@ -398,7 +406,7 @@ static int commit(const uint8_t id[16], uint8_t *state) {
         memset(&readonly_result, 0, sizeof(readonly_result));
         readonly_result.magic = MAGIC;
         memcpy(readonly_result.id, id, 16);
-        cJSON *result = !strcmp(name, "tools/list") ? tool_list() :
+        cJSON *result = !strcmp(name, "tools/list") ? tool_list(task_admitted) :
                         !strcmp(name,"pdsh.task.next") ? pdsh_task_store_next() : light_state();
         if (!result) { error = 11; goto done; }
         result_json(&readonly_result, "completed", result);
@@ -504,7 +512,8 @@ done:
         memset(upload.data, 0, sizeof(upload.data));
     return error;
 }
-size_t tools_request(uint8_t op, const uint8_t *body, size_t n, uint8_t out[505]) {
+static size_t tools_request_internal(uint8_t op, const uint8_t *body, size_t n,
+                                     uint8_t out[505], bool task_admitted) {
     xSemaphoreTake(lock, portMAX_DELAY);
     size_t count = 1;
     out[0] = 2;
@@ -516,7 +525,7 @@ size_t tools_request(uint8_t op, const uint8_t *body, size_t n, uint8_t out[505]
             count = 3;
         }
     } else if (op == PDSH_COMMIT && n == 16) {
-        out[0] = commit(body, out + 1);
+        out[0] = commit(body, out + 1, task_admitted);
         if (!out[0])
             count = 2;
     } else if (op == PDSH_RESULT && n == 18) {
@@ -550,3 +559,15 @@ size_t tools_request(uint8_t op, const uint8_t *body, size_t n, uint8_t out[505]
     xSemaphoreGive(lock);
     return count;
 }
+
+size_t tools_request(uint8_t op, const uint8_t *body, size_t n, uint8_t out[505]) {
+    return tools_request_internal(op, body, n, out, false);
+}
+
+#ifdef PDSH_TASK_HOST_TEST
+/* Exercises the target task core only. Not compiled into the reference image
+ * and never called by the ordinary Link ingress. This is not authentication. */
+size_t tools_request_target_test(uint8_t op, const uint8_t *body, size_t n, uint8_t out[505]) {
+    return tools_request_internal(op, body, n, out, true);
+}
+#endif

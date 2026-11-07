@@ -3,7 +3,7 @@
 ```yaml
 change: PC-20261107-plaintext-task-admission
 contracts: [P07]
-status: frozen
+status: implemented
 breaking: true
 version_decision: Interim reference-firmware admission restriction; no new wire version or secure capability. Authenticated task profile remains target.
 base: a5ae7f9fa0e562792ce7bedad19d8e7ce2d8ff7a
@@ -52,7 +52,8 @@ restores the old unsafe admission, not authenticated recovery. No version or
 capability bit is reassigned, and no automatic replay is authorized.
 
 The coordinator owns `spec/**` and this record. The firmware implementer owns
-`firmware/esp32-reference/main/link_tools.c` and firmware host tests only. A
+`firmware/esp32-reference/main/link_tools.c`, firmware host tests, and the
+Swift cross-runtime test. A
 test-only target-core entry point may exercise the already existing target
 positive cases, but must not be present in release builds or callable by the
 ordinary ingress. It is not an authenticated session. Real ingress tests must
@@ -69,3 +70,27 @@ Record every failure, skip and target-only test. Review release symbols and
 build the actual ESP-IDF target; physical iPhone/ESP32 positive and negative
 task-session tests remain separate requirements. This change does not close
 GAP-16, solve Android discovery or complete the user's goal.
+
+## Implementation evidence
+
+The ordinary production `tools_request` always uses denied admission; a
+test-only entry point is compiled only into the host target-core test. The
+host tests exercise production discovery, the five shared capability cases,
+all four task methods and an unknown task-prefixed method, unchanged task
+storage and ordinary receipts, reconnect and a controlled identity stub.
+The Swift cross-runtime test now explicitly separates target-core acceptance
+from production admission and verifies denied request IDs return
+`outcome_unknown` on query without inferring that a historical action did not
+execute.
+
+`bash firmware/tests/run.sh` → PASS with ASan/UBSan and the locked cJSON
+component; `swift test --filter 'PDSHLinkTests|BLETaskCrossRuntimeTests'` →
+PASS, 13 tests, zero skips, before the added query assertions;
+`swift test --filter BLETaskCrossRuntimeTests` → PASS, 2 tests, zero skips,
+including those assertions. The fixed ESP-IDF 6.1 ESP32-S3 release build →
+PASS against 27 byte-identical tracked component/main source files; the
+release ELF exposes `tools_request` but not the host-only target entry point.
+The real firmware HELLO/GATT path and radio task denial are NOT_RUN. Contract
+gate at freeze: `phone-spec` PASS, `phone-p0-conformance` FAIL on the existing
+stale page contracts, `phone-cross-tree` PASS. No unsafe old receipt has been
+reclassified or authenticated.

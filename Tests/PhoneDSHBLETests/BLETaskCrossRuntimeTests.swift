@@ -7,8 +7,10 @@ import PhoneDSHDeviceTasks
 
 @MainActor private final class CTaskBridge: PDSHLinkTransport {
     private let process = Process(), input = Pipe(), output = Pipe()
-    init(root: URL) throws {
+    private(set) var lastCommitStatus: UInt8?
+    init(root: URL, targetCore: Bool = false) throws {
         process.executableURL = root.appendingPathComponent(".build/link-host/task-bridge")
+        process.arguments = targetCore ? ["--target-core"] : []
         process.standardInput = input; process.standardOutput = output
         process.standardError = FileHandle.standardError
         try process.run()
@@ -31,8 +33,10 @@ import PhoneDSHDeviceTasks
             guard let byte = UInt8(text[cursor..<end], radix: 16) else { throw BLEFailure("invalid bridge hex") }
             result.append(byte); cursor = end
         }
+        if opcode == 0x55 { lastCommitStatus = result.first }
         return result
     }
+    func resetCommitStatus() { lastCommitStatus = nil }
     func stop() { try? input.fileHandleForWriting.close(); process.waitUntilExit() }
 }
 
@@ -67,15 +71,19 @@ private actor CrossRuntimeRunner: DeviceTaskRunner {
 }
 
 final class BLETaskCrossRuntimeTests: XCTestCase {
-    @MainActor func testSwiftExecutorTalksToRealCFirmwareLinkAndReadsResult() async throws {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    private func buildBridge(root: URL) throws {
         let build = Process(); build.executableURL = URL(fileURLWithPath: "/bin/bash")
         build.arguments = [root.appendingPathComponent("firmware/tests/run.sh").path]
         build.currentDirectoryURL = root
         build.standardOutput = FileHandle.nullDevice; build.standardError = FileHandle.standardError
         try build.run(); build.waitUntilExit(); XCTAssertEqual(build.terminationStatus, 0)
-        guard build.terminationStatus == 0 else { return }
-        let bridge = try CTaskBridge(root: root)
+        guard build.terminationStatus == 0 else { throw BLEFailure("C task bridge build failed") }
+    }
+
+    @MainActor func testSwiftExecutorTalksToTargetCoreAndReadsResult() async throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        try buildBridge(root: root)
+        let bridge = try CTaskBridge(root: root, targetCore: true)
         defer { bridge.stop() }
         let client = PDSHLinkClient(transport: bridge, allowTaskProfile: true); _ = try await client.handshake()
         let discovery = try await client.invoke(requestID: UUID(), name: "tools/list", arguments: .object([:]), idempotencyKey: UUID().uuidString)
@@ -95,5 +103,47 @@ final class BLETaskCrossRuntimeTests: XCTestCase {
         let local = try JSONValue.parse(await bridge.exchange(opcode: 254, body: Data()))
         XCTAssertEqual(local["phase"]?.stringValue, "completed")
         XCTAssertEqual(local["outcome"]?["output"]?.stringValue, "answer from phone")
+    }
+
+    @MainActor func testProductionDispatcherHidesAndRejectsPlaintextTaskTools() async throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        try buildBridge(root: root)
+        let bridge = try CTaskBridge(root: root)
+        defer { bridge.stop() }
+        let client = PDSHLinkClient(transport: bridge, allowTaskProfile: true)
+        _ = try await client.handshake()
+        let discovery = try await client.invoke(requestID: UUID(), name: "tools/list", arguments: .object([:]), idempotencyKey: UUID().uuidString)
+        let toolsValue = try XCTUnwrap(discovery["result"]?["tools"])
+        guard case .array(let tools) = toolsValue else { return XCTFail("missing tools array") }
+        let names = tools.compactMap { $0["name"]?.stringValue }
+        XCTAssertTrue(names.contains("light.get"))
+        XCTAssertFalse(names.contains { $0.hasPrefix("pdsh.task.") })
+
+        let taskCalls: [(String, JSONValue)] = [
+            ("pdsh.task.next", .object([:])),
+            ("pdsh.task.accept", .object(["id": .string("task-1")])),
+            ("pdsh.task.complete", .object(["id": .string("task-1"), "output": .string("done"), "truncated": .bool(false)])),
+            ("pdsh.task.fail", .object(["id": .string("task-1"), "failure": .object(["kind": .string("failed"), "message": .string("failed")])])),
+            ("pdsh.task.future", .object(["id": .string("task-1")])),
+        ]
+        for (name, args) in taskCalls {
+            bridge.resetCommitStatus()
+            let requestID = UUID()
+            do {
+                _ = try await client.invoke(requestID: requestID, name: name, arguments: args, idempotencyKey: UUID().uuidString)
+                XCTFail("\(name) unexpectedly succeeded")
+            } catch {
+                XCTAssertEqual(bridge.lastCommitStatus, 14, "\(name) must reach production COMMIT and be refused")
+            }
+            // A missing receipt is represented as unknown, never as proof of non-execution
+            // or permission to replay an operation after an uncertain delivery.
+            let recovered = try await client.query(requestID: requestID)
+            XCTAssertEqual(recovered?["request_id"]?.stringValue, requestID.uuidString.lowercased())
+            XCTAssertEqual(recovered?["status"]?.stringValue, "outcome_unknown")
+        }
+        let ordinary = try await client.invoke(requestID: UUID(), name: "light.get", arguments: .object([:]), idempotencyKey: UUID().uuidString)
+        XCTAssertEqual(ordinary["status"]?.stringValue, "completed")
+        let local = try JSONValue.parse(await bridge.exchange(opcode: 254, body: Data()))
+        XCTAssertEqual(local["phase"]?.stringValue, "queued")
     }
 }
