@@ -227,6 +227,8 @@ for _contract, _paths in HARMONY_ENDS.items():
         PATH_PROJECTIONS[_contract]['status'].append('partial')
 PATH_PROJECTIONS['P12']['authority'].extend(['harmony/host-rust/include/pdsh_host.h', 'spec/platform/android-module-map.json'])
 PATH_PROJECTIONS['P08']['authority'].append('spec/platform/android-module-map.json')
+PATH_PROJECTIONS['P09']['authority'].append('spec/ui/v1/page-completeness.md')
+PATH_PROJECTIONS['P09']['evidence'].extend(['spec/ui/v1/tools/extract_ios_pages.py', 'spec/ui/v1/tools/test_extract_ios_pages.py'])
 PATH_PROJECTIONS['P12']['ends']['Python'] = ['android/tools/structure_check.py']
 PATH_PROJECTIONS['P08']['evidence'].extend(['android/tools/structure_check.py', 'android/tools/test_structure_check.py'])
 PATH_PROJECTIONS['P12']['evidence'].extend(['android/tools/structure_check.py', 'android/tools/test_structure_check.py'])

@@ -1,0 +1,116 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "FixturePage",
+  "pageId": "fixture",
+  "structure": "swiftui-view",
+  "sectionModel": "section",
+  "sectionNote": null,
+  "title": null,
+  "source": {
+    "file": "FixturePage.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/FixturePage.swift",
+    "lines": 9,
+    "structLine": 3,
+    "renderedFrom": [
+      "body"
+    ],
+    "sectionOrder": "declaration order inside the page struct"
+  },
+  "android": {
+    "screen": "FixturePage",
+    "file": null,
+    "match": "no-android-sources"
+  },
+  "sections": [
+    {
+      "id": "account",
+      "title": "Account",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "literal",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "continue",
+          "label": "Continue",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "FixturePage.swift:6",
+          "anchor": "Button(\"Continue\") { performAction() }",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "FixturePage.swift:5",
+      "anchor": "Section(\"Account\") {",
+      "extraction": "syntax"
+    }
+  ],
+  "actions": [
+    {
+      "id": "continue",
+      "label": "Continue",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ performAction()",
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "FixturePage.swift:6",
+      "anchor": "Button(\"Continue\") { performAction() }",
+      "extraction": "syntax",
+      "labelAlternatives": []
+    }
+  ],
+  "presentations": [],
+  "states": {
+    "advisory": true,
+    "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
+    "sites": {
+      "empty": [],
+      "data": [
+        {
+          "renders": "Account",
+          "when": null,
+          "provenance": "FixturePage.swift:3",
+          "anchor": "struct FixturePage: View {",
+          "note": "structural default: the sections above, when no condition overrides them"
+        }
+      ],
+      "failure": [],
+      "unknown": [],
+      "loading": []
+    },
+    "absent": [
+      "empty",
+      "failure",
+      "unknown",
+      "loading"
+    ],
+    "coverage": {
+      "empty": 0,
+      "data": 1,
+      "failure": 0,
+      "unknown": 0,
+      "loading": 0
+    }
+  },
+  "subpages": [],
+  "unreachable": [],
+  "extraction": {
+    "tool": "extract_ios_pages.py",
+    "mode": "syntax",
+    "sectionKeywordsInPage": 1,
+    "regionsExtracted": 0,
+    "sectionsExtracted": 1,
+    "warnings": []
+  }
+}

@@ -1,0 +1,5 @@
+{"name":"matching_source_and_contract","mutation":"none","valid":true}
+{"name":"missing_contract","mutation":"remove_contract","valid":false}
+{"name":"stale_source","mutation":"change_source","valid":false}
+{"name":"new_unregistered_page","mutation":"add_page","valid":false}
+{"name":"missing_chrome_contract","mutation":"remove_chrome","valid":false}
