@@ -7,7 +7,7 @@ status: frozen
 breaking: false
 version_decision: Add a version-1 repository inventory and validate the existing README projection; no application, package ABI or wire change.
 base: 9b968ee054d504ae2af5dc26f6c2181a8bfeaa49
-contract_revision: spec/platform/android-module-map.json@sha256:d997d82e1424c5b4bb4acd1bbc8bf5f4af63b70157777cff7174ba8899b7cc54; spec/platform/README.md@sha256:32f3fb01bfd066ca5fb7d8248f66e19e1fe171717cf8a37391289ebc2d4d67ea; spec/platform/schema/android-module-map.schema.json@sha256:596dc708770938cdbd7f54b3b8cf2ea9af3ce66315f9f2e06e88fd1acf5e891c
+contract_revision: spec/platform/android-module-map.json@sha256:d997d82e1424c5b4bb4acd1bbc8bf5f4af63b70157777cff7174ba8899b7cc54; spec/platform/README.md@sha256:c48f17ab58378ebe01c47d799fd588cf2403e29465c21b0039f423cf51c92658; spec/platform/schema/android-module-map.schema.json@sha256:596dc708770938cdbd7f54b3b8cf2ea9af3ce66315f9f2e06e88fd1acf5e891c
 ```
 
 ## Trigger and authority
@@ -97,3 +97,16 @@ The checker must use the schema, and tests must validate both the real manifest
 and every shared scenario against their respective schema using the existing
 validator. The Android structure gate runs these tests; schema drift is a
 failure, never a silently ignored file. Implementer notified.
+
+## Revision 4 — reject unsupported schema keywords
+
+Independent review demonstrated that a misspelled schema keyword could be
+silently ignored by the subset validator, allowing an invalid inventory if its
+README projection changed in step. Before validation, both shared schemas must
+be linted with the existing `spec/platform/tools/platform_check.py`
+`lint_schema` and unknown/unsupported keywords must fail. A shared negative
+scenario mutates `enum` to `enumm` and changes the corresponding manifest and
+README status to the same invalid value; the real checker must still reject it.
+The tests must also lint and validate the real vector schema. Human-readable
+README explanations remain reviewable prose rather than machine claims.
+Implementer notified.

@@ -23,7 +23,8 @@
         "gradle_missing",
         "manifest_duplicate",
         "manifest_invalid_status",
-        "manifest_float_version"
+        "manifest_float_version",
+        "schema_unknown_keyword"
       ]
     },
     "valid": {

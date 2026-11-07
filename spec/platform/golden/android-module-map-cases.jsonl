@@ -13,3 +13,4 @@
 {"mutation":"manifest_duplicate","valid":false}
 {"mutation":"manifest_invalid_status","valid":false}
 {"mutation":"manifest_float_version","valid":false}
+{"mutation":"schema_unknown_keyword","valid":false}

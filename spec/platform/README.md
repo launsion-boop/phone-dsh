@@ -263,6 +263,8 @@ Two entries stay `not-verified` and one stays `spec-only`; the audit above does 
 explicit absence. Its schema is `schema/android-module-map.schema.json`. As
 semantic constraints in addition to schema, every `swift` name must be unique
 and the version must be encoded as the integer JSON literal `1`, not `1.0`.
+Both mapping and vector schemas must pass the existing platform schema linter
+before validation; unknown or unsupported schema keywords fail closed.
 `mapped` means a corresponding source package exists, not that all behavior is
 complete; `target` is an unwired partial implementation, not a feature; `absent`
 has no claimed package or module. The Markdown table in `android/README.md` is
