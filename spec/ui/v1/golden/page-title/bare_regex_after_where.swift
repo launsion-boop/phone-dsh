@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 import SwiftUI
 func ~=<Output>(_ regex: Regex<Output>, _ input: String) -> Bool { true }
 struct FixturePage: View {

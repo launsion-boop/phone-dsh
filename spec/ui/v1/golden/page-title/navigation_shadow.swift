@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 import SwiftUI
 struct NavigationLink<Content: View>: View {
     let content: Content

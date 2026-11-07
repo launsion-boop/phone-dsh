@@ -243,3 +243,21 @@ test_spec_golden.py` → PASS, 66 tests; `bash scripts/ci/check.sh --only
 phone-spec,phone-p0-conformance,phone-cross-tree` → PASS / FAIL / PASS. These
 checks validate fixture structure and registry consistency; the extractor
 implementation and P0 gate remain incomplete.
+
+## Revision 10 — fixture license headers
+
+The license gate found that the 48 Swift source fixtures lacked their MIT SPDX
+headers. Add the header to each source, and advance each successful title's
+expected provenance line by exactly one; source anchors, expected outcomes and
+all parser behavior are unchanged. The owner contract remains at revision 9.
+The updated 48-case manifest SHA-256 is
+`50a09827c5a4e8e181433b34375d5fcadca9b72d5fafc07c51854a42106f0d2e`;
+the sorted Swift fixture manifest SHA-256 is
+`3df8d887095e48de332d68d7bb80cfb7904b643bc02aa468875c940ca9abd305`.
+The candidate extractor remains unmerged and P0 remains incomplete.
+
+Revision 10 verification: the exact source line and anchor were checked for all
+16 title-result cases; `bash scripts/ci/check.sh --only
+phone-license,phone-spec,phone-p0-conformance,phone-cross-tree` → PASS / PASS /
+FAIL / PASS. The P0 failure remains open and these checks do not establish
+extractor runtime conformance.

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 import SwiftUI
 extension Text {
     func navigationTitle(_ title: String) -> Text { self }

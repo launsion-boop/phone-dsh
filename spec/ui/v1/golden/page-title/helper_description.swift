@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 import SwiftUI
 struct FixturePage: View {
     private var content: some View { Text("Hidden").navigationTitle("Fake") }

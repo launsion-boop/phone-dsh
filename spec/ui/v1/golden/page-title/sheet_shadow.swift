@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 import SwiftUI
 extension Text {
     func sheet<Content: View>(isPresented: Binding<Bool>, @ViewBuilder content: () -> Content) -> Content { content() }
