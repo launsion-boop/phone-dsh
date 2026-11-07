@@ -7,7 +7,7 @@ status: frozen
 breaking: true
 version_decision: Preserve journal v1 and task v1; refuse ambiguous/corrupt old records instead of interpreting or rewriting them.
 base: f0d6c759724d5b889aad319ddbfecf7cbfa6a64d
-contract_revision: spec/device/v1/task-delegation.md@sha256:caab0be034ae48c68a191a8fc89e9ff5059895d0cb9d2780086ed1dbb8518f18
+contract_revision: spec/device/v1/task-delegation.md@sha256:9cd23d1b318fc0e7951986e5de9dcb549897b1983cda1f89ec44d70526a51531
 ```
 
 ## Trigger and delta
@@ -45,13 +45,13 @@ closed and unresolved evidence must remain intact. No C or Python wire
 producer changes: they must still consume the same task fixtures.
 
 Shared task positives and negatives are `spec/device/v1/golden/task-raw-json-cases.jsonl`
-(`sha256:269b4363e41a09cda1a6787c576f47fc4bcc413942462039cf965a4988e216d0`),
+(`sha256:7a5a5b71ddfce2bad775fe6ef13728774fc1fdf9130d53d0e448c5f914fe5b6a`),
 including unknown values, nested duplicate names, escaped names, distinct
 Unicode scalar sequences and NUL in unknown keys/values. Parent inventory cases
 are `spec/device/v1/golden/ble-task-inventory.jsonl`
-(`sha256:0c37bd4eb5cd279c92088571dd9b92f49bc4028df25c4c2bb570f6a50e16498f`),
+(`sha256:bfb01ffc9d843ae2993565fcdc2f7ab58a6c3e67bae93c051e589352e1325699`),
 with schema `spec/device/v1/schema/ble-task-inventory-vector.schema.json`
-(`sha256:54a4b7a5f32e30cdd5df9b4ba0ad00a68df213a25a3bdb83777144784c5dce15`).
+(`sha256:a2750beb594f3874c161dcb12d0f3fef19b657d1ffcb1db7c091b78eec69283c`).
 The `embedded_task_raw_vectors` scenario must run every raw task case through
 actual journal `records()` using a real valid parent and unchanged fingerprint,
 expect each task vector's own `valid`, and compare rejected bytes before/after.
@@ -107,3 +107,25 @@ rejected throughout the record, including unknown values. This intentionally
 closes a pre-existing corruption hole and can make previously misaccepted
 invalid records unreadable; keep the bytes for explicit recovery. Valid outer
 unknown duplicate names and NUL strings still keep their prior behavior.
+
+## Revision 4 — scalar agreement and JSON number syntax
+
+An independent reviewer reproduced that the Python LAN task consumer accepted
+unknown-member strings containing unpaired Unicode surrogates, while Swift and
+C reject them. Freeze scalar validity throughout every task string and key; a
+properly paired surrogate escape remains valid. The real shared raw vectors now
+cover unknown high/low surrogate values and keys plus a valid pair. The Python
+implementer exclusively owns `examples/lan-mcp-device/tasks.py` and its existing
+`test_tasks.py`, and must reject invalid scalars recursively without changing
+unknown-member or valid Unicode behavior. This tightens previously invalid
+inputs; valid old data and the wire format remain unchanged. Swift, Python and C
+must all consume the same revised vectors.
+
+The raw parent scanner must also validate number and literal *syntax* even in
+unknown fields, since the platform decoder may lazily ignore invalid `01` or
+`1e`. Validate the JSON grammar without converting unknown numbers to a numeric
+type: the shared parent fixtures require large valid exponent `1e9999` and a
+valid exponent to remain accepted. This is not a new numeric-domain limit.
+
+A lossless transcoder must not silently discard trailing incomplete code units;
+shared UTF-16 and UTF-32 parent negatives cover that case.

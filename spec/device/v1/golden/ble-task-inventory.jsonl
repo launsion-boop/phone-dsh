@@ -45,3 +45,9 @@
 {"name":"outer_unknown_bad_escape","mutation":"outer_unknown_bad_escape","valid":false}
 {"name":"outer_unknown_lone_surrogate","mutation":"outer_unknown_lone_surrogate","valid":false}
 {"name":"outer_unknown_raw_control","mutation":"outer_unknown_raw_control","valid":false}
+{"name":"outer_unknown_leading_zero","mutation":"outer_unknown_leading_zero","valid":false}
+{"name":"outer_unknown_incomplete_exponent","mutation":"outer_unknown_incomplete_exponent","valid":false}
+{"name":"outer_unknown_large_exponent","mutation":"outer_unknown_large_exponent","valid":true}
+{"name":"outer_unknown_valid_exponent","mutation":"outer_unknown_valid_exponent","valid":true}
+{"name":"utf16le_trailing_byte","mutation":"utf16le_trailing_byte","valid":false}
+{"name":"utf32be_trailing_byte","mutation":"utf32be_trailing_byte","valid":false}

@@ -60,7 +60,13 @@
         "utf32be_hidden_nul",
         "outer_unknown_bad_escape",
         "outer_unknown_lone_surrogate",
-        "outer_unknown_raw_control"
+        "outer_unknown_raw_control",
+        "outer_unknown_leading_zero",
+        "outer_unknown_incomplete_exponent",
+        "outer_unknown_large_exponent",
+        "outer_unknown_valid_exponent",
+        "utf16le_trailing_byte",
+        "utf32be_trailing_byte"
       ]
     },
     "valid": {
