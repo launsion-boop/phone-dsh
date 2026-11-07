@@ -34,6 +34,11 @@ import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.text.AnnotatedString
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.phonedsh.agentcore.JsonArray
+import com.phonedsh.agentcore.JsonObject
+import com.phonedsh.agentcore.JsonString
+import com.phonedsh.agentcore.JsonValue
+import com.phonedsh.ui.SpecFixtures
 import com.phonedsh.ui.UiStrings
 import com.phonedsh.ui.theme.PdshTheme
 import org.junit.Assert.assertEquals
@@ -44,6 +49,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
+import java.nio.file.Files
 
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [34], qualifiers = "w411dp-h640dp")
@@ -454,18 +460,32 @@ class WebSearchSettingsPageTest {
 
     @Test
     fun `还要知道 folds and unfolds from the live event`() {
+        val contractPath = SpecFixtures.repoRoot.resolve("spec/ui/v1/pages/web-search-settings.json")
+        val contract = JsonValue.parse(Files.readString(contractPath)) as JsonObject
+        val sections = (contract["sections"] as JsonArray).values.map { it as JsonObject }
+        val notes = sections.single { (it["id"] as? JsonString)?.value == "还要知道" }
+        val rows = (notes["rows"] as JsonArray).values.map { it as JsonObject }
+        val note = rows.single {
+            (it["provenance"] as? JsonString)?.value == "WebSearchSettingsPage.swift:313"
+        }
+        val expected = (note["label"] as JsonString).value
+        val obsolete = "用模型服务自带的搜索时,抓网页这件事也归它管,这里不再单独设。"
+        assertTrue("the current contract must reject the obsolete note", expected != obsolete)
+
         showLive(WebSearchFacts(mode = WebSearchMode.FOLLOW_MODEL))
         scrollTo(UiStrings.WEB_SEARCH_SECTION_NOTES)
         compose.onNodeWithText(UiStrings.WEB_SEARCH_SECTION_NOTES).assertIsDisplayed()
-        scrollTo(UiStrings.WEB_SEARCH_NOTE_MODEL)
-        compose.onNodeWithText(UiStrings.WEB_SEARCH_NOTE_MODEL).assertIsDisplayed()
+        scrollTo(expected)
+        compose.onNodeWithText(expected).assertIsDisplayed()
+        compose.onNodeWithText(obsolete).assertDoesNotExist()
         scrollTo(UiStrings.WEB_SEARCH_SECTION_NOTES)
         compose.onNodeWithText(UiStrings.WEB_SEARCH_SECTION_NOTES).performClick()
-        compose.onNodeWithText(UiStrings.WEB_SEARCH_NOTE_MODEL).assertDoesNotExist()
+        compose.onNodeWithText(expected).assertDoesNotExist()
         scrollTo(UiStrings.WEB_SEARCH_SECTION_NOTES)
         compose.onNodeWithText(UiStrings.WEB_SEARCH_SECTION_NOTES).performClick()
-        scrollTo(UiStrings.WEB_SEARCH_NOTE_MODEL)
-        compose.onNodeWithText(UiStrings.WEB_SEARCH_NOTE_MODEL).assertIsDisplayed()
+        scrollTo(expected)
+        compose.onNodeWithText(expected).assertIsDisplayed()
+        compose.onNodeWithText(obsolete).assertDoesNotExist()
     }
 
     @Test
