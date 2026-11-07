@@ -53,6 +53,12 @@ final class BLETaskIntentTests: XCTestCase {
         let valid: Bool
     }
 
+    private struct RawTaskVector: Decodable {
+        let name: String
+        let valid: Bool
+        let json: String
+    }
+
     /// Snapshot bytes, directory entries and symlink targets without following
     /// symlinks, so a rejected scan cannot silently repair its evidence.
     private func snapshot(_ root: URL) throws -> [String: String] {
@@ -75,22 +81,85 @@ final class BLETaskIntentTests: XCTestCase {
         return result
     }
 
+    /// Each raw fixture replaces only the task bytes of a real persisted
+    /// record, preserving its real fingerprint and every outer field.
+    private func checkEmbeddedTaskVectors(root: URL, base: URL) throws {
+        let fixture = root.appendingPathComponent("spec/device/v1/golden/task-raw-json-cases.jsonl")
+        let vectors = try String(contentsOf: fixture, encoding: .utf8).split(separator: "\n").map {
+            try JSONDecoder().decode(RawTaskVector.self, from: Data($0.utf8))
+        }
+        let valid = try XCTUnwrap(vectors.first { $0.name == "valid" && $0.valid })
+        let task = try DeviceTask.decode(Data(valid.json.utf8))
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        let encodedTask = try XCTUnwrap(String(data: encoder.encode(task), encoding: .utf8))
+        let target = "\"task\":" + encodedTask
+        for vector in vectors {
+            let dir = base.appendingPathComponent(UUID().uuidString)
+            let journal = try DeviceTaskJournal(directory: dir)
+            let record = try journal.create(deviceID: "ble:ce6ec956-1111-4222-8333-123456789abc", task: task, sessionID: "session-1", now: Date())
+            let path = dir.appendingPathComponent(record.msgID + ".json")
+            let parent = try String(contentsOf: path, encoding: .utf8)
+            XCTAssertEqual(parent.components(separatedBy: target).count, 2, vector.name)
+            let changed = parent.replacingOccurrences(of: target, with: "\"task\":" + vector.json)
+            try Data(changed.utf8).write(to: path)
+            let before = try snapshot(dir)
+            if vector.valid {
+                XCTAssertEqual(try journal.records(), [record], vector.name)
+            } else {
+                XCTAssertThrowsError(try journal.records(), vector.name) { error in
+                    XCTAssertEqual(error as? DeviceTaskError, .corruptJournal, vector.name)
+                }
+            }
+            XCTAssertEqual(try snapshot(dir), before, "inventory changed evidence: \(vector.name)")
+        }
+        let byteVectors = try sharedRawTaskBytesCases()
+        XCTAssertEqual(byteVectors.count, 19)
+        for vector in byteVectors {
+            let dir = base.appendingPathComponent(UUID().uuidString)
+            let journal = try DeviceTaskJournal(directory: dir)
+            let record = try journal.create(deviceID: "ble:ce6ec956-1111-4222-8333-123456789abc", task: task, sessionID: "session-1", now: Date())
+            let path = dir.appendingPathComponent(record.msgID + ".json")
+            var parent = try Data(contentsOf: path)
+            let range = try XCTUnwrap(parent.range(of: Data(target.utf8)), vector.name)
+            parent.replaceSubrange(range, with: Data("\"task\":".utf8) + (try vector.data()))
+            try parent.write(to: path)
+            let before = try snapshot(dir)
+            if vector.valid {
+                XCTAssertEqual(try journal.records(), [record], vector.name)
+            } else {
+                XCTAssertThrowsError(try journal.records(), vector.name) { error in
+                    XCTAssertEqual(error as? DeviceTaskError, .corruptJournal, vector.name)
+                }
+            }
+            XCTAssertEqual(try snapshot(dir), before, "inventory changed evidence: \(vector.name)")
+        }
+    }
+
     func testSharedGlobalInventoryVectorsAndReadOnlyFailure() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let fixture = root.appendingPathComponent("spec/device/v1/golden/ble-task-inventory.jsonl")
         let vectors = try String(contentsOf: fixture, encoding: .utf8).split(separator: "\n").map {
             try JSONDecoder().decode(InventoryVector.self, from: Data($0.utf8))
         }
-        XCTAssertEqual(vectors.count, 22)
+        XCTAssertEqual(vectors.count, 74)
         for vector in vectors {
             let base = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
             defer { try? FileManager.default.removeItem(at: base) }
+            if vector.mutation == "embedded_task_raw_vectors" {
+                try checkEmbeddedTaskVectors(root: root, base: base)
+                continue
+            }
             let dir = base.appendingPathComponent("journal")
             let journal = try DeviceTaskJournal(directory: dir)
             let task = try DeviceTask.decode(Data(#"{"id":"task-1","idempotency_key":"goal-1","requester":"device","created_at":"2026-11-06T00:00:00Z","body":{"type":"goal","text":"Hello"}}"#.utf8))
             var record = try journal.create(deviceID: "ble:ce6ec956-1111-4222-8333-123456789abc", task: task, sessionID: "session-1", now: Date())
-            let terminalComplete = ["valid_complete", "missing_terminal", "different_terminal", "write_wrong_complete"].contains(vector.mutation)
-            let action: BLETaskIntent.Action = terminalComplete ? .complete : (["valid_fail", "write_wrong_fail"].contains(vector.mutation) ? .fail : .accept)
+            let terminalComplete = ["valid_complete", "missing_terminal", "different_terminal", "write_wrong_complete",
+                                    "duplicate_known_outcome", "duplicate_outcome_kind", "duplicate_outcome_output",
+                                    "duplicate_outcome_truncated", "duplicate_outcome_escaped_kind", "duplicate_outcome_unknown_valid",
+                                    "duplicate_outcome_inactive_known", "duplicate_outcome_same_value"].contains(vector.mutation)
+            let terminalFail = ["valid_fail", "write_wrong_fail", "duplicate_outcome_failure_kind", "duplicate_outcome_message"].contains(vector.mutation)
+            let action: BLETaskIntent.Action = terminalComplete ? .complete : (terminalFail ? .fail : .accept)
             let args: JSONValue
             switch action {
             case .accept: args = .object(["id": .string(task.id)])
@@ -153,6 +222,133 @@ final class BLETaskIntentTests: XCTestCase {
                 try FileManager.default.createSymbolicLink(at: ops, withDestinationURL: target)
             case "extra_file": try Data("extra".utf8).write(to: ops.appendingPathComponent("unrelated"))
             case "oversize": try Data(repeating: 32, count: 65537).write(to: path)
+            case "duplicate_parent_task", "duplicate_outer_unknown":
+                let parent = dir.appendingPathComponent(record.msgID + ".json")
+                let original = try String(contentsOf: parent, encoding: .utf8)
+                let prefix = vector.mutation == "duplicate_parent_task"
+                    ? #"{"\u0074ask":null,"#
+                    : #"{"future":{"x":1,"x":2},"future":{"y":3},"#
+                try Data((prefix + original.dropFirst()).utf8).write(to: parent)
+            case "escaped_parent_task", "missing_parent_task", "null_parent_task", "array_parent_task",
+                 "first_parent_task", "last_parent_task", "unknown_nested_task_and_escapes",
+                 "duplicate_parent_task_reversed", "outer_unknown_nul":
+                let parent = dir.appendingPathComponent(record.msgID + ".json")
+                let original = try String(contentsOf: parent, encoding: .utf8)
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+                let encodedTask = try XCTUnwrap(String(data: encoder.encode(task), encoding: .utf8))
+                let target = "\"task\":" + encodedTask
+                XCTAssertEqual(original.components(separatedBy: target).count, 2, vector.name)
+                let changed: String
+                switch vector.mutation {
+                case "escaped_parent_task":
+                    changed = original.replacingOccurrences(of: target, with: #""\u0074ask":"# + encodedTask)
+                case "missing_parent_task":
+                    changed = original.replacingOccurrences(of: target + ",", with: "")
+                case "null_parent_task":
+                    changed = original.replacingOccurrences(of: target, with: "\"task\":null")
+                case "array_parent_task":
+                    changed = original.replacingOccurrences(of: target, with: "\"task\":[]")
+                case "first_parent_task":
+                    let without = original.replacingOccurrences(of: target + ",", with: "")
+                    changed = "{" + target + "," + without.dropFirst()
+                case "last_parent_task":
+                    let without = original.replacingOccurrences(of: target + ",", with: "")
+                    changed = String(without.dropLast()) + "," + target + "}"
+                case "unknown_nested_task_and_escapes":
+                    changed = #"{"outer":{"task":[{"text":"},\"ignored\":\"task\":"}]},"# + original.dropFirst()
+                case "duplicate_parent_task_reversed":
+                    changed = String(original.dropLast()) + #", "\u0074ask":null}"#
+                default:
+                    changed = #"{"future":{"bad\u0000key":"\u0000"},"# + original.dropFirst()
+                }
+                XCTAssertNotEqual(changed, original, vector.name)
+                try Data(changed.utf8).write(to: parent)
+            case "utf8_bom_parent", "utf16le_parent", "utf16be_parent", "utf16le_bom_parent",
+                 "utf16be_bom_parent", "utf32le_parent", "utf32be_parent", "utf32be_bom_parent",
+                 "utf16le_duplicate_task_member", "utf32be_hidden_nul", "outer_unknown_bad_escape",
+                 "outer_unknown_lone_surrogate", "outer_unknown_raw_control", "outer_unknown_leading_zero",
+                 "outer_unknown_incomplete_exponent", "outer_unknown_large_exponent", "outer_unknown_valid_exponent",
+                 "utf16le_trailing_byte", "utf32be_trailing_byte":
+                let parent = dir.appendingPathComponent(record.msgID + ".json")
+                let original = try String(contentsOf: parent, encoding: .utf8)
+                var content = original
+                var encoding: String.Encoding = .utf8
+                var bom = Data()
+                var suffix = Data()
+                switch vector.mutation {
+                case "utf8_bom_parent": bom = Data([0xef, 0xbb, 0xbf])
+                case "utf16le_parent": encoding = .utf16LittleEndian
+                case "utf16be_parent": encoding = .utf16BigEndian
+                case "utf16le_bom_parent": encoding = .utf16LittleEndian; bom = Data([0xff, 0xfe])
+                case "utf16be_bom_parent": encoding = .utf16BigEndian; bom = Data([0xfe, 0xff])
+                case "utf32le_parent": encoding = .utf32LittleEndian
+                case "utf32be_parent": encoding = .utf32BigEndian
+                case "utf32be_bom_parent": encoding = .utf32BigEndian; bom = Data([0, 0, 0xfe, 0xff])
+                case "utf16le_duplicate_task_member":
+                    encoding = .utf16LittleEndian
+                    content = #"{"\u0074ask":null,"# + original.dropFirst()
+                case "utf32be_hidden_nul":
+                    encoding = .utf32BigEndian
+                    content = original.replacingOccurrences(of: "\"body\":", with: #""extra":{"é":"\u0000","e\u0301":"safe"},"body":"#)
+                case "outer_unknown_bad_escape": content = #"{"future":"\q","# + original.dropFirst()
+                case "outer_unknown_lone_surrogate": content = #"{"future":"\ud800","# + original.dropFirst()
+                case "outer_unknown_raw_control": content = "{\"future\":\"bad\nvalue\"," + original.dropFirst()
+                case "outer_unknown_leading_zero": content = #"{"future":01,"# + original.dropFirst()
+                case "outer_unknown_incomplete_exponent": content = #"{"future":1e,"# + original.dropFirst()
+                case "outer_unknown_large_exponent": content = #"{"future":1e9999,"# + original.dropFirst()
+                case "outer_unknown_valid_exponent": content = #"{"future":-1.25e+10,"# + original.dropFirst()
+                case "utf16le_trailing_byte": encoding = .utf16LittleEndian; suffix = Data([0])
+                default: encoding = .utf32BigEndian; suffix = Data([0])
+                }
+                let bytes = bom + (try XCTUnwrap(content.data(using: encoding))) + suffix
+                try bytes.write(to: parent)
+            case "duplicate_known_v", "duplicate_known_device_id", "duplicate_known_fingerprint",
+                 "duplicate_known_msg_id", "duplicate_known_request_id", "duplicate_known_seq",
+                 "duplicate_known_session_id", "duplicate_known_phase", "duplicate_known_deadline_ms",
+                 "duplicate_known_outcome", "duplicate_known_escaped_device_id", "duplicate_known_same_value":
+                let parent = dir.appendingPathComponent(record.msgID + ".json")
+                let original = try String(contentsOf: parent, encoding: .utf8)
+                let duplicate: String
+                switch vector.mutation {
+                case "duplicate_known_v": duplicate = #""v":2"#
+                case "duplicate_known_device_id": duplicate = #""device_id":"ble:ce6ec956-1111-4222-8333-123456789abd""#
+                case "duplicate_known_fingerprint": duplicate = #""fingerprint":""# + String(repeating: "0", count: 64) + #"""#
+                case "duplicate_known_msg_id": duplicate = #""msg_id":""# + String(repeating: "0", count: 64) + #"""#
+                case "duplicate_known_request_id": duplicate = #""request_id":"dev:other""#
+                case "duplicate_known_seq": duplicate = #""seq":2"#
+                case "duplicate_known_session_id": duplicate = #""session_id":"other""#
+                case "duplicate_known_phase": duplicate = #""phase":"terminal""#
+                case "duplicate_known_deadline_ms": duplicate = #""deadline_ms":1"#
+                case "duplicate_known_outcome": duplicate = #""outcome":null"#
+                case "duplicate_known_escaped_device_id": duplicate = #""\u0064evice_id":"ble:ce6ec956-1111-4222-8333-123456789abd""#
+                default: duplicate = #""device_id":"ble:ce6ec956-1111-4222-8333-123456789abc""#
+                }
+                try Data((String(original.dropLast()) + "," + duplicate + "}").utf8).write(to: parent)
+            case "duplicate_outcome_kind", "duplicate_outcome_output", "duplicate_outcome_truncated",
+                 "duplicate_outcome_failure_kind", "duplicate_outcome_message", "duplicate_outcome_escaped_kind",
+                 "duplicate_outcome_unknown_valid", "duplicate_outcome_inactive_known", "duplicate_outcome_same_value":
+                let parent = dir.appendingPathComponent(record.msgID + ".json")
+                let original = try String(contentsOf: parent, encoding: .utf8)
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+                let encoded = try XCTUnwrap(String(data: encoder.encode(try XCTUnwrap(record.outcome)), encoding: .utf8))
+                let target = "\"outcome\":" + encoded
+                XCTAssertEqual(original.components(separatedBy: target).count, 2, vector.name)
+                let duplicate: String
+                switch vector.mutation {
+                case "duplicate_outcome_kind": duplicate = #""kind":"failed""#
+                case "duplicate_outcome_output": duplicate = #""output":"changed""#
+                case "duplicate_outcome_truncated": duplicate = #""truncated":true"#
+                case "duplicate_outcome_failure_kind": duplicate = #""failure_kind":"failed""#
+                case "duplicate_outcome_message": duplicate = #""message":"changed""#
+                case "duplicate_outcome_escaped_kind": duplicate = #""\u006bind":"failed""#
+                case "duplicate_outcome_inactive_known": duplicate = #""failure_kind":"failed","failure_kind":"failed""#
+                case "duplicate_outcome_same_value": duplicate = #""output":"OK""#
+                default: duplicate = #""future":{"x":1,"x":2},"future":{"y":3}"#
+                }
+                let replacement = "\"outcome\":" + String(encoded.dropLast()) + "," + duplicate + "}"
+                try Data(original.replacingOccurrences(of: target, with: replacement).utf8).write(to: parent)
             default: XCTFail("unhandled shared scenario \(vector.name)"); continue
             }
             let before = try snapshot(base)

@@ -10,7 +10,13 @@ IDENTIFIER = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$')
 UTC_TIME = re.compile(r'^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,3})?Z$')
 FAILURES = {'denied', 'unavailable', 'expired', 'failed', 'unknown_outcome'}
 
+
 def decode_task_json(raw):
+    # Task fields are strings or objects; numbers can occur only in ignored
+    # members. Avoid native conversion (and its digit/range limits), while
+    # keeping numbers distinct from every valid known-field type.
+    number = object()
+
     def unique(pairs):
         result = {}
         for key, value in pairs:
@@ -18,20 +24,33 @@ def decode_task_json(raw):
                 raise ValueError('duplicate object member')
             result[key] = value
         return result
-    return decode_task(json.loads(raw, object_pairs_hook=unique))
+    def reject_constant(value):
+        raise ValueError('non-JSON numeric constant: ' + value)
+
+    if isinstance(raw, (bytes, bytearray)):
+        # json.loads(bytes) also auto-detects UTF-16/32, but task bytes are UTF-8.
+        # Decode without stripping a BOM: the task wire forbids it.
+        raw = bytes(raw).decode('utf-8')
+    return decode_task(json.loads(raw, object_pairs_hook=unique,
+                                  parse_int=lambda _: number, parse_float=lambda _: number,
+                                  parse_constant=reject_constant))
 
 
 def decode_task(task):
-    def contains_nul(value):
+    def validate_strings(value):
         if isinstance(value, str):
-            return '\x00' in value
-        if isinstance(value, list):
-            return any(contains_nul(item) for item in value)
-        if isinstance(value, dict):
-            return any(contains_nul(key) or contains_nul(item) for key, item in value.items())
-        return False
-    if contains_nul(task):
-        raise ValueError('NUL in task')
+            if '\x00' in value:
+                raise ValueError('NUL in task')
+            if any(0xD800 <= ord(char) <= 0xDFFF for char in value):
+                raise ValueError('invalid Unicode scalar in task')
+        elif isinstance(value, list):
+            for item in value:
+                validate_strings(item)
+        elif isinstance(value, dict):
+            for key, item in value.items():
+                validate_strings(key)
+                validate_strings(item)
+    validate_strings(task)
     if not isinstance(task, dict):
         raise ValueError('invalid task')
     task_id, key, requester, created, body = (task.get(k) for k in ('id', 'idempotency_key', 'requester', 'created_at', 'body'))

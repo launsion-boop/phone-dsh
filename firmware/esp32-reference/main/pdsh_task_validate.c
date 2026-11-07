@@ -138,8 +138,60 @@ bool pdsh_task_json_no_nul(const char *json) {
     }
     return true;
 }
+
+/* cJSON accepts some non-JSON number spellings, raw controls and malformed
+ * UTF-8. Check the original byte stream before parsing it. Number tokens are
+ * checked lexically so unknown values need not fit a native numeric type. */
+static bool task_json_lexical(const char *json) {
+    if (!utf8_text(json, SIZE_MAX, false, true, true)) return false;
+    const unsigned char *p = (const unsigned char *)json;
+    /* Standalone task wire JSON forbids a leading UTF-8 BOM. */
+    if (p[0] == 0xef && p[1] == 0xbb && p[2] == 0xbf) return false;
+    bool in_string = false;
+    while (*p) {
+        if (in_string) {
+            if (*p < 0x20) return false;
+            if (*p == '\\') {
+                if (!p[1] || p[1] < 0x20) return false;
+                p += 2; /* cJSON verifies the escape and any Unicode pair. */
+            } else {
+                if (*p == '"') in_string = false;
+                p++;
+            }
+            continue;
+        }
+        if (*p == '"') { in_string = true; p++; continue; }
+        if (*p < 0x20 && *p != '\t' && *p != '\n' && *p != '\r') return false;
+        if (*p == '-' || (*p >= '0' && *p <= '9')) {
+            if (*p == '-') p++;
+            if (*p == '0') {
+                p++;
+            } else {
+                if (*p < '1' || *p > '9') return false;
+                do { p++; } while (*p >= '0' && *p <= '9');
+            }
+            if (*p == '.') {
+                p++;
+                if (*p < '0' || *p > '9') return false;
+                do { p++; } while (*p >= '0' && *p <= '9');
+            }
+            if (*p == 'e' || *p == 'E') {
+                p++;
+                if (*p == '+' || *p == '-') p++;
+                if (*p < '0' || *p > '9') return false;
+                do { p++; } while (*p >= '0' && *p <= '9');
+            }
+            if (*p && *p != ' ' && *p != '\t' && *p != '\n' && *p != '\r' &&
+                *p != ',' && *p != ']' && *p != '}') return false;
+            continue;
+        }
+        p++;
+    }
+    return !in_string;
+}
+
 bool pdsh_task_validate_json(const char *json) {
-    if (!pdsh_task_json_no_nul(json)) return false;
+    if (!pdsh_task_json_no_nul(json) || !task_json_lexical(json)) return false;
     const char *end = NULL;
     cJSON *task = cJSON_ParseWithOpts(json, &end, true);
     bool ok = task && end && pdsh_task_unique_keys(task) && pdsh_task_validate(task);

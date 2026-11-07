@@ -34,7 +34,7 @@ cc -std=c11 -Wall -Wextra -Werror -Wno-deprecated-declarations -fsanitize=addres
   -I"$ROOT/firmware/esp32-reference/main" -I"$CJSON" \
   "$ROOT/firmware/tests/test_task_validate.c" "$ROOT/firmware/esp32-reference/main/pdsh_task_validate.c" \
   "$CJSON/cJSON.c" -o "$OUT/task-validate"
-"$OUT/task-validate" "$ROOT/spec/device/v1/golden/task-cases.jsonl" "$ROOT/spec/device/v1/golden/task-raw-json-cases.jsonl"
+"$OUT/task-validate" "$ROOT/spec/device/v1/golden/task-cases.jsonl" "$ROOT/spec/device/v1/golden/task-raw-json-cases.jsonl" "$ROOT/spec/device/v1/golden/task-raw-bytes.jsonl"
 cc -std=c11 -Wall -Wextra -Werror -Wno-deprecated-declarations -fsanitize=address,undefined \
   -I"$ROOT/firmware/tests/stubs" -I"$ROOT/firmware/esp32-reference/main" -I"$CJSON" \
   "$ROOT/firmware/tests/test_task_store.c" "$ROOT/firmware/esp32-reference/main/pdsh_task_store.c" \

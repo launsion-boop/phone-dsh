@@ -4,6 +4,28 @@ import XCTest
 import PhoneDSHAgentCore
 @testable import PhoneDSHDeviceTasks
 
+struct SharedRawBytesCase: Decodable {
+    let name: String
+    let valid: Bool
+    let hex: String
+
+    func data() throws -> Data {
+        let characters = Array(hex.utf8)
+        guard characters.count.isMultiple(of: 2) else { throw DeviceTaskError.invalidTask }
+        return Data(try stride(from: 0, to: characters.count, by: 2).map { index in
+            try XCTUnwrap(UInt8(String(decoding: characters[index..<(index + 2)], as: UTF8.self), radix: 16))
+        })
+    }
+}
+
+func sharedRawTaskBytesCases() throws -> [SharedRawBytesCase] {
+    let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    let fixture = root.appendingPathComponent("spec/device/v1/golden/task-raw-bytes.jsonl")
+    return try String(contentsOf: fixture, encoding: .utf8).split(separator: "\n").map {
+        try JSONDecoder().decode(SharedRawBytesCase.self, from: Data($0.utf8))
+    }
+}
+
 private actor TestInbox: DeviceTaskInbox {
     var accepted: [String] = []
     var reports: [(String, DeviceTaskOutcome)] = []
@@ -58,6 +80,28 @@ final class DeviceTaskTests: XCTestCase {
             let raw = try XCTUnwrap(row["json"]?.stringValue)
             XCTAssertEqual((try? DeviceTask.decode(Data(raw.utf8))) != nil, row["valid"]?.boolValue,
                            row["name"]?.stringValue ?? "")
+        }
+    }
+
+    func testSharedRawTaskBytes() throws {
+        let vectors = try sharedRawTaskBytesCases()
+        XCTAssertEqual(vectors.count, 19)
+        for vector in vectors {
+            XCTAssertEqual((try? DeviceTask.decode(vector.data())) != nil, vector.valid, vector.name)
+        }
+    }
+
+    func testKnownFieldsRemainTypedAndNullDeadlineRejected() throws {
+        let valid = #"{"id":"task-1","idempotency_key":"key-1","requester":"sensor","created_at":"2026-11-06T00:00:00Z","body":{"type":"goal","text":"Hello"}}"#
+        XCTAssertNoThrow(try DeviceTask.decode(Data(valid.utf8)))
+        for bad in [
+            valid.replacingOccurrences(of: #""id":"task-1""#, with: #""id":1e9999"#),
+            valid.replacingOccurrences(of: #""requester":"sensor""#, with: #""requester":42"#),
+            valid.replacingOccurrences(of: #""text":"Hello""#, with: #""text":1"#),
+            valid.replacingOccurrences(of: #""body":"#, with: #""deadline":null,"body":"#),
+            valid.replacingOccurrences(of: #""body":"#, with: #""deadline":42,"body":"#),
+        ] {
+            XCTAssertThrowsError(try DeviceTask.decode(Data(bad.utf8)))
         }
     }
 

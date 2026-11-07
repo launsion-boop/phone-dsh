@@ -38,6 +38,11 @@ public struct DeviceTaskRecord: Codable, Equatable, Sendable {
 final class DeviceTaskJournal: @unchecked Sendable {
     private static let ownershipLock = NSLock()
     private static var ownedPaths = Set<String>()
+    private static let knownRecordMembers: Set<String> = [
+        "v", "device_id", "task", "fingerprint", "msg_id", "request_id", "seq",
+        "session_id", "phase", "deadline_ms", "outcome",
+    ]
+    private static let knownOutcomeMembers: Set<String> = ["kind", "output", "truncated", "failure_kind", "message"]
     private let directory: URL
     private let lockPath: String
     private let lockFD: Int32
@@ -108,11 +113,26 @@ final class DeviceTaskJournal: @unchecked Sendable {
             let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
             guard values.isRegularFile == true, values.isSymbolicLink != true else { throw DeviceTaskError.corruptJournal }
             let record: DeviceTaskRecord
-            do { record = try JSONDecoder().decode(DeviceTaskRecord.self, from: Data(contentsOf: url)) }
+            let rawTask: DeviceTask
+            do {
+                let data = try Data(contentsOf: url)
+                var raw = UniqueJSONKeys(data)
+                guard let members = raw.rawRootMembers(capturing: ["task", "outcome"], enforcingUnique: Self.knownRecordMembers),
+                      let taskData = members["task"] else { throw DeviceTaskError.corruptJournal }
+                rawTask = try DeviceTask.decode(taskData)
+                record = try JSONDecoder().decode(DeviceTaskRecord.self, from: data)
+                if record.outcome != nil {
+                    guard let outcomeData = members["outcome"] else { throw DeviceTaskError.corruptJournal }
+                    var outcome = UniqueJSONKeys(outcomeData)
+                    guard outcome.rawRootMembers(capturing: [], enforcingUnique: Self.knownOutcomeMembers) != nil else {
+                        throw DeviceTaskError.corruptJournal
+                    }
+                }
+            }
             catch { throw DeviceTaskError.corruptJournal }
             let expectedID = Self.msgID(deviceID: record.deviceID, key: record.task.idempotencyKey)
             guard record.v == 1, validDeviceID(record.deviceID),
-                  (try? DeviceTask.decode(encoder.encode(record.task))) == record.task,
+                  rawTask == record.task,
                   record.fingerprint == (try? fingerprint(record.task)),
                   record.msgID == expectedID, record.requestID == "dev:" + expectedID,
                   url.lastPathComponent == expectedID + ".json", (1...4096).contains(record.seq),

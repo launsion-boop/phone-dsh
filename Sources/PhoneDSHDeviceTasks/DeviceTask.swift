@@ -29,11 +29,26 @@ public struct DeviceTask: Codable, Equatable, Sendable {
         case createdAt = "created_at"
     }
 
+    /// `decodeIfPresent` intentionally treats absent and null identically;
+    /// the wire contract permits only the former for an omitted deadline.
+    private struct DeadlinePresence: Decodable {
+        let isNull: Bool
+        init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            if values.contains(.deadline) {
+                isNull = try values.decodeNil(forKey: .deadline)
+            } else {
+                isNull = false
+            }
+        }
+    }
+
     public static func decode(_ data: Data) throws -> DeviceTask {
         var unique = UniqueJSONKeys(data)
-        guard unique.check() else { throw DeviceTaskError.invalidTask }
-        guard let json = try? JSONSerialization.jsonObject(with: data), !containsNUL(json),
-              let object = json as? [String: Any], !(object["deadline"] is NSNull) else {
+        // Scan the original strings before Foundation dictionaries can merge
+        // scalar-distinct, canonically equivalent keys and hide a NUL value.
+        guard unique.check(rejectNUL: true) else { throw DeviceTaskError.invalidTask }
+        guard let deadline = try? JSONDecoder().decode(DeadlinePresence.self, from: data), !deadline.isNull else {
             throw DeviceTaskError.invalidTask
         }
         let task: DeviceTask
@@ -50,15 +65,6 @@ public struct DeviceTask: Codable, Equatable, Sendable {
             guard let end = parseTime(deadline), end > created else { throw DeviceTaskError.invalidTask }
         }
         return task
-    }
-
-    private static func containsNUL(_ value: Any) -> Bool {
-        if let text = value as? String { return text.unicodeScalars.contains { $0.value == 0 } }
-        if let items = value as? [Any] { return items.contains(where: containsNUL) }
-        if let object = value as? [String: Any] {
-            return object.contains { containsNUL($0.key) || containsNUL($0.value) }
-        }
-        return false
     }
 
     public var deadlineDate: Date? { deadline.flatMap(Self.parseTime) }
