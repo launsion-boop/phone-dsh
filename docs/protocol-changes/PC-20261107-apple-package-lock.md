@@ -52,3 +52,25 @@ PASS (67 tests); `bash scripts/ci/check.sh --only
 phone-spec,phone-p0-conformance,phone-cross-tree` → PASS / FAIL / PASS. The P0
 failure is pre-existing; these results do not implement or validate the new
 sidecar in the shared checkout.
+
+## Implementation review — caller isolation remains open
+
+Independent controlled-process review of an unmerged implementation found
+that a resolver which modifies the caller's root lock and then fails leaves
+that modification behind; a change between preflight validation and snapshot
+also allowed a false pass. Those tests used temporary fake tools and do not
+claim the real Xcode resolver exhibited this behavior. Blindly restoring the
+caller file would risk overwriting an independent user edit, so the candidate
+was withdrawn.
+
+A complete temporary snapshot could isolate normal relative output, provided
+it captures actual edited and untracked source, does not hard-link locks,
+rejects escaping symlinks, and keeps cache/output paths outside the caller
+checkout and Git common directory. It does not by itself prevent external
+code from using an absolute path to the caller. An outer macOS sandbox denying
+writes to the caller was tested against the real Xcode gate, but failed when
+SwiftPM attempted to establish its own nested sandbox (`Operation not
+permitted`). No general caller-isolation guarantee has been established, and
+no implementation, lockfile or gate change was merged on that evidence.
+The earlier normal Xcode/SwiftPM experiments remain useful but do not close
+this issue; the tracked root lock remains as it was before those experiments.
