@@ -12,7 +12,7 @@ Checks:
   module-inventory    the module set is the prepared PR22/PR14 13-module tree
   page-inventory      the UI page layer still carries the prepared baseline pages
   sdk-levels          :lib and :app declare minSdk 26 and targetSdk 35
-  readme-map          all 11 Sources/PhoneDSH* modules appear once in README
+  readme-map          README, source modules and Android packages match the reviewed inventory
   kotlin-stubs        no TODO()/not-implemented stub left in src/main Kotlin
   repositories        only google()/mavenCentral() are allowed, plus the in-tree
                       publish repository (a path, never a URL)
@@ -35,8 +35,12 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "spec" / "v1" / "tools"))
+from spec_golden import SpecError, load_json, validate_json  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "spec" / "platform" / "tools"))
+from platform_check import lint_schema  # noqa: E402
+
 SWIFT_PREFIX = "PhoneDSH"
-EXPECTED_SWIFT_MODULES = 11
 # The prepared PR14 baseline after the shared-shell merge. This is an inventory,
 # not a generic "number of include lines": a module that disappears (or appears
 # without a reviewed README mapping) is a structural change and must be seen.
@@ -324,61 +328,148 @@ def check_sdk_levels(root):
 
 def parse_mapping_rows(readme_text):
     lines = readme_text.splitlines()
-    start = None
-    for index, line in enumerate(lines):
-        if not line.strip().startswith("|"):
-            continue
-        if "Swift 模块" in line and "Kotlin 包" in line and "Gradle 模块" in line:
-            start = index + 2
-            break
-    if start is None:
-        return None
+    headers = [index for index, line in enumerate(lines)
+               if line.strip().startswith("|") and "Swift 模块" in line
+               and "Kotlin 包" in line and "Gradle 模块" in line and "状态" in line]
+    if len(headers) != 1:
+        raise ValueError("README must contain exactly one mapping table with a status column")
+    start = headers[0]
+    if start + 1 >= len(lines) or not re.fullmatch(
+        r"\s*\|(?:\s*:?-{3,}:?\s*\|){5}\s*", lines[start + 1]
+    ):
+        raise ValueError("invalid README mapping table separator")
     rows = []
-    for line in lines[start:]:
+    for line in lines[start + 2:]:
         if not line.strip().startswith("|"):
             break
         cells = [cell.strip().strip("`").strip() for cell in line.strip().strip("|").split("|")]
-        if len(cells) < 3:
-            continue
-        rows.append(cells[:3])
+        if len(cells) != 5 or any(not cell for cell in cells):
+            raise ValueError("invalid README mapping row")
+        rows.append(cells[:4])
     return rows
 
 
+def _load_android_module_map(root):
+    inventory = root / "spec" / "platform" / "android-module-map.json"
+    schema = root / "spec" / "platform" / "schema" / "android-module-map.schema.json"
+    vector_schema = root / "spec" / "platform" / "schema" / "android-module-map-vector.schema.json"
+    inventory_schema = load_json(schema)
+    lint_schema(inventory_schema, str(schema))
+    lint_schema(load_json(vector_schema), str(vector_schema))
+    data = load_json(inventory)
+    validate_json(data, inventory_schema, str(inventory))
+    entries = {}
+    for entry in data["modules"]:
+        name = entry["swift"]
+        if name in entries:
+            raise ValueError("duplicate inventory module: {}".format(name))
+        entries[name] = entry
+    return entries
+
+
+def _kotlin_code_without_literals(text):
+    """Mask Kotlin strings, characters and comments while preserving line breaks.
+
+    A package-looking line in a multiline string or comment is not a package
+    declaration. Preserve source positions so the declaration check below sees
+    only code, including in files containing raw strings and escaped quotes.
+    """
+    result = list(text)
+    index = 0
+    state = "code"
+    depth = 0
+    while index < len(text):
+        if state == "code":
+            if text.startswith('"""', index):
+                state, count = "raw", 3
+            elif text.startswith("//", index):
+                state, count = "line", 2
+            elif text.startswith("/*", index):
+                state, depth, count = "block", 1, 2
+            elif text[index] in ('"', "'"):
+                state, count = text[index], 1
+            else:
+                index += 1
+                continue
+        elif state == "line" and text[index] in "\r\n":
+            state = "code"
+            index += 1
+            continue
+        elif state == "block" and text.startswith("/*", index):
+            depth += 1
+            count = 2
+        elif state == "block" and text.startswith("*/", index):
+            depth -= 1
+            if depth == 0:
+                state = "code"
+            count = 2
+        elif state == "raw" and text.startswith('"""', index):
+            state, count = "code", 3
+        elif state in ('"', "'") and text[index] == "\\":
+            count = min(2, len(text) - index)
+        elif state in ('"', "'") and text[index] == state:
+            state, count = "code", 1
+        else:
+            count = 1
+        for pos in range(index, index + count):
+            if text[pos] not in "\r\n":
+                result[pos] = " "
+        index += count
+    return "".join(result)
+
+
 def check_readme_map(root):
+    try:
+        entries = _load_android_module_map(root)
+        readme = root / "android" / "README.md"
+        rows = parse_mapping_rows(readme.read_text(encoding="utf-8"))
+        settings = root / "android" / "settings.gradle.kts"
+        includes = set(parse_includes(settings.read_text(encoding="utf-8")))
+    except (OSError, UnicodeError, ValueError, SpecError) as exc:
+        return False, str(exc)
     sources = root / "Sources"
     if not sources.is_dir():
         return False, "missing Sources/"
-    swift_modules = {
-        child.name
-        for child in sources.iterdir()
-        if child.is_dir() and child.name.startswith(SWIFT_PREFIX)
-    }
-    if len(swift_modules) != EXPECTED_SWIFT_MODULES:
-        return False, "found {} Sources/{}* modules, expected {}".format(
-            len(swift_modules), SWIFT_PREFIX, EXPECTED_SWIFT_MODULES
-        )
-    readme = root / "android" / "README.md"
-    if not readme.is_file():
-        return False, "missing android/README.md"
-    rows = parse_mapping_rows(read_text(readme))
-    if rows is None:
-        return False, "README has no Swift/Kotlin/Gradle mapping table"
+    swift_modules = {child.name for child in sources.iterdir()
+                     if child.is_dir() and child.name.startswith(SWIFT_PREFIX)}
+    problems = []
+    for label, names in (("unregistered Sources modules", swift_modules - entries.keys()),
+                         ("missing Sources modules", entries.keys() - swift_modules)):
+        if names:
+            problems.append(label + ": " + ", ".join(sorted(names)))
     names = [row[0] for row in rows]
     duplicates = sorted({name for name in names if names.count(name) > 1})
-    unknown = sorted(set(names) - swift_modules)
-    missing = sorted(swift_modules - set(names))
-    problems = []
-    if len(rows) != EXPECTED_SWIFT_MODULES:
-        problems.append("table has {} rows, expected {}".format(len(rows), EXPECTED_SWIFT_MODULES))
     if duplicates:
-        problems.append("duplicate rows: " + ", ".join(duplicates))
-    if unknown:
-        problems.append("rows not under Sources/: " + ", ".join(unknown))
-    if missing:
-        problems.append("missing modules: " + ", ".join(missing))
+        problems.append("duplicate README rows: " + ", ".join(duplicates))
+    for label, nameset in (("unknown README rows", set(names) - entries.keys()),
+                           ("missing README rows", entries.keys() - set(names))):
+        if nameset:
+            problems.append(label + ": " + ", ".join(sorted(nameset)))
+    for name, package, gradle, status in rows:
+        entry = entries.get(name)
+        if entry is None:
+            continue
+        expected = [name, entry["kotlin"] or "—", entry["gradle"] or "—", entry["status"]]
+        if [name, package, gradle, status] != expected:
+            problems.append("README data mismatch: {}".format(name))
+    for entry in entries.values():
+        package, gradle = entry["kotlin"], entry["gradle"]
+        if gradle is None:
+            continue
+        module = root / "android" / gradle[1:]
+        if gradle not in includes or not (module / "build.gradle.kts").is_file():
+            problems.append("missing included Gradle module: {}".format(gradle))
+            continue
+        source_dir = module / "src" / "main" / "kotlin" / Path(*package.split("."))
+        declaration = re.compile(r"^[ \t]*package[ \t]+" + re.escape(package) + r"[ \t]*;?[ \t]*\r?$", re.M)
+        if not source_dir.is_dir() or not any(
+            declaration.search(_kotlin_code_without_literals(read_text(path)))
+            for path in source_dir.glob("*.kt") if path.is_file()
+        ):
+            problems.append("missing Kotlin package {} in {}".format(package, gradle))
     if problems:
         return False, "; ".join(problems)
-    return True, "11 Swift modules mapped exactly once"
+    return True, "{} reviewed Swift modules match README and Android sources".format(len(entries))
 
 
 def check_kotlin_stubs(root):

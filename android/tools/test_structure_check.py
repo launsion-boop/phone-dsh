@@ -9,6 +9,8 @@ the matching check name. No Gradle, SDK or network access is used.
 
 from __future__ import annotations
 
+import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -22,33 +24,12 @@ import structure_check
 
 CHECKER = Path(__file__).resolve().with_name("structure_check.py")
 
-SWIFT_MODULES = (
-    "PhoneDSHAgentCore",
-    "PhoneDSHWire",
-    "PhoneDSHLog",
-    "PhoneDSHLoopback",
-    "PhoneDSHGateway",
-    "PhoneDSHController",
-    "PhoneDSHEngine",
-    "PhoneDSHShell",
-    "PhoneDSH",
-    "PhoneDSHScenario",
-    "PhoneDSHHarness",
-)
+REPO_ROOT = Path(__file__).resolve().parents[2]
+MANIFEST = REPO_ROOT / "spec" / "platform" / "android-module-map.json"
+SCHEMA = REPO_ROOT / "spec" / "platform" / "schema" / "android-module-map.schema.json"
+SCENARIOS = REPO_ROOT / "spec" / "platform" / "golden" / "android-module-map-cases.jsonl"
+SCENARIO_SCHEMA = REPO_ROOT / "spec" / "platform" / "schema" / "android-module-map-vector.schema.json"
 
-KOTLIN_PACKAGES = {
-    "PhoneDSHAgentCore": "com.phonedsh.agentcore",
-    "PhoneDSHWire": "com.phonedsh.wire",
-    "PhoneDSHLog": "com.phonedsh.log",
-    "PhoneDSHLoopback": "com.phonedsh.loopback",
-    "PhoneDSHGateway": "com.phonedsh.gateway",
-    "PhoneDSHController": "com.phonedsh.controller",
-    "PhoneDSHEngine": "com.phonedsh.engine",
-    "PhoneDSHShell": "com.phonedsh.shell",
-    "PhoneDSH": "com.phonedsh.dsh",
-    "PhoneDSHScenario": "com.phonedsh.testkit.scenario",
-    "PhoneDSHHarness": "com.phonedsh.testkit.harness",
-}
 
 MODULES = (
     "platform",
@@ -152,20 +133,17 @@ def elf64_with_load_alignments(alignments):
 
 
 
-def readme_text():
+def readme_text(entries):
     lines = [
-        "<!-- SPDX-License-Identifier: MIT -->",
-        "# Fixture Android tree",
-        "",
-        "| Swift 模块（`Sources/`） | Kotlin 包 | Gradle 模块 | 说明 |",
-        "| --- | --- | --- | --- |",
+        "<!-- SPDX-License-Identifier: MIT -->", "# Fixture Android tree", "",
+        "| Swift 模块（`Sources/`） | Kotlin 包 | Gradle 模块 | 状态 | 说明 |",
+        "| --- | --- | --- | --- | --- |",
     ]
-    for module in SWIFT_MODULES:
-        lines.append(
-            "| {} | `{}` | `:core` | fixture |".format(module, KOTLIN_PACKAGES[module])
-        )
-    lines.append("")
-    lines.append("Packages carry the 1:1 mirror; :core is only a build boundary.")
+    for entry in entries:
+        package = "`{}`".format(entry["kotlin"]) if entry["kotlin"] is not None else "—"
+        gradle = "`{}`".format(entry["gradle"]) if entry["gradle"] is not None else "—"
+        lines.append("| {} | {} | {} | {} | fixture |".format(
+            entry["swift"], package, gradle, entry["status"]))
     return "\n".join(lines) + "\n"
 
 
@@ -223,15 +201,25 @@ def write(path, text):
 
 
 def make_fixture(root):
-    for module in SWIFT_MODULES:
-        (root / "Sources" / module).mkdir(parents=True, exist_ok=True)
+    raw_manifest = MANIFEST.read_text(encoding="utf-8")
+    entries = json.loads(raw_manifest)["modules"]
+    write(root / "spec" / "platform" / "android-module-map.json", raw_manifest)
+    write(root / "spec" / "platform" / "schema" / "android-module-map.schema.json", SCHEMA.read_text(encoding="utf-8"))
+    write(root / "spec" / "platform" / "schema" / "android-module-map-vector.schema.json", SCENARIO_SCHEMA.read_text(encoding="utf-8"))
+    for entry in entries:
+        (root / "Sources" / entry["swift"]).mkdir(parents=True, exist_ok=True)
     android = root / "android"
     write(android / "settings.gradle.kts", SETTINGS)
     write(android / "gradle" / "libs.versions.toml", CATALOG)
-    write(android / "README.md", readme_text())
+    write(android / "README.md", readme_text(entries))
     write(root / "shell" / "crates" / "pdsh-jni" / "build.rs", CARGO_16K)
     for name in MODULES:
         write(android / name / "build.gradle.kts", build_file(name))
+    for entry in entries:
+        if entry["gradle"] is None:
+            continue
+        source = android / entry["gradle"][1:] / "src" / "main" / "kotlin" / Path(*entry["kotlin"].split("."))
+        write(source / "Fixture.kt", "// SPDX-License-Identifier: MIT\npackage {}\n".format(entry["kotlin"]))
     write(
         android / "core" / "src" / "main" / "kotlin" / "com" / "phonedsh" / "wire" / "PackageMarker.kt",
         "// SPDX-License-Identifier: MIT\n// Fixture marker.\npackage com.phonedsh.wire\n",
@@ -367,6 +355,162 @@ class StructureCheckMutationTests(unittest.TestCase):
         kept = [line for line in path.read_text(encoding="utf-8").splitlines() if "PhoneDSHScenario" not in line]
         path.write_text("\n".join(kept) + "\n", encoding="utf-8")
         self.assert_fails("readme-map")
+
+    def test_shared_module_map_scenarios_exercise_real_checker(self):
+        structure_check.lint_schema(structure_check.load_json(SCHEMA), str(SCHEMA))
+        structure_check.lint_schema(structure_check.load_json(SCENARIO_SCHEMA), str(SCENARIO_SCHEMA))
+        structure_check.validate_json(
+            structure_check.load_json(MANIFEST), structure_check.load_json(SCHEMA), str(MANIFEST)
+        )
+        cases = [json.loads(line) for line in SCENARIOS.read_text(encoding="utf-8").splitlines() if line.strip()]
+        schema = structure_check.load_json(SCENARIO_SCHEMA)
+        for case in cases:
+            structure_check.validate_json(case, schema, str(SCENARIOS))
+        mutations = {
+            "baseline", "readme_missing", "readme_duplicate", "readme_unknown",
+            "readme_wrong_package", "readme_wrong_module", "readme_wrong_status",
+            "absent_claims_package", "source_missing", "source_added", "package_missing",
+            "gradle_missing", "manifest_duplicate", "manifest_invalid_status", "manifest_float_version",
+            "schema_unknown_keyword",
+        }
+        self.assertEqual(mutations, {case["mutation"] for case in cases})
+        self.assertEqual(len(mutations), len(cases))
+        for case in cases:
+            with self.subTest(case=case["mutation"]), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                make_fixture(root)
+                manifest = root / "spec/platform/android-module-map.json"
+                readme = root / "android/README.md"
+                rows = readme.read_text(encoding="utf-8").splitlines()
+                index = next(i for i, row in enumerate(rows) if row.startswith("| PhoneDSHBLE |"))
+                row = rows[index]
+                name = case["mutation"]
+                if name == "readme_missing":
+                    rows.pop(index)
+                elif name == "readme_duplicate":
+                    rows.insert(index, row)
+                elif name == "readme_unknown":
+                    rows[index] = row.replace("PhoneDSHBLE", "PhoneDSHUnknown")
+                elif name == "readme_wrong_package":
+                    rows[index] = row.replace("com.phonedsh.domain.connector.ble", "com.phonedsh.domain.connector.lan")
+                elif name == "readme_wrong_module":
+                    rows[index] = row.replace(":domain", ":core")
+                elif name == "readme_wrong_status":
+                    rows[index] = row.replace("| target |", "| mapped |")
+                elif name == "source_missing":
+                    (root / "Sources/PhoneDSHBLE").rmdir()
+                elif name == "source_added":
+                    (root / "Sources/PhoneDSHUnreviewed").mkdir()
+                elif name == "package_missing":
+                    shutil.rmtree(root / "android/domain/src/main/kotlin/com/phonedsh/domain/connector/ble")
+                elif name == "gradle_missing":
+                    (root / "android/domain/build.gradle.kts").unlink()
+                elif name == "manifest_float_version":
+                    raw = manifest.read_text(encoding="utf-8")
+                    changed = raw.replace('"format_version": 1,', '"format_version": 1.0,', 1)
+                    self.assertNotEqual(raw, changed)
+                    manifest.write_text(changed, encoding="utf-8")
+                elif name == "schema_unknown_keyword":
+                    schema_path = root / "spec/platform/schema/android-module-map.schema.json"
+                    altered = json.loads(schema_path.read_text(encoding="utf-8"))
+                    status = altered["properties"]["modules"]["items"]["oneOf"][1]["properties"]["status"]
+                    status["enumm"] = status.pop("enum")
+                    schema_path.write_text(json.dumps(altered), encoding="utf-8")
+                    data = json.loads(manifest.read_text(encoding="utf-8"))
+                    next(entry for entry in data["modules"] if entry["swift"] == "PhoneDSHBLE")["status"] = "unreviewed"
+                    manifest.write_text(json.dumps(data), encoding="utf-8")
+                    rows[index] = row.replace("| target |", "| unreviewed |")
+                elif name in ("absent_claims_package", "manifest_duplicate", "manifest_invalid_status"):
+                    data = json.loads(manifest.read_text(encoding="utf-8"))
+                    if name == "absent_claims_package":
+                        next(entry for entry in data["modules"] if entry["status"] == "absent")["kotlin"] = "com.phonedsh.fake"
+                    elif name == "manifest_duplicate":
+                        data["modules"].append(data["modules"][0].copy())
+                    else:
+                        data["modules"][0]["status"] = "implemented"
+                    manifest.write_text(json.dumps(data), encoding="utf-8")
+                elif name != "baseline":
+                    self.fail("unhandled shared case " + name)
+                readme.write_text("\n".join(rows) + "\n", encoding="utf-8")
+                ok, detail = structure_check.check_readme_map(root)
+                self.assertEqual(case["valid"], ok, detail)
+
+    def test_module_map_rejects_malformed_duplicate_keys_and_unknown_fields(self):
+        path = self.root / "spec/platform/android-module-map.json"
+        raw = path.read_text(encoding="utf-8")
+        cases = [
+            "{",
+            raw.replace('"format_version": 1,', '"format_version": 1, "format_version": 1,', 1),
+            raw.replace('"swift": "PhoneDSH",', '"swift": "PhoneDSH", "swift": "PhoneDSH",', 1),
+            raw.replace('"format_version": 1,', '"format_version": 1, "unknown": 1,', 1),
+            raw.replace('"swift": "PhoneDSH",', '"swift": "PhoneDSH", "unknown": 1,', 1),
+            raw.replace('"format_version": 1,', '"format_version": true,', 1),
+        ]
+        for mutation in cases:
+            with self.subTest(mutation=mutation[:100]):
+                self.assertNotEqual(raw, mutation)
+                path.write_text(mutation, encoding="utf-8")
+                ok, _ = structure_check.check_readme_map(self.root)
+                self.assertFalse(ok)
+
+    def test_module_map_rejects_invalid_module_and_package_combinations(self):
+        path = self.root / "spec/platform/android-module-map.json"
+        original = json.loads(path.read_text(encoding="utf-8"))
+        for field, value in (("kotlin", None), ("gradle", None), ("gradle", ":nonexistent"),
+                             ("kotlin", "com.phonedsh.wrong"), ("gradle", ":../core")):
+            with self.subTest(field=field, value=value):
+                data = json.loads(json.dumps(original))
+                entry = next(item for item in data["modules"] if item["swift"] == "PhoneDSHBLE")
+                entry[field] = value
+                # Keep the README in sync so this tests the inventory against
+                # Gradle and source packages, not merely the README mismatch.
+                path.write_text(json.dumps(data), encoding="utf-8")
+                (self.root / "android/README.md").write_text(readme_text(data["modules"]), encoding="utf-8")
+                self.assertFalse(structure_check.check_readme_map(self.root)[0])
+
+    def test_declared_package_must_be_production_and_match_its_declaration(self):
+        source = self.root / "android/domain/src/main/kotlin/com/phonedsh/domain/connector/ble/Fixture.kt"
+        source.write_text("package com.phonedsh.domain.connector.other\n", encoding="utf-8")
+        test_source = self.root / "android/domain/src/test/kotlin/com/phonedsh/domain/connector/ble/Fixture.kt"
+        write(test_source, "package com.phonedsh.domain.connector.ble\n")
+        self.assertFalse(structure_check.check_readme_map(self.root)[0])
+
+    def test_package_declaration_cannot_be_faked_inside_kotlin_literals_or_comments(self):
+        source = self.root / "android/domain/src/main/kotlin/com/phonedsh/domain/connector/ble/Fixture.kt"
+        declaration = "package com.phonedsh.domain.connector.ble"
+        decoys = (
+            'val decoy = """\n' + declaration + '\n"""\n',
+            'val decoy = """quote \\\" and // are raw content\n' + declaration + '\n"""\n',
+            '/* a comment\n' + declaration + '\n*/\n',
+            '/* outer /* inner */\n' + declaration + '\n*/\n',
+            '// ' + declaration + '\n',
+            'val decoy = "unterminated string\n' + declaration + '\n',
+            "val decoy = 'unterminated character\n" + declaration + '\n',
+        )
+        for content in decoys:
+            with self.subTest(content=content):
+                source.write_text(content, encoding="utf-8")
+                self.assertFalse(structure_check.check_readme_map(self.root)[0])
+        source.write_text('@file:Suppress("fixture")\n' + declaration + '\nval sample = """\n// not a comment\n"""\n', encoding="utf-8")
+        self.assertTrue(structure_check.check_readme_map(self.root)[0])
+
+    def test_mapping_requires_included_gradle_module(self):
+        self.mutate("android/settings.gradle.kts", 'include(":domain")', '// include(":domain")')
+        self.assertFalse(structure_check.check_readme_map(self.root)[0])
+
+    def test_checker_uses_the_shared_schema_not_a_copied_validator(self):
+        path = self.root / "spec/platform/schema/android-module-map.schema.json"
+        schema = json.loads(path.read_text(encoding="utf-8"))
+        schema["properties"]["format_version"]["const"] = 2
+        path.write_text(json.dumps(schema), encoding="utf-8")
+        self.assertFalse(structure_check.check_readme_map(self.root)[0])
+
+    def test_checker_rejects_unknown_vector_schema_keyword(self):
+        path = self.root / "spec/platform/schema/android-module-map-vector.schema.json"
+        schema = json.loads(path.read_text(encoding="utf-8"))
+        schema["properties"]["mutation"]["enumm"] = schema["properties"]["mutation"].pop("enum")
+        path.write_text(json.dumps(schema), encoding="utf-8")
+        self.assertFalse(structure_check.check_readme_map(self.root)[0])
 
     def test_real_kotlin_statement_passes(self):
         path = self.root / "android" / "core" / "src" / "main" / "kotlin" / "com" / "phonedsh" / "wire" / "PackageMarker.kt"
