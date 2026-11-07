@@ -6,7 +6,7 @@ contracts: [P23]
 status: frozen
 breaking: false for documented SDK listings; false-positive classifications are rejected
 base: 529cbee4cc2a3352de8af2d4fcf179fe0607aa52
-contract_revision: spec/toolchain/v1/sdk-manager.md@sha256:bd93f624c958e161aedc4bf3626f5055f8f1bb173654bc08b6d1fee58014229b
+contract_revision: spec/toolchain/v1/sdk-manager.md@sha256:d1821bda494c9070f45284b3e7243805ccf0d3ca94a80e83224fc1bf6b5d8d34
 ```
 
 Protocol impact: P23. The real SDK command-line tools 23.0 produced slash
@@ -132,3 +132,31 @@ Revision 4 freeze checks: `python3 -m unittest discover -s spec/v1/tools -p
 test_spec_golden.py` → PASS, 66 tests; `bash scripts/ci/check.sh --only
 phone-spec,phone-p0-conformance,phone-cross-tree` → PASS / FAIL / PASS. This
 validates fixture structure and registry consistency, not the pending adapter.
+
+
+## Revision 5 — compare independent captured copies
+
+A controlled capture process returned zero while silently omitting the
+producer's later unknown section from the file; the revision 4 draft then
+accepted the intact-looking prefix. Freeze a second independent capture and
+byte-for-byte comparison; nonzero status or differing bytes fail. The new
+fixture exercises a first capture that writes only the prefix while its
+stdout retains the full producer output. The former unqualified claim that
+any truncation is detectable was too strong: two identical copies cannot
+prove absence of data lost before both or coordinated corruption, and this
+revision records that limit rather than asserting it. This does not weaken
+the failed-capture, missing package, invalid-layout or process-status checks.
+
+The owner contract SHA-256 is
+`d1821bda494c9070f45284b3e7243805ccf0d3ca94a80e83224fc1bf6b5d8d34`;
+the 28-vector fixture SHA-256 is
+`473b1589083b6dfd84cd4a8e4c1828af921f4a155b69a952c789bf0717db77e6`;
+and its schema SHA-256 is
+`79cfeb8ae86ae82728e5e5be1baab912ea71d8c89b992039a063e9fdfcfd50d2`.
+The earlier draft remains unmerged. Both captured copies, cleanup and failure
+paths must be exercised by the real adapter before claiming implementation.
+
+Revision 5 freeze checks: `python3 -m unittest discover -s spec/v1/tools -p
+test_spec_golden.py` → PASS, 66 tests; `bash scripts/ci/check.sh --only
+phone-spec,phone-p0-conformance,phone-cross-tree` → PASS / FAIL / PASS. No
+implementation or structure-gate pass is claimed by these contract checks.

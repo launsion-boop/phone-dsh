@@ -6,8 +6,11 @@ The external Android SDK manager is not controlled by this repository. The
 bootstrap adapter invokes `sdkmanager --list_installed`, requires a successful
 exit status, and identifies the three configured package IDs from its installed
 package table from stdout only; stderr remains visible but never supplies
-package rows. Both the producer and the stdout capture must complete
-successfully; truncated or failed capture invalidates the entire listing. If stdout lacks a final newline, the adapter must separate its
+package rows. The producer and both stdout captures must complete successfully. The two
+captures must match byte-for-byte; a failed or divergent capture invalidates
+the listing. This comparison detects divergence between the captured copies;
+it cannot detect identical data loss before both copies, collusion between
+utilities, or corruption in the external producer itself. If stdout lacks a final newline, the adapter must separate its
 own output from the producer's final line before emitting any `PACKAGE` line.
 The repository consumes the adapter's `PACKAGE <id>=installed`
 or `PACKAGE <id>=MISSING` lines and exit status. Paths to the platform and

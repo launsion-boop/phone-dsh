@@ -9,7 +9,8 @@
     "installed",
     "stderr",
     "capture_exit",
-    "capture_prefix"
+    "capture_prefix",
+    "capture_diverge"
   ],
   "additionalProperties": false,
   "properties": {
@@ -47,6 +48,9 @@
     },
     "capture_prefix": {
       "type": "string"
+    },
+    "capture_diverge": {
+      "type": "boolean"
     }
   }
 }
