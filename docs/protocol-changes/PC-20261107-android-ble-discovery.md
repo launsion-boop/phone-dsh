@@ -1,0 +1,55 @@
+# Freeze Android foreground BLE discovery slice
+
+```yaml
+change: PC-20261107-android-ble-discovery
+contracts: [P07, P08, P09]
+status: frozen
+breaking: false
+version_decision: Add local untrusted discovery UI and API only; no wire or persistence version change.
+base: 46c4c57b9c40e87baa5b70cb37018e9abee6c6d4
+contract_revision: spec/device/v1/android-ble-discovery.md@discovery-v1
+```
+
+Protocol impact: P07; P08; P09. The Android app has no production BLE
+discovery, no settings entry, and no Bluetooth permissions. The existing
+decoder is target code and must not be treated as a GATT adapter. Freeze an
+explicitly partial user-initiated advertisement browser before implementation.
+Its owning contract, public Kotlin interface, schema and ordered shared cases
+are committed together. The user-facing page cannot claim iOS page parity,
+connection, identity, authorization, Link, tools or device-task support.
+
+The contract owner owns `spec/**`, this record and
+`android/domain/src/main/kotlin/com/phonedsh/domain/connector/ble/BleScanSource.kt`.
+The platform implementer owns app scanner, Android manifest, Activity and
+host wiring, permission handling and app tests. The UI implementer owns the
+Bluetooth discovery page, its settings/navigation entries and lib tests. They
+implement the exact interface in the frozen revision and use the shared
+scenarios through the real scanner state machine, with injected platform
+events; an independent integrator reviews the combined head. UI may display a
+missing source as unavailable, never mock discovery as a real device.
+
+No BLE producer or other phone changes its wire messages: Android reads
+existing advertisements without assuming support. Old app/new peripheral,
+new app/old peripheral, and new/new retain existing connection behavior;
+results are untrusted labels only. No data is migrated or persisted, and
+rollback removes this local browser. The per-scan candidate retention is
+different from iOS's cross-scan in-memory store; this partial slice is not a
+P08 whitelist exemption or complete P09 parity. Fine location is only requested
+where legacy Android scanning requires it. `neverForLocation` on API 31+
+reflects the current app's non-location use and may filter advertisements;
+it must be revisited before any future location derivation.
+
+Test actual permission decisions, start/stop callback identity, system failure,
+revocation, page/host lifecycle, delayed callbacks, duplicate/overflow and
+name/privacy handling. The platform fake is not radio evidence. Contract
+checks: `bash scripts/ci/check.sh --only
+phone-spec,phone-p0-conformance,phone-cross-tree`; Android checks:
+`cd android && ./gradlew :domain:testDebugUnitTest :app:testDebugUnitTest
+:lib:testDebugUnitTest :app:processDebugMainManifest :app:assembleDebug`,
+plus applicable repository Android structure/tests gates. Inspect the merged
+manifest, not just its source. Run true Android permission/lifecycle/discovery
+and failure tests with a physical Android device and an actual BLE advertiser;
+until then they are NOT_RUN, not inferred from fake or simulator results.
+Stop is unacknowledged by the OS and its failure remains unresolved as in the
+contract. The baseline P0 failures, Android GATT GAP-20, secure session GAP-16
+and legacy recovery remain open.
