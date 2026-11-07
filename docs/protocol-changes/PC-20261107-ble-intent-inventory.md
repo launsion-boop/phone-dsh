@@ -7,7 +7,7 @@ status: frozen
 breaking: false
 version_decision: Existing v1 task and BLE intent formats unchanged; detect pre-existing corrupt or unprovable history globally and fail closed.
 base: 5e85bc444a6ad2a1c9f15b861efc09f0f2d1973a
-contract_revision: spec/device/v1/task-delegation.md@sha256:36d1567c681a9e113f88ef45d0d8e20558bfb9611ad6b56657d2a888142a2e24
+contract_revision: spec/device/v1/task-delegation.md@sha256:38a462693ecf7af919fa7755fcd0fd8529e40ce3f115d8df27d7c69821f0a3f9
 ```
 
 ## Trigger and scope
@@ -62,3 +62,13 @@ PhoneDSHDeviceTasksTests`; `bash firmware/tests/run.sh`; and `bash
 scripts/ci/check.sh --only phone-spec,phone-p0-conformance,phone-cross-tree`.
 Real power loss, device, key binding and task E2E remain NOT_RUN without their
 separate runtime evidence.
+
+## Revision 2 — validate before first write
+
+Implementer observed that validating only the subsequent inventory leaves a
+window in which caller-supplied arguments can disagree with the parent and be
+written/uploaded first. The existing terminal-outcome rule also applies before
+writing any new intent: reconstruct the canonical arguments from the parent and
+reject mismatches before writing or invoking the Link. The shared scenarios now
+include wrong arguments for accept, complete and fail. Old valid records and
+wire formats remain unchanged. Swift implementer notified of revision 2.

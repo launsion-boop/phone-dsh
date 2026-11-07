@@ -62,7 +62,10 @@ No inventory result authorizes a task, proves the historical device key,
 imports a trust record, changes a journal or establishes an old receipt's
 origin. The on-disk format and derived identifiers above remain unchanged.
 
-Each intent must name exactly one validated parent record, match that record's
+Before writing a new transition intent, the phone must reconstruct the
+arguments from the parent and reject any mismatch; a valid inventory alone must
+not allow inconsistent caller arguments to be persisted or uploaded. Each
+intent must name exactly one validated parent record, match that record's
 BLE UUID, task ID, action and canonical `<msg_id>-<action>.json` filename, and
 match the request UUID, idempotency key and argument hash re-derived using the
 existing rules. Accept arguments are `{id}`. Complete and fail arguments are

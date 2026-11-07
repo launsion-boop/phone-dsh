@@ -1,11 +1,45 @@
 {
   "title": "BLE task intent inventory scenario",
   "type": "object",
-  "required": ["name", "mutation", "valid"],
+  "required": [
+    "name",
+    "mutation",
+    "valid"
+  ],
   "additionalProperties": false,
   "properties": {
-    "name": {"type": "string", "minLength": 1},
-    "mutation": {"enum": ["missing_directory", "valid_accept", "valid_complete", "valid_fail", "orphan_parent", "wrong_filename", "wrong_device", "wrong_task", "wrong_derived_key", "wrong_argument_hash", "missing_terminal", "different_terminal", "unknown_version", "duplicate_key", "malformed_json", "symlink_intent", "symlink_directory", "extra_file", "oversize"]},
-    "valid": {"type": "boolean"}
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "mutation": {
+      "enum": [
+        "missing_directory",
+        "valid_accept",
+        "valid_complete",
+        "valid_fail",
+        "orphan_parent",
+        "wrong_filename",
+        "wrong_device",
+        "wrong_task",
+        "wrong_derived_key",
+        "wrong_argument_hash",
+        "missing_terminal",
+        "different_terminal",
+        "unknown_version",
+        "duplicate_key",
+        "malformed_json",
+        "symlink_intent",
+        "symlink_directory",
+        "extra_file",
+        "oversize",
+        "write_wrong_accept",
+        "write_wrong_complete",
+        "write_wrong_fail"
+      ]
+    },
+    "valid": {
+      "type": "boolean"
+    }
   }
 }

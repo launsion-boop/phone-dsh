@@ -17,3 +17,6 @@
 {"name":"symlink_directory","mutation":"symlink_directory","valid":false}
 {"name":"extra_file","mutation":"extra_file","valid":false}
 {"name":"oversize","mutation":"oversize","valid":false}
+{"name":"write_wrong_accept","mutation":"write_wrong_accept","valid":false}
+{"name":"write_wrong_complete","mutation":"write_wrong_complete","valid":false}
+{"name":"write_wrong_fail","mutation":"write_wrong_fail","valid":false}
