@@ -28,6 +28,15 @@ cross-process locking must not accidentally change POSIX lock semantics. No new
 record size limit is chosen by this draft. Any bound requires its own evidence
 and explicit treatment of existing records, not silent truncation or deletion.
 
+Directory identity alone is insufficient for process-local coordination: two
+different directories can have hard-linked lock files referring to the same
+inode. POSIX record locks are process-associated and closing another descriptor
+for that inode may release them. The eventual design must handle or explicitly
+reject such aliases without introducing an unprotected check/open race, under a
+stated cooperating-writer and private-directory threat model. Filesystem sync
+and crash tests also cannot by themselves establish physical power-loss
+durability.
+
 A deterministic test needs real journal operations with controlled replacement
 at the enumeration/open and open/read boundaries, regular-file and symlink/FIFO
 negatives, repeat inventory, directory alias and cross-process lock cases, and

@@ -27,6 +27,17 @@ Android MCP editor includes an unreadable-target state absent from the iOS
 title condition. These require explicit input-domain and platform decisions;
 neither expression's mere presence establishes parity.
 
+The ambiguity also exists in checked-in `/1` contracts: among the six pages
+with top-level null titles, `NativeDeviceSessionPage` and `PreviewSurface`
+contain dynamic navigation-title expressions. A compatible new reader cannot
+interpret every old null as proven absence. A candidate versioned contract
+would distinguish absent, literal and dynamic titles and bind dynamic titles
+to shared state vectors; old readers must reject the new version, and rollback
+must restore the original `/1` data as well as its reader. The input domain,
+localized text, platform-specific states and actual SwiftUI/Compose output
+need evidence before adopting that candidate. Source text alone does not prove
+runtime parity.
+
 Before either page contract is refreshed, the owner must freeze how absent,
 literal and dynamic titles are represented, their source provenance, state
 dependencies, Android comparison, unknown/unsupported expressions, old reader
