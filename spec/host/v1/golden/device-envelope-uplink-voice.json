@@ -11,6 +11,7 @@
     "origin": "device",
     "audience": "phone",
     "seq": 123,
+    "epoch": 1,
     "ts_ms": 1793400117000,
     "audio": {
       "codec": "opus",
@@ -18,5 +19,5 @@
       "ms": 20
     }
   },
-  "notes": "Sources: docs/design/device-connector-2026-10-31.md:128-148 (§4.1 envelope: v, msgId, deviceId, sessionId, dir, kind, origin, audience, seq, ts, text, audio) and docs/design/device-adapter-contract-draft.md:36-57 (§3 required members, kind text|voice|event|ack|command_result, origin device for every uplink, sessionId mapped by the phone and never supplied by the device). Idempotency: an uplink becomes a prompt with request_id = \"dev:\" + msg_id (plan §13.2, draft §3), so a re-delivered envelope executes once."
+  "notes": "Sources: docs/design/device-connector-2026-10-31.md:128-148 (§4.1 envelope: v, msgId, deviceId, sessionId, dir, kind, origin, audience, seq, ts, text, audio) and docs/design/device-adapter-contract-draft.md:36-57 (§3 required members, kind text|voice|event|ack|command_result, origin device for every uplink, sessionId mapped by the phone and never supplied by the device). Idempotency: an uplink becomes a prompt with request_id is scoped to (device_id, epoch, msg_id) by the Bot ingress (PC-20261106-bot-device-event-envelope@2), so a re-delivered envelope executes once. epoch identifies the device session incarnation; seq restarts at every epoch change and the receiver resets its expected-seq watermark for that epoch."
 }

@@ -3454,10 +3454,8 @@ public actor PhoneDSHHost: PhoneDSHHosting {
             endpoint: endpoint,
             channelPath: engineConfiguration.channelPath,
             overrides: configuration.engine.environment)
-        if configuration.nativeMCP != nil {
-            environment["PDSH_PHONE_MCP_URL"] = endpoint.baseURL.appendingPathComponent("mcp/native").absoluteString
-            environment["PDSH_PHONE_MCP_TOKEN"] = endpoint.token
-        }
+        Self.applyConfiguredMCPEnvironment(&environment, endpoint: endpoint,
+                                           nativeMCP: configuration.nativeMCP)
         // ENG-05 reads this to state the real per-file budget in the Worker's
         // capability manifest; an explicit App override still wins.
         if environment[PhoneDSHWorkerEnvironment.singleFileLimit] == nil {
@@ -3523,6 +3521,27 @@ public actor PhoneDSHHost: PhoneDSHHosting {
         ]
         environment.merge(overrides) { _, app in app }
         return environment
+    }
+
+    /// One owner for the `phone` MCP env. When the App supplied a Bot MCP
+    /// endpoint it is the Worker's only phone server and forwards native tools
+    /// in-process; nativeMCP stays available at `/mcp/native` for other
+    /// callers but must not overwrite the Bot URL. Only a native-only
+    /// configuration (no App endpoint) keeps the legacy `/mcp/native` env.
+    static func applyConfiguredMCPEnvironment(_ environment: inout [String: String],
+                                              endpoint: LoopbackEndpoint,
+                                              nativeMCP: (any NativeMCPServing)?) {
+        guard nativeMCP != nil, environment["PDSH_PHONE_MCP_URL"] == nil else { return }
+        applyNativeMCPEnvironment(&environment, endpoint: endpoint)
+    }
+
+    /// The legacy native-only Worker endpoint. Exposed so the regression test
+    /// can prove the Bot endpoint wins when both are configured.
+    static func applyNativeMCPEnvironment(_ environment: inout [String: String],
+                                          endpoint: LoopbackEndpoint) {
+        environment["PDSH_PHONE_MCP_URL"] =
+            endpoint.baseURL.appendingPathComponent("mcp/native").absoluteString
+        environment["PDSH_PHONE_MCP_TOKEN"] = endpoint.token
     }
 
     private static func websocketURL(base: URL, path: String) -> String {

@@ -1,0 +1,57 @@
+{
+  "spdxLicenseIdentifier": "MIT",
+  "schema": "phonedsh-bot-residency-not-run/1",
+  "generatedAt": "2026-11-06T06:20:55.820179Z",
+  "status": "NOT_RUN",
+  "conclusion": "NOT_RUN",
+  "base": "7214962fc4ca51f1bdfd60b25b49dc2997131a40",
+  "headAtAttempt": "49d0dad2dcb9ae0b5dd0698d56881c7d09d7157b",
+  "contractRevision": "b5192c4a3eedd94ac4878bc0270684f7854ac273",
+  "command": "bash scripts/ci/bot-residency/run-device.sh --duration-seconds 7200 --events 10 --kill-webcontent 3 --device 321FACB9-749B-53CF-826F-02357D5441E7 --development-team KC5NZ8GRQ9 --seed 20261106 --run-id wp1-rerun-acceptance-20261106 --output-dir /tmp/phonedsh-wp1-rerun-acceptance",
+  "exitCode": 3,
+  "device": {
+    "deviceType": "iPhone",
+    "marketingName": "iPhone Air",
+    "productType": "iPhone18,4",
+    "osVersionNumber": "27.0",
+    "osBuildUpdate": "24A437",
+    "reality": "physical",
+    "lastObservedConnectionDate": "2026-11-06T06:05:00.000Z",
+    "tunnelStateAtAttempt": "unavailable"
+  },
+  "preflight": {
+    "workerStaging": {
+      "status": "PASS",
+      "flow": "examples/probe-app/scripts/copy-bundle-assets.sh --checkout <pinned-phoneDSH-DSH-checkout> --force",
+      "dshCommit": "7be5505b0be06009d74891c869063c9cf19a0df0",
+      "dshVersion": "0.2.1-rc.2",
+      "workerBytes": 46599749,
+      "includesPythonAndJq": true,
+      "usesLegacyWorkerPage": true
+    },
+    "signing": {
+      "status": "PASS",
+      "genericPhysicalBuild": "BUILD SUCCEEDED",
+      "bundleID": "dev.phone-dsh.bot-residency-spike",
+      "wildcardProfileContainsSelectedDevice": true,
+      "codeSigningTeamMatchesCertificate": true
+    },
+    "directInstall": {
+      "status": "FAIL",
+      "coreDeviceError": 1011,
+      "description": "CoreDeviceService was unable to locate the selected device. devicectl list devices and xctrace also reported the iPhone unavailable/offline."
+    }
+  },
+  "durationSeconds": 0,
+  "eventsInjected": 0,
+  "eventsDelivered": 0,
+  "webContentKillsAttempted": 0,
+  "duplicateEvents": null,
+  "lostEvents": null,
+  "deliveryLatencySeconds": null,
+  "lossDuplicationAndLatencyStatus": "NOT_MEASURED",
+  "simulatorUsedAsDeviceEvidence": false,
+  "realModel": false,
+  "ccr": [],
+  "reason": "The iPhone was briefly connected, then became unavailable before installation. The full acceptance entry point was invoked with a new run-id/output-dir and stopped before build, install, launch, lock timing, event injection, or WebContent SIGKILL. The unavailable interval is not counted as test duration."
+}

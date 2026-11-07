@@ -84,6 +84,7 @@ public final class MockModelUpstream: @unchecked Sendable {
     private var responseNumber = 0
     private var stopping = false
     private var scriptStorage: MockModelScript = .fileWrite
+    private var scriptForRequestStorage: (@Sendable (Data) -> MockModelScript?)?
     private var requestBytesStorage = 0
     private var responseBytesStorage = 0
     private var responseBodiesStorage: [Data] = []
@@ -107,6 +108,19 @@ public final class MockModelUpstream: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return recorded.count
+    }
+
+    public var scriptForRequest: (@Sendable (Data) -> MockModelScript?)? {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return scriptForRequestStorage
+        }
+        set {
+            lock.lock()
+            scriptForRequestStorage = newValue
+            lock.unlock()
+        }
     }
 
     /// Scripted replies; set before ``start()``. The default is the smoke
@@ -357,7 +371,7 @@ public final class MockModelUpstream: @unchecked Sendable {
             model = "deepseek-flash"
         }
         let helper = SSECounter.next()
-        let script = script
+        let script = scriptForRequest?(body) ?? script
         let respondWithTool: Bool
         let toolCommand: String
         let toolDescription: String

@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "vector": "context-profiles",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6"
+  },
+  "valid": {
+    "profiles": {
+      "default": {
+        "compaction": {
+          "auto": true,
+          "thresholdRatio": 0.8,
+          "headroomTokens": 65536,
+          "retainRatio": 0.16,
+          "maxTokens": 65536,
+          "summarizationProvider": "",
+          "summarizationModel": "",
+          "compactionRetries": 1,
+          "maxOverflowRetries": 1
+        },
+        "pruner": {
+          "thresholdChars": 8192,
+          "headChars": 4096,
+          "tailChars": 1024
+        },
+        "spillPolicy": {
+          "maxInlineTokens": 12500
+        },
+        "spillLocal": {
+          "cleanupPeriodDays": 30
+        }
+      },
+      "conservative": {
+        "compaction": {
+          "auto": true,
+          "thresholdRatio": 0.4,
+          "headroomTokens": 32768,
+          "retainRatio": 0.12,
+          "maxTokens": 32768,
+          "summarizationProvider": "",
+          "summarizationModel": "",
+          "compactionRetries": 1,
+          "maxOverflowRetries": 1
+        },
+        "pruner": {
+          "thresholdChars": 4096,
+          "headChars": 2048,
+          "tailChars": 512
+        },
+        "spillPolicy": {
+          "maxInlineTokens": 4096
+        },
+        "spillLocal": {
+          "cleanupPeriodDays": 30
+        }
+      }
+    },
+    "yaml": {
+      "default": "# M5 上下文工程：顯式寫出 compaction / pruner / spill 設定（contextProfile=default）。\n# 數值與理由見 docs/upgrade/context-tuning.md；patch 會整段取代 bundle 預設 config。\n- id: compaction-basic\n  config:\n    auto: true\n    thresholdRatio: 0.8\n    headroomTokens: 65536\n    retainRatio: 0.16\n    maxTokens: 65536\n    summarizationProvider: \"\"\n    summarizationModel: \"\"\n    compactionRetries: 1\n    maxOverflowRetries: 1\n    modelPolicies: []\n- id: tool-result-pruner\n  config:\n    thresholdChars: 8192\n    headChars: 4096\n    tailChars: 1024\n- id: spill-policy\n  config:\n    maxInlineTokens: 12500\n- id: spill-local\n  config:\n    cleanupPeriodDays: 30\n",
+      "conservative": "# M5 上下文工程：顯式寫出 compaction / pruner / spill 設定（contextProfile=conservative）。\n# 數值與理由見 docs/upgrade/context-tuning.md；patch 會整段取代 bundle 預設 config。\n- id: compaction-basic\n  config:\n    auto: true\n    thresholdRatio: 0.4\n    headroomTokens: 32768\n    retainRatio: 0.12\n    maxTokens: 32768\n    summarizationProvider: \"\"\n    summarizationModel: \"\"\n    compactionRetries: 1\n    maxOverflowRetries: 1\n    modelPolicies: []\n- id: tool-result-pruner\n  config:\n    thresholdChars: 4096\n    headChars: 2048\n    tailChars: 512\n- id: spill-policy\n  config:\n    maxInlineTokens: 4096\n- id: spill-local\n  config:\n    cleanupPeriodDays: 30\n"
+    }
+  },
+  "invalid": [
+    {
+      "profile": "unknown",
+      "resolution": "default"
+    }
+  ]
+}

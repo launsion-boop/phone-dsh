@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotContextLintFinding v1",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["rule", "severity", "evidence", "location"],
+    "properties": {
+      "rule": {"enum": ["system-prompt-bloat", "tool-result-bloat", "duplicate-context", "orphan-tool-call", "orphan-tool-result", "tool-def-bloat"]},
+      "severity": {"enum": ["warn", "error"]},
+      "evidence": {"type": "string", "minLength": 1},
+      "location": {"type": "object"}
+    },
+    "additionalProperties": false
+  }
+}

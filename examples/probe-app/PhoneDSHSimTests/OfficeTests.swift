@@ -283,7 +283,11 @@ final class OfficeTests: XCTestCase {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let provider = PDSHShellProvider(materializedWorkspace: root, toolBridge: OfficeToolBridge())
         XCTAssertFalse(provider.channelAcceleratorNames.contains("ctx"), "\(provider.channelAcceleratorNames)")
-        XCTAssertTrue(provider.channelAcceleratorNames.contains("phone"), "\(provider.channelAcceleratorNames)")
+        if PDSHShellProvider.availableAccelerators.contains(.phone) {
+            XCTAssertTrue(provider.channelAcceleratorNames.contains("phone"), "\(provider.channelAcceleratorNames)")
+        } else {
+            XCTAssertTrue(provider.channelAcceleratorNames.isEmpty, "\(provider.channelAcceleratorNames)")
+        }
     }
 
     func testCapabilityStatusTextAndInteractionAreExhaustive() {

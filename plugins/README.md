@@ -302,7 +302,7 @@ app, the image or the shell defaults:
 | `PDSH_DSH_PORT` | surface loopback port (`0` in the Worker; the carrier is virtual) |
 | `PDSH_LIFECYCLE_FILE` | optional lifecycle control file |
 | `PDSH_SANDBOX_MODE` | default `workspace-write` |
-| `PDSH_PHONE_MCP_URL`, `PDSH_PHONE_MCP_TOKEN` | optional app MCP endpoint |
+| `PDSH_PHONE_MCP_URL`, `PDSH_PHONE_MCP_TOKEN` | optional app MCP endpoint; the token is a non-secret placeholder the host replaces at `/v1/http` egress. With the Bot runtime this is the Bot MCP server, which also forwards the native Android tools. |
 | `DSH_HOME` | virtual home (`<root>/home` by default) |
 | `PDSH_SHELL`, `PDSH_SHELL_TIMEOUT_MS`, `PDSH_SHELL_MAX_OUTPUT_BYTES`, `PDSH_THERMAL_STATE` | Worker shell core and limits |
 

@@ -82,6 +82,8 @@ targets:
       - package: PhoneDSH
         product: PhoneDSHAgentCore
       - package: PhoneDSH
+        product: PhoneDSHBot
+      - package: PhoneDSH
         product: PhoneDSHWire
       - package: PhoneDSH
         product: PhoneDSHShell
@@ -131,6 +133,8 @@ targets:
         product: PhoneDSHWire
       - package: PhoneDSH
         product: PhoneDSHAgentCore
+      - package: PhoneDSH
+        product: PhoneDSHBot
       - package: PhoneDSH
         product: PhoneDSHController
       # WebHostConfiguration assembles the linked PDSHShellProvider and its

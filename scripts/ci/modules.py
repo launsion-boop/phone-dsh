@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-"""Static check of the eight phone-DSH modules in ``Package.swift``.
+"""Static check of the registered phone-DSH modules in ``Package.swift``.
 
 The checker reads ``Package.swift`` as text (it is a Swift manifest, not a
 Python module), reconstructs the ``Module(...)`` entries, and asserts the
@@ -33,6 +33,7 @@ PHONE_MODULES = [
     "PhoneDSHEngine",
     "PhoneDSHShell",
     "PhoneDSH",
+    "PhoneDSHBot",
 ]
 
 SHORT_NAMES = {
@@ -44,6 +45,7 @@ SHORT_NAMES = {
     "PhoneDSHEngine": "PhoneEngine",
     "PhoneDSHShell": "PDSHShell",
     "PhoneDSH": "PhoneDSH",
+    "PhoneDSHBot": "Bot",
     "PhoneDSHAgentCore": "AgentCore",
     "XiaozhiLinkProviders": "Providers",
     "XiaozhiLinkExecBridge": "ExecBridge",
@@ -70,6 +72,7 @@ EXPECTED = {
     "PhoneDSHController": {"PhoneWire", "PhoneLog"},
     "PhoneDSHEngine": {"PhoneLoopback"},
     "PhoneDSHShell": {"AgentCore"},
+    "PhoneDSHBot": {"AgentCore"},
     "PhoneDSH": {
         "PhoneWire",
         "PhoneLog",

@@ -521,6 +521,9 @@
           "glob": "spec/v1/golden/{gateway,native-mcp}/**"
         },
         {
+          "glob": "spec/v1/tools/{native_mcp_check,test_native_mcp_check}.py"
+        },
+        {
           "glob": "Sources/PhoneDSHGateway/**"
         },
         {
@@ -565,7 +568,7 @@
         "authority": "[v1/gateway-security.md](v1/gateway-security.md)、[native MCP](v1/native-mcp.md)、[official DeepSeek web tools](v1/gateway-official-web.md)、[gateway schema](v1/schema/gateway-vector.schema.json)、[golden/gateway](v1/golden/gateway)",
         "ends": "Swift [PhoneDSHGateway](../Sources/PhoneDSHGateway/)、Loopback HTTP（`HTTPTransport`、`StreamingForward`、`NativeMCP` 等；ChannelServer／WebSocket 屬 P01）；TS `plugins/llm-bridge`、`plugins/phone-mcp/src/{manager,schema}.ts`；Kotlin [android/net](../android/net/src/main/) ；HarmonyOS partial `harmony/entry/src/main/ets/host/HostHttpProxy.ets`, `harmony/entry/src/main/ets/host/HostModelAlias.ets`, `harmony/host-rust/src/http.rs`",
         "evidence": "Native MCP 有 Swift `PhoneDSHADBTests`；gateway vectors 只有 Kotlin `GatewayVectorConformanceTest` 讀取；Swift `Tests/PhoneDSHGatewayTests` 不讀",
-        "triggers": "`spec/v1/{gateway-security,native-mcp}.md`、`spec/v1/gateway-official-web.md`、`spec/v1/schema/gateway-vector.schema.json`、`spec/v1/golden/{gateway,native-mcp}/**`、`Sources/PhoneDSHGateway/**`、`Sources/PhoneDSHLoopback/{HTTPTransport,HTTPEgressFailure,StreamingForward,Loopback,Support,NativeMCP}.swift`、`Sources/PhoneDSHAgentCore/{Credentials,HTTPSupport,ProviderError}.swift`、`Sources/PhoneDSHADB/**`、`plugins/llm-bridge/src/**`、`plugins/phone-mcp/src/{manager,schema,protocol}.ts`、`plugins/worker-entry/src/model-route.ts`、`android/net/src/main/**` 、`harmony/entry/src/main/ets/host/HostHttpProxy.ets`、`harmony/entry/src/main/ets/host/HostModelAlias.ets`、`harmony/host-rust/src/http.rs`"
+        "triggers": "`spec/v1/{gateway-security,native-mcp}.md`、`spec/v1/gateway-official-web.md`、`spec/v1/schema/gateway-vector.schema.json`、`spec/v1/golden/{gateway,native-mcp}/**`、`spec/v1/tools/{native_mcp_check,test_native_mcp_check}.py`、`Sources/PhoneDSHGateway/**`、`Sources/PhoneDSHLoopback/{HTTPTransport,HTTPEgressFailure,StreamingForward,Loopback,Support,NativeMCP}.swift`、`Sources/PhoneDSHAgentCore/{Credentials,HTTPSupport,ProviderError}.swift`、`Sources/PhoneDSHADB/**`、`plugins/llm-bridge/src/**`、`plugins/phone-mcp/src/{manager,schema,protocol}.ts`、`plugins/worker-entry/src/model-route.ts`、`android/net/src/main/**` 、`harmony/entry/src/main/ets/host/HostHttpProxy.ets`、`harmony/entry/src/main/ets/host/HostModelAlias.ets`、`harmony/host-rust/src/http.rs`"
       }
     },
     {
@@ -658,10 +661,16 @@
           "glob": "docs/design/device-*.md"
         },
         {
+          "glob": "docs/protocol-changes/PC-20261106-bot-device-{ingress,event-envelope}.md"
+        },
+        {
           "glob": "android/domain/src/main/kotlin/com/phonedsh/domain/{device,connector}/**"
         },
         {
-          "glob": "examples/probe-app/ProbeKit/Devices/**"
+          "glob": "examples/probe-app/ProbeKit/{Devices,Bot/Providers}/**"
+        },
+        {
+          "glob": "Sources/PhoneDSHBot/Providers/**"
         }
       ],
       "status": [
@@ -671,10 +680,10 @@
         "android/domain/src/test/kotlin/com/phonedsh/domain/device/DeviceCapabilitiesSchemaTest.kt"
       ],
       "source": {
-        "authority": "host/v1 的 envelope／caps／receipt schema；[adapter draft](../docs/design/device-adapter-contract-draft.md)（`draft`）",
-        "ends": "Kotlin `android/domain/.../{device,connector}`；Swift `examples/probe-app/ProbeKit/Devices`",
-        "evidence": "Kotlin `DeviceCapabilitiesSchemaTest`；第三方傳輸與端到端回執不由 schema 保證",
-        "triggers": "`spec/host/v1/schema/device-*`、`spec/host/v1/golden/device-*`、`docs/design/device-*.md`、`android/domain/src/main/kotlin/com/phonedsh/domain/{device,connector}/**`、`examples/probe-app/ProbeKit/Devices/**`"
+        "authority": "host/v1 的 envelope／caps／receipt schema；[adapter draft](../docs/design/device-adapter-contract-draft.md)（`draft`）；[device ingress](../docs/protocol-changes/PC-20261106-bot-device-ingress.md)；[device event CCR](../docs/protocol-changes/PC-20261106-bot-device-event-envelope.md)",
+        "ends": "Kotlin `android/domain/.../{device,connector}`；Swift `examples/probe-app/ProbeKit/{Devices,Bot/Providers}`、`Sources/PhoneDSHBot/Providers`",
+        "evidence": "Kotlin `DeviceCapabilitiesSchemaTest`；Swift `BotDeviceProviderTests` 使用真實 SQLite 和假傳輸；第三方傳輸、真機斷連與端到端回執不由 schema 或單測保證",
+        "triggers": "`spec/host/v1/schema/device-*`、`spec/host/v1/golden/device-*`、`docs/design/device-*.md`、`docs/protocol-changes/PC-20261106-bot-device-{ingress,event-envelope}.md`、`android/domain/src/main/kotlin/com/phonedsh/domain/{device,connector}/**`、`examples/probe-app/ProbeKit/{Devices,Bot/Providers}/**`、`Sources/PhoneDSHBot/Providers/**`"
       }
     },
     {
@@ -1387,6 +1396,150 @@
         "ends": "`Sources/PhoneDSH{Scenario,Harness}`、`android/testkit`、`scripts/ci/scenarios`",
         "evidence": "`golden/upstream` 無 runtime 消費者",
         "triggers": "`spec/v1/schema/{scenario-*,perturbation,upstream-script}.schema.json`、`spec/v1/golden/upstream/**`、`scripts/ci/scenarios/**`、`Sources/PhoneDSH{Scenario,Harness}/**`、`android/testkit/**`"
+      }
+    },
+    {
+      "id": "P23",
+      "owner_role": "BotEventLog／effects owner",
+      "authority": [
+        "spec/bot/v1/event-envelope.schema.json",
+        "spec/bot/v1/golden/event-envelope.json"
+      ],
+      "ends": {
+        "Swift": [
+          "Sources/PhoneDSHBot"
+        ]
+      },
+      "triggers": [
+        {
+          "glob": "spec/bot/v1/event-envelope.schema.json"
+        },
+        {
+          "glob": "spec/bot/v1/golden/event-envelope.json"
+        },
+        {
+          "glob": "spec/bot/v1/dshbot-pin.json"
+        },
+        {
+          "glob": "spec/bot/v1/export-manifest.json"
+        },
+        {
+          "glob": "spec/tools/bot/**"
+        },
+        {
+          "glob": "Sources/PhoneDSHBot/**"
+        }
+      ],
+      "status": [
+        "target"
+      ],
+      "evidence": [
+        "spec/bot/v1/tools/validate_vectors.py",
+        "Tests/PhoneDSHBotTests"
+      ],
+      "source": {
+        "authority": "[bot/v1/event-envelope.schema.json](bot/v1/event-envelope.schema.json)、[event golden](bot/v1/golden/event-envelope.json)",
+        "ends": "dsh-bot `events/envelope.cjs`、`journal/`；Swift `Sources/PhoneDSHBot/{Store,Journal,Gateway,Authz}`",
+        "evidence": "`spec/bot/v1/tools/validate_vectors.py`；Swift `PhoneDSHBotTests` 隨 WP3/WP4 實作；不得與 P03 journal 混用",
+        "triggers": "`spec/bot/v1/event-envelope.schema.json`、`spec/bot/v1/golden/event-envelope.json`、`spec/bot/v1/dshbot-pin.json`、`spec/bot/v1/export-manifest.json`、`spec/tools/bot/**`、`Sources/PhoneDSHBot/**`"
+      }
+    },
+    {
+      "id": "P24",
+      "owner_role": "BotToolSurface／memory／wake／observability owner",
+      "authority": [
+        "spec/bot/v1"
+      ],
+      "ends": {
+        "Swift": [
+          "Sources/PhoneDSHBot"
+        ]
+      },
+      "triggers": [
+        {
+          "glob": "spec/bot/v1/README.md"
+        },
+        {
+          "glob": "spec/bot/v1/{tool-catalog,card-payload,volatile-context,tool-effects,approval-patterns,memory-fact,memory-policy,memory-injection,memory-recall,routine,wake-routine,held-inbox-item,llm-ledger,model-purpose-policy,watchdog,fish-director,context-profiles,context-lint}.schema.json"
+        },
+        {
+          "glob": "spec/bot/v1/golden/{tool-catalog,card-payload,card-payload.phone,volatile-context,tool-effects,approval-patterns,memory-fact,memory-policy,memory-injection,memory-recall,routine,wake-routine,held-inbox,llm-ledger,model-purpose-policy,watchdog,fish-director,context-profiles,context-lint}.json"
+        },
+        {
+          "glob": "spec/bot/v1/dshbot-pin.json"
+        },
+        {
+          "glob": "spec/bot/v1/export-manifest.json"
+        },
+        {
+          "glob": "spec/tools/bot/**"
+        },
+        {
+          "glob": "Sources/PhoneDSHBot/**"
+        },
+        {
+          "glob": "plugins/{bot-runtime,profile}/**"
+        }
+      ],
+      "status": [
+        "target"
+      ],
+      "evidence": [
+        "spec/bot/v1/tools/validate_vectors.py"
+      ],
+      "source": {
+        "authority": "[bot/v1/README.md](bot/v1/README.md)、`spec/bot/v1/{tool-catalog,card-payload,volatile-context,tool-effects,approval-patterns,memory-fact,memory-policy,memory-injection,memory-recall,routine,wake-routine,held-inbox-item,llm-ledger,model-purpose-policy,watchdog,fish-director,context-profiles,context-lint}.schema.json` 與 golden",
+        "ends": "dsh-bot `mcp/dshbotServer.cjs`、`cardPayloads.cjs`、`authz/`、`memory.cjs`、`wake.cjs`、`routines.cjs`、`ledger.cjs`、`llm/`、`watchdog/`、`prompt/assemble.cjs`、`eval/contextLint.cjs`；Swift `Sources/PhoneDSHBot/{MCP,Memory,Wake,Routines,Proactive,Providers,Ledger,Watchdog}`；TS `plugins/bot-runtime/`",
+        "evidence": "`spec/bot/v1/tools/validate_vectors.py`；Swift/TS 各工作包測試；P1 卡片只登記 target，不進第一版工具面；macOS／Team／CloudAgent 不在手機工具面",
+        "triggers": "`spec/bot/v1/README.md`、`spec/bot/v1/{tool-catalog,card-payload,volatile-context,tool-effects,approval-patterns,memory-fact,memory-policy,memory-injection,memory-recall,routine,wake-routine,held-inbox-item,llm-ledger,model-purpose-policy,watchdog,fish-director,context-profiles,context-lint}.schema.json`、`spec/bot/v1/golden/{tool-catalog,card-payload,card-payload.phone,volatile-context,tool-effects,approval-patterns,memory-fact,memory-policy,memory-injection,memory-recall,routine,wake-routine,held-inbox,llm-ledger,model-purpose-policy,watchdog,fish-director,context-profiles,context-lint}.json`、`spec/bot/v1/dshbot-pin.json`、`spec/bot/v1/export-manifest.json`、`spec/tools/bot/**`、`Sources/PhoneDSHBot/**`、`plugins/{bot-runtime,profile}/**`"
+      }
+    },
+    {
+      "id": "P25",
+      "owner_role": "BotRows／UserAction owner",
+      "authority": [
+        "spec/bot/v1"
+      ],
+      "ends": {
+        "Swift": [
+          "Sources/PhoneDSHBot",
+          "examples/probe-app/PhoneDSHProbe"
+        ]
+      },
+      "triggers": [
+        {
+          "glob": "spec/bot/v1/{row,row-batch,row-projection,user-action,action-result}.schema.json"
+        },
+        {
+          "glob": "spec/bot/v1/golden/{row-projection,row-protocol}.json"
+        },
+        {
+          "glob": "spec/bot/v1/dshbot-pin.json"
+        },
+        {
+          "glob": "spec/bot/v1/export-manifest.json"
+        },
+        {
+          "glob": "spec/tools/bot/**"
+        },
+        {
+          "glob": "Sources/PhoneDSHBot/**"
+        },
+        {
+          "glob": "examples/probe-app/PhoneDSHProbe/**"
+        }
+      ],
+      "status": [
+        "target"
+      ],
+      "evidence": [
+        "spec/bot/v1/tools/validate_vectors.py"
+      ],
+      "source": {
+        "authority": "`spec/bot/v1/{row,row-batch,row-projection,user-action,action-result}.schema.json` 與 golden",
+        "ends": "dsh-bot `dshProjection.cjs`、`transcriptWire.cjs`、`displayContract.js`；Swift `Sources/PhoneDSHBot/Rows`、SwiftUI `examples/probe-app/PhoneDSHProbe/Bot`",
+        "evidence": "`spec/bot/v1/tools/validate_vectors.py`；Swift 行投影與 UI 測試隨 WP8/WP9 實作",
+        "triggers": "`spec/bot/v1/{row,row-batch,row-projection,user-action,action-result}.schema.json`、`spec/bot/v1/golden/{row-projection,row-protocol}.json`、`spec/bot/v1/dshbot-pin.json`、`spec/bot/v1/export-manifest.json`、`spec/tools/bot/**`、`Sources/PhoneDSHBot/**`、`examples/probe-app/PhoneDSHProbe/**`"
       }
     }
   ]

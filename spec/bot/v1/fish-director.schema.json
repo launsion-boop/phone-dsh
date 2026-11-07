@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotFishDirectorVector v1",
+  "type": "object",
+  "required": ["initial", "steps"],
+  "properties": {
+    "initial": {
+      "type": "object",
+      "required": ["lifecycle", "now"],
+      "properties": {"lifecycle": {"type": "string"}, "now": {"type": "integer", "minimum": 0}},
+      "additionalProperties": false
+    },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["action", "event", "expected"],
+        "properties": {
+          "action": {"enum": ["reduce", "expire", "lifecycle"]},
+          "event": {
+            "type": "object",
+            "required": ["time"],
+            "properties": {
+              "type": {"type": "string"},
+              "time": {"type": "integer", "minimum": 0},
+              "lifecycle": {"type": "string"},
+              "data": {"type": "object"}
+            },
+            "additionalProperties": false
+          },
+          "expected": {
+            "type": "object",
+            "required": ["directorState", "command"],
+            "properties": {
+              "directorState": {"$ref": "#/$defs/state"},
+              "command": {
+                "anyOf": [
+                  {"type": "null"},
+                  {
+                    "type": "object",
+                    "required": ["state", "oneShot", "priority", "ttlMs"],
+                    "properties": {
+                      "state": {"type": "string"},
+                      "oneShot": {"type": "boolean"},
+                      "priority": {"type": "integer"},
+                      "ttlMs": {"type": "integer", "minimum": 0}
+                    },
+                    "additionalProperties": false
+                  }
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "state": {
+      "type": "object",
+      "required": ["schemaVersion", "lifecycle", "current", "priority", "oneShot", "lastOneShotAt", "now", "debounceMs", "lastEvent", "version"],
+      "properties": {
+        "schemaVersion": {"const": 1},
+        "lifecycle": {"type": "string"},
+        "current": {"type": "string"},
+        "priority": {"type": "integer"},
+        "oneShot": {
+          "anyOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "required": ["state", "priority", "startedAt", "endsAt"],
+              "properties": {
+                "state": {"type": "string"},
+                "priority": {"type": "integer"},
+                "startedAt": {"type": "integer", "minimum": 0},
+                "endsAt": {"type": "integer", "minimum": 0}
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "lastOneShotAt": {"type": "object"},
+        "now": {"type": "integer", "minimum": 0},
+        "debounceMs": {"type": "integer", "minimum": 0},
+        "lastEvent": {"type": ["string", "null"]},
+        "version": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": false
+    }
+  }
+}

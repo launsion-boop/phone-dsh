@@ -1,0 +1,101 @@
+# SPDX-License-Identifier: MIT
+name: BotE2E
+options:
+  bundleIdPrefix: dev.phone-dsh.bot-e2e
+  deploymentTarget:
+    iOS: '17.0'
+  createIntermediateGroups: true
+packages:
+  PhoneDSH:
+    path: ../../../..
+targets:
+  BotE2EApp:
+    type: application
+    platform: iOS
+    deploymentTarget: '17.0'
+    sources:
+      - path: Sources
+      - path: ../../../../examples/probe-app/Bundle/worker
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - package: PhoneDSH
+        product: PhoneDSHBot
+      - package: PhoneDSH
+        product: PhoneDSH
+      - package: PhoneDSH
+        product: PhoneDSHEngine
+      - package: PhoneDSH
+        product: PhoneDSHHarness
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: true
+        PRODUCT_BUNDLE_IDENTIFIER: dev.phone-dsh.bot-e2e.app
+        INFOPLIST_KEY_UILaunchScreen_Generation: true
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
+  BotE2ETests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: '17.0'
+    sources:
+      - path: Tests
+      - path: ../../../../Tests/PhoneDSHBotTests/MCP/BotConversationE2ETests.swift
+      - path: ../../../../Tests/PhoneDSHBotTests/MCP/BotDSHRemoteRuntimeTests.swift
+      - path: ../../../../Tests/PhoneDSHBotTests/MCP/BotRemoteTestSupport.swift
+      - path: ../../../../Tests/PhoneDSHBotTests/MCP/BotMCPTestSupport.swift
+      - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotProductionServices.swift
+      - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotRuntimeComposition.swift
+      - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotRuntimeEffects.swift
+      - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotRuntimePresentation.swift
+      # The App and this E2E build the same production host assembly.
+      - path: ../../../../examples/probe-app/ProbeKit/ChatHostConfiguration.swift
+    dependencies:
+      - target: BotE2EApp
+      - package: PhoneDSH
+        product: PhoneDSHBot
+      - package: PhoneDSH
+        product: PhoneDSH
+      - package: PhoneDSH
+        product: PhoneDSHEngine
+      - package: PhoneDSH
+        product: PhoneDSHHarness
+      - package: PhoneDSH
+        product: PhoneDSHAgentCore
+      - package: PhoneDSH
+        product: PhoneDSHController
+      - package: PhoneDSH
+        product: PhoneDSHLoopback
+      - package: PhoneDSH
+        product: PhoneDSHADB
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: true
+        PRODUCT_BUNDLE_IDENTIFIER: dev.phone-dsh.bot-e2e.tests
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
+  BotChatModelTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: '17.0'
+    sources:
+      - path: TestsChatModel
+      - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotChatModel.swift
+      - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotUIModels.swift
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: true
+        PRODUCT_BUNDLE_IDENTIFIER: dev.phone-dsh.bot-e2e.chat-model-tests
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
+schemes:
+  - name: BotE2EApp
+    build:
+      targets:
+        BotE2EApp: all
+        BotE2ETests: all
+        BotChatModelTests: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - BotE2ETests
+        - BotChatModelTests

@@ -1,0 +1,56 @@
+# SPDX-License-Identifier: MIT
+# Context profile catalog. WP7 selects one scalar and materializes it as the
+# Cordis patch layer; do not mount this catalog as one merged layer. Unknown
+# profile names resolve to default. No environment variable selects a profile.
+default: |
+  # M5 上下文工程：顯式寫出 compaction / pruner / spill 設定（contextProfile=default）。
+  # 數值與理由見 docs/upgrade/context-tuning.md；patch 會整段取代 bundle 預設 config。
+  - id: compaction-basic
+    config:
+      auto: true
+      thresholdRatio: 0.8
+      headroomTokens: 65536
+      retainRatio: 0.16
+      maxTokens: 65536
+      summarizationProvider: ""
+      summarizationModel: ""
+      compactionRetries: 1
+      maxOverflowRetries: 1
+      modelPolicies: []
+  - id: tool-result-pruner
+    config:
+      thresholdChars: 8192
+      headChars: 4096
+      tailChars: 1024
+  - id: spill-policy
+    config:
+      maxInlineTokens: 12500
+  - id: spill-local
+    config:
+      cleanupPeriodDays: 30
+conservative: |
+  # M5 上下文工程：顯式寫出 compaction / pruner / spill 設定（contextProfile=conservative）。
+  # 數值與理由見 docs/upgrade/context-tuning.md；patch 會整段取代 bundle 預設 config。
+  - id: compaction-basic
+    config:
+      auto: true
+      thresholdRatio: 0.4
+      headroomTokens: 32768
+      retainRatio: 0.12
+      maxTokens: 32768
+      summarizationProvider: ""
+      summarizationModel: ""
+      compactionRetries: 1
+      maxOverflowRetries: 1
+      modelPolicies: []
+  - id: tool-result-pruner
+    config:
+      thresholdChars: 4096
+      headChars: 2048
+      tailChars: 512
+  - id: spill-policy
+    config:
+      maxInlineTokens: 4096
+  - id: spill-local
+    config:
+      cleanupPeriodDays: 30

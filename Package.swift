@@ -62,6 +62,7 @@ let modules: [Module] = [
                           "PhoneDSHController", "PhoneDSHGateway", "PhoneDSHAgentCore"],
            hasTests: false),
     Module(name: "PhoneDSHShell", dependencies: ["PhoneDSHAgentCore"], testDependencies: ["PhoneDSHAgentCore"]),
+    Module(name: "PhoneDSHBot", dependencies: ["PhoneDSHAgentCore"]),
     // The app-process facade: PhoneDSHHost and the channel DSH transport.
     Module(name: "PhoneDSH",
            dependencies: ["PhoneDSHWire", "PhoneDSHLog", "PhoneDSHLoopback", "PhoneDSHGateway",

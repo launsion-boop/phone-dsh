@@ -15,6 +15,10 @@ import PhoneDSHLoopback
 import PhoneDSHShell
 import PhoneDSHAgentCore
 
+private final class HostNativeMCPStub: NativeMCPServing, @unchecked Sendable {
+    func handle(_ request: LoopbackRequest) async -> NativeMCPResponse { NativeMCPResponse() }
+}
+
 private func producerJournalRecord(_ wireType: String, key: String,
                                   callID: String,
                                   action: String? = nil) -> [String: Any] {
@@ -66,6 +70,25 @@ final class PhoneDSHHostTests: XCTestCase {
         XCTAssertEqual(engine.bootCount, 1)
         XCTAssertNotNil(engine.lastConfiguration?.token)
         XCTAssertEqual(engine.lastConfiguration?.bootID?.count, 32)
+        try await host.stop()
+    }
+
+    func testWorkerEnvironmentKeepsBotMCPEndpointBesideNativeMCP() async throws {
+        let fixture = try FacadeFixture()
+        defer { fixture.cleanup() }
+        var configuration = try fixture.configuration()
+        configuration.nativeMCP = HostNativeMCPStub()
+        configuration.engine.environment = [
+            "PDSH_PHONE_MCP_URL": "http://127.0.0.1:42000/mcp",
+            "PDSH_PHONE_MCP_TOKEN": "phone-host-injects-bot-mcp-token",
+        ]
+        let engine = MockEngine(worker: MockWorker())
+        let host = try makeHost(fixture, engine: engine, configuration: configuration)
+        try await host.start()
+        let environment = try XCTUnwrap(engine.lastConfiguration?.environment)
+        XCTAssertEqual(environment["PDSH_PHONE_MCP_URL"], "http://127.0.0.1:42000/mcp")
+        XCTAssertEqual(environment["PDSH_PHONE_MCP_TOKEN"], "phone-host-injects-bot-mcp-token")
+        XCTAssertFalse(environment["PDSH_PHONE_MCP_URL"]?.hasSuffix("/mcp/native") == true)
         try await host.stop()
     }
 

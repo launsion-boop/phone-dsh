@@ -55,7 +55,7 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(len(checker.check_registry(self.root)[0]), 1)
 
     def test_real_registry(self):
-        self.assertEqual(len(checker.check_registry(ROOT)[0]), 22)
+        self.assertEqual(len(checker.check_registry(ROOT)[0]), 25)
 
     def test_deleted_source_fails(self):
         (self.root / 'Sources/wire.ts').unlink()

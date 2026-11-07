@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6"
+  },
+  "generator": "spec/tools/bot/export-vectors.mjs",
+  "files": [
+    "approval-patterns.json",
+    "card-payload.json",
+    "context-lint.json",
+    "context-profiles.json",
+    "event-envelope.json",
+    "fish-director.json",
+    "held-inbox.json",
+    "llm-ledger.json",
+    "memory-fact.json",
+    "memory-injection.json",
+    "memory-policy.json",
+    "memory-recall.json",
+    "model-purpose-policy.json",
+    "row-projection.json",
+    "row-protocol.json",
+    "tool-catalog.json",
+    "tool-effects.json",
+    "volatile-context.json",
+    "wake-routine.json",
+    "watchdog.json"
+  ]
+}

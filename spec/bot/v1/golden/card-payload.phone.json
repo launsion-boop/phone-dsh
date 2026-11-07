@@ -1,0 +1,239 @@
+{
+  "schemaVersion": 1,
+  "vector": "card-payload.phone",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6"
+  },
+  "upstream": "card-payload.json",
+  "delta": [
+    "every option/step carries the host-assigned id (o0, o1, ...)",
+    "the single recommended choice is moved to the first position",
+    "a danger choice is never recommended, at most one choice keeps recommended:true"
+  ],
+  "valid": [
+    {
+      "tool": "ask_user",
+      "args": {
+        "question": "继续吗？",
+        "options": [
+          {
+            "label": "继续",
+            "recommended": true
+          },
+          {
+            "label": "停止"
+          }
+        ]
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "question",
+          "question": "继续吗？",
+          "options": [
+            {
+              "id": "o0",
+              "label": "继续",
+              "recommended": true
+            },
+            {
+              "id": "o1",
+              "label": "停止"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "show_next_steps",
+      "args": {
+        "steps": [
+          {
+            "label": "查看结果",
+            "recommended": true
+          },
+          "稍后再说"
+        ]
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "steps",
+          "steps": [
+            {
+              "id": "o0",
+              "label": "查看结果",
+              "recommended": true
+            },
+            {
+              "id": "o1",
+              "label": "稍后再说"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "ask_user",
+      "args": {
+        "question": "多个推荐时选哪一个？",
+        "options": [
+          {
+            "label": "A",
+            "recommended": true
+          },
+          {
+            "label": "B",
+            "recommended": true
+          }
+        ]
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "question",
+          "question": "多个推荐时选哪一个？",
+          "options": [
+            {
+              "id": "o0",
+              "label": "A",
+              "recommended": true
+            },
+            {
+              "id": "o1",
+              "label": "B"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "ask_user",
+      "args": {
+        "question": "删除还是保留？",
+        "options": [
+          {
+            "label": "删除",
+            "style": "danger",
+            "recommended": true
+          },
+          {
+            "label": "保留",
+            "recommended": true
+          }
+        ]
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "question",
+          "question": "删除还是保留？",
+          "options": [
+            {
+              "id": "o0",
+              "label": "保留",
+              "recommended": true
+            },
+            {
+              "id": "o1",
+              "label": "删除",
+              "style": "danger"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "ask_user",
+      "args": {
+        "question": "危险项不能被推荐",
+        "options": [
+          {
+            "label": "删除",
+            "style": "danger",
+            "recommended": true
+          },
+          {
+            "label": "保留"
+          }
+        ]
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "question",
+          "question": "危险项不能被推荐",
+          "options": [
+            {
+              "id": "o0",
+              "label": "删除",
+              "style": "danger"
+            },
+            {
+              "id": "o1",
+              "label": "保留"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "show_next_steps",
+      "args": {
+        "steps": [
+          {
+            "label": "A"
+          },
+          {
+            "label": "B",
+            "recommended": true
+          }
+        ]
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "steps",
+          "steps": [
+            {
+              "id": "o0",
+              "label": "B",
+              "recommended": true
+            },
+            {
+              "id": "o1",
+              "label": "A"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "tool": "ask_user",
+      "args": {
+        "question": "选项太少？",
+        "options": [
+          {
+            "label": "只有一个"
+          }
+        ]
+      },
+      "result": {
+        "ok": false,
+        "error": "ask_user 需要 2–4 个 options。"
+      }
+    },
+    {
+      "tool": "show_next_steps",
+      "args": {
+        "steps": []
+      },
+      "result": {
+        "ok": false,
+        "error": "show_next_steps 需要 2–4 个 steps。"
+      }
+    }
+  ]
+}

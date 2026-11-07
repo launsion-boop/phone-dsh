@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotModelPurposePolicy v1",
+  "type": "object",
+  "required": ["purposes", "largeModelPurposes"],
+  "properties": {
+    "largeModelPurposes": {"type": "array", "items": {"enum": ["front-turn", "worker-turn"]}, "minItems": 2, "maxItems": 2},
+    "purposes": {
+      "type": "array",
+      "minItems": 8,
+      "items": {
+        "type": "object",
+        "required": ["purpose", "largeModelAllowed", "defaults"],
+        "properties": {
+          "purpose": {"enum": ["front-turn", "worker-turn", "triage", "memory-extract", "reflect", "compact", "watchdog", "completion-check"]},
+          "largeModelAllowed": {"type": "boolean"},
+          "defaults": {
+            "type": "object",
+            "required": ["model", "maxTokens", "temperature"],
+            "properties": {
+              "model": {"type": "string", "minLength": 1},
+              "maxTokens": {"type": "integer", "minimum": 1},
+              "temperature": {"type": "number", "minimum": 0}
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

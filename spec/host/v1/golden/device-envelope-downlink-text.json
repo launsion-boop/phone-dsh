@@ -11,7 +11,8 @@
     "origin": "agent",
     "audience": "device",
     "seq": 7,
+    "epoch": 1,
     "text": "3 items are due today."
   },
-  "notes": "Sources: docs/design/device-connector-2026-10-31.md:150-156 (§4.2: audience is decided by the tool and never inferred from who started the turn; tool results never reach a device; permission and question requests reach the phone only) and :128-148 (§4.1). A downlink envelope is host-originated, so origin is phone or agent and never device. Downlink delivery is bounded by the session policy (tts, maxChars <= 1000, :154) rather than by message size."
+  "notes": "Sources: docs/design/device-connector-2026-10-31.md:150-156 (§4.2: audience is decided by the tool and never inferred from who started the turn; tool results never reach a device; permission and question requests reach the phone only) and :128-148 (§4.1). A downlink envelope is host-originated, so origin is phone or agent and never device. Downlink delivery is bounded by the session policy (tts, maxChars <= 1000, :154) rather than by message size. epoch is host-selected per (device, transport): it is persisted with the outbound sequence cursor and never re-derived from device-supplied state."
 }

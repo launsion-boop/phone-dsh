@@ -424,8 +424,8 @@
       "collection": null,
       "rows": [
         {
-          "id": "用模型服务自带的搜索时-抓网页这件事也归它管-这里不再单独设",
-          "label": "用模型服务自带的搜索时,抓网页这件事也归它管,这里不再单独设。",
+          "id": "沿用模型服务时-网页搜索和抓取共用官方-deepseek-模型密钥",
+          "label": "沿用模型服务时，网页搜索和抓取共用官方 DeepSeek 模型密钥。",
           "labelExpr": null,
           "kind": "text",
           "value": null,
@@ -435,7 +435,7 @@
           "writes": false,
           "condition": null,
           "provenance": "WebSearchSettingsPage.swift:313",
-          "anchor": "Text(\"用模型服务自带的搜索时,抓网页这件事也归它管,这里不再单独设。\")",
+          "anchor": "Text(\"沿用模型服务时，网页搜索和抓取共用官方 DeepSeek 模型密钥。\")",
           "extraction": "syntax"
         },
         {

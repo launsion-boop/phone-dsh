@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotMemoryRecallHit v1",
+  "type": "object",
+  "required": ["fact_id", "text", "learned_at_ms", "tier", "scope", "score"],
+  "properties": {
+    "fact_id": {"type": "string", "minLength": 1},
+    "text": {"type": "string", "minLength": 1, "maxLength": 2000},
+    "learned_at_ms": {"type": "integer", "minimum": 0},
+    "tier": {"enum": ["profile", "log", "note"]},
+    "scope": {"enum": ["agent", "user"]},
+    "key": {"type": ["string", "null"]},
+    "score": {"type": "number", "minimum": 0}
+  },
+  "additionalProperties": true
+}

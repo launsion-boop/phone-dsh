@@ -1,0 +1,1028 @@
+{
+  "schemaVersion": 1,
+  "vector": "tool-catalog",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6"
+  },
+  "valid": {
+    "p0": [
+      {
+        "name": "ask_user",
+        "description": "Show the user a question card with 2-4 concrete suggested replies (the DSH Bot question widget). Show the card ONLY when a decision genuinely needs the user (a real choice between alternatives, approval for a consequential/destructive action, or sign-off on a plan). Default to deciding and answering in prose instead. One question, 2-4 real options (never guesses), style danger for destructive choices. The user can always type a free-form reply in the composer, so there is no in-card text field. When one option is clearly better for this user, put it first and mark it recommended:true (or style:\"primary\") and say why in helpText in one short sentence; at most one recommendation, none when the options are equivalent, and never recommend a danger option. The card ENDS the turn: put any plan/list in your reply text first, then call this. A dismissed card is a decline — do not re-ask.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "question": {
+              "type": "string"
+            },
+            "options": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 4,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "type": "string"
+                  },
+                  "value": {
+                    "type": "string"
+                  },
+                  "style": {
+                    "type": "string",
+                    "enum": [
+                      "primary",
+                      "default",
+                      "danger"
+                    ],
+                    "description": "primary = your recommendation (max one, never a danger option); danger = destructive consequence."
+                  },
+                  "recommended": {
+                    "type": "boolean",
+                    "description": "true on at most one option when it is clearly the best choice; equivalent to style:\"primary\"."
+                  },
+                  "description": {
+                    "type": "string",
+                    "description": "One short line explaining the consequence or why this option is recommended."
+                  }
+                },
+                "required": [
+                  "label"
+                ]
+              }
+            },
+            "helpText": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "question",
+            "options"
+          ]
+        }
+      },
+      {
+        "name": "show_next_steps",
+        "description": "Offer 2-4 tappable suggested next actions under your reply. Calling it ends the turn: after it succeeds, output nothing else. Use objects when a step needs a one-line reason or a value that differs from its label. When one step is clearly the best next move, put it first and set recommended:true (or style:\"primary\"); at most one recommendation, never a danger step.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "steps": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 4,
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string"
+                      },
+                      "value": {
+                        "type": "string"
+                      },
+                      "description": {
+                        "type": "string"
+                      },
+                      "style": {
+                        "type": "string",
+                        "enum": [
+                          "primary",
+                          "default",
+                          "danger"
+                        ],
+                        "description": "primary = your recommendation (at most one; never a danger step)."
+                      },
+                      "recommended": {
+                        "type": "boolean",
+                        "description": "Set true on at most one step that is clearly the best next move; same as style:\"primary\"."
+                      }
+                    },
+                    "required": [
+                      "label"
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          "required": [
+            "steps"
+          ]
+        }
+      },
+      {
+        "name": "show_attachment",
+        "description": "Attach a file to the chat as an attachment card.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "caption": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      },
+      {
+        "name": "show_document",
+        "description": "Show a document card (title, short summary, workspace path, on-page TOC, type label) for a document you created, edited or saved to the local library. Use it once per document, after the content exists — not for ordinary prose. Pass `toc` when you already know the headings; otherwise pass `parseHeadings:true` with `path` and the host reads the local file to build the TOC. `content` is for short inline documents without a file. The card is clickable and opens the full-screen preview.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "description": "Document title shown on the card."
+            },
+            "summary": {
+              "type": "string",
+              "description": "One or two sentences describing the document."
+            },
+            "path": {
+              "type": "string",
+              "description": "Absolute or workspace-relative path of the document."
+            },
+            "content": {
+              "type": "string",
+              "description": "Short inline Markdown when the document has no file yet."
+            },
+            "toc": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "On-page headings (max 6). Omit to derive them from `path`/`content`."
+            },
+            "parseHeadings": {
+              "type": "boolean",
+              "description": "true = read `path` and derive the TOC headings from its Markdown."
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "document",
+                "markdown",
+                "table",
+                "pdf",
+                "code",
+                "library"
+              ],
+              "description": "Document type; drives the footer label."
+            },
+            "kindLabel": {
+              "type": "string",
+              "description": "Custom footer type label (e.g. \"研究報告\") when `kind` is not specific enough."
+            },
+            "fileName": {
+              "type": "string",
+              "description": "File name shown in the footer (defaults to the path basename)."
+            },
+            "size": {
+              "type": "string",
+              "description": "Optional human-readable size shown next to the type label."
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "show_progress",
+        "description": "Show a progress card for work that takes longer than about 30 seconds or several tool calls: a title, optional summary, state/percent, up to 8 steps with per-step state, an ETA and a stable cardKey. Call it once when the work starts and once when it ends (the same cardKey updates the same card in place); do not use it for one-step work, for a plan that has not been agreed, or as a substitute for your answer. It does not end the turn.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "description": "Name of the job, not a sentence (e.g. \"Summarise 12 interviews\"). Max 80 chars."
+            },
+            "state": {
+              "type": "string",
+              "enum": [
+                "running",
+                "done",
+                "paused",
+                "failed",
+                "cancelled"
+              ],
+              "description": "Overall state. Defaults to running; done forces percent to 100."
+            },
+            "percent": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100,
+              "description": "Completion percentage; inferred from steps when omitted."
+            },
+            "summary": {
+              "type": "string",
+              "description": "One sentence describing what is happening now. Max 200 chars."
+            },
+            "steps": {
+              "type": "array",
+              "maxItems": 8,
+              "description": "Up to 8 steps. If there are more, the card keeps the first 7 and adds an \"… N more\" row.",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "type": "string",
+                    "description": "Short imperative step name. Max 120 chars."
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "pending",
+                      "active",
+                      "done",
+                      "failed",
+                      "skipped"
+                    ],
+                    "description": "pending | active | done | failed | skipped. Defaults to pending; the first pending step becomes active when nothing is active."
+                  },
+                  "detail": {
+                    "type": "string",
+                    "description": "Optional right-aligned detail, e.g. \"6 of 12\". Max 60 chars."
+                  }
+                },
+                "required": [
+                  "label"
+                ]
+              }
+            },
+            "eta": {
+              "type": "string",
+              "description": "Human ETA (e.g. \"about 2 minutes\"). Do not compute timestamps. Max 40 chars."
+            },
+            "cardKey": {
+              "type": "string",
+              "description": "Stable key for this job; calling again with the same key updates the existing card. Max 64 chars."
+            }
+          },
+          "required": [
+            "title"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "show_checklist",
+        "description": "Show a checklist card: a title plus 1-12 items, each with text and a done flag, plus an optional short note. Use it when the list itself is the deliverable or will be revisited: a release checklist, an agreed plan, acceptance criteria or errands. The user can tick items in the UI, and a footer button sends the ticking back to you as a message. Do not use it for your own internal todo list, for a set of choices (use ask_user), or for narrative steps inside an explanation. It does not end the turn.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "description": "Checklist name. Max 80 chars."
+            },
+            "items": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 12,
+              "description": "Checklist items. If there are more than 12, the card keeps the first 11 and adds an \"… N more\" row.",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "text": {
+                    "type": "string",
+                    "description": "One imperative line. Max 120 chars."
+                  },
+                  "done": {
+                    "type": "boolean",
+                    "description": "Whether the item is already complete. Defaults to false."
+                  },
+                  "note": {
+                    "type": "string",
+                    "description": "Optional secondary note (owner, due date). Max 80 chars."
+                  }
+                },
+                "required": [
+                  "text"
+                ]
+              }
+            },
+            "summary": {
+              "type": "string",
+              "description": "Optional one-line context under the title. Max 120 chars."
+            },
+            "interactive": {
+              "type": "boolean",
+              "description": "false renders a read-only checklist (no local ticking or send-back button)."
+            }
+          },
+          "required": [
+            "title",
+            "items"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "show_link",
+        "description": "Show 1-4 web links as a link-preview card (page title, site, one-line description, kind) instead of pasting raw URLs. Use it for sources you actually opened or were given: official docs, issues, pull requests or articles. Only http/https URLs. Never invent a title or description you did not see. Do not use it for local files (use show_attachment or show_document), for more than 4 links (summarise the rest in prose), or as the only content of a turn. It does not end the turn.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "description": "Optional heading, e.g. \"Sources\". Max 60 chars."
+            },
+            "links": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 4,
+              "description": "Links to show. Invalid or non-http(s) entries are dropped; the card fails if none remain.",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "url": {
+                    "type": "string",
+                    "description": "Absolute http(s) URL. Max 2048 chars."
+                  },
+                  "title": {
+                    "type": "string",
+                    "description": "Page title; defaults to the site host. Max 120 chars."
+                  },
+                  "site": {
+                    "type": "string",
+                    "description": "Display domain (e.g. open.feishu.cn); defaults to the URL hostname. Max 40 chars."
+                  },
+                  "description": {
+                    "type": "string",
+                    "description": "One line describing what the page contains. Max 160 chars."
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "doc",
+                      "repo",
+                      "article",
+                      "video",
+                      "tool",
+                      "other"
+                    ],
+                    "description": "doc | repo | article | video | tool | other; drives the tile glyph."
+                  }
+                },
+                "required": [
+                  "url"
+                ]
+              }
+            }
+          },
+          "required": [
+            "links"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "UpdateMemory",
+        "description": "Write to or forget from durable memory. Each bot has its own store (profile.md / log/ / notes.md); scope \"user\" writes the shared store that all of the user's bots recall, while the default scope \"agent\" belongs to this bot alone. action \"write\" records one concise durable fact at a tier (default log): profile = who the user is (kept in every turn), log = dated history whose newest entries are injected into every turn and whose older entries are searchable with RecallMemory, note = keyed note. There is no implicit replacement: to correct a fact, use action \"forget\" with the exact old text (or its fact_id) and then write the new fact. action \"forget\" removes only the stored fact whose text exactly matches; every write returns a stable fact_id.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "write",
+                "forget"
+              ],
+              "description": "write (default) or forget."
+            },
+            "fact": {
+              "type": "string",
+              "description": "The fact to record, or for action=forget the exact recorded text to remove."
+            },
+            "fact_id": {
+              "type": "string",
+              "description": "For action=forget: stable id returned by a previous write; use instead of (or in addition to) the exact text."
+            },
+            "tier": {
+              "type": "string",
+              "enum": [
+                "profile",
+                "log",
+                "note"
+              ],
+              "default": "log",
+              "description": "profile = who the user is (every turn); log = dated history (default; newest entries injected every turn); note = keyed note."
+            },
+            "scope": {
+              "type": "string",
+              "enum": [
+                "agent",
+                "user"
+              ],
+              "description": "agent (default; this bot only) or user (shared by all of the user's bots)."
+            },
+            "key": {
+              "type": "string",
+              "description": "For tier=note only: short topic key."
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "RecallMemory",
+        "description": "Search durable memory. Returns matching facts (with fact_id, learned_at_ms, tier and scope) from this bot's store and the shared user-scoped store, labelled with where each came from.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "Optional keyword filter; omit to list recent entries."
+            },
+            "limit": {
+              "type": "number",
+              "description": "Maximum facts to return (1-50, default 40)."
+            },
+            "scope": {
+              "type": "string",
+              "enum": [
+                "agent",
+                "user",
+                "all"
+              ],
+              "description": "agent (this bot), user (shared store), or all (default: both)."
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "Task",
+        "description": "Delegate one self-contained job to a subagent. The canonical field set is the UNION of the two 0.78.4 Task families: TaskArgs (description, prompt, subagent_type, model, resume, agent_id, attachments, mode, responding_to_message_ids, environment, machine) and TaskParams (task_description, task_title, async, allowed_write_directories, model_override, max_mode_override, default_expanded_while_running), plus the local task_id/timeout_ms. `resume` accepts the proto string form (a stored task id) and the replica boolean form (resume:true + task_id). By default Task BLOCKS until the child finishes and returns its final answer as this tool result inside the SAME turn (original TaskResult.completed). Pass async:true to receive a task_id immediately (TaskResult.async) and read it later with AwaitTask; a running asynchronous task can be stopped with StopSubagent{task_id}. The raw subagent / subagent_fork tools are disabled in this deployment.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "description": {
+              "type": "string",
+              "description": "TaskArgs.description: short task label (3-8 words)."
+            },
+            "prompt": {
+              "type": "string",
+              "description": "TaskArgs.prompt: complete, self-contained instructions for the subagent: the wanted outcome, constraints, and exactly what to report back."
+            },
+            "task_description": {
+              "type": "string",
+              "description": "TaskParams.task_description (the TaskParams spelling of prompt)."
+            },
+            "task_title": {
+              "type": "string",
+              "description": "TaskParams.task_title (the TaskParams spelling of description)."
+            },
+            "subagent_type": {
+              "type": "string",
+              "enum": [
+                "executor"
+              ],
+              "description": "TaskArgs.subagent_type. Only \"executor\" exists in this deployment; omit it."
+            },
+            "async": {
+              "type": "boolean",
+              "description": "TaskParams.async: true = return a task_id immediately (TaskResult.async); absent/false = block."
+            },
+            "resume": {
+              "description": "TaskArgs.resume (string stored task id) OR the replica boolean form (resume:true + task_id).",
+              "oneOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "string",
+                  "description": "A stored task id returned by an earlier Task (proto string form)."
+                }
+              ]
+            },
+            "task_id": {
+              "type": "string",
+              "description": "Stored task to continue (with resume), or the id returned by an async Task."
+            },
+            "model": {
+              "type": "string",
+              "description": "TaskArgs.model: optional model override (folded into model_override)."
+            },
+            "model_override": {
+              "type": "string",
+              "description": "TaskParams.model_override; this SDK has no per-prompt model override, accepted and not enforced."
+            },
+            "allowed_write_directories": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "TaskParams.allowed_write_directories, ENFORCED: the child may only write inside these directories (absolute or workspace-relative; ~ is expanded). Any write outside them is denied by the structural gate."
+            },
+            "max_mode_override": {
+              "type": "boolean",
+              "description": "TaskParams.max_mode_override; no local equivalent, accepted and ignored."
+            },
+            "default_expanded_while_running": {
+              "type": "boolean",
+              "description": "TaskParams.default_expanded_while_running; no local equivalent, accepted and ignored."
+            },
+            "agent_id": {
+              "type": "string",
+              "description": "TaskArgs.agent_id; accepted for proto compatibility, no local effect."
+            },
+            "attachments": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "TaskArgs.attachments (the leak calls it file_attachments); accepted for proto compatibility, not forwarded to the local subagent."
+            },
+            "mode": {
+              "type": "string",
+              "description": "TaskArgs.mode; accepted for proto compatibility, no local effect."
+            },
+            "responding_to_message_ids": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "TaskArgs.responding_to_message_ids; accepted for proto compatibility, no local effect."
+            },
+            "environment": {
+              "type": "string",
+              "description": "TaskArgs.environment; accepted for proto compatibility, no local effect."
+            },
+            "machine": {
+              "type": "object",
+              "description": "TaskArgs.machine (TargetMachine); accepted for proto compatibility, no local effect."
+            },
+            "timeout_ms": {
+              "type": "number",
+              "description": "Optional wait budget in milliseconds (default 180000, max 300000)."
+            }
+          },
+          "required": []
+        }
+      },
+      {
+        "name": "AwaitTask",
+        "description": "AwaitTaskParams{task_id, timeout_ms} -> TaskResult. Wait for a Task started with async:true and return its result. The task keeps running if the wait times out (call AwaitTask again). A stopped task returns status \"stopped\" with its partial result; continue it with Task{resume:true, task_id}.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "task_id": {
+              "type": "string",
+              "description": "task_id returned by Task(async:true)."
+            },
+            "timeout_ms": {
+              "type": "number",
+              "description": "Optional wait budget in milliseconds (default 180000, max 600000)."
+            }
+          },
+          "required": [
+            "task_id"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "StopSubagent",
+        "description": "StopSubagent{task_id}: cancel one running Task (original StopSubagent). The child turn is aborted, the task is marked status \"stopped\", and its partial result is kept. It is not a failure: continue the same job later with Task{resume:true, task_id}. Only async Task ids are normally reachable this way (a blocking Task has not returned a task_id to the caller yet).",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "task_id": {
+              "type": "string",
+              "description": "task_id returned by Task(async:true)."
+            },
+            "id": {
+              "type": "string",
+              "description": "Compatibility alias of task_id."
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "UpdateRoutine",
+        "description": "Create, update, delete or list routines for this bot. Routines are saved prompts that fire on a schedule, even while the user is away. BE PROACTIVE: a routine is the right tool far more often than a one-off answer. The moment a request is recurring, time-based, or a \"let me know when X\" / \"keep an eye on Y\" need, create a routine instead of doing it once, asking the user to remind you later, or trying to stay awake. Err toward proposing one for anything repeatable: \"every morning\", \"each Monday\", \"remind me\", \"check daily\", \"ping me when\", \"watch this\", a digest, a poll, a monitor. Also catch the implicit cases the user did not spell out. When it is unambiguous, create it and tell them; when you are unsure it is wanted, offer one in a sentence rather than skipping it. Actions: create (title, prompt, schedule), update (routine_id + changed fields), delete (routine_id), get (routine_id), pause (routine_id), resume (routine_id), list. Read a routine with get before changing it so its saved prompt and schedule are updated knowingly. Schedules accept the official cron string OR the historical object: a 5-field cron (\"47 6 * * *\"), @hourly/@daily/@weekly/@monthly, @every 5m|2h|1d, a phase like @every 30m/17m, and a CRON_TZ=<IANA> prefix. The structured form is interval {everyMinutes>=1}, daily {time \"HH:MM\"}, weekly {time \"HH:MM\", weekdays ISO 1=Mon..7=Sun}, or cron {expr \"minute hour day-of-month month day-of-week\"}; timezone is IANA and defaults to the user's local zone. Delivery: held (default) shows the result on the routine card and hands it to the next chat turn; interrupt does that AND asks for a proactive notification, but only when someone is waiting or the result must be handled now — delivery:\"interrupt\" requires a non-empty interrupt_reason. The quiet window is enforced by the runtime, so do not move a schedule to avoid it: non-urgent routines are automatically deferred to the end of the window. urgent:true bypasses that deferral and requires a non-empty urgent_reason (incidents and deadlines only). Your routines also appear in the latest <automation_status> reminder, which is authoritative: with none listed, you have none.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "create",
+                "update",
+                "delete",
+                "list",
+                "get",
+                "pause",
+                "resume"
+              ],
+              "description": "create (default for new routines), update, delete, get, pause, resume or list."
+            },
+            "routine_id": {
+              "type": "string",
+              "description": "update/delete/get/pause/resume: routine id from list or the automation_status reminder."
+            },
+            "title": {
+              "type": "string",
+              "description": "create/update: short human-readable name."
+            },
+            "prompt": {
+              "type": "string",
+              "description": "create/update: the complete saved instruction the routine runs, including what to report and whether to stay quiet when nothing changed."
+            },
+            "schedule": {
+              "description": "When the routine fires. Prefer the official cron string; the historical structured object is also accepted.",
+              "oneOf": [
+                {
+                  "type": "string",
+                  "description": "Official schedule: 5-field cron, @hourly/@daily/@weekly/@monthly, @every 5m|2h|1d (optional /phase), and an optional CRON_TZ=<IANA> prefix. Examples: \"47 6 * * *\", \"@every 5m\", \"CRON_TZ=Asia/Taipei 0 9 * * *\"."
+                },
+                {
+                  "type": "object",
+                  "description": "Historical structured shape: interval {everyMinutes}, daily {time}, weekly {time, weekdays}, or cron {expr}.",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "interval",
+                        "daily",
+                        "weekly",
+                        "cron"
+                      ]
+                    },
+                    "everyMinutes": {
+                      "type": "integer",
+                      "description": "interval only: every N minutes (>= 1)."
+                    },
+                    "time": {
+                      "type": "string",
+                      "description": "daily/weekly only: local HH:MM (24-hour)."
+                    },
+                    "weekdays": {
+                      "type": "array",
+                      "items": {
+                        "type": "integer"
+                      },
+                      "description": "weekly only: ISO weekdays 1=Mon … 7=Sun."
+                    },
+                    "expr": {
+                      "type": "string",
+                      "description": "cron only: five fields \"minute hour day-of-month month day-of-week\", or an official cron string."
+                    },
+                    "timezone": {
+                      "type": "string",
+                      "description": "IANA time zone; defaults to the user's local zone."
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ]
+                }
+              ]
+            },
+            "enabled": {
+              "type": "boolean",
+              "description": "create/update: false pauses the routine; true resumes it and recomputes the next run. pause/resume are routine_id shortcuts for the same state."
+            },
+            "delivery": {
+              "type": "string",
+              "enum": [
+                "held",
+                "interrupt"
+              ],
+              "description": "create/update: held (default) = card plus the result held for the next chat turn; interrupt = the same held copy plus a proactive notification when someone is waiting or it must be handled now. interrupt requires interrupt_reason."
+            },
+            "interrupt_reason": {
+              "type": "string",
+              "description": "create/update: required when delivery is \"interrupt\": who is waiting, or what cannot wait. Keep it short and concrete."
+            },
+            "urgent": {
+              "type": "boolean",
+              "description": "create/update: incidents and deadlines only. true bypasses the runtime quiet-hours deferral; requires a non-empty urgent_reason. Default false."
+            },
+            "urgent_reason": {
+              "type": "string",
+              "description": "create/update: required when urgent is true: the incident or deadline that cannot wait. Default empty."
+            }
+          },
+          "required": [
+            "action"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "ListRoutines",
+        "description": "List this bot's routines (read-only): id, title, schedule, enabled/disabled, next run and last result. The latest <automation_status> reminder is the authoritative per-turn summary; use this when you need the full prompt text, disabled routines, or last-run results.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "RequestApproval",
+        "description": "Ask the human for permission and BLOCK until they answer. Call this BEFORE any destructive or outside-workspace action: deleting/moving/renaming/overwriting anything (including inside the workspace), writing or creating files outside ~/DSHBotWorkspace, sending network POST/PUT/PATCH/DELETE requests, uploading files, or installing/upgrading software. Do NOT call it for read-only work or for ordinary writes inside ~/DSHBotWorkspace. The tool result is the decision: \"allowed\" means do exactly that one action; \"denied\" means stop immediately — do not retry, do not switch to an equivalent command, and tell the user plainly that you did not do it. On timeout or bridge failure the action is denied. A previous \"always\"/\"never\" answer is reused without asking again.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "description": "Short label of the action class, in the user's language, e.g. \"Delete ~/Downloads/old-report.pdf\" or \"Install software (brew)\". Repeat a previous label exactly to reuse a standing allow/deny."
+            },
+            "detail": {
+              "type": "string",
+              "description": "What exactly will happen and why — one or two sentences the user can judge."
+            },
+            "command": {
+              "type": "string",
+              "description": "The exact shell command or target path, when applicable."
+            }
+          },
+          "required": [
+            "action"
+          ]
+        }
+      },
+      {
+        "name": "SendToUser",
+        "description": "Send one message to the user in this chat (0.78.4 SendToUserArgs{message}). Ordinary assistant text is also delivered to the user; use this when the message should be visibly sent now. The newer leaked rich form (content/type/url/alt/images/widget/to/end_turn/reply_to/voice_memo/channel/bcId/secret) is accepted as an optional extension, but this replica only delivers `message` (the 0.78.4 contract is the single field).",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "message": {
+              "type": "string",
+              "description": "The message to show the user (the only 0.78.4 field)."
+            }
+          },
+          "required": [
+            "message"
+          ]
+        }
+      },
+      {
+        "name": "ReplyToDevice",
+        "description": "Reply once to the device message(s) that triggered this turn. phoneDSH extension (not in the dsh-bot 0.78.4 catalog): the host resolves the source device, transport and mapped transport session from the staged held-inbox items, so the model cannot choose a destination. The effect is external-send and requires the user's grant.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "message": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1000,
+              "description": "Text to send to the source device; the host stamps origin=agent, dir=down, audience=device and a persisted downlink seq."
+            }
+          },
+          "required": [
+            "message"
+          ],
+          "additionalProperties": false
+        }
+      }
+    ],
+    "p1": [
+      {
+        "name": "show_table",
+        "description": "Show a compact table card: 2-6 typed columns (text, number, status, link) and 1-12 rows. Use it when the data is genuinely tabular and the column semantics matter: comparing options, before/after numbers, an acceptance matrix. Column types drive alignment and colour; numbers are right-aligned and status cells become coloured pills. Use Markdown instead for a simple 2-3 column, 3-row table. Do not use it for prose, for a single row (use show_info), or for more than 6 columns. It does not end the turn.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "description": "Optional table heading. Max 80 chars."
+            },
+            "columns": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 6,
+              "description": "Column definitions; 2-6 required. Keys must match ^[a-z][a-z0-9_]{0,23}$.",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "key": {
+                    "type": "string",
+                    "description": "Row object key. Lowercase letters, digits and underscore; starts with a letter."
+                  },
+                  "label": {
+                    "type": "string",
+                    "description": "Header text. Max 24 chars."
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "text",
+                      "number",
+                      "status",
+                      "link"
+                    ],
+                    "description": "text | number | status | link. Defaults to text."
+                  },
+                  "align": {
+                    "type": "string",
+                    "enum": [
+                      "left",
+                      "right",
+                      "center"
+                    ],
+                    "description": "left | right | center; numbers default to right."
+                  },
+                  "unit": {
+                    "type": "string",
+                    "description": "Suffix for number cells (ms, %, 元). Max 8 chars."
+                  },
+                  "precision": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 2,
+                    "description": "Decimal places for number cells. Defaults to 0."
+                  }
+                },
+                "required": [
+                  "key",
+                  "label"
+                ]
+              }
+            },
+            "rows": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 12,
+              "description": "Rows keyed by column.key. Status cells accept {text, tone}; tone is neutral|accent|success|warn|danger. The card shows the first 8 rows and expands on demand.",
+              "items": {
+                "type": "object"
+              }
+            },
+            "note": {
+              "type": "string",
+              "description": "Optional source/time note under the table. Max 160 chars."
+            }
+          },
+          "required": [
+            "columns",
+            "rows"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "show_callout",
+        "description": "Show one callout block to flag the thing the user must not miss: tone (info/success/warning/danger/neutral), a short title, a body up to 600 characters, up to 4 bullets, and an optional action button that sends a message on the user's behalf. Use it for a real risk, a caveat or a consequence, and make the tone match the real severity. Use it at most once per turn. Do not use it for routine success messages, for your main answer, or for an error the runtime already reported. It does not end the turn.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "tone": {
+              "type": "string",
+              "enum": [
+                "info",
+                "success",
+                "warning",
+                "danger",
+                "neutral"
+              ],
+              "description": "info (default) | success | warning | danger | neutral. Match the real severity; do not overuse danger."
+            },
+            "title": {
+              "type": "string",
+              "description": "Short heading; defaults from tone (提示/完成/注意/風險/說明). Max 60 chars."
+            },
+            "body": {
+              "type": "string",
+              "description": "One short paragraph; inline code is allowed. Max 600 chars."
+            },
+            "bullets": {
+              "type": "array",
+              "maxItems": 4,
+              "description": "Up to 4 short lines (affected files, recommended action). Each max 120 chars.",
+              "items": {
+                "type": "string"
+              }
+            },
+            "action": {
+              "type": "object",
+              "description": "Optional button: {label, message}. Both values are required or the action is dropped.",
+              "properties": {
+                "label": {
+                  "type": "string",
+                  "description": "Button label. Max 24 chars."
+                },
+                "message": {
+                  "type": "string",
+                  "description": "Message sent as the user when clicked. Max 200 chars."
+                }
+              },
+              "required": [
+                "label",
+                "message"
+              ]
+            }
+          },
+          "required": [
+            "body"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "show_info",
+        "description": "Show one compact key/value info row (label + value). Use it for a single fact the user will scan — a status, a setting, a path or a short answer — not for lists or explanations.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "label": {
+              "type": "string",
+              "description": "Left-hand label."
+            },
+            "value": {
+              "type": "string",
+              "description": "Right-aligned value."
+            },
+            "description": {
+              "type": "string",
+              "description": "Optional small note under the row."
+            }
+          },
+          "required": [
+            "label"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "show_payload",
+        "description": "Show the files attached to or produced for this message as a compact chip row (name + size). Read-only: it does not move, upload or open the files. Use it after producing several files so the user can see them at a glance.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "files": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 20,
+              "description": "Files to show: {name, size?} objects or path strings."
+            }
+          },
+          "required": [
+            "files"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "show_library",
+        "description": "Show the bot's local document library card (bot name + document count). Use it when the user asks what is in their library and the count is known, instead of listing every file in prose.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "botName": {
+              "type": "string",
+              "description": "Bot whose library this is (defaults to \"這個 Bot\")."
+            },
+            "docCount": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Number of documents in the library."
+            },
+            "summary": {
+              "type": "string",
+              "description": "Optional one-line description of the library."
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    ]
+  },
+  "invalid": [
+    {
+      "name": "GenerateImage",
+      "reason": "excluded_platform_capability"
+    },
+    {
+      "name": "MacWriteNotes",
+      "reason": "excluded_platform_capability"
+    },
+    {
+      "name": "CreateTeam",
+      "reason": "excluded_scope"
+    },
+    {
+      "name": "show_canvas",
+      "reason": "excluded_scope"
+    },
+    {
+      "name": "show_product",
+      "reason": "excluded_scope"
+    },
+    {
+      "name": "show_gift",
+      "reason": "excluded_scope"
+    }
+  ]
+}

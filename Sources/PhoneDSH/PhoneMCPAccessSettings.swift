@@ -206,6 +206,19 @@ public final class MCPEgressPolicy: EgressHostAuthorizing, @unchecked Sendable {
         lock.unlock()
     }
 
+    public func grantBotRuntimeEndpoint(_ endpoint: URL, token: String? = nil) throws {
+        let base = endpoint.deletingLastPathComponent()
+        let headers = token.map { ["authorization": "Bearer \($0)"] } ?? [:]
+        for (serverName, path) in [
+            ("dshbot", "mcp"),
+            ("dshbot-identity-register", "identity/register"),
+            ("dshbot-identity-cancel", "identity/cancel"),
+            ("dshbot-approval", "approval"),
+        ] {
+            try grant(serverName: serverName, url: base.appendingPathComponent(path), headers: headers)
+        }
+    }
+
     /// Gateway admission: only the configured scheme/host/effective-port/path.
     public func allowsEgressHost(_ url: URL) -> Bool {
         route(for: url) != nil

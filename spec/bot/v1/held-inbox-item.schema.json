@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotHeldInboxItem v1",
+  "description": "One WakeInbox item. A device-event carries the same deviceID/transport/deviceSeq required by the Swift WakeInboxItem validator; other held kinds must not pretend to be device events.",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": ["id", "kind", "text", "requestId", "createdAt", "state", "deviceID", "transport", "deviceSeq"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "kind": {"const": "device-event"},
+        "deviceID": {"type": "string", "minLength": 1},
+        "transport": {"enum": ["bluetooth", "lan"]},
+        "deviceSeq": {"type": "integer", "minimum": 0, "maximum": 9223372036854775806},
+        "deviceEpoch": {"type": "integer", "minimum": 0, "maximum": 9223372036854775806},
+        "fromAgentId": {"type": ["string", "null"]},
+        "fromAgentName": {"type": "string"},
+        "title": {"type": ["string", "null"]},
+        "text": {"type": "string", "maxLength": 1200},
+        "requestId": {"type": ["string", "null"]},
+        "threadId": {"type": ["string", "null"]},
+        "createdAt": {"type": "integer", "minimum": 0},
+        "state": {"enum": ["pending", "staged"]},
+        "stagedAt": {"type": "integer", "minimum": 0},
+        "stagedKey": {"type": "string", "minLength": 1},
+        "taskId": {"type": "string"},
+        "status": {"type": "string"},
+        "ranAt": {"type": "integer", "minimum": 0}
+      },
+      "dependentRequired": {
+        "stagedAt": ["stagedKey"],
+        "stagedKey": ["stagedAt"]
+      },
+      "additionalProperties": true
+    },
+    {
+      "type": "object",
+      "required": ["id", "kind", "text", "requestId", "createdAt", "state"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "kind": {"enum": ["agent-held", "subagent-result", "routine-result", "card-dismissed"]},
+        "deviceID": {"type": "string", "minLength": 1},
+        "transport": {"enum": ["bluetooth", "lan"]},
+        "deviceSeq": {"type": "integer", "minimum": 0, "maximum": 9223372036854775806},
+        "deviceEpoch": {"type": "integer", "minimum": 0, "maximum": 9223372036854775806},
+        "fromAgentId": {"type": ["string", "null"]},
+        "fromAgentName": {"type": "string"},
+        "title": {"type": ["string", "null"]},
+        "text": {"type": "string", "maxLength": 1200},
+        "requestId": {"type": ["string", "null"]},
+        "threadId": {"type": ["string", "null"]},
+        "createdAt": {"type": "integer", "minimum": 0},
+        "state": {"enum": ["pending", "staged"]},
+        "stagedAt": {"type": "integer", "minimum": 0},
+        "stagedKey": {"type": "string", "minLength": 1},
+        "taskId": {"type": "string"},
+        "status": {"type": "string"},
+        "ranAt": {"type": "integer", "minimum": 0}
+      },
+      "dependentRequired": {
+        "stagedAt": ["stagedKey"],
+        "stagedKey": ["stagedAt"]
+      },
+      "additionalProperties": true
+    }
+  ]
+}

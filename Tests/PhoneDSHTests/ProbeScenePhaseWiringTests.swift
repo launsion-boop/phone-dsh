@@ -8,11 +8,11 @@ import Foundation
 import XCTest
 
 final class ProbeScenePhaseWiringTests: XCTestCase {
-    func testScenePhaseOnChangeLivesOnlyInTheAppEntry() throws {
+    func testScenePhaseOnChangeLivesOnlyInAppEntries() throws {
         let hits = try swiftFiles(under: probeRoot()).compactMap { url, text -> String? in
             text.contains("onChange(of: scenePhase)") ? url.lastPathComponent : nil
         }
-        XCTAssertEqual(hits, ["PhoneDSHProbeApp.swift"])
+        XCTAssertEqual(hits.sorted(), ["BotResidencySpikeApp.swift", "PhoneDSHProbeApp.swift"])
     }
 
     func testChatScenePhaseHasASingleCallSite() throws {

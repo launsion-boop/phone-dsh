@@ -1,0 +1,528 @@
+{
+  "schemaVersion": 1,
+  "vector": "tool-effects",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6"
+  },
+  "valid": [
+    {
+      "name": "ask_user",
+      "args": {
+        "question": "要继续吗？",
+        "options": [
+          {
+            "label": "继续",
+            "recommended": true
+          },
+          {
+            "label": "停止"
+          }
+        ]
+      },
+      "policy": "auto",
+      "effect": {
+        "tool": "ask_user",
+        "operation": "ui.ask_user",
+        "resource": "*",
+        "target": "*",
+        "mutability": "read",
+        "policy": "auto",
+        "label": "詢問使用者",
+        "detail": "工具 ask_user（question=要继续吗？, options=[{\"label\":\"继续\",\"recommended\":true},{\"label\":\"停止\"}]）",
+        "ui": true,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "show_next_steps",
+      "args": {
+        "steps": [
+          {
+            "label": "查看结果",
+            "recommended": true
+          },
+          "稍后再说"
+        ]
+      },
+      "policy": "auto",
+      "effect": {
+        "tool": "show_next_steps",
+        "operation": "ui.show_next_steps",
+        "resource": "*",
+        "target": "*",
+        "mutability": "read",
+        "policy": "auto",
+        "label": "顯示下一步建議",
+        "detail": "工具 show_next_steps（steps=[{\"label\":\"查看结果\",\"recommended\":true},\"稍后再说\"]）",
+        "ui": true,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "show_attachment",
+      "args": {
+        "path": "/tmp/report.txt",
+        "caption": "报告"
+      },
+      "policy": "auto",
+      "effect": {
+        "tool": "show_attachment",
+        "operation": "ui.show_attachment",
+        "resource": "*",
+        "target": "*",
+        "mutability": "read",
+        "policy": "auto",
+        "label": "顯示附件卡片",
+        "detail": "工具 show_attachment（path=/tmp/report.txt, caption=报告）",
+        "ui": true,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "show_document",
+      "args": {
+        "title": "状态报告",
+        "content": "# 状态\n正常"
+      },
+      "policy": "auto",
+      "effect": {
+        "tool": "show_document",
+        "operation": "ui.show_document",
+        "resource": "*",
+        "target": "*",
+        "mutability": "read",
+        "policy": "auto",
+        "label": "顯示文件卡片",
+        "detail": "工具 show_document（title=状态报告, content=# 状态 正常）",
+        "ui": true,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "show_progress",
+      "args": {},
+      "policy": "auto",
+      "effect": {
+        "tool": "show_progress",
+        "operation": "ui.show_progress",
+        "resource": "*",
+        "target": "*",
+        "mutability": "read",
+        "policy": "auto",
+        "label": "顯示進度卡片",
+        "detail": "工具 show_progress",
+        "ui": true,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "show_checklist",
+      "args": {},
+      "policy": "auto",
+      "effect": {
+        "tool": "show_checklist",
+        "operation": "ui.show_checklist",
+        "resource": "*",
+        "target": "*",
+        "mutability": "read",
+        "policy": "auto",
+        "label": "顯示清單卡片",
+        "detail": "工具 show_checklist",
+        "ui": true,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "show_link",
+      "args": {},
+      "policy": "auto",
+      "effect": {
+        "tool": "show_link",
+        "operation": "ui.show_link",
+        "resource": "*",
+        "target": "*",
+        "mutability": "read",
+        "policy": "auto",
+        "label": "顯示連結卡片",
+        "detail": "工具 show_link",
+        "ui": true,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "UpdateMemory",
+      "args": {
+        "action": "write",
+        "fact": "我喜欢简短回答",
+        "tier": "log",
+        "scope": "agent"
+      },
+      "policy": "auto",
+      "effect": {
+        "tool": "memory",
+        "operation": "memory.write",
+        "resource": "memory:agent&tier=log&fact=我喜欢简短回答",
+        "target": "memory:agent&tier=log&fact=我喜欢简短回答",
+        "mutability": "write",
+        "policy": "auto",
+        "label": "寫入記憶：我喜欢简短回答",
+        "detail": "寫入 這個 Bot 的log 記憶。",
+        "ui": false,
+        "execution": "memory",
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "RecallMemory",
+      "args": {
+        "query": "简短",
+        "limit": 5
+      },
+      "policy": "auto",
+      "effect": {
+        "tool": "RecallMemory",
+        "operation": "memory.recall",
+        "resource": "*",
+        "target": "*",
+        "mutability": "read",
+        "policy": "auto",
+        "label": "回想記憶",
+        "detail": "工具 RecallMemory（query=简短, limit=5）",
+        "ui": false,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "Task",
+      "args": {
+        "description": "检查状态",
+        "prompt": "只返回当前状态",
+        "async": true
+      },
+      "policy": "auto",
+      "effect": {
+        "tool": "Task",
+        "operation": "dshbot.Task",
+        "resource": "task=检查状态&prompt=只返回当前状态",
+        "target": "task=检查状态&prompt=只返回当前状态",
+        "mutability": "write",
+        "policy": "auto",
+        "label": "啟動子代理任務「检查状态」",
+        "detail": "會啟動一個子代理並使用模型額度。",
+        "ui": false,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "AwaitTask",
+      "args": {
+        "task_id": "task-1"
+      },
+      "policy": "auto",
+      "effect": {
+        "tool": "AwaitTask",
+        "operation": "dshbot.AwaitTask",
+        "resource": "*",
+        "target": "*",
+        "mutability": "read",
+        "policy": "auto",
+        "label": "等待子代理結果",
+        "detail": "工具 AwaitTask（task_id=task-1）",
+        "ui": false,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "StopSubagent",
+      "args": {
+        "task_id": "task-1"
+      },
+      "policy": "auto",
+      "effect": {
+        "tool": "StopSubagent",
+        "operation": "dshbot.StopSubagent",
+        "resource": "task=task-1",
+        "target": "task=task-1",
+        "mutability": "write",
+        "policy": "auto",
+        "label": "停止子代理任務 task-1",
+        "detail": "中止正在執行的子代理，保留可讀的部分結果。",
+        "ui": false,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "UpdateRoutine",
+      "args": {
+        "action": "create",
+        "title": "晨间简报",
+        "prompt": "没有新结果就安静",
+        "schedule": "@daily"
+      },
+      "policy": "auto",
+      "effect": {
+        "tool": "UpdateRoutine",
+        "operation": "dshbot.UpdateRoutine",
+        "resource": "action=create&routine=&title=晨间简报&schedule=@daily&prompt=没有新结果就安静",
+        "target": "action=create&routine=&title=晨间简报&schedule=@daily&prompt=没有新结果就安静",
+        "mutability": "write",
+        "policy": "auto",
+        "label": "更新例行工作「晨间简报」",
+        "detail": "建立、修改或刪除本機例行工作；排程：@daily；指示：没有新结果就安静。",
+        "ui": false,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "ListRoutines",
+      "args": {},
+      "policy": "auto",
+      "effect": {
+        "tool": "ListRoutines",
+        "operation": "dshbot.ListRoutines",
+        "resource": "*",
+        "target": "*",
+        "mutability": "read",
+        "policy": "auto",
+        "label": "列出例行工作",
+        "detail": "工具 ListRoutines",
+        "ui": false,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "RequestApproval",
+      "args": {
+        "action": "删除旧文件",
+        "detail": "删除一个过期报告"
+      },
+      "policy": "auto",
+      "effect": {
+        "tool": "RequestApproval",
+        "operation": "ui.RequestApproval",
+        "resource": "*",
+        "target": "*",
+        "mutability": "read",
+        "policy": "auto",
+        "label": "請求使用者授權",
+        "detail": "工具 RequestApproval（action=删除旧文件, detail=删除一个过期报告）",
+        "ui": true,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "SendToUser",
+      "args": {
+        "message": "已完成"
+      },
+      "policy": "auto",
+      "effect": {
+        "tool": "SendToUser",
+        "operation": "dshbot.SendToUser",
+        "resource": "dshbot:send-to-user",
+        "target": "dshbot:send-to-user",
+        "mutability": "external-send",
+        "policy": "auto",
+        "label": "傳送訊息給使用者",
+        "detail": "在對話中送出一則訊息：已完成",
+        "ui": false,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "show_table",
+      "args": {},
+      "policy": "auto",
+      "effect": {
+        "tool": "show_table",
+        "operation": "ui.show_table",
+        "resource": "*",
+        "target": "*",
+        "mutability": "read",
+        "policy": "auto",
+        "label": "顯示表格卡片",
+        "detail": "工具 show_table",
+        "ui": true,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "show_callout",
+      "args": {},
+      "policy": "auto",
+      "effect": {
+        "tool": "show_callout",
+        "operation": "ui.show_callout",
+        "resource": "*",
+        "target": "*",
+        "mutability": "read",
+        "policy": "auto",
+        "label": "顯示提示卡片",
+        "detail": "工具 show_callout",
+        "ui": true,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "show_info",
+      "args": {},
+      "policy": "auto",
+      "effect": {
+        "tool": "show_info",
+        "operation": "ui.show_info",
+        "resource": "*",
+        "target": "*",
+        "mutability": "read",
+        "policy": "auto",
+        "label": "顯示資訊卡片",
+        "detail": "工具 show_info",
+        "ui": true,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "show_payload",
+      "args": {},
+      "policy": "auto",
+      "effect": {
+        "tool": "show_payload",
+        "operation": "ui.show_payload",
+        "resource": "*",
+        "target": "*",
+        "mutability": "read",
+        "policy": "auto",
+        "label": "顯示資料卡片",
+        "detail": "工具 show_payload",
+        "ui": true,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "show_library",
+      "args": {},
+      "policy": "auto",
+      "effect": {
+        "tool": "show_library",
+        "operation": "ui.show_library",
+        "resource": "*",
+        "target": "*",
+        "mutability": "read",
+        "policy": "auto",
+        "label": "顯示文件庫卡片",
+        "detail": "工具 show_library",
+        "ui": true,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "UnknownWrite",
+      "args": {
+        "secret": "not-recorded"
+      },
+      "policy": "ask",
+      "effect": {
+        "tool": "UnknownWrite",
+        "operation": "tool.unclassified",
+        "resource": "unclassified=UnknownWrite&args=9c58b105c0e3377b",
+        "target": "unclassified=UnknownWrite&args=9c58b105c0e3377b",
+        "mutability": "write",
+        "policy": "ask",
+        "label": "執行未分類工具 UnknownWrite",
+        "detail": "這個工具沒有在效果分類表中登記；依預設需要使用者審批。",
+        "ui": false,
+        "execution": null,
+        "known": false,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "UpdateMemory",
+      "args": {
+        "action": "forget",
+        "scope": "user",
+        "fact": "共享事实"
+      },
+      "policy": "ask",
+      "effect": {
+        "tool": "memory",
+        "operation": "memory.forget",
+        "resource": "memory:user&fact=共享事实",
+        "target": "memory:user&fact=共享事实",
+        "mutability": "destructive",
+        "policy": "ask",
+        "label": "忘記記憶「共享事实」",
+        "detail": "從 使用者共用記憶移除一則事實。",
+        "ui": false,
+        "execution": "memory",
+        "known": true,
+        "isMcp": false
+      }
+    }
+  ],
+  "hostExtensions": [
+    {
+      "name": "ReplyToDevice",
+      "args": {
+        "message": "已收到"
+      },
+      "policy": "ask",
+      "effect": {
+        "tool": "ReplyToDevice",
+        "operation": "device.reply",
+        "resource": "device:*",
+        "target": "*",
+        "mutability": "external-send",
+        "policy": "ask",
+        "label": "回覆來源設備",
+        "detail": "host resolves the staged source (deviceID, transport, mapped transport session) and replaces resource/target with the concrete values before execution; the model cannot name a destination",
+        "ui": false,
+        "execution": "device-reply",
+        "known": true,
+        "isMcp": false
+      }
+    }
+  ]
+}

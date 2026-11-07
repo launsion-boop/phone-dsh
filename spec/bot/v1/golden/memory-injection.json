@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "vector": "memory-injection",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6"
+  },
+  "valid": {
+    "text": "## 记忆\n\n你了解到的关于用户及其世界的持久事实。它们会跨对话保留；依靠它们，不要重复询问。\n记忆分成两个存储：这个 Bot 的 scope（`<FIXTURE_ROOT>/agents/main/memory`）、共享的 `user` scope（`<FIXTURE_ROOT>/memory-user`）。\n`scope: \"user\"` 是所有 Bot 共享的；默认的 `scope: \"agent\"` 只属于这个 Bot。`RecallMemory` 会搜索两个 scope，并标注每一条的来源。\n`UpdateMemory` 的 action \"write\" 记录一条事实，层级为 profile|log|note（默认 log），scope 为 agent|user；action \"forget\" 删除同一 scope 内文本完全匹配的所有事实（每一行完全相符的都算）。更正 = 忘掉精确旧文本 + 写入新事实——没有隐式替换。\n这个区块有长度上限（每个 scope 的 profile ≤ 2,000 字符、notes ≤ 1,000、最近的 log ≤ 12 条 / 1,500 字符，取较小者；总计 ≤ 4,000）：较早的事实不会列在这里——调用 RecallMemory 取回。profile 会保留放得下的最新条目。\n\n### 这个 Bot 的记忆\n\n**profile.md**\n\n# Profile\n\n- 我喜欢简洁的回复\n\n**notes.md**\n\n- **routine**: 工作日要早起\n\n**最近的 log（新到旧）**\n\n- [2025-10-09] 我负责 iOS 工作\n- [2025-10-09] 第一行；第二行；第三行\n\n### 共享的用户记忆（scope \"user\"）\n\n**profile.md**\n\n# Profile\n\n- 我叫小林\n\n**notes.md**\n\n（空）\n\n**最近的 log（新到旧）**\n\n- [2025-10-09] 我喜欢咖啡\n",
+    "limits": {
+      "profile": 2000,
+      "notes": 1000,
+      "log": 1500,
+      "total": 4000
+    }
+  },
+  "invalid": [
+    {
+      "ok": false,
+      "code": "empty",
+      "text": "",
+      "error": "事實不能為空，未寫入。 / A memory fact cannot be empty; nothing was written."
+    },
+    {
+      "ok": false,
+      "code": "too-long",
+      "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "chars": 2001,
+      "error": "事實有 2001 字，超過 2000 字上限，未寫入。 / The fact has 2001 characters, exceeding the 2000-character limit; nothing was written."
+    }
+  ]
+}

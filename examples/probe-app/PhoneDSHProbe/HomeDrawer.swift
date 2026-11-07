@@ -22,6 +22,7 @@ struct HomeDrawer: View {
 
     @State private var showSettings = false
     @State private var showSchedules = false
+    @State private var showBot = false
     @State private var showNewFolder = false
     @State private var newFolderName = ""
     @State private var renameSession: ManagedSession?
@@ -75,6 +76,10 @@ struct HomeDrawer: View {
         }
         .sheet(isPresented: $showSchedules) {
             NavigationStack { NativeAutomationPage() }
+                .homeSheetChrome()
+        }
+        .sheet(isPresented: $showBot) {
+            BotProductionPage()
                 .homeSheetChrome()
         }
         .alert("新建文件夹", isPresented: $showNewFolder) {
@@ -136,6 +141,10 @@ struct HomeDrawer: View {
                      detail: newSessionBlocked, enabled: newSessionBlocked == nil) {
                 Task { if await management.createSession() != nil { close() } }
             }
+            entryRow(icon: "fish", title: "Bot",
+                     detail: botRuntimeDetail) {
+                showBot = true
+            }
             entryRow(icon: "clock", title: "定时任务",
                      detail: management.scheduleRecords.isEmpty ? nil : "\(management.scheduleRecords.count)") {
                 showSchedules = true
@@ -143,6 +152,18 @@ struct HomeDrawer: View {
 
         }
         .padding(.horizontal, 8)
+    }
+
+    /// A visible Bot entry is the production path into BotChatPage. The detail
+    /// only reports connection state; it never hides the entry when the host
+    /// is stopped, so the page itself can explain what is missing.
+    private var botRuntimeDetail: String? {
+        switch chat.botRuntimeState {
+        case .ready: return "已连接"
+        case .recovering, .connecting: return "重连中"
+        case .failed: return "未连接"
+        case .idle, .preparing, .stopped: return nil
+        }
     }
 
     private func entryRow(icon: String, title: String, detail: String? = nil,

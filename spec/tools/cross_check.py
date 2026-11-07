@@ -89,10 +89,12 @@ SURFACE_ALIASES = {
 # Golden fixture families and the checker that reads each family.  A new
 # golden directory that is not listed here is reported as an orphan.
 GOLDEN_READERS = (
+    ("spec/bot/v1/golden", "*.json", "spec/bot/v1/tools/validate_vectors.py", False),
     ("spec/host/v1/golden", "*.json", "spec/host/v1/tools/host_check.py", False),
     ("spec/platform/golden", "*.json", "spec/platform/tools/platform_check.py", False),
     ("spec/ui/v1/golden", "tokens.golden.json", "spec/ui/v1/tools/ui_check.py", False),
     ("spec/ui/v1/golden", "surface-projection.golden.json", "spec/ui/v1/tools/ui_check.py", False),
+    ("spec/v1/golden/native-mcp", "*.json", "spec/v1/tools/native_mcp_check.py", False),
     ("spec/v1/golden/frames", "*.json", "spec/v1/tools/spec_golden.py", False),
     ("spec/v1/golden/wal", "*.json", "spec/v1/tools/spec_golden.py", False),
     ("spec/v1/golden/wal/replay", "*.json", "spec/v1/tools/spec_golden.py", False),

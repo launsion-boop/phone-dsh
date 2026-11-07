@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotRowProjection v1",
+  "type": "object",
+  "required": ["input", "surface", "renderable", "wire"],
+  "properties": {
+    "input": {"type": "object", "required": ["kind"], "properties": {"kind": {"type": "string", "minLength": 1}}, "additionalProperties": true},
+    "surface": {"type": "string", "minLength": 1},
+    "renderable": {"type": "boolean"},
+    "wire": {"type": "object", "required": ["kind", "type"], "properties": {"kind": {"enum": ["message", "send-message", "event"]}, "type": {"type": "string", "minLength": 1}}, "additionalProperties": true}
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotToolCatalog v1",
+  "type": "object",
+  "required": ["p0", "p1"],
+  "properties": {
+    "p0": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "inputSchema"],
+        "properties": {
+          "name": {"enum": ["ask_user", "show_next_steps", "show_attachment", "show_document", "show_progress", "show_checklist", "show_link", "UpdateMemory", "RecallMemory", "Task", "AwaitTask", "StopSubagent", "UpdateRoutine", "ListRoutines", "RequestApproval", "SendToUser", "ReplyToDevice"]},
+          "description": {"type": "string"},
+          "inputSchema": {"type": "object"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "p1": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "inputSchema"],
+        "properties": {
+          "name": {"enum": ["show_table", "show_callout", "show_info", "show_payload", "show_library"]},
+          "description": {"type": "string"},
+          "inputSchema": {"type": "object"}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

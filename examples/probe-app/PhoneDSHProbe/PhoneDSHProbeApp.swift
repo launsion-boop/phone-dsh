@@ -53,6 +53,7 @@ struct PhoneDSHProbeApp: App {
                 }
                 .task {
                     model.refreshLockdown()
+                    await ChatModel.shared.start()
                 }
         }
     }

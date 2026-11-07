@@ -53,8 +53,13 @@ public final class DeviceSessionCoordinator {
     }
     public var hasOnlineDevices: Bool { !onlineDevices.isEmpty }
     public var mappedSessionIDs: Set<String> { Set(mappings.values.map(\.sessionID)) }
+    public var activeConnector: (any DeviceConnector)? { connector }
     public func isDeviceSession(_ sessionID: String) -> Bool {
         mappings.values.contains { $0.sessionID == sessionID }
+    }
+
+    public func reportBotIngressFailure(_ error: Error) {
+        errorMessage = "设备消息未接受：\(String(error.localizedDescription.prefix(200)))"
     }
 
     public init(provider: (any DeviceSessionProviding)? = nil,

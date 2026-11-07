@@ -464,7 +464,7 @@ test('the production manifest fits its byte budget with SSH/SCP/ADB, advice and 
   assert.ok(bytes <= AGENTS_MD_MAX_BYTES, `AGENTS.md is ${String(bytes)} B; the budget is ${String(AGENTS_MD_MAX_BYTES)} B`)
   assert.doesNotMatch(manifest.markdown, /shortened to fit/u, 'the budget fallback keeps the whole document')
   assert.ok(manifest.markdown.includes(TASK_EXECUTION_GUIDANCE))
-  // Under the 5 KiB budget the production surface fits the full bounded command
+  // Under the 8 KiB budget the production surface fits the full bounded command
   // list, so the compact summary is the over-budget fallback rather than the
   // normal shape. Both spellings keep the exact lists in the JSON document; the
   // fallback itself is pinned by the over-budget case below.
@@ -479,9 +479,9 @@ test('the production manifest fits its byte budget with SSH/SCP/ADB, advice and 
   // which is what keeps the document inside the hard cap. The command names are
   // padded: the bounded list carries up to 120 of them, so the full rendering
   // exceeds the cap only when the names themselves are long (P24 raised the cap
-  // to 6144, and a 400-name list of short names now fits the full shape).
+  // to 8192, and a 400-name list of short names now fits the full shape).
   const overBudget = buildCapabilityManifest(manifestInput({
-    commands: Array.from({ length: 400 }, (_, index) => `program-${String(index)}-${'x'.repeat(20)}`),
+    commands: Array.from({ length: 400 }, (_, index) => `program-${String(index)}-${'x'.repeat(24)}`),
     pythonModules: Array.from({ length: 400 }, (_, index) => `module_${String(index)}`),
     python: { available: true, version: '3.13' },
     egressAllow: Array.from({ length: 80 }, (_, index) => `host-${String(index)}.example.test`),

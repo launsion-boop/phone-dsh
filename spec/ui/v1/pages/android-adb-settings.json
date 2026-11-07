@@ -1,0 +1,423 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "AndroidADBSettingsPage",
+  "pageId": "android-adb-settings",
+  "structure": "swiftui-view",
+  "sectionModel": "section",
+  "sectionNote": null,
+  "title": {
+    "text": "Android ADB",
+    "provenance": "AndroidADBSettingsPage.swift:43",
+    "anchor": ".navigationTitle(\"Android ADB\")"
+  },
+  "source": {
+    "file": "AndroidADBSettingsPage.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/AndroidADBSettingsPage.swift",
+    "lines": 73,
+    "structLine": 5,
+    "renderedFrom": [
+      "body"
+    ],
+    "sectionOrder": "declaration order inside the page struct"
+  },
+  "android": {
+    "screen": "AndroidADBSettingsPage",
+    "file": null,
+    "match": "missing"
+  },
+  "sections": [
+    {
+      "id": "section-15",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "absent",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "允许控制-android",
+          "label": "允许控制 Android",
+          "labelExpr": null,
+          "kind": "control",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "AndroidADBSettingsPage.swift:16",
+          "anchor": "Toggle(\"允许控制 Android\", isOn: $enabled)",
+          "extraction": "syntax"
+        },
+        {
+          "id": "android-ip-地址或主机名",
+          "label": "Android IP 地址或主机名",
+          "labelExpr": null,
+          "kind": "input",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "AndroidADBSettingsPage.swift:17",
+          "anchor": "TextField(\"Android IP 地址或主机名\", text: $host)",
+          "extraction": "syntax"
+        },
+        {
+          "id": "adb-端口",
+          "label": "ADB 端口",
+          "labelExpr": null,
+          "kind": "input",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "AndroidADBSettingsPage.swift:19",
+          "anchor": "TextField(\"ADB 端口\", text: $port).keyboardType(.numberPad)",
+          "extraction": "syntax"
+        },
+        {
+          "id": "保存",
+          "label": "保存",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "AndroidADBSettingsPage.swift:20",
+          "anchor": "Button(\"保存\") { save() }.disabled(busy)",
+          "extraction": "syntax"
+        },
+        {
+          "id": "测试连接",
+          "label": "测试连接",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "AndroidADBSettingsPage.swift:21",
+          "anchor": "Button(busy ? \"正在连接…\" : \"测试连接\") { check() }.disabled(busy || !enabled)",
+          "extraction": "syntax"
+        },
+        {
+          "id": "停止当前-android-操作",
+          "label": "停止当前 Android 操作",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "AndroidADBSettingsPage.swift:22",
+          "anchor": "Button(\"停止当前 Android 操作\", role: .cancel) { Task { await ADBMCPServer.shared.canc",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "AndroidADBSettingsPage.swift:15",
+      "anchor": "Section {",
+      "extraction": "syntax",
+      "criterion": {
+        "kind": "first-clickable-row",
+        "label": "允许控制 Android",
+        "provenance": "AndroidADBSettingsPage.swift:16"
+      },
+      "footer": {
+        "text": "可直接告诉模型“连接 Android 地址和端口”，由模型启用控制并保存连接，无需手动填写。保存后立即生效。模型可控制屏幕、查询和管理应用、安装或卸载 APK、读取日志和执行 Android shell。首次连接请解锁 Android，并允许这台 iPhone 的调试密钥。",
+        "labelExpr": null,
+        "provenance": "AndroidADBSettingsPage.swift:24",
+        "anchor": "Text(\"可直接告诉模型“连接 Android 地址和端口”，由模型启用控制并保存连接，无需手动填写。保存后立即生效。模型可控制屏幕、查询和管理应用、安装或卸"
+      }
+    },
+    {
+      "id": "连接状态",
+      "title": "连接状态",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "literal",
+      "condition": "!status.isEmpty",
+      "collection": null,
+      "rows": [
+        {
+          "id": "text-28",
+          "label": null,
+          "labelExpr": "status",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "AndroidADBSettingsPage.swift:28",
+          "anchor": "Text(status).foregroundStyle(failed ? .red : .primary).textSelection(.enabled)",
+          "extraction": "manual"
+        }
+      ],
+      "provenance": "AndroidADBSettingsPage.swift:27",
+      "anchor": "Section(\"连接状态\") {",
+      "extraction": "syntax"
+    },
+    {
+      "id": "连接准备",
+      "title": "连接准备",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "literal",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "两台手机连接同一局域网-在-android-上开启开发者选项和-usb-调试",
+          "label": "两台手机连接同一局域网，在 Android 上开启开发者选项和 USB 调试。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "AndroidADBSettingsPage.swift:32",
+          "anchor": "Text(\"两台手机连接同一局域网，在 Android 上开启开发者选项和 USB 调试。\")",
+          "extraction": "syntax"
+        },
+        {
+          "id": "当前支持-tcp-ip-adb-首次可用电脑通过-usb-执行-adb-tcpip-5555-再填入-android-的-ip-地址-部分设备可直接开启网络-adb-设备重启后可能需要重新开启",
+          "label": "当前支持 TCP/IP ADB。首次可用电脑通过 USB 执行 adb tcpip 5555，再填入 Android 的 IP 地址。部分设备可直接开启网络 ADB；设备重启后可能需要重新开启。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "AndroidADBSettingsPage.swift:33",
+          "anchor": "Text(\"当前支持 TCP/IP ADB。首次可用电脑通过 USB 执行 adb tcpip 5555，再填入 Android 的 IP 地址。部分设备可直接",
+          "extraction": "syntax"
+        },
+        {
+          "id": "android-11-无线调试-里的六位配对码和-tls-端口暂不支持-这里填写-tcp-ip-adb-端口-通常为-5555",
+          "label": "Android 11+「无线调试」里的六位配对码和 TLS 端口暂不支持。这里填写 TCP/IP ADB 端口，通常为 5555。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "AndroidADBSettingsPage.swift:34",
+          "anchor": "Text(\"Android 11+「无线调试」里的六位配对码和 TLS 端口暂不支持。这里填写 TCP/IP ADB 端口，通常为 5555。\")",
+          "extraction": "syntax"
+        },
+        {
+          "id": "文本输入支持可打印-ascii-中文等-unicode-输入需要-android-输入法支持-当前会明确报错",
+          "label": "文本输入支持可打印 ASCII。中文等 Unicode 输入需要 Android 输入法支持，当前会明确报错。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "AndroidADBSettingsPage.swift:35",
+          "anchor": "Text(\"文本输入支持可打印 ASCII。中文等 Unicode 输入需要 Android 输入法支持，当前会明确报错。\")",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "AndroidADBSettingsPage.swift:31",
+      "anchor": "Section(\"连接准备\") {",
+      "extraction": "syntax"
+    },
+    {
+      "id": "应用与-apk",
+      "title": "应用与 APK",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "literal",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "可以说-列出-android-上的第三方应用-查看某个应用的版本和权限-安装工作区里的-apk-卸载指定包名的应用",
+          "label": "可以说：列出 Android 上的第三方应用；查看某个应用的版本和权限；安装工作区里的 APK；卸载指定包名的应用。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "AndroidADBSettingsPage.swift:38",
+          "anchor": "Text(\"可以说：列出 Android 上的第三方应用；查看某个应用的版本和权限；安装工作区里的 APK；卸载指定包名的应用。\")",
+          "extraction": "syntax"
+        },
+        {
+          "id": "支持工作区或-android-本机上的单个-apk-工作区安装上限-128-mib-暂不支持-aab-xapk-apks-和拆分-apk-组合",
+          "label": "支持工作区或 Android 本机上的单个 APK。工作区安装上限 128 MiB；暂不支持 AAB、XAPK、APKS 和拆分 APK 组合。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "AndroidADBSettingsPage.swift:39",
+          "anchor": "Text(\"支持工作区或 Android 本机上的单个 APK。工作区安装上限 128 MiB；暂不支持 AAB、XAPK、APKS 和拆分 APK 组合。\")",
+          "extraction": "syntax"
+        },
+        {
+          "id": "卸载应用和删除下载的-apk-文件是两种操作-应用管理默认作用于-android-当前用户-清除应用数据会删除登录状态和本地数据",
+          "label": "卸载应用和删除下载的 APK 文件是两种操作。应用管理默认作用于 Android 当前用户；清除应用数据会删除登录状态和本地数据。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "AndroidADBSettingsPage.swift:40",
+          "anchor": "Text(\"卸载应用和删除下载的 APK 文件是两种操作。应用管理默认作用于 Android 当前用户；清除应用数据会删除登录状态和本地数据。\")",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "AndroidADBSettingsPage.swift:37",
+      "anchor": "Section(\"应用与 APK\") {",
+      "extraction": "syntax"
+    }
+  ],
+  "actions": [
+    {
+      "id": "允许控制-android",
+      "label": "允许控制 Android",
+      "labelExpr": null,
+      "kind": "toggle",
+      "trigger": "tap",
+      "semantic": "binding:$enabled",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "AndroidADBSettingsPage.swift:16",
+      "anchor": "Toggle(\"允许控制 Android\", isOn: $enabled)",
+      "extraction": "syntax"
+    },
+    {
+      "id": "保存",
+      "label": "保存",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ save()",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "AndroidADBSettingsPage.swift:20",
+      "anchor": "Button(\"保存\") { save() }.disabled(busy)",
+      "extraction": "syntax",
+      "labelAlternatives": []
+    },
+    {
+      "id": "测试连接",
+      "label": "测试连接",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ check()",
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "AndroidADBSettingsPage.swift:21",
+      "anchor": "Button(busy ? \"正在连接…\" : \"测试连接\") { check() }.disabled(busy || !enabled)",
+      "extraction": "syntax",
+      "labelAlternatives": [
+        "正在连接…"
+      ]
+    },
+    {
+      "id": "停止当前-android-操作",
+      "label": "停止当前 Android 操作",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ Task { await ADBMCPServer.shared.cancel() }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "AndroidADBSettingsPage.swift:22",
+      "anchor": "Button(\"停止当前 Android 操作\", role: .cancel) { Task { await ADBMCPServer.shared.canc",
+      "extraction": "syntax",
+      "labelAlternatives": []
+    }
+  ],
+  "presentations": [],
+  "states": {
+    "advisory": true,
+    "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
+    "sites": {
+      "empty": [],
+      "data": [
+        {
+          "renders": "untitled section at 15 | 连接状态 | 连接准备 | 应用与 APK",
+          "when": null,
+          "provenance": "AndroidADBSettingsPage.swift:5",
+          "anchor": "struct AndroidADBSettingsPage: View {",
+          "note": "structural default: the sections above, when no condition overrides them"
+        }
+      ],
+      "failure": [],
+      "unknown": [],
+      "loading": [
+        {
+          "renders": "正在连接…",
+          "when": null,
+          "provenance": "AndroidADBSettingsPage.swift:21",
+          "anchor": "Button(busy ? \"正在连接…\" : \"测试连接\") { check() }.disabled(busy || !enabled)"
+        }
+      ]
+    },
+    "absent": [
+      "empty",
+      "failure",
+      "unknown"
+    ],
+    "coverage": {
+      "empty": 0,
+      "data": 1,
+      "failure": 0,
+      "unknown": 0,
+      "loading": 1
+    }
+  },
+  "subpages": [],
+  "unreachable": [],
+  "extraction": {
+    "tool": "extract_ios_pages.py",
+    "mode": "syntax",
+    "sectionKeywordsInPage": 4,
+    "regionsExtracted": 0,
+    "sectionsExtracted": 4,
+    "warnings": []
+  }
+}

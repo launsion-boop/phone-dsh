@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotMemoryInjection v1",
+  "type": "object",
+  "required": ["text", "limits"],
+  "properties": {
+    "text": {"type": "string", "maxLength": 12000},
+    "limits": {"type": "object", "required": ["profile", "notes", "log", "total"], "properties": {"profile": {"const": 2000}, "notes": {"const": 1000}, "log": {"const": 1500}, "total": {"const": 4000}}, "additionalProperties": false}
+  },
+  "additionalProperties": false
+}

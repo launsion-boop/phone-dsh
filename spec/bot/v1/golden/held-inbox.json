@@ -1,0 +1,114 @@
+{
+  "schemaVersion": 1,
+  "vector": "held-inbox",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6"
+  },
+  "valid": {
+    "enqueued": {
+      "ok": true,
+      "item": {
+        "id": "held-1",
+        "kind": "routine-result",
+        "title": "晨间简报",
+        "text": "有三项变化",
+        "requestId": "daily:1",
+        "createdAt": 1760000000000,
+        "fromAgentId": null,
+        "fromAgentName": "",
+        "threadId": null,
+        "state": "pending"
+      },
+      "duplicate": false
+    },
+    "duplicate": {
+      "ok": true,
+      "item": {
+        "id": "held-1",
+        "kind": "routine-result",
+        "title": "晨间简报",
+        "text": "有三项变化",
+        "requestId": "daily:1",
+        "createdAt": 1760000000000,
+        "fromAgentId": null,
+        "fromAgentName": "",
+        "threadId": null,
+        "state": "pending"
+      },
+      "duplicate": true
+    },
+    "staged": {
+      "items": [
+        {
+          "id": "held-1",
+          "kind": "routine-result",
+          "title": "晨间简报",
+          "text": "有三项变化",
+          "requestId": "daily:1",
+          "createdAt": 1760000000000,
+          "fromAgentId": null,
+          "fromAgentName": "",
+          "threadId": null,
+          "state": "staged",
+          "stagedAt": 1760000002000,
+          "stagedKey": "stage-1"
+        }
+      ],
+      "key": "stage-1"
+    },
+    "committed": {
+      "removed": 1
+    },
+    "device": {
+      "id": "dev:living-room-light:1:ble-1",
+      "kind": "device-event",
+      "text": "客厅灯已离线",
+      "requestId": "dev:living-room-light:1:ble-1",
+      "createdAt": 1760000001000,
+      "fromAgentId": "living-room-light",
+      "fromAgentName": "客厅灯",
+      "threadId": "device:living-room-light",
+      "deviceID": "living-room-light",
+      "transport": "bluetooth",
+      "deviceSeq": 7,
+      "deviceEpoch": 1,
+      "state": "pending"
+    }
+  },
+  "invalid": [
+    {
+      "id": "",
+      "kind": "routine-result",
+      "reason": "missing_id"
+    },
+    {
+      "id": "held-2",
+      "kind": "routine-result",
+      "state": "staged",
+      "stagedKey": "",
+      "reason": "missing_staged_key"
+    },
+    {
+      "id": "dev:no-transport",
+      "kind": "device-event",
+      "text": "x",
+      "requestId": "dev:no-transport",
+      "createdAt": 1,
+      "state": "pending",
+      "deviceID": "device-a",
+      "deviceSeq": 1,
+      "reason": "missing_device_transport"
+    },
+    {
+      "id": "dev:no-seq",
+      "kind": "device-event",
+      "text": "x",
+      "requestId": "dev:no-seq",
+      "createdAt": 1,
+      "state": "pending",
+      "deviceID": "device-a",
+      "transport": "lan",
+      "reason": "missing_device_seq"
+    }
+  ]
+}

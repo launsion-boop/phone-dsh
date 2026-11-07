@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotUserAction v1",
+  "type": "object",
+  "required": ["nonce", "botID", "kind"],
+  "properties": {
+    "nonce": {"type": "string", "minLength": 1},
+    "botID": {"type": "string", "minLength": 1},
+    "kind": {"enum": ["chat", "cardAnswer", "cardDismiss", "approval", "stopTask"]},
+    "text": {"type": "string"},
+    "cardID": {"type": "string"},
+    "optionID": {"type": "string"},
+    "approvalID": {"type": "string"},
+    "decision": {"enum": ["allowOnce", "always", "deny"]},
+    "digest": {"type": "string"},
+    "threadID": {"type": "string"}
+  },
+  "oneOf": [
+    {
+      "required": ["text"],
+      "properties": {"kind": {"const": "chat"}}
+    },
+    {
+      "required": ["cardID", "optionID"],
+      "properties": {
+        "nonce": {"type": "string", "minLength": 1},
+        "botID": {"type": "string", "minLength": 1},
+        "kind": {"const": "cardAnswer"},
+        "cardID": {"type": "string"},
+        "optionID": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    {
+      "required": ["cardID"],
+      "properties": {"kind": {"const": "cardDismiss"}}
+    },
+    {
+      "required": ["approvalID", "decision", "digest"],
+      "properties": {"kind": {"const": "approval"}}
+    },
+    {
+      "required": ["threadID"],
+      "properties": {"kind": {"const": "stopTask"}}
+    }
+  ],
+  "additionalProperties": false
+}

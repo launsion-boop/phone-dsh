@@ -1,0 +1,247 @@
+{
+  "version": 2,
+  "name": "DS 大肥魚",
+  "size": [
+    512,
+    512
+  ],
+  "anchor": [
+    0.5,
+    0.5
+  ],
+  "colors": [
+    {
+      "id": "white",
+      "name": "白",
+      "hex": "#FFFFFF"
+    },
+    {
+      "id": "brown",
+      "name": "棕",
+      "hex": "#9D6937"
+    },
+    {
+      "id": "red",
+      "name": "紅",
+      "hex": "#E5484D"
+    },
+    {
+      "id": "orange",
+      "name": "橘",
+      "hex": "#F76B15"
+    },
+    {
+      "id": "amber",
+      "name": "橙黃",
+      "hex": "#FFB224"
+    },
+    {
+      "id": "green",
+      "name": "綠",
+      "hex": "#14C16F"
+    },
+    {
+      "id": "teal",
+      "name": "青綠",
+      "hex": "#13B7A2"
+    },
+    {
+      "id": "blue",
+      "name": "藍",
+      "hex": "#1680F3"
+    },
+    {
+      "id": "purple",
+      "name": "紫",
+      "hex": "#8F59F9"
+    },
+    {
+      "id": "magenta",
+      "name": "桃紅",
+      "hex": "#F93498"
+    },
+    {
+      "id": "gray",
+      "name": "灰",
+      "hex": "#8B8B8B"
+    },
+    {
+      "id": "black",
+      "name": "黑",
+      "hex": "#1C1C1C"
+    },
+    {
+      "id": "silver",
+      "name": "銀",
+      "hex": "#C9CBD1"
+    },
+    {
+      "id": "peach",
+      "name": "粉膚",
+      "hex": "#F3B6A4"
+    },
+    {
+      "id": "sky",
+      "name": "天藍",
+      "hex": "#7ED0E8"
+    }
+  ],
+  "hairstyles": [
+    {
+      "id": "long",
+      "name": "經典長捲髮・白褶髮箍",
+      "path": "base",
+      "crownPath": "base/crowned/long"
+    },
+    {
+      "id": "twin-tail",
+      "name": "高雙馬尾・大蝴蝶結",
+      "path": "base/hair-v3/twin-tail",
+      "crownPath": "base/crowned-v3/twin-tail"
+    },
+    {
+      "id": "bob",
+      "name": "短鮑伯・貝殼珍珠夾",
+      "path": "base/hair-v3/bob",
+      "crownPath": "base/crowned-v3/bob"
+    },
+    {
+      "id": "side-braid",
+      "name": "粗側辮・小貝雷帽",
+      "path": "base/hair-v3/side-braid",
+      "crownPath": "base/crowned-v3/side-braid"
+    }
+  ],
+  "groups": {
+    "P0": [
+      "idle",
+      "thinking",
+      "streaming",
+      "working",
+      "sleeping",
+      "alerting",
+      "listening",
+      "speaking",
+      "happy",
+      "sad"
+    ],
+    "P1": [
+      "surprised",
+      "confused",
+      "laughing",
+      "love",
+      "angry",
+      "wink",
+      "nod",
+      "shrug",
+      "celebrate",
+      "poke"
+    ],
+    "P2": [
+      "waking",
+      "waiting",
+      "loading",
+      "done",
+      "standby",
+      "powering-down",
+      "spawning",
+      "bouncing",
+      "dancing",
+      "waving"
+    ],
+    "EXTRA": [
+      "shy",
+      "smug",
+      "crying",
+      "sighing",
+      "cheering",
+      "bowing",
+      "shaking-head",
+      "clapping",
+      "stretching",
+      "yawning",
+      "kiss",
+      "high-five"
+    ]
+  },
+  "procedural": [
+    "blink",
+    "look",
+    "gaze",
+    "morph"
+  ],
+  "stats": {
+    "generatedEyeCels": 12,
+    "generatedMouthCels": 12,
+    "stateCount": 42,
+    "groups": {
+      "P0": 10,
+      "P1": 10,
+      "P2": 10,
+      "EXTRA": 12
+    },
+    "expressionImages": 42,
+    "animationFrames": 9,
+    "proceduralEntries": 4,
+    "derivedStates": 42,
+    "derivedEntries": 46,
+    "colors": 15,
+    "hairstyles": 4,
+    "crownStyles": 2,
+    "newHandDrawnStateArt": 0
+  },
+  "overlays": {
+    "crown": {
+      "file": "overlays/crown.png",
+      "styles": {
+        "gold": "overlays/crown.png",
+        "crystal": "overlays/crown-crystal.png"
+      },
+      "default": "gold",
+      "size": [
+        512,
+        512
+      ],
+      "anchor": [
+        0.5,
+        0.5
+      ],
+      "source": "built-in Image Gen front-only gold / crystal crown-headband sprites",
+      "coloring": "independent overlay; never passed through body LUT",
+      "placement": {
+        "baseline": [
+          256,
+          132
+        ],
+        "boxWidth": 240,
+        "angleDegrees": 0,
+        "optical": {
+          "36": {
+            "baseline": [
+              256,
+              138
+            ],
+            "boxWidth": 250
+          },
+          "60": {
+            "baseline": [
+              256,
+              134
+            ],
+            "boxWidth": 244
+          }
+        }
+      }
+    }
+  },
+  "runtime": {
+    "kind": "Canvas2D",
+    "externalAnimationRuntimeBytes": 0,
+    "coloring": "Per-pixel neutral-body LUT; eye, mouth, blush and skin are not recolored",
+    "cache": "120 body canvases shared across instances; colors and hairstyles prewarmed before ready resolves"
+  },
+  "sources": [
+    "source.json"
+  ],
+  "derivedPolicy": "42 states combine 24 newly generated Image Gen facial cels and approved layered artwork with procedural choreography; not hand-drawn or AI-generated video."
+}

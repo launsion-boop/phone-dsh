@@ -152,3 +152,18 @@ spec/v1/golden/gateway/fail-003\.json:.*https://:443
 ^openfontlicense\.org$
 # Deliberate reserved-domain mail/userinfo fixtures exercise link rejection.
 ^harmony/(host-rust/src/tests\.rs|tests/(markdown-model|resource-locator)\.test\.mjs):.*(pw@example\.(com|test)|user@example\.test|p@a\.test|dev@example\.com)
+
+# Reviewed with PC-20261105-phonedsh-bot-v1: exact synthetic route identities and
+# reserved test mailbox; these values are not private infrastructure or real secrets.
+^queueitemid\.local$
+^queueorigin\.local$
+^pdsh\.about\.app$
+^pass@api\.example\.test$
+
+# Exact public upstream/license/download hosts already shipped in the baseline.
+^www\.mathjax\.org$
+^www\.khanacademy\.org$
+^scripts\.sil\.org$
+^cdimage\.ubuntu\.com$
+^static\.rust-lang\.org$
+^packages\.termux\.dev$

@@ -1,0 +1,160 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "SSHSettingsPage",
+  "pageId": "ssh-settings",
+  "structure": "swiftui-view",
+  "sectionModel": "section",
+  "sectionNote": null,
+  "title": {
+    "text": "SSH",
+    "provenance": "SSHSettingsPage.swift:107",
+    "anchor": ".navigationTitle(\"SSH\")"
+  },
+  "source": {
+    "file": "SSHSettingsPage.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/SSHSettingsPage.swift",
+    "lines": 194,
+    "structLine": 85,
+    "renderedFrom": [
+      "body"
+    ],
+    "sectionOrder": "declaration order inside the page struct"
+  },
+  "android": {
+    "screen": "SSHSettingsPage",
+    "file": null,
+    "match": "missing"
+  },
+  "sections": [
+    {
+      "id": "section-90",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "absent",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "navigation-92",
+          "label": null,
+          "labelExpr": "connection.alias",
+          "kind": "navigation",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": "SSHConnectionEditor",
+          "writes": false,
+          "condition": null,
+          "provenance": "SSHSettingsPage.swift:92",
+          "anchor": "NavigationLink { SSHConnectionEditor(connection: connection) } label: {",
+          "extraction": "manual",
+          "collection": "store.connections"
+        },
+        {
+          "id": "添加连接",
+          "label": "添加连接",
+          "labelExpr": null,
+          "kind": "navigation",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": "SSHConnectionEditor",
+          "writes": false,
+          "condition": null,
+          "provenance": "SSHSettingsPage.swift:101",
+          "anchor": "NavigationLink(\"添加连接\") { SSHConnectionEditor(connection: SavedSSHConnection()) }",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "SSHSettingsPage.swift:90",
+      "anchor": "Section {",
+      "extraction": "syntax",
+      "criterion": {
+        "kind": "first-clickable-row",
+        "label": "添加连接",
+        "provenance": "SSHSettingsPage.swift:101"
+      },
+      "footer": {
+        "text": "聊天中使用 ssh 别名 命令，或 scp 本地文件 别名:远程路径。密码和私钥保存在钥匙串中。命令执行和文件传输由 iPhone 直接连接服务器。",
+        "labelExpr": null,
+        "provenance": "SSHSettingsPage.swift:103",
+        "anchor": "Text(\"聊天中使用 ssh 别名 命令，或 scp 本地文件 别名:远程路径。密码和私钥保存在钥匙串中。命令执行和文件传输由 iPhone 直接连接服务器。"
+      }
+    }
+  ],
+  "actions": [
+    {
+      "id": "navigation-92",
+      "label": null,
+      "labelExpr": "connection.alias",
+      "kind": "navigation",
+      "trigger": "tap",
+      "semantic": "navigate:SSHConnectionEditor",
+      "writes": false,
+      "destination": "SSHConnectionEditor",
+      "condition": null,
+      "provenance": "SSHSettingsPage.swift:92",
+      "anchor": "NavigationLink { SSHConnectionEditor(connection: connection) } label: {",
+      "extraction": "manual"
+    },
+    {
+      "id": "添加连接",
+      "label": "添加连接",
+      "labelExpr": null,
+      "kind": "navigation",
+      "trigger": "tap",
+      "semantic": "navigate:SSHConnectionEditor",
+      "writes": false,
+      "destination": "SSHConnectionEditor",
+      "condition": null,
+      "provenance": "SSHSettingsPage.swift:101",
+      "anchor": "NavigationLink(\"添加连接\") { SSHConnectionEditor(connection: SavedSSHConnection()) }",
+      "extraction": "syntax"
+    }
+  ],
+  "presentations": [],
+  "states": {
+    "advisory": true,
+    "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
+    "sites": {
+      "empty": [],
+      "data": [
+        {
+          "renders": "untitled section at 90",
+          "when": null,
+          "provenance": "SSHSettingsPage.swift:85",
+          "anchor": "struct SSHSettingsPage: View {",
+          "note": "structural default: the sections above, when no condition overrides them"
+        }
+      ],
+      "failure": [],
+      "unknown": [],
+      "loading": []
+    },
+    "absent": [
+      "empty",
+      "failure",
+      "unknown",
+      "loading"
+    ],
+    "coverage": {
+      "empty": 0,
+      "data": 1,
+      "failure": 0,
+      "unknown": 0,
+      "loading": 0
+    }
+  },
+  "subpages": [],
+  "unreachable": [],
+  "extraction": {
+    "tool": "extract_ios_pages.py",
+    "mode": "syntax",
+    "sectionKeywordsInPage": 1,
+    "regionsExtracted": 0,
+    "sectionsExtracted": 1,
+    "warnings": []
+  }
+}

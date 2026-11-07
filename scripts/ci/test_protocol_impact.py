@@ -53,12 +53,12 @@ class ImpactTests(unittest.TestCase):
         fail = self.run_check('Protocol impact: none — comment refactor')
         self.assertEqual(fail.returncode, 1, fail.stdout)
         self.assertIn('global none cannot cover triggered IDs: P09', fail.stdout)
-        self.assertEqual(self.run_check('Protocol impact: P09: none — comment refactor').returncode, 0)
+        self.assertEqual(self.run_check('Protocol impact: P09: none — comment refactor; P25: none — comment refactor').returncode, 0)
 
     def test_per_id_affected_and_none_cover_every_trigger(self):
         self.write('Sources/PhoneDSHWire/Frame.swift', '// changed\n')
         self.write('examples/probe-app/PhoneDSHProbe/review.swift', '// comment only\n')
-        result = self.run_check('Protocol impact: P01; P09: none — UI comments only')
+        result = self.run_check('Protocol impact: P01; P09: none — UI comments only; P25: none — UI comments only')
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertEqual(self.run_check('Protocol impact: P09: none — UI comments only').returncode, 1)
 

@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "repository": "https://github.com/launsion-boop/dsh-bot.git",
+  "source": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6",
+  "requiredMergeCommits": {
+    "memoryCore": "1730bf08d2dc29fc8c08f3de90ed70ba9d734d1e",
+    "routineDelivery": "28437f5d975230766f3f40463fa090d643f63e7c"
+  }
+}

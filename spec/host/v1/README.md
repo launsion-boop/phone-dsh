@@ -45,6 +45,11 @@ that only exists to make one OS happy belongs to `spec/platform`, never here.
 
 - The device envelope carries `v`, integer `1`; another major version is rejected before any other
   member is read (`CONN` §4.1, `DRAFT` §7).
+- The device envelope's optional `epoch` is the device session incarnation. Absent means `0`; the
+  producer MUST send the same value for every frame of one incarnation and MUST NOT decrease it
+  across incarnations. `seq` is scoped to `(device, dir, epoch)` and restarts at every `epoch`
+  change. `seq` and `epoch` stop at `2^63-2` so receivers may add one without signed overflow
+  (`PC-20261106-bot-device-event-envelope@2`).
 - The capability manifest carries `schema: "pdsh-device-caps/1"` (`CONN` §4.5, `DRAFT` §5).
 - Harness messages carry no version member: the tree is versioned by path (`spec/host/v1`) and the
   capability set says what a backend can do (`AH:17-77`).

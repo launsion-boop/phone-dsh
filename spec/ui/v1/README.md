@@ -27,8 +27,6 @@ MUST / SHOULD / MAY 按 RFC 2119 读。权威顺序：**Harness 事件序列 > �
 
 同一轮可有多个独立的过程组。Android 会话列表用每组首个可见事件的完整行 ID
 区分它们。事件类型后缀不能用作身份，后续工具结果不应改动组的身份。
-
-
 本 lane 的自校验（失败退出 1；`--strict` 连 §4 的已登记无障碍债一起判失败）：
 
 ```
@@ -78,6 +76,8 @@ README ≤ 345 行（PR22 新增类型/几何表，cap 319→345，规则变更�
 | NativeAgentPresetsPage | Agent 预设列表、设为默认、配置入口 | 设置 › Agent 预设 | push；预设卡进入会话 | must |
 | NativePluginInventoryPage | 内置插件清单、搜索 | 插件与工具 → 已加载插件 | push；搜索/刷新 | must |
 | ModelProviderSettingsPage | 模型服务、密钥、编解码 | 设置 › 模型服务；Chat 起手卡/启动失败横幅 | push；编辑子页 ModelProviderEditorPage | must |
+| SSHSettingsPage | 已保存 SSH 连接、凭据与服务器指纹 | 设置 › 权限与隐私 › SSH 主机 | push；编辑子页 SSHConnectionEditor；私钥保存到 Keychain | must |
+| AndroidADBSettingsPage | Android TCP/IP ADB 连接、保存、测试与停止 | 设置 › 权限与隐私 › Android ADB | push；保存立即生效，测试需 Android 调试授权 | must |
 | SessionArtifactsPage | 本会话产物、未归属产物与预览 | 页头 `⋯` →「产物」 | sheet；预览子页 SessionArtifactPreviewPage | must |
 | SessionArtifactPreviewPage | 单个产物的内容预览 | SessionArtifactsPage 的行点击 | 内嵌 sheet，不单独成页 | must |
 | NativeDeviceConnectionPage | 已配对的真机连接与传输能力 | 页头设备按钮 →「设备连接」 | sheet；行打开 NativeDeviceSessionPage | must |

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotLLMLedgerRecord v1",
+  "type": "object",
+  "required": ["ts", "botId", "sessionId", "purpose", "model", "provider", "inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens", "cacheHitRatio", "durationMs", "status", "errorKind"],
+  "properties": {
+    "ts": {"type": "string", "minLength": 20},
+    "botId": {"type": ["string", "null"]}, "sessionId": {"type": ["string", "null"]},
+    "purpose": {"enum": ["front-turn", "worker-turn", "triage", "memory-extract", "reflect", "compact", "watchdog", "completion-check"]},
+    "model": {"type": ["string", "null"]}, "provider": {"type": ["string", "null"]},
+    "inputTokens": {"type": "integer", "minimum": 0}, "outputTokens": {"type": "integer", "minimum": 0},
+    "cacheReadTokens": {"type": "integer", "minimum": 0}, "cacheWriteTokens": {"type": "integer", "minimum": 0},
+    "cacheHitRatio": {"type": "number", "minimum": 0, "maximum": 1},
+    "ttftMs": {"type": "integer", "minimum": 0}, "durationMs": {"type": ["integer", "null"], "minimum": 0},
+    "status": {"type": "string", "minLength": 1}, "errorKind": {"type": ["string", "null"]}
+  },
+  "additionalProperties": false
+}

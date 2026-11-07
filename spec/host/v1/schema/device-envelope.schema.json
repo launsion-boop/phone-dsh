@@ -1,6 +1,6 @@
 {
   "title": "DeviceEnvelope",
-  "description": "Transport-independent envelope of the device plane. Every device protocol maps its frames onto this shape before the host sees them. dir up is a device-originated message (origin MUST be device), dir down is host-originated. text and audio are kind-specific; seq is monotonic per device and direction and its absolute start is protocol-defined.",
+  "description": "Transport-independent envelope of the device plane. Every device protocol maps its frames onto this shape before the host sees them. dir up is a device-originated message (origin MUST be device), dir down is host-originated. text and audio are kind-specific; seq is monotonic per device, direction and epoch and its absolute start is protocol-defined. epoch is the optional device session incarnation: absent means 0, it MUST be non-decreasing per device, and every epoch change restarts the seq domain. seq and epoch are bounded so a receiver can add one without signed overflow.",
   "oneOf": [
     {
       "type": "object",
@@ -60,7 +60,13 @@
         },
         "seq": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 9223372036854775806
+        },
+        "epoch": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775806
         },
         "ts_ms": {
           "type": "integer",
@@ -154,7 +160,13 @@
         },
         "seq": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 9223372036854775806
+        },
+        "epoch": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775806
         },
         "ts_ms": {
           "type": "integer",
@@ -252,7 +264,13 @@
         },
         "seq": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 9223372036854775806
+        },
+        "epoch": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775806
         },
         "ts_ms": {
           "type": "integer",

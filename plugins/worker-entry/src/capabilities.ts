@@ -15,7 +15,7 @@
  * Two files are published:
  *
  * - {@link AGENTS_MD_PATH}: the human/model summary, hard-capped at
- *   {@link AGENTS_MD_MAX_BYTES} (7 KiB), with stable ordering;
+ *   {@link AGENTS_MD_MAX_BYTES} (8 KiB), with stable ordering;
  * - {@link CAPABILITIES_JSON_PATH}: the complete machine-readable answer
  *   (`commands`, `python_modules`, `limits`, `network.egress_allow`, ...).
  *   The shell-ext 127 trailer already points here (ENG-02).
