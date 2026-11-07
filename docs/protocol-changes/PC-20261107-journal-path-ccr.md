@@ -36,3 +36,25 @@ only that narrow race; it does not secure the directory path, writes, or a
 malicious same-inode writer. Physical power-loss and authentication of historical
 BLE receipts require separate evidence. The current raw JSON validation does not
 close GAP-24.
+
+## Candidate for review, not a frozen contract
+
+A candidate is to open the journal directory once, register its `(device,
+inode)` for in-process exclusion before opening the lock file, preserve the
+existing cross-process `lockf`, and perform child operations relative to the
+directory descriptor. Each scan would open a new directory description (a
+`dup` shares a directory cursor), and each selected file would use no-follow,
+nonblocking open and `fstat` before reading from that same descriptor. Existing
+valid directory aliases and lock-file compatibility need an explicit decision.
+
+For new records, an exclusive staging file could be synced in the root and
+atomically moved with no-replace semantics before syncing every changed
+directory. An intent staging file cannot simply be left inside `ble-ops`:
+its existing inventory contract rejects unrecognized entries. Existing-record
+updates, abandoned staging files and rollback require a separately specified
+transaction and recovery decision. A metadata check followed by rename is not
+an atomic compare-and-swap. Even a retained directory descriptor cannot prevent
+a non-cooperating same-user process from replacing the parent path, unlinking a
+lock or writing an already-open inode; the eventual threat model must state its
+trusted storage and writers. These ideas have not been implemented or accepted
+as a production safety guarantee.

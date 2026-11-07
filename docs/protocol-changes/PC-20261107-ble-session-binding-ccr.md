@@ -171,3 +171,20 @@ This used an exportable software key, not a Secure Enclave signing callback;
 it did not test a phone reboot, ESP32, BLE framing, first-use provisioning or
 the proposed production session. It is feasibility evidence, not a security
 review or permission to enable task grants.
+
+An alternative transport candidate is native LE L2CAP credit-based channels:
+Apple's `CBL2CAPChannel` exposes input and output streams, and the pinned
+ESP-IDF 6.1 NimBLE source contains native CoC server, receive and send APIs.
+This native NimBLE API is distinct from the experimental BLE Audio L2CAP wrapper.
+The fixed reference configuration has `CONFIG_BT_NIMBLE_L2CAP_COC_MAX_NUM=0`,
+so the earlier static TLS measurement did not include CoC. Android's public
+LE CoC client API starts at API 29; older supported Android releases require a
+separate compatibility decision. PSM discovery, peer binding, lifecycle,
+backpressure, bounds and real iPhone/ESP32 interoperability remain undecided.
+
+The pinned NimBLE send implementation can return `BLE_HS_ESTALLED` after taking
+ownership of and queueing an SDU; blindly retrying that buffer can duplicate
+bytes. Other error paths and examples need explicit ownership and cancellation
+tests before defining a wrapper. A CoC byte stream is not itself peer
+authentication or an authorized task session. Neither this candidate nor the
+physical iPhone TLS test changes the default denial of BLE task grants.
