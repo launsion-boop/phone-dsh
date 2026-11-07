@@ -31,6 +31,7 @@ class LegacyIdentityPreferenceFixtureSchemaTest(unittest.TestCase):
         for row in (json.loads(line) for line in lines if line):
             with self.subTest(row=row["id"]):
                 validate_json(row, CONFIRMATION_SCHEMA, row["id"])
+                self.assertEqual("write_result" not in row, row["interruption"] == "stale-proof")
 
     def test_inconsistent_presence_and_null_values_are_rejected(self):
         base = {"id": "x", "present": False, "incoming": "a", "accepted": False, "expected": []}

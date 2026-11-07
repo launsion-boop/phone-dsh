@@ -7,7 +7,7 @@ status: frozen
 breaking: true
 version_decision: Preserve the draft void insertion API and add a result-bearing local operation for the probe; no wire or on-disk format change.
 base: 603e4e64a28ddb5e7d2d4add517d2e10c4d190b7
-contract_revision: spec/device/v1/legacy-identity-preferences.md@legacy-pref-v3
+contract_revision: spec/device/v1/legacy-identity-preferences.md@legacy-pref-v4
 ```
 
 Protocol impact: P07; P09; P18. The current `stringArray(forKey:) ?? []`
@@ -67,3 +67,9 @@ epoch, client and exact pending label can update UI state; an already performed
 write is not rolled back. The dormant asynchronous proof helper must discard
 a result from a replaced epoch. Shared ordering cases run the actual store with
 isolated defaults and controlled reentry; they are not radio-liveness proof.
+The stale-proof case has no `write_result`: completing a proof itself does not
+write the legacy preference.
+
+Revision v4: test each connection interruption with both successful and failed
+preference writes. This adds no runtime behavior; neither outcome may update
+the replacement connection. The dormant proof case remains a no-write case.
