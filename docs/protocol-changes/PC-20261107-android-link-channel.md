@@ -7,7 +7,7 @@ status: frozen
 breaking: false
 version_decision: Existing Link Tools v1 unchanged; Android channel is target-only and has no production caller.
 base: f09fcf7b1c5290bf792eb2492ce765e5d4c3033d
-contract_revision: spec/device/v1/ble-link.md@sha256:428e3728030d9253a01e0f805bfb3ca01ce5b2b620fab18b94e154886b40dce4
+contract_revision: spec/device/v1/ble-link.md@sha256:2c1c5b45ce92045e92f40489d6bceadf32a7c53e4ae5b1362182c5af005b97e5
 ```
 
 ## Trigger and scope
@@ -70,3 +70,15 @@ and matching test directory. Acceptance: `cd android && ./gradlew
 `bash scripts/ci/check.sh --only phone-spec,phone-p0-conformance,phone-cross-tree`.
 Integrator reviews one combined head and records results. Android GATT, radio,
 phone and ESP32 hardware remain NOT_RUN unless actually tested.
+
+## Revision 2 — handshake NAK and premature response
+
+The Android implementer reported that HELLO NAK had no specified terminal
+state and that an early response might arrive before the final segment was
+ever sent. A HELLO NAK now emits NAK then Disconnect and closes without an
+Unknown effect; a matching response or NAK before the final segment has been
+sent closes with Unknown and Disconnect. An early response after the final
+segment has been sent still waits for its successful write callback. The shared
+fixture adds the HELLO NAK case; the real Android channel test must cover the
+premature multi-segment response and NAK cases. No wire format or existing
+Swift/C producer changes. Android implementer notified at revision 2.

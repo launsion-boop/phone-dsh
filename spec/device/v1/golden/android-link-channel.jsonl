@@ -9,3 +9,4 @@
 {"name":"cancel_is_unknown","steps":[{"in":"open","out":["write"]},{"in":"write_ok","out":[]},{"in":"hello_ack_tools","out":["ready_tools"]},{"in":"status","out":["write"]},{"in":"cancel","out":["unknown","disconnect"]}]}
 {"name":"stale_write_callback_ignored","steps":[{"in":"open","out":["write"]},{"in":"stale_write_ok","out":[]},{"in":"hello_ack_tools","out":[]},{"in":"write_ok","out":["ready_tools"]}]}
 {"name":"nak_is_explicit","steps":[{"in":"open","out":["write"]},{"in":"write_ok","out":[]},{"in":"hello_ack_tools","out":["ready_tools"]},{"in":"status","out":["write"]},{"in":"write_ok","out":[]},{"in":"nak","out":["nak"]}]}
+{"name":"hello_nak_closes","steps":[{"in":"open","out":["write"]},{"in":"write_ok","out":[]},{"in":"hello_nak","out":["nak","disconnect"]}]}

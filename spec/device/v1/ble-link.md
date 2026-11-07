@@ -150,9 +150,12 @@ reused; exhaustion requires disconnect and a new channel. Transmit each ATT
 segment by a write with response, waiting for the matching successful callback
 before issuing the next. A matching response may arrive before the final write
 callback; retain it but do not complete the request or begin another one until
-the callback succeeds. Mismatched IDs and unexpected opcodes do not complete the
-request. Link NAK 0xff with the current ID is a terminal explicit NAK; matching
-0x6c/ID 0 is a separate best-effort event after handshake, not a response.
+the callback succeeds. A matching response before the final segment has been
+sent is a protocol violation: close the channel and retain an unknown outcome.
+Mismatched IDs and unexpected opcodes do not complete the request. Link NAK
+0xff with the current ID is a terminal explicit NAK; a HELLO NAK also closes
+the channel and requests disconnection. Matching 0x6c/ID 0 is a separate
+best-effort event after handshake, not a response.
 
 A timeout, cancellation, transport error, malformed incoming frame or disconnect
 terminates the channel, clears its reassembler and pending data, and asks the
