@@ -7,7 +7,7 @@ status: frozen
 breaking: false
 version_decision: Preserve page-structure/1; reject ambiguous extraction instead of guessing.
 base: 00402003f6efde6c5fdda3032053443dd5a7d76f
-contract_revision: spec/ui/v1/page-title-ownership.md@sha256:56960870d55c307fc67fc822d91059d5c276ee8d6462578da968abcb2fdd560b
+contract_revision: spec/ui/v1/page-title-ownership.md@sha256:865e0a5dfbf7d4212fba31d1231832574a9e8eca9376b41ba3a1d3f6a705e575
 ```
 
 ## Trigger and delta
@@ -187,3 +187,31 @@ Freeze verification: `python3 -m unittest discover -s spec/v1/tools -p test_spec
 `bash scripts/ci/check.sh --only phone-spec,phone-p0-conformance,phone-cross-tree`
 → PASS / FAIL / PASS. This verifies fixture structure, not implementation of
 these cases. P0 and the extractor implementation remain incomplete.
+
+
+## Revision 8 — presentation-name shadowing
+
+Independent review typechecked a SwiftUI View named `NavigationLink` that
+renders its trailing closure directly. Treating this spelling as the standard
+SwiftUI navigation destination silently drops the displayed child's title.
+A second typechecked example uses a same-named `Text.navigationTitle`
+extension that returns the view without setting a title; the compiler AST
+resolves the call to that extension. Freeze both as errors: local shadowing or
+unresolved symbol identity cannot establish a destination or a title modifier. Cross-file and imported shadowing
+cannot be excluded by reading one file alone; this revision does not invent a
+module-resolution proof, broaden successful claims, or certify runtime
+preferences. The incomplete extractor draft remains unmerged.
+
+The title contract hash is
+`865e0a5dfbf7d4212fba31d1231832574a9e8eca9376b41ba3a1d3f6a705e575`;
+the 44-case JSONL hash is
+`d6041cb515fd3ab9c89d1b6e596c4b8ea9d219b5903cb4a90df100b83be42863`;
+the sorted Swift fixture manifest hash is
+`dd4faba22a37d414d59166205cc3d6380a05a92dd6c2953eaa1110dfdd0b087c`.
+Existing acceptance, compatibility, rollback and ownership remain unchanged.
+
+Freeze verification: `python3 -m unittest discover -s spec/v1/tools -p test_spec_golden.py`
+→ PASS, 65 tests with the exact case count at 44; `bash scripts/ci/check.sh
+--only phone-spec,phone-p0-conformance,phone-cross-tree` → PASS / FAIL / PASS.
+This checks fixture structure only. The title extractor is not yet implemented
+against the frozen cases, and the P0 gate remains incomplete.

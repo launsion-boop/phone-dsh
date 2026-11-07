@@ -47,7 +47,11 @@ failure when they could affect the title. Receiver type alone does not prove
 that a view reaches the page output. A view helper that is directly returned
 by the page body is a supported case. Other helper references require a
 proved chain to that output; an unused or discarded binding, argument used to
-produce a non-view value, unknown expression or recursive chain is not proof. This raw-source check does not determine an
+produce a non-view value, unknown expression or recursive chain is not proof. A locally shadowed or otherwise unresolved
+presentation symbol is not evidence for a SwiftUI destination boundary; a
+locally shadowed or unresolved modifier is not evidence of a SwiftUI title. A
+source-only scan cannot rule out cross-file or imported shadowing; do not claim
+symbol identity or runtime parity without verified build-context evidence. This raw-source check does not determine an
 active build profile, runtime SwiftUI preference propagation, Android parity,
 or the presence of security controls. GAP-19 and GAP-21 remain open.
 

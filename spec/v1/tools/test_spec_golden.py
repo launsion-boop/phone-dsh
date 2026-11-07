@@ -600,7 +600,7 @@ class PageTitleFixtureTests(unittest.TestCase):
         schema = json.loads((ui / "schema" / "page-title-cases.schema.json").read_text())
         directory = ui / "golden" / "page-title"
         rows = [json.loads(line) for line in (directory / "cases.jsonl").read_text().splitlines()]
-        self.assertEqual(len(rows), 42)
+        self.assertEqual(len(rows), 44)
         self.assertEqual(len(rows), len({row["name"] for row in rows}))
         self.assertEqual({row["file"] for row in rows}, {path.name for path in directory.glob("*.swift")})
         self.assertEqual({row["outcome"] for row in rows}, {"title", "absent", "error"})
