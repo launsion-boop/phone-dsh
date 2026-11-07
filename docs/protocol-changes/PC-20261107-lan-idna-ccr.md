@@ -1,0 +1,21 @@
+# Contract change request: LAN A-label and Worker URL interoperability
+
+```yaml
+change: PC-20261107-lan-idna-ccr
+contracts: [P07, P13]
+status: draft
+breaking: true
+version_decision: pending — validation and compatibility have not been selected
+base: c3bb145a
+contract_revision: pending
+```
+
+The P07 LAN profile accepts ASCII LDH-shaped SRV names, and the Swift, Python and Android candidate decoders currently accept labels such as `xn--a.example`. The Worker P13 MCP input validator uses the runtime URL parser: under Node 18/22 it rejects that example, whereas a local macOS WKWebView experiment accepted it. The real iOS Worker runtime has not been verified. Other syntactically similar A-labels are valid. The numeric-final-label correction does not settle internationalized domain processing. Passing the currently shared positive vectors is not proof that every accepted candidate is consumable by the Worker.
+
+The contract owner must define a common IDNA/A-label policy and Unicode version or another explicitly versioned compatibility decision, retaining legitimate names where supported. Freeze shared positive and invalid A-label vectors, encoding and compatibility matrix before changing implementations. Swift, the Python reference, Android and the actual Worker input parser must be exercised against the same cases. Do not fix only one platform, silently map a hostname, introduce lookalike allowlists, or claim the profile is end-to-end conformant on the basis of current tests. DNS-SD and TLS verification remain independent: a syntactically accepted hostname is neither an authorization nor proof of identity.
+
+Feasibility observation (2026-11-07): in a local iOS Simulator experiment, the SDK's ICU 78.1/Unicode 17 UTS-46 API accepted `xn--4u8c.example`, while the available Node 22.21.1 Worker runtime's ICU 77.1/Unicode 16 URL parser rejected it. Independent platform UTS-46 calls therefore cannot be assumed equivalent merely because their API names match; Python's IDNA2008 package also differs from WHATWG handling of some valid URL A-labels. This is a version-specific observation, not a universal list of invalid names. A frozen solution needs either a shared, versioned implementation/data set and actual Worker compatibility, or a specified fail-closed check against the actual Worker runtime; a short fixture allowlist or a blanket ban on internationalized names is not a conformance proof.
+
+A local macOS WKWebView experiment also accepted `xn--4u8c.example` and rejected `foo.123`; this differs from Node for the former. The Node execution of the real `validateServerInput` function tests that code path but does not establish the URL behavior of an iOS WKWebView Worker. Any final policy must test the actual Worker runtime and distinguish it from Node test evidence.
+
+An independent iOS Simulator 27.1 `WKWebView.evaluateJavaScript` URL experiment (not the product app or a physical iPhone) also accepted `xn--a.example`, `xn--x.example`, `xn--zckzah.example`, `xn--ls8h.example` and `xn--4u8c.example`, while rejecting `foo.123`; it exited successfully with a simulator `/tmp` sandbox warning. Thus the Node validator regression is explicitly a Node-runtime check, not proof of the iOS Worker URL outcome. Product Worker and other supported OS/runtime versions remain to be tested.

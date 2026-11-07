@@ -23,6 +23,49 @@ final class LANAdvertisementTests: XCTestCase {
         }
     }
 
+    func testSharedRawDiscoveryVectors() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let fixture = root.appendingPathComponent("spec/device/v1/golden/lan-discovery-raw.jsonl")
+        let lines = try String(contentsOf: fixture, encoding: .utf8).split(separator: "\n")
+        XCTAssertFalse(lines.isEmpty)
+        var names = Set<String>()
+        var validCount = 0
+        var invalidCount = 0
+        for line in lines {
+            let row = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])
+            let name = try XCTUnwrap(row["name"] as? String)
+            XCTAssertTrue(names.insert(name).inserted, "Duplicate vector: \(name)")
+            let hex = try XCTUnwrap(row["txt_hex"] as? String)
+            guard hex.count.isMultiple(of: 2) else { XCTFail("Odd hex length: \(name)"); continue }
+            var raw = Data()
+            var index = hex.startIndex
+            while index < hex.endIndex {
+                let end = hex.index(index, offsetBy: 2)
+                raw.append(try XCTUnwrap(UInt8(hex[index..<end], radix: 16), name))
+                index = end
+            }
+            let candidate = LANDeviceCandidate(service: try XCTUnwrap(row["service"] as? String),
+                                               host: try XCTUnwrap(row["host"] as? String),
+                                               port: try XCTUnwrap(row["port"] as? Int), txt: raw)
+            let expectedURL = row["url"] as? String
+            let expectedError = row["error"] as? String
+            XCTAssertNotEqual(expectedURL == nil, expectedError == nil, name)
+            if let expectedURL {
+                validCount += 1
+                XCTAssertEqual(candidate?.url.absoluteString, expectedURL, name)
+            } else {
+                invalidCount += 1
+                XCTAssertEqual(expectedError, "invalid_advertisement", name)
+                XCTAssertNil(candidate, name)
+            }
+        }
+        XCTAssertGreaterThan(validCount, 0)
+        XCTAssertGreaterThan(invalidCount, 0)
+        XCTAssertTrue(Set(["valid", "truncated", "duplicate_case", "ipv4_dotted", "ipv4_short",
+                           "hex_prefix_only", "named_numeric_final", "unicode_kelvin_casefold",
+                           "numeric_label_named_domain"]).isSubset(of: names))
+    }
+
     func testMalformedTXTAndCaseInsensitiveDuplicateProfile() {
         XCTAssertNil(LANDeviceCandidate(service: "A", host: "a.local.", port: 443, txt: Data([10, 112])))
         let text = ["profile=pdsh-mcp-1", "PROFILE=pdsh-mcp-1"]

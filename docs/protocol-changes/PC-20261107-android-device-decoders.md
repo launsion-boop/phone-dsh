@@ -34,3 +34,7 @@ The contract revision is the two source file hashes above and the shared fixture
 ## Revision 2
 
 Clarifies receiver FIRST/reset semantics and the limits of detecting reordered fragments after implementer review; no wire change. Android implementations must use this revision.
+
+## Implementation evidence (2026-11-07)
+
+Android BLE and LAN decoders are implemented as internal, non-wired code; Android GATT, discovery, authorization and UI are not implemented by this change. The BLE decoder reads all 171 shared valid and 3 invalid frame vectors; LAN reads the existing and raw TXT vector sets. With a locally configured JDK 17 and Android SDK, `cd android && ./gradlew :domain:testDebugUnitTest --tests '*BleLink*' --tests '*LanDiscovery*'` → PASS (10 tests, no skips). `swift test --filter 'LANAdvertisementTests|PDSHLinkTests'` → PASS (5 LAN and 11 BLE tests). `bash firmware/tests/run.sh` → PASS with the locked cJSON sources and the explicitly unavailable identity host stub; this is not identity or radio evidence. Physical Android, iPhone, ESP32, DNS-SD/GATT lifecycle, authentication and device-task E2E → NOT_RUN. Existing P0 and hygiene gates remain FAIL. GAP-17 and GAP-18 remain open.

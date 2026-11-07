@@ -19,17 +19,28 @@ def txt_bytes(records):
 
 
 def candidate(service, host, port, raw):
-    if not isinstance(service, str) or not 1 <= len(service.encode("utf-8")) <= 63:
+    if not isinstance(service, str):
+        return None
+    try:
+        service_length = len(service.encode("utf-8"))
+    except UnicodeEncodeError:
+        return None
+    if not 1 <= service_length <= 63:
         return None
     if type(port) is not int or not 1 <= port <= 65535:
         return None
-    if not isinstance(host, str) or len(host.encode("utf-8")) > 254:
+    # Validate the original input before lowercasing: Unicode characters such
+    # as the Kelvin sign otherwise normalize into an ASCII-looking hostname.
+    if not isinstance(host, str) or not host.isascii() or len(host) > 254:
         return None
     host = host[:-1] if host.endswith(".") else host
     host = host.lower()
-    if not host.isascii() or not host or len(host) > 253:
+    if not host or len(host) > 253:
         return None
     if any(not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", x) for x in host.split(".")):
+        return None
+    # Follow the shared final-label rule, including the bare 0x prefix.
+    if re.fullmatch(r"(?:[0-9]+|0x[0-9a-f]*)", host.rsplit(".", 1)[-1]):
         return None
     i = 0
     seen = False

@@ -31,6 +31,15 @@ public struct LANDeviceCandidate: Identifiable, Equatable, Sendable {
                   isAlphaNumeric(first), isAlphaNumeric(last),
                   bytes.allSatisfy({ isAlphaNumeric($0) || $0 == 45 }) else { return nil }
         }
+        // Numeric final labels can be interpreted as IPv4 by URL consumers,
+        // or cause the Worker's URL parser to reject an otherwise valid name.
+        guard let finalLabel = host.split(separator: ".").last else { return nil }
+        let bytes = finalLabel.utf8
+        let decimal = bytes.allSatisfy { (48...57).contains($0) }
+        let hexadecimal = finalLabel.hasPrefix("0x") && bytes.dropFirst(2).allSatisfy {
+            (48...57).contains($0) || (97...102).contains($0)
+        }
+        guard !decimal, !hexadecimal else { return nil }
         return host
     }
 
