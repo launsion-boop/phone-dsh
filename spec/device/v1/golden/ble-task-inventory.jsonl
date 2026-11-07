@@ -23,3 +23,12 @@
 {"name":"embedded_task_raw_vectors","mutation":"embedded_task_raw_vectors","valid":true}
 {"name":"duplicate_parent_task","mutation":"duplicate_parent_task","valid":false}
 {"name":"duplicate_outer_unknown","mutation":"duplicate_outer_unknown","valid":true}
+{"name":"escaped_parent_task","mutation":"escaped_parent_task","valid":true}
+{"name":"missing_parent_task","mutation":"missing_parent_task","valid":false}
+{"name":"null_parent_task","mutation":"null_parent_task","valid":false}
+{"name":"array_parent_task","mutation":"array_parent_task","valid":false}
+{"name":"first_parent_task","mutation":"first_parent_task","valid":true}
+{"name":"last_parent_task","mutation":"last_parent_task","valid":true}
+{"name":"unknown_nested_task_and_escapes","mutation":"unknown_nested_task_and_escapes","valid":true}
+{"name":"duplicate_parent_task_reversed","mutation":"duplicate_parent_task_reversed","valid":false}
+{"name":"outer_unknown_nul","mutation":"outer_unknown_nul","valid":true}

@@ -43,24 +43,26 @@ closed and unresolved evidence must remain intact. No C or Python wire
 producer changes: they must still consume the same task fixtures.
 
 Shared task positives and negatives are `spec/device/v1/golden/task-raw-json-cases.jsonl`
-(`sha256:a57ff654a8502d7c066336e3925e65cf8b5e3a16033e208f5d6347a4a04f4652`),
+(`sha256:269b4363e41a09cda1a6787c576f47fc4bcc413942462039cf965a4988e216d0`),
 including unknown values, nested duplicate names, escaped names, distinct
 Unicode scalar sequences and NUL in unknown keys/values. Parent inventory cases
 are `spec/device/v1/golden/ble-task-inventory.jsonl`
-(`sha256:31d4b96f12360a2d39da5870ceb23d9ca1ca2d69ffd3cc06b07ae495ea284305`),
+(`sha256:d448a72f8d7f791afc0b8176234ce3a15eeb695c9eb04899938094ecfd490781`),
 with schema `spec/device/v1/schema/ble-task-inventory-vector.schema.json`
-(`sha256:b76f0b0eed847fea6f0af450f8b9174783c986fa05cbdc82acadb11e4a68263b`).
+(`sha256:afc62e2f4425c42b1fd1abef80b91aece47ba01073e70e3888fbaca5d7664758`).
 The `embedded_task_raw_vectors` scenario must run every raw task case through
 actual journal `records()` using a real valid parent and unchanged fingerprint,
 expect each task vector's own `valid`, and compare rejected bytes before/after.
-The two parent scenarios assert escaped duplicate `task` rejection and preserved
-duplicate outer unknown-member behavior. Do not decode/re-encode the embedded
+Parent scenarios cover an escaped unique task name, both duplicate-task orders,
+task at either end, missing/null/array task, nested names and delimiter escapes,
+and preserved outer unknown-member duplicate/NUL behavior. Do not decode/re-encode the embedded
 task to construct the inputs or to validate it; do not duplicate task validation.
 
 ## Ownership and acceptance
 
 Coordinator owns `spec/**` and this record. Swift implementer owns only
 `Sources/PhoneDSHDeviceTasks/UniqueJSONKeys.swift`,
+`Sources/PhoneDSHDeviceTasks/DeviceTask.swift`,
 `Sources/PhoneDSHDeviceTasks/DeviceTaskJournal.swift`, and
 `Tests/PhoneDSHDeviceTasksTests/BLETaskIntentTests.swift`. Freeze this contract
 and fixtures before that implementation. Run the real Swift journal and task
@@ -69,3 +71,19 @@ examples/lan-mcp-device -p test_tasks.py`, and `bash scripts/ci/check.sh --only
 phone-spec,phone-p0-conformance,phone-cross-tree`. Report each actual result,
 including existing P0 failures. Physical reboot, device traffic, old identity
 binding and trusted receipt recovery remain unverified and are not closed.
+
+## Revision 2 — raw NUL before Foundation conversion
+
+At `770b9731`, an independent reviewer reproduced an additional violation in
+`DeviceTask.decode`: Foundation can collapse scalar-distinct but canonically
+equivalent keys before the NUL scan, hiding a forbidden value. The task rules
+are unchanged; the new fixture cases require checking every original decoded
+string before conversion to a Foundation dictionary. The shared raw vectors
+now contain positive scalar-distinct names and negative hidden NUL in either
+value position. The parent extraction vectors also cover offsets, escaping and
+outer-member compatibility. The implementer is additionally assigned
+`DeviceTask.swift`; it must use the one shared raw validation mechanism, preserve
+scalar-sequence (not normalized) key equality, and not impose task rules on
+outer unknown record values. C, Python and Swift all re-run the revised vectors.
+No input bound is added here; the existing unbounded parent-file read is a
+separate recovery risk requiring its own version and compatibility decision.

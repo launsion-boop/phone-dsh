@@ -38,7 +38,16 @@
         "write_wrong_fail",
         "embedded_task_raw_vectors",
         "duplicate_parent_task",
-        "duplicate_outer_unknown"
+        "duplicate_outer_unknown",
+        "escaped_parent_task",
+        "missing_parent_task",
+        "null_parent_task",
+        "array_parent_task",
+        "first_parent_task",
+        "last_parent_task",
+        "unknown_nested_task_and_escapes",
+        "duplicate_parent_task_reversed",
+        "outer_unknown_nul"
       ]
     },
     "valid": {
