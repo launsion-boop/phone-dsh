@@ -6,6 +6,13 @@ Status: `target`. This contract coordinates the device inbox, the phone's durabl
 
 The user explicitly enables device-originated DSH tasks for each authenticated connection. The default is disabled. Disconnect or revocation stops intake. LAN authorization explicitly covers the derived HTTPS `/tasks` path as well as the existing `/mcp` endpoint; credentials never enter the Worker, model, broadcast, or logs. The LAN host and port must be the same as the selected MCP endpoint, normal TLS hostname verification is mandatory, redirects are rejected, and a changed endpoint or credential revokes the task grant. BLE intake requires the existing encrypted, bonded and negotiated Link connection and its validated device identity. Device names, advertised capabilities, characteristic presence and `requester` are untrusted labels or claims, never authentication. The current iOS adapter has no independently verified evidence of a peer bond and therefore MUST refuse all BLE task grants and leave task support unavailable until an authenticated peer binding is specified and verified; see GAP-16. Ordinary BLE tools remain governed by their own profile.
 
+The reference firmware's ordinary Link ingress also denies new plaintext BLE
+task requests as specified in `ble-link.md`, independently of client claims.
+Locally submitted tasks and existing NVS records are retained; submission does
+not mean that a phone received or accepted a task. This interim restriction
+does not authenticate or migrate legacy receipts and does not change the
+target status of the authenticated task profile.
+
 A task's authenticated `device_id` comes from the connection, never from task text. The phone maps it to its device session. For a device/idempotency-key pair, `msg_id` is lowercase SHA-256 of UTF-8 device ID, a zero byte, then UTF-8 idempotency key. It is used in a P07 uplink envelope with `origin=device`, `dir=up`, `kind=text`, a host-assigned persistent monotonically increasing per-device sequence, the mapped session ID, and the goal text. The harness request ID is exactly `dev:` plus that `msg_id`. The host records this mapping durably; device text is never promoted to system instructions. Session and source attribution must be retained independently of message text.
 
 For LAN, the connection identity is `lan:` followed by lowercase SHA-256 of the UTF-8 exact selected MCP URL. It is meaningful only after the HTTPS connection has authenticated the host and accepted its credential; it is not an identity claimed by discovery or task content. An endpoint or credential change requires a new explicit grant. Grant state is in memory, defaults off and ends on disconnect, revocation or app suspension.

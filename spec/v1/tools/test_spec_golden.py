@@ -634,5 +634,22 @@ class DeviceTaskRawBytesFixtureTests(unittest.TestCase):
             spec_golden.validate_json({**rows[0], "extra": True}, schema, "mutation")
 
 
+class DeviceTaskPlaintextAdmissionFixtureTests(unittest.TestCase):
+    def test_admission_vectors_and_schema(self):
+        device = SPEC_DIR.parent / "device" / "v1"
+        schema = json.loads((device / "schema" / "ble-task-plaintext-admission.schema.json").read_text())
+        rows = [json.loads(line) for line in (device / "golden" / "ble-task-plaintext-admission.jsonl").read_text().splitlines()]
+        self.assertEqual(len(rows), 5)
+        self.assertEqual(len(rows), len({row["name"] for row in rows}))
+        self.assertEqual({row["app_caps"] for row in rows}, {0, 1024, 2048, 3072, 2147486720})
+        for row in rows:
+            spec_golden.validate_json(row, schema, row["name"])
+            self.assertEqual(row["identity_visible"], row["app_caps"] & 3072 == 3072)
+        for bad in ({**rows[0], "task_visible": True}, {**rows[0], "new_task_status": 0},
+                    {**rows[0], "app_caps": -1}, {**rows[0], "extra": True}):
+            with self.assertRaises(spec_golden.SpecError):
+                spec_golden.validate_json(bad, schema, "mutation")
+
+
 if __name__ == "__main__":
     unittest.main()
