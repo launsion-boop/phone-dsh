@@ -35,7 +35,10 @@
         "oversize",
         "write_wrong_accept",
         "write_wrong_complete",
-        "write_wrong_fail"
+        "write_wrong_fail",
+        "embedded_task_raw_vectors",
+        "duplicate_parent_task",
+        "duplicate_outer_unknown"
       ]
     },
     "valid": {

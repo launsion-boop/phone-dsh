@@ -79,3 +79,17 @@ history requires an explicit future recovery decision; this inventory does not
 make the existing unauthenticated plaintext RESULT a trustworthy receipt.
 `golden/ble-task-inventory.jsonl` enumerates the shared valid and invalid
 inventory scenarios; tests must use real journal records and intents.
+
+When reading an existing phone task record, validate the original encoded
+`task` value before a JSON decoder can discard any member. There must be exactly
+one top-level `task` member (names compared as decoded Unicode scalar
+sequences). The original task bytes must satisfy the task rules in § Task and
+result, including unknown nested members, duplicate names and NUL rejection;
+valid unknown task members remain ignored. An ambiguous or invalid task makes
+the journal corrupt, without rewriting or deleting evidence, acknowledging a
+task, or replaying an operation. Other top-level record members keep their
+existing compatibility policy. `golden/task-raw-json-cases.jsonl` is also
+used as embedded-task input to the real journal inventory tests;
+`golden/ble-task-inventory.jsonl` covers the parent-member ambiguity and
+existing outer unknown-member behavior. This validation alone does not
+authenticate the historical source or resolve old BLE receipts.

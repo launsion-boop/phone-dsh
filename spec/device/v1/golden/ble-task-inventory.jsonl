@@ -20,3 +20,6 @@
 {"name":"write_wrong_accept","mutation":"write_wrong_accept","valid":false}
 {"name":"write_wrong_complete","mutation":"write_wrong_complete","valid":false}
 {"name":"write_wrong_fail","mutation":"write_wrong_fail","valid":false}
+{"name":"embedded_task_raw_vectors","mutation":"embedded_task_raw_vectors","valid":true}
+{"name":"duplicate_parent_task","mutation":"duplicate_parent_task","valid":false}
+{"name":"duplicate_outer_unknown","mutation":"duplicate_outer_unknown","valid":true}
