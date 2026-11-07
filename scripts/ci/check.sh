@@ -313,7 +313,7 @@ stage_phone_sdk() {
     # latter mix plain unit tests with runner entry points that need scenarios.sh / sim.sh (PhoneDSHScenarioTests.PhoneDSHScenarioTests,
     # the smoke/probe/kill suites), so they are listed by class here. A new unit-test class in a PhoneDSH* target must either be
     # named PhoneDSH* or be added to this filter, otherwise no gate executes it.
-    sdk_filter='PhoneDSH(Wire|Log|Loopback|Gateway|Controller|Engine|Harness|Shell|SSH|AgentCore|ADB)Tests|PhoneDSHTests|PhoneDSHScenario[A-Z][A-Za-z]*Tests|PhoneDSHScenarioTestsSelectionGuard|PhoneDSHScenarioLibraryContractTests|ScenarioHostEvaluationTests|ScenarioRepositoryRootTests|ScenarioEvidenceArtifactTests|ScenarioDetailTruncationTests|PhoneDSHScenarioTestsBudgetInjection|PhoneDSHScenarioTestsWebContentKill|PhoneDSHScenarioTestsPerturbationCapabilities|ZPhoneDSHAbortStopDurabilityHostTests'
+    sdk_filter='PhoneDSH(Wire|Log|Loopback|Gateway|Controller|Engine|Harness|Shell|SSH|AgentCore|ADB|BLE|LAN|DeviceTasks)Tests|PhoneDSHTests|PhoneDSHScenario[A-Z][A-Za-z]*Tests|PhoneDSHScenarioTestsSelectionGuard|PhoneDSHScenarioLibraryContractTests|ScenarioHostEvaluationTests|ScenarioRepositoryRootTests|ScenarioEvidenceArtifactTests|ScenarioDetailTruncationTests|PhoneDSHScenarioTestsBudgetInjection|PhoneDSHScenarioTestsWebContentKill|PhoneDSHScenarioTestsPerturbationCapabilities|ZPhoneDSHAbortStopDurabilityHostTests'
     ( cd "$SDK" && swift test --filter "$sdk_filter" ) 2>&1 | tee "$sdk_log"
     rc=${PIPESTATUS[0]}
     [ "$rc" = 0 ] || { echo "swift test failed (rc=$rc)"; return 1; }
