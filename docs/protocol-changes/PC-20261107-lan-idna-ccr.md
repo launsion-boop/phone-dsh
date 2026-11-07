@@ -117,3 +117,19 @@ experiments; they do not establish full Unicode conformance, a safe production
 implementation, mobile FFI, actual Worker compatibility, packaging or license
 closure. Double-root-dot rejection and the other existing P07 host rules still
 need their own real cross-end tests.
+
+A separate caller-owned-buffer C ABI prototype using the Rust 1.85 dependency
+set was called from actual Swift and Python processes on macOS. Both matched
+the experimental oracle for the 1,952 undotted inputs and their uppercase and
+single-dot variants. The sample also exercised bounded output, null arguments,
+canary bytes and error paths that leave output unchanged. The interface still
+requires valid, aligned, non-overlapping caller pointers; null checks do not
+establish arbitrary pointer safety. ASan/GuardMalloc, concurrency and fault
+injection were not run.
+
+The same prototype built as an Android arm64 API-26 shared library with NDK
+28.2 and an explicitly supplied 16 KB linker flag; its four PT_LOAD segments
+were aligned to 16 KB. This is not Android JNI, an APK/AAR, device execution,
+or proof of application size. No prototype code, ABI or dependency has been
+added to the repository; the production cross-end contract, Worker behavior,
+license and packaging decisions remain open.
