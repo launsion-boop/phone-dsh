@@ -210,7 +210,7 @@ GAP-12／GAP-13 是同一批實作要修的 iOS 缺口，不是合約變更。
 | GAP-26／P16、P22（Worker 启动诊断） | 带真实 Worker 的预算中止场景记录到不支持 PTY 的 terminal mount 异常和 browser connection pending 错误；`no_console_error` 正确看到这些事件 | 按同一 CCR 明确可见能力与启动行为，保留不支持能力 fail-loud、浏览器 bundle 和真实诊断；不得过滤日志、隐藏 preset 或放宽错误断言 |
 | GAP-27／P09（动态页面标题） | 页面契约的 `title:null` 同时表示无标题和动态标题，Android checker 对 null 不比较；既有 `dynamic-both` 仅比较表达式存在，不验证状态与文案 | 按 [CCR](../docs/protocol-changes/PC-20261107-dynamic-page-title-ccr.md) 冻结无标题／动态表达式的可区分语义及两端验证；不得仅把标题改为 null 或凭动态表达式存在称通过 |
 | GAP-28／P07、P09、P18（旧身份偏好） | [保全契约](device/v1/legacy-identity-preferences.md) 已冻结。`BLETrustedIdentities` 存储部分拒绝覆盖可见的错误类型，但确认界面仍未检查写入结果，也未完成连接代次与 Observation 同步重入保护；完整契约仍是 partial | 按[变更单](../docs/protocol-changes/PC-20261107-legacy-identity-preservation.md)及 [CCR](../docs/protocol-changes/PC-20261107-identity-observation-ccr.md) 实作并验证真实隔离 UserDefaults、代次与 Observation 重入；隐藏域、跨进程和落盘恢复须另有证据，不能据此开启设备任务或认证历史身份 |
-| GAP-29／P07、P09（iOS 标准 GATT 授权） | macOS 上以真实 `BLEDeviceStore(testDevices:)` 和同步 Observation 回调复现：外层开启读取时，回调内较晚的撤权被外层写回覆盖；此证据不包含空口或设备。其他设备字段发布及 pending read／断连资源归属也有源码审查发现的重入风险 | 先按[CCR](../docs/protocol-changes/PC-20261107-identity-observation-ccr.md)冻结逐设备、逐能力授权次序、立即撤权、pending 取消及连接生命周期兼容；所有相关写入与真实状态机共同验证嵌套事件、撤权准入和新旧资源隔离。无 token 的 CoreBluetooth 回调与真实设备行为需独立证据，不据本地测试声称安全会话或关闭 GAP-16 |
+| GAP-29／P07、P09（iOS 标准 GATT 授权） | macOS 上以真实 `BLEDeviceStore(testDevices:)` 和同步 Observation 回调复现：外层开启读取时，回调内较晚的撤权被外层写回覆盖；此证据不包含空口或设备。其他设备字段发布及 pending read／断连资源归属也有源码审查发现的重入风险 | 先按[CCR](../docs/protocol-changes/PC-20261107-standard-gatt-quarantine-ccr.md)冻结逐设备、逐能力授权次序、立即撤权、pending 取消及连接生命周期兼容；所有相关写入与真实状态机共同验证嵌套事件、撤权准入和新旧资源隔离。无 token 的 CoreBluetooth 回调与真实设备行为需独立证据，不据本地测试声称安全会话或关闭 GAP-16 |
 
 只有修正來源、相關端測試及必要的 integration 證據齊備，才在此記錄關閉與修復 commit。
 
