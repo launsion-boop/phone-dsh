@@ -722,7 +722,7 @@
         "android/domain/src/test/kotlin/com/phonedsh/domain/device/DeviceCapabilitiesSchemaTest.kt"
       ],
       "source": {
-        "authority": "host/v1 的 envelope／caps／receipt schema；[BLE Link profile](device/v1/ble-link.md)（`implemented`）；[Android BLE discovery](device/v1/android-ble-discovery.md)（`target`）；[LAN MCP profile](device/v1/lan-mcp.md)（`implemented`）；[device task profile](device/v1/task-delegation.md)（`target`）；[adapter draft](../docs/design/device-adapter-contract-draft.md)（`draft`）",
+        "authority": "host/v1 的 envelope／caps／receipt schema；[BLE Link profile](device/v1/ble-link.md)（`implemented`）；[Android BLE discovery](device/v1/android-ble-discovery.md)（`target`）；[legacy identity preferences](device/v1/legacy-identity-preferences.md)（`legacy`）；[LAN MCP profile](device/v1/lan-mcp.md)（`implemented`）；[device task profile](device/v1/task-delegation.md)（`target`）；[adapter draft](../docs/design/device-adapter-contract-draft.md)（`draft`）",
         "ends": "Kotlin `android/domain/.../{device,connector}`；Swift `examples/probe-app/ProbeKit/Devices`、`Sources/PhoneDSHBLE`、`Sources/PhoneDSHLAN`、`Sources/PhoneDSHDeviceTasks`；C `firmware/components/pdsh_link_wire`、`firmware/esp32-reference`；Python `examples/lan-mcp-device`；Android BLE/LAN decoder `target`，未接入 discovery",
         "evidence": "Kotlin `DeviceCapabilitiesSchemaTest`；第三方傳輸與端到端回執不由 schema 保證",
         "triggers": "`spec/device/v1/**`、`plugins/lifecycle-gate/src/device-{scope,guard}.ts`、`Sources/PhoneDSHDeviceTasks/**`、`Sources/PhoneDSHLAN/**`、`examples/lan-mcp-device/**`、`Sources/PhoneDSHBLE/**`、`firmware/**`、`spec/host/v1/schema/device-*`、`spec/host/v1/golden/device-*`、`docs/design/device-*.md`、`android/domain/src/main/kotlin/com/phonedsh/domain/{device,connector}/**`、`examples/probe-app/ProbeKit/Devices/**`"
@@ -1254,13 +1254,15 @@
         "plugins/worker-entry/src/capabilities.ts",
         "plugins/phone-mcp/src/schema.ts",
         "plugins/phone-model-config/src/model-config.ts",
-        "harmony/entry/src/main/ets/host/HostPersistence.ets"
+        "harmony/entry/src/main/ets/host/HostPersistence.ets",
+        "spec/device/v1/legacy-identity-preferences.md"
       ],
       "ends": {
         "Swift": [
           "Sources/PhoneDSHLog/MaterializedInvariant.swift",
           "Sources/PhoneDSHScenario/ScenarioBudgets.swift",
-          "Sources/PhoneDSH/Phone*Settings.swift"
+          "Sources/PhoneDSH/Phone*Settings.swift",
+          "Sources/PhoneDSHBLE/BLEIdentity.swift"
         ],
         "HarmonyOS": [
           "harmony/entry/src/main/ets/host/HostPersistence.ets",
@@ -1290,6 +1292,12 @@
           "glob": "Sources/PhoneDSHBLE/LinkToolJournal.swift"
         },
         {
+          "glob": "Sources/PhoneDSHBLE/BLEIdentity.swift"
+        },
+        {
+          "glob": "spec/device/v1/legacy-identity-preferences.md"
+        },
+        {
           "glob": "Sources/PhoneDSHDeviceTasks/DeviceTaskJournal.swift"
         },
         {
@@ -1308,12 +1316,14 @@
       "status": [
         "partial"
       ],
-      "evidence": [],
+      "evidence": [
+        "Tests/PhoneDSHBLETests/BLEIdentityTests.swift"
+      ],
       "source": {
-        "authority": "`/dsh/home/capabilities.json`：`plugins/worker-entry/src/capabilities.ts`；`mcp.json`：`plugins/phone-mcp/src/schema.ts`（`MCP_CONFIG_VERSION`）；`PDSH_MODEL_PROVIDER_JSON`：`plugins/phone-model-config/src/model-config.ts` ；Harmony 私有设置 [HostPersistence.ets](../harmony/entry/src/main/ets/host/HostPersistence.ets)",
+        "authority": "[legacy identity preferences](device/v1/legacy-identity-preferences.md)；`/dsh/home/capabilities.json`：`plugins/worker-entry/src/capabilities.ts`；`mcp.json`：`plugins/phone-mcp/src/schema.ts`（`MCP_CONFIG_VERSION`）；`PDSH_MODEL_PROVIDER_JSON`：`plugins/phone-model-config/src/model-config.ts` ；Harmony 私有设置 [HostPersistence.ets](../harmony/entry/src/main/ets/host/HostPersistence.ets)",
         "ends": "Swift `MaterializedInvariant.swift`、`ScenarioBudgets.swift`、`Sources/PhoneDSH/Phone*Settings.swift`；未查得 Kotlin 讀寫這三種設定的對應端 ；HarmonyOS partial `harmony/entry/src/main/ets/host/HostPersistence.ets`, `harmony/entry/src/main/ets/model/ProviderProfiles.ets`",
         "evidence": "讀寫兩端、舊資料、降級一起評估；UserDefaults key 名也是協議",
-        "triggers": "`plugins/worker-entry/src/capabilities.ts`、`plugins/shell-ext/src/contract.ts`、`plugins/phone-mcp/src/schema.ts`、`plugins/phone-model-config/src/model-config.ts`、`Sources/PhoneDSH/Phone*Settings.swift`、`Sources/PhoneDSH{SSH,ADB}/**`、`Sources/PhoneDSHBLE/LinkToolJournal.swift`、`Sources/PhoneDSHDeviceTasks/DeviceTaskJournal.swift`、`Sources/PhoneDSHLog/MaterializedInvariant.swift`、`Sources/PhoneDSHScenario/ScenarioBudgets.swift` 、`harmony/entry/src/main/ets/host/HostPersistence.ets`、`harmony/entry/src/main/ets/model/ProviderProfiles.ets`"
+        "triggers": "`plugins/worker-entry/src/capabilities.ts`、`plugins/shell-ext/src/contract.ts`、`plugins/phone-mcp/src/schema.ts`、`plugins/phone-model-config/src/model-config.ts`、`Sources/PhoneDSH/Phone*Settings.swift`、`Sources/PhoneDSH{SSH,ADB}/**`、`Sources/PhoneDSHBLE/LinkToolJournal.swift`、`Sources/PhoneDSHBLE/BLEIdentity.swift`、`spec/device/v1/legacy-identity-preferences.md`、`Sources/PhoneDSHDeviceTasks/DeviceTaskJournal.swift`、`Sources/PhoneDSHLog/MaterializedInvariant.swift`、`Sources/PhoneDSHScenario/ScenarioBudgets.swift` 、`harmony/entry/src/main/ets/host/HostPersistence.ets`、`harmony/entry/src/main/ets/model/ProviderProfiles.ets`"
       }
     },
     {

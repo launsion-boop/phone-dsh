@@ -241,6 +241,9 @@ PATH_PROJECTIONS['P12']['ends']['Python'] = ['android/tools/structure_check.py']
 PATH_PROJECTIONS['P08']['evidence'].extend(['android/tools/structure_check.py', 'android/tools/test_structure_check.py'])
 PATH_PROJECTIONS['P12']['evidence'].extend(['android/tools/structure_check.py', 'android/tools/test_structure_check.py'])
 PATH_PROJECTIONS['P18']['authority'].append('harmony/entry/src/main/ets/host/HostPersistence.ets')
+PATH_PROJECTIONS['P18']['authority'].append('spec/device/v1/legacy-identity-preferences.md')
+PATH_PROJECTIONS['P18']['ends']['Swift'].append('Sources/PhoneDSHBLE/BLEIdentity.swift')
+PATH_PROJECTIONS['P18']['evidence'].append('Tests/PhoneDSHBLETests/BLEIdentityTests.swift')
 
 
 def registry_schema():
