@@ -237,3 +237,21 @@ credit exhaustion, ownership on each send error, certificates, provisioning,
 ESP32/iPhone radio behavior and device power loss remain untested. The test
 configuration enabled PSK support for feasibility and is not the proposed
 production policy.
+
+Physical ESP32-S3 follow-up (2026-11-07): after the user connected a board,
+two isolated CoC/TLS experiment runs did not complete a handshake. The first
+laboratory firmware rebooted because its NimBLE event objects were initialized
+before the NPL function table. After correcting that order, the board started
+and an iPhone opened a CoC, but the connection closed before the phone reported
+any stream bytes; the phone's handshake returned an internal stream error and
+the board stopped waiting for input. The logs did not establish the cause,
+certificate verification, application delivery or a production defect.
+
+Before using the board, two complete original flash images were independently
+read and matched; each test also compared the current entire flash against the
+backup before writing. Following each failed test the original image was
+written back, the device-side whole-flash digest matched, and the reset command
+succeeded. The original application's functioning after reset was not
+independently verified. The experiment was a separate test firmware with test
+credentials, not the reference task implementation or an authorized task
+session; no eFuse changes were made. These failures do not close GAP-16.
