@@ -24,7 +24,7 @@ For LAN, the connection identity is `lan:` followed by lowercase SHA-256 of the 
 An intake grant is scoped to one non-reusable connection generation, including
 while an asynchronous start is pending. Revocation invalidates that generation
 before waiting for its start or stop to finish. Once revocation returns, no
-intake job belonging to that generation may remain, even when the start reaches
+intake worker belonging to that generation may remain, even when the start reaches
 the intake after revocation began. Cleanup of an old generation must not stop,
 remove, or restore the grant of a later generation, including when two UI
 entries map to the same device identity. A later start may fail busy while an
@@ -34,11 +34,19 @@ In particular a connection-monitor result returned after an await must still
 own the same generation before it can revoke that generation.
 An attempt that returns busy never owns the incumbent job and its failure
 cleanup must not stop or change it. The incumbent occupies its device identity
-until its task and stop callback have actually finished, not merely until
+until its worker has actually finished, not merely until
 cancellation was requested. No retry is scheduled for a busy attempt. App
 suspension invalidates and cancels all active or starting generations before
 awaiting any one stop. A job that does not finish on cancellation remains
 stopping and busy; no timeout may treat it as finished or admit an overlap.
+After the worker exits, its `onStopped` notification runs independently and
+may complete after the stop call and a later generation's start. It carries
+the old generation and must not change the later generation. Stops wait for
+workers, not notifications, so callbacks may stop their own or other devices
+without workers and notifications waiting on each other. This changes the
+waiting behavior of public Swift stop calls while preserving their source
+signatures. A worker's own `next` or runner must not synchronously await a stop
+that joins that same worker; requesting cancellation is not proof of completion.
 Cancellation does not prove that a task submitted before cancellation had no
 effect; its existing journal and unknown-outcome rules remain in force. The
 shared `golden/task-grant-generations.jsonl` cases describe these ordering

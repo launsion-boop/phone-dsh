@@ -7,7 +7,7 @@ status: frozen
 breaking: false
 version_decision: No wire, storage, capability, or version change; enforce the existing connection-scoped grant.
 base: 1e488f83633230cbdfe3562e0eb7e20b483899de
-contract_revision: spec/device/v1/task-delegation.md@grant-generations-v3
+contract_revision: spec/device/v1/task-delegation.md@grant-generations-v4
 ```
 
 ## Trigger, contract, and roles
@@ -33,7 +33,7 @@ invalidates it synchronously, cancels and awaits it, then stops only a matching
 intake token. The intake checks cancellation before installing a job. A
 completed start racing cancellation is still joined and its exact token
 stopped. A busy attempt never owns the incumbent and its cleanup cannot touch
-it; the incumbent remains reserved until the job and its stop callback finish.
+it; the incumbent remains reserved until its worker finishes.
 Same-device starts cannot overlap and a busy result is not retried without a
 new grant. App suspension invalidates all generations before awaiting any
 stop. A job which ignores cancellation remains stopping and busy, without a
@@ -65,6 +65,10 @@ must remain source-compatible for their old callers; the app's coordinator
 must not use an unscoped stop to cancel a new generation. Already in-flight
 network or DSH operations can have unknown outcomes. After a stop returns the
 revoked job cannot initiate any further accept, prompt, report, or retry.
+Old public Swift calls retain their signatures but stops no longer wait for
+the separate notification callback. Tests must exercise same-job, cross-job,
+and stop-all callback reentrancy, held notifications after worker completion,
+and verify that live workers do not release device reservations early.
 Acceptance commands:
 `swift test --filter PhoneDSHDeviceTasksTests`; the probe manager's actual
 Xcode tests for generation ordering; and `bash scripts/ci/check.sh --only
@@ -89,3 +93,11 @@ are the number of new user start actions, not actor deliveries or automatic
 retries. Observations precede test cleanup. Busy recovery requires a second,
 fresh user start after old stop completes. Implementers were paused pending
 this revision.
+
+`grant-generations-v4`: implementer CCR found that retaining a worker through
+`onStopped` and awaiting that worker from the callback deadlocks. Independent
+review chose to separate worker completion and token-scoped notification:
+stops join the worker, not the notification, and late callbacks cannot affect
+new generations. This revises v2/v3's callback reservation rule and changes
+public Swift stop waiting behavior. A worker cannot await its own join. Shared
+scenarios cover held notifications, self-stop and cross-device stop callbacks.
