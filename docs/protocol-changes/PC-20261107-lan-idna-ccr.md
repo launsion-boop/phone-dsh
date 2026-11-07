@@ -95,3 +95,13 @@ mobile FFI. A hand-written probe also showed why the UTS #46 check must see
 the whole domain for Bidi and why the existing one-trailing-root-dot handling
 must occur before a strict DNS-length check. These are candidate-design
 observations, not a frozen or implemented validator.
+
+Correction: the 2,046-row filtered set above includes 24 inputs that already
+end in a root dot. The official length-check oracle treats those dots
+differently from P07's prior removal, and appending another dot to every input
+creates invalid double-dot cases for those 24 rows. Therefore the previous
+counts do not establish P07 root-dot correctness. A corrected comparison must
+separate initially undotted inputs, one-dot variants and invalid double-dot
+inputs; that work is still in progress. The earlier zero-mismatch observations
+are retained only as results of the stated experimental harness, not as P07
+conformance evidence.
