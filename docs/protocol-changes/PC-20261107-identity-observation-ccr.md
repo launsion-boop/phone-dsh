@@ -58,6 +58,39 @@ operation. It must explicitly account for CoreBluetooth delegate callbacks
 that do not themselves contain an application generation. These findings
 are source review, not proof that every listed interleaving occurred at runtime.
 
+Further review shows that re-looking-up the device by UUID after a notification
+is necessary but not sufficient. A reentrant grant revocation can be
+overwritten by an older grant within the same connection generation. The
+first of the two current `clearConnection` device publications can reenter a
+new connect, after which the old clear still removes the UUID's timer and
+characteristics and publishes a second disconnected state. A standard-read
+callback publishes a reading before its unqualified `finish`; a reentrant
+cancel or new read can change which continuation is current. A timeout or old
+channel failure can publish status and then disconnect by UUID after an
+observer has installed a replacement. A handshake can similarly continue
+after its first publication has caused a disconnect. These are source-derived
+interleavings, not physical-device reproductions.
+
+The grant case has since been reproduced on macOS Swift 6.4 using an isolated
+XCTest with the real `BLEDeviceStore(testDevices:)` and
+`withObservationTracking`: an outer `grant(read: true)` notified an observer
+that synchronously called `grant(read: false)`, but the final device still had
+`allowRead == true`. The regression expecting the later revocation to win
+failed. This used no central manager, peripheral, radio or user preferences;
+it demonstrates the local state ordering defect, not physical BLE behavior.
+
+The owner must decide per-device publication revision and resource ownership,
+not only an identity epoch: genuine clear/revocation must take effect before
+callbacks, old resources must be detached and handled without deleting new
+ones, and pending continuations and busy operations must be completed or
+released only by their owners. Current `linkBusy` is a UUID set and is not
+cleared by `clearConnection`; if a repair starts clearing it on disconnect,
+an older async defer must not remove a newer operation's busy ownership.
+CoreBluetooth delegate callbacks themselves do not carry an application
+generation, so an app-local epoch alone cannot prove which radio connection
+caused a callback. The future contract must explicitly state that limitation
+and fail-closed behavior rather than asserting radio attribution or liveness.
+
 Required evidence: real `withObservationTracking` tests that trigger
 disconnect, channel/client replacement and same-spelling pending replacement
 from both device and status notifications during successful and failed
