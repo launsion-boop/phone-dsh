@@ -197,6 +197,31 @@ duplicate unknown outcome members; tests must drive actual received and
 terminal records and verify failed recovery leaves evidence unchanged.
 The rev6 19-byte-vector count must also replace the previous exact count of 18.
 
+## Implementation and verification
+
+Implementation head: `4775b5f8`; contract revision 8: `e603233c`.
+Swift journal/task, C reference validation, and Python LAN task ingestion are
+implemented against the shared fixtures. `swift test --filter
+PhoneDSHDeviceTasksTests` → PASS, 27 tests; the real journal tests consume 74
+inventory scenarios, all 36 raw JSON inputs and 19 raw byte inputs, and check
+that failed recovery leaves the evidence unchanged. `python3 -m unittest
+discover -s examples/lan-mcp-device -p test_tasks.py` → PASS, 7 tests; the
+full LAN reference suite with Node 22 → PASS, 17 tests. The C host suite,
+run in an isolated tree with the actual source and fully verified locked cJSON,
+→ PASS under ASan/UBSan, including 36 raw JSON and 19 raw byte cases.
+
+An isolated ESP32-S3 reference-firmware build using fixed ESP-IDF 6.1 and
+the verified locked cJSON → PASS; the new validator source compiled, but the
+task-submission validator section was discarded from that default-config final
+binary, so this does not establish runtime inclusion or device behavior.
+`bash scripts/ci/check.sh --only phone-spec,phone-p0-conformance,phone-cross-tree`
+→ PASS / FAIL / PASS; P0 still reports eight missing or stale UI contracts.
+The C validator's public input is a NUL-terminated string; raw bytes after the
+first NUL cannot be verified by that function. The Link upload path has a
+separate length-aware NUL check; these tests do not prove all possible C callers
+preserve length. No identity binding, trustworthy old receipt, authenticated
+BLE session, physical ESP32 task, power-loss or device-reboot result is claimed.
+
 ## Revision 8 — inactive and identical outcome duplicate evidence
 
 The revision 7 outcome rule already applies to known fields irrespective of

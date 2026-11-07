@@ -156,3 +156,18 @@ it is not a frozen session policy. No flash, BLE transport, real certificate
 handshake, handshake heap peak or production resource budget was tested.
 Build and `esp_idf_size` logs are under `/private/tmp/pdsh59-esp-tls/` on the
 test machine; no trial code or build artifact is included in this repository.
+
+Physical iPhone feasibility (2026-11-07): an isolated, uniquely identified test
+app on an iPhone 15 Pro Max (iOS 27.2) created a permanent P-256 Keychain
+software key. A second app process retrieved the same public-key fingerprint
+and signed successfully. After the user enabled Wi-Fi for that test app, an
+upstream Mbed TLS 4.1.1 client using that key completed TLS 1.3 mutual
+authentication and HTTP request/response with a local OpenSSL test server.
+Replacing the key while retaining the client certificate made the server reject
+the handshake with `BAD_SIGNATURE` before any request. The two unique test
+keys were deleted and subsequent separate-process lookups returned not-found;
+the test app was uninstalled and temporary CA and server private keys removed.
+This used an exportable software key, not a Secure Enclave signing callback;
+it did not test a phone reboot, ESP32, BLE framing, first-use provisioning or
+the proposed production session. It is feasibility evidence, not a security
+review or permission to enable task grants.
