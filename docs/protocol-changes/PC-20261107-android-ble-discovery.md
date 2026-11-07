@@ -7,7 +7,7 @@ status: frozen
 breaking: false
 version_decision: Add local untrusted discovery UI and API only; no wire or persistence version change.
 base: 46c4c57b9c40e87baa5b70cb37018e9abee6c6d4
-contract_revision: spec/device/v1/android-ble-discovery.md@discovery-v1
+contract_revision: spec/device/v1/android-ble-discovery.md@discovery-v2
 ```
 
 Protocol impact: P07; P08; P09. The Android app has no production BLE
@@ -53,3 +53,11 @@ until then they are NOT_RUN, not inferred from fake or simulator results.
 Stop is unacknowledged by the OS and its failure remains unresolved as in the
 contract. The baseline P0 failures, Android GATT GAP-20, secure session GAP-16
 and legacy recovery remain open.
+
+Revision v2: review found that start can block or throw after side effects,
+Activity recreation could discard a quarantine, and an old permission result
+could be misattributed. Add asynchronous starting/stopping states, process-wide
+quarantine, single-flight permission ownership, and real callback identity and
+failure observations. Address fields must never be output; arbitrary advertised
+names may themselves contain address-like text. Implementers were paused
+before they could rely on v1 and must use this revision.

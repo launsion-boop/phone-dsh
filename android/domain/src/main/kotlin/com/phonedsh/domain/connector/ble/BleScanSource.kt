@@ -7,7 +7,7 @@ import kotlinx.coroutines.flow.StateFlow
 data class BleScanCandidate(val id: String, val name: String, val rssi: Int)
 
 enum class BleScanPhase {
-    IDLE, REQUESTING_PERMISSION, SCANNING, STOPPED, PERMISSION_DENIED,
+    IDLE, REQUESTING_PERMISSION, PERMISSION_PENDING, STARTING, SCANNING, STOPPING, STOPPED, PERMISSION_DENIED,
     BLUETOOTH_OFF, UNSUPPORTED, FAILED, CLEANUP_REQUIRED,
 }
 
