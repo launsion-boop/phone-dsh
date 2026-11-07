@@ -110,3 +110,19 @@ an operator; a scratch extractor had incorrectly treated its contents as a
 parent title. The contract is unchanged. The fixture is syntactically valid
 when Swift's bare-slash-regex flag is enabled and does not infer the active
 product build profile.
+
+## Implementation review — receiver ownership remains open
+
+An independent iOS Simulator SDK typecheck confirmed that a regular method
+named `navigationTitle` on a non-View value is valid Swift. A scratch extractor
+incorrectly treated `String("value").navigationTitle("Fake")` inside a local
+binding as a page modifier. A second typechecked example binds a real
+`Text(...).navigationTitle("Fake")` to an unused local variable, then returns
+another view; even a View receiver does not prove that it reaches page output.
+Other false accepts included an ordinary
+`Model.navigationTitle` call used as an argument and a profile-dependent bare
+regex after `where`. Passing the existing fixture suite and comparing all 40
+repository pages did not detect every one of these cases. The scratch patch is
+not merged; implementation must establish receiver, expression and returned-view
+ownership or fail closed for unsupported forms. No dynamic page contracts were
+refreshed.
