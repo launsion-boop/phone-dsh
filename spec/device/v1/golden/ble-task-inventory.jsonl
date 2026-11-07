@@ -32,3 +32,16 @@
 {"name":"unknown_nested_task_and_escapes","mutation":"unknown_nested_task_and_escapes","valid":true}
 {"name":"duplicate_parent_task_reversed","mutation":"duplicate_parent_task_reversed","valid":false}
 {"name":"outer_unknown_nul","mutation":"outer_unknown_nul","valid":true}
+{"name":"utf8_bom_parent","mutation":"utf8_bom_parent","valid":true}
+{"name":"utf16le_parent","mutation":"utf16le_parent","valid":true}
+{"name":"utf16be_parent","mutation":"utf16be_parent","valid":true}
+{"name":"utf16le_bom_parent","mutation":"utf16le_bom_parent","valid":true}
+{"name":"utf16be_bom_parent","mutation":"utf16be_bom_parent","valid":true}
+{"name":"utf32le_parent","mutation":"utf32le_parent","valid":true}
+{"name":"utf32be_parent","mutation":"utf32be_parent","valid":true}
+{"name":"utf32be_bom_parent","mutation":"utf32be_bom_parent","valid":true}
+{"name":"utf16le_duplicate_task_member","mutation":"utf16le_duplicate_task_member","valid":false}
+{"name":"utf32be_hidden_nul","mutation":"utf32be_hidden_nul","valid":false}
+{"name":"outer_unknown_bad_escape","mutation":"outer_unknown_bad_escape","valid":false}
+{"name":"outer_unknown_lone_surrogate","mutation":"outer_unknown_lone_surrogate","valid":false}
+{"name":"outer_unknown_raw_control","mutation":"outer_unknown_raw_control","valid":false}

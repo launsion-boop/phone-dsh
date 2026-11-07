@@ -7,7 +7,7 @@ status: frozen
 breaking: true
 version_decision: Preserve journal v1 and task v1; refuse ambiguous/corrupt old records instead of interpreting or rewriting them.
 base: f0d6c759724d5b889aad319ddbfecf7cbfa6a64d
-contract_revision: spec/device/v1/task-delegation.md@sha256:79d84d0aed27a3165a3e80fab63361b844320fa335190204b24376093acd7842
+contract_revision: spec/device/v1/task-delegation.md@sha256:caab0be034ae48c68a191a8fc89e9ff5059895d0cb9d2780086ed1dbb8518f18
 ```
 
 ## Trigger and delta
@@ -25,8 +25,8 @@ A parent record must contain exactly one top-level `task` name, compared by
 decoded Unicode scalar sequence, including escaped spellings. Its original
 value must pass the existing real `DeviceTask.decode`, including malformed,
 duplicate, unknown-member and NUL rules. Duplicate `task` parents are refused
-as ambiguous. Other parent keys and unknown outer values keep the existing
-compatibility behavior; in particular do not start rejecting duplicate outer
+as ambiguous. Other valid parent keys and unknown outer values keep the existing
+compatibility behavior; malformed JSON and invalid Unicode scalars are corrupt even when the old Foundation decoder lazily ignored them; in particular do not start rejecting duplicate outer
 unknown members merely to implement this check. Invalid data blocks inventory
 under the existing journal lock and is preserved byte-for-byte; no acceptance,
 prompt, receipt, migration, deletion, or automatic replay follows. This does not
@@ -34,8 +34,10 @@ establish BLE identity or make a plaintext result trustworthy.
 
 ## Compatibility and fixtures
 
-Valid old v1 data, including valid unknown task members and prior permitted
-outer unknown members, stays readable unchanged. An old ambiguous parent or a
+Valid old v1 data, including valid unknown task members, prior permitted
+outer unknown members, and UTF-8/16/32 encodings accepted by the existing
+platform decoder, stays readable unchanged. Lossless transcoding of text is
+permitted before extracting the raw task, but object decoding/re-encoding is not. An old ambiguous parent or a
 task that violated the already specified raw rule fails closed; an old reader
 may incorrectly accept it. Newly written valid records remain readable by old
 and new readers. Rolling back loses the new rejection, so BLE task grants remain
@@ -47,9 +49,9 @@ Shared task positives and negatives are `spec/device/v1/golden/task-raw-json-cas
 including unknown values, nested duplicate names, escaped names, distinct
 Unicode scalar sequences and NUL in unknown keys/values. Parent inventory cases
 are `spec/device/v1/golden/ble-task-inventory.jsonl`
-(`sha256:d448a72f8d7f791afc0b8176234ce3a15eeb695c9eb04899938094ecfd490781`),
+(`sha256:0c37bd4eb5cd279c92088571dd9b92f49bc4028df25c4c2bb570f6a50e16498f`),
 with schema `spec/device/v1/schema/ble-task-inventory-vector.schema.json`
-(`sha256:afc62e2f4425c42b1fd1abef80b91aece47ba01073e70e3888fbaca5d7664758`).
+(`sha256:54a4b7a5f32e30cdd5df9b4ba0ad00a68df213a25a3bdb83777144784c5dce15`).
 The `embedded_task_raw_vectors` scenario must run every raw task case through
 actual journal `records()` using a real valid parent and unchanged fingerprint,
 expect each task vector's own `valid`, and compare rejected bytes before/after.
@@ -87,3 +89,21 @@ scalar-sequence (not normalized) key equality, and not impose task rules on
 outer unknown record values. C, Python and Swift all re-run the revised vectors.
 No input bound is added here; the existing unbounded parent-file read is a
 separate recovery risk requiring its own version and compatibility decision.
+
+## Revision 3 — preserve encodings; reject invalid JSON
+
+At `9cbefd44`, independent probes showed the existing record decoder accepts
+UTF-8 BOM and UTF-16/32 encodings, so freeze shared valid cases for the formats
+it accepts, including supported BOMs. The original parent must still pass the
+platform record decoder: a transcoding implementation must not expand that
+acceptance, for example by treating this platform's rejected UTF-32LE BOM as
+valid. Text-level conversion must preserve Unicode scalars and JSON escape
+lexemes; it is not object-level re-serialization.
+
+The platform decoder may lazily ignore malformed strings in unknown outer
+values. Those are corrupt JSON, not an allowed unknown-field extension: raw
+invalid escape, unpaired surrogate and unescaped control characters are
+rejected throughout the record, including unknown values. This intentionally
+closes a pre-existing corruption hole and can make previously misaccepted
+invalid records unreadable; keep the bytes for explicit recovery. Valid outer
+unknown duplicate names and NUL strings still keep their prior behavior.

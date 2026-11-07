@@ -47,7 +47,20 @@
         "last_parent_task",
         "unknown_nested_task_and_escapes",
         "duplicate_parent_task_reversed",
-        "outer_unknown_nul"
+        "outer_unknown_nul",
+        "utf8_bom_parent",
+        "utf16le_parent",
+        "utf16be_parent",
+        "utf16le_bom_parent",
+        "utf16be_bom_parent",
+        "utf32le_parent",
+        "utf32be_parent",
+        "utf32be_bom_parent",
+        "utf16le_duplicate_task_member",
+        "utf32be_hidden_nul",
+        "outer_unknown_bad_escape",
+        "outer_unknown_lone_surrogate",
+        "outer_unknown_raw_control"
       ]
     },
     "valid": {

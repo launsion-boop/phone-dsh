@@ -81,14 +81,19 @@ make the existing unauthenticated plaintext RESULT a trustworthy receipt.
 inventory scenarios; tests must use real journal records and intents.
 
 When reading an existing phone task record, validate the original encoded
-`task` value before a JSON decoder can discard any member. There must be exactly
+`task` value before a JSON decoder can discard any member. Preserve valid
+UTF-8, UTF-16 and UTF-32 JSON encodings accepted by the platform's existing
+record decoder, including its supported initial encoding markers; lossless
+text transcoding is allowed, but decoding to an object and re-encoding it is
+not. Reject malformed JSON syntax or invalid Unicode scalars anywhere in the
+record, including unknown outer values. There must be exactly
 one top-level `task` member (names compared as decoded Unicode scalar
 sequences). The original task bytes must satisfy the task rules in § Task and
 result, including unknown nested members, duplicate names and NUL rejection;
 valid unknown task members remain ignored. An ambiguous or invalid task makes
 the journal corrupt, without rewriting or deleting evidence, acknowledging a
-task, or replaying an operation. Other top-level record members keep their
-existing compatibility policy. `golden/task-raw-json-cases.jsonl` is also
+task, or replaying an operation. Other valid top-level record members keep
+their existing compatibility policy. `golden/task-raw-json-cases.jsonl` is also
 used as embedded-task input to the real journal inventory tests;
 `golden/ble-task-inventory.jsonl` covers the parent-member ambiguity and
 existing outer unknown-member behavior. This validation alone does not
