@@ -27,15 +27,15 @@ class GoldenVector(
 }
 
 /**
- * The fixed golden corpus: 32 files of `spec/v1/golden/frames` plus the inline
- * `channel.md` §4.8 ERROR vector, 33 vectors in total.
+ * The fixed golden corpus: 34 files of `spec/v1/golden/frames` plus the inline
+ * `channel.md` §4.8 ERROR vector, 35 vectors in total.
  *
  * The file list is pinned, so a removed, renamed or extra vector fails the suite
  * instead of silently passing. The inline vector is verified against the text of
  * `channel.md` so it cannot drift either.
  */
 internal object GoldenCorpus {
-    const val EXPECTED_VECTOR_COUNT: Int = 33
+    const val EXPECTED_VECTOR_COUNT: Int = 35
 
     /** Every golden frame file, sorted; a missing or extra file fails. */
     val EXPECTED_FILES: List<String> = listOf(
@@ -55,6 +55,8 @@ internal object GoldenCorpus {
         "exec-evt-1.json",
         "exec-evt-2.json",
         "exec-req-1.json",
+        "exec-req-2.json",
+        "exec-req-3.json",
         "fence-1.json",
         "hello-host-1.json",
         "hello-worker-1.json",
@@ -100,7 +102,7 @@ internal object GoldenCorpus {
             ?: error("cannot list ${directory.path}")
     }
 
-    /** Loads the 33 vectors, asserting the fixed file set and the count. */
+    /** Loads the 35 vectors, asserting the fixed file set and the count. */
     fun load(): List<GoldenVector> {
         val names = filesOnDisk()
         assertEquals("golden frame file set", EXPECTED_FILES, names)

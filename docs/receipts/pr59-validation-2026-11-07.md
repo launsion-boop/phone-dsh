@@ -99,3 +99,28 @@ WKWebView was not visible while the macOS session was locked). A run of the
 eight abort-journal and WebContent-kill scenarios had five PASS and three
 SKIP; the skipped cases were precisely the three previously failing cases.
 This baseline run cannot establish whether those failures reproduce on main.
+
+The existing P01 fixture corpus contains `exec-req-2.json` and
+`exec-req-3.json`, but the Rust and Android tests still asserted the old
+32-file set. With the repository's pinned Rust toolchain in isolated caches,
+the original Rust run failed two fixed-corpus assertions before these vectors
+reached the codec. The test-only correction keeps an exact 34-file set (plus
+the existing inline vector) and executes both through the real decoders and
+encoders; Swift also exercises its typed `ExecRequestPayload` on both.
+Base: `a43e052e`; contract revision: `7eff4567` (existing native SSH/ADB
+change). Protocol impact: P01: none — test coverage only; no wire or runtime
+behavior changed. The vectors predate this PR and are not new protocol fixtures.
+
+* `bash android/tools/with-rust-toolchain.sh bash scripts/ci/check.sh --only
+  phone-rust-tests` with isolated Cargo/Rustup caches → PASS: 156 tests passed,
+  one P4 snapshot test ignored because its external snapshot was unavailable.
+* `swift test --filter GoldenFrameTests` → PASS, 38 tests, including both
+  typed EXEC request cases.
+* Node 22 `--experimental-strip-types --test
+  plugins/channel/src/golden-frames.test.ts` → PASS, 40 tests, zero skips.
+* The Kotlin golden frame/corpus Gradle tests using a host-built `pdsh-jni` →
+  PASS, 36 tests, zero skips, against the real macOS arm64 JNI/Rust codec.
+  An initial offline Gradle attempt without the temporary mirror cache failed
+  to resolve dependencies; the subsequent offline run used the existing
+  mirror init and cache. This is not Android device, Android ABI or 16 KB
+  artifact evidence.

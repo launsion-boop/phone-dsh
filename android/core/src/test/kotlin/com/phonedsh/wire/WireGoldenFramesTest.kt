@@ -1,4 +1,4 @@
-// The 33 golden frame vectors, decoded and re-encoded on the Kotlin side.
+// The 35 golden frame vectors, decoded and re-encoded on the Kotlin side.
 // SPDX-License-Identifier: MIT
 
 package com.phonedsh.wire
@@ -10,7 +10,7 @@ import org.junit.runner.RunWith
 import org.junit.runners.Parameterized
 
 /**
- * One JUnit case per golden vector: 32 files of `spec/v1/golden/frames` plus the
+ * One JUnit case per golden vector: 34 files of `spec/v1/golden/frames` plus the
  * inline `channel.md` §4.8 ERROR vector.
  *
  * Each case proves the full Kotlin → JNI → Rust round trip:
@@ -63,13 +63,13 @@ class WireGoldenFramesTest(private val vector: GoldenVector) {
     }
 }
 
-/** The corpus itself: a fixed 33 vectors covering all 18 frame types. */
+/** The corpus itself: a fixed 35 vectors covering all 18 frame types. */
 class WireGoldenCorpusTest {
     @Test
-    fun corpusIsFixedAtThirtyThreeVectors() {
+    fun corpusIsFixedAtThirtyFiveVectors() {
         val vectors = GoldenCorpus.load()
-        assertEquals("vector count", 33, vectors.size)
-        assertEquals("file count", 32, GoldenCorpus.EXPECTED_FILES.size)
+        assertEquals("vector count", 35, vectors.size)
+        assertEquals("file count", 34, GoldenCorpus.EXPECTED_FILES.size)
         assertEquals("file set", GoldenCorpus.EXPECTED_FILES, GoldenCorpus.filesOnDisk())
         assertEquals(
             "all 18 channel.md §2 frame types have a vector",
@@ -77,7 +77,7 @@ class WireGoldenCorpusTest {
             vectors.map { it.typeByte }.distinct().size,
         )
         assertEquals(
-            "the inline channel.md §4.8 vector is the 33rd",
+            "the inline channel.md §4.8 vector is the 35th",
             "inline-channel-md-error-2",
             vectors.last().name,
         )
