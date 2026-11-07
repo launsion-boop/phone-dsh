@@ -83,3 +83,15 @@ retained those sampled names and had the same results on the sampled A-labels,
 but that small sample does not establish full A-label, Bidi or ContextJ
 correctness. No candidate option is approved without the shared compatibility
 and invalid vectors and actual end-to-end verification.
+
+A limited Unicode 17 `IdnaTestV2` experiment selected 2,046 ASCII inputs
+within the existing P07 host shape. The hyphens-allowed candidate alone
+accepted two A-labels for which the selected oracle reports a V4 error;
+it therefore failed that filtered comparison. An experimental additional
+check of the decoded A-label's `xn--` prefix, ignoring ASCII case, matched
+those 2,046 rows and an uppercased copy of them. The comparison does not
+cover the entire Unicode corpus, all ToUnicode cases, a Worker runtime or any
+mobile FFI. A hand-written probe also showed why the UTS #46 check must see
+the whole domain for Bidi and why the existing one-trailing-root-dot handling
+must occur before a strict DNS-length check. These are candidate-design
+observations, not a frozen or implemented validator.
