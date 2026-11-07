@@ -28,8 +28,9 @@ intake worker belonging to that generation may remain, even when the start reach
 the intake after revocation began. Cleanup of an old generation must not stop,
 remove, or restore the grant of a later generation, including when two UI
 entries map to the same device identity. A later start may fail busy while an
-old job is still stopping; it requires a fresh user action to retry. A late
-completion or stop callback from an old generation cannot alter the new one.
+old job is still stopping; it requires a fresh user action to retry. The app's
+late completion or stop notification from an old generation cannot alter the
+new one; app cleanup uses the captured generation, not an unscoped stop.
 In particular a connection-monitor result returned after an await must still
 own the same generation before it can revoke that generation.
 An attempt that returns busy never owns the incumbent job and its failure
@@ -40,8 +41,13 @@ suspension invalidates and cancels all active or starting generations before
 awaiting any one stop. A job that does not finish on cancellation remains
 stopping and busy; no timeout may treat it as finished or admit an overlap.
 After the worker exits, its `onStopped` notification runs independently and
-may complete after the stop call and a later generation's start. It carries
-the old generation and must not change the later generation. Stops wait for
+may complete after the stop call and a later generation's start. The app's
+notification closure captures the old generation and must not change the
+later generation. The existing public `onStopped` signature carries no token;
+an arbitrary caller can explicitly call the legacy `stop(deviceID:)` or
+`stopAll()` from it, which acts on current workers, including a newer one.
+Those unscoped operations are not generation-safe and must not be used for
+app cleanup of an old grant. Stops wait for
 workers, not notifications, so callbacks may stop their own or other devices
 without workers and notifications waiting on each other. This changes the
 waiting behavior of public Swift stop calls while preserving their source

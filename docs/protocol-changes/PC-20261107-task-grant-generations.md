@@ -4,10 +4,10 @@
 change: PC-20261107-task-grant-generations
 contracts: [P07, P09]
 status: frozen
-breaking: false
-version_decision: No wire, storage, capability, or version change; enforce the existing connection-scoped grant.
+breaking: true
+version_decision: Change the unmerged target Swift API behavior in PR 59; no wire, storage, or capability version change. Callers requiring notification completion must await their own notification signal.
 base: 1e488f83633230cbdfe3562e0eb7e20b483899de
-contract_revision: spec/device/v1/task-delegation.md@grant-generations-v4
+contract_revision: spec/device/v1/task-delegation.md@grant-generations-v5
 ```
 
 ## Trigger, contract, and roles
@@ -48,7 +48,7 @@ No journal is renamed, rewritten, recovered, or replayed by this change.
 ## Compatibility and verification
 
 Old phone to new device and new phone to old device preserve their current
-behavior; the latter gains the stricter local revocation guarantee. New/new has
+wire behavior; the latter gains the stricter local revocation guarantee. New/new has
 the same encoding and task protocol. Existing persisted data and rollback stay
 unchanged; rolling back also restores the old scheduling risk. Cancellation
 cannot prove that an earlier DSH submission did not execute. No target feature
@@ -66,7 +66,10 @@ must not use an unscoped stop to cancel a new generation. Already in-flight
 network or DSH operations can have unknown outcomes. After a stop returns the
 revoked job cannot initiate any further accept, prompt, report, or retry.
 Old public Swift calls retain their signatures but stops no longer wait for
-the separate notification callback. Tests must exercise same-job, cross-job,
+the separate notification callback. An arbitrary old callback calling a legacy
+unscoped stop intentionally targets the current worker; it cannot be advertised
+as generation-safe. App callbacks capture and compare their generation and
+must not perform unscoped cleanup. Tests must exercise same-job, cross-job,
 and stop-all callback reentrancy, held notifications after worker completion,
 and verify that live workers do not release device reservations early.
 Acceptance commands:
@@ -101,3 +104,25 @@ stops join the worker, not the notification, and late callbacks cannot affect
 new generations. This revises v2/v3's callback reservation rule and changes
 public Swift stop waiting behavior. A worker cannot await its own join. Shared
 scenarios cover held notifications, self-stop and cross-device stop callbacks.
+
+`grant-generations-v5`: independent review noted the old public callback has
+no generation argument and its unscoped stop methods address current workers.
+The guarantee is for app-owned token-scoped cleanup, not arbitrary public
+callbacks. A negative scenario retains and proves the legacy unscoped risk;
+the app's old token-scoped notification must leave the new worker running.
+
+The public intake source is absent from the task's main baseline
+`9b3b31e7291695530765c7d61a32753d902748f9`; it was introduced on this unmerged
+draft branch. Repository call-site audit found only the probe manager using
+`onStopped`; other existing tests stop without a callback. This does not prove
+there are no external draft consumers. Existing source still compiles, but a
+caller that depended on stop joining the notification must migrate to its own
+explicit completion signal; rollback restores the prior waiting behavior and
+its callback deadlock risk. The old/new device matrix above describes wire
+compatibility, not this Swift behavioral change.
+
+In fixtures, `stop_old_hold_return_after_job_and_callback_finish` deliberately
+waits for the notification in the test; it is not a promise that stop waits.
+The held-notification case must observe that stop has returned while the
+notification remains blocked. The stop-all callback case explicitly starts a
+separate external stop-all before awaiting it.
