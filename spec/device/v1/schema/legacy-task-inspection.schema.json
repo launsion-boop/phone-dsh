@@ -6,7 +6,7 @@
   "required": ["name", "scenario", "expected"],
   "properties": {
     "name": {"type": "string", "minLength": 1},
-    "scenario": {"enum": ["absent", "ordinary", "mixed", "malformed", "orphan", "symlink", "fifo", "hardlink-lock", "active-owner", "pending-init", "concurrent-scan", "budget", "cancel", "replace"]},
+    "scenario": {"enum": ["absent", "ordinary", "mixed", "malformed", "orphan", "symlink", "fifo", "hardlink-lock", "active-owner", "pending-init", "concurrent-scan", "budget", "cancel", "replace", "child-lock", "child-hardlinked-lock"]},
     "expected": {"enum": ["incomplete", "busy"]}
   }
 }

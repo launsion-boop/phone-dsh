@@ -12,3 +12,5 @@
 {"name":"preview_budget_exhausted","scenario":"budget","expected":"incomplete"}
 {"name":"inspection_cancelled","scenario":"cancel","expected":"incomplete"}
 {"name":"candidate_replaced","scenario":"replace","expected":"incomplete"}
+{"name":"child_lock_is_unexamined","scenario":"child-lock","expected":"incomplete"}
+{"name":"child_lock_hardlinked_to_root","scenario":"child-hardlinked-lock","expected":"incomplete"}

@@ -103,6 +103,14 @@ history exists. Root and child file replacement, read failure, cancellation,
 unknown filename bytes and a changed inode are incomplete observations, never
 successful recovery.
 
+The expected root journal entry `.lock` is omitted from the result and never
+opened. A directory entry named `.lock` inside `ble-ops` is not the root lock:
+list it as `ble-ops/.lock` with kind `unexamined`, without opening or reading
+it, irrespective of its file type or whether it is hard-linked to the root
+lock. Its presence does not establish corruption, an orphan, a task, or a
+remote outcome. The entry remains subject to the enumeration and cancellation
+budgets; no guarantee of complete enumeration is implied.
+
 Before opening the journal, inspect the actual absolute filesystem
 representation, after URL decoding and before any path normalization. Reject
 non-file URLs, a nonempty host (including `localhost`), any non-nil user,

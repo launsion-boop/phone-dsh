@@ -686,7 +686,7 @@ class LegacyTaskInspectionFixtureTests(unittest.TestCase):
         device = SPEC_DIR.parent / "device" / "v1"
         schema = json.loads((device / "schema" / "legacy-task-inspection.schema.json").read_text())
         rows = [json.loads(line) for line in (device / "golden" / "legacy-task-inspection.jsonl").read_text().splitlines()]
-        self.assertEqual(len(rows), 14)
+        self.assertEqual(len(rows), 16)
         self.assertEqual(len(rows), len({row["name"] for row in rows}))
         self.assertEqual(len(rows), len({row["scenario"] for row in rows}))
         for row in rows:
