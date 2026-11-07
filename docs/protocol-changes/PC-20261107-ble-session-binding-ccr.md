@@ -115,3 +115,16 @@ by a third query returned not-found. This Simulator key was exportable as 97
 bytes and did not use a Secure Enclave token. The test key was deleted. These
 results are not a claim about physical iPhone key export, Secure Enclave,
 Keychain lock/reboot policy or TLS use of the persisted key.
+
+A further temporary App-hosted Simulator test exported the unique permanent
+Keychain software key only into process memory, imported it into upstream
+Mbed TLS 4.1.1 and used a matching CA-issued client certificate. It completed a
+TLS 1.3 mutual handshake with an OpenSSL host server, with both certificate
+verifications successful. The subsequent application read returned WANT_READ;
+application-data round trip and wrong-key rejection were NOT_RUN. Both test
+keys were deleted and subsequent queries returned not-found. The temporary C
+buffer was zeroized and Swift data was cleared on a best-effort basis, without
+a guarantee that system or library copies were erased. This is not a
+non-exportable key, physical iPhone, ESP32, GATT, no-clock or production
+session test. The experiment stopped when available disk dropped below its
+predefined safety threshold.
