@@ -72,3 +72,17 @@ writing any new intent: reconstruct the canonical arguments from the parent and
 reject mismatches before writing or invoking the Link. The shared scenarios now
 include wrong arguments for accept, complete and fail. Old valid records and
 wire formats remain unchanged. Swift implementer notified of revision 2.
+
+## Implementation evidence
+
+At combined implementation head `89542612`, `swift test --filter
+'PDSHLinkTests|BLEDeviceMCPTests|StandardBLETests|PhoneDSHDeviceTasksTests'` →
+PASS, including all 25 device-task tests and 5 inventory/intent tests. The
+inventory test drives all 22 shared scenarios through the real journal and
+checks that rejected evidence is unchanged. The Android Link and LAN decoder
+tests and the C host suite also passed; the host suite uses the locked cJSON
+component and an explicitly unavailable identity stub. `bash
+scripts/ci/check.sh --only phone-spec,phone-p0-conformance,phone-cross-tree` →
+PASS / FAIL / PASS; P0 still fails on the UI page inventory. These host tests
+are not evidence of identity binding, trustworthy legacy receipts, physical
+power loss or a device-task E2E, all of which remain NOT_RUN.

@@ -82,3 +82,18 @@ segment has been sent still waits for its successful write callback. The shared
 fixture adds the HELLO NAK case; the real Android channel test must cover the
 premature multi-segment response and NAK cases. No wire format or existing
 Swift/C producer changes. Android implementer notified at revision 2.
+
+## Implementation evidence
+
+At combined implementation head `89542612`, `cd android && ./gradlew
+:domain:testDebugUnitTest --tests '*BleLink*' --tests '*LanDiscovery*'
+--rerun-tasks` → PASS: Link channel 12, Link codec 6, LAN decoder 4 tests,
+zero skips. `swift test --filter
+'PDSHLinkTests|BLEDeviceMCPTests|StandardBLETests|PhoneDSHDeviceTasksTests'` →
+PASS: 22 BLE tests and 25 device-task tests. `bash firmware/tests/run.sh` →
+PASS using the locked cJSON component; host identity is explicitly stubbed as
+unavailable. `bash scripts/ci/check.sh --only
+phone-spec,phone-p0-conformance,phone-cross-tree` → PASS / FAIL / PASS; P0 first
+fails because the UI README omits three existing iOS page names. No Android
+GATT, Android device, iPhone/ESP32 air-link, secure session or hardware E2E was
+tested. The Android channel remains internal and is not wired to production.
