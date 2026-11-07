@@ -47,3 +47,32 @@ On the reference firmware, `next` returns the oldest nonterminal task or null. S
 Older devices omit task tools or return 404 for `/tasks`; the phone leaves task intake unavailable without changing their existing tools. Older phones do not declare `PDSH_TASKS`, so a new BLE device hides and refuses task control tools and retains ordinary Link behavior; devices must not infer task acceptance without an explicit accept response. New peers use the same task representation and terminal semantics over their negotiated binding. Existing P07 envelope/receipt schema and old persisted data remain readable; new task journals are additive. Rollback must keep the journal, and cannot re-execute or abandon an unresolved operation as if it failed.
 
 `schema/task.schema.json` defines the shared task shape; semantic UTF-8, timestamp, identity and state-machine rules above are normative. `golden/task-cases.jsonl` contains valid and invalid producer inputs. Both device and phone implementations must consume the same fixtures, and tests must cover unauthorized devices, duplicate/conflicting deliveries, persistence before accept, cancellation, crash after submission, duplicate completion, timeout, reconnect and isolation of device-originated model tools. Static schema checks alone are not runtime conformance.
+
+## Legacy BLE intent inventory (target recovery)
+
+Before task records are used for any device, the phone must inventory the whole
+`ble-ops` directory under the task-journal lock, not only the file selected by
+an incoming device label or task. Absence of this directory means no BLE
+intents. If present it must be a real directory, not a symbolic link; it may
+contain at most 12288 entries (three possible actions for each of 4096 task
+records), all regular non-symlink intent files, each at most 65536 bytes.
+Unreadable paths, directories, symbolic links, extraneous entries, duplicate
+JSON keys, malformed or unknown-version data fail the whole inventory closed.
+No inventory result authorizes a task, proves the historical device key,
+imports a trust record, changes a journal or establishes an old receipt's
+origin. The on-disk format and derived identifiers above remain unchanged.
+
+Each intent must name exactly one validated parent record, match that record's
+BLE UUID, task ID, action and canonical `<msg_id>-<action>.json` filename, and
+match the request UUID, idempotency key and argument hash re-derived using the
+existing rules. Accept arguments are `{id}`. Complete and fail arguments are
+reconstructed solely from the corresponding already-persisted terminal parent
+outcome; a missing or different terminal outcome fails closed. The exact key
+set must match the existing intent schema. An orphan, changed identity,
+conflicting arguments or corruption blocks inventory for all device labels:
+the data is retained and unresolved, never deleted, silently migrated or
+replayed. Existing valid v1 intents remain query-only. Invalid or unprovable
+history requires an explicit future recovery decision; this inventory does not
+make the existing unauthenticated plaintext RESULT a trustworthy receipt.
+`golden/ble-task-inventory.jsonl` enumerates the shared valid and invalid
+inventory scenarios; tests must use real journal records and intents.
