@@ -82,6 +82,7 @@ ID 是 review 與交接的索引，**不是 wire 欄位或能力名稱**。「�
 | P21 render-media／office IR owner | [render-media-v1.md](v1/render-media-v1.md)（`draft`）、[office-ir-v1.json](v1/office-ir-v1.json) | Swift `PageSchemeHandler.swift`、`PageSurface.swift`、`ProbeKit/Office/OfficeIR.swift` | 無 gate 檢查；normative 文件已引用此 draft（GAP-09） |
 | P22 scenario／perturbation fixtures owner | `spec/v1/schema/{scenario-*,perturbation,upstream-script}.schema.json` | `Sources/PhoneDSH{Scenario,Harness}`、`android/testkit`、`scripts/ci/scenarios` | `golden/upstream` 無 runtime 消費者 |
 | P23 Android SDK toolchain listing owner | [SDK manager contract](toolchain/v1/sdk-manager.md)、[listing schema](toolchain/v1/schema/sdk-manager-listing.schema.json)、[listing vectors](toolchain/v1/golden/sdk-manager-listing.jsonl) | External Android SDK manager（不由倉庫控制）→ `android/tools/bootstrap-android-toolchain.sh` → `android/tools/test_gradle_build_inputs.py` | `android/tools/test_bootstrap_android_toolchain.py` 真實 adapter 正反例；不代替真機測試 |
+| P24 Apple package resolution owner | [Apple package lock contract](toolchain/v1/apple-package-lock.md)、[case schema](toolchain/v1/schema/apple-package-lock-case.schema.json)、[cases](toolchain/v1/golden/apple-package-lock-cases.jsonl) | SwiftPM 根鎖 `Package.resolved`；XcodeGen／Xcode `examples/probe-app/project.yml`、`scripts/ci/xcode-resolve.sh` | 冷缓存严格解析、版本冲突和独立锁真实工具测试；不代替设备运行 |
 
 登記表不宣稱窮盡。新增或發現未登記的公共邊界時，**先補一行**（權威、兩端、證據），再分派實作。
 
@@ -118,7 +119,8 @@ base 分支單邊前進不算本分支改動。一個檔案可同時屬於多個
 | P20 | `plugins/scripts/pack-image.mjs`、`plugins/dsh-pin.json`、`plugins/bundle/**`、`Sources/PhoneDSHLoopback/LoopbackServer.swift`、`android/engine/src/main/kotlin/com/phonedsh/engine/{WorkerAssets,*WorkerAssetSource}.kt` 、`harmony/tools/stage-runtime.mjs`、`harmony/host-rust/src/bundle.rs` |
 | P21 | `spec/v1/render-media-v1.md`、`spec/v1/office-ir-v1.json`、`Sources/PhoneDSHEngine/{PageSchemeHandler,PageSurface}.swift`、`examples/probe-app/ProbeKit/Office/**` |
 | P22 | `spec/v1/schema/{scenario-*,perturbation,upstream-script}.schema.json`、`spec/v1/golden/upstream/**`、`scripts/ci/scenarios/**`、`Sources/PhoneDSH{Scenario,Harness}/**`、`android/testkit/**` |
-| P23 | `spec/toolchain/v1/**`、`android/tools/bootstrap-android-toolchain.sh`、`android/tools/test_bootstrap_android_toolchain.py` |
+| P23 | `spec/toolchain/v1/{sdk-manager.md,schema/sdk-manager-listing.schema.json,golden/sdk-manager-listing.jsonl}`、`android/tools/bootstrap-android-toolchain.sh`、`android/tools/test_bootstrap_android_toolchain.py` |
+| P24 | `spec/toolchain/v1/{apple-package-lock.md,schema/apple-package-lock-case.schema.json,golden/apple-package-lock-cases.jsonl}`、`Package.resolved`、`examples/probe-app/{project.yml,PhoneDSHProbe.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved}`、`scripts/ci/xcode-resolve.sh`、`.gitignore`、`examples/probe-app/.gitignore` |
 
 此表由 `registry_check.py` 校驗與 registry 的一致性；`protocol_impact.py` 可在本地校驗 diff 與描述（見 §9）。路徑改名或新增實作檔時，同一變更更新此表，再執行 `python3 spec/tools/registry_build.py --write`。
 

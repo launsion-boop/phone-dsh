@@ -1,0 +1,4 @@
+{"name":"locked_cold","setup":"locked_cold","result":"pass","root_unchanged":true,"sidecar_unchanged":true}
+{"name":"missing_sidecar","setup":"missing_sidecar","result":"fail","root_unchanged":true,"sidecar_unchanged":true}
+{"name":"conflicting_constraint","setup":"conflicting_constraint","result":"fail","root_unchanged":true,"sidecar_unchanged":true}
+{"name":"swiftpm_after_xcode","setup":"swiftpm_after_xcode","result":"pass","root_unchanged":true,"sidecar_unchanged":true}

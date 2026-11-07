@@ -1503,7 +1503,7 @@
       },
       "triggers": [
         {
-          "glob": "spec/toolchain/v1/**"
+          "glob": "spec/toolchain/v1/{sdk-manager.md,schema/sdk-manager-listing.schema.json,golden/sdk-manager-listing.jsonl}"
         },
         {
           "glob": "android/tools/bootstrap-android-toolchain.sh"
@@ -1522,7 +1522,51 @@
         "authority": "[SDK manager contract](toolchain/v1/sdk-manager.md)、[listing schema](toolchain/v1/schema/sdk-manager-listing.schema.json)、[listing vectors](toolchain/v1/golden/sdk-manager-listing.jsonl)",
         "ends": "External Android SDK manager（不由倉庫控制）→ `android/tools/bootstrap-android-toolchain.sh` → `android/tools/test_gradle_build_inputs.py`",
         "evidence": "`android/tools/test_bootstrap_android_toolchain.py` 真實 adapter 正反例；不代替真機測試",
-        "triggers": "`spec/toolchain/v1/**`、`android/tools/bootstrap-android-toolchain.sh`、`android/tools/test_bootstrap_android_toolchain.py`"
+        "triggers": "`spec/toolchain/v1/{sdk-manager.md,schema/sdk-manager-listing.schema.json,golden/sdk-manager-listing.jsonl}`、`android/tools/bootstrap-android-toolchain.sh`、`android/tools/test_bootstrap_android_toolchain.py`"
+      }
+    },
+    {
+      "id": "P24",
+      "owner_role": "Apple package resolution owner",
+      "authority": [
+        "spec/toolchain/v1/apple-package-lock.md",
+        "spec/toolchain/v1/schema/apple-package-lock-case.schema.json",
+        "spec/toolchain/v1/golden/apple-package-lock-cases.jsonl"
+      ],
+      "ends": {
+        "SwiftPM": [
+          "Package.resolved"
+        ],
+        "Xcode": [
+          "examples/probe-app/project.yml",
+          "scripts/ci/xcode-resolve.sh"
+        ]
+      },
+      "triggers": [
+        {
+          "glob": "spec/toolchain/v1/{apple-package-lock.md,schema/apple-package-lock-case.schema.json,golden/apple-package-lock-cases.jsonl}"
+        },
+        {
+          "glob": "examples/probe-app/{project.yml,PhoneDSHProbe.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved}"
+        },
+        {
+          "glob": "scripts/ci/xcode-resolve.sh"
+        },
+        {
+          "glob": "examples/probe-app/.gitignore"
+        }
+      ],
+      "status": [
+        "partial"
+      ],
+      "evidence": [
+        "scripts/ci/xcode-resolve.sh"
+      ],
+      "source": {
+        "authority": "[Apple package lock contract](toolchain/v1/apple-package-lock.md)、[case schema](toolchain/v1/schema/apple-package-lock-case.schema.json)、[cases](toolchain/v1/golden/apple-package-lock-cases.jsonl)",
+        "ends": "SwiftPM 根鎖 `Package.resolved`；XcodeGen／Xcode `examples/probe-app/project.yml`、`scripts/ci/xcode-resolve.sh`",
+        "evidence": "冷缓存严格解析、版本冲突和独立锁真实工具测试；不代替设备运行",
+        "triggers": "`spec/toolchain/v1/{apple-package-lock.md,schema/apple-package-lock-case.schema.json,golden/apple-package-lock-cases.jsonl}`、`Package.resolved`、`examples/probe-app/{project.yml,PhoneDSHProbe.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved}`、`scripts/ci/xcode-resolve.sh`、`.gitignore`、`examples/probe-app/.gitignore`"
       }
     }
   ]

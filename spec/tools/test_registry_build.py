@@ -98,7 +98,7 @@ class RegistryBuildTests(unittest.TestCase):
         self.assertEqual(first['triggers'][0]['glob'], 'spec/v1/{channel.md,README.md,bridge.md}')
 
     def test_unknown_id_requires_explicit_projection_metadata(self):
-        self.baseline.write_text(self.baseline.read_text().replace('| P22', '| P24'))
+        self.baseline.write_text(self.baseline.read_text().replace('| P22', '| P25'))
         before = self.target.read_bytes()
         result = self.run_builder('--write')
         self.assertEqual(result.returncode, 1, result.stdout)
