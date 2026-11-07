@@ -219,8 +219,14 @@ public enum DeviceTaskLegacyInspector {
                 if bytes == [46] || bytes == [46, 46] { continue }
                 if count >= Self.maxEntries { addReason(.entryBudget); break }
                 count += 1
-                if bytes == Array(".lock".utf8) { continue }
                 let parts = components + [bytes]
+                if bytes == Array(".lock".utf8) {
+                    // Only the root name is the expected journal lock. A child
+                    // with this name is untrusted evidence: report it without
+                    // opening, reading, or classifying its underlying inode.
+                    if !root { add(parts, .unexamined) }
+                    continue
+                }
                 guard DeviceTaskLegacyInspector.escapedPath(parts) != nil else { addReason(.ioError); continue }
                 var before = stat()
                 let statResult = withName(bytes) { Darwin.fstatat(directoryFD, $0, &before, AT_SYMLINK_NOFOLLOW) }

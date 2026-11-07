@@ -50,3 +50,26 @@ exercise a child symlink or FIFO as unexamined without opening it. Run
 and `bash scripts/ci/check.sh --only phone-spec,phone-p0-conformance,phone-cross-tree`.
 Report iPhone, power-loss, cross-process and device evidence separately; this
 fix does not authenticate or recover old records and does not enable tasks.
+
+## Implementation evidence
+
+The Swift scanner now lists the child name without opening it and retains the
+root exclusion. `swift test --filter DeviceTaskLegacyInspectorTests` passed
+20 tests on macOS, including the shared cases, no-open checks and existing
+busy, cancellation, budget and replacement cases. The fixture schema test
+above passed 5 tests. After adding an explicit label assertion,
+`swift test --filter DeviceTaskLegacyInspectorTests/testSharedScenarioManifestThroughRealJournalAndFilesystem`
+also passed. The three-gate command returned phone-spec PASS,
+phone-p0-conformance FAIL (stale page contracts and page checker test), and
+phone-cross-tree PASS. The P0 failure is not changed by this fix. The existing
+active-owner test also exercised one macOS subprocess record-lock case; this
+does not establish general cross-process consistency. iPhone, ESP32, Android,
+other cross-process cases and physical power-loss verification are NOT_RUN.
+
+Source review separately found an unresolved wording question in the existing
+entry budget: the scanner calls `readdir` to detect an entry beyond the limit
+before it refuses to process that entry. The existing test checks the number
+of returned entries, not the number of directory reads. Whether "enumerate"
+in the older clause limits processed entries or also this read-ahead requires
+an independent contract decision and regression; this change does not claim
+to resolve it.

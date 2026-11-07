@@ -293,11 +293,49 @@ final class DeviceTaskLegacyInspectorTests: XCTestCase {
 
     func testSharedScenarioManifestThroughRealJournalAndFilesystem() async throws {
         let rows = try vectors("legacy-task-inspection.jsonl", as: Scenario.self)
-        XCTAssertEqual(rows.count, 14)
+        XCTAssertEqual(rows.count, 16)
         for row in rows {
             resetHooks()
             let root = try temporaryDirectory()
             switch row.scenario {
+            case "child-lock", "child-hardlinked-lock":
+                defer { resetHooks() }
+                do {
+                    let journal = try DeviceTaskJournal(directory: root)
+                    XCTAssertNotNil(journal)
+                } // Release the actual owner and its lock before inspection.
+                let rootLock = root.appendingPathComponent(".lock")
+                let rootBytes = Data("historical root lock".utf8)
+                try rootBytes.write(to: rootLock)
+                let dir = root.appendingPathComponent("ble-ops")
+                try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: false)
+                let child = dir.appendingPathComponent(".lock")
+                let childBytes = row.scenario == "child-lock" ? Data("unrecognized child".utf8) : rootBytes
+                if row.scenario == "child-hardlinked-lock" {
+                    XCTAssertEqual(Darwin.link(rootLock.path, child.path), 0, row.name)
+                    var rootInfo = stat(), childInfo = stat()
+                    XCTAssertEqual(lstat(rootLock.path, &rootInfo), 0, row.name)
+                    XCTAssertEqual(lstat(child.path, &childInfo), 0, row.name)
+                    XCTAssertEqual(rootInfo.st_dev, childInfo.st_dev, row.name)
+                    XCTAssertEqual(rootInfo.st_ino, childInfo.st_ino, row.name)
+                    XCTAssertEqual(rootInfo.st_nlink, 2, row.name)
+                    XCTAssertEqual(childInfo.st_nlink, 2, row.name)
+                } else {
+                    try childBytes.write(to: child)
+                }
+                var candidateOpens = 0
+                DeviceTaskLegacyInspector.testFileOpened = { _ in candidateOpens += 1 }
+                let result = await DeviceTaskLegacyInspector.inspect(directory: root)
+                XCTAssertEqual(result.status.rawValue, row.expected, row.name)
+                XCTAssertFalse(result.entries.contains { $0.id == ".lock" }, row.name)
+                let matches = result.entries.filter { $0.id == "ble-ops/.lock" }
+                XCTAssertEqual(matches.count, 1, row.name)
+                XCTAssertEqual(matches.first?.label, "ble-ops/.lock", row.name)
+                XCTAssertEqual(matches.first?.kind, .unexamined, row.name)
+                XCTAssertNil(matches.first?.claims, row.name)
+                XCTAssertEqual(candidateOpens, 0, row.name)
+                XCTAssertEqual(try Data(contentsOf: rootLock), rootBytes, row.name)
+                XCTAssertEqual(try Data(contentsOf: child), childBytes, row.name)
             case "absent":
                 let missing = root.appendingPathComponent("absent")
                 let r = await DeviceTaskLegacyInspector.inspect(directory: missing)
@@ -415,6 +453,57 @@ final class DeviceTaskLegacyInspectorTests: XCTestCase {
             }
         }
         resetHooks()
+    }
+
+    func testChildLockSpecialEntriesRemainUnexaminedWithoutOpening() async throws {
+        defer { resetHooks() }
+        for kind in ["symlink", "fifo", "directory"] {
+            let root = try temporaryDirectory()
+            let dir = root.appendingPathComponent("ble-ops")
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: false)
+            let child = dir.appendingPathComponent(".lock")
+            let target = try temporaryDirectory().appendingPathComponent("outside")
+            let secret = Data("not for inspection".utf8)
+            try secret.write(to: target)
+            if kind == "symlink" {
+                XCTAssertEqual(symlink(target.path, child.path), 0)
+            } else if kind == "fifo" {
+                XCTAssertEqual(mkfifo(child.path, 0o600), 0)
+            } else {
+                try FileManager.default.createDirectory(at: child, withIntermediateDirectories: false)
+                try secret.write(to: child.appendingPathComponent("sentinel"))
+            }
+            var candidateOpens = 0
+            var directoryOpens: [String] = []
+            func identity(_ info: stat) -> String { "\(info.st_dev):\(info.st_ino)" }
+            var rootInfo = stat(), dirInfo = stat()
+            XCTAssertEqual(lstat(root.path, &rootInfo), 0, kind)
+            XCTAssertEqual(lstat(dir.path, &dirInfo), 0, kind)
+            let allowedDirectories = Set([identity(rootInfo), identity(dirInfo)])
+            DeviceTaskLegacyInspector.testFileOpened = { _ in candidateOpens += 1 }
+            DeviceTaskLegacyInspector.testDirectoryOpened = { fd in
+                var info = stat()
+                if fstat(fd, &info) == 0 { directoryOpens.append(identity(info)) }
+                else { XCTFail("Could not inspect opened directory descriptor") }
+            }
+            let result = await DeviceTaskLegacyInspector.inspect(directory: root)
+            let matches = result.entries.filter { $0.id == "ble-ops/.lock" }
+            XCTAssertEqual(matches.count, 1, kind)
+            XCTAssertEqual(matches.first?.kind, .unexamined, kind)
+            XCTAssertNil(matches.first?.claims, kind)
+            XCTAssertEqual(candidateOpens, 0, kind)
+            XCTAssertEqual(directoryOpens.count, 4, kind)
+            XCTAssertEqual(Set(directoryOpens), allowedDirectories, kind)
+            var info = stat()
+            XCTAssertEqual(lstat(child.path, &info), 0, kind)
+            let expectedType = kind == "symlink" ? S_IFLNK : (kind == "fifo" ? S_IFIFO : S_IFDIR)
+            XCTAssertEqual(info.st_mode & S_IFMT, expectedType, kind)
+            XCTAssertEqual(try Data(contentsOf: target), secret, kind)
+            if kind == "directory" {
+                XCTAssertEqual(try Data(contentsOf: child.appendingPathComponent("sentinel")), secret)
+                XCTAssertFalse(result.entries.contains { $0.id.hasPrefix("ble-ops/.lock/") })
+            }
+        }
     }
 
     func testSymlinksFIFOHardlinksAndUnicodeNamesDoNotModifyEvidence() async throws {
