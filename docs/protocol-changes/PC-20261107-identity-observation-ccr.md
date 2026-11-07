@@ -91,6 +91,20 @@ generation, so an app-local epoch alone cannot prove which radio connection
 caused a callback. The future contract must explicitly state that limitation
 and fail-closed behavior rather than asserting radio attribution or liveness.
 
+Apple documents a potential disconnect boundary: after
+[`centralManager(_:didDisconnectPeripheral:error:)`](https://developer.apple.com/documentation/corebluetooth/cbcentralmanagerdelegate/centralmanager%28_%3Adiddisconnectperipheral%3Aerror%3A%29?changes=_5)
+executes, the peripheral delegate receives no further calls and its services
+and characteristics are invalidated. Apple also documents that
+[`cancelPeripheralConnection(_:)`](https://developer.apple.com/documentation/corebluetooth/cbcentralmanager/cancelperipheralconnection%28_%3A%29?changes=_2_1__2_8&language=objc)
+is nonblocking and pending commands may not complete. A candidate is therefore
+to quarantine a cancelled read and block a new attempt for that peripheral
+until a matching, applicable disconnect callback has completed, then reconnect
+and rediscover. Cancellation itself is not that boundary. The applicability of
+this rule to failed or cancelled connection attempts, callback ordering across
+reconnection, and reads on notifying characteristics still needs a frozen
+state machine and device/OS evidence. This source review does not establish
+peer identity, encryption, radio freshness or production implementation.
+
 Required evidence: real `withObservationTracking` tests that trigger
 disconnect, channel/client replacement and same-spelling pending replacement
 from both device and status notifications during successful and failed
