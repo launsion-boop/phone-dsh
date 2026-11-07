@@ -17,3 +17,12 @@ A contract owner must select a reproducible target/configuration/SDK/architectur
 The implementation must apply the same configuration to page discovery, literal/statement parsing, output anchors and parity checking, preserving raw source line positions. It must correctly handle nested `#if/#elseif/#else/#endif`, boolean precedence and parentheses, and avoid interpreting directives inside comments, ordinary strings, raw strings or multiline strings. Unsupported expressions and malformed directives must fail visibly, not silently exclude content. The documentation inventory must continue to account for inactive and debug page declarations; production parity and separately auditable experimental fixtures are different views.
 
 Before implementation, freeze shared source and expected-output fixtures covering active/inactive and experimental task flags, debug, nested branches, unknown conditions, invalid syntax, Unicode before an anchor, and fake directives in comments and raw/multiline strings. Cross-check representative cases with the actual Swift compiler. Mutation tests must fail when a build flag or input changes without updated evidence and must retain all current page-checker mutation tests. The P0 stage currently runs the page checker tests but not the extractor's own test suite; a revision must include and execute the latter. Android's actual missing device capabilities and other real page differences remain separate work; this proposal must not delete fixtures, extend the baseline, or claim parity by filtering them out.
+
+Feasibility observation (2026-11-07): an isolated synthetic Swift source was
+masked for four combinations of DEBUG and PDSH_ENABLE_DEVICE_TASKS and compared
+with the local `swiftc -dump-ast`. Active declaration names and original source
+line numbers matched in those cases, including nested branches, Unicode and
+fake directives in comments and selected raw/multiline strings. This did not
+implement or validate a production parser: boolean expressions, interpolation,
+platform predicates, arbitrary Swift syntax and the actual Xcode build profile
+remain to be handled before freezing or changing P0.
