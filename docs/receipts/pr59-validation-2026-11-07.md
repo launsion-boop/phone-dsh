@@ -124,3 +124,14 @@ behavior changed. The vectors predate this PR and are not new protocol fixtures.
   to resolve dependencies; the subsequent offline run used the existing
   mirror init and cache. This is not Android device, Android ABI or 16 KB
   artifact evidence.
+
+With the pinned Rust toolchain and the Android SDK/JDK available,
+`bash android/tools/with-rust-toolchain.sh bash scripts/ci/check.sh --only
+phone-android-tests` → PASS on the macOS host: the gate counted 2,594 tests
+across 12 modules, zero failures and two skips. The skipped cases require an
+external P4 WAL snapshot and a Python trajectory-parity corpus respectively.
+The first offline attempt failed while resolving missing Ktor artifacts; an
+online retry prioritized Maven Central and reused the isolated Gradle cache,
+which also contains previously mirror-sourced artifacts. The gate's test-count
+summary selects debug results for Android modules; it is not an Android
+physical-device, Android JNI ABI or packaged 16 KB validation.
