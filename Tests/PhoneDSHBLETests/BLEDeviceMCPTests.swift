@@ -5,6 +5,26 @@ import PhoneDSHLoopback
 @testable import PhoneDSHBLE
 
 final class BLEDeviceMCPTests: XCTestCase {
+    @MainActor func testTaskGrantRejectsEvenPreviouslyTrustedIdentity() async throws {
+        let id = UUID()
+        let identity = "ble:" + UUID().uuidString.lowercased()
+        BLETrustedIdentities.insert(identity)
+        defer {
+            let defaults = UserDefaults.standard
+            defaults.set((defaults.stringArray(forKey: BLETrustedIdentities.key) ?? []).filter { $0 != identity },
+                         forKey: BLETrustedIdentities.key)
+        }
+        var device = BLEDeviceStore.Device(id: id, name: "test", rssi: 0)
+        device.taskIdentity = identity
+        device.supportsDeviceTasks = true // Exercise the grant boundary even with stale optimistic state.
+        device.allowDeviceTasks = true
+        let store = BLEDeviceStore(testDevices: [device])
+        XCTAssertThrowsError(try store.grantDeviceTasks(id, enabled: true))
+        XCTAssertFalse(try XCTUnwrap(store.devices.first).allowDeviceTasks)
+        try store.grantDeviceTasks(id, enabled: false)
+        XCTAssertFalse(try XCTUnwrap(store.devices.first).allowDeviceTasks)
+        XCTAssertThrowsError(try store.grantDeviceTasks(UUID(), enabled: true))
+    }
     private func request(_ method: String, _ params: JSONValue = .object([:]), key: String? = nil) throws -> LoopbackRequest {
         LoopbackRequest(method: "POST", path: "/mcp/native", headers: key.map { ["x-pdsh-idempotency-key": $0] } ?? [:], body: try JSONValue.object(["jsonrpc": .string("2.0"), "id": .number(1), "method": .string(method), "params": params]).encoded())
     }

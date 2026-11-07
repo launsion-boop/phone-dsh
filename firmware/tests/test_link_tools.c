@@ -2,8 +2,13 @@
 #include "link_tools.h"
 #include "pdsh_home.h"
 #include "pdsh_link_wire.h"
+#include "pdsh_identity.h"
 #include "test_platform.h"
 #include <stdio.h>
+// These Link/task fixtures do not test identity or provide a signing key.
+bool pdsh_identity_init(void) { return false; }
+bool pdsh_identity_ready(void) { return false; }
+cJSON *pdsh_identity_prove(const char *nonce_hex) { (void)nonce_hex; return NULL; }
 static uint64_t clock_us = 1000000;
 static int gpio_level, gpio_writes, http_requests, fail_commit;
 static void (*job_fn)(void *);

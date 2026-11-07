@@ -33,6 +33,9 @@ import PhoneDSHAgentCore
     public private(set) var devices: [Device] = []
     public private(set) var status = "点击扫描以请求蓝牙权限"
     public private(set) var scanning = false
+    override init() { super.init() }
+    // Allows the grant boundary to be tested without a physical peripheral.
+    init(testDevices: [Device]) { self.devices = testDevices; super.init() }
     @ObservationIgnored private var linkBootIDs: [UUID: UInt32] = [:]
     @ObservationIgnored private var linkEventSequences: [UUID: UInt32] = [:]
     @ObservationIgnored private var linkCharacteristics: [UUID: [String: CBCharacteristic]] = [:]
@@ -253,28 +256,29 @@ import PhoneDSHAgentCore
                 guard !Task.isCancelled, linkChannels[id] === channel else { return }
                 update(id) { $0.linkState = "Link \(peer.version >> 8).\(peer.version & 255) · boot \(peer.bootID)" }
                 guard peer.supportsTools else { update(id) { $0.linkState += " · 旧固件，未协商工具扩展" }; return }
-                let list = try await client.invoke(requestID: UUID(), name: "tools/list", arguments: .object([:]), idempotencyKey: UUID().uuidString)
-                guard case .object(let root) = list, root["status"] == .string("completed"),
-                      case .object(let result) = root["result"], case .string(let deviceID) = result["device_id"], UUID(uuidString: deviceID) != nil,
-                      result["boot_id"] == .number(Double(peer.bootID)), case .array(let tools) = result["tools"], tools.count <= 32 else { throw BLEFailure("Invalid Link tools/list") }
-                let names = try tools.map { tool -> String in
-                    guard case .object(let fields) = tool, case .string(let name) = fields["name"], !name.isEmpty,
-                          name.utf8.count <= 64, name.utf8.allSatisfy({ (45...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || $0 == 95 }) else { throw BLEFailure("Invalid tool name") }
-                    return name
-                }
-                guard Set(names).count == names.count, !Task.isCancelled, linkChannels[id] === channel else { throw BLEFailure("Duplicate tools or stale connection") }
-                linkClients[id] = client; linkBootIDs[id] = peer.bootID
-                linkTaskTools[id] = Set(names.filter(Self.isReservedTaskTool))
-                let ordinaryTools = tools.filter { !Self.isReservedTaskTool($0["name"]?.stringValue ?? "") }
-                // Advertised tools and GATT subscriptions are claims, not proof.
-                // Task eligibility needs a fresh signed identity proof on this
-                // connection plus the user's first-use confirmation (GAP-16 closure).
-                update(id) { $0.linkIdentity = deviceID.lowercased(); $0.linkTools = names.filter { !Self.isReservedTaskTool($0) }; $0.linkToolDescriptors = ordinaryTools; $0.supportsDeviceTasks = false; $0.taskIdentity = ""; $0.pendingIdentity = ""; $0.linkState += " · PDSH Tools v1" }
-                if linkTaskTools[id]?.contains("pdsh.identity.prove") == true {
-                    try await proveIdentity(id, client: client)
-                }
+                try await discoverLinkTools(id, client: client, bootID: peer.bootID) { self.linkChannels[id] === channel }
             } catch { if !Task.isCancelled { status = error.localizedDescription; disconnect(id) } }
         }
+    }
+
+    /// Installs ordinary Link tools without invoking the draft task identity profile.
+    func discoverLinkTools(_ id: UUID, client: PDSHLinkClient, bootID: UInt32,
+                           isCurrent: () -> Bool) async throws {
+        let list = try await client.invoke(requestID: UUID(), name: "tools/list", arguments: .object([:]), idempotencyKey: UUID().uuidString)
+        guard case .object(let root) = list, root["status"] == .string("completed"),
+              case .object(let result) = root["result"], case .string(let deviceID) = result["device_id"], UUID(uuidString: deviceID) != nil,
+              result["boot_id"] == .number(Double(bootID)), case .array(let tools) = result["tools"], tools.count <= 32 else { throw BLEFailure("Invalid Link tools/list") }
+        let names = try tools.map { tool -> String in
+            guard case .object(let fields) = tool, case .string(let name) = fields["name"], !name.isEmpty,
+                  name.utf8.count <= 64, name.utf8.allSatisfy({ (45...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || $0 == 95 }) else { throw BLEFailure("Invalid tool name") }
+            return name
+        }
+        guard Set(names).count == names.count, !Task.isCancelled, isCurrent() else { throw BLEFailure("Duplicate tools or stale connection") }
+        linkClients[id] = client; linkBootIDs[id] = bootID
+        linkTaskTools[id] = Set(names.filter(Self.isReservedTaskTool))
+        let ordinaryTools = tools.filter { !Self.isReservedTaskTool($0["name"]?.stringValue ?? "") }
+        // GAP-16 remains open; advertised task tools are never invoked here.
+        update(id) { $0.linkIdentity = deviceID.lowercased(); $0.linkTools = names.filter { !Self.isReservedTaskTool($0) }; $0.linkToolDescriptors = ordinaryTools; $0.supportsDeviceTasks = false; $0.taskIdentity = ""; $0.pendingIdentity = ""; $0.linkState += " · PDSH Tools v1" }
     }
     public func grantLinkTool(_ id: UUID, name: String, enabled: Bool) {
         guard !linkBusy.contains(id) else { status = "请等待当前设备操作结束，或断开连接"; return }
@@ -299,7 +303,7 @@ import PhoneDSHAgentCore
         let identity = try BLEIdentity.verify(nonce: nonce, publicKeyHex: publicKey, signatureHex: signature)
         guard !Task.isCancelled else { return }
         if BLETrustedIdentities.contains(identity) {
-            update(id) { $0.taskIdentity = identity; $0.pendingIdentity = ""; $0.supportsDeviceTasks = true }
+            update(id) { $0.taskIdentity = identity; $0.pendingIdentity = ""; $0.supportsDeviceTasks = false }
         } else {
             update(id) { $0.taskIdentity = ""; $0.pendingIdentity = identity; $0.supportsDeviceTasks = false }
         }
@@ -314,19 +318,15 @@ import PhoneDSHAgentCore
         }
         let identity = device.pendingIdentity
         BLETrustedIdentities.insert(identity)
-        update(id) { $0.taskIdentity = identity; $0.pendingIdentity = ""; $0.supportsDeviceTasks = true }
+        update(id) { $0.taskIdentity = identity; $0.pendingIdentity = ""; $0.supportsDeviceTasks = false }
     }
 
-    /// Task grants require a proof on this connection and a user-confirmed identity.
-    /// Revocation remains available and disconnect still clears all grants.
+    /// GAP-16 requires BLE task grants to remain unavailable until authenticated
+    /// peer binding is specified and verified. Revocation remains available.
     public func grantDeviceTasks(_ id: UUID, enabled: Bool) throws {
         if enabled {
-            guard let device = devices.first(where: { $0.id == id }), device.supportsDeviceTasks,
-                  !device.taskIdentity.isEmpty, BLETrustedIdentities.contains(device.taskIdentity) else {
-                throw BLEFailure("设备身份尚未证明或尚未确认信任，暂不能授权设备派任务")
-            }
-            update(id) { $0.allowDeviceTasks = true }
-            return
+            update(id) { $0.allowDeviceTasks = false }
+            throw BLEFailure("设备身份认证尚未完成验证，暂不能授权蓝牙设备派任务")
         }
         update(id) { $0.allowDeviceTasks = false }
         if linkBusy.contains(id) { disconnect(id) }

@@ -89,9 +89,10 @@ struct BluetoothDevicesPage: View {
                 Text(device.linkState).font(.footnote)
                 #if PDSH_ENABLE_DEVICE_TASKS
                 if !device.pendingIdentity.isEmpty {
-                    Text("首次连接：请核对设备身份指纹后再信任").font(.footnote)
+                    Text("实验性身份指纹：记录指纹不会开启设备派任务；蓝牙任务授权目前不可用。")
+                        .font(.footnote)
                     Text(device.pendingIdentity).font(.caption.monospaced()).textSelection(.enabled)
-                    Button("信任此设备并允许派任务") { store.trustPendingIdentity(device.id) }
+                    Button("记录此实验性指纹") { store.trustPendingIdentity(device.id) }
                 }
                 if device.supportsDeviceTasks {
                     let key = DeviceTaskManager.bleKey(device.id)
