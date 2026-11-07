@@ -6,7 +6,7 @@ contracts: [P23]
 status: frozen
 breaking: false for documented SDK listings; false-positive classifications are rejected
 base: 529cbee4cc2a3352de8af2d4fcf179fe0607aa52
-contract_revision: spec/toolchain/v1/sdk-manager.md@sha256:e9d2e2d45d8c3d8f13be2751a154083cef8b0439b4599b7fff53273f89e2d140
+contract_revision: spec/toolchain/v1/sdk-manager.md@sha256:802d47187dacab0cc406990b1fe7b2c927ac6baf54980b44fb2c58c9085a0141
 ```
 
 Protocol impact: P23. The real SDK command-line tools 23.0 produced slash
@@ -79,3 +79,28 @@ test_spec_golden.py` → PASS, 66 tests; `bash scripts/ci/check.sh --only
 phone-spec,phone-p0-conformance,phone-cross-tree` → PASS / FAIL / PASS. These
 are contract checks only; the adapter has not yet been implemented against
 this revision, and P0 remains incomplete.
+
+
+## Revision 3 — required versions and table structure
+
+Independent review of the unmerged revision 2 candidate found that a
+required package could appear with `unknown -> ...` as well as a numeric
+version, and that malformed heading and separator lines were silently
+ignored. Freeze negative cases for these and a non-ASCII package identifier;
+only non-required IDs can use the observed `unknown -> version` form, and
+the exact legacy heading/separator grammar is stated in the owner contract.
+The contract SHA-256 is
+`802d47187dacab0cc406990b1fe7b2c927ac6baf54980b44fb2c58c9085a0141`;
+the 24-vector fixture SHA-256 is
+`1e9e54155c4d4c0f359ff44e55168d39282533aeb7a7281a319ddb5db6bca2ae`.
+A source without a terminal LF must still yield standalone `PACKAGE` lines;
+a bare terminal CR remains invalid. Unknown section headings fail before as
+well as after the installed section. Fixtures preserve exact stdout bytes
+rather than appending a newline in the fake producer.
+No production change was merged before this revision; compatibility and
+acceptance remain as above.
+
+Revision 3 freeze checks: `python3 -m unittest discover -s spec/v1/tools -p
+test_spec_golden.py` → PASS, 66 tests; `bash scripts/ci/check.sh --only
+phone-spec,phone-p0-conformance,phone-cross-tree` → PASS / FAIL / PASS. These
+checks validate the contract, not its pending implementation.
