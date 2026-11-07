@@ -166,6 +166,92 @@ and malformed evidence, budget exhaustion and cancellation. Compare all
 original bytes before and after; check no task/Worker/network calls occur.
 Schema validation alone is not runtime evidence.
 
+## Inspection presentation concurrency
+
+The inspection presentation model is single-flight even when Observation
+callbacks synchronously invoke its methods during a property notification.
+Before its first observable start notification it reserves a unique operation
+and installs the cancellable task. A `start` while that operation is active is
+an idempotent no-op and is not queued. The task checks cancellation before it
+calls the inspector: cancellation or page-exit clearing during the start
+notification prevents that call. Once the inspector has been called, cancel
+requests cancellation but the operation stays active until the inspector has
+actually returned and released its resources. A second inspection cannot
+start merely because cancellation was requested.
+
+Cancel is advisory and does not fabricate an inspector result. Page-exit
+clearing requests cancellation and discards that operation's result; it also
+clears a visible prior result. Each real clear invalidates any older result
+publication even if the visible result was already empty. Repeated no-effect
+cancel or clear is idempotent and must not recursively emit notifications.
+After the inspector returns, or after the task establishes it never called the
+inspector, only that operation may retire its slot. The complete presentation
+of result, inspecting and cancellation state is published consistently. If a
+notification synchronously starts a newer operation or clears the page, the
+older publication must not overwrite the new operation or restore an old
+result. A new start accepted after retirement is not lost. An older task may
+not cancel, retire or clear a newer task. For a finite sequence of synchronous
+observer events, effective cancellation, clearing and accepted starts are
+preserved; observers that generate infinitely many effective events have no
+termination guarantee. A rejected stale publication may still have emitted a
+notification before its final generation check.
+
+The existing public presentation methods and read-only displayed properties
+remain; notification count and ordering may change. These rules neither
+change the inspector API nor authenticate or execute old records.
+`golden/legacy-task-inspection-ui.jsonl` defines shared success, cancellation
+and synchronous-reentry cases. Tests drive the real presentation model with
+`withObservationTracking` and a controllable inspector; a spy is not evidence
+of filesystem, iOS or device behavior.
+
+For those vectors, `watch` identifies the getter read by the real observation
+tracker before the indicated event; a callback executes its events once,
+synchronously. Multiple getters may track the same atomic snapshot. Each
+controlled inspector call pauses until explicitly released; the test records
+whether that task actually sees cancellation after release. `inspect_calls`
+is the final number of entries into the inspector, not the number of tasks
+created. Non-null `paused_inspecting` and `paused_cancellation_requested`
+are assertions while the relevant inspector is still paused: for the two-call
+cases use the second inspector; for the other cases use the first, before
+release or before the completion callback, as applicable. Null means no
+inspector is paused at the applicable checkpoint. When a paused operation is
+cancelled or cleared, also try `start` before releasing it and assert no
+additional inspector enters. After final completion, `isInspecting` and
+`cancellationRequested` are false in every vector.
+
+Use distinct, fully comparable inspector values: `first-incomplete` is
+`incomplete`, not cancelled, with reason `rootUnreadable` and no entries;
+`first-cancelled` is `incomplete`, cancelled, with reason `cancelled` and no
+entries; `first-busy` is `busy`, not cancelled, with no reasons or entries;
+`second-incomplete` is `incomplete`, not cancelled, with reason `byteBudget`
+and no entries. `none` means nil. The test compares the entire returned value,
+not only status or the fixture label. A normal cancel test returns the actual
+`first-cancelled` value from its controlled inspector and verifies that the
+model retains it; clear discards it.
+
+The start-notification cases install tracking before calling `start`. The
+while-inspecting cases issue the named event only after the first inspector
+has entered and paused. Completion cases install tracking after the first
+inspector has paused, then release it: in that notification the first
+inspector has already returned and its slot has retired, but the old
+publication has not yet committed. `start-during-completion` starts and pauses
+the second inspector before checking its busy state. `clear-then-start`,
+`start-then-clear`, `start-then-cancel`, and `clear-start-clear` perform exactly
+those synchronous events in the completion callback; the last three cancel
+the newly installed task before it can enter the inspector. `duplicate-cancel` invokes cancel
+again from the cancellation notification of an already-entered inspector;
+`duplicate-clear` invokes clear twice in the start callback. Also install a
+fresh tracker before an effective clear, and if its notification invokes clear
+again, assert the repeated clear causes no further effective work. Assert
+that repeated no-effect events terminate without additional effective work;
+do not require a notification for a property whose value did not change.
+Count callback invocations in the repeat cases and assert that no-op reentry
+does not recursively produce another effective notification. In
+`restart-clears-prior`, let the first inspection finish with a non-nil result,
+then start and pause the second; assert the old result is nil while it is
+paused. These fixtures do not allow a second inspector to begin while the first
+remains paused.
+
 ## Deep inputs and parser safety
 
 An actual bounded inspection input crashed the existing recursive raw JSON

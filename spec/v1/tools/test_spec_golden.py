@@ -682,6 +682,50 @@ class DeviceTaskPlaintextAdmissionFixtureTests(unittest.TestCase):
 
 
 class LegacyTaskInspectionFixtureTests(unittest.TestCase):
+    def test_ui_reentry_vectors_and_schema(self):
+        device = SPEC_DIR.parent / "device" / "v1"
+        schema = json.loads((device / "schema" / "legacy-task-inspection-ui.schema.json").read_text())
+        rows = [json.loads(line) for line in (device / "golden" / "legacy-task-inspection-ui.jsonl").read_text().splitlines()]
+        self.assertEqual(len(rows), 18)
+        self.assertEqual(len(rows), len({row["name"] for row in rows}))
+        self.assertEqual(len(rows), len({row["scenario"] for row in rows}))
+        for row in rows:
+            spec_golden.validate_json(row, schema, row["name"])
+        expected = {
+            "ordinary": ("none", 1, True, False, False, "first-incomplete"),
+            "start-reentered": ("isInspecting", 1, True, False, False, "first-incomplete"),
+            "cancel-before-inspect": ("isInspecting", 0, None, None, False, "none"),
+            "clear-before-inspect": ("isInspecting", 0, None, None, False, "none"),
+            "start-while-inspecting": ("none", 1, True, False, False, "first-incomplete"),
+            "cancel-while-inspecting": ("none", 1, True, True, True, "first-cancelled"),
+            "clear-while-inspecting": ("none", 1, True, True, True, "none"),
+            "clear-during-result": ("result", 1, True, False, False, "none"),
+            "start-during-completion": ("isInspecting", 2, True, False, False, "second-incomplete"),
+            "clear-during-completion": ("isInspecting", 1, True, False, False, "none"),
+            "duplicate-cancel": ("cancellationRequested", 1, True, True, True, "first-cancelled"),
+            "busy-result": ("none", 1, True, False, False, "first-busy"),
+            "clear-then-start": ("isInspecting", 2, True, False, False, "second-incomplete"),
+            "start-then-clear": ("isInspecting", 1, None, None, False, "none"),
+            "start-then-cancel": ("isInspecting", 1, None, None, False, "none"),
+            "clear-start-clear": ("isInspecting", 1, None, None, False, "none"),
+            "duplicate-clear": ("isInspecting", 0, None, None, False, "none"),
+            "restart-clears-prior": ("none", 2, True, False, False, "second-incomplete"),
+        }
+        fields = ("watch", "inspect_calls", "paused_inspecting", "paused_cancellation_requested", "cancellation_observed", "final_result")
+        def check(row):
+            self.assertEqual(tuple(row[key] for key in fields), expected[row["scenario"]], row["name"])
+        for row in rows:
+            check(row)
+        for bad in ({**rows[5], "paused_inspecting": False}, {**rows[5], "cancellation_observed": False},
+                    {**rows[8], "final_result": "first-incomplete"}):
+            spec_golden.validate_json(bad, schema, "semantic mutation")
+            with self.assertRaises(AssertionError):
+                check(bad)
+        for bad in ({**rows[0], "scenario": "unknown"}, {**rows[0], "inspect_calls": -1},
+                    {**rows[0], "final_result": "authenticated"}, {**rows[0], "extra": True}):
+            with self.assertRaises(spec_golden.SpecError):
+                spec_golden.validate_json(bad, schema, "mutation")
+
     def test_scenarios_and_schema(self):
         device = SPEC_DIR.parent / "device" / "v1"
         schema = json.loads((device / "schema" / "legacy-task-inspection.schema.json").read_text())
