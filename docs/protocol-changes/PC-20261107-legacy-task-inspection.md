@@ -7,7 +7,7 @@ status: frozen
 breaking: false
 version_decision: No persisted or wire format change; concurrent journal initialization fails busy while a local inspection is active.
 base: 1747309343746a5c4a571c1f743e2b45514e4cd0
-contract_revision: spec/device/v1/legacy-task-inspection.md@sha256:5fe8797305fab7b6ea29fbc274e4179007a3d7a7a89e1cf92436e132ec629296
+contract_revision: spec/device/v1/legacy-task-inspection.md@sha256:4c55e39e8e60cb7e3abb9831b49c5e1b75730cde5999dd846d17f001f26d845f
 ```
 
 ## Trigger and delta
@@ -57,7 +57,9 @@ relax P0. The broader cross-platform device capabilities remain unfinished.
 
 The coordinator owns `spec/**` and this change record. The core implementer owns
 `Sources/PhoneDSHDeviceTasks/DeviceTaskJournal.swift`, new inspection/gate
-files in that module and `Tests/PhoneDSHDeviceTasksTests/**`. The UI implementer
+files in that module and scanner tests. A separate parser implementer owns
+`Sources/PhoneDSHDeviceTasks/UniqueJSONKeys.swift` and a new dedicated parser
+test file; the core implementer must not edit either. The UI implementer
 owns `examples/probe-app/PhoneDSHProbe/BluetoothDevicesPage.swift`, any new
 probe-only presentation files and their probe tests; it must use the frozen
 core API and not start task management. No other agent edits these paths.
@@ -69,3 +71,29 @@ probe/UI build and tests using an isolated simulator; and
 Use actual files and existing journal code rather than copied model-only
 validators. Record all failures and skips. GAP-24, legacy identity recovery,
 secure task-session implementation and physical-device acceptance remain open.
+
+## Revision 2 — preserve raw JSON semantics without call-stack recursion
+
+The first frozen revision was `legacy-task-inspection.md@sha256:5fe8797305fab7b6ea29fbc274e4179007a3d7a7a89e1cf92436e132ec629296`
+at commit `ad822267fa98b2b51f119d053e61c220984f1a81`. A real scanner test
+of a bounded, deeply nested input terminated the XCTest process with SIGBUS;
+the crash report shows recursive `UniqueJSONKeys.value` frames. The implementer
+stopped that part and requested a contract revision. Freeze replacement of the
+existing recursive value walk with an explicit stack, retaining the existing
+depth boundary and both entry points' different duplicate/NUL policies. The
+scanner uses extracted scalar claims and must not hand the whole deep tree to
+Foundation. This revision does not change stored or wire validity, widen a
+schema, suppress a fixture or close GAP-23; a scanner unable to inspect deeper
+records calls them `unparsed`, never corrupt, and preserves bytes.
+
+Shared `golden/legacy-task-inspection-deep.jsonl` SHA-256 is
+`b131d0a6944026c7ef96e0374be3158174a3654e06731b47c4b30e91437a463d`;
+its schema SHA-256 is
+`54943f3d4a9741eb4ba3ffc9ce0371d61d3f8e4e89c0f33a85d69c8d02b1d48a`.
+The core implementer must run these through the real scanner and validator,
+all earlier task and journal vectors, the C host suite and Python task tests.
+The caller-visible format and old/new/rollback compatibility remain unchanged;
+the pre-existing production journal subsequently calls `JSONDecoder` on the
+whole record, so scanner safety alone does not establish journal safety for
+deep inputs. Swift worker-stack and actual iOS evidence are separate from the
+macOS crash and must be reported exactly.

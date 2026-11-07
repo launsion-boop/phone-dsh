@@ -138,3 +138,40 @@ hard-linked or renamed into a candidate, no-follow symlink/FIFO cases, mixed
 and malformed evidence, budget exhaustion and cancellation. Compare all
 original bytes before and after; check no task/Worker/network calls occur.
 Schema validation alone is not runtime evidence.
+
+## Deep inputs and parser safety
+
+An actual bounded inspection input crashed the existing recursive raw JSON
+validator. The owning Swift validator must use an explicit stack rather than
+call-stack recursion while preserving its existing token, Unicode, number,
+duplicate-key and NUL behavior in both `check` and `rawRootMembers` modes.
+In particular, `check` rejects duplicate names at every object depth whereas
+the parent-member mode enforces uniqueness only for the specified root names
+and preserves its existing policy for unknown members. Existing record
+encodings and every existing fixture remain unchanged. This is not a change
+to task validity or a resolution of GAP-23.
+
+The existing Swift validator's depth boundary remains unchanged. In the
+scanner's root-object cases, a property containing N nested arrays reaches
+the scalar at depth N+1; N=999 is within the existing boundary and N=1000 is
+not. A scanner unable to establish a deeper file as parseable reports
+`unparsed`, not corrupt or invalid, and preserves all bytes. The scanner must
+not pass a complete deeply nested object to Foundation object-model decoding;
+it may decode only individually extracted scalar claim strings. The shared
+`golden/legacy-task-inspection-deep.jsonl` vectors define byte encodings,
+structure, malformed/duplicate cases and expected observations. Run those
+vectors through the real scanner and existing validator in isolated test
+processes; retain all earlier positive and invalid task/journal vectors.
+For each row construct the exact JSON text
+`{"device_id":"ble:old","unknown":` + N `[` bytes + `0` + N `]` bytes + `}`.
+`missing_bracket` removes one closing `]`; `duplicate_device` inserts
+`,"device\u005fid":"other"` immediately before the final `}`. Encode UTF-8
+without a BOM, UTF-16LE with `FF FE`, or UTF-32BE with `00 00 FE FF`. Every
+case also checks that inspection leaves the input bytes unchanged.
+`duplicate_unknown` instead inserts `,"extra":{"x":1,"x":2}` immediately
+before the final `}`. `leaf_empty_array` replaces the scalar `0` with `[]`;
+`leaf_nonempty_array` replaces it with `[0]`. `check_valid` is the expected
+result of the validator's stricter `check` mode on the same UTF-8 JSON text,
+before any parent-record encoding conversion. It differs from the observation
+for the duplicate-unknown case. An empty container at depth 1000 is accepted;
+a value inside it is at depth 1001 and rejected by the existing boundary.
