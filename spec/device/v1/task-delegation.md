@@ -30,6 +30,8 @@ remove, or restore the grant of a later generation, including when two UI
 entries map to the same device identity. A later start may fail busy while an
 old job is still stopping; it requires a fresh user action to retry. A late
 completion or stop callback from an old generation cannot alter the new one.
+In particular a connection-monitor result returned after an await must still
+own the same generation before it can revoke that generation.
 An attempt that returns busy never owns the incumbent job and its failure
 cleanup must not stop or change it. The incumbent occupies its device identity
 until its task and stop callback have actually finished, not merely until

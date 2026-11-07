@@ -7,7 +7,7 @@ status: frozen
 breaking: false
 version_decision: No wire, storage, capability, or version change; enforce the existing connection-scoped grant.
 base: 1e488f83633230cbdfe3562e0eb7e20b483899de
-contract_revision: spec/device/v1/task-delegation.md@grant-generations-v2
+contract_revision: spec/device/v1/task-delegation.md@grant-generations-v3
 ```
 
 ## Trigger, contract, and roles
@@ -78,3 +78,14 @@ GAP-16 and journal recovery risks are unaffected.
 not constrain busy cleanup, overlapping work or multi-device suspension. Added
 ordered steps, intermediate observations and explicit API compatibility;
 implementers were paused before implementation and notified of this revision.
+
+`grant-generations-v3`: the stale-event case now delays an old LAN monitor
+result, not the intake's own unfinished stop callback. The latter retains the
+device reservation and has a separate busy case. Monitor completion rechecks
+the generation after every suspension before it can stop. The step `stop_old`
+initiates stop asynchronously; only `await_old_stop` waits for it. A held stop
+return is held after the job and its callback have both completed. Start counts
+are the number of new user start actions, not actor deliveries or automatic
+retries. Observations precede test cleanup. Busy recovery requires a second,
+fresh user start after old stop completes. Implementers were paused pending
+this revision.
