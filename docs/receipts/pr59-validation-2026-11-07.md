@@ -135,3 +135,15 @@ online retry prioritized Maven Central and reused the isolated Gradle cache,
 which also contains previously mirror-sourced artifacts. The gate's test-count
 summary selects debug results for Android modules; it is not an Android
 physical-device, Android JNI ABI or packaged 16 KB validation.
+
+The trajectory parity skip was subsequently exercised separately: the five
+existing shared trajectory scenarios, each with iOS and Android inputs, were
+copied unchanged into a temporary corpus; the real Python normalizer generated
+expected outputs for all ten inputs. `python3 spec/v1/tools/trajectory_norm.py
+--check-golden --root .` → PASS, five scenarios; the actual Android
+`TrajectoryPythonParityTest` → PASS, one test, zero skips, comparing each input
+byte-for-byte against the Python output. Its initial offline Gradle attempt
+failed on uncached Android dependencies; the successful run used the temporary
+mirror and host JVM. It does not cover the broader suggested randomized corpus
+or an Android device. The external P4 snapshot remains unavailable and its
+Rust and Android tests remain skipped.
