@@ -58,3 +58,16 @@ fixtures in the same commit as this record before implementation. Acceptance:
 Run the real extract check on the current tree and report its actual missing or
 stale pages; do not call the overall gate PASS unless every existing requirement
 also passes. Android device, build-profile and UI runtime evidence remain open.
+
+## Implementation evidence
+
+`python3 -m unittest discover -s spec/ui/v1/tools -p test_extract_ios_pages.py`
+→ PASS, 29 tests; the shared cases use the real extractor and demonstrate that
+a page named in the README still fails when its structure contract is missing.
+`python3 -m unittest discover -s scripts/ci -p test_p0_completeness.py` → PASS,
+17 tests against the real stage in isolated fixture trees. On the combined head,
+`bash scripts/ci/check.sh --only phone-spec,phone-p0-conformance,phone-cross-tree`
+→ PASS / FAIL / PASS. P0 now runs all checks and exposes three missing README
+pages, nine missing/stale page contracts and a stale existing page-checker test;
+it does not hide any with a baseline entry. The source check does not resolve
+GAP-19 or GAP-21, nor certify device/UI runtime behavior.
