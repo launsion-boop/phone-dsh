@@ -12,6 +12,7 @@ validate_json = VALIDATOR["validate_json"]
 SpecError = VALIDATOR["SpecError"]
 SCHEMA = json.loads((ROOT / "schema/legacy-identity-preferences.schema.json").read_text())
 REENTRANT_SCHEMA = json.loads((ROOT / "schema/legacy-identity-reentrant.schema.json").read_text())
+CONFIRMATION_SCHEMA = json.loads((ROOT / "schema/legacy-identity-confirmation.schema.json").read_text())
 
 
 class LegacyIdentityPreferenceFixtureSchemaTest(unittest.TestCase):
@@ -26,6 +27,10 @@ class LegacyIdentityPreferenceFixtureSchemaTest(unittest.TestCase):
         for row in (json.loads(line) for line in lines if line):
             with self.subTest(row=row["id"]):
                 validate_json(row, REENTRANT_SCHEMA, row["id"])
+        lines = (ROOT / "golden/legacy-identity-confirmation.jsonl").read_text().splitlines()
+        for row in (json.loads(line) for line in lines if line):
+            with self.subTest(row=row["id"]):
+                validate_json(row, CONFIRMATION_SCHEMA, row["id"])
 
     def test_inconsistent_presence_and_null_values_are_rejected(self):
         base = {"id": "x", "present": False, "incoming": "a", "accepted": False, "expected": []}
@@ -38,6 +43,9 @@ class LegacyIdentityPreferenceFixtureSchemaTest(unittest.TestCase):
             with self.subTest(row=mutation):
                 with self.assertRaises(SpecError):
                     validate_json(mutation, SCHEMA, "invalid")
+        with self.assertRaises(SpecError):
+            validate_json({"id": "x", "write_result": True, "interruption": "unknown",
+                           "update_current": True, "report_failure": False}, CONFIRMATION_SCHEMA, "invalid")
 
 
 if __name__ == "__main__":

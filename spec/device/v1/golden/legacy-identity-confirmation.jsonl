@@ -1,0 +1,7 @@
+{"id":"unchanged-success","write_result":true,"interruption":"none","update_current":true,"report_failure":false}
+{"id":"unchanged-failure","write_result":false,"interruption":"none","update_current":false,"report_failure":true}
+{"id":"disconnect-during-success","write_result":true,"interruption":"disconnect","update_current":false,"report_failure":false}
+{"id":"channel-replaced-during-success","write_result":true,"interruption":"replace-channel","update_current":false,"report_failure":false}
+{"id":"same-client-new-generation","write_result":true,"interruption":"reinstall-client","update_current":false,"report_failure":false}
+{"id":"pending-replaced-during-failure","write_result":false,"interruption":"replace-pending","update_current":false,"report_failure":false}
+{"id":"proof-finished-after-replacement","write_result":true,"interruption":"stale-proof","update_current":false,"report_failure":false}

@@ -7,7 +7,7 @@ status: frozen
 breaking: true
 version_decision: Preserve the draft void insertion API and add a result-bearing local operation for the probe; no wire or on-disk format change.
 base: 603e4e64a28ddb5e7d2d4add517d2e10c4d190b7
-contract_revision: spec/device/v1/legacy-identity-preferences.md@legacy-pref-v2
+contract_revision: spec/device/v1/legacy-identity-preferences.md@legacy-pref-v3
 ```
 
 Protocol impact: P07; P09; P18. The current `stringArray(forKey:) ?? []`
@@ -58,3 +58,12 @@ isolation and does not make UserDefaults durable. The fixture schema admits
 only the JSON property-list subset needed by these cases; this does not narrow
 which pre-existing values the production store must preserve. Its negative
 tests use the repository's existing schema validator without a new dependency.
+
+Revision v3: independent review found that a synchronous UserDefaults observer
+can invalidate or replace the connection during confirmation. A local
+confirmation epoch is invalidated by channel replacement, connection clear,
+client installation and pending-proof replacement. On return, only the same
+epoch, client and exact pending label can update UI state; an already performed
+write is not rolled back. The dormant asynchronous proof helper must discard
+a result from a replaced epoch. Shared ordering cases run the actual store with
+isolated defaults and controlled reentry; they are not radio-liveness proof.

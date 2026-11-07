@@ -30,6 +30,21 @@ must not trigger an automatic rollback. The UI must not report
 or retain the pending identity as recorded on failure. A membership query for
 an absent or visibly invalid value remains false.
 
+Confirmation captures a non-reusable local confirmation generation, the
+current Link client instance and exact pending-label scalar sequence before
+accessing UserDefaults. Connection clearing, channel replacement, installation
+of a Link client, and replacement or clearing of the pending proof all invalidate
+that generation. Because UserDefaults access may synchronously reenter the
+store, after either insertion outcome the store updates identity or status only
+if the generation, client instance and pending label are still the same. A
+late result never changes a newer connection or restores a task grant. If the
+preference write already happened, do not roll it back merely because the
+connection changed; it remains only an unbound historical label. This is an
+app-observed local ordering check, not evidence of radio liveness, bonding,
+peer identity, or an authenticated session. The unused proof helper must also
+discard its asynchronous result if its captured generation or client changed.
+`golden/legacy-identity-confirmation.jsonl` describes these ordering cases.
+
 The old void insertion method remains as a compatibility wrapper and discards
 the result; newer probe code uses the result-bearing method. Operations through
 this API serialize participating callers within the current process. A
