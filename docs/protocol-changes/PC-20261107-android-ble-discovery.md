@@ -7,7 +7,7 @@ status: frozen
 breaking: false
 version_decision: Add local untrusted discovery UI and API only; no wire or persistence version change.
 base: 46c4c57b9c40e87baa5b70cb37018e9abee6c6d4
-contract_revision: spec/device/v1/android-ble-discovery.md@discovery-v3
+contract_revision: spec/device/v1/android-ble-discovery.md@discovery-v4
 ```
 
 Protocol impact: P07; P08; P09. The Android app has no production BLE
@@ -69,3 +69,9 @@ installed before registering result callbacks, which may deliver synchronously.
 The 15-second monotonic deadline is recorded before invoking platform start;
 candidate callbacks while starting are dropped and early failure is retained
 until cleanup. Kotlin candidate and snapshot stringification redact values.
+
+Revision v4: clarify that an attempt cancelled before platform start needs no
+stop call, and that an invalidated generation's registered start/stop completion
+may update only its own cleanup state. Late discovery data remains rejected.
+Use sleep-inclusive elapsed realtime and check the absolute deadline again on
+start completion and each result, even if the timer callback has not run.

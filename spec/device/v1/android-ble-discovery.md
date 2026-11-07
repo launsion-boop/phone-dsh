@@ -16,8 +16,12 @@ be suspended when the screen is off. Successful `startScan` return means only
 that the call returned, not that radio coverage or delivery is guaranteed.
 
 Each user attempt has a fresh generation and callback. Permission results,
-scan callbacks, timers, and OS failures are serialized and accepted only for
-their owning still-active generation. A pending permission request keeps its
+scan callbacks, timers, and OS failures are serialized. Discovery data and
+ordinary callbacks are accepted only for their owning still-active generation.
+An invalidated generation's registered start/stop completion may be consumed
+only to finish its cleanup and publish its terminal state; it cannot modify a
+new generation. An old permission result may be consumed to release its pending
+request but cannot start a scan. A pending permission request keeps its
 original generation until the platform responds; a later request cannot claim
 its result. While the original generation is still active and requesting
 permission, repeated start is a no-op; its eventual grant may continue that
@@ -36,7 +40,11 @@ including reentrant delivery, rotation and an unowned restored result.
 Stop, page exit or host `ON_STOP` invalidates the local generation
 before requesting system stop, discards late results and does not automatically
 restart on resume. Immediately before invoking platform start, record a
-15-second absolute monotonic deadline. Expiration during `STARTING` invalidates
+15-second absolute deadline using Android `SystemClock.elapsedRealtime` (which
+includes device sleep). Check that deadline when handling a start result and
+every candidate or batch, not only when a timer callback arrives. If it has
+expired, invalidate and clean up before publishing any start or discovery
+result. Expiration during `STARTING` invalidates
 locally and enters `STOPPING`; once start returns, request stop with the same
 callback, or quarantine on exception. Stop uses the
 same callback instance as start. Errors, unavailable hardware, Bluetooth off,
@@ -51,7 +59,7 @@ or abandoned start cannot release this reservation while its outcome is
 unknown. Candidate events received while start is in flight are dropped;
 an asynchronous scan failure invalidates locally and enters `STOPPING`, then
 is reported as failed once start returns and the stop request has returned.
-No event can be published after invalidation.
+No discovery result can be published after invalidation.
 
 At most 100 in-memory candidates are retained for a scan. The app uses a
 private platform key only to coalesce repeated callbacks in that scan and
@@ -97,8 +105,10 @@ and clears candidates on page disposal; it must preserve `CLEANUP_REQUIRED` if
 system cleanup is unresolved. `STARTING` and `STOPPING` are local asynchronous
 operations; neither asserts radio state. `SCANNING` means the platform
 start call returned and local generation remains active, not that discovery
-succeeded. `STOPPED` means local generation is invalidated and stop was
-requested without a synchronous exception, not a platform acknowledgement.
+succeeded. `STOPPED` means local generation is invalidated; if platform start
+was invoked, stop was requested without a synchronous exception, while an
+attempt cancelled before platform start needs no stop. It is not a platform
+acknowledgement.
 The schema and `golden/android-ble-discovery.jsonl` prescribe real-state-machine
 scenarios. Platform adapters must run them through their real implementation
 with a controllable backend; host fakes do not establish Android radio behavior.
