@@ -87,3 +87,13 @@ candidate, not an approved or vendored dependency. It used test PEM keys, host
 certificate verification and localhost; ESP32 compilation, true no-clock
 configuration, production licensing/integration, Keychain signing, GATT,
 physical devices and memory budgets remain unverified.
+
+Packaging feasibility (2026-11-07): the same upstream archive was built without
+added compatibility shims for iphoneos arm64 (iOS 17), iphonesimulator arm64
+(iOS 17) and macOS arm64 (macOS 14). A temporary combined-static-library
+XCFramework and a minimal opaque C bridge linked from Swift for all three
+slices; the Simulator and macOS binaries actually initialized PSA and set up
+TLS 1.3. The iphoneos binary was linked only. The experiment did not establish
+x86_64 support, SwiftPM binary-target resolution, deterministic outputs,
+production license closure, Keychain access or security review, and no
+XCFramework or upstream source is committed by this change.
