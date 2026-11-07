@@ -3,7 +3,7 @@
 ```yaml
 change: PC-20261107-sdk-manager-listing
 contracts: [P23]
-status: frozen
+status: implemented
 breaking: false for documented SDK listings; false-positive classifications are rejected
 base: 529cbee4cc2a3352de8af2d4fcf179fe0607aa52
 contract_revision: spec/toolchain/v1/sdk-manager.md@sha256:d1821bda494c9070f45284b3e7243805ccf0d3ca94a80e83224fc1bf6b5d8d34
@@ -160,3 +160,44 @@ Revision 5 freeze checks: `python3 -m unittest discover -s spec/v1/tools -p
 test_spec_golden.py` → PASS, 66 tests; `bash scripts/ci/check.sh --only
 phone-spec,phone-p0-conformance,phone-cross-tree` → PASS / FAIL / PASS. No
 implementation or structure-gate pass is claimed by these contract checks.
+
+
+## Implementation and verification
+
+The adapter implements the revision 5 behavioral freeze at commit `89b5c1ab`.
+The only subsequent owner-contract edit changes the status label; its current
+file SHA-256 is
+`4e4ee9102c35780319c1a5b072e468f85f5d936a69614ace9c53993d76d94cfc`.
+No format, fixture or compatibility behavior changed in that status edit.
+The SDK manager remains an external, unmodified producer. The parser consumes
+its stdout and checks two independent captures; stderr remains visible but
+not parsed. The adapter preserves a nonzero SDK exit code, rejects capture
+failure or divergent copies, emits standalone status lines and removes its
+temporary captures on normal failure and SIGTERM. It cannot prove against
+identical loss before both captures or uncatchable termination.
+
+* `python3 -m unittest discover -s android/tools -p
+  test_bootstrap_android_toolchain.py` → PASS, 27 tests, including all 28
+  shared cases and deterministic failure/divergence tests for each capture.
+  Independent Bash 3.2/BSD awk tests confirmed both capture paths, exit 7,
+  SIGTERM cleanup and a `tee` executable path containing spaces.
+* The real SDK manager 23.0 `--check` on a separate temporary SDK copy → PASS,
+  all three requested packages and directories. The external manager itself
+  was not changed.
+* `bash scripts/ci/check.sh --only phone-android-structure` with isolated SDK,
+  toolchain, Android user and Gradle paths → PASS: 92 tool tests, two Linux
+  UID-specific skips, and 17 packaged-alignment mutation tests. The real arm64
+  JNI artifact was inspected. This is not Android physical-device validation.
+
+The initial unisolated structure-gate run failed because the old adapter
+misread the SDK manager's slash rows. Its task-graph setup invoked the
+repository bootstrap, which downloaded a JDK and SDK under the user's default
+`~/toolchains/pdsh-android` and accepted Android SDK licenses in that SDK.
+Those files were retained to avoid deleting pre-existing user data. Subsequent
+verification used a temporary copy and separate paths. The next isolated
+attempts were deliberately interrupted when independent review found contract
+counterexamples; only the final complete run is reported as passing.
+* `bash scripts/ci/check.sh --only
+  phone-spec,phone-p0-conformance,phone-cross-tree` → PASS / FAIL / PASS at
+  the combined implementation; P0 remains incomplete for the separately
+  recorded stale or missing UI contracts.

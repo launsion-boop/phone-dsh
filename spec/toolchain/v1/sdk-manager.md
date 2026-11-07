@@ -1,6 +1,6 @@
 # Android SDK package listing boundary
 
-Status: frozen; adapter implementation pending. Protocol impact: P23.
+Status: frozen contract; adapter implemented. Protocol impact: P23.
 
 The external Android SDK manager is not controlled by this repository. The
 bootstrap adapter invokes `sdkmanager --list_installed`, requires a successful
