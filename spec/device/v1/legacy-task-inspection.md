@@ -43,15 +43,21 @@ completeness are unverified. GAP-24 remains open.
 
 ## iOS module interface
 
-`PhoneDSHDeviceTasks` exposes `DeviceTaskLegacyInspector.inspect(directory:)`
-as an asynchronous, cancellable function taking the existing journal directory
-URL and returning `DeviceTaskLegacyInspection`. The result has `status`
+`PhoneDSHDeviceTasks` exposes the no-argument asynchronous, cancellable
+`DeviceTaskLegacyInspector.inspect()` returning `DeviceTaskLegacyInspection`.
+It obtains the trusted Application Support URL from the OS without creating it,
+then appends the fixed `device-task-journal` component. Arbitrary caller URLs
+are not exposed through the public API; an internal test entry may inject a
+trusted ancestor and target directory to exercise the same real implementation.
+If the OS does not return an Application Support URL, return `incomplete` with
+`rootUnreadable` and do not create a directory.
+The result has `status`
 (`busy` or `incomplete`), an array of entries, a `cancelled` flag, and zero or
 more reasons: `rootMissing`, `rootUnreadable`, `rootUnsupported`, `entryBudget`,
 `byteBudget`, `ioError`, or `cancelled`. Each entry has a unique reversible
 escaped relative `id`/`label`, a `kind`, and optional untrusted local claims
-(`deviceID`, `taskID`, `phase`, `outcomeKind`):
-`observed`, `unparsed`, `unreadable`, `symlink`, `nonRegular`, or `unexamined`.
+(`deviceID`, `taskID`, `phase`, `outcomeKind`). Kinds are `observed`,
+`unparsed`, `unreadable`, `symlink`, `nonRegular`, and `unexamined`.
 `observed` means only that bounded bytes were read and recognized as JSON; it
 does not declare a valid task, stable bytes, trusted identity or outcome.
 `unparsed` includes JSON the inspector cannot establish as parseable and does
@@ -96,6 +102,19 @@ discarding the others. A missing directory is `incomplete`, not proof that no
 history exists. Root and child file replacement, read failure, cancellation,
 unknown filename bytes and a changed inode are incomplete observations, never
 successful recovery.
+
+Before opening the journal, inspect the actual absolute filesystem
+representation, after URL decoding and before any path normalization. Reject
+non-file URLs, a nonempty host (including `localhost`), any non-nil user,
+password, port, query or fragment (including empty user/query/fragment), and
+any `.` or `..` component. Remove trailing separators without resolving
+path components, then apply `O_NOFOLLOW` to the actual final component; an
+empty or root-only target is unsupported. This ensures a final symlink followed
+by `/`, `/.` or encoded `.` cannot be followed. System-provided trusted
+ancestors may still contain OS-managed symlinks; this rule does not authorize
+caller-controlled ancestors. Shared `golden/legacy-task-inspection-roots.jsonl`
+exercises the real scanner and OS-provided-directory integration. Do not use
+lexical standardization of `..` as a substitute for rejecting it.
 
 The inspector may preview at most 65,536 bytes per regular file and 4,194,304
 bytes total per scan and may enumerate at most 16,385 non-dot entries. These

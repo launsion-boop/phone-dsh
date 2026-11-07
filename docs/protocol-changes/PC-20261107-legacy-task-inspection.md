@@ -7,7 +7,7 @@ status: frozen
 breaking: false
 version_decision: No persisted or wire format change; concurrent journal initialization fails busy while a local inspection is active.
 base: 1747309343746a5c4a571c1f743e2b45514e4cd0
-contract_revision: spec/device/v1/legacy-task-inspection.md@sha256:4c55e39e8e60cb7e3abb9831b49c5e1b75730cde5999dd846d17f001f26d845f
+contract_revision: spec/device/v1/legacy-task-inspection.md@sha256:8ae310bd779a74917b029a9b399314f8a8917cfac0dc31233af7c09b217480ab
 ```
 
 ## Trigger and delta
@@ -97,3 +97,27 @@ the pre-existing production journal subsequently calls `JSONDecoder` on the
 whole record, so scanner safety alone does not establish journal safety for
 deep inputs. Swift worker-stack and actual iOS evidence are separate from the
 macOS crash and must be reported exactly.
+
+## Revision 3 — constrain the root URL
+
+At revision 2, independent testing of the in-progress scanner showed that a
+root symlink followed by `/.` is followed despite `O_NOFOLLOW` on the path's
+last component; a file URL with a remote authority was also silently treated
+as a local path by Foundation. No implementation was merged. The owner changes
+the not-yet-shipped public API to `inspect()` so it obtains the fixed journal
+under the OS-provided Application Support ancestor; only an internal test
+entry may inject another trusted root. Inspect the actual decoded filesystem
+bytes and reject `.`/`..`, a nonempty host, any user/password/port or
+query/fragment, and non-file inputs;
+remove trailing separators before no-follow opening. Do not standardize away
+`..`, and do not reject trusted OS-managed ancestor symlinks. This keeps the
+storage format, identity and non-replay semantics unchanged.
+
+Shared `golden/legacy-task-inspection-roots.jsonl` SHA-256 is
+`ea1a170ac9fab40f2ffe71da0fd8b39c535b39b104bc611f3ac55b19a214eee0`;
+its schema SHA-256 is
+`f374bab200bd2beffa184b5df4db9db4b44e35da03250e03cafafd5f61912c33`.
+Both implementers must update to the new API after this revision is committed.
+The scanner must drive the root vectors through actual filesystem operations,
+and the UI integration must verify the OS-derived default in an isolated
+app container, not inspect the user's unrelated Application Support files.

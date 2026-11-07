@@ -704,6 +704,17 @@ class LegacyTaskInspectionFixtureTests(unittest.TestCase):
             with self.assertRaises(spec_golden.SpecError):
                 spec_golden.validate_json(bad, schema, "mutation")
 
+    def test_root_vectors_and_schema(self):
+        device = SPEC_DIR.parent / "device" / "v1"
+        schema = json.loads((device / "schema" / "legacy-task-inspection-root.schema.json").read_text())
+        rows = [json.loads(line) for line in (device / "golden" / "legacy-task-inspection-roots.jsonl").read_text().splitlines()]
+        self.assertEqual(len(rows), 22)
+        self.assertEqual(len(rows), len({row["scenario"] for row in rows}))
+        for row in rows:
+            spec_golden.validate_json(row, schema, row["name"])
+        with self.assertRaises(spec_golden.SpecError):
+            spec_golden.validate_json({**rows[0], "expected_reason": "trusted"}, schema, "mutation")
+
 
 if __name__ == "__main__":
     unittest.main()
