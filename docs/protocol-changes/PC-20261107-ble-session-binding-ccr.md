@@ -97,3 +97,6 @@ TLS 1.3. The iphoneos binary was linked only. The experiment did not establish
 x86_64 support, SwiftPM binary-target resolution, deterministic outputs,
 production license closure, Keychain access or security review, and no
 XCFramework or upstream source is committed by this change.
+A separate local SwiftPM consumer subsequently resolved and built the temporary
+binary target for macOS; SwiftPM resolution for iOS and its Simulator remains
+NOT_RUN.
