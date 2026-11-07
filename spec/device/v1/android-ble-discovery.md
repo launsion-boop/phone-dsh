@@ -44,7 +44,11 @@ restart on resume. Immediately before invoking platform start, record a
 includes device sleep). Check that deadline when handling a start result and
 every candidate or batch, not only when a timer callback arrives. If it has
 expired, invalidate and clean up before publishing any start or discovery
-result. Expiration during `STARTING` invalidates
+result. The timer may run late if the process is frozen or the device sleeps;
+it does not promise a radio stop at the deadline. Recheck elapsed time at the
+next relevant event, including host start and screen-on, and request stop if
+expired. After the deadline no discovery result is accepted. Physical stop
+time and background power use require device evidence. Expiration during `STARTING` invalidates
 locally and enters `STOPPING`; once start returns, request stop with the same
 callback, or quarantine on exception. Stop uses the
 same callback instance as start. Errors, unavailable hardware, Bluetooth off,

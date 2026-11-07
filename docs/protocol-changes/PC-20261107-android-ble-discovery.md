@@ -7,7 +7,7 @@ status: frozen
 breaking: false
 version_decision: Add local untrusted discovery UI and API only; no wire or persistence version change.
 base: 46c4c57b9c40e87baa5b70cb37018e9abee6c6d4
-contract_revision: spec/device/v1/android-ble-discovery.md@discovery-v5
+contract_revision: spec/device/v1/android-ble-discovery.md@discovery-v6
 ```
 
 Protocol impact: P07; P08; P09. The Android app has no production BLE
@@ -79,3 +79,8 @@ start completion and each result, even if the timer callback has not run.
 Revision v5: platform stop, like platform start, runs on the serial worker.
 Local invalidation is immediate; `STOPPING` continues until the stop call
 returns or raises. Shared scenarios explicitly distinguish those events.
+
+Revision v6: implementer CCR noted a sleep/frozen process cannot run a timer
+at a guaranteed elapsed-realtime deadline. The deadline rejects late results;
+stop is requested at the next relevant event including host start or screen-on.
+No physical stop-time or background-power guarantee is inferred.
