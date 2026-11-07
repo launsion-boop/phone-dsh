@@ -282,3 +282,26 @@ Revision 11 validation: `swiftc -typecheck` and `-dump-ast` against the stated
 Simulator SDK → PASS for this fixture; `bash scripts/ci/check.sh --only
 phone-license,phone-spec,phone-p0-conformance,phone-cross-tree` → PASS / PASS /
 FAIL / PASS. P0 and extractor implementation remain incomplete.
+
+## Compiler-context feasibility, not conformance
+
+A separate iOS Simulator 27.1 / Swift 6.4 typecheck experiment used the exact
+48 fixture source files and individually recorded their bytes and arguments.
+All 42 cases marked syntactically valid typechecked with their documented
+fixture-only context; the six invalid-syntax cases were not typechecked in that
+run. Three cases required synthetic model/directory values, one used the real
+`NativeChatPreferences.swift` for `NativeText`, and one regex case required a
+fixture-only `Int + Regex` overload. That overload changes symbol resolution;
+the source without it failed typecheck and must not be presented as production
+operator behavior. Three bare-regex cases required an explicit compiler flag.
+The repaired `navigation_item` case typechecked without a companion.
+
+A separate real probe-module AST experiment distinguished SwiftUI methods
+from cross-file shadowing but did not prove which views reach output. The
+compiler labels its AST dump format unstable; byte offsets require explicit
+UTF-8-to-source mapping, and an AST for one build profile cannot represent
+other conditional-compilation profiles. These observations do not freeze a
+compiler-evidence format, authorize synthetic production context, establish
+SwiftUI runtime behavior, or make the P0 gate pass. Any implementation needs
+reviewed per-fixture context, complete build-profile inputs, proven output
+dataflow and a versioned compatibility decision.
