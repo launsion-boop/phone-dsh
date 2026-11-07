@@ -723,7 +723,7 @@
       ],
       "source": {
         "authority": "host/v1 的 envelope／caps／receipt schema；[BLE Link profile](device/v1/ble-link.md)（`implemented`）；[LAN MCP profile](device/v1/lan-mcp.md)（`implemented`）；[device task profile](device/v1/task-delegation.md)（`target`）；[adapter draft](../docs/design/device-adapter-contract-draft.md)（`draft`）",
-        "ends": "Kotlin `android/domain/.../{device,connector}`；Swift `examples/probe-app/ProbeKit/Devices`、`Sources/PhoneDSHBLE`、`Sources/PhoneDSHLAN`、`Sources/PhoneDSHDeviceTasks`；C `firmware/components/pdsh_link_wire`、`firmware/esp32-reference`；Python `examples/lan-mcp-device`",
+        "ends": "Kotlin `android/domain/.../{device,connector}`；Swift `examples/probe-app/ProbeKit/Devices`、`Sources/PhoneDSHBLE`、`Sources/PhoneDSHLAN`、`Sources/PhoneDSHDeviceTasks`；C `firmware/components/pdsh_link_wire`、`firmware/esp32-reference`；Python `examples/lan-mcp-device`；Android BLE/LAN decoder `target`，未接入 discovery",
         "evidence": "Kotlin `DeviceCapabilitiesSchemaTest`；第三方傳輸與端到端回執不由 schema 保證",
         "triggers": "`spec/device/v1/**`、`plugins/lifecycle-gate/src/device-{scope,guard}.ts`、`Sources/PhoneDSHDeviceTasks/**`、`Sources/PhoneDSHLAN/**`、`examples/lan-mcp-device/**`、`Sources/PhoneDSHBLE/**`、`firmware/**`、`spec/host/v1/schema/device-*`、`spec/host/v1/golden/device-*`、`docs/design/device-*.md`、`android/domain/src/main/kotlin/com/phonedsh/domain/{device,connector}/**`、`examples/probe-app/ProbeKit/Devices/**`"
       }

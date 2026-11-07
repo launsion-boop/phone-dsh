@@ -1,0 +1,13 @@
+{"name":"valid","service":"Lamp","host":"lamp.local.","port":8443,"txt_hex":"1270726f66696c653d706473682d6d63702d31","url":"https://lamp.local:8443/mcp"}
+{"name":"case_and_binary_unknown","service":"Light","host":"LIGHT.local.","port":443,"txt_hex":"01ff1250724f66496c453d706473682d6d63702d31","url":"https://light.local/mcp"}
+{"name":"truncated","service":"Lamp","host":"lamp.local.","port":443,"txt_hex":"0a70","error":"invalid_advertisement"}
+{"name":"duplicate_case","service":"Lamp","host":"lamp.local.","port":443,"txt_hex":"1270726f66696c653d706473682d6d63702d311250524f46494c453d706473682d6d63702d31","error":"invalid_advertisement"}
+{"name":"profile_without_equals","service":"Lamp","host":"lamp.local.","port":443,"txt_hex":"0770726f66696c65","error":"invalid_advertisement"}
+{"name":"invalid_utf8_value","service":"Lamp","host":"lamp.local.","port":443,"txt_hex":"0970726f66696c653dff","error":"invalid_advertisement"}
+{"name":"wrong_case_value","service":"Lamp","host":"lamp.local.","port":443,"txt_hex":"1270726f66696c653d504453482d4d43502d31","error":"invalid_advertisement"}
+{"name":"missing","service":"Lamp","host":"lamp.local.","port":443,"txt_hex":"09756e6b6e6f776e3d31","error":"invalid_advertisement"}
+{"name":"invalid_host","service":"Lamp","host":"bad..local.","port":443,"txt_hex":"1270726f66696c653d706473682d6d63702d31","error":"invalid_advertisement"}
+{"name":"unicode_host","service":"Lamp","host":"lámp.local.","port":443,"txt_hex":"1270726f66696c653d706473682d6d63702d31","error":"invalid_advertisement"}
+{"name":"port_too_large","service":"Lamp","host":"lamp.local.","port":65536,"txt_hex":"1270726f66696c653d706473682d6d63702d31","error":"invalid_advertisement"}
+{"name":"long_service","service":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","host":"lamp.local.","port":443,"txt_hex":"1270726f66696c653d706473682d6d63702d31","error":"invalid_advertisement"}
+{"name":"empty_entry","service":"Lamp","host":"lamp.local.","port":443,"txt_hex":"001270726f66696c653d706473682d6d63702d31","url":"https://lamp.local/mcp"}
