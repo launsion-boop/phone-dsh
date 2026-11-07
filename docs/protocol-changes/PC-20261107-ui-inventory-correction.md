@@ -32,3 +32,13 @@ Acceptance: `python3 spec/ui/v1/tools/ui_check.py --root .`; and
 `bash scripts/ci/check.sh --only phone-spec,phone-p0-conformance,phone-cross-tree`.
 Report each actual outcome: the inventory correction does not resolve the
 missing structures or prove build-profile, Android, or device runtime parity.
+
+## Verification at 366720c8
+
+`python3 spec/ui/v1/tools/ui_check.py --root .` → PASS (47 documented
+source pages, 345/345 lines). `bash scripts/ci/check.sh --only
+phone-spec,phone-p0-conformance,phone-cross-tree` → PASS / FAIL / PASS. P0
+still reports the three absent structures and six other stale structures; its
+page-structure test also fails on stale Chat provenance. This is an incomplete
+acceptance, not evidence of UI parity. The README is an inventory correction,
+not a substitute for those page contracts or their Android implementations.
