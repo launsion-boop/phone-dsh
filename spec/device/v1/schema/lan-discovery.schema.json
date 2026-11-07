@@ -1,6 +1,6 @@
 {
   "title": "LAN MCP Discovery Input",
-  "description": "Decoded DNS-SD candidate; semantic validation of TXT records and DNS labels is defined by lan-mcp.md. TXT records are ordered strings to retain duplicates. Unknown TXT entries are ignored.",
+  "description": "Decoded DNS-SD candidate; semantic validation of TXT records and DNS labels is defined by lan-mcp.md. TXT records are ordered strings to retain duplicates. Unknown TXT entries are ignored. Numeric-final-label SRV targets are rejected by semantic hostname validation in lan-mcp.md.",
   "type": "object",
   "required": [
     "service",
