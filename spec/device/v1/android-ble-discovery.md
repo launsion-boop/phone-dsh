@@ -4,6 +4,11 @@ Status: `target`. This slice defines discovery only. It does not implement or
 claim Bluetooth connection, identity, GATT, Link, tools, task grants, or P09
 page parity. An advertisement, name, RSSI, platform address or bond is not
 evidence of any of those. No target Link or task operation is called.
+Until real Android and peripheral runtime evidence is reviewed and this
+profile is explicitly advanced from `target`, production app and UI callers
+must not instantiate or invoke this discovery source. Its new scan/location
+permissions must not be added to the production manifest solely for this
+target. The internal implementation and its tests may be retained unwired.
 
 Only a visible page's explicit user action can initiate a scan. On Android API
 26–30 the app declares the legacy Bluetooth permissions and requests fine
