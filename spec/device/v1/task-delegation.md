@@ -30,6 +30,13 @@ remove, or restore the grant of a later generation, including when two UI
 entries map to the same device identity. A later start may fail busy while an
 old job is still stopping; it requires a fresh user action to retry. A late
 completion or stop callback from an old generation cannot alter the new one.
+An attempt that returns busy never owns the incumbent job and its failure
+cleanup must not stop or change it. The incumbent occupies its device identity
+until its task and stop callback have actually finished, not merely until
+cancellation was requested. No retry is scheduled for a busy attempt. App
+suspension invalidates and cancels all active or starting generations before
+awaiting any one stop. A job that does not finish on cancellation remains
+stopping and busy; no timeout may treat it as finished or admit an overlap.
 Cancellation does not prove that a task submitted before cancellation had no
 effect; its existing journal and unknown-outcome rules remain in force. The
 shared `golden/task-grant-generations.jsonl` cases describe these ordering

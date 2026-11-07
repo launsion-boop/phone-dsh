@@ -7,7 +7,7 @@ status: frozen
 breaking: false
 version_decision: No wire, storage, capability, or version change; enforce the existing connection-scoped grant.
 base: 1e488f83633230cbdfe3562e0eb7e20b483899de
-contract_revision: spec/device/v1/task-delegation.md@grant-generations-v1
+contract_revision: spec/device/v1/task-delegation.md@grant-generations-v2
 ```
 
 ## Trigger, contract, and roles
@@ -32,8 +32,12 @@ cancelled handle must be installed before the manager can suspend; revocation
 invalidates it synchronously, cancels and awaits it, then stops only a matching
 intake token. The intake checks cancellation before installing a job. A
 completed start racing cancellation is still joined and its exact token
-stopped. Same-device starts cannot overlap and a busy result is not retried
-without a new grant. Real code must consume every shared scenario, including
+stopped. A busy attempt never owns the incumbent and its cleanup cannot touch
+it; the incumbent remains reserved until the job and its stop callback finish.
+Same-device starts cannot overlap and a busy result is not retried without a
+new grant. App suspension invalidates all generations before awaiting any
+stop. A job which ignores cancellation remains stopping and busy, without a
+timeout that pretends it is finished. Real code must consume every shared scenario, including
 negative cases and stale callbacks. BLE grants remain refused.
 
 No producer or consumer wire representation changes. Firmware, LAN device,
@@ -53,9 +57,24 @@ made.
 
 Shared `spec/device/v1/golden/task-grant-generations.jsonl` and its schema
 enumerate start cancellation, stop after start, stale stop, different UI key
-with the same device, stale callback, and busy behavior. Acceptance commands:
+with the same device, stale callback, and busy behavior. Observe the incumbent
+alive during busy and count live jobs, starts, and automatic retries. Verify
+that an attempt after busy needs a fresh user action. Test suspension with two
+devices and one blocked stop. The previous public Swift intake entry points
+must remain source-compatible for their old callers; the app's coordinator
+must not use an unscoped stop to cancel a new generation. Already in-flight
+network or DSH operations can have unknown outcomes. After a stop returns the
+revoked job cannot initiate any further accept, prompt, report, or retry.
+Acceptance commands:
 `swift test --filter PhoneDSHDeviceTasksTests`; the probe manager's actual
 Xcode tests for generation ordering; and `bash scripts/ci/check.sh --only
 phone-spec,phone-p0-conformance,phone-cross-tree`. Report each result exactly;
 existing P0 failures and device tests are not converted to passes. Remaining
 GAP-16 and journal recovery risks are unaffected.
+
+## Revision history
+
+`grant-generations-v2`: independent review found that final booleans alone did
+not constrain busy cleanup, overlapping work or multi-device suspension. Added
+ordered steps, intermediate observations and explicit API compatibility;
+implementers were paused before implementation and notified of this revision.
