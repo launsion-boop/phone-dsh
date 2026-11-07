@@ -7,7 +7,7 @@ status: frozen
 breaking: false
 version_decision: Preserve page-structure/1; reject ambiguous extraction instead of guessing.
 base: 00402003f6efde6c5fdda3032053443dd5a7d76f
-contract_revision: spec/ui/v1/page-title-ownership.md@sha256:4c112455a386e6425f41389dc67eaae6779aff0056a7d96d17c3b4b009550cfe
+contract_revision: spec/ui/v1/page-title-ownership.md@sha256:56960870d55c307fc67fc822d91059d5c276ee8d6462578da968abcb2fdd560b
 ```
 
 ## Trigger and delta
@@ -158,3 +158,32 @@ discover -s spec/v1/tools -p test_spec_golden.py` → PASS, 65 tests after updat
 the exact expected fixture count from 34 to 38. `bash scripts/ci/check.sh --only
 phone-spec,phone-p0-conformance,phone-cross-tree` → PASS / FAIL / PASS; P0
 remains incomplete for the previously recorded missing and stale contracts.
+
+
+## Revision 7 — helper reachability is output reachability
+
+Independent review of the unmerged revision 6 draft found three valid and
+Simulator-SDK-typechecked programs where a titled `some View` helper is only
+referenced by an unused binding, passed into `String(describing:)`, or
+discarded. A reference-based reachability heuristic incorrectly reported its
+title in all three. Freeze those as error cases and a directly returned helper
+as a positive case. Output provenance must be established across the helper
+call path; neither identifier occurrence nor a View type proves mounting.
+Unresolved ownership remains an error, not absence. The incomplete draft was
+not committed; existing row and action reachability is not changed by this
+revision. No schema, compatibility, rollback or role change.
+
+The contract hash is
+`56960870d55c307fc67fc822d91059d5c276ee8d6462578da968abcb2fdd560b`;
+the 42-case JSONL hash is
+`4eddde699720fdfc527bd0a9390f3102abc4da28567d7fce4d9028c004fcdcfa`;
+the sorted Swift fixture manifest hash is
+`2e7ef1a02a02f9116346cd8f087706fe23763e895e386710e9ef1739e522a238`.
+All four new sources parse and typecheck against the iOS Simulator SDK. The
+prior runtime, mutation, CLI, full-extraction comparison and gate acceptance
+requirements remain in force.
+
+Freeze verification: `python3 -m unittest discover -s spec/v1/tools -p test_spec_golden.py` → PASS, 65 tests after updating the exact case count to 42;
+`bash scripts/ci/check.sh --only phone-spec,phone-p0-conformance,phone-cross-tree`
+→ PASS / FAIL / PASS. This verifies fixture structure, not implementation of
+these cases. P0 and the extractor implementation remain incomplete.

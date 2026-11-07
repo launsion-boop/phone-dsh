@@ -44,7 +44,10 @@ a title or silently returning null. A matching method name alone does not prove
 that its receiver is a returned SwiftUI view: non-View calls, unused local
 views, calls in arguments and any unproven modifier chain require an explicit
 failure when they could affect the title. Receiver type alone does not prove
-that a view reaches the page output. This raw-source check does not determine an
+that a view reaches the page output. A view helper that is directly returned
+by the page body is a supported case. Other helper references require a
+proved chain to that output; an unused or discarded binding, argument used to
+produce a non-view value, unknown expression or recursive chain is not proof. This raw-source check does not determine an
 active build profile, runtime SwiftUI preference propagation, Android parity,
 or the presence of security controls. GAP-19 and GAP-21 remain open.
 
