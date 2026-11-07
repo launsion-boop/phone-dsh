@@ -260,7 +260,9 @@ Two entries stay `not-verified` and one stays `spec-only`; the audit above does 
 
 `android-module-map.json` is the reviewed P08/P12 inventory mapping every
 `Sources/PhoneDSH*` directory to an Android package and Gradle module or to an
-explicit absence. Its schema is `schema/android-module-map.schema.json`.
+explicit absence. Its schema is `schema/android-module-map.schema.json`. As
+semantic constraints in addition to schema, every `swift` name must be unique
+and the version must be encoded as the integer JSON literal `1`, not `1.0`.
 `mapped` means a corresponding source package exists, not that all behavior is
 complete; `target` is an unwired partial implementation, not a feature; `absent`
 has no claimed package or module. The Markdown table in `android/README.md` is

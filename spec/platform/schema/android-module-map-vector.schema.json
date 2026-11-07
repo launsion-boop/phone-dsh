@@ -22,7 +22,8 @@
         "package_missing",
         "gradle_missing",
         "manifest_duplicate",
-        "manifest_invalid_status"
+        "manifest_invalid_status",
+        "manifest_float_version"
       ]
     },
     "valid": {

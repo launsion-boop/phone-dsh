@@ -7,7 +7,7 @@ status: frozen
 breaking: false
 version_decision: Add a version-1 repository inventory and validate the existing README projection; no application, package ABI or wire change.
 base: 9b968ee054d504ae2af5dc26f6c2181a8bfeaa49
-contract_revision: spec/platform/android-module-map.json@sha256:d997d82e1424c5b4bb4acd1bbc8bf5f4af63b70157777cff7174ba8899b7cc54; spec/platform/README.md@sha256:9460c4364a050d69eb292c15616b125c1788dbd9c4f9696e3815259871311aba; spec/platform/schema/android-module-map.schema.json@sha256:f07671d3df5f4608a4c734112e90b6bc3ab22df0c94d5eec6f18853db77dbd0f
+contract_revision: spec/platform/android-module-map.json@sha256:d997d82e1424c5b4bb4acd1bbc8bf5f4af63b70157777cff7174ba8899b7cc54; spec/platform/README.md@sha256:32f3fb01bfd066ca5fb7d8248f66e19e1fe171717cf8a37391289ebc2d4d67ea; spec/platform/schema/android-module-map.schema.json@sha256:596dc708770938cdbd7f54b3b8cf2ea9af3ce66315f9f2e06e88fd1acf5e891c
 ```
 
 ## Trigger and authority
@@ -84,3 +84,16 @@ or patterns in Python. It retains semantic checks not expressible in this schema
 review found the Android DSH root package is a marker with implementation in
 subpackages; README now says so and makes no unsupported facade claim. No
 inventory status or application capability changed. Implementer notified.
+
+## Revision 3 — semantic identity and fixture validation
+
+Review identified two constraints not fully expressed by generic JSON Schema:
+Swift names are unique by field, and the format version must be spelled as the
+integer JSON literal `1`, not `1.0` even though a generic JSON Schema validator
+may treat both as an integer. The platform authority now states both explicitly;
+the existing repository validator enforces the integer type and the checker
+enforces unique names. The shared scenarios include the float-version rejection.
+The checker must use the schema, and tests must validate both the real manifest
+and every shared scenario against their respective schema using the existing
+validator. The Android structure gate runs these tests; schema drift is a
+failure, never a silently ignored file. Implementer notified.
