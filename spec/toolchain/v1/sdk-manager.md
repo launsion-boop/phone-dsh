@@ -6,7 +6,8 @@ The external Android SDK manager is not controlled by this repository. The
 bootstrap adapter invokes `sdkmanager --list_installed`, requires a successful
 exit status, and identifies the three configured package IDs from its installed
 package table from stdout only; stderr remains visible but never supplies
-package rows. If stdout lacks a final newline, the adapter must separate its
+package rows. Both the producer and the stdout capture must complete
+successfully; truncated or failed capture invalidates the entire listing. If stdout lacks a final newline, the adapter must separate its
 own output from the producer's final line before emitting any `PACKAGE` line.
 The repository consumes the adapter's `PACKAGE <id>=installed`
 or `PACKAGE <id>=MISSING` lines and exit status. Paths to the platform and
@@ -32,9 +33,9 @@ appear and are ignored. The latter form is invalid for any required ID, even
 if the listing contains another, version-bearing row for that ID. Any other nonempty row inside the installed section
 invalidates the listing. Diagnostics, suffix/prefix matches, missing versions
 and rows preceding the section are not installed packages. For
-`--list_installed`, the observed section reaches end-of-output. Unknown section
-headers before or after the installed section, or unrecognized ambiguous
-layout, must invalidate the listing instead of treating other output as rows. Nonzero sdkmanager exit always fails.
+`--list_installed`, the observed section reaches end-of-output. An unknown nonempty colon-terminated section heading, including one with
+punctuation, before or after the installed section invalidates the listing.
+Other unrecognized ambiguous layout must also fail closed. Nonzero sdkmanager exit always fails.
 
 The `golden/sdk-manager-listing.jsonl` cases define supported positive and
 negative listings and canonical required IDs. They must run through the real

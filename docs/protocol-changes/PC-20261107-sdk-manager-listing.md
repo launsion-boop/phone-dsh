@@ -6,7 +6,7 @@ contracts: [P23]
 status: frozen
 breaking: false for documented SDK listings; false-positive classifications are rejected
 base: 529cbee4cc2a3352de8af2d4fcf179fe0607aa52
-contract_revision: spec/toolchain/v1/sdk-manager.md@sha256:802d47187dacab0cc406990b1fe7b2c927ac6baf54980b44fb2c58c9085a0141
+contract_revision: spec/toolchain/v1/sdk-manager.md@sha256:bd93f624c958e161aedc4bf3626f5055f8f1bb173654bc08b6d1fee58014229b
 ```
 
 Protocol impact: P23. The real SDK command-line tools 23.0 produced slash
@@ -104,3 +104,31 @@ Revision 3 freeze checks: `python3 -m unittest discover -s spec/v1/tools -p
 test_spec_golden.py` → PASS, 66 tests; `bash scripts/ci/check.sh --only
 phone-spec,phone-p0-conformance,phone-cross-tree` → PASS / FAIL / PASS. These
 checks validate the contract, not its pending implementation.
+
+
+## Revision 4 — capture failure and unknown section punctuation
+
+Independent review of the unmerged revision 3 candidate reproduced a
+parenthesized or slash-containing section heading before `Installed packages:`
+being ignored, and a failed stdout capture returning success after dropping a
+later unrecognized section. Freeze both classes as negative cases. Any
+nonempty unknown colon-terminated heading before or after the section fails;
+the adapter must also verify the capture process as well as the SDK manager
+exit status. A capture failure is a failure even if the captured prefix looks
+valid. No fake artifact or SDK data is installed by these controlled cases.
+
+The revision 4 contract SHA-256 is
+`bd93f624c958e161aedc4bf3626f5055f8f1bb173654bc08b6d1fee58014229b`;
+the 27-vector fixture SHA-256 is
+`3e3968b73cb0787776387ae8847a8d5adceee59ed040262a5f029849d1a7caf4`;
+its updated schema SHA-256 is
+`04b5e3f52656ccd4a2b52f4d915490ff277d26d0f3781415ffa7ecd7fbaf927c`.
+The earlier implementation draft is not merged; ownership and compatibility
+remain unchanged. The real SDK stdout-capture failure case must execute the
+actual shell adapter with a controlled failing capture process that writes
+the valid prefix and drops the later unknown section.
+
+Revision 4 freeze checks: `python3 -m unittest discover -s spec/v1/tools -p
+test_spec_golden.py` → PASS, 66 tests; `bash scripts/ci/check.sh --only
+phone-spec,phone-p0-conformance,phone-cross-tree` → PASS / FAIL / PASS. This
+validates fixture structure and registry consistency, not the pending adapter.

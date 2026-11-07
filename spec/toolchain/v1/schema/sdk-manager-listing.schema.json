@@ -7,7 +7,9 @@
     "listing",
     "exit_code",
     "installed",
-    "stderr"
+    "stderr",
+    "capture_exit",
+    "capture_prefix"
   ],
   "additionalProperties": false,
   "properties": {
@@ -36,6 +38,14 @@
       "uniqueItems": true
     },
     "stderr": {
+      "type": "string"
+    },
+    "capture_exit": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255
+    },
+    "capture_prefix": {
       "type": "string"
     }
   }
