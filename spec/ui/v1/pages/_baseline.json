@@ -257,13 +257,6 @@
     },
     {
       "page": "licenses",
-      "kind": "title-mismatch",
-      "name": "SSH 组件许可",
-      "lane": "F",
-      "reason": "iOS titles the SSH license subpage SSH 组件许可, while Android LicensesPage uses the generic 开源许可 title. This is a real content and navigation difference, not an equivalent title."
-    },
-    {
-      "page": "licenses",
       "kind": "unresolved-section",
       "name": "<manual region>",
       "lane": "F",

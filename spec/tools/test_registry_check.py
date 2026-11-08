@@ -55,7 +55,7 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(len(checker.check_registry(self.root)[0]), 1)
 
     def test_real_registry(self):
-        self.assertEqual(len(checker.check_registry(ROOT)[0]), 25)
+        self.assertEqual(len(checker.check_registry(ROOT)[0]), 27)
 
     def test_deleted_source_fails(self):
         (self.root / 'Sources/wire.ts').unlink()
@@ -67,7 +67,7 @@ class RegistryTests(unittest.TestCase):
 
     def test_extra_id_fails(self):
         extra = copy.deepcopy(self.entry)
-        extra['id'] = 'P23'
+        extra['id'] = 'P99'
         self.data['contracts'].append(extra)
         self.fails('IDs must equal')
 

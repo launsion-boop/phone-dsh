@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Apple package lock behavior case",
+  "type": "object",
+  "required": ["name", "setup", "result", "root_unchanged", "sidecar_unchanged"],
+  "additionalProperties": false,
+  "properties": {
+    "name": {"type": "string", "minLength": 1},
+    "setup": {"type": "string", "enum": ["locked_cold", "missing_sidecar", "conflicting_constraint", "swiftpm_after_xcode"]},
+    "result": {"type": "string", "enum": ["pass", "fail"]},
+    "root_unchanged": {"type": "boolean"},
+    "sidecar_unchanged": {"type": "boolean"}
+  }
+}

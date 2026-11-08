@@ -51,13 +51,14 @@ def response(value, expected_id):
     require(first["type"] == "text" and type(first["text"]) is str, "response.result.content[0]: expected text")
 
 
-def request(value):
+def request(value, tool_prefix="android_"):
     mapping(value, "request")
     fields(value, {"jsonrpc", "id", "method", "params"}, {"jsonrpc", "id", "method", "params"}, "request")
     require(value["jsonrpc"] == "2.0" and value["method"] == "tools/call", "request: expected tools/call")
     params = mapping(value["params"], "request.params")
     fields(params, {"name", "arguments"}, {"name", "arguments"}, "request.params")
-    require(type(params["name"]) is str and params["name"].startswith("android_"), "request.params.name: expected android tool")
+    require(type(params["name"]) is str and params["name"].startswith(tool_prefix),
+            f"request.params.name: expected {tool_prefix} tool")
     require(type(params["arguments"]) is dict, "request.params.arguments: expected object")
     return value["id"]
 
@@ -68,6 +69,14 @@ def http_vector(data):
     require(data["path"] == "/mcp/native" and data["method"] == "POST", "native HTTP vector: expected POST /mcp/native")
     require(type(data["android_command"]) is str and data["android_command"], "android_command: expected non-empty string")
     response(data["response"], request(data["request"]))
+
+
+def ble_vector(data):
+    fields(data, {"path", "method", "request", "response"},
+           {"path", "method", "request", "response"}, "BLE HTTP vector")
+    require(data["path"] == "/mcp/native" and data["method"] == "POST",
+            "BLE HTTP vector: expected POST /mcp/native")
+    response(data["response"], request(data["request"], "ble_"))
 
 
 def package_vector(data):
@@ -152,6 +161,8 @@ def validate(root: Path) -> int:
             package_vector(data)
         elif path.name == "file-transfer.json":
             transfer_vector(data)
+        elif path.name == "ble-devices.json":
+            ble_vector(data)
         else:
             http_vector(data)
     return len(files)

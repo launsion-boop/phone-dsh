@@ -1,0 +1,13 @@
+menu "PDSH Home HTTP"
+config XL_HOME_BRIDGE
+    bool
+    default y
+    select ESP_HTTP_CLIENT_ENABLE_CUSTOM_TRANSPORT
+    select ESP_HTTP_CLIENT_ENABLE_HTTPS
+    select LWIP_SO_LINGER
+config PDSH_HOME_ORIGIN
+    string "Allowed home origin (exact private IPv4 and port, empty disables home.http)"
+    default ""
+    help
+        Example http://192.168.1.50:8123. No DNS or redirects are allowed.
+endmenu

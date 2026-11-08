@@ -1,15 +1,13 @@
 # exec.md — execution, idempotency and step records (phone-dsh-v1, proto 1)
 
-Status: normative. `EXEC_REQ`, `EXEC_EVT` and `EXEC_CTL` are the frames of channel.md §4.2–§4.4;
-their request and event fields are the exec-bridge v1 shapes. Two execution paths exist: commands
-run **in the worker** (default, including `bash -c` and everything that writes the workspace) and **native accelerators** run on the host without writing local materialized mounts. The host observes and persists the step state machine.
+Status: normative. `EXEC_REQ`, `EXEC_EVT` and `EXEC_CTL` are the frames of channel.md §4.2–§4.4; their request and event fields are the exec-bridge v1 shapes. Two execution paths exist: commands run **in the worker** (default, including `bash -c` and everything that writes the workspace) and
+**native accelerators** run on the host without writing local materialized mounts. The host observes and persists the step state machine.
 
 ## 1. Two idempotency keys (D10)
 
 Both keys exist and are never conflated:
 
-- `XL_IDEMPOTENCY_KEY` — unchanged tool-journal key `xl1-<32 lowercase hex>`, derived from the
-  session and call identity. It is injected into the command environment and identifies the tool
+- `XL_IDEMPOTENCY_KEY` — unchanged tool-journal key `xl1-<32 lowercase hex>`, derived from the session and call identity. It is injected into the command environment and identifies the tool
   call (the step). Nothing in this specification redefines it.
 - `idem_key` — 64 lowercase hex characters carried in EXEC_REQ, derived as
 
@@ -40,8 +38,7 @@ idem_key = sha256( XL_IDEMPOTENCY_KEY ‖ 0x1F ‖ canonical_json(argv)
 
 **One step id per call (D20).** `step_id` is the decimal ordinal of the tool call within its turn:
 the first tool call dispatched in a turn has `step_id = 1`, and every later tool call of the same
-turn adds one (`2`, `3`, …). The worker assigns the ordinal in dispatch order as unsigned decimal
-ASCII without leading zeros; a re-issued or replayed request of the same call keeps its ordinal.
+turn adds one (`2`, `3`, …). The worker assigns the ordinal in dispatch order as unsigned decimal ASCII without leading zeros; a re-issued or replayed request of the same call keeps its ordinal.
 `turn_id` and `session_id` come from the DSH session. The exec dedup entry (§2) and every step-record
 line (§4) store the same decimal `step_id` and the enclosing `turn_id`; the tool-journal
 `XL_IDEMPOTENCY_KEY`, when present, locates the same step in addition and never changes `step_id`.

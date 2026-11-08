@@ -254,3 +254,25 @@ mirror — a reason to keep it small, not a licence to grow it.
 
 Two entries stay `not-verified` and one stays `spec-only`; the audit above does not change that.
 
+
+
+## Android module mapping inventory
+
+`android-module-map.json` is the reviewed P08/P12 inventory mapping every
+`Sources/PhoneDSH*` directory to an Android package and Gradle module or to an
+explicit absence. Its schema is `schema/android-module-map.schema.json`. As
+semantic constraints in addition to schema, every `swift` name must be unique
+and the version must be encoded as the integer JSON literal `1`, not `1.0`.
+Both mapping and vector schemas must pass the existing platform schema linter
+before validation; unknown or unsupported schema keywords fail closed.
+`mapped` means a corresponding source package exists, not that all behavior is
+complete; `target` is an unwired partial implementation, not a feature; `absent`
+has no claimed package or module. The Markdown table in `android/README.md` is
+a human-readable projection and must match the inventory exactly. The existing
+`android/tools/structure_check.py` checks source directories and the table in
+both directions, duplicate rows, valid statuses, actual Gradle module and
+production Kotlin package paths; no new source directory may be silently
+accepted merely by changing a count. The shared positive/negative scenarios are
+`golden/android-module-map-cases.jsonl`. Changes to this inventory require
+review of actual platform code; this is not evidence of a working device or of
+P0 UI parity.

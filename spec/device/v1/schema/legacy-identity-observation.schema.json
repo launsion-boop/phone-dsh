@@ -1,0 +1,177 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Legacy identity observation ordering case",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "hook",
+    "action",
+    "initial",
+    "pending",
+    "b_initial",
+    "result",
+    "expected_preference",
+    "set_calls",
+    "a_pending",
+    "a_recorded",
+    "a_error",
+    "b_pending",
+    "b_recorded",
+    "task_grant",
+    "read_calls",
+    "b_error",
+    "hook_fires",
+    "status_before",
+    "status_after",
+    "proof_result",
+    "observation_calls_max",
+    "lifecycle_actions",
+    "lifecycle_transitions",
+    "status_notifications"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "hook": {
+      "enum": [
+        "none",
+        "initial-read",
+        "set-before",
+        "set-after",
+        "readback",
+        "device-will-change",
+        "proof-completion",
+        "precondition"
+      ]
+    },
+    "action": {
+      "enum": [
+        "none",
+        "fail-readback",
+        "disconnect",
+        "replace-channel",
+        "reinstall-client",
+        "pending-aba",
+        "pending-nfd",
+        "disconnect-b",
+        "confirm-a",
+        "confirm-b",
+        "no-client",
+        "missing-device",
+        "no-pending",
+        "disconnect-then-confirm-a",
+        "radio-off",
+        "confirm-b-then-retry"
+      ]
+    },
+    "initial": {
+      "oneOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "pending": {
+      "type": "string"
+    },
+    "b_initial": {
+      "type": "string"
+    },
+    "result": {
+      "enum": [
+        "recorded",
+        "error",
+        "stale",
+        "proof-pending",
+        "no-op"
+      ]
+    },
+    "expected_preference": {
+      "oneOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "set_calls": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 2
+    },
+    "a_pending": {
+      "type": "string"
+    },
+    "a_recorded": {
+      "type": "string"
+    },
+    "a_error": {
+      "type": "string"
+    },
+    "b_pending": {
+      "type": "string"
+    },
+    "b_recorded": {
+      "type": "string"
+    },
+    "task_grant": {
+      "const": false
+    },
+    "read_calls": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4
+    },
+    "b_error": {
+      "type": "string"
+    },
+    "hook_fires": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "status_before": {
+      "type": "string"
+    },
+    "status_after": {
+      "type": "string"
+    },
+    "proof_result": {
+      "type": "string"
+    },
+    "observation_calls_max": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 8
+    },
+    "lifecycle_actions": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "lifecycle_transitions": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 2
+    },
+    "status_notifications": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1
+    }
+  }
+}

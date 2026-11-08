@@ -1,0 +1,56 @@
+# SPDX-License-Identifier: MIT
+# Only this test host compiles the experimental identity presentation.
+name: IdentityUIHarness
+options:
+  bundleIdPrefix: local.pdsh.identityui
+  deploymentTarget:
+    iOS: "17.0"
+packages:
+  PhoneDSH:
+    path: ../../..
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+    CODE_SIGNING_ALLOWED: NO
+targets:
+  IdentityUIHost:
+    type: application
+    platform: iOS
+    sources:
+      - path: Host.swift
+      - path: DeviceTaskManagerStub.swift
+      - path: ../PhoneDSHProbe/BluetoothDevicesPage.swift
+      - path: ../PhoneDSHProbe/LegacyTaskInspectionModel.swift
+      - path: ../PhoneDSHProbe/LegacyTaskInspectionSection.swift
+      - path: ../PhoneDSHProbe/NativeChatPreferences.swift
+    dependencies:
+      - package: PhoneDSH
+        product: PhoneDSHBLE
+      - package: PhoneDSH
+        product: PhoneDSHDeviceTasks
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: local.pdsh.identityui.host
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) PDSH_ENABLE_DEVICE_TASKS"
+  IdentityUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [IdentityUITests.swift]
+    dependencies:
+      - target: IdentityUIHost
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: local.pdsh.identityui.tests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: IdentityUIHost
+schemes:
+  IdentityUI:
+    build:
+      targets:
+        IdentityUIHost: all
+        IdentityUITests: [test]
+    test:
+      config: Debug
+      targets: [IdentityUITests]

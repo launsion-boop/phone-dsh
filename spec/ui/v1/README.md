@@ -34,12 +34,9 @@ python3 spec/ui/v1/tools/ui_check.py --root .
 python3 -m unittest spec.ui.v1.tools.test_ui_check -v
 ```
 
-**验收顺序（a-tokens 与 a-pages 的依赖边界）**：本 lane 的接受门是 `ui_check.py --root .` 与上面的
-`test_ui_check`；仓库级 `python3 -m unittest discover -s spec/ui/v1/tools -p 'test_*.py'` 还会运行 page-contract
-测试，PR22 的 ChatPage 契约重抽取属于 package A。当前基线在该测试上报 stale page contracts（同样在提交
-`aa2e1aa` 复现），`extract_ios_pages.py --check` 与 `page_structure_check.py --baseline` 也报同样 25 个 stale
-页面；本 lane 不隐藏、不修改 `pages/`、不删除测试，也不把这些失败标成通过。三条全量命令留给 a-pages 刷新契约后
-由 h-verify 在最终集成候选上执行。
+**验收顺序**：除 `ui_check.py --root .` 和 `test_ui_check` 外，P0 还运行页面结构及源码契约检查。
+`extract_ios_pages.py --check` 的缺失或过期契约必须修复；不能仅因页面出现在下表就视为结构契约完整。
+源码提取不证明条件编译配置或页面行为，相关限制分别见 baseline GAP-19 和 GAP-21。
 
 checker 强制：tokens 过 schema；6 个签名面的 token 引用全部存在且含页面层几何；每个叶子 token 都有 `file:line`
 来源，且该行必须仍存在并包含 token 名/值（页面层长度可用 `expect` 片段；来源过期即失败）；颜色、字号、间距必须
@@ -58,7 +55,7 @@ README ≤ 345 行（PR22 新增类型/几何表，cap 319→345，规则变更�
 
 页面按真实文件反推。入口 = 从哪儿打开；导航关系 = 打开后怎么回去。P5 列：`must` = 必须 parity，`later` = 可延后。
 
-入口分三类，别混。**可达** = 产品里点得到；**预览专用** = 只有 DEBUG 的 `-uiPreview` 路由（`NativeShell.swift` 的 `PreviewScreen`），产品没有入口；**不可达** = 连预览路由都没有，只剩结构体。PR22 把首页改成 ChatPage、抽屉改成 HomeDrawer、设置改成一组分组索引：SessionsPage 只剩预览路由，about / network / 文件夹回到设置行，MCP 仍不可达。
+入口分三类，别混。**可达** = 产品里点得到；**预览专用** = 只有 DEBUG 的 `-uiPreview` 路由（`NativeShell.swift` 的 `PreviewScreen`），产品没有入口；**不可达** = 连预览路由都没有，只剩结构体。PR22 把首页改成 ChatPage、抽屉改成 HomeDrawer、设置改成一组分组索引：SessionsPage 只剩预览路由，about / network / 文件夹回到设置行，MCP 与局域网设备、SSH、蓝牙设备及 Android ADB 均有设置入口。
 
 | 页面 | 职责 | 入口 | 导航关系 | P5 |
 |---|---|---|---|---|
@@ -84,7 +81,7 @@ README ≤ 345 行（PR22 新增类型/几何表，cap 319→345，规则变更�
 | NativeDeviceSessionPage | 只读的设备会话转录（历史、实时） | NativeDeviceConnectionPage 的行 | push，只读，无写动作 | later |
 | NativeConfigurationPage | 会话级与插件配置 | 页头 `⋯` → 本会话设置；设置 › 插件与工具 | sheet | must |
 | WebSearchSettingsPage | 网页搜索开关与后端 | 插件配置 → 网页搜索与抓取 | push / sheet | must |
-| MCPSettingsPage | MCP 服务器列表与编辑 | **不可达（全仓无调用点，无预览路由；契约仍在）** | push / sheet；编辑子页 MCPEditorPage | later |
+| MCPSettingsPage | MCP 服务器列表与编辑 | 设置 › 权限与隐私 › MCP 与局域网设备 | push；编辑子页 MCPEditorPage | must |
 | NativeAutomationPage | 定时任务、计划详情与历史 | 抽屉「定时任务」；`-uiPreview sessions.schedules` | push；子页 ScheduleDetailPage、ScheduleHistoryPage、ScheduleEditorPage | must |
 | EgressAllowListPage | 出网白名单 | 设置 › 网络访问 | push | must |
 | RuntimeDetailsPage | 运行时状态、停止与重启 | 设置 › 引擎 › 运行状态；Chat 页头运行状态 | sheet | must |
@@ -98,6 +95,9 @@ README ≤ 345 行（PR22 新增类型/几何表，cap 319→345，规则变更�
 | DailyBriefPage | 每日简报 | **基线无入口（孤页）** | 不可达 | later |
 | ChatPreferencesPage | 聊天外观、字号、过程折叠、转录密度 | **不可达（全仓无调用点；设置已改分组索引）** | push | later |
 | NativeSettingsDocumentPage | 配置文件的只读查看与分享 | **不可达（全仓无调用点）** | sheet | later |
+| SSHSettingsPage | SSH 主机设置；完整结构契约待补 | 设置 › 权限与隐私 › SSH 主机 | push；编辑器与指纹确认需单独核对 | must |
+| BluetoothDevicesPage | 蓝牙设备扫描与连接；完整结构契约待补；iOS 断连等待及不可用状态见 [P07 本地授权条款](../../device/v1/ble-link.md#ios-standard-gatt-authorization-ordering) | 设置 › 权限与隐私 › 蓝牙设备 | push；设备任务入口默认关闭 | must |
+| AndroidADBSettingsPage | Android ADB 设置；完整结构契约待补 | 设置 › 权限与隐私 › Android ADB | push；测试连接含网络与密钥操作 | must |
 
 内嵌子页随父页实现、不单独排期：CommandExecutionResultPage、ModelProviderEditorPage、SessionQueuePage、PermissionDefaultsPage、LicensesPage、FontSizeSettingsPage、ConversationSettingsPage、ArchivedSessionsPage、ScheduleDetailPage、ScheduleHistoryPage、ScheduleEditorPage。`DevelopmentToolsPage` 已随 PR #13 删除，PR22 无此 struct；memory / probes / background / task-screen 因此仍不可达。
 

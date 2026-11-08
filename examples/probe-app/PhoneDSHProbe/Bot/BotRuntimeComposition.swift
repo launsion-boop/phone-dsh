@@ -8,6 +8,9 @@ import PhoneDSHBot
 import PhoneDSHADB
 import PhoneDSHLoopback
 #endif
+#if canImport(PhoneDSHBLE)
+import PhoneDSHBLE
+#endif
 #if canImport(ProbeKit)
 import ProbeKit
 #endif
@@ -221,9 +224,15 @@ final class BotRuntimeComposition {
             _ = await remote.deliverInterruptedTaskWakes()
 
             // Every bind also re-attaches the native MCP forwarder: one Bot
-            // endpoint owns both Bot and native Android tools.
+            // endpoint owns both Bot and native device tools. DeviceMCPServer
+            // muxes the BLE tools and falls through to ADB; the E2E build has
+            // no PhoneDSHBLE product, so it keeps the ADB-only endpoint.
             #if canImport(PhoneDSHADB) && canImport(PhoneDSHLoopback)
+            #if canImport(PhoneDSHBLE)
+            await attachNativeMCP(DeviceMCPServer.shared)
+            #else
             await attachNativeMCP(ADBMCPServer.shared)
+            #endif
             #endif
 
             await installOutboxHandlers()
@@ -259,10 +268,10 @@ final class BotRuntimeComposition {
     }
 
     #if canImport(PhoneDSHADB) && canImport(PhoneDSHLoopback)
-    /// The Bot MCP listener is the Worker's only `phone` server. Native
-    /// Android tools are forwarded in-process so one endpoint owns the env.
-    func attachNativeMCP(_ server: ADBMCPServer) async {
-        await handler.attachNativeMCP(BotADBNativeMCPForwarder(server: server))
+    /// The Bot MCP listener is the Worker's only `phone` server. Native device
+    /// tools are forwarded in-process so one endpoint owns the env.
+    func attachNativeMCP(_ server: any NativeMCPServing) async {
+        await handler.attachNativeMCP(BotNativeMCPForwarder(server: server))
     }
     #endif
 
@@ -362,10 +371,11 @@ final class BotRuntimeComposition {
 }
 
 #if canImport(PhoneDSHADB) && canImport(PhoneDSHLoopback)
-/// Adapts the native JSON-RPC server to the Bot handler without adding a
-/// PhoneDSHBot -> PhoneDSHADB module dependency.
-struct BotADBNativeMCPForwarder: BotNativeMCPForwarding {
-    let server: ADBMCPServer
+/// Adapts any native JSON-RPC server to the Bot handler without adding a
+/// PhoneDSHBot -> device module dependency. `DeviceMCPServer` handles the BLE
+/// family itself and delegates every other call to `ADBMCPServer`.
+struct BotNativeMCPForwarder: BotNativeMCPForwarding {
+    let server: any NativeMCPServing
 
     func handle(_ request: PhoneDSHBot.BotJSONValue, headers: [String: String]) async -> PhoneDSHBot.BotJSONValue? {
         guard let body = try? request.encoded() else { return nil }

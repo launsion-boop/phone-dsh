@@ -6,15 +6,15 @@
   "sectionModel": "unmodeled",
   "sectionNote": null,
   "title": {
-    "text": "SSH 组件许可",
-    "provenance": "SettingsPage.swift:441",
-    "anchor": "}.navigationTitle(\"SSH 组件许可\")"
+    "text": "开源许可",
+    "provenance": "SettingsPage.swift:449",
+    "anchor": ".navigationTitle(NativeText(\"开源许可\", \"Open-source licenses\"))"
   },
   "source": {
     "file": "SettingsPage.swift",
     "path": "examples/probe-app/PhoneDSHProbe/SettingsPage.swift",
-    "lines": 447,
-    "structLine": 430,
+    "lines": 451,
+    "structLine": 434,
     "renderedFrom": [
       "body"
     ],
@@ -27,7 +27,7 @@
   },
   "sections": [
     {
-      "id": "region-430",
+      "id": "region-434",
       "kind": "implicit",
       "title": null,
       "titleTemplate": null,
@@ -46,7 +46,7 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "SettingsPage.swift:433",
+          "provenance": "SettingsPage.swift:437",
           "anchor": "LabeledContent(\"SwiftTerm\", value: \"MIT\")",
           "extraction": "syntax"
         },
@@ -61,7 +61,7 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "SettingsPage.swift:434",
+          "provenance": "SettingsPage.swift:438",
           "anchor": "LabeledContent(\"Citadel / BigInt\", value: \"MIT\")",
           "extraction": "syntax"
         },
@@ -76,7 +76,7 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "SettingsPage.swift:435",
+          "provenance": "SettingsPage.swift:439",
           "anchor": "LabeledContent(\"swift-nio\", value: \"Apache 2.0\")",
           "extraction": "syntax"
         },
@@ -91,12 +91,12 @@
           "destination": "ScrollView",
           "writes": false,
           "condition": null,
-          "provenance": "SettingsPage.swift:436",
+          "provenance": "SettingsPage.swift:440",
           "anchor": "NavigationLink(\"SSH 组件许可全文\") {",
           "extraction": "syntax"
         }
       ],
-      "provenance": "SettingsPage.swift:430",
+      "provenance": "SettingsPage.swift:434",
       "anchor": "private struct LicensesPage: View {",
       "extraction": "manual",
       "criterion": {
@@ -116,7 +116,7 @@
       "writes": false,
       "destination": "ScrollView",
       "condition": null,
-      "provenance": "SettingsPage.swift:436",
+      "provenance": "SettingsPage.swift:440",
       "anchor": "NavigationLink(\"SSH 组件许可全文\") {",
       "extraction": "syntax"
     }
@@ -129,9 +129,9 @@
       "empty": [],
       "data": [
         {
-          "renders": "untitled section at 430",
+          "renders": "untitled section at 434",
           "when": null,
-          "provenance": "SettingsPage.swift:430",
+          "provenance": "SettingsPage.swift:434",
           "anchor": "private struct LicensesPage: View {",
           "note": "structural default: the sections above, when no condition overrides them"
         }
@@ -171,68 +171,68 @@
         },
         {
           "title": "对话",
-          "provenance": "SettingsPage.swift:86"
+          "provenance": "SettingsPage.swift:90"
         },
         {
           "title": "会话与文件",
-          "provenance": "SettingsPage.swift:111"
+          "provenance": "SettingsPage.swift:115"
         },
         {
           "title": "引擎",
-          "provenance": "SettingsPage.swift:122"
+          "provenance": "SettingsPage.swift:126"
         },
         {
           "title": "关于",
-          "provenance": "SettingsPage.swift:148"
+          "provenance": "SettingsPage.swift:152"
         }
       ],
       "provenance": "SettingsPage.swift:45"
     },
     {
       "name": "FontSizeSettingsPage",
-      "line": 243,
+      "line": 247,
       "private": true,
       "embedded": true,
       "sections": [],
-      "provenance": "SettingsPage.swift:243"
+      "provenance": "SettingsPage.swift:247"
     },
     {
       "name": "ConversationSettingsPage",
-      "line": 281,
+      "line": 285,
       "private": true,
       "embedded": true,
       "sections": [
         {
           "title": "工作步骤",
-          "provenance": "SettingsPage.swift:286"
+          "provenance": "SettingsPage.swift:290"
         },
         {
           "title": "发送与用量",
-          "provenance": "SettingsPage.swift:305"
+          "provenance": "SettingsPage.swift:309"
         }
       ],
-      "provenance": "SettingsPage.swift:281"
+      "provenance": "SettingsPage.swift:285"
     },
     {
       "name": "ArchivedSessionsPage",
-      "line": 330,
+      "line": 334,
       "private": true,
       "embedded": true,
       "sections": [],
-      "provenance": "SettingsPage.swift:330"
+      "provenance": "SettingsPage.swift:334"
     },
     {
       "name": "PermissionDefaultsPage",
-      "line": 392,
+      "line": 396,
       "private": true,
       "embedded": true,
       "sections": [
         {
           "title": "只影响之后新开的会话，当前会话保持不变。",
-          "provenance": "SettingsPage.swift:397"
+          "provenance": "SettingsPage.swift:401"
         }
       ],
-      "provenance": "SettingsPage.swift:392"
+      "provenance": "SettingsPage.swift:396"
     }
   ],
   "unreachable": [],

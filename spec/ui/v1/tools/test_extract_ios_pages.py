@@ -856,5 +856,131 @@ class ChromeContractTest(unittest.TestCase):
             tmp.cleanup()
 
 
+
+
+class PageSourceCompletenessTests(unittest.TestCase):
+    def test_shared_completeness_cases_use_real_extractor(self) -> None:
+        import contextlib
+        import io
+        import shutil
+
+        repo = Path(__file__).resolve().parents[4]
+        shared = repo / "spec/ui/v1/golden/page-completeness"
+        sys.path.insert(0, str(repo / "spec/v1/tools"))
+        from spec_golden import load_json, validate_json
+        sys.path.insert(0, str(repo / "spec/platform/tools"))
+        from platform_check import lint_schema
+
+        schema = load_json(shared / "cases.schema.json")
+        lint_schema(schema, "page completeness cases")
+        cases = [json.loads(line) for line in (shared / "cases.jsonl").read_text(encoding="utf-8").splitlines() if line]
+        self.assertEqual(len(cases), 5)
+        for case in cases:
+            validate_json(case, schema, "page completeness case")
+            with self.subTest(case=case["name"]), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                probe = root / "examples/probe-app/PhoneDSHProbe"
+                pages = root / "spec/ui/v1/pages"
+                probe.mkdir(parents=True)
+                pages.mkdir(parents=True)
+                source = probe / "FixturePage.swift"
+                shutil.copyfile(shared / "FixturePage.swift", source)
+                contract = pages / "fixture.json"
+                shutil.copyfile(shared / "fixture.json", contract)
+                (probe / "HomeDrawer.swift").write_text("struct HomeDrawer {}\n", encoding="utf-8")
+                (probe / "HomeSpec.swift").write_text("struct HomeSpec {}\n", encoding="utf-8")
+                chrome = pages / "home-drawer.json"
+                chrome.write_text(json.dumps({"page": "HomeDrawer", "handRegistered": {"reason": "fixture"}}), encoding="utf-8")
+                mutation = case["mutation"]
+                if mutation == "remove_contract":
+                    contract.unlink()
+                elif mutation == "change_source":
+                    source.write_text(source.read_text(encoding="utf-8").replace("Continue", "Changed"), encoding="utf-8")
+                elif mutation == "add_page":
+                    (probe / "AnotherPage.swift").write_text(
+                        "import SwiftUI\nstruct AnotherPage: View { var body: some View { Text(\"new\") } }\n", encoding="utf-8"
+                    )
+                    # The old README-name-only inventory is green even though
+                    # AnotherPage has no structure contract. The real extractor
+                    # below must still make this shared case red.
+                    import ui_check
+                    readme = root / "spec/ui/v1/README.md"
+                    readme.write_text("FixturePage\nAnotherPage\n", encoding="utf-8")
+                    self.assertEqual(ui_check.check_pages(root, readme.read_text(encoding="utf-8")), (2, True))
+                elif mutation == "remove_chrome":
+                    chrome.unlink()
+                elif mutation != "none":
+                    self.fail("unknown shared mutation " + mutation)
+                output, errors = io.StringIO(), io.StringIO()
+                with contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
+                    status = E.main(["--root", str(root), "--check"])
+                self.assertEqual(status == 0, case["valid"], output.getvalue() + errors.getvalue())
+
+
+class InactiveBuildFlagTests(unittest.TestCase):
+    SOURCE = """struct P: View {
+    var body: some View {
+        List {
+            Button("live") { }
+            #if PDSH_ENABLE_DEVICE_TASKS
+            Toggle("gated", isOn: $x)
+            #else
+            Button("fallback") { }
+            #endif
+            #if DEBUG
+            Button("debug") { }
+            #endif
+        }
+    }
+}
+"""
+
+    def test_inactive_flag_body_is_blanked_and_else_branch_kept(self) -> None:
+        masked = E.mask_inactive_conditionals(E.mask_comments(self.SOURCE))
+        self.assertEqual(len(masked), len(self.SOURCE))
+        self.assertEqual(masked.count("\n"), self.SOURCE.count("\n"))
+        self.assertNotIn("Toggle", masked)
+        self.assertIn("Button(", masked.split("#else", 1)[1])
+        self.assertIn("Button(", masked.split("#if DEBUG", 1)[1])
+
+    def test_nested_inactive_region_stays_blank_until_outer_endif(self) -> None:
+        src = "#if PDSH_ENABLE_DEVICE_TASKS\nA()\n#if DEBUG\nB()\n#endif\nC()\n#endif\nD()\n"
+        masked = E.mask_inactive_conditionals(src)
+        for gone in ("A()", "B()", "C()"):
+            self.assertNotIn(gone, masked)
+        self.assertIn("D()", masked)
+
+    def test_app_target_does_not_define_an_inactive_flag(self) -> None:
+        root = Path(__file__).resolve().parents[4]
+        app = (root / "examples/probe-app/project.yml").read_text(encoding="utf-8")
+        for flag in E.INACTIVE_BUILD_FLAGS:
+            self.assertNotIn(flag, app, f"{flag} is set for the app target; it is product UI again")
+
+
+class OutermostNavigationTitleTests(unittest.TestCase):
+    def test_pushed_destination_title_does_not_become_the_page_title(self) -> None:
+        swift = """import SwiftUI
+struct LicensesPage: View {
+    var body: some View {
+        List {
+            NavigationLink("全文") {
+                Text("x").navigationTitle("子页")
+            }
+        }
+        .navigationTitle("开源许可")
+    }
+}
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_path = root / "examples/probe-app/PhoneDSHProbe/SettingsPage.swift"
+            source_path.parent.mkdir(parents=True)
+            source_path.write_text(swift, encoding="utf-8")
+            source = E.Source(source_path, root)
+            page = E.PageExtractor(source, "LicensesPage").run(E.page_structs(source))
+        self.assertEqual("开源许可", page["title"]["text"])
+        self.assertEqual("SettingsPage.swift:9", page["title"]["provenance"])
+
+
 if __name__ == "__main__":
     unittest.main()

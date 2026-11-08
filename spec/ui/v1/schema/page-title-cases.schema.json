@@ -1,0 +1,131 @@
+{
+  "title": "Draft P09 title ownership scenario",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "file",
+        "page",
+        "syntax",
+        "outcome",
+        "title"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "file": {
+          "type": "string",
+          "pattern": "^[a-z0-9_]+\\.swift$"
+        },
+        "page": {
+          "type": "string",
+          "minLength": 1
+        },
+        "syntax": {
+          "const": "valid"
+        },
+        "outcome": {
+          "const": "title"
+        },
+        "title": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "text",
+            "provenance",
+            "anchor"
+          ],
+          "properties": {
+            "text": {
+              "type": "string"
+            },
+            "provenance": {
+              "type": "string"
+            },
+            "anchor": {
+              "type": "string"
+            }
+          }
+        },
+        "note": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "file",
+        "page",
+        "syntax",
+        "outcome"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "file": {
+          "type": "string",
+          "pattern": "^[a-z0-9_]+\\.swift$"
+        },
+        "page": {
+          "type": "string",
+          "minLength": 1
+        },
+        "syntax": {
+          "const": "valid"
+        },
+        "outcome": {
+          "const": "absent"
+        },
+        "note": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "file",
+        "page",
+        "syntax",
+        "outcome"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "file": {
+          "type": "string",
+          "pattern": "^[a-z0-9_]+\\.swift$"
+        },
+        "page": {
+          "type": "string",
+          "minLength": 1
+        },
+        "syntax": {
+          "enum": [
+            "valid",
+            "invalid"
+          ]
+        },
+        "outcome": {
+          "const": "error"
+        },
+        "note": {
+          "type": "string"
+        }
+      }
+    }
+  ]
+}

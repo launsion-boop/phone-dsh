@@ -1,0 +1,24 @@
+{
+  "title": "Raw task bytes case",
+  "type": "object",
+  "required": [
+    "name",
+    "valid",
+    "hex"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "valid": {
+      "type": "boolean"
+    },
+    "hex": {
+      "type": "string",
+      "minLength": 2,
+      "pattern": "^([0-9a-f][0-9a-f])+$"
+    }
+  }
+}

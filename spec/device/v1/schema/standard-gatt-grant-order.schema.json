@@ -1,0 +1,201 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "iOS standard GATT grant ordering scenario",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "scenario",
+    "a_read",
+    "a_alert",
+    "b_read",
+    "b_alert",
+    "phase",
+    "b_phase",
+    "pending",
+    "pending_error",
+    "pending_value",
+    "old_read_timer",
+    "inner_admission",
+    "unavailable_visible",
+    "read_submissions",
+    "alert_submissions",
+    "connect_submissions",
+    "disconnect_submissions",
+    "discovery_submissions",
+    "link_submissions",
+    "link_deliveries",
+    "other_closing_commands",
+    "other_unavailable_commands"
+  ],
+  "properties": {
+    "scenario": {
+      "enum": [
+        "read-grant-revoke",
+        "read-revoke-grant",
+        "alert-grant-revoke",
+        "alert-revoke-grant",
+        "cross-fields",
+        "both-read-revoke",
+        "both-alert-revoke",
+        "cross-device-grant",
+        "cross-device-revoke",
+        "alert-revoke-admission",
+        "alert-grant-admission",
+        "other-write-revoke",
+        "clear-during-grant",
+        "retry-after-barrier",
+        "cancel-pending-connect",
+        "radio-off",
+        "pending-nil",
+        "pending-same",
+        "pending-alert",
+        "stale-timer-new-owner",
+        "notification-ambiguous",
+        "timeout-no-barrier",
+        "idle-grant-connect-clear",
+        "connecting-grant",
+        "cancel-before-connect-submit",
+        "read-revoke-admission",
+        "new-pending-during-grant",
+        "grant-during-closing",
+        "connect-cancel-didfail",
+        "radio-reset",
+        "notification-unknown",
+        "pending-timeout",
+        "pending-cancel",
+        "unexpected-central",
+        "unknown-characteristic",
+        "new-connect-discovery",
+        "duplicate-closing-grant",
+        "cancel-before-value",
+        "value-before-cancel",
+        "link-event-while-read",
+        "cancel-before-grant",
+        "grant-before-cancel",
+        "cancel-before-radio-off",
+        "value-before-timeout",
+        "cancel-before-read-reserve",
+        "cancel-after-read-reserve",
+        "link-event-while-closing",
+        "natural-disconnect-barrier",
+        "idle-radio-off-on",
+        "idle-radio-reset"
+      ]
+    },
+    "a_read": {
+      "type": "boolean"
+    },
+    "a_alert": {
+      "type": "boolean"
+    },
+    "b_read": {
+      "type": "boolean"
+    },
+    "b_alert": {
+      "type": "boolean"
+    },
+    "phase": {
+      "enum": [
+        "idle",
+        "connected",
+        "connecting",
+        "closing",
+        "quarantined"
+      ]
+    },
+    "b_phase": {
+      "enum": [
+        "connected",
+        "quarantined",
+        "idle"
+      ]
+    },
+    "pending": {
+      "enum": [
+        "none",
+        "failed-once",
+        "completed-once",
+        "same-pending",
+        "new-pending"
+      ]
+    },
+    "pending_error": {
+      "enum": [
+        "none",
+        "permission-changed",
+        "timeout",
+        "cancelled",
+        "bluetooth-unavailable",
+        "disconnected"
+      ]
+    },
+    "pending_value": {
+      "enum": [
+        "none",
+        "expected"
+      ]
+    },
+    "old_read_timer": {
+      "enum": [
+        "none",
+        "cancelled",
+        "absent-or-cancelled",
+        "active"
+      ]
+    },
+    "inner_admission": {
+      "enum": [
+        "not-tested",
+        "denied"
+      ]
+    },
+    "unavailable_visible": {
+      "type": "boolean"
+    },
+    "read_submissions": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "alert_submissions": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "connect_submissions": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "disconnect_submissions": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 2
+    },
+    "discovery_submissions": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "link_submissions": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "link_deliveries": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "other_closing_commands": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "other_unavailable_commands": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1
+    }
+  }
+}

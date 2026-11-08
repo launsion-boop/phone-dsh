@@ -6,11 +6,13 @@
 // MCPSettingsPage (MCP 服务器列表与编辑; entry: 设置行; navigation: push/sheet,
 // 编辑子页 MCPEditorPage), plus §3.1 (the ScreenState layer).
 //
-// The baseline's two groups, in its order:
+// The baseline's three titled groups, in its order:
 //   * `Streamable HTTP MCP` (`MCPSettingsPage.swift:46`) — the server rows, with
 //     the baseline's own footer (`:69`), and its 主机尚未启动 / 正在读取 MCP 注册表…
 //     / 尚未添加 MCP 服务器 states inside it;
-//   * `操作` (`:83`) — 刷新注册表 (`:87`) and 添加 MCP 服务器 (`:93`).
+//   * `局域网设备` (`:101`) — 扫描局域网设备, rendered disabled with one line
+//     saying why: Android does not discover LAN devices (see below);
+//   * `操作` — 刷新注册表 and 添加 MCP 服务器.
 // The two untitled blocks at `:73` and `:78` are the error and notice lines; they
 // carry runtime text only and are the contract's own unresolved entries, so this
 // page keeps its failure line (same copy family) without a group title.
@@ -338,6 +340,25 @@ public fun MCPSettingsPage(
                     }
                 }
             }
+            // 局域网设备 (`MCPSettingsPage.swift:101`), above 操作 as in the baseline.
+            // Android has no LAN discovery: the LAN profile needs the raw TXT bytes
+            // and the SRV hostname, which NsdManager does not expose, so the scan
+            // verb is shown disabled with its reason instead of pretending to scan.
+            SessionSectionLabel(
+                text = UiStrings.MCP_LAN_SECTION,
+                modifier = Modifier.testTag(UiPageTags.MCP_LAN_SECTION),
+            )
+            SessionTextAction(
+                label = UiStrings.MCP_LAN_SCAN,
+                onClick = {},
+                tone = SessionActionTone.ACCENT,
+                enabled = false,
+                modifier = Modifier.testTag(UiPageTags.MCP_LAN_SCAN),
+            )
+            SettingsSubPageFootnote(
+                text = UiStrings.MCP_LAN_UNSUPPORTED,
+                modifier = Modifier.testTag(UiPageTags.MCP_LAN_UNSUPPORTED),
+            )
             // 操作 (`MCPSettingsPage.swift:83`): the two verbs, in the baseline's order.
             SessionSectionLabel(
                 text = UiStrings.MCP_ACTION_SECTION,

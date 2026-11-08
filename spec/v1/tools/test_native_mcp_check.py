@@ -20,7 +20,17 @@ class NativeMCPCheckTests(unittest.TestCase):
         return load_json(ROOT / "spec/v1/golden/native-mcp" / name)
 
     def test_all_production_vectors_pass(self):
-        self.assertEqual(checker.validate(ROOT), 4)
+        self.assertEqual(checker.validate(ROOT), 5)
+
+    def test_ble_rejects_android_tool_and_response_id(self):
+        vector = self.fixture("ble-devices.json")
+        vector["request"]["params"]["name"] = "android_status"
+        with self.assertRaises(SpecError):
+            checker.ble_vector(vector)
+        vector = self.fixture("ble-devices.json")
+        vector["response"]["id"] = 99
+        with self.assertRaises(SpecError):
+            checker.ble_vector(vector)
 
     def test_http_rejects_wrong_endpoint_and_response_id(self):
         vector = self.fixture("tap.json")

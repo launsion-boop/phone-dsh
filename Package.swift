@@ -27,6 +27,9 @@ let shellRequested = shellEnvironment["PDSH_WITH_XZSHELL"] == "1"
 let withShell = shellRequested && FileManager.default.fileExists(atPath: shellXCFramework.path)
 
 let modules: [Module] = [
+    Module(name: "PhoneDSHDeviceTasks", dependencies: ["PhoneDSHAgentCore"]),
+    Module(name: "PhoneDSHLAN"),
+    Module(name: "PhoneDSHBLE", dependencies: ["PhoneDSHAgentCore", "PhoneDSHDeviceTasks", "PhoneDSHLoopback", "PhoneDSHADB", "PDSHLinkWire", "PDSHHomePolicy"], testDependencies: ["PDSHLinkWire"]),
     // Dependency boundary: the agent/provider abstractions the host modules use
     // (exec provider, credentials, harness session, DSH remote client).
     Module(name: "PhoneDSHAgentCore"),
@@ -87,6 +90,9 @@ var targets: [Target] = modules.flatMap { m -> [Target] in
     }
     return t
 }
+
+targets.append(.target(name: "PDSHHomePolicy", path: "firmware/components/pdsh_home/vendor", exclude: ["LICENSE", "UPSTREAM.json", "xl_home_transport.c"], publicHeadersPath: "include"))
+targets.append(.target(name: "PDSHLinkWire", path: "firmware/components/pdsh_link_wire", exclude: ["CMakeLists.txt"], publicHeadersPath: "include"))
 
 // Native SSH connections originate on the device. Remote file bytes return
 // through the Worker VFS; this provider never writes materialized mounts.

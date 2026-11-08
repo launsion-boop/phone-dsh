@@ -107,7 +107,7 @@ class SettingsPageTest {
             scrollTo(it)
             compose.onNodeWithText(it).assertIsDisplayed()
         }
-        listOf("模型服务", "Agent 预设", "插件与工具", "新会话默认权限", "手机权限", "网络访问",
+        listOf("模型服务", "Agent 预设", "插件与工具", "新会话默认权限", "手机权限", "网络访问", "MCP 与局域网设备",
             "外观", "语言", "字号", "工作过程", "快捷键", "文件夹", "已归档会话", "引擎状态",
             "运行状态", "关于 Phone DSH", "版本", UiStrings.ABOUT_LICENSES,
             UiStrings.SETTINGS_ROW_BACKGROUND, UiStrings.SETTINGS_ROW_EXPORT,
@@ -162,6 +162,8 @@ class SettingsPageTest {
         )
         scrollTo("外观")
         compose.onNodeWithTag(com.phonedsh.ui.page.UiPageTags.SETTINGS_INDEX_ROW_PREFIX + "appearance").performClick()
+        // Scroll to the option itself: a row added above (蓝牙设备) can leave it below the fold.
+        scrollToTag(com.phonedsh.ui.page.UiPageTags.SETTINGS_INDEX_ROW_PREFIX + "appearance.option.dark")
         compose.onNodeWithTag(com.phonedsh.ui.page.UiPageTags.SETTINGS_INDEX_ROW_PREFIX + "appearance.option.dark").performClick()
         scrollTo("语言")
         compose.onNodeWithTag(com.phonedsh.ui.page.UiPageTags.SETTINGS_INDEX_ROW_PREFIX + "language").performClick()
@@ -305,6 +307,7 @@ class SettingsPageTest {
             onToggleBackgroundKeepAlive = { backgroundWrites += it },
         )
         scrollTo("平台差异")
+        scrollToTag(com.phonedsh.ui.page.UiPageTags.SETTINGS_INDEX_ROW_PREFIX + "platform.backgroundKeepAlive")
         compose.onNodeWithTag(com.phonedsh.ui.page.UiPageTags.SETTINGS_INDEX_ROW_PREFIX + "platform.backgroundKeepAlive")
             .performClick()
         assertEquals(listOf(false), backgroundWrites)

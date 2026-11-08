@@ -1,0 +1,106 @@
+# Freeze preservation of visible legacy identity preferences
+
+```yaml
+change: PC-20261107-legacy-identity-preservation
+contracts: [P07, P09, P18]
+status: frozen
+breaking: true
+version_decision: Preserve the draft void insertion API and add a result-bearing local operation for the probe; no wire or on-disk format change.
+base: 603e4e64a28ddb5e7d2d4add517d2e10c4d190b7
+contract_revision: spec/device/v1/legacy-identity-preferences.md@legacy-pref-v4
+```
+
+Protocol impact: P07; P09; P18. The current `stringArray(forKey:) ?? []`
+conflates a visibly wrong-type old value with absence; insertion can replace
+the old value and the probe may say it recorded an identity. Preserve the
+visible old value and return failure to the probe instead, as the owning
+document and shared fixtures specify. Keep the existing public void `insert`
+signature, delegating to a new result-bearing `insertIfVisibleValid` operation;
+the probe must use and check the latter. Existing source and symbol signatures
+remain, but old callers do not receive an error and the tightened write behavior
+is observable. Do not claim cross-version binary compatibility without a build.
+
+No network, device or journal format changes. Old readers on valid arrays see
+the same values. New readers preserve wrong-type values and do not enable the
+old identity; old writers after rollback can still overwrite them. Valid old
+labels stay in their original namespace and cannot authenticate a UUID or old
+receipt. UserDefaults absence can also reflect lower-level unreadability;
+cross-process writers and crash durability remain outside this amendment.
+
+Coordinator owns `spec/**`, registry and this record. The Swift implementer
+owns `Sources/PhoneDSHBLE/{BLEIdentity,BLEDeviceStore}.swift` and
+`Tests/PhoneDSHBLETests/**`; no firmware, Android or Worker format changes.
+Use real isolated UserDefaults suites and shared valid/invalid cases, test
+same-process concurrent inserts and the probe failure path without reading or
+modifying user preferences. Include a property-list Data wrong-type case and a
+controlled UserDefaults spy for no-write on duplicate/wrong-type, and for a
+set that is not observable on readback; the spy is not proof of real storage
+failure. The membership query, compatibility wrapper and result operation use
+the same reentrancy-safe process lock; exercise synchronous reentry during a
+read, write and readback, including the old void wrapper without a nested
+write. Verify retained spelling and order using Unicode scalar sequences, not
+Swift's canonical-equivalent `String` array equality. Remove any unrelated test write to
+`UserDefaults.standard` by using an isolated suite for the same assertion.
+Verify public call-site compatibility and no
+task grant on either success or failure. Acceptance: `swift test --filter
+BLEIdentityTests`, affected BLE tests, `python3 -m unittest
+spec.tools.test_legacy_identity_preferences_schema`, and `bash scripts/ci/check.sh --only
+phone-spec,phone-p0-conformance,phone-cross-tree`. Report disk-constrained or
+device checks as NOT_RUN; this does not solve identity binding, authenticated
+sessions, GAP-16, GAP-24 or legacy task recovery.
+
+Revision v2: implementer CCR noted that a plain lock deadlocks synchronous
+reentry while a recursive lock alone can allow a nested read-modify-write to
+be overwritten by the outer write. Same-thread nested API calls now fail
+closed without accessing defaults; a separate shared fixture covers refusal
+and explicit retry. Other threads remain serialized. This is not cross-process
+isolation and does not make UserDefaults durable. The fixture schema admits
+only the JSON property-list subset needed by these cases; this does not narrow
+which pre-existing values the production store must preserve. Its negative
+tests use the repository's existing schema validator without a new dependency.
+
+Revision v3: independent review found that a synchronous UserDefaults observer
+can invalidate or replace the connection during confirmation. A local
+confirmation epoch is invalidated by channel replacement, connection clear,
+client installation and pending-proof replacement. On return, only the same
+epoch, client and exact pending label can update UI state; an already performed
+write is not rolled back. The dormant asynchronous proof helper must discard
+a result from a replaced epoch. Shared ordering cases run the actual store with
+isolated defaults and controlled reentry; they are not radio-liveness proof.
+The stale-proof case has no `write_result`: completing a proof itself does not
+write the legacy preference.
+
+Revision v4: test each connection interruption with both successful and failed
+preference writes. This adds no runtime behavior; neither outcome may update
+the replacement connection. The dormant proof case remains a no-write case.
+
+## Partial storage implementation
+
+The storage API implements the visible-value and same-process reentry rules.
+The compatibility wrapper keeps its void signature; its caller in
+`BLEDeviceStore` still ignores failure. The required confirmation-generation,
+observable UI and stale-proof behavior remains unimplemented and GAP-28 stays
+open. A registered-domain value was not exercised in these tests; no claim is
+made about hidden values, other processes, durable flush, reboot or recovery.
+
+At parent `5eccaf6a4948100d123e77e3772bc02943a840e0`, the implementation and
+its tests are in the commit containing this note. Protocol impact: P07; P09;
+P18. The changed end is Swift storage and its tests; no firmware, Android or
+Worker implementation changed. Status: storage partial; confirmation and
+authenticated session not implemented.
+
+- `swift test --filter 'BLETrustedIdentitiesTests|BLEDeviceMCPTests|BLEIdentityTests'`:
+  PASS, 22 tests on macOS.
+- `swift test --filter PhoneDSHBLETests`: PASS, 39 tests on macOS after
+  supplying the previously resolved, locally cached locked cJSON component;
+  its bundled 233 file checksums matched. The initial run without that
+  component failed both C-bridge tests. This is host runtime evidence, not a
+  phone or device test.
+- `swift build -c release --target PhoneDSHBLE -j 2`: PASS on macOS.
+- `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest spec.tools.test_legacy_identity_preferences_schema`:
+  PASS, 2 tests.
+- `bash scripts/ci/check.sh --only phone-spec,phone-p0-conformance,phone-cross-tree`:
+  phone-spec PASS, phone-p0-conformance FAIL (stale page contracts and page
+  checker test), phone-cross-tree PASS.
+- iPhone, ESP32, restart, physical power loss and Android acceptance for this
+  change: NOT_RUN. Production task grants remain disabled.

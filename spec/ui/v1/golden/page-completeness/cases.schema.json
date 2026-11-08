@@ -1,0 +1,28 @@
+{
+  "title": "Page source inventory completeness scenario",
+  "type": "object",
+  "required": [
+    "name",
+    "mutation",
+    "valid"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "mutation": {
+      "enum": [
+        "none",
+        "remove_contract",
+        "change_source",
+        "add_page",
+        "remove_chrome"
+      ]
+    },
+    "valid": {
+      "type": "boolean"
+    }
+  }
+}

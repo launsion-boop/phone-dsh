@@ -115,6 +115,11 @@ public sealed interface PdshRoute {
         override val presentation: PdshPresentation = PdshPresentation.PUSH
     }
 
+    /** 设置行「蓝牙设备」; §1: push. Scan + standard GATT only (android-standard-gatt.md). */
+    public data object Bluetooth : PdshRoute {
+        override val presentation: PdshPresentation = PdshPresentation.PUSH
+    }
+
     /**
      * The MCP server editor, opened from [Mcp]'s list.
      *
@@ -432,6 +437,7 @@ public object PdshSettingsRows {
         SettingsDestination.MODEL_PROVIDER -> PdshRoute.ModelProvider
         SettingsDestination.WEB_SEARCH -> PdshRoute.WebSearch
         SettingsDestination.MCP -> PdshRoute.Mcp
+        SettingsDestination.BLUETOOTH -> PdshRoute.Bluetooth
         SettingsDestination.EGRESS -> PdshRoute.Egress
         SettingsDestination.PLUGIN_CONFIGURATION -> PdshRoute.Configuration
         SettingsDestination.COMMAND -> PdshRoute.Tools

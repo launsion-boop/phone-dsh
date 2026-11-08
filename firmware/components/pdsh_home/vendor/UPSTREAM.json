@@ -1,0 +1,13 @@
+{
+  "source_repository": "xiaozhi-link",
+  "source_commit": "f7c72666e2210c02466337b72334d956a03b3657",
+  "source_paths": "firmware/components/xl_home/{xl_home_policy.c,xl_home_transport.c,include/*.h}",
+  "license": "MIT",
+  "files_sha256": {
+    "LICENSE": "12defd91a3b0a3fcf20586836e327b75263a8f4b0985948408b7fcd0761011d1",
+    "xl_home_policy.c": "5e5501d592b1bcbed81a1ec7ac10c8c084d7b7e46addfa69d45ca5fac2650b24",
+    "xl_home_transport.c": "a4183a890fb8af645c567189210b8716006acfdb67052567b0c9a108c194dcf5",
+    "include/xl_home_transport.h": "eb77ed8ef35d1670ddcd100cd71ad8759b7053a0b4412f8def26ee33bc991990",
+    "include/xl_home_policy.h": "cc307b52f33ff3a69731891d6009b866bef9be10d2fb3bf084d3198bb24c6341"
+  }
+}

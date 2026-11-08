@@ -1,0 +1,9 @@
+{"name":"valid","service":"Lamp","host":"lamp.local.","port":8443,"url":"https://lamp.local:8443/mcp","txt_records":["profile=pdsh-mcp-1"]}
+{"name":"valid_extra_txt","service":"Sensor","host":"sensor.local.","port":443,"url":"https://sensor.local/mcp","txt_records":["profile=pdsh-mcp-1","note=ignored"]}
+{"name":"missing_profile","service":"Lamp","host":"lamp.local.","port":8443,"error":"invalid_advertisement","txt_records":[]}
+{"name":"wrong_profile","service":"Lamp","host":"lamp.local.","port":8443,"error":"invalid_advertisement","txt_records":["profile=pdsh-mcp-2"]}
+{"name":"bad_host","service":"Lamp","host":"evil.local/path","port":8443,"error":"invalid_advertisement","txt_records":["profile=pdsh-mcp-1"]}
+{"name":"bad_port","service":"Lamp","host":"lamp.local.","port":0,"error":"invalid_advertisement","txt_records":["profile=pdsh-mcp-1"]}
+{"name":"empty_service","service":"","host":"lamp.local.","port":8443,"error":"invalid_advertisement","txt_records":["profile=pdsh-mcp-1"]}
+{"name":"duplicate_profile","service":"Lamp","host":"lamp.local.","port":8443,"txt_records":["profile=pdsh-mcp-1","profile=pdsh-mcp-1"],"error":"invalid_advertisement"}
+{"name":"oversize_label","service":"Lamp","host":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.local.","port":8443,"txt_records":["profile=pdsh-mcp-1"],"error":"invalid_advertisement"}

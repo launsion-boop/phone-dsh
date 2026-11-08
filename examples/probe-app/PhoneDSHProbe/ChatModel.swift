@@ -24,6 +24,7 @@ import PhoneDSHEngine
 import PhoneDSHShell
 import PhoneDSHADB
 import PhoneDSHBot
+import PhoneDSHBLE
 
 // MARK: - Settings persistence
 
@@ -997,7 +998,7 @@ final class ChatModel {
         observeHost(launch.host)
         do {
             try await ADBMCPServer.shared.setWorkspaceDirectory(materializedWorkspace)
-            await botLaunch?.composition.attachNativeMCP(ADBMCPServer.shared)
+            await botLaunch?.composition.attachNativeMCP(DeviceMCPServer.shared)
             try await launch.host.start()
         } catch {
             Self.appendDiagnostic("host start failed: \(error)")
@@ -1127,7 +1128,7 @@ final class ChatModel {
             credentialProvider: credentialProvider,
             egressAuthorizer: mcpPolicy,
             workerEnvironment: environment.merging(botLaunch?.workerEnvironment ?? [:]) { _, new in new },
-            nativeMCP: ADBMCPServer.shared)
+            nativeMCP: DeviceMCPServer.shared)
         configuration.officialDeepSeekWebCredentialProvider = searchPlan.officialDeepSeekWebCredentialProvider
         // One line states what the host actually enforces. The Worker's
         // published manifest can lag behind a rebuilt bundle; this is the
@@ -1233,7 +1234,7 @@ final class ChatModel {
         do {
             do {
                 try await ADBMCPServer.shared.setWorkspaceDirectory(materializedWorkspace)
-                await botLaunch?.composition.attachNativeMCP(ADBMCPServer.shared)
+                await botLaunch?.composition.attachNativeMCP(DeviceMCPServer.shared)
                 try await launch.host.start()
             } catch {
                 let state = await launch.host.state

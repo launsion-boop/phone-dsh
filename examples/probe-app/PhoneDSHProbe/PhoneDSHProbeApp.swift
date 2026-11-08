@@ -13,6 +13,9 @@
 import ProbeKit
 import SwiftUI
 import PhoneDSH
+#if PDSH_ENABLE_DEVICE_TASKS
+import PhoneDSHBLE
+#endif
 
 @main
 struct PhoneDSHProbeApp: App {
@@ -41,6 +44,9 @@ struct PhoneDSHProbeApp: App {
                 // Task here only leaves SwiftUI's synchronous callback.
                 .onChange(of: scenePhase) { _, newPhase in
                     Task { @MainActor in
+                        #if PDSH_ENABLE_DEVICE_TASKS
+                        await DeviceTaskManager.shared.sceneActive(newPhase == .active)
+                        #endif
                         await ProbeScenePhaseForwarding.deliver(
                             newPhase,
                             chat: { phase in
@@ -52,6 +58,12 @@ struct PhoneDSHProbeApp: App {
                     }
                 }
                 .task {
+                    #if PDSH_ENABLE_DEVICE_TASKS
+                    await DeviceTaskManager.shared.sceneActive(scenePhase == .active)
+                    // Opt-in test builds may negotiate experimental task discovery.
+                    // BLE task grants remain unavailable while GAP-16 is open.
+                    BLEDeviceStore.shared.setDeviceTaskDiscoveryEnabled(true)
+                    #endif
                     model.refreshLockdown()
                     await ChatModel.shared.start()
                 }
