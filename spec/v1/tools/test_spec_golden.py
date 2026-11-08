@@ -889,6 +889,43 @@ class LegacyTaskInspectionFixtureTests(unittest.TestCase):
             spec_golden.validate_json({**rows[0], "expected_reason": "trusted"}, schema, "mutation")
 
 
+class BLEStatusOrderingFixtureTests(unittest.TestCase):
+    def test_vectors_and_semantic_mutations(self):
+        device = SPEC_DIR.parent / "device" / "v1"
+        schema = json.loads((device / "schema/standard-gatt-status-order.schema.json").read_text())
+        data = (device / "golden/standard-gatt-status-order.jsonl").read_bytes()
+        self.assertEqual(hashlib.sha256(data).hexdigest(),
+                         "f403e613669f3d3365733bdb68500ba185ef70ad6066246eea84ac6013b5e10d")
+        rows = [json.loads(line) for line in data.splitlines()]
+        by_id = {row["id"]: row for row in rows}
+        self.assertEqual(len(rows), 10)
+        self.assertEqual(len(by_id), len(rows))
+        for row in rows:
+            spec_golden.validate_json(row, schema, row["id"])
+        bad_rows = [
+            {**rows[0], "event": "invented"},
+            {**rows[0], "unexpected": True},
+            {**rows[1], "injections": [{"checkpoint": "invented", "event": "b-error-b"}]},
+            {**rows[0], "expect": {**rows[0]["expect"], "disconnects": {"A": "one", "B": 0}}},
+        ]
+        for bad in bad_rows:
+            with self.assertRaises(spec_golden.SpecError):
+                spec_golden.validate_json(bad, schema, "malformed status case")
+        mutations = [json.loads(line) for line in
+                     (device / "golden/standard-gatt-status-mutations.jsonl").read_text().splitlines()]
+        self.assertEqual(len(mutations), 10)
+        self.assertEqual(len({(m["base"], tuple(m["path"])) for m in mutations}), 10)
+        for mutation in mutations:
+            original = by_id[mutation["base"]]
+            changed = copy.deepcopy(original)
+            target = changed["expect"]
+            for part in mutation["path"][:-1]:
+                target = target[part]
+            target[mutation["path"][-1]] = mutation["value"]
+            self.assertNotEqual(changed, original)
+            spec_golden.validate_json(changed, schema, mutation["base"])
+
+
 class StandardGattDiscoveryOwnershipFixtureTests(unittest.TestCase):
     def test_vectors_and_mutation_inventory(self):
         device = SPEC_DIR.parent / "device" / "v1"

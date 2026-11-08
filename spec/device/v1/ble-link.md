@@ -415,6 +415,36 @@ won outcome stays won. These rules describe local behavior and intentionally
 tighten compatibility for ambiguous devices; real OS and peripheral behavior
 still require separate evidence.
 
+For the store's shared `status` text, all publication sites participate in one
+local, non-reusable revision sequence. Once an event or user action satisfies
+its original eligibility checks and is known to intend a status, reserve its
+revision before evaluating a potentially reentrant message, taking a physical
+side effect, or notifying any observer, including the devices notifications
+in connection teardown. An ineligible stale event cannot reserve a revision.
+Before writing inside the actual status mutation, recheck that the reserved
+revision is still current and that the original operation's applicable owner,
+peer, phase, channel and power conditions still hold. A later eligible intent
+permanently invalidates an older uncommitted intent even if that later intent
+subsequently becomes ineligible and commits no text. A same-text intent still
+reserves a fresh revision, but if the currently stored text is already equal,
+it makes no status mutation or Observation notification. Text equality is not
+an operation identity and cannot resurrect an older intent. Revision identities
+are local only; they do not label OS callbacks or authorize devices.
+
+This ordering covers scan initialization/rejection/start, manager state,
+connection timeout/failure, discovery and notification failure, asynchronous
+Link handshake failure and the Link-busy indication. Losing the status text
+race never by itself cancels or duplicates the event's required disconnect,
+timeout, scan or other side effect; those use their own existing lifecycle
+guards. This rule orders only local status text, not every other effect of a
+scan or asynchronous callback; the remaining global-state reentry work in
+GAP-30 is not thereby closed. Shared state and status observation must be tested
+through the real store and callbacks; a test-only setter or token is not proof
+of event eligibility. The shared status inputs and expected local outcomes are
+`golden/standard-gatt-status-order.jsonl`; their setup, semantic mutations and
+required side-effect checks are in
+`docs/protocol-changes/PC-20261107-ble-status-order.md`.
+
 The shared discovery object graphs, ordered callbacks and expected checkpoints
 are in `golden/standard-gatt-discovery-ownership.jsonl`, with malformed and
 semantic mutations in `golden/standard-gatt-discovery-mutations.json`. Their

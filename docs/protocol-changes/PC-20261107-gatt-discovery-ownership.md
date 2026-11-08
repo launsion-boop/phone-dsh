@@ -240,3 +240,12 @@ reader. After registering its actual test reader, rerunning
 `PYTHONDONTWRITEBYTECODE=1 bash scripts/ci/check.sh --only phone-cross-tree`
 → PASS. Discovery runtime, simulator and device acceptance remain NOT_RUN at
 this revision; the fixture test validates shapes and inventory only.
+
+## Revision v2 — global status publication intent
+
+The implementer identified a reentrant cross-device status overwrite under
+v1. The contract owner chose and froze global local intent ordering in
+[PC-20261107-ble-status-order.md](PC-20261107-ble-status-order.md), with
+separate shared fixtures and actual-callback tests. The v1 discovery object,
+read, grant and Link cases remain required. The new revision does not close
+GAP-30's separate status-driven side effects or imply radio evidence.
