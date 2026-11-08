@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "BLE secure session application message (secure-session-v1, ble-secure-session.md §7)",
-  "description": "Closed member sets; semantic byte limits, direction, duplicate-name, NUL and task rules are in ble-secure-session.md §7.",
+  "title": "BLE secure session application message (secure-session-v2, ble-secure-session.md §7)",
+  "description": "Closed member sets; semantic byte limits, direction, duplicate-name, NUL and task rules are in ble-secure-session.md §7; phone-side correlation rules in §8.2.",
   "oneOf": [
     {
       "type": "object",

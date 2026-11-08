@@ -4,7 +4,7 @@ Status: `target`. This contract coordinates the device inbox, the phone's durabl
 
 ## Trust and routing
 
-The user explicitly enables device-originated DSH tasks for each authenticated connection. The default is disabled. Disconnect or revocation stops intake. LAN authorization explicitly covers the derived HTTPS `/tasks` path as well as the existing `/mcp` endpoint; credentials never enter the Worker, model, broadcast, or logs. The LAN host and port must be the same as the selected MCP endpoint, normal TLS hostname verification is mandatory, redirects are rejected, and a changed endpoint or credential revokes the task grant. BLE intake is carried only by the authenticated session of [ble-secure-session.md](ble-secure-session.md) (`secure-session-v1`, `target`): an offline-enrolled phone/device key pair, a mutually authenticated TLS 1.3 session over LE CoC and a successful readiness exchange; its device identity is the enrolled device key fingerprint. LE bonding or encryption, the ordinary Link connection, device names, advertised capabilities, characteristic presence and `requester` are untrusted labels or claims, never authentication. Until both ends implement that frozen revision and its physical acceptance is recorded, the iOS adapter MUST refuse all BLE task grants and leave task support unavailable; see GAP-16. Ordinary BLE tools remain governed by their own profile.
+The user explicitly enables device-originated DSH tasks for each authenticated connection. The default is disabled. Disconnect or revocation stops intake. LAN authorization explicitly covers the derived HTTPS `/tasks` path as well as the existing `/mcp` endpoint; credentials never enter the Worker, model, broadcast, or logs. The LAN host and port must be the same as the selected MCP endpoint, normal TLS hostname verification is mandatory, redirects are rejected, and a changed endpoint or credential revokes the task grant. BLE intake is carried only by the authenticated session of [ble-secure-session.md](ble-secure-session.md) (`secure-session-v2`, `target`): an offline-enrolled phone/device key pair, a mutually authenticated TLS 1.3 session over LE CoC and a successful readiness exchange; its device identity is the enrolled device key fingerprint. LE bonding or encryption, the ordinary Link connection, device names, advertised capabilities, characteristic presence and `requester` are untrusted labels or claims, never authentication. Until both ends implement that frozen revision and its physical acceptance is recorded, the iOS adapter MUST refuse all BLE task grants and leave task support unavailable; see GAP-16. Ordinary BLE tools remain governed by their own profile.
 
 The reference firmware's ordinary Link ingress denies plaintext BLE task
 requests as specified in `ble-link.md`, independently of client claims. This
@@ -89,11 +89,15 @@ The authorized phone opens HTTPS `GET /tasks` on the same origin as `/mcp` with 
 
 ## BLE binding
 
-The BLE binding is `ble-secure-session.md@secure-session-v1` (`target`): its
+The BLE binding is `ble-secure-session.md@secure-session-v2` (`target`): its
 `next`, `accept`, `complete`, `fail` and `status` messages carry the task
 representation, outcome bodies and terminal semantics of this document inside
 the authenticated session, and its §9 defines the BLE device identity, the
-secure transition intents (`ble-secure-ops`) and lost-reply recovery. The
+secure transition intents (`ble-secure-ops`) and lost-reply recovery. Its
+§8.2 defines the BLE connection generation that scopes the intake grant: one
+CoreBluetooth connection to one user-selected enrolled device, spanning one or
+more authenticated sessions, with an explicit accept window and a bounded
+report window (§8.1). The
 **BLE task identity is `ble:` + lowercase hex SHA-256 of the enrolled device's
 65-byte uncompressed P-256 public key**, i.e. the session's device ID; it is
 used unchanged as the journal `device_id` and in the `msg_id` derivation

@@ -9,11 +9,15 @@ an entry in the trust list as authentication of later Link, task or receipt
 traffic. The design history is in
 [PC-20261106-device-identity-tofu](../../../docs/protocol-changes/PC-20261106-device-identity-tofu.md).
 The authenticated session that replaces this flow for device tasks is frozen
-in [ble-secure-session.md](ble-secure-session.md) (`secure-session-v1`,
+in [ble-secure-session.md](ble-secure-session.md) (`secure-session-v2`,
 `target`; change record PC-20261108-ble-secure-session): its device ID uses
 the same fingerprint string as §2, but authority comes only from offline
 enrollment and a mutually authenticated session, never from this proof or the
-trust list (ble-secure-session.md §11.3).
+trust list (ble-secure-session.md §11.3). Firmware that carries that secure
+service retires `pdsh.identity.prove`: it is not listed and a call is refused
+with `UNSUPPORTED` (14), no receipt and no signature, so the shared device key
+is never an unauthenticated signing oracle. No phone build calls the tool, so
+the phone side of this document is unaffected.
 
 ## 1. What runs where
 

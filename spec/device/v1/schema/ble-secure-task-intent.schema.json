@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Phone secure-session task transition intent (ble-secure-session.md §9.2)",
+  "title": "Phone secure-session task transition intent (ble-secure-session.md §9.2, secure-session-v2)",
   "description": "File <msg_id>-<action>.json in the task journal's ble-secure-ops directory.",
   "type": "object",
   "additionalProperties": false,

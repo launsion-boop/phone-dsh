@@ -1,16 +1,24 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Reference firmware task store v2 (NVS key tasks_v2, ble-secure-session.md §10)",
-  "description": "task follows task.schema.json and the task rules; outcome iff terminal; by never on queued.",
+  "title": "Reference firmware task store v2 (NVS key tasks_v2, ble-secure-session.md §10, secure-session-v2)",
+  "description": "task follows task.schema.json and the task rules; outcome iff terminal; by never on queued; v1_sha256 is the SHA-256 of the exact tasks_v1 bytes present when this document was first written (null if none).",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "v",
+    "v1_sha256",
     "slots"
   ],
   "properties": {
     "v": {
       "const": 2
+    },
+    "v1_sha256": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{64}$"
     },
     "slots": {
       "type": "array",
