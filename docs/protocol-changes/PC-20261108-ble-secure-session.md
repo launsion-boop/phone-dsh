@@ -5,8 +5,8 @@ change: PC-20261108-ble-secure-session
 contracts: [P06, P07]
 status: frozen
 breaking: true
-version_decision: New ALPN-identified session profile pdsh-ble-task/1 (secure-session-v2, superseding the never-implemented secure-session-v1 with unchanged wire messages and ALPN) on an additive GATT service; physically entered enrollment mode; pdsh.identity.prove retired on secure-service firmware; task store v2 records the migrated tasks_v1 digest; BLE task device_id changes from ble:<Link UUID> to ble:<device key fingerprint> with no conversion (old records legacy, preserved, inert); plaintext Link task access permanently refused; ordinary Link, standard GATT, phone task journal v1 and existing schemas unchanged.
-base: 0e9ad261 (codex/fix-pr59, PR #59 head)
+version_decision: New ALPN-identified session profile pdsh-ble-task/1 (secure-session-v2, superseding the never-implemented secure-session-v1 with unchanged wire messages and ALPN) on an additive GATT service; physically entered enrollment mode; pdsh.identity.prove retired on secure-service firmware; task store v2 records the migrated tasks_v1 digest; BLE task device_id changes from ble: + Link UUID to ble: + the device key fingerprint with no conversion (old records legacy, preserved, inert); plaintext Link task access permanently refused; ordinary Link, standard GATT, phone task journal v1 and existing schemas unchanged.
+base: 36a2641c04ecb114cb949b0c75e8f09b7e0be558 # drafted at codex/fix-pr59 head 0e9ad261 (PR #59)
 contract_revision: spec/device/v1/ble-secure-session.md@secure-session-v2.1 (amends secure-session-v2, freeze commit e031b643 pinned 5f6fd5d3; v1 freeze 0aa86466, pinned 082aff5f; v2.1 commit in §7)
 ```
 
@@ -76,6 +76,19 @@ new NVS keys, new directory names).
 4. A device-side owner (`by`) on accepted/terminal slots replaces inference
    from the ambiguous v1 `next`.
 5. One enrolled phone per board; replacement requires revoke first.
+
+### Relationship to the TOFU draft (`PC-20261106-device-identity-tofu`)
+
+[PC-20261106-device-identity-tofu](PC-20261106-device-identity-tofu.md) remains
+`draft`; this record does not change its status. Its open "UUID-to-fingerprint
+task identity decision", key-change refusal and session binding are resolved by
+this revision (`ble-secure-session.md@secure-session-v2.1`): the BLE task
+`device_id` is `ble:` + the enrolled device key fingerprint, the phone pins only
+the selected committed record, so a changed key is refused (`pin_mismatch`,
+§6.2 M1), and task, result and receipt bytes travel only inside the
+authenticated session. The TOFU `pdsh.identity.prove` proof and
+`pdsh.ble.trustedIdentities` trust list described there remain experimental, are
+not part of the v2.1 session and are never imported as enrollment.
 
 ## 3. Compatibility and release
 

@@ -5,9 +5,9 @@ change: PC-20261107-ble-session-binding-ccr
 contracts: [P07]
 status: frozen
 breaking: true
-version_decision: resolved by PC-20261108-ble-secure-session — new ALPN-identified secure session (pdsh-ble-task/1); BLE task device_id becomes ble:<device key fingerprint>; plaintext Link tasks permanently refused
-base: 1a1313ac9562ab2ca5cfa1e7580bacfe2a7a140d
-contract_revision: spec/device/v1/ble-secure-session.md@secure-session-v1 (see PC-20261108-ble-secure-session)
+version_decision: resolved by PC-20261108-ble-secure-session — new ALPN-identified secure session (pdsh-ble-task/1); BLE task device_id becomes ble: + the device key fingerprint; plaintext Link tasks permanently refused
+base: 36a2641c04ecb114cb949b0c75e8f09b7e0be558
+contract_revision: spec/device/v1/ble-secure-session.md@secure-session-v2.1 (see PC-20261108-ble-secure-session)
 ```
 
 ## Trigger and evidence
@@ -302,7 +302,7 @@ mandatory. No new physical or security experiment was performed for it.
 ## Resolution (2026-11-08)
 
 Resolved by [PC-20261108-ble-secure-session](PC-20261108-ble-secure-session.md),
-which freezes `spec/device/v1/ble-secure-session.md@secure-session-v1`
+which freezes `spec/device/v1/ble-secure-session.md@secure-session-v2.1`
 (`target`, not implemented). Answers to this request: authenticated session =
 offline enrollment of both P-256 fingerprints over a trusted serial console
 plus mutually pinned TLS 1.3 over LE CoC with a readiness exchange; task,

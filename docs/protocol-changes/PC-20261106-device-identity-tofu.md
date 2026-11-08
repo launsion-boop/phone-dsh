@@ -94,13 +94,3 @@ Reference firmware build evidence (2026-11-07): at source head `449db65ccc556518
 ## Documentation alignment (2026-11-07)
 
 Base `a379f2ba`. Protocol impact: P07; P18 — documentation of the existing UserDefaults key only, no format change. `spec/device/v1/ble-identity.md` (status `target`) now records the identity string, the `pdsh.identity.prove` request/result encoding and signed bytes, the UserDefaults storage, key-change and restart behaviour exactly as the Swift and reference C ends implement them. It is a description of the prototype, not a freeze of the proposed design above: Keychain pinning, key-change refusal, the UUID-to-fingerprint task identity decision, shared Swift/C proof vectors and the session binding remain open. No code, wire format, schema or fixture changed. Statements earlier in this record that `ble-identity.md` does not exist are superseded by this entry; the observations under "Historical implementation status" and "Trusted reconnect evidence" describe pre-containment behaviour — no current build calls the prove helper.
-
-
-## Follow-up (2026-11-08)
-
-The open "UUID-to-fingerprint task identity decision", key-change refusal and
-session binding are resolved by
-[PC-20261108-ble-secure-session](PC-20261108-ble-secure-session.md)
-(`ble-secure-session.md@secure-session-v1`, `target`). The TOFU proof and trust
-list described here remain experimental, are not part of that session and are
-never imported as enrollment. This record's own status is unchanged.
