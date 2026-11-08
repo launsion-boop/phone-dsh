@@ -45,6 +45,94 @@ peer identity, or an authenticated session. The unused proof helper must also
 discard its asynchronous result if its captured generation or client changed.
 `golden/legacy-identity-confirmation.jsonl` describes these ordering cases.
 
+### Observable confirmation and guarded submission
+
+The local confirmation publication is ordered by a non-reusable identity
+revision and confirmation attempt, in addition to the connection owner,
+current Link channel and client, and the exact Unicode scalar sequence of the
+pending label. Clearing or replacing a connection or channel, installing a
+client (even the same instance), and setting or clearing pending (even to the
+same scalar sequence) invalidate earlier identity revisions. A later accepted
+confirmation invalidates an earlier attempt. Other devices have independent
+revisions. An invalidated operation cannot change the current device's
+identity, pending label, permissions, error or global status.
+Installing or replacing a channel or client also clears the previous pending
+and recorded UI markers; a marker established under the old object cannot be
+confirmed under its replacement. Invalidate marker provenance before changing
+the object reference or notifying observers; admission checks provenance,
+not just whether an old marker remains temporarily visible during notification.
+
+The confirmation-specific storage operation shares the existing process
+lock, visible-value rules and exact-scalar readback with the public insertion
+API. After reading the effective value and immediately before submitting a
+new `set`, it checks the captured local state on the main actor, without
+suspending or calling UserDefaults from that check. If it is already stale,
+it performs no `set` and publishes no outcome. A duplicate or invalid visible
+value is likewise not reported by a stale confirmation. Once `set` is entered,
+its own synchronous callbacks can invalidate the operation before the
+underlying write completes; the caller must not assume the write was
+cancelled and must never roll it back automatically. A stale result after
+`set` or readback is not reported to the replacement connection. After `set`
+returns, a stale operation does not start a readback; if invalidation occurs
+inside an already-started readback, it discards that readback's result.
+
+A same-thread synchronous nested confirmation while another participating
+preference operation holds the process lock is refused without accessing preferences,
+starting a new attempt or publishing an additional identity result, including
+precondition errors. The reentry decision precedes any such publication or
+attempt allocation. An
+explicit later retry is allowed. Other threads still wait under the existing
+public storage API; confirmation and its validity check run on the main actor.
+Real disconnect, replacement and revocation
+callbacks remain effective during such reentry; no rule promises that
+UserDefaults callbacks cannot publish Observation notifications or that
+arbitrary external lock interactions cannot deadlock.
+
+On a current successful confirmation, publish the historical label and clear
+the pending marker. On a current storage failure, retain the pending marker,
+show a device-specific failure and do not say that it was recorded. A missing
+pending label or client produces a device-specific precondition failure for
+an existing device; a missing device is a no-op. These confirmation outcomes do
+not write the global Bluetooth status. Publication must recheck the captured
+state inside the actual Observation mutation, after synchronous will-change
+observers have run. A later accepted nested confirmation or lifecycle change
+must not be overwritten by an older publication. The device-specific error is
+cleared on a new connection or identity replacement and does not authorize a
+task. The dormant proof helper must apply the same ownership checks after its
+asynchronous result and any preference lookup; tests may feed its shared local
+completion transition but must not invoke the target identity RPC or treat a
+locally supplied result as a verified peer.
+
+`golden/legacy-identity-observation.jsonl` specifies shared ordering cases,
+including pre-submit invalidation, in-set uncertainty, Observation reentry,
+same-value ABA and stale proof completion. These are local state and visible
+preference rules, not authentication, durable storage or radio attribution.
+Its result category describes observable effects of the void API, not a
+test-only return value. Each hook runs once, while an Observation tracker may
+receive nested notifications up to the case's stated bound. NFC/NFD labels
+are synthetic unbound local markers used only to exercise scalar ordering;
+they are not claimed to be outputs of a verified proof. The proof-completion
+cases use a syntactically valid `ble:` plus 64 lowercase hexadecimal label.
+The original confirmation vectors' interrupted success/failure cases inject
+their interruption inside an already-started readback, returning the stated
+success or injected failure; the new vectors cover earlier cancellation.
+`lifecycle_actions` counts invoked hook actions; `lifecycle_transitions`
+counts real state changes, so an ABA action must make two changes rather than
+reassigning the same value. Preference access counts include the operation,
+its synchronous nested calls and any explicit retry, but exclude the test's
+subsequent independent inspection of the isolated suite. For every
+`device-will-change` hook, register actual Observation tracking and invoke
+the hook from its notification, not directly from the test. Observe global
+status notifications as well as its final text: only the explicitly expected
+radio-state event may publish status. Establish the status baseline via the
+real powered-on state transition before installing the observer. The
+no-client precondition case uses a reachable empty pending marker and no
+client; the no-pending case has a current client and empty pending. Separate
+installation-notification tests must prove an old still-visible pending
+marker cannot be admitted for a new client. In the explicit-retry case, the
+hook attempts B once while A holds storage; B's retry occurs only after A's
+entire confirmation returns and releases that lock.
+
 The old void insertion method remains as a compatibility wrapper and discards
 the result; newer probe code uses the result-bearing method. Operations through
 this API serialize participating callers within the current process. A
