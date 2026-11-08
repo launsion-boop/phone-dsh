@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { Context } from '@deepseek-ai/cordis'
+import type { ToolBatchInput, ToolBatchResult } from '@deepseek-ai/dsh-tools'
 import { currentToolCall } from '../exec-bridge/src/call-context.ts'
 import { createClassifier } from '../tool-journal/src/classify.ts'
 import { ToolJournal, schemaHash } from '../tool-journal/src/index.ts'
@@ -99,10 +100,17 @@ test('ToolJournal.reconcile appends settled tool/results through the handle befo
   ctx.provide('sessions', {})
   ctx.provide('tools', {
     get: (name: string) => tools[name as keyof typeof tools],
-    execute: async (exec: { name: string }) => {
-      executed.push({ name: exec.name, key: currentToolCall()?.key })
-      return { isError: false, value: null, content: [{ type: 'text', text: 'fresh file text' }] }
-    },
+    execute: async ({ calls }: ToolBatchInput): Promise<ToolBatchResult> => ({
+      results: calls.map(call => {
+        executed.push({ name: call.name, key: currentToolCall()?.key })
+        return {
+          callId: call.id,
+          result: { isError: false, value: null, content: [{ type: 'text', text: 'fresh file text' }] },
+        }
+      }),
+      additionalContexts: [],
+      concluded: false,
+    }),
   })
   await ctx.plugin(ToolJournal, { root, profile: PROFILE, classes: {}, rerun: true, rerunTimeoutMs: 5000 })
   const journal = ctx.get('toolJournal') as ToolJournal

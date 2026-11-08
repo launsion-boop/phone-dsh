@@ -21,9 +21,6 @@
  *    injects a PTC runtime the phone deliberately does not mount; the Worker
  *    bridge keeps the official meta/workflow semantics and runs the script in
  *    a separate workflow Worker;
- *  - `@deepseek-ai/dsh-agent-tool-presentation` is served by the phone
- *    equivalent presentation row: `ptc` degrades to real native presentation
- *    only while no PTC runtime exists, instead of leaving the preset pending;
  *  - `@deepseek-ai/dsh-terminal` refuses its mount: the Worker has no OS PTY,
  *    and leaving the service mounted would report `minimal` healthy until its
  *    first terminal call. The refusal names the phone-shell alternative;
@@ -45,14 +42,10 @@ import { APP_BOOT_SPECIFIER } from './fs-read-state.ts'
 import { SHARP_MODULE_SPECIFIER } from './sharp-marker.ts'
 import { sharpShim, type SharpFactory } from './sharp-shim.ts'
 import terminalShim from './terminal-shim.ts'
-import toolPresentationShim from './tool-presentation-shim.ts'
 import vmShim, { type Script } from './vm-shim.ts'
 
 /** Package specifier the standard preset's `workflow-ptc` row resolves. */
 export const WORKFLOW_PTC_SPECIFIER = '@deepseek-ai/dsh-workflow-ptc'
-
-/** Package specifier the ptc preset's presentation row resolves. */
-export const TOOL_PRESENTATION_SPECIFIER = '@deepseek-ai/dsh-agent-tool-presentation'
 
 /** Official persistent-terminal provider; the phone Worker has no PTY. */
 export const TERMINAL_SPECIFIER = '@deepseek-ai/dsh-terminal'
@@ -95,8 +88,6 @@ export interface PhoneStaticModuleOverrides {
    * this table stays free of checkout/image imports.
    */
   readonly workflowPtc?: StaticModuleFactory
-  /** The Worker-native presentation row. */
-  readonly toolPresentation?: StaticModuleFactory
   /** Loud refusal for the official persistent-terminal provider. */
   readonly terminal?: StaticModuleFactory
   /** The restricted `node:vm` face used by the isolated workflow realm. */
@@ -106,7 +97,6 @@ export interface PhoneStaticModuleOverrides {
 /** The overrides this layer installs without any image access. */
 export const PHONE_STATIC_MODULE_OVERRIDES: PhoneStaticModuleOverrides = Object.freeze({
   sharp: sharpShim,
-  toolPresentation: () => toolPresentationShim,
   terminal: () => terminalShim,
   vm: () => vmShim,
 })
@@ -133,9 +123,6 @@ export function composePhoneStaticModules(
   }
   if (overrides.workflowPtc !== undefined) {
     modules[WORKFLOW_PTC_SPECIFIER] = overrides.workflowPtc
-  }
-  if (overrides.toolPresentation !== undefined) {
-    modules[TOOL_PRESENTATION_SPECIFIER] = overrides.toolPresentation
   }
   if (overrides.terminal !== undefined) {
     modules[TERMINAL_SPECIFIER] = overrides.terminal

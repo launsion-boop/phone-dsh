@@ -285,15 +285,6 @@ export interface SettingsUpdateArgs {
   expectedRevision?: number;
 }
 
-export interface ScheduleDeleteRequest {
-  sessionId: string;
-  id: string;
-}
-
-export interface ScheduleDeleteArgs {
-  request: ScheduleDeleteRequest;
-}
-
 export interface PluginToggleArgs {
   entryId: string;
   enabled: boolean;

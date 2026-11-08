@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-# Worker profile layer for DeepSeek Harness 0.2.1-rc.2 on the phone path.
+# Worker profile layer for DeepSeek Harness 0.2.2-rc.1 on the phone path.
 #
 # Host: DeepSeek Harness runs in a dedicated Web Worker inside WKWebView; the
 # App process is the host and owns one loopback HTTP origin and one ordered
@@ -581,8 +581,6 @@
       name: '@deepseek-ai/dsh-client-ui-message-feedback'
     - id: ui-model-selection
       name: '@deepseek-ai/dsh-client-ui-model-selection'
-    - id: ui-deepseek-model-label-1017
-      name: '@deepseek-ai/dsh-client-ui-deepseek-model-label-1017'
     - id: ui-permission
       name: '@deepseek-ai/dsh-client-ui-permission-presets'
     - id: ui-agent-preset
@@ -593,11 +591,6 @@
       name: '@deepseek-ai/dsh-client-ui-user-questions'
     - id: ui-trajectory
       name: '@deepseek-ai/dsh-client-ui-trajectory'
-
-    # Touch workbench: off-canvas navigation, touch-first composer and PWA
-    # install prompt below the mobile breakpoint.
-    - id: ui-mobile
-      name: '@deepseek-ai/dsh-client-ui-mobile'
 
 # ── phone-dsh plugins ─────────────────────────────────────────────────────
 - insert:
@@ -685,8 +678,8 @@
     # `workflow-ptc`/`tool-workflow` rows with the native bridge in
     # `workflow-worker` (official meta/workflow semantics in a dedicated
     # workflow Worker; the official process PTC runtime is still absent).
-    # `ptc` is usable because its presentation row falls back to real native
-    # presentation when no `ptcRuntime` exists; it does not claim PTC
+    # The packer selects the native executor for the `ptc` preset because the
+    # Worker cannot spawn its Node runtime. The preset does not claim PTC
     # execution is available. `minimal` stays listed with its real PTY error.
     # `cordis` uses the official Host inspectors and the phone's persistent,
     # offline preset-bundle manager; no pnpm or desktop VM is claimed.
@@ -793,8 +786,6 @@
             config:
               - id: tool-subagent-control
                 name: '@deepseek-ai/dsh-tool-subagent-control'
-              - id: tool-subagent-list-agents
-                name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'
               - id: tool-subagent
                 name: '@deepseek-ai/dsh-tool-subagent'
                 config:

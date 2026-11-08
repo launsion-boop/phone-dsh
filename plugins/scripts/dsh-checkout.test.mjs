@@ -48,15 +48,15 @@ function fakeCheckout(head) {
     writeFileSync(join(directory, file), '// built\n')
   }
   mkdirSync(join(directory, 'apps', 'cli'), { recursive: true })
-  writeFileSync(join(directory, 'apps', 'cli', 'package.json'), '{"name":"@deepseek-ai/dsh","version":"0.2.1-rc.2"}\n')
+  writeFileSync(join(directory, 'apps', 'cli', 'package.json'), '{"name":"@deepseek-ai/dsh","version":"0.2.2-rc.1"}\n')
   writeFileSync(join(directory, 'tracked.txt'), 'pinned\n')
   const commit = commitAll(directory, 'pinned tree')
   return { directory, commit: head ?? commit }
 }
 
-test('the repository pin names the full commit and the 0.2.1 profile', () => {
+test('the repository pin names the full commit and the 0.2.2 profile', () => {
   assert.equal(pin.repo, 'https://github.com/deepseek-ai/deepseek-harness')
-  assert.equal(pin.version, '0.2.1-rc.2')
+  assert.equal(pin.version, '0.2.2-rc.1')
   assert.match(pin.commit, /^[0-9a-f]{40}$/)
   assert.equal(resolve(PIN_PATH, '..'), fileURLToPath(new URL('..', import.meta.url)).replace(/\/$/, ''))
 })

@@ -14,7 +14,7 @@ phone cannot provide (a child Node process with a control pipe).
 | Child agents, Session/cwd, tool permissions, model identity | parent DSH Worker through `ctx.subagents.startActivation({ delivery: 'caller' })` |
 | Cancellation, synchronous deadline, child cleanup | QuickJS interrupt handler + parent isolate termination as the backstop; child disposal stays in the parent |
 | `workflow/*` lifecycle events | parent `WorkflowEngine.emitWorkflowEvent` |
-| Tool catalog / presentation | real native tools; PTC presentation degrades to native only when no `ptcRuntime` exists (see `tool-presentation-shim.ts`) |
+| Tool catalog / presentation | the pinned DSH native executor serves the phone presets, including the preset named PTC |
 
 The standard preset's `workflow-ptc` row names the official package. The Worker
 static-module table serves that exact specifier from this package, so neither

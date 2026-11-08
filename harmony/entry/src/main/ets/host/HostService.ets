@@ -156,8 +156,6 @@ import {
   FollowArgs,
   PluginToggleArgs,
   PromptContent,
-  ScheduleDeleteArgs,
-  ScheduleDeleteRequest,
   SessionCancelArgs,
   SessionCancelRequest,
   SessionCreateArgs,
@@ -237,7 +235,6 @@ class ConfigSpec {
 /** One schedule record exactly as `schedule/catalog` reported it. */
 class AutomationSchedule {
   id: string = '';
-  sessionId: string = '';
   title: string = '';
   prompt: string = '';
   kind: string = '';
@@ -249,7 +246,8 @@ class AutomationSchedule {
   timeZone: string = '';
   expression: string = '';
   weekdays: string = '';
-  expected: string = '';
+  detail: string = '';
+  updatedAt: string | null = null;
 }
 
 class EmptyArgs {
@@ -295,11 +293,6 @@ const CONFIG_SPECS: ConfigSpec[] = [
   new ConfigSpec('subagent-model-selection-settings', 'allowedModels', 'modelSelection'),
   new ConfigSpec('bash-sandbox', 'timeoutMs', 'number'),
   new ConfigSpec('bash-sandbox', 'maxOutputBytes', 'number')
-];
-
-const AUTOMATION_EXPECTED_KEYS: string[] = [
-  'id', 'kind', 'title', 'prompt', 'scheduledAt', 'afterSeconds', 'everySeconds',
-  'time', 'timeZone', 'expression', 'weekdays'
 ];
 
 const CONTEXT_LOST: string =
@@ -2473,10 +2466,13 @@ export class HostService implements ShellActions, PageBridgeListener, ProxyRespo
   async deleteItem(id: string): Promise<void> {
     const meta = this.itemMeta.get(id);
     if (meta !== undefined && meta.kind === 'automation') {
-      const request: ScheduleDeleteRequest = { sessionId: meta.sessionId, id: meta.field };
-      const args: ScheduleDeleteArgs = { request: request };
+      const request: Record<string, Object> = { id: meta.field, action: 'delete' };
       try {
-        await this.pageBridge.call('schedule/delete', args as Object, 15000);
+        const result = this.remoteValue(asRecord(
+          await this.pageBridge.call('schedule/edit', new RequestWrapper(request), 15000)));
+        if (result === null || result['deleted'] !== true) {
+          throw new Error(this.uiCopy('定时任务已不存在，请刷新后重试'));
+        }
         this.snapshot.notice = this.uiCopy('定时任务已删除。');
         await this.loadForPage();
       } catch (error) {
@@ -4843,15 +4839,12 @@ export class HostService implements ShellActions, PageBridgeListener, ProxyRespo
         item.valueType = 'automation';
         item.title = record.title.length > 0 ? record.title : '定时任务';
         item.subtitle = `${record.status.length > 0 ? record.status : 'unknown'} · ${this.automationTimingLabel(record)}`;
-        // The editor reads the exact catalog record back from here, so editing
-        // can send the same `expected` record the schedule/update CAS requires.
-        item.detail = record.expected;
+        item.detail = record.detail;
         item.enabled = record.status === 'active';
         items.push(item);
         const meta = new ItemMeta();
         meta.kind = 'automation';
         meta.field = id;
-        meta.sessionId = record.sessionId;
         meta.title = item.title;
         this.itemMeta.set(item.id, meta);
       }
@@ -4866,7 +4859,6 @@ export class HostService implements ShellActions, PageBridgeListener, ProxyRespo
   private automationRecordOf(row: Record<string, Object>): AutomationSchedule {
     const record = new AutomationSchedule();
     record.id = jsonString(row, 'id', '');
-    record.sessionId = jsonString(row, 'sessionId', '');
     record.title = jsonString(row, 'title', '');
     record.prompt = jsonString(row, 'prompt', '');
     record.kind = jsonString(row, 'kind', '');
@@ -4878,15 +4870,8 @@ export class HostService implements ShellActions, PageBridgeListener, ProxyRespo
     record.timeZone = this.scalarText(row, 'timeZone');
     record.expression = this.scalarText(row, 'expression');
     record.weekdays = this.weekdayText(row['weekdays']);
-    const expected: Record<string, Object> = {};
-    for (let index = 0; index < AUTOMATION_EXPECTED_KEYS.length; index++) {
-      const key = AUTOMATION_EXPECTED_KEYS[index];
-      const value: Object | undefined = row[key];
-      if (value !== undefined) {
-        expected[key] = value;
-      }
-    }
-    record.expected = JSON.stringify(expected);
+    record.detail = JSON.stringify(row);
+    record.updatedAt = typeof row['updatedAt'] === 'string' ? row['updatedAt'] as string : null;
     return record;
   }
 
@@ -5506,44 +5491,34 @@ export class HostService implements ShellActions, PageBridgeListener, ProxyRespo
       await this.failItemWrite(this.uiCopy('定时任务已不存在，请刷新后重试'));
       return;
     }
-    const expected = parseJsonObject(record.expected);
-    if (expected === null) {
-      await this.failItemWrite(this.uiCopy('定时任务原始记录不可用，请刷新后重试'));
-      return;
-    }
-    const request: Record<string, Object> = {};
-    request['sessionId'] = record.sessionId;
-    request['id'] = record.id;
-    request['title'] = title;
-    request['prompt'] = prompt;
-    request['expected'] = expected as Object;
+    const patch: Record<string, Object> = { title: title, prompt: prompt };
+    const request: Record<string, Object> = { id: record.id, action: 'update', patch: patch };
+    request['expectedUpdatedAt'] = record.updatedAt as Object;
     if (jsonBool(draft, 'changeTiming', false)) {
       const change = this.automationTiming(draft, true);
       if (change === null) {
         await this.failItemWrite(this.uiCopy('请填写完整有效的重复规则'));
         return;
       }
-      request['change'] = change as Object;
+      patch['timing'] = change as Object;
     }
     let result: Record<string, Object> | null = null;
 
     try {
       result = this.remoteValue(asRecord(
-        await this.pageBridge.call('schedule/update', new RequestWrapper(request), 15000)));
+        await this.pageBridge.call('schedule/edit', new RequestWrapper(request), 15000)));
     } catch (error) {
       await this.failItemWrite(this.uiFill('定时任务未保存：{0}', [this.clean(errorText(error as Error))]));
       return;
     }
-    if (result !== null && result['updated'] === false && jsonString(result, 'code', '').length > 0) {
+    if (result !== null && jsonString(result, 'code', '').length > 0) {
       const code = jsonString(result, 'code', '');
       const reason = code === 'schedule_conflict' ? this.uiCopy('任务已被其他窗口修改') :
         code === 'schedule_ended' ? this.uiCopy('任务已结束') : this.uiCopy('任务已不存在');
       await this.failItemWrite(this.uiFill('{0}，请刷新后重试', [reason]));
       return;
     }
-    const committed = result === null ? null : asRecord(result['record']);
-    if (result === null || typeof result['updated'] !== 'boolean' || committed === null ||
-      jsonString(result, 'id', '') !== record.id || jsonString(committed, 'id', '') !== record.id) {
+    if (result === null || jsonString(result, 'id', '') !== record.id) {
       await this.failItemWrite(this.uiCopy('保存请求已返回，但目录没有显示更新后的内容；请刷新确认。'));
       return;
     }

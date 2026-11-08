@@ -128,7 +128,7 @@ class HostAutomationTest {
             calls += endpoint to args
             when (endpoint) {
                 "schedule/catalog" -> JsonArray(listOf(original))
-                "schedule/update" -> JsonObject(mapOf("updated" to JsonBool(false)))
+                "schedule/edit" -> JsonObject(mapOf("id" to JsonString("schedule-1"), "code" to JsonString("schedule_conflict")))
                 else -> error("unexpected endpoint $endpoint")
             }
         }
@@ -146,15 +146,14 @@ class HostAutomationTest {
 
         host.save(draft, requestID = "request-2")
 
-        val update = calls.single { it.first == "schedule/update" }.second.objectMember("request")
+        val update = calls.single { it.first == "schedule/edit" }.second.objectMember("request")
         assertEquals("schedule-1", update.text("id"))
-        assertEquals(
-            JsonObject(original.members.filterKeys {
-                it in setOf("id", "kind", "title", "prompt", "scheduledAt", "time", "timeZone")
-            }),
-            update.objectMember("expected"),
-        )
-        assertFalse("unchanged timing is omitted", "change" in update.members)
+        assertEquals("update", update.text("action"))
+        assertEquals(original["updatedAt"], update["expectedUpdatedAt"])
+        val patch = update.objectMember("patch")
+        assertEquals("new title", patch.text("title"))
+        assertEquals("new prompt", patch.text("prompt"))
+        assertFalse("unchanged timing is omitted", "timing" in patch.members)
         val facts = host.facts.value
         assertEquals("old title", facts.snapshot?.schedules?.single()?.title)
         val receipt = requireNotNull(facts.writeReceipt)
@@ -216,7 +215,8 @@ class HostAutomationTest {
     ): JsonObject = JsonObject(
         linkedMapOf<String, JsonValue>(
             "id" to JsonString(id),
-            "sessionId" to JsonString(sessionID),
+            "target" to JsonObject(mapOf("kind" to JsonString("session"), "sessionId" to JsonString(sessionID))),
+            "updatedAt" to JsonString("2026-11-01T09:00:00Z"),
             "kind" to JsonString(kind),
             "title" to JsonString(title),
             "prompt" to JsonString(prompt),

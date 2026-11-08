@@ -309,12 +309,10 @@ interface LiveHostContext {
   get(name: string): unknown
   tools: {
     execute(exec: {
-      callId: string
-      name: string
-      arguments: unknown
+      calls: readonly { type: 'tool-call'; id: string; name: string; arguments: string }[]
       signal: AbortSignal
       agent?: unknown
-    }): Promise<{ isError: boolean; content: unknown; value?: unknown }>
+    }): Promise<{ results: readonly { result: { isError: boolean; content: unknown; value?: unknown } }[] }>
     schemas(): { name: string }[]
   }
 }
@@ -562,9 +560,12 @@ try {
   const creatorAgent = await lookup?.resolve(creatorId)
   if (creatorAgent === undefined) throw new Error('Creator has no real Agent')
   const creatorTools = async (name: string, args: unknown): Promise<unknown> => {
-    const result = await hostContext!.tools.execute({
-      callId: randomUUID(), name, arguments: args, agent: creatorAgent, signal: new AbortController().signal,
+    const batch = await hostContext!.tools.execute({
+      calls: [{ type: 'tool-call', id: randomUUID(), name, arguments: JSON.stringify(args) }],
+      agent: creatorAgent, signal: new AbortController().signal,
     })
+    const result = batch.results[0]?.result
+    if (result === undefined) throw new Error(`Creator tool ${name} returned no outcome`)
     if (result.isError) throw new Error(`Creator tool ${name} failed: ${JSON.stringify(result.content)}`)
     return typeof result.value === 'string' ? JSON.parse(result.value) : result.value
   }
@@ -693,12 +694,15 @@ try {
   probe.mcpListStatus = typeof listedServer?.status === 'string' ? listedServer.status : undefined
   probe.mcpListTools = Array.isArray(listedServer?.tools) ? listedServer.tools as string[] : undefined
   if (hostContext === undefined) throw new Error('boot harness did not observe the live app-boot context')
-  const executedMcp = await hostContext.tools.execute({
-    callId: 'image-mcp-echo',
-    name: 'mcp__image__echo',
-    arguments: { message: 'from-image' },
+  const mcpBatch = await hostContext.tools.execute({
+    calls: [{
+      type: 'tool-call', id: 'image-mcp-echo', name: 'mcp__image__echo',
+      arguments: JSON.stringify({ message: 'from-image' }),
+    }],
     signal: new AbortController().signal,
   })
+  const executedMcp = mcpBatch.results[0]?.result
+  if (executedMcp === undefined) throw new Error('MCP echo returned no outcome')
   probe.mcpCallIsError = executedMcp.isError
   probe.mcpCallContent = JSON.stringify(executedMcp.content)
   const removedMcp = await call('phone/mcpRemove', { request: { serverName: 'image' } })

@@ -100,7 +100,8 @@ struct NativeAutomationPage: View {
     }
 
     private func sessionTitle(_ sessionID: String) -> String {
-        management.sessions.first(where: { $0.id == sessionID })?.title ?? String(sessionID.prefix(8))
+        if sessionID.isEmpty { return "新会话" }
+        return management.sessions.first(where: { $0.id == sessionID })?.title ?? String(sessionID.prefix(8))
     }
 }
 
@@ -229,13 +230,13 @@ private struct ScheduleEditorPage: View {
         _title = State(initialValue: schedule?.title ?? "")
         _prompt = State(initialValue: schedule?.prompt ?? "")
         _rule = State(initialValue: schedule?.kind ?? "after")
-        _delaySeconds = State(initialValue: String(schedule?.expectedRecord["afterSeconds"]?.intValue ?? 3600))
+        _delaySeconds = State(initialValue: String(schedule?.timingRecord["afterSeconds"]?.intValue ?? 3600))
         _targetAt = State(initialValue: schedule?.scheduledAt ?? ISO8601DateFormatter().string(from: Date().addingTimeInterval(3600)))
-        _intervalSeconds = State(initialValue: String(schedule?.expectedRecord["everySeconds"]?.intValue ?? 3600))
-        _localTime = State(initialValue: schedule?.expectedRecord["time"]?.stringValue ?? "09:00:00")
-        _timeZone = State(initialValue: schedule?.expectedRecord["timeZone"]?.stringValue ?? TimeZone.current.identifier)
-        _weekdays = State(initialValue: (schedule?.expectedRecord["weekdays"]?.arrayValue ?? []).compactMap(\.intValue).map(String.init).joined(separator: ","))
-        _cronExpression = State(initialValue: schedule?.expectedRecord["expression"]?.stringValue ?? "0 9 * * 1-5")
+        _intervalSeconds = State(initialValue: String(schedule?.timingRecord["everySeconds"]?.intValue ?? 3600))
+        _localTime = State(initialValue: schedule?.timingRecord["time"]?.stringValue ?? "09:00:00")
+        _timeZone = State(initialValue: schedule?.timingRecord["timeZone"]?.stringValue ?? TimeZone.current.identifier)
+        _weekdays = State(initialValue: (schedule?.timingRecord["weekdays"]?.arrayValue ?? []).compactMap(\.intValue).map(String.init).joined(separator: ","))
+        _cronExpression = State(initialValue: schedule?.timingRecord["expression"]?.stringValue ?? "0 9 * * 1-5")
         _changeTiming = State(initialValue: schedule == nil)
     }
 

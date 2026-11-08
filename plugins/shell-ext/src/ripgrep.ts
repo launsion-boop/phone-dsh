@@ -132,8 +132,7 @@ function splitAlternatives(body: string): string[] {
 }
 
 /**
- * Expand `{a,b}` alternations into plain globs. A brace group without a
- * top-level comma is literal, matching globset's treatment of `{word}`.
+ * Expand globset alternations, including single-member groups such as `{src}`.
  * @param pattern - the glob text after `!`/trailing-slash processing.
  * @returns one or more brace-free globs.
  */
@@ -159,7 +158,6 @@ function expandBraces(pattern: string): string[] {
 
   let depth = 0
   let end = -1
-  let comma = false
   escaped = false
   for (let index = start; index < pattern.length; index += 1) {
     const character = pattern[index] as string
@@ -178,21 +176,15 @@ function expandBraces(pattern: string): string[] {
         end = index
         break
       }
-    } else if (character === ',' && depth === 1) {
-      comma = true
     }
   }
   if (end === -1) throw new RipgrepGlobError(pattern, 'unclosed alternate group')
-  if (!comma) {
-    // Literal braces: translate them as ordinary characters.
-    const before = pattern.slice(0, start)
-    const after = pattern.slice(start + 1)
-    return expandBraces(`${before}\\{${after}`)
-  }
   const body = pattern.slice(start + 1, end)
   const before = pattern.slice(0, start)
   const after = pattern.slice(end + 1)
-  return splitAlternatives(body).flatMap(alternative => expandBraces(`${before}${alternative}${after}`))
+  const alternatives = splitAlternatives(body).filter(alternative => alternative !== '')
+  return (alternatives.length === 0 ? [''] : alternatives)
+    .flatMap(alternative => expandBraces(`${before}${alternative}${after}`))
 }
 
 /** Translate one brace-free glob body to a regular-expression source. */

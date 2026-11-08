@@ -59,6 +59,6 @@ test('every @deepseek-ai/dsh range in every workspace manifest equals dsh-pin.js
   assert.deepEqual(mismatches, [])
 })
 
-test('the pin names the 0.2.1 generation', () => {
-  assert.match(pin.version, /^0\.2\.1-rc\.\d+$/)
+test('the pin names the 0.2.2 generation', () => {
+  assert.match(pin.version, /^0\.2\.2-rc\.\d+$/)
 })

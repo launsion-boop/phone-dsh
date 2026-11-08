@@ -58,8 +58,8 @@ directory are Node/macOS numbers, never phone numbers.
 `contract-tests` are private packages that reuse the same `node_modules`;
 `tests/`, `scripts/`, `profile/`, `sim/` and `bundle/` are not packages.
 
-The DSH release is pinned in [`dsh-pin.json`](dsh-pin.json) (`0.2.1-rc.2`,
-commit `7be5505`). Every workspace `@deepseek-ai/dsh-*` range must equal that
+The DSH release is pinned in [`dsh-pin.json`](dsh-pin.json) (`0.2.2-rc.1`,
+commit `66491b0`). Every workspace `@deepseek-ai/dsh-*` range must equal that
 version, because DSH's app-boot compatibility preflight disables a plugin row on
 any mismatch; [`tests/pin-consistency.test.ts`](tests/pin-consistency.test.ts)
 enforces it.
@@ -401,7 +401,7 @@ checkout and runs `npm run contract` against the pin and master, then runs the
 - **The phone MCP server.** The simulation stand-in is not the Swift SDK's MCP
   server; the loopback bearer path on a device is unverified.
 
-## Worker image boot test (DSH 0.2.1)
+## Worker image boot test
 
 [`profile/phone.worker.cordis.patch.yml`](profile/phone.worker.cordis.patch.yml) is the phone
 layer packed into the Worker image as `home/cordis.patch.yml`; `scripts/pack-image.mjs` stages the
@@ -432,7 +432,7 @@ gate remains the authoritative on-device check.
 The test passes only when:
 
 - no roster row is disabled by the app-boot compatibility preflight;
-- no tool row raises `authorError` / `JsonSchemaError` from the 0.2.1 schema compiler;
+- no tool row raises `authorError` / `JsonSchemaError` from the DSH schema compiler;
 - no runtime module proxy reports a not-implemented feature (`notImplementedFail`);
 - every non-documented-pending roster row activates; the only allowed
   `entries did not activate` detail is the existing `connection-browser`
@@ -442,9 +442,9 @@ The test passes only when:
   `terminal: Error: the phone Worker has no terminal (PTY) primitive` refusal;
 - the surface emits `XL_DSH_READY <port>`.
 
-Two 0.2.1-only compatibility layers live in the profile:
+Two Worker compatibility layers live in the profile:
 
-- **Native-function source normalization.** DSH 0.2.1's plain-JSON record check
+- **Native-function source normalization.** DSH's plain-JSON record check
   (`packages/core/tools/src/json-schema.ts`) compares `Function.prototype.toString` against the V8
   single-line spelling. The system JavaScriptCore prints a multi-line spelling (on-device
   WKWebView NOT_VERIFIED), so every tool schema is rejected before its plugin gate: the record
@@ -452,7 +452,7 @@ Two 0.2.1-only compatibility layers live in the profile:
   `... must be an object of value schemas` `authorError`, and the row never mounts. The profile's
   `tools` row config runs a small expression that normalizes only the native-function form, before
   any tool row mounts.
-- **Session persistence adapter.** 0.2.1's `session-persistence-jsonl` is a function plugin with a
+- **Session persistence adapter.** DSH's `session-persistence-jsonl` is a function plugin with a
   private service class, so the 0.1.7 subclass in `tool-journal/src/persistence.ts` cannot mount.
   The `session-persistence-journaled` row uses `surface-phone`'s `mode: session-persistence`
   adapter, which mounts the shipped backend and wraps `open()` to reconcile write handles against
@@ -498,5 +498,5 @@ plugin layer, not a substitute for the macOS/iPhone smoke rehearsal.
 - The Worker image is under the pinned checkout's licence terms (MIT for DSH;
   the third-party table is [`THIRD_PARTY.md`](THIRD_PARTY.md)). Nothing here is
   GPL, and no `@deepseek-ai/*` source tree is patched or vendored. The packer
-  normalizes exactly two built Cordis `dispose()` call sites (see
+  normalizes one built Cordis `dispose()` call in `dsh-file-reference-local` (see
   [`scripts/README.md`](scripts/README.md#cordis-disposal-compatibility)).

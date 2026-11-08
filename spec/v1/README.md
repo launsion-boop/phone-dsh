@@ -13,7 +13,7 @@ WKWebView page ── one loopback HTTP origin ── App process (Swift host)
 ```
 
 This directory fixes the byte-level contract between the two. It contains no DSH source and no DSH
-patch. DSH is consumed only from its pinned checkout (0.2.1-rc.2, commit `7be5505`). iOS and WebKit
+patch. DSH is consumed only from its pinned checkout (0.2.2-rc.1, commit `66491b0`). iOS and WebKit
 behaviour is **NOT_VERIFIED** until measured on a device; this document only fixes the wire contract.
 A second host implementation (the Android adaptation tree) conforms to this directory; it does not
 fork it, and a disagreement is settled here, not in either host's source.

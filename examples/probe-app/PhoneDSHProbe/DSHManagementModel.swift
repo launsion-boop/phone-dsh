@@ -65,7 +65,7 @@ struct ManagedSchedule: Identifiable {
     var scheduledAt: String
     var status: String
     var latestDeliveryAt: String?
-    var expectedRecord: JSONValue
+    var timingRecord: JSONValue
     var detail: String { "\(kind) · \(scheduledAt)" }
 }
 
@@ -529,12 +529,12 @@ final class DSHManagementModel {
             if skillValue == nil { activityErrors["技能"] = "技能目录暂不可用；请检查当前预设的技能配置。" }
             schedules = scheduleValue?.arrayValue?.compactMap { row in
                 guard row["id"]?.stringValue != nil else { return nil }
-                guard row["sessionId"]?.stringValue == sessionID else { return nil }
+                guard row["target"]?["sessionId"]?.stringValue == sessionID else { return nil }
                 let id = row["id"]?.stringValue ?? UUID().uuidString
                 let title = row["title"]?.stringValue ?? "计划任务"
                 let rule = row["kind"]?.stringValue ?? row["type"]?.stringValue ?? "提醒"
                 return ActivityRow(id: id, title: title,
-                                   detail: "\(rule) · \(row["sessionId"]?.stringValue ?? "")",
+                                   detail: "\(rule) · \(sessionID)",
                                    status: row["status"]?.stringValue)
             } ?? []
             scheduleRecords = (scheduleValue?.arrayValue ?? []).compactMap(Self.decodeSchedule)
@@ -631,8 +631,8 @@ final class DSHManagementModel {
     func deleteSchedule(_ row: ActivityRow, sessionID: String) async {
         do {
             guard let transport else { throw ManagementError.notConnected }
-            _ = try await transport.call("schedule/delete", args: .object(["request": .object([
-                "id": .string(row.id), "sessionId": .string(sessionID),
+            _ = try await transport.call("schedule/edit", args: .object(["request": .object([
+                "id": .string(row.id), "action": .string("delete"),
             ])]))
             await refreshActivity(sessionID: sessionID)
         } catch { activityErrors["计划任务"] = error.localizedDescription }
@@ -641,8 +641,8 @@ final class DSHManagementModel {
     func deleteSchedule(_ schedule: ManagedSchedule) async {
         do {
             guard let transport else { throw ManagementError.notConnected }
-            _ = try await transport.call("schedule/delete", args: .object(["request": .object([
-                "id": .string(schedule.id), "sessionId": .string(schedule.sessionID),
+            _ = try await transport.call("schedule/edit", args: .object(["request": .object([
+                "id": .string(schedule.id), "action": .string("delete"),
             ])]))
             await refreshAutomations()
         } catch { self.error = error.localizedDescription }
@@ -718,16 +718,13 @@ final class DSHManagementModel {
     func updateSchedule(_ schedule: ManagedSchedule, title: String, prompt: String, timing: JSONValue? = nil) async -> Bool {
         do {
             guard let transport else { throw ManagementError.notConnected }
-            var request: [String: JSONValue] = [
-                "sessionId": .string(schedule.sessionID),
-                "id": .string(schedule.id),
-                "expected": schedule.expectedRecord,
-                "title": .string(title),
-                "prompt": .string(prompt),
-            ]
-            if let timing { request["change"] = timing }
-            let result = try await transport.call("schedule/update", args: .object(["request": .object(request)]))
-            if result["updated"]?.boolValue == false {
+            var patch: [String: JSONValue] = ["title": .string(title), "prompt": .string(prompt)]
+            if let timing { patch["timing"] = timing }
+            let result = try await transport.call("schedule/edit", args: .object(["request": .object([
+                "id": .string(schedule.id), "action": .string("update"), "patch": .object(patch),
+                "expectedUpdatedAt": schedule.timingRecord["updatedAt"] ?? .null,
+            ])]))
+            if result["code"] != nil || result["id"]?.stringValue != schedule.id {
                 error = "计划任务已变化或停止，请刷新后再编辑。"
                 return false
             }
@@ -748,7 +745,6 @@ final class DSHManagementModel {
                 scheduleHistoryNotice = nil
             }
             var request: [String: JSONValue] = [
-                "sessionId": .string(schedule.sessionID),
                 "id": .string(schedule.id),
                 "limit": .number(50),
             ]
@@ -952,21 +948,15 @@ private static func decodeSessions(_ value: JSONValue) -> [ManagedSession] {
 
     private static func decodeSchedule(_ value: JSONValue) -> ManagedSchedule? {
         guard let id = value["id"]?.stringValue,
-              let sessionID = value["sessionId"]?.stringValue,
               let kind = value["kind"]?.stringValue else { return nil }
-        var expected: [String: JSONValue] = ["id": .string(id), "kind": .string(kind)]
-        for key in ["title", "prompt", "scheduledAt", "afterSeconds", "everySeconds", "time", "timeZone", "expression"] {
-            if let field = value[key] { expected[key] = field }
-        }
-        if let weekdays = value["weekdays"] { expected["weekdays"] = weekdays }
-        return ManagedSchedule(id: id, sessionID: sessionID,
+        return ManagedSchedule(id: id, sessionID: value["target"]?["sessionId"]?.stringValue ?? "",
                                title: value["title"]?.stringValue ?? "提醒",
                                prompt: value["prompt"]?.stringValue ?? "",
                                kind: kind,
                                scheduledAt: value["scheduledAt"]?.stringValue ?? "",
                                status: value["status"]?.stringValue ?? "active",
                                latestDeliveryAt: value["lastDelivery"]?["deliveredAt"]?.stringValue,
-                               expectedRecord: .object(expected))
+                               timingRecord: value)
     }
 }
 
