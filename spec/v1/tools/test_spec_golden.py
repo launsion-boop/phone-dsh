@@ -888,5 +888,43 @@ class LegacyTaskInspectionFixtureTests(unittest.TestCase):
             spec_golden.validate_json({**rows[0], "expected_reason": "trusted"}, schema, "mutation")
 
 
+class StandardGattServiceChangeFixtureTests(unittest.TestCase):
+    def test_vectors_and_semantic_mutations(self):
+        device = SPEC_DIR.parent / "device" / "v1"
+        schema = json.loads((device / "schema/standard-gatt-service-change.schema.json").read_text())
+        rows = [json.loads(line) for line in (device / "golden/standard-gatt-service-change.jsonl").read_text().splitlines()]
+        self.assertEqual(len(rows), 21)
+        self.assertEqual(len(rows), len({row["scenario"] for row in rows}))
+        for row in rows:
+            spec_golden.validate_json(row, schema, row["scenario"])
+        def digest(values):
+            data = "\n".join(json.dumps(row, sort_keys=True, separators=(",", ":")) for row in values)
+            return hashlib.sha256(data.encode()).hexdigest()
+        frozen = "3aa5fdd3efc1f9df9fed60fb4a8846e96de4cb5b4a1bc8aaa34bdcfde7c73c9f"
+        self.assertEqual(digest(rows), frozen)
+        by = {row["scenario"]: row for row in rows}
+        self.assertEqual(set(by), set(schema["properties"]["scenario"]["enum"]))
+        for name in ("connected-known", "connected-empty", "connected-unrelated", "repeated-while-closing"):
+            self.assertEqual((by[name]["a_phase"], by[name]["a_disconnects"], by[name]["a_link"]), ("closing", 1, "cleared"), name)
+        self.assertEqual((by["read-value-wins"]["pending_result"], by["read-cancel-wins"]["pending_result"]), ("value", "cancelled"))
+        self.assertEqual(by["manager-off-during-claim"]["pending_result"], "disconnected")
+        for name in ("manager-off-before-callback", "manager-off-during-claim"):
+            self.assertEqual((by[name]["a_phase"], by[name]["b_phase"], by[name]["a_disconnects"], by[name]["b_link"], by[name]["b_identity"]),
+                             ("quarantined", "quarantined", 0, "cleared", "cleared"), name)
+        self.assertEqual((by["disconnect-boundary"]["a_phase"], by["disconnect-boundary"]["a_connects"]), ("connecting", 1))
+        self.assertEqual((by["other-device-change"]["a_link"], by["other-device-change"]["pending_result"]), ("retained", "value"))
+        self.assertEqual((by["other-device-change"]["admission_check"], by["other-device-change"]["extra_alerts"],
+                          by["other-device-change"]["extra_links"], by["other-device-change"]["current_link_events"]),
+                         ("other-active", 1, 1, 1))
+        self.assertEqual((by["link-inflight"]["link_outcome"], by["link-completed"]["link_outcome"]), ("outcome-unknown", "completed"))
+        self.assertEqual(by["read-error-wins"]["pending_result"], "read-error")
+        altered = [{**row} for row in rows]
+        altered[0]["a_disconnects"] = 0
+        self.assertNotEqual(digest(altered), frozen)
+        for bad in ({**rows[0], "invalidated": "invented"}, {**rows[0], "a_read": "false"}, {**rows[0], "extra": True}):
+            with self.assertRaises(spec_golden.SpecError):
+                spec_golden.validate_json(bad, schema, "mutation")
+
+
 if __name__ == "__main__":
     unittest.main()

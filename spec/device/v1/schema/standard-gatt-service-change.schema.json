@@ -1,0 +1,249 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "iOS service change ordering case",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "scenario",
+    "invalidated",
+    "hook",
+    "initial_pending",
+    "a_phase",
+    "b_phase",
+    "a_read",
+    "a_alert",
+    "b_read",
+    "b_alert",
+    "legacy_unchanged",
+    "a_identity",
+    "a_link",
+    "pending_result",
+    "timer",
+    "link_outcome",
+    "a_disconnects",
+    "b_disconnects",
+    "a_connects",
+    "extra_reads",
+    "extra_alerts",
+    "extra_notifies",
+    "late_link_events",
+    "pending_completions",
+    "admission_check",
+    "b_identity",
+    "b_link",
+    "identity_variant",
+    "extra_links",
+    "current_link_events",
+    "prepublication"
+  ],
+  "properties": {
+    "scenario": {
+      "enum": [
+        "connected-known",
+        "connected-empty",
+        "connected-unrelated",
+        "read-value-wins",
+        "read-cancel-wins",
+        "read-service-change-wins",
+        "read-before-reserve",
+        "read-after-reserve",
+        "reentrant-admission",
+        "repeated-while-closing",
+        "disconnect-boundary",
+        "different-peer",
+        "manager-off-before-callback",
+        "manager-off-during-claim",
+        "other-device-change",
+        "unknown-device",
+        "connecting-modification",
+        "link-inflight",
+        "connected-pending-identity",
+        "read-error-wins",
+        "link-completed"
+      ]
+    },
+    "invalidated": {
+      "enum": [
+        "empty",
+        "known",
+        "unrelated"
+      ]
+    },
+    "hook": {
+      "enum": [
+        "after-reserve",
+        "before-reserve",
+        "cancel-claimed",
+        "connecting",
+        "different-peer",
+        "disconnect-boundary",
+        "error-claimed",
+        "late-cancel",
+        "link-completed",
+        "link-inflight",
+        "none",
+        "other-device",
+        "power-off-before",
+        "power-off-claim",
+        "repeat",
+        "unknown-device",
+        "value-claimed",
+        "will-change"
+      ]
+    },
+    "initial_pending": {
+      "enum": [
+        "none",
+        "a"
+      ]
+    },
+    "a_phase": {
+      "enum": [
+        "connected",
+        "connecting",
+        "closing",
+        "quarantined"
+      ]
+    },
+    "b_phase": {
+      "enum": [
+        "connected",
+        "closing",
+        "quarantined"
+      ]
+    },
+    "a_read": {
+      "type": "boolean"
+    },
+    "a_alert": {
+      "type": "boolean"
+    },
+    "b_read": {
+      "type": "boolean"
+    },
+    "b_alert": {
+      "type": "boolean"
+    },
+    "legacy_unchanged": {
+      "type": "boolean"
+    },
+    "a_identity": {
+      "enum": [
+        "cleared",
+        "retained"
+      ]
+    },
+    "a_link": {
+      "enum": [
+        "cleared",
+        "retained"
+      ]
+    },
+    "pending_result": {
+      "enum": [
+        "none",
+        "disconnected",
+        "cancelled",
+        "value",
+        "bluetooth-unavailable",
+        "read-error"
+      ]
+    },
+    "timer": {
+      "enum": [
+        "none",
+        "cancelled",
+        "absent-or-cancelled"
+      ]
+    },
+    "link_outcome": {
+      "enum": [
+        "none",
+        "outcome-unknown",
+        "completed"
+      ]
+    },
+    "a_disconnects": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "b_disconnects": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "a_connects": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "extra_reads": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "extra_alerts": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "extra_notifies": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "late_link_events": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "pending_completions": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "admission_check": {
+      "enum": [
+        "denied",
+        "other-active",
+        "not-tested"
+      ]
+    },
+    "b_identity": {
+      "enum": [
+        "cleared",
+        "retained"
+      ]
+    },
+    "b_link": {
+      "enum": [
+        "cleared",
+        "retained"
+      ]
+    },
+    "identity_variant": {
+      "enum": [
+        "recorded",
+        "pending",
+        "none"
+      ]
+    },
+    "extra_links": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "current_link_events": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "prepublication": {
+      "enum": [
+        "revoked",
+        "no-publish"
+      ]
+    }
+  }
+}

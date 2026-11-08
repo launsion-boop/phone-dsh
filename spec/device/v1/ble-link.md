@@ -205,6 +205,63 @@ returns an explicit connection can start if the peripheral object is still
 valid, or after the required rediscovery if the manager invalidated it. This
 exception does not release an outstanding or ambiguously finished attempt.
 
+#### iOS service database changes
+
+For a `didModifyServices` event on the current locally exclusive connected
+peripheral, treat the current connection's entire service database as
+unavailable, whether the supplied invalidated list is empty, names a used
+service, or names another service. This is an intentionally conservative app
+policy: Apple's service-change documentation invalidates the listed previously
+discovered services but does not require disconnecting the whole peripheral.
+It means an unrelated service change may interrupt otherwise working Link and
+standard GATT and require a new explicit connection and new grants.
+
+Before notifying observers or submitting any further physical command, revoke
+the owner's standard and tool admission, invalidate the identity and current
+service/characteristic maps, detach its Link channel/client and old pending
+read and timers, and preserve any already-claimed read outcome. If the change
+wins the pending read's claim, complete it once using the existing
+`Device disconnected` error; a later value, timeout or cancellation cannot
+replace the winner. Pending reads and state belonging to another device remain
+its own. Do not change the legacy preference value. A submitted Link operation
+without a terminal result remains outcome-unknown and a submitted alert
+remains submitted-unconfirmed; neither is automatically replayed or claimed
+to be undone. An already completed Link result is not retroactively changed.
+
+While the manager is powered on, the matching previously connected owner
+enters closing and requests cancellation of that connection once for the
+service-change event. A repeated matching service-change event while closing or
+quarantined must not submit another cancellation or release the boundary.
+Other independently unexpected events continue to follow their existing
+fail-closed rules. A current connecting or otherwise unassignable attempt is
+quarantined; any cancellation is subject to the existing pending-connect and
+manager-state rules. An event for no local owner cannot affect another device;
+a different physical object for a known UUID follows the existing unexpected
+peer policy, not UUID-only attribution.
+
+If the manager is already unavailable when this callback arrives, apply the
+existing manager-unavailable transition to all affected local owners and
+pending reads immediately, even if the manager-state callback has not yet run;
+do not submit CoreBluetooth commands. This is a local observation of manager
+state, not proof of when the physical radio changed. After a valid matching
+disconnect callback has completely returned, the existing connected-owner
+boundary may permit an explicit reconnect with fresh discovery and grants;
+timeout, a cancellation request, a late event or an ambiguous callback is not
+that boundary. If an indistinguishable old callback is delivered using the
+same physical object for a newer owner, the conservative policy can close the
+new owner; a local revision does not prove its radio origin.
+Recheck the manager before a physical cancellation and after any synchronous
+callback in the teardown path. If it became unavailable before cancellation,
+apply that same all-owner manager-unavailable transition before further
+observable publication and issue no physical cancellation. Preserve any read
+outcome already claimed before the change; do not reinterpret it as failure.
+
+The shared `golden/standard-gatt-service-change.jsonl` cases exercise the real
+store's callback dispatch and state machine using simulated physical objects.
+They do not establish which service-change sequences or object reuse an OS or
+peripheral produces. Duplicate discovery, multiple services with the same
+UUID and source attribution beyond this event remain open in GAP-31.
+
 The value callback is used for both reads and notifications and has no app
 request token. A standard read cannot rely on a callback as its result if the
 application has subscribed to notifications for that characteristic during
