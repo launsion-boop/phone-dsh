@@ -1,11 +1,18 @@
-# BLE authenticated device-task session (`secure-session-v2`)
+# BLE authenticated device-task session (`secure-session-v2.1`)
 
-Status: `target` — frozen contract, **not implemented on any end**. Revision
-label `ble-secure-session.md@secure-session-v2`; it supersedes
-`secure-session-v1` (`0aa86466`) and resolves the independent
-[security review](../../../docs/reviews/ble-secure-session-v1-review.md). The
-freeze commit, the per-finding resolution and the v1 → v2 change list per end
-are in
+Status: `target` — frozen contract; both ends exist as library code and host
+tests only, nothing is enabled. Revision label
+`ble-secure-session.md@secure-session-v2.1`. It amends `secure-session-v2`
+(`e031b643`, pinned `5f6fd5d3`), which superseded `secure-session-v1`
+(`0aa86466`) and resolved the independent
+[security review](../../../docs/reviews/ble-secure-session-v1-review.md).
+v2.1 resolves the implementers' contract change requests without changing any
+wire message, ALPN, key, record format or security property: the
+client-observable outcome of a server-side certificate rejection (§6.1), the
+exact record-size rule and which invalid records are `record_overflow` (§6.1),
+the identity-proof rows of the plaintext admission fixture (§11.3) and the
+bytes `v1_sha256` covers (§10). The freeze commits, the per-finding resolution
+and the change lists per end are in
 [PC-20261108-ble-secure-session](../../../docs/protocol-changes/PC-20261108-ble-secure-session.md).
 No caller may enable a BLE task grant on the strength of this document. GAP-16
 stays open until both ends implement this revision, run every shared fixture
@@ -525,12 +532,50 @@ L2CAP).
 | Group / key share | `secp256r1` (0x0017) only; the client always sends a P-256 key share; the server answers a ClientHello without one with `handshake_failure`, never HelloRetryRequest |
 | Signature schemes | `ecdsa_secp256r1_sha256` (0x0403) only, in `signature_algorithms` and `signature_algorithms_cert` and the CertificateRequest |
 | Key exchange mode | full (EC)DHE handshake only. The client sends no `pre_shared_key`, `psk_key_exchange_modes`, `early_data`, `post_handshake_auth`, `server_name`, `max_fragment_length` or `record_size_limit`. The server MUST NOT select a PSK or accept early data; whether it aborts on such extensions or ignores them and completes a full handshake is the server's choice (both are conformant). The server sends no NewSessionTicket |
-| Client authentication | mandatory: server sends CertificateRequest (no `certificate_authorities`); an empty client Certificate → `certificate_required` alert |
+| Client authentication | mandatory: server sends CertificateRequest (no `certificate_authorities`); the server aborts on an empty client Certificate with `certificate_required` and on a rejected one with `bad_certificate` (§6.2); see "Client-observable outcome" below |
 | ALPN | client offers exactly `pdsh-ble-task/1`; server selects it or aborts with `no_application_protocol`; client aborts unless it was selected |
 | Resumption, 0-RTT, PSK, tickets | not used; a client MUST NOT store or use any ticket it receives |
 | Application data ordering | the board MUST NOT send application data (including 0.5-RTT data) before it has verified the client Certificate, CertificateVerify and Finished; the phone MUST NOT act on any application data delivered before its own handshake has returned and the server pin (§6.2) has passed — such data is a server message before `ready_req` and fails the session (`malformed`) |
 | Post-handshake | neither end sends KeyUpdate; a received KeyUpdate fails the session (alert `unexpected_message` if the stack can send one, else close). Post-handshake authentication not used |
-| Record size | each end is **configured** so that every outgoing record plaintext is ≤ 4352 bytes, and MUST reject an incoming record whose plaintext exceeds 4352 bytes with `record_overflow`. The largest handshake flight (a 1024-byte certificate plus CertificateVerify) fits the configured input buffer without handshake-message reassembly across buffers |
+| Record size | each end is **configured** so that every outgoing record carries ≤ 4352 bytes of content, and every outgoing TLSInnerPlaintext (content, content type and any padding) is ≤ 4353 bytes; with the profile's only AEAD (16-byte tag) a protected record is therefore ≤ 4369 bytes (`TLSCiphertext.length`), an unprotected one ≤ 4352. The receive rule is in "Record limit and invalid records" below. The largest handshake flight (a 1024-byte certificate plus CertificateVerify) fits the configured input buffer without handshake-message reassembly across buffers |
+
+**Record limit and invalid records (v2.1).** A receiver MUST terminate the
+session with a fatal `record_overflow` alert for exactly these records, and
+MUST decide it from the 5-byte record header before decrypting or buffering
+the record body: a record whose outer content type is `application_data` (a
+protected record) with `TLSCiphertext.length` > 4369, and a record of any other
+outer content type with length > 4352. This is RFC 9846's record limit with
+2^14 replaced by 4352 and the AEAD expansion fixed at 16 (TLSInnerPlaintext ≤
+4352 + 1 including padding). A protected record of length ≤ 4369 is never
+`record_overflow`, whatever its padding. Every other invalid record — failed
+authentication, unknown outer content type, wrong legacy version, empty
+record, no non-zero inner content type, a malformed alert or change_cipher_spec
+— also fails the session closed; the receiver sends the alert RFC 9846 assigns
+where its stack identifies it (`bad_record_mac` for an authentication failure,
+otherwise `unexpected_message` or `decode_error`), MUST NOT send
+`record_overflow` for it, and MUST NOT follow a fatal alert with close_notify.
+Before the first handshake flight is complete the §5 pre-authentication input
+bound applies first: a ClientHello that cannot fit the board's input buffer
+closes the CoC (with or without an alert) and is never processed.
+
+**Client-observable outcome of a server-side rejection (v2.1).** TLS 1.3 lets
+the server send its Finished before it has read the client's Certificate,
+CertificateVerify and Finished. A board that then rejects the client flight
+(empty certificate, §6.2 rejection, CertificateVerify or Finished failure)
+MUST abort before sending any application data, MUST attempt the alert above
+(`certificate_required`, `bad_certificate`, `decrypt_error`), and MUST close
+the CoC. Which record protection that alert carries is a property of the
+board's TLS stack (mbedTLS 4.1 protects it with the server handshake keys
+while a conformant client already reads with the application keys), so the
+alert code is **not** guaranteed to be observable by the phone: the phone may
+see the alert, a record that fails authentication (`bad_record_mac`), or EOF.
+The normative client-observable outcome is: the session fails closed before
+readiness — no `ready_ack` is accepted, no request is sent after `ready_req`,
+and the attempt counts as a failed session attempt (§8.1). Conformance asserts
+the decision and the alert at the board, and only this outcome at the phone.
+The reverse direction has no such gap: the phone decides the server
+certificate before sending anything protected, and its alert is readable by
+the board.
 
 Any deviation fails the handshake; there is no fallback profile and no
 plaintext mode. The ALPN identifier is unchanged from v1 (`pdsh-ble-task/1`):
@@ -575,7 +620,8 @@ only acceptance decision; nothing else may accept a certificate, and nothing
 else may reject one that passes them. The decision MUST be the application's
 own evaluation of the received leaf DER, performed inside the TLS handshake,
 and a negative decision MUST abort the handshake with `bad_certificate` before
-any application data. An end MUST NOT use an "optional verify" mode whose
+any application data (what the peer can observe of that alert is §6.1
+"Client-observable outcome"). An end MUST NOT use an "optional verify" mode whose
 result is checked after the handshake. How an end reaches this outcome with
 its library (verify callback, custom certificate verifier, cleared library
 flags) is its own choice; the loopback rows `tls-certificate-vectors` and
@@ -925,9 +971,14 @@ NVS key `tasks_v2` (namespace unchanged), UTF-8 JSON per
 `schema/ble-secure-task-store.schema.json`: `v:2`, `v1_sha256`, and v1 slots
 plus optional `by` (`phone:` ID) on non-queued slots. At most four slots;
 outcome iff terminal; no eviction; full store rejects local submission.
-`v1_sha256` is the SHA-256 of the exact `tasks_v1` bytes present when the v2
+`v1_sha256` is the SHA-256 of the `tasks_v1` JSON text present when the v2
 document was first written, or null if `tasks_v1` was absent; every later v2
-write keeps the value. Selection at boot:
+write keeps the value. Exactly (v2.1): firmware stores `tasks_v1` as an NVS
+blob of the UTF-8 JSON text followed by one NUL terminator; the digest covers
+the text only, i.e. the blob's first `length − 1` bytes, without the
+terminator. A `tasks_v1` blob that is not exactly text plus one terminating NUL
+(no terminator, an inner NUL, empty text) is unreadable. `tasks_v2` and
+`rec_v1` are stored the same way. Selection at boot:
 
 | NVS | Result |
 | --- | --- |
@@ -955,11 +1006,17 @@ write carries).
    with two board-side exceptions owned here: while the board is in
    enrollment mode a button gesture emits no `button.pressed` event and opens
    no pairing window (§3.3); and `pdsh.identity.prove` is retired (item 3).
-   The secure service is additive.
+   The secure service is additive. "Carries the secure service" means the
+   firmware registered the secure GATT service at boot (§5); firmware that did
+   not (an older build, or a boot where registration or the device key
+   failed) keeps the identity proof under its unchanged ble-link.md
+   capability rule.
 2. **Plaintext task access is refused permanently.** The ordinary Link ingress
    never advertises or starts `pdsh.task.*`, regardless of `app_caps` bit10 or
    bit11 (`UNSUPPORTED` 14, no receipt, no store change;
-   `golden/ble-task-plaintext-admission.jsonl`). No negotiation, error,
+   `golden/ble-task-plaintext-admission.jsonl`, whose rows cover every
+   capability set with the secure service absent and present, including the
+   identity-proof visibility and call outcome of item 3). No negotiation, error,
    capability or configuration ever falls back to it, on either end.
 3. **Old identity labels and the prove tool.** `pdsh.ble.trustedIdentities`
    entries, including a label byte-identical to a device ID, are preserved per
@@ -1036,11 +1093,13 @@ independent peer built from this profile; `host` = host test of the real code
 with substituted transport; `device` = real hardware), stimulus, expected
 outcome and, where fixed, the alert. Every listed end runs every row at every
 listed layer and records the result under the row name; a row not run is
-`NOT_RUN`, never `PASS`. The rows cover every §6.1 line negatively (version,
+`NOT_RUN`, never `PASS`. A row's `alert` is the alert the deciding end sends;
+where the deciding end is the board judging the client flight after its own
+Finished, the phone asserts only the §6.1 client-observable outcome. The rows cover every §6.1 line negatively (version,
 suite, group without HelloRetryRequest, missing key share, signature scheme,
 ALPN absent/other/not selected, empty client certificate, PSK and early data
-offered, ticket, 0.5-RTT data, KeyUpdate, record overflow and sender cap,
-handshake buffer), the §6.2 decision live, every §5 limit (beyond credits,
+offered, ticket, 0.5-RTT data, KeyUpdate, record overflow, invalid records that
+are not overflow, sender cap, handshake buffer), the §6.2 decision live, every §5 limit (beyond credits,
 zero-length SDU, SDU > MTU, K-frame > MPS, garbage instead of ClientHello,
 disconnect during a queued send, second CoC, stall, ClientHello flood with
 reconnect, enrolled phone still served afterwards), the retired prove tool,

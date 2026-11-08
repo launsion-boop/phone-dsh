@@ -189,7 +189,7 @@ static int transitions(void) {
 int main(int argc, char **argv) {
     CHECK(argc == 2, "usage: task-store-v2 <ble-secure-task-store-cases.jsonl>");
     int rows = golden(argv[1]);
-    CHECK(rows == 19, "expected 19 vectors, got %d", rows);
+    CHECK(rows == 20, "expected 20 vectors, got %d", rows);
     int checks = transitions();
     printf("task store v2 shared vectors: %d PASS; ownership transitions: %d checks PASS\n", rows, checks);
     return 0;

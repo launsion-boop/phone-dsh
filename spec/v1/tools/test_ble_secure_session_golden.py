@@ -39,9 +39,9 @@ FROZEN = {
     "ble-secure-session-sequences.jsonl": "a2e0342318733a9ca1054d68203b0874580d1dc59b7f37a0b665649a63291d7f",
     "ble-secure-recovery.jsonl": "f1b16c785bfb06ba58f628e602ca7f02eeb88c36943efcd1d5a70364b925a22e",
     "ble-secure-task-intents.jsonl": "45c6e058b5110e414f61ec956bdf32e207246b8732881c97da04e0199f91964b",
-    "ble-secure-task-store-cases.jsonl": "771e4d4fc448da0a4192025185b991be6794bee5786187f3d10f43998c7e0d7d",
+    "ble-secure-task-store-cases.jsonl": "9c328e328bd0f1b3af6678b3c062bd0e74542942c21c548f7a093ce96cf7f888",
     "ble-secure-coc-cases.jsonl": "3a1261f5521d262fe88b61e0e16563b0d2f48c75dbd0b4c933186a2b013548df",
-    "ble-secure-conformance-matrix.jsonl": "1357245f80d1af191c9e8588528fe3e077d71a9c59d19cc66ea639e2ffb73a7e",
+    "ble-secure-conformance-matrix.jsonl": "afdcd52ed044cc2ef5774d6fb4e6d4d3ea8d9ae7058d9c5c443d12f2525add16",
 }
 
 HEX = frozenset("0123456789abcdef")
@@ -1406,6 +1406,7 @@ REQUIRED_MATRIX.update(_rows("tls", BOTH, ["loopback"], [
     ("tls-negative-decision-aborts-handshake", "handshake_failed", "bad_certificate"),
     ("tls-key-update-received", "session_failed", None),
     ("tls-record-overflow", "session_failed", "record_overflow"),
+    ("tls-record-invalid-not-overflow", "session_failed", None),
     ("tls-record-sender-cap", "records_within_cap", None),
 ]))
 REQUIRED_MATRIX.update(_rows("tls", BOARD, ["loopback"], [
@@ -1815,7 +1816,12 @@ class StoreTests(unittest.TestCase):
             results.add(result)
         self.assertEqual(results, {"use_v2", "migrate_v1", "empty", "disabled"})
         names = {row["name"] for row in rows}
-        self.assertTrue({"v1-changed-after-migration", "v1-appeared-after-fresh-v2"} <= names)
+        self.assertTrue({"v1-changed-after-migration", "v1-appeared-after-fresh-v2",
+                         "v1-digest-over-terminator"} <= names)
+        # v2.1 §10: v1_sha256 covers the JSON text only, never the NVS NUL.
+        row = next(r for r in rows if r["name"] == "v1-digest-over-terminator")
+        self.assertEqual(row["nvs"]["tasks_v2"]["v1_sha256"], sha(compact(row["nvs"]["tasks_v1"]) + b"\0"))
+        self.assertEqual(row["result"], "disabled")
 
 
 class CocTests(unittest.TestCase):

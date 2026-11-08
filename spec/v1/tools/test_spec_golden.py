@@ -671,14 +671,23 @@ class DeviceTaskPlaintextAdmissionFixtureTests(unittest.TestCase):
         device = SPEC_DIR.parent / "device" / "v1"
         schema = json.loads((device / "schema" / "ble-task-plaintext-admission.schema.json").read_text())
         rows = [json.loads(line) for line in (device / "golden" / "ble-task-plaintext-admission.jsonl").read_text().splitlines()]
-        self.assertEqual(len(rows), 5)
+        self.assertEqual(len(rows), 10)
         self.assertEqual(len(rows), len({row["name"] for row in rows}))
-        self.assertEqual({row["app_caps"] for row in rows}, {0, 1024, 2048, 3072, 2147486720})
+        # Both firmware kinds for every capability set (secure-session-v2.1):
+        # without the secure service the legacy identity proof keeps its
+        # capability rule; with it the tool is retired (ble-secure-session.md 11.3).
+        self.assertEqual({(row["secure_service"], row["app_caps"]) for row in rows},
+                         {(s, c) for s in (False, True) for c in (0, 1024, 2048, 3072, 2147486720)})
         for row in rows:
             spec_golden.validate_json(row, schema, row["name"])
-            self.assertEqual(row["identity_visible"], row["app_caps"] & 3072 == 3072)
+            legacy_visible = row["app_caps"] & 3072 == 3072
+            self.assertEqual(row["identity_visible"], legacy_visible and not row["secure_service"])
+            self.assertEqual(row["identity_call"], "unsupported" if row["secure_service"]
+                             else "proof" if legacy_visible else "refused")
         for bad in ({**rows[0], "task_visible": True}, {**rows[0], "new_task_status": 0},
-                    {**rows[0], "app_caps": -1}, {**rows[0], "extra": True}):
+                    {**rows[0], "app_caps": -1}, {**rows[0], "extra": True},
+                    {k: v for k, v in rows[0].items() if k != "secure_service"},
+                    {**rows[0], "identity_call": "signed"}):
             with self.assertRaises(spec_golden.SpecError):
                 spec_golden.validate_json(bad, schema, "mutation")
 

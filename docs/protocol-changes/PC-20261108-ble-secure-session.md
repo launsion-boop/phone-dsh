@@ -1,4 +1,4 @@
-# BLE authenticated device-task session (GAP-16 contract freeze, revision `secure-session-v2`)
+# BLE authenticated device-task session (GAP-16 contract freeze, revision `secure-session-v2.1`)
 
 ```yaml
 change: PC-20261108-ble-secure-session
@@ -7,7 +7,7 @@ status: frozen
 breaking: true
 version_decision: New ALPN-identified session profile pdsh-ble-task/1 (secure-session-v2, superseding the never-implemented secure-session-v1 with unchanged wire messages and ALPN) on an additive GATT service; physically entered enrollment mode; pdsh.identity.prove retired on secure-service firmware; task store v2 records the migrated tasks_v1 digest; BLE task device_id changes from ble:<Link UUID> to ble:<device key fingerprint> with no conversion (old records legacy, preserved, inert); plaintext Link task access permanently refused; ordinary Link, standard GATT, phone task journal v1 and existing schemas unchanged.
 base: 0e9ad261 (codex/fix-pr59, PR #59 head)
-contract_revision: spec/device/v1/ble-secure-session.md@secure-session-v2 (freeze commit e031b643; v1 freeze 0aa86466, pinned 082aff5f)
+contract_revision: spec/device/v1/ble-secure-session.md@secure-session-v2.1 (amends secure-session-v2, freeze commit e031b643 pinned 5f6fd5d3; v1 freeze 0aa86466, pinned 082aff5f; v2.1 commit in §7)
 ```
 
 Protocol impact (v1 freeze): P06; P07. P18: none — no UserDefaults key or settings file
@@ -209,6 +209,7 @@ generated offline with Python `cryptography`; no private key is stored.
 | --- | --- | --- | --- |
 | secure-session-v1 (`0aa86466`) | P07 contract owner | initial freeze; resolves PC-20261107-ble-session-binding-ccr (task `device_id`) | Swift, C firmware (via this record) |
 | secure-session-v2 (`e031b643`) | P07 contract owner | resolves the independent security review [`docs/reviews/ble-secure-session-v1-review.md`](../reviews/ble-secure-session-v1-review.md) (H1–H3, M1–M6, assumption conditions, L1/L2/L4); §6 below | Swift (`ws/ss-swift`) and C firmware (`ws/ss-firmware`) implementers, via §6.4 and §6.5 |
+| secure-session-v2.1 (§7) | P07 contract owner (integrator `ws/ss-integrate`) | resolves the implementers' open items against v2 (`e3d37565` Swift, `8a63b3d4` firmware, merged `3505b690`): two CONTRACT CHANGE REQUESTs and two findings; adds the cross-runtime conformance test; §7 below | both ends, via §7.3 (changes made by the integrator in the same branch) |
 
 ## 6. Revision `secure-session-v2` (contract change after independent review)
 
@@ -406,3 +407,85 @@ Not run: any Swift or C build or test (no implementation exists on either
 branch), any TLS handshake, radio, device, Keychain/Secure Enclave, entropy or
 power-loss test; `phone-hygiene` and `phone-license` (not in this revision's
 gate list).
+
+## 7. Revision `secure-session-v2.1` (implementer CCRs, integration)
+
+### 7.1 Identification
+
+```text
+Contract:          P07 (owner); P06: none — no task model, journal or intent change
+Base:              3505b690 (ws/ss-integrate = contract 5f6fd5d3 + Swift e3d37565 + firmware 8a63b3d4)
+Trigger:           implementer reports at integration (AGENTS.md §3.3): CCR plaintext-admission
+                   fixture vs §11.3; CCR mbedTLS 4.1 post-Finished alert; finding mbedTLS drops
+                   oversize records without an alert; clarification of the v1_sha256 bytes
+Current → expected: v2 frozen, both ends implemented as library + host tests, never run
+                   against each other → v2.1 frozen with every item decided in the spec,
+                   fixtures and checkers, both ends updated, and the real Swift end driven
+                   against the real C end over an in-memory byte pipe
+Version decision:  no wire, ALPN, key, record, enrollment or store format change. The v2.1
+                   rules only decide what v2 left ambiguous; every v2-conformant sender is
+                   v2.1-conformant (no conformant sender pads beyond 4353 inner bytes: the
+                   phone does not pad, mbedTLS pads only up to its 4096-byte content limit).
+                   The receive side is tightened, never loosened.
+```
+
+Protocol impact (this revision): P07 — owning spec, plaintext-admission schema
+and golden, task-store and matrix goldens, both checkers, the two ends and
+their tests. P06: none — task-delegation.md, the phone journal and secure
+intents are untouched. P09: none — no UI or page contract. P12: none — no
+native ABI, FFI or Package.swift change; mbedTLS stays a test-time source
+pointed to by `PDSH_MBEDTLS_SRC`/`IDF_PATH`, never vendored. P18: none — no
+UserDefaults key or settings file.
+
+### 7.2 Decisions
+
+| Item | Decision (normative text) | Fixtures / checker |
+| --- | --- | --- |
+| (a) CCR: `ble-task-plaintext-admission.jsonl` expected `identity_visible: true` for `app_caps` 3072 although §11.3 retires `pdsh.identity.prove` once the secure service is registered | Both firmware kinds are contract: every row gains `secure_service` and `identity_call` (`proof` / `unsupported` / `refused`). Without the secure service the legacy rule of ble-link.md is unchanged (visible and callable iff bit10+bit11); with it the tool is never listed and a call is `UNSUPPORTED` 14 with no receipt and no signature, for every capability set. "Carries the secure service" = registered at boot (§11.1). ble-link.md cites §11.3. | golden 5 → 10 rows; schema adds the two required members; `test_spec_golden.py` derives both columns and rejects a row without `secure_service` |
+| (b) CCR: mbedTLS 4.1 protects its alert about the client flight with the server handshake keys after its Finished, so the phone sees `bad_record_mac`, not `bad_certificate`/`certificate_required` | The alert stays mandatory **for the board** (`certificate_required`, `bad_certificate`, `decrypt_error`, before any application data, then close). The **client-observable** outcome is only: the session fails closed before readiness (no `ready_ack` accepted, nothing sent after `ready_req`, a failed attempt); the phone may observe the alert, `bad_record_mac` or EOF. A matrix row's `alert` is the deciding end's alert (§6.1 "Client-observable outcome", §6.2, §13). No security property changes: the decision, its timing and the absence of application data are unchanged. | matrix stimuli of `tls-certificate-vectors`, `tls-negative-decision-aborts-handshake`, `tls-client-certificate-empty`; board loopback and cross-runtime `physical-unenrolled-phone` assert it |
+| (c) finding: mbedTLS 4.1 drops oversize records without an alert; the board sent `record_overflow` itself for every `MBEDTLS_ERR_SSL_INVALID_RECORD` | **Restricted.** `record_overflow` iff, decided from the header before decryption: protected record (outer `application_data`) with `TLSCiphertext.length` > 4369 (= 4352 + 1 + 16; TLSInnerPlaintext ≤ 4353 including padding), or any other record > 4352. A ≤ 4369 protected record is never overflow whatever its padding. Every other invalid record fails closed with the RFC 9846 alert where identifiable (`bad_record_mac`, `unexpected_message`, `decode_error`), never `record_overflow`, never followed by close_notify. | new matrix row `tls-record-invalid-not-overflow` (both ends); `tls-record-overflow` stimulus states the 4369/4370 boundary and the unprotected case; checker `REQUIRED_MATRIX` |
+| (d) clarification: `v1_sha256` bytes | SHA-256 of the `tasks_v1` JSON text, i.e. the NVS blob without its single terminating NUL; a blob that is not text + one NUL is unreadable. `tasks_v2` and `rec_v1` use the same storage form. | store case `v1-digest-over-terminator` (digest including the NUL → `disabled`); checker asserts the case and the digest it carries |
+
+### 7.3 Changes per end (made in this revision's branch)
+
+Board (`firmware/esp32-reference/main/pdsh_secure_session.c`):
+1. Record limit decided from each header as bytes pass to mbedTLS (`track_records`): `record_overflow` exactly per (c), for the ClientHello gate too (was `decode_error` above 16384). Before, an over-limit protected record whose length exceeded mbedTLS's input payload got `BAD_INPUT_DATA` (no alert, then close_notify), and an unknown record type or an inner plaintext without content type got `record_overflow`.
+2. Post-handshake fatal read errors no longer send close_notify after the failure: KeyUpdate and any other unexpected post-handshake message → `unexpected_message` (before: close_notify only, contrary to §6.1 "alert if the stack can"); invalid record within the limit → `decode_error`; authentication failure → `bad_record_mac` (sent by mbedTLS with `MBEDTLS_SSL_ALL_ALERT_MESSAGES`, else by the board); peer alert → no answer.
+
+Phone (`Sources/PhoneDSHBLE/SecureSession/BLESecureTLSCore.swift`): the protected-record receive limit is 4369 (was 4352 + 256 = 4608, so a 4370–4608 record reached decryption and surfaced as `bad_record_mac` instead of `record_overflow`). Test-build hooks only (`#if DEBUG`): `TLSRecordKeys.sealForTesting`, `BLESecureTLSClient.writeProtectedRecordForTesting`.
+
+Tests and tooling: `firmware/tests/test_link_tools.c` consumes both admission columns; `test_secure_task_store.c` expects 20 store vectors; `run.sh` builds the cross-runtime bridge and runs on Darwin (no GNU `--wrap` there: the §5 heap budget is reported `NOT_RUN` on Darwin and measured on Linux); new `firmware/tests/test_secure_bridge.c` and `Tests/PhoneDSHBLETests/BLESecureCrossRuntimeTests.swift`; `BLESecureTLSTests.testRecordLimitIsDecidedFromTheHeader` (phone end of (c)).
+
+### 7.4 Cross-runtime conformance
+
+`BLESecureCrossRuntimeTests` launches `.build/link-host/secure-bridge` (built
+by `firmware/tests/run.sh`): the board's own `pdsh_identity`, `pdsh_enroll`,
+`pdsh_secure_cert`, `pdsh_secure_msg`, `pdsh_secure_session` (including the §5
+CoC receive path with credit flow from an honest L2CAP sender, MTU 512, MPS
+247, 3 K-frame buffers) and `pdsh_task_store`, linked with mbedTLS 4.1.0 at
+espressif/mbedtls `a2b32072ea898afc1ed5b6caf6931e36028c91d6` (the
+`components/mbedtls/mbedtls` gitlink of ESP-IDF v6.1 `fff9895c`; tree
+`4558786a`, identical to galic's `/opt/esp-idf` checkout). Only the radio, the
+NVS flash and the clocks are substituted. The Swift side is the real
+enrollment ceremony, certificate builder/verifier, TLS 1.3 client, framing,
+codec and `BLESecurePhoneGeneration`. `PDSH_SECURE_BRIDGE=<binary>` runs a
+prebuilt (mutated) board for mutation evidence.
+
+| Case | Board observed | Phone observed | Matrix rows covered cross-runtime |
+| --- | --- | --- | --- |
+| offline enrollment → handshake → ready → next/accept/keepalive×3/complete/duplicate → idle close → renewal under the grant → lifetime | console `armed`/`begun`/`staged`/`press`/`committed`; store `completed`, `by` = phone ID; idle `err timeout` at 90 s; lifetime close_notify only | `.ready`, `.taskOffered`, `.applied`; grant `.active` across sessions; 0 failed attempts | host layer of `physical-enroll-and-task-round-trip`, `physical-long-task-across-session-renewal` (time simulated), `tls-no-half-rtt-data`, `tls-no-ticket-sent`, `tls-record-sender-cap` (phone accepted every board record) |
+| board reboot between accept and complete | store kept `accepted` | `status` → `status_resend` → `applied` once | host layer of `physical-board-reboot-recovery` |
+| two enrolled boards, A selected, B answers (M1) | B never reaches the application layer; task untouched | `pin_mismatch` in the handshake, 1 failed attempt; A still served | `physical-two-enrolled-boards-swap`, `tls-negative-decision-aborts-handshake` (phone end) |
+| unenrolled phone key (committed locally only) | reason `pin_mismatch` after its Finished; store untouched | no readiness, 1 failed attempt, grant refused; raw client sees `bad_record_mac` (v2.1 (b)) | `physical-unenrolled-phone`, `tls-negative-decision-aborts-handshake` (board end) |
+| KeyUpdate from the phone after readiness | alert 10, closed | receives alert 10 | `tls-key-update-received` (board end; was NOT_RUN on the board) |
+| padded record of 4369 / 4370 bytes; 4353 bytes of content | 4369 served (`status_r`); 4370 and 4353-content → alert 22 | receives alert 22 | `tls-record-overflow` (board end) |
+| bad tag; unknown outer type; inner plaintext without type | alerts 20, 50, 50; never 22 | receives the alert | `tls-record-invalid-not-overflow` (board end) |
+| request before ready; skipped and replayed seq; second `ready_req`; stale `sc`; wrong eid | `not_ready`, `bad_sequence` ×3, `bad_challenge`, `record_mismatch`, each closes; store unchanged | receives each `err`, then close_notify | device-side sequence rules §8.3 over live TLS |
+| lost accept, intervening `next`, resend; lost complete response | `queued` until the authorized resend; outcome never changed by a conflicting complete | `status_resend` voided by `next` (`refused_requery`), then `applied`; `status_applied` without resend; conflicting complete `unresolved` | `phone-resend-not-next-request` behaviour (§9.3) live |
+
+Interop bugs found by this test and fixed: board KeyUpdate handling (close_notify instead of `unexpected_message`), board record-limit classification (§7.3 board 1–2), phone receive limit (§7.3 phone); harness-only issue: `run.sh` failed on Darwin since 8a63b3d4 (GNU `--wrap`), which also broke the existing `BLETaskCrossRuntimeTests` on macOS.
+
+### 7.5 Evidence
+
+Recorded in the commit that closes this revision (§7.6).
+
