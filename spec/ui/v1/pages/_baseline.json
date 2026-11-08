@@ -1,266 +1,98 @@
 {
-  "schema": "pdsh.ui.page-structure-baseline/1",
-  "note": "Known page-structure divergences between the iOS contract and the Android screens. This ratchet only shrinks: fix one, delete its row. Regenerate with --write-baseline only when the change is reviewed as a ratchet move; new rows are written UNREVIEWED and refuse to load until a lane and reason are assigned.",
-  "contracts": 41,
-  "divergences": [
-    {
-      "page": "archived-sessions",
-      "kind": "extra-action",
-      "name": "重试",
-      "lane": "F",
-      "reason": "new divergence on archived-sessions (extra-action); registered during the WP0 baseline synchronization after stale iOS contracts hid this existing iOS/Android difference; Lane F owns platform UI alignment and must remove this row when the corresponding page is verified aligned"
-    },
-    {
-      "page": "files",
-      "kind": "extra-action",
-      "name": "导入文件",
-      "lane": "F",
-      "reason": "new divergence on files (extra-action); registered during the WP0 baseline synchronization after stale iOS contracts hid this existing iOS/Android difference; Lane F owns platform UI alignment and must remove this row when the corresponding page is verified aligned"
-    },
-    {
-      "page": "files",
-      "kind": "missing-action",
-      "name": "完成",
-      "lane": "F",
-      "reason": "new divergence on files (missing-action); registered during the WP0 baseline synchronization after stale iOS contracts hid this existing iOS/Android difference; Lane F owns platform UI alignment and must remove this row when the corresponding page is verified aligned"
-    },
-    {
-      "page": "model-provider-settings",
-      "kind": "extra-action",
-      "name": "从剪贴板导入",
-      "lane": "F",
-      "reason": "PR22 rewrote ModelProviderSettingsPage as 服务/密钥/模型目录/生效方式 with a separate editor (embedded ModelProviderEditorPage) and explicit test/save receipts. Android ModelProviderSettingsPage.kt still renders the pre-PR22 form (add/edit/delete/default/test), so the section titles and controls differ. Lane F rebuilds the provider form and get-models flow. This row is `从剪贴板导入` (extra-action)."
-    },
-    {
-      "page": "model-provider-settings",
-      "kind": "extra-action",
-      "name": "删除已保存的密钥",
-      "lane": "F",
-      "reason": "PR22 rewrote ModelProviderSettingsPage as 服务/密钥/模型目录/生效方式 with a separate editor (embedded ModelProviderEditorPage) and explicit test/save receipts. Android ModelProviderSettingsPage.kt still renders the pre-PR22 form (add/edit/delete/default/test), so the section titles and controls differ. Lane F rebuilds the provider form and get-models flow. This row is `删除已保存的密钥` (extra-action)."
-    },
-    {
-      "page": "model-provider-settings",
-      "kind": "extra-action",
-      "name": "删除此模型",
-      "lane": "F",
-      "reason": "PR22 rewrote ModelProviderSettingsPage as 服务/密钥/模型目录/生效方式 with a separate editor (embedded ModelProviderEditorPage) and explicit test/save receipts. Android ModelProviderSettingsPage.kt still renders the pre-PR22 form (add/edit/delete/default/test), so the section titles and controls differ. Lane F rebuilds the provider form and get-models flow. This row is `删除此模型` (extra-action)."
-    },
-    {
-      "page": "model-provider-settings",
-      "kind": "extra-action",
-      "name": "图片输入",
-      "lane": "F",
-      "reason": "PR22 rewrote ModelProviderSettingsPage as 服务/密钥/模型目录/生效方式 with a separate editor (embedded ModelProviderEditorPage) and explicit test/save receipts. Android ModelProviderSettingsPage.kt still renders the pre-PR22 form (add/edit/delete/default/test), so the section titles and controls differ. Lane F rebuilds the provider form and get-models flow. This row is `图片输入` (extra-action)."
-    },
-    {
-      "page": "model-provider-settings",
-      "kind": "extra-action",
-      "name": "推理强度",
-      "lane": "F",
-      "reason": "PR22 rewrote ModelProviderSettingsPage as 服务/密钥/模型目录/生效方式 with a separate editor (embedded ModelProviderEditorPage) and explicit test/save receipts. Android ModelProviderSettingsPage.kt still renders the pre-PR22 form (add/edit/delete/default/test), so the section titles and controls differ. Lane F rebuilds the provider form and get-models flow. This row is `推理强度` (extra-action)."
-    },
-    {
-      "page": "model-provider-settings",
-      "kind": "extra-action",
-      "name": "文本输入",
-      "lane": "F",
-      "reason": "PR22 rewrote ModelProviderSettingsPage as 服务/密钥/模型目录/生效方式 with a separate editor (embedded ModelProviderEditorPage) and explicit test/save receipts. Android ModelProviderSettingsPage.kt still renders the pre-PR22 form (add/edit/delete/default/test), so the section titles and controls differ. Lane F rebuilds the provider form and get-models flow. This row is `文本输入` (extra-action)."
-    },
-    {
-      "page": "model-provider-settings",
-      "kind": "extra-action",
-      "name": "添加模型",
-      "lane": "F",
-      "reason": "PR22 rewrote ModelProviderSettingsPage as 服务/密钥/模型目录/生效方式 with a separate editor (embedded ModelProviderEditorPage) and explicit test/save receipts. Android ModelProviderSettingsPage.kt still renders the pre-PR22 form (add/edit/delete/default/test), so the section titles and controls differ. Lane F rebuilds the provider form and get-models flow. This row is `添加模型` (extra-action)."
-    },
-    {
-      "page": "model-provider-settings",
-      "kind": "extra-action",
-      "name": "高级设置",
-      "lane": "F",
-      "reason": "new divergence on model-provider-settings (extra-action); registered during the WP0 baseline synchronization after stale iOS contracts hid this existing iOS/Android difference; Lane F owns platform UI alignment and must remove this row when the corresponding page is verified aligned"
-    },
-    {
-      "page": "model-provider-settings",
-      "kind": "extra-action",
-      "name": "默认模型",
-      "lane": "F",
-      "reason": "PR22 rewrote ModelProviderSettingsPage as 服务/密钥/模型目录/生效方式 with a separate editor (embedded ModelProviderEditorPage) and explicit test/save receipts. Android ModelProviderSettingsPage.kt still renders the pre-PR22 form (add/edit/delete/default/test), so the section titles and controls differ. Lane F rebuilds the provider form and get-models flow. This row is `默认模型` (extra-action)."
-    },
-    {
-      "page": "model-provider-settings",
-      "kind": "unresolved-action",
-      "name": "if (connectionTest?.isTesting == true) UiStrings.PROVIDER_TE",
-      "lane": "F",
-      "reason": "new divergence on model-provider-settings (unresolved-action); registered during the WP0 baseline synchronization after stale iOS contracts hid this existing iOS/Android difference; Lane F owns platform UI alignment and must remove this row when the corresponding page is verified aligned"
-    },
-    {
-      "page": "model-provider-settings",
-      "kind": "unresolved-action",
-      "name": "if (fetching) UiStrings.PROVIDER_FETCHING else UiStrings.PRO",
-      "lane": "F",
-      "reason": "new divergence on model-provider-settings (unresolved-action); registered during the WP0 baseline synchronization after stale iOS contracts hid this existing iOS/Android difference; Lane F owns platform UI alignment and must remove this row when the corresponding page is verified aligned"
-    },
-    {
-      "page": "model-provider-settings",
-      "kind": "unresolved-action",
-      "name": "row.name",
-      "lane": "F",
-      "reason": "new divergence on model-provider-settings (unresolved-action); registered during the WP0 baseline synchronization after stale iOS contracts hid this existing iOS/Android difference; Lane F owns platform UI alignment and must remove this row when the corresponding page is verified aligned"
-    },
-    {
-      "page": "native-configuration",
-      "kind": "extra-action",
-      "name": "保存默认",
-      "lane": "F",
-      "reason": "PR22 restructured NativeConfigurationPage into 本机管理范围/iPhone Worker 限制/工具/新会话默认权限/实验插件/已加载插件 plus data-driven settings groups. Android NativeConfigurationPage.kt still renders the pre-PR22 内置插件设置 index and its older actions, so this section/action is a real current difference. Lane F rebuilds the page. This row is `保存默认` (extra-action)."
-    },
-    {
-      "page": "native-configuration",
-      "kind": "extra-section",
-      "name": "已加载插件",
-      "lane": "F",
-      "reason": "PR22 restructured NativeConfigurationPage into 本机管理范围/iPhone Worker 限制/工具/新会话默认权限/实验插件/已加载插件 plus data-driven settings groups. Android NativeConfigurationPage.kt still renders the pre-PR22 内置插件设置 index and its older actions, so this section/action is a real current difference. Lane F rebuilds the page. This row is `已加载插件` (extra-section)."
-    },
-    {
-      "page": "native-configuration",
-      "kind": "missing-section",
-      "name": "暂不可用",
-      "lane": "F",
-      "reason": "PR22 restructured NativeConfigurationPage into 本机管理范围/iPhone Worker 限制/工具/新会话默认权限/实验插件/已加载插件 plus data-driven settings groups. Android NativeConfigurationPage.kt still renders the pre-PR22 内置插件设置 index and its older actions, so this section/action is a real current difference. Lane F rebuilds the page. This row is `暂不可用` (missing-section)."
-    },
-    {
-      "page": "native-configuration",
-      "kind": "missing-section",
-      "name": "暂时读不到模型列表。",
-      "lane": "F",
-      "reason": "PR22 restructured NativeConfigurationPage into 本机管理范围/iPhone Worker 限制/工具/新会话默认权限/实验插件/已加载插件 plus data-driven settings groups. Android NativeConfigurationPage.kt still renders the pre-PR22 内置插件设置 index and its older actions, so this section/action is a real current difference. Lane F rebuilds the page. This row is `暂时读不到模型列表。` (missing-section)."
-    },
-    {
-      "page": "native-configuration",
-      "kind": "unresolved-action",
-      "name": "field.title",
-      "lane": "F",
-      "reason": "new divergence on native-configuration (unresolved-action); registered during the WP0 baseline synchronization after stale iOS contracts hid this existing iOS/Android difference; Lane F owns platform UI alignment and must remove this row when the corresponding page is verified aligned"
-    },
-    {
-      "page": "native-configuration",
-      "kind": "unresolved-action",
-      "name": "if (draft.isEmpty()) field.title else \"$draft\"",
-      "lane": "F",
-      "reason": "new divergence on native-configuration (unresolved-action); registered during the WP0 baseline synchronization after stale iOS contracts hid this existing iOS/Android difference; Lane F owns platform UI alignment and must remove this row when the corresponding page is verified aligned"
-    },
-    {
-      "page": "native-configuration",
-      "kind": "unresolved-action",
-      "name": "mode.name",
-      "lane": "F",
-      "reason": "new divergence on native-configuration (unresolved-action); registered during the WP0 baseline synchronization after stale iOS contracts hid this existing iOS/Android difference; Lane F owns platform UI alignment and must remove this row when the corresponding page is verified aligned"
-    },
-    {
-      "page": "native-configuration",
-      "kind": "unresolved-section",
-      "name": "<untitled: settingField(field, namespace: group.namespace, writable: group.writable)>",
-      "lane": "F",
-      "reason": "PR22 restructured NativeConfigurationPage into 本机管理范围/iPhone Worker 限制/工具/新会话默认权限/实验插件/已加载插件 plus data-driven settings groups. Android NativeConfigurationPage.kt still renders the pre-PR22 内置插件设置 index and its older actions, so this section/action is a real current difference. Lane F rebuilds the page. This row is `<untitled: settingField(field, namespace: group.namespace, writable: group.writable)>` (unresolved-section)."
-    },
-    {
-      "page": "native-configuration",
-      "kind": "unresolved-section",
-      "name": "experimental.title",
-      "lane": "F",
-      "reason": "new divergence on native-configuration (unresolved-section); registered during the WP0 baseline synchronization after stale iOS contracts hid this existing iOS/Android difference; Lane F owns platform UI alignment and must remove this row when the corresponding page is verified aligned"
-    },
-    {
-      "page": "native-configuration",
-      "kind": "unresolved-section",
-      "name": "fallback.title",
-      "lane": "F",
-      "reason": "new divergence on native-configuration (unresolved-section); registered during the WP0 baseline synchronization after stale iOS contracts hid this existing iOS/Android difference; Lane F owns platform UI alignment and must remove this row when the corresponding page is verified aligned"
-    },
-    {
-      "page": "native-plugin-inventory",
-      "kind": "extra-action",
-      "name": "重试",
-      "lane": "F",
-      "reason": "new divergence on native-plugin-inventory (extra-action); registered during the WP0 baseline synchronization after stale iOS contracts hid this existing iOS/Android difference; Lane F owns platform UI alignment and must remove this row when the corresponding page is verified aligned"
-    },
-    {
-      "page": "native-workbench",
-      "kind": "unresolved-action",
-      "name": "if (onRefreshPending == null) PENDING_REFRESH_UNAVAILABLE el",
-      "lane": "F",
-      "reason": "new divergence on native-workbench (unresolved-action); registered during the WP0 baseline synchronization after stale iOS contracts hid this existing iOS/Android difference; Lane F owns platform UI alignment and must remove this row when the corresponding page is verified aligned"
-    },
-    {
-      "page": "permission-defaults",
-      "kind": "missing-section",
-      "name": "只影响之后新开的会话，当前会话保持不变。",
-      "lane": "F",
-      "reason": "new divergence on permission-defaults (missing-section); registered during the WP0 baseline synchronization after stale iOS contracts hid this existing iOS/Android difference; Lane F owns platform UI alignment and must remove this row when the corresponding page is verified aligned"
-    },
-    {
-      "page": "permission-defaults",
-      "kind": "unresolved-section",
-      "name": "<untitled: error>",
-      "lane": "F",
-      "reason": "new divergence on permission-defaults (unresolved-section); registered during the WP0 baseline synchronization after stale iOS contracts hid this existing iOS/Android difference; Lane F owns platform UI alignment and must remove this row when the corresponding page is verified aligned"
-    },
-    {
-      "page": "permission-defaults",
-      "kind": "unresolved-section",
-      "name": "<untitled: nativeConfigurationError(error)>",
-      "lane": "F",
-      "reason": "new divergence on permission-defaults (unresolved-section); registered during the WP0 baseline synchronization after stale iOS contracts hid this existing iOS/Android difference; Lane F owns platform UI alignment and must remove this row when the corresponding page is verified aligned"
-    },
-    {
-      "page": "permission-defaults",
-      "kind": "unresolved-section",
-      "name": "state.note",
-      "lane": "F",
-      "reason": "new divergence on permission-defaults (unresolved-section); registered during the WP0 baseline synchronization after stale iOS contracts hid this existing iOS/Android difference; Lane F owns platform UI alignment and must remove this row when the corresponding page is verified aligned"
-    },
-    {
-      "page": "android-adb-settings",
-      "kind": "missing-section",
-      "name": "<android-screen>",
-      "lane": "F",
-      "reason": "iOS added AndroidADBSettingsPage for TCP/IP ADB setup, testing and cancellation. The Android UI library has no corresponding screen; Lane F must implement and verify it before claiming parity."
-    },
-    {
-      "page": "settings",
-      "kind": "missing-action",
-      "name": "Android ADB",
-      "lane": "F",
-      "reason": "iOS SettingsPage links AndroidADBSettingsPage, but Android SettingsPage.kt has no matching entry. Lane F owns the Android destination and navigation."
-    },
-    {
-      "page": "settings",
-      "kind": "missing-action",
-      "name": "SSH 主机",
-      "lane": "F",
-      "reason": "iOS SettingsPage links SSHSettingsPage, but Android SettingsPage.kt has no matching entry. Lane F owns the Android destination and navigation."
-    },
-    {
-      "page": "ssh-settings",
-      "kind": "missing-section",
-      "name": "<android-screen>",
-      "lane": "F",
-      "reason": "iOS added SSHSettingsPage for saved connections and host-key verification. The Android UI library has no corresponding screen; Lane F must implement and verify it before claiming parity."
-    },
-    {
-      "page": "licenses",
-      "kind": "missing-action",
-      "name": "SSH 组件许可全文",
-      "lane": "F",
-      "reason": "iOS added a dedicated SSH license text link and bundled license file; Android has no matching SSH license action. Lane F must provide the equivalent license display."
-    },
-    {
-      "page": "licenses",
-      "kind": "unresolved-section",
-      "name": "<manual region>",
-      "lane": "F",
-      "reason": "The iOS SSH license subpage renders one scrolling Text without Section/PageSection/GroupBox, so no section tree can be compared statically. The actual license content and navigation still require Lane F verification."
-    }
-  ]
+ "schema": "pdsh.ui.page-structure-baseline/1",
+ "note": "PR22/current-source ratchet: 13 records on 2 pages. Only shrunk after verified source UI/rendering changes; no added record or waiver. Source structure, runtime behavior and paired pixel acceptance are separate.",
+ "contracts": 34,
+ "divergences": [
+  {
+   "page": "model-provider-settings",
+   "kind": "extra-action",
+   "name": "从剪贴板导入",
+   "lane": "F",
+   "reason": "PR22 rewrote ModelProviderSettingsPage as 服务/密钥/模型目录/生效方式 with a separate editor (embedded ModelProviderEditorPage) and explicit test/save receipts. Android ModelProviderSettingsPage.kt still renders the pre-PR22 form (add/edit/delete/default/test), so the section titles and controls differ. Lane F rebuilds the provider form and get-models flow. This row is `从剪贴板导入` (extra-action)."
+  },
+  {
+   "page": "model-provider-settings",
+   "kind": "extra-action",
+   "name": "删除已保存的密钥",
+   "lane": "F",
+   "reason": "PR22 rewrote ModelProviderSettingsPage as 服务/密钥/模型目录/生效方式 with a separate editor (embedded ModelProviderEditorPage) and explicit test/save receipts. Android ModelProviderSettingsPage.kt still renders the pre-PR22 form (add/edit/delete/default/test), so the section titles and controls differ. Lane F rebuilds the provider form and get-models flow. This row is `删除已保存的密钥` (extra-action)."
+  },
+  {
+   "page": "model-provider-settings",
+   "kind": "extra-action",
+   "name": "删除此模型",
+   "lane": "F",
+   "reason": "PR22 rewrote ModelProviderSettingsPage as 服务/密钥/模型目录/生效方式 with a separate editor (embedded ModelProviderEditorPage) and explicit test/save receipts. Android ModelProviderSettingsPage.kt still renders the pre-PR22 form (add/edit/delete/default/test), so the section titles and controls differ. Lane F rebuilds the provider form and get-models flow. This row is `删除此模型` (extra-action)."
+  },
+  {
+   "page": "model-provider-settings",
+   "kind": "extra-action",
+   "name": "图片输入",
+   "lane": "F",
+   "reason": "PR22 rewrote ModelProviderSettingsPage as 服务/密钥/模型目录/生效方式 with a separate editor (embedded ModelProviderEditorPage) and explicit test/save receipts. Android ModelProviderSettingsPage.kt still renders the pre-PR22 form (add/edit/delete/default/test), so the section titles and controls differ. Lane F rebuilds the provider form and get-models flow. This row is `图片输入` (extra-action)."
+  },
+  {
+   "page": "model-provider-settings",
+   "kind": "extra-action",
+   "name": "推理强度",
+   "lane": "F",
+   "reason": "PR22 rewrote ModelProviderSettingsPage as 服务/密钥/模型目录/生效方式 with a separate editor (embedded ModelProviderEditorPage) and explicit test/save receipts. Android ModelProviderSettingsPage.kt still renders the pre-PR22 form (add/edit/delete/default/test), so the section titles and controls differ. Lane F rebuilds the provider form and get-models flow. This row is `推理强度` (extra-action)."
+  },
+  {
+   "page": "model-provider-settings",
+   "kind": "extra-action",
+   "name": "文本输入",
+   "lane": "F",
+   "reason": "PR22 rewrote ModelProviderSettingsPage as 服务/密钥/模型目录/生效方式 with a separate editor (embedded ModelProviderEditorPage) and explicit test/save receipts. Android ModelProviderSettingsPage.kt still renders the pre-PR22 form (add/edit/delete/default/test), so the section titles and controls differ. Lane F rebuilds the provider form and get-models flow. This row is `文本输入` (extra-action)."
+  },
+  {
+   "page": "model-provider-settings",
+   "kind": "extra-action",
+   "name": "添加模型",
+   "lane": "F",
+   "reason": "PR22 rewrote ModelProviderSettingsPage as 服务/密钥/模型目录/生效方式 with a separate editor (embedded ModelProviderEditorPage) and explicit test/save receipts. Android ModelProviderSettingsPage.kt still renders the pre-PR22 form (add/edit/delete/default/test), so the section titles and controls differ. Lane F rebuilds the provider form and get-models flow. This row is `添加模型` (extra-action)."
+  },
+  {
+   "page": "model-provider-settings",
+   "kind": "extra-action",
+   "name": "默认模型",
+   "lane": "F",
+   "reason": "PR22 rewrote ModelProviderSettingsPage as 服务/密钥/模型目录/生效方式 with a separate editor (embedded ModelProviderEditorPage) and explicit test/save receipts. Android ModelProviderSettingsPage.kt still renders the pre-PR22 form (add/edit/delete/default/test), so the section titles and controls differ. Lane F rebuilds the provider form and get-models flow. This row is `默认模型` (extra-action)."
+  },
+  {
+   "page": "native-configuration",
+   "kind": "extra-action",
+   "name": "保存默认",
+   "lane": "F",
+   "reason": "PR22 restructured NativeConfigurationPage into 本机管理范围/iPhone Worker 限制/工具/新会话默认权限/实验插件/已加载插件 plus data-driven settings groups. Android NativeConfigurationPage.kt still renders the pre-PR22 内置插件设置 index and its older actions, so this section/action is a real current difference. Lane F rebuilds the page. This row is `保存默认` (extra-action)."
+  },
+  {
+   "page": "native-configuration",
+   "kind": "extra-section",
+   "name": "已加载插件",
+   "lane": "F",
+   "reason": "PR22 restructured NativeConfigurationPage into 本机管理范围/iPhone Worker 限制/工具/新会话默认权限/实验插件/已加载插件 plus data-driven settings groups. Android NativeConfigurationPage.kt still renders the pre-PR22 内置插件设置 index and its older actions, so this section/action is a real current difference. Lane F rebuilds the page. This row is `已加载插件` (extra-section)."
+  },
+  {
+   "page": "native-configuration",
+   "kind": "missing-section",
+   "name": "暂不可用",
+   "lane": "F",
+   "reason": "PR22 restructured NativeConfigurationPage into 本机管理范围/iPhone Worker 限制/工具/新会话默认权限/实验插件/已加载插件 plus data-driven settings groups. Android NativeConfigurationPage.kt still renders the pre-PR22 内置插件设置 index and its older actions, so this section/action is a real current difference. Lane F rebuilds the page. This row is `暂不可用` (missing-section)."
+  },
+  {
+   "page": "native-configuration",
+   "kind": "missing-section",
+   "name": "暂时读不到模型列表。",
+   "lane": "F",
+   "reason": "PR22 restructured NativeConfigurationPage into 本机管理范围/iPhone Worker 限制/工具/新会话默认权限/实验插件/已加载插件 plus data-driven settings groups. Android NativeConfigurationPage.kt still renders the pre-PR22 内置插件设置 index and its older actions, so this section/action is a real current difference. Lane F rebuilds the page. This row is `暂时读不到模型列表。` (missing-section)."
+  },
+  {
+   "page": "native-configuration",
+   "kind": "unresolved-section",
+   "name": "<untitled: settingField(field, namespace: group.namespace, writable: group.writable)>",
+   "lane": "F",
+   "reason": "PR22 restructured NativeConfigurationPage into 本机管理范围/iPhone Worker 限制/工具/新会话默认权限/实验插件/已加载插件 plus data-driven settings groups. Android NativeConfigurationPage.kt still renders the pre-PR22 内置插件设置 index and its older actions, so this section/action is a real current difference. Lane F rebuilds the page. This row is `<untitled: settingField(field, namespace: group.namespace, writable: group.writable)>` (unresolved-section)."
+  }
+ ]
 }
