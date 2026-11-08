@@ -43,6 +43,7 @@
 package com.phonedsh.dsh.exec
 
 import com.phonedsh.dsh.host.HostLog
+import com.phonedsh.dsh.tools.CancellableTool
 import com.phonedsh.dsh.tools.InMemoryRequestLedger
 import com.phonedsh.dsh.tools.PhoneTool
 import com.phonedsh.dsh.tools.PhoneToolBridge
@@ -246,6 +247,11 @@ class ExecBridge(
                 ExecControlOutcome.Ignored
             } else {
                 execution.cancel()
+                // A tool holding an external resource (an SSH connection) is told
+                // to release it; in-process accelerators ignore the hook.
+                for (registered in capability.tools.all) {
+                    (registered.tool as? CancellableTool)?.cancelExecution(control.execId)
+                }
                 logger.info("exec cancel: exec_id=${control.execId}")
                 ExecControlOutcome.Applied
             }

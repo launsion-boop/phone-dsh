@@ -48,15 +48,24 @@ class ToolSet private constructor(
     init {
         for (tool in all) {
             require(tool.name in ACCELERATORS) {
-                "exec/1 may only advertise a read-only accelerator (exec.md §3); " +
+                "exec/1 may only advertise an accelerator of exec.md §3; " +
                     "\"${tool.name}\" is not one of ${ACCELERATORS.sorted()}"
             }
         }
     }
 
     companion object {
-        /** The accelerator vocabulary of exec.md §3 and channel.md §4.1. */
-        val ACCELERATORS: Set<String> = setOf("rg", "jaq", "ts-parse", "ts-query", "phone", "ctx")
+        /**
+         * The accelerator vocabulary of exec.md §3 and channel.md §4.1.
+         *
+         * `ssh` / `scp` / `adb` are the optional native accelerators of
+         * PC-20261105-native-ssh-adb: they never write a local materialized
+         * mount, but an SSH command or an SCP upload may change the remote
+         * server (exec.md §3). A name here is only *allowed*; it is advertised
+         * when a tool is actually registered under it.
+         */
+        val ACCELERATORS: Set<String> =
+            setOf("rg", "jaq", "ts-parse", "ts-query", "phone", "ctx", "ssh", "scp", "adb")
 
         /**
          * A tool set with at least one member.

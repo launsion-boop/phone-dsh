@@ -41,6 +41,22 @@ fun interface PhoneTool {
     suspend fun invoke(invocation: ToolInvocation): ToolOutcome
 }
 
+/**
+ * A tool whose running invocation can be interrupted by `EXEC_CTL cancel`.
+ *
+ * [com.phonedsh.dsh.exec.ExecBridge] records the terminal `cancelled` exit
+ * itself; this hook only lets a tool that owns an external resource (an SSH
+ * connection) release it, so cancellation is not merely an observed stop
+ * (exec.md §2: cancel/deadline delivers SIGTERM). The tool's eventual result is
+ * still discarded by the bridge, and the ledger keeps the cancelled record, so
+ * a retry with the same `idem_key` replays rather than re-running a remote side
+ * effect.
+ */
+interface CancellableTool : PhoneTool {
+    /** Interrupts the invocation whose request carries [execId]; a no-op when none runs. */
+    fun cancelExecution(execId: String)
+}
+
 /** A tool plus the name the worker addresses it by. */
 data class RegisteredTool(val name: String, val tool: PhoneTool)
 

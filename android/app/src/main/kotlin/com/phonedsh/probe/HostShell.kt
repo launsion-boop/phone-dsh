@@ -150,6 +150,9 @@ private val ANDROID_NATIVE_LICENSE_FACTS = listOf(
     com.phonedsh.ui.nav.PdshLicenseFact("kotlin-stdlib", "Kotlin standard library 2.1.0", "Apache-2.0"),
     com.phonedsh.ui.nav.PdshLicenseFact("androidx-core-ktx", "AndroidX Core KTX 1.15.0", "Apache-2.0"),
     com.phonedsh.ui.nav.PdshLicenseFact("androidx-compose-ui", "Jetpack Compose UI 1.7.6", "Apache-2.0"),
+    // Native SSH/SCP (docs/native-ssh.md); versions are the catalog pins.
+    com.phonedsh.ui.nav.PdshLicenseFact("jsch", "JSch (com.github.mwiede) 2.28.8", "BSD-3-Clause AND ISC"),
+    com.phonedsh.ui.nav.PdshLicenseFact("bcprov", "Bouncy Castle Provider (bcprov-jdk18on) 1.86", "MIT"),
 )
 
 /**
@@ -221,6 +224,9 @@ internal fun HostShell(
     val bleDevices = remember { AndroidBleDevices.get(context) }
     BindBluetoothHost(bleDevices)
     val bluetoothFacts by bleDevices.facts.collectAsState()
+    // SSH 主机: the process-wide saved connections (docs/native-ssh.md).
+    val sshSettings = remember { SshSettingsStore.get(context) }
+    val sshFacts by sshSettings.facts.collectAsState()
     val systemDark = isSystemInDarkTheme()
     // L69: the chat page's one state. Collected here so a Worker event rebuilds the
     // page on the next frame; the view model is its only writer.
@@ -790,7 +796,7 @@ internal fun HostShell(
     // platform really carries this app's back gesture through the invoker. It is
     // measured by the back callback (one gesture moves it), so it is applied here
     // rather than inside the remembered walk.
-    val shownFacts = PredictiveBack.measured(facts).copy(bluetooth = bluetoothFacts)
+    val shownFacts = PredictiveBack.measured(facts).copy(bluetooth = bluetoothFacts, ssh = sshFacts)
     LaunchedEffect(chatUi.commandExecution?.id) {
         if (chatUi.commandExecution != null) nav = nav.push(PdshRoute.CommandResult)
     }
@@ -926,6 +932,9 @@ internal fun HostShell(
                             if (action.wire.startsWith("bluetooth.")) {
                                 // The page owns its result line (结果); no host note.
                                 bleDevices.handle(action)
+                            } else if (action.wire.startsWith("ssh.")) {
+                                // The page owns its result lines; no host note.
+                                sshSettings.handle(action)
                             } else if (action is PdshHostAction.OpenWorkspaceFiles) {
                                 notice = null
                                 nav = nav.push(PdshRoute.Files(action.id.ifBlank { null }))
@@ -1664,6 +1673,9 @@ private fun actionLabel(action: PdshHostAction): String = when (action) {
     is PdshHostAction.BluetoothGrant -> "蓝牙授权"
     is PdshHostAction.BluetoothRead -> "读取蓝牙数据"
     is PdshHostAction.BluetoothAlert -> "蓝牙提醒"
+    is PdshHostAction.SshSaveConnection -> "保存 SSH 连接"
+    is PdshHostAction.SshDeleteConnection -> "删除 SSH 连接"
+    is PdshHostAction.SshInspectHostKey -> "读取 SSH 服务器指纹"
     is PdshHostAction.SaveMcpServer -> "保存 MCP 服务器"
     PdshHostAction.StopRuntime -> "停止本地引擎"
     PdshHostAction.RestartRuntime -> "启动本地引擎"
@@ -1712,6 +1724,7 @@ private fun hostRouteNote(route: PdshRoute): String? = when (route) {
         "保存不会落盘：本宿主没有 phone/mcpUpsert 这个 host tool"
 
     PdshRoute.Bluetooth -> null
+    PdshRoute.Ssh, is PdshRoute.SshEditor -> null
 
     PdshRoute.Configuration -> null
     PdshRoute.Automation -> null

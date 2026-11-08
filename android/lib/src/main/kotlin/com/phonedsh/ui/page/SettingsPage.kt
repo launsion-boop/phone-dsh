@@ -231,6 +231,9 @@ public enum class SettingsDestination {
     MODEL_PROVIDER,
     MCP,
 
+    /** SSH 主机: saved native SSH connections (docs/native-ssh.md). */
+    SSH,
+
     /** 蓝牙设备: scan + standard GATT (`spec/device/v1/android-standard-gatt.md`). */
     BLUETOOTH,
     WEB_SEARCH,
@@ -1324,6 +1327,7 @@ private fun SettingsIndexList(
                 enabled = onOpenPhonePermissions != null, callback = onOpenPhonePermissions),
             SettingsIndexEntry("network", native("网络访问", UiStrings.SETTINGS_ROW_NETWORK_EN), com.phonedsh.ui.icon.PdshIcon.NETWORK, callback = { onNavigate(SettingsDestination.EGRESS) }),
             SettingsIndexEntry("mcp", native("MCP 与局域网设备", "MCP and LAN devices"), com.phonedsh.ui.icon.PdshIcon.DATABASE, callback = { onNavigate(SettingsDestination.MCP) }),
+            SettingsIndexEntry("ssh", native("SSH 主机", "SSH hosts"), com.phonedsh.ui.icon.PdshIcon.TERMINAL, callback = { onNavigate(SettingsDestination.SSH) }),
             SettingsIndexEntry("bluetooth", native("蓝牙设备", "Bluetooth devices"), com.phonedsh.ui.icon.PdshIcon.NETWORK, callback = { onNavigate(SettingsDestination.BLUETOOTH) }),
         )),
         SettingsIndexSection("conversation", native(UiStrings.SETTINGS_SECTION_CONVERSATION, UiStrings.SETTINGS_SECTION_CONVERSATION_EN), listOf(

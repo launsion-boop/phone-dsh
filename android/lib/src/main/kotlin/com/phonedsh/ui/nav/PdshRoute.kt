@@ -115,6 +115,20 @@ public sealed interface PdshRoute {
         override val presentation: PdshPresentation = PdshPresentation.PUSH
     }
 
+    /** 设置行「SSH 主机」; §1: push; its editor child is [SshEditor]. */
+    public data object Ssh : PdshRoute {
+        override val presentation: PdshPresentation = PdshPresentation.PUSH
+    }
+
+    /**
+     * The SSH connection editor, opened from [Ssh]'s list.
+     *
+     * @param connectionId the saved connection to edit, or `null` when adding one.
+     */
+    public data class SshEditor(public val connectionId: String? = null) : PdshRoute {
+        override val presentation: PdshPresentation = PdshPresentation.PUSH
+    }
+
     /** 设置行「蓝牙设备」; §1: push. Scan + standard GATT only (android-standard-gatt.md). */
     public data object Bluetooth : PdshRoute {
         override val presentation: PdshPresentation = PdshPresentation.PUSH
@@ -437,6 +451,7 @@ public object PdshSettingsRows {
         SettingsDestination.MODEL_PROVIDER -> PdshRoute.ModelProvider
         SettingsDestination.WEB_SEARCH -> PdshRoute.WebSearch
         SettingsDestination.MCP -> PdshRoute.Mcp
+        SettingsDestination.SSH -> PdshRoute.Ssh
         SettingsDestination.BLUETOOTH -> PdshRoute.Bluetooth
         SettingsDestination.EGRESS -> PdshRoute.Egress
         SettingsDestination.PLUGIN_CONFIGURATION -> PdshRoute.Configuration

@@ -554,6 +554,12 @@ android {
                 "**/libandroid-shmem.so",
             )
         }
+        resources {
+            // JSch and Bouncy Castle both ship an OSGi manifest for their Java 9
+            // multi-release layer. It is bundle metadata, not a class or a
+            // licence, and Android ignores META-INF/versions/** classes anyway.
+            excludes += "META-INF/versions/*/OSGI-INF/MANIFEST.MF"
+        }
     }
 
     // No loose worker assets here: :engine already packs the same bundle into a
@@ -650,6 +656,14 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.core.ktx)
+    // Native SSH/SCP (docs/native-ssh.md, PC-20261105-native-ssh-adb). Android has
+    // no SSH client: the pinned Ubuntu Base rootfs carries no openssh package and
+    // its lane is an approval-gated sealed job, not an exec accelerator. JSch is a
+    // dependency-free pure-Java SSH-2/SFTP client (BSD/ISC). Bouncy Castle's
+    // lightweight API supplies Ed25519 keys/host keys and X25519 key exchange,
+    // which API 26's JCA does not have. Both live only in :app, never in the AAR.
+    implementation(libs.jsch)
+    implementation(libs.bouncycastle.bcprov)
 
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.espresso.core)
@@ -660,4 +674,7 @@ dependencies {
     // Exercise the real AndroidX permission registry, including restored results.
     testImplementation("org.robolectric:robolectric:4.14.1")
     testImplementation("androidx.test:core:1.6.1")
+    // Android provides org.json on device; the SSH tool tests run on the host JVM
+    // (same pin as :dsh).
+    testImplementation("org.json:json:20240303")
 }

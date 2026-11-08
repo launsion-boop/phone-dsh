@@ -373,9 +373,13 @@ class DefaultPhoneDshHost(
         exec = execCapability,
     )
 
-    /** The host's actually registered read-only shell accelerators, excluding the phone tool. */
+    /**
+     * The host's actually registered read-only shell accelerators, excluding the
+     * phone tool and the remote-effect native accelerators (`ssh` / `scp` /
+     * `adb`, exec.md §3), which the shell page must not offer as read-only.
+     */
     fun readOnlyAcceleratorNames(): List<String> =
-        exec?.capability?.names?.filterNot { it == "phone" }.orEmpty()
+        exec?.capability?.names?.filterNot { it == "phone" || it in REMOTE_EFFECT_ACCELERATORS }.orEmpty()
 
     /**
      * Runs through the same validated `exec/1` bridge used for Worker EXEC_REQ.
@@ -1816,6 +1820,9 @@ class DefaultPhoneDshHost(
     }
 
     companion object {
+        /** exec.md §3: accelerators whose effect lands on a remote server or device. */
+        val REMOTE_EFFECT_ACCELERATORS: Set<String> = setOf("ssh", "scp", "adb")
+
         /**
          * The notification id the facade cancels on [stop]; mirrors
          * [ControllerEffects.BOOT_RECOVERY_NOTIFICATION_ID] for callers outside
