@@ -194,6 +194,7 @@ final class DeviceTaskJournal: @unchecked Sendable {
             result.append(record)
         }
         try inventoryBLEIntents(parents: result)
+        try inventoryBLESecureIntents(parents: result)
         return result
     }
 
@@ -280,6 +281,116 @@ final class DeviceTaskJournal: @unchecked Sendable {
             }
             return .object(["id": .string(record.task.id), "failure": .object(["kind": .string(kind.rawValue), "message": .string(message)])])
         }
+    }
+
+    /// Reads every entry of an intent directory under the journal lock: a real
+    /// directory (absent = empty), at most 12288 regular non-symlink files of at
+    /// most 65536 bytes. Any other entry fails the whole inventory closed.
+    private func readIntentDirectory(_ name: String) throws -> [(String, Data)] {
+        let ops = directory.appendingPathComponent(name, isDirectory: true)
+        var metadata = stat()
+        if Darwin.lstat(ops.path, &metadata) != 0 {
+            if errno == ENOENT { return [] }
+            throw DeviceTaskError.corruptJournal
+        }
+        guard (metadata.st_mode & S_IFMT) == S_IFDIR else { throw DeviceTaskError.corruptJournal }
+        let directoryFD = Darwin.open(ops.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+        guard directoryFD >= 0 else { throw DeviceTaskError.corruptJournal }
+        defer { Darwin.close(directoryFD) }
+        let streamFD = Darwin.dup(directoryFD)
+        guard streamFD >= 0 else { throw DeviceTaskError.corruptJournal }
+        guard let stream = Darwin.fdopendir(streamFD) else {
+            Darwin.close(streamFD)
+            throw DeviceTaskError.corruptJournal
+        }
+        defer { Darwin.closedir(stream) }
+        var out: [(String, Data)] = []
+        while true {
+            errno = 0
+            guard let entry = Darwin.readdir(stream) else {
+                guard errno == 0 else { throw DeviceTaskError.corruptJournal }
+                break
+            }
+            let entryName = withUnsafePointer(to: &entry.pointee.d_name) {
+                $0.withMemoryRebound(to: CChar.self, capacity: Int(NAME_MAX) + 1) { String(cString: $0) }
+            }
+            if entryName == "." || entryName == ".." { continue }
+            guard out.count < 12288 else { throw DeviceTaskError.corruptJournal }
+            let fd = Darwin.openat(directoryFD, entryName, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
+            guard fd >= 0 else { throw DeviceTaskError.corruptJournal }
+            defer { Darwin.close(fd) }
+            var info = stat()
+            guard Darwin.fstat(fd, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG,
+                  info.st_size >= 0, info.st_size <= 65536 else { throw DeviceTaskError.corruptJournal }
+            let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: false)
+            var buffer = Data()
+            do {
+                while buffer.count <= 65536 {
+                    let chunk = try handle.read(upToCount: 65537 - buffer.count) ?? Data()
+                    if chunk.isEmpty { break }
+                    buffer.append(chunk)
+                }
+            } catch { throw DeviceTaskError.corruptJournal }
+            guard buffer.count <= 65536, buffer.count == info.st_size else { throw DeviceTaskError.corruptJournal }
+            out.append((entryName, buffer))
+        }
+        return out
+    }
+
+    /// secure-session-v1 §9.2: inventory `ble-secure-ops` with the legacy
+    /// rules. Each intent names exactly one validated parent of the same
+    /// secure device ID; its hash is re-derived from the parent alone.
+    private func inventoryBLESecureIntents(parents: [DeviceTaskRecord]) throws {
+        let byID = Dictionary(uniqueKeysWithValues: parents.map { ($0.msgID, $0) })
+        for (name, data) in try readIntentDirectory("ble-secure-ops") {
+            let intent = try BLESecureTaskIntent.decode(data)
+            guard let parent = byID[intent.msgID], parent.deviceID == intent.deviceID,
+                  name == intent.fileName else { throw DeviceTaskError.corruptJournal }
+            let arguments = try BLESecureTransitionArguments.reconstruct(record: parent, action: intent.action)
+            guard let expected = try? BLESecureTaskIntent.make(deviceID: parent.deviceID, phoneID: intent.phoneID, arguments: arguments),
+                  intent == expected else { throw DeviceTaskError.corruptJournal }
+        }
+    }
+
+    /// secure-session-v1 §9.2. Runs under the owning journal lock. `fresh` is
+    /// true only in the call that durably installed the intent; otherwise the
+    /// pre-existing intent (never rewritten, possibly of an older phone key)
+    /// is returned and the caller must reconcile with `status` first (§9.3).
+    func prepareBLESecureTransition(record: DeviceTaskRecord, phoneID: String,
+                                    arguments: BLESecureTransitionArguments) throws -> (intent: BLESecureTaskIntent, fresh: Bool) {
+        guard BLESecureTaskIntent.isSecureDeviceID(record.deviceID),
+              try find(deviceID: record.deviceID, key: record.task.idempotencyKey) == record else {
+            throw DeviceTaskError.corruptJournal
+        }
+        guard try BLESecureTransitionArguments.reconstruct(record: record, action: arguments.action) == arguments else {
+            throw DeviceTaskError.corruptJournal
+        }
+        let intent = try BLESecureTaskIntent.make(deviceID: record.deviceID, phoneID: phoneID, arguments: arguments)
+        let ops = directory.appendingPathComponent("ble-secure-ops", isDirectory: true)
+        try FileManager.default.createDirectory(at: ops, withIntermediateDirectories: true)
+        let opsValues = try ops.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+        guard opsValues.isDirectory == true, opsValues.isSymbolicLink != true else { throw DeviceTaskError.corruptJournal }
+        let file = ops.appendingPathComponent(intent.fileName)
+        if FileManager.default.fileExists(atPath: file.path) {
+            let values = try file.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+            guard values.isRegularFile == true, values.isSymbolicLink != true else { throw DeviceTaskError.corruptJournal }
+            let saved = try BLESecureTaskIntent.decode(try Data(contentsOf: file))
+            let sameKey = try BLESecureTaskIntent.make(deviceID: record.deviceID, phoneID: saved.phoneID, arguments: arguments)
+            guard saved == sameKey else { throw DeviceTaskError.corruptJournal }
+            return (saved, false)
+        }
+        try encoder.encode(intent).write(to: file, options: .atomic)
+        let handle = try FileHandle(forWritingTo: file)
+        try handle.synchronize()
+        try handle.close()
+        for path in [ops, directory] {
+            let fd = Darwin.open(path.path, O_RDONLY)
+            guard fd >= 0 else { throw DeviceTaskError.corruptJournal }
+            let result = Darwin.fsync(fd)
+            Darwin.close(fd)
+            guard result == 0 else { throw DeviceTaskError.corruptJournal }
+        }
+        return (intent, true)
     }
 
     func find(deviceID: String, key: String) throws -> DeviceTaskRecord? {
