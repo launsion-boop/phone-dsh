@@ -67,7 +67,7 @@ int pdsh_upload(pdsh_upload_t *u, const uint8_t *p, size_t n, uint64_t now) {
     uint16_t total = le16(p + 16), off = le16(p + 18);
     uint32_t ttl = le32(p + 20);
     size_t count = n - 24;
-    if (!total || total > PDSH_RPC_MAX || off > total || count > total - off || ttl < 100 ||
+    if (!total || total > PDSH_RPC_MAX || off > total || count > (size_t)(total - off) || ttl < 100 ||
         ttl > 30000)
         return 2;
     if (u->active && memcmp(u->id, p, 16) == 0) {
