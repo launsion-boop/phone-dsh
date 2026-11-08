@@ -53,6 +53,10 @@ production event dispatcher, outcome claim, continuation, Link receive path and
 admission. It cannot assign an OS request token or directly set grants,
 channel, pending state or terminal outcome. Historic labels use only isolated
 UserDefaults in tests. Existing task grants remain disabled.
+The independent UI test implementer may extend only the existing test-only
+`examples/probe-app/identity-ui-harness/{Host,IdentityUITests}.swift` to inject
+a simulated service change and inspect the real page; it does not change the
+production probe's compilation condition or invoke any target task.
 The accepted value/error path may expose a DEBUG-only one-shot checkpoint
 immediately after its real shared outcome claim and before `finishRead`, so the
 value/error-first cases execute that actual intermediate state. This hook must
