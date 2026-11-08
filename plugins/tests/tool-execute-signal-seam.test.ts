@@ -21,6 +21,7 @@ import assert from 'node:assert/strict'
 import { Context } from '@deepseek-ai/cordis'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import ToolRuntime, { TOOL_ABORTED, defineTool } from '@deepseek-ai/dsh-tools'
 import { test } from 'node:test'
 
@@ -66,6 +67,7 @@ test('W9-CONTRACT: a tools/execute signal replacement reaches the in-flight body
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
+  await ctx.plugin(NativeToolExecutor)
   try {
     let bodySignal: AbortSignal | undefined
     ctx.tools.register(holdTool(signal => { bodySignal = signal }))
@@ -83,12 +85,12 @@ test('W9-CONTRACT: a tools/execute signal replacement reaches the in-flight body
     })
 
     const caller = new AbortController()
-    const result = await within(ctx.tools.execute({
-      callId: ToolCallId('seam-host-cancel'),
-      name: 'hold',
-      arguments: {},
+    const batch = await within(ctx.tools.execute({
+      calls: [{ type: 'tool-call', id: ToolCallId('seam-host-cancel'), name: 'hold', arguments: '{}' }],
       signal: caller.signal,
     }), 3_000, 'the replaced tool signal')
+    const result = batch.results[0]?.result
+    assert.ok(result)
 
     assert.equal(replacementAssigned, true)
     assert.notEqual(bodySignal, caller.signal,
@@ -111,6 +113,7 @@ test('W9-CONTRACT: the caller signal stays fused with a replacement signal', {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
+  await ctx.plugin(NativeToolExecutor)
   try {
     let bodySignal: AbortSignal | undefined
     ctx.tools.register(holdTool(signal => { bodySignal = signal }))
@@ -128,12 +131,12 @@ test('W9-CONTRACT: the caller signal stays fused with a replacement signal', {
     const cause = { kind: 'user', reason: { kind: 'user' } }
     const timer = setTimeout(() => { caller.abort(cause) }, 10)
     timer.unref?.()
-    const result = await within(ctx.tools.execute({
-      callId: ToolCallId('seam-caller-cancel'),
-      name: 'hold',
-      arguments: {},
+    const batch = await within(ctx.tools.execute({
+      calls: [{ type: 'tool-call', id: ToolCallId('seam-caller-cancel'), name: 'hold', arguments: '{}' }],
       signal: caller.signal,
     }), 3_000, 'the fused caller signal')
+    const result = batch.results[0]?.result
+    assert.ok(result)
 
     assert.equal(result.isError, true)
     if (!result.isError) assert.fail('the fused caller signal must abort the call')

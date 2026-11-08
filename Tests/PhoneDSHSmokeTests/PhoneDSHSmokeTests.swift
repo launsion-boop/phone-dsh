@@ -333,9 +333,19 @@ final class PhoneDSHSmokeTests: XCTestCase {
                 "prompt": .string("Disposable local test reminder"), "after_seconds": .number(600)
             ])]))
             let scheduleID = try XCTUnwrap(scheduled["id"]?.stringValue)
-            _ = try await nativeTransport.call("schedule/delete", args: .object(["request": .object([
-                "sessionId": .string(session.id), "id": .string(scheduleID)
+            let catalog = try await nativeTransport.call("schedule/catalog", args: .object([:]))
+            let schedule = try XCTUnwrap(catalog.arrayValue?.first { $0["id"]?.stringValue == scheduleID })
+            XCTAssertEqual(schedule["target"]?["sessionId"]?.stringValue, session.id)
+            let revised = try await nativeTransport.call("schedule/edit", args: .object(["request": .object([
+                "id": .string(scheduleID), "action": .string("update"),
+                "expectedUpdatedAt": schedule["updatedAt"] ?? .null,
+                "patch": .object(["title": .string("Updated native UI fixture")])
             ])]))
+            XCTAssertEqual(revised["title"]?.stringValue, "Updated native UI fixture")
+            let deleted = try await nativeTransport.call("schedule/edit", args: .object(["request": .object([
+                "id": .string(scheduleID), "action": .string("delete")
+            ])]))
+            XCTAssertEqual(deleted["deleted"]?.boolValue, true)
             let settings = try await nativeTransport.call("settings/describe", args: .object([:]))
             XCTAssertNotNil(settings["namespaces"]?.arrayValue)
             let plugins = try await nativeTransport.call("pluginInventory/list", args: .object([:]))

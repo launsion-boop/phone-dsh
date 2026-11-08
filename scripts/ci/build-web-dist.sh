@@ -309,7 +309,8 @@ mkdir -p "$STORE" 2>/dev/null \
 # at a different directory there. Record and use the resolved absolute path.
 STORE="$(cd "$STORE" && pwd -P)"
 
-BUILD_COMMAND="pnpm install --frozen-lockfile --prefer-offline --store-dir $STORE"
+BUILD_COMMAND="CI=true LEFTHOOK=0 pnpm install --frozen-lockfile --prefer-offline --store-dir $STORE"
+BUILD_COMMAND="$BUILD_COMMAND && pnpm exec tsx scripts/generate-typert.ts"
 BUILD_COMMAND="$BUILD_COMMAND && pnpm exec tsc -b tsconfig.host.json"
 BUILD_COMMAND="$BUILD_COMMAND && pnpm exec tsdown --config-loader native --env.DSH_BUILD_FACE host"
 BUILD_COMMAND="$BUILD_COMMAND && pnpm exec tsc -b tsconfig.client.json"
@@ -328,7 +329,8 @@ run_step() {
 }
 
 echo "build-web-dist: installing $VERIFIED_VERSION dependencies from commit $VERIFIED_COMMIT (store $STORE)"
-run_step "pnpm install" pnpm install --frozen-lockfile --prefer-offline --store-dir "$STORE"
+run_step "pnpm install" env CI=true LEFTHOOK=0 pnpm install --frozen-lockfile --prefer-offline --store-dir "$STORE"
+run_step "Host Typert" pnpm exec tsx scripts/generate-typert.ts
 run_step "host declarations" pnpm exec tsc -b tsconfig.host.json
 run_step "host bundle" pnpm exec tsdown --config-loader native --env.DSH_BUILD_FACE host
 run_step "client declarations" pnpm exec tsc -b tsconfig.client.json

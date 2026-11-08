@@ -28,7 +28,6 @@ or copies it.
 | `src/module-import.ts` | Controlled type/code/specifier/static-location diagnostic for image-module import failures (JSC stacks omit the message); raw message, stack, cause and custom fields are never forwarded |
 | `src/static-modules.ts` | The runtime's static-module table with this layer's overrides (`sharp`, `app-boot`, Worker `workflow-ptc`, `tool-presentation`, `node:vm`, terminal refusal) |
 | `src/vm-shim.ts` | Compile-only `node:vm` face for the DSH Worker's parent-side workflow syntax check; scripts never execute there |
-| `src/tool-presentation-shim.ts` | `tool-presentation` row: real native tools when PTC is unavailable, no fabricated PTC |
 | `src/module-shim.ts` | `node:module` wrapper that gives static image package overrides real manifest search paths |
 | `src/terminal-shim.ts` | Loud phone refusal for the official persistent-terminal provider (no PTY) |
 | `src/fs-read-state.ts` | Durable read-state replay mounted through the app-boot shim (G2-FIX-36) |
@@ -252,7 +251,7 @@ component tests.
 ## JavaScriptCore compatibility prelude
 
 JavaScriptCore (the engine WKWebView embeds) lacks four platform features DSH
-0.2.1's lowered code or its npm dependencies rely on:
+DSH's lowered code or its npm dependencies rely on:
 
 - `Symbol.dispose` / `Symbol.asyncDispose`, used by lowered `using` /
   `await using`; without them session creation throws

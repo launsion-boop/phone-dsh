@@ -1343,6 +1343,12 @@ export function loadWorkerHomePatch(appBoot, file = WORKER_PROFILE_PATCH, checko
   for (const preset of flattenRows(rows)) {
     if (preset.name !== '@deepseek-ai/dsh-agent-preset') continue
     for (const tool of flattenRows(preset.config?.plugins)) {
+      if (tool.name === '@deepseek-ai/dsh-tool-executor-ptc') {
+        // The phone Worker cannot start the local Node process the PTC executor uses.
+        tool.id = 'tool-executor-native'
+        tool.name = '@deepseek-ai/dsh-tool-executor-native'
+        continue
+      }
       if (tool.name !== '@deepseek-ai/dsh-tool-web') continue
       tool.config = {
         ...tool.config,

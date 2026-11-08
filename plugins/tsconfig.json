@@ -44,6 +44,7 @@
     "phone-shell/src/index.ts",
     "phone-native-preview/src/index.ts",
     "phone-directory-import/src/index.ts",
+    "surface-phone/src/management-remote.ts",
     "types"
   ]
 }

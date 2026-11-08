@@ -12,7 +12,7 @@
  */
 
 /** Version metadata the bundled attribution readers expect. */
-const VERSION = { version: '0.2.1-rc.2' }
+const VERSION = { version: '0.2.2-rc.1' }
 
 /** The package-json answer for the only supported metadata read. */
 interface PackageMetadata {

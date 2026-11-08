@@ -31,6 +31,7 @@
 
 import { Context, Service } from '@deepseek-ai/cordis'
 import schema from '@deepseek-ai/schemastery'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { ToolDefinition, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-session'
@@ -43,7 +44,7 @@ import {
   SLOW_JOURNAL_SYNC_MILLISECONDS, ToolJournalStore, canonicalHash, idempotencyKey,
 } from './journal.ts'
 import type { JournaledResult, JournalSyncTiming } from './journal.ts'
-import { interruptedCalls, parseArguments, plan, reconciledCallIds, toolResultEvent, unknownOutcomeText } from './reconcile.ts'
+import { interruptedCalls, plan, reconciledCallIds, toolResultEvent, unknownOutcomeText } from './reconcile.ts'
 import type { InterruptedCall, LogEvent } from './reconcile.ts'
 
 export { createClassifier, DEFAULT_TOOL_CLASSES } from './classify.ts'
@@ -603,12 +604,10 @@ export class ToolJournal extends Service {
     // same helper is used by the normal tool path for the same reason.
     const runSignal = signal === undefined ? timeout : fuseAbortSignals(signal, timeout)
     const execution = toolCallStorage().run({ sessionId, callId: call.callId, key, spawns: 0 }, () => this.ctx.tools.execute({
-      callId: call.callId as never,
-      name: call.name,
-      arguments: parseArguments(call.arguments),
+      calls: [{ type: 'tool-call', id: ToolCallId(call.callId), name: call.name, arguments: call.arguments }],
       signal: runSignal,
     }))
-    const result = await awaitRerunBody(execution, runSignal, (settled) => {
+    const batch = await awaitRerunBody(execution, runSignal, (settled) => {
       const detail = settled.kind === 'fulfilled'
         ? 'fulfilled'
         : `failed: ${settled.error instanceof Error ? settled.error.message : String(settled.error)}`
@@ -617,7 +616,9 @@ export class ToolJournal extends Service {
         sessionId, call.callId, detail,
       )
     })
-    const projected = project(result)
+    const outcome = batch.results[0]
+    if (outcome?.callId !== call.callId) throw new Error('tool-journal: rerun returned no matching outcome')
+    const projected = project(outcome.result)
     // The result record is part of the reconcile proof: do not let the
     // caller append `resolved` before this record's level-1 ack.
     await this.store.append(sessionId, { v: 1, t: 'done', key, call_id: call.callId, result: projected, at: Date.now() }, signal)
