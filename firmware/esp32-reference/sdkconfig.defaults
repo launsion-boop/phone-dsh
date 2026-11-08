@@ -24,3 +24,9 @@ CONFIG_MBEDTLS_SSL_ALPN=y
 # Self-signed device certificate built from pdsh_id/priv at runtime.
 CONFIG_MBEDTLS_X509_CREATE_C=y
 CONFIG_MBEDTLS_X509_CRT_WRITE_C=y
+# secure-session-v2 §5/§6.1: one LE CoC; reject incoming TLS record plaintext
+# above 4352 bytes (outgoing records stay at the 4096-byte default).
+CONFIG_BT_NIMBLE_L2CAP_COC_MAX_NUM=1
+CONFIG_MBEDTLS_ASYMMETRIC_CONTENT_LEN=y
+CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=4352
+CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=4096

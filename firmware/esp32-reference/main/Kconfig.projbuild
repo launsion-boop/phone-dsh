@@ -13,4 +13,13 @@ config PDSH_BUTTON_GPIO
     int "Button GPIO, active low (-1 disables button events)"
     range -1 48
     default 0
+config PDSH_INDICATOR_GPIO
+    int "Enrollment indicator GPIO, active high (-1: enrollment cannot be armed)"
+    range -1 48
+    default -1
+    help
+        Dedicated output that shows enrollment mode (1 Hz armed, 4 Hz waiting
+        for the confirm hold). It must not be the light.* LED or the button;
+        without it the board never arms and begin/revoke/identity-reset answer
+        controls_unavailable (ble-secure-session.md 3.3).
 endmenu

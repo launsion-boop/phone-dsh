@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 #include "pdsh_task_store.h"
 #include "pdsh_task_validate.h"
+#include "psa/crypto.h"
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -77,12 +79,22 @@ static bool valid_outcome(const char *phase, const cJSON *outcome) {
 }
 /* version 1: v1 slots only; version 2: v1 slots plus optional owner `by` on
  * non-queued slots. */
+static bool lower_hex64(const char *s) {
+    if (!s || strlen(s) != 64) return false;
+    for (size_t i = 0; i < 64; i++)
+        if (!((s[i] >= '0' && s[i] <= '9') || (s[i] >= 'a' && s[i] <= 'f'))) return false;
+    return true;
+}
 static bool valid_store(const cJSON *root, int version) {
-    const char *root_keys[] = {"v", "slots"};
+    const char *root_keys[] = {"v", "slots", "v1_sha256"};
     const cJSON *v = cJSON_GetObjectItemCaseSensitive(root, "v"),
                 *slots = cJSON_GetObjectItemCaseSensitive(root, "slots");
-    if (!exact_keys(root, root_keys, 2) || !cJSON_IsNumber(v) || v->valuedouble != version ||
+    if (!exact_keys(root, root_keys, version == 2 ? 3 : 2) || !cJSON_IsNumber(v) || v->valuedouble != version ||
         !cJSON_IsArray(slots) || cJSON_GetArraySize(slots) > 4) return false;
+    if (version == 2) {
+        const cJSON *digest = cJSON_GetObjectItemCaseSensitive(root, "v1_sha256");
+        if (!cJSON_IsNull(digest) && !(cJSON_IsString(digest) && lower_hex64(digest->valuestring))) return false;
+    }
     const cJSON *slot;
     cJSON_ArrayForEach(slot, slots) {
         const cJSON *task = cJSON_GetObjectItemCaseSensitive(slot, "task"),
@@ -136,8 +148,23 @@ static bool persist(cJSON *candidate) {
     source = PDSH_STORE_SOURCE_V2;
     return true;
 }
-static cJSON *load(const char *key, esp_err_t *error) {
+/* SHA-256 of the stored JSON text (the NVS blob without its C terminator). */
+static bool text_digest(const char *text, char out[65]) {
+    uint8_t d[32];
+    size_t len = 0;
+    if (psa_hash_compute(PSA_ALG_SHA_256, (const uint8_t *)text, strlen(text), d, sizeof(d), &len) != PSA_SUCCESS ||
+        len != 32)
+        return false;
+    static const char hex[] = "0123456789abcdef";
+    for (int i = 0; i < 32; i++) out[2 * i] = hex[d[i] >> 4], out[2 * i + 1] = hex[d[i] & 15];
+    out[64] = 0;
+    return true;
+}
+/* error: ESP_OK (parsed), ESP_ERR_NVS_NOT_FOUND, or ESP_FAIL (unreadable or
+ * not a JSON document). digest is filled whenever the blob was readable. */
+static cJSON *load(const char *key, esp_err_t *error, char digest[65], bool *have_digest) {
     char *buffer = calloc(1, STORE_MAX);
+    *have_digest = false;
     if (!buffer) {
         *error = ESP_FAIL;
         return NULL;
@@ -146,47 +173,74 @@ static cJSON *load(const char *key, esp_err_t *error) {
     *error = nvs_get_blob(task_storage, key, buffer, &n);
     cJSON *root = NULL;
     if (*error == ESP_OK) {
-        if (n > 1 && n <= STORE_MAX && buffer[n - 1] == 0 && strlen(buffer) == n - 1 &&
-            pdsh_task_json_no_nul(buffer))
-            root = cJSON_ParseWithOpts(buffer, NULL, true);
+        bool text = n > 1 && n <= STORE_MAX && buffer[n - 1] == 0 && strlen(buffer) == n - 1;
+        if (text) *have_digest = text_digest(buffer, digest);
+        if (text && pdsh_task_json_no_nul(buffer)) root = cJSON_ParseWithOpts(buffer, NULL, true);
         if (!root) *error = ESP_FAIL;
-    }
+    } else if (*error != ESP_ERR_NVS_NOT_FOUND)
+        *error = ESP_FAIL;
     free(buffer);
     return root;
 }
+static bool add_digest(cJSON *doc, const char *digest) {
+    return digest ? cJSON_AddStringToObject(doc, "v1_sha256", digest) != NULL
+                  : cJSON_AddNullToObject(doc, "v1_sha256") != NULL;
+}
+/* §10 selection, including the roll-forward check against tasks_v1. */
 bool pdsh_task_store_init(nvs_handle_t storage) {
     pdsh_task_store_disable();
     task_storage = storage;
-    esp_err_t error;
-    cJSON *root = load("tasks_v2", &error);
-    if (error == ESP_OK) {
-        if (pdsh_task_unique_keys(root) && valid_store(root, 2)) {
-            store = root;
-            source = PDSH_STORE_SOURCE_V2;
-            healthy = true;
-        } else cJSON_Delete(root);
-        return healthy; /* never fall back to v1 once v2 exists */
+    esp_err_t v2_error, v1_error;
+    char v2_digest[65], v1_digest[65];
+    bool v2_have, v1_have;
+    cJSON *v2 = load("tasks_v2", &v2_error, v2_digest, &v2_have);
+    cJSON *v1 = load("tasks_v1", &v1_error, v1_digest, &v1_have);
+    if (v2_error != ESP_ERR_NVS_NOT_FOUND) {
+        bool ok = v2_error == ESP_OK && pdsh_task_unique_keys(v2) && valid_store(v2, 2);
+        if (ok && v1_error != ESP_ERR_NVS_NOT_FOUND) {
+            /* tasks_v1 must be byte-identical to what was migrated. */
+            const cJSON *want = cJSON_GetObjectItemCaseSensitive(v2, "v1_sha256");
+            ok = v1_have && cJSON_IsString(want) && !strcmp(want->valuestring, v1_digest);
+        }
+        cJSON_Delete(v1);
+        if (!ok) {
+            cJSON_Delete(v2);
+            return false; /* disabled; never fall back to or merge tasks_v1 */
+        }
+        store = v2;
+        source = PDSH_STORE_SOURCE_V2;
+        healthy = true;
+        return true;
     }
-    if (error != ESP_ERR_NVS_NOT_FOUND) return false;
-    root = load("tasks_v1", &error);
-    if (error == ESP_ERR_NVS_NOT_FOUND) {
+    cJSON_Delete(v2);
+    if (v1_error == ESP_ERR_NVS_NOT_FOUND) {
         store = cJSON_CreateObject();
-        if (store && cJSON_AddNumberToObject(store, "v", 2) && cJSON_AddArrayToObject(store, "slots")) {
+        if (store && cJSON_AddNumberToObject(store, "v", 2) && add_digest(store, NULL) &&
+            cJSON_AddArrayToObject(store, "slots")) {
             healthy = true;
             source = PDSH_STORE_SOURCE_EMPTY;
         }
         return healthy;
     }
-    if (error != ESP_OK || !pdsh_task_unique_keys(root) || !valid_store(root, 1)) {
-        cJSON_Delete(root);
+    if (v1_error != ESP_OK || !v1_have || !pdsh_task_unique_keys(v1) || !valid_store(v1, 1)) {
+        cJSON_Delete(v1);
         return false;
     }
-    /* Migrated view: the v1 slots, without owners; tasks_v1 is not touched. */
-    cJSON_ReplaceItemInObjectCaseSensitive(root, "v", cJSON_CreateNumber(2));
-    store = root;
+    /* Migrated view: the v1 slots without owners; tasks_v1 is not touched and
+     * the first write records its digest. */
+    cJSON_ReplaceItemInObjectCaseSensitive(v1, "v", cJSON_CreateNumber(2));
+    if (!add_digest(v1, v1_digest)) {
+        cJSON_Delete(v1);
+        return false;
+    }
+    store = v1;
     source = PDSH_STORE_SOURCE_V1_MIGRATED;
     healthy = true;
     return true;
+}
+const char *pdsh_task_store_write_v1_sha256(void) {
+    const cJSON *d = healthy ? cJSON_GetObjectItemCaseSensitive(store, "v1_sha256") : NULL;
+    return cJSON_IsString(d) ? d->valuestring : NULL;
 }
 bool pdsh_task_store_healthy(void) { return healthy; }
 cJSON *pdsh_task_store_view(void) {

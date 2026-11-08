@@ -2,9 +2,12 @@
 /* Offline enrollment: console grammar, board state machine and the durable
  * board record pdsh_enr/rec_v1 (ble-secure-session.md §3.2, §3.3, §4.2).
  *
- * Host-buildable core. How the console is reached and how enrollment mode is
- * entered on the device are behind the ops seam (pending secure-session-v2,
- * review item H1); this file does not open a console by itself. */
+ * secure-session-v2: authority-changing verbs need enrollment mode, entered
+ * only by a 5 s hold of the enrollment button (no host command arms), shown on
+ * a dedicated indicator, bounded to an absolute 300 s window and left on every
+ * error and every completed action; confirmation is a separate 3 s hold whose
+ * press edge follows the `press` line. Host-buildable; the device supplies the
+ * console bytes, button samples, clock, RNG and indicator through ops. */
 #pragma once
 #include <stdbool.h>
 #include <stddef.h>
@@ -13,8 +16,15 @@
 
 #define PDSH_ENROLL_LINE_MAX 384
 #define PDSH_ENROLL_PRESS_TIMEOUT_MS 30000u
-#define PDSH_ENROLL_CONTEXT_TIMEOUT_MS 120000u
+#define PDSH_ENROLL_WINDOW_MS 300000u
+#define PDSH_ENROLL_ARM_HOLD_MS 5000u
+#define PDSH_ENROLL_CONFIRM_HOLD_MS 3000u
 #define PDSH_ENROLL_DEBOUNCE_MS 50u
+
+typedef enum { PDSH_INDICATOR_OFF, PDSH_INDICATOR_ARMED, PDSH_INDICATOR_CONFIRM } pdsh_indicator_t;
+/* pdsh_enroll_button() result flags. */
+#define PDSH_BUTTON_LEGACY_EDGE 1u /* debounced press edge with its ordinary meaning */
+#define PDSH_BUTTON_OWNED 2u       /* enrollment owns the button: no ordinary meaning */
 
 typedef enum {
     PDSH_ENR_NONE,
@@ -37,8 +47,10 @@ typedef struct {
 
 typedef struct {
     uint64_t (*now_ms)(void);
-    void (*random)(uint8_t *out, size_t n);
+    /* CSPRNG draw; false when no entropy source is active (nothing drawn). */
+    bool (*random)(uint8_t *out, size_t n);
     bool button_available;
+    bool indicator_available; /* dedicated output, never the light.* LED */
     /* One complete response line without the LF. */
     void (*write_line)(const char *line);
     /* Current device key: fills fp (64 hex) when OK. */
@@ -53,12 +65,18 @@ typedef struct {
 bool pdsh_enroll_init(const pdsh_enroll_ops_t *ops, nvs_handle_t record_namespace);
 /* Console bytes (any split); complete LF-terminated lines are processed. */
 void pdsh_enroll_feed(const uint8_t *data, size_t n);
-/* Deadline processing (context 120 s, press 30 s). */
+/* Deadline processing (press 30 s, window 300 s). */
 void pdsh_enroll_tick(void);
-/* Button level sample (true = pressed). Returns true while the button is
- * owned by enrollment (press wait or a consumed press): the caller must then
- * not apply its ordinary button meaning. */
-bool pdsh_enroll_button(bool pressed);
+/* Button level sample (true = pressed); returns PDSH_BUTTON_* flags. The
+ * caller opens the pairing window / emits button.pressed only on
+ * PDSH_BUTTON_LEGACY_EDGE. */
+unsigned pdsh_enroll_button(bool pressed);
+pdsh_indicator_t pdsh_enroll_indicator(void);
+/* Indicator output level for the pattern (off, 1 Hz, 4 Hz) at now_ms. */
+bool pdsh_enroll_indicator_level(uint64_t now_ms);
+const char *pdsh_enroll_mode_name(void);
+/* Re-reads rec_v1 (test hook for record replacement; harmless at runtime). */
+void pdsh_enroll_reload_durable(void);
 void pdsh_enroll_durable(pdsh_enroll_durable_t *out);
 const char *pdsh_enroll_ctx_name(void);
 /* Session eligibility (§4.4, §8.3): committed record and no RAM revocation. */
@@ -74,8 +92,8 @@ typedef struct {
     char echo[16];  /* known verb or "-" for an invalid addressed line */
     char verb[16];
     int fields;
-    char name[6][10];
-    char value[6][160];
+    char name[7][10];
+    char value[7][160];
 } pdsh_enroll_line_t;
 /* Host→board line content (LF removed, CR still present). */
 void pdsh_enroll_parse_command(const uint8_t *line, size_t n, pdsh_enroll_line_t *out);

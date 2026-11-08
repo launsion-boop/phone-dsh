@@ -5,6 +5,9 @@
  * with the shared golden files, then runs an in-process TLS loopback between
  * the real server configuration and an independent mbedTLS client built from
  * the same profile, including the §6.1/§6.2 negative cases. */
+/* The overflow row needs one oversized record, which the public API caps;
+ * the test client writes it through the library record layer. */
+#define MBEDTLS_ALLOW_PRIVATE_ACCESS
 #include "mbedtls/debug.h"
 #include "mbedtls/pk.h"
 #include "mbedtls/ssl.h"
@@ -20,7 +23,68 @@
 #include <stdlib.h>
 #include <string.h>
 
-static const char *D = "9f884378e0c09834f2d27bb467eb005ee6cba0e2b66e0220b1b702e31f74473c";
+
+
+/* §5 heap budget: allocations made while the board's session code runs are
+ * tracked (link with --wrap=malloc,calloc,realloc,free); the peak of live
+ * server bytes for one session must stay within 32 KiB. */
+void *__real_malloc(size_t n);
+void *__real_calloc(size_t a, size_t b);
+void *__real_realloc(void *p, size_t n);
+void __real_free(void *p);
+static bool track_server_heap;
+static size_t server_live, server_peak;
+#define TRACK_SLOTS 8192
+static struct { void *p; size_t n; } tracked[TRACK_SLOTS];
+static void track_add(void *p, size_t n) {
+    if (!p || !track_server_heap) return;
+    for (int i = 0; i < TRACK_SLOTS; i++)
+        if (!tracked[i].p) {
+            tracked[i].p = p;
+            tracked[i].n = n;
+            server_live += n;
+            if (server_live > server_peak) server_peak = server_live;
+            return;
+        }
+}
+static void track_del(void *p) {
+    if (!p) return;
+    for (int i = 0; i < TRACK_SLOTS; i++)
+        if (tracked[i].p == p) {
+            server_live -= tracked[i].n;
+            tracked[i].p = NULL;
+            return;
+        }
+}
+void *__wrap_malloc(size_t n) {
+    void *p = __real_malloc(n);
+    track_add(p, n);
+    return p;
+}
+void *__wrap_calloc(size_t a, size_t b) {
+    void *p = __real_calloc(a, b);
+    track_add(p, a * b);
+    return p;
+}
+void *__wrap_realloc(void *old, size_t n) {
+    bool was = false;
+    for (int i = 0; old && i < TRACK_SLOTS; i++)
+        if (tracked[i].p == old) was = true;
+    void *p = __real_realloc(old, n);
+    if (p && was) {
+        track_del(old);
+        bool t = track_server_heap;
+        track_server_heap = true;
+        track_add(p, n);
+        track_server_heap = t;
+    } else if (p) track_add(p, n);
+    return p;
+}
+void __wrap_free(void *p) {
+    track_del(p);
+    __real_free(p);
+}
+#define SERVER(expr) (track_server_heap = true, (expr), track_server_heap = false)
 
 /* ---------------- identifiers ---------------- */
 static int identifiers(const char *path, int *not_applicable) {
@@ -185,25 +249,41 @@ static uint64_t now_ms(void) { return clock_ms; }
 static void enroll_line(const char *line) {
     if (enroll_outputs < 4) snprintf(enroll_out[enroll_outputs++], sizeof(enroll_out[0]), "%s", line);
 }
-static void no_random(uint8_t *out, size_t n) { memset(out, 0x11, n); }
+static bool no_random(uint8_t *out, size_t n) {
+    memset(out, 0x11, n);
+    return true;
+}
+static char fixture_device[65];
 static pdsh_identity_status_t fixture_probe(char fp[65]) {
-    snprintf(fp, 65, "%s", D);
+    snprintf(fp, 65, "%s", fixture_device);
     return PDSH_IDENTITY_OK;
 }
-static pdsh_enroll_ops_t fixture_ops = {now_ms, no_random, true, enroll_line, fixture_probe, NULL, NULL};
-static void sc_random(uint8_t *out, size_t n) { CHECK(n == 32 && pdsh_hex_decode(sc_fixture, out, 32), "sc"); }
+static pdsh_enroll_ops_t fixture_ops = {now_ms, no_random, true, true, enroll_line, fixture_probe, NULL, NULL};
+static bool sc_random(uint8_t *out, size_t n) {
+    CHECK(n == 32 && pdsh_hex_decode(sc_fixture, out, 32), "sc");
+    return true;
+}
 static void collect(void *ctx, const uint8_t *frame, size_t n) {
     (void)ctx;
     CHECK(emitted_count < 16 && n <= sizeof(emitted[0]), "emit");
     memcpy(emitted[emitted_count], frame, n);
     emitted_len[emitted_count++] = n;
 }
-static void button_press(void) {
-    bool levels[] = {false, false, true, true, false, false};
-    for (int i = 0; i < 6; i++) {
+/* A hold of the given length through the real gesture classifier. */
+static void hold(uint64_t ms) {
+    bool levels[] = {false, false, true};
+    for (int i = 0; i < 3; i++) {
         clock_ms += 60;
         pdsh_enroll_button(levels[i]);
     }
+    for (uint64_t t = 0; t <= ms; t += 100) {
+        clock_ms += 100;
+        pdsh_enroll_button(true);
+    }
+    clock_ms += 60;
+    pdsh_enroll_button(false);
+    clock_ms += 60;
+    pdsh_enroll_button(false);
 }
 static nvs_handle_t open_ns(const char *name) {
     nvs_handle_t h;
@@ -248,15 +328,17 @@ static int sequences(const char *path, int *steps_out) {
         cJSON_Delete(stored);
         cJSON *doc = cJSON_CreateObject();
         cJSON_AddNumberToObject(doc, "v", 2);
+        cJSON_AddNullToObject(doc, "v1_sha256");
         cJSON_AddItemToObject(doc, "slots", cJSON_Duplicate(cJSON_GetObjectItem(given, "store"), true));
         put_json("pdsh_tools", "tasks_v2", doc);
         cJSON_Delete(doc);
+        snprintf(fixture_device, sizeof(fixture_device), "%s", cJSON_GetObjectItem(rec, "device")->valuestring);
         pdsh_enroll_init(&fixture_ops, open_ns("pdsh_enr"));
         CHECK(pdsh_task_store_init(open_ns("pdsh_tools")), "%s: store", name);
         snprintf(sc_fixture, sizeof(sc_fixture), "%s", cJSON_GetObjectItem(given, "sc")->valuestring);
         emitted_count = 0;
         bool started = pdsh_ss_app_start(&app, cJSON_GetObjectItem(given, "peer_phone")->valuestring, clock_ms,
-                                         &pdsh_ss_timers_v1, sc_random, collect, NULL);
+                                         &pdsh_ss_timers_v2, sc_random, collect, NULL);
         bool accept = !strcmp(cJSON_GetObjectItem(row, "handshake")->valuestring, "accept");
         CHECK(started == accept, "%s: handshake gate %d", name, started);
         int i = 0;
@@ -266,7 +348,6 @@ static int sequences(const char *path, int *steps_out) {
             const cJSON *expect = cJSON_GetObjectItem(step, "expect");
             bool was_open = app.state != PDSH_SS_APP_CLOSED;
             emitted_count = 0;
-            clock_ms += 100;
             if (recv) {
                 char *json = cJSON_PrintUnformatted(recv);
                 size_t n = strlen(json);
@@ -283,18 +364,31 @@ static int sequences(const char *path, int *steps_out) {
                 if (!strcmp(e, "revoke")) {
                     char cmd[300];
                     snprintf(cmd, sizeof(cmd), "pdsh-enroll revoke eid=%s device=%s phone=%s\n",
-                             cJSON_GetObjectItem(rec, "eid")->valuestring, D, cJSON_GetObjectItem(rec, "phone")->valuestring);
+                             cJSON_GetObjectItem(rec, "eid")->valuestring, fixture_device,
+                             cJSON_GetObjectItem(rec, "phone")->valuestring);
+                    /* Operator revoke through the real console: arm, revoke, confirm. */
                     enroll_outputs = 0;
+                    uint64_t before = clock_ms;
+                    hold(PDSH_ENROLL_ARM_HOLD_MS + 200);
                     pdsh_enroll_feed((const uint8_t *)cmd, strlen(cmd));
-                    button_press();
-                    CHECK(enroll_outputs == 2 && strstr(enroll_out[1], "pdsh-enroll-r revoked"), "%s: revoke", name);
+                    hold(PDSH_ENROLL_CONFIRM_HOLD_MS + 200);
+                    clock_ms = before; /* gestures are off the session clock */
+                    CHECK(enroll_outputs == 3 && strstr(enroll_out[2], "pdsh-enroll-r revoked"), "%s: revoke %s", name,
+                          enroll_out[enroll_outputs ? enroll_outputs - 1 : 0]);
                     pdsh_ss_app_tick(&app, clock_ms);
-                } else if (!strcmp(e, "ready_timeout")) {
-                    clock_ms += pdsh_ss_timers_v1.ready_ms;
+                } else if (!strcmp(e, "elapse")) {
+                    clock_ms += (uint64_t)cJSON_GetObjectItem(step, "seconds")->valueint * 1000;
                     pdsh_ss_app_tick(&app, clock_ms);
-                } else if (!strcmp(e, "idle_timeout")) {
-                    clock_ms += pdsh_ss_timers_v1.idle_ms;
-                    pdsh_ss_app_tick(&app, clock_ms);
+                } else if (!strcmp(e, "record_replaced")) {
+                    const cJSON *nr = cJSON_GetObjectItem(step, "record");
+                    char text[512];
+                    snprintf(text, sizeof(text),
+                             "{\"v\":1,\"side\":\"board\",\"state\":\"%s\",\"device\":\"ble:%s\",\"phone\":\"phone:%s\",\"eid\":\"%s\",\"rev\":%d}",
+                             cJSON_GetObjectItem(nr, "state")->valuestring, cJSON_GetObjectItem(nr, "device")->valuestring,
+                             cJSON_GetObjectItem(nr, "phone")->valuestring, cJSON_GetObjectItem(nr, "eid")->valuestring,
+                             cJSON_GetObjectItem(nr, "rev")->valueint);
+                    fake_nvs_put("pdsh_enr", "rec_v1", text, strlen(text) + 1);
+                    pdsh_enroll_reload_durable();
                 } else if (!strcmp(e, "fail_next_write")) fake_nvs_fail_next_commit();
                 else CHECK(false, "%s: event %s", name, e);
             }
@@ -357,7 +451,7 @@ static int pipe_recv(void *ctx, unsigned char *buf, size_t len) {
     p->len -= n;
     return (int)n;
 }
-static void real_random(uint8_t *out, size_t n) { CHECK(psa_generate_random(out, n) == PSA_SUCCESS, "rng"); }
+static bool real_random(uint8_t *out, size_t n) { return psa_generate_random(out, n) == PSA_SUCCESS; }
 static psa_key_id_t new_key(void) {
     psa_key_attributes_t a = PSA_KEY_ATTRIBUTES_INIT;
     psa_set_key_type(&a, PSA_KEY_TYPE_ECC_KEY_PAIR(PSA_ECC_FAMILY_SECP_R1));
@@ -374,7 +468,7 @@ static void key_fp(psa_key_id_t k, char fp[65]) {
     CHECK(psa_export_public_key(k, point, 65, &n) == PSA_SUCCESS && n == 65 && pdsh_fingerprint(point, fp), "fp");
 }
 /* Test certificate variants for the negative cases (not the firmware builder). */
-typedef enum { VARIANT_PROFILE, VARIANT_CA, VARIANT_EKU, VARIANT_CRITICAL } variant_t;
+typedef enum { VARIANT_PROFILE, VARIANT_CA, VARIANT_EKU, VARIANT_CRITICAL, VARIANT_PADDED } variant_t;
 static size_t variant_cert(psa_key_id_t k, variant_t v, uint8_t *out, size_t cap) {
     if (v == VARIANT_PROFILE) {
         size_t len;
@@ -402,11 +496,24 @@ static size_t variant_cert(psa_key_id_t k, variant_t v, uint8_t *out, size_t cap
     if (v == VARIANT_EKU) mbedtls_x509write_crt_set_extension(&w, "\x55\x1d\x25", 3, 0, eku, sizeof(eku));
     if (v == VARIANT_CRITICAL)
         mbedtls_x509write_crt_set_extension(&w, "\x2b\x06\x01\x04\x01\x82\x37\x01", 8, 1, null_value, 2);
+    static size_t pad_len = 600;
+    if (v == VARIANT_PADDED) { /* unknown non-critical extension: DER grows to exactly 1024 bytes */
+        static uint8_t pad[1024];
+        pad[0] = 0x04;
+        pad[1] = 0x82;
+        pad[2] = (uint8_t)((pad_len - 4) >> 8);
+        pad[3] = (uint8_t)((pad_len - 4) & 0xff);
+        mbedtls_x509write_crt_set_extension(&w, "\x2b\x06\x01\x04\x01\x82\x37\x02", 8, 0, pad, pad_len);
+    }
     int n = mbedtls_x509write_crt_der(&w, out, cap);
     CHECK(n > 0, "der");
     memmove(out, out + cap - (size_t)n, (size_t)n);
     mbedtls_x509write_crt_free(&w);
     mbedtls_pk_free(&pk);
+    if (v == VARIANT_PADDED && n != 1024) { /* re-size the padding once (DER lengths are stable here) */
+        pad_len = (size_t)((long)pad_len + 1024 - n);
+        return variant_cert(k, v, out, cap);
+    }
     return (size_t)n;
 }
 
@@ -415,8 +522,12 @@ typedef struct {
     int suite;
     uint16_t groups[3];
     const char *alpn[3];
-    bool no_alpn, psk, no_cert, wrong_private_key, revoked;
+    bool no_alpn, psk, no_cert, wrong_private_key, revoked, sig_other, tickets, overflow;
     variant_t variant;
+    const uint8_t *const *chain; /* golden certificate vector presented live */
+    const size_t *chain_len;
+    size_t chain_count;
+    const char *pin;             /* record phone for the vector */
     bool enrolled_phone; /* false: a phone key that is not enrolled */
 } client_case_t;
 
@@ -440,17 +551,48 @@ static void write_frame(mbedtls_ssl_context *cl, const char *json) {
     CHECK(pdsh_frame_encode((const uint8_t *)json, n, frame), "frame");
     CHECK(mbedtls_ssl_write(cl, frame, n + 2) == (int)(n + 2), "client write");
 }
+/* Moves client bytes into the server within its receive window. */
+static void feed_server(pdsh_ss_conn_t *srv) {
+    size_t n = c2s.len < pdsh_ss_conn_rx_free(srv) ? c2s.len : pdsh_ss_conn_rx_free(srv);
+    bool ok;
+    SERVER(ok = pdsh_ss_conn_rx(srv, c2s.buf, n));
+    CHECK(ok, "server rx");
+    memmove(c2s.buf, c2s.buf + n, c2s.len - n);
+    c2s.len -= n;
+}
+/* §6.1 sender cap: every record the board sends, parsed off the wire. */
+static size_t max_server_record, record_hdr_have, record_left;
+static uint8_t record_hdr[5];
+static void track_server(const uint8_t *p, size_t n) {
+    for (size_t i = 0; i < n;) {
+        if (record_left) {
+            size_t take = n - i < record_left ? n - i : record_left;
+            record_left -= take;
+            i += take;
+            continue;
+        }
+        record_hdr[record_hdr_have++] = p[i++];
+        if (record_hdr_have == 5) {
+            record_left = (size_t)record_hdr[3] << 8 | record_hdr[4];
+            if (record_left > max_server_record) max_server_record = record_left;
+            record_hdr_have = 0;
+        }
+    }
+}
+static void drain_server(pdsh_ss_conn_t *srv) {
+    size_t n;
+    SERVER(n = pdsh_ss_conn_tx(srv, s2c.buf + s2c.len, sizeof(s2c.buf) - s2c.len));
+    track_server(s2c.buf + s2c.len, n);
+    s2c.len += n;
+}
 /* Pumps bytes until the client produced a result or nothing moves. */
 static int pump(pdsh_ss_conn_t *srv, mbedtls_ssl_context *cl, bool handshake, uint8_t *app, size_t cap, size_t *got) {
     int r = MBEDTLS_ERR_SSL_WANT_READ;
     for (int i = 0; i < 400; i++) {
-        if (c2s.len) {
-            CHECK(pdsh_ss_conn_rx(srv, c2s.buf, c2s.len), "server rx overflow");
-            c2s.len = 0;
-        }
+        if (c2s.len) feed_server(srv);
         clock_ms += 5;
-        pdsh_ss_conn_poll(srv, clock_ms);
-        s2c.len += pdsh_ss_conn_tx(srv, s2c.buf + s2c.len, sizeof(s2c.buf) - s2c.len);
+        SERVER(pdsh_ss_conn_poll(srv, clock_ms));
+        drain_server(srv);
         if (handshake) {
             r = mbedtls_ssl_handshake(cl);
             if (r == 0) return 0;
@@ -463,7 +605,7 @@ static int pump(pdsh_ss_conn_t *srv, mbedtls_ssl_context *cl, bool handshake, ui
             }
         }
         if (r != MBEDTLS_ERR_SSL_WANT_READ && r != MBEDTLS_ERR_SSL_WANT_WRITE) return r;
-        if (!c2s.len && !s2c.len && pdsh_ss_conn_poll(srv, clock_ms) == PDSH_SS_CONN_CLOSED && i > 2) return r;
+        if (!s2c.len && pdsh_ss_conn_poll(srv, clock_ms) == PDSH_SS_CONN_CLOSED && i > 2) return r;
     }
     return r;
 }
@@ -493,6 +635,7 @@ static char phone_fp[65];
 /* Runs one connection; returns true when the handshake succeeded on both
  * ends. On success performs the readiness and a task round trip. */
 static int client_alert, client_error;
+int mbedtls_ssl_write_record(mbedtls_ssl_context *ssl, int force_flush); /* library record layer */
 static bool run_case(const pdsh_ss_server_cfg_t *cfg, const client_case_t *cc, const char *label, bool round_trip,
                      const char **server_reason, int *server_alert) {
     client_alert = -1;
@@ -501,17 +644,21 @@ static bool run_case(const pdsh_ss_server_cfg_t *cfg, const client_case_t *cc, c
     char rec[512];
     snprintf(rec, sizeof(rec),
              "{\"v\":1,\"side\":\"board\",\"state\":\"%s\",\"device\":\"ble:%s\",\"phone\":\"phone:%s\",\"eid\":\"%s\",\"rev\":1}",
-             cc->revoked ? "revoked" : "committed", device_fp, phone_fp, "6f1c0a8e2b9d4c3fa1e0b7d6c5f4e3d2");
+             cc->revoked ? "revoked" : "committed", device_fp, cc->pin ? cc->pin : phone_fp,
+             "6f1c0a8e2b9d4c3fa1e0b7d6c5f4e3d2");
     fake_nvs_put("pdsh_enr", "rec_v1", rec, strlen(rec) + 1);
-    static pdsh_enroll_ops_t ops = {now_ms, real_random, true, enroll_line, pdsh_identity_probe, pdsh_identity_reset, NULL};
+    static pdsh_enroll_ops_t ops = {now_ms, real_random, true, true, enroll_line, pdsh_identity_probe, pdsh_identity_reset, NULL};
     pdsh_enroll_init(&ops, open_ns("pdsh_enr"));
-    const char *slots = "{\"v\":2,\"slots\":[{\"task\":{\"id\":\"task-1\",\"idempotency_key\":\"goal-1\",\"requester\":\"sensor\","
+    const char *slots = "{\"v\":2,\"v1_sha256\":null,\"slots\":[{\"task\":{\"id\":\"task-1\",\"idempotency_key\":\"goal-1\",\"requester\":\"sensor\","
                         "\"created_at\":\"2026-11-06T00:00:00Z\",\"body\":{\"type\":\"goal\",\"text\":\"Hello\"}},\"phase\":\"queued\"}]}";
     fake_nvs_put("pdsh_tools", "tasks_v2", slots, strlen(slots) + 1);
     CHECK(pdsh_task_store_init(open_ns("pdsh_tools")), "store");
 
-    pdsh_ss_conn_t *srv = pdsh_ss_conn_new(cfg, clock_ms);
+    pdsh_ss_conn_t *srv;
+    server_live = server_peak = 0;
+    SERVER(srv = pdsh_ss_conn_new(cfg, clock_ms));
     CHECK(srv, "server");
+    if (getenv("PDSH_HEAP_DEBUG")) fprintf(stderr, "[%s] after conn_new live=%zu peak=%zu\n", label, server_live, server_peak);
     mbedtls_ssl_config conf;
     mbedtls_ssl_context cl;
     mbedtls_x509_crt own, anchor;
@@ -529,8 +676,11 @@ static bool run_case(const pdsh_ss_server_cfg_t *cfg, const client_case_t *cc, c
     uint16_t groups[3] = {MBEDTLS_SSL_IANA_TLS_GROUP_SECP256R1, 0, 0};
     if (cc->groups[0]) memcpy(groups, cc->groups, sizeof(groups));
     mbedtls_ssl_conf_groups(&conf, groups);
-    mbedtls_ssl_conf_sig_algs(&conf, sig_algs);
-    mbedtls_ssl_conf_session_tickets(&conf, MBEDTLS_SSL_SESSION_TICKETS_DISABLED);
+    static const uint16_t other_sig[] = {MBEDTLS_TLS1_3_SIG_ECDSA_SECP384R1_SHA384, MBEDTLS_TLS1_3_SIG_NONE};
+    mbedtls_ssl_conf_sig_algs(&conf, cc->sig_other ? other_sig : sig_algs);
+    /* With tickets enabled a NewSessionTicket would surface as a read error. */
+    mbedtls_ssl_conf_session_tickets(&conf, cc->tickets ? MBEDTLS_SSL_SESSION_TICKETS_ENABLED
+                                                        : MBEDTLS_SSL_SESSION_TICKETS_DISABLED);
     if (cc->psk) {
         static const unsigned char psk[32] = {1};
         CHECK(mbedtls_ssl_conf_psk(&conf, psk, sizeof(psk), (const unsigned char *)"id", 2) == 0, "psk");
@@ -543,7 +693,14 @@ static bool run_case(const pdsh_ss_server_cfg_t *cfg, const client_case_t *cc, c
     mbedtls_ssl_conf_ca_chain(&conf, &anchor, NULL);
     mbedtls_ssl_conf_authmode(&conf, MBEDTLS_SSL_VERIFY_REQUIRED);
     mbedtls_ssl_conf_verify(&conf, client_verify, NULL);
-    if (!cc->no_cert) {
+    if (cc->chain) {
+        for (size_t i = 0; i < cc->chain_count; i++)
+            CHECK(mbedtls_x509_crt_parse_der_with_ext_cb(&own, cc->chain[i], cc->chain_len[i], 1, accept_any_extension,
+                                                         NULL) == 0,
+                  "%s: client cannot load vector certificate", label);
+        CHECK(mbedtls_pk_wrap_psa(&pk, phone_key) == 0, "client key");
+        CHECK(mbedtls_ssl_conf_own_cert(&conf, &own, &pk) == 0, "own");
+    } else if (!cc->no_cert) {
         uint8_t der[1200];
         psa_key_id_t cert_key = cc->enrolled_phone ? phone_key : other_key;
         size_t n = variant_cert(cert_key, cc->variant, der, sizeof(der));
@@ -567,18 +724,40 @@ static bool run_case(const pdsh_ss_server_cfg_t *cfg, const client_case_t *cc, c
      * flight; let the server process it. */
     pdsh_ss_conn_state_t st = PDSH_SS_CONN_HANDSHAKE;
     for (int i = 0; i < 50 && st == PDSH_SS_CONN_HANDSHAKE; i++) {
-        if (c2s.len) {
-            CHECK(pdsh_ss_conn_rx(srv, c2s.buf, c2s.len), "server rx overflow");
-            c2s.len = 0;
-        }
+        if (c2s.len) feed_server(srv);
         clock_ms += 5;
-        st = pdsh_ss_conn_poll(srv, clock_ms);
-        s2c.len += pdsh_ss_conn_tx(srv, s2c.buf + s2c.len, sizeof(s2c.buf) - s2c.len);
+        SERVER(st = pdsh_ss_conn_poll(srv, clock_ms));
+        drain_server(srv);
     }
     bool ok = r == 0 && st == PDSH_SS_CONN_OPEN;
+    if (getenv("PDSH_HEAP_DEBUG")) fprintf(stderr, "[%s] after handshake live=%zu peak=%zu\n", label, server_live, server_peak);
     if (getenv("PDSH_TLS_DEBUG")) fprintf(stderr, "[%s] client=-0x%04x server=%s alert=%d\n", label, (unsigned)-r, pdsh_ss_conn_reason(srv), pdsh_ss_conn_alert(srv));
     if (ok) {
         CHECK(!strcmp(mbedtls_ssl_get_alpn_protocol(&cl), PDSH_SS_ALPN), "%s: alpn", label);
+    }
+    if (ok) {
+        /* No 0.5-RTT / unsolicited data: idle polls after the handshake send nothing. */
+        size_t before = s2c.len;
+        for (int i = 0; i < 5; i++) {
+            pdsh_ss_conn_poll(srv, clock_ms);
+            drain_server(srv);
+        }
+        CHECK(s2c.len == before, "%s: board sent data before ready_req", label);
+    }
+    if (ok && cc->overflow) {
+        /* §6.1: an incoming record over 4352 bytes of plaintext is rejected. */
+        memset(cl.out_msg, 'x', 4353);
+        cl.out_msgtype = MBEDTLS_SSL_MSG_APPLICATION_DATA;
+        cl.out_msglen = 4353;
+        CHECK(mbedtls_ssl_write_record(&cl, 1) == 0, "client oversized record");
+        uint8_t sink[64];
+        size_t got = 0;
+        int rr = pump(srv, &cl, false, sink, sizeof(sink), &got);
+        CHECK(pdsh_ss_conn_poll(srv, clock_ms) == PDSH_SS_CONN_CLOSED, "%s: not closed", label);
+        CHECK(rr == MBEDTLS_ERR_SSL_FATAL_ALERT_MESSAGE &&
+                  mbedtls_ssl_get_fatal_alert(&cl) == MBEDTLS_SSL_ALERT_MSG_RECORD_OVERFLOW,
+              "%s: expected record_overflow, got -0x%04x", label, (unsigned)-rr);
+        client_alert = MBEDTLS_SSL_ALERT_MSG_RECORD_OVERFLOW;
     }
     if (ok && round_trip) {
         char json[600];
@@ -637,7 +816,11 @@ static bool run_case(const pdsh_ss_server_cfg_t *cfg, const client_case_t *cc, c
     return ok;
 }
 
-static int loopback(void) {
+static int live_certificates(const pdsh_ss_server_cfg_t *cfg, const char *path);
+static void heap_profile(void);
+static int client_hello_gate(const pdsh_ss_server_cfg_t *cfg);
+static void deterministic_signatures(void);
+static int loopback(const char *cert_path) {
     fake_nvs_reset();
     clock_ms = 5000000;
     CHECK(pdsh_identity_init(), "device identity");
@@ -656,12 +839,26 @@ static int loopback(void) {
     phone_key = new_key();
     other_key = new_key();
     key_fp(phone_key, phone_fp);
-    pdsh_ss_server_cfg_t cfg = {device_cert, device_cert_len, pdsh_identity_key(), &pdsh_ss_timers_v1, real_random};
+    pdsh_ss_server_cfg_t cfg = {device_cert, device_cert_len, pdsh_identity_key(), &pdsh_ss_timers_v2, real_random};
     const char *reason;
     int alert, cases = 0;
 
-    client_case_t good = {.enrolled_phone = true};
+    client_case_t good = {.enrolled_phone = true, .tickets = true};
+    max_server_record = record_hdr_have = record_left = 0;
     CHECK(run_case(&cfg, &good, "happy", true, &reason, &alert), "happy handshake (%s)", reason);
+    CHECK(max_server_record <= 4352 + 256, "sender cap: record of %zu bytes", max_server_record);
+    printf("  board session heap peak with this build's mbedTLS buffers: %zu bytes (budget checked at device buffer sizes)\n",
+           server_peak);
+    printf("  loopback tls-no-ticket-sent / tls-no-half-rtt-data / tls-record-sender-cap: PASS (largest board record %zu bytes)\n",
+           max_server_record);
+    cases++;
+    client_case_t padded = {.enrolled_phone = true, .variant = VARIANT_PADDED};
+    CHECK(run_case(&cfg, &padded, "flight-fits", true, &reason, &alert), "1024-byte client certificate (%s)", reason);
+    printf("  loopback tls-client-flight-fits-input-buffer: PASS (1024-byte DER, unknown non-critical extension)\n");
+    cases++;
+    client_case_t overflow = {.enrolled_phone = true, .overflow = true};
+    CHECK(run_case(&cfg, &overflow, "record-overflow", false, &reason, &alert), "overflow handshake");
+    printf("  loopback tls-record-overflow: PASS (record_overflow, session closed)\n");
     cases++;
 
     struct {
@@ -677,7 +874,7 @@ static int loopback(void) {
         {"unknown-critical-extension", {.enrolled_phone = true, .variant = VARIANT_CRITICAL}, NULL, 0, MBEDTLS_SSL_ALERT_MSG_BAD_CERT},
         {"missing-client-certificate", {.enrolled_phone = true, .no_cert = true}, NULL, 0, MBEDTLS_SSL_ALERT_MSG_CERT_REQUIRED},
         {"revoked-record", {.enrolled_phone = true, .revoked = true}, "pin_mismatch", 0, MBEDTLS_SSL_ALERT_MSG_BAD_CERT},
-        {"tls12-only-client", {.enrolled_phone = true, .max_version = 2}, NULL, MBEDTLS_SSL_ALERT_MSG_HANDSHAKE_FAILURE, -1},
+        {"tls12-only-client", {.enrolled_phone = true, .max_version = 2}, NULL, MBEDTLS_SSL_ALERT_MSG_PROTOCOL_VERSION, -1},
         {"disallowed-cipher", {.enrolled_phone = true, .suite = MBEDTLS_TLS1_3_AES_256_GCM_SHA384}, NULL, 0, MBEDTLS_SSL_ALERT_MSG_HANDSHAKE_FAILURE},
         {"group-x25519-only", {.enrolled_phone = true, .groups = {MBEDTLS_SSL_IANA_TLS_GROUP_X25519, 0, 0}}, NULL,
          MBEDTLS_SSL_ALERT_MSG_HANDSHAKE_FAILURE, -1},
@@ -687,6 +884,9 @@ static int loopback(void) {
         {"other-alpn", {.enrolled_phone = true, .alpn = {"pdsh-ble-task/2", NULL, NULL}}, NULL, MBEDTLS_SSL_ALERT_MSG_NO_APPLICATION_PROTOCOL, -1},
         {"extra-alpn", {.enrolled_phone = true, .alpn = {PDSH_SS_ALPN, "h2", NULL}}, NULL, MBEDTLS_SSL_ALERT_MSG_NO_APPLICATION_PROTOCOL, -1},
         {"psk-offered", {.enrolled_phone = true, .psk = true}, NULL, MBEDTLS_SSL_ALERT_MSG_HANDSHAKE_FAILURE, -1},
+        {"signature-scheme-other", {.enrolled_phone = true, .sig_other = true}, NULL, 0, MBEDTLS_SSL_ALERT_MSG_HANDSHAKE_FAILURE},
+        {"key-share-not-p256", {.enrolled_phone = true, .groups = {MBEDTLS_SSL_IANA_TLS_GROUP_X25519, MBEDTLS_SSL_IANA_TLS_GROUP_SECP256R1, 0}},
+         NULL, MBEDTLS_SSL_ALERT_MSG_HANDSHAKE_FAILURE, -1},
     };
     for (size_t i = 0; i < sizeof(neg) / sizeof(neg[0]); i++) {
         bool ok = run_case(&cfg, &neg[i].c, neg[i].label, false, &reason, &alert);
@@ -705,6 +905,9 @@ static int loopback(void) {
                post_finished ? "bad_record_mac; expected alert undecryptable" : "alert", want_client);
         cases++;
     }
+    cases += live_certificates(&cfg, cert_path);
+    cases += client_hello_gate(&cfg);
+    deterministic_signatures();
     /* After all negatives the enrolled phone still works (no state damage). */
     CHECK(run_case(&cfg, &good, "happy-again", true, &reason, &alert), "happy again");
     cases++;
@@ -713,6 +916,11 @@ static int loopback(void) {
 
 int main(int argc, char **argv) {
     const char *files[6] = {0};
+    bool heap_only = argc > 1 && !strcmp(argv[1], "--heap-only");
+    if (heap_only) {
+        argv++;
+        argc--;
+    }
     for (int i = 1; i + 1 < argc; i += 2) {
         const char *k = argv[i];
         int slot = !strcmp(k, "--identifiers") ? 0 : !strcmp(k, "--certificates") ? 1 : !strcmp(k, "--frames") ? 2
@@ -722,13 +930,221 @@ int main(int argc, char **argv) {
     }
     for (int i = 0; i < 5; i++) CHECK(files[i], "missing golden file option");
     CHECK(psa_crypto_init() == PSA_SUCCESS, "psa");
+    if (heap_only) {
+        heap_profile();
+        return 0;
+    }
     int na = 0, steps = 0;
     int ids = identifiers(files[0], &na), certs = certificates(files[1]), fr = frames(files[2]), msgs = messages(files[3]);
     int seqs = sequences(files[4], &steps);
     printf("secure identifiers: %d PASS (%d phone-side token rows not applicable); certificates: %d PASS; "
            "frames: %d PASS; messages: %d PASS; device sequences: %d (%d steps) PASS\n",
            ids - na, na, certs, fr, msgs, seqs, steps);
-    int cases = loopback();
+    int cases = loopback(files[1]);
     printf("TLS 1.3 loopback (real server profile vs independent mbedTLS client): %d cases PASS\n", cases);
     return 0;
+}
+
+/* tls-certificate-vectors: each role=phone golden vector is presented live as
+ * the client certificate; the board's in-handshake decision equals the vector
+ * (the client key does not match the vector, so an accepted vector then fails
+ * at CertificateVerify, after the decision). */
+static int live_certificates(const pdsh_ss_server_cfg_t *cfg, const char *path) {
+    FILE *f = fopen(path, "rb");
+    CHECK(f, "open");
+    int rows = 0, skipped = 0;
+    char *line;
+    while ((line = read_line(f))) {
+        cJSON *row = cJSON_Parse(line);
+        if (strcmp(cJSON_GetObjectItem(row, "role")->valuestring, "phone")) {
+            cJSON_Delete(row);
+            free(line);
+            continue;
+        }
+        const char *name = cJSON_GetObjectItem(row, "name")->valuestring;
+        static uint8_t ders[4][2048];
+        const uint8_t *der[4];
+        size_t len[4], count = 0;
+        const cJSON *c;
+        bool loadable = true;
+        cJSON_ArrayForEach(c, cJSON_GetObjectItem(row, "chain_hex")) {
+            len[count] = hex_bytes(c->valuestring, ders[count], sizeof(ders[0]));
+            der[count] = ders[count];
+            mbedtls_x509_crt probe;
+            mbedtls_x509_crt_init(&probe);
+            if (mbedtls_x509_crt_parse_der_with_ext_cb(&probe, der[count], len[count], 1, accept_any_extension, NULL))
+                loadable = false;
+            mbedtls_x509_crt_free(&probe);
+            count++;
+        }
+        bool accept = cJSON_IsTrue(cJSON_GetObjectItem(row, "accept"));
+        const char *want = accept ? "ok" : cJSON_GetObjectItem(row, "reason")->valuestring;
+        if (!loadable) { /* the independent client library cannot carry this DER */
+            skipped++;
+            printf("  loopback tls-certificate-vectors %-34s NOT_RUN live (client library refuses the DER; decided by the verifier vector test)\n", name);
+        } else {
+            client_case_t cc = {.enrolled_phone = true, .chain = der, .chain_len = len, .chain_count = count,
+                                .pin = cJSON_GetObjectItem(row, "pin")->valuestring, .no_cert = count == 0};
+            const char *reason;
+            int alert;
+            bool ok = run_case(cfg, &cc, name, false, &reason, &alert);
+            CHECK(!ok, "%s: a key-mismatched vector must not complete", name);
+            if (count == 0) CHECK(client_alert == MBEDTLS_SSL_ALERT_MSG_CERT_REQUIRED || client_error == MBEDTLS_ERR_SSL_INVALID_MAC,
+                                  "%s: empty list", name);
+            else if (accept) CHECK(!strcmp(reason, "handshake") || !strcmp(reason, "ok"), "%s: decision %s", name, reason);
+            else CHECK(!strcmp(reason, want), "%s: decision %s want %s", name, reason, want);
+            printf("  loopback tls-certificate-vectors %-34s decision %s PASS\n", name, count ? (accept ? "accept" : want) : "certificate_required");
+        }
+        rows++;
+        cJSON_Delete(row);
+        free(line);
+    }
+    fclose(f);
+    return rows - skipped;
+}
+
+/* ClientHello profile gate: the real first flight of the independent client,
+ * with one forbidden extension inserted (early_data, server_name,
+ * max_fragment_length, record_size_limit, post_handshake_auth), is refused
+ * before mbedTLS sees it; garbage is refused too. */
+static size_t capture_client_hello(const pdsh_ss_server_cfg_t *cfg, uint8_t *out, size_t cap) {
+    (void)cfg;
+    mbedtls_ssl_config conf;
+    mbedtls_ssl_context cl;
+    mbedtls_ssl_config_init(&conf);
+    mbedtls_ssl_init(&cl);
+    CHECK(mbedtls_ssl_config_defaults(&conf, MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_STREAM, MBEDTLS_SSL_PRESET_DEFAULT) == 0, "conf");
+    mbedtls_ssl_conf_min_tls_version(&conf, MBEDTLS_SSL_VERSION_TLS1_3);
+    mbedtls_ssl_conf_max_tls_version(&conf, MBEDTLS_SSL_VERSION_TLS1_3);
+    static const uint16_t groups[] = {MBEDTLS_SSL_IANA_TLS_GROUP_SECP256R1, 0};
+    mbedtls_ssl_conf_groups(&conf, groups);
+    mbedtls_ssl_conf_sig_algs(&conf, sig_algs);
+    mbedtls_ssl_conf_tls13_key_exchange_modes(&conf, MBEDTLS_SSL_TLS1_3_KEY_EXCHANGE_MODE_EPHEMERAL);
+    mbedtls_ssl_conf_session_tickets(&conf, MBEDTLS_SSL_SESSION_TICKETS_DISABLED);
+    static const char *alpn[] = {PDSH_SS_ALPN, NULL};
+    mbedtls_ssl_conf_alpn_protocols(&conf, alpn);
+    mbedtls_ssl_conf_authmode(&conf, MBEDTLS_SSL_VERIFY_NONE);
+    CHECK(mbedtls_ssl_setup(&cl, &conf) == 0 && mbedtls_ssl_set_hostname(&cl, NULL) == 0, "setup");
+    c2s.len = s2c.len = 0;
+    mbedtls_ssl_set_bio(&cl, NULL, pipe_send, pipe_recv, NULL);
+    mbedtls_ssl_handshake(&cl);
+    CHECK(c2s.len && c2s.len <= cap, "hello");
+    size_t n = c2s.len;
+    memcpy(out, c2s.buf, n);
+    c2s.len = 0;
+    mbedtls_ssl_free(&cl);
+    mbedtls_ssl_config_free(&conf);
+    return n;
+}
+static size_t insert_extension(const uint8_t *hello, size_t n, uint16_t type, uint8_t *out) {
+    /* record(5) handshake(4) version(2) random(32) sid ... ; extensions last */
+    size_t p = 5 + 4 + 2 + 32;
+    p += 1 + hello[p];
+    p += 2 + ((size_t)hello[p] << 8 | hello[p + 1]);
+    p += 1 + hello[p];
+    size_t ext_at = p; /* 2-byte extensions length */
+    size_t ext_len = (size_t)hello[p] << 8 | hello[p + 1];
+    CHECK(ext_at + 2 + ext_len == n, "hello layout");
+    memcpy(out, hello, n);
+    size_t add = 4;
+    out[n] = (uint8_t)(type >> 8);
+    out[n + 1] = (uint8_t)type;
+    out[n + 2] = out[n + 3] = 0; /* empty extension body */
+    ext_len += add;
+    out[ext_at] = (uint8_t)(ext_len >> 8);
+    out[ext_at + 1] = (uint8_t)ext_len;
+    size_t rec = ((size_t)out[3] << 8 | out[4]) + add, body = ((size_t)out[6] << 16 | (size_t)out[7] << 8 | out[8]) + add;
+    out[3] = (uint8_t)(rec >> 8);
+    out[4] = (uint8_t)rec;
+    out[6] = (uint8_t)(body >> 16);
+    out[7] = (uint8_t)(body >> 8);
+    out[8] = (uint8_t)body;
+    return n + add;
+}
+static int gate_once(const pdsh_ss_server_cfg_t *cfg, const uint8_t *bytes, size_t n) {
+    pdsh_ss_conn_t *srv = pdsh_ss_conn_new(cfg, clock_ms);
+    CHECK(srv, "server");
+    size_t off = 0;
+    while (off < n && pdsh_ss_conn_poll(srv, clock_ms) != PDSH_SS_CONN_CLOSED) {
+        size_t take = n - off < pdsh_ss_conn_rx_free(srv) ? n - off : pdsh_ss_conn_rx_free(srv);
+        if (!take) break;
+        CHECK(pdsh_ss_conn_rx(srv, bytes + off, take), "rx");
+        off += take;
+    }
+    pdsh_ss_conn_state_t st = pdsh_ss_conn_poll(srv, clock_ms);
+    int alert = pdsh_ss_conn_alert(srv);
+    pdsh_ss_conn_free(srv);
+    return st == PDSH_SS_CONN_CLOSED ? alert : -1;
+}
+static int client_hello_gate(const pdsh_ss_server_cfg_t *cfg) {
+    static uint8_t hello[2048], mutated[2100];
+    size_t n = capture_client_hello(cfg, hello, sizeof(hello));
+    struct { const char *row; uint16_t type; } ext[] = {
+        {"tls-early-data-offered (early_data)", 42}, {"server_name", 0}, {"max_fragment_length", 1},
+        {"record_size_limit", 28}, {"post_handshake_auth", 49}, {"psk_key_exchange_modes", 45}};
+    int cases = 0;
+    for (size_t i = 0; i < sizeof(ext) / sizeof(ext[0]); i++) {
+        size_t m = insert_extension(hello, n, ext[i].type, mutated);
+        int alert = gate_once(cfg, mutated, m);
+        CHECK(alert == MBEDTLS_SSL_ALERT_MSG_HANDSHAKE_FAILURE, "%s: alert %d", ext[i].row, alert);
+        printf("  ClientHello gate %-40s refused (handshake_failure) PASS\n", ext[i].row);
+        cases++;
+    }
+    /* coc-garbage-instead-of-client-hello: 4 KiB of random bytes. */
+    static uint8_t garbage[4096];
+    CHECK(psa_generate_random(garbage, sizeof(garbage)) == PSA_SUCCESS, "rng");
+    garbage[0] = 0x17; /* not a handshake record */
+    int alert = gate_once(cfg, garbage, sizeof(garbage));
+    CHECK(alert > 0, "garbage: board did not close with an alert");
+    printf("  coc-garbage-instead-of-client-hello (host): closed with alert %d PASS\n", alert);
+    /* coc-handshake-stall: nothing, and half a ClientHello, close at 15 s. */
+    for (int half = 0; half < 2; half++) {
+        pdsh_ss_conn_t *srv = pdsh_ss_conn_new(cfg, clock_ms);
+        if (half) CHECK(pdsh_ss_conn_rx(srv, hello, n / 2), "rx");
+        CHECK(pdsh_ss_conn_poll(srv, clock_ms + 14999) != PDSH_SS_CONN_CLOSED, "stall: closed early");
+        CHECK(pdsh_ss_conn_poll(srv, clock_ms + 15000) == PDSH_SS_CONN_CLOSED, "stall: not closed at 15 s");
+        pdsh_ss_conn_free(srv);
+    }
+    printf("  coc-handshake-stall (host): closed at 15 s (empty and half ClientHello) PASS\n");
+    return cases + 2;
+}
+
+/* board-deterministic-ecdsa: the device key signs through the same pk path as
+ * TLS CertificateVerify; two signatures of one digest are identical and the
+ * key refuses randomized ECDSA. */
+static void deterministic_signatures(void) {
+    mbedtls_pk_context pk;
+    mbedtls_pk_init(&pk);
+    CHECK(mbedtls_pk_wrap_psa(&pk, pdsh_identity_key()) == 0, "wrap");
+    uint8_t digest[32] = {1, 2, 3}, a[80], b[80];
+    size_t la = 0, lb = 0;
+    CHECK(mbedtls_pk_sign(&pk, MBEDTLS_MD_SHA256, digest, 32, a, sizeof(a), &la) == 0, "sign a");
+    CHECK(mbedtls_pk_sign(&pk, MBEDTLS_MD_SHA256, digest, 32, b, sizeof(b), &lb) == 0, "sign b");
+    CHECK(la == lb && !memcmp(a, b, la), "signatures differ: not RFC 6979");
+    uint8_t raw[64];
+    size_t rl = 0;
+    CHECK(psa_sign_hash(pdsh_identity_key(), PSA_ALG_ECDSA(PSA_ALG_SHA_256), digest, 32, raw, sizeof(raw), &rl) ==
+              PSA_ERROR_NOT_PERMITTED,
+          "randomized ECDSA permitted on the device key");
+    mbedtls_pk_free(&pk);
+    printf("  board-deterministic-ecdsa (host): identical signatures, randomized ECDSA refused PASS\n");
+}
+
+/* §5: one session's heap at the device's mbedTLS buffer sizes. */
+static void heap_profile(void) {
+    fake_nvs_reset();
+    clock_ms = 7000000;
+    CHECK(pdsh_identity_init() && pdsh_identity_probe(device_fp) == PDSH_IDENTITY_OK, "identity");
+    CHECK(pdsh_cert_build(pdsh_identity_key(), true, device_cert, sizeof(device_cert), &device_cert_len), "cert");
+    phone_key = new_key();
+    other_key = new_key();
+    key_fp(phone_key, phone_fp);
+    pdsh_ss_server_cfg_t cfg = {device_cert, device_cert_len, pdsh_identity_key(), &pdsh_ss_timers_v2, real_random};
+    client_case_t good = {.enrolled_phone = true};
+    const char *reason;
+    int alert;
+    CHECK(run_case(&cfg, &good, "heap", true, &reason, &alert), "heap handshake (%s)", reason);
+    printf("board session heap peak at device buffers (IN 4352 / OUT 4096), handshake + task round trip: %zu bytes "
+           "(limit 32768) %s\n", server_peak, server_peak <= 32768 ? "PASS" : "FAIL");
+    CHECK(server_peak <= 32768, "session heap peak %zu bytes > 32 KiB", server_peak);
 }

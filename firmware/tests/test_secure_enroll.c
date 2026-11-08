@@ -26,9 +26,10 @@ static void write_line(const char *line) {
     CHECK(output_count < 8, "too many outputs");
     snprintf(outputs[output_count++], sizeof(outputs[0]), "%s", line);
 }
-static void random_eid(uint8_t *out, size_t n) {
+static bool random_eid(uint8_t *out, size_t n) {
     CHECK(n == 16 && eid_next < eid_count, "eid supply");
     pdsh_hex_decode(eids[eid_next++], out, 16);
+    return true;
 }
 static pdsh_identity_status_t fake_probe(char fp[65]) {
     if (fake_status == PDSH_IDENTITY_OK) snprintf(fp, 65, "%s", fake_device);
@@ -46,7 +47,7 @@ static bool fake_reset(char fp[65]) {
     return true;
 }
 static void on_revoked(void) { revoked_calls++; }
-static pdsh_enroll_ops_t ops = {now_ms, random_eid, true, write_line, fake_probe, fake_reset, on_revoked};
+static pdsh_enroll_ops_t ops = {now_ms, random_eid, true, true, write_line, fake_probe, fake_reset, on_revoked};
 static nvs_handle_t enr_ns(void) {
     nvs_handle_t h;
     CHECK(nvs_open("pdsh_enr", NVS_READWRITE, &h) == ESP_OK, "open");
@@ -57,21 +58,39 @@ static void feed_line(const char *text) {
     pdsh_enroll_feed((const uint8_t *)text, strlen(text));
     pdsh_enroll_feed((const uint8_t *)"\n", 1);
 }
-static void press_button(void) {
-    /* A debounced release->press edge strictly after the press line. */
-    clock_ms += 10;
-    pdsh_enroll_button(false);
-    clock_ms += 60;
-    pdsh_enroll_button(false);
-    clock_ms += 10;
-    pdsh_enroll_button(true);
-    clock_ms += 60;
-    pdsh_enroll_button(true);
-    clock_ms += 60;
-    pdsh_enroll_button(false);
-    clock_ms += 60;
-    pdsh_enroll_button(false);
+/* Drives the real debouncer/gesture classifier with raw levels sampled every
+ * 50 ms. Returns whether any press edge kept its ordinary (legacy) meaning. */
+static unsigned sampled;
+static void sample(bool level) { sampled |= pdsh_enroll_button(level); }
+static void level_for(bool level, uint64_t ms) {
+    for (uint64_t t = 0; t < ms; t += 50) {
+        sample(level);
+        clock_ms += 50;
+    }
+    sample(level);
 }
+static bool gesture(uint64_t hold_ms) {
+    sampled = 0;
+    level_for(false, 100);
+    level_for(true, hold_ms);
+    level_for(false, 200);
+    return sampled & PDSH_BUTTON_LEGACY_EDGE;
+}
+static bool press_held; /* held_across_press_line: edge before the next line */
+static void start_hold(void) {
+    sampled = 0;
+    level_for(false, 100);
+    level_for(true, 100);
+    press_held = true;
+}
+static bool finish_hold(void) {
+    level_for(true, PDSH_ENROLL_CONFIRM_HOLD_MS + 500);
+    level_for(false, 200);
+    press_held = false;
+    return sampled & PDSH_BUTTON_LEGACY_EDGE;
+}
+static void press_button(void) { gesture(PDSH_ENROLL_CONFIRM_HOLD_MS + 300); }
+static void arm(void) { gesture(PDSH_ENROLL_ARM_HOLD_MS + 300); }
 
 /* ---------------- lines ---------------- */
 static int lines(const char *path) {
@@ -167,6 +186,7 @@ static int states(const char *path, int *steps_out) {
         cJSON_ArrayForEach(item, cJSON_GetObjectItem(given, "eids")) snprintf(eids[eid_count++], 33, "%s", item->valuestring);
         cJSON_ArrayForEach(item, cJSON_GetObjectItem(given, "new_keys")) snprintf(new_keys[new_key_count++], 65, "%s", item->valuestring);
         ops.button_available = !cJSON_IsFalse(cJSON_GetObjectItem(given, "button"));
+        ops.indicator_available = !cJSON_IsFalse(cJSON_GetObjectItem(given, "indicator"));
         snprintf(fake_device, sizeof(fake_device), "%s", str_or_empty(cJSON_GetObjectItem(given, "device")));
         fake_status = PDSH_IDENTITY_OK;
         int rev = cJSON_GetObjectItem(given, "rev")->valueint;
@@ -179,21 +199,41 @@ static int states(const char *path, int *steps_out) {
         else if (!strcmp(gstate, "record_corrupt")) fake_nvs_put("pdsh_enr", "rec_v1", "{\"v\":1,", 8);
         pdsh_enroll_init(&ops, enr_ns());
         int i = 0;
+        press_held = false;
         cJSON_ArrayForEach(item, cJSON_GetObjectItem(row, "steps")) {
             const cJSON *line = cJSON_GetObjectItem(item, "line"), *event = cJSON_GetObjectItem(item, "event");
             const cJSON *out = cJSON_GetObjectItem(item, "out"), *durable = cJSON_GetObjectItem(item, "durable");
             const cJSON *authority = cJSON_GetObjectItem(item, "session_authority");
+            const cJSON *vol = cJSON_GetObjectItem(item, "volatile"), *legacy = cJSON_GetObjectItem(item, "legacy_button");
+            const cJSON *following = item->next ? cJSON_GetObjectItem(item->next, "event") : NULL;
             clock_ms += 1000;
+            if (line && cJSON_IsString(following) && !strcmp(following->valuestring, "held_across_press_line"))
+                start_hold(); /* the hold begins before this line is answered */
             output_count = 0;
+            bool kept = false;
             if (line) feed_line(line->valuestring);
             else {
                 const char *e = event->valuestring;
-                if (!strcmp(e, "press")) press_button();
-                else if (!strcmp(e, "reboot")) pdsh_enroll_init(&ops, enr_ns());
+                if (!strcmp(e, "arm_hold")) kept = gesture(PDSH_ENROLL_ARM_HOLD_MS + 300);
+                else if (!strcmp(e, "confirm_hold")) kept = gesture(PDSH_ENROLL_CONFIRM_HOLD_MS + 300);
+                else if (!strcmp(e, "short_press")) kept = gesture(300);
+                else if (!strcmp(e, "held_across_press_line")) {
+                    if (!press_held) start_hold();
+                    kept = finish_hold();
+                } else if (!strcmp(e, "reboot")) pdsh_enroll_init(&ops, enr_ns());
                 else if (!strcmp(e, "press_timeout")) clock_ms += PDSH_ENROLL_PRESS_TIMEOUT_MS, pdsh_enroll_tick();
-                else if (!strcmp(e, "context_expired")) clock_ms += PDSH_ENROLL_CONTEXT_TIMEOUT_MS, pdsh_enroll_tick();
+                else if (!strcmp(e, "window_expired")) clock_ms += PDSH_ENROLL_WINDOW_MS, pdsh_enroll_tick();
                 else if (!strcmp(e, "fail_next_write")) fake_nvs_fail_next_commit();
                 else CHECK(false, "%s: unknown event %s", name, e);
+            }
+            if (legacy) CHECK(kept == cJSON_IsTrue(legacy), "%s step %d: legacy_button %d", name, i, kept);
+            if (vol) {
+                static const char *const ind[] = {"off", "armed", "confirm"};
+                CHECK(!strcmp(pdsh_enroll_mode_name(), cJSON_GetObjectItem(vol, "mode")->valuestring) &&
+                          !strcmp(pdsh_enroll_ctx_name(), cJSON_GetObjectItem(vol, "ctx")->valuestring) &&
+                          !strcmp(ind[pdsh_enroll_indicator()], cJSON_GetObjectItem(vol, "indicator")->valuestring),
+                      "%s step %d: volatile %s/%s/%s", name, i, pdsh_enroll_mode_name(), pdsh_enroll_ctx_name(),
+                      ind[pdsh_enroll_indicator()]);
             }
             if (cJSON_IsNull(out)) CHECK(output_count == 0, "%s step %d: unexpected %s", name, i, outputs[0]);
             else CHECK(output_count == 1 && !strcmp(outputs[0], out->valuestring), "%s step %d: got [%s] want [%s]",
@@ -242,7 +282,7 @@ static void fp_of_stored_priv(char fp[65]) {
     psa_destroy_key(k);
     CHECK(pdsh_fingerprint(point, fp), "fp");
 }
-static void real_random(uint8_t *out, size_t n) { CHECK(psa_generate_random(out, n) == PSA_SUCCESS, "rng"); }
+static bool real_random(uint8_t *out, size_t n) { return psa_generate_random(out, n) == PSA_SUCCESS; }
 static int identity_and_flow(void) {
     int checks = 0;
     char fp[65], again[65], stored[65];
@@ -258,9 +298,14 @@ static int identity_and_flow(void) {
     checks += 3;
 
     /* Real enrollment with the real identity seams. */
-    pdsh_enroll_ops_t real = {now_ms, real_random, true, write_line, pdsh_identity_probe, pdsh_identity_reset, on_revoked};
+    pdsh_enroll_ops_t real = {now_ms, real_random, true, true, write_line, pdsh_identity_probe, pdsh_identity_reset, on_revoked};
     clock_ms = 5000;
     pdsh_enroll_init(&real, enr_ns());
+    output_count = 0;
+    arm();
+    CHECK(output_count == 1 && !strcmp(outputs[0], "pdsh-enroll-r armed window_s=300"), "armed");
+    /* Indicator driver: 1 Hz while armed. */
+    CHECK(pdsh_enroll_indicator_level(0) && !pdsh_enroll_indicator_level(500) && pdsh_enroll_indicator_level(1000), "1 Hz");
     feed_line("pdsh-enroll begin");
     char eid[33];
     CHECK(output_count == 1 && sscanf(outputs[0], "pdsh-enroll-r begun eid=%32s", eid) == 1, "begin");
@@ -268,23 +313,13 @@ static int identity_and_flow(void) {
     char cmd[256];
     snprintf(cmd, sizeof(cmd), "pdsh-enroll phone eid=%s phone=%s", eid, phone);
     feed_line(cmd);
-    /* A press already held before the prompt does not count. */
-    pdsh_enroll_button(true);
-    clock_ms += 100;
-    pdsh_enroll_button(true);
     snprintf(cmd, sizeof(cmd), "pdsh-enroll commit eid=%s device=%s phone=%s", eid, fp, phone);
+    start_hold(); /* a hold that began before the press line never confirms */
     feed_line(cmd);
     CHECK(output_count == 1 && strstr(outputs[0], "action=commit"), "press prompt");
+    CHECK(!pdsh_enroll_indicator_level(125) && pdsh_enroll_indicator_level(250), "4 Hz");
     output_count = 0;
-    clock_ms += 100;
-    CHECK(pdsh_enroll_button(true), "owned while waiting");
-    clock_ms += 100;
-    pdsh_enroll_button(true);
-    CHECK(output_count == 0, "held press ignored");
-    clock_ms += 100;
-    pdsh_enroll_button(false);
-    clock_ms += 100;
-    pdsh_enroll_button(false);
+    CHECK(!finish_hold() && output_count == 0, "held press ignored");
     press_button();
     CHECK(output_count == 1 && strstr(outputs[0], "pdsh-enroll-r committed") && strstr(outputs[0], "rev=1"), "%s", outputs[0]);
     CHECK(pdsh_enroll_session_record(NULL), "authority");
@@ -305,7 +340,8 @@ static int identity_and_flow(void) {
     CHECK(pdsh_identity_probe(again) == PDSH_IDENTITY_KEY_LOST && !fake_nvs_get("pdsh_id", "priv", NULL, &n), "key_lost");
     pdsh_enroll_init(&real, enr_ns());
     feed_line("pdsh-enroll status");
-    CHECK(!strcmp(outputs[0], "pdsh-enroll-r status state=key_lost ctx=idle device=- phone=- eid=- rev=1"), "%s", outputs[0]);
+    CHECK(!strcmp(outputs[0], "pdsh-enroll-r status state=key_lost mode=locked ctx=idle device=- phone=- eid=- rev=1"), "%s", outputs[0]);
+    arm();
     feed_line("pdsh-enroll identity-reset");
     output_count = 0;
     press_button();
@@ -333,7 +369,7 @@ int main(int argc, char **argv) {
     CHECK(psa_crypto_init() == PSA_SUCCESS, "psa");
     int line_rows = lines(argv[1]);
     int steps = 0, state_rows = states(argv[2], &steps);
-    CHECK(line_rows == 46 && state_rows > 0, "rows %d %d", line_rows, state_rows);
+    CHECK(line_rows == 55 && state_rows == 32, "rows %d %d", line_rows, state_rows);
     int checks = identity_and_flow();
     printf("secure enrollment line vectors: %d PASS; board state vectors: %d (%d steps) PASS; "
            "identity/enrollment flow: %d checks PASS\n",

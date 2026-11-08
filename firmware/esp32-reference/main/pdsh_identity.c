@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: MIT
-/* Device identity for the BLE task binding (PC-20261106-device-identity-tofu).
- * One ECDSA P-256 key per device. Identity = "ble:" + SHA-256 of the 65-byte
- * uncompressed public key, computed by the phone. The device only signs a
- * phone nonce; it never sends a claimed identity. */
+/* Device identity (ble-secure-session.md §2, §4.2). One ECDSA P-256 key per
+ * device; device ID = "ble:" + SHA-256 of the 65-byte uncompressed public key.
+ * The key signs only TLS 1.3 CertificateVerify and the board's own
+ * certificate, always deterministically (RFC 6979: the PSA key policy permits
+ * only PSA_ALG_DETERMINISTIC_ECDSA). It is generated only while an ESP32-S3
+ * entropy source is active (BLE controller RF, or a bootloader_random bracket),
+ * and the source is logged. */
 #include <stdio.h>
 #include <string.h>
 #include "nvs.h"
@@ -31,20 +34,68 @@ static bool enrollment_record_present(void) {
     return err != ESP_ERR_NVS_NOT_FOUND;
 }
 
+#ifdef ESP_PLATFORM
+#include "bootloader_random.h"
+#include "esp_bt.h"
+#include "esp_log.h"
+#include "esp_random.h"
+static bool bracketed;
+/* §2 randomness: the RF subsystem (BLE controller) is on, else the SAR-ADC
+ * source is bracketed with bootloader_random_enable/disable. */
+const char *pdsh_entropy_begin(void) {
+    if (esp_bt_controller_get_status() == ESP_BT_CONTROLLER_STATUS_ENABLED) return "bt-controller-rf";
+    bootloader_random_enable();
+    bracketed = true;
+    return "bootloader_random_enable";
+}
+void pdsh_entropy_end(void) {
+    if (bracketed) bootloader_random_disable();
+    bracketed = false;
+}
+bool pdsh_entropy_random(uint8_t *out, size_t n) {
+    /* Runtime draws (eid, sc) require the RF source; no ADC bracket while the
+     * radio stack runs. */
+    if (esp_bt_controller_get_status() != ESP_BT_CONTROLLER_STATUS_ENABLED) return false;
+    esp_fill_random(out, n);
+    return true;
+}
+#define LOG_SOURCE(src) ESP_LOGI("pdsh", "device key generated with entropy source %s", src)
+#else
+const char *pdsh_entropy_begin(void) { return "host-csprng"; }
+void pdsh_entropy_end(void) {}
+bool pdsh_entropy_random(uint8_t *out, size_t n) { return psa_generate_random(out, n) == PSA_SUCCESS; }
+#define LOG_SOURCE(src) ((void)(src))
+#endif
+
+static void key_attributes(psa_key_attributes_t *attr) {
+    psa_set_key_usage_flags(attr, PSA_KEY_USAGE_SIGN_HASH | PSA_KEY_USAGE_SIGN_MESSAGE | PSA_KEY_USAGE_EXPORT);
+    psa_set_key_algorithm(attr, PSA_ALG_DETERMINISTIC_ECDSA(PSA_ALG_SHA_256));
+    psa_set_key_type(attr, PSA_KEY_TYPE_ECC_KEY_PAIR(PSA_ECC_FAMILY_SECP_R1));
+    psa_set_key_bits(attr, 256);
+}
+
 static bool generate_and_store(nvs_handle_t h, uint8_t priv[PRIV_LEN]) {
-    /* Key generation source is pending secure-session-v2 review item M4. */
     psa_key_attributes_t attr = PSA_KEY_ATTRIBUTES_INIT;
     psa_set_key_usage_flags(&attr, PSA_KEY_USAGE_SIGN_HASH | PSA_KEY_USAGE_EXPORT);
-    psa_set_key_algorithm(&attr, PSA_ALG_ECDSA(PSA_ALG_SHA_256));
+    psa_set_key_algorithm(&attr, PSA_ALG_DETERMINISTIC_ECDSA(PSA_ALG_SHA_256));
     psa_set_key_type(&attr, PSA_KEY_TYPE_ECC_KEY_PAIR(PSA_ECC_FAMILY_SECP_R1));
     psa_set_key_bits(&attr, 256);
     psa_key_id_t generated = 0;
-    if (psa_generate_key(&attr, &generated) != PSA_SUCCESS) return false;
+    const char *source = pdsh_entropy_begin();
+    psa_status_t gen = psa_generate_key(&attr, &generated);
+    pdsh_entropy_end();
+    if (gen != PSA_SUCCESS) return false;
+    LOG_SOURCE(source);
     size_t out = 0;
     psa_status_t st = psa_export_key(generated, priv, PRIV_LEN, &out);
     psa_destroy_key(generated);
     if (st != PSA_SUCCESS || out != PRIV_LEN) return false;
-    return nvs_set_blob(h, "priv", priv, PRIV_LEN) == ESP_OK && nvs_commit(h) == ESP_OK;
+    if (nvs_set_blob(h, "priv", priv, PRIV_LEN) != ESP_OK || nvs_commit(h) != ESP_OK) return false;
+    uint8_t back[PRIV_LEN];
+    size_t len = sizeof(back);
+    bool same = nvs_get_blob(h, "priv", back, &len) == ESP_OK && len == PRIV_LEN && !memcmp(back, priv, PRIV_LEN);
+    memset(back, 0, sizeof(back));
+    return same; /* read back before use */
 }
 
 /* ble-secure-session.md §4.2: NOT_FOUND generates only when no enrollment
@@ -65,10 +116,7 @@ static pdsh_identity_status_t load_private(uint8_t priv[PRIV_LEN]) {
 
 static bool import_private(const uint8_t priv[PRIV_LEN]) {
     psa_key_attributes_t attr = PSA_KEY_ATTRIBUTES_INIT;
-    psa_set_key_usage_flags(&attr, PSA_KEY_USAGE_SIGN_HASH | PSA_KEY_USAGE_SIGN_MESSAGE | PSA_KEY_USAGE_EXPORT);
-    psa_set_key_algorithm(&attr, PSA_ALG_ECDSA(PSA_ALG_SHA_256));
-    psa_set_key_type(&attr, PSA_KEY_TYPE_ECC_KEY_PAIR(PSA_ECC_FAMILY_SECP_R1));
-    psa_set_key_bits(&attr, 256);
+    key_attributes(&attr);
     psa_key_id_t id = 0;
     if (psa_import_key(&attr, priv, PRIV_LEN, &id) != PSA_SUCCESS) return false;
     size_t len = 0;
@@ -173,7 +221,7 @@ cJSON *pdsh_identity_prove(const char *nonce_hex) {
     if (psa_hash_compute(PSA_ALG_SHA_256, msg, n, digest, sizeof(digest), &digest_len) != PSA_SUCCESS ||
         digest_len != 32)
         return NULL;
-    if (psa_sign_hash(key_id, PSA_ALG_ECDSA(PSA_ALG_SHA_256), digest, sizeof(digest),
+    if (psa_sign_hash(key_id, PSA_ALG_DETERMINISTIC_ECDSA(PSA_ALG_SHA_256), digest, sizeof(digest),
                       sig, sizeof(sig), &sig_len) != PSA_SUCCESS || sig_len != SIG_LEN)
         return NULL;
 

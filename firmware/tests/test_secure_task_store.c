@@ -52,6 +52,10 @@ static int golden(const char *path) {
         cJSON *got = pdsh_task_store_view();
         CHECK(cJSON_IsNull(view) ? got == NULL : cJSON_Compare(got, view, true), "%s: view", name);
         cJSON_Delete(got);
+        const cJSON *want_digest = cJSON_GetObjectItem(row, "write_v1_sha256");
+        const char *digest = pdsh_task_store_write_v1_sha256();
+        CHECK(cJSON_IsNull(want_digest) ? digest == NULL : digest && !strcmp(digest, want_digest->valuestring),
+              "%s: write_v1_sha256 %s", name, digest ? digest : "null");
         if (!strcmp(result, "migrate_v1")) {
             /* No write before the first mutation; then a complete v2 document
              * and an untouched tasks_v1. */
@@ -67,6 +71,17 @@ static int golden(const char *path) {
                       !memcmp(v1_after, v1_before, v1_len),
                   "%s: tasks_v1 changed", name);
             CHECK(pdsh_task_store_init(ns()) && pdsh_task_store_source() == PDSH_STORE_SOURCE_V2, "%s: reload", name);
+            CHECK(!strcmp(pdsh_task_store_write_v1_sha256(), want_digest->valuestring), "%s: persisted digest", name);
+            /* Roll-forward: an older firmware that changes tasks_v1 afterwards
+             * disables the store (never merged, never dropped). */
+            uint8_t changed[16384];
+            memcpy(changed, v1_before, v1_len);
+            changed[v1_len - 2] = changed[v1_len - 2] == '}' ? ']' : '}';
+            fake_nvs_put("pdsh_tools", "tasks_v1", changed, v1_len);
+            CHECK(!pdsh_task_store_init(ns()) && pdsh_task_store_source() == PDSH_STORE_SOURCE_DISABLED, "%s: roll-forward", name);
+            CHECK(!pdsh_task_store_submit("{\"id\":\"t\",\"idempotency_key\":\"k\",\"requester\":\"s\",\"created_at\":\"2026-11-06T00:00:00Z\",\"body\":{\"type\":\"goal\",\"text\":\"x\"}}"), "%s: disabled refuses", name);
+            fake_nvs_put("pdsh_tools", "tasks_v1", v1_before, v1_len);
+            CHECK(pdsh_task_store_init(ns()), "%s: restored", name);
             got = pdsh_task_store_view();
             CHECK(cJSON_GetArraySize(got) == cJSON_GetArraySize(view) + 1, "%s: migrated slots", name);
             for (int i = 0; i < cJSON_GetArraySize(view); i++)
@@ -88,7 +103,7 @@ static int golden(const char *path) {
 static void seed(const char *slots_json) {
     fake_nvs_reset();
     char doc[8192];
-    snprintf(doc, sizeof(doc), "{\"v\":2,\"slots\":%s}", slots_json);
+    snprintf(doc, sizeof(doc), "{\"v\":2,\"v1_sha256\":null,\"slots\":%s}", slots_json);
     fake_nvs_put("pdsh_tools", "tasks_v2", doc, strlen(doc) + 1);
     CHECK(pdsh_task_store_init(ns()), "seed");
 }
@@ -174,7 +189,7 @@ static int transitions(void) {
 int main(int argc, char **argv) {
     CHECK(argc == 2, "usage: task-store-v2 <ble-secure-task-store-cases.jsonl>");
     int rows = golden(argv[1]);
-    CHECK(rows == 14, "expected 14 vectors, got %d", rows);
+    CHECK(rows == 19, "expected 19 vectors, got %d", rows);
     int checks = transitions();
     printf("task store v2 shared vectors: %d PASS; ownership transitions: %d checks PASS\n", rows, checks);
     return 0;

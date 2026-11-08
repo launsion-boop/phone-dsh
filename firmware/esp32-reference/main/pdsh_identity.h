@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include "cJSON.h"
 #include "pdsh_enroll.h"
@@ -17,7 +18,13 @@ pdsh_identity_status_t pdsh_identity_probe(char fp_hex[65]);
 /* Erases pdsh_enr/rec_v1 and pdsh_id/priv, generates and persists a new key. */
 bool pdsh_identity_reset(char fp_hex[65]);
 /* PSA key handle of the device key (0 when unavailable). */
-uint32_t pdsh_identity_key(void); /* psa_key_id_t */
+uint32_t pdsh_identity_key(void); /* psa_key_id_t, policy deterministic ECDSA only */
+/* §2 board randomness. begin/end bracket key generation and return the logged
+ * source; pdsh_entropy_random draws eid/sc only while the RF source is active
+ * and returns false (drawing nothing) otherwise. */
+const char *pdsh_entropy_begin(void);
+void pdsh_entropy_end(void);
+bool pdsh_entropy_random(uint8_t *out, size_t n);
 /* Returns an owned JSON object {"pubkey": 130 hex, "signature": 128 hex} for a
  * 64-character lowercase hex nonce, or NULL when the nonce or key is invalid. */
 cJSON *pdsh_identity_prove(const char *nonce_hex);

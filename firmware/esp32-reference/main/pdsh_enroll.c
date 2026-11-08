@@ -30,21 +30,24 @@ void pdsh_enroll_unlock(void) {}
 typedef enum { CTX_IDLE, CTX_BEGUN, CTX_STAGED, CTX_PRESS } ctx_t;
 typedef enum { ACT_COMMIT, ACT_REVOKE, ACT_RESET } action_t;
 
+typedef enum { MODE_LOCKED, MODE_ARMED } mode_t_;
+
 static struct {
     const pdsh_enroll_ops_t *ops;
     nvs_handle_t nvs;
     pdsh_enroll_durable_t durable;
+    mode_t_ mode;
     ctx_t ctx;
     char ctx_eid[33], ctx_phone[65];
     action_t action;
-    uint64_t ctx_deadline, press_deadline, press_written;
+    uint64_t window_end, press_deadline, press_written;
     bool ram_revoked;
     /* console line assembly */
     uint8_t line[PDSH_ENROLL_LINE_MAX + 2];
     size_t line_len, line_total;
-    /* button debounce */
-    bool raw, stable, consumed;
-    uint64_t raw_since;
+    /* gesture classifier (§3.3) */
+    bool raw, stable, done, edge_armed, edge_after_line;
+    uint64_t raw_since, edge_at;
 } E;
 
 /* ---------------- grammar ---------------- */
@@ -53,9 +56,9 @@ static const char *const host_verbs[] = {"status", "begin", "phone", "commit", "
 static const char *const host_fields[][3] = {
     {NULL}, {NULL}, {"eid", "phone", NULL}, {"eid", "device", "phone"}, {"eid", NULL}, {"eid", "device", "phone"}, {NULL}};
 static const char *const resp_verbs[] = {"status", "begun", "staged", "press", "committed",
-                                         "aborted", "revoked", "reset", "error"};
-static const char *const resp_fields[][6] = {
-    {"state", "ctx", "device", "phone", "eid", "rev"},
+                                         "aborted", "revoked", "reset", "error", "armed"};
+static const char *const resp_fields[][7] = {
+    {"state", "mode", "ctx", "device", "phone", "eid", "rev"},
     {"eid", "device"},
     {"eid", "device", "phone", "token"},
     {"eid", "action", "timeout_s"},
@@ -63,13 +66,16 @@ static const char *const resp_fields[][6] = {
     {"eid"},
     {"eid", "device", "phone", "rev"},
     {"device"},
-    {"code", "cmd"}};
+    {"code", "cmd"},
+    {"window_s"}};
 static const char *const error_codes[] = {"syntax", "busy", "occupied", "no_session", "state", "eid_mismatch",
                                           "value_mismatch", "same_key", "timeout", "storage",
-                                          "button_unavailable", "key_lost", "key_unavailable", "record_corrupt"};
+                                          "controls_unavailable", "not_armed", "gesture", "key_lost",
+                                          "key_unavailable", "record_corrupt"};
 static const char *const state_names[] = {"none", "committed", "revoked", "key_lost", "key_unavailable",
                                           "record_corrupt"};
 static const char *const ctx_names[] = {"idle", "begun", "staged", "press"};
+static const char *const mode_names[] = {"locked", "armed"};
 static const char *const action_names[] = {"commit", "revoke", "identity-reset"};
 
 static int index_of(const char *s, size_t n, const char *const *list, size_t count) {
@@ -177,14 +183,15 @@ void pdsh_enroll_parse_response(const uint8_t *line, size_t n, pdsh_enroll_line_
     int v = index_of(out->verb, strlen(out->verb), resp_verbs, COUNT(resp_verbs));
     size_t skip = strlen(RPREFIX) + 1 + strlen(out->verb);
     if (n <= skip + 1 || line[skip] != ' ' ||
-        !tokens((const char *)line, n, out, skip + 1, resp_fields[v], field_count(resp_fields[v], 6)))
+        !tokens((const char *)line, n, out, skip + 1, resp_fields[v], field_count(resp_fields[v], 7)))
         return;
     const char *eid = field(out, "eid"), *device = field(out, "device"), *phone = field(out, "phone"),
                *rev = field(out, "rev");
     bool ok = true;
     if (!strcmp(out->verb, "status")) {
         int st = index_of(field(out, "state"), strlen(field(out, "state")), state_names, COUNT(state_names));
-        ok = st >= 0 && index_of(field(out, "ctx"), strlen(field(out, "ctx")), ctx_names, COUNT(ctx_names)) >= 0;
+        ok = st >= 0 && index_of(field(out, "ctx"), strlen(field(out, "ctx")), ctx_names, COUNT(ctx_names)) >= 0 &&
+             index_of(field(out, "mode"), strlen(field(out, "mode")), mode_names, COUNT(mode_names)) >= 0;
         bool record = st == PDSH_ENR_COMMITTED || st == PDSH_ENR_REVOKED;
         bool no_key = st == PDSH_ENR_KEY_LOST || st == PDSH_ENR_KEY_UNAVAILABLE;
         ok = ok && hex_or_dash(device, 64, no_key) && hex_or_dash(phone, 64, !record) &&
@@ -193,6 +200,8 @@ void pdsh_enroll_parse_response(const uint8_t *line, size_t n, pdsh_enroll_line_
         const char *action = field(out, "action");
         int a = index_of(action, strlen(action), action_names, COUNT(action_names));
         ok = a >= 0 && hex_or_dash(eid, 32, a == ACT_RESET) && !strcmp(field(out, "timeout_s"), "30");
+    } else if (!strcmp(out->verb, "armed")) {
+        ok = !strcmp(field(out, "window_s"), "300");
     } else if (!strcmp(out->verb, "error")) {
         const char *code = field(out, "code"), *cmd = field(out, "cmd");
         ok = index_of(code, strlen(code), error_codes, COUNT(error_codes)) >= 0 &&
@@ -236,13 +245,20 @@ static void emit(const char *verb, int count, const char *const *values) {
     /* The board never prints a pdsh-enroll-r line outside the grammar. */
     if (n && check.valid && E.ops && E.ops->write_line) E.ops->write_line(text);
 }
-static void error(const char *code, const char *cmd) {
-    const char *v[] = {code, cmd};
-    emit("error", 2, v);
-}
 static void abort_ctx(void) {
     E.ctx = CTX_IDLE;
     E.ctx_eid[0] = E.ctx_phone[0] = 0;
+}
+/* Leaving enrollment mode: every error and every completed action. */
+static void lock_mode(void) {
+    abort_ctx();
+    E.mode = MODE_LOCKED;
+}
+/* "Fail": answer the error and leave enrollment mode. */
+static void fail(const char *code, const char *cmd) {
+    lock_mode();
+    const char *v[] = {code, cmd};
+    emit("error", 2, v);
 }
 
 /* ---------------- durable record ---------------- */
@@ -329,12 +345,17 @@ bool pdsh_enroll_init(const pdsh_enroll_ops_t *ops, nvs_handle_t record_namespac
     if (!enroll_mutex) enroll_mutex = xSemaphoreCreateRecursiveMutex();
 #endif
     pdsh_enroll_lock();
-    memset(&E, 0, sizeof(E));
+    memset(&E, 0, sizeof(E)); /* reboot: locked + idle, RAM flags cleared */
     E.ops = ops;
     E.nvs = record_namespace;
     classify_durable();
     pdsh_enroll_unlock();
     return true;
+}
+void pdsh_enroll_reload_durable(void) {
+    pdsh_enroll_lock();
+    if (E.ops) classify_durable();
+    pdsh_enroll_unlock();
 }
 void pdsh_enroll_durable(pdsh_enroll_durable_t *out) {
     pdsh_enroll_lock();
@@ -342,6 +363,19 @@ void pdsh_enroll_durable(pdsh_enroll_durable_t *out) {
     pdsh_enroll_unlock();
 }
 const char *pdsh_enroll_ctx_name(void) { return ctx_names[E.ctx]; }
+const char *pdsh_enroll_mode_name(void) { return mode_names[E.mode]; }
+static bool controls(void) { return E.ops && E.ops->button_available && E.ops->indicator_available; }
+pdsh_indicator_t pdsh_enroll_indicator(void) {
+    if (E.mode != MODE_ARMED) return PDSH_INDICATOR_OFF;
+    return E.ctx == CTX_PRESS ? PDSH_INDICATOR_CONFIRM : PDSH_INDICATOR_ARMED;
+}
+bool pdsh_enroll_indicator_level(uint64_t now_ms) {
+    switch (pdsh_enroll_indicator()) {
+    case PDSH_INDICATOR_ARMED: return (now_ms / 500) % 2 == 0;   /* 1 Hz */
+    case PDSH_INDICATOR_CONFIRM: return (now_ms / 125) % 2 == 0; /* 4 Hz */
+    default: return false;
+    }
+}
 bool pdsh_enroll_session_record(pdsh_enroll_durable_t *out) {
     pdsh_enroll_lock();
     bool ok = E.ops && E.durable.state == PDSH_ENR_COMMITTED && !E.ram_revoked;
@@ -358,9 +392,10 @@ static void status_line(void) {
     snprintf(rev, sizeof(rev), "%" PRIu32, E.durable.rev);
     bool record = E.durable.state == PDSH_ENR_COMMITTED || E.durable.state == PDSH_ENR_REVOKED;
     bool no_key = E.durable.state == PDSH_ENR_KEY_LOST || E.durable.state == PDSH_ENR_KEY_UNAVAILABLE;
-    const char *v[] = {state_names[E.durable.state], ctx_names[E.ctx], no_key ? "-" : E.durable.device,
-                       record ? E.durable.phone : "-", record ? E.durable.eid : "-", rev};
-    emit("status", 6, v);
+    const char *v[] = {state_names[E.durable.state], mode_names[E.mode], ctx_names[E.ctx],
+                       no_key ? "-" : E.durable.device, record ? E.durable.phone : "-",
+                       record ? E.durable.eid : "-", rev};
+    emit("status", 7, v);
 }
 static void begin_press(action_t action, const char *eid) {
     E.ctx = CTX_PRESS;
@@ -371,49 +406,58 @@ static void begin_press(action_t action, const char *eid) {
     E.press_deadline = E.press_written + PDSH_ENROLL_PRESS_TIMEOUT_MS;
 }
 
+/* §3.3 processing order of an addressed host line. */
 static void command(const pdsh_enroll_line_t *l) {
     const char *verb = l->echo;
-    if (E.ctx == CTX_PRESS) { /* rule 1: any addressed line aborts the pending press */
-        abort_ctx();
-        error("busy", verb);
+    if (E.ctx == CTX_PRESS) { /* 1: any addressed line aborts a pending confirmation */
+        fail("busy", verb);
         return;
     }
-    if (!l->valid) { /* rule 2 */
-        error("syntax", verb);
+    if (!l->valid) { /* 2 */
+        fail("syntax", verb);
         return;
     }
-    if (!strcmp(verb, "status")) { /* rule 3 */
+    if (!strcmp(verb, "status")) { /* 3 */
         status_line();
         return;
     }
     pdsh_enroll_state_t st = E.durable.state;
     if ((st == PDSH_ENR_KEY_LOST || st == PDSH_ENR_KEY_UNAVAILABLE || st == PDSH_ENR_RECORD_CORRUPT) &&
-        strcmp(verb, "identity-reset")) { /* rule 4 */
-        abort_ctx();
-        error(state_names[st], verb);
+        strcmp(verb, "identity-reset")) { /* 4 */
+        fail(state_names[st], verb);
         return;
+    }
+    bool authority_verb = !strcmp(verb, "begin") || !strcmp(verb, "revoke") || !strcmp(verb, "identity-reset");
+    if (authority_verb) { /* 5 */
+        if (!controls()) {
+            fail("controls_unavailable", verb);
+            return;
+        }
+        if (E.mode != MODE_ARMED) {
+            fail("not_armed", verb);
+            return;
+        }
     }
     const char *eid = field(l, "eid"), *phone = field(l, "phone"), *device = field(l, "device");
     if (!strcmp(verb, "begin")) {
-        if (E.ctx != CTX_IDLE) {
-            abort_ctx();
-            error("busy", verb);
-        } else if (st == PDSH_ENR_COMMITTED) error("occupied", verb);
-        else if (!E.ops->button_available) error("button_unavailable", verb);
+        if (E.ctx != CTX_IDLE) fail("busy", verb);
+        else if (st == PDSH_ENR_COMMITTED) fail("occupied", verb);
         else {
             uint8_t raw[16];
-            E.ops->random(raw, sizeof(raw));
+            if (!E.ops->random(raw, sizeof(raw))) {
+                fail("storage", verb); /* no entropy source: nothing drawn */
+                return;
+            }
             pdsh_hex_encode(raw, sizeof(raw), E.ctx_eid);
             E.ctx = CTX_BEGUN;
-            E.ctx_deadline = now() + PDSH_ENROLL_CONTEXT_TIMEOUT_MS;
             const char *v[] = {E.ctx_eid, E.durable.device};
             emit("begun", 2, v);
         }
     } else if (!strcmp(verb, "phone")) {
-        if (E.ctx == CTX_IDLE) error("no_session", verb);
-        else if (E.ctx != CTX_BEGUN) abort_ctx(), error("state", verb);
-        else if (strcmp(eid, E.ctx_eid)) abort_ctx(), error("eid_mismatch", verb);
-        else if (!strcmp(phone, E.durable.device)) abort_ctx(), error("same_key", verb);
+        if (E.ctx == CTX_IDLE) fail("no_session", verb);
+        else if (E.ctx != CTX_BEGUN) fail("state", verb);
+        else if (strcmp(eid, E.ctx_eid)) fail("eid_mismatch", verb);
+        else if (!strcmp(phone, E.durable.device)) fail("same_key", verb);
         else {
             snprintf(E.ctx_phone, sizeof(E.ctx_phone), "%s", phone);
             E.ctx = CTX_STAGED;
@@ -423,54 +467,53 @@ static void command(const pdsh_enroll_line_t *l) {
             emit("staged", 4, v);
         }
     } else if (!strcmp(verb, "commit")) {
-        if (E.ctx == CTX_IDLE) error("no_session", verb);
-        else if (E.ctx != CTX_STAGED) abort_ctx(), error("state", verb);
-        else if (strcmp(eid, E.ctx_eid)) abort_ctx(), error("eid_mismatch", verb);
-        else if (strcmp(device, E.durable.device) || strcmp(phone, E.ctx_phone)) abort_ctx(), error("value_mismatch", verb);
+        if (E.ctx == CTX_IDLE) fail("no_session", verb);
+        else if (E.ctx != CTX_STAGED) fail("state", verb);
+        else if (strcmp(eid, E.ctx_eid)) fail("eid_mismatch", verb);
+        else if (strcmp(device, E.durable.device) || strcmp(phone, E.ctx_phone)) fail("value_mismatch", verb);
         else begin_press(ACT_COMMIT, E.ctx_eid);
     } else if (!strcmp(verb, "abort")) {
-        if (E.ctx == CTX_IDLE) error("no_session", verb);
-        else if (strcmp(eid, E.ctx_eid)) abort_ctx(), error("eid_mismatch", verb);
+        if (E.ctx == CTX_IDLE) fail("no_session", verb);
+        else if (strcmp(eid, E.ctx_eid)) fail("eid_mismatch", verb);
         else {
             char aborted[33];
             snprintf(aborted, sizeof(aborted), "%s", E.ctx_eid);
-            abort_ctx();
+            lock_mode();
             const char *v[] = {aborted};
             emit("aborted", 1, v);
         }
     } else if (!strcmp(verb, "revoke")) {
-        if (E.ctx != CTX_IDLE) abort_ctx(), error("busy", verb);
-        else if (st != PDSH_ENR_COMMITTED) error("state", verb);
+        if (E.ctx != CTX_IDLE) fail("busy", verb);
+        else if (st != PDSH_ENR_COMMITTED) fail("state", verb);
         else if (strcmp(eid, E.durable.eid) || strcmp(device, E.durable.device) || strcmp(phone, E.durable.phone))
-            error("value_mismatch", verb);
+            fail("value_mismatch", verb);
         else {
             snprintf(E.ctx_eid, sizeof(E.ctx_eid), "%s", E.durable.eid);
             begin_press(ACT_REVOKE, E.ctx_eid);
         }
     } else if (!strcmp(verb, "identity-reset")) {
-        if (E.ctx != CTX_IDLE) abort_ctx(), error("busy", verb);
-        else if (st == PDSH_ENR_COMMITTED) error("occupied", verb);
-        else if (!E.ops->button_available) error("button_unavailable", verb);
+        if (E.ctx != CTX_IDLE) fail("busy", verb);
+        else if (st == PDSH_ENR_COMMITTED) fail("occupied", verb);
         else begin_press(ACT_RESET, "-");
     }
 }
 
-static void on_press(void) {
+/* confirm_hold: execute the pending action, then leave enrollment mode. */
+static void confirm(void) {
     action_t action = E.action;
-    char eid[33], phone[65];
+    char eid[33], phone[65], rev[11];
     snprintf(eid, sizeof(eid), "%s", E.ctx_eid);
     snprintf(phone, sizeof(phone), "%s", E.ctx_phone);
-    abort_ctx();
-    char rev[11];
     if (action == ACT_COMMIT) {
         uint32_t next = E.durable.rev + 1;
         if (next == 0 || !record_write(PDSH_ENR_COMMITTED, E.durable.device, phone, eid, next)) {
             classify_durable(); /* the host learns the durable truth from a later status */
-            error("storage", "commit");
+            fail("storage", "commit");
             return;
         }
         classify_durable();
         E.ram_revoked = false;
+        lock_mode();
         snprintf(rev, sizeof(rev), "%" PRIu32, next);
         const char *v[] = {eid, E.durable.device, phone, rev};
         emit("committed", 4, v);
@@ -481,22 +524,24 @@ static void on_press(void) {
         uint32_t next = old.rev + 1;
         if (next == 0 || !record_write(PDSH_ENR_REVOKED, old.device, old.phone, old.eid, next)) {
             classify_durable(); /* the RAM flag stays set until reboot */
-            error("storage", "revoke");
+            fail("storage", "revoke");
             return;
         }
         classify_durable();
+        lock_mode();
         snprintf(rev, sizeof(rev), "%" PRIu32, next);
         const char *v[] = {old.eid, old.device, old.phone, rev};
         emit("revoked", 4, v);
     } else {
         char fp[65] = {0};
-        if (!E.ops->identity_reset || !E.ops->identity_reset(fp)) {
-            classify_durable();
-            error("storage", "identity-reset");
+        bool ok = E.ops->identity_reset && E.ops->identity_reset(fp);
+        classify_durable();
+        if (!ok) {
+            fail("storage", "identity-reset");
             return;
         }
         E.ram_revoked = false;
-        classify_durable();
+        lock_mode();
         const char *v[] = {fp};
         emit("reset", 1, v);
     }
@@ -524,48 +569,62 @@ void pdsh_enroll_feed(const uint8_t *data, size_t n) {
     pdsh_enroll_unlock();
 }
 
+static void deadlines(uint64_t t) {
+    if (E.mode != MODE_ARMED) return;
+    if (E.ctx == CTX_PRESS && t >= E.press_deadline) fail("timeout", action_names[E.action]);
+    else if (t >= E.window_end) fail("timeout", "-"); /* absolute window, never extended */
+}
 void pdsh_enroll_tick(void) {
     pdsh_enroll_lock();
-    if (E.ops) {
-        uint64_t t = now();
-        if (E.ctx == CTX_PRESS && t >= E.press_deadline) {
-            action_t action = E.action;
-            abort_ctx();
-            error("timeout", action_names[action]);
-        } else if ((E.ctx == CTX_BEGUN || E.ctx == CTX_STAGED) && t >= E.ctx_deadline) {
-            abort_ctx();
-            error("timeout", "-");
-        }
-    }
+    if (E.ops) deadlines(now());
     pdsh_enroll_unlock();
 }
 
-bool pdsh_enroll_button(bool level) {
+/* Gesture classifier (§3.3). Each debounced press edge is classified by the
+ * mode at the edge: while locked it keeps its ordinary meaning (the caller
+ * gets PDSH_BUTTON_LEGACY_EDGE) and a 5 s hold additionally arms; while armed
+ * no gesture has its ordinary meaning, and in ctx=press a hold of 3 s whose
+ * edge follows the press line confirms while an earlier release is a
+ * short_press that fails with `gesture`. */
+unsigned pdsh_enroll_button(bool level) {
     pdsh_enroll_lock();
-    bool owned = false;
+    unsigned flags = 0;
     if (E.ops) {
         uint64_t t = now();
+        deadlines(t);
         if (level != E.raw) {
             E.raw = level;
             E.raw_since = t;
         }
-        bool edge = false;
         if (E.raw != E.stable && t - E.raw_since >= PDSH_ENROLL_DEBOUNCE_MS) {
             E.stable = E.raw;
-            edge = E.stable;
-        }
-        if (!E.stable) E.consumed = false;
-        if (E.ctx == CTX_PRESS) {
-            pdsh_enroll_tick();
-            /* Only a press that began after the press line was written counts. */
-            if (E.ctx == CTX_PRESS && edge && E.raw_since >= E.press_written) {
-                E.consumed = true;
-                on_press();
+            if (E.stable) { /* press edge, timed from the first raw transition */
+                E.edge_at = E.raw_since;
+                E.done = false;
+                E.edge_armed = E.mode == MODE_ARMED;
+                E.edge_after_line = E.edge_armed && E.ctx == CTX_PRESS && E.edge_at >= E.press_written;
+                if (!E.edge_armed) flags |= PDSH_BUTTON_LEGACY_EDGE;
+            } else if (!E.done && E.edge_armed && E.edge_after_line && E.mode == MODE_ARMED && E.ctx == CTX_PRESS) {
+                fail("gesture", action_names[E.action]); /* short_press aborts the confirmation */
             }
-            owned = true;
         }
-        owned = owned || E.consumed;
+        if (E.stable && !E.done) {
+            uint64_t held = t - E.edge_at;
+            if (!E.edge_armed && E.mode == MODE_LOCKED && controls() && held >= PDSH_ENROLL_ARM_HOLD_MS) {
+                E.done = true;
+                E.mode = MODE_ARMED;
+                E.window_end = t + PDSH_ENROLL_WINDOW_MS;
+                const char *v[] = {"300"};
+                emit("armed", 1, v);
+            } else if (E.edge_armed && E.edge_after_line && E.mode == MODE_ARMED && E.ctx == CTX_PRESS &&
+                       held >= PDSH_ENROLL_CONFIRM_HOLD_MS) {
+                E.done = true;
+                confirm();
+            }
+        }
+        if (E.edge_armed && E.stable) flags |= PDSH_BUTTON_OWNED;
+        if (E.mode == MODE_ARMED) flags |= PDSH_BUTTON_OWNED;
     }
     pdsh_enroll_unlock();
-    return owned;
+    return flags;
 }

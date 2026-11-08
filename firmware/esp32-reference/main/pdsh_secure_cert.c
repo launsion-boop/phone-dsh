@@ -51,14 +51,6 @@ static const uint8_t oid_basic_constraints[] = {0x55, 0x1d, 0x13};
 static const uint8_t oid_key_usage[] = {0x55, 0x1d, 0x0f};
 static const uint8_t oid_ext_key_usage[] = {0x55, 0x1d, 0x25};
 
-/* mbedTLS skips unknown extensions only through this callback; recording
- * them is done by the DER walk below, so every unknown extension parses. */
-static int accept_unknown_extension(void *ctx, mbedtls_x509_crt const *crt, mbedtls_x509_buf const *oid,
-                                    int critical, const unsigned char *p, const unsigned char *end) {
-    (void)ctx; (void)crt; (void)oid; (void)critical; (void)p; (void)end;
-    return 0;
-}
-
 typedef struct {
     der_t tbs_tlv, sig_alg, sig_value, spki, exts;
     bool has_exts;
@@ -76,7 +68,12 @@ static bool split(const uint8_t *der, size_t len, cert_parts_t *parts) {
     parts->sig_alg = sig_alg;
     parts->sig_value = bits;
     /* tbsCertificate: [0] version, serial, signature, issuer, validity, subject, spki, ... */
-    if (!expect(&tbs, 0xa0, &scratch) || !expect(&tbs, 0x02, &scratch) || !expect(&tbs, 0x30, &scratch) ||
+    der_t version, number;
+    /* X.509 v3 only: [0] EXPLICIT INTEGER 2 must be present. */
+    if (!expect(&tbs, 0xa0, &version) || !expect(&version, 0x02, &number) || version.p != version.end ||
+        number.end - number.p != 1 || *number.p != 2)
+        return false;
+    if (!expect(&tbs, 0x02, &scratch) || !expect(&tbs, 0x30, &scratch) ||
         !expect(&tbs, 0x30, &scratch) || !expect(&tbs, 0x30, &scratch) || !expect(&tbs, 0x30, &scratch) ||
         !expect(&tbs, 0x30, &parts->spki))
         return false;
@@ -175,13 +172,10 @@ pdsh_cert_status_t pdsh_cert_verify_chain(const uint8_t *const *der, const size_
     if (count != 1) return PDSH_CERT_CHAIN_LENGTH;
     if (len[0] > PDSH_CERT_MAX_DER) return PDSH_CERT_OVERSIZE;
     if (psa_crypto_init() != PSA_SUCCESS) return PDSH_CERT_INTERNAL;
-    mbedtls_x509_crt crt;
-    mbedtls_x509_crt_init(&crt);
-    int rc = mbedtls_x509_crt_parse_der_with_ext_cb(&crt, der[0], len[0], 1, accept_unknown_extension, NULL);
-    bool v3 = rc == 0 && crt.version == 3;
-    mbedtls_x509_crt_free(&crt);
+    /* The application's own DER evaluation decides (§6.2); no library parse
+     * result can accept or reject ahead of rules 1-5. */
     cert_parts_t parts;
-    if (!v3 || !split(der[0], len[0], &parts)) return PDSH_CERT_MALFORMED;
+    if (!split(der[0], len[0], &parts)) return PDSH_CERT_MALFORMED;
     uint8_t point[65];
     pdsh_cert_status_t status = spki_point(parts.spki, point);
     if (status != PDSH_CERT_OK) return status;

@@ -11,10 +11,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-const pdsh_ss_timers_t pdsh_ss_timers_v1 = {15000, 10000, 60000, 600000};
+const pdsh_ss_timers_t pdsh_ss_timers_v2 = {15000, 10000, 90000, 600000};
 
 /* ======================= application layer ======================= */
 
+static bool expired(const pdsh_ss_app_t *app, uint64_t now_ms);
 static void send_json(pdsh_ss_app_t *app, cJSON *msg) {
     char *text = msg ? cJSON_PrintUnformatted(msg) : NULL;
     cJSON_Delete(msg);
@@ -64,7 +65,7 @@ bool pdsh_ss_app_start(pdsh_ss_app_t *app, const char *verified_phone_fp, uint64
                        void *emit_ctx) {
     memset(app, 0, sizeof(*app));
     app->state = PDSH_SS_APP_CLOSED;
-    app->timers = timers ? timers : &pdsh_ss_timers_v1;
+    app->timers = timers ? timers : &pdsh_ss_timers_v2;
     app->random = random;
     app->emit = emit;
     app->emit_ctx = emit_ctx;
@@ -185,7 +186,11 @@ static void handle(pdsh_ss_app_t *app, const uint8_t *payload, size_t n, uint64_
         else if (!authority(app)) close_app(app, PDSH_ERR_REVOKED, m.seq);
         else {
             uint8_t sc[32];
-            app->random(sc, sizeof(sc));
+            if (!app->random(sc, sizeof(sc))) {
+                close_app(app, PDSH_ERR_INTERNAL, m.seq); /* no entropy source: no challenge */
+                pdsh_msg_free(&m);
+                return;
+            }
             pdsh_hex_encode(sc, sizeof(sc), app->sc);
             cJSON *ack = reply("ready_ack", 1);
             if (ack && cJSON_AddStringToObject(ack, "device", app->device_id) &&
@@ -222,29 +227,30 @@ static void handle(pdsh_ss_app_t *app, const uint8_t *payload, size_t n, uint64_
 }
 
 bool pdsh_ss_app_input(pdsh_ss_app_t *app, const uint8_t *data, size_t n, uint64_t now_ms) {
+    /* A request arriving after the lifetime is never dispatched. */
+    if (app->state != PDSH_SS_APP_CLOSED && expired(app, now_ms)) close_app(app, PDSH_ERR_NONE, 0);
     while (app->state != PDSH_SS_APP_CLOSED && n) {
         const uint8_t *payload;
         size_t len;
         pdsh_frame_result_t r = pdsh_frame_next(&app->frames, &data, &n, &payload, &len);
         if (r == PDSH_FRAME_LIMIT) close_app(app, PDSH_ERR_LIMIT, 0);
         else if (r == PDSH_FRAME_PAYLOAD) {
-            /* Copy: the payload buffer is reused by the next frame. */
-            uint8_t *copy = malloc(len);
-            if (!copy) close_app(app, PDSH_ERR_INTERNAL, 0);
-            else {
-                memcpy(copy, payload, len);
-                handle(app, copy, len, now_ms);
-                free(copy);
-            }
+            /* The payload stays valid until the next pdsh_frame_next call. */
+            handle(app, payload, len, now_ms);
         }
     }
     return app->state != PDSH_SS_APP_CLOSED;
 }
 
+static bool expired(const pdsh_ss_app_t *app, uint64_t now_ms) {
+    return now_ms - app->started_ms >= app->timers->lifetime_ms;
+}
 bool pdsh_ss_app_tick(pdsh_ss_app_t *app, uint64_t now_ms) {
     if (app->state == PDSH_SS_APP_CLOSED) return false;
-    if (!authority(app)) close_app(app, PDSH_ERR_REVOKED, 0);
-    else if (now_ms - app->started_ms >= app->timers->lifetime_ms) close_app(app, PDSH_ERR_TIMEOUT, 0);
+    /* Immediate close only for the RAM revocation flag / a non-committed
+     * record; a changed committed tuple is caught before the next request. */
+    if (!pdsh_enroll_session_record(NULL)) close_app(app, PDSH_ERR_REVOKED, 0);
+    else if (expired(app, now_ms)) close_app(app, PDSH_ERR_NONE, 0); /* close_notify only */
     else if (app->state == PDSH_SS_APP_VERIFIED && now_ms - app->started_ms >= app->timers->ready_ms)
         close_app(app, PDSH_ERR_TIMEOUT, 0);
     else if (app->state == PDSH_SS_APP_READY && now_ms - app->last_ms >= app->timers->idle_ms)
@@ -259,8 +265,12 @@ void pdsh_ss_app_close(pdsh_ss_app_t *app) {
 
 /* ======================= TLS connection ======================= */
 
-#define RX_CAP 8192
-#define TX_CAP 16384
+/* §5 per-session budget (<= 32 KiB): transport input holds one ClientHello
+ * record; transport output is two 512-byte SDUs (mbedTLS resumes partial
+ * record writes on WANT_WRITE); a response that does not fit waits as one
+ * pending frame; mbedTLS buffers 4352 + 4096. */
+#define RX_CAP 1024
+#define TX_CAP 1024
 
 struct pdsh_ss_conn {
     mbedtls_ssl_config conf;
@@ -276,6 +286,8 @@ struct pdsh_ss_conn {
     int alert;
     const char *reason;
     char verified_pin[65];
+    uint8_t *pend; /* response frames not yet accepted by mbedtls_ssl_write */
+    size_t pend_len, pend_off;
     pdsh_ss_app_t app;
 };
 
@@ -367,7 +379,7 @@ static int check_client_hello(const uint8_t *p, size_t n) {
     q += 2;
     NEED(ext_len);
     const uint8_t *ext_end = q + ext_len;
-    bool p256_share = false, alpn_ok = false, alpn_seen = false;
+    bool p256_share = false, alpn_ok = false, alpn_seen = false, tls13 = false, forbidden = false;
     while (q < ext_end) {
         if (ext_end - q < 4) return -MBEDTLS_SSL_ALERT_MSG_DECODE_ERROR;
         unsigned type = (unsigned)q[0] << 8 | q[1];
@@ -383,7 +395,13 @@ static int check_client_hello(const uint8_t *p, size_t n) {
         case 42: /* early_data */
         case 45: /* psk_key_exchange_modes */
         case 49: /* post_handshake_auth */
-            return -MBEDTLS_SSL_ALERT_MSG_HANDSHAKE_FAILURE;
+            forbidden = true;
+            break;
+        case 43: /* supported_versions */
+            if (len < 1 || (size_t)e[0] + 1 != len || e[0] % 2) return -MBEDTLS_SSL_ALERT_MSG_DECODE_ERROR;
+            for (size_t i = 1; i + 1 < len; i += 2)
+                if (e[i] == 0x03 && e[i + 1] == 0x04) tls13 = true;
+            break;
         case 51: { /* key_share */
             if (len < 2) return -MBEDTLS_SSL_ALERT_MSG_DECODE_ERROR;
             e += 2;
@@ -410,23 +428,42 @@ static int check_client_hello(const uint8_t *p, size_t n) {
         q = e_end;
     }
 #undef NEED
+    if (!tls13) return -MBEDTLS_SSL_ALERT_MSG_PROTOCOL_VERSION;
+    if (forbidden) return -MBEDTLS_SSL_ALERT_MSG_HANDSHAKE_FAILURE;
     if (!p256_share) return -MBEDTLS_SSL_ALERT_MSG_HANDSHAKE_FAILURE;
     if (!alpn_seen || !alpn_ok) return -MBEDTLS_SSL_ALERT_MSG_NO_APPLICATION_PROTOCOL;
     return 1;
 }
 
-static void app_emit(void *ctx, const uint8_t *frame, size_t n) {
-    pdsh_ss_conn_t *c = ctx;
-    size_t off = 0;
-    while (off < n) {
-        int r = mbedtls_ssl_write(&c->ssl, frame + off, n - off);
+/* Writes pending response bytes as far as the transport output allows; on
+ * WANT_WRITE mbedTLS is called again with the same bytes later. */
+static void flush_pending(pdsh_ss_conn_t *c) {
+    while (c->pend && c->pend_off < c->pend_len) {
+        int r = mbedtls_ssl_write(&c->ssl, c->pend + c->pend_off, c->pend_len - c->pend_off);
+        if (r == MBEDTLS_ERR_SSL_WANT_WRITE || r == MBEDTLS_ERR_SSL_WANT_READ) return;
         if (r <= 0) {
             c->closing = true;
             c->reason = "write";
-            return;
+            break;
         }
-        off += (size_t)r;
+        c->pend_off += (size_t)r;
     }
+    free(c->pend);
+    c->pend = NULL;
+    c->pend_len = c->pend_off = 0;
+}
+static void app_emit(void *ctx, const uint8_t *frame, size_t n) {
+    pdsh_ss_conn_t *c = ctx;
+    uint8_t *grown = realloc(c->pend, c->pend_len + n); /* one response, rarely plus an err */
+    if (!grown) {
+        c->closing = true;
+        c->reason = "memory";
+        return;
+    }
+    memcpy(grown + c->pend_len, frame, n);
+    c->pend = grown;
+    c->pend_len += n;
+    flush_pending(c);
 }
 
 pdsh_ss_conn_t *pdsh_ss_conn_new(const pdsh_ss_server_cfg_t *cfg, uint64_t now_ms) {
@@ -482,6 +519,7 @@ void pdsh_ss_conn_free(pdsh_ss_conn_t *c) {
     mbedtls_ssl_config_free(&c->conf);
     mbedtls_x509_crt_free(&c->own);
     mbedtls_pk_free(&c->key);
+    free(c->pend);
     memset(c, 0, sizeof(*c));
     free(c);
 }
@@ -508,7 +546,7 @@ int pdsh_ss_conn_alert(const pdsh_ss_conn_t *c) { return c->alert; }
 static void finish(pdsh_ss_conn_t *c, const char *reason) {
     if (c->state == PDSH_SS_CONN_OPEN) {
         pdsh_ss_app_close(&c->app);
-        mbedtls_ssl_close_notify(&c->ssl);
+        if (!c->alert) mbedtls_ssl_close_notify(&c->ssl); /* after a fatal alert, nothing more */
     }
     if (reason) c->reason = reason;
     c->state = PDSH_SS_CONN_CLOSED;
@@ -561,7 +599,9 @@ pdsh_ss_conn_state_t pdsh_ss_conn_poll(pdsh_ss_conn_t *c, uint64_t now_ms) {
         c->reason = "ready_wait";
     }
     uint8_t buf[1024];
+    flush_pending(c);
     for (;;) {
+        if (c->pend) break; /* one outstanding response: read on once it is out */
         int r = mbedtls_ssl_read(&c->ssl, buf, sizeof(buf));
         if (r > 0) {
             if (!pdsh_ss_app_input(&c->app, buf, (size_t)r, now_ms) || c->closing) break;
@@ -574,9 +614,158 @@ pdsh_ss_conn_state_t pdsh_ss_conn_poll(pdsh_ss_conn_t *c, uint64_t now_ms) {
             }
             break;
         }
+        if (r == MBEDTLS_ERR_SSL_INVALID_RECORD) {
+            /* mbedTLS 4.1 drops a record whose plaintext exceeds
+             * MBEDTLS_SSL_IN_CONTENT_LEN (4352) without an alert; §6.1
+             * requires record_overflow, so the board sends it. */
+            c->alert = MBEDTLS_SSL_ALERT_MSG_RECORD_OVERFLOW;
+            mbedtls_ssl_send_alert_message(&c->ssl, MBEDTLS_SSL_ALERT_LEVEL_FATAL, MBEDTLS_SSL_ALERT_MSG_RECORD_OVERFLOW);
+            finish(c, "record_overflow");
+            return c->state;
+        }
         finish(c, r == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY ? "peer_close" : "tls");
         return c->state;
     }
-    if (c->closing || !pdsh_ss_app_tick(&c->app, now_ms)) finish(c, "closed");
+    if (c->closing) finish(c, "closed");
+    else if (!pdsh_ss_app_tick(&c->app, now_ms)) {
+        flush_pending(c); /* deliver the final err before close_notify */
+        if (!c->pend) finish(c, "closed");
+    }
     return c->state;
+}
+
+/* ======================= §5 LE CoC receive path ======================= */
+
+static const char *const coc_names[] = {"",           "credit_overrun", "kframe_oversize", "sdu_oversize",
+                                        "sdu_empty",  "sdu_overrun",    "kframe_short"};
+const char *pdsh_coc_close_name(pdsh_coc_close_t reason) {
+    return (unsigned)reason < sizeof(coc_names) / sizeof(coc_names[0]) ? coc_names[reason] : "";
+}
+
+bool pdsh_ss_coc_init(pdsh_ss_coc_t *coc, uint16_t mtu, uint16_t mps, uint8_t buffers) {
+    memset(coc, 0, sizeof(*coc));
+    if (buffers < 1 || buffers > PDSH_SS_COC_MAX_KFRAMES || mps < 23 || mps > 512 || mtu < 256) return false;
+    coc->mtu = mtu;
+    coc->mps = mps;
+    coc->buffers = buffers;
+    coc->peer_credits = buffers; /* initial grant = free K-frame buffers */
+    return true;
+}
+
+static pdsh_coc_close_t coc_close(pdsh_ss_coc_t *coc, pdsh_coc_close_t reason) {
+    coc->closed = reason;
+    coc->held = coc->sdu_count = 0;
+    coc->partial = false;
+    coc->head = coc->used = 0;
+    return reason;
+}
+
+pdsh_coc_close_t pdsh_ss_coc_kframe(pdsh_ss_coc_t *coc, const uint8_t *frame, size_t len) {
+    if (coc->closed) return coc->closed;
+    /* The credit check comes first: nothing is buffered or dereferenced for
+     * a K-frame the peer had no credit for. */
+    if (coc->peer_credits == 0) return coc_close(coc, PDSH_COC_CREDIT_OVERRUN);
+    coc->peer_credits--;
+    if (len > coc->mps) return coc_close(coc, PDSH_COC_KFRAME_OVERSIZE);
+    const uint8_t *payload = frame;
+    size_t n = len;
+    if (!coc->partial) {
+        if (len < 2) return coc_close(coc, PDSH_COC_KFRAME_SHORT);
+        uint16_t sdu = (uint16_t)(frame[0] | frame[1] << 8);
+        if (sdu == 0) return coc_close(coc, PDSH_COC_SDU_EMPTY);
+        if (sdu > coc->mtu) return coc_close(coc, PDSH_COC_SDU_OVERSIZE);
+        coc->partial = true;
+        coc->partial_len = sdu;
+        coc->partial_got = coc->partial_kframes = 0;
+        payload += 2;
+        n -= 2;
+    }
+    coc->held++;
+    coc->partial_kframes++;
+    if ((size_t)coc->partial_got + n > coc->partial_len) return coc_close(coc, PDSH_COC_SDU_OVERRUN);
+    /* Invariant: held + peer_credits <= buffers, so the data fits the ring
+     * (each K-frame payload <= mps, ring = buffers x 512 >= buffers x mps). */
+    size_t cap = (size_t)coc->buffers * coc->mps;
+    for (size_t i = 0; i < n; i++) coc->data[(coc->head + coc->used + i) % cap] = payload[i];
+    coc->used += n;
+    coc->partial_got += (uint16_t)n;
+    if (coc->partial_got == coc->partial_len) {
+        coc->sdu[coc->sdu_count].len = coc->partial_len;
+        coc->sdu[coc->sdu_count].kframes = coc->partial_kframes;
+        coc->sdu_count++;
+        coc->partial = false;
+    }
+    return PDSH_COC_OK;
+}
+
+size_t pdsh_ss_coc_ready(const pdsh_ss_coc_t *coc) {
+    return !coc->closed && coc->sdu_count ? coc->sdu[0].len : 0;
+}
+
+size_t pdsh_ss_coc_consume(pdsh_ss_coc_t *coc, uint8_t *out, size_t cap, uint8_t *credits) {
+    *credits = 0;
+    size_t len = pdsh_ss_coc_ready(coc);
+    if (!len || cap < len) return 0;
+    size_t ring = (size_t)coc->buffers * coc->mps;
+    for (size_t i = 0; i < len; i++) out[i] = coc->data[(coc->head + i) % ring];
+    coc->head = (coc->head + len) % ring;
+    coc->used -= len;
+    uint8_t frames = (uint8_t)coc->sdu[0].kframes;
+    memmove(coc->sdu, coc->sdu + 1, sizeof(coc->sdu[0]) * (size_t)(coc->sdu_count - 1));
+    coc->sdu_count--;
+    coc->held -= frames;
+    coc->peer_credits += frames; /* credits return only for freed buffers */
+    *credits = frames;
+    return len;
+}
+
+/* ======================= §5 admission and send ownership ======================= */
+
+bool pdsh_ss_admit(pdsh_ss_admission_t *adm, uint16_t conn_handle, uint64_t now_ms) {
+    if (adm->conn_handle != conn_handle) { /* a new LE connection starts fresh */
+        adm->conn_handle = conn_handle;
+        adm->failures = 0;
+    }
+    if (adm->open || now_ms < adm->backoff_until_ms || adm->failures >= 3) return false;
+    adm->open = true;
+    return true;
+}
+void pdsh_ss_released(pdsh_ss_admission_t *adm, bool reached_open, uint64_t now_ms) {
+    adm->open = false;
+    if (reached_open) {
+        adm->failures = 0;
+        return;
+    }
+    if (adm->failures < 255) adm->failures++;
+    adm->backoff_until_ms = now_ms + 2000;
+}
+
+bool pdsh_ss_tx_can_send(const pdsh_ss_tx_t *tx) { return !tx->broken && !tx->stalled && tx->in_stack < 2; }
+void pdsh_ss_tx_sent(pdsh_ss_tx_t *tx, pdsh_tx_rc_t rc, bool *caller_frees) {
+    *caller_frees = false;
+    switch (rc) {
+    case PDSH_TX_RC_OK:
+        break;
+    case PDSH_TX_RC_STALLED:
+        tx->stalled = true;
+        tx->in_stack++;
+        break;
+    case PDSH_TX_RC_NOT_TAKEN:
+        *caller_frees = true;
+        tx->broken = true; /* the stream would have a gap: close, never resend */
+        break;
+    default:
+        tx->broken = true; /* partially sent: close the CoC */
+        break;
+    }
+}
+void pdsh_ss_tx_unstalled(pdsh_ss_tx_t *tx, int status) {
+    tx->stalled = false;
+    if (tx->in_stack) tx->in_stack--;
+    if (status) tx->broken = true;
+}
+void pdsh_ss_tx_disconnected(pdsh_ss_tx_t *tx) {
+    tx->in_stack = 0;
+    tx->stalled = false;
+    tx->broken = true;
 }

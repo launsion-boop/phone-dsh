@@ -6,7 +6,8 @@
 
 /* Reference task store v2 (ble-secure-session.md §10). NVS key tasks_v2 in the
  * task namespace; a valid tasks_v1 is migrated in memory and written as v2 by
- * the first mutation, leaving tasks_v1 byte-identical. */
+ * the first mutation (recording v1_sha256), leaving tasks_v1 byte-identical;
+ * a tasks_v1 that changed after the migration disables the store. */
 typedef enum {
     PDSH_STORE_SOURCE_DISABLED,
     PDSH_STORE_SOURCE_EMPTY,
@@ -18,6 +19,8 @@ bool pdsh_task_store_init(nvs_handle_t storage);
 pdsh_task_store_source_t pdsh_task_store_source(void);
 void pdsh_task_store_disable(void);
 bool pdsh_task_store_healthy(void);
+/* v1_sha256 the next v2 write carries (NULL for null or a disabled store). */
+const char *pdsh_task_store_write_v1_sha256(void);
 /* Local producer API (unchanged semantics, v2 storage). */
 bool pdsh_task_store_submit(const char *json);
 cJSON *pdsh_task_store_result(const char *id);
