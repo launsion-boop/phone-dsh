@@ -8,7 +8,7 @@ import java.nio.charset.StandardCharsets
 import java.util.Locale
 
 /** A validated advertisement is still untrusted discovery data, not a grant. */
-internal data class LanDeviceCandidate(
+public data class LanDeviceCandidate(
     val id: String,
     val name: String,
     val url: String,
@@ -20,7 +20,7 @@ internal data class LanDeviceCandidate(
  * [txt] is the original DNS-SD length-prefixed byte sequence, not a dictionary:
  * converting it to key/value pairs first would erase duplicate profile entries.
  * [host] is the SRV hostname, not a service instance name or resolved address.
- * This decoder is target-only until a transport can supply those values intact.
+ * [LanMdnsBrowser] is the transport-side caller that supplies those values intact.
  */
 internal object LanDiscoveryDecoder {
     private val profileKey = "profile".toByteArray(StandardCharsets.US_ASCII)
@@ -48,7 +48,8 @@ internal object LanDiscoveryDecoder {
         -1
     }
 
-    private fun hostname(value: String): String? {
+    /** lan-mcp.md `canon`: the one hostname used for URL, SNI and certificate name. */
+    fun hostname(value: String): String? {
         if (value.length > 254 || value.any { it.code >= 128 }) return null
         val host = (if (value.endsWith('.')) value.dropLast(1) else value).lowercase(Locale.ROOT)
         if (host.isEmpty() || host.length > 253) return null
@@ -59,6 +60,9 @@ internal object LanDiscoveryDecoder {
                 label.any { !isAsciiAlphaNumeric(it) && it != '-' }
             ) return null
         }
+        // lan-mcp.md canon step 4: A-labels are excluded because URL/IDNA
+        // runtimes disagree on their validity; no IDNA mapping is attempted.
+        if (labels.any { it.startsWith("xn--") }) return null
         // Numeric final labels may be reinterpreted as IPv4 by URL/resolver
         // stacks; reject them even if they are syntactically valid DNS labels.
         val last = labels.last()

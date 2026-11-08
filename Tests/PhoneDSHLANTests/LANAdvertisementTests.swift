@@ -66,6 +66,71 @@ final class LANAdvertisementTests: XCTestCase {
                            "numeric_label_named_domain"]).isSubset(of: names))
     }
 
+    private func rows(_ file: String) throws -> [[String: Any]] {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let text = try String(contentsOf: root.appendingPathComponent("spec/device/v1/golden/\(file)"), encoding: .utf8)
+        return try text.split(separator: "\n").map {
+            try XCTUnwrap(JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any])
+        }
+    }
+
+    private static let profileTXT: Data = {
+        let entry = Array("profile=pdsh-mcp-1".utf8)
+        return Data([UInt8(entry.count)] + entry)
+    }()
+
+    func testSharedALabelVectors() throws {
+        let rows = try rows("lan-discovery-alabel.jsonl")
+        let names = Set(rows.compactMap { $0["name"] as? String })
+        XCTAssertEqual(names.count, rows.count)
+        XCTAssertTrue(Set(["alabel_invalid_punycode", "alabel_valid_latin", "alabel_uppercase",
+                           "alabel_unicode_version_dependent", "alabel_final_label", "ulabel_latin",
+                           "ulabel_ideographic_full_stop", "ldh_double_hyphen_34", "ldh_xn_inside_label"]).isSubset(of: names))
+        var outcomes = Set<Bool>()
+        for row in rows {
+            let name = try XCTUnwrap(row["name"] as? String)
+            let hex = try XCTUnwrap(row["txt_hex"] as? String)
+            var raw = Data()
+            var index = hex.startIndex
+            while index < hex.endIndex {
+                let end = hex.index(index, offsetBy: 2)
+                raw.append(try XCTUnwrap(UInt8(hex[index..<end], radix: 16), name))
+                index = end
+            }
+            let candidate = LANDeviceCandidate(service: try XCTUnwrap(row["service"] as? String),
+                                               host: try XCTUnwrap(row["host"] as? String),
+                                               port: try XCTUnwrap(row["port"] as? Int), txt: raw)
+            XCTAssertNotEqual(row["url"] == nil, row["error"] == nil, name)
+            outcomes.insert(row["url"] != nil)
+            if let url = row["url"] as? String {
+                XCTAssertEqual(candidate?.url.absoluteString, url, name)
+                XCTAssertEqual(candidate?.url.host, URLComponents(string: url)?.host, name)
+            } else {
+                XCTAssertEqual(row["error"] as? String, "invalid_advertisement", name)
+                XCTAssertNil(candidate, name)
+            }
+        }
+        XCTAssertEqual(outcomes, [true, false])
+    }
+
+    func testSharedPublicationVectorsKeepOneHostname() throws {
+        let rows = try rows("lan-publication.jsonl")
+        XCTAssertEqual(Set(rows.compactMap { $0["result"] as? String }),
+                       ["consistent", "hostname_invalid", "certificate_name_missing", "srv_target_invalid",
+                        "srv_target_mismatch", "srv_port_mismatch"])
+        for row in rows {
+            let name = try XCTUnwrap(row["name"] as? String)
+            let candidate = LANDeviceCandidate(service: "Lamp", host: try XCTUnwrap(row["srv_target"] as? String),
+                                               port: try XCTUnwrap(row["srv_port"] as? Int), txt: Self.profileTXT)
+            XCTAssertEqual(candidate?.url.absoluteString, row["url"] as? String, name)
+            if row["result"] as? String == "consistent" {
+                let configured = try XCTUnwrap(LANDeviceCandidate.hostname(try XCTUnwrap(row["hostname"] as? String)), name)
+                // The URL host is what URLSession uses for SNI and certificate verification.
+                XCTAssertEqual(candidate?.url.host, configured, name)
+            }
+        }
+    }
+
     func testMalformedTXTAndCaseInsensitiveDuplicateProfile() {
         XCTAssertNil(LANDeviceCandidate(service: "A", host: "a.local.", port: 443, txt: Data([10, 112])))
         let text = ["profile=pdsh-mcp-1", "PROFILE=pdsh-mcp-1"]

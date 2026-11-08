@@ -199,8 +199,9 @@ class DeviceConnectorPagesTest {
         local = WorkbenchLocalState(previewPath = "tool-output.txt")
         state = WorkbenchScreenState.from(snapshot, local)
         compose.onNodeWithText(UiStrings.WORKBENCH_PREVIEW_PENDING).assertIsDisplayed()
-        compose.onNodeWithText("重新检查文件").performClick()
-        assertEquals(1, refreshes)
+        // The unreachable 重新检查文件 control was removed (GAP-32).
+        compose.onNodeWithText("重新检查文件").assertDoesNotExist()
+        assertEquals(0, refreshes)
     }
 
     @Test

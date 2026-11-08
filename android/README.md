@@ -2,7 +2,7 @@
 # PDSH Android 适配树
 
 > **状态：可构建、可测试、可在模拟器上跑通 boot→HELLO。**
-> 13 个 Gradle 模块：原有 11 个 Swift 模块由 **7 个模块映射**（合并规则见下）；新增加的 Swift 模块中，BLE/LAN 仅有未接入的 target 解码器，ADB/SSH/DeviceTasks 在 Android 无对应实现。另 6 个模块不属于原有 7 个映射
+> 13 个 Gradle 模块：原有 11 个 Swift 模块由 **7 个模块映射**（合并规则见下）；新增加的 Swift 模块中，BLE 仅有未接入的 target 解码器、LAN 发现为 partial（扫描与候选已接入 MCP 页，授权流程未接），SSH 映射到 `:app` 的 `com.phonedsh.ssh`，ADB 合并进 `:net`（原生 MCP 工具，无 Worker 文件传输加速器），DeviceTasks 在 Android 无对应实现。另 6 个模块不属于原有 7 个映射
 > （`:platform` 承载 SPI、`:platform-android` 承载 SPI 的 Android 实现、`:domain` 承载设备能力契约
 > 与手机权限读数、`:lib` 是可发布 AAR、`:app` 是 probe-app、`:lib-consumer-test` 以发布坐标
 > `com.phonedsh:lib:0.1.0` 消费 AAR）。`:domain` 的 **DomainStore 已删除**（2026-11-01：
@@ -153,10 +153,10 @@ android/
 | PhoneDSH | `com.phonedsh.dsh` | `:dsh` | mapped | DSH 实现在子包；根包仅为 marker，不能据此声称门面完成 |
 | PhoneDSHScenario | `com.phonedsh.testkit.scenario` | `:testkit` | mapped | 合并进 `:testkit` |
 | PhoneDSHHarness | `com.phonedsh.testkit.harness` | `:testkit` | mapped | 合并进 `:testkit` |
-| PhoneDSHADB | — | — | absent | Android 无对应实现 |
-| PhoneDSHSSH | — | — | absent | Android 无对应实现 |
+| PhoneDSHADB | `com.phonedsh.adb` | `:net` | mapped | 合并进 `:net`；`/mcp/native` 的 26 个 android_* 工具、RSA 身份（SecureStore）、回执与设置页；无 Worker `adb push/pull/stat` 加速器（见 PC-20261108-android-adb-host） |
+| PhoneDSHSSH | `com.phonedsh.ssh` | `:app` | mapped | 原生 `ssh`/`scp` 加速器（JSch + Bouncy Castle，仅在 `:app`，不进 AAR）；设置页「SSH 主机」，凭据走 Android Keystore；见 `docs/native-ssh.md` |
 | PhoneDSHBLE | `com.phonedsh.domain.connector.ble` | `:domain` | target | 仅未接线的 Link 编解码与状态机；没有 GATT、授权或设备任务 |
-| PhoneDSHLAN | `com.phonedsh.domain.connector.lan` | `:domain` | target | 仅未接线的 DNS-SD 候选解码；没有发现或连接 |
+| PhoneDSHLAN | `com.phonedsh.domain.connector.lan` | `:domain` | target | 状态列由 `spec/platform/android-module-map.json` 拥有，待契约 owner 更新为 partial。有界 DNS 报文解析＋DNS-SD 折叠＋候选解码（`:domain`），`:app` 的 `AndroidLanDiscovery` 在 Wi-Fi 上做用户发起的 mDNS 扫描并列出未验证候选；不连接、不授权、不持久化（见 PC-20261108-android-lan-mdns） |
 | PhoneDSHDeviceTasks | — | — | absent | Android 无对应实现 |
 
 **合并规则**：`:core`（wire + log + agentcore）、`:net`（loopback + gateway）、`:testkit`

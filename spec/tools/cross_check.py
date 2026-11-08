@@ -106,6 +106,7 @@ GOLDEN_READERS = (
     ("spec/v1/golden/bridge", "*.json", "spec/v1/tools/bridge_check.py", False),
     ("spec/v1/golden/gateway", "*.json", "spec/v1/tools/gateway_check.py", False),
     ("spec/v1/golden/gateway/official-deepseek-web", "cases.json", "harmony/tests/official-web.test.mjs", False),
+    ("spec/v1/golden/gateway/independent-search", "cases.json", "plugins/tests/llm-install.test.ts", False),
     ("spec/v1/golden/perturbations", "*.json", "spec/v1/tools/fixture_check.py", False),
     ("spec/v1/golden/upstream", "*.json", "spec/v1/tools/fixture_check.py", False),
     ("spec/v1/golden/trajectory", "notes.json", "spec/v1/tools/trajectory_norm.py", True),

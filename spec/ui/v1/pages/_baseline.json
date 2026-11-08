@@ -1,64 +1,8 @@
 {
  "schema": "pdsh.ui.page-structure-baseline/1",
- "note": "PR22/current-source ratchet: 13 records on 2 pages. Only shrunk after verified source UI/rendering changes; no added record or waiver. Source structure, runtime behavior and paired pixel acceptance are separate.",
+ "note": "PR22/current-source ratchet: 5 records on 1 page. Only shrunk after verified source UI/rendering changes; no added record or waiver. Source structure, runtime behavior and paired pixel acceptance are separate.",
  "contracts": 34,
  "divergences": [
-  {
-   "page": "model-provider-settings",
-   "kind": "extra-action",
-   "name": "从剪贴板导入",
-   "lane": "F",
-   "reason": "PR22 rewrote ModelProviderSettingsPage as 服务/密钥/模型目录/生效方式 with a separate editor (embedded ModelProviderEditorPage) and explicit test/save receipts. Android ModelProviderSettingsPage.kt still renders the pre-PR22 form (add/edit/delete/default/test), so the section titles and controls differ. Lane F rebuilds the provider form and get-models flow. This row is `从剪贴板导入` (extra-action)."
-  },
-  {
-   "page": "model-provider-settings",
-   "kind": "extra-action",
-   "name": "删除已保存的密钥",
-   "lane": "F",
-   "reason": "PR22 rewrote ModelProviderSettingsPage as 服务/密钥/模型目录/生效方式 with a separate editor (embedded ModelProviderEditorPage) and explicit test/save receipts. Android ModelProviderSettingsPage.kt still renders the pre-PR22 form (add/edit/delete/default/test), so the section titles and controls differ. Lane F rebuilds the provider form and get-models flow. This row is `删除已保存的密钥` (extra-action)."
-  },
-  {
-   "page": "model-provider-settings",
-   "kind": "extra-action",
-   "name": "删除此模型",
-   "lane": "F",
-   "reason": "PR22 rewrote ModelProviderSettingsPage as 服务/密钥/模型目录/生效方式 with a separate editor (embedded ModelProviderEditorPage) and explicit test/save receipts. Android ModelProviderSettingsPage.kt still renders the pre-PR22 form (add/edit/delete/default/test), so the section titles and controls differ. Lane F rebuilds the provider form and get-models flow. This row is `删除此模型` (extra-action)."
-  },
-  {
-   "page": "model-provider-settings",
-   "kind": "extra-action",
-   "name": "图片输入",
-   "lane": "F",
-   "reason": "PR22 rewrote ModelProviderSettingsPage as 服务/密钥/模型目录/生效方式 with a separate editor (embedded ModelProviderEditorPage) and explicit test/save receipts. Android ModelProviderSettingsPage.kt still renders the pre-PR22 form (add/edit/delete/default/test), so the section titles and controls differ. Lane F rebuilds the provider form and get-models flow. This row is `图片输入` (extra-action)."
-  },
-  {
-   "page": "model-provider-settings",
-   "kind": "extra-action",
-   "name": "推理强度",
-   "lane": "F",
-   "reason": "PR22 rewrote ModelProviderSettingsPage as 服务/密钥/模型目录/生效方式 with a separate editor (embedded ModelProviderEditorPage) and explicit test/save receipts. Android ModelProviderSettingsPage.kt still renders the pre-PR22 form (add/edit/delete/default/test), so the section titles and controls differ. Lane F rebuilds the provider form and get-models flow. This row is `推理强度` (extra-action)."
-  },
-  {
-   "page": "model-provider-settings",
-   "kind": "extra-action",
-   "name": "文本输入",
-   "lane": "F",
-   "reason": "PR22 rewrote ModelProviderSettingsPage as 服务/密钥/模型目录/生效方式 with a separate editor (embedded ModelProviderEditorPage) and explicit test/save receipts. Android ModelProviderSettingsPage.kt still renders the pre-PR22 form (add/edit/delete/default/test), so the section titles and controls differ. Lane F rebuilds the provider form and get-models flow. This row is `文本输入` (extra-action)."
-  },
-  {
-   "page": "model-provider-settings",
-   "kind": "extra-action",
-   "name": "添加模型",
-   "lane": "F",
-   "reason": "PR22 rewrote ModelProviderSettingsPage as 服务/密钥/模型目录/生效方式 with a separate editor (embedded ModelProviderEditorPage) and explicit test/save receipts. Android ModelProviderSettingsPage.kt still renders the pre-PR22 form (add/edit/delete/default/test), so the section titles and controls differ. Lane F rebuilds the provider form and get-models flow. This row is `添加模型` (extra-action)."
-  },
-  {
-   "page": "model-provider-settings",
-   "kind": "extra-action",
-   "name": "默认模型",
-   "lane": "F",
-   "reason": "PR22 rewrote ModelProviderSettingsPage as 服务/密钥/模型目录/生效方式 with a separate editor (embedded ModelProviderEditorPage) and explicit test/save receipts. Android ModelProviderSettingsPage.kt still renders the pre-PR22 form (add/edit/delete/default/test), so the section titles and controls differ. Lane F rebuilds the provider form and get-models flow. This row is `默认模型` (extra-action)."
-  },
   {
    "page": "native-configuration",
    "kind": "extra-action",

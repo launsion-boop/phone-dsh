@@ -1,6 +1,6 @@
 {
  "schema": "pdsh.ui.page-structure-unrecognized/1",
- "note": "Structural items that cannot be compared statically, registered explicitly (owner + reviewBy + reason). An entry here is a decision, not debt: the checker prints it as `registered` and it is not a divergence. An entry that matches no observed item is an error (delete it), and a past reviewBy is an error (re-review it). Two shapes so far: (a) an untitled baseline group whose only row text is runtime data (error/notice blocks), so no literal criterion exists by design; (b) an Android section title computed from state while the contract section is titled/criterion-based.",
+ "note": "Structural items that cannot be compared statically, registered explicitly (owner + reviewBy + reason). An entry here is a decision, not debt: the checker prints it as `registered` and it is not a divergence. An entry that matches no observed item is an error (delete it), and a past reviewBy is an error (re-review it). Shapes: (a) an untitled baseline group whose only row text is runtime data (error/notice blocks), so no literal criterion exists by design; (b) other items a human has judged not statically comparable. An Android title or label made only of host data (no literal wording, UiStrings, CONST, native() or .format) is no longer registered here: page_structure_check.is_data_label classifies it, mirroring the contract's unlabelled actions and expression-titled sections, and prints it under `data-labelled Android items` (spec/ui/v1/page-structure-rules.md).",
  "entries": [
   {
    "page": "mcp-settings",
@@ -35,19 +35,19 @@
    "reviewBy": "2027-06-30"
   },
   {
-   "page": "native-configuration",
+   "page": "permission-defaults",
    "kind": "unresolved-section",
-   "name": "group.title",
-   "reason": "The Android page supplies this group's title from host state (`group.title`); the contract section is criterion-based, so the title is runtime data and is not comparable statically. The row criterion, not the title, is the judgement.",
-   "owner": "android-parity",
+   "name": "<untitled: error>",
+   "reason": "SettingsPage.swift:421-423 renders `if let error = model.permissionCatalogError ?? model.settingsError { Section { Text(error) } }`: an untitled error block whose only row is runtime text, so no literal criterion exists. Same shape as mcp-settings `<untitled: error>`. Android shows the host failure in the page's status line (PermissionDefaultsPage.kt, PERMISSION_DEFAULTS_STATUS_TAG), which is also runtime text.",
+   "owner": "ui-contract",
    "reviewBy": "2027-06-30"
   },
   {
-   "page": "runtime-details",
+   "page": "permission-defaults",
    "kind": "unresolved-section",
-   "name": "section.title",
-   "reason": "Android composes section titles from its runtime snapshot (`section.title`); the contract's titles are `本次运行`/`最近出错` and cannot be matched against runtime data.",
-   "owner": "android-parity",
+   "name": "<untitled: nativeConfigurationError(error)>",
+   "reason": "SettingsPage.swift:424-426 renders `if let error = model.error { Section { Text(nativeConfigurationError(error)) } }`: an untitled error block whose row is runtime text, so no literal criterion exists. Same shape as native-configuration `<untitled: nativeConfigurationError(error)>`.",
+   "owner": "ui-contract",
    "reviewBy": "2027-06-30"
   },
   {
@@ -56,14 +56,6 @@
    "name": "<untitled: folder>",
    "reason": "FilesPage.swift:117 takes the group title from data (`fileGroupTitle`, the current folder). Its first row is `Label(folder)`, also data, so no literal criterion exists; the group is identified by the folder expression at runtime.",
    "owner": "ui-contract",
-   "reviewBy": "2027-06-30"
-  },
-  {
-   "page": "files",
-   "kind": "unresolved-section",
-   "name": "state.groupTitle",
-   "reason": "Android renders the group title from state (`state.groupTitle`), which mirrors the baseline's data-as-title; there is no literal title on either side to compare.",
-   "owner": "android-parity",
    "reviewBy": "2027-06-30"
   },
   {
@@ -91,14 +83,6 @@
    "reviewBy": "2027-06-30"
   },
   {
-   "page": "phone-permissions",
-   "kind": "unresolved-section",
-   "name": "group.title",
-   "reason": "PhonePermissionsPage.swift:70 iterates `PhoneCapabilityGroup.allCases` and uses `group.title` as the Section header; the titles are model data, so no literal exists. The same shape is already registered for native-configuration and session-activity.",
-   "owner": "ui-contract",
-   "reviewBy": "2027-06-30"
-  },
-  {
    "page": "pdsh-shell",
    "kind": "unresolved-section",
    "name": "<untitled: empty>",
@@ -112,14 +96,6 @@
    "name": "<untitled: empty>",
    "reason": "The first RuntimeDetailsPage Section (ChatPage.swift:4324) opens with `runtimeRow(\"状态\", model.isStarted ? statusValue : \"已停止\")`; the label's value is a ternary, so no stable first-row criterion exists. The row and the stop/restart action are judged by the actions, not by this group title.",
    "owner": "ui-contract",
-   "reviewBy": "2027-06-30"
-  },
-  {
-   "page": "bluetooth-devices",
-   "kind": "unresolved-section",
-   "name": "device.name",
-   "reason": "BluetoothDevicesPage.swift:154 headers each device section with the peripheral's advertised name (`header: { Text(device.name) }`); Android's SettingsSectionLabel(device.name) is the same runtime value. Untrusted advertisement text has no literal criterion on either platform.",
-   "owner": "android-parity",
    "reviewBy": "2027-06-30"
   }
  ],

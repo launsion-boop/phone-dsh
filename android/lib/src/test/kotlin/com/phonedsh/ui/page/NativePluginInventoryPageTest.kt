@@ -58,10 +58,8 @@ class NativePluginInventoryPageTest {
 
         compose.onNodeWithTag(UiPageTags.PLUGIN_INVENTORY_FAILURE).assertIsDisplayed()
         compose.onNodeWithText(UiStrings.PLUGIN_INVENTORY_UNREAD).assertIsDisplayed()
-        compose.onNodeWithTag(UiPageTags.PLUGIN_INVENTORY_RETRY)
-            .assertIsDisplayed()
-            .assertIsEnabled()
-            .performClick()
-        assertEquals(2, refreshes) // one page-entry read, one explicit retry
+        // Recovery is pull-to-refresh, as on iOS; there is no separate retry button.
+        compose.onNodeWithTag(UiPageTags.PLUGIN_INVENTORY_RETRY).assertDoesNotExist()
+        assertEquals(1, refreshes) // the page-entry read only
     }
 }

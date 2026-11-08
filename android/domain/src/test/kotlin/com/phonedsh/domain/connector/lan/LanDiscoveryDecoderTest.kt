@@ -72,6 +72,56 @@ class LanDiscoveryDecoderTest {
     }
 
     @Test
+    fun sharedALabelVectorsDriveTheRealDecoder() {
+        val required = mapOf(
+            "alabel_invalid_punycode" to false,
+            "alabel_valid_latin" to false,
+            "alabel_uppercase" to false,
+            "alabel_unicode_version_dependent" to false,
+            "alabel_final_label" to false,
+            "ulabel_latin" to false,
+            "ulabel_ideographic_full_stop" to false,
+            "ldh_double_hyphen_34" to true,
+            "ldh_xn_inside_label" to true,
+        )
+        val seen = mutableSetOf<String>()
+        val outcomes = mutableSetOf<Boolean>()
+        forEachVector("lan-discovery-alabel.jsonl") { row ->
+            val name = row.getValue("name") as String
+            assertTrue("duplicate A-label vector name: $name", seen.add(name))
+            assertVector(row, decodeHex(row.getValue("txt_hex") as String))
+            outcomes += row.containsKey("url")
+            required[name]?.let { expected -> assertEquals("$name: changed outcome", expected, row.containsKey("url")) }
+        }
+        assertEquals(setOf(true, false), outcomes)
+        assertTrue("missing required A-label vectors: ${required.keys - seen}", seen.containsAll(required.keys))
+    }
+
+    @Test
+    fun sharedPublicationVectorsKeepOneHostname() {
+        val results = mutableSetOf<String>()
+        forEachVector("lan-publication.jsonl") { row ->
+            val name = row.getValue("name") as String
+            val result = row.getValue("result") as String
+            results += result
+            val candidate = LanDiscoveryDecoder.decode(
+                "Lamp", row.getValue("srv_target") as String, (row.getValue("srv_port") as Number).toInt(), profile,
+            )
+            assertEquals(name, row["url"] as String?, candidate?.url)
+            if (result == "consistent") {
+                val configured = LanDiscoveryDecoder.hostname(row.getValue("hostname") as String)
+                assertNotNull(name, configured)
+                assertEquals(name, configured, java.net.URI(candidate!!.url).host)
+            }
+        }
+        assertEquals(
+            setOf("consistent", "hostname_invalid", "certificate_name_missing", "srv_target_invalid",
+                "srv_target_mismatch", "srv_port_mismatch"),
+            results,
+        )
+    }
+
+    @Test
     fun strictTxtFramingAndProfileSemantics() {
         fun candidate(raw: ByteArray) = LanDiscoveryDecoder.decode("Device", "light.example.", 443, raw)
         assertNotNull(candidate(byteArrayOf(0) + profile))

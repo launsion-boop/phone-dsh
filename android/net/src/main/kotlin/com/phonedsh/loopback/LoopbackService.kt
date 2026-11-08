@@ -82,6 +82,16 @@ internal class LoopbackService(
      */
     private val modelProxy: LoopbackModelProxy? = null,
     /**
+     * The `/mcp/native` server (spec/v1/native-mcp.md), or `null` when this start
+     * serves no native phone tools; the route is then not mounted (404).
+     */
+    private val nativeMcp: NativeMcpServing? = null,
+    /**
+     * D14 admission for native `tools/call`: false answers 503 before the server
+     * sees the call. Cancellation and every other method still reach it.
+     */
+    private val nativeMcpAdmission: () -> Boolean = { true },
+    /**
      * `host:port` this origin was actually bound to (`127.0.0.1:<port>`).
      *
      * A lambda, not a value: the service is installed during `start()`, before
@@ -166,6 +176,10 @@ internal class LoopbackService(
             // not an asset route: the upstream URL comes from the request header
             // and the decision from the injected egress policy.
             route(EGRESS_PATH) { handle { serveHttpEgress(call) } }
+            // The native phone tools: exactly this path, behind the same gate.
+            nativeMcp?.let { server ->
+                route(NATIVE_MCP_PATH) { handle { serveNativeMcp(call, server) } }
+            }
             route("$EGRESS_PATH/{tail...}") { handle { serveHttpEgress(call) } }
             // M1: the model edge. The Worker's `DEEPSEEK_BASE_URL` points at this
             // origin, so these are proxy routes, not assets: the target comes from
@@ -383,12 +397,44 @@ internal class LoopbackService(
     }
 
     /**
+     * Serves one authenticated `/mcp/native` exchange (iOS
+     * `LoopbackServer.swift` `path == "/mcp/native"`): a `tools/call` while
+     * admission is closed is a 503 `unavailable`; everything else is the
+     * server's JSON-RPC answer with its own status.
+     */
+    private suspend fun serveNativeMcp(call: ApplicationCall, server: NativeMcpServing) {
+        val body = readEgressBody(call, MAX_NATIVE_MCP_BODY_BYTES)
+        if (body == null) {
+            respondJson(
+                call,
+                HttpStatusCode.PayloadTooLarge,
+                """{"error":{"code":"payload_too_large","message":"the native MCP request body is too large"}}""",
+            )
+            return
+        }
+        val method = call.request.httpMethod.value.uppercase()
+        if (method == "POST" && !nativeMcpAdmission() && NativeMcpMethod.of(body) == "tools/call") {
+            respondJson(
+                call,
+                HttpStatusCode.ServiceUnavailable,
+                """{"error":{"code":"unavailable","message":"phone tool admission is closed"}}""",
+            )
+            return
+        }
+        val headers = LinkedHashMap<String, String>()
+        for ((name, values) in call.request.headers.entries()) headers[name] = values.joinToString(", ")
+        val response = server.handle(NativeMcpRequest(method, headers, body))
+        call.response.headers.append(HttpHeaders.CacheControl, NO_STORE)
+        call.respondBytes(response.body, ContentType.Application.Json, HttpStatusCode.fromValue(response.status))
+    }
+
+    /**
      * Reads at most [MAX_EGRESS_BODY_BYTES] of the loopback request body.
      *
      * Returns `null` past the bound instead of buffering an unbounded body: a
      * loopback caller that streams forever must get a 413, not the App's heap.
      */
-    private suspend fun readEgressBody(call: ApplicationCall): ByteArray? {
+    private suspend fun readEgressBody(call: ApplicationCall, limit: Long = MAX_EGRESS_BODY_BYTES): ByteArray? {
         val channel = call.receiveChannel()
         val out = ByteArrayOutputStream()
         val buffer = ByteArray(EGRESS_READ_CHUNK)
@@ -396,7 +442,7 @@ internal class LoopbackService(
             val read = channel.readAvailable(buffer, 0, buffer.size)
             if (read < 0) break
             if (read == 0) continue
-            if (out.size().toLong() + read > MAX_EGRESS_BODY_BYTES) return null
+            if (out.size().toLong() + read > limit) return null
             out.write(buffer, 0, read)
         }
         return out.toByteArray()
@@ -589,6 +635,10 @@ internal class LoopbackService(
 
         /** Bound on one buffered request body (the Worker's own limit is 4 MiB). */
         const val MAX_EGRESS_BODY_BYTES: Long = 16L * 1024 * 1024
+        const val NATIVE_MCP_PATH: String = "/mcp/native"
+
+        /** The server itself rejects bodies over 16 KiB; this only bounds buffering. */
+        const val MAX_NATIVE_MCP_BODY_BYTES: Long = 1024L * 1024
         private const val EGRESS_READ_CHUNK = 8192
 
         /** Headers the gateway already filtered; a second copy must not leak. */

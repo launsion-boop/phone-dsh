@@ -187,27 +187,72 @@ export function workerRuntime(): boolean {
 
 const OFFICIAL_SEARCH_API_BASE = 'https://api.deepseek.com/v1/tools'
 
+const DNS_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u
+const PATH_SEGMENT = /^[A-Za-z0-9._~-]+$/u
+const FORBIDDEN_BASE_CHARACTER = /[?#%\\@\s]|[^\x21-\x7e]/u
+
+/**
+ * The canonical independent Search/Fetch base, or `undefined` when invalid.
+ *
+ * `spec/v1/gateway-independent-search.md` §1 owns these rules and
+ * `spec/v1/golden/gateway/independent-search/cases.json` is their judge.
+ */
+export function canonicalIndependentSearchBase(raw: string): string | undefined {
+  const text = raw.replace(/^[\t\n\f\r ]+|[\t\n\f\r ]+$/gu, '')
+  if (!/^https:\/\//iu.test(text)) return undefined
+  const rest = text.slice('https://'.length)
+  if (FORBIDDEN_BASE_CHARACTER.test(rest)) return undefined
+  const slash = rest.indexOf('/')
+  const host = (slash < 0 ? rest : rest.slice(0, slash)).toLowerCase()
+  let path = slash < 0 ? '' : rest.slice(slash)
+  if (host.length === 0 || host.length > 253 || /[:[\]]/u.test(host)) return undefined
+  const labels = host.split('.')
+  if (labels.length < 2 || !labels.every(label => DNS_LABEL.test(label))) return undefined
+  if (!/[a-z]/u.test(labels.at(-1) ?? '')) return undefined
+  if (path.endsWith('/')) path = path.slice(0, -1)
+  const segments = path === '' ? [] : path.slice(1).split('/')
+  if (!segments.every(segment => PATH_SEGMENT.test(segment) && segment !== '.' && segment !== '..')) return undefined
+  const last = segments.at(-1)?.toLowerCase()
+  if (last === 'search' || last === 'fetch') return undefined
+  const canonical = `https://${host}${path}`
+  return canonical.length <= 512 ? canonical : undefined
+}
+
+/** The base whose two operations the cookie Worker carries over `/v1/http`, if any. */
+function cookieWebToolBase(env: NodeJS.ProcessEnv): string | undefined {
+  if (env.PDSH_WEB_SEARCH_PROVIDER !== 'deepseek-search-api') return undefined
+  const base = env.DEEPSEEK_SEARCH_API_BASE_URL
+  if (base === undefined) return undefined
+  if (base === OFFICIAL_SEARCH_API_BASE) return base
+  return canonicalIndependentSearchBase(base) === base ? base : undefined
+}
+
 /** The implicit Worker host route on the same loopback origin as the channel. */
 export function defaultHostProxy(): HostProxyOptions | undefined {
   const env = process.env
   const channelToken = env.PDSH_CHANNEL_TOKEN || env.PDSH_EXEC_BRIDGE_TOKEN
-  const cookieWebTools = !channelToken
-    && env.PDSH_WEB_SEARCH_PROVIDER === 'deepseek-search-api'
-    && env.DEEPSEEK_SEARCH_API_BASE_URL === OFFICIAL_SEARCH_API_BASE
-  const token = cookieWebTools ? env.PDSH_DSH_LAUNCH_TOKEN : channelToken
+  // A cookie-authenticated launch has no channel bearer. The official and the
+  // independent Search/Fetch operations still need the host to inject their key,
+  // so exactly those two URLs ride /v1/http with the launch bearer.
+  const webToolBase = channelToken ? undefined : cookieWebToolBase(env)
+  const token = webToolBase !== undefined ? env.PDSH_DSH_LAUNCH_TOKEN : channelToken
   const origin = globalThis.location?.origin
   const url = env.PDSH_CHANNEL_ORIGIN
     ?? env.PDSH_EXEC_BRIDGE_URL
     ?? (origin !== undefined && (origin.startsWith('http://') || origin.startsWith('https://')) ? origin : undefined)
     ?? httpOriginFromChannelUrl(env.PDSH_CHANNEL_URL)
   if (!token || !url) {
-    if (cookieWebTools) throw new Error('llm-bridge: official web tools need the host gateway and launch bearer')
+    if (webToolBase === OFFICIAL_SEARCH_API_BASE) {
+      throw new Error('llm-bridge: official web tools need the host gateway and launch bearer')
+    }
+    if (webToolBase !== undefined) {
+      throw new Error('llm-bridge: independent web tools need the host gateway and launch bearer')
+    }
     return undefined
   }
-  return cookieWebTools
-    ? { url, token, match: target => target.href === `${OFFICIAL_SEARCH_API_BASE}/search`
-      || target.href === `${OFFICIAL_SEARCH_API_BASE}/fetch` }
-    : { url, token }
+  if (webToolBase === undefined) return { url, token }
+  const operations = new Set([`${webToolBase}/search`, `${webToolBase}/fetch`])
+  return { url, token, match: target => operations.has(target.href) }
 }
 
 interface ToolCallStore { getStore(): { key: string } | undefined }

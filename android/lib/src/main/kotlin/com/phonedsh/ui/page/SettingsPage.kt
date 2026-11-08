@@ -231,8 +231,14 @@ public enum class SettingsDestination {
     MODEL_PROVIDER,
     MCP,
 
+    /** SSH 主机: saved native SSH connections (docs/native-ssh.md). */
+    SSH,
+
     /** 蓝牙设备: scan + standard GATT (`spec/device/v1/android-standard-gatt.md`). */
     BLUETOOTH,
+
+    /** Android ADB: the LAN ADB target of the native android_* tools (`spec/v1/native-mcp.md`). */
+    ANDROID_ADB,
     WEB_SEARCH,
     EGRESS,
     PLUGIN_CONFIGURATION,
@@ -998,13 +1004,14 @@ public data class PermissionOptionView(
  * The 权限 sub-page's state, mirroring the baseline's PermissionDefaultsPage
  * (`SettingsPage.swift:218-245`).
  *
- * @param note the baseline's one explanatory line, verbatim.
+ * @param languageId the Settings language the page renders in; [note] is the
+ *   baseline's one explanatory line (`SettingsPage.swift:401`) in that language.
  * @param options the three presets in menu order.
  * @param readOnlyReason why the selector is disabled, when the host measured a lock.
  */
 @Immutable
 public data class PermissionDefaultsState(
-    public val note: String = UiStrings.PERMISSION_DEFAULTS_NOTE,
+    public val languageId: String? = null,
     public val options: List<PermissionOptionView> = emptyList(),
     public val busy: Boolean = false,
     public val writable: Boolean = false,
@@ -1012,6 +1019,18 @@ public data class PermissionDefaultsState(
     public val statusMessage: String? = null,
     public val readOnlyReason: String? = null,
 ) {
+    /**
+     * The explanatory line in [languageId]. The page renders the same
+     * `UiStrings.settingsNativeText(...)` call directly, so the wording stays a
+     * static contract label rather than opaque state.
+     */
+    public val note: String
+        get() = UiStrings.settingsNativeText(
+            languageId,
+            UiStrings.PERMISSION_DEFAULTS_NOTE,
+            UiStrings.PERMISSION_DEFAULTS_SCOPE_EN,
+        )
+
     public companion object {
         /** Projects the host's current preset into the three option rows. */
         public fun from(
@@ -1039,11 +1058,7 @@ public data class PermissionDefaultsState(
                 )
             }
             return PermissionDefaultsState(
-                note = UiStrings.settingsNativeText(
-                    languageId,
-                    UiStrings.PERMISSION_DEFAULTS_NOTE,
-                    UiStrings.PERMISSION_DEFAULTS_SCOPE_EN,
-                ),
+                languageId = languageId,
                 busy = busy,
                 writable = writable,
                 failure = failure,
@@ -1315,7 +1330,9 @@ private fun SettingsIndexList(
                 enabled = onOpenPhonePermissions != null, callback = onOpenPhonePermissions),
             SettingsIndexEntry("network", native("网络访问", UiStrings.SETTINGS_ROW_NETWORK_EN), com.phonedsh.ui.icon.PdshIcon.NETWORK, callback = { onNavigate(SettingsDestination.EGRESS) }),
             SettingsIndexEntry("mcp", native("MCP 与局域网设备", "MCP and LAN devices"), com.phonedsh.ui.icon.PdshIcon.DATABASE, callback = { onNavigate(SettingsDestination.MCP) }),
+            SettingsIndexEntry("ssh", native("SSH 主机", "SSH hosts"), com.phonedsh.ui.icon.PdshIcon.TERMINAL, callback = { onNavigate(SettingsDestination.SSH) }),
             SettingsIndexEntry("bluetooth", native("蓝牙设备", "Bluetooth devices"), com.phonedsh.ui.icon.PdshIcon.NETWORK, callback = { onNavigate(SettingsDestination.BLUETOOTH) }),
+            SettingsIndexEntry("androidAdb", native("Android ADB", "Android ADB"), com.phonedsh.ui.icon.PdshIcon.DEVICE, callback = { onNavigate(SettingsDestination.ANDROID_ADB) }),
         )),
         SettingsIndexSection("conversation", native(UiStrings.SETTINGS_SECTION_CONVERSATION, UiStrings.SETTINGS_SECTION_CONVERSATION_EN), listOf(
             SettingsIndexEntry.menu("appearance", native("外观", UiStrings.SETTINGS_ROW_APPEARANCE_EN), com.phonedsh.ui.icon.PdshIcon.GEAR, appearance,

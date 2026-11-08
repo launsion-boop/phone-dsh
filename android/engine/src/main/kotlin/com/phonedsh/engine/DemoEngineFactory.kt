@@ -13,6 +13,7 @@ import android.content.Context
 import com.phonedsh.loopback.LoopbackChannelHandler
 import com.phonedsh.loopback.LoopbackHttpEgress
 import com.phonedsh.loopback.LoopbackModelProxy
+import com.phonedsh.loopback.NativeMcpServing
 
 /**
  * Builds the one engine for [context].
@@ -48,6 +49,11 @@ import com.phonedsh.loopback.LoopbackModelProxy
  * then loads the page with no `?overlay=` at all — which is exactly the state that
  * loses a recovered workspace, so production must supply it.
  *
+ * [nativeMcp] is the `/mcp/native` server (spec/v1/native-mcp.md), or `null`
+ * when this host serves no native phone tools. When present the origin mounts it
+ * behind the token gate, `tools/call` follows [writesAllowed], and the Worker env
+ * gets `PDSH_PHONE_MCP_URL` / `PDSH_PHONE_MCP_TOKEN`.
+ *
  * The default [logger] writes to logcat.
  */
 fun createDemoEngine(
@@ -61,6 +67,7 @@ fun createDemoEngine(
     modelProxy: LoopbackModelProxy? = null,
     writesAllowed: () -> Boolean = { true },
     bootOverlaySource: BootOverlaySource? = null,
+    nativeMcp: NativeMcpServing? = null,
 ): DemoEngine = WebViewEngine(
     context,
     channelHandler,
@@ -72,4 +79,5 @@ fun createDemoEngine(
     modelProxy,
     writesAllowed,
     bootOverlaySource,
+    nativeMcp,
 )
