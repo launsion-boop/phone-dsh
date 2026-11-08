@@ -262,6 +262,51 @@ def template_of(raw: str) -> str:
     return re.sub(r"%(\d+\$)?d", "{n}", out).strip()
 
 
+# Compilation conditions the shipping app target does not define. Code inside
+# `#if <flag>` is absent from the product build, so it is not product UI and
+# must not become a contract item Android is asked to implement (a `target`
+# feature is not a feature, AGENTS.md §2.4). The identity UI test harness
+# defines PDSH_ENABLE_DEVICE_TASKS (examples/probe-app/identity-ui-harness/
+# project.yml); the app target (examples/probe-app/project.yml) does not, and
+# test_extract_ios_pages.py pins that.
+INACTIVE_BUILD_FLAGS = frozenset({"PDSH_ENABLE_DEVICE_TASKS"})
+
+_DIRECTIVE_RE = re.compile(r"^[ \t]*#(if|elseif|else|endif)\b[ \t]*(.*)$", re.M)
+
+
+def mask_inactive_conditionals(masked: str, inactive: frozenset = INACTIVE_BUILD_FLAGS) -> str:
+    """Blank the bodies of `#if FLAG` branches for flags the app build never sets.
+
+    Only a bare `#if FLAG` (or `#elseif FLAG`) naming an inactive flag is treated
+    as dead; its `#else` branch stays live. Any other condition is left alone.
+    Newlines and indices are preserved, like `mask_comments`.
+    """
+    out = list(masked)
+    # stack entries: (dead_now, any_branch_taken_unknown)
+    stack: list[list] = []
+    dead_from = None
+    for m in _DIRECTIVE_RE.finditer(masked):
+        kind, cond = m.group(1), m.group(2).strip()
+        line_start, line_end = m.start(), m.end()
+        if kind == "if":
+            stack.append([cond in inactive])
+        elif kind == "elseif" and stack:
+            stack[-1][0] = cond in inactive
+        elif kind == "else" and stack:
+            stack[-1][0] = False
+        elif kind == "endif" and stack:
+            stack.pop()
+        dead = any(frame[0] for frame in stack)
+        if dead and dead_from is None:
+            dead_from = line_end
+        elif not dead and dead_from is not None:
+            for k in range(dead_from, line_start):
+                if out[k] != "\n":
+                    out[k] = " "
+            dead_from = None
+    return "".join(out)
+
+
 class Source:
     """One Swift file with line lookups and the constructs the extractor needs."""
 
@@ -269,7 +314,7 @@ class Source:
         self.path = path
         self.rel = str(path.relative_to(root))
         self.text = path.read_text(encoding="utf-8")
-        self.masked = mask_comments(self.text)
+        self.masked = mask_inactive_conditionals(mask_comments(self.text))
         self._line_starts = [0]
         for m in re.finditer("\n", self.text):
             self._line_starts.append(m.end())

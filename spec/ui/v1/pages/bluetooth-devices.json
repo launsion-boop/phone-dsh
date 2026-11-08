@@ -154,41 +154,6 @@
       "extraction": "syntax"
     },
     {
-      "id": "section-59",
-      "title": null,
-      "titleTemplate": null,
-      "dynamicTitle": false,
-      "titleExpression": null,
-      "titleSource": "absent",
-      "condition": "PDSH_ENABLE_DEVICE_TASKS if let error = taskManager.error",
-      "collection": null,
-      "rows": [
-        {
-          "id": "text-59",
-          "label": null,
-          "labelExpr": "error",
-          "kind": "text",
-          "value": null,
-          "valueExpr": null,
-          "clickable": false,
-          "destination": null,
-          "writes": false,
-          "condition": null,
-          "provenance": "BluetoothDevicesPage.swift:59",
-          "anchor": "if let error = taskManager.error { Section { Text(error).foregroundStyle(.red) }",
-          "extraction": "manual"
-        }
-      ],
-      "provenance": "BluetoothDevicesPage.swift:59",
-      "anchor": "if let error = taskManager.error { Section { Text(error).foregroundStyle(.red) }",
-      "extraction": "syntax",
-      "criterion": {
-        "kind": "first-row-expression",
-        "labelExpr": "error",
-        "provenance": "BluetoothDevicesPage.swift:59"
-      }
-    },
-    {
       "id": "支持范围",
       "title": "支持范围",
       "titleTemplate": null,
@@ -446,96 +411,6 @@
           "extraction": "manual"
         },
         {
-          "id": "text-117",
-          "label": null,
-          "labelExpr": "device.identityError",
-          "kind": "text",
-          "value": null,
-          "valueExpr": null,
-          "clickable": false,
-          "destination": null,
-          "writes": false,
-          "condition": "!device.identityError.isEmpty",
-          "provenance": "BluetoothDevicesPage.swift:117",
-          "anchor": "Text(device.identityError)",
-          "extraction": "manual"
-        },
-        {
-          "id": "实验性身份指纹-记录指纹不会开启设备派任务-蓝牙任务授权目前不可用",
-          "label": "实验性身份指纹：记录指纹不会开启设备派任务；蓝牙任务授权目前不可用。",
-          "labelExpr": null,
-          "kind": "text",
-          "value": null,
-          "valueExpr": null,
-          "clickable": false,
-          "destination": null,
-          "writes": false,
-          "condition": "!device.pendingIdentity.isEmpty",
-          "provenance": "BluetoothDevicesPage.swift:122",
-          "anchor": "Text(\"实验性身份指纹：记录指纹不会开启设备派任务；蓝牙任务授权目前不可用。\")",
-          "extraction": "syntax"
-        },
-        {
-          "id": "text-124",
-          "label": null,
-          "labelExpr": "device.pendingIdentity",
-          "kind": "text",
-          "value": null,
-          "valueExpr": null,
-          "clickable": false,
-          "destination": null,
-          "writes": false,
-          "condition": "!device.pendingIdentity.isEmpty",
-          "provenance": "BluetoothDevicesPage.swift:124",
-          "anchor": "Text(device.pendingIdentity).font(.caption.monospaced()).textSelection(.enabled)",
-          "extraction": "manual"
-        },
-        {
-          "id": "记录此实验性指纹",
-          "label": "记录此实验性指纹",
-          "labelExpr": null,
-          "kind": "action",
-          "value": null,
-          "valueExpr": null,
-          "clickable": true,
-          "destination": null,
-          "writes": false,
-          "condition": "!device.pendingIdentity.isEmpty",
-          "provenance": "BluetoothDevicesPage.swift:125",
-          "anchor": "Button(\"记录此实验性指纹\") { store.trustPendingIdentity(device.id) }",
-          "extraction": "syntax"
-        },
-        {
-          "id": "允许设备向手机派任务",
-          "label": "允许设备向手机派任务",
-          "labelExpr": null,
-          "kind": "control",
-          "value": null,
-          "valueExpr": null,
-          "clickable": true,
-          "destination": null,
-          "writes": true,
-          "condition": "device.supportsDeviceTasks",
-          "provenance": "BluetoothDevicesPage.swift:129",
-          "anchor": "Toggle(\"允许设备向手机派任务\", isOn: Binding(get: { taskManager.isActive(key) }, set: { en",
-          "extraction": "syntax"
-        },
-        {
-          "id": "仅当前连接和前台有效-设备只能提交文字任务并接收最终答复",
-          "label": "仅当前连接和前台有效，设备只能提交文字任务并接收最终答复。",
-          "labelExpr": null,
-          "kind": "text",
-          "value": null,
-          "valueExpr": null,
-          "clickable": false,
-          "destination": null,
-          "writes": false,
-          "condition": "device.supportsDeviceTasks",
-          "provenance": "BluetoothDevicesPage.swift:132",
-          "anchor": "Text(\"仅当前连接和前台有效，设备只能提交文字任务并接收最终答复。\")",
-          "extraction": "syntax"
-        },
-        {
           "id": "设备-id-device-linkidentity",
           "label": "设备 ID：{device.linkIdentity}",
           "labelExpr": null,
@@ -767,35 +642,6 @@
       "dynamicLabel": true
     },
     {
-      "id": "记录此实验性指纹",
-      "label": "记录此实验性指纹",
-      "labelExpr": null,
-      "kind": "button",
-      "trigger": "tap",
-      "semantic": "{ store.trustPendingIdentity(device.id)",
-      "writes": false,
-      "destination": null,
-      "condition": null,
-      "provenance": "BluetoothDevicesPage.swift:125",
-      "anchor": "Button(\"记录此实验性指纹\") { store.trustPendingIdentity(device.id) }",
-      "extraction": "syntax",
-      "labelAlternatives": []
-    },
-    {
-      "id": "允许设备向手机派任务",
-      "label": "允许设备向手机派任务",
-      "labelExpr": null,
-      "kind": "toggle",
-      "trigger": "tap",
-      "semantic": "binding:Binding(get: { taskManager.isActive(key) }, set: { enabled in Task { if enabled { await taskManager.startBLE(device.id) } else { await taskManager.stop(key) } } })",
-      "writes": true,
-      "destination": null,
-      "condition": null,
-      "provenance": "BluetoothDevicesPage.swift:129",
-      "anchor": "Toggle(\"允许设备向手机派任务\", isOn: Binding(get: { taskManager.isActive(key) }, set: { en",
-      "extraction": "syntax"
-    },
-    {
       "id": "允许工具-name",
       "label": "允许工具：{name}",
       "labelExpr": null,
@@ -836,7 +682,7 @@
       "empty": [],
       "data": [
         {
-          "renders": "untitled section at 33 | 展开其他设备（N 个，未发现设备能力） | 结果 | untitled section at 59 | 支持范围 | untitled section at 154",
+          "renders": "untitled section at 33 | 展开其他设备（N 个，未发现设备能力） | 结果 | 支持范围 | untitled section at 154",
           "when": null,
           "provenance": "BluetoothDevicesPage.swift:6",
           "anchor": "struct BluetoothDevicesPage: View {",
@@ -878,9 +724,9 @@
   "extraction": {
     "tool": "extract_ios_pages.py",
     "mode": "syntax",
-    "sectionKeywordsInPage": 6,
+    "sectionKeywordsInPage": 5,
     "regionsExtracted": 0,
-    "sectionsExtracted": 6,
+    "sectionsExtracted": 5,
     "warnings": []
   }
 }

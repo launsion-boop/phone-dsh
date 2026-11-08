@@ -917,5 +917,45 @@ class PageSourceCompletenessTests(unittest.TestCase):
                 self.assertEqual(status == 0, case["valid"], output.getvalue() + errors.getvalue())
 
 
+class InactiveBuildFlagTests(unittest.TestCase):
+    SOURCE = """struct P: View {
+    var body: some View {
+        List {
+            Button("live") { }
+            #if PDSH_ENABLE_DEVICE_TASKS
+            Toggle("gated", isOn: $x)
+            #else
+            Button("fallback") { }
+            #endif
+            #if DEBUG
+            Button("debug") { }
+            #endif
+        }
+    }
+}
+"""
+
+    def test_inactive_flag_body_is_blanked_and_else_branch_kept(self) -> None:
+        masked = E.mask_inactive_conditionals(E.mask_comments(self.SOURCE))
+        self.assertEqual(len(masked), len(self.SOURCE))
+        self.assertEqual(masked.count("\n"), self.SOURCE.count("\n"))
+        self.assertNotIn("Toggle", masked)
+        self.assertIn("Button(", masked.split("#else", 1)[1])
+        self.assertIn("Button(", masked.split("#if DEBUG", 1)[1])
+
+    def test_nested_inactive_region_stays_blank_until_outer_endif(self) -> None:
+        src = "#if PDSH_ENABLE_DEVICE_TASKS\nA()\n#if DEBUG\nB()\n#endif\nC()\n#endif\nD()\n"
+        masked = E.mask_inactive_conditionals(src)
+        for gone in ("A()", "B()", "C()"):
+            self.assertNotIn(gone, masked)
+        self.assertIn("D()", masked)
+
+    def test_app_target_does_not_define_an_inactive_flag(self) -> None:
+        root = Path(__file__).resolve().parents[4]
+        app = (root / "examples/probe-app/project.yml").read_text(encoding="utf-8")
+        for flag in E.INACTIVE_BUILD_FLAGS:
+            self.assertNotIn(flag, app, f"{flag} is set for the app target; it is product UI again")
+
+
 if __name__ == "__main__":
     unittest.main()

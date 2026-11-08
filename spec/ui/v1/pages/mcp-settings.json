@@ -97,22 +97,6 @@
           "anchor": "NavigationLink {",
           "extraction": "manual",
           "collection": "model.rows"
-        },
-        {
-          "id": "允许设备向手机派任务",
-          "label": "允许设备向手机派任务",
-          "labelExpr": null,
-          "kind": "control",
-          "value": null,
-          "valueExpr": null,
-          "clickable": true,
-          "destination": null,
-          "writes": true,
-          "condition": "row.url.lowercased().hasPrefix(\"https://\"), row.grant != nil",
-          "provenance": "MCPSettingsPage.swift:73",
-          "anchor": "Toggle(\"允许设备向手机派任务\", isOn: Binding(get: { taskManager.isActive(key) }, set: { en",
-          "extraction": "syntax",
-          "collection": "model.rows"
         }
       ],
       "provenance": "MCPSettingsPage.swift:82",
@@ -162,48 +146,13 @@
       }
     },
     {
-      "id": "section-93",
-      "title": null,
-      "titleTemplate": null,
-      "dynamicTitle": false,
-      "titleExpression": null,
-      "titleSource": "absent",
-      "condition": "PDSH_ENABLE_DEVICE_TASKS if let error = taskManager.error",
-      "collection": null,
-      "rows": [
-        {
-          "id": "text-93",
-          "label": null,
-          "labelExpr": "error",
-          "kind": "text",
-          "value": null,
-          "valueExpr": null,
-          "clickable": false,
-          "destination": null,
-          "writes": false,
-          "condition": null,
-          "provenance": "MCPSettingsPage.swift:93",
-          "anchor": "if let error = taskManager.error { Section { Text(error).foregroundStyle(.red) }",
-          "extraction": "manual"
-        }
-      ],
-      "provenance": "MCPSettingsPage.swift:93",
-      "anchor": "if let error = taskManager.error { Section { Text(error).foregroundStyle(.red) }",
-      "extraction": "syntax",
-      "criterion": {
-        "kind": "first-row-expression",
-        "labelExpr": "error",
-        "provenance": "MCPSettingsPage.swift:93"
-      }
-    },
-    {
       "id": "section-96",
       "title": null,
       "titleTemplate": null,
       "dynamicTitle": false,
       "titleExpression": null,
       "titleSource": "absent",
-      "condition": "let notice = model.notice",
+      "condition": "PDSH_ENABLE_DEVICE_TASKS if let error = taskManager.error { Section { Text(error).foregroundStyle(.red) } } #endif if let notice = model.notice",
       "collection": null,
       "rows": [
         {
@@ -369,20 +318,6 @@
       "extraction": "manual"
     },
     {
-      "id": "允许设备向手机派任务",
-      "label": "允许设备向手机派任务",
-      "labelExpr": null,
-      "kind": "toggle",
-      "trigger": "tap",
-      "semantic": "binding:Binding(get: { taskManager.isActive(key) }, set: { enabled in Task { if enabled { await taskManager.startLAN(row) } else { await taskManager.stop(key) } } })",
-      "writes": true,
-      "destination": null,
-      "condition": null,
-      "provenance": "MCPSettingsPage.swift:73",
-      "anchor": "Toggle(\"允许设备向手机派任务\", isOn: Binding(get: { taskManager.isActive(key) }, set: { en",
-      "extraction": "syntax"
-    },
-    {
       "id": "扫描局域网设备",
       "label": "扫描局域网设备",
       "labelExpr": null,
@@ -464,7 +399,7 @@
       ],
       "data": [
         {
-          "renders": "Streamable HTTP MCP | untitled section at 88 | untitled section at 93 | untitled section at 96 | 局域网设备 | 操作",
+          "renders": "Streamable HTTP MCP | untitled section at 88 | untitled section at 96 | 局域网设备 | 操作",
           "when": null,
           "provenance": "MCPSettingsPage.swift:18",
           "anchor": "struct MCPSettingsPage: View {",
@@ -523,9 +458,9 @@
   "extraction": {
     "tool": "extract_ios_pages.py",
     "mode": "syntax",
-    "sectionKeywordsInPage": 6,
+    "sectionKeywordsInPage": 5,
     "regionsExtracted": 0,
-    "sectionsExtracted": 6,
+    "sectionsExtracted": 5,
     "warnings": []
   }
 }
