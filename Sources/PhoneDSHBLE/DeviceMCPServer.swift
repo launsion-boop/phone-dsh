@@ -12,7 +12,10 @@ public actor DeviceMCPServer: NativeMCPServing {
     private var activeLinkID: JSONValue?
     private var activeReadID: JSONValue?
     private let receiptDirectory: URL
-    public init(receiptDirectory: URL? = nil) {
+    /// The Android server whose tools, errors and receipts are served unchanged on `/mcp/native`.
+    private let adb: ADBMCPServer
+    public init(receiptDirectory: URL? = nil, adb: ADBMCPServer = .shared) {
+        self.adb = adb
         self.receiptDirectory = receiptDirectory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("ble-alert-receipts", isDirectory: true)
     }
     private var linkJournal: LinkToolJournal { LinkToolJournal(directory: receiptDirectory.appendingPathComponent("link-intents")) }
@@ -29,7 +32,7 @@ public actor DeviceMCPServer: NativeMCPServing {
         .object(["name": .string(name), "description": .string(description), "inputSchema": .object(["type": .string("object"), "properties": .object(properties), "required": .array(required.map(JSONValue.string)), "additionalProperties": .bool(false)])])
     }
     public func cancelPendingOperations() async {
-        await ADBMCPServer.shared.cancelPendingOperations()
+        await adb.cancelPendingOperations()
         await BLEDeviceStore.shared.cancelRead()
         await BLEDeviceStore.shared.cancelLinkOperations()
     }
@@ -37,7 +40,7 @@ public actor DeviceMCPServer: NativeMCPServing {
         guard request.method == "POST", request.body.count <= 16 * 1024,
               let message = try? JSONValue.parse(request.body), case .object(let fields) = message,
               fields["jsonrpc"] == .string("2.0"), case .string(let method) = fields["method"] else {
-            return await ADBMCPServer.shared.handle(request)
+            return await adb.handle(request)
         }
         let params = object(fields["params"])
         let name = string(params["name"]) ?? ""
@@ -52,7 +55,7 @@ public actor DeviceMCPServer: NativeMCPServing {
             return NativeMCPResponse(status: 202)
         }
         if method == "initialize" {
-            var response = await ADBMCPServer.shared.handle(request)
+            var response = await adb.handle(request)
             if let json = try? JSONValue.parse(response.body), case .object(var root) = json,
                case .object(var result) = root["result"] {
                 let existing = string(result["instructions"]) ?? ""
@@ -64,7 +67,7 @@ public actor DeviceMCPServer: NativeMCPServing {
             return response
         }
         if method == "tools/list" {
-            var response = await ADBMCPServer.shared.handle(request)
+            var response = await adb.handle(request)
             if let json = try? JSONValue.parse(response.body), case .object(var root) = json,
                case .object(var result) = root["result"], case .array(let tools) = result["tools"] {
                 result["tools"] = .array(tools + Self.descriptors); root["result"] = .object(result)
@@ -72,7 +75,7 @@ public actor DeviceMCPServer: NativeMCPServing {
             }
             return response
         }
-        guard method == "tools/call", name.hasPrefix("ble_") else { return await ADBMCPServer.shared.handle(request) }
+        guard method == "tools/call", name.hasPrefix("ble_") else { return await adb.handle(request) }
         guard let id = fields["id"] else { return NativeMCPResponse(status: 202) }
         switch id { case .string, .number: break; default: return rpcError(id: .null, message: "Invalid request ID") }
         if let arguments = params["arguments"], case .object = arguments {} else if params["arguments"] != nil {
