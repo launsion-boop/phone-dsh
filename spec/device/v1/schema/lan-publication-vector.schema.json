@@ -1,0 +1,54 @@
+{
+  "title": "LAN publication consistency test vector",
+  "description": "Configured device hostname, certificate dNSNames and the SRV values actually published; semantics in lan-mcp.md#name-consistency.",
+  "type": "object",
+  "required": [
+    "name",
+    "hostname",
+    "certificate_dns_names",
+    "srv_target",
+    "srv_port",
+    "port",
+    "result"
+  ],
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "hostname": {
+      "type": "string"
+    },
+    "certificate_dns_names": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "srv_target": {
+      "type": "string"
+    },
+    "srv_port": {
+      "type": "integer"
+    },
+    "port": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535
+    },
+    "url": {
+      "type": "string"
+    },
+    "result": {
+      "enum": [
+        "consistent",
+        "hostname_invalid",
+        "certificate_name_missing",
+        "srv_target_invalid",
+        "srv_target_mismatch",
+        "srv_port_mismatch"
+      ]
+    }
+  },
+  "additionalProperties": false
+}
