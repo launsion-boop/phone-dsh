@@ -213,9 +213,6 @@ private struct DailyBriefSourceEditor: View {
             .navigationTitle("添加资讯来源")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { dismiss() }
-                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(saving ? "添加中…" : "添加") {
                         saving = true

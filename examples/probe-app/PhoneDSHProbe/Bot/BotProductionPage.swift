@@ -75,6 +75,7 @@ struct BotProductionPage: View {
                     BotChatPage(model: model, onOpenInfo: { showInfo = true })
                 }
                 .task { await model.watchLoop() }
+                .task { await model.liveLoop() }
             } else if let error = hub.error {
                 unavailable(error)
             } else {

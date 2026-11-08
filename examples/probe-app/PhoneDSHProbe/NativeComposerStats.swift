@@ -112,7 +112,6 @@ struct NativeComposerStats: View {
                 .homeGroupedList()
                 .navigationTitle(selected == .activity ? "会话统计" : selected == .usage ? "Token 用量" : "上下文")
                 .navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("完成") { detail = nil } } }
             }
             .presentationDetents([.medium])
         }

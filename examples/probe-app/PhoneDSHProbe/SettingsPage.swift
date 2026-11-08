@@ -38,11 +38,19 @@ enum NativeSettingsTab: String, CaseIterable, Identifiable {
     }
 }
 
+/// Where a `SettingsPage` sits: the full list in a sheet (with 完成), the
+/// 我的 tab (profile plus the few entries people use), or the 设置 page the
+/// tab pushes (everything the tab leaves out).
+enum SettingsPageMode {
+    case sheet, tab, more
+}
+
 /// Settings home: one grouped list in the phone's own settings shape. Every
 /// row opens its page (or a menu for a one-of choice); nothing is edited
 /// inline except those menus. Groups run from what you change most (models,
 /// permissions) to what you read least (engine, about).
 struct SettingsPage: View {
+    var mode: SettingsPageMode
     var onOpenSession: () -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var preferences = NativeChatPreferences.shared
@@ -53,114 +61,63 @@ struct SettingsPage: View {
     /// Deep entry (`SettingsPage(initialTab:)`) pushes that page on appear.
     @State private var deepLink: NativeSettingsTab?
 
-    init(initialTab: NativeSettingsTab = .general, onOpenSession: @escaping () -> Void = {}) {
+    @State private var devices = DeviceSessionCoordinator.shared
+    @State private var showSchedules = false
+    @State private var showDevices = false
+
+    init(initialTab: NativeSettingsTab = .general, isTab: Bool = false,
+         onOpenSession: @escaping () -> Void = {}) {
+        self.init(mode: isTab ? .tab : .sheet, initialTab: initialTab, onOpenSession: onOpenSession)
+    }
+
+    init(mode: SettingsPageMode, initialTab: NativeSettingsTab = .general,
+         onOpenSession: @escaping () -> Void = {}) {
+        self.mode = mode
         self.onOpenSession = onOpenSession
         _deepLink = State(initialValue: initialTab == .general ? nil : initialTab)
     }
 
     var body: some View {
         List {
-            Section(NativeText("模型与智能体", "Models and agents")) {
-                link(NativeText("模型服务", "Model providers"), icon: "cpu") { ModelProviderSettingsPage() }
-                link(NativeText("Agent 预设", "Agent presets"), icon: "person.2") {
-                    NativeAgentPresetsPage(onOpenSession: openedPresetSession)
-                }
-                link(NativeText("插件与工具", "Plugins and tools"), icon: "puzzlepiece.extension") {
-                    NativeConfigurationPage()
-                }
-            }
-
-            Section(NativeText("权限与隐私", "Permissions and privacy")) {
-                link(NativeText("新会话默认权限", "Default permission"), icon: "lock.shield",
-                     value: permissionTitle) { PermissionDefaultsPage() }
-                link(NativeText("手机权限", "Phone permissions"), icon: "hand.raised",
-                     value: phonePermissionSummary) { PhonePermissionsPage(embedded: true) }
-                link(NativeText("网络访问", "Network access"), icon: "network") { EgressAllowListPage() }
-                link(NativeText("SSH 主机", "SSH hosts"), icon: "terminal",
-                     value: "\(SSHSettingsStore.shared.connections.count)") { SSHSettingsPage() }
-                link(NativeText("Android ADB", "Android ADB"), icon: "iphone.gen3") {
-                    AndroidADBSettingsPage()
-                }
-            }
-
-            Section(NativeText("对话", "Conversation")) {
-                Picker(selection: Binding(get: { preferences.appearance },
-                                          set: { preferences.setAppearance($0) })) {
-                    Text(NativeText("跟随系统", "System")).tag(NativeAppearance.system)
-                    Text(NativeText("浅色", "Light")).tag(NativeAppearance.light)
-                    Text(NativeText("深色", "Dark")).tag(NativeAppearance.dark)
-                } label: {
-                    SettingsRowLabel(title: NativeText("外观", "Appearance"), icon: "circle.lefthalf.filled")
-                }
-                Picker(selection: Binding(get: { preferences.language },
-                                          set: { preferences.setLanguage($0) })) {
-                    Text(NativeText("跟随系统", "System")).tag(NativeLocalePreference.system)
-                    Text("中文").tag(NativeLocalePreference.zh)
-                    Text("English").tag(NativeLocalePreference.en)
-                } label: {
-                    SettingsRowLabel(title: NativeText("语言", "Language"), icon: "globe")
-                }
-                link(NativeText("字号", "Text size"), icon: "textformat.size",
-                     value: "\(preferences.fontSize(for: .text))") { FontSizeSettingsPage() }
-                link(NativeText("工作过程", "Work details"), icon: "list.bullet.rectangle") {
-                    ConversationSettingsPage()
-                }
-                link(NativeText("快捷键", "Shortcuts"), icon: "command") { NativeShortcutsPage() }
-            }
-
-            Section(NativeText("会话与文件", "Sessions and files")) {
-                link(NativeText("文件夹", "Folders"), icon: "folder",
-                     value: management.workspaces.isEmpty ? nil : "\(management.workspaces.count)") {
-                    WorkspaceFoldersPage()
-                }
-                link(NativeText("已归档会话", "Archived sessions"), icon: "archivebox",
-                     value: management.archivedSessions.isEmpty ? nil : "\(management.archivedSessions.count)") {
-                    ArchivedSessionsPage()
-                }
-            }
-
-            Section {
-                HStack(spacing: 12) {
-                    SettingsRowLabel(title: NativeText("引擎状态", "Engine"), icon: "bolt.horizontal",
-                                     value: chat.hostState)
-                }
-                if chat.engineNeedsReset {
-                    Button {
-                        Task { await chat.restartEngine() }
-                    } label: {
-                        SettingsRowLabel(title: NativeText("重新启动引擎", "Restart engine"),
-                                         icon: "arrow.clockwise")
-                    }
-                }
-                link(NativeText("运行状态", "Runtime details"), icon: "waveform.path.ecg") {
-                    RuntimeDetailsPage(model: chat)
-                }
-            } header: {
-                Text(NativeText("引擎", "Engine"))
-            } footer: {
-                if chat.engineNeedsReset {
-                    Text(NativeText(
-                        "上次启动失败后引擎不会自动重试。重新启动会确认这次失败并重新启动，会话数据不受影响。",
-                        "The engine does not retry after a failure. Restarting acknowledges it and boots again; session data is kept."))
-                }
-            }
-
-            Section(NativeText("关于", "About")) {
-                link(NativeText("关于 Phone DSH", "About Phone DSH"), icon: "info.circle") { SettingsAboutPage() }
-                SettingsRowLabel(title: NativeText("版本", "Version"), icon: "number",
-                                 value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—")
-                link(NativeText("开源许可", "Open-source licenses"), icon: "doc.text") { LicensesPage() }
+            switch mode {
+            case .tab:
+                profileSection
+                tabSections
+            case .sheet:
+                modelsSection(includesProviders: true)
+                permissionsSection(includesPhone: true)
+                conversationSection
+                sessionsSection(includesArchived: true)
+                engineSection
+                aboutSection(includesAboutPage: true)
+            case .more:
+                modelsSection(includesProviders: false)
+                permissionsSection(includesPhone: false)
+                conversationSection
+                sessionsSection(includesArchived: false)
+                engineSection
+                aboutSection(includesAboutPage: false)
             }
         }
         .homeGroupedList()
         .tint(HomeSpec.textPrimary)
-        .navigationTitle(NativeText("设置", "Settings"))
+        .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button(NativeText("完成", "Done")) { dismiss() }
-                    .fontWeight(.semibold)
+            if mode == .sheet {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(NativeText("完成", "Done")) { dismiss() }
+                        .fontWeight(.semibold)
+                }
             }
+        }
+        .sheet(isPresented: $showSchedules) {
+            NavigationStack { NativeAutomationPage() }
+                .homeSheetChrome()
+        }
+        .sheet(isPresented: $showDevices) {
+            NavigationStack { NativeDeviceConnectionPage() }
+                .homeSheetChrome()
         }
         .navigationDestination(item: $deepLink) { tab in deepPage(tab) }
         .task {
@@ -168,6 +125,235 @@ struct SettingsPage: View {
             await phonePermissions.refresh()
             await management.refresh()
         }
+    }
+
+    private var title: String {
+        switch mode {
+        case .tab: NativeText("我的", "Me")
+        case .sheet, .more: NativeText("设置", "Settings")
+        }
+    }
+
+    // MARK: - Groups
+
+    private func modelsSection(includesProviders: Bool) -> some View {
+        Section(NativeText("模型与智能体", "Models and agents")) {
+            if includesProviders {
+                link(NativeText("模型服务", "Model providers"), icon: "cpu") { ModelProviderSettingsPage() }
+            }
+            link(NativeText("Agent 预设", "Agent presets"), icon: "person.2") {
+                NativeAgentPresetsPage(onOpenSession: openedPresetSession)
+            }
+            link(NativeText("插件与工具", "Plugins and tools"), icon: "puzzlepiece.extension") {
+                NativeConfigurationPage()
+            }
+        }
+    }
+
+    private func permissionsSection(includesPhone: Bool) -> some View {
+        Section(NativeText("权限与隐私", "Permissions and privacy")) {
+            link(NativeText("新会话默认权限", "Default permission"), icon: "lock.shield",
+                 value: permissionTitle) { PermissionDefaultsPage() }
+            if includesPhone { phonePermissionsLink }
+            link(NativeText("网络访问", "Network access"), icon: "network") { EgressAllowListPage() }
+            link(NativeText("SSH 主机", "SSH hosts"), icon: "terminal",
+                 value: "\(SSHSettingsStore.shared.connections.count)") { SSHSettingsPage() }
+            link(NativeText("Android ADB", "Android ADB"), icon: "iphone.gen3") {
+                AndroidADBSettingsPage()
+            }
+        }
+    }
+
+    private var conversationSection: some View {
+        Section(NativeText("对话", "Conversation")) {
+            Picker(selection: Binding(get: { preferences.appearance },
+                                      set: { preferences.setAppearance($0) })) {
+                Text(NativeText("跟随系统", "System")).tag(NativeAppearance.system)
+                Text(NativeText("浅色", "Light")).tag(NativeAppearance.light)
+                Text(NativeText("深色", "Dark")).tag(NativeAppearance.dark)
+            } label: {
+                SettingsRowLabel(title: NativeText("外观", "Appearance"), icon: "circle.lefthalf.filled")
+            }
+            Picker(selection: Binding(get: { preferences.language },
+                                      set: { preferences.setLanguage($0) })) {
+                Text(NativeText("跟随系统", "System")).tag(NativeLocalePreference.system)
+                Text("中文").tag(NativeLocalePreference.zh)
+                Text("English").tag(NativeLocalePreference.en)
+            } label: {
+                SettingsRowLabel(title: NativeText("语言", "Language"), icon: "globe")
+            }
+            link(NativeText("字号", "Text size"), icon: "textformat.size",
+                 value: "\(preferences.fontSize(for: .text))") { FontSizeSettingsPage() }
+            link(NativeText("工作过程", "Work details"), icon: "list.bullet.rectangle") {
+                ConversationSettingsPage()
+            }
+            link(NativeText("快捷键", "Shortcuts"), icon: "command") { NativeShortcutsPage() }
+        }
+    }
+
+    private func sessionsSection(includesArchived: Bool) -> some View {
+        Section(NativeText("会话与文件", "Sessions and files")) {
+            link(NativeText("文件夹", "Folders"), icon: "folder",
+                 value: management.workspaces.isEmpty ? nil : "\(management.workspaces.count)") {
+                WorkspaceFoldersPage()
+            }
+            if includesArchived { archivedLink }
+        }
+    }
+
+    private var engineSection: some View {
+        Section {
+            HStack(spacing: 12) {
+                SettingsRowLabel(title: NativeText("引擎状态", "Engine"), icon: "bolt.horizontal",
+                                 value: chat.hostState)
+            }
+            if chat.engineNeedsReset { restartEngineButton }
+            link(NativeText("运行状态", "Runtime details"), icon: "waveform.path.ecg") {
+                RuntimeDetailsPage(model: chat)
+            }
+        } header: {
+            Text(NativeText("引擎", "Engine"))
+        } footer: {
+            if chat.engineNeedsReset { restartEngineFooter }
+        }
+    }
+
+    private func aboutSection(includesAboutPage: Bool) -> some View {
+        Section(NativeText("关于", "About")) {
+            if includesAboutPage { aboutLink }
+            SettingsRowLabel(title: NativeText("版本", "Version"), icon: "number",
+                             value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—")
+            link(NativeText("开源许可", "Open-source licenses"), icon: "doc.text") { LicensesPage() }
+        }
+    }
+
+    private var phonePermissionsLink: some View {
+        link(NativeText("手机权限", "Phone permissions"), icon: "hand.raised",
+             value: phonePermissionSummary) { PhonePermissionsPage(embedded: true) }
+    }
+
+    private var archivedLink: some View {
+        link(NativeText("已归档会话", "Archived sessions"), icon: "archivebox",
+             value: management.archivedSessions.isEmpty ? nil : "\(management.archivedSessions.count)") {
+            ArchivedSessionsPage()
+        }
+    }
+
+    private var aboutLink: some View {
+        link(NativeText("关于 Phone DSH", "About Phone DSH"), icon: "info.circle") { SettingsAboutPage() }
+    }
+
+    private var restartEngineButton: some View {
+        Button {
+            Task { await chat.restartEngine() }
+        } label: {
+            SettingsRowLabel(title: NativeText("重新启动引擎", "Restart engine"), icon: "arrow.clockwise")
+        }
+    }
+
+    private var restartEngineFooter: some View {
+        Text(NativeText(
+            "上次启动失败后引擎不会自动重试。重新启动会确认这次失败并重新启动，会话数据不受影响。",
+            "The engine does not retry after a failure. Restarting acknowledges it and boots again; session data is kept."))
+    }
+
+    // MARK: - 我的 tab
+
+    /// Who is running: the app mark, engine state and the model in use.
+    /// Tapping opens 运行状态.
+    private var profileSection: some View {
+        Section {
+            NavigationLink {
+                RuntimeDetailsPage(model: chat)
+            } label: {
+                HStack(spacing: 14) {
+                    Image("LogoBackground")
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 56, height: 56)
+                        .background(HomeSpec.userBubble)
+                        .clipShape(Circle())
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Phone DSH")
+                            .font(.system(size: HomeSpec.navTitleSize, weight: .semibold))
+                            .foregroundStyle(HomeSpec.textPrimary)
+                        HStack(spacing: 6) {
+                            Circle().fill(engineColor).frame(width: 7, height: 7)
+                            Text(engineLabel)
+                                .font(.system(size: 14))
+                                .foregroundStyle(HomeSpec.textSecondary)
+                        }
+                        Text(modelLine)
+                            .font(.system(size: 13))
+                            .foregroundStyle(HomeSpec.textPlaceholder)
+                            .lineLimit(1)
+                    }
+                }
+                .padding(.vertical, 8)
+            }
+        }
+    }
+
+    /// The 我的 tab keeps what people reach for: models, schedules and
+    /// devices; phone permissions and the archive; then 设置 (every other
+    /// option) and 关于. A failed engine surfaces its restart here too.
+    @ViewBuilder private var tabSections: some View {
+        if chat.engineNeedsReset {
+            Section {
+                restartEngineButton
+            } footer: {
+                restartEngineFooter
+            }
+        }
+        Section {
+            link(NativeText("模型服务", "Model providers"), icon: "cpu") { ModelProviderSettingsPage() }
+            Button { showSchedules = true } label: {
+                SettingsRowLabel(title: NativeText("定时任务", "Scheduled tasks"), icon: "clock",
+                                 value: management.scheduleRecords.isEmpty ? nil : "\(management.scheduleRecords.count)")
+            }
+            Button { showDevices = true } label: {
+                SettingsRowLabel(title: NativeText("设备连接", "Devices"), icon: "dot.radiowaves.left.and.right",
+                                 value: devices.hasOnlineDevices ? NativeText("有设备在线", "Online") : nil)
+            }
+        }
+        Section {
+            phonePermissionsLink
+            archivedLink
+        }
+        Section {
+            link(NativeText("设置", "Settings"), icon: "gearshape") {
+                SettingsPage(mode: .more, onOpenSession: onOpenSession)
+            }
+            aboutLink
+        }
+    }
+
+    private var engineLabel: String {
+        if !chat.isStarted { return chat.busy ? NativeText("引擎启动中", "Engine starting") : NativeText("引擎未启动", "Engine stopped") }
+        if providerNeedsKey { return NativeText("待配置模型服务", "Model provider needed") }
+        return chat.turnRunning ? NativeText("运行中", "Running") : NativeText("引擎就绪", "Engine ready")
+    }
+
+    private var engineColor: Color {
+        if !chat.isStarted { return HomeSpec.iconMuted }
+        if providerNeedsKey { return NativeParityTokens.warning }
+        return HomeSpec.success
+    }
+
+    private var providerNeedsKey: Bool {
+        guard let profile = (try? PhoneModelProviderSettings.shared.load())?.selected,
+              let status = try? PhoneModelProviderSettings.shared.apiKeyStatus(for: profile.id)
+        else { return true }
+        return status != .present
+    }
+
+    private var modelLine: String {
+        guard let profile = (try? PhoneModelProviderSettings.shared.load())?.selected else {
+            return NativeText("还没有配置模型服务", "No model provider yet")
+        }
+        let name = profile.displayName.isEmpty ? profile.model : profile.displayName
+        return "\(name) · \(profile.model)"
     }
 
     private func link<Destination: View>(_ title: String, icon: String, value: String? = nil,

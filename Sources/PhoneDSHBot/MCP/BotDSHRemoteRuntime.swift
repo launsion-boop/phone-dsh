@@ -19,6 +19,26 @@ public struct BotRemoteTurnResult: Sendable, Equatable {
     }
 }
 
+/// A live view of the main chat turn for the Bot page, taken from the same
+/// `session/follow` stream `collectTurn` already reads. In-process only: it is
+/// not persisted, not a row and not part of any wire contract. Hidden
+/// interactions and the text suppressed after a question card never appear.
+public struct BotLiveTurnFrame: Sendable {
+    public enum Kind: Sendable {
+        /// A model attempt (step or retry) started streaming; text restarts.
+        case streamStart
+        /// A visible `text-delta` chunk.
+        case textDelta(String)
+        /// A durable DSH session event: `turn/start`, `step/start`,
+        /// `assistant/message`, `tool/call`, `tool/result` or `turn/end`.
+        case event(BotJSONValue)
+    }
+
+    public let sessionId: String
+    public let turnId: String?
+    public let kind: Kind
+}
+
 public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
     /// Durable task projection. It is stored as `persistedTask` inside the
     /// existing `task.created`/`task.updated` events, so no new table, event
@@ -92,6 +112,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
     private var interruptedTaskWakes: [String] = []
     private var routineSessions: [String: String] = [:]
     private var mainSessionTask: Task<String, Error>?
+    private var liveObserver: (@Sendable (BotLiveTurnFrame) -> Void)?
 
     public private(set) var mainSessionId: String?
 
@@ -181,6 +202,12 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
         let sessionId = try await ensureMainSession()
         return try await runTurn(sessionId: sessionId, kind: .chat, prompt: text,
                                  hidden: true, requestId: requestId)
+    }
+
+    /// One observer (the Bot page) receives live frames of visible main-chat
+    /// turns; pass nil to stop.
+    public func setLiveObserver(_ observer: (@Sendable (BotLiveTurnFrame) -> Void)?) {
+        liveObserver = observer
     }
 
     public func heldChatActionNonces(sessionID: String) -> [String: String] {
@@ -957,6 +984,11 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
         var resultTexts: [String] = []
         var toolNames: [String: String] = [:]
         var suppressWrapUp = false
+        let live = kind == .chat && !hidden
+        func publish(_ frameKind: BotLiveTurnFrame.Kind) {
+            guard live, let liveObserver else { return }
+            liveObserver(BotLiveTurnFrame(sessionId: sessionId, turnId: currentTurn, kind: frameKind))
+        }
         while true {
             guard coordinators[sessionId]?.attemptId == attemptId else {
                 return BotRemoteTurnResult(
@@ -978,9 +1010,13 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
             let value = frame["value"] ?? .null
             if value["type"]?.stringValue == "assistant-stream" {
                 if coordinators[sessionId]?.cancelRequested == true { continue }
-                if firstDeltaAt == nil, let text = value["frame"]?["chunk"]?["text"]?.stringValue,
+                if value["frame"]?["type"]?.stringValue == "start" { publish(.streamStart) }
+                if let text = value["frame"]?["chunk"]?["text"]?.stringValue,
                    !text.isEmpty, value["frame"]?["chunk"]?["type"]?.stringValue == "text-delta" {
-                    firstDeltaAt = Int64((value["time"]?.numberValue ?? Double(now())).rounded())
+                    if firstDeltaAt == nil {
+                        firstDeltaAt = Int64((value["time"]?.numberValue ?? Double(now())).rounded())
+                    }
+                    if !suppressWrapUp { publish(.textDelta(text)) }
                 }
                 continue
             }
@@ -992,6 +1028,11 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
             if let currentTurn, let eventTurn, currentTurn != eventTurn { continue }
             if coordinators[sessionId]?.cancelRequested == true, type != "turn/end" { continue }
             let eventTime = Int64((event["time"]?.numberValue ?? Double(now())).rounded())
+            if type == "turn/start" { currentTurn = eventTurn ?? currentTurn }
+            if ["turn/start", "step/start", "tool/call", "tool/result", "turn/end"].contains(type)
+                || (type == "assistant/message" && !suppressWrapUp) {
+                publish(.event(event))
+            }
             switch type {
             case "turn/start":
                 currentTurn = eventTurn ?? currentTurn

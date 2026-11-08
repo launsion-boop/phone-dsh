@@ -20,9 +20,7 @@ struct HomeDrawer: View {
     @State private var collapsedFolderIDs = Set(UserDefaults.standard.stringArray(
         forKey: "phone-dsh.sidebar.collapsed-workspaces") ?? [])
 
-    @State private var showSettings = false
     @State private var showSchedules = false
-    @State private var showBot = false
     @State private var showNewFolder = false
     @State private var newFolderName = ""
     @State private var renameSession: ManagedSession?
@@ -44,15 +42,14 @@ struct HomeDrawer: View {
                     folders
                 }
                 .padding(.top, topInset + HomeSpec.navTop)
-                .padding(.bottom, 24)
+                .padding(.bottom, bottomInset + 24)
             }
             .scrollIndicators(.hidden)
-            settingsBar
         }
         .background(HomeSpec.page)
         .overlay(alignment: .top) {
             if archivedToast {
-                Text("已归档，可在 设置 › 已归档会话 里找回")
+                Text("已归档，可在 我的 › 已归档会话 里找回")
                     .font(.system(size: 13))
                     .foregroundStyle(HomeSpec.textSecondary)
                     .padding(.horizontal, 12)
@@ -65,21 +62,8 @@ struct HomeDrawer: View {
             }
         }
         .task { await management.refresh() }
-        .sheet(isPresented: $showSettings) {
-            NavigationStack {
-                SettingsPage(onOpenSession: {
-                    showSettings = false
-                    isOpen = false
-                })
-            }
-                .homeSheetChrome()
-        }
         .sheet(isPresented: $showSchedules) {
             NavigationStack { NativeAutomationPage() }
-                .homeSheetChrome()
-        }
-        .sheet(isPresented: $showBot) {
-            BotProductionPage()
                 .homeSheetChrome()
         }
         .alert("新建文件夹", isPresented: $showNewFolder) {
@@ -141,10 +125,6 @@ struct HomeDrawer: View {
                      detail: newSessionBlocked, enabled: newSessionBlocked == nil) {
                 Task { if await management.createSession() != nil { close() } }
             }
-            entryRow(icon: "fish", title: "Bot",
-                     detail: botRuntimeDetail) {
-                showBot = true
-            }
             entryRow(icon: "clock", title: "定时任务",
                      detail: management.scheduleRecords.isEmpty ? nil : "\(management.scheduleRecords.count)") {
                 showSchedules = true
@@ -152,18 +132,6 @@ struct HomeDrawer: View {
 
         }
         .padding(.horizontal, 8)
-    }
-
-    /// A visible Bot entry is the production path into BotChatPage. The detail
-    /// only reports connection state; it never hides the entry when the host
-    /// is stopped, so the page itself can explain what is missing.
-    private var botRuntimeDetail: String? {
-        switch chat.botRuntimeState {
-        case .ready: return "已连接"
-        case .recovering, .connecting: return "重连中"
-        case .failed: return "未连接"
-        case .idle, .preparing, .stopped: return nil
-        }
     }
 
     private func entryRow(icon: String, title: String, detail: String? = nil,
@@ -394,68 +362,6 @@ struct HomeDrawer: View {
             }
             Button("归档", systemImage: "archivebox") { archive(session) }
         }
-    }
-
-    // MARK: - Settings bar
-
-    /// Pinned to the bottom edge: a 36pt floating gear, 设置, and the engine
-    /// state on the right so the drawer always says whether DSH is running.
-    private var settingsBar: some View {
-        Button { showSettings = true } label: {
-            HStack(spacing: 12) {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 18, weight: .regular))
-                    .foregroundStyle(HomeSpec.textPrimary)
-                    .frame(width: 36, height: 36)
-                    .background(HomeSpec.surface, in: Circle())
-                    .homeFloatingShadow()
-                Text("设置")
-                    .font(.system(size: HomeSpec.bodySize, weight: .semibold))
-                    .foregroundStyle(HomeSpec.textPrimary)
-                Spacer(minLength: 8)
-                HStack(spacing: 6) {
-                    Circle().fill(engineColor).frame(width: 7, height: 7)
-                    Text(engineLabel)
-                        .font(.system(size: 14))
-                        .foregroundStyle(HomeSpec.textSecondary)
-                        .lineLimit(1)
-                }
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(HomeSpec.textPlaceholder)
-            }
-            .padding(.horizontal, HomeSpec.chromeInset)
-            .padding(.top, 12)
-            .padding(.bottom, max(bottomInset, 12) + 4)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .background(alignment: .top) {
-            HomeSpec.page
-                .overlay(alignment: .top) {
-                    Rectangle().fill(HomeDrawer.hairline).frame(height: 1)
-                }
-        }
-        .accessibilityLabel("设置，\(engineLabel)")
-    }
-
-    private var engineLabel: String {
-        if !chat.isStarted { return chat.busy ? "引擎启动中" : "引擎未启动" }
-        if providerNeedsKey { return "待配置模型" }
-        return chat.turnRunning ? "运行中" : "引擎就绪"
-    }
-
-    private var engineColor: Color {
-        if !chat.isStarted { return HomeSpec.iconMuted }
-        if providerNeedsKey { return NativeParityTokens.warning }
-        return HomeSpec.success
-    }
-
-    private var providerNeedsKey: Bool {
-        guard let profile = (try? PhoneModelProviderSettings.shared.load())?.selected,
-              let status = try? PhoneModelProviderSettings.shared.apiKeyStatus(for: profile.id)
-        else { return true }
-        return status != .present
     }
 
     // MARK: - Helpers

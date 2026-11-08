@@ -31,6 +31,10 @@ struct BotCardView: View {
     }
 }
 
+// MARK: - Choice (question · steps)
+
+/// The question (or 建议下一步) on top, one row per option split by
+/// hairlines; 建议 is a tag, the picked option a check.
 private struct BotChoiceCardView: View {
     let row: BotUIRow
     let card: BotUICardContent
@@ -42,192 +46,160 @@ private struct BotChoiceCardView: View {
     private var choices: [BotUIChoice] {
         BotUIChoice.parseList(card.body[isSteps ? "steps" : "options"])
     }
-    private var prompt: String {
-        card.body.string("question", "prompt") ?? (isSteps ? "建议下一步" : "")
+    private var prompt: String? {
+        let value = card.body.string("question", "prompt")
+        return isSteps && value == "建议下一步" ? nil : value
     }
     private var help: String? { card.body.string("helpText", "help") }
     private var muted: Bool { model.mutedCardIDs.contains(row.id) }
     private var answered: Bool { card.body["status"]?.string == "answered" }
+    private var accepted: Bool { model.actionStates[key] == .accepted }
     private var locked: Bool {
-        answered || muted || model.actionStates[key] == .pending || model.actionStates[key] == .accepted
+        answered || muted || model.actionStates[key] == .pending || accepted
     }
-    private var canDismiss: Bool {
-        !isSteps && card.body["dismissible"]?.bool != false
-    }
+    private var canDismiss: Bool { !isSteps && card.body["dismissible"]?.bool != false }
 
     var body: some View {
-        BotCard(.conversation) {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .top, spacing: 8) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        if isSteps {
-                            Label("建议下一步", systemImage: "sparkles")
-                                .botCaptionFont(weight: .semibold)
-                                .foregroundStyle(HomeSpec.textSecondary)
-                        }
-                        if !prompt.isEmpty && !(isSteps && prompt == "建议下一步") {
-                            Text(prompt)
-                                .botTitleFont()
-                                .foregroundStyle(HomeSpec.textPrimary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        if let help {
-                            Text(help)
-                                .botSecondaryFont()
-                                .foregroundStyle(HomeSpec.textSecondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    if canDismiss && !isSteps {
-                        Button { model.dismiss(row: row) } label: {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 14, weight: .medium))
-                                .frame(width: 44, height: 44)
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(HomeSpec.textSecondary)
-                        .disabled(locked)
-                        .accessibilityLabel("关闭卡片")
-                        .accessibilityIdentifier("bot.choice.dismiss")
-                    }
+        BotCardSurface {
+            VStack(alignment: .leading, spacing: 0) {
+                BotCardHeading(icon: isSteps ? "sparkles" : "questionmark.circle",
+                               eyebrow: isSteps ? "建议下一步" : "需要你选择",
+                               title: prompt, detail: help) {
+                    if canDismiss { dismissButton }
                 }
-
-                VStack(spacing: 8) {
-                    ForEach(choices) { choice in
-                        Button {
-                            selectedID = choice.id
-                            model.answer(row: row, optionID: choice.id)
-                        } label: {
-                            HStack(alignment: .center, spacing: 12) {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(choice.label)
-                                        .botProcessFont(weight: .medium)
-                                        .foregroundStyle(choice.danger ? NativeParityTokens.error : HomeSpec.textPrimary)
-                                        .lineLimit(2)
-                                    if let description = choice.description {
-                                        Text(description)
-                                            .botSecondaryFont()
-                                            .foregroundStyle(HomeSpec.textSecondary)
-                                            .lineLimit(2)
-                                    }
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                if model.actionStates[key] == .accepted && selectedID == choice.id {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundStyle(NativeParityTokens.success)
-                                } else if choice.recommended {
-                                    Text("建议")
-                                        .botCaptionFont(weight: .medium)
-                                        .foregroundStyle(NativeParityTokens.accent)
-                                        .padding(.horizontal, 8)
-                                        .padding(.vertical, 3)
-                                        .background(HomeSpec.surface, in: Capsule())
-                                } else {
-                                    Image(systemName: "chevron.right")
-                                        .font(.system(size: 13))
-                                        .foregroundStyle(HomeSpec.textTertiary)
-                                }
-                            }
-                            .padding(.horizontal, 12)
-                            .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
-                            .background(choice.recommended ? NativeParityTokens.accent.opacity(0.06) : NativeParityTokens.selector,
-                                        in: RoundedRectangle(cornerRadius: 12))
-                        }
-                        .buttonStyle(.plain)
-                        .frame(maxWidth: .infinity, minHeight: 52)
-                        .disabled(locked)
-                        .opacity(muted && selectedID != choice.id ? 0.55 : 1)
-                        .accessibilityLabel(choice.recommended ? "\(choice.label)，建议" : choice.label)
-                        .accessibilityIdentifier("bot.choice.option.\(choice.id)")
-                    }
+                .padding(.bottom, choices.isEmpty ? 0 : 4)
+                ForEach(Array(choices.enumerated()), id: \.element.id) { index, choice in
+                    if index > 0 { BotCardDivider() }
+                    option(choice)
                 }
-
-                if model.actionStates[key] == .accepted || answered {
-                    Label("已送出", systemImage: "checkmark")
-                        .botSecondaryFont()
-                        .foregroundStyle(HomeSpec.textSecondary)
-                } else if muted {
-                    Text("已略过")
-                        .botSecondaryFont()
-                        .foregroundStyle(HomeSpec.textSecondary)
-                } else if case .failed(let reason) = model.actionStates[key] {
-                    Text("未能送出：\(reason)")
-                        .botSecondaryFont()
-                        .foregroundStyle(NativeParityTokens.error)
-                }
-
+                statusLine
             }
         }
         .accessibilityElement(children: .contain)
     }
+
+    private var dismissButton: some View {
+        Button { model.dismiss(row: row) } label: {
+            Image(systemName: "xmark")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(HomeSpec.textSecondary)
+                .frame(width: 22, height: 22)
+                .background(HomeSpec.userBubble, in: Circle())
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(locked)
+        .padding(.vertical, -12)
+        .padding(.trailing, -12)
+        .accessibilityLabel("关闭卡片")
+        .accessibilityIdentifier("bot.choice.dismiss")
+    }
+
+    private func option(_ choice: BotUIChoice) -> some View {
+        Button {
+            selectedID = choice.id
+            model.answer(row: row, optionID: choice.id)
+        } label: {
+            BotCardRow(label: choice.label, detail: choice.description,
+                       labelInk: choice.danger ? NativeParityTokens.error : HomeSpec.textPrimary) {
+                EmptyView()
+            } trailing: {
+                if accepted && selectedID == choice.id {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(HomeSpec.textPrimary)
+                } else if choice.recommended {
+                    BotCardTag(text: "建议")
+                } else {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(HomeSpec.iconMuted)
+                }
+            }
+        }
+        .buttonStyle(BotCardRowButtonStyle())
+        .disabled(locked)
+        .opacity(muted && selectedID != choice.id ? 0.45 : 1)
+        .accessibilityLabel(choice.recommended ? "\(choice.label)，建议" : choice.label)
+        .accessibilityIdentifier("bot.choice.option.\(choice.id)")
+    }
+
+    @ViewBuilder private var statusLine: some View {
+        if accepted || answered {
+            Label("已送出", systemImage: "checkmark")
+                .botCardMeta()
+                .padding(.top, 8)
+        } else if muted {
+            Text("已略过")
+                .botCardMeta()
+                .padding(.top, 8)
+        } else if case .failed(let reason) = model.actionStates[key] {
+            Text("未能送出：\(reason)")
+                .botCardMeta()
+                .foregroundStyle(NativeParityTokens.error)
+                .padding(.top, 8)
+        }
+    }
 }
 
+// MARK: - Task
+
+/// A background task: title with its state, folded step list.
 private struct BotTaskCardView: View {
     let row: BotUIRow
     @State private var expanded = false
 
-    private var steps: [BotUIProgressStep] {
-        let raw = row.body["tasks"] ?? row.body["steps"]
-        return BotUIProgressStep.parseList(raw).map { step in
-            var normalized = step
-            if ["running", "in_progress", "working"].contains(step.state) { normalized.state = "active" }
-            if ["completed", "complete", "success", "ok", "sent"].contains(step.state) { normalized.state = "done" }
-            if ["error", "failure", "blocked"].contains(step.state) { normalized.state = "failed" }
-            return normalized
-        }
-    }
-
+    private var steps: [BotUIProgressStep] { BotUIProgressStep.parseList(row.body["tasks"] ?? row.body["steps"]) }
     private var title: String { row.body.string("title", "text", "question") ?? "后台任务" }
-    private var doneCount: Int { steps.filter { $0.state == "done" }.count }
-    private var failed: Bool { steps.contains { $0.state == "failed" } }
+    private var doneCount: Int { steps.filter { BotCardStepState($0.state) == .done }.count }
+    private var failed: Bool { steps.contains { BotCardStepState($0.state) == .failed } }
     private var running: Bool {
         let status = row.body["status"]?.string ?? row.body["task"]?.object?["status"]?.string
-        return status == "running" || steps.contains { $0.state == "active" }
+        return status == "running" || steps.contains { BotCardStepState($0.state) == .active }
+    }
+    private var stateTag: (text: String, tone: BotCardTone) {
+        if failed { return ("失败", .danger) }
+        if running { return ("进行中", .neutral) }
+        return ("已完成", .success)
     }
 
     var body: some View {
-        BotCard(.work) {
-            VStack(alignment: .leading, spacing: 8) {
-                Button { expanded.toggle() } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: failed ? "exclamationmark.circle" : running ? "clock" : "checkmark.circle")
-                            .foregroundStyle(failed ? NativeParityTokens.error : running ? NativeParityTokens.accent : NativeParityTokens.success)
-                        Text(title)
-                            .botTitleFont()
-                            .foregroundStyle(HomeSpec.textPrimary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        if !steps.isEmpty {
-                            Text("\(doneCount)/\(steps.count)")
-                                .botCaptionFont(weight: .medium)
-                                .foregroundStyle(HomeSpec.textSecondary)
-                        }
-                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                            .foregroundStyle(HomeSpec.textTertiary)
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 44)
+        BotCardSurface {
+            VStack(alignment: .leading, spacing: 0) {
+                BotCardHeading(icon: "checklist", eyebrow: "后台任务", title: title) {
+                    BotCardTag(text: stateTag.text, tone: stateTag.tone)
                 }
-                .buttonStyle(.plain)
-                .frame(maxWidth: .infinity)
-                .frame(height: 44)
-                .contentShape(Rectangle())
-                .accessibilityValue(expanded ? "已展开" : "已折叠")
-                .accessibilityIdentifier("bot.task.toggle")
-                if expanded && !steps.isEmpty {
-                    VStack(spacing: 8) {
-                        ForEach(steps) { step in
-                            HStack(spacing: 8) {
-                                Image(systemName: step.state == "done" ? "checkmark.circle" : step.state == "failed" ? "exclamationmark.circle" : "circle")
-                                    .foregroundStyle(step.state == "failed" ? NativeParityTokens.error : HomeSpec.textSecondary)
-                                Text(step.label)
-                                    .botSecondaryFont()
-                                    .foregroundStyle(HomeSpec.textSecondary)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                            .frame(minHeight: 32)
+                if !steps.isEmpty {
+                    Button { withAnimation(.easeOut(duration: 0.16)) { expanded.toggle() } } label: {
+                        HStack(spacing: 4) {
+                            Text(expanded ? "收起步骤" : "查看步骤")
+                            Text("\(doneCount)/\(steps.count)").monospacedDigit()
+                            Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                                .font(.system(size: 11, weight: .semibold))
+                            Spacer(minLength: 0)
                         }
+                        .botCardMeta()
+                        .frame(minHeight: 32)
+                        .contentShape(Rectangle())
                     }
-                    .accessibilityIdentifier("bot.task.steps")
+                    .buttonStyle(BotCardRowButtonStyle())
+                    .padding(.top, 4)
+                    .accessibilityValue(expanded ? "已展开" : "已折叠")
+                    .accessibilityIdentifier("bot.task.toggle")
+                    if expanded {
+                        VStack(spacing: 0) {
+                            ForEach(Array(steps.enumerated()), id: \.element.id) { index, step in
+                                if index > 0 { BotCardDivider(inset: BotCardMetrics.glyphColumn + 12) }
+                                let state = BotCardStepState(step.state)
+                                BotCardRow(label: step.label, detail: step.detail,
+                                           labelInk: state == .pending ? HomeSpec.textSecondary : HomeSpec.textPrimary) {
+                                    BotCardGlyph(systemImage: state.glyph, ink: state.ink)
+                                } trailing: { EmptyView() }
+                            }
+                        }
+                        .accessibilityIdentifier("bot.task.steps")
+                    }
                 }
             }
         }
@@ -235,6 +207,9 @@ private struct BotTaskCardView: View {
     }
 }
 
+// MARK: - Attachment
+
+/// One file: tile, name and caption, 打开 on the right.
 private struct BotAttachmentCardView: View {
     let row: BotUIRow
     let actions: BotCardActions
@@ -244,49 +219,51 @@ private struct BotAttachmentCardView: View {
         if let explicit = row.body.string("fileName", "name") { return explicit }
         return path?.replacingOccurrences(of: "\\", with: "/").split(separator: "/").last.map(String.init) ?? path ?? ""
     }
-    private var icon: String {
-        let mime = row.body["mimeType"]?.string ?? ""
-        let ext = (name as NSString).pathExtension.lowercased()
-        if mime.hasPrefix("image/") || ["png", "jpg", "jpeg", "gif", "heic"].contains(ext) { return "photo" }
-        if mime.contains("pdf") || ext == "pdf" { return "doc.richtext" }
-        if mime.hasPrefix("video/") { return "play.rectangle" }
-        if mime.hasPrefix("audio/") { return "waveform" }
-        if ["zip", "tar", "gz"].contains(ext) { return "archivebox" }
-        return "doc"
-    }
+    private var icon: String { BotCardFileIcon.name(for: name, mime: row.body["mimeType"]?.string) }
 
     var body: some View {
-        BotCard(.object) {
+        BotCardSurface(padding: 12) {
             HStack(spacing: 12) {
-                BotIconTile(systemImage: icon)
-                VStack(alignment: .leading, spacing: 4) {
+                BotCardTile(systemImage: icon)
+                VStack(alignment: .leading, spacing: 2) {
                     Text(name)
-                        .botTitleFont()
-                        .foregroundStyle(HomeSpec.textPrimary)
+                        .botCardRow(weight: .medium)
                         .lineLimit(2)
                     if let detail = row.body.string("caption", "size", "description") {
                         Text(detail)
-                            .botSecondaryFont()
-                            .foregroundStyle(HomeSpec.textSecondary)
-                            .lineLimit(2)
+                            .botCardMeta()
+                            .lineLimit(1)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 if let path {
                     Button("打开") { actions.openPath(path) }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(NativeParityTokens.labelSecondary)
-                        .frame(width: 64, height: 44)
-                        .contentShape(Rectangle())
+                        .buttonStyle(BotCardButtonStyle(kind: .plain))
                         .accessibilityIdentifier("bot.attachment.open")
                 }
             }
-            .frame(maxWidth: .infinity, minHeight: 52)
         }
         .accessibilityElement(children: .contain)
     }
 }
 
+enum BotCardFileIcon {
+    static func name(for fileName: String, mime: String?) -> String {
+        let mime = mime ?? ""
+        let ext = (fileName as NSString).pathExtension.lowercased()
+        if mime.hasPrefix("image/") || ["png", "jpg", "jpeg", "gif", "heic"].contains(ext) { return "photo" }
+        if mime.contains("pdf") || ext == "pdf" { return "doc.richtext" }
+        if mime.hasPrefix("video/") { return "play.rectangle" }
+        if mime.hasPrefix("audio/") { return "waveform" }
+        if ["zip", "tar", "gz"].contains(ext) { return "archivebox" }
+        if ["md", "markdown", "txt"].contains(ext) { return "doc.text" }
+        return "doc"
+    }
+}
+
+// MARK: - Document
+
+/// A document: kind, title, summary, contents list, file row with 打开.
 private struct BotDocumentCardView: View {
     let row: BotUIRow
     let actions: BotCardActions
@@ -298,6 +275,7 @@ private struct BotDocumentCardView: View {
             ?? path?.replacingOccurrences(of: "\\", with: "/").split(separator: "/").last.map(String.init)
             ?? row.body["summary"]?.string ?? ""
     }
+    private var summary: String? { row.body.string("summary", "description", "caption") }
     private var toc: [String] {
         (row.body["toc"]?.array ?? []).prefix(6).compactMap { value in
             value.string ?? value.object?.string("title", "label", "text")
@@ -313,62 +291,50 @@ private struct BotDocumentCardView: View {
         default: return "页面"
         }
     }
+    private var fileName: String { row.body.string("fileName") ?? title }
 
     var body: some View {
-        BotCard(.object) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Label(typeLabel, systemImage: "doc.text")
-                        .botCaptionFont(weight: .medium)
-                        .foregroundStyle(HomeSpec.textSecondary)
-                    Spacer()
-                    Button("打开") { actions.openDocument(row) }
-                        .buttonStyle(BotTextButtonStyle())
-                        .botHitTarget()
-                        .accessibilityIdentifier("bot.document.open")
-                }
-                Text(title)
-                    .botTitleFont()
-                    .foregroundStyle(HomeSpec.textPrimary)
-                    .lineLimit(expanded ? nil : 2)
-                if let summary = row.body.string("summary", "description", "caption") {
+        BotCardSurface {
+            VStack(alignment: .leading, spacing: BotCardMetrics.blockGap) {
+                BotCardHeading(icon: "doc.text", eyebrow: "文档 · \(typeLabel)", title: title)
+                if let summary {
                     Text(summary)
-                        .botProcessFont()
-                        .foregroundStyle(HomeSpec.textSecondary)
-                        .lineLimit(expanded ? nil : 2)
+                        .botCardBody()
+                        .lineLimit(expanded ? nil : 3)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .onTapGesture { expanded.toggle() }
                 }
                 if !toc.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("本页内容")
-                            .botCaptionFont(weight: .semibold)
-                            .foregroundStyle(HomeSpec.textSecondary)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("本页内容").botCardMeta()
                         ForEach(Array(toc.enumerated()), id: \.offset) { index, item in
-                            HStack(alignment: .top, spacing: 8) {
-                                Text("\(index + 1).")
-                                    .foregroundStyle(HomeSpec.textTertiary)
+                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                Text("\(index + 1)")
+                                    .botCardMeta()
+                                    .monospacedDigit()
+                                    .frame(width: 14, alignment: .trailing)
                                 Text(item)
-                                    .foregroundStyle(HomeSpec.textSecondary)
+                                    .botCardRow()
                                     .lineLimit(1)
                             }
-                            .botSecondaryFont()
                         }
                     }
-                    .padding(12)
-                    .background(NativeParityTokens.selector.opacity(0.55), in: RoundedRectangle(cornerRadius: 12))
                 }
-                HStack(spacing: 8) {
-                    Image(systemName: "doc.text")
-                    Text(row.body.string("fileName") ?? title)
-                        .lineLimit(1)
-                    Spacer()
-                    if let size = row.body["size"]?.string { Text(size) }
-                }
-                .botCaptionFont()
-                .foregroundStyle(HomeSpec.textTertiary)
-                if title.count > 80 || (row.body["summary"]?.string?.count ?? 0) > 160 {
-                    Button(expanded ? "收起" : "展开") { expanded.toggle() }
-                        .buttonStyle(BotTextButtonStyle())
-                        .botHitTarget()
+                BotCardDivider()
+                HStack(spacing: 12) {
+                    BotCardTile(systemImage: BotCardFileIcon.name(for: fileName, mime: nil))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(fileName)
+                            .botCardRow(weight: .medium)
+                            .lineLimit(1)
+                        if let size = row.body["size"]?.string {
+                            Text(size).botCardMeta()
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    Button("打开") { actions.openDocument(row) }
+                        .buttonStyle(BotCardButtonStyle(kind: .plain))
+                        .accessibilityIdentifier("bot.document.open")
                 }
             }
         }

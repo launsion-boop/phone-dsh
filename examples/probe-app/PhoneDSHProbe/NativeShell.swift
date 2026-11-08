@@ -91,6 +91,13 @@ struct NativeShell: View {
     }
 
     @State private var drawerOpen = false
+    /// Bottom menu selection; 任务 (the chat page) is where the app opens.
+    @State private var selectedTab: HomeTab = .tasks
+    @State private var keyboardVisible = false
+    /// Tabs whose root page is covered by a pushed page. The bar belongs to
+    /// the first-level pages only, so it leaves while the selected tab has
+    /// something pushed and returns when the root shows again.
+    @State private var pushedTabs: Set<HomeTab> = []
     @State private var sidebarCollapsed = false
     @State private var dragOffset: CGFloat = 0
     @State private var preferences = NativeChatPreferences.shared
@@ -110,15 +117,8 @@ struct NativeShell: View {
                 : $drawerOpen
 
             ZStack(alignment: .topLeading) {
-                NavigationStack {
-                    ChatPage(openDrawer: {
-                        if usesSidebar {
-                            withAnimation(.easeInOut(duration: 0.22)) { sidebarCollapsed.toggle() }
-                        } else {
-                            openDrawer()
-                        }
-                    }, drawerExpanded: sidebarVisible)
-                }
+                tabPages(usesSidebar: usesSidebar, sidebarVisible: sidebarVisible,
+                         bottomInset: proxy.safeAreaInsets.bottom)
                 .frame(width: max(0, proxy.size.width - (sidebarVisible ? drawerWidth : 0)))
                 // A persistent sidebar sits beside the page; the phone drawer
                 // slides over it instead, so the page itself never moves.
@@ -153,6 +153,16 @@ struct NativeShell: View {
                 drawerOpen = false
                 dragOffset = 0
             }
+            // The session drawer belongs to 任务; leaving that tab closes it.
+            .onChange(of: selectedTab) { _, tab in
+                if tab != .tasks { closeDrawer() }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+                keyboardVisible = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+                keyboardVisible = false
+            }
         }
         #if DEBUG
         // `-uiPreview <screen>` lands straight on one screen, so review passes
@@ -175,6 +185,73 @@ struct NativeShell: View {
     }
 
     @Environment(\.colorScheme) private var colorScheme
+
+    /// The four bottom-menu pages above the bottom menu. All pages stay alive
+    /// (only the selected one is visible and hit-testable) so switching never
+    /// drops a draft, a scroll position or a running turn.
+    ///
+    /// The bar is stacked *below* the pages, not attached as a safe-area
+    /// inset: this layer ignores the safe area (the drawer must cover the
+    /// whole screen), so an inset would sit on the physical bottom edge and
+    /// overlap the pages' own bottom chrome. Stacked, the pages end at the
+    /// bar's top edge (so the composer and its stats line rest on it) and the
+    /// bar draws the home-indicator area itself from the measured inset. It
+    /// leaves while the keyboard is up so the composer rides the keyboard,
+    /// and while a second-level page is pushed on the selected tab.
+    private func tabPages(usesSidebar: Bool, sidebarVisible: Bool, bottomInset: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            tabPageStack(usesSidebar: usesSidebar, sidebarVisible: sidebarVisible)
+                .frame(maxHeight: .infinity)
+            if !keyboardVisible && !pushedTabs.contains(selectedTab) {
+                HomeTabBar(selection: $selectedTab, bottomInset: bottomInset)
+            }
+        }
+    }
+
+    private func tabPageStack(usesSidebar: Bool, sidebarVisible: Bool) -> some View {
+        ZStack {
+            tabPage(.bot) {
+                NavigationStack {
+                    BotProductionPage()
+                        .toolbar(.hidden, for: .navigationBar)
+                        .modifier(tabRoot(.bot))
+                }
+            }
+            tabPage(.tasks) {
+                NavigationStack {
+                    ChatPage(openDrawer: {
+                        if usesSidebar {
+                            withAnimation(.easeInOut(duration: 0.22)) { sidebarCollapsed.toggle() }
+                        } else {
+                            openDrawer()
+                        }
+                    }, drawerExpanded: sidebarVisible)
+                    .modifier(tabRoot(.tasks))
+                }
+            }
+            tabPage(.discover) {
+                NavigationStack { ConnectorsPage().modifier(tabRoot(.discover)) }
+            }
+            tabPage(.me) {
+                NavigationStack {
+                    SettingsPage(isTab: true, onOpenSession: { selectedTab = .tasks })
+                        .modifier(tabRoot(.me))
+                }
+            }
+        }
+    }
+
+    private func tabRoot(_ tab: HomeTab) -> TabRootTracker {
+        TabRootTracker(tab: tab, pushedTabs: $pushedTabs)
+    }
+
+    private func tabPage<Content: View>(_ tab: HomeTab, @ViewBuilder content: () -> Content) -> some View {
+        let selected = selectedTab == tab
+        return content()
+            .opacity(selected ? 1 : 0)
+            .allowsHitTesting(selected)
+            .accessibilityHidden(!selected)
+    }
 
     /// The phone drawer's x: 0 open, following a leftward drag, fully off
     /// screen (plus its shadow) closed. A persistent sidebar is just shown or hidden.
@@ -993,3 +1070,17 @@ enum PreviewChatItems {
                                                      text: "把这周的日志按天归档")] }
 }
 #endif
+
+/// Marks a tab's root page: a push covers it (onDisappear) and a pop shows it
+/// again (onAppear). Tabs switch by opacity, which fires neither, and sheets
+/// leave the root on screen, so only navigation pushes hide the bar.
+private struct TabRootTracker: ViewModifier {
+    let tab: HomeTab
+    @Binding var pushedTabs: Set<HomeTab>
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear { pushedTabs.remove(tab) }
+            .onDisappear { pushedTabs.insert(tab) }
+    }
+}

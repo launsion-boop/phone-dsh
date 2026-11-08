@@ -2,6 +2,7 @@
 
 import Combine
 import Foundation
+import PhoneDSHAgentCore
 
 @MainActor
 private final class BotStreamCoalescer {
@@ -69,6 +70,13 @@ final class BotChatModel: ObservableObject {
     @Published var scrollRequestID: String?
     @Published private(set) var loadingHistory = false
     @Published private(set) var hasMoreHistory = false
+    /// The running main-chat turn as DSH draws it (streamed text, live tool
+    /// rows); nil when no turn is running and the durable rows are current.
+    @Published private(set) var live: BotLiveTurn?
+    /// Tool steps of finished turns, keyed by DSH turn number.
+    @Published private(set) var turnProcesses: [Int: BotTurnProcess] = [:]
+    private var pendingDelta = ""
+    private var deltaFlush: Task<Void, Never>?
 
     let context: BotRuntimeContext
     private let driver: BotChatDriver?
@@ -99,6 +107,19 @@ final class BotChatModel: ObservableObject {
 
     var visibleRows: [BotUIRow] {
         rows.filter { BotUIRendering.isRenderable($0) && !dismissedCardIDs.contains($0.id) }
+    }
+
+    /// The transcript: while a turn is live its answer text is drawn from the
+    /// live frames, so the durable copies of that turn wait until it ends.
+    var displayRows: [BotUIRow] {
+        guard let turn = live?.turn else { return visibleRows }
+        return visibleRows.filter { !(Self.isAnswer($0) && Self.turn(of: $0) == turn) }
+    }
+
+    static func turn(of row: BotUIRow) -> Int? { row.body["turn"]?.int }
+
+    static func isAnswer(_ row: BotUIRow) -> Bool {
+        row.role == "assistant" && row.body.type == "text"
     }
 
     var pendingApprovalCount: Int {
@@ -287,10 +308,86 @@ final class BotChatModel: ObservableObject {
             do {
                 let batch = try await driver.watch(watchCursor)
                 apply(batch)
+                let processes = await driver.turnProcesses()
+                if processes != turnProcesses { turnProcesses = processes }
+                settleLive()
             } catch {
                 runtimeNotice = "Bot 实时更新失败：\(error.localizedDescription)"
             }
             try? await Task.sleep(nanoseconds: 800_000_000)
+        }
+    }
+
+    /// Follows the running turn's live frames until the view's `.task` ends.
+    func liveLoop() async {
+        guard let driver else { return }
+        for await frame in await driver.liveFrames() {
+            receive(frame)
+        }
+    }
+
+    func receive(_ frame: BotLiveFrame) {
+        switch frame {
+        case .streamStart:
+            pendingDelta = ""
+            var turn = live ?? BotLiveTurn()
+            turn.buffer = ""
+            live = turn
+        case .textDelta(let text):
+            if live == nil { live = BotLiveTurn() }
+            pendingDelta += text
+            guard deltaFlush == nil else { return }
+            deltaFlush = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 80_000_000)
+                guard !Task.isCancelled else { return }
+                self?.flushDelta()
+            }
+        case .event(let event):
+            let type = event["type"]?.stringValue ?? ""
+            if type == "turn/start" {
+                pendingDelta = ""
+                deltaFlush?.cancel()
+                deltaFlush = nil
+                live = BotLiveTurn()
+            } else {
+                flushDelta()
+            }
+            var turn = live ?? BotLiveTurn()
+            turn.apply(event: event)
+            live = turn
+            if type == "turn/start" {
+                runningTurnID = (event["data"]?["turn"]?.intValue).map(String.init)
+                streamingText = nil
+            } else if type == "turn/end" {
+                runningTurnID = nil
+            }
+        }
+    }
+
+    private func flushDelta() {
+        deltaFlush?.cancel()
+        deltaFlush = nil
+        guard !pendingDelta.isEmpty, var turn = live, !turn.ended else {
+            pendingDelta = ""
+            return
+        }
+        turn.buffer += pendingDelta
+        pendingDelta = ""
+        live = turn
+    }
+
+    /// After `turn/end` the live view stays until the row projection shows
+    /// the turn's answer, so the reply never blinks out between the two.
+    private func settleLive() {
+        guard var turn = live, turn.ended else { return }
+        turn.pollsSinceEnd += 1
+        let committed = turn.turn.map { number in
+            rows.contains { Self.isAnswer($0) && Self.turn(of: $0) == number }
+        } ?? true
+        if (committed && turn.pollsSinceEnd >= 2) || turn.pollsSinceEnd >= 4 {
+            live = nil
+        } else {
+            live = turn
         }
     }
 

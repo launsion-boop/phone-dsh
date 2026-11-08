@@ -158,28 +158,59 @@ final class BotInfoModel: ObservableObject {
             guard let index = routines.firstIndex(where: { $0.id == routine.id }) else { return }
             routines[index].enabled = enabled
         } catch {
-            actionError = "Routine 更新失败：\(error.localizedDescription)"
+            actionError = "例行任务更新失败：\(error.localizedDescription)"
         }
     }
 }
 
+/// Bot 信息: the avatar and name on top, the name editor, then the Bot's own
+/// data (memory, routines, approvals). Same grouped-list chrome as 我的.
 struct BotInfoPage: View {
     @ObservedObject var model: BotInfoModel
+    @Environment(\.dismiss) private var dismiss
+
+    private var nameChanged: Bool {
+        let draft = model.draftName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !draft.isEmpty && draft != model.botName
+    }
 
     var body: some View {
         NavigationStack {
             List {
-                Section("Bot") {
-                    HStack(spacing: 12) {
-                        BotStaticAvatar(size: 48)
-                        TextField("Bot 名", text: $model.draftName)
+                Section {
+                    VStack(spacing: 12) {
+                        BotStaticAvatar(size: 80)
+                            .shadow(color: .black.opacity(0.08), radius: 10, y: 4)
+                        Text(model.botName)
+                            .font(.system(size: 22, weight: .bold))
+                            .foregroundStyle(HomeSpec.textPrimary)
+                        Text("你的私人 Bot，替你跟进任务和提醒")
+                            .font(.system(size: 14))
+                            .foregroundStyle(HomeSpec.textPlaceholder)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+                    .listRowBackground(Color.clear)
+                }
+
+                Section {
+                    HomeFieldRow(title: "名称") {
+                        TextField("", text: $model.draftName, prompt: Text("给 Bot 起个名字"))
                             .textInputAutocapitalization(.never)
                             .accessibilityIdentifier("bot.info.name")
                     }
-                    Button("保存名称") { Task { await model.rename() } }
-                        .disabled(model.draftName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    if nameChanged {
+                        Button {
+                            Task { await model.rename() }
+                        } label: {
+                            Text("保存名称").fontWeight(.semibold)
+                        }
                         .accessibilityIdentifier("bot.info.rename")
+                    }
+                } header: {
+                    Text("名称")
                 }
+
                 Section("数据") {
                     NavigationLink {
                         BotMemoryPage(model: model)
@@ -191,7 +222,7 @@ struct BotInfoPage: View {
                     NavigationLink {
                         BotRoutinesPage(model: model)
                     } label: {
-                        BotInfoEntryLabel(title: "Routines", systemImage: "repeat", state: model.routinesState,
+                        BotInfoEntryLabel(title: "例行任务", systemImage: "repeat", state: model.routinesState,
                                           count: model.routines.count)
                     }
                     .accessibilityIdentifier("bot.info.routines")
@@ -203,17 +234,32 @@ struct BotInfoPage: View {
                     }
                     .accessibilityIdentifier("bot.info.approvals")
                 }
+
                 if let error = model.actionError {
                     Section {
-                        Text(error)
-                            .foregroundStyle(NativeParityTokens.error)
-                            .botSecondaryFont()
+                        Label(error, systemImage: "exclamationmark.triangle")
+                            .font(.system(size: 14))
+                            .foregroundStyle(ChatPage.danger)
                     }
                 }
             }
             .homeGroupedList()
             .navigationTitle("Bot 信息")
-            .toolbar { Button("刷新") { Task { await model.refresh() } } }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        Task { await model.refresh() }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .accessibilityLabel("刷新")
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }
+                        .fontWeight(.semibold)
+                }
+            }
             .task {
                 if model.memoryState == .loading { await model.refresh() }
             }
@@ -230,16 +276,26 @@ private struct BotInfoEntryLabel: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: systemImage)
-                .frame(width: 24)
+                .font(.system(size: 17, weight: .regular))
+                .foregroundStyle(HomeSpec.textPrimary)
+                .frame(width: 24, height: 24)
             Text(title)
-            Spacer()
+                .font(.system(size: HomeSpec.bodySize))
+                .foregroundStyle(HomeSpec.textPrimary)
+            Spacer(minLength: 8)
             switch state {
-            case .loaded: Text("\(count)").foregroundStyle(HomeSpec.textTertiary)
-            case .loading: ProgressView()
-            case .failed: Text("读取失败").foregroundStyle(NativeParityTokens.error)
+            case .loaded:
+                Text("\(count)")
+                    .font(.system(size: 15))
+                    .foregroundStyle(HomeSpec.textPlaceholder)
+            case .loading: ProgressView().controlSize(.small)
+            case .failed:
+                Text("读取失败")
+                    .font(.system(size: 15))
+                    .foregroundStyle(ChatPage.danger)
             }
         }
-        .frame(minHeight: 44)
+        .frame(minHeight: 32)
     }
 }
 
@@ -316,13 +372,13 @@ private struct BotRoutinesPage: View {
             case .loading:
                 ProgressView().frame(maxWidth: .infinity)
             case .failed(let message):
-                BotFailureRow(message: "Routines 读取失败：\(message)。这不代表没有例行任务。") {
+                BotFailureRow(message: "例行任务读取失败：\(message)。这不代表没有例行任务。") {
                     Task { await model.refresh() }
                 }
                 .listRowBackground(Color.clear)
             case .loaded:
                 if model.routines.isEmpty {
-                    Text("还没有 Routines。")
+                    Text("还没有例行任务。")
                         .foregroundStyle(HomeSpec.textSecondary)
                 } else {
                     ForEach(model.routines) { routine in
@@ -365,7 +421,7 @@ private struct BotRoutinesPage: View {
             }
         }
         .homeGroupedList()
-        .navigationTitle("Routines")
+        .navigationTitle("例行任务")
     }
 }
 

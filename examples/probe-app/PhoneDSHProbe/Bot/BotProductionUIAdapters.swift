@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import PhoneDSHAgentCore
 import PhoneDSHBot
 
 // The production Bot page speaks the UI driver vocabulary. These adapters are
@@ -31,7 +32,35 @@ extension BotProductionRowService {
             },
             stopCurrentTurn: { [self] turnID in
                 try? await self.stopCurrentTurn(turnID: turnID)
+            },
+            turnProcesses: { [self] in await self.turnProcesses() },
+            liveFrames: { [self] in
+                let frames = await self.liveFrames()
+                return AsyncStream { continuation in
+                    let task = Task {
+                        for await frame in frames {
+                            if let mapped = BotLiveFrame(frame) { continuation.yield(mapped) }
+                        }
+                        continuation.finish()
+                    }
+                    continuation.onTermination = { _ in task.cancel() }
+                }
             })
+    }
+}
+
+extension BotLiveFrame {
+    init?(_ frame: BotLiveTurnFrame) {
+        switch frame.kind {
+        case .streamStart:
+            self = .streamStart
+        case .textDelta(let text):
+            self = .textDelta(text)
+        case .event(let event):
+            guard let data = try? JSONEncoder().encode(event),
+                  let value = try? JSONValue.parse(data) else { return nil }
+            self = .event(value)
+        }
     }
 }
 

@@ -73,6 +73,8 @@ struct NativeDeviceSessionRows: View {
 }
 
 struct NativeDeviceConnectionPage: View {
+    /// False when pushed onto a stack: the back button already returns.
+    var showsDone = true
     @Environment(\.dismiss) private var dismiss
     @State private var coordinator = DeviceSessionCoordinator.shared
     @State private var selection: DeviceSessionMapping?
@@ -124,8 +126,10 @@ struct NativeDeviceConnectionPage: View {
             NativeDeviceSessionPage(mapping: mapping)
         }
         .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("完成") { dismiss() }.leadingBarText()
+            if showsDone {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }.fontWeight(.semibold)
+                }
             }
         }
     }

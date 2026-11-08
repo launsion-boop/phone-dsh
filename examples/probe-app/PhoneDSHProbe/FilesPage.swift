@@ -64,8 +64,8 @@ struct FilesPage: View {
                         .navigationTitle(NativeText("3D 示例", "3D Example"))
                         .navigationBarTitleDisplayMode(.inline)
                         .toolbar {
-                            ToolbarItem(placement: .cancellationAction) {
-                                Button(NativeText("完成", "Done")) { showingDemo = false }
+                            ToolbarItem(placement: .confirmationAction) {
+                                Button(NativeText("完成", "Done")) { showingDemo = false }.fontWeight(.semibold)
                             }
                         }
                 }
