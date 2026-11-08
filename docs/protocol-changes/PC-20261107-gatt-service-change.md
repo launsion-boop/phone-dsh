@@ -7,7 +7,7 @@ status: frozen
 breaking: true
 version_decision: Preserve existing wire, public grants and errors; tighten local lifecycle admission and require an explicit new connection after an applicable disconnect boundary.
 base: 1fb3385b9ed6cb133cf81c3fe444da01af0ec8bd
-contract_revision: spec/device/v1/ble-link.md@service-change-v2
+contract_revision: spec/device/v1/ble-link.md@service-change-v3
 ```
 
 Protocol impact: P07; P09; P18: none — stored intent and legacy preference
@@ -124,7 +124,7 @@ never an active timer. All task grants stay disabled.
 | `other-device-change` | Deliver matching B change while A's read is pending; feed the real A value callback afterwards and await its successful result. Only B is closed. |
 | `unknown-device` | Deliver an event for an object with an ID having no local owner; neither A nor B is changed. |
 | `unknown-device-off` | Set only the simulated manager's powered state off without delivering its state callback, then deliver an event for an object with no local owner. The existing manager-unavailable transition invalidates A and B and finishes the pending read; no physical command is sent. |
-| `connecting-modification` | Set up A with a submitted connect that has not produced didConnect (B stays connected); a matching unexpected modification quarantines A and requests cancellation under the existing pending-connect rule. |
+| `connecting-modification` | First discover an A service and strongly retain its object, then complete the real disconnect boundary and explicitly submit a new A connection without delivering didConnect. B stays connected. Deliver the old A service object in the unexpected callback; quarantine A and request cancellation under the existing pending-connect rule. The old object is not evidence of the current radio generation. |
 | `link-inflight` | Start an ordinary non-task Link operation through the real client and store-owned channel with simulated physical I/O, wait until its real channel continuation is pending, then deliver A change. Await its one outcome-unknown termination; a later old response is not delivered or replayed. |
 | `link-completed` | Complete an ordinary Link operation through the same real channel before delivering A change; its already returned result remains completed and is not retried or reinterpreted. |
 
@@ -164,3 +164,7 @@ Revision v2 clarifies precedence: an unknown-owner event is ignored while
 powered on, but when the manager is already unavailable the independently
 required all-owner unavailability transition takes precedence. The new `unknown-device-off` shared case fixes the interaction explicitly. This clarifies the
 same conservative manager-state behavior and adds no wire or device capability.
+
+Revision v3 specifies the reachable historical service-object setup for the
+connecting case. Its expected state and wire behavior are unchanged. A `known`
+object for a B callback belongs to B, not to A.
