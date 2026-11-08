@@ -8,7 +8,7 @@ import java.nio.charset.StandardCharsets
 import java.util.Locale
 
 /** A validated advertisement is still untrusted discovery data, not a grant. */
-internal data class LanDeviceCandidate(
+public data class LanDeviceCandidate(
     val id: String,
     val name: String,
     val url: String,
@@ -20,7 +20,7 @@ internal data class LanDeviceCandidate(
  * [txt] is the original DNS-SD length-prefixed byte sequence, not a dictionary:
  * converting it to key/value pairs first would erase duplicate profile entries.
  * [host] is the SRV hostname, not a service instance name or resolved address.
- * This decoder is target-only until a transport can supply those values intact.
+ * [LanMdnsBrowser] is the transport-side caller that supplies those values intact.
  */
 internal object LanDiscoveryDecoder {
     private val profileKey = "profile".toByteArray(StandardCharsets.US_ASCII)
