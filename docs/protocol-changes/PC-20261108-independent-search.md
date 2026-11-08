@@ -3,7 +3,7 @@
 ```yaml
 change: PC-20261108-independent-search
 contracts: [P05, P09, P16, P18, P20]
-status: frozen
+status: implemented
 breaking: false
 version_decision: No version change. The gateway schema, /v1/http envelope, Worker variable names and provider IDs are unchanged; the cookie route and the Android settings document are additive.
 base: 0e9ad261
@@ -83,3 +83,11 @@ version field. Unknown versions, modes and members are unreadable.
 | Revision | Change |
 | --- | --- |
 | cases.json@sha256:68827784 | Frozen clause, shared bases and request cases. |
+
+## 6. Verification (galic + local, not a device)
+
+- `cd plugins && node scripts/run-tests.mjs tests/llm-install.test.ts` → PASS (26/26), including the shared-case bridge tests.
+- galic `./gradlew --no-daemon --continue :net:test :domain:test :lib:testDebugUnitTest :app:testDebugUnitTest` → PASS. Results: net 203, domain 152, lib 1010 and app 315 tests, with 0 failures and 0 skips. That includes `IndependentSearchWebToolsTest` (11), `WebSearchSettingsStoreTest` (14) and `WebSearchRouteWiringTest` (3).
+- galic `:app:assembleDebug` → PASS with the Worker bundle rebuilt from pin `7be5505b`. The APK carries `image.tar.gz` sha256 `9262390950fc725cea2108d04e6a8f4e31496f6465ea2582c3e04bacad6d2c53`, which contains the new bridge.
+- `bash scripts/ci/check.sh --only phone-spec,phone-p0-conformance,phone-cross-tree` → PASS / FAIL / PASS. The P0 failure is the existing 24 page-structure divergences, which also appear at base `0e9ad261`. None of them is on `web-search-settings`.
+- Not verified: a physical phone, the live `pdsh.tonoai.cn` service and model E2E.
