@@ -100,7 +100,12 @@ public final class BLESecureBoundedStream: BLESecureByteStream, @unchecked Senda
         return chunk
     }
 
-    public func close() { finish(.local) }
+    /// Local close (TLS close_notify or a fatal alert just written, §6.1,
+    /// §8.4): bytes already queued by `write` are still handed to the channel
+    /// in one bounded pass on the run loop that owns `io` (as far as it has
+    /// space now, never waiting for credits), then the channel is closed.
+    /// Nothing is queued or delivered after this call.
+    public func close() { finish(.local, flushQueued: true) }
 
     /// Owner teardown (disconnect, service change, generation end).
     public func ownerClosed() { finish(.owner) }
@@ -155,18 +160,32 @@ public final class BLESecureBoundedStream: BLESecureByteStream, @unchecked Senda
         lock.unlock()
     }
 
-    private func finish(_ reason: CloseReason) {
+    private func finish(_ reason: CloseReason, flushQueued: Bool = false) {
         lock.lock()
         guard closedReason == nil else { lock.unlock(); return }
         closedReason = reason
+        // Before the on-air run (2026-11-08) a local close discarded the
+        // queued close_notify / alert: `write` only schedules the pump, so the
+        // TLS client's final record never reached the CoC.
+        let tail = flushQueued ? pendingWrite : []
         pendingWrite = []
         received = []
         receivedBytes = 0
         let waiter = self.waiter; self.waiter = nil
         let callback = onClose
+        let chunk = limits.chunk
         lock.unlock()
         waiter?.resume(returning: nil)
         schedule { [weak self] in
+            if let io = self?.io, !tail.isEmpty {
+                var offset = 0
+                while offset < tail.count, io.hasSpaceAvailable {
+                    let part = Array(tail[offset..<min(tail.count, offset + chunk)])
+                    let written = part.withUnsafeBufferPointer { io.write($0.baseAddress!, count: $0.count) }
+                    if written <= 0 { break }
+                    offset += written
+                }
+            }
             self?.io?.closeIO()
             callback?(reason)
         }

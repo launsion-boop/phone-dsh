@@ -280,6 +280,44 @@ final class BLESecureCoCAdapterTests: XCTestCase {
         XCTAssertNil(eof)
     }
 
+    /// On-air regression (2026-11-08): with the production asynchronous
+    /// scheduler, `write` only queues; a local close right after it (TLS
+    /// close_notify, fatal alert) must still hand those bytes to the channel
+    /// before closing it, once and in order, and nothing written after close.
+    func testLocalCloseFlushesQueuedFinalRecordBeforeClosingTheChannel() async throws {
+        final class Deferred: @unchecked Sendable {
+            var work: [@Sendable () -> Void] = []
+            func run() { while !work.isEmpty { work.removeFirst()() } }
+        }
+        let closeNotify: [UInt8] = [0x17, 0x03, 0x03, 0x00, 0x13] + Array(repeating: 0xaa, count: 19)
+        for spaceNow in [true, false] {
+            let io = BLESecureFakeIO()
+            io.space = spaceNow
+            let queue = Deferred()
+            var limits = BLESecureBoundedStream.Limits()
+            limits.chunk = 7
+            let stream = BLESecureBoundedStream(io: io, limits: limits, schedule: { queue.work.append($0) })
+            try stream.write(closeNotify)
+            stream.close()
+            XCTAssertThrowsError(try stream.write([1]), "nothing is queued after close")
+            XCTAssertTrue(io.written.isEmpty, "the pump has not run yet")
+            queue.run()
+            XCTAssertTrue(io.closed)
+            XCTAssertEqual(stream.closeReason, .local)
+            // Bounded: with no space now the record is dropped, never retried.
+            XCTAssertEqual(io.written, spaceNow ? closeNotify : [], "space=\(spaceNow)")
+        }
+        // Owner teardown and stream errors do not flush.
+        let io = BLESecureFakeIO()
+        let queue = Deferred()
+        let stream = BLESecureBoundedStream(io: io, schedule: { queue.work.append($0) })
+        try stream.write([9, 9, 9])
+        stream.ownerClosed()
+        queue.run()
+        XCTAssertTrue(io.written.isEmpty)
+        XCTAssertTrue(io.closed)
+    }
+
     func testBoundedStreamErrorsCloseBothDirections() async throws {
         for failure in ["write", "read", "eof"] {
             let io = BLESecureFakeIO()
