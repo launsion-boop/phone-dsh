@@ -2434,18 +2434,29 @@ class PageExtractor:
         source = self.source
         if not self.has_body:
             return None
-        for m in re.finditer(r"\.navigationTitle[ \t]*\(", source.masked[self.body_start:self.body_end]):
+        # The page's own title is the outermost `.navigationTitle` in `body`. A
+        # title nested deeper (a `NavigationLink { … }.navigationTitle(…)`
+        # destination) belongs to the pushed screen, not to this page.
+        masked = source.masked
+        best = None
+        for m in re.finditer(r"\.navigationTitle[ \t]*\(", masked[self.body_start:self.body_end]):
             if not self._live(self.body_start + m.start()):
                 continue
             open_paren = self.body_start + m.end() - 1
-            close = match_delim(source.masked, open_paren, "(", ")")
+            close = match_delim(masked, open_paren, "(", ")")
             if close < 0:
                 continue
             label, label_pos = first_label(source, open_paren + 1, close)
-            if label:
-                prov, anchor = source.provenance(label_pos)
-                return {"text": label, "provenance": prov, "anchor": anchor}
-        return None
+            if not label:
+                continue
+            depth = (masked.count("{", self.body_start, open_paren)
+                     - masked.count("}", self.body_start, open_paren))
+            if best is None or depth < best[0]:
+                best = (depth, label, label_pos)
+        if best is None:
+            return None
+        prov, anchor = source.provenance(best[2])
+        return {"text": best[1], "provenance": prov, "anchor": anchor}
 
     def _unreachable(self) -> list:
         out = []

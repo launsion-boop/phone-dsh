@@ -957,5 +957,30 @@ class InactiveBuildFlagTests(unittest.TestCase):
             self.assertNotIn(flag, app, f"{flag} is set for the app target; it is product UI again")
 
 
+class OutermostNavigationTitleTests(unittest.TestCase):
+    def test_pushed_destination_title_does_not_become_the_page_title(self) -> None:
+        swift = """import SwiftUI
+struct LicensesPage: View {
+    var body: some View {
+        List {
+            NavigationLink("全文") {
+                Text("x").navigationTitle("子页")
+            }
+        }
+        .navigationTitle("开源许可")
+    }
+}
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_path = root / "examples/probe-app/PhoneDSHProbe/SettingsPage.swift"
+            source_path.parent.mkdir(parents=True)
+            source_path.write_text(swift, encoding="utf-8")
+            source = E.Source(source_path, root)
+            page = E.PageExtractor(source, "LicensesPage").run(E.page_structs(source))
+        self.assertEqual("开源许可", page["title"]["text"])
+        self.assertEqual("SettingsPage.swift:9", page["title"]["provenance"])
+
+
 if __name__ == "__main__":
     unittest.main()

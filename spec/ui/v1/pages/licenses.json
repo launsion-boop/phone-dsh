@@ -6,9 +6,9 @@
   "sectionModel": "unmodeled",
   "sectionNote": null,
   "title": {
-    "text": "SSH 组件许可",
-    "provenance": "SettingsPage.swift:445",
-    "anchor": "}.navigationTitle(\"SSH 组件许可\")"
+    "text": "开源许可",
+    "provenance": "SettingsPage.swift:449",
+    "anchor": ".navigationTitle(NativeText(\"开源许可\", \"Open-source licenses\"))"
   },
   "source": {
     "file": "SettingsPage.swift",
