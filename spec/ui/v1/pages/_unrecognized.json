@@ -67,14 +67,6 @@
    "reviewBy": "2027-06-30"
   },
   {
-   "page": "native-agent-presets",
-   "kind": "unresolved-section",
-   "name": "<untitled: error>",
-   "reason": "NativeAgentPresetsPage.swift:159 renders `Section { Text(error) }`: an untitled error block whose only row is runtime text, so no literal criterion exists. The identical shape is already registered for mcp-settings / mcp-editor.",
-   "owner": "ui-contract",
-   "reviewBy": "2027-06-30"
-  },
-  {
    "page": "daily-brief",
    "kind": "missing-action",
    "name": "删除",
