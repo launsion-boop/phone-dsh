@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "secure-session-v1 application message vector",
+  "title": "secure-session-v2 application message vector",
   "type": "object",
   "additionalProperties": false,
   "required": [

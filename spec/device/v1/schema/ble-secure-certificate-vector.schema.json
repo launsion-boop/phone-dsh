@@ -1,6 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "secure-session-v1 peer certificate acceptance vector",
+  "title": "secure-session-v2 peer certificate acceptance vector",
+  "description": "accept/reason are the ble-secure-session.md §6.2 decision of chain_hex against pin; the checker re-derives it from the DER.",
   "type": "object",
   "additionalProperties": false,
   "required": [

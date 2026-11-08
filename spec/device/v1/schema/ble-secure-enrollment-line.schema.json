@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "secure-session-v1 enrollment console line vector",
+  "title": "secure-session-v2 enrollment console line vector",
   "type": "object",
   "additionalProperties": false,
   "required": [

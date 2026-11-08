@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Persisted BLE secure-session enrollment record (ble-secure-session.md §4)",
+  "title": "Persisted BLE secure-session enrollment record (ble-secure-session.md §4, secure-session-v2)",
   "description": "Board: NVS namespace pdsh_enr key rec_v1 (committed|revoked only). Phone: one file per device key (staged|committed|revoked).",
   "type": "object",
   "additionalProperties": false,

@@ -1,6 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "secure-session-v1 enrollment state-machine vector",
+  "title": "secure-session-v2 enrollment state-machine vector",
+  "description": "Board gesture events are the debounced classifications of ble-secure-session.md §3.3; legacy_button is present exactly on gesture steps.",
   "oneOf": [
     {
       "type": "object",
@@ -68,6 +69,9 @@
             "button": {
               "type": "boolean"
             },
+            "indicator": {
+              "type": "boolean"
+            },
             "eids": {
               "type": "array",
               "items": {
@@ -92,7 +96,8 @@
             "additionalProperties": false,
             "required": [
               "out",
-              "durable"
+              "durable",
+              "volatile"
             ],
             "properties": {
               "line": {
@@ -101,12 +106,18 @@
               },
               "event": {
                 "enum": [
-                  "press",
+                  "arm_hold",
+                  "short_press",
+                  "confirm_hold",
+                  "held_across_press_line",
                   "press_timeout",
-                  "context_expired",
+                  "window_expired",
                   "reboot",
                   "fail_next_write"
                 ]
+              },
+              "legacy_button": {
+                "type": "boolean"
               },
               "out": {
                 "type": [
@@ -159,6 +170,38 @@
                   "rev": {
                     "type": "integer",
                     "minimum": 0
+                  }
+                }
+              },
+              "volatile": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "mode",
+                  "ctx",
+                  "indicator"
+                ],
+                "properties": {
+                  "mode": {
+                    "enum": [
+                      "locked",
+                      "armed"
+                    ]
+                  },
+                  "ctx": {
+                    "enum": [
+                      "idle",
+                      "begun",
+                      "staged",
+                      "press"
+                    ]
+                  },
+                  "indicator": {
+                    "enum": [
+                      "off",
+                      "armed",
+                      "confirm"
+                    ]
                   }
                 }
               },
