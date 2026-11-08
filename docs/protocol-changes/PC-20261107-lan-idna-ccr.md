@@ -133,3 +133,7 @@ were aligned to 16 KB. This is not Android JNI, an APK/AAR, device execution,
 or proof of application size. No prototype code, ABI or dependency has been
 added to the repository; the production cross-end contract, Worker behavior,
 license and packaging decisions remain open.
+
+## Resolution (2026-11-08)
+
+Decided by [PC-20261108-lan-names-trust](PC-20261108-lan-names-trust.md): discovery rejects every label beginning `xn--` (`lan-mcp.md` §Hostname canonical form step 4) instead of adopting a shared IDNA implementation. The pinned-IDNA candidate above was not adopted and no dependency was added. GAP-18 remains open only for a product iOS WKWebView Worker run of the shared vectors.

@@ -504,7 +504,20 @@ public fun PdshNavHost(
             PdshRoute.ModelProvider -> ModelProviderRoute(facts, onBack, onHostAction, backLevel = backLevel)
             PdshRoute.WebSearch -> WebSearchRoute(facts, onBack, onHostAction)
             PdshRoute.Mcp -> McpRoute(facts, onBack, onHostAction, onNavigate)
+            PdshRoute.Ssh -> com.phonedsh.ui.page.SSHSettingsPage(
+                facts = facts.ssh,
+                onBack = onBack,
+                onOpenEditor = { id -> onNavigate(PdshRoute.SshEditor(id)) },
+            )
+            is PdshRoute.SshEditor -> SshEditorRoute(route, facts, onBack, onHostAction)
             PdshRoute.Bluetooth -> BluetoothRoute(facts, onBack, onHostAction)
+            PdshRoute.AndroidAdb -> com.phonedsh.ui.page.AndroidADBSettingsPage(
+                facts = facts.androidAdb,
+                onBack = onBack,
+                onSave = { onHostAction(PdshHostAction.AndroidAdbSave(it)) },
+                onCheck = { onHostAction(PdshHostAction.AndroidAdbCheck(it)) },
+                onCancel = { onHostAction(PdshHostAction.AndroidAdbCancel) },
+            )
             is PdshRoute.McpEditor -> McpEditorRoute(route, facts, onBack, onHostAction)
             PdshRoute.Runtime -> RuntimeRoute(facts, onBack, onHostAction, backLevel)
             PdshRoute.Egress -> EgressRoute(facts, onBack)
@@ -1610,9 +1623,14 @@ private fun WebSearchRoute(
         onSelectBackend = { id -> onHostAction(PdshHostAction.SelectWebSearchBackend(id)) },
         onToggleBackends = { local = local.apply(WebSearchUiEvent.ToggleBackends) },
         onBack = onBack,
-        // 什么时候生效's two engine verbs are real host commands. The write controls stay
-        // disabled (`writable = NO` and the host's own reason under them), but without
-        // these two the page still drew a live-looking 启动本地引擎 that nobody performs.
+        // The five writes are host commands; the page arms each control only while the
+        // host reports `writable = YES`, and the host answers with new facts.
+        onModeChange = { mode -> onHostAction(PdshHostAction.SetWebSearchMode(mode)) },
+        onCommitAddress = { address -> onHostAction(PdshHostAction.CommitWebSearchAddress(address)) },
+        onCommitKey = { key -> onHostAction(PdshHostAction.CommitWebSearchKey(key)) },
+        onClearKey = { onHostAction(PdshHostAction.ClearWebSearchKey) },
+        onRemoveConfiguration = { onHostAction(PdshHostAction.RemoveWebSearchConfiguration) },
+        // 什么时候生效's two engine verbs are real host commands.
         onStartEngine = { onHostAction(PdshHostAction.RestartRuntime) },
         onStopEngine = { onHostAction(PdshHostAction.StopRuntime) },
     )
@@ -1626,6 +1644,11 @@ private fun McpRoute(
     onNavigate: (PdshRoute) -> Unit,
 ) {
     var local by remember { mutableStateOf(MCPLocalState()) }
+    // Discovery is foreground-only (lan-mcp.md: explicitly started by the user):
+    // leaving the page stops a running scan; found candidates expire on their own.
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        onDispose { onHostAction(PdshHostAction.LanScan(false)) }
+    }
     MCPSettingsPage(
         state = MCPScreenState.from(facts.mcp, local),
         onAdd = { onNavigate(PdshRoute.McpEditor(null)) },
@@ -1635,7 +1658,37 @@ private fun McpRoute(
         // 操作's 刷新注册表 (`MCPSettingsPage.swift:87`). This host has no MCP read
         // yet, so the handoff is what it can do and the page keeps the row visible.
         onRefresh = { onHostAction(PdshHostAction.RefreshMcp) },
+        // 局域网设备 (`MCPSettingsPage.swift:101`): scan/stop are host actions; a
+        // candidate opens the ordinary editor pre-filled with its URL, like iOS
+        // `MCPEditorPage(candidate:)`. Nothing is saved or granted by selecting it.
+        lan = facts.lan,
+        onLanScan = { start -> onHostAction(PdshHostAction.LanScan(start)) },
+        onLanCandidate = { candidate ->
+            onNavigate(PdshRoute.McpEditor(serverId = null, discoveredUrl = candidate.url))
+        },
     )
+}
+
+@Composable
+private fun SshEditorRoute(
+    route: PdshRoute.SshEditor,
+    facts: PdshNavFacts,
+    onBack: () -> Unit,
+    onHostAction: (PdshHostAction) -> Unit,
+) {
+    val connection = route.connectionId?.let { id -> facts.ssh.connections.firstOrNull { it.id == id } }
+    // `key` keeps one editor state per connection: a different row never
+    // inherits the previous row's typed secret.
+    androidx.compose.runtime.key(route.connectionId) {
+        com.phonedsh.ui.page.SSHConnectionEditor(
+            connection = connection,
+            facts = facts.ssh,
+            onBack = onBack,
+            onInspect = { id, host, port -> onHostAction(PdshHostAction.SshInspectHostKey(id, host, port)) },
+            onSave = { id, draft -> onHostAction(PdshHostAction.SshSaveConnection(id, draft)) },
+            onDelete = { id, connectionId -> onHostAction(PdshHostAction.SshDeleteConnection(id, connectionId)) },
+        )
+    }
 }
 
 @Composable
@@ -1676,7 +1729,7 @@ private fun McpEditorRoute(
     } else {
         facts.mcpEditor
     }
-    var local by remember(route) { mutableStateOf(MCPEditorLocalState()) }
+    var local by remember(route) { mutableStateOf(discoveredDraft(route.discoveredUrl)) }
     val state = MCPEditorScreenState.from(editorFacts, local)
     MCPEditorPage(
         state = state,
@@ -1718,6 +1771,27 @@ private fun McpEditorRoute(
             }
         },
         onBack = onBack,
+    )
+}
+
+/**
+ * The editor's starting point for a selected LAN candidate, mirroring the iOS
+ * `MCPEditorPage(candidate:)` draft: a fresh `device_<12 hex>` name, the
+ * candidate's HTTPS URL, a 60 s tool timeout and an empty `Authorization` row for
+ * the device credential (lan-mcp.md: the bearer credential is entered by the
+ * person, never taken from discovery). `null` is the ordinary blank form.
+ */
+internal fun discoveredDraft(url: String?): MCPEditorLocalState {
+    if (url == null) return MCPEditorLocalState()
+    val suffix = java.util.UUID.randomUUID().toString().replace("-", "").take(12).lowercase()
+    return MCPEditorLocalState(
+        draft = com.phonedsh.ui.page.MCPServerDraft(
+            name = "device_$suffix",
+            transport = com.phonedsh.ui.page.MCPTransport.HTTP,
+            url = url,
+            toolCallTimeoutMs = "60000",
+            headers = listOf(com.phonedsh.ui.page.MCPHeaderDraft(name = "Authorization")),
+        ),
     )
 }
 

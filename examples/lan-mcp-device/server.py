@@ -3,6 +3,7 @@
 """TLS MCP reference device. The persisted light is a simulated actuator."""
 import argparse
 import hmac
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -10,11 +11,13 @@ import sqlite3
 import ssl
 import time
 import re
-import subprocess
+import signal
+import sys
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote_to_bytes
 
-from discovery import PROFILE, SERVICE
+from publication import PublicationError, check_identity, monitor, publish, withdraw
 from tasks import ensure_tables, accept, finish
 
 MAX_BODY = 16384
@@ -234,6 +237,23 @@ class Handler(BaseHTTPRequestHandler):
         return self.reply(200, {'jsonrpc': '2.0', 'id': request_id, 'error': {'code': code, 'message': message}})
 
 
+def ip_literal(value):
+    """Return the normalized IP literal, or None for a DNS hostname."""
+    try:
+        return str(ipaddress.ip_address(value))
+    except ValueError:
+        return None
+
+
+def sni_guard(hostname):
+    """Reject handshakes whose SNI is absent or is not the advertised hostname."""
+    def callback(_sock, server_name, _context):
+        if server_name is None or server_name.lower() != hostname:
+            return ssl.ALERT_DESCRIPTION_UNRECOGNIZED_NAME
+        return None
+    return callback
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--cert', required=True)
@@ -243,8 +263,23 @@ def main():
     parser.add_argument('--port', type=int, default=8443)
     parser.add_argument('--listen', default='0.0.0.0')
     parser.add_argument('--state', required=True)
-    parser.add_argument('--publish-name', help='advertise with macOS dns-sd; hostname must match local DNS-SD SRV target')
+    parser.add_argument('--publish-name', help='advertise with macOS dns-sd; the published SRV target is verified against --hostname')
+    parser.add_argument('--publish-address', help='publish --hostname as the SRV target with this address (dns-sd -P) instead of the system hostname')
+    parser.add_argument('--publish-timeout', type=float, default=10.0, help='seconds to register and verify the advertisement')
+    parser.add_argument('--publish-recheck', type=float, default=60.0, help='seconds between re-verifications of the published record')
     args = parser.parse_args()
+    manual_ip = ip_literal(args.hostname)
+    if manual_ip is not None:
+        # An IP endpoint is an ordinary manually configured MCP server, outside the
+        # discovery profile: it is never advertised, and clients send no SNI for it.
+        if args.publish_name:
+            parser.error('hostname_invalid: an IP address cannot be advertised; use a DNS hostname')
+        hostname = manual_ip
+    else:
+        try:
+            hostname = check_identity(args.hostname, args.cert)
+        except PublicationError as error:
+            parser.error(str(error))
     token_path = Path(args.token_file)
     if os.stat(token_path).st_mode & 0o077:
         parser.error('token file must be private (mode 0600)')
@@ -255,21 +290,43 @@ def main():
     con.close()
     server = ThreadingHTTPServer((args.listen, args.port), Handler)
     server.daemon_threads = True
-    server.token, server.hostname, server.state_path = token, args.hostname.rstrip('.').lower(), args.state
+    server.token, server.hostname, server.state_path = token, hostname, args.state
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.minimum_version = ssl.TLSVersion.TLSv1_2
     context.load_cert_chain(args.cert, args.key)
+    if manual_ip is None:
+        context.sni_callback = sni_guard(hostname)
     server.socket = context.wrap_socket(server.socket, server_side=True)
     publisher = None
-    if args.publish_name:
-        publisher = subprocess.Popen(['dns-sd', '-R', args.publish_name, SERVICE, 'local.', str(args.port), 'profile=' + PROFILE], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    def terminate(_signum, _frame):
+        raise SystemExit(0)  # run the finally block so the advertisement is withdrawn
+
+    signal.signal(signal.SIGTERM, terminate)
     try:
+        if args.publish_name:
+            try:
+                publisher = publish(args.publish_name, hostname, server.server_port, args.publish_address, args.publish_timeout)
+            except PublicationError as error:
+                print(f'Advertisement withdrawn: {error}', file=sys.stderr, flush=True)
+                raise SystemExit(2)
+            print(f'Published {args.publish_name!r} at {hostname}:{server.server_port}', flush=True)
+            failures = []
+
+            def withdrawn(error):
+                failures.append(error)
+                print(f'Advertisement withdrawn: {error}', file=sys.stderr, flush=True)
+                threading.Thread(target=server.shutdown, daemon=True).start()
+
+            monitor(publisher, args.publish_name, hostname, server.server_port, args.publish_recheck,
+                    args.publish_timeout, withdrawn)
         print(f'Listening on TLS port {server.server_port}', flush=True)
         server.serve_forever()
+        if args.publish_name and failures:
+            raise SystemExit(2)
     finally:
         if publisher:
-            publisher.terminate()
-            publisher.wait(timeout=5)
+            withdraw(publisher)
         server.server_close()
 
 

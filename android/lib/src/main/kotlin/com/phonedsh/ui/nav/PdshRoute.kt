@@ -115,8 +115,27 @@ public sealed interface PdshRoute {
         override val presentation: PdshPresentation = PdshPresentation.PUSH
     }
 
+    /** 设置行「SSH 主机」; §1: push; its editor child is [SshEditor]. */
+    public data object Ssh : PdshRoute {
+        override val presentation: PdshPresentation = PdshPresentation.PUSH
+    }
+
+    /**
+     * The SSH connection editor, opened from [Ssh]'s list.
+     *
+     * @param connectionId the saved connection to edit, or `null` when adding one.
+     */
+    public data class SshEditor(public val connectionId: String? = null) : PdshRoute {
+        override val presentation: PdshPresentation = PdshPresentation.PUSH
+    }
+
     /** 设置行「蓝牙设备」; §1: push. Scan + standard GATT only (android-standard-gatt.md). */
     public data object Bluetooth : PdshRoute {
+        override val presentation: PdshPresentation = PdshPresentation.PUSH
+    }
+
+    /** 设置行「Android ADB」; §1: push. The android_* tools' saved target (native-mcp.md). */
+    public data object AndroidAdb : PdshRoute {
         override val presentation: PdshPresentation = PdshPresentation.PUSH
     }
 
@@ -124,8 +143,14 @@ public sealed interface PdshRoute {
      * The MCP server editor, opened from [Mcp]'s list.
      *
      * @param serverId the server to edit, or `null` when adding a new one.
+     * @param discoveredUrl the HTTPS URL of a selected, still unverified LAN
+     *   discovery candidate; a new-server form opens pre-filled with it (the
+     *   iOS `MCPEditorPage(candidate:)`). Selecting is not saving or granting.
      */
-    public data class McpEditor(public val serverId: String? = null) : PdshRoute {
+    public data class McpEditor(
+        public val serverId: String? = null,
+        public val discoveredUrl: String? = null,
+    ) : PdshRoute {
         override val presentation: PdshPresentation = PdshPresentation.PUSH
     }
 
@@ -437,7 +462,9 @@ public object PdshSettingsRows {
         SettingsDestination.MODEL_PROVIDER -> PdshRoute.ModelProvider
         SettingsDestination.WEB_SEARCH -> PdshRoute.WebSearch
         SettingsDestination.MCP -> PdshRoute.Mcp
+        SettingsDestination.SSH -> PdshRoute.Ssh
         SettingsDestination.BLUETOOTH -> PdshRoute.Bluetooth
+        SettingsDestination.ANDROID_ADB -> PdshRoute.AndroidAdb
         SettingsDestination.EGRESS -> PdshRoute.Egress
         SettingsDestination.PLUGIN_CONFIGURATION -> PdshRoute.Configuration
         SettingsDestination.COMMAND -> PdshRoute.Tools

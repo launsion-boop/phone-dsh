@@ -212,7 +212,10 @@ class MainActivity : ComponentActivity() {
         // The key store must exist before the launch config, because the config
         // asks it for the key's *state* while building the Worker env, and before
         // the view model constructs the gateway that asks it for the credential.
-        ApiKeyStore.install(applicationContext)
+        val apiKeys = ApiKeyStore.install(applicationContext)
+        // The independent Search/Fetch settings and their own key account, read by
+        // the launch plan when the view model mounts the web-search grant.
+        WebSearchSettingsStore.install(applicationContext, apiKeys)
         // The model service's device record, installed before the launch config:
         // `ProbeLaunchConfig.from` overlays the saved endpoint/model on the launch
         // extras, which is what makes a 保存 apply at the next host start.

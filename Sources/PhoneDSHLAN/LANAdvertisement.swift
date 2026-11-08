@@ -21,7 +21,8 @@ public struct LANDeviceCandidate: Identifiable, Equatable, Sendable {
         self.url = url
     }
 
-    private static func hostname(_ value: String) -> String? {
+    /// lan-mcp.md `canon`: the one hostname used for URL, SNI and certificate name.
+    static func hostname(_ value: String) -> String? {
         guard value.utf8.count <= 254, value.utf8.allSatisfy({ $0 < 128 }) else { return nil }
         let host = (value.hasSuffix(".") ? String(value.dropLast()) : value).lowercased()
         guard !host.isEmpty, host.utf8.count <= 253 else { return nil }
@@ -31,6 +32,9 @@ public struct LANDeviceCandidate: Identifiable, Equatable, Sendable {
                   isAlphaNumeric(first), isAlphaNumeric(last),
                   bytes.allSatisfy({ isAlphaNumeric($0) || $0 == 45 }) else { return nil }
         }
+        // lan-mcp.md canon step 4: A-labels are excluded because URL/IDNA
+        // runtimes disagree on their validity; no IDNA mapping is attempted.
+        guard !host.split(separator: ".").contains(where: { $0.hasPrefix("xn--") }) else { return nil }
         // Numeric final labels can be interpreted as IPv4 by URL consumers,
         // or cause the Worker's URL parser to reject an otherwise valid name.
         guard let finalLabel = host.split(separator: ".").last else { return nil }

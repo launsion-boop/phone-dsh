@@ -70,6 +70,7 @@ import com.phonedsh.loopback.LoopbackHttpEgress
 import com.phonedsh.loopback.LoopbackEndpoint
 import com.phonedsh.loopback.LoopbackModelProxy
 import com.phonedsh.loopback.LoopbackServer
+import com.phonedsh.loopback.NativeMcpServing
 import com.phonedsh.platform.EngineHostState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -156,6 +157,7 @@ class WebViewEngine(
      * this exists to prevent.
      */
     private val bootOverlaySource: BootOverlaySource? = null,
+    private val nativeMcp: NativeMcpServing? = null,
 ) : DemoEngine {
     private val appContext: Context = context.applicationContext ?: context
     private val lifecycle = EngineLifecycle(logger)
@@ -228,6 +230,10 @@ class WebViewEngine(
         handler = observedChannel,
         httpEgress = httpEgress,
         modelProxy = modelProxy,
+        // native-mcp.md: `/mcp/native` behind the same gate; `tools/call` follows
+        // D14's admission exactly like iOS `routes.admission()`.
+        nativeMcp = nativeMcp,
+        nativeMcpAdmission = writesAllowed,
     )
 
     private val mainThread: Looper = requireNotNull(Looper.getMainLooper()) {
@@ -744,6 +750,7 @@ class WebViewEngine(
             launchToken = launchTokenValue,
             hostSupplied = pageParams["env"],
             modelBaseUrl = modelProxy?.let { endpoint.origin },
+            phoneMcpUrl = nativeMcp?.let { endpoint.urlFor("/mcp/native") },
         )
         return endpoint.launchUrl(params, includeToken = false)
     }

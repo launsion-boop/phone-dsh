@@ -20,6 +20,12 @@
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30" />
 
+    <!-- MCP page 局域网设备: a user-started mDNS browse for _pdsh-mcp._tcp
+         (spec/device/v1/lan-mcp.md). Normal permission; Wi-Fi drops multicast
+         without the lock. No location permission is involved. The Wi-Fi network
+         lookup uses ACCESS_NETWORK_STATE, merged from :platform-android. -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+
     <!-- Do Not Disturb access for the phone-permissions page's 专注模式 row.
          `protectionLevel=normal`, so it needs no runtime prompt — but without the
          declaration the app never appears in the system's "Do Not Disturb access"

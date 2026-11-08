@@ -1,6 +1,6 @@
 {
  "schema": "pdsh.ui.page-structure-android-only-items/1",
- "note": "Items Android MUST have although the iOS baseline has no counterpart. Not a platform difference (that is _whitelist.json) and not an unknown (that is _unrecognized.json): these are deliberate additions caused by a different data source or a different responsibility split. The extractor merges them into the page contract with an `androidOnly` object; the checker counts them as expected on Android, lists them in the report, and fails when `reason` does not answer the three questions, when `reviewBy` is past, or when the item no longer matches anything on the Android page (stale).",
+ "note": "Items Android MUST have although the iOS baseline has no counterpart. Not a platform difference (that is _whitelist.json) and not an unknown (that is _unrecognized.json): these are deliberate additions caused by a different data source or a different responsibility split. The extractor merges them into the page contract with an `androidOnly` object; the checker counts them as expected on Android, lists them in the report, and fails when `reason` does not answer the three questions, when `reviewBy` is past, or when the item no longer matches anything on the Android page (stale). Admission rules (spec/ui/v1/page-structure-rules.md): only items forced by a different platform or data source, never a product choice (that is a baseline §7 GAP); not when the baseline already offers an equivalent recovery/entry on the same page; and not when the item renders only behind a nullable callback the shipping PdshNavHost route never passes.",
  "reasonShape": {
   "baselineLacks": "why the iOS baseline does not need this item",
   "androidNeeds": "why Android cannot do without it",
@@ -221,6 +221,18 @@
     "baselineLacks": "iOS has no foreground service: `platform.fgs-turn-notification` records that background progress is presented by the system UI and BGContinuedProcessing, so the baseline page has no availability row to show",
     "androidNeeds": "whether a foreground service can start is the Android signal that decides whether a background turn can outlive the foreground; the row also carries the host's own reason when it cannot start (this App declares no service), which is a measured fact rather than an assumption",
     "withoutIt": "the difference between 'the turn stopped because the app went to the background' and 'this build can never keep running in the background' would be invisible to the user"
+   },
+   "owner": "android-ui",
+   "reviewBy": "2027-06-30"
+  },
+  {
+   "page": "files",
+   "kind": "action",
+   "label": "导入文件",
+   "reason": {
+    "baselineLacks": "iOS exposes the workspace to the system Files app (UIFileSharingEnabled + LSSupportsOpeningDocumentsInPlace in examples/probe-app/Config/PhoneDSHProbe-Info.plist), so files are imported there and FilesPage needs no import control",
+    "androidNeeds": "the Android workspace lives in app-private storage that no other app or system file manager can write, so the only way to bring a file in is the host's document picker (HostShell.kt passes onFilesImportRequest = onPickWorkspaceFile from MainActivity)",
+    "withoutIt": "an Android user has no way to put a document into the workspace for the agent to read"
    },
    "owner": "android-ui",
    "reviewBy": "2027-06-30"

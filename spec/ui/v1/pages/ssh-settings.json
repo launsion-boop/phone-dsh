@@ -22,8 +22,8 @@
   },
   "android": {
     "screen": "SSHSettingsPage",
-    "file": null,
-    "match": "missing"
+    "file": "android/lib/src/main/kotlin/com/phonedsh/ui/page/SSHSettingsPage.kt",
+    "match": "composable"
   },
   "sections": [
     {

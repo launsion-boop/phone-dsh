@@ -45,6 +45,22 @@ class DiscoveryTest(unittest.TestCase):
                                    binascii.unhexlify(row['txt_hex']))
                 self.assertEqual(result, row.get('url'))
 
+    def test_shared_alabel_vectors(self):
+        path = pathlib.Path(__file__).resolve().parents[2] / 'spec/device/v1/golden/lan-discovery-alabel.jsonl'
+        rows = [json.loads(line) for line in path.read_text(encoding='utf-8').splitlines()]
+        names = {row['name'] for row in rows}
+        self.assertEqual(len(names), len(rows), 'A-label vector names must be unique')
+        for required in ('alabel_invalid_punycode', 'alabel_valid_latin', 'alabel_uppercase',
+                         'alabel_unicode_version_dependent', 'alabel_final_label', 'ulabel_latin',
+                         'ulabel_ideographic_full_stop', 'ldh_double_hyphen_34', 'ldh_xn_inside_label'):
+            self.assertIn(required, names)
+        self.assertTrue(any('url' in row for row in rows) and any('error' in row for row in rows))
+        for row in rows:
+            with self.subTest(row['name']):
+                self.assertNotEqual('url' in row, 'error' in row)
+                result = candidate(row['service'], row['host'], row['port'], binascii.unhexlify(row['txt_hex']))
+                self.assertEqual(result, row.get('url'))
+
     def test_invalid_txt_and_duplicate_case(self):
         self.assertIsNone(candidate('A', 'a.local.', 443, b'\x0atest'))
         self.assertIsNone(candidate('A', 'a.local.', 443, txt_bytes(['PROFILE=pdsh-mcp-1', 'profile=pdsh-mcp-1'])))
