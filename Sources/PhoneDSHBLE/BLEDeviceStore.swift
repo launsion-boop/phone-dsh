@@ -41,6 +41,7 @@ import PhoneDSHAgentCore
     @ObservationIgnored private var linkEventSequences: [UUID: UInt32] = [:]
     @ObservationIgnored private var linkCharacteristics: [UUID: [String: CBCharacteristic]] = [:]
     @ObservationIgnored private var linkPhysicalEndpoints: [UUID: [String: AnyObject]] = [:]
+    @ObservationIgnored private var linkPhysicalServices: [UUID: AnyObject] = [:]
     @ObservationIgnored private var linkChannels: [UUID: BLELinkChannel] = [:]
     @ObservationIgnored private var linkClients: [UUID: PDSHLinkClient] = [:]
     @ObservationIgnored private var deviceTaskDiscoveryEnabled = false
@@ -129,6 +130,11 @@ import PhoneDSHAgentCore
         var beforeReadReserve: (() -> Void)?
         var afterReadReserve: (() -> Void)?
         var afterReadOutcomeClaim: (() -> Void)?
+        var afterReadValueClaim: (() -> Void)?
+        var linkWrites: [(UUID, Data)] = []
+        var onLinkWrite: ((UUID, Data) -> Void)?
+        var linkTXEndpoints: [UUID: NSObject] = [:]
+        var linkRXEndpoints: [UUID: NSObject] = [:]
         var afterNotify: ((UUID) -> Void)?
         var notifyEndpoints: [ObjectIdentifier] = []
         var profiles: [UUID: Set<StandardBLEProfile>] = [:]
@@ -137,6 +143,7 @@ import PhoneDSHAgentCore
         var identityDefaults: UserDefaults?
     }
     @ObservationIgnored private var testAdapter: TestAdapter?
+    @ObservationIgnored private var testCommittedLinkEvents: [UUID: Int] = [:]
     init(testAdapter: TestAdapter, testDevices: [Device]) {
         self.testAdapter = testAdapter; self.devices = testDevices
         testAdapter.validPeers = Dictionary(uniqueKeysWithValues: testDevices.map { ($0.id, NSObject()) }); super.init()
@@ -337,7 +344,8 @@ import PhoneDSHAgentCore
     }
 
     private func close(_ id: UUID, current: Owner, outcome: ReadClaim.Outcome,
-                       quarantine: Bool, sendDisconnect: Bool = true, forceQuarantine: Bool = false) {
+                       quarantine: Bool, sendDisconnect: Bool = true, forceQuarantine: Bool = false,
+                       serviceChange: Bool = false) {
         guard owners[id] === current else { return }
         if current.phase == .closing || current.phase == .quarantined { return }
         let unsent = current.phase == .connecting && !current.submitted && !forceQuarantine
@@ -353,16 +361,23 @@ import PhoneDSHAgentCore
             testAdapter?.afterReadOutcomeClaim?()
             #endif
         }
+        if serviceChange && !poweredOn { observeManagerUnavailable(); return }
         if linkBusy[id]?.owner === current { linkBusy[id] = nil }
         let task = linkTasks.removeValue(forKey: id)
         let channel = linkChannels.removeValue(forKey: id)
-        linkClients[id] = nil; linkTaskTools[id] = nil; linkCharacteristics[id] = nil; linkPhysicalEndpoints[id] = nil
+        linkClients[id] = nil; linkTaskTools[id] = nil; linkCharacteristics[id] = nil; linkPhysicalEndpoints[id] = nil; linkPhysicalServices[id] = nil
         linkBootIDs[id] = nil; linkEventSequences[id] = nil
         let timer = connectionTimers.removeValue(forKey: id)
         characteristics[id] = nil; ambiguousProfiles[id] = nil
         task?.cancel(); timer?.cancel()
+        if serviceChange && !poweredOn {
+            observeManagerUnavailable(detachedChannels: channel.map { [$0] } ?? [])
+            return
+        }
         channel?.fail(BLEFailure("Link disconnected; outcome_unknown"))
+        if serviceChange && !poweredOn { observeManagerUnavailable(); return }
         if let oldRead { finishRead(oldRead) }
+        if serviceChange && !poweredOn { observeManagerUnavailable(); return }
         if current.phase == .closing {
             closingTimers[id]?.cancel()
             closingTimers[id] = Task {
@@ -371,6 +386,7 @@ import PhoneDSHAgentCore
                 closingTimedOut(id, current: current)
             }
         }
+        if serviceChange && !poweredOn { observeManagerUnavailable(); return }
         if !unsent, sendDisconnect, poweredOn {
             #if DEBUG
             if let testAdapter { testAdapter.commands.append(.disconnect(id)) }
@@ -379,14 +395,16 @@ import PhoneDSHAgentCore
             if let connection { central?.cancelPeripheralConnection(connection) }
             #endif
         }
+        if serviceChange && !poweredOn { observeManagerUnavailable(); return }
         update(id) {
-            guard self.owners[id] === current else { return }
+            guard self.owners[id] === current, !serviceChange || self.poweredOn else { return }
             $0.state = self.phaseLabel(current.phase)
             $0.linkState = "未连接"; $0.linkIdentity = ""; $0.linkTools = []; $0.linkToolDescriptors = []
             $0.allowDeviceTasks = false; $0.supportsDeviceTasks = false; $0.taskIdentity = ""; $0.pendingIdentity = ""; if current.identityErrorRevision === errorRevision { $0.identityError = "" }
             $0.grantedTools = []; $0.homeOrigins = ""; $0.events = []; $0.profiles = []; $0.readings = [:]
             $0.allowRead = current.read; $0.allowAlert = current.alert
         }
+        if serviceChange && !poweredOn { observeManagerUnavailable() }
     }
 
     private func closingTimedOut(_ id: UUID, current: Owner) {
@@ -409,11 +427,27 @@ import PhoneDSHAgentCore
         }
     }
 
-    private func managerUnavailable(reset: Bool) {
+    private func observeManagerUnavailable(detachedChannels: [BLELinkChannel] = []) {
+        #if DEBUG
+        if testAdapter != nil {
+            managerUnavailable(reset: false, detachedChannels: detachedChannels, linkFailure: BLEFailure("Link disconnected; outcome_unknown"))
+            return
+        }
+        #endif
+        let invalidatesPeers: Bool
+        switch central?.state {
+        case .poweredOff: invalidatesPeers = false
+        default: invalidatesPeers = true
+        }
+        managerUnavailable(reset: invalidatesPeers, detachedChannels: detachedChannels,
+                           linkFailure: BLEFailure("Link disconnected; outcome_unknown"))
+    }
+    private func managerUnavailable(reset: Bool, detachedChannels: [BLELinkChannel] = [],
+                                    linkFailure: BLEFailure = BLEFailure("Bluetooth unavailable")) {
         scanRequested = false; scanTimer?.cancel(); scanTimer = nil
         // Invalidate every owner before the first observer can reenter.
         let snapshot = Array(owners)
-        var tasks: [Task<Void, Never>] = [], channels: [BLELinkChannel] = []
+        var tasks: [Task<Void, Never>] = [], channels: [BLELinkChannel] = detachedChannels
         var errorRevisions: [UUID: Revision] = [:]
         for (id, current) in snapshot {
             let neverSubmitted = current.phase == .idle && !submittedDevices.contains(id)
@@ -427,14 +461,14 @@ import PhoneDSHAgentCore
             if let task = connectionTimers.removeValue(forKey: id) { tasks.append(task) }
             if let task = closingTimers.removeValue(forKey: id) { tasks.append(task) }
             if let channel = linkChannels.removeValue(forKey: id) { channels.append(channel) }
-            linkClients[id] = nil; linkTaskTools[id] = nil; linkCharacteristics[id] = nil; linkPhysicalEndpoints[id] = nil
+            linkClients[id] = nil; linkTaskTools[id] = nil; linkCharacteristics[id] = nil; linkPhysicalEndpoints[id] = nil; linkPhysicalServices[id] = nil
             linkBootIDs[id] = nil; linkEventSequences[id] = nil
             characteristics[id] = nil; ambiguousProfiles[id] = nil
         }
         if reset { peripherals.removeAll() }
         if let read = pending { _ = read.claim.claim(.unavailable); finishRead(read) }
         tasks.forEach { $0.cancel() }
-        channels.forEach { $0.fail(BLEFailure("Bluetooth unavailable")) }
+        channels.forEach { $0.fail(linkFailure) }
         for (id, current) in snapshot {
             update(id) {
                 guard self.owners[id] === current else { return }
@@ -447,7 +481,7 @@ import PhoneDSHAgentCore
         }
         scanning = false
     }
-    private func quarantineUnexpected(_ id: UUID, current: Owner, sendDisconnect: Bool) {
+    private func quarantineUnexpected(_ id: UUID, current: Owner, sendDisconnect: Bool, serviceChange: Bool = false) {
         guard owners[id] === current else { return }
         if current.phase == .closing {
             current.phase = .quarantined
@@ -460,21 +494,46 @@ import PhoneDSHAgentCore
                 if let peripheral = current.peripheral { central?.cancelPeripheralConnection(peripheral) }
                 #endif
             }
+            if serviceChange && !poweredOn { observeManagerUnavailable(); return }
             update(id) {
-                guard self.owners[id] === current, current.phase == .quarantined else { return }
+                guard self.owners[id] === current, current.phase == .quarantined,
+                      !serviceChange || self.poweredOn else { return }
                 $0.state = self.phaseLabel(.quarantined)
             }
+            if serviceChange && !poweredOn { observeManagerUnavailable() }
         } else if current.phase != .quarantined {
-            close(id, current: current, outcome: .disconnected, quarantine: true, sendDisconnect: sendDisconnect, forceQuarantine: true)
+            close(id, current: current, outcome: .disconnected, quarantine: true,
+                  sendDisconnect: sendDisconnect, forceQuarantine: true, serviceChange: serviceChange)
         }
     }
-    private func acceptDelegatePeer(_ id: UUID, physical: AnyObject) -> Owner? {
+    private func acceptDelegatePeer(_ id: UUID, physical: AnyObject, serviceChange: Bool = false) -> Owner? {
         guard poweredOn, let current = owners[id] else { return nil }
         guard current.physicalIdentity === physical else {
-            quarantineUnexpected(id, current: current, sendDisconnect: current.submitted && current.phase != .closing)
+            quarantineUnexpected(id, current: current, sendDisconnect: current.submitted && current.phase != .closing,
+                                 serviceChange: serviceChange)
             return nil
         }
         return current
+    }
+    private func dispatchServiceChange(_ id: UUID, physical: AnyObject, invalidated: [AnyObject]) {
+        // The list is deliberately not used to narrow teardown: additions can
+        // invalidate the connection's assumptions even when the list is empty.
+        _ = invalidated
+        guard poweredOn else { observeManagerUnavailable(); return }
+        guard let current = acceptDelegatePeer(id, physical: physical, serviceChange: true) else { return }
+        switch current.phase {
+        case .connected:
+            close(id, current: current, outcome: .disconnected, quarantine: false, serviceChange: true)
+        case .connecting:
+            quarantineUnexpected(id, current: current, sendDisconnect: current.submitted, serviceChange: true)
+        case .idle:
+            quarantineUnexpected(id, current: current, sendDisconnect: false, serviceChange: true)
+        case .closing, .quarantined:
+            return
+        }
+    }
+    public func peripheral(_ peripheral: CBPeripheral, didModifyServices invalidatedServices: [CBService]) {
+        dispatchServiceChange(peripheral.identifier, physical: peripheral, invalidated: invalidatedServices.map { $0 as AnyObject })
     }
     public func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         guard self.central === central else { managerUnavailable(reset: true); return }
@@ -583,7 +642,7 @@ import PhoneDSHAgentCore
             var found: [String: CBCharacteristic] = [:]
             for c in service.characteristics ?? [] { found[c.uuid.uuidString.lowercased()] = c }
             linkCharacteristics[id] = found
-            recordLinkPhysicalEndpoints(id, current: current, endpoints: found.mapValues { $0 as AnyObject })
+            recordLinkPhysicalEndpoints(id, current: current, service: service, endpoints: found.mapValues { $0 as AnyObject })
             if let rx = found[PDSHLink.rx], let tx = found[PDSHLink.tx], let audio = found[PDSHLink.audioUp],
                rx.properties.contains(.write), tx.properties.contains(.notify), audio.properties.contains(.notify) {
                 let channel = BLELinkChannel(peripheral: peripheral, rx: rx, tx: tx, audio: audio)
@@ -685,8 +744,10 @@ import PhoneDSHAgentCore
             publish(&$0)
         }
     }
-    private func recordLinkPhysicalEndpoints(_ id: UUID, current: Owner, endpoints: [String: AnyObject]) {
+    private func recordLinkPhysicalEndpoints(_ id: UUID, current: Owner, service: AnyObject? = nil,
+                                             endpoints: [String: AnyObject]) {
         guard poweredOn, owners[id] === current, current.phase == .connected else { return }
+        if let service { linkPhysicalServices[id] = service }
         linkPhysicalEndpoints[id] = endpoints
     }
     private func handleLinkEvent(_ id: UUID, current: Owner, data: Data) {
@@ -698,6 +759,9 @@ import PhoneDSHAgentCore
         update(id) {
             guard self.owners[id] === current, current.phase == .connected else { return }
             $0.events.append(text); if $0.events.count > 32 { $0.events.removeFirst() }
+            #if DEBUG
+            self.testCommittedLinkEvents[id, default: 0] += 1
+            #endif
         }
     }
     private enum ConnectedAction { case discoverServices, discoverCharacteristics, notify, link }
@@ -756,11 +820,14 @@ import PhoneDSHAgentCore
         }
     }
     func testValue(_ id: UUID, profile: StandardBLEProfile?, data: Data, error: Error? = nil) {
-        guard let peer = testAdapter?.validPeers[id], acceptDelegatePeer(id, physical: peer) != nil else { return }
-        let source: ValueSource
-        if let profile, testAdapter?.profiles[id]?.contains(profile) == true { source = .standard(profile, data, false) }
-        else { source = .unknown }
-        dispatchValue(id, source: source, error: error)
+        guard let adapter = testAdapter, let peer = adapter.validPeers[id] else { return }
+        let endpoint = profile.flatMap { adapter.profileEndpoints[id]?[$0] } ?? NSObject()
+        dispatchPhysicalValue(id, physical: peer, endpoint: endpoint, data: data, notifying: false, error: error)
+    }
+    func testServicesModified(_ id: UUID, matchingPeer: Bool = true, invalidated: [AnyObject] = []) {
+        guard let adapter = testAdapter else { return }
+        let peer = matchingPeer ? (adapter.validPeers[id] ?? NSObject()) : NSObject()
+        dispatchServiceChange(id, physical: peer, invalidated: invalidated)
     }
     func testUnassignablePeer(_ id: UUID) {
         guard testAdapter != nil else { return }
@@ -840,11 +907,24 @@ import PhoneDSHAgentCore
         guard testAdapter != nil else { return }
         submitConnected(id, current: owners[id], action: .notify) {}
     }
-    func testPrepareLink(_ id: UUID, bootID: UInt32, deviceID: String) {
+    func testPrepareLink(_ id: UUID, bootID: UInt32, deviceID: String, writeLimit: Int = 244) {
         guard testAdapter != nil, poweredOn, let current = owners[id], current.phase == .connected else { return }
-        let channel = BLELinkChannel(testing: ())
+        guard let adapter = testAdapter else { return }
+        let io = BLELinkChannel.TestIO(), channel = BLELinkChannel(testingIO: io)
+        io.writeLimit = writeLimit
+        let tx = NSObject(), rx = NSObject(), service = NSObject()
+        adapter.linkTXEndpoints[id] = tx; adapter.linkRXEndpoints[id] = rx
+        recordLinkPhysicalEndpoints(id, current: current, service: service, endpoints: [PDSHLink.tx: tx, PDSHLink.rx: rx])
         guard let installation = installIdentityChannel(id, current: current, channel: channel),
               isCurrentChannelInstallation(id, current: current, channel: channel, installation: installation) else { return }
+        io.ready = { [weak self, weak current, weak channel] in
+            guard let self, let current, let channel else { return false }
+            return self.isCurrentChannelInstallation(id, current: current, channel: channel, installation: installation)
+        }
+        io.write = { [weak adapter] data in
+            guard let adapter else { return }
+            adapter.linkWrites.append((id, data)); adapter.onLinkWrite?(id, data)
+        }
         linkBootIDs[id] = bootID
         update(id) {
             guard self.isCurrentChannelInstallation(id, current: current, channel: channel, installation: installation) else { return }
@@ -852,10 +932,39 @@ import PhoneDSHAgentCore
         }
     }
     func testLinkEvent(_ id: UUID, segment: Data) {
-        guard let peer = testAdapter?.validPeers[id], acceptDelegatePeer(id, physical: peer) != nil else { return }
-        dispatchValue(id, source: .linkTX(segment), error: nil)
+        guard let endpoint = testAdapter?.linkTXEndpoints[id], let peer = testAdapter?.validPeers[id] else { return }
+        testLinkSegment(id, physical: peer, endpoint: endpoint, data: segment)
+    }
+    func testCurrentLinkTransport(_ id: UUID) -> (any PDSHLinkTransport)? {
+        guard testAdapter != nil else { return nil }
+        return linkChannels[id]
+    }
+    func testLinkPhysicalPeer(_ id: UUID) -> AnyObject? { testAdapter?.validPeers[id] }
+    func testLinkTXEndpoint(_ id: UUID) -> AnyObject? { testAdapter?.linkTXEndpoints[id] }
+    func testLinkRXEndpoint(_ id: UUID) -> AnyObject? { testAdapter?.linkRXEndpoints[id] }
+    func testKnownService(_ id: UUID) -> AnyObject? { guard testAdapter != nil else { return nil }; return linkPhysicalServices[id] }
+    func testLinkExchangePending(_ id: UUID) -> Bool { testAdapter != nil && linkChannels[id]?.testHasPending == true }
+    func testLinkPhysicalReady(_ id: UUID) -> Bool? {
+        guard testAdapter != nil, let channel = linkChannels[id] else { return nil }
+        return channel.testPhysicalReady
+    }
+    func testCaptureLinkReceiveCount(_ id: UUID) -> (() -> Int)? {
+        guard testAdapter != nil, let channel = linkChannels[id] else { return nil }
+        return { channel.testReceiveCount }
+    }
+    func testLinkWriteComplete(_ id: UUID, physical: AnyObject, endpoint: AnyObject, error: Error? = nil) {
+        guard testAdapter != nil else { return }
+        dispatchLinkWrite(id, physical: physical, endpoint: endpoint, error: error)
+    }
+    func testLinkSegment(_ id: UUID, physical: AnyObject, endpoint: AnyObject, data: Data, error: Error? = nil) {
+        guard testAdapter != nil else { return }
+        dispatchPhysicalValue(id, physical: physical, endpoint: endpoint, data: data, notifying: false, error: error)
     }
     func testLinkDeliveries(_ id: UUID) -> Int { devices.first(where: { $0.id == id })?.events.count ?? 0 }
+    func testCommittedLinkEventCount(_ id: UUID) -> Int {
+        guard testAdapter != nil else { return 0 }
+        return testCommittedLinkEvents[id] ?? 0
+    }
     @discardableResult func testDiscoverIdentityChannelAndNotify(_ id: UUID) -> (tx: ObjectIdentifier, audio: ObjectIdentifier)? {
         guard testAdapter != nil, let current = owners[id], current.phase == .connected else { return nil }
         let channel = BLELinkChannel(testing: ()), tx = NSObject(), audio = NSObject()
@@ -1026,18 +1135,35 @@ import PhoneDSHAgentCore
             close(id, current: current, outcome: .disconnected, quarantine: true)
         }
     }
-    public func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
-        let id = peripheral.identifier
-        guard acceptDelegatePeer(id, physical: peripheral) != nil else { return }
+    private func dispatchPhysicalValue(_ id: UUID, physical: AnyObject, endpoint: AnyObject,
+                                       data: Data, notifying: Bool, error: Error?) {
+        guard acceptDelegatePeer(id, physical: physical) != nil else { return }
         let source: ValueSource
-        if linkCharacteristics[id]?.values.contains(where: { $0 === characteristic }) == true {
+        if linkPhysicalEndpoints[id]?.values.contains(where: { $0 === endpoint }) == true {
             if let channel = linkChannels[id] {
-                source = channel.tx === characteristic ? .linkTX(characteristic.value ?? Data()) : .linkOther
+                var isTX = channel.tx === endpoint
+                #if DEBUG
+                if let adapter = testAdapter, adapter.linkTXEndpoints[id] === endpoint { isTX = true }
+                #endif
+                source = isTX ? .linkTX(data) : .linkOther
             } else { source = .unknown }
-        } else if let profile = StandardBLEProfile.allCases.first(where: { characteristics[id]?[$0] === characteristic }) {
-            source = .standard(profile, characteristic.value ?? Data(), characteristic.isNotifying)
-        } else { source = .unknown }
+        } else if let profile = StandardBLEProfile.allCases.first(where: { characteristics[id]?[$0] === endpoint }) {
+            source = .standard(profile, data, notifying)
+        } else {
+            #if DEBUG
+            if let adapter = testAdapter,
+               let profile = StandardBLEProfile.allCases.first(where: { adapter.profileEndpoints[id]?[$0] === endpoint }) {
+                source = .standard(profile, data, notifying)
+            } else { source = .unknown }
+            #else
+            source = .unknown
+            #endif
+        }
         dispatchValue(id, source: source, error: error)
+    }
+    public func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
+        dispatchPhysicalValue(peripheral.identifier, physical: peripheral, endpoint: characteristic,
+                              data: characteristic.value ?? Data(), notifying: characteristic.isNotifying, error: error)
     }
     private func receivedRead(_ read: PendingRead, data: Data, error: Error?) {
         guard pending === read else { return }
@@ -1048,6 +1174,9 @@ import PhoneDSHAgentCore
             result = .success("\(value) \(read.profile.unit) @ \(ISO8601DateFormatter().string(from: Date()))")
         } catch { result = .failure(error) }
         guard read.claim.claim(.value(result)) else { return }
+        #if DEBUG
+        testAdapter?.afterReadValueClaim?()
+        #endif
         finishRead(read)
         if case .success(let value) = result {
             update(read.device) {
@@ -1077,9 +1206,18 @@ import PhoneDSHAgentCore
         peripheral.writeValue(data, for: characteristic, type: .withoutResponse)
         return "submitted_unconfirmed: Immediate Alert has no application acknowledgement; inspect device before repeating."
     }
+    private func dispatchLinkWrite(_ id: UUID, physical: AnyObject, endpoint: AnyObject, error: Error?) {
+        guard let current = acceptDelegatePeer(id, physical: physical), current.phase == .connected,
+              let channel = linkChannels[id] else { return }
+        var expected: AnyObject? = channel.rx
+        #if DEBUG
+        if expected == nil { expected = testAdapter?.linkRXEndpoints[id] }
+        #endif
+        guard expected === endpoint else { return }
+        channel.didWriteResult(error)
+    }
     public func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
-        guard let current = acceptDelegatePeer(peripheral.identifier, physical: peripheral), current.phase == .connected else { return }
-        linkChannels[peripheral.identifier]?.didWrite(characteristic, error: error)
+        dispatchLinkWrite(peripheral.identifier, physical: peripheral, endpoint: characteristic, error: error)
     }
     private enum NotificationSource { case standard(StandardBLEProfile, notifying: Bool), link, unknown }
     private func dispatchNotification(_ id: UUID, physical: AnyObject, source: NotificationSource, error: Error?) {

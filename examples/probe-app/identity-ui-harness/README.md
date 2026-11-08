@@ -7,7 +7,9 @@ probe app configuration. Its device-task manager is a fail-fast substitute:
 any attempted task action terminates the test host. A simulated peer and a
 unique UserDefaults suite exercise the real confirmation method. The test taps
 the page button, checks the rendered failure and preserved value, then repairs
-the test suite and verifies an explicit retry. It does not invoke a target
+the test suite and verifies an explicit retry. It also exercises the real
+page's unavailable and reconnect states after a simulated service change.
+It does not invoke a target
 identity RPC, start tasks, or connect a physical device.
 
 Requirements: macOS with Xcode command-line tools, XcodeGen, Python 3, and an

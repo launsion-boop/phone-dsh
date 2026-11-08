@@ -212,7 +212,7 @@ GAP-12／GAP-13 是同一批實作要修的 iOS 缺口，不是合約變更。
 | GAP-28／P07、P09、P18（旧身份偏好，partial） | [保全契约](device/v1/legacy-identity-preferences.md)已冻结；旧标签不是可认证的设备身份。可见值与本地确认顺序现由真实隔离 UserDefaults、受控重入和模拟器页面测试覆盖 | [确认变更单](../docs/protocol-changes/PC-20261107-identity-observable-confirmation.md)仍不证明隐藏域、跨进程竞争、落盘恢复、真实设备或密钥绑定；不得据此开启设备任务或认证历史身份 |
 | GAP-29／P07、P09（iOS 标准 GATT 授权，partial） | macOS 上真实 `BLEDeviceStore` 的同步 Observation 回调曾复现较晚撤权被外层授权覆盖；连接、pending read 和旧 Link 操作也有本地生命周期竞态 | [v2 契约](../docs/protocol-changes/PC-20261107-standard-gatt-grant-order.md)已冻结；真实 store 的模拟物理端点测试覆盖共享场景、撤权和隔离，不能证明 CoreBluetooth 回调归属或真实空口行为。仍需 iPhone 与实现标准服务的受控外设验证读取、取消、通知、断连和重连；不能据本地测试关闭本 GAP 或 GAP-16 |
 | GAP-30／P07、P09（iOS 蓝牙全局状态重入） | 源码审查发现全局 `status` 的同步 Observation 通知可让较早写入覆盖较晚状态；初始化扫描、错误后的断连等写后副作用还可能遇到重入。此处是源码推导，尚无真实 store 复现或设备证据 | 先以真实状态机和受控副作用复现并冻结每种状态与副作用的归属及兼容，再覆盖重入、扫描、断连和替换；身份确认改用设备专属错误并不解决其他状态写入 |
-| GAP-31／P07、P09（iOS Link 发现归属） | 源码审查发现活跃 Link 通道之后的重复或不完整特征发现可能替换端点表而保留旧通道；多实例、重复回调及无应用 token 的归属尚无明确契约，未证明真实系统会产生该序列 | 按 [CCR](../docs/protocol-changes/PC-20261107-link-discovery-ccr.md) 冻结归属、失败与外设兼容规则，用真实回调路径和模拟物理对象覆盖正反及重连，再分别验证设备和 OS 行为 |
+| GAP-31／P07、P09（iOS Link 发现归属，partial） | 服务变化的[保守失效](../docs/protocol-changes/PC-20261107-gatt-service-change.md)已由本地状态机和模拟器页面测试覆盖；重复或不完整的发现仍可能替换端点表而保留旧通道。多实例、重复回调及无应用 token 的归属尚无明确契约 | 按 [CCR](../docs/protocol-changes/PC-20261107-link-discovery-ccr.md) 冻结其余发现归属、失败与外设兼容规则，用真实回调路径和模拟物理对象覆盖正反及重连，再分别验证设备和 OS 行为；不得把本地模拟视为真机证据 |
 
 只有修正來源、相關端測試及必要的 integration 證據齊備，才在此記錄關閉與修復 commit。
 

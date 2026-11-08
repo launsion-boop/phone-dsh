@@ -25,19 +25,49 @@ def free_space(paths):
             raise RuntimeError(f"less than 2 GiB free on {path}")
 
 
-def monitored(args, log, paths):
+def child_processes(root_pid):
+    """Find only descendants of the command started by this runner."""
+    output = subprocess.check_output(["ps", "-axo", "pid=,ppid="], text=True)
+    pairs = [tuple(map(int, line.split())) for line in output.splitlines() if line.strip()]
+    parents, result = {root_pid}, []
+    while parents:
+        children = {pid for pid, parent in pairs if parent in parents and pid not in result}
+        result.extend(children)
+        parents = children
+    return result
+
+
+def monitored(args, log, paths, timeout=900):
     free_space(paths)
     print(f"Running {args[0]}; log: {log}", flush=True)
     with log.open("w", encoding="utf-8") as output:
         process = subprocess.Popen(args, stdout=output, stderr=subprocess.STDOUT,
                                    start_new_session=True)
+        deadline = time.monotonic() + timeout
         try:
             while process.poll() is None:
                 free_space(paths)
+                if time.monotonic() >= deadline:
+                    raise RuntimeError(f"command timed out after {timeout}s; see {log}")
                 time.sleep(3)
         except BaseException:
             if process.poll() is None:
-                os.killpg(process.pid, signal.SIGTERM)
+                # xcodebuild can spawn simctl in another process group. Stop
+                # only descendants of our own command before stopping its
+                # group, so a timed-out test does not leave an orphan behind.
+                try:
+                    descendants = child_processes(process.pid)
+                except (OSError, subprocess.CalledProcessError, ValueError):
+                    descendants = []
+                for child in reversed(descendants):
+                    try:
+                        os.kill(child, signal.SIGTERM)
+                    except ProcessLookupError:
+                        pass
+                try:
+                    os.killpg(process.pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
                 try:
                     process.wait(timeout=10)
                 except subprocess.TimeoutExpired:
@@ -133,14 +163,17 @@ def main():
         monitored(["xcrun", "simctl", "boot", simulator], work / "boot.log", paths)
         monitored(["xcrun", "simctl", "bootstatus", simulator, "-b"], work / "bootstatus.log", paths)
         monitored(["xcodebuild", "-xctestrun", str(runs[0]), "-destination", f"platform=iOS Simulator,id={simulator}",
-                   "-only-testing:IdentityUITests/IdentityUITests/testFailureRendersAndExplicitRetryClearsIt",
+                   "-only-testing:IdentityUITests/IdentityUITests",
                    "-resultBundlePath", str(work / "result.xcresult"), "test-without-building"],
-                  work / "test.log", paths)
+                  work / "test.log", paths, timeout=180)
         print("Identity UI test passed", flush=True)
     finally:
         if simulator:
-            subprocess.run(["xcrun", "simctl", "shutdown", simulator], check=False)
-            subprocess.run(["xcrun", "simctl", "delete", simulator], check=True)
+            try:
+                subprocess.run(["xcrun", "simctl", "shutdown", simulator], check=False, timeout=30)
+            except subprocess.TimeoutExpired:
+                print(f"Shutdown timed out for task simulator {simulator}; attempting deletion", file=sys.stderr)
+            subprocess.run(["xcrun", "simctl", "delete", simulator], check=True, timeout=30)
             print(f"Deleted task simulator: {simulator}", flush=True)
 
 
@@ -152,6 +185,6 @@ if __name__ == "__main__":
     signal.signal(signal.SIGTERM, interrupt)
     try:
         main()
-    except (RuntimeError, OSError, subprocess.CalledProcessError, KeyboardInterrupt) as error:
+    except (RuntimeError, OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired, KeyboardInterrupt) as error:
         print(f"identity UI harness failed: {error}", file=sys.stderr)
         sys.exit(1)

@@ -18,13 +18,24 @@ import Foundation
         self.peripheral = peripheral; self.rx = rx; self.tx = tx; self.audio = audio
     }
     #if DEBUG
+    final class TestIO {
+        var ready: () -> Bool = { false }
+        var write: (Data) -> Void = { _ in }
+        var writeLimit = 244
+    }
+    private var testIO: TestIO?
+    private(set) var testReceiveCount = 0
+    var testHasPending: Bool { pending != nil }
+    var testPhysicalReady: Bool { availableWriteLimit() != nil }
     init(testing: Void) { peripheral = nil; rx = nil; tx = nil; audio = nil }
+    init(testingIO: TestIO) { peripheral = nil; rx = nil; tx = nil; audio = nil; testIO = testingIO }
     #endif
     func exchange(opcode: UInt8, body: Data) async throws -> Data {
         try Task.checkCancellation()
-        guard let peripheral, let tx, let audio, pending == nil, peripheral.state == .connected, tx.isNotifying, audio.isNotifying, nextID <= 65535 else { throw BLEFailure("Link unavailable or busy") }
+        guard pending == nil, nextID <= 65535 else { throw BLEFailure("Link unavailable or busy") }
+        guard let writeLimit = availableWriteLimit() else { throw BLEFailure("Link unavailable or busy") }
         let id = UInt16(nextID); nextID += 1
-        let segments = try PDSHLink.Envelope(opcode: opcode, requestID: id, body: body).segments(writeLimit: peripheral.maximumWriteValueLength(for: .withResponse))
+        let segments = try PDSHLink.Envelope(opcode: opcode, requestID: id, body: body).segments(writeLimit: writeLimit)
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 pending = (id, opcode, continuation); packets = segments
@@ -41,12 +52,27 @@ import Foundation
             }
         }
     }
+    private func availableWriteLimit() -> Int? {
+        #if DEBUG
+        if let testIO { return testIO.ready() ? testIO.writeLimit : nil }
+        #endif
+        guard let peripheral, let tx, let audio, peripheral.state == .connected,
+              tx.isNotifying, audio.isNotifying else { return nil }
+        return peripheral.maximumWriteValueLength(for: .withResponse)
+    }
     private func writeNext() {
-        guard let peripheral, let rx, !packets.isEmpty else { return }
+        guard !packets.isEmpty else { return }
+        #if DEBUG
+        if let testIO { guard testIO.ready() else { return }; testIO.write(packets.removeFirst()); return }
+        #endif
+        guard let peripheral, let rx else { return }
         peripheral.writeValue(packets.removeFirst(), for: rx, type: .withResponse)
     }
     func didWrite(_ characteristic: CBCharacteristic, error: Error?) {
         guard characteristic === rx else { return }
+        didWriteResult(error)
+    }
+    func didWriteResult(_ error: Error?) {
         if let error { fail(error); onFailure?() } else { writeNext() }
     }
     func receive(_ characteristic: CBCharacteristic, error: Error?) {
@@ -54,6 +80,9 @@ import Foundation
         receiveSegment(characteristic.value ?? Data(), error: error)
     }
     func receiveSegment(_ data: Data, error: Error?) {
+        #if DEBUG
+        testReceiveCount += 1
+        #endif
         if let error { fail(error); onFailure?(); return }
         do {
             guard let envelope = try reassembler.push(data) else { return }

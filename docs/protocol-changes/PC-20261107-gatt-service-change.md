@@ -168,3 +168,27 @@ same conservative manager-state behavior and adds no wire or device capability.
 Revision v3 specifies the reachable historical service-object setup for the
 connecting case. Its expected state and wire behavior are unchanged. A `known`
 object for a B callback belongs to B, not to A.
+
+## Local implementation handoff
+
+The Swift delegate and DEBUG physical-endpoint adapter now share the same
+service-change dispatcher. Connected owners lose admission, pending reads and
+Link resources using the existing claim and disconnect boundary; manager
+unavailability is applied to all affected local owners. A controlled
+store-owned Link channel exercises actual exchange, fragmentation, response
+and pending continuation, with only its physical I/O substituted. The shared
+22 cases and focused tests do not invoke the target task profile. This does
+not resolve the separately documented duplicate-discovery attribution problem.
+
+- `swift test -j 2 --filter 'StandardGattServiceChangeTests|StandardGattGrantOrderingTests|LegacyIdentityObservationTests|BLEIdentityTests|BLEDeviceMCPTests|PDSHLinkTests'` → PASS, 51 tests on macOS, including all 22 service-change vectors and real channel/old-endpoint focused tests.
+- `swift build -c release --target PhoneDSHBLE -j 2` → PASS on macOS; the release object contains no test I/O or callback seam symbols.
+- `PYTHONPATH=spec/v1/tools PYTHONDONTWRITEBYTECODE=1 python3 -m unittest test_spec_golden.StandardGattServiceChangeFixtureTests` → PASS.
+- Two iOS 18.4 XCUITests on a newly created task-only simulator → PASS: identity failure/retry and the real page's service-change closing state, disabled operations, callback-stack denial and subsequent explicit reconnect. The test-only host uses simulated physical peers and a fail-fast task manager; its simulator was deleted. The test bundle was rebuilt and run using the documented harness project and an existing task-local DerivedData directory. This is not real radio or hardware evidence.
+- `bash scripts/ci/check.sh --only phone-spec,phone-p0-conformance,phone-cross-tree` → phone-spec PASS; phone-p0-conformance FAIL on missing/stale page contracts; phone-cross-tree PASS.
+
+A wider `swift test -j 2 --filter PhoneDSHBLETests` run earlier in this work
+was FAIL: its two Swift/C bridge tests could not build because the pinned
+cJSON component was unavailable; it is not upgraded to PASS. A real iPhone,
+standard-service peripheral, ESP32 task E2E, actual CoreBluetooth event order,
+restart and authentication are NOT_RUN or independently unproven. GAP-31 is
+only partially addressed; GAP-16 and P0 remain open.
