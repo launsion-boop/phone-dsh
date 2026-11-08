@@ -74,6 +74,33 @@ class ReferenceDeviceTest(unittest.TestCase):
             connection = http.client.HTTPSConnection('localhost', self.port, timeout=5)
             connection.request('POST', '/mcp')
 
+    def test_sni_must_equal_advertised_hostname(self):
+        # lan-mcp.md#name-consistency: SNI, Host and certificate name are one value.
+        def handshake(server_hostname):
+            context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            context.check_hostname = False
+            context.load_verify_locations(cafile=str(self.cert))
+            with socket.create_connection(('127.0.0.1', self.port), timeout=5) as raw:
+                with context.wrap_socket(raw, server_hostname=server_hostname) as conn:
+                    return conn.version()
+        self.assertIsNotNone(handshake('localhost'))
+        self.assertIsNotNone(handshake('LOCALHOST'))
+        for wrong in ('other.local', 'localhost.example', None):
+            with self.subTest(sni=wrong), self.assertRaises((ssl.SSLError, ConnectionError)):
+                handshake(wrong)
+
+    def test_refuses_to_start_when_certificate_lacks_hostname(self):
+        for hostname, code in (('other.local', 'certificate_name_missing'),
+                               ('xn--bcher-kva.local', 'hostname_invalid'),
+                               ('lamp.123', 'hostname_invalid')):
+            with self.subTest(hostname=hostname):
+                result = subprocess.run(['python3', str(HERE / 'server.py'), '--cert', str(self.cert), '--key', str(self.key),
+                                         '--token-file', str(self.tokenfile), '--hostname', hostname, '--listen', '127.0.0.1',
+                                         '--port', '0', '--state', str(self.state)], capture_output=True, text=True, timeout=20)
+                self.assertEqual(result.returncode, 2)
+                self.assertIn(code, result.stderr)
+                self.assertNotIn('Listening on TLS port', result.stdout)
+
     def test_side_effect_deduplication_and_result_query(self):
         args = {'operation_id': 'reference-op-1', 'on': True}
         def call(name, arguments):
