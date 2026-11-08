@@ -95,3 +95,30 @@ crash, external-process, key-binding or authenticated session behavior.
 GAP-28 remains partial until its actual local boundaries are verified and its
 remaining durability and physical scope is separately stated. GAP-16 remains
 open regardless of this local fix.
+
+## Local implementation handoff
+
+The Swift storage and store implement the local guarded confirmation and
+observable publication rules. The experimental page shows the device-specific
+failure; the normal probe's device-task compilation condition remains off.
+The 40 new and 11 prior shared cases execute through the real store and
+storage core with isolated UserDefaults suites and controlled callbacks. The
+additional real-Link-client tests cover stale tools/list, handshake failures,
+old-channel callbacks and replacement between notification submissions. None
+of these injected endpoints is evidence of a real peer or authenticated link.
+
+- `swift test -j 2 --filter 'LegacyIdentityObservationTests|BLETrustedIdentitiesTests|BLEIdentityTests|StandardGattGrantOrderingTests|BLEDeviceMCPTests|PDSHLinkTests'` → PASS, 59 tests on macOS, including the 51 shared identity scenarios.
+- `swift build -c release --target PhoneDSHBLE -j 2` → PASS on macOS; release object has no exported test-adapter or identity-test callback symbols.
+- Independent iOS 18.4 XCUITest against the real Bluetooth page, real local store and an isolated suite → PASS, 1 test. A test-only host defines the experimental UI condition and has a fail-fast task-manager substitute; the production probe remains unchanged. The test clicked the actual confirmation button, checked the failure and stored old value, then repaired the isolated fixture and retried; task grants remained false and no additional physical adapter command was submitted. The task-created simulator was deleted. This is simulator UI evidence, not real BLE, crash durability or identity authentication.
+- `python3 examples/probe-app/identity-ui-harness/run.py --package-cache /private/tmp/pdsh59-legacy-ui-packages` → PASS on iOS 18.4; this independently rebuilt and ran the checked-in harness and deleted its own simulator. The optional cache path is local to this run; the harness also works without that option.
+- `swift test -j 2 --filter PhoneDSHBLETests` → FAIL: 65 tests executed, with two C-bridge tests failing during `firmware/tests/run.sh` before the bridge was built because the pinned cJSON component was unavailable. This result is not a pass for the full BLE suite.
+- `bash scripts/ci/check.sh --only phone-spec,phone-p0-conformance,phone-cross-tree` → phone-spec PASS; phone-p0-conformance FAIL on missing/stale UI page contracts; phone-cross-tree PASS.
+
+`examples/probe-app/identity-ui-harness/` contains the test-only standalone
+XCUITest host and runner, necessary because the main simulator test bundle in
+this environment cannot load `libswiftWebKit.dylib`. It links existing package
+products only; P24: none — no package, version or lockfile changes. The
+harness does not run the production app or invoke target tasks. Real iPhone,
+ESP32 standard GATT, reboot, hidden/managed preference domains and cross-process
+writers remain NOT_RUN or unproven. GAP-28 remains partial; GAP-16 remains open.
+The independent discovery ambiguity is tracked by GAP-31 and its draft CCR.

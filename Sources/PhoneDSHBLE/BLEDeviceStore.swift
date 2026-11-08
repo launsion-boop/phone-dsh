@@ -25,6 +25,7 @@ import PhoneDSHAgentCore
         public var taskIdentity = ""
         /// Identity proven on the current connection but not yet confirmed by the user.
         public var pendingIdentity = ""
+        public var identityError = ""
         public var grantedTools: Set<String> = []
         public var homeOrigins = ""
         public var events: [String] = []
@@ -67,6 +68,11 @@ import PhoneDSHAgentCore
         var physicalIdentity: AnyObject?
         var read = false, alert = false
         var readVersion = Revision(), alertVersion = Revision()
+        var identityRevision = Revision()
+        var channelRevision = Revision()
+        var identityPendingRevision: Revision?
+        var identityAttempt: Revision?
+        var identityErrorRevision = Revision()
         var standardSubscribed = Set<StandardBLEProfile>()
         var standardSubscriptionUnknown = Set<StandardBLEProfile>()
     }
@@ -123,9 +129,12 @@ import PhoneDSHAgentCore
         var beforeReadReserve: (() -> Void)?
         var afterReadReserve: (() -> Void)?
         var afterReadOutcomeClaim: (() -> Void)?
+        var afterNotify: ((UUID) -> Void)?
+        var notifyEndpoints: [ObjectIdentifier] = []
         var profiles: [UUID: Set<StandardBLEProfile>] = [:]
         var validPeers: [UUID: NSObject] = [:]
         var profileEndpoints: [UUID: [StandardBLEProfile: NSObject]] = [:]
+        var identityDefaults: UserDefaults?
     }
     @ObservationIgnored private var testAdapter: TestAdapter?
     init(testAdapter: TestAdapter, testDevices: [Device]) {
@@ -241,9 +250,11 @@ import PhoneDSHAgentCore
         current.physicalIdentity = peripheral
         #endif
         owners[id] = current
+        let initialErrorRevision = current.identityErrorRevision
         update(id) {
             guard self.owners[id] === current, current.phase == .connecting else { return }
             $0.allowRead = current.read; $0.allowAlert = current.alert; $0.state = "连接中"
+            if current.identityErrorRevision === initialErrorRevision { $0.identityError = "" }
         }
         guard owners[id] === current, current.phase == .connecting, poweredOn else { return }
         stopScan()
@@ -334,6 +345,8 @@ import PhoneDSHAgentCore
         current.phase = unsent ? .idle : (quarantine || !current.wasConnected || !poweredOn ? .quarantined : .closing)
         current.read = false; current.alert = false
         current.readVersion = Revision(); current.alertVersion = Revision()
+        invalidateIdentity(current)
+        let errorRevision = current.identityErrorRevision
         let oldRead = pending.flatMap { $0.device == id && $0.owner === current ? $0 : nil }
         if let oldRead, oldRead.claim.claim(outcome) {
             #if DEBUG
@@ -370,7 +383,7 @@ import PhoneDSHAgentCore
             guard self.owners[id] === current else { return }
             $0.state = self.phaseLabel(current.phase)
             $0.linkState = "未连接"; $0.linkIdentity = ""; $0.linkTools = []; $0.linkToolDescriptors = []
-            $0.allowDeviceTasks = false; $0.supportsDeviceTasks = false; $0.taskIdentity = ""; $0.pendingIdentity = ""
+            $0.allowDeviceTasks = false; $0.supportsDeviceTasks = false; $0.taskIdentity = ""; $0.pendingIdentity = ""; if current.identityErrorRevision === errorRevision { $0.identityError = "" }
             $0.grantedTools = []; $0.homeOrigins = ""; $0.events = []; $0.profiles = []; $0.readings = [:]
             $0.allowRead = current.read; $0.allowAlert = current.alert
         }
@@ -401,11 +414,14 @@ import PhoneDSHAgentCore
         // Invalidate every owner before the first observer can reenter.
         let snapshot = Array(owners)
         var tasks: [Task<Void, Never>] = [], channels: [BLELinkChannel] = []
+        var errorRevisions: [UUID: Revision] = [:]
         for (id, current) in snapshot {
             let neverSubmitted = current.phase == .idle && !submittedDevices.contains(id)
             current.phase = neverSubmitted ? .idle : .quarantined
             current.read = false; current.alert = false
             current.readVersion = Revision(); current.alertVersion = Revision()
+            invalidateIdentity(current)
+            errorRevisions[id] = current.identityErrorRevision
             if linkBusy[id]?.owner === current { linkBusy[id] = nil }
             if let task = linkTasks.removeValue(forKey: id) { tasks.append(task) }
             if let task = connectionTimers.removeValue(forKey: id) { tasks.append(task) }
@@ -425,7 +441,7 @@ import PhoneDSHAgentCore
                 $0.allowRead = current.read; $0.allowAlert = current.alert; $0.state = self.phaseLabel(current.phase)
                 $0.allowDeviceTasks = false; $0.supportsDeviceTasks = false
                 $0.linkIdentity = ""; $0.linkState = "未连接"; $0.linkTools = []; $0.linkToolDescriptors = []
-                $0.taskIdentity = ""; $0.pendingIdentity = ""; $0.grantedTools = []; $0.homeOrigins = ""
+                $0.taskIdentity = ""; $0.pendingIdentity = ""; if current.identityErrorRevision === errorRevisions[id] { $0.identityError = "" }; $0.grantedTools = []; $0.homeOrigins = ""
                 $0.events = []; $0.profiles = []; $0.readings = [:]
             }
         }
@@ -571,20 +587,9 @@ import PhoneDSHAgentCore
             if let rx = found[PDSHLink.rx], let tx = found[PDSHLink.tx], let audio = found[PDSHLink.audioUp],
                rx.properties.contains(.write), tx.properties.contains(.notify), audio.properties.contains(.notify) {
                 let channel = BLELinkChannel(peripheral: peripheral, rx: rx, tx: tx, audio: audio)
-                channel.onFailure = { [weak self, weak current] in
-                    guard let self, let current, self.owners[id] === current, current.phase == .connected else { return }
-                    self.disconnect(id)
-                }
-                channel.onEvent = { [weak self, weak current] data in
-                    guard let self, let current else { return }
-                    self.handleLinkEvent(id, current: current, data: data)
-                }
-                linkChannels[id] = channel
-                guard poweredOn, owners[id] === current, current.phase == .connected else { return }
-                submitConnected(id, current: current, action: .notify) { peripheral.setNotifyValue(true, for: tx) }
-                guard poweredOn, owners[id] === current, current.phase == .connected else { return }
-                submitConnected(id, current: current, action: .notify) { peripheral.setNotifyValue(true, for: audio) }
-                update(id) { guard self.owners[id] === current, current.phase == .connected, self.linkChannels[id] === channel else { return }; $0.linkState = "等待加密、绑定与订阅" }
+                guard installAndSubscribeLink(id, current: current, channel: channel, txEndpoint: tx, audioEndpoint: audio,
+                          notifyTX: { peripheral.setNotifyValue(true, for: tx) },
+                          notifyAudio: { peripheral.setNotifyValue(true, for: audio) }) else { return }
             } else { update(id) { guard self.owners[id] === current, current.phase == .connected else { return }; $0.linkState = "Link 特征不完整" } }
         }
         guard poweredOn, owners[id] === current, current.phase == .connected else { return }
@@ -610,6 +615,76 @@ import PhoneDSHAgentCore
             update(peripheral.identifier) { guard self.owners[id] === current, current.phase == .connected else { return }; $0.state = "已连接" }
         }
     }
+    private func invalidateIdentity(_ current: Owner) {
+        current.identityRevision = Revision()
+        current.identityPendingRevision = nil
+        current.identityAttempt = nil
+        current.identityErrorRevision = Revision()
+    }
+    @discardableResult private func installIdentityChannel(_ id: UUID, current: Owner, channel: BLELinkChannel) -> Revision? {
+        guard poweredOn, owners[id] === current, current.phase == .connected else { return nil }
+        let installation = Revision(); current.channelRevision = installation
+        channel.onFailure = { [weak self, weak current, weak channel] in
+            guard let self, let current, let channel,
+                  self.isCurrentChannelInstallation(id, current: current, channel: channel, installation: installation) else { return }
+            self.disconnect(id)
+        }
+        channel.onEvent = { [weak self, weak current, weak channel] data in
+            guard let self, let current, let channel,
+                  self.isCurrentChannelInstallation(id, current: current, channel: channel, installation: installation) else { return }
+            self.handleLinkEvent(id, current: current, data: data)
+        }
+        invalidateIdentity(current)
+        let revision = current.identityRevision, errorRevision = current.identityErrorRevision
+        let oldChannel = linkChannels.updateValue(channel, forKey: id)
+        let oldTask = linkTasks.removeValue(forKey: id)
+        linkClients[id] = nil; linkTaskTools[id] = nil; linkBootIDs[id] = nil; linkEventSequences[id] = nil
+        if linkBusy[id]?.owner === current { linkBusy[id] = nil }
+        oldTask?.cancel()
+        if oldChannel !== channel { oldChannel?.fail(BLEFailure("Link replaced; outcome_unknown")) }
+        update(id) {
+            guard self.owners[id] === current, current.phase == .connected,
+                  current.identityRevision === revision, self.linkChannels[id] === channel else { return }
+            $0.pendingIdentity = ""; $0.taskIdentity = ""; $0.supportsDeviceTasks = false; $0.allowDeviceTasks = false
+            if current.identityErrorRevision === errorRevision { $0.identityError = "" }
+        }
+        return installation
+    }
+    private func isCurrentChannelInstallation(_ id: UUID, current: Owner, channel: BLELinkChannel, installation: Revision) -> Bool {
+        poweredOn && owners[id] === current && current.phase == .connected &&
+        current.channelRevision === installation && linkChannels[id] === channel
+    }
+    @discardableResult private func installAndSubscribeLink(_ id: UUID, current: Owner, channel: BLELinkChannel,
+                                                             txEndpoint: AnyObject, audioEndpoint: AnyObject,
+                                                             notifyTX: () -> Void, notifyAudio: () -> Void) -> Bool {
+        guard let installation = installIdentityChannel(id, current: current, channel: channel),
+              isCurrentChannelInstallation(id, current: current, channel: channel, installation: installation) else { return false }
+        submitConnected(id, current: current, action: .notify, endpoint: txEndpoint, physical: notifyTX)
+        guard isCurrentChannelInstallation(id, current: current, channel: channel, installation: installation) else { return false }
+        submitConnected(id, current: current, action: .notify, endpoint: audioEndpoint, physical: notifyAudio)
+        guard isCurrentChannelInstallation(id, current: current, channel: channel, installation: installation) else { return false }
+        update(id) {
+            guard self.isCurrentChannelInstallation(id, current: current, channel: channel, installation: installation) else { return }
+            $0.linkState = "等待加密、绑定与订阅"
+        }
+        return isCurrentChannelInstallation(id, current: current, channel: channel, installation: installation)
+    }
+    private func installIdentityClient(_ id: UUID, current: Owner, client: PDSHLinkClient,
+                                       isCurrent: () -> Bool, publish: (inout Device) -> Void) {
+        guard poweredOn, owners[id] === current, current.phase == .connected, isCurrent() else { return }
+        invalidateIdentity(current)
+        let revision = current.identityRevision, errorRevision = current.identityErrorRevision
+        let channel = linkChannels[id]
+        linkClients[id] = client
+        update(id) {
+            guard self.owners[id] === current, current.phase == .connected,
+                  current.identityRevision === revision, self.linkChannels[id] === channel,
+                  self.linkClients[id] === client, isCurrent() else { return }
+            $0.pendingIdentity = ""; $0.taskIdentity = ""; $0.supportsDeviceTasks = false; $0.allowDeviceTasks = false
+            if current.identityErrorRevision === errorRevision { $0.identityError = "" }
+            publish(&$0)
+        }
+    }
     private func recordLinkPhysicalEndpoints(_ id: UUID, current: Owner, endpoints: [String: AnyObject]) {
         guard poweredOn, owners[id] === current, current.phase == .connected else { return }
         linkPhysicalEndpoints[id] = endpoints
@@ -626,14 +701,18 @@ import PhoneDSHAgentCore
         }
     }
     private enum ConnectedAction { case discoverServices, discoverCharacteristics, notify, link }
-    @discardableResult private func submitConnected(_ id: UUID, current: Owner?, action: ConnectedAction, physical: () -> Void) -> Bool {
+    @discardableResult private func submitConnected(_ id: UUID, current: Owner?, action: ConnectedAction,
+                                                      endpoint: AnyObject? = nil, physical: () -> Void) -> Bool {
         guard poweredOn, let current, owners[id] === current, current.phase == .connected else { return false }
         #if DEBUG
         if let testAdapter {
             switch action {
             case .discoverServices: testAdapter.commands.append(.discoverServices(id))
             case .discoverCharacteristics: testAdapter.commands.append(.discoverCharacteristics(id))
-            case .notify: testAdapter.commands.append(.notify(id))
+            case .notify:
+                testAdapter.commands.append(.notify(id))
+                if let endpoint { testAdapter.notifyEndpoints.append(ObjectIdentifier(endpoint)) }
+                testAdapter.afterNotify?(id)
             case .link: testAdapter.commands.append(.link(id))
             }
             return true
@@ -764,17 +843,11 @@ import PhoneDSHAgentCore
     func testPrepareLink(_ id: UUID, bootID: UInt32, deviceID: String) {
         guard testAdapter != nil, poweredOn, let current = owners[id], current.phase == .connected else { return }
         let channel = BLELinkChannel(testing: ())
-        channel.onEvent = { [weak self, weak current] data in
-            guard let self, let current else { return }
-            self.handleLinkEvent(id, current: current, data: data)
-        }
-        channel.onFailure = { [weak self, weak current] in
-            guard let self, let current, self.owners[id] === current, current.phase == .connected else { return }
-            self.disconnect(id)
-        }
-        linkChannels[id] = channel; linkBootIDs[id] = bootID
+        guard let installation = installIdentityChannel(id, current: current, channel: channel),
+              isCurrentChannelInstallation(id, current: current, channel: channel, installation: installation) else { return }
+        linkBootIDs[id] = bootID
         update(id) {
-            guard self.owners[id] === current, current.phase == .connected else { return }
+            guard self.isCurrentChannelInstallation(id, current: current, channel: channel, installation: installation) else { return }
             $0.linkIdentity = deviceID.lowercased()
         }
     }
@@ -783,6 +856,65 @@ import PhoneDSHAgentCore
         dispatchValue(id, source: .linkTX(segment), error: nil)
     }
     func testLinkDeliveries(_ id: UUID) -> Int { devices.first(where: { $0.id == id })?.events.count ?? 0 }
+    @discardableResult func testDiscoverIdentityChannelAndNotify(_ id: UUID) -> (tx: ObjectIdentifier, audio: ObjectIdentifier)? {
+        guard testAdapter != nil, let current = owners[id], current.phase == .connected else { return nil }
+        let channel = BLELinkChannel(testing: ()), tx = NSObject(), audio = NSObject()
+        let endpoints = (tx: ObjectIdentifier(tx), audio: ObjectIdentifier(audio))
+        installAndSubscribeLink(id, current: current, channel: channel, txEndpoint: tx, audioEndpoint: audio,
+                                notifyTX: {}, notifyAudio: {})
+        return endpoints
+    }
+    func testReinstallCurrentIdentityChannel(_ id: UUID) {
+        guard testAdapter != nil, let current = owners[id], let channel = linkChannels[id] else { return }
+        installIdentityChannel(id, current: current, channel: channel)
+    }
+    func testIdentityInstallationRevision(_ id: UUID) -> ObjectIdentifier? { owners[id].map { ObjectIdentifier($0.channelRevision) } }
+    func testReplaceIdentityChannel(_ id: UUID) {
+        guard testAdapter != nil, let current = owners[id], current.phase == .connected else { return }
+        installIdentityChannel(id, current: current, channel: BLELinkChannel(testing: ()))
+    }
+    func testInstallIdentityClient(_ id: UUID, reuse: Bool = false) {
+        guard testAdapter != nil, let current = owners[id], current.phase == .connected,
+              let channel = linkChannels[id] else { return }
+        let client: PDSHLinkClient
+        if reuse {
+            guard let existing = linkClients[id] else { return }
+            client = existing
+        } else { client = PDSHLinkClient(transport: channel) }
+        installIdentityClient(id, current: current, client: client,
+                              isCurrent: { self.owners[id] === current && self.linkChannels[id] === channel }, publish: { _ in })
+    }
+    func testCaptureIdentityProof(_ id: UUID) -> ((String) -> Void)? {
+        guard testAdapter != nil, let context = identityContext(id) else { return nil }
+        return { [weak self] identity in self?.completeIdentityProof(id, context: context, identity: identity) }
+    }
+    func testCaptureIdentityProofFailure(_ id: UUID) -> ((Error) throws -> Void)? {
+        guard testAdapter != nil, let context = identityContext(id) else { return nil }
+        return { [weak self] error in
+            guard let self else { return }
+            try self.completeIdentityProofFailure(id, context: context, error: error)
+        }
+    }
+    func testSetIdentityPending(_ id: UUID, label: String) {
+        guard testAdapter != nil, let context = identityContext(id) else { return }
+        publishIdentityProof(id, context: context, identity: label, known: false)
+    }
+    func testIdentityRevision(_ id: UUID) -> ObjectIdentifier? { owners[id].map { ObjectIdentifier($0.identityRevision) } }
+    func testIdentityClient(_ id: UUID) -> ObjectIdentifier? { linkClients[id].map(ObjectIdentifier.init) }
+    func testIdentityChannel(_ id: UUID) -> ObjectIdentifier? { linkChannels[id].map(ObjectIdentifier.init) }
+    @discardableResult func testStartIdentityLinkHandshake(_ id: UUID, transport: any PDSHLinkTransport) -> Task<Void, Never>? {
+        guard testAdapter != nil, let current = owners[id], let channel = linkChannels[id], linkTasks[id] == nil else { return nil }
+        startLinkHandshake(id, current: current, channel: channel, transport: transport)
+        return linkTasks[id]
+    }
+    func testCaptureIdentityChannelFailure(_ id: UUID) -> (() -> Void)? {
+        guard testAdapter != nil, let channel = linkChannels[id], let callback = channel.onFailure else { return nil }
+        return { _ = channel; callback() }
+    }
+    func testCaptureIdentityChannelEvent(_ id: UUID) -> ((Data) -> Void)? {
+        guard testAdapter != nil, let channel = linkChannels[id], let callback = channel.onEvent else { return nil }
+        return { data in _ = channel; callback(data) }
+    }
     #endif
 
     private func readAdmission(_ id: UUID, profile: StandardBLEProfile) throws -> Owner {
@@ -965,19 +1097,33 @@ import PhoneDSHAgentCore
             break
         }
         guard error == nil else { status = error!.localizedDescription; disconnect(id); return }
-        guard let channel = linkChannels[id], channel.tx?.isNotifying == true, channel.audio?.isNotifying == true, linkTasks[id] == nil else { return }
+        guard let channel = linkChannels[id], channel.tx?.isNotifying == true, channel.audio?.isNotifying == true else { return }
+        startLinkHandshake(id, current: current, channel: channel, transport: channel)
+    }
+    private func startLinkHandshake(_ id: UUID, current: Owner, channel: BLELinkChannel,
+                                    transport: any PDSHLinkTransport) {
+        guard poweredOn, owners[id] === current, current.phase == .connected,
+              linkChannels[id] === channel, linkTasks[id] == nil else { return }
+        let handshakeRevision = current.identityRevision
         linkTasks[id] = Task {
             do {
-                let client = PDSHLinkClient(transport: channel, allowTaskProfile: deviceTaskDiscoveryEnabled), peer = try await client.handshake()
-                guard !Task.isCancelled, linkChannels[id] === channel else { return }
-                update(id) { guard self.owners[id] === current, current.phase == .connected, self.linkChannels[id] === channel else { return }; $0.linkState = "Link \(peer.version >> 8).\(peer.version & 255) · boot \(peer.bootID)" }
-                guard poweredOn, owners[id] === current, current.phase == .connected, linkChannels[id] === channel else { return }
-                guard peer.supportsTools else { update(id) { guard self.owners[id] === current, current.phase == .connected, self.linkChannels[id] === channel else { return }; $0.linkState += " · 旧固件，未协商工具扩展" }; return }
+                let client = PDSHLinkClient(transport: transport, allowTaskProfile: deviceTaskDiscoveryEnabled), peer = try await client.handshake()
+                guard !Task.isCancelled, owners[id] === current, current.phase == .connected,
+                      linkChannels[id] === channel, current.identityRevision === handshakeRevision else { return }
+                update(id) { guard self.owners[id] === current, current.phase == .connected, self.linkChannels[id] === channel, current.identityRevision === handshakeRevision else { return }; $0.linkState = "Link \(peer.version >> 8).\(peer.version & 255) · boot \(peer.bootID)" }
+                guard poweredOn, owners[id] === current, current.phase == .connected, linkChannels[id] === channel, current.identityRevision === handshakeRevision else { return }
+                guard peer.supportsTools else { update(id) { guard self.owners[id] === current, current.phase == .connected, self.linkChannels[id] === channel, current.identityRevision === handshakeRevision else { return }; $0.linkState += " · 旧固件，未协商工具扩展" }; return }
                 try await discoverLinkTools(id, client: client, bootID: peer.bootID) { self.linkChannels[id] === channel }
             } catch {
-                if !Task.isCancelled, owners[id] === current, current.phase == .connected {
-                    status = error.localizedDescription
-                    guard owners[id] === current, current.phase == .connected else { return }
+                if !Task.isCancelled, poweredOn, owners[id] === current, current.phase == .connected,
+                   linkChannels[id] === channel, current.identityRevision === handshakeRevision {
+                    withMutation(keyPath: \.status) {
+                        guard self.poweredOn, self.owners[id] === current, current.phase == .connected,
+                              self.linkChannels[id] === channel, current.identityRevision === handshakeRevision else { return }
+                        _status = error.localizedDescription
+                    }
+                    guard poweredOn, owners[id] === current, current.phase == .connected,
+                          linkChannels[id] === channel, current.identityRevision === handshakeRevision else { return }
                     disconnect(id)
                 }
             }
@@ -1008,7 +1154,13 @@ import PhoneDSHAgentCore
     /// Installs ordinary Link tools without invoking the draft task identity profile.
     func discoverLinkTools(_ id: UUID, client: PDSHLinkClient, bootID: UInt32,
                            isCurrent: () -> Bool) async throws {
+        guard poweredOn, let capturedOwner = owners[id], capturedOwner.phase == .connected,
+              isCurrent() else { throw BLEFailure("Stale connection") }
+        let capturedChannel = linkChannels[id], capturedRevision = capturedOwner.identityRevision
         let list = try await client.invoke(requestID: UUID(), name: "tools/list", arguments: .object([:]), idempotencyKey: UUID().uuidString)
+        guard poweredOn, owners[id] === capturedOwner, capturedOwner.phase == .connected,
+              linkChannels[id] === capturedChannel, capturedOwner.identityRevision === capturedRevision,
+              !Task.isCancelled, isCurrent() else { throw BLEFailure("Stale connection") }
         guard case .object(let root) = list, root["status"] == .string("completed"),
               case .object(let result) = root["result"], case .string(let deviceID) = result["device_id"], UUID(uuidString: deviceID) != nil,
               result["boot_id"] == .number(Double(bootID)), case .array(let tools) = result["tools"], tools.count <= 32 else { throw BLEFailure("Invalid Link tools/list") }
@@ -1018,11 +1170,18 @@ import PhoneDSHAgentCore
             return name
         }
         guard Set(names).count == names.count, !Task.isCancelled, isCurrent() else { throw BLEFailure("Duplicate tools or stale connection") }
-        linkClients[id] = client; linkBootIDs[id] = bootID
+        guard poweredOn, owners[id] === capturedOwner, capturedOwner.phase == .connected,
+              linkChannels[id] === capturedChannel, capturedOwner.identityRevision === capturedRevision,
+              isCurrent() else { throw BLEFailure("Stale connection") }
+        let current = capturedOwner
+        linkBootIDs[id] = bootID
         linkTaskTools[id] = Set(names.filter(Self.isReservedTaskTool))
         let ordinaryTools = tools.filter { !Self.isReservedTaskTool($0["name"]?.stringValue ?? "") }
         // GAP-16 remains open; advertised task tools are never invoked here.
-        update(id) { guard isCurrent() else { return }; $0.linkIdentity = deviceID.lowercased(); $0.linkTools = names.filter { !Self.isReservedTaskTool($0) }; $0.linkToolDescriptors = ordinaryTools; $0.supportsDeviceTasks = false; $0.taskIdentity = ""; $0.pendingIdentity = ""; $0.linkState += " · PDSH Tools v1" }
+        installIdentityClient(id, current: current, client: client, isCurrent: isCurrent) {
+            $0.linkIdentity = deviceID.lowercased(); $0.linkTools = names.filter { !Self.isReservedTaskTool($0) }
+            $0.linkToolDescriptors = ordinaryTools; $0.linkState += " · PDSH Tools v1"
+        }
     }
     public func grantLinkTool(_ id: UUID, name: String, enabled: Bool) {
         guard poweredOn, let current = owners[id], current.phase == .connected else { return }
@@ -1032,13 +1191,103 @@ import PhoneDSHAgentCore
         update(id) { guard self.owners[id] === current, current.phase == .connected else { return }; if enabled && $0.linkTools.contains(name) { $0.grantedTools.insert(name) } else { $0.grantedTools.remove(name) } }
     }
 
-    /// Sends a fresh nonce and verifies the device's signed identity proof.
-    /// A verified identity the user has not confirmed yet is held as pending.
+    private struct IdentityContext {
+        let owner: Owner
+        let channel: BLELinkChannel
+        let client: PDSHLinkClient
+        let revision: Revision
+    }
+    private struct ConfirmationContext {
+        let identity: IdentityContext
+        let pending: String
+        let attempt: Revision
+    }
+    private struct RejectedConfirmation {
+        let owner: Owner
+        let revision: Revision
+        let errorRevision: Revision
+        let attempt: Revision?
+        let channel: BLELinkChannel?
+        let client: PDSHLinkClient?
+        let pending: String
+    }
+    private var identityDefaults: UserDefaults {
+        #if DEBUG
+        if let defaults = testAdapter?.identityDefaults { return defaults }
+        #endif
+        return .standard
+    }
+    private func identityContext(_ id: UUID, client: PDSHLinkClient? = nil) -> IdentityContext? {
+        guard poweredOn, let current = owners[id], current.phase == .connected,
+              let channel = linkChannels[id], let actualClient = linkClients[id],
+              client == nil || client === actualClient else { return nil }
+        return IdentityContext(owner: current, channel: channel, client: actualClient, revision: current.identityRevision)
+    }
+    private func isCurrentIdentity(_ id: UUID, _ context: IdentityContext) -> Bool {
+        poweredOn && owners[id] === context.owner && context.owner.phase == .connected &&
+        context.owner.identityRevision === context.revision && linkChannels[id] === context.channel &&
+        linkClients[id] === context.client
+    }
+    private func sameScalars(_ a: String, _ b: String) -> Bool {
+        a.unicodeScalars.elementsEqual(b.unicodeScalars)
+    }
+    private func isCurrentConfirmationState(_ id: UUID, _ context: ConfirmationContext) -> Bool {
+        isCurrentIdentity(id, context.identity) &&
+        context.identity.owner.identityPendingRevision === context.identity.revision &&
+        context.identity.owner.identityAttempt === context.attempt
+    }
+    private func isCurrentConfirmation(_ id: UUID, _ context: ConfirmationContext) -> Bool {
+        guard isCurrentConfirmationState(id, context), let device = devices.first(where: { $0.id == id }) else { return false }
+        return sameScalars(device.pendingIdentity, context.pending)
+    }
+    /// Publishes the result of the local proof lookup. The wire proof helper is
+    /// dormant; this transition itself neither calls it nor establishes trust.
+    private func publishIdentityProof(_ id: UUID, context: IdentityContext, identity: String, known: Bool) {
+        guard isCurrentIdentity(id, context) else { return }
+        let current = context.owner
+        invalidateIdentity(current)
+        let revision = current.identityRevision, errorRevision = current.identityErrorRevision
+        update(id) {
+            guard self.owners[id] === current, current.phase == .connected, self.poweredOn,
+                  current.identityRevision === revision, self.linkChannels[id] === context.channel,
+                  self.linkClients[id] === context.client else { return }
+            if known {
+                $0.taskIdentity = identity; $0.pendingIdentity = ""
+            } else {
+                current.identityPendingRevision = revision
+                $0.taskIdentity = ""; $0.pendingIdentity = identity
+            }
+            $0.supportsDeviceTasks = false; $0.allowDeviceTasks = false
+            if current.identityErrorRevision === errorRevision { $0.identityError = "" }
+        }
+    }
+    private func completeIdentityProof(_ id: UUID, context: IdentityContext, identity: String) {
+        guard isCurrentIdentity(id, context) else { return }
+        let known = BLETrustedIdentities.contains(identity, defaults: identityDefaults)
+        guard isCurrentIdentity(id, context) else { return }
+        publishIdentityProof(id, context: context, identity: identity, known: known)
+    }
+
+    private func completeIdentityProofFailure(_ id: UUID, context: IdentityContext, error: Error) throws {
+        guard !Task.isCancelled, isCurrentIdentity(id, context) else { return }
+        throw error
+    }
+
+    /// This helper remains unused while the authenticated identity profile is target.
     private func proveIdentity(_ id: UUID, client: PDSHLinkClient) async throws {
+        guard let context = identityContext(id, client: client) else { return }
         let nonce = try BLEIdentity.randomNonce()
-        let reply = try await client.invoke(requestID: UUID(), name: "pdsh.identity.prove",
-            arguments: .object(["nonce": .string(BLEIdentity.hexEncode([UInt8](nonce)))]),
-            idempotencyKey: UUID().uuidString.lowercased())
+        let reply: JSONValue
+        do {
+            reply = try await client.invoke(requestID: UUID(), name: "pdsh.identity.prove",
+                arguments: .object(["nonce": .string(BLEIdentity.hexEncode([UInt8](nonce)))]),
+                idempotencyKey: UUID().uuidString.lowercased())
+        } catch {
+            guard !Task.isCancelled else { return }
+            try completeIdentityProofFailure(id, context: context, error: error)
+            return
+        }
+        guard !Task.isCancelled, isCurrentIdentity(id, context) else { return }
         guard case .object(let root) = reply, root["status"] == .string("completed"),
               case .object(let result) = root["result"],
               case .string(let publicKey) = result["pubkey"],
@@ -1047,23 +1296,69 @@ import PhoneDSHAgentCore
         }
         let identity = try BLEIdentity.verify(nonce: nonce, publicKeyHex: publicKey, signatureHex: signature)
         guard !Task.isCancelled else { return }
-        if BLETrustedIdentities.contains(identity) {
-            update(id) { $0.taskIdentity = identity; $0.pendingIdentity = ""; $0.supportsDeviceTasks = false }
-        } else {
-            update(id) { $0.taskIdentity = ""; $0.pendingIdentity = identity; $0.supportsDeviceTasks = false }
-        }
+        completeIdentityProof(id, context: context, identity: identity)
     }
 
-    /// The user confirms the fingerprint shown for a newly proven device (first use).
+    /// Records only the visible legacy label; this does not authenticate a peer.
     public func trustPendingIdentity(_ id: UUID) {
-        guard let device = devices.first(where: { $0.id == id }), !device.pendingIdentity.isEmpty,
-              linkClients[id] != nil else {
-            status = "请先连接设备并完成身份证明"
+        guard let initial = devices.first(where: { $0.id == id }) else { return }
+        let requested = initial.pendingIdentity
+        var accepted: ConfirmationContext?
+        var rejected: RejectedConfirmation?
+        let outcome = BLETrustedIdentities.confirm(requested, defaults: identityDefaults, onAccepted: {
+            guard let device = self.devices.first(where: { $0.id == id }) else { return false }
+            let current = self.owner(id)
+            guard let identity = self.identityContext(id),
+                  identity.owner.identityPendingRevision === identity.revision,
+                  !device.pendingIdentity.isEmpty, self.sameScalars(device.pendingIdentity, requested) else {
+                rejected = RejectedConfirmation(owner: current, revision: current.identityRevision,
+                    errorRevision: current.identityErrorRevision, attempt: current.identityAttempt,
+                    channel: self.linkChannels[id], client: self.linkClients[id], pending: device.pendingIdentity)
+                return false
+            }
+            let attempt = Revision(); current.identityAttempt = attempt
+            accepted = ConfirmationContext(identity: identity, pending: device.pendingIdentity, attempt: attempt)
+            return true
+        }, isCurrent: {
+            guard let accepted else { return false }
+            return self.isCurrentConfirmation(id, accepted)
+        })
+        switch outcome {
+        case .reentrantBusy, .stale:
             return
+        case .notAdmitted:
+            guard let rejected, owners[id] === rejected.owner,
+                  rejected.owner.identityRevision === rejected.revision,
+                  rejected.owner.identityErrorRevision === rejected.errorRevision,
+                  rejected.owner.identityAttempt === rejected.attempt,
+                  linkChannels[id] === rejected.channel, linkClients[id] === rejected.client,
+                  let device = devices.first(where: { $0.id == id }), sameScalars(device.pendingIdentity, rejected.pending) else { return }
+            let errorRevision = Revision(); rejected.owner.identityErrorRevision = errorRevision
+            update(id) {
+                guard self.owners[id] === rejected.owner, rejected.owner.identityRevision === rejected.revision,
+                      rejected.owner.identityErrorRevision === errorRevision,
+                      rejected.owner.identityAttempt === rejected.attempt,
+                      self.linkChannels[id] === rejected.channel, self.linkClients[id] === rejected.client,
+                      self.sameScalars($0.pendingIdentity, rejected.pending) else { return }
+                $0.identityError = "请先连接设备并完成身份证明"
+            }
+        case .success:
+            guard let accepted, isCurrentConfirmation(id, accepted) else { return }
+            update(id) {
+                guard self.isCurrentConfirmationState(id, accepted), self.sameScalars($0.pendingIdentity, accepted.pending) else { return }
+                self.invalidateIdentity(accepted.identity.owner)
+                $0.taskIdentity = accepted.pending; $0.pendingIdentity = ""; $0.identityError = ""
+                $0.supportsDeviceTasks = false; $0.allowDeviceTasks = false
+            }
+        case .storageFailure:
+            guard let accepted, isCurrentConfirmation(id, accepted) else { return }
+            let errorRevision = Revision(); accepted.identity.owner.identityErrorRevision = errorRevision
+            update(id) {
+                guard self.isCurrentConfirmationState(id, accepted), self.sameScalars($0.pendingIdentity, accepted.pending),
+                      accepted.identity.owner.identityErrorRevision === errorRevision else { return }
+                $0.identityError = "记录身份失败，请重试"
+            }
         }
-        let identity = device.pendingIdentity
-        BLETrustedIdentities.insert(identity)
-        update(id) { $0.taskIdentity = identity; $0.pendingIdentity = ""; $0.supportsDeviceTasks = false }
     }
 
     /// GAP-16 requires BLE task grants to remain unavailable until authenticated

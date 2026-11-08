@@ -75,17 +75,17 @@ public enum BLETrustedIdentities {
     // operations instead of deadlocking or interleaving their read/write cycle.
     private static var active = false
 
-    private static func access(_ action: () -> Bool) -> Bool {
+    private static func access<Result>(_ rejected: Result, _ action: () -> Result) -> Result {
         lock.lock()
         defer { lock.unlock() }
-        guard !active else { return false }
+        guard !active else { return rejected }
         active = true
         defer { active = false }
         return action()
     }
 
     public static func contains(_ identity: String, defaults: UserDefaults = .standard) -> Bool {
-        access { (defaults.object(forKey: key) as? [String])?.contains(identity) ?? false }
+        access(false) { (defaults.object(forKey: key) as? [String])?.contains(identity) ?? false }
     }
 
     public static func insert(_ identity: String, defaults: UserDefaults = .standard) {
@@ -96,22 +96,48 @@ public enum BLETrustedIdentities {
     /// it does not establish durable storage or authenticate a device.
     @discardableResult
     public static func insertIfVisibleValid(_ identity: String, defaults: UserDefaults = .standard) -> Bool {
-        access {
-            let visible = defaults.object(forKey: key)
-            var current: [String]
-            if let visible {
-                guard let strings = visible as? [String] else { return false }
-                current = strings
-            } else {
-                current = []
-            }
-            if current.contains(identity) { return true }
-            current.append(identity)
-            defaults.set(current, forKey: key)
-            guard let readback = defaults.object(forKey: key) as? [String], readback.count == current.count else {
-                return false
-            }
-            return zip(readback, current).allSatisfy { $0.0.unicodeScalars.elementsEqual($0.1.unicodeScalars) }
+        access(false) { insertCore(identity, defaults: defaults, isCurrent: { true }) == .success }
+    }
+
+    enum ConfirmationOutcome {
+        case success, storageFailure, stale, reentrantBusy, notAdmitted
+    }
+
+    /// Admission happens only after the participating process lock is held.
+    /// The callbacks are synchronous and must not access UserDefaults.
+    @MainActor
+    static func confirm(_ identity: String, defaults: UserDefaults = .standard,
+                        onAccepted: () -> Bool, isCurrent: () -> Bool) -> ConfirmationOutcome {
+        access(.reentrantBusy) {
+            guard onAccepted() else { return .notAdmitted }
+            return insertCore(identity, defaults: defaults, isCurrent: isCurrent)
         }
+    }
+
+    private static func insertCore(_ identity: String, defaults: UserDefaults,
+                                   isCurrent: () -> Bool) -> ConfirmationOutcome {
+        let visible = defaults.object(forKey: key)
+        guard isCurrent() else { return .stale }
+        var current: [String]
+        if let visible {
+            guard let strings = visible as? [String] else { return .storageFailure }
+            current = strings
+        } else {
+            current = []
+        }
+        if current.contains(identity) { return .success }
+        current.append(identity)
+        guard isCurrent() else { return .stale }
+        defaults.set(current, forKey: key)
+        // A synchronous callback within set may already have invalidated the
+        // captured owner. The write may have happened and must not be undone.
+        guard isCurrent() else { return .stale }
+        let visibleReadback = defaults.object(forKey: key)
+        guard isCurrent() else { return .stale }
+        guard let readback = visibleReadback as? [String], readback.count == current.count,
+              zip(readback, current).allSatisfy({ $0.0.unicodeScalars.elementsEqual($0.1.unicodeScalars) }) else {
+            return .storageFailure
+        }
+        return .success
     }
 }

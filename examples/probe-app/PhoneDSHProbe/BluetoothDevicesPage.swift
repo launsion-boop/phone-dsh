@@ -113,6 +113,11 @@ struct BluetoothDevicesPage: View {
                 }
                 Text(device.linkState).font(.footnote)
                 #if PDSH_ENABLE_DEVICE_TASKS
+                if !device.identityError.isEmpty {
+                    Text(device.identityError)
+                        .font(.footnote).foregroundStyle(.red)
+                        .accessibilityIdentifier("ble-device-identity-error-\(device.id.uuidString)")
+                }
                 if !device.pendingIdentity.isEmpty {
                     Text("实验性身份指纹：记录指纹不会开启设备派任务；蓝牙任务授权目前不可用。")
                         .font(.footnote)
