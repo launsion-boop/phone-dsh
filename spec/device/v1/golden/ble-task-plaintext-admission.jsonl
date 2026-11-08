@@ -1,0 +1,5 @@
+{"name":"no_capabilities","app_caps":0,"identity_visible":false,"task_visible":false,"new_task_status":14}
+{"name":"ordinary_tools_only","app_caps":1024,"identity_visible":false,"task_visible":false,"new_task_status":14}
+{"name":"task_without_tools","app_caps":2048,"identity_visible":false,"task_visible":false,"new_task_status":14}
+{"name":"both_capabilities","app_caps":3072,"identity_visible":true,"task_visible":false,"new_task_status":14}
+{"name":"both_with_unknown_high_bit","app_caps":2147486720,"identity_visible":true,"task_visible":false,"new_task_status":14}

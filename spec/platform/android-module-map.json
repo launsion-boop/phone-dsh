@@ -1,0 +1,101 @@
+{
+  "format_version": 1,
+  "modules": [
+    {
+      "swift": "PhoneDSH",
+      "kotlin": "com.phonedsh.dsh",
+      "gradle": ":dsh",
+      "status": "mapped"
+    },
+    {
+      "swift": "PhoneDSHADB",
+      "kotlin": null,
+      "gradle": null,
+      "status": "absent"
+    },
+    {
+      "swift": "PhoneDSHAgentCore",
+      "kotlin": "com.phonedsh.agentcore",
+      "gradle": ":core",
+      "status": "mapped"
+    },
+    {
+      "swift": "PhoneDSHBLE",
+      "kotlin": "com.phonedsh.domain.connector.ble",
+      "gradle": ":domain",
+      "status": "target"
+    },
+    {
+      "swift": "PhoneDSHController",
+      "kotlin": "com.phonedsh.controller",
+      "gradle": ":controller",
+      "status": "mapped"
+    },
+    {
+      "swift": "PhoneDSHDeviceTasks",
+      "kotlin": null,
+      "gradle": null,
+      "status": "absent"
+    },
+    {
+      "swift": "PhoneDSHEngine",
+      "kotlin": "com.phonedsh.engine",
+      "gradle": ":engine",
+      "status": "mapped"
+    },
+    {
+      "swift": "PhoneDSHGateway",
+      "kotlin": "com.phonedsh.gateway",
+      "gradle": ":net",
+      "status": "mapped"
+    },
+    {
+      "swift": "PhoneDSHHarness",
+      "kotlin": "com.phonedsh.testkit.harness",
+      "gradle": ":testkit",
+      "status": "mapped"
+    },
+    {
+      "swift": "PhoneDSHLAN",
+      "kotlin": "com.phonedsh.domain.connector.lan",
+      "gradle": ":domain",
+      "status": "target"
+    },
+    {
+      "swift": "PhoneDSHLog",
+      "kotlin": "com.phonedsh.log",
+      "gradle": ":core",
+      "status": "mapped"
+    },
+    {
+      "swift": "PhoneDSHLoopback",
+      "kotlin": "com.phonedsh.loopback",
+      "gradle": ":net",
+      "status": "mapped"
+    },
+    {
+      "swift": "PhoneDSHSSH",
+      "kotlin": null,
+      "gradle": null,
+      "status": "absent"
+    },
+    {
+      "swift": "PhoneDSHScenario",
+      "kotlin": "com.phonedsh.testkit.scenario",
+      "gradle": ":testkit",
+      "status": "mapped"
+    },
+    {
+      "swift": "PhoneDSHShell",
+      "kotlin": "com.phonedsh.shell",
+      "gradle": ":shell",
+      "status": "mapped"
+    },
+    {
+      "swift": "PhoneDSHWire",
+      "kotlin": "com.phonedsh.wire",
+      "gradle": ":core",
+      "status": "mapped"
+    }
+  ]
+}

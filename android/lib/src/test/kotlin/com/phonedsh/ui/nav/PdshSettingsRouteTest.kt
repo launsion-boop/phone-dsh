@@ -80,6 +80,7 @@ class PdshSettingsRouteTest {
             listOf(
                 SettingsDestination.MODEL_PROVIDER,
                 SettingsDestination.MCP,
+                SettingsDestination.BLUETOOTH, // PdshRoute.Bluetooth
                 SettingsDestination.WEB_SEARCH,
                 SettingsDestination.EGRESS,
                 SettingsDestination.PLUGIN_CONFIGURATION,

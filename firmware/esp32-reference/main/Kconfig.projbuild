@@ -1,0 +1,16 @@
+menu "PDSH reference board"
+config PDSH_WIFI_SSID
+    string "Wi-Fi SSID (empty disables Wi-Fi)"
+    default ""
+config PDSH_WIFI_PASSWORD
+    string "Wi-Fi password"
+    default ""
+config PDSH_LED_GPIO
+    int "Discrete LED GPIO (-1 disables light.set)"
+    range -1 48
+    default -1
+config PDSH_BUTTON_GPIO
+    int "Button GPIO, active low (-1 disables button events)"
+    range -1 48
+    default 0
+endmenu

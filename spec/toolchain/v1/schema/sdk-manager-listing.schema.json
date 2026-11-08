@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SDK manager listing fixture",
+  "type": "object",
+  "required": [
+    "name",
+    "listing",
+    "exit_code",
+    "installed",
+    "stderr",
+    "capture_exit",
+    "capture_prefix",
+    "capture_diverge"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "listing": {
+      "type": "string"
+    },
+    "exit_code": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255
+    },
+    "installed": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "platform-tools",
+          "platforms;android-35",
+          "build-tools;35.0.0"
+        ]
+      },
+      "uniqueItems": true
+    },
+    "stderr": {
+      "type": "string"
+    },
+    "capture_exit": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255
+    },
+    "capture_prefix": {
+      "type": "string"
+    },
+    "capture_diverge": {
+      "type": "boolean"
+    }
+  }
+}

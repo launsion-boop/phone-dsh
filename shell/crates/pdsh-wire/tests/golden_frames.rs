@@ -4,10 +4,10 @@
 //! For every vector: decode `frame_hex` successfully, compare the decoded
 //! payload with the semantic `fields`, and re-encode from `fields` and `seq` to
 //! exactly `payload_hex` and `frame_hex` (`golden/README.md` §1). The set is
-//! fixed at 33 vectors: the 32 files plus the inline `channel.md` §4.8 golden.
+//! fixed at 35 vectors: the 34 files plus the inline `channel.md` §4.8 golden.
 //!
-//! Each of the 32 files is its own `#[test]`, so a passing run lists 32 vector
-//! names plus the inline 33rd instead of hiding them behind one loop.
+//! Each of the 34 files is its own `#[test]`, so a passing run lists 34 vector
+//! names plus the inline 35th instead of hiding them behind one loop.
 
 #![forbid(unsafe_code)]
 
@@ -150,10 +150,12 @@ golden_frame_tests! {
     golden_30_vfs_mut_remove_1 => "vfs-mut-remove-1.json",
     golden_31_vfs_mut_write_1 => "vfs-mut-write-1.json",
     golden_32_vfs_resync_1 => "vfs-resync-1.json",
+    golden_33_exec_req_2 => "exec-req-2.json",
+    golden_34_exec_req_3 => "exec-req-3.json",
 }
 
 #[test]
-fn golden_33_inline_channel_md_error_vector() {
+fn golden_35_inline_channel_md_error_vector() {
     let spec =
         std::fs::read_to_string(spec_root().join("channel.md")).expect("channel.md is readable");
     assert!(
@@ -182,11 +184,11 @@ fn golden_33_inline_channel_md_error_vector() {
 }
 
 #[test]
-fn golden_set_is_fixed_at_33_vectors() {
+fn golden_set_is_fixed_at_35_vectors() {
     let vectors = load_golden_vectors();
-    assert_eq!(EXPECTED_GOLDEN_FILES.len(), 32);
+    assert_eq!(EXPECTED_GOLDEN_FILES.len(), 34);
     assert_eq!(vectors.len() + 1, EXPECTED_GOLDEN_VECTORS);
-    assert_eq!(EXPECTED_GOLDEN_VECTORS, 33);
+    assert_eq!(EXPECTED_GOLDEN_VECTORS, 35);
     for frame_type in FrameType::ALL {
         assert!(
             vectors

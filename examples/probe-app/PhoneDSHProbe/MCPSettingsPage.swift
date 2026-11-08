@@ -11,10 +11,15 @@ import Foundation
 import Observation
 import PhoneDSH
 import PhoneDSHAgentCore
+import PhoneDSHLAN
 import ProbeKit
 import SwiftUI
 
 struct MCPSettingsPage: View {
+    @State private var discovery = LANDeviceDiscovery()
+    #if PDSH_ENABLE_DEVICE_TASKS
+    @State private var taskManager = DeviceTaskManager.shared
+    #endif
     @State private var model: MCPSettingsModel
     private let draft: MCPControlDraft?
 
@@ -56,10 +61,20 @@ struct MCPSettingsPage: View {
                                            description: Text("在网页版里加过的服务器,这里也能看到;两边是同一份列表。"))
                 } else {
                     ForEach(model.rows) { row in
-                        NavigationLink {
-                            MCPEditorPage(model: model, server: row)
-                        } label: {
-                            MCPSummaryRow(server: row)
+                        VStack(alignment: .leading) {
+                            NavigationLink {
+                                MCPEditorPage(model: model, server: row)
+                            } label: {
+                                MCPSummaryRow(server: row)
+                            }
+                            #if PDSH_ENABLE_DEVICE_TASKS
+                            if row.url.lowercased().hasPrefix("https://"), row.grant != nil {
+                                let key = DeviceTaskManager.lanKey(row.serverName)
+                                Toggle("允许设备向手机派任务", isOn: Binding(get: { taskManager.isActive(key) }, set: { enabled in
+                                    Task { if enabled { await taskManager.startLAN(row) } else { await taskManager.stop(key) } }
+                                })).font(.footnote)
+                            }
+                            #endif
                         }
                     }
                 }
@@ -74,10 +89,33 @@ struct MCPSettingsPage: View {
                     Text(error).foregroundStyle(.red)
                 }
             }
+            #if PDSH_ENABLE_DEVICE_TASKS
+            if let error = taskManager.error { Section { Text(error).foregroundStyle(.red) } }
+            #endif
             if let notice = model.notice {
                 Section {
                     Text(notice).foregroundStyle(.green)
                 }
+            }
+
+            Section("局域网设备") {
+                Button(discovery.scanning ? "停止扫描" : "扫描局域网设备") {
+                    if discovery.scanning { discovery.stop() } else { discovery.start() }
+                }
+                Text(discovery.status).font(.footnote).foregroundStyle(.secondary)
+                ForEach(discovery.candidates) { candidate in
+                    NavigationLink {
+                        MCPEditorPage(model: model, server: nil, candidate: candidate)
+                    } label: {
+                        VStack(alignment: .leading) {
+                            Text(candidate.name)
+                            Text(candidate.url.absoluteString).font(.caption.monospaced())
+                        }
+                    }
+                    .disabled(!model.hostRunning)
+                }
+                Text("发现结果尚未验证。请核对设备地址并输入设备提供的授权凭证。")
+                    .font(.footnote).foregroundStyle(.secondary)
             }
 
             Section("操作") {
@@ -99,6 +137,7 @@ struct MCPSettingsPage: View {
         .navigationTitle("MCP 网络与密钥")
         .navigationBarTitleDisplayMode(.inline)
         .task { await model.refresh() }
+        .onDisappear { discovery.clear() }
     }
 }
 
@@ -168,13 +207,21 @@ private struct MCPEditorPage: View {
 
     let model: MCPSettingsModel
     let existing: MCPServerSummary?
+    let discoveredURL: URL?
 
     init(model: MCPSettingsModel,
          server: MCPServerSummary?,
-         controlDraft: MCPControlDraft? = nil) {
+         controlDraft: MCPControlDraft? = nil,
+         candidate: LANDeviceCandidate? = nil) {
         self.model = model
         self.existing = server
-        if let controlDraft {
+        self.discoveredURL = candidate?.url
+        if let candidate {
+            _draft = State(initialValue: MCPServerDraft(
+                serverName: "device_" + String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(12)).lowercased(),
+                url: candidate.url.absoluteString, enabled: true, toolCallTimeoutMs: "60000",
+                headers: [MCPHeaderDraft(name: "Authorization")]))
+        } else if let controlDraft {
             _draft = State(initialValue: MCPServerDraft(controlDraft: controlDraft))
         } else {
             _draft = State(initialValue: server.map { MCPServerDraft(server: $0) } ?? .new())
@@ -189,6 +236,7 @@ private struct MCPEditorPage: View {
                     .autocorrectionDisabled()
                     .disabled(existing != nil)
                 TextField("MCP URL（http(s)://host/path）", text: $draft.url)
+                    .disabled(discoveredURL != nil)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .keyboardType(.URL)
@@ -270,6 +318,13 @@ private struct MCPEditorPage: View {
     private func save() async {
         saving = true
         defer { saving = false }
+        if let discoveredURL {
+            guard draft.url == discoveredURL.absoluteString,
+                  draft.headers.contains(where: { $0.name.lowercased() == "authorization" && $0.value.hasPrefix("Bearer ") && $0.value.count > 7 }) else {
+                errorText = "请输入设备提供的 Authorization 凭证（Bearer 加空格和令牌），并核对设备地址。"
+                return
+            }
+        }
         await model.save(draft)
         if model.errorText == nil {
             dismiss()

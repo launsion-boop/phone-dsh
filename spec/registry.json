@@ -533,6 +533,9 @@
           "glob": "Sources/PhoneDSHADB/**"
         },
         {
+          "glob": "Sources/PhoneDSHBLE/DeviceMCPServer.swift"
+        },
+        {
           "glob": "plugins/llm-bridge/src/**"
         },
         {
@@ -565,13 +568,14 @@
         "authority": "[v1/gateway-security.md](v1/gateway-security.md)、[native MCP](v1/native-mcp.md)、[official DeepSeek web tools](v1/gateway-official-web.md)、[gateway schema](v1/schema/gateway-vector.schema.json)、[golden/gateway](v1/golden/gateway)",
         "ends": "Swift [PhoneDSHGateway](../Sources/PhoneDSHGateway/)、Loopback HTTP（`HTTPTransport`、`StreamingForward`、`NativeMCP` 等；ChannelServer／WebSocket 屬 P01）；TS `plugins/llm-bridge`、`plugins/phone-mcp/src/{manager,schema}.ts`；Kotlin [android/net](../android/net/src/main/) ；HarmonyOS partial `harmony/entry/src/main/ets/host/HostHttpProxy.ets`, `harmony/entry/src/main/ets/host/HostModelAlias.ets`, `harmony/host-rust/src/http.rs`",
         "evidence": "Native MCP 有 Swift `PhoneDSHADBTests`；gateway vectors 只有 Kotlin `GatewayVectorConformanceTest` 讀取；Swift `Tests/PhoneDSHGatewayTests` 不讀",
-        "triggers": "`spec/v1/{gateway-security,native-mcp}.md`、`spec/v1/gateway-official-web.md`、`spec/v1/schema/gateway-vector.schema.json`、`spec/v1/golden/{gateway,native-mcp}/**`、`Sources/PhoneDSHGateway/**`、`Sources/PhoneDSHLoopback/{HTTPTransport,HTTPEgressFailure,StreamingForward,Loopback,Support,NativeMCP}.swift`、`Sources/PhoneDSHAgentCore/{Credentials,HTTPSupport,ProviderError}.swift`、`Sources/PhoneDSHADB/**`、`plugins/llm-bridge/src/**`、`plugins/phone-mcp/src/{manager,schema,protocol}.ts`、`plugins/worker-entry/src/model-route.ts`、`android/net/src/main/**` 、`harmony/entry/src/main/ets/host/HostHttpProxy.ets`、`harmony/entry/src/main/ets/host/HostModelAlias.ets`、`harmony/host-rust/src/http.rs`"
+        "triggers": "`spec/v1/{gateway-security,native-mcp}.md`、`spec/v1/gateway-official-web.md`、`spec/v1/schema/gateway-vector.schema.json`、`spec/v1/golden/{gateway,native-mcp}/**`、`Sources/PhoneDSHGateway/**`、`Sources/PhoneDSHLoopback/{HTTPTransport,HTTPEgressFailure,StreamingForward,Loopback,Support,NativeMCP}.swift`、`Sources/PhoneDSHAgentCore/{Credentials,HTTPSupport,ProviderError}.swift`、`Sources/PhoneDSHADB/**`、`Sources/PhoneDSHBLE/DeviceMCPServer.swift`、`plugins/llm-bridge/src/**`、`plugins/phone-mcp/src/{manager,schema,protocol}.ts`、`plugins/worker-entry/src/model-route.ts`、`android/net/src/main/**` 、`harmony/entry/src/main/ets/host/HostHttpProxy.ets`、`harmony/entry/src/main/ets/host/HostModelAlias.ets`、`harmony/host-rust/src/http.rs`"
       }
     },
     {
       "id": "P06",
       "owner_role": "harness／host owner",
       "authority": [
+        "spec/device/v1/task-delegation.md",
         "spec/host/v1/README.md",
         "spec/host/v1/event-kinds.md",
         "spec/host/v1/golden"
@@ -592,6 +596,18 @@
         ]
       },
       "triggers": [
+        {
+          "glob": "plugins/lifecycle-gate/src/device-{scope,guard}.ts"
+        },
+        {
+          "glob": "spec/device/v1/task-delegation.md"
+        },
+        {
+          "glob": "spec/device/v1/schema/task.schema.json"
+        },
+        {
+          "glob": "spec/device/v1/golden/task-cases.jsonl"
+        },
         {
           "glob": "spec/host/v1/**",
           "exclude": [
@@ -626,28 +642,62 @@
         "Tests/PhoneDSHAgentCoreTests"
       ],
       "source": {
-        "authority": "[host/v1/README.md](host/v1/README.md)、[event-kinds](host/v1/event-kinds.md)、[host goldens](host/v1/golden)",
+        "authority": "[host/v1/README.md](host/v1/README.md)、[event-kinds](host/v1/event-kinds.md)、[host goldens](host/v1/golden)、[device task profile](device/v1/task-delegation.md)（`target`）",
         "ends": "Swift [AgentHarness](../Sources/PhoneDSHAgentCore/AgentHarness.swift)、[DSH/](../Sources/PhoneDSHAgentCore/DSH/)、`PhoneDSHEvents.swift`；Kotlin `android/core/.../{agentcore,hostevents}`、`android/dsh/.../turn` ；HarmonyOS partial `harmony/entry/src/main/ets/host/TranscriptProjection.ets`, `harmony/entry/src/main/ets/host/HostService.ets`",
         "evidence": "只有 Kotlin `HarnessKindClosureTest`、`HostEventKindSchemaTest` 讀 golden；Swift AgentCore tests 不讀",
-        "triggers": "`spec/host/v1/**`（除 `device-*`）、`Sources/PhoneDSHAgentCore/{AgentHarness.swift,DSH/**}`、`Sources/PhoneDSH/PhoneDSHEvents.swift`、`android/core/src/main/kotlin/com/phonedsh/{agentcore,hostevents}/**`、`android/dsh/src/main/kotlin/com/phonedsh/dsh/turn/**` 、`harmony/entry/src/main/ets/host/TranscriptProjection.ets`、`harmony/entry/src/main/ets/host/HostService.ets`"
+        "triggers": "`plugins/lifecycle-gate/src/device-{scope,guard}.ts`、`spec/device/v1/task-delegation.md`、`spec/device/v1/schema/task.schema.json`、`spec/device/v1/golden/task-cases.jsonl`、`spec/host/v1/**`（除 `device-*`）、`Sources/PhoneDSHAgentCore/{AgentHarness.swift,DSH/**}`、`Sources/PhoneDSH/PhoneDSHEvents.swift`、`android/core/src/main/kotlin/com/phonedsh/{agentcore,hostevents}/**`、`android/dsh/src/main/kotlin/com/phonedsh/dsh/turn/**` 、`harmony/entry/src/main/ets/host/TranscriptProjection.ets`、`harmony/entry/src/main/ets/host/HostService.ets`"
       }
     },
     {
       "id": "P07",
       "owner_role": "device／connector owner",
       "authority": [
+        "spec/device/v1/ble-link.md",
+        "spec/device/v1/lan-mcp.md",
+        "spec/device/v1/task-delegation.md",
         "spec/host/v1/schema/device-*.schema.json",
         "docs/design/device-adapter-contract-draft.md"
       ],
       "ends": {
         "Swift": [
-          "examples/probe-app/ProbeKit/Devices"
+          "examples/probe-app/ProbeKit/Devices",
+          "Sources/PhoneDSHBLE",
+          "Sources/PhoneDSHLAN",
+          "Sources/PhoneDSHDeviceTasks"
+        ],
+        "C": [
+          "firmware/components/pdsh_link_wire",
+          "firmware/esp32-reference"
+        ],
+        "Python": [
+          "examples/lan-mcp-device"
         ],
         "Kotlin": [
           "android/domain/src/main/kotlin/com/phonedsh/domain/{device,connector}/**"
         ]
       },
       "triggers": [
+        {
+          "glob": "spec/device/v1/**"
+        },
+        {
+          "glob": "plugins/lifecycle-gate/src/device-{scope,guard}.ts"
+        },
+        {
+          "glob": "Sources/PhoneDSHDeviceTasks/**"
+        },
+        {
+          "glob": "Sources/PhoneDSHLAN/**"
+        },
+        {
+          "glob": "examples/lan-mcp-device/**"
+        },
+        {
+          "glob": "Sources/PhoneDSHBLE/**"
+        },
+        {
+          "glob": "firmware/**"
+        },
         {
           "glob": "spec/host/v1/schema/device-*"
         },
@@ -665,16 +715,17 @@
         }
       ],
       "status": [
-        "draft"
+        "draft",
+        "target"
       ],
       "evidence": [
         "android/domain/src/test/kotlin/com/phonedsh/domain/device/DeviceCapabilitiesSchemaTest.kt"
       ],
       "source": {
-        "authority": "host/v1 的 envelope／caps／receipt schema；[adapter draft](../docs/design/device-adapter-contract-draft.md)（`draft`）",
-        "ends": "Kotlin `android/domain/.../{device,connector}`；Swift `examples/probe-app/ProbeKit/Devices`",
+        "authority": "host/v1 的 envelope／caps／receipt schema；[BLE Link profile](device/v1/ble-link.md)（`implemented`）；[Android BLE discovery](device/v1/android-ble-discovery.md)（`implemented`）；[Android standard GATT](device/v1/android-standard-gatt.md)（`implemented`；Link／任务仍 `target`）；[legacy identity preferences](device/v1/legacy-identity-preferences.md)（`legacy`）；[BLE identity proof](device/v1/ble-identity.md)（`target`；TOFU，非认证会话，GAP-16）；[LAN MCP profile](device/v1/lan-mcp.md)（`implemented`）；[device task profile](device/v1/task-delegation.md)（`target`）；[adapter draft](../docs/design/device-adapter-contract-draft.md)（`draft`）",
+        "ends": "Kotlin `android/domain/.../{device,connector}`；Swift `examples/probe-app/ProbeKit/Devices`、`Sources/PhoneDSHBLE`、`Sources/PhoneDSHLAN`、`Sources/PhoneDSHDeviceTasks`；C `firmware/components/pdsh_link_wire`、`firmware/esp32-reference`；Python `examples/lan-mcp-device`；Kotlin `android/app/.../probe/{AndroidBleScan,AndroidBleDevices}.kt` 已接入蓝牙设备页（扫描＋标准 GATT）；Android Link 与 LAN decoder 仍 `target`",
         "evidence": "Kotlin `DeviceCapabilitiesSchemaTest`；第三方傳輸與端到端回執不由 schema 保證",
-        "triggers": "`spec/host/v1/schema/device-*`、`spec/host/v1/golden/device-*`、`docs/design/device-*.md`、`android/domain/src/main/kotlin/com/phonedsh/domain/{device,connector}/**`、`examples/probe-app/ProbeKit/Devices/**`"
+        "triggers": "`spec/device/v1/**`、`plugins/lifecycle-gate/src/device-{scope,guard}.ts`、`Sources/PhoneDSHDeviceTasks/**`、`Sources/PhoneDSHLAN/**`、`examples/lan-mcp-device/**`、`Sources/PhoneDSHBLE/**`、`firmware/**`、`spec/host/v1/schema/device-*`、`spec/host/v1/golden/device-*`、`docs/design/device-*.md`、`android/domain/src/main/kotlin/com/phonedsh/domain/{device,connector}/**`、`examples/probe-app/ProbeKit/Devices/**`"
       }
     },
     {
@@ -683,7 +734,8 @@
       "authority": [
         "spec/platform/README.md",
         "spec/platform/whitelist.json",
-        "spec/platform/ios-audio-session.md"
+        "spec/platform/ios-audio-session.md",
+        "spec/platform/android-module-map.json"
       ],
       "ends": {
         "Swift": [
@@ -731,12 +783,14 @@
       "evidence": [
         "spec/platform/tools/platform_check.py",
         "examples/probe-app/PhoneDSHSimTests/ProbeSceneLifecycleTests.swift",
-        "Tests/PhoneDSHTests/ProbeScenePhaseWiringTests.swift"
+        "Tests/PhoneDSHTests/ProbeScenePhaseWiringTests.swift",
+        "android/tools/structure_check.py",
+        "android/tools/test_structure_check.py"
       ],
       "source": {
-        "authority": "[platform/README.md](platform/README.md)、[whitelist](platform/whitelist.json)、[iOS audio ownership](platform/ios-audio-session.md)",
+        "authority": "[platform/README.md](platform/README.md)、[whitelist](platform/whitelist.json)、[iOS audio ownership](platform/ios-audio-session.md)、[Android module mapping](platform/android-module-map.json)",
         "ends": "Swift OS API、`Sources/PhoneDSH/Background`、`ProbeKit/PhoneAudioSessionLease.swift` 与 app 的录音／保活调用方；Android `:platform`／`:engine`／`:net` ；HarmonyOS partial `harmony/entry/src/main/ets/entryability/EntryAbility.ets`",
-        "evidence": "`platform_check.py`；whitelist 不代替 conformance",
+        "evidence": "`platform_check.py`；Android mapping 由 `android/tools/structure_check.py` 及其测试核对；whitelist 不代替 conformance",
         "triggers": "`spec/platform/**`、`android/platform*/src/main/**`、`Sources/PhoneDSHController/Signals/**`、`Sources/PhoneDSH/Background/**`、`examples/probe-app/ProbeKit/PhoneAudioSessionLease.swift`、`examples/probe-app/ProbeKit/Capabilities/PhoneMediaTools.swift`、`examples/probe-app/PhoneDSHProbe/{BackgroundKeepAlive,ComposerVoiceInput}.swift` 、`harmony/entry/src/main/ets/entryability/EntryAbility.ets`"
       }
     },
@@ -747,7 +801,8 @@
         "spec/ui/v1/README.md",
         "spec/ui/v1/tokens.json",
         "spec/ui/v1/pages",
-        "spec/v1/trajectory.md"
+        "spec/v1/trajectory.md",
+        "spec/ui/v1/page-completeness.md"
       ],
       "ends": {
         "Swift": [
@@ -764,6 +819,12 @@
       "triggers": [
         {
           "glob": "spec/ui/v1/**"
+        },
+        {
+          "glob": "scripts/ci/check.sh"
+        },
+        {
+          "glob": "scripts/ci/test_p0_completeness.py"
         },
         {
           "glob": "spec/v1/trajectory.md"
@@ -794,13 +855,15 @@
         "android/**/UiStateProjectorGoldenTest.kt",
         "android/**/TrajectoryNormalizerTest.kt",
         "spec/ui/v1/tools/ui_check.py",
-        "spec/ui/v1/tools/page_structure_check.py"
+        "spec/ui/v1/tools/page_structure_check.py",
+        "spec/ui/v1/tools/extract_ios_pages.py",
+        "spec/ui/v1/tools/test_extract_ios_pages.py"
       ],
       "source": {
-        "authority": "[ui/v1/README.md](ui/v1/README.md)、[tokens](ui/v1/tokens.json)、[pages](ui/v1/pages)、[v1/trajectory.md](v1/trajectory.md)",
+        "authority": "[ui/v1/README.md](ui/v1/README.md)、[page source inventory](ui/v1/page-completeness.md)、[tokens](ui/v1/tokens.json)、[pages](ui/v1/pages)、[v1/trajectory.md](v1/trajectory.md)",
         "ends": "iOS `examples/probe-app/PhoneDSHProbe`；Android `android/lib` ；HarmonyOS partial `harmony/entry/src/main/ets/ui`, `harmony/entry/src/main/ets/model/Contracts.ets`",
-        "evidence": "Kotlin `UiStateProjectorGoldenTest`、`TrajectoryNormalizerTest`；`ui_check.py`、`page_structure_check.py`",
-        "triggers": "`spec/ui/v1/**`、`spec/v1/trajectory.md`、`spec/v1/schema/{trajectory,ui-state-sequence}.schema.json`、`spec/v1/golden/trajectory/**`、`examples/probe-app/PhoneDSHProbe/**`、`android/lib/src/main/**` 、`harmony/entry/src/main/ets/ui/**`、`harmony/entry/src/main/ets/model/Contracts.ets`"
+        "evidence": "Kotlin `UiStateProjectorGoldenTest`、`TrajectoryNormalizerTest`；`ui_check.py`、`extract_ios_pages.py` 及 mutation tests、`page_structure_check.py`",
+        "triggers": "`spec/ui/v1/**`、`scripts/ci/check.sh`、`scripts/ci/test_p0_completeness.py`、`spec/v1/trajectory.md`、`spec/v1/schema/{trajectory,ui-state-sequence}.schema.json`、`spec/v1/golden/trajectory/**`、`examples/probe-app/PhoneDSHProbe/**`、`android/lib/src/main/**` 、`harmony/entry/src/main/ets/ui/**`、`harmony/entry/src/main/ets/model/Contracts.ets`"
       }
     },
     {
@@ -866,7 +929,8 @@
       "owner_role": "native ABI owner",
       "authority": [
         "shell/include/xzshell.h",
-        "harmony/host-rust/include/pdsh_host.h"
+        "harmony/host-rust/include/pdsh_host.h",
+        "spec/platform/android-module-map.json"
       ],
       "ends": {
         "Rust": [
@@ -883,6 +947,9 @@
           "harmony/host-rust/include/pdsh_host.h",
           "harmony/entry/src/main/cpp/napi_init.cpp",
           "harmony/entry/src/main/cpp/types/libpdshhost/index.d.ts"
+        ],
+        "Python": [
+          "android/tools/structure_check.py"
         ]
       },
       "triggers": [
@@ -897,6 +964,27 @@
         },
         {
           "glob": "Sources/PhoneDSHShell/**"
+        },
+        {
+          "glob": "spec/platform/android-module-map.json"
+        },
+        {
+          "glob": "spec/platform/schema/android-module-map.schema.json"
+        },
+        {
+          "glob": "spec/platform/schema/android-module-map-vector.schema.json"
+        },
+        {
+          "glob": "spec/platform/golden/android-module-map-cases.jsonl"
+        },
+        {
+          "glob": "android/README.md"
+        },
+        {
+          "glob": "android/tools/structure_check.py"
+        },
+        {
+          "glob": "android/tools/test_structure_check.py"
         },
         {
           "glob": "android/shell/src/main/**"
@@ -919,13 +1007,15 @@
       ],
       "evidence": [
         "Package.swift",
-        "android/tools/check-native-alignment.py"
+        "android/tools/check-native-alignment.py",
+        "android/tools/structure_check.py",
+        "android/tools/test_structure_check.py"
       ],
       "source": {
-        "authority": "[shell/include/xzshell.h](../shell/include/xzshell.h) ；平台 host ABI [pdsh_host.h](../harmony/host-rust/include/pdsh_host.h)",
+        "authority": "[shell/include/xzshell.h](../shell/include/xzshell.h) ；平台 host ABI [pdsh_host.h](../harmony/host-rust/include/pdsh_host.h)；[Android module mapping](platform/android-module-map.json)",
         "ends": "Rust [pdsh-ffi](../shell/crates/pdsh-ffi/)、[pdsh-jni](../shell/crates/pdsh-jni/)；Swift [PhoneDSHShell](../Sources/PhoneDSHShell/)（含必須與 header 同步的 `PDSHShellCSurface.swift` stub）；Kotlin [android/shell](../android/shell/src/main/kotlin/com/phonedsh/shell/)、`core/wire/Native*.kt` ；HarmonyOS partial `harmony/host-rust/include/pdsh_host.h`, `harmony/entry/src/main/cpp/napi_init.cpp`, `harmony/entry/src/main/cpp/types/libpdshhost/index.d.ts`",
-        "evidence": "以 [Package.swift](../Package.swift)、Android build wiring、`android/tools/check-native-alignment.py` 判斷是否真的連結；source 存在不等於可用",
-        "triggers": "`shell/include/**`、`shell/crates/{pdsh-ffi,pdsh-jni,pdsh-core}/**`、`shell/build-apple.sh`、`Sources/PhoneDSHShell/**`、`Package.swift`、`android/shell/src/main/**`、`android/core/src/main/kotlin/com/phonedsh/wire/Native*.kt` 、`harmony/host-rust/include/pdsh_host.h`、`harmony/entry/src/main/cpp/napi_init.cpp`、`harmony/entry/src/main/cpp/types/libpdshhost/index.d.ts`"
+        "evidence": "以 [Package.swift](../Package.swift)、Android build wiring、`android/tools/check-native-alignment.py` 判斷是否真的連結；[Android mapping projection](../android/README.md) 由 `android/tools/structure_check.py` 核對；source 存在不等於可用",
+        "triggers": "`shell/include/**`、`shell/crates/{pdsh-ffi,pdsh-jni,pdsh-core}/**`、`shell/build-apple.sh`、`Sources/PhoneDSHShell/**`、`Package.swift`、`spec/platform/android-module-map.json`、`spec/platform/schema/android-module-map.schema.json`、`spec/platform/schema/android-module-map-vector.schema.json`、`spec/platform/golden/android-module-map-cases.jsonl`、`android/README.md`、`android/tools/structure_check.py`、`android/tools/test_structure_check.py`、`android/shell/src/main/**`、`android/core/src/main/kotlin/com/phonedsh/wire/Native*.kt` 、`harmony/host-rust/include/pdsh_host.h`、`harmony/entry/src/main/cpp/napi_init.cpp`、`harmony/entry/src/main/cpp/types/libpdshhost/index.d.ts`"
       }
     },
     {
@@ -1164,13 +1254,15 @@
         "plugins/worker-entry/src/capabilities.ts",
         "plugins/phone-mcp/src/schema.ts",
         "plugins/phone-model-config/src/model-config.ts",
-        "harmony/entry/src/main/ets/host/HostPersistence.ets"
+        "harmony/entry/src/main/ets/host/HostPersistence.ets",
+        "spec/device/v1/legacy-identity-preferences.md"
       ],
       "ends": {
         "Swift": [
           "Sources/PhoneDSHLog/MaterializedInvariant.swift",
           "Sources/PhoneDSHScenario/ScenarioBudgets.swift",
-          "Sources/PhoneDSH/Phone*Settings.swift"
+          "Sources/PhoneDSH/Phone*Settings.swift",
+          "Sources/PhoneDSHBLE/BLEIdentity.swift"
         ],
         "HarmonyOS": [
           "harmony/entry/src/main/ets/host/HostPersistence.ets",
@@ -1197,6 +1289,18 @@
           "glob": "Sources/PhoneDSH{SSH,ADB}/**"
         },
         {
+          "glob": "Sources/PhoneDSHBLE/LinkToolJournal.swift"
+        },
+        {
+          "glob": "Sources/PhoneDSHBLE/BLEIdentity.swift"
+        },
+        {
+          "glob": "spec/device/v1/legacy-identity-preferences.md"
+        },
+        {
+          "glob": "Sources/PhoneDSHDeviceTasks/DeviceTaskJournal.swift"
+        },
+        {
           "glob": "Sources/PhoneDSHLog/MaterializedInvariant.swift"
         },
         {
@@ -1212,12 +1316,14 @@
       "status": [
         "partial"
       ],
-      "evidence": [],
+      "evidence": [
+        "Tests/PhoneDSHBLETests/BLEIdentityTests.swift"
+      ],
       "source": {
-        "authority": "`/dsh/home/capabilities.json`：`plugins/worker-entry/src/capabilities.ts`；`mcp.json`：`plugins/phone-mcp/src/schema.ts`（`MCP_CONFIG_VERSION`）；`PDSH_MODEL_PROVIDER_JSON`：`plugins/phone-model-config/src/model-config.ts` ；Harmony 私有设置 [HostPersistence.ets](../harmony/entry/src/main/ets/host/HostPersistence.ets)",
+        "authority": "[legacy identity preferences](device/v1/legacy-identity-preferences.md)；`/dsh/home/capabilities.json`：`plugins/worker-entry/src/capabilities.ts`；`mcp.json`：`plugins/phone-mcp/src/schema.ts`（`MCP_CONFIG_VERSION`）；`PDSH_MODEL_PROVIDER_JSON`：`plugins/phone-model-config/src/model-config.ts` ；Harmony 私有设置 [HostPersistence.ets](../harmony/entry/src/main/ets/host/HostPersistence.ets)",
         "ends": "Swift `MaterializedInvariant.swift`、`ScenarioBudgets.swift`、`Sources/PhoneDSH/Phone*Settings.swift`；未查得 Kotlin 讀寫這三種設定的對應端 ；HarmonyOS partial `harmony/entry/src/main/ets/host/HostPersistence.ets`, `harmony/entry/src/main/ets/model/ProviderProfiles.ets`",
         "evidence": "讀寫兩端、舊資料、降級一起評估；UserDefaults key 名也是協議",
-        "triggers": "`plugins/worker-entry/src/capabilities.ts`、`plugins/shell-ext/src/contract.ts`、`plugins/phone-mcp/src/schema.ts`、`plugins/phone-model-config/src/model-config.ts`、`Sources/PhoneDSH/Phone*Settings.swift`、`Sources/PhoneDSH{SSH,ADB}/**`、`Sources/PhoneDSHLog/MaterializedInvariant.swift`、`Sources/PhoneDSHScenario/ScenarioBudgets.swift` 、`harmony/entry/src/main/ets/host/HostPersistence.ets`、`harmony/entry/src/main/ets/model/ProviderProfiles.ets`"
+        "triggers": "`plugins/worker-entry/src/capabilities.ts`、`plugins/shell-ext/src/contract.ts`、`plugins/phone-mcp/src/schema.ts`、`plugins/phone-model-config/src/model-config.ts`、`Sources/PhoneDSH/Phone*Settings.swift`、`Sources/PhoneDSH{SSH,ADB}/**`、`Sources/PhoneDSHBLE/LinkToolJournal.swift`、`Sources/PhoneDSHBLE/BLEIdentity.swift`、`spec/device/v1/legacy-identity-preferences.md`、`Sources/PhoneDSHDeviceTasks/DeviceTaskJournal.swift`、`Sources/PhoneDSHLog/MaterializedInvariant.swift`、`Sources/PhoneDSHScenario/ScenarioBudgets.swift` 、`harmony/entry/src/main/ets/host/HostPersistence.ets`、`harmony/entry/src/main/ets/model/ProviderProfiles.ets`"
       }
     },
     {
@@ -1387,6 +1493,90 @@
         "ends": "`Sources/PhoneDSH{Scenario,Harness}`、`android/testkit`、`scripts/ci/scenarios`",
         "evidence": "`golden/upstream` 無 runtime 消費者",
         "triggers": "`spec/v1/schema/{scenario-*,perturbation,upstream-script}.schema.json`、`spec/v1/golden/upstream/**`、`scripts/ci/scenarios/**`、`Sources/PhoneDSH{Scenario,Harness}/**`、`android/testkit/**`"
+      }
+    },
+    {
+      "id": "P23",
+      "owner_role": "Android SDK toolchain listing owner",
+      "authority": [
+        "spec/toolchain/v1/sdk-manager.md",
+        "spec/toolchain/v1/schema/sdk-manager-listing.schema.json",
+        "spec/toolchain/v1/golden/sdk-manager-listing.jsonl"
+      ],
+      "ends": {
+        "Shell": [
+          "android/tools/bootstrap-android-toolchain.sh"
+        ],
+        "Python": [
+          "android/tools/test_gradle_build_inputs.py"
+        ]
+      },
+      "triggers": [
+        {
+          "glob": "spec/toolchain/v1/{sdk-manager.md,schema/sdk-manager-listing.schema.json,golden/sdk-manager-listing.jsonl}"
+        },
+        {
+          "glob": "android/tools/bootstrap-android-toolchain.sh"
+        },
+        {
+          "glob": "android/tools/test_bootstrap_android_toolchain.py"
+        }
+      ],
+      "status": [
+        "partial"
+      ],
+      "evidence": [
+        "android/tools/test_bootstrap_android_toolchain.py"
+      ],
+      "source": {
+        "authority": "[SDK manager contract](toolchain/v1/sdk-manager.md)、[listing schema](toolchain/v1/schema/sdk-manager-listing.schema.json)、[listing vectors](toolchain/v1/golden/sdk-manager-listing.jsonl)",
+        "ends": "External Android SDK manager（不由倉庫控制）→ `android/tools/bootstrap-android-toolchain.sh` → `android/tools/test_gradle_build_inputs.py`",
+        "evidence": "`android/tools/test_bootstrap_android_toolchain.py` 真實 adapter 正反例；不代替真機測試",
+        "triggers": "`spec/toolchain/v1/{sdk-manager.md,schema/sdk-manager-listing.schema.json,golden/sdk-manager-listing.jsonl}`、`android/tools/bootstrap-android-toolchain.sh`、`android/tools/test_bootstrap_android_toolchain.py`"
+      }
+    },
+    {
+      "id": "P24",
+      "owner_role": "Apple package resolution owner",
+      "authority": [
+        "spec/toolchain/v1/apple-package-lock.md",
+        "spec/toolchain/v1/schema/apple-package-lock-case.schema.json",
+        "spec/toolchain/v1/golden/apple-package-lock-cases.jsonl"
+      ],
+      "ends": {
+        "SwiftPM": [
+          "Package.resolved"
+        ],
+        "Xcode": [
+          "examples/probe-app/project.yml",
+          "scripts/ci/xcode-resolve.sh"
+        ]
+      },
+      "triggers": [
+        {
+          "glob": "spec/toolchain/v1/{apple-package-lock.md,schema/apple-package-lock-case.schema.json,golden/apple-package-lock-cases.jsonl}"
+        },
+        {
+          "glob": "examples/probe-app/{project.yml,PhoneDSHProbe.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved}"
+        },
+        {
+          "glob": "scripts/ci/xcode-resolve.sh"
+        },
+        {
+          "glob": "examples/probe-app/.gitignore"
+        }
+      ],
+      "status": [
+        "partial"
+      ],
+      "evidence": [
+        "scripts/ci/xcode-resolve.sh"
+      ],
+      "source": {
+        "authority": "[Apple package lock contract](toolchain/v1/apple-package-lock.md)、[case schema](toolchain/v1/schema/apple-package-lock-case.schema.json)、[cases](toolchain/v1/golden/apple-package-lock-cases.jsonl)",
+        "ends": "SwiftPM 根鎖 `Package.resolved`；XcodeGen／Xcode `examples/probe-app/project.yml`、`scripts/ci/xcode-resolve.sh`",
+        "evidence": "冷缓存严格解析、版本冲突和独立锁真实工具测试；不代替设备运行",
+        "triggers": "`spec/toolchain/v1/{apple-package-lock.md,schema/apple-package-lock-case.schema.json,golden/apple-package-lock-cases.jsonl}`、`Package.resolved`、`examples/probe-app/{project.yml,PhoneDSHProbe.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved}`、`scripts/ci/xcode-resolve.sh`、`.gitignore`、`examples/probe-app/.gitignore`"
       }
     }
   ]

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Legacy task untrusted claim vector",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "role", "raw", "claims"],
+  "properties": {
+    "name": {"type": "string", "minLength": 1},
+    "role": {"enum": ["parent", "intent"]},
+    "raw": {"type": "string"},
+    "claims": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["deviceID", "taskID", "phase", "outcomeKind"],
+      "properties": {
+        "deviceID": {"type": ["string", "null"]},
+        "taskID": {"type": ["string", "null"]},
+        "phase": {"type": ["string", "null"]},
+        "outcomeKind": {"type": ["string", "null"]}
+      }
+    }
+  }
+}

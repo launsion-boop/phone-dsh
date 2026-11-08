@@ -1,0 +1,3 @@
+{"id":"nested-insert","initial":["old"],"outer":"outer","nested":"nested","nested_operation":"insert","nested_result":false,"outer_result":true,"after_outer":["old","outer"],"retry_result":true,"after_retry":["old","outer","nested"],"inject_phase":"set"}
+{"id":"nested-contains","initial":["old"],"outer":"outer","nested":"old","nested_operation":"contains","nested_result":false,"outer_result":true,"after_outer":["old","outer"],"retry_result":true,"after_retry":["old","outer"],"inject_phase":"read"}
+{"id":"nested-insert-readback","initial":["old"],"outer":"outer","nested":"nested","nested_operation":"insert","inject_phase":"readback","nested_result":false,"outer_result":true,"after_outer":["old","outer"],"retry_result":true,"after_retry":["old","outer","nested"]}

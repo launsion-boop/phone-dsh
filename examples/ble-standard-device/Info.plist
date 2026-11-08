@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>dev.phone-dsh.ble-fixture</string>
+<key>CFBundleName</key><string>PDSH BLE Fixture</string>
+<key>CFBundleExecutable</key><string>BLEFixture</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>NSBluetoothAlwaysUsageDescription</key><string>Advertise a virtual BLE sensor for testing the PDSH iPhone app.</string>
+</dict></plist>

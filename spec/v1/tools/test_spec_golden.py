@@ -8,7 +8,9 @@ specification tree, so the real tree is never modified.
 
 from __future__ import annotations
 
+import copy
 import importlib.util
+import hashlib
 import json
 import shutil
 import subprocess
@@ -592,6 +594,503 @@ class GoldenCheckerTests(unittest.TestCase):
         )
         completed = run_checker(self.copy)
         self.assert_fails(completed, "contains an internal task identifier")
+
+
+class PageTitleFixtureTests(unittest.TestCase):
+    def test_title_cases_match_schema_and_reference_sources(self):
+        ui = SPEC_DIR.parent / "ui" / "v1"
+        schema = json.loads((ui / "schema" / "page-title-cases.schema.json").read_text())
+        directory = ui / "golden" / "page-title"
+        rows = [json.loads(line) for line in (directory / "cases.jsonl").read_text().splitlines()]
+        self.assertEqual(len(rows), 48)
+        self.assertEqual(len(rows), len({row["name"] for row in rows}))
+        self.assertEqual({row["file"] for row in rows}, {path.name for path in directory.glob("*.swift")})
+        self.assertEqual({row["outcome"] for row in rows}, {"title", "absent", "error"})
+        for row in rows:
+            spec_golden.validate_json(row, schema, row["name"])
+        title = next(row for row in rows if row["outcome"] == "title")
+        for bad in ({**title, "extra": True}, {k: v for k, v in title.items() if k != "title"},
+                    {**title, "outcome": "guess"}, {**title, "syntax": "invalid"},
+                    {**next(row for row in rows if row["outcome"] == "absent"), "syntax": "invalid"}):
+            with self.assertRaises(spec_golden.SpecError):
+                spec_golden.validate_json(bad, schema, "mutation")
+
+
+class ApplePackageLockFixtureTests(unittest.TestCase):
+    def test_cases_match_schema(self):
+        toolchain = SPEC_DIR.parent / "toolchain" / "v1"
+        schema = json.loads((toolchain / "schema" / "apple-package-lock-case.schema.json").read_text())
+        rows = [json.loads(line) for line in (toolchain / "golden" / "apple-package-lock-cases.jsonl").read_text().splitlines()]
+        self.assertEqual(len(rows), 4)
+        self.assertEqual(len(rows), len({row["name"] for row in rows}))
+        for row in rows:
+            spec_golden.validate_json(row, schema, row["name"])
+        for bad in ({**rows[0], "extra": True}, {**rows[0], "result": "skip"},
+                    {**rows[0], "root_unchanged": "yes"}):
+            with self.assertRaises(spec_golden.SpecError):
+                spec_golden.validate_json(bad, schema, "mutation")
+
+
+class SDKManagerListingFixtureTests(unittest.TestCase):
+    def test_listing_cases_match_schema(self):
+        toolchain = SPEC_DIR.parent / "toolchain" / "v1"
+        schema = json.loads((toolchain / "schema" / "sdk-manager-listing.schema.json").read_text())
+        rows = [json.loads(line) for line in (toolchain / "golden" / "sdk-manager-listing.jsonl").read_text().splitlines()]
+        self.assertEqual(len(rows), 28)
+        self.assertEqual(len(rows), len({row["name"] for row in rows}))
+        for row in rows:
+            spec_golden.validate_json(row, schema, row["name"])
+        for bad in ({**rows[0], "extra": True}, {**rows[0], "exit_code": -1},
+                    {**rows[0], "installed": ["not-a-package"]}):
+            with self.assertRaises(spec_golden.SpecError):
+                spec_golden.validate_json(bad, schema, "mutation")
+
+
+class DeviceTaskRawBytesFixtureTests(unittest.TestCase):
+    """The shared byte vectors must be decodable without altering their bytes."""
+
+    def test_task_raw_byte_vectors_match_schema(self):
+        device = SPEC_DIR.parent / "device" / "v1"
+        schema = json.loads((device / "schema" / "task-raw-bytes-vector.schema.json").read_text())
+        rows = [json.loads(line) for line in (device / "golden" / "task-raw-bytes.jsonl").read_text().splitlines()]
+        self.assertTrue(any(row["valid"] for row in rows))
+        self.assertTrue(any(not row["valid"] for row in rows))
+        self.assertEqual(len(rows), len({row["name"] for row in rows}))
+        for row in rows:
+            spec_golden.validate_json(row, schema, row["name"])
+            self.assertTrue(bytes.fromhex(row["hex"]))
+        for bad in ("a", "00zz", "AB"):
+            with self.assertRaises(spec_golden.SpecError):
+                spec_golden.validate_json({"name": "invalid", "valid": False, "hex": bad}, schema, "mutation")
+        with self.assertRaises(spec_golden.SpecError):
+            spec_golden.validate_json({**rows[0], "extra": True}, schema, "mutation")
+
+
+class DeviceTaskPlaintextAdmissionFixtureTests(unittest.TestCase):
+    def test_admission_vectors_and_schema(self):
+        device = SPEC_DIR.parent / "device" / "v1"
+        schema = json.loads((device / "schema" / "ble-task-plaintext-admission.schema.json").read_text())
+        rows = [json.loads(line) for line in (device / "golden" / "ble-task-plaintext-admission.jsonl").read_text().splitlines()]
+        self.assertEqual(len(rows), 5)
+        self.assertEqual(len(rows), len({row["name"] for row in rows}))
+        self.assertEqual({row["app_caps"] for row in rows}, {0, 1024, 2048, 3072, 2147486720})
+        for row in rows:
+            spec_golden.validate_json(row, schema, row["name"])
+            self.assertEqual(row["identity_visible"], row["app_caps"] & 3072 == 3072)
+        for bad in ({**rows[0], "task_visible": True}, {**rows[0], "new_task_status": 0},
+                    {**rows[0], "app_caps": -1}, {**rows[0], "extra": True}):
+            with self.assertRaises(spec_golden.SpecError):
+                spec_golden.validate_json(bad, schema, "mutation")
+
+
+class StandardGattGrantOrderingFixtureTests(unittest.TestCase):
+    def test_scenarios_and_schema(self):
+        device = SPEC_DIR.parent / "device" / "v1"
+        schema = json.loads((device / "schema" / "standard-gatt-grant-order.schema.json").read_text())
+        rows = [json.loads(line) for line in (device / "golden" / "standard-gatt-grant-order.jsonl").read_text().splitlines()]
+        self.assertEqual(len(rows), 50)
+        self.assertEqual(len(rows), len({row["scenario"] for row in rows}))
+        for row in rows:
+            spec_golden.validate_json(row, schema, row["scenario"])
+        # Lock the complete reviewed fixture revision. This detects changes to
+        # every field but does not replace the real store's runtime tests.
+        def fixture_digest(values):
+            data = "\n".join(json.dumps(row, sort_keys=True, separators=(",", ":")) for row in values)
+            return hashlib.sha256(data.encode()).hexdigest()
+        frozen = "7b0c25385c6996ce25f38d0d7251ff2a2d6cebccbc73fbdb46145fe7d0298ca4"
+        self.assertEqual(fixture_digest(rows), frozen)
+        by = {row["scenario"]: row for row in rows}
+        self.assertEqual(set(by), set(schema["properties"]["scenario"]["enum"]))
+        for name in ("read-grant-revoke", "alert-grant-revoke", "other-write-revoke", "clear-during-grant"):
+            self.assertFalse(by[name]["a_read"] or by[name]["a_alert"], name)
+        self.assertTrue(by["both-read-revoke"]["a_alert"])
+        self.assertFalse(by["both-read-revoke"]["a_read"])
+        self.assertTrue(by["both-alert-revoke"]["a_read"])
+        self.assertFalse(by["both-alert-revoke"]["a_alert"])
+        for name in ("pending-nil", "pending-same", "pending-alert"):
+            self.assertEqual((by[name]["phase"], by[name]["pending"], by[name]["disconnect_submissions"]),
+                             ("closing", "failed-once", 1), name)
+            self.assertFalse(by[name]["a_read"] or by[name]["a_alert"], name)
+        for name in ("pending-timeout", "pending-cancel"):
+            self.assertEqual((by[name]["phase"], by[name]["pending"], by[name]["disconnect_submissions"]),
+                             ("closing", "failed-once", 1), name)
+        self.assertEqual((by["pending-timeout"]["pending_error"], by["pending-cancel"]["pending_error"]),
+                         ("timeout", "cancelled"))
+        self.assertEqual((by["cancel-before-value"]["pending"], by["cancel-before-value"]["pending_error"]),
+                         ("failed-once", "cancelled"))
+        self.assertEqual((by["value-before-cancel"]["pending"], by["value-before-cancel"]["pending_value"]),
+                         ("completed-once", "expected"))
+        for name in ("radio-off", "radio-reset"):
+            self.assertEqual((by[name]["phase"], by[name]["b_phase"], by[name]["other_unavailable_commands"]),
+                             ("quarantined", "quarantined", 0), name)
+        self.assertEqual((by["retry-after-barrier"]["phase"], by["retry-after-barrier"]["connect_submissions"]),
+                         ("connecting", 1))
+        for name, b_phase in (("natural-disconnect-barrier", "connected"),
+                              ("idle-radio-off-on", "idle"), ("idle-radio-reset", "idle")):
+            row = by[name]
+            self.assertEqual((row["phase"], row["b_phase"], row["inner_admission"],
+                              row["connect_submissions"], row["disconnect_submissions"],
+                              row["other_unavailable_commands"]),
+                             ("connecting", b_phase, "denied", 1, 0, 0), name)
+            self.assertFalse(row["a_read"] or row["a_alert"] or row["b_read"] or row["b_alert"], name)
+        self.assertEqual((by["timeout-no-barrier"]["phase"], by["timeout-no-barrier"]["connect_submissions"]),
+                         ("quarantined", 0))
+        self.assertEqual(by["stale-timer-new-owner"]["pending"], "new-pending")
+        for name in ("alert-revoke-admission", "alert-grant-admission", "read-revoke-admission", "notification-ambiguous", "notification-unknown"):
+            self.assertEqual(by[name]["inner_admission"], "denied", name)
+            self.assertEqual(by[name]["read_submissions"], 0, name)
+        self.assertEqual(by["alert-grant-admission"]["alert_submissions"], 1)
+        self.assertTrue(by["read-revoke-grant"]["a_read"])
+        self.assertEqual(by["new-connect-discovery"]["discovery_submissions"], 1)
+        claim_expected = {
+            "cancel-before-read-reserve": (0, 0, "cancelled", "none", "absent-or-cancelled"),
+            "cancel-after-read-reserve": (0, 1, "cancelled", "none", "absent-or-cancelled"),
+            "cancel-before-value": (0, 1, "cancelled", "none", "cancelled"),
+            "value-before-cancel": (0, 0, "none", "expected", "cancelled"),
+            "cancel-before-grant": (0, 1, "cancelled", "none", "cancelled"),
+            "grant-before-cancel": (0, 1, "permission-changed", "none", "cancelled"),
+            "cancel-before-radio-off": (0, 0, "cancelled", "none", "cancelled"),
+            "value-before-timeout": (0, 0, "none", "expected", "cancelled"),
+        }
+        claim_fields = ("read_submissions", "disconnect_submissions", "pending_error", "pending_value", "old_read_timer")
+        def check_claim(row):
+            self.assertEqual(tuple(row[field] for field in claim_fields), claim_expected[row["scenario"]], row["scenario"])
+        for name in claim_expected:
+            check_claim(by[name])
+        self.assertEqual((by["link-event-while-read"]["link_deliveries"], by["link-event-while-read"]["pending"],
+                          by["link-event-while-read"]["old_read_timer"]), (1, "same-pending", "active"))
+        for bad in ({**by["cancel-before-read-reserve"], "read_submissions": 1},
+                    {**by["cancel-before-read-reserve"], "pending_error": "timeout"},
+                    {**by["grant-before-cancel"], "pending_error": "cancelled"}):
+            spec_golden.validate_json(bad, schema, "semantic mutation")
+            with self.assertRaises(AssertionError):
+                check_claim(bad)
+        for bad in ({**rows[0], "scenario": "invented"}, {**rows[0], "a_read": "yes"},
+                    {**rows[0], "pending": "authenticated"}, {**rows[0], "extra": True}):
+            with self.assertRaises(spec_golden.SpecError):
+                spec_golden.validate_json(bad, schema, "mutation")
+        for name, field, value in (("link-event-while-closing", "link_deliveries", 1),
+                                   ("cancel-before-read-reserve", "phase", "closing"),
+                                   ("cancel-before-read-reserve", "pending", "completed-once"),
+                                   ("pending-timeout", "other_closing_commands", 1)):
+            altered = [dict(row) for row in rows]
+            target = next(row for row in altered if row["scenario"] == name)
+            target[field] = value
+            spec_golden.validate_json(target, schema, "semantic mutation")
+            self.assertNotEqual(fixture_digest(altered), frozen)
+
+
+class LegacyTaskInspectionFixtureTests(unittest.TestCase):
+    def test_ui_reentry_vectors_and_schema(self):
+        device = SPEC_DIR.parent / "device" / "v1"
+        schema = json.loads((device / "schema" / "legacy-task-inspection-ui.schema.json").read_text())
+        rows = [json.loads(line) for line in (device / "golden" / "legacy-task-inspection-ui.jsonl").read_text().splitlines()]
+        self.assertEqual(len(rows), 18)
+        self.assertEqual(len(rows), len({row["name"] for row in rows}))
+        self.assertEqual(len(rows), len({row["scenario"] for row in rows}))
+        for row in rows:
+            spec_golden.validate_json(row, schema, row["name"])
+        expected = {
+            "ordinary": ("none", 1, True, False, False, "first-incomplete"),
+            "start-reentered": ("isInspecting", 1, True, False, False, "first-incomplete"),
+            "cancel-before-inspect": ("isInspecting", 0, None, None, False, "none"),
+            "clear-before-inspect": ("isInspecting", 0, None, None, False, "none"),
+            "start-while-inspecting": ("none", 1, True, False, False, "first-incomplete"),
+            "cancel-while-inspecting": ("none", 1, True, True, True, "first-cancelled"),
+            "clear-while-inspecting": ("none", 1, True, True, True, "none"),
+            "clear-during-result": ("result", 1, True, False, False, "none"),
+            "start-during-completion": ("isInspecting", 2, True, False, False, "second-incomplete"),
+            "clear-during-completion": ("isInspecting", 1, True, False, False, "none"),
+            "duplicate-cancel": ("cancellationRequested", 1, True, True, True, "first-cancelled"),
+            "busy-result": ("none", 1, True, False, False, "first-busy"),
+            "clear-then-start": ("isInspecting", 2, True, False, False, "second-incomplete"),
+            "start-then-clear": ("isInspecting", 1, None, None, False, "none"),
+            "start-then-cancel": ("isInspecting", 1, None, None, False, "none"),
+            "clear-start-clear": ("isInspecting", 1, None, None, False, "none"),
+            "duplicate-clear": ("isInspecting", 0, None, None, False, "none"),
+            "restart-clears-prior": ("none", 2, True, False, False, "second-incomplete"),
+        }
+        fields = ("watch", "inspect_calls", "paused_inspecting", "paused_cancellation_requested", "cancellation_observed", "final_result")
+        def check(row):
+            self.assertEqual(tuple(row[key] for key in fields), expected[row["scenario"]], row["name"])
+        for row in rows:
+            check(row)
+        for bad in ({**rows[5], "paused_inspecting": False}, {**rows[5], "cancellation_observed": False},
+                    {**rows[8], "final_result": "first-incomplete"}):
+            spec_golden.validate_json(bad, schema, "semantic mutation")
+            with self.assertRaises(AssertionError):
+                check(bad)
+        for bad in ({**rows[0], "scenario": "unknown"}, {**rows[0], "inspect_calls": -1},
+                    {**rows[0], "final_result": "authenticated"}, {**rows[0], "extra": True}):
+            with self.assertRaises(spec_golden.SpecError):
+                spec_golden.validate_json(bad, schema, "mutation")
+
+    def test_scenarios_and_schema(self):
+        device = SPEC_DIR.parent / "device" / "v1"
+        schema = json.loads((device / "schema" / "legacy-task-inspection.schema.json").read_text())
+        rows = [json.loads(line) for line in (device / "golden" / "legacy-task-inspection.jsonl").read_text().splitlines()]
+        self.assertEqual(len(rows), 16)
+        self.assertEqual(len(rows), len({row["name"] for row in rows}))
+        self.assertEqual(len(rows), len({row["scenario"] for row in rows}))
+        for row in rows:
+            spec_golden.validate_json(row, schema, row["name"])
+        for bad in ({**rows[0], "expected": "complete"}, {**rows[0], "scenario": "invented"},
+                    {**rows[0], "extra": True}):
+            with self.assertRaises(spec_golden.SpecError):
+                spec_golden.validate_json(bad, schema, "mutation")
+
+    def test_path_vectors_and_schema(self):
+        device = SPEC_DIR.parent / "device" / "v1"
+        schema = json.loads((device / "schema" / "legacy-task-inspection-path.schema.json").read_text())
+        rows = [json.loads(line) for line in (device / "golden" / "legacy-task-inspection-paths.jsonl").read_text().splitlines()]
+        self.assertEqual(len(rows), 10)
+        self.assertEqual(len(rows), len({row["name"] for row in rows}))
+        for row in rows:
+            spec_golden.validate_json(row, schema, row["name"])
+            self.assertEqual(row["valid"], row["escaped"] is not None)
+            for component in row["components_hex"]:
+                bytes.fromhex(component)
+        with self.assertRaises(spec_golden.SpecError):
+            spec_golden.validate_json({**rows[0], "components_hex": ["fg"]}, schema, "mutation")
+
+    def test_claim_vectors_and_schema(self):
+        device = SPEC_DIR.parent / "device" / "v1"
+        schema = json.loads((device / "schema" / "legacy-task-inspection-claims.schema.json").read_text())
+        rows = [json.loads(line) for line in (device / "golden" / "legacy-task-inspection-claims.jsonl").read_text().splitlines()]
+        self.assertEqual(len(rows), 13)
+        self.assertEqual(len(rows), len({row["name"] for row in rows}))
+        for row in rows:
+            spec_golden.validate_json(row, schema, row["name"])
+        with self.assertRaises(spec_golden.SpecError):
+            spec_golden.validate_json({**rows[0], "role": "unknown"}, schema, "mutation")
+
+    def test_deep_vectors_and_schema(self):
+        device = SPEC_DIR.parent / "device" / "v1"
+        schema = json.loads((device / "schema" / "legacy-task-inspection-deep.schema.json").read_text())
+        rows = [json.loads(line) for line in (device / "golden" / "legacy-task-inspection-deep.jsonl").read_text().splitlines()]
+        self.assertEqual(len(rows), 12)
+        self.assertEqual(len(rows), len({row["name"] for row in rows}))
+        for row in rows:
+            spec_golden.validate_json(row, schema, row["name"])
+        for bad in ({**rows[0], "depth": -1}, {**rows[0], "encoding": "unknown"},
+                    {**rows[0], "expected": "corrupt"}):
+            with self.assertRaises(spec_golden.SpecError):
+                spec_golden.validate_json(bad, schema, "mutation")
+
+    def test_root_vectors_and_schema(self):
+        device = SPEC_DIR.parent / "device" / "v1"
+        schema = json.loads((device / "schema" / "legacy-task-inspection-root.schema.json").read_text())
+        rows = [json.loads(line) for line in (device / "golden" / "legacy-task-inspection-roots.jsonl").read_text().splitlines()]
+        self.assertEqual(len(rows), 22)
+        self.assertEqual(len(rows), len({row["scenario"] for row in rows}))
+        for row in rows:
+            spec_golden.validate_json(row, schema, row["name"])
+        with self.assertRaises(spec_golden.SpecError):
+            spec_golden.validate_json({**rows[0], "expected_reason": "trusted"}, schema, "mutation")
+
+
+class StandardGattDiscoveryDeadlineFixtureTests(unittest.TestCase):
+    def test_vectors_and_mutations(self):
+        device = SPEC_DIR.parent / "device" / "v1"
+        schema = json.loads((device / "schema/standard-gatt-discovery-deadline.schema.json").read_text())
+        data = (device / "golden/standard-gatt-discovery-deadline.jsonl").read_bytes()
+        self.assertEqual(hashlib.sha256(data).hexdigest(),
+                         "2a050d7f876360240a1c2f5416da3edf0dccb34effe60d176cc3960166970974")
+        rows = [json.loads(line) for line in data.splitlines()]
+        self.assertEqual(len(rows), 19)
+        by_id = {row["id"]: row for row in rows}
+        self.assertEqual(len(by_id), len(rows))
+        for row in rows:
+            spec_golden.validate_json(row, schema, row["id"])
+        mutations = [json.loads(line) for line in
+                     (device / "golden/standard-gatt-discovery-deadline-mutations.jsonl").read_text().splitlines()]
+        self.assertEqual(sum(m["category"] == "invalid-schema" for m in mutations), 6)
+        self.assertEqual(sum(m["category"] == "semantic" for m in mutations), 22)
+        self.assertEqual(len({m["name"] for m in mutations}), len(mutations))
+        for mutation in mutations:
+            original = by_id[mutation["base"]]
+            changed = copy.deepcopy(original)
+            target = changed
+            for part in mutation["path"][:-1]:
+                target = target[part]
+            key = mutation["path"][-1]
+            if mutation["op"] == "delete":
+                del target[key]
+            else:
+                self.assertEqual(mutation["op"], "replace")
+                target[key] = mutation["value"]
+            self.assertNotEqual(changed, original, mutation["name"])
+            if mutation["category"] == "invalid-schema":
+                with self.assertRaises(spec_golden.SpecError, msg=mutation["name"]):
+                    spec_golden.validate_json(changed, schema, mutation["name"])
+            else:
+                self.assertEqual(mutation["category"], "semantic")
+                spec_golden.validate_json(changed, schema, mutation["name"])
+
+
+class BLEStatusOrderingFixtureTests(unittest.TestCase):
+    def test_vectors_and_semantic_mutations(self):
+        device = SPEC_DIR.parent / "device" / "v1"
+        schema = json.loads((device / "schema/standard-gatt-status-order.schema.json").read_text())
+        data = (device / "golden/standard-gatt-status-order.jsonl").read_bytes()
+        self.assertEqual(hashlib.sha256(data).hexdigest(),
+                         "f403e613669f3d3365733bdb68500ba185ef70ad6066246eea84ac6013b5e10d")
+        rows = [json.loads(line) for line in data.splitlines()]
+        by_id = {row["id"]: row for row in rows}
+        self.assertEqual(len(rows), 10)
+        self.assertEqual(len(by_id), len(rows))
+        for row in rows:
+            spec_golden.validate_json(row, schema, row["id"])
+        bad_rows = [
+            {**rows[0], "event": "invented"},
+            {**rows[0], "unexpected": True},
+            {**rows[1], "injections": [{"checkpoint": "invented", "event": "b-error-b"}]},
+            {**rows[0], "expect": {**rows[0]["expect"], "disconnects": {"A": "one", "B": 0}}},
+        ]
+        for bad in bad_rows:
+            with self.assertRaises(spec_golden.SpecError):
+                spec_golden.validate_json(bad, schema, "malformed status case")
+        mutations = [json.loads(line) for line in
+                     (device / "golden/standard-gatt-status-mutations.jsonl").read_text().splitlines()]
+        self.assertEqual(len(mutations), 10)
+        self.assertEqual(len({(m["base"], tuple(m["path"])) for m in mutations}), 10)
+        for mutation in mutations:
+            original = by_id[mutation["base"]]
+            changed = copy.deepcopy(original)
+            target = changed["expect"]
+            for part in mutation["path"][:-1]:
+                target = target[part]
+            target[mutation["path"][-1]] = mutation["value"]
+            self.assertNotEqual(changed, original)
+            spec_golden.validate_json(changed, schema, mutation["base"])
+
+
+class BLEScanIntentFixtureTests(unittest.TestCase):
+    """Shape and mutation inventory for ble-link.md@scan-intent-v1.
+
+    Runtime conformance is BLEScanIntentTests in Tests/PhoneDSHBLETests; the
+    semantic mutations below are only proven wrong by that real-store comparator.
+    """
+    def test_vectors_and_mutations(self):
+        device = SPEC_DIR.parent / "device" / "v1"
+        schema = json.loads((device / "schema/ble-scan-intent.schema.json").read_text())
+        data = (device / "golden/ble-scan-intent.jsonl").read_bytes()
+        self.assertEqual(hashlib.sha256(data).hexdigest(),
+                         "3ea6ae6bee1154a91fa2b0e3a0474bd04c390446b8f3f4b37537978620322b02")
+        rows = [json.loads(line) for line in data.splitlines()]
+        self.assertEqual(len(rows), 14)
+        by_id = {row["id"]: row for row in rows}
+        self.assertEqual(len(by_id), len(rows))
+        for row in rows:
+            spec_golden.validate_json(row, schema, row["id"])
+        mutations = [json.loads(line) for line in
+                     (device / "golden/ble-scan-intent-mutations.jsonl").read_text().splitlines()]
+        self.assertEqual(sum(m["category"] == "invalid-schema" for m in mutations), 7)
+        self.assertEqual(sum(m["category"] == "semantic" for m in mutations), 15)
+        self.assertEqual(len({m["name"] for m in mutations}), len(mutations))
+        for mutation in mutations:
+            original = by_id[mutation["base"]]
+            changed = copy.deepcopy(original)
+            target = changed
+            for part in mutation["path"][:-1]:
+                target = target[part]
+            key = mutation["path"][-1]
+            if mutation["op"] == "delete":
+                del target[key]
+            else:
+                self.assertEqual(mutation["op"], "replace")
+                target[key] = mutation["value"]
+            self.assertNotEqual(changed, original, mutation["name"])
+            if mutation["category"] == "invalid-schema":
+                with self.assertRaises(spec_golden.SpecError, msg=mutation["name"]):
+                    spec_golden.validate_json(changed, schema, mutation["name"])
+            else:
+                self.assertEqual(mutation["category"], "semantic")
+                spec_golden.validate_json(changed, schema, mutation["name"])
+
+
+class StandardGattDiscoveryOwnershipFixtureTests(unittest.TestCase):
+    def test_vectors_and_mutation_inventory(self):
+        device = SPEC_DIR.parent / "device" / "v1"
+        schema = json.loads((device / "schema/standard-gatt-discovery-ownership.schema.json").read_text())
+        data = (device / "golden/standard-gatt-discovery-ownership.jsonl").read_bytes()
+        self.assertEqual(hashlib.sha256(data).hexdigest(),
+                         "71e4f17e2a9b1abd2832447d56dddd3a894bbbb7a93d50fb12e5be32b0302451")
+        rows = [json.loads(line) for line in data.splitlines()]
+        self.assertEqual(len(rows), 66)
+        by_id = {row["id"]: row for row in rows}
+        self.assertEqual(len(by_id), len(rows))
+        for row in rows:
+            spec_golden.validate_json(row, schema, row["id"])
+            objects = row["objects"]
+            for obj in objects.values():
+                parent = obj.get("parent")
+                if parent is not None:
+                    self.assertIn(parent, objects, row["id"])
+                    kind = "peripheral" if obj["kind"] == "service" else "service"
+                    self.assertEqual(objects[parent]["kind"], kind, row["id"])
+
+        mutations = json.loads((device / "golden/standard-gatt-discovery-mutations.json").read_text())
+        self.assertEqual(sum(m["category"] == "invalid-schema" for m in mutations), 6)
+        self.assertEqual(sum(m["category"] == "semantic" for m in mutations), 10)
+        self.assertEqual(len({m["name"] for m in mutations}), len(mutations))
+        for mutation in mutations:
+            original = by_id[mutation["base"]]
+            changed = copy.deepcopy(original)
+            target = changed
+            for part in mutation["path"][:-1]:
+                target = target[part]
+            key = mutation["path"][-1]
+            if mutation["op"] == "delete":
+                del target[key]
+            else:
+                self.assertEqual(mutation["op"], "replace")
+                target[key] = mutation["value"]
+            self.assertNotEqual(changed, original, mutation["name"])
+            if mutation["category"] == "invalid-schema":
+                with self.assertRaises(spec_golden.SpecError, msg=mutation["name"]):
+                    spec_golden.validate_json(changed, schema, mutation["name"])
+            else:
+                self.assertEqual(mutation["category"], "semantic")
+                spec_golden.validate_json(changed, schema, mutation["name"])
+
+
+class StandardGattServiceChangeFixtureTests(unittest.TestCase):
+    def test_vectors_and_semantic_mutations(self):
+        device = SPEC_DIR.parent / "device" / "v1"
+        schema = json.loads((device / "schema/standard-gatt-service-change.schema.json").read_text())
+        rows = [json.loads(line) for line in (device / "golden/standard-gatt-service-change.jsonl").read_text().splitlines()]
+        self.assertEqual(len(rows), 22)
+        self.assertEqual(len(rows), len({row["scenario"] for row in rows}))
+        for row in rows:
+            spec_golden.validate_json(row, schema, row["scenario"])
+        def digest(values):
+            data = "\n".join(json.dumps(row, sort_keys=True, separators=(",", ":")) for row in values)
+            return hashlib.sha256(data.encode()).hexdigest()
+        frozen = "185d5c37e6837df54f031d290845e5a53580d9d1f32c81796b9e895b2157c3a5"
+        self.assertEqual(digest(rows), frozen)
+        by = {row["scenario"]: row for row in rows}
+        self.assertEqual(set(by), set(schema["properties"]["scenario"]["enum"]))
+        for name in ("connected-known", "connected-empty", "connected-unrelated", "repeated-while-closing"):
+            self.assertEqual((by[name]["a_phase"], by[name]["a_disconnects"], by[name]["a_link"]), ("closing", 1, "cleared"), name)
+        self.assertEqual((by["read-value-wins"]["pending_result"], by["read-cancel-wins"]["pending_result"]), ("value", "cancelled"))
+        self.assertEqual(by["manager-off-during-claim"]["pending_result"], "disconnected")
+        for name in ("manager-off-before-callback", "manager-off-during-claim", "unknown-device-off"):
+            self.assertEqual((by[name]["a_phase"], by[name]["b_phase"], by[name]["a_disconnects"], by[name]["b_link"], by[name]["b_identity"]),
+                             ("quarantined", "quarantined", 0, "cleared", "cleared"), name)
+        self.assertEqual((by["disconnect-boundary"]["a_phase"], by["disconnect-boundary"]["a_connects"]), ("connecting", 1))
+        self.assertEqual((by["other-device-change"]["a_link"], by["other-device-change"]["pending_result"]), ("retained", "value"))
+        self.assertEqual((by["other-device-change"]["admission_check"], by["other-device-change"]["extra_alerts"],
+                          by["other-device-change"]["extra_links"], by["other-device-change"]["current_link_events"]),
+                         ("other-active", 1, 1, 1))
+        self.assertEqual((by["link-inflight"]["link_outcome"], by["link-completed"]["link_outcome"]), ("outcome-unknown", "completed"))
+        self.assertEqual(by["read-error-wins"]["pending_result"], "read-error")
+        altered = [{**row} for row in rows]
+        altered[0]["a_disconnects"] = 0
+        self.assertNotEqual(digest(altered), frozen)
+        for bad in ({**rows[0], "invalidated": "invented"}, {**rows[0], "a_read": "false"}, {**rows[0], "extra": True}):
+            with self.assertRaises(spec_golden.SpecError):
+                spec_golden.validate_json(bad, schema, "mutation")
 
 
 if __name__ == "__main__":

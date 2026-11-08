@@ -1,0 +1,10 @@
+{"base":"status-observer-later-error","path":["status"],"value":"A"}
+{"base":"close-observer-later-error","path":["status"],"value":"A"}
+{"base":"same-current-newer-intent","path":["status"],"value":"A"}
+{"base":"same-current-newer-intent","path":["status_notifications"],"value":2}
+{"base":"status-aba-three-events","path":["status"],"value":"B"}
+{"base":"later-intent-loses-power","path":["phases","A"],"value":"closing"}
+{"base":"closing-owner-stale-error","path":["status"],"value":"A"}
+{"base":"timeout-teardown-after-status-loss","path":["disconnects","A"],"value":0}
+{"base":"notification-error-teardown-after-status-loss","path":["disconnects","A"],"value":0}
+{"base":"manager-on-status-loses-to-error","path":["status"],"value":"READY"}

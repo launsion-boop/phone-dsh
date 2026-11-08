@@ -1,0 +1,12 @@
+{"name":"empty_depth","depth":0,"encoding":"utf8","mutation":"none","expected":"observed","check_valid":true}
+{"name":"nested_unknown","depth":40,"encoding":"utf8","mutation":"none","expected":"observed","check_valid":true}
+{"name":"at_existing_boundary","depth":999,"encoding":"utf8","mutation":"none","expected":"observed","check_valid":true}
+{"name":"beyond_existing_boundary","depth":1000,"encoding":"utf8","mutation":"none","expected":"unparsed","check_valid":false}
+{"name":"deep_bounded_preview","depth":32000,"encoding":"utf8","mutation":"none","expected":"unparsed","check_valid":false}
+{"name":"utf16_parent","depth":20,"encoding":"utf16le","mutation":"none","expected":"observed","check_valid":true}
+{"name":"utf32_parent","depth":20,"encoding":"utf32be","mutation":"none","expected":"observed","check_valid":true}
+{"name":"malformed_nested","depth":40,"encoding":"utf8","mutation":"missing_bracket","expected":"unparsed","check_valid":false}
+{"name":"duplicate_known_escaped","depth":40,"encoding":"utf8","mutation":"duplicate_device","expected":"unparsed","check_valid":false}
+{"name":"empty_container_at_limit","depth":999,"encoding":"utf8","mutation":"leaf_empty_array","expected":"observed","check_valid":true}
+{"name":"value_beyond_limit","depth":999,"encoding":"utf8","mutation":"leaf_nonempty_array","expected":"unparsed","check_valid":false}
+{"name":"unknown_nested_duplicate","depth":40,"encoding":"utf8","mutation":"duplicate_unknown","expected":"observed","check_valid":false}

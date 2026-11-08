@@ -59,6 +59,13 @@ interface WorkspaceProbe {
   presets?: { id: string; isDefault: boolean; broken?: string }[]
   presetSessions?: Record<string, string>
   presetErrors?: Record<string, string>
+  deviceTaskTools?: string[]
+  deviceTaskDenied?: boolean
+  deviceTaskProjection?: { kind?: string; asOfSeq?: number; values?: {agentPreset?: string; turnBoundary?: unknown} }
+  deviceTaskPreset?: {content?: string}
+  deviceTaskHeaderPreset?: string
+  deviceTaskSwitchTools?: string[]
+  deviceTaskSwitchDenied?: boolean
   creator?: Record<string, any>
   workflowFileText?: string
   workflowChildResultSeen?: boolean
@@ -291,6 +298,15 @@ test('the packed phone image boots DSH 0.2.1 with every roster row live or docum
   assert.match(presets.get('minimal')?.broken ?? '', /terminal/i, 'minimal must report its real missing terminal/PTY capability')
   assert.equal(presets.get('cordis')?.broken, undefined, 'creator preset must mount its real inspection and profile services')
 
+  assert.match(probe.presetSessions?.['pdsh-device-task'] ?? '', /^session-/, `device task session/create failed: ${probe.presetErrors?.['pdsh-device-task'] ?? ''}`)
+  assert.equal(probe.deviceTaskProjection?.kind, 'sequenced')
+  assert.equal(probe.deviceTaskProjection?.values?.agentPreset, 'pdsh-device-task')
+  assert.equal(probe.deviceTaskHeaderPreset, 'pdsh-device-task')
+  assert.ok(probe.deviceTaskSwitchTools?.includes('bash'), 'standard preset exposes bash after a blank-session switch')
+  assert.equal(probe.deviceTaskSwitchDenied, true, 'immutable session header guard still refuses tool execution')
+  assert.match(probe.deviceTaskPreset?.content ?? '', /device-scope/)
+  assert.deepEqual(probe.deviceTaskTools, [], 'device task preset exposes no model tools')
+  assert.equal(probe.deviceTaskDenied, true, 'device task scope refuses direct tool calls')
   assert.match(probe.presetSessions?.standard ?? '', /^session-/, `standard session/create failed: ${probe.presetErrors?.standard ?? ''}`)
   assert.match(probe.presetSessions?.ptc ?? '', /^session-/, `ptc session/create failed: ${probe.presetErrors?.ptc ?? ''}`)
   assert.match(probe.presetSessions?.cordis ?? '', /^session-/, `creator session/create failed: ${probe.presetErrors?.cordis ?? ''}`)

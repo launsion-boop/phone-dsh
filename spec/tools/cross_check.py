@@ -93,6 +93,13 @@ GOLDEN_READERS = (
     ("spec/platform/golden", "*.json", "spec/platform/tools/platform_check.py", False),
     ("spec/ui/v1/golden", "tokens.golden.json", "spec/ui/v1/tools/ui_check.py", False),
     ("spec/ui/v1/golden", "surface-projection.golden.json", "spec/ui/v1/tools/ui_check.py", False),
+    ("spec/ui/v1/golden/page-completeness", "fixture.json", "spec/ui/v1/tools/test_extract_ios_pages.py", False),
+    ("spec/ui/v1/golden/page-completeness", "cases.schema.json", "spec/ui/v1/tools/test_extract_ios_pages.py", False),
+    ("spec/v1/golden/native-mcp", "ble-devices.json", "Tests/PhoneDSHBLETests/BLEDeviceMCPTests.swift", False),
+    ("spec/v1/golden/native-mcp", "connect.json", "Tests/PhoneDSHADBTests/ADBMCPTests.swift", False),
+    ("spec/v1/golden/native-mcp", "tap.json", "Tests/PhoneDSHADBTests/ADBMCPTests.swift", False),
+    ("spec/v1/golden/native-mcp", "file-transfer.json", "Tests/PhoneDSHADBTests/ADBFileTransferTests.swift", False),
+    ("spec/v1/golden/native-mcp", "package-management.json", "Tests/PhoneDSHADBTests/ADBPackageTests.swift", False),
     ("spec/v1/golden/frames", "*.json", "spec/v1/tools/spec_golden.py", False),
     ("spec/v1/golden/wal", "*.json", "spec/v1/tools/spec_golden.py", False),
     ("spec/v1/golden/wal/replay", "*.json", "spec/v1/tools/spec_golden.py", False),
@@ -102,6 +109,7 @@ GOLDEN_READERS = (
     ("spec/v1/golden/perturbations", "*.json", "spec/v1/tools/fixture_check.py", False),
     ("spec/v1/golden/upstream", "*.json", "spec/v1/tools/fixture_check.py", False),
     ("spec/v1/golden/trajectory", "notes.json", "spec/v1/tools/trajectory_norm.py", True),
+    ("spec/device/v1/golden", "standard-gatt-discovery-mutations.json", "spec/v1/tools/test_spec_golden.py", False),
 )
 
 

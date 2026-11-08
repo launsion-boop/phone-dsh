@@ -1,0 +1,18 @@
+[
+  {"category":"invalid-schema","name":"non-array-service-list","base":"one-link-complete","path":["steps",0,"items"],"op":"replace","value":42},
+  {"category":"invalid-schema","name":"wrong-parent-object-type","base":"one-link-complete","path":["objects","rx","parent"],"op":"replace","value":42},
+  {"category":"invalid-schema","name":"unknown-nested-action","base":"reentrant-first-submission","path":["steps",0,"inject","event","action"],"op":"replace","value":"fake-authorize"},
+  {"category":"invalid-schema","name":"wrong-nested-characteristic","base":"reentrant-first-submission","path":["steps",0,"inject","event","items"],"op":"replace","value":[17]},
+  {"category":"invalid-schema","name":"missing-nested-service","base":"reentrant-first-submission","path":["steps",0,"inject","event","service"],"op":"delete"},
+  {"category":"invalid-schema","name":"fake-state-write","base":"one-link-complete","path":["steps",0,"force_phase"],"op":"replace","value":"connected"},
+  {"category":"semantic","name":"battery-published-before-group-complete","base":"standard-group-second-empty","path":["steps",1,"expect","profiles"],"op":"replace","value":["battery"]},
+  {"category":"semantic","name":"missing-audio-notify","base":"one-link-complete","path":["steps",1,"expect","notify_endpoints"],"op":"replace","value":["tx"]},
+  {"category":"semantic","name":"nil-restarts-or-cancels-deadline","base":"services-nil-then-result","path":["steps",0,"expect","timer"],"op":"replace","value":"cancelled"},
+  {"category":"semantic","name":"changed-multiset-not-quarantined","base":"duplicate-multiplicity-changed","path":["steps",1,"expect","phase"],"op":"replace","value":"connected"},
+  {"category":"semantic","name":"valid-plus-invalid-rx-selected","base":"link-distinct-duplicate-rx-bad","path":["steps",1,"expect","link"],"op":"replace","value":"active"},
+  {"category":"semantic","name":"unsubmitted-planned-object-accepted","base":"unsubmitted-planned-service-reentrant","path":["steps",0,"expect","phase"],"op":"replace","value":"connected"},
+  {"category":"semantic","name":"poweroff-still-submits-planned-command","base":"poweroff-before-first-reservation","path":["steps",0,"expect","characteristic_requests"],"op":"replace","value":["S1"]},
+  {"category":"semantic","name":"read-winner-overwritten","base":"changed-after-read-value-claim","path":["steps",4,"expect","pending"],"op":"replace","value":"disconnected-once"},
+  {"category":"semantic","name":"foreign-parent-treated-as-valid","base":"wrong-parent-unrelated-characteristic","path":["steps",1,"expect","phase"],"op":"replace","value":"connected"},
+  {"category":"semantic","name":"reentrant-group-published-early","base":"reentrant-first-submission","path":["steps",0,"inject","expect","profiles"],"op":"replace","value":["battery"]}
+]

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Legacy task deep JSON scenario",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "depth", "encoding", "mutation", "expected", "check_valid"],
+  "properties": {
+    "name": {"type": "string", "minLength": 1},
+    "depth": {"type": "integer", "minimum": 0, "maximum": 32000},
+    "encoding": {"enum": ["utf8", "utf16le", "utf32be"]},
+    "mutation": {"enum": ["none", "missing_bracket", "duplicate_device", "duplicate_unknown", "leaf_empty_array", "leaf_nonempty_array"]},
+    "expected": {"enum": ["observed", "unparsed"]},
+    "check_valid": {"type": "boolean"}
+  }
+}

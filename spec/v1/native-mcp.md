@@ -71,3 +71,17 @@ The app sets the independent Worker shell backstop to 3600000 ms; caller
 timeouts/abort signals remain authoritative. Normal action replies summarize
 the result and location; raw logs and repeated failure explanations are omitted
 unless requested.
+
+## BLE tools (implemented on iOS)
+
+The existing authenticated native MCP endpoint may additionally expose `ble_devices`, `ble_read`, `ble_alert`, `ble_link_tools`, `ble_link_call` and `ble_link_result`. These are additive tool names; older servers do not advertise them. Device scans, connection and per-tool grants require user action. The Link call and result semantics, bounded frames, per-connection grants and side-effect journal rules are defined by [BLE Link](../device/v1/ble-link.md). An Immediate Alert write has no execution acknowledgement and is reported as submitted, never applied. Uncertain effects must not be automatically replayed. Android tools remain available on the same endpoint.
+
+Status: implemented by the iOS host (`Sources/PhoneDSHBLE/DeviceMCPServer.swift`), verified by
+`golden/native-mcp/ble-devices.json`, `BLEDeviceMCPTests` and `DeviceMCPNativeRegressionTests`; the
+Android host does not serve these tools. The composed server answers `tools/call` for `ble_*` names and
+cancel notifications for its own BLE requests; every other request is delegated unchanged to the Android
+tool server, so the Android tool names, order, descriptions, schemas, errors and loopback admission are
+identical to an endpoint without BLE tools. The BLE tools are listed after the Android tools. `initialize`
+reports `serverInfo` `{"name":"phone-dsh-devices","version":"1.1.0"}` with the same protocol versions and
+capabilities; clients must not key behaviour on `serverInfo`. Device tasks and identity proof are not
+exposed here (see [task delegation](../device/v1/task-delegation.md), `target`).

@@ -210,6 +210,9 @@ public object UiStrings {
     public const val SETTINGS_ROW_ASK_BEFORE_WRITE: String = "写之前"
     public const val SETTINGS_ROW_MODEL_SERVICE: String = "模型服务"
     public const val SETTINGS_ROW_MCP: String = "MCP"
+    // 蓝牙设备 (BluetoothDevicesPage.swift:46, :111): count and profile templates.
+    public const val BLE_SHOW_OTHER_DEVICES: String = "展开其他设备（%d 个，未发现设备能力）"
+    public const val BLE_READ_PROFILE: String = "读取 %s"
     public const val SETTINGS_ROW_BACKGROUND: String = "后台运行"
     public const val SETTINGS_ROW_NETWORK: String = "网络访问"
     public const val SETTINGS_ROW_PLUGINS: String = "插件与模型"
@@ -1869,6 +1872,16 @@ public object UiStrings {
     public const val MCP_ACTION_REFRESH: String = "刷新注册表"
     public const val MCP_ACTION_ADD_SERVER: String = "添加 MCP 服务器"
 
+    // 局域网设备 (`MCPSettingsPage.swift:101`): the group and its scan verb. iOS
+    // toggles the verb between 扫描局域网设备 and 停止扫描; Android never scans, so
+    // it renders only the idle name, disabled, with the reason beside it. The LAN
+    // profile (`spec/device/v1/lan-mcp.md`) needs the raw TXT bytes and the SRV
+    // hostname (TLS validates that name); Android's NsdManager exposes neither.
+    public const val MCP_LAN_SECTION: String = "局域网设备"
+    public const val MCP_LAN_SCAN: String = "扫描局域网设备"
+    public const val MCP_LAN_UNSUPPORTED: String =
+        "Android 暂不支持发现局域网设备：系统的 DNS-SD 拿不到局域网协议要求的原始 TXT 记录和 SRV 主机名。"
+
     // The editor's two titled groups: 服务器 (`MCPSettingsPage.swift:188`, the form)
     // and 认证头与设备密钥 (`:203`, the header list) with its footer (`:229`).
     public const val MCP_SECTION_SERVER: String = "服务器"
@@ -2024,7 +2037,7 @@ public object UiStrings {
     public const val WEB_SEARCH_SECTION_WARNING: String = "需要处理"
     public const val WEB_SEARCH_WARNING_TAIL: String = "重启本地引擎之后这行提示会自己消失。"
     public const val WEB_SEARCH_SECTION_NOTES: String = "还要知道"
-    public const val WEB_SEARCH_NOTE_MODEL: String = "用模型服务自带的搜索时,抓网页这件事也归它管,这里不再单独设。"
+    public const val WEB_SEARCH_NOTE_MODEL: String = "沿用模型服务时，网页搜索和抓取共用官方 DeepSeek 模型密钥。"
     public const val WEB_SEARCH_NOTE_KEY: String = "密钥只存在这台手机上,本地引擎拿到的只是一个占位。"
     public const val WEB_SEARCH_NOTE_RESTART: String = "存好或删掉之后要重启本地引擎才生效;重启不会动你的文件夹和会话。"
     public const val WEB_SEARCH_FAILURE_KEY: String = "读取不到这台设备上的密钥"

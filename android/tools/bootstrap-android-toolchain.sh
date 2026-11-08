@@ -460,25 +460,77 @@ install_packages() {
   fi
 }
 
-list_installed() {
+list_installed() (
   local listing="$1"
-  local rc=0
+  local mirror ok=0 rc capture_rc mirror_rc last_byte
+  mirror="$(mktemp "${TMPDIR:-/tmp}/pdsh-sdkmanager-mirror.XXXXXX")" || { rm -f -- "$listing"; die "cannot create sdkmanager capture"; }
+  # Remove both captures on failure or interruption; the caller owns listing
+  # only after successful capture and comparison.
+  trap 'rm -f -- "$mirror"; if [ "$ok" != 1 ]; then rm -f -- "$listing"; fi' EXIT
   say "+ $SDKMANAGER --sdk_root=$SDK_DIR --list_installed"
   set +e
-  "$SDKMANAGER" "--sdk_root=$SDK_DIR" --list_installed 2>&1 | tee "$listing"
-  rc=${PIPESTATUS[0]}
+  "$SDKMANAGER" "--sdk_root=$SDK_DIR" --list_installed | tee "$listing" | tee "$mirror"
+  local -a statuses=("${PIPESTATUS[@]}")
+  rc=${statuses[0]}; capture_rc=${statuses[1]}; mirror_rc=${statuses[2]}
   set -e
+  # Separate our machine-readable status lines even if stdout has no LF.
+  last_byte="$(tail -c 1 "$mirror" | od -An -tu1 | tr -d '[:space:]')"
+  if [ -n "$last_byte" ] && [ "$last_byte" != 10 ]; then printf '\n'; fi
   if [ "$rc" -ne 0 ]; then
     die "sdkmanager --list_installed failed (exit $rc): $SDKMANAGER --sdk_root=$SDK_DIR --list_installed" "$rc"
   fi
-}
+  if [ "$capture_rc" -ne 0 ] || [ "$mirror_rc" -ne 0 ]; then
+    die "sdkmanager output capture failed (exit $capture_rc/$mirror_rc)"
+  fi
+  if ! cmp -s -- "$listing" "$mirror"; then
+    die "sdkmanager output captures differ"
+  fi
+  ok=1
+)
 
 verify_packages() {
   local listing="$1"
   local package
   local failures=0
+  local last_byte
+  last_byte="$(tail -c 1 "$listing" | od -An -tu1 | tr -d '[:space:]')"
   for package in "${SDK_PACKAGES[@]}"; do
-    if grep -Fq -- "$package" "$listing"; then
+    # P23: parse only version-bearing rows of the installed section from
+    # stdout. The external producer uses either slash or semicolon IDs.
+    if LC_ALL=C awk -v package="$package" -v last_byte="$last_byte" \
+      -v platform="$PLATFORM_PACKAGE" -v build="$BUILD_TOOLS_PACKAGE" '
+      BEGIN {
+        slash = package; gsub(/;/, "/", slash)
+        platform_slash = platform; gsub(/;/, "/", platform_slash)
+        build_slash = build; gsub(/;/, "/", build_slash)
+        if (last_byte == "13") invalid = 1
+      }
+      {
+        row = $0
+        sub(/\r$/, "", row)
+        if (index(row, "\r")) invalid = 1
+        sub(/^[[:space:]]+/, "", row)
+        sub(/[[:space:]]+$/, "", row)
+        if (row == "Installed packages:") { if (section) invalid = 1; section = 1; next }
+        # Unknown section headings are not producer diagnostics and cannot
+        # establish where installed rows begin, on either side of the header.
+        if (!section) { if (row ~ /:$/) invalid = 1; next }
+        if (row == "") next
+        if (row ~ /^[-|[:space:]]+$/) {
+          if (index(row, "-") && index(row, "|")) next
+          invalid = 1; next
+        }
+        if (row ~ /^Path[[:space:]]*\|[[:space:]]*Version[[:space:]]*\|[[:space:]]*Description([[:space:]]*\||$)/) next
+        count = split(row, fields, /[[:space:]|]+/)
+        if (fields[1] !~ /^[A-Za-z0-9_.;\/-]+$/) { invalid = 1; next }
+        numeric = fields[2] ~ /^[0-9][A-Za-z0-9._+-]*$/
+        unknown = fields[2] == "unknown" && fields[3] == "->" && fields[4] ~ /^[0-9][A-Za-z0-9._+-]*$/
+        required = fields[1] == "platform-tools" || fields[1] == platform || fields[1] == platform_slash || fields[1] == build || fields[1] == build_slash
+        if ((!numeric && !unknown) || (unknown && required)) { invalid = 1; next }
+        if (numeric && (fields[1] == package || fields[1] == slash)) found = 1
+      }
+      END { exit !(section && !invalid && found) }
+    ' "$listing"; then
       printf 'PACKAGE %s=installed\n' "$package"
     else
       printf 'PACKAGE %s=MISSING\n' "$package"
@@ -607,7 +659,11 @@ check_toolchain() {
         failures=$((failures + 1))
       fi
     else
-      failures=$((failures + 1))
+      # Preserve the external command's failure code as the previous adapter
+      # did, while retaining the subprocess cleanup on failure.
+      local listing_rc=$?
+      rm -f -- "$listing"
+      exit "$listing_rc"
     fi
     rm -f -- "$listing"
   else

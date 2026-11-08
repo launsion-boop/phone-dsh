@@ -1,0 +1,85 @@
+{
+  "title": "Android mapping of Swift module directories",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format_version",
+    "modules"
+  ],
+  "properties": {
+    "format_version": {
+      "const": 1,
+      "type": "integer"
+    },
+    "modules": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "swift",
+              "kotlin",
+              "gradle",
+              "status"
+            ],
+            "properties": {
+              "swift": {
+                "type": "string",
+                "pattern": "^PhoneDSH[A-Za-z0-9]*$"
+              },
+              "kotlin": {
+                "type": "null",
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)*$"
+              },
+              "gradle": {
+                "type": "null",
+                "pattern": "^:[a-z][a-z0-9-]*$"
+              },
+              "status": {
+                "enum": [
+                  "mapped",
+                  "target",
+                  "absent"
+                ],
+                "const": "absent"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "swift",
+              "kotlin",
+              "gradle",
+              "status"
+            ],
+            "properties": {
+              "swift": {
+                "type": "string",
+                "pattern": "^PhoneDSH[A-Za-z0-9]*$"
+              },
+              "kotlin": {
+                "type": "string",
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)*$"
+              },
+              "gradle": {
+                "type": "string",
+                "pattern": "^:[a-z][a-z0-9-]*$"
+              },
+              "status": {
+                "enum": [
+                  "mapped",
+                  "target"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}
