@@ -1314,6 +1314,7 @@ private fun SettingsIndexList(
             SettingsIndexEntry("phonePermissions", native("手机权限", UiStrings.PHONE_PERMISSIONS_TITLE_EN), com.phonedsh.ui.icon.PdshIcon.HAND, permissionSummary,
                 enabled = onOpenPhonePermissions != null, callback = onOpenPhonePermissions),
             SettingsIndexEntry("network", native("网络访问", UiStrings.SETTINGS_ROW_NETWORK_EN), com.phonedsh.ui.icon.PdshIcon.NETWORK, callback = { onNavigate(SettingsDestination.EGRESS) }),
+            SettingsIndexEntry("mcp", native("MCP 与局域网设备", "MCP and LAN devices"), com.phonedsh.ui.icon.PdshIcon.DATABASE, callback = { onNavigate(SettingsDestination.MCP) }),
             SettingsIndexEntry("bluetooth", native("蓝牙设备", "Bluetooth devices"), com.phonedsh.ui.icon.PdshIcon.NETWORK, callback = { onNavigate(SettingsDestination.BLUETOOTH) }),
         )),
         SettingsIndexSection("conversation", native(UiStrings.SETTINGS_SECTION_CONVERSATION, UiStrings.SETTINGS_SECTION_CONVERSATION_EN), listOf(

@@ -154,6 +154,20 @@ class MCPSettingsPageTest {
     }
 
     @Test
+    fun `局域网设备 shows a disabled 扫描局域网设备 and says Android cannot discover`() {
+        show(MCPRegistryFacts(servers = emptyList()), onRefresh = {})
+        compose.onNodeWithTag(UiPageTags.MCP_LAN_SECTION).assertIsDisplayed()
+        compose.onNodeWithText(UiStrings.MCP_LAN_SECTION).assertIsDisplayed()
+        // Android has no LAN discovery: the verb is visible but never enabled, and
+        // there is no 停止扫描 state because no scan ever starts.
+        compose.onNodeWithText(UiStrings.MCP_LAN_SCAN).assertIsDisplayed()
+        compose.onNodeWithTag(UiPageTags.MCP_LAN_SCAN).assertIsNotEnabled()
+        compose.onAllNodesWithText("停止扫描").assertCountEquals(0)
+        compose.onNodeWithTag(UiPageTags.MCP_LAN_UNSUPPORTED).assertIsDisplayed()
+        compose.onNodeWithText(UiStrings.MCP_LAN_UNSUPPORTED).assertIsDisplayed()
+    }
+
+    @Test
     fun `the server group is the baseline's Streamable HTTP MCP group`() {
         show(MCPRegistryFacts(servers = listOf(files)))
         compose.onNodeWithText(UiStrings.MCP_LIST_SECTION).assertIsDisplayed()
