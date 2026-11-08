@@ -110,6 +110,7 @@ public data class PdshNavFacts(
     public val mcp: MCPRegistryFacts = MCPRegistryFacts(),
     public val mcpEditor: MCPEditorFacts = MCPEditorFacts(),
     public val bluetooth: com.phonedsh.ui.page.BluetoothFacts = com.phonedsh.ui.page.BluetoothFacts(),
+    public val ssh: com.phonedsh.ui.page.SSHFacts = com.phonedsh.ui.page.SSHFacts(),
     public val runtime: RuntimeFacts = RuntimeFacts(),
     public val egress: EgressAllowListFacts = EgressAllowListFacts(),
     public val automation: AutomationFacts = AutomationFacts(),
@@ -420,6 +421,33 @@ public sealed interface PdshHostAction {
     /** Re-read the MCP registry. */
     public data object RefreshMcp : PdshHostAction {
         override val wire: String = "mcp.refresh"
+    }
+
+    /**
+     * 保存 one SSH connection. The draft may carry a freshly typed secret, so
+     * this action is not a data class and [toString] never prints it.
+     */
+    public class SshSaveConnection(
+        public val requestId: String,
+        public val draft: com.phonedsh.ui.page.SSHConnectionDraft,
+    ) : PdshHostAction {
+        override val wire: String = "ssh.save"
+
+        override fun toString(): String = "SshSaveConnection(redacted)"
+    }
+
+    /** 删除连接: the profile and its Keystore credential. */
+    public data class SshDeleteConnection(public val requestId: String, public val id: String) : PdshHostAction {
+        override val wire: String = "ssh.delete"
+    }
+
+    /** 读取并核对指纹: observe the server key for (host, port); nothing is trusted yet. */
+    public data class SshInspectHostKey(
+        public val requestId: String,
+        public val host: String,
+        public val port: Int,
+    ) : PdshHostAction {
+        override val wire: String = "ssh.inspect"
     }
 
     /** 蓝牙设备 page shown (`true`) or disposed (`false`); disposal stops scan and connections. */

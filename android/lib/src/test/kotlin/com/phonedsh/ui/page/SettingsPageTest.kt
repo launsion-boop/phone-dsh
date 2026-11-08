@@ -350,6 +350,10 @@ class SettingsPageTest {
         scrollTo("字号")
         compose.onNodeWithTag(com.phonedsh.ui.page.UiPageTags.SETTINGS_INDEX_ROW_PREFIX + "fontSize").performClick()
         compose.onNodeWithTag("pdsh.settings.index.back").performClick()
+        // Back returns to the index, which keeps its scroll position (as the
+        // baseline's NavigationStack does); the first header may be above the
+        // viewport once the list grows, so scroll to it instead of assuming it.
+        scrollTo("模型与智能体")
         compose.onNodeWithText("模型与智能体").assertIsDisplayed()
     }
 }

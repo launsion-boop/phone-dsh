@@ -66,6 +66,38 @@ does not inherit the Worker's cwd or environment. Background iOS suspension
 can interrupt a connection; interrupted remote writes are not automatically
 retried. Native networking does not need an intermediary HTTP server.
 
+## Android
+
+Android implements the same `ssh` / `scp` accelerators (`android/app/.../com/phonedsh/ssh`)
+over the existing exec bridge; the host HELLO advertises `accelerator:ssh` and
+`accelerator:scp` only because the tool is registered. Settings → SSH 主机 stores the
+profiles in `noBackupFilesDir/ssh/connections.v1.json` (the iOS field names, no secrets)
+and each credential as one AES-GCM entry under an `AndroidKeyStore` key (the same
+envelope as the model API key). The pinned host key is the only key accepted, the
+host-key algorithm is fixed to the pinned key's type, and moving a profile to another
+host or port requires a new confirmed fingerprint. A stored password or key is never
+loaded back into the editor; a blank field keeps it.
+
+The SSH implementation is JSch 2.28.8 with Bouncy Castle 1.86 (Ed25519 keys/host keys
+and X25519 on API 26), both only in `:app`. The pinned Ubuntu Base rootfs carries no
+OpenSSH package, so the proot lane cannot provide these accelerators. Differences from
+iOS, all on the stricter or bounded side:
+
+- RSA user keys sign with `rsa-sha2-512/256`; the SHA-1 `ssh-rsa` signature is not
+  enabled. Keys must be OpenSSH-format Ed25519 or RSA (encrypted keys need their
+  passphrase; JSch has no bcrypt-round limit). Keys are pasted; there is no file picker.
+- The Android exec bridge returns one completed result per command, so output arrives
+  when the command ends and stdout is bounded by `ExecToolResult.MAX_STREAM_BYTES`
+  (8 MiB). An SCP download fits the smaller of the device byte budget and what its
+  base64 NDJSON records carry in one result (about 6 MiB of file data); beyond it the
+  transfer fails with the same limit message.
+- `EXEC_CTL cancel` and the deadline close the SSH connection (exit 130 / 124); a
+  repeated `idem_key` replays the recorded result instead of re-running the command.
+
+Live tests: `PDSH_SSH_TEST_CONFIG=<fixture>/config.json` runs
+`android/app/src/test/.../ssh/SshLiveFixtureTest.kt` against the same fixture as the
+Swift tests; without it those cases are skipped.
+
 ## Installing an updated build
 
 Rebuild/stage the Worker assets with `examples/probe-app/scripts/copy-bundle-assets.sh`

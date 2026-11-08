@@ -1392,6 +1392,18 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
             AcceleratorMount(AcceleratorMount.HOME, walPaths.materializedHome.toString()),
         ),
         seal = ubuntuSeal,
+        // Native `ssh` / `scp` (docs/native-ssh.md): saved aliases, pinned host
+        // keys and Keystore credentials; uploads read the same two mounts.
+        nativeTools = com.phonedsh.ssh.SshExecTool(
+            mounts = mapOf(
+                "/dsh/workspace" to walPaths.materializedWorkspace,
+                "/dsh/home" to walPaths.materializedHome,
+            ),
+            byteLimit = deviceBudgets.singleFileBytes,
+            clock = clock,
+            connections = { SshSettingsStore.get(application).list() },
+            resolve = { destination -> SshSettingsStore.get(application).resolve(destination) },
+        ).registeredTools(),
         ubuntuSessionFactory = ubuntuSessionFactory,
     )
 

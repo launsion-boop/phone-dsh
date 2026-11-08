@@ -40,3 +40,14 @@
 # build/outputs/mapping/release/missing_rules.txt; do not keep the class.
 -dontwarn java.lang.management.ManagementFactory
 -dontwarn java.lang.management.RuntimeMXBean
+
+# JSch (native SSH/SCP) instantiates its algorithm classes by name from its
+# configuration table (`Class.forName`), including the Bouncy Castle-backed
+# `com.jcraft.jsch.bc.*` selected in SshTransport, so R8 cannot see them. Its
+# optional logging bridges reference libraries this app does not ship.
+-keep class com.jcraft.jsch.** { *; }
+-dontwarn org.slf4j.**
+-dontwarn org.apache.logging.log4j.**
+-dontwarn org.newsclub.net.unix.**
+-dontwarn com.sun.jna.**
+-dontwarn org.ietf.jgss.**

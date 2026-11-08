@@ -504,6 +504,12 @@ public fun PdshNavHost(
             PdshRoute.ModelProvider -> ModelProviderRoute(facts, onBack, onHostAction, backLevel = backLevel)
             PdshRoute.WebSearch -> WebSearchRoute(facts, onBack, onHostAction)
             PdshRoute.Mcp -> McpRoute(facts, onBack, onHostAction, onNavigate)
+            PdshRoute.Ssh -> com.phonedsh.ui.page.SSHSettingsPage(
+                facts = facts.ssh,
+                onBack = onBack,
+                onOpenEditor = { id -> onNavigate(PdshRoute.SshEditor(id)) },
+            )
+            is PdshRoute.SshEditor -> SshEditorRoute(route, facts, onBack, onHostAction)
             PdshRoute.Bluetooth -> BluetoothRoute(facts, onBack, onHostAction)
             is PdshRoute.McpEditor -> McpEditorRoute(route, facts, onBack, onHostAction)
             PdshRoute.Runtime -> RuntimeRoute(facts, onBack, onHostAction, backLevel)
@@ -1636,6 +1642,28 @@ private fun McpRoute(
         // yet, so the handoff is what it can do and the page keeps the row visible.
         onRefresh = { onHostAction(PdshHostAction.RefreshMcp) },
     )
+}
+
+@Composable
+private fun SshEditorRoute(
+    route: PdshRoute.SshEditor,
+    facts: PdshNavFacts,
+    onBack: () -> Unit,
+    onHostAction: (PdshHostAction) -> Unit,
+) {
+    val connection = route.connectionId?.let { id -> facts.ssh.connections.firstOrNull { it.id == id } }
+    // `key` keeps one editor state per connection: a different row never
+    // inherits the previous row's typed secret.
+    androidx.compose.runtime.key(route.connectionId) {
+        com.phonedsh.ui.page.SSHConnectionEditor(
+            connection = connection,
+            facts = facts.ssh,
+            onBack = onBack,
+            onInspect = { id, host, port -> onHostAction(PdshHostAction.SshInspectHostKey(id, host, port)) },
+            onSave = { id, draft -> onHostAction(PdshHostAction.SshSaveConnection(id, draft)) },
+            onDelete = { id, connectionId -> onHostAction(PdshHostAction.SshDeleteConnection(id, connectionId)) },
+        )
+    }
 }
 
 @Composable
