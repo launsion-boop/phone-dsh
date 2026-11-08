@@ -415,6 +415,48 @@ won outcome stays won. These rules describe local behavior and intentionally
 tighten compatibility for ambiguous devices; real OS and peripheral behavior
 still require separate evidence.
 
+Each actual connection/discovery deadline scheduling has a fresh non-reusable
+local identity retained by its production timer and handler. A probe for that
+deadline observes the same identity; an owner identity or a DEBUG-only counter
+is not a substitute for it. The original connection/discovery deadline and the
+final accepted discovery result have one local first-winner decision. If the currently owned active
+deadline handler is admitted first, reserve its status intent, remove and
+cancel that deadline, and move its owner out of connected/connecting admission
+before any Observation notification, physical disconnect or other synchronous
+callback. A later discovery callback for that closing or quarantined owner
+cannot publish a profile, install or revive a channel, grant access or restart
+the deadline. The existing close path claims any pending read once, terminates
+an unfinished committed Link operation with outcome unknown and does not
+replay it. An already claimed read result or already returned Link result is
+not replaced. A connected owner enters closing; an owner whose connection is
+still pending follows the existing quarantine boundary. A connected owner's
+eligible physical disconnect submission precedes its closing devices
+will-change notification. This is an ordering of local API submission, not
+evidence that CoreBluetooth has completed disconnection.
+
+If discovery completion removes and cancels that owner's original deadline
+first, a later invocation of the captured old timeout is a no-op, even when it
+is reentered inside the completion's will-change notification. An old owner's
+timeout cannot affect a new connection, its deadline or another device. The
+timeout's status text is published only after close while the captured owner,
+its closing/quarantined phase, current local status intent and power remain
+eligible; a later status intent may supersede the text without undoing close.
+First establish that the captured deadline still belongs to the current owner
+and is active. An old or cancelled timeout is inert even if physical power is
+already unavailable; it cannot independently alter another owner, and a later
+eligible event or manager callback handles that unavailability. If power is
+unavailable for an otherwise eligible current deadline, apply the existing
+all-owner unavailable transition without a timeout status or physical
+disconnect. If power becomes unavailable during the winning close, apply that transition as soon as locally
+observed, submit no subsequent physical command and preserve earlier local
+claims and already submitted commands. A local timer or revision is not an OS
+request token and does not prove callback freshness or physical timing.
+Shared deadline cases and malformed/semantic mutations are in
+`golden/standard-gatt-discovery-deadline.jsonl` and
+`golden/standard-gatt-discovery-deadline-mutations.jsonl`; the real-store setup
+and assertions are specified in
+`docs/protocol-changes/PC-20261107-discovery-deadline-order.md`.
+
 For the store's shared `status` text, all publication sites participate in one
 local, non-reusable revision sequence. Once an event or user action satisfies
 its original eligibility checks and is known to intend a status, reserve its

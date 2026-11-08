@@ -889,6 +889,45 @@ class LegacyTaskInspectionFixtureTests(unittest.TestCase):
             spec_golden.validate_json({**rows[0], "expected_reason": "trusted"}, schema, "mutation")
 
 
+class StandardGattDiscoveryDeadlineFixtureTests(unittest.TestCase):
+    def test_vectors_and_mutations(self):
+        device = SPEC_DIR.parent / "device" / "v1"
+        schema = json.loads((device / "schema/standard-gatt-discovery-deadline.schema.json").read_text())
+        data = (device / "golden/standard-gatt-discovery-deadline.jsonl").read_bytes()
+        self.assertEqual(hashlib.sha256(data).hexdigest(),
+                         "2a050d7f876360240a1c2f5416da3edf0dccb34effe60d176cc3960166970974")
+        rows = [json.loads(line) for line in data.splitlines()]
+        self.assertEqual(len(rows), 19)
+        by_id = {row["id"]: row for row in rows}
+        self.assertEqual(len(by_id), len(rows))
+        for row in rows:
+            spec_golden.validate_json(row, schema, row["id"])
+        mutations = [json.loads(line) for line in
+                     (device / "golden/standard-gatt-discovery-deadline-mutations.jsonl").read_text().splitlines()]
+        self.assertEqual(sum(m["category"] == "invalid-schema" for m in mutations), 6)
+        self.assertEqual(sum(m["category"] == "semantic" for m in mutations), 22)
+        self.assertEqual(len({m["name"] for m in mutations}), len(mutations))
+        for mutation in mutations:
+            original = by_id[mutation["base"]]
+            changed = copy.deepcopy(original)
+            target = changed
+            for part in mutation["path"][:-1]:
+                target = target[part]
+            key = mutation["path"][-1]
+            if mutation["op"] == "delete":
+                del target[key]
+            else:
+                self.assertEqual(mutation["op"], "replace")
+                target[key] = mutation["value"]
+            self.assertNotEqual(changed, original, mutation["name"])
+            if mutation["category"] == "invalid-schema":
+                with self.assertRaises(spec_golden.SpecError, msg=mutation["name"]):
+                    spec_golden.validate_json(changed, schema, mutation["name"])
+            else:
+                self.assertEqual(mutation["category"], "semantic")
+                spec_golden.validate_json(changed, schema, mutation["name"])
+
+
 class BLEStatusOrderingFixtureTests(unittest.TestCase):
     def test_vectors_and_semantic_mutations(self):
         device = SPEC_DIR.parent / "device" / "v1"
