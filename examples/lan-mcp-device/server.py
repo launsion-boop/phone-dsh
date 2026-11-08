@@ -3,6 +3,7 @@
 """TLS MCP reference device. The persisted light is a simulated actuator."""
 import argparse
 import hmac
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -236,6 +237,14 @@ class Handler(BaseHTTPRequestHandler):
         return self.reply(200, {'jsonrpc': '2.0', 'id': request_id, 'error': {'code': code, 'message': message}})
 
 
+def ip_literal(value):
+    """Return the normalized IP literal, or None for a DNS hostname."""
+    try:
+        return str(ipaddress.ip_address(value))
+    except ValueError:
+        return None
+
+
 def sni_guard(hostname):
     """Reject handshakes whose SNI is absent or is not the advertised hostname."""
     def callback(_sock, server_name, _context):
@@ -259,10 +268,18 @@ def main():
     parser.add_argument('--publish-timeout', type=float, default=10.0, help='seconds to register and verify the advertisement')
     parser.add_argument('--publish-recheck', type=float, default=60.0, help='seconds between re-verifications of the published record')
     args = parser.parse_args()
-    try:
-        hostname = check_identity(args.hostname, args.cert)
-    except PublicationError as error:
-        parser.error(str(error))
+    manual_ip = ip_literal(args.hostname)
+    if manual_ip is not None:
+        # An IP endpoint is an ordinary manually configured MCP server, outside the
+        # discovery profile: it is never advertised, and clients send no SNI for it.
+        if args.publish_name:
+            parser.error('hostname_invalid: an IP address cannot be advertised; use a DNS hostname')
+        hostname = manual_ip
+    else:
+        try:
+            hostname = check_identity(args.hostname, args.cert)
+        except PublicationError as error:
+            parser.error(str(error))
     token_path = Path(args.token_file)
     if os.stat(token_path).st_mode & 0o077:
         parser.error('token file must be private (mode 0600)')
@@ -277,7 +294,8 @@ def main():
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.minimum_version = ssl.TLSVersion.TLSv1_2
     context.load_cert_chain(args.cert, args.key)
-    context.sni_callback = sni_guard(hostname)
+    if manual_ip is None:
+        context.sni_callback = sni_guard(hostname)
     server.socket = context.wrap_socket(server.socket, server_side=True)
     publisher = None
 

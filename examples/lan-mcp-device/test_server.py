@@ -101,6 +101,23 @@ class ReferenceDeviceTest(unittest.TestCase):
                 self.assertIn(code, result.stderr)
                 self.assertNotIn('Listening on TLS port', result.stdout)
 
+    def test_ip_endpoint_is_manual_only(self):
+        # The demo's IP-pinned endpoint stays usable but can never be advertised.
+        base = ['python3', str(HERE / 'server.py'), '--cert', str(self.cert), '--key', str(self.key),
+                '--token-file', str(self.tokenfile), '--hostname', '127.0.0.1', '--listen', '127.0.0.1',
+                '--state', str(self.state)]
+        result = subprocess.run(base + ['--port', '0', '--publish-name', 'X'], capture_output=True, text=True, timeout=20)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn('hostname_invalid', result.stderr)
+        process = subprocess.Popen(base + ['--port', '0'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        try:
+            self.assertIn('Listening on TLS port', process.stdout.readline())
+        finally:
+            process.terminate()
+            process.wait(timeout=10)
+            process.stdout.close()
+            process.stderr.close()
+
     def test_side_effect_deduplication_and_result_query(self):
         args = {'operation_id': 'reference-op-1', 'on': True}
         def call(name, arguments):
