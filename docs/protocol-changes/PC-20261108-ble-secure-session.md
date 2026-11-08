@@ -7,7 +7,7 @@ status: frozen
 breaking: true
 version_decision: New ALPN-identified session profile pdsh-ble-task/1 (secure-session-v1) on an additive GATT service; BLE task device_id changes from ble:<Link UUID> to ble:<device key fingerprint> with no conversion (old records legacy, preserved, inert); plaintext Link task access permanently refused; ordinary Link, standard GATT, phone task journal v1 and existing schemas unchanged.
 base: 0e9ad261 (codex/fix-pr59, PR #59 head)
-contract_revision: spec/device/v1/ble-secure-session.md@secure-session-v1 (freeze commit recorded in §5)
+contract_revision: spec/device/v1/ble-secure-session.md@secure-session-v1 (freeze commit 0aa86466)
 ```
 
 Protocol impact: P06; P07. P18: none — no UserDefaults key or settings file
@@ -185,7 +185,8 @@ Only then may a separate change enable BLE grants and mark the profile
 | --- | --- |
 | `python3 -B -m unittest test_ble_secure_session_golden` (in `spec/v1/tools`) | PASS (15 tests) |
 | `python3 -B spec/tools/registry_build.py --write` | PASS (regenerated) |
-| `bash scripts/ci/check.sh --only phone-spec,phone-cross-tree` | PASS — see the freeze commit's handoff |
+| `bash scripts/ci/check.sh --only phone-spec,phone-cross-tree,phone-hygiene,phone-license` | phone-spec PASS, phone-cross-tree PASS (24 contracts, 423 references; 86 schemas, 0 breaking), phone-license PASS; phone-hygiene FAIL — pre-existing: `scripts/ci/hygiene.py` reports the same 50 findings on base `0e9ad261` (only line numbers in the candidate doc shift) |
+| semantic mutation of 4 fixtures with re-pinned hashes | checker FAILs each (oracle replay, not only the hash) |
 
 Not run: any Swift or C build (no implementation exists), any device, radio,
 TLS handshake, Keychain or power-loss test. Fixture certificates and keys were
@@ -195,4 +196,4 @@ generated offline with Python `cryptography`; no private key is stored.
 
 | revision | by | reason | ends notified |
 | --- | --- | --- | --- |
-| secure-session-v1 | P07 contract owner | initial freeze; resolves PC-20261107-ble-session-binding-ccr (task `device_id`) | Swift, C firmware (via this record) |
+| secure-session-v1 (`0aa86466`) | P07 contract owner | initial freeze; resolves PC-20261107-ble-session-binding-ccr (task `device_id`) | Swift, C firmware (via this record) |
