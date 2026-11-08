@@ -217,6 +217,10 @@ internal fun HostShell(
     val configurationFacts by engine.configuration.collectAsState()
     val agentPresetFacts by engine.agentPresets.collectAsState()
     val context = LocalContext.current
+    // 蓝牙设备: the process-owned scan + standard GATT store (android-standard-gatt.md).
+    val bleDevices = remember { AndroidBleDevices.get(context) }
+    BindBluetoothHost(bleDevices)
+    val bluetoothFacts by bleDevices.facts.collectAsState()
     val systemDark = isSystemInDarkTheme()
     // L69: the chat page's one state. Collected here so a Worker event rebuilds the
     // page on the next frame; the view model is its only writer.
@@ -786,7 +790,7 @@ internal fun HostShell(
     // platform really carries this app's back gesture through the invoker. It is
     // measured by the back callback (one gesture moves it), so it is applied here
     // rather than inside the remembered walk.
-    val shownFacts = PredictiveBack.measured(facts)
+    val shownFacts = PredictiveBack.measured(facts).copy(bluetooth = bluetoothFacts)
     LaunchedEffect(chatUi.commandExecution?.id) {
         if (chatUi.commandExecution != null) nav = nav.push(PdshRoute.CommandResult)
     }
@@ -919,7 +923,10 @@ internal fun HostShell(
                             // dispatched by the 开发者工具 index's 工作文件夹 row, so
                             // the person lands on the files page with one back to
                             // the index (the drawer no longer carries either page).
-                            if (action is PdshHostAction.OpenWorkspaceFiles) {
+                            if (action.wire.startsWith("bluetooth.")) {
+                                // The page owns its result line (结果); no host note.
+                                bleDevices.handle(action)
+                            } else if (action is PdshHostAction.OpenWorkspaceFiles) {
                                 notice = null
                                 nav = nav.push(PdshRoute.Files(action.id.ifBlank { null }))
                             } else if (action == PdshHostAction.RestartRuntime) {
@@ -1650,6 +1657,13 @@ private fun actionLabel(action: PdshHostAction): String = when (action) {
     is PdshHostAction.SelectWebSearchBackend -> "网页搜索后端"
     PdshHostAction.RefreshWebSearch -> "重新读取网页搜索"
     PdshHostAction.RefreshMcp -> "重新读取 MCP 服务器"
+    is PdshHostAction.BluetoothPageVisible -> "蓝牙设备页"
+    is PdshHostAction.BluetoothScan -> "扫描蓝牙设备"
+    is PdshHostAction.BluetoothConnect -> "连接蓝牙设备"
+    is PdshHostAction.BluetoothDisconnect -> "断开蓝牙设备"
+    is PdshHostAction.BluetoothGrant -> "蓝牙授权"
+    is PdshHostAction.BluetoothRead -> "读取蓝牙数据"
+    is PdshHostAction.BluetoothAlert -> "蓝牙提醒"
     is PdshHostAction.SaveMcpServer -> "保存 MCP 服务器"
     PdshHostAction.StopRuntime -> "停止本地引擎"
     PdshHostAction.RestartRuntime -> "启动本地引擎"
@@ -1696,6 +1710,8 @@ private fun hostRouteNote(route: PdshRoute): String? = when (route) {
 
     is PdshRoute.McpEditor ->
         "保存不会落盘：本宿主没有 phone/mcpUpsert 这个 host tool"
+
+    PdshRoute.Bluetooth -> null
 
     PdshRoute.Configuration -> null
     PdshRoute.Automation -> null

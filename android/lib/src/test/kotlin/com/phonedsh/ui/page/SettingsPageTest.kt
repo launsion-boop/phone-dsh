@@ -162,6 +162,8 @@ class SettingsPageTest {
         )
         scrollTo("外观")
         compose.onNodeWithTag(com.phonedsh.ui.page.UiPageTags.SETTINGS_INDEX_ROW_PREFIX + "appearance").performClick()
+        // Scroll to the option itself: a row added above (蓝牙设备) can leave it below the fold.
+        scrollToTag(com.phonedsh.ui.page.UiPageTags.SETTINGS_INDEX_ROW_PREFIX + "appearance.option.dark")
         compose.onNodeWithTag(com.phonedsh.ui.page.UiPageTags.SETTINGS_INDEX_ROW_PREFIX + "appearance.option.dark").performClick()
         scrollTo("语言")
         compose.onNodeWithTag(com.phonedsh.ui.page.UiPageTags.SETTINGS_INDEX_ROW_PREFIX + "language").performClick()
@@ -305,6 +307,7 @@ class SettingsPageTest {
             onToggleBackgroundKeepAlive = { backgroundWrites += it },
         )
         scrollTo("平台差异")
+        scrollToTag(com.phonedsh.ui.page.UiPageTags.SETTINGS_INDEX_ROW_PREFIX + "platform.backgroundKeepAlive")
         compose.onNodeWithTag(com.phonedsh.ui.page.UiPageTags.SETTINGS_INDEX_ROW_PREFIX + "platform.backgroundKeepAlive")
             .performClick()
         assertEquals(listOf(false), backgroundWrites)

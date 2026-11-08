@@ -1,21 +1,21 @@
 # Android BLE foreground discovery slice, v1
 
-Status: `target`. This slice defines discovery only. It does not implement or
-claim Bluetooth connection, identity, GATT, Link, tools, task grants, or P09
-page parity. An advertisement, name, RSSI, platform address or bond is not
-evidence of any of those. No target Link or task operation is called.
-Until real Android and peripheral runtime evidence is reviewed and this
-profile is explicitly advanced from `target`, production app and UI callers
-must not instantiate or invoke this discovery source. Its new scan/location
-permissions must not be added to the production manifest solely for this
-target. The internal implementation and its tests may be retained unwired.
+Status: `implemented` (advanced by
+[PC-20261107-android-ble-standard-gatt](../../../docs/protocol-changes/PC-20261107-android-ble-standard-gatt.md)).
+This slice defines discovery only. Connection and standard GATT reads are the
+separate [Android standard GATT slice](android-standard-gatt.md); Link, tools,
+task grants and identity remain `target` (GAP-20). An advertisement, name,
+RSSI, platform address or bond is not evidence of any of those. No target Link
+or task operation is called. The Bluetooth devices page is the only production
+caller of this source; its scan permissions are declared in the production
+manifest as listed in the standard GATT slice.
 
 Only a visible page's explicit user action can initiate a scan. On Android API
 26–30 the app declares the legacy Bluetooth permissions and requests fine
 location for scanning; API 31+ requests `BLUETOOTH_SCAN` and asserts
 `neverForLocation`. The app does not derive physical location from scan data;
-this platform flag may filter some beacons. There is no background, advertise,
-or Bluetooth-connect grant in this slice. Empty results do not mean permission
+this platform flag may filter some beacons. There is no background or advertise
+grant; the Bluetooth-connect grant belongs to the standard GATT slice. Empty results do not mean permission
 denial or prove that no device exists. The unfiltered Android system scan may
 be suspended when the screen is off. Successful `startScan` return means only
 that the call returned, not that radio coverage or delivery is guaranteed.

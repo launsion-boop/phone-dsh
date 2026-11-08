@@ -504,6 +504,7 @@ public fun PdshNavHost(
             PdshRoute.ModelProvider -> ModelProviderRoute(facts, onBack, onHostAction, backLevel = backLevel)
             PdshRoute.WebSearch -> WebSearchRoute(facts, onBack, onHostAction)
             PdshRoute.Mcp -> McpRoute(facts, onBack, onHostAction, onNavigate)
+            PdshRoute.Bluetooth -> BluetoothRoute(facts, onBack, onHostAction)
             is PdshRoute.McpEditor -> McpEditorRoute(route, facts, onBack, onHostAction)
             PdshRoute.Runtime -> RuntimeRoute(facts, onBack, onHostAction, backLevel)
             PdshRoute.Egress -> EgressRoute(facts, onBack)
@@ -1634,6 +1635,29 @@ private fun McpRoute(
         // 操作's 刷新注册表 (`MCPSettingsPage.swift:87`). This host has no MCP read
         // yet, so the handoff is what it can do and the page keeps the row visible.
         onRefresh = { onHostAction(PdshHostAction.RefreshMcp) },
+    )
+}
+
+@Composable
+private fun BluetoothRoute(
+    facts: PdshNavFacts,
+    onBack: () -> Unit,
+    onHostAction: (PdshHostAction) -> Unit,
+) {
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        onHostAction(PdshHostAction.BluetoothPageVisible(true))
+        onDispose { onHostAction(PdshHostAction.BluetoothPageVisible(false)) }
+    }
+    com.phonedsh.ui.page.BluetoothDevicesPage(
+        facts = facts.bluetooth,
+        onBack = onBack,
+        onScan = { onHostAction(PdshHostAction.BluetoothScan(it)) },
+        onConnect = { onHostAction(PdshHostAction.BluetoothConnect(it)) },
+        onDisconnect = { onHostAction(PdshHostAction.BluetoothDisconnect(it)) },
+        onGrantRead = { id, on -> onHostAction(PdshHostAction.BluetoothGrant(id, read = on)) },
+        onGrantAlert = { id, on -> onHostAction(PdshHostAction.BluetoothGrant(id, alert = on)) },
+        onRead = { id, profile -> onHostAction(PdshHostAction.BluetoothRead(id, profile)) },
+        onAlert = { id, level -> onHostAction(PdshHostAction.BluetoothAlert(id, level)) },
     )
 }
 

@@ -109,6 +109,7 @@ public data class PdshNavFacts(
     public val webSearch: WebSearchFacts = WebSearchFacts(),
     public val mcp: MCPRegistryFacts = MCPRegistryFacts(),
     public val mcpEditor: MCPEditorFacts = MCPEditorFacts(),
+    public val bluetooth: com.phonedsh.ui.page.BluetoothFacts = com.phonedsh.ui.page.BluetoothFacts(),
     public val runtime: RuntimeFacts = RuntimeFacts(),
     public val egress: EgressAllowListFacts = EgressAllowListFacts(),
     public val automation: AutomationFacts = AutomationFacts(),
@@ -419,6 +420,45 @@ public sealed interface PdshHostAction {
     /** Re-read the MCP registry. */
     public data object RefreshMcp : PdshHostAction {
         override val wire: String = "mcp.refresh"
+    }
+
+    /** 蓝牙设备 page shown (`true`) or disposed (`false`); disposal stops scan and connections. */
+    public data class BluetoothPageVisible(public val visible: Boolean) : PdshHostAction {
+        override val wire: String = "bluetooth.page"
+    }
+
+    /** 扫描附近 BLE 设备 / 停止扫描. */
+    public data class BluetoothScan(public val start: Boolean) : PdshHostAction {
+        override val wire: String = "bluetooth.scan"
+    }
+
+    /** 连接并发现设备能力 for one scan candidate (opaque id, never an address). */
+    public data class BluetoothConnect(public val id: String) : PdshHostAction {
+        override val wire: String = "bluetooth.connect"
+    }
+
+    /** 断开连接. */
+    public data class BluetoothDisconnect(public val id: String) : PdshHostAction {
+        override val wire: String = "bluetooth.disconnect"
+    }
+
+    /** The per-connection read / alert grant toggles; `null` leaves that grant as is. */
+    public data class BluetoothGrant(
+        public val id: String,
+        public val read: Boolean? = null,
+        public val alert: Boolean? = null,
+    ) : PdshHostAction {
+        override val wire: String = "bluetooth.grant"
+    }
+
+    /** 读取 <profile>: one standard characteristic read. */
+    public data class BluetoothRead(public val id: String, public val profile: String) : PdshHostAction {
+        override val wire: String = "bluetooth.read"
+    }
+
+    /** Immediate Alert level 0–2 (write without response, unconfirmed). */
+    public data class BluetoothAlert(public val id: String, public val level: Int) : PdshHostAction {
+        override val wire: String = "bluetooth.alert"
     }
 
     /** Persist the web-search switch position. */

@@ -165,6 +165,16 @@ internal class BleScanMachine(private val platform: BleScanPlatform) {
     }
     internal fun retainedKeyCount(): Int = keys.size
 
+    /**
+     * The platform key behind one retained candidate id, for the coordinator's
+     * owning lease only (connect). Never displayed, logged or persisted.
+     */
+    internal fun platformKey(candidateId: String): Any? {
+        val index = state.value.candidates.indexOfFirst { it.id == candidateId }
+        if (index < 0) return null
+        return keys.entries.firstOrNull { it.value == index }?.key
+    }
+
     /** Reconcile the elapsed-realtime deadline when the host becomes runnable. */
     fun checkDeadline() {
         val deadline = deadlineMs ?: return

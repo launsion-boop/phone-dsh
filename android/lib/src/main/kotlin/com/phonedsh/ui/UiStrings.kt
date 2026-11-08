@@ -210,6 +210,9 @@ public object UiStrings {
     public const val SETTINGS_ROW_ASK_BEFORE_WRITE: String = "写之前"
     public const val SETTINGS_ROW_MODEL_SERVICE: String = "模型服务"
     public const val SETTINGS_ROW_MCP: String = "MCP"
+    // 蓝牙设备 (BluetoothDevicesPage.swift:46, :111): count and profile templates.
+    public const val BLE_SHOW_OTHER_DEVICES: String = "展开其他设备（%d 个，未发现设备能力）"
+    public const val BLE_READ_PROFILE: String = "读取 %s"
     public const val SETTINGS_ROW_BACKGROUND: String = "后台运行"
     public const val SETTINGS_ROW_NETWORK: String = "网络访问"
     public const val SETTINGS_ROW_PLUGINS: String = "插件与模型"

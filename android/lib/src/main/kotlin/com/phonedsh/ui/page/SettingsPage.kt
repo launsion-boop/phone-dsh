@@ -230,6 +230,9 @@ public enum class SettingsDestination {
     PERMISSION_DEFAULTS,
     MODEL_PROVIDER,
     MCP,
+
+    /** 蓝牙设备: scan + standard GATT (`spec/device/v1/android-standard-gatt.md`). */
+    BLUETOOTH,
     WEB_SEARCH,
     EGRESS,
     PLUGIN_CONFIGURATION,
@@ -1311,6 +1314,7 @@ private fun SettingsIndexList(
             SettingsIndexEntry("phonePermissions", native("手机权限", UiStrings.PHONE_PERMISSIONS_TITLE_EN), com.phonedsh.ui.icon.PdshIcon.HAND, permissionSummary,
                 enabled = onOpenPhonePermissions != null, callback = onOpenPhonePermissions),
             SettingsIndexEntry("network", native("网络访问", UiStrings.SETTINGS_ROW_NETWORK_EN), com.phonedsh.ui.icon.PdshIcon.NETWORK, callback = { onNavigate(SettingsDestination.EGRESS) }),
+            SettingsIndexEntry("bluetooth", native("蓝牙设备", "Bluetooth devices"), com.phonedsh.ui.icon.PdshIcon.NETWORK, callback = { onNavigate(SettingsDestination.BLUETOOTH) }),
         )),
         SettingsIndexSection("conversation", native(UiStrings.SETTINGS_SECTION_CONVERSATION, UiStrings.SETTINGS_SECTION_CONVERSATION_EN), listOf(
             SettingsIndexEntry.menu("appearance", native("外观", UiStrings.SETTINGS_ROW_APPEARANCE_EN), com.phonedsh.ui.icon.PdshIcon.GEAR, appearance,

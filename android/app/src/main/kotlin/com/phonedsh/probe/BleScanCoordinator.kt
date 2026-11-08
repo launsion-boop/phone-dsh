@@ -113,6 +113,11 @@ internal class BleScanCoordinator(internal val machine: BleScanMachine) {
             clearCandidates(); host.forget(this); sessions.remove(this)
             }
         }
+        /** The platform key for one of this lease's own retained candidates, else null. */
+        internal fun platformKey(candidateId: String): Any? {
+            if (closed || retainedOwner !== this) return null
+            return machine.platformKey(candidateId)
+        }
         internal fun clearCandidates() { mutable.value = mutable.value.copy(candidates = emptyList()) }
         internal fun refresh() {
             if (closed) return

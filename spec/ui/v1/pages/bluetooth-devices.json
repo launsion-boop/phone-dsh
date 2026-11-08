@@ -23,8 +23,8 @@
   },
   "android": {
     "screen": "BluetoothDevicesPage",
-    "file": null,
-    "match": "missing"
+    "file": "android/lib/src/main/kotlin/com/phonedsh/ui/page/BluetoothDevicesPage.kt",
+    "match": "composable"
   },
   "sections": [
     {
@@ -655,6 +655,42 @@
       "anchor": "Toggle(\"允许工具：\\(name)\", isOn: Binding(get: {",
       "extraction": "manual",
       "dynamicLabel": true
+    },
+    {
+      "id": "轻度提醒",
+      "label": "轻度提醒",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": null,
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "BluetoothDevicesPage.swift:98",
+      "anchor": "Button([\"停止提醒\", \"轻度提醒\", \"高度提醒\"][level])",
+      "extraction": "manual",
+      "specRequired": false,
+      "specRef": null,
+      "baselineReachable": true,
+      "note": "One of the three Immediate Alert levels rendered by ForEach(0...2) from a literal array; the extractor records only its first element."
+    },
+    {
+      "id": "高度提醒",
+      "label": "高度提醒",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": null,
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "BluetoothDevicesPage.swift:98",
+      "anchor": "Button([\"停止提醒\", \"轻度提醒\", \"高度提醒\"][level])",
+      "extraction": "manual",
+      "specRequired": false,
+      "specRef": null,
+      "baselineReachable": true,
+      "note": "One of the three Immediate Alert levels rendered by ForEach(0...2) from a literal array; the extractor records only its first element."
     }
   ],
   "presentations": [

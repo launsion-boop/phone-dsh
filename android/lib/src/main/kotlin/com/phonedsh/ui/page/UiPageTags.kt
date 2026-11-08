@@ -104,6 +104,16 @@ public object UiPageTags {
     public const val PROVIDER_HELP_SECTION: String = "pdsh.provider.help"
     public const val PROVIDER_ROW_PREFIX: String = "pdsh.provider.row."
 
+    // BluetoothDevicesPage
+    public const val BLUETOOTH_ROOT: String = "pdsh.bluetooth.root"
+    public const val BLUETOOTH_LIST: String = "pdsh.bluetooth.list"
+    public const val BLUETOOTH_SCAN: String = "pdsh.bluetooth.scan"
+    public const val BLUETOOTH_CONNECT: String = "pdsh.bluetooth.connect"
+    public const val BLUETOOTH_DISCONNECT: String = "pdsh.bluetooth.disconnect"
+    public const val BLUETOOTH_GRANT_READ: String = "pdsh.bluetooth.grant.read"
+    public const val BLUETOOTH_GRANT_ALERT: String = "pdsh.bluetooth.grant.alert"
+    public const val BLUETOOTH_READ: String = "pdsh.bluetooth.read"
+
     public const val WEB_SEARCH_ROOT: String = "pdsh.websearch.root"
     public const val WEB_SEARCH_LIST: String = "pdsh.websearch.list"
     public const val WEB_SEARCH_TOGGLE: String = "pdsh.websearch.toggle"
