@@ -7,7 +7,7 @@ status: frozen
 breaking: true
 version_decision: New ALPN-identified session profile pdsh-ble-task/1 (secure-session-v2, superseding the never-implemented secure-session-v1 with unchanged wire messages and ALPN) on an additive GATT service; physically entered enrollment mode; pdsh.identity.prove retired on secure-service firmware; task store v2 records the migrated tasks_v1 digest; BLE task device_id changes from ble:<Link UUID> to ble:<device key fingerprint> with no conversion (old records legacy, preserved, inert); plaintext Link task access permanently refused; ordinary Link, standard GATT, phone task journal v1 and existing schemas unchanged.
 base: 0e9ad261 (codex/fix-pr59, PR #59 head)
-contract_revision: spec/device/v1/ble-secure-session.md@secure-session-v2 (freeze commit: see §5; v1 freeze 0aa86466, pinned 082aff5f)
+contract_revision: spec/device/v1/ble-secure-session.md@secure-session-v2 (freeze commit e031b643; v1 freeze 0aa86466, pinned 082aff5f)
 ```
 
 Protocol impact (v1 freeze): P06; P07. P18: none — no UserDefaults key or settings file
@@ -137,7 +137,7 @@ swift test --filter PhoneDSHDeviceTasksTests.BLESecure
 swift test --filter PhoneDSHBLETests
 swift test --filter PhoneDSHDeviceTasksTests
 bash scripts/ci/check.sh --only phone-spec,phone-cross-tree,phone-sdk,phone-license,phone-hygiene
-python3 scripts/ci/protocol_impact.py --base <secure-session-v2 commit, §5> --body-file <PR body>
+python3 scripts/ci/protocol_impact.py --base e031b643 --body-file <PR body>
 ```
 
 ### 4.2 C firmware implementer (board end)
@@ -168,7 +168,7 @@ Acceptance commands:
 bash firmware/tests/run.sh          # must run the new secure-session host tests over every listed golden
 (cd firmware/esp32-reference && idf.py set-target esp32s3 && idf.py build)   # ESP-IDF v6.1 fff9895c
 bash scripts/ci/check.sh --only phone-spec,phone-cross-tree,phone-license,phone-hygiene
-python3 scripts/ci/protocol_impact.py --base <secure-session-v2 commit, §5> --body-file <PR body>
+python3 scripts/ci/protocol_impact.py --base e031b643 --body-file <PR body>
 ```
 
 `firmware/tests/run.sh` must add, with nonzero exit on any mismatch:
@@ -208,7 +208,7 @@ generated offline with Python `cryptography`; no private key is stored.
 | revision | by | reason | ends notified |
 | --- | --- | --- | --- |
 | secure-session-v1 (`0aa86466`) | P07 contract owner | initial freeze; resolves PC-20261107-ble-session-binding-ccr (task `device_id`) | Swift, C firmware (via this record) |
-| secure-session-v2 (see the commit that adds this row; pinned in the following commit) | P07 contract owner | resolves the independent security review [`docs/reviews/ble-secure-session-v1-review.md`](../reviews/ble-secure-session-v1-review.md) (H1–H3, M1–M6, assumption conditions, L1/L2/L4); §6 below | Swift (`ws/ss-swift`) and C firmware (`ws/ss-firmware`) implementers, via §6.4 and §6.5 |
+| secure-session-v2 (`e031b643`) | P07 contract owner | resolves the independent security review [`docs/reviews/ble-secure-session-v1-review.md`](../reviews/ble-secure-session-v1-review.md) (H1–H3, M1–M6, assumption conditions, L1/L2/L4); §6 below | Swift (`ws/ss-swift`) and C firmware (`ws/ss-firmware`) implementers, via §6.4 and §6.5 |
 
 ## 6. Revision `secure-session-v2` (contract change after independent review)
 
