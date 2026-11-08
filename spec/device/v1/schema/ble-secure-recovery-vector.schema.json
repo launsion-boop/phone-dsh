@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "secure-session-v2 lost-reply recovery decision vector",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "name",
+    "action",
+    "args",
+    "intent_phone_id",
+    "current_phone_id",
+    "status",
+    "decision"
+  ],
+  "properties": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "action": {
+      "enum": [
+        "accept",
+        "complete",
+        "fail"
+      ]
+    },
+    "args": {
+      "type": "object"
+    },
+    "intent_phone_id": {
+      "type": "string",
+      "pattern": "^phone:[0-9a-f]{64}$"
+    },
+    "current_phone_id": {
+      "type": "string",
+      "pattern": "^phone:[0-9a-f]{64}$"
+    },
+    "status": {
+      "type": "object"
+    },
+    "decision": {
+      "enum": [
+        "applied",
+        "resend",
+        "retry_query",
+        "unresolved"
+      ]
+    }
+  }
+}

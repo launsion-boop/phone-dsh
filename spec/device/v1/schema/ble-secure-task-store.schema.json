@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Reference firmware task store v2 (NVS key tasks_v2, ble-secure-session.md §10, secure-session-v2)",
+  "description": "task follows task.schema.json and the task rules; outcome iff terminal; by never on queued; v1_sha256 is the SHA-256 of the exact tasks_v1 bytes present when this document was first written (null if none).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "v",
+    "v1_sha256",
+    "slots"
+  ],
+  "properties": {
+    "v": {
+      "const": 2
+    },
+    "v1_sha256": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "slots": {
+      "type": "array",
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "task",
+          "phase"
+        ],
+        "properties": {
+          "task": {
+            "type": "object"
+          },
+          "phase": {
+            "enum": [
+              "queued",
+              "accepted",
+              "completed",
+              "failed"
+            ]
+          },
+          "by": {
+            "type": "string",
+            "pattern": "^phone:[0-9a-f]{64}$"
+          },
+          "outcome": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "output",
+                  "truncated"
+                ],
+                "properties": {
+                  "output": {
+                    "type": "string",
+                    "maxLength": 1024
+                  },
+                  "truncated": {
+                    "type": "boolean"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "failure"
+                ],
+                "properties": {
+                  "failure": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "kind",
+                      "message"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "enum": [
+                          "denied",
+                          "unavailable",
+                          "expired",
+                          "failed",
+                          "unknown_outcome"
+                        ]
+                      },
+                      "message": {
+                        "type": "string",
+                        "maxLength": 256
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

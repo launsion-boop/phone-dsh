@@ -33,6 +33,9 @@ static pdsh_upload_t upload;
 static nvs_handle_t storage;
 static bool healthy, busy, light_available;
 static bool task_profile;
+/* Set once the secure-session service is registered (§11.3): the device key
+ * is then never an unauthenticated signing oracle. */
+static bool secure_service;
 static uint32_t boot, revision;
 static char device_id[37];
 static SemaphoreHandle_t lock;
@@ -128,7 +131,7 @@ static cJSON *tool_list(bool task_admitted) {
                       "\"required\":[\"method\",\"url\"],\"additionalProperties\":false}");
         cJSON_AddItemToArray(list, t);
     }
-    if (task_profile && pdsh_identity_ready()) {
+    if (task_profile && pdsh_identity_ready() && !secure_service) {
         cJSON *t = cJSON_CreateObject();
         cJSON_AddStringToObject(t, "name", "pdsh.identity.prove");
         cJSON_AddStringToObject(t, "description", "Sign a phone nonce with the device identity key; host only.");
@@ -294,6 +297,11 @@ void tools_reset_upload(void) {
     task_profile = false;
     xSemaphoreGive(lock);
 }
+void tools_set_secure_service(bool present) {
+    xSemaphoreTake(lock, portMAX_DELAY);
+    secure_service = present;
+    xSemaphoreGive(lock);
+}
 void tools_set_task_profile(uint32_t app_caps) {
     xSemaphoreTake(lock, portMAX_DELAY);
     task_profile = pdsh_task_capable(app_caps);
@@ -368,6 +376,13 @@ static int commit(const uint8_t id[16], uint8_t *state, bool task_admitted) {
      * Hide and reject new task calls even if the peer declares PDSH_TASKS.
      * Existing UUIDs were resolved above and retain their legacy semantics. */
     if (!task_admitted && !strncmp(name, "pdsh.task.", sizeof("pdsh.task.") - 1)) {
+        upload.active = false;
+        error = 14;
+        goto done;
+    }
+    /* Retired with the secure service: refused exactly like a plaintext task
+     * call (UNSUPPORTED 14, no receipt, no signature). */
+    if (secure_service && !strcmp(name, "pdsh.identity.prove")) {
         upload.active = false;
         error = 14;
         goto done;

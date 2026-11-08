@@ -69,6 +69,18 @@ idf.py -p /dev/cu.usbmodemYOUR_DEVICE flash monitor
 
 LE Secure Connections + Just Works + 物理窗口提供本参考的绑定流程，不包含设备证书 / ATTEST、MITM 数字比较或加密 NVS；生产设备可另接入身份认证与 Flash / NVS 加密。本版手机每次连接仍独立授权，设备 UUID / 广播名不能当作密码学身份。
 
+### 安全任务会话（secure-session-v2，`target`）
+
+[ble-secure-session.md](../../spec/device/v1/ble-secure-session.md) 的板端已实现：离线登记控制台与状态机（`main/pdsh_enroll.c`）、标识/帧/消息编解码（`main/pdsh_secure_msg.c`）、固定公钥自签证书（`main/pdsh_secure_cert.c`）、TLS 1.3 服务端、就绪挑战、计时与 §5 CoC 接收/发送/准入限制（`main/pdsh_secure_session.c`）、任务存储 v2（`tasks_v2`，`by` 归属与 `v1_sha256` 回滚检测），以及 `main.c` 中的安全 GATT 服务（`d04ea024-…`，PSM 0x00A5）和 LE CoC 绑定。宿主测试驱动全部板端共享 golden；未在实体 ESP32 或 iPhone 上验证，BLE 任务授权仍未启用。
+
+**USB 主机即完全信任（必读）。** 任何接上本板 USB 的主机都可读写设备私钥、登记记录和固件；本参考板不抵抗恶意 USB 主机（无安全启动、无 Flash 加密、无安全下载模式、JTAG 未用 eFuse 关闭）。只把本板接到你信任的电脑上；`production-hardened` 配置尚未实现。
+
+**登记需要按钮和专用指示灯。** 设置 `PDSH_BUTTON_GPIO`（低电平有效）和 `PDSH_INDICATOR_GPIO`（高电平有效，不得与 `light.*` LED 或按钮共用，默认 -1）。未配置任一项时板子永不进入登记模式，`begin`/`revoke`/`identity-reset` 回答 `controls_unavailable`。进入登记模式：按住按钮 5 秒（指示灯 1 Hz 闪烁，窗口 300 秒，不延长）；主机打印 `press …` 后，**重新**按住 3 秒确认（指示灯 4 Hz）；短按取消；任何错误或完成都会退出登记模式。登记模式中按钮不再打开配对窗口、也不发 `button.pressed`。没有任何主机命令能进入登记模式。
+
+**CoC 信用机制（§5，记录于本变更）。** 所固定 NimBLE（ESP-IDF v6.1 fff9895c）的 `ble_l2cap_coc_rx_fn` 会在检查信用之前访问接收槽。本固件在 `BLE_L2CAP_EVENT_COC_ACCEPT`（连接响应发出前，对端尚不能发送 K 帧）时把 `chan->rx_fn` 换成 `secure_coc_rx`：先检查信用（`pdsh_ss_coc_kframe`），K 帧缓冲 ≤ 4（参考 3，初始信用 = 缓冲数），仅在 TLS 消费 SDU 后用 `ble_l2cap_sig_le_credits` 归还信用；违反即断开该 CoC（不断 LE 链路）。这依赖 NimBLE 私有头文件，升级 ESP-IDF 前须复核。每会话堆在宿主按设备缓冲尺寸测得峰值 31 623 字节（≤ 32 KiB）。
+
+**密钥。** 设备密钥仅用于 TLS CertificateVerify 与自签证书，PSA 策略只允许确定性 ECDSA（RFC 6979）；带安全服务的固件不再列出也不执行 `pdsh.identity.prove`（返回 14）。首次生成密钥时 BLE 控制器已启用（射频熵源），否则以 `bootloader_random_enable/disable` 包围，日志记录熵源；`eid`/`sc` 仅在 BLE 控制器启用时生成。
+
 ## 本地验证
 
 先 `idf.py build` 解析固定 cJSON 依赖，然后回仓库根目录：

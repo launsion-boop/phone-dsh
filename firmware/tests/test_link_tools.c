@@ -381,9 +381,14 @@ static void plaintext_admission_tests(const char *path) {
         cJSON *proof = cJSON_GetObjectItemCaseSensitive(row, "identity_visible");
         cJSON *visible = cJSON_GetObjectItemCaseSensitive(row, "task_visible");
         cJSON *denied = cJSON_GetObjectItemCaseSensitive(row, "new_task_status");
+        cJSON *secure = cJSON_GetObjectItemCaseSensitive(row, "secure_service");
+        cJSON *call = cJSON_GetObjectItemCaseSensitive(row, "identity_call");
         assert(cJSON_IsNumber(caps) && cJSON_IsBool(proof) && cJSON_IsFalse(visible) &&
-               cJSON_IsNumber(denied) && denied->valueint == 14);
+               cJSON_IsNumber(denied) && denied->valueint == 14 && cJSON_IsBool(secure) && cJSON_IsString(call));
         uint32_t app_caps = (uint32_t)caps->valuedouble;
+        /* secure-session-v2.1: the same Link ingress with and without the
+         * secure service registered (ble-secure-session.md §11.3). */
+        tools_set_secure_service(cJSON_IsTrue(secure));
         tools_reset_upload(); tools_set_task_profile(app_caps);
         assert(submit(100, "tools/list", "{}", "discover", out) == 0);
         cJSON *reply = query(100, &state);
@@ -399,6 +404,11 @@ static void plaintext_admission_tests(const char *path) {
 
         int before_proofs = identity_proofs;
         int proof_status = submit(101, "pdsh.identity.prove", "{\"nonce\":\"test-nonce\"}", "prove", out);
+        assert((strcmp(call->valuestring, "proof") == 0) == (cJSON_IsTrue(proof) != 0));
+        if (!strcmp(call->valuestring, "unsupported")) {
+            assert(proof_status == 14 && identity_proofs == before_proofs && !job_fn);
+            assert(query(101, &state) == NULL && state == 0); /* no receipt, no signature */
+        }
         if (cJSON_IsTrue(proof)) {
             assert(proof_status == 0 && identity_proofs == before_proofs + 1);
             reply = query(101, &state);
@@ -427,14 +437,15 @@ static void plaintext_admission_tests(const char *path) {
         cJSON_Delete(local); cJSON_Delete(row); rows++;
     }
     fclose(f); free(old_json);
-    assert(rows == 5);
+    tools_set_secure_service(false);
+    assert(rows == 10);
     tools_init(2);
     assert(memcmp(snapshot, disk, sizeof(snapshot)) == 0);
     old = query(1, &state); assert(old && state == 2); cJSON_Delete(old);
     cJSON *local = tools_task_result("task-1");
     assert(local && !strcmp(cJSON_GetObjectItemCaseSensitive(local, "phase")->valuestring, "queued"));
     cJSON_Delete(local);
-    puts("BLE plaintext task admission vectors: 5 PASS");
+    puts("BLE plaintext task admission vectors: 10 PASS (secure service absent and present)");
 }
 int main(int argc, char **argv) {
     if (argc == 2 && !strcmp(argv[1], "--task")) { task_tests(); return 0; }

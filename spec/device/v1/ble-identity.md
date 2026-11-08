@@ -6,10 +6,18 @@ encode, so that every document describes the same bytes. It is not an
 authenticated session, it does not authorize BLE device tasks, and it does not
 close GAP-16. No caller may treat a verified proof, a recorded fingerprint or
 an entry in the trust list as authentication of later Link, task or receipt
-traffic. The design history and open decisions are in
-[PC-20261106-device-identity-tofu](../../../docs/protocol-changes/PC-20261106-device-identity-tofu.md);
-the missing session contract is in
-[PC-20261107-ble-session-binding-ccr](../../../docs/protocol-changes/PC-20261107-ble-session-binding-ccr.md).
+traffic. The design history is in
+[PC-20261106-device-identity-tofu](../../../docs/protocol-changes/PC-20261106-device-identity-tofu.md).
+The authenticated session that replaces this flow for device tasks is frozen
+in [ble-secure-session.md](ble-secure-session.md) (`secure-session-v2`,
+`target`; change record PC-20261108-ble-secure-session): its device ID uses
+the same fingerprint string as §2, but authority comes only from offline
+enrollment and a mutually authenticated session, never from this proof or the
+trust list (ble-secure-session.md §11.3). Firmware that carries that secure
+service retires `pdsh.identity.prove`: it is not listed and a call is refused
+with `UNSUPPORTED` (14), no receipt and no signature, so the shared device key
+is never an unauthenticated signing oracle. No phone build calls the tool, so
+the phone side of this document is unaffected.
 
 ## 1. What runs where
 
@@ -38,11 +46,12 @@ This is distinct from, and must not be confused with:
 
 - the Link `device_id` UUID from `tools/list` (`linkIdentity`), which is an
   unauthenticated label; and
-- `ble:<UUID>` strings, which are the identity form still required by the
-  `target` task journal and BLE task-intent schema in
-  [task-delegation.md](task-delegation.md). No conversion between the two forms
-  is defined; `BLETaskIntent` rejects the fingerprint form. Resolving this is a
-  precondition of any task use (change record, Compatibility).
+- `ble:<UUID>` strings, the `legacy` task-journal identity of the earlier
+  plaintext Link task binding ([task-delegation.md](task-delegation.md)
+  § Legacy Link task binding). The task identity is now the fingerprint form
+  of ble-secure-session.md §2/§9.2. No conversion between the two forms is
+  defined or permitted; legacy UUID-labelled records stay preserved and are
+  never treated as authenticated or replayed (ble-secure-session.md §11.4).
 
 ## 3. Device key and the `pdsh.identity.prove` Link tool
 
@@ -161,7 +170,9 @@ not implemented behaviour.
    possession is not channel binding, and later bytes are not integrity
    protected. It is not an authenticated session.
 3. iOS cannot verify BLE bonding/encryption; all BLE task grants are refused
-   (GAP-16). A recorded fingerprint must not change that.
+   (GAP-16) until ble-secure-session.md is implemented and accepted. A
+   recorded fingerprint must not change that and is never imported as an
+   enrollment record.
 4. No shared Swift/C proof vectors exist yet. `firmware/tests/test_link_tools.c`
    uses a stub signer (dispatch only); `Tests/PhoneDSHBLETests/BLEIdentityTests.swift`
    uses CryptoKit-generated keys. Cross-end signature conformance is therefore

@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Phone secure-session task transition intent (ble-secure-session.md §9.2, secure-session-v2)",
+  "description": "File <msg_id>-<action>.json in the task journal's ble-secure-ops directory.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "v",
+    "msg_id",
+    "device_id",
+    "phone_id",
+    "task_id",
+    "action",
+    "idem",
+    "arguments_sha256"
+  ],
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "msg_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "device_id": {
+      "type": "string",
+      "pattern": "^ble:[0-9a-f]{64}$"
+    },
+    "phone_id": {
+      "type": "string",
+      "pattern": "^phone:[0-9a-f]{64}$"
+    },
+    "task_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"
+    },
+    "action": {
+      "enum": [
+        "accept",
+        "complete",
+        "fail"
+      ]
+    },
+    "idem": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"
+    },
+    "arguments_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}
