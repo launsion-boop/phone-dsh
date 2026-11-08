@@ -1,0 +1,98 @@
+# SPDX-License-Identifier: MIT
+name: BotResidencySpike
+
+options:
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+packages:
+  PhoneDSH:
+    path: ../../../..
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) BOT_RESIDENCY_SPIKE"
+    IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+    TARGETED_DEVICE_FAMILY: "1,2"
+    CURRENT_PROJECT_VERSION: "1"
+    MARKETING_VERSION: "0.1.0"
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    CLANG_ENABLE_MODULES: YES
+
+targets:
+  BotResidencySpike:
+    type: application
+    platform: iOS
+    sources:
+      - path: ../../../../examples/probe-app/PhoneDSHProbe/BotResidencySpike/Sources
+      - path: ../../../../examples/probe-app/PhoneDSHProbe/BackgroundKeepAlive.swift
+      - path: Generated/Bundle/worker
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - target: ProbeKit
+      - package: PhoneDSH
+        product: PhoneDSH
+      - package: PhoneDSH
+        product: PhoneDSHEngine
+      - package: PhoneDSH
+        product: PhoneDSHAgentCore
+      - package: PhoneDSH
+        product: PhoneDSHHarness
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.phone-dsh.bot-residency-spike
+        PRODUCT_NAME: BotResidencySpike
+        INFOPLIST_FILE: Config/BotResidencySpike-Info.plist
+        CODE_SIGN_ENTITLEMENTS: Config/BotResidencySpike.entitlements
+        SUPPORTS_MACCATALYST: NO
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks"
+
+  ProbeKit:
+    type: framework
+    platform: iOS
+    sources:
+      - path: ../../../../examples/probe-app/ProbeKit
+      - path: ../../../../Sources/PhoneDSHHarness/Resources/probe-site
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - package: PhoneDSH
+        product: PhoneDSH
+      - package: PhoneDSH
+        product: PhoneDSHEngine
+      - package: PhoneDSH
+        product: PhoneDSHLoopback
+      - package: PhoneDSH
+        product: PhoneDSHLog
+      - package: PhoneDSH
+        product: PhoneDSHWire
+      - package: PhoneDSH
+        product: PhoneDSHAgentCore
+      - package: PhoneDSH
+        product: PhoneDSHController
+      - package: PhoneDSH
+        product: PhoneDSHShell
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.phone-dsh.bot-residency-spike.probekit
+        PRODUCT_NAME: ProbeKit
+        GENERATE_INFOPLIST_FILE: YES
+        DEFINES_MODULE: YES
+        SKIP_INSTALL: YES
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @loader_path/Frameworks"
+
+schemes:
+  BotResidencySpike:
+    build:
+      targets:
+        BotResidencySpike: all
+        ProbeKit: all
+    run:
+      config: Debug
+    analyze:
+      config: Debug
+    archive:
+      config: Release

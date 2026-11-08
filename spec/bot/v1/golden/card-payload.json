@@ -1,0 +1,356 @@
+{
+  "schemaVersion": 1,
+  "vector": "card-payload",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6"
+  },
+  "valid": [
+    {
+      "tool": "ask_user",
+      "args": {
+        "question": "继续吗？",
+        "options": [
+          {
+            "label": "继续",
+            "recommended": true
+          },
+          {
+            "label": "停止"
+          }
+        ]
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "question",
+          "question": "继续吗？",
+          "options": [
+            {
+              "label": "继续",
+              "recommended": true
+            },
+            {
+              "label": "停止"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "show_next_steps",
+      "args": {
+        "steps": [
+          {
+            "label": "查看结果",
+            "recommended": true
+          },
+          "稍后再说"
+        ]
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "steps",
+          "steps": [
+            {
+              "label": "查看结果",
+              "recommended": true
+            },
+            {
+              "label": "稍后再说"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "show_attachment",
+      "args": {
+        "path": "/tmp/report.txt",
+        "caption": "报告"
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "attachment",
+          "caption": "报告",
+          "path": "/tmp/report.txt"
+        }
+      }
+    },
+    {
+      "tool": "show_document",
+      "args": {
+        "title": "状态报告",
+        "content": "# 状态\n正常",
+        "summary": "当前状态"
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "document",
+          "title": "状态报告",
+          "summary": "当前状态",
+          "docKind": "markdown",
+          "docTypeLabel": "Markdown",
+          "content": "# 状态\n正常",
+          "toc": [
+            "状态"
+          ]
+        }
+      }
+    },
+    {
+      "tool": "show_progress",
+      "args": {
+        "title": "生成报告",
+        "cardKey": "report-1",
+        "state": "running",
+        "steps": [
+          {
+            "label": "收集",
+            "state": "done"
+          },
+          {
+            "label": "撰写",
+            "state": "active"
+          }
+        ]
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "progress",
+          "title": "生成报告",
+          "state": "running",
+          "cardKey": "report-1",
+          "percent": 50,
+          "steps": [
+            {
+              "id": "step-0",
+              "label": "收集",
+              "state": "done"
+            },
+            {
+              "id": "step-1",
+              "label": "撰写",
+              "state": "active"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "show_checklist",
+      "args": {
+        "title": "发布检查",
+        "items": [
+          {
+            "text": "运行测试",
+            "done": true
+          },
+          {
+            "text": "创建 PR"
+          }
+        ]
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "checklist",
+          "title": "发布检查",
+          "items": [
+            {
+              "id": "item-0",
+              "text": "运行测试",
+              "done": true
+            },
+            {
+              "id": "item-1",
+              "text": "创建 PR",
+              "done": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "show_link",
+      "args": {
+        "links": [
+          {
+            "url": "https://example.test/docs",
+            "title": "文档",
+            "site": "example.test",
+            "kind": "doc"
+          }
+        ]
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "link",
+          "links": [
+            {
+              "url": "https://example.test/docs",
+              "title": "文档",
+              "site": "example.test",
+              "kind": "doc"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "show_table",
+      "args": {
+        "columns": [
+          {
+            "key": "name",
+            "label": "名称"
+          },
+          {
+            "key": "count",
+            "label": "数量",
+            "type": "number"
+          }
+        ],
+        "rows": [
+          {
+            "name": "A",
+            "count": 2
+          }
+        ]
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "table",
+          "rows": [
+            {
+              "name": "A",
+              "count": 2
+            }
+          ],
+          "columns": [
+            {
+              "key": "name",
+              "label": "名称",
+              "type": "text",
+              "align": "left"
+            },
+            {
+              "key": "count",
+              "label": "数量",
+              "type": "number",
+              "align": "right",
+              "precision": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "show_callout",
+      "args": {
+        "tone": "warning",
+        "title": "注意",
+        "body": "仍有未验证项目。"
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "callout",
+          "title": "注意",
+          "body": "仍有未验证项目。",
+          "tone": "warning"
+        }
+      }
+    },
+    {
+      "tool": "show_info",
+      "args": {
+        "label": "状态",
+        "value": "进行中"
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "info",
+          "label": "状态",
+          "value": "进行中"
+        }
+      }
+    },
+    {
+      "tool": "show_payload",
+      "args": {
+        "files": [
+          {
+            "name": "report.txt",
+            "size": 128
+          }
+        ]
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "payload",
+          "payloads": [
+            {
+              "id": "file-0",
+              "name": "report.txt",
+              "size": "128 B"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "show_library",
+      "args": {
+        "botName": "大肥鱼",
+        "docCount": 2,
+        "docCountKnown": true
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "library",
+          "title": "文件庫：大肥鱼",
+          "summary": "2 份文件",
+          "fileName": "文件庫",
+          "docKind": "library",
+          "docTypeLabel": "文件庫",
+          "docCount": 2,
+          "library": true,
+          "size": "2 份文件"
+        }
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "tool": "show_progress",
+      "args": {},
+      "result": {
+        "ok": false,
+        "error": "show_progress 需要 title。"
+      }
+    },
+    {
+      "tool": "show_link",
+      "args": {
+        "links": [
+          {
+            "url": "file:///etc/passwd"
+          }
+        ]
+      },
+      "result": {
+        "ok": false,
+        "error": "show_link 需要至少一個合法的 http(s) links[] {url}。"
+      }
+    }
+  ]
+}

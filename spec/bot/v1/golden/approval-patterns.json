@@ -1,0 +1,113 @@
+{
+  "schemaVersion": 1,
+  "vector": "approval-patterns",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6"
+  },
+  "valid": [
+    {
+      "tool": "bash",
+      "args": {
+        "command": "rm -rf build"
+      },
+      "matches": [
+        {
+          "kind": "rm-destructive",
+          "label": "Delete files or directories (rm)",
+          "detail": "This command deletes files or directories: rm -rf build",
+          "target": "rm -rf build",
+          "resource": "/tmp/phonedsh-bot-work/build",
+          "askAction": "run-command",
+          "grantKeys": [
+            "rm -rf build"
+          ]
+        }
+      ]
+    },
+    {
+      "tool": "bash",
+      "args": {
+        "command": "git reset --hard HEAD"
+      },
+      "matches": [
+        {
+          "kind": "git-destructive",
+          "label": "Discard Git working-tree changes",
+          "detail": "This command discards uncommitted changes: git reset --hard HEAD",
+          "target": "git reset --hard HEAD",
+          "resource": "git reset --hard HEAD",
+          "askAction": "run-command",
+          "grantKeys": [
+            "git reset --hard HEAD"
+          ]
+        }
+      ]
+    },
+    {
+      "tool": "bash",
+      "args": {
+        "command": "curl -X POST https://example.test/api"
+      },
+      "matches": [
+        {
+          "kind": "curl-post",
+          "label": "Send a network POST request",
+          "detail": "This command sends a network write request: curl -X POST https://example.test/api",
+          "target": "curl -X POST https://example.test/api",
+          "resource": "curl -X POST https://example.test/api",
+          "askAction": "run-command",
+          "grantKeys": [
+            "curl -X POST https://example.test/api"
+          ]
+        }
+      ]
+    },
+    {
+      "tool": "bash",
+      "args": {
+        "command": "find . -name \"*.tmp\" -delete"
+      },
+      "matches": [
+        {
+          "kind": "find-delete",
+          "label": "Delete files with find -delete",
+          "detail": "find -delete removes the matching files: find . -name \"*.tmp\" -delete",
+          "target": "find . -name \"*.tmp\" -delete",
+          "resource": "find . -name \"*.tmp\" -delete",
+          "askAction": "run-command",
+          "grantKeys": [
+            "find . -name \"*.tmp\" -delete"
+          ]
+        }
+      ]
+    },
+    {
+      "tool": "bash",
+      "args": {
+        "command": "echo ready"
+      },
+      "matches": []
+    }
+  ],
+  "invalid": [
+    {
+      "tool": "bash",
+      "args": {
+        "command": "python3 -c \"import urllib.request; urllib.request.urlopen('https://example.test')\""
+      },
+      "matches": [
+        {
+          "kind": "network-egress",
+          "label": "Sends data off this machine",
+          "detail": "This command sends data to a destination outside this machine (network egress): python3 -c \"import urllib.request; urllib.request.urlopen('https://example.test')\"",
+          "target": "python3 -c \"import urllib.request; urllib.request.urlopen('https://example.test')\"",
+          "resource": "python3 -c \"import urllib.request; urllib.request.urlopen('https://example.test')\"",
+          "askAction": "run-command",
+          "grantKeys": [
+            "python3 -c \"import urllib.request"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -65,6 +65,7 @@ struct PhoneDSHProbeApp: App {
                     BLEDeviceStore.shared.setDeviceTaskDiscoveryEnabled(true)
                     #endif
                     model.refreshLockdown()
+                    await ChatModel.shared.start()
                 }
         }
     }

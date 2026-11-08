@@ -23,6 +23,7 @@ import struct PhoneDSHController.RestartPolicy
 import PhoneDSHEngine
 import PhoneDSHShell
 import PhoneDSHADB
+import PhoneDSHBot
 import PhoneDSHBLE
 
 // MARK: - Settings persistence
@@ -516,6 +517,19 @@ final class ChatModel {
     private(set) var keepingAlive = false
 
     private var host: PhoneDSHHost?
+    private var botLaunch: BotRuntimeComposition.Launch?
+    /// UI-visible Bot runtime state; set by the composition whenever the Host
+    /// rebinds, a recovery fails, or the runtime stops.
+    private(set) var botRuntimeState: BotRuntimeState = .idle
+    var botRuntimeIssue: String? {
+        if case .failed(let message) = botRuntimeState { return message }
+        return nil
+    }
+    /// The production Bot page builds its drivers from this composition; it
+    /// is created before the first Host so the page never falls back to a
+    /// fixture.
+    var botRuntime: BotRuntimeComposition? { botLaunch?.composition }
+    private var phoneCapabilityBridge: PhoneCapabilityBridge?
     private let keepAlive = SilentAudioKeepAlive()
     private var backgroundHeartbeat: Task<Void, Never>?
     /// Harness events handled so far; the background heartbeat logs the delta
@@ -920,6 +934,50 @@ final class ChatModel {
         let egressHosts: Set<String>
     }
 
+    private func prepareBotRuntime() async -> Bool {
+        if let launch = botLaunch {
+            botRuntimeState = launch.composition.state
+            return true
+        }
+        botRuntimeState = .preparing
+        do {
+            let store = try SQLiteDomainStore.applicationSupport()
+            let launch = try await BotRuntimeComposition.prepare(store: store)
+            launch.composition.onStateChange = { [weak self] state in
+                self?.botRuntimeState = state
+            }
+            botLaunch = launch
+            botRuntimeState = launch.composition.state
+            return true
+        } catch {
+            botRuntimeState = .failed("Bot 启动失败：\(error.localizedDescription)")
+            reportError("Bot 启动失败：\(error.localizedDescription)")
+            return false
+        }
+    }
+
+    /// Retry the Bot half after a visible disconnect. A running Host is
+    /// rebound; without a Host the normal engine start is attempted again.
+    func retryBotRuntime() async {
+        if let composition = botLaunch?.composition, let host {
+            await composition.retry()
+            botRuntimeState = composition.state
+        } else {
+            await start()
+        }
+    }
+
+    private func attachBotRuntime(to host: PhoneDSHHost) async {
+        guard let composition = botLaunch?.composition else { return }
+        do {
+            try await composition.start(host: host)
+            botRuntimeState = composition.state
+        } catch {
+            botRuntimeState = composition.state
+            reportError("Bot 大脑连接失败：\(error.localizedDescription)")
+        }
+    }
+
     /// Boots the host and adopts the persisted session. Launching and sending
     /// may acknowledge one persisted `Failed` controller per process.
     func start(autoRecover: Bool = false) async {
@@ -930,6 +988,7 @@ final class ChatModel {
         }
         busy = true
         defer { busy = false }
+        guard await prepareBotRuntime() else { return }
         guard let launch = makeHostLaunch() else { return }
         // Show the last conversation from disk immediately; the engine boots
         // in the background and replaces it when the host history arrives.
@@ -939,6 +998,7 @@ final class ChatModel {
         observeHost(launch.host)
         do {
             try await ADBMCPServer.shared.setWorkspaceDirectory(materializedWorkspace)
+            await botLaunch?.composition.attachNativeMCP(DeviceMCPServer.shared)
             try await launch.host.start()
         } catch {
             Self.appendDiagnostic("host start failed: \(error)")
@@ -1035,6 +1095,15 @@ final class ChatModel {
         PhoneMCPAccessSettings.shared.reconcile(materializedHome: materializedHome)
         let mcpPolicy = MCPHostConfiguration.apply(to: &launchPlan,
                                                    settings: .shared)
+        if let endpoint = botLaunch?.composition.server.url {
+            do {
+                try mcpPolicy.grantBotRuntimeEndpoint(
+                    endpoint, token: botLaunch?.composition.server.token)
+            } catch {
+                reportError("Bot MCP 出口配置失败：\(error.localizedDescription)")
+                return nil
+            }
+        }
         mcpAccessPolicy = mcpPolicy
         allowedModelHosts = launchPlan.allowedModelHosts
         credentialProvider = launchPlan.credentialProvider
@@ -1044,21 +1113,22 @@ final class ChatModel {
         // endpoints are replay-safe, so expand its base URL here.
         let replaySafeModelEndpoints = selectedProfile?.endpointURL
             .map { PhoneDSHConfiguration.standardModelEndpoints(baseURL: $0) } ?? []
-        var configuration = PhoneDSHConfiguration(
+        // ChatHostConfiguration.makeProduction is the shared production
+        // assembly (nativeMCP, Worker environment, timeouts, gateway inputs);
+        // the E2E boots the same function instead of copying these values.
+        var configuration = ChatHostConfiguration.makeProduction(
             workspaceRoot: workspaceRoot,
-            token: "",
-            origin: URL(string: "http://127.0.0.1:1")!,
+            bundle: bundle,
             // Budgets follow the device: the 12 GiB row is selected only at or
             // above 12 GiB (budgets.md §4).
             deviceTier: DeviceTier.forPhysicalMemory(ProcessInfo.processInfo.physicalMemory),
-            bundle: bundle,
             allowedModelHosts: allowedModelHosts,
             egressAllowHosts: egressHosts,
             replaySafeModelEndpoints: replaySafeModelEndpoints,
             credentialProvider: credentialProvider,
             egressAuthorizer: mcpPolicy,
-            drainDeadline: ChatHostConfiguration.defaultDrainDeadline,
-            helloTimeout: ChatHostConfiguration.defaultHelloTimeout)
+            workerEnvironment: environment.merging(botLaunch?.workerEnvironment ?? [:]) { _, new in new },
+            nativeMCP: DeviceMCPServer.shared)
         configuration.officialDeepSeekWebCredentialProvider = searchPlan.officialDeepSeekWebCredentialProvider
         // One line states what the host actually enforces. The Worker's
         // published manifest can lag behind a rebuilt bundle; this is the
@@ -1075,9 +1145,11 @@ final class ChatModel {
         // injected PhoneToolBridge (there is no MCP bridge in this host yet),
         // so `channelAcceleratorNames` keeps them out of the host HELLO and the
         // EXEC_REQ whitelist instead of advertising commands that would exit 69.
+        let capabilityBridge = PhoneCapabilityBridge()
+        phoneCapabilityBridge = capabilityBridge
         let toolBridge = CompositePhoneToolBridge(
             office: OfficeToolBridge(presenter: OfficePresenter()),
-            phone: PhoneCapabilityBridge())
+            phone: capabilityBridge)
         let shell = PDSHShellProvider(materializedWorkspace: materializedWorkspace,
                                       materializedHome: materializedHome,
                                       toolBridge: toolBridge)
@@ -1096,9 +1168,6 @@ final class ChatModel {
         configuration.execProvider = ADBExecProvider(workspace: materializedWorkspace, fallback: sshProvider,
                                                       byteLimit: configuration.budgets.singleFileBytes)
         configuration.acceleratorNames = shell.channelAcceleratorNames + ["ssh", "scp", "adb"]
-        configuration.nativeMCP = DeviceMCPServer.shared
-        configuration.engine.bootTimeout = ChatHostConfiguration.defaultBootTimeout
-        configuration.engine.environment = environment
         let anchor = self.anchor
         let host = PhoneDSHHost(configuration: configuration, engineFactory: { configuration in
             await anchor.makeEngine(configuration)
@@ -1156,6 +1225,7 @@ final class ChatModel {
         // Build the replacement first: `makeHostLaunch` can refuse (bundle
         // missing, anchor not in a window) and clearing the reset state before
         // that would drop the only path back to a working engine.
+        guard await prepareBotRuntime() else { return }
         guard let launch = makeHostLaunch() else { return }
         failedHost = nil
         engineNeedsReset = false
@@ -1164,6 +1234,7 @@ final class ChatModel {
         do {
             do {
                 try await ADBMCPServer.shared.setWorkspaceDirectory(materializedWorkspace)
+                await botLaunch?.composition.attachNativeMCP(DeviceMCPServer.shared)
                 try await launch.host.start()
             } catch {
                 let state = await launch.host.state
@@ -1202,6 +1273,7 @@ final class ChatModel {
                                   selectedProfile: ProviderProfile?,
                                   egressHosts: Set<String>) async {
         host = newHost
+        await attachBotRuntime(to: newHost)
         failedHost = nil
         engineNeedsReset = false
         startedAt = Date()
@@ -1412,7 +1484,13 @@ final class ChatModel {
     }
 
     func stop() async {
-        guard let host else { return }
+        guard let host else {
+            await botLaunch?.composition.stop()
+            if let composition = botLaunch?.composition {
+                botRuntimeState = composition.state
+            }
+            return
+        }
         guard !busy && !hostLifecycleTransition else {
             reportError("Wait for the current host operation to finish before stopping")
             return
@@ -1426,6 +1504,10 @@ final class ChatModel {
         transcriptReady = false
         pendingPermission = nil; pendingQuestion = nil
         availableAccessModes = []; currentAccessMode = nil; accessModeError = nil
+        await botLaunch?.composition.stop()
+        if let composition = botLaunch?.composition {
+            botRuntimeState = composition.state
+        }
         do { try await host.stop() } catch { reportError("Stop reported: \(error)") }
         hostEventTask?.cancel(); hostEventTask = nil
         self.host = nil

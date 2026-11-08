@@ -95,6 +95,7 @@ MODULES = [
     "PhoneDSHEngine",
     "PhoneDSHShell",
     "PhoneDSH",
+    "PhoneDSHBot",
 ]
 
 CORE_MODULE = "PhoneDSHAgentCore"
@@ -144,6 +145,7 @@ def package_text(
         '           dependencies: ["PhoneDSHWire", "PhoneDSHLog", "PhoneDSHLoopback",\n'
         '                          "PhoneDSHGateway", "PhoneDSHController",\n'
         '                          "PhoneDSHEngine", "PhoneDSHShell", "PhoneDSHAgentCore"]),\n'
+        '    Module(name: "PhoneDSHBot", dependencies: ["PhoneDSHAgentCore"]),\n'
         "]\n"
         "var targets: [Target] = modules.flatMap { m -> [Target] in\n"
         "    var t: [Target] = [.target(name: m.name, dependencies: m.dependencies)]\n"

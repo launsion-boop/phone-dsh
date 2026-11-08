@@ -13,7 +13,7 @@
   "source": {
     "file": "DailyBriefPage.swift",
     "path": "examples/probe-app/PhoneDSHProbe/DailyBriefPage.swift",
-    "lines": 237,
+    "lines": 234,
     "structLine": 8,
     "renderedFrom": [
       "body"
@@ -515,21 +515,6 @@
       "extraction": "syntax"
     },
     {
-      "id": "取消",
-      "label": "取消",
-      "labelExpr": null,
-      "kind": "button",
-      "trigger": "toolbar",
-      "semantic": "{ dismiss()",
-      "writes": false,
-      "destination": null,
-      "condition": null,
-      "provenance": "DailyBriefPage.swift:217",
-      "anchor": "Button(\"取消\") { dismiss() }",
-      "extraction": "syntax",
-      "presentedBy": "sheet-153"
-    },
-    {
       "id": "添加",
       "label": "添加",
       "labelExpr": null,
@@ -539,7 +524,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "DailyBriefPage.swift:220",
+      "provenance": "DailyBriefPage.swift:217",
       "anchor": "Button(saving ? \"添加中…\" : \"添加\") {",
       "extraction": "syntax",
       "presentedBy": "sheet-153"

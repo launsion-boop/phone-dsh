@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotRoutine v1",
+  "type": "object",
+  "required": ["id", "agentId", "title", "prompt", "schedule", "enabled", "idempotent", "urgent", "urgent_reason", "delivery", "interrupt_reason", "created_at", "attempt", "run_state", "quiet_defer", "next_run_at", "last_result"],
+  "properties": {
+    "id": {"type": "string", "minLength": 1},
+    "agentId": {"type": "string", "minLength": 1},
+    "title": {"type": "string", "minLength": 1},
+    "prompt": {"type": "string", "minLength": 1},
+    "schedule": {"type": "object", "required": ["kind", "timezone"], "properties": {"kind": {"enum": ["interval", "daily", "weekly", "cron"]}, "everyMinutes": {"type": "integer", "minimum": 1}, "time": {"type": "string", "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$"}, "weekdays": {"type": "array", "items": {"type": "integer", "minimum": 1, "maximum": 7}, "uniqueItems": true}, "expr": {"type": "string"}, "timezone": {"type": "string", "minLength": 1}}, "additionalProperties": true},
+    "enabled": {"type": "boolean"},
+    "idempotent": {"type": "boolean"},
+    "urgent": {"type": "boolean"},
+    "urgent_reason": {"type": "string"},
+    "delivery": {"enum": ["held", "interrupt"]},
+    "interrupt_reason": {"type": "string"},
+    "created_at": {"type": "integer", "minimum": 0},
+    "attempt": {"type": "integer", "minimum": 0},
+    "run_state": {"type": ["object", "null"]},
+    "quiet_defer": {"type": ["object", "null"], "required": ["until", "scheduledFor", "at"], "properties": {"until": {"type": "integer", "minimum": 0}, "scheduledFor": {"type": "integer", "minimum": 0}, "at": {"type": "integer", "minimum": 0}}, "additionalProperties": false},
+    "last_skip": {"type": ["object", "null"]},
+    "skip_count": {"type": "integer", "minimum": 0},
+    "crash_retry": {"type": "boolean"},
+    "last_run_at": {"type": ["integer", "null"], "minimum": 0},
+    "next_run_at": {"type": ["integer", "null"], "minimum": 0},
+    "last_result": {"type": ["object", "null"]}
+  },
+  "additionalProperties": true
+}

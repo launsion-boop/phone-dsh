@@ -434,11 +434,11 @@ struct ChatPage: View {
         }
         .sheet(item: Binding(get: { debugSheet.map(DebugSheetToken.init) }, set: { debugSheet = $0?.value })) { token in
             if token.value == "provider" {
-                NavigationStack { ModelProviderSettingsPage() }
+                NavigationStack { ModelProviderSettingsPage().homeSheetDone() }
             }
         }
         .sheet(isPresented: $showProviderSettings) {
-            NavigationStack { ModelProviderSettingsPage() }
+            NavigationStack { ModelProviderSettingsPage().homeSheetDone() }
                 .homeSheetChrome()
         }
         .sheet(isPresented: $showSettings) {
@@ -446,11 +446,11 @@ struct ChatPage: View {
                 .homeSheetChrome()
         }
         .sheet(isPresented: $showSessionSettings) {
-            NavigationStack { NativeConfigurationPage() }
+            NavigationStack { NativeConfigurationPage(presentedAsSheet: true) }
                 .homeSheetChrome()
         }
         .sheet(isPresented: $showConfiguration) {
-            NavigationStack { NativeConfigurationPage() }
+            NavigationStack { NativeConfigurationPage(presentedAsSheet: true) }
                 .homeSheetChrome()
         }
         .sheet(isPresented: $showCommandResult) {
@@ -461,7 +461,7 @@ struct ChatPage: View {
             }
         }
         .sheet(isPresented: $showRuntimeDetails) {
-            NavigationStack { RuntimeDetailsPage(model: model) }
+            NavigationStack { RuntimeDetailsPage(model: model).homeSheetDone() }
                 .homeSheetChrome()
         }
         .sheet(isPresented: $showSubagentCatalog) {
@@ -480,7 +480,7 @@ struct ChatPage: View {
                 Spacer(minLength: 0)
             }
             .background(HomeSpec.page)
-            .presentationDetents([.large])
+            .presentationDetents([.medium, .large])
             .homeSheetChrome()
         }
         .sheet(isPresented: $showJobList) {
@@ -518,8 +518,8 @@ struct ChatPage: View {
                 .navigationTitle(plan.title)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("关闭") { previewPlan = nil }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("完成") { previewPlan = nil }.fontWeight(.semibold)
                     }
                 }
             }
@@ -1242,11 +1242,6 @@ struct ChatPage: View {
                 }
                 .coordinateSpace(name: "chat-transcript")
                 .scrollDismissesKeyboard(.interactively)
-                // A tap anywhere in the transcript hands the keyboard back;
-                // simultaneous, so rows and links still get their own taps.
-                .simultaneousGesture(TapGesture().onEnded {
-                    if inputFocused { inputFocused = false }
-                })
                 .modifier(ScrollInteractionObserver(isInteracting: $userScrolling,
                                                     isSupported: $tracksScrollPhase))
                 .defaultScrollAnchor(.bottom)
@@ -1339,6 +1334,11 @@ struct ChatPage: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // A tap anywhere in the transcript area — rows or the empty space
+        // below them — hands the keyboard back. The content shape makes the
+        // blank area hit-testable; simultaneous, so rows keep their own taps.
+        .contentShape(Rectangle())
+        .simultaneousGesture(TapGesture().onEnded { dismissKeyboard() })
         .overlay(alignment: .bottom) {
             if userScrolledAway && !nearBottom && !visibleItems.isEmpty {
                 Button { scrollToLatestTrigger += 1 } label: {
@@ -1363,6 +1363,14 @@ struct ChatPage: View {
     /// the geometric near-bottom test is all there is.
     private var followsTail: Bool {
         tracksScrollPhase ? !userScrolledAway : (nearBottom && !userScrolledAway)
+    }
+
+    /// Resigns whichever text input holds the keyboard, even when the focus
+    /// flag and the text view's first-responder state have drifted apart.
+    private func dismissKeyboard() {
+        inputFocused = false
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),
+                                        to: nil, from: nil, for: nil)
     }
 
     /// Scrolls to the transcript's last row, and only when the content
@@ -2012,8 +2020,8 @@ struct ChatPage: View {
         }
         .padding(.horizontal, HomeSpec.chromeInset)
         .padding(.top, 8)
-        // Keep the stats line close to the home-indicator safe area instead of
-        // stacking an 8pt card inset on top of it.
+        // The composer (or its stats line) sits right on the bottom menu's top
+        // edge; the menu's own 14pt top inset gives the icons their air.
         .padding(.bottom, 0)
         .background(HomeSpec.page)
         // The command catalog is pulled the first time the trigger opens, the
@@ -3796,12 +3804,11 @@ private struct NativeScheduleListSheet: View {
             .homeGroupedList()
             .navigationTitle("定时任务")
             .navigationBarTitleDisplayMode(.inline)
+            // Half-height sheet: an outside tap closes it, so no close
+            // button; refresh is the only bar action, on the leading side.
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .topBarLeading) {
                     Button("刷新", systemImage: "arrow.clockwise") { onRefresh() }
-                }
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("关闭") { dismiss() }
                 }
             }
         }
@@ -3845,12 +3852,11 @@ private struct NativeJobListSheet: View {
             .homeGroupedList()
             .navigationTitle("后台任务")
             .navigationBarTitleDisplayMode(.inline)
+            // Half-height sheet: an outside tap closes it, so no close
+            // button; refresh is the only bar action, on the leading side.
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .topBarLeading) {
                     Button("刷新", systemImage: "arrow.clockwise") { onRefresh() }
-                }
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("关闭") { dismiss() }
                 }
             }
         }
@@ -4011,7 +4017,8 @@ private struct ChatMessageRow: View {
 
 }
 
-private struct ToolRunRow: View {
+/// Shared with the Bot page, which draws its tool steps the same way.
+struct ToolRunRow: View {
     let items: [ChatItem]
     var workspaceFiles: [WorkspaceFile] = []
     var onOpenFile: (String) -> Void = { _ in }
@@ -4499,8 +4506,8 @@ private struct CommandExecutionResultPage: View {
             .navigationTitle("命令结果")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) { Button("完成") { dismiss() }.trailingBarText() }
-                ToolbarItem(placement: .primaryAction) {
+                ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() }.fontWeight(.semibold) }
+                ToolbarItem(placement: .topBarLeading) {
                     ShareLink(item: execution.text ?? execution.line,
                               subject: Text("命令结果"),
                               preview: SharePreview("/\(execution.name)")) {

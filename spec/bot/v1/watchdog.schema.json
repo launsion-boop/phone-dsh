@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotWatchdogVector v1",
+  "type": "object",
+  "required": ["config", "flagged", "mobile"],
+  "properties": {
+    "config": {"type": "object"},
+    "flagged": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["check", "evidence"],
+        "properties": {
+          "check": {"enum": ["deadline", "heartbeat", "repeated_tool_signature", "repeated_tool_error", "quota"]},
+          "evidence": {"type": "object"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "mobile": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "required": ["check", "eventType", "observeOnly", "oncePerUnit"],
+        "properties": {
+          "check": {"enum": ["webcontent_terminated", "thermal_pressure", "battery_pressure"]},
+          "eventType": {"const": "watchdog.flagged"},
+          "observeOnly": {"const": true},
+          "oncePerUnit": {"const": true}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

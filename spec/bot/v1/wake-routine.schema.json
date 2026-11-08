@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotWakeRoutineVector v1",
+  "type": "object",
+  "required": ["wake", "scheduleExpr", "quietReply", "resultReply", "heldBlock", "automationStatus", "deliveryFlags"],
+  "properties": {
+    "wake": {"type": "object", "required": ["text", "cue", "mode"], "properties": {"text": {"type": "string", "minLength": 1}, "cue": {"const": "routine"}, "mode": {"enum": ["due", "on-demand"]}}, "additionalProperties": false},
+    "scheduleExpr": {"type": ["string", "null"]},
+    "quietReply": {"type": "object", "required": ["text", "quiet"], "properties": {"text": {"const": ""}, "quiet": {"const": true}}, "additionalProperties": false},
+    "resultReply": {"type": "object", "required": ["text", "quiet"], "properties": {"text": {"type": "string", "minLength": 1}, "quiet": {"const": false}}, "additionalProperties": false},
+    "heldBlock": {"type": "string", "pattern": "^<held_agent_messages>\\n[\\s\\S]*</held_agent_messages>$"},
+    "quietDefer": {"type": ["object", "null"]},
+    "automationStatus": {"type": "string", "pattern": "^<automation_status>\\n[\\s\\S]*</automation_status>$"},
+    "deliveryFlags": {"type": "object", "required": ["urgent", "urgent_reason", "delivery", "interrupt_reason"], "properties": {"urgent": {"type": "boolean"}, "urgent_reason": {"type": "string", "minLength": 1}, "delivery": {"enum": ["held", "interrupt"]}, "interrupt_reason": {"type": "string", "minLength": 1}}, "additionalProperties": false}
+  },
+  "additionalProperties": false
+}

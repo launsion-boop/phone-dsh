@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotRowBatch v1",
+  "type": "object",
+  "required": ["rows", "deletes", "cursor", "reset"],
+  "properties": {
+    "rows": {"type": "array", "items": {"$comment": "row.schema.json"}},
+    "deletes": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "cursor": {"type": "integer", "minimum": 0},
+    "reset": {"type": "boolean"}
+  },
+  "additionalProperties": false
+}

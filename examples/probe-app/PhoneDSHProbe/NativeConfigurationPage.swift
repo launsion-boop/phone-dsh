@@ -4,6 +4,11 @@
 import SwiftUI
 
 struct NativeConfigurationPage: View {
+    /// 插件与工具 when pushed from settings or the chat menu; 发现 as a tab.
+    var title: String = NativeText("插件与工具", "Plugins and Tools")
+    /// Full-height sheet from the chat menu: 完成 trailing, the info and
+    /// refresh buttons move to the leading side.
+    var presentedAsSheet = false
     @Environment(\.dismiss) private var dismiss
     @State private var model = NativeConfigurationModel.shared
     @State private var showInformation = false
@@ -33,10 +38,16 @@ struct NativeConfigurationPage: View {
             installedPlugins
         }
         .homeGroupedList()
-        .navigationTitle(NativeText("插件与工具", "Plugins and Tools"))
+        .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
+            if presentedAsSheet {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(NativeText("完成", "Done")) { dismiss() }
+                        .fontWeight(.semibold)
+                }
+            }
+            ToolbarItemGroup(placement: presentedAsSheet ? .topBarLeading : .topBarTrailing) {
                 Button {
                     showInformation = true
                 } label: {
@@ -66,11 +77,6 @@ struct NativeConfigurationPage: View {
                 .homeGroupedList()
                 .navigationTitle(NativeText("插件说明", "About Plugins"))
                 .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button(NativeText("完成", "Done")) { showInformation = false }.trailingBarText()
-                    }
-                }
             }
             .presentationDetents([.medium, .large])
             .homeSheetChrome()

@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotContextProfiles v1",
+  "type": "object",
+  "required": ["profiles", "yaml"],
+  "properties": {
+    "profiles": {
+      "type": "object",
+      "required": ["default", "conservative"],
+      "properties": {
+        "default": {"$ref": "#/$defs/profile"},
+        "conservative": {"$ref": "#/$defs/profile"}
+      },
+      "additionalProperties": false
+    },
+    "yaml": {
+      "type": "object",
+      "required": ["default", "conservative"],
+      "properties": {"default": {"type": "string"}, "conservative": {"type": "string"}},
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "profile": {
+      "type": "object",
+      "required": ["compaction", "pruner", "spillPolicy", "spillLocal"],
+      "properties": {
+        "compaction": {
+          "type": "object",
+          "required": ["auto", "thresholdRatio", "headroomTokens", "retainRatio", "maxTokens", "summarizationProvider", "summarizationModel", "compactionRetries", "maxOverflowRetries"],
+          "properties": {
+            "auto": {"const": true}, "thresholdRatio": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+            "headroomTokens": {"type": "integer", "minimum": 1}, "retainRatio": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+            "maxTokens": {"type": "integer", "minimum": 1}, "summarizationProvider": {"type": "string"},
+            "summarizationModel": {"type": "string"}, "compactionRetries": {"type": "integer", "minimum": 0},
+            "maxOverflowRetries": {"type": "integer", "minimum": 0}
+          },
+          "additionalProperties": false
+        },
+        "pruner": {
+          "type": "object",
+          "required": ["thresholdChars", "headChars", "tailChars"],
+          "properties": {
+            "thresholdChars": {"type": "integer", "minimum": 1}, "headChars": {"type": "integer", "minimum": 0},
+            "tailChars": {"type": "integer", "minimum": 0}
+          },
+          "additionalProperties": false
+        },
+        "spillPolicy": {
+          "type": "object", "required": ["maxInlineTokens"],
+          "properties": {"maxInlineTokens": {"type": "integer", "minimum": 1}}, "additionalProperties": false
+        },
+        "spillLocal": {
+          "type": "object", "required": ["cleanupPeriodDays"],
+          "properties": {"cleanupPeriodDays": {"type": "integer", "minimum": 1}}, "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotMemoryFact v2",
+  "type": "object",
+  "required": ["fact_id", "text", "learned_at_ms", "tier", "scope"],
+  "properties": {
+    "fact_id": {"type": "string", "minLength": 1},
+    "text": {"type": "string", "minLength": 1, "maxLength": 2000},
+    "learned_at_ms": {"type": "integer", "minimum": 0},
+    "tier": {"enum": ["profile", "log", "note"]},
+    "scope": {"enum": ["agent", "user"]},
+    "key": {"type": ["string", "null"], "maxLength": 200},
+    "trust": {},
+    "sensitivity": {"enum": ["low", "personal", "sensitive"]},
+    "importance": {"type": "number", "minimum": 0, "maximum": 1},
+    "last_used_ms": {"type": "integer", "minimum": 0},
+    "extractor": {"type": "string", "minLength": 1},
+    "source": {"type": "object", "required": ["kind"], "properties": {"kind": {"enum": ["user-turn", "hidden-wake", "agent-message", "routine", "task"]}, "sessionId": {"type": "string"}, "turnId": {}}},
+    "superseded_by": {"type": ["string", "null"]},
+    "expires_at": {"type": ["integer", "null"], "minimum": 1},
+    "applicableWhen": {"type": "string", "maxLength": 80},
+    "notApplicableWhen": {"type": "string", "maxLength": 80},
+    "extractRunId": {"type": "string"},
+    "archived": {"const": true},
+    "archived_at_ms": {"type": "integer", "minimum": 1},
+    "archive_reason": {"type": "string"},
+    "l2": {"const": true}
+  },
+  "additionalProperties": true
+}

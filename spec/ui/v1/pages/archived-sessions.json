@@ -7,14 +7,14 @@
   "sectionNote": null,
   "title": {
     "text": "已归档会话",
-    "provenance": "SettingsPage.swift:381",
+    "provenance": "SettingsPage.swift:559",
     "anchor": ".navigationTitle(NativeText(\"已归档会话\", \"Archived sessions\"))"
   },
   "source": {
     "file": "SettingsPage.swift",
     "path": "examples/probe-app/PhoneDSHProbe/SettingsPage.swift",
-    "lines": 451,
-    "structLine": 334,
+    "lines": 629,
+    "structLine": 512,
     "renderedFrom": [
       "body"
     ],
@@ -27,7 +27,7 @@
   },
   "sections": [
     {
-      "id": "section-340",
+      "id": "section-518",
       "title": null,
       "titleTemplate": null,
       "dynamicTitle": false,
@@ -47,7 +47,7 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "SettingsPage.swift:342",
+          "provenance": "SettingsPage.swift:520",
           "anchor": "Text(NativeText(\"没有已归档的会话\", \"No archived sessions\"))",
           "extraction": "syntax"
         },
@@ -62,22 +62,22 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "SettingsPage.swift:345",
+          "provenance": "SettingsPage.swift:523",
           "anchor": "Text(NativeText(\"在侧边栏长按会话选「归档」，会话会收到这里，随时可以恢复。\",",
           "extraction": "syntax"
         }
       ],
-      "provenance": "SettingsPage.swift:340",
+      "provenance": "SettingsPage.swift:518",
       "anchor": "Section {",
       "extraction": "syntax",
       "criterion": {
         "kind": "first-row",
         "label": "没有已归档的会话",
-        "provenance": "SettingsPage.swift:342"
+        "provenance": "SettingsPage.swift:520"
       }
     },
     {
-      "id": "section-353",
+      "id": "section-531",
       "title": null,
       "titleTemplate": null,
       "dynamicTitle": false,
@@ -87,7 +87,7 @@
       "collection": null,
       "rows": [
         {
-          "id": "text-357",
+          "id": "text-535",
           "label": null,
           "labelExpr": "DrawerTitles.sessionTitle(session.title, index: 1)",
           "kind": "text",
@@ -97,13 +97,13 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "SettingsPage.swift:357",
+          "provenance": "SettingsPage.swift:535",
           "anchor": "Text(DrawerTitles.sessionTitle(session.title, index: 1))",
           "extraction": "manual",
           "collection": "management.archivedSessions"
         },
         {
-          "id": "text-361",
+          "id": "text-539",
           "label": null,
           "labelExpr": "SessionTime.relative(session.updatedAt)",
           "kind": "text",
@@ -113,7 +113,7 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "SettingsPage.swift:361",
+          "provenance": "SettingsPage.swift:539",
           "anchor": "Text(SessionTime.relative(session.updatedAt))",
           "extraction": "manual",
           "collection": "management.archivedSessions"
@@ -129,24 +129,24 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "SettingsPage.swift:366",
+          "provenance": "SettingsPage.swift:544",
           "anchor": "Button(NativeText(\"恢复\", \"Restore\")) {",
           "extraction": "syntax",
           "collection": "management.archivedSessions"
         }
       ],
-      "provenance": "SettingsPage.swift:353",
+      "provenance": "SettingsPage.swift:531",
       "anchor": "Section {",
       "extraction": "syntax",
       "criterion": {
         "kind": "first-clickable-row",
         "label": "恢复",
-        "provenance": "SettingsPage.swift:366"
+        "provenance": "SettingsPage.swift:544"
       },
       "footer": {
         "text": "恢复后，会话回到原来的文件夹。",
         "labelExpr": null,
-        "provenance": "SettingsPage.swift:376",
+        "provenance": "SettingsPage.swift:554",
         "anchor": "Text(NativeText(\"恢复后，会话回到原来的文件夹。\", \"Restored sessions return to their folder.\"))"
       }
     }
@@ -162,7 +162,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "SettingsPage.swift:366",
+      "provenance": "SettingsPage.swift:544",
       "anchor": "Button(NativeText(\"恢复\", \"Restore\")) {",
       "extraction": "syntax",
       "labelAlternatives": []
@@ -177,15 +177,15 @@
         {
           "renders": "没有已归档的会话",
           "when": "management.archivedSessions.isEmpty",
-          "provenance": "SettingsPage.swift:342",
+          "provenance": "SettingsPage.swift:520",
           "anchor": "Text(NativeText(\"没有已归档的会话\", \"No archived sessions\"))"
         }
       ],
       "data": [
         {
-          "renders": "untitled section at 340 | untitled section at 353",
+          "renders": "untitled section at 518 | untitled section at 531",
           "when": null,
-          "provenance": "SettingsPage.swift:334",
+          "provenance": "SettingsPage.swift:512",
           "anchor": "private struct ArchivedSessionsPage: View {",
           "note": "structural default: the sections above, when no condition overrides them"
         }
@@ -210,82 +210,82 @@
   "subpages": [
     {
       "name": "SettingsPage",
-      "line": 45,
+      "line": 52,
       "private": false,
       "embedded": false,
       "sections": [
         {
           "title": "模型与智能体",
-          "provenance": "SettingsPage.swift:63"
+          "provenance": "SettingsPage.swift:134"
         },
         {
           "title": "权限与隐私",
-          "provenance": "SettingsPage.swift:73"
+          "provenance": "SettingsPage.swift:148"
         },
         {
           "title": "对话",
-          "provenance": "SettingsPage.swift:90"
+          "provenance": "SettingsPage.swift:166"
         },
         {
           "title": "会话与文件",
-          "provenance": "SettingsPage.swift:115"
+          "provenance": "SettingsPage.swift:193"
         },
         {
           "title": "引擎",
-          "provenance": "SettingsPage.swift:126"
+          "provenance": "SettingsPage.swift:203"
         },
         {
           "title": "关于",
-          "provenance": "SettingsPage.swift:152"
+          "provenance": "SettingsPage.swift:220"
         }
       ],
-      "provenance": "SettingsPage.swift:45"
+      "provenance": "SettingsPage.swift:52"
     },
     {
       "name": "FontSizeSettingsPage",
-      "line": 247,
+      "line": 425,
       "private": true,
       "embedded": true,
       "sections": [],
-      "provenance": "SettingsPage.swift:247"
+      "provenance": "SettingsPage.swift:425"
     },
     {
       "name": "ConversationSettingsPage",
-      "line": 285,
+      "line": 463,
       "private": true,
       "embedded": true,
       "sections": [
         {
           "title": "工作步骤",
-          "provenance": "SettingsPage.swift:290"
+          "provenance": "SettingsPage.swift:468"
         },
         {
           "title": "发送与用量",
-          "provenance": "SettingsPage.swift:309"
+          "provenance": "SettingsPage.swift:487"
         }
       ],
-      "provenance": "SettingsPage.swift:285"
+      "provenance": "SettingsPage.swift:463"
     },
     {
       "name": "PermissionDefaultsPage",
-      "line": 396,
+      "line": 574,
       "private": true,
       "embedded": true,
       "sections": [
         {
           "title": "只影响之后新开的会话，当前会话保持不变。",
-          "provenance": "SettingsPage.swift:401"
+          "provenance": "SettingsPage.swift:579"
         }
       ],
-      "provenance": "SettingsPage.swift:396"
+      "provenance": "SettingsPage.swift:574"
     },
     {
       "name": "LicensesPage",
-      "line": 434,
+      "line": 612,
       "private": true,
       "embedded": true,
       "sections": [],
-      "provenance": "SettingsPage.swift:434"
+      "provenance": "SettingsPage.swift:612"
     }
   ],
   "unreachable": [],

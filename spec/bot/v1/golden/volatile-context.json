@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "vector": "volatile-context",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6"
+  },
+  "valid": {
+    "request": {
+      "sessionId": "gb-main"
+    },
+    "response": {
+      "schemaVersion": 1,
+      "sessionId": "gb-main",
+      "revision": 3,
+      "blocks": {
+        "variant": "简洁直接",
+        "persona": "你叫大肥鱼",
+        "memory": "## 记忆\n\n- 我喜欢简短回答",
+        "automation": "<automation_status>没有待处理例行任务</automation_status>"
+      }
+    }
+  },
+  "invalid": [
+    {
+      "request": {
+        "sessionId": ""
+      },
+      "reason": "empty_session_id"
+    },
+    {
+      "request": {
+        "sessionId": "gb-other"
+      },
+      "reason": "cross_session_read_denied"
+    },
+    {
+      "error": {
+        "isError": true,
+        "message": "context unavailable"
+      },
+      "reason": "no_partial_or_stale_snapshot"
+    }
+  ]
+}

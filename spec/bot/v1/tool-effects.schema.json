@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotToolEffectCall v1",
+  "type": "object",
+  "required": ["name", "args", "policy", "effect"],
+  "properties": {
+    "name": {"type": "string", "minLength": 1},
+    "args": {"type": "object"},
+    "policy": {"enum": ["auto", "ask"]},
+    "effect": {
+      "type": "object",
+      "required": ["tool", "operation", "resource", "target", "mutability", "policy", "label", "detail", "ui", "execution", "known"],
+      "properties": {
+        "tool": {"type": "string"},
+        "operation": {"type": "string"},
+        "resource": {"type": "string"},
+        "target": {"type": "string"},
+        "mutability": {"enum": ["read", "write", "external-send", "destructive"]},
+        "policy": {"enum": ["auto", "ask"]},
+        "label": {"type": "string"},
+        "detail": {"type": "string"},
+        "ui": {"type": "boolean"},
+        "execution": {"type": ["string", "null"]},
+        "known": {"type": "boolean"},
+        "isMcp": {"type": "boolean"}
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

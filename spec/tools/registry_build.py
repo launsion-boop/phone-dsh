@@ -203,7 +203,21 @@ PATH_PROJECTIONS = {'P01': {'authority': ['spec/v1/channel.md', 'spec/v1/schema'
                   'Kotlin': ['android/testkit'],
                   'Python': ['scripts/ci/scenarios']},
          'status': [],
-         'evidence': []}}
+         'evidence': []},
+ 'P25': {'authority': ['spec/bot/v1/event-envelope.schema.json',
+                       'spec/bot/v1/golden/event-envelope.json'],
+         'ends': {'Swift': ['Sources/PhoneDSHBot']},
+         'status': ['target'],
+         'evidence': ['spec/bot/v1/tools/validate_vectors.py', 'Tests/PhoneDSHBotTests']},
+ 'P26': {'authority': ['spec/bot/v1'],
+         'ends': {'Swift': ['Sources/PhoneDSHBot']},
+         'status': ['target'],
+         'evidence': ['spec/bot/v1/tools/validate_vectors.py']},
+ 'P27': {'authority': ['spec/bot/v1'],
+         'ends': {'Swift': ['Sources/PhoneDSHBot',
+                            'examples/probe-app/PhoneDSHProbe']},
+         'status': ['target'],
+         'evidence': ['spec/bot/v1/tools/validate_vectors.py']}}
 
 
 # New HarmonyOS ends remain partial until their runtime matrix is verified.

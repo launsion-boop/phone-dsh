@@ -1,0 +1,178 @@
+// SPDX-License-Identifier: MIT
+
+import Foundation
+
+public struct RoutineRunRequest: Sendable, Equatable {
+    public var botId: String
+    public var routine: Routine
+    public var runId: String
+    public var attempt: Int
+    public var startedAt: Int64
+    public var timeoutMs: Int64
+    public var wake: RoutineWake
+
+    public init(botId: String, routine: Routine, runId: String, attempt: Int,
+                startedAt: Int64, timeoutMs: Int64, wake: RoutineWake) {
+        self.botId = botId
+        self.routine = routine
+        self.runId = runId
+        self.attempt = attempt
+        self.startedAt = startedAt
+        self.timeoutMs = timeoutMs
+        self.wake = wake
+    }
+}
+
+public enum RoutineExecutionStatus: String, Sendable {
+    case succeeded
+    case failed
+    case cancelled
+}
+
+public struct RoutineExecutionResult: Sendable, Equatable {
+    public var status: RoutineExecutionStatus
+    public var text: String
+    public var error: String?
+    public var quiet: Bool
+    public var cancelledBy: String?
+
+    public init(status: RoutineExecutionStatus, text: String = "", error: String? = nil,
+                quiet: Bool = false, cancelledBy: String? = nil) {
+        self.status = status
+        self.text = text
+        self.error = error
+        self.quiet = quiet
+        self.cancelledBy = cancelledBy
+    }
+
+    public static func success(_ text: String, quiet: Bool = false) -> RoutineExecutionResult {
+        RoutineExecutionResult(status: .succeeded, text: text, quiet: quiet)
+    }
+
+    public static func failure(_ error: String) -> RoutineExecutionResult {
+        RoutineExecutionResult(status: .failed, error: error)
+    }
+}
+
+public struct RoutineCancellation: Sendable, Equatable {
+    public var botId: String
+    public var routineId: String
+    public var runId: String
+    public var timeoutMs: Int64
+    public var reason: String
+
+    public init(botId: String, routineId: String, runId: String, timeoutMs: Int64, reason: String = "timeout") {
+        self.botId = botId
+        self.routineId = routineId
+        self.runId = runId
+        self.timeoutMs = timeoutMs
+        self.reason = reason
+    }
+}
+
+public struct RoutineCancellationResult: Sendable, Equatable {
+    public var cancelled: Bool
+    public var reconciliationRequired: Bool
+    public var reason: String?
+
+    public init(cancelled: Bool, reconciliationRequired: Bool = false, reason: String? = nil) {
+        self.cancelled = cancelled
+        self.reconciliationRequired = reconciliationRequired
+        self.reason = reason
+    }
+}
+
+public struct RoutineAutomation: Sendable, Equatable, Identifiable {
+    public var id: String
+    public var botId: String
+    public var kind: String
+    public var status: String
+    public var result: String
+    public var error: String?
+    public var routineId: String
+    public var routineTitle: String
+    public var deliveryKey: String
+    public var attempt: Int
+    public var runId: String
+    public var delivery: RoutineDeliveryMode
+    public var quiet: Bool
+    public var urgent: Bool
+    public var urgentReason: String
+    public var context: String
+    public var scheduledFor: Int64?
+    public var lateByMs: Int64
+    public var startedAt: Int64
+    public var finishedAt: Int64
+    public var nextRunAt: Int64?
+    public var notified: String?
+    public var notifyReason: String?
+    public var proactiveMode: String?
+    public var heldInbox: String?
+    public var heldInboxError: String?
+
+    public init(delivery: RoutineDelivery) {
+        id = RoutineDelivery.rowId(routineId: delivery.routineId, attempt: delivery.attempt)
+        botId = delivery.agentId
+        kind = "routine-run"
+        switch delivery.resultStatus {
+        case .succeeded:
+            status = "sent"
+            result = delivery.text
+        case .cancelled:
+            status = "idle"
+            result = "執行已取消"
+        case .timedOut:
+            status = "failed"
+            result = "執行逾時，已取消"
+        case .needsReconciliation:
+            status = "failed"
+            result = "執行結果未知，需要確認：\(String((delivery.error ?? "未知原因").prefix(300)))"
+        default:
+            status = "failed"
+            result = "執行失敗：\(String((delivery.error ?? "未知錯誤").prefix(300)))"
+        }
+        if delivery.resultStatus == .succeeded && delivery.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            result = "已完成（沒有新結果）"
+        }
+        error = delivery.error
+        routineId = delivery.routineId
+        routineTitle = delivery.routineTitle
+        deliveryKey = delivery.deliveryKey
+        attempt = delivery.attempt
+        runId = delivery.runId
+        self.delivery = delivery.delivery
+        quiet = delivery.quiet
+        urgent = delivery.urgent
+        urgentReason = delivery.urgentReason
+        var context = delivery.context
+        func append(_ value: String) { context = context.isEmpty ? value : "\(context) · \(value)" }
+        if let deferredFrom = delivery.quietDeferredFrom {
+            let clock = RoutineScheduleMath.formatMinute(deferredFrom, timezone: TimeZone.current.identifier) ?? "—"
+            append("（因安靜時段延後，原定 \(String(clock.suffix(5)))）")
+        } else if delivery.lateByMs > 60_000 {
+            append("（延遲 \(max(1, (delivery.lateByMs + 30_000) / 60_000)) 分鐘觸發）")
+        }
+        if delivery.urgent { append("（緊急：\(delivery.urgentReason.isEmpty ? "—" : delivery.urgentReason)）") }
+        if delivery.heldInbox == "failed" { append("結果未能交給主對話") }
+        if delivery.delivery == .interrupt {
+            if delivery.notified == "sent" { append("已通知") }
+            if delivery.notified == "skipped" { append("未通知：\(delivery.notifyReason ?? "unknown")") }
+        }
+        self.context = context
+        scheduledFor = delivery.scheduledFor
+        lateByMs = delivery.lateByMs
+        startedAt = delivery.startedAt
+        finishedAt = delivery.finishedAt
+        nextRunAt = delivery.nextRunAt
+        notified = delivery.notified
+        notifyReason = delivery.notifyReason
+        proactiveMode = delivery.proactiveMode
+        heldInbox = delivery.heldInbox
+        heldInboxError = delivery.heldInboxError
+    }
+}
+
+public protocol RoutineResultSink: Actor {
+    @discardableResult
+    func deliver(_ automation: RoutineAutomation) async throws -> Bool
+}

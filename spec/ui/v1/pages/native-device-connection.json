@@ -7,13 +7,13 @@
   "sectionNote": null,
   "title": {
     "text": "Device",
-    "provenance": "NativeDeviceConnectionPage.swift:121",
+    "provenance": "NativeDeviceConnectionPage.swift:123",
     "anchor": ".navigationTitle(\"Device\")"
   },
   "source": {
     "file": "NativeDeviceConnectionPage.swift",
     "path": "examples/probe-app/PhoneDSHProbe/NativeDeviceConnectionPage.swift",
-    "lines": 170,
+    "lines": 174,
     "structLine": 75,
     "renderedFrom": [
       "body",
@@ -28,7 +28,7 @@
   },
   "sections": [
     {
-      "id": "section-86",
+      "id": "section-88",
       "title": null,
       "titleTemplate": null,
       "dynamicTitle": false,
@@ -38,7 +38,7 @@
       "collection": null,
       "rows": [
         {
-          "id": "text-87",
+          "id": "text-89",
           "label": null,
           "labelExpr": "error",
           "kind": "text",
@@ -48,7 +48,7 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "NativeDeviceConnectionPage.swift:87",
+          "provenance": "NativeDeviceConnectionPage.swift:89",
           "anchor": "Label(error, systemImage: \"exclamationmark.triangle.fill\")",
           "extraction": "manual"
         },
@@ -63,18 +63,18 @@
           "destination": null,
           "writes": false,
           "condition": "let failedDeviceID, coordinator.savedMapping(for: failedDeviceID) != nil",
-          "provenance": "NativeDeviceConnectionPage.swift:93",
+          "provenance": "NativeDeviceConnectionPage.swift:95",
           "anchor": "Button(\"解除该设备的会话映射\") {",
           "extraction": "syntax"
         }
       ],
-      "provenance": "NativeDeviceConnectionPage.swift:86",
+      "provenance": "NativeDeviceConnectionPage.swift:88",
       "anchor": "Section {",
       "extraction": "syntax",
       "criterion": {
         "kind": "first-clickable-row",
         "label": "解除该设备的会话映射",
-        "provenance": "NativeDeviceConnectionPage.swift:93"
+        "provenance": "NativeDeviceConnectionPage.swift:95"
       }
     },
     {
@@ -88,7 +88,7 @@
       "collection": null,
       "rows": [
         {
-          "id": "custom-102",
+          "id": "custom-104",
           "label": null,
           "labelExpr": "NativeDeviceSessionRows",
           "kind": "custom",
@@ -98,13 +98,13 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "NativeDeviceConnectionPage.swift:102",
+          "provenance": "NativeDeviceConnectionPage.swift:104",
           "anchor": "NativeDeviceSessionRows(devices: coordinator.onlineDevices,",
           "extraction": "manual",
           "template": "NativeDeviceSessionRows"
         }
       ],
-      "provenance": "NativeDeviceConnectionPage.swift:108",
+      "provenance": "NativeDeviceConnectionPage.swift:110",
       "anchor": "Text(\"真实连接设备\")",
       "extraction": "syntax",
       "hasHeader": true
@@ -130,7 +130,7 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "NativeDeviceConnectionPage.swift:112",
+          "provenance": "NativeDeviceConnectionPage.swift:114",
           "anchor": "capabilityRow(\"蓝牙连接器\")",
           "extraction": "syntax",
           "template": "capabilityRow"
@@ -146,20 +146,20 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "NativeDeviceConnectionPage.swift:113",
+          "provenance": "NativeDeviceConnectionPage.swift:115",
           "anchor": "capabilityRow(\"局域网连接器\")",
           "extraction": "syntax",
           "template": "capabilityRow"
         }
       ],
-      "provenance": "NativeDeviceConnectionPage.swift:115",
+      "provenance": "NativeDeviceConnectionPage.swift:117",
       "anchor": "Text(\"传输能力\")",
       "extraction": "syntax",
       "hasHeader": true,
       "footer": {
         "text": "真实传输尚未实现。此页只展示已注入连接器发布的状态，不会主动发起扫描。",
         "labelExpr": null,
-        "provenance": "NativeDeviceConnectionPage.swift:117",
+        "provenance": "NativeDeviceConnectionPage.swift:119",
         "anchor": "Text(\"真实传输尚未实现。此页只展示已注入连接器发布的状态，不会主动发起扫描。\")"
       }
     }
@@ -175,7 +175,7 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "NativeDeviceConnectionPage.swift:93",
+      "provenance": "NativeDeviceConnectionPage.swift:95",
       "anchor": "Button(\"解除该设备的会话映射\") {",
       "extraction": "syntax",
       "labelAlternatives": []
@@ -190,14 +190,14 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "NativeDeviceConnectionPage.swift:128",
-      "anchor": "Button(\"完成\") { dismiss() }.leadingBarText()",
+      "provenance": "NativeDeviceConnectionPage.swift:131",
+      "anchor": "Button(\"完成\") { dismiss() }.fontWeight(.semibold)",
       "extraction": "syntax"
     }
   ],
   "presentations": [
     {
-      "id": "navigationDestination-123",
+      "id": "navigationDestination-125",
       "kind": "navigationDestination",
       "title": null,
       "destination": "NativeDeviceSessionPage",
@@ -205,10 +205,10 @@
         "selection"
       ],
       "span": [
-        123,
-        125
+        125,
+        127
       ],
-      "provenance": "NativeDeviceConnectionPage.swift:123",
+      "provenance": "NativeDeviceConnectionPage.swift:125",
       "anchor": ".navigationDestination(item: $selection) { mapping in",
       "triggered": true
     }
@@ -220,7 +220,7 @@
       "empty": [],
       "data": [
         {
-          "renders": "untitled section at 86 | 真实连接设备 | 传输能力",
+          "renders": "untitled section at 88 | 真实连接设备 | 传输能力",
           "when": null,
           "provenance": "NativeDeviceConnectionPage.swift:75",
           "anchor": "struct NativeDeviceConnectionPage: View {",

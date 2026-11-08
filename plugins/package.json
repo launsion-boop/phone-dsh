@@ -23,7 +23,8 @@
     "phone-shell",
     "phone-native-preview",
     "phone-directory-import",
-    "workflow-worker"
+    "workflow-worker",
+    "bot-runtime"
   ],
   "scripts": {
     "pretypecheck": "node shell-ext/tools/ensure-deps.mjs && node shell-ext/tools/patch-just-bash.mjs && node wasi-toolbox/tools/ensure-dev-deps.mjs",

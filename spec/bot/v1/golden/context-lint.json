@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "vector": "context-lint",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6"
+  },
+  "valid": [
+    {
+      "rule": "tool-def-bloat",
+      "severity": "warn",
+      "evidence": "1 tool definitions, ~23 tokens / 79 chars (token warn 1, error 10000; count warn 1)",
+      "location": {
+        "sessionId": "gb-main",
+        "source": "tools/list",
+        "count": 1,
+        "tokens": 23,
+        "chars": 79
+      }
+    }
+  ],
+  "invalid": []
+}

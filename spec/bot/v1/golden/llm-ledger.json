@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "vector": "llm-ledger",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6"
+  },
+  "valid": {
+    "ts": "2025-10-09T08:53:20.000Z",
+    "botId": "main",
+    "sessionId": "gb-main",
+    "purpose": "front-turn",
+    "model": "deepseek-flash",
+    "provider": "deepseek",
+    "inputTokens": 100,
+    "outputTokens": 20,
+    "cacheReadTokens": 40,
+    "cacheWriteTokens": 10,
+    "cacheHitRatio": 0.26666666666666666,
+    "ttftMs": 125,
+    "durationMs": 900,
+    "status": "ok",
+    "errorKind": null
+  },
+  "invalid": [
+    {
+      "field": "cacheHitRatio",
+      "rule": "cacheRead/(input+cacheRead+cacheWrite)"
+    },
+    {
+      "field": "ttftMs",
+      "rule": "omit_when_unavailable"
+    }
+  ]
+}

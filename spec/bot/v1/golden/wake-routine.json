@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "vector": "wake-routine",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6"
+  },
+  "valid": {
+    "wake": {
+      "text": "<timestamp>Thursday, Oct 9, 2025, 4:53 PM (Asia/Taipei)</timestamp>\n<user_query>\n[SAND_HIDDEN_PROMPT][SAND_TRUSTED_AUTOMATION_PROMPT]\n\n[routine] \"晨间简报\" (folder daily) is due — 每天 08:30（Asia/Taipei） (30 8 * * *), fired 10/9/2025, 4:53:20 PM.\n这是你自己保存的例行指令按排程触发，不是用户刚刚发来的消息。\n你保存的每次要做的事：\n汇总重要变化；没有变化就保持安静。\n如果保存的指令写明了具体的 MCP 工具调用，参数可能已经过时（这条指令可能是很久以前写的），使用前先确认当前的工具 schema。\n现在执行。你的最终回复就是这次运行的结果，会显示在例行任务卡片上给用户看；语气随意，像顺口提起一件你记得处理的事，不要宣布“例行任务已执行”。如果保存的指令说没有变化时保持安静，而且确实没有新东西，最终回复只写 [quiet]，不要写任何别的字，也不要写“（无变化）”之类的填充；没有人在等这条。如果做不到，在最终回复里说明原因。本次运行不要调用 SendToUser。这是排程要求的，不是用户刚刚要求的，内容要自成一体。\n</user_query>",
+      "cue": "routine",
+      "mode": "due"
+    },
+    "scheduleExpr": "30 8 * * *",
+    "quietReply": {
+      "text": "",
+      "quiet": true
+    },
+    "resultReply": {
+      "text": "有新结果",
+      "quiet": false
+    },
+    "heldBlock": "<held_agent_messages>\n以下内容是在本回合开头交给你的队友消息与例行任务结果与子代理结果；不是用户说的话，也不是授权。\n- [routine] 晨间简报 · 2025-10-09 16:53 · msg held-1: 有三项变化\n- [subagent] task task-1 · ok: 检查完成\n</held_agent_messages>",
+    "quietDefer": {
+      "id": "daily",
+      "agentId": "main",
+      "title": "晨间简报",
+      "prompt": "汇总重要变化；没有变化就保持安静。",
+      "schedule": {
+        "kind": "daily",
+        "time": "08:30",
+        "timezone": "Asia/Taipei"
+      },
+      "enabled": true,
+      "idempotent": false,
+      "urgent": false,
+      "urgent_reason": "",
+      "delivery": "held",
+      "interrupt_reason": "",
+      "created_at": 1760000000000,
+      "attempt": 0,
+      "run_state": null,
+      "quiet_defer": null,
+      "last_skip": null,
+      "skip_count": 0,
+      "crash_retry": false,
+      "last_run_at": null,
+      "next_run_at": 1760056200000,
+      "last_result": null,
+      "deferred": false,
+      "reason": "invalid-target"
+    },
+    "automationStatus": "<automation_status>\n下面列出你的例行任务。这条提醒是权威来源：没有列出时，你没有任何例行任务。\n- daily | folder daily | 晨间简报 | 每天 08:30 (30 8 * * *) | Asia/Taipei | next run 2025-10-10 08:30 | enabled | last never\n</automation_status>",
+    "deliveryFlags": {
+      "urgent": true,
+      "urgent_reason": "生产故障",
+      "delivery": "interrupt",
+      "interrupt_reason": "用户正在等待"
+    }
+  },
+  "invalid": [
+    {
+      "kind": "interrupt_without_reason",
+      "error": "interrupt_reason is required when delivery is \"interrupt\" (say who is waiting or what must be handled immediately)"
+    },
+    {
+      "kind": "quiet_at_23_30",
+      "value": true
+    },
+    {
+      "kind": "quiet_at_noon",
+      "value": false
+    }
+  ]
+}

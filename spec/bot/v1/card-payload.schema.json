@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotCardPayloadVector v1",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["tool", "args", "result"],
+    "properties": {
+      "tool": {"type": "string"},
+      "args": {"type": "object"},
+      "result": {
+        "type": "object",
+        "required": ["ok"],
+        "properties": {
+          "ok": {"type": "boolean"},
+          "error": {"type": "string"},
+          "card": {
+            "type": "object",
+            "required": ["cardType"],
+            "properties": {
+              "cardType": {"enum": ["question", "steps", "attachment", "document", "progress", "checklist", "link", "table", "callout", "info", "payload", "library"]},
+              "title": {"type": "string"}, "name": {"type": "string"}, "summary": {"type": "string"},
+              "description": {"type": "string"}, "caption": {"type": "string"}, "path": {"type": "string"},
+              "url": {"type": "string"}, "fileName": {"type": "string"}, "docKind": {"type": "string"},
+              "docTypeLabel": {"type": "string"}, "kindLabel": {"type": "string"}, "label": {"type": "string"},
+              "value": {"type": "string"}, "question": {"type": "string"}, "helpText": {"type": "string"},
+              "tocNote": {"type": "string"}, "requestId": {"type": "string"}, "state": {"type": "string"},
+              "eta": {"type": "string"}, "cardKey": {"type": "string", "maxLength": 64},
+              "note": {"type": "string"}, "body": {"type": "string"}, "tone": {"type": "string"},
+              "content": {"type": "string"}, "size": {"type": "string"},
+              "annotationCount": {"type": "integer", "minimum": 0}, "docCount": {"type": "integer", "minimum": 0},
+              "percent": {"type": "integer", "minimum": 0, "maximum": 100},
+              "library": {"type": "boolean"},
+              "parseHeadings": {"type": "boolean"}, "docCountKnown": {"type": "boolean"},
+              "interactive": {"type": "boolean"},
+              "toc": {"type": "array"}, "annotations": {"type": "array"}, "comments": {"type": "array"},
+              "steps": {"type": "array"}, "options": {"type": "array"}, "rows": {"type": "array"},
+              "payloads": {"type": "array"}, "items": {"type": "array"}, "products": {"type": "array"},
+              "columns": {"type": "array"}, "links": {"type": "array"}, "bullets": {"type": "array"},
+              "gift": {"type": "object"}, "canvas": {"type": "object"}, "data": {"type": "object"},
+              "action": {"type": "object"}
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "additionalProperties": false
+  }
+}

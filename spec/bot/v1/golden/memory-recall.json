@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "vector": "memory-recall",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6"
+  },
+  "valid": [
+    {
+      "fact_id": "profile-concise",
+      "text": "我喜欢简洁的回复",
+      "learned_at_ms": 1760000002000,
+      "tier": "profile",
+      "scope": "agent",
+      "trust": "import",
+      "sensitivity": "personal",
+      "importance": 0.5,
+      "last_used_ms": 0,
+      "extractor": "import",
+      "score": 0.5293577341129608,
+      "relevance": 0.4157746307124456,
+      "recency": 1,
+      "matched": true
+    }
+  ],
+  "invalid": []
+}

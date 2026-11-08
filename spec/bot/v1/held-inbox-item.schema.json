@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotHeldInboxItem v1",
+  "description": "One WakeInbox item.",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "text",
+        "requestId",
+        "createdAt",
+        "state"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "enum": [
+            "agent-held",
+            "subagent-result",
+            "routine-result",
+            "card-dismissed"
+          ]
+        },
+        "fromAgentId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "fromAgentName": {
+          "type": "string"
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 1200
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "threadId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "createdAt": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "state": {
+          "enum": [
+            "pending",
+            "staged"
+          ]
+        },
+        "stagedAt": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "stagedKey": {
+          "type": "string",
+          "minLength": 1
+        },
+        "taskId": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "ranAt": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "dependentRequired": {
+        "stagedAt": [
+          "stagedKey"
+        ],
+        "stagedKey": [
+          "stagedAt"
+        ]
+      },
+      "additionalProperties": true
+    }
+  ]
+}

@@ -1,0 +1,207 @@
+{
+  "schemaVersion": 1,
+  "vector": "event-envelope",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6"
+  },
+  "valid": {
+    "event": {
+      "schemaVersion": 1,
+      "type": "routine.run_started",
+      "eventId": "evt:routine-1",
+      "time": 1760000000000,
+      "origin": {
+        "kind": "local",
+        "source": "scheduler"
+      },
+      "traceId": "trace-routine-1",
+      "principal": {
+        "botId": "main",
+        "sessionId": "gb-main--routine-daily",
+        "kind": "routine",
+        "capabilities": []
+      },
+      "causationId": null,
+      "correlationId": "daily",
+      "data": {
+        "routineId": "daily",
+        "runId": "run-1",
+        "attempt": 1,
+        "scheduledFor": 1760000000000,
+        "startedAt": 1760000000000
+      },
+      "runId": "run-1",
+      "attempt": 1,
+      "commitSeq": 1
+    },
+    "validation": {
+      "valid": true,
+      "errors": []
+    }
+  },
+  "invalid": [
+    {
+      "event": {
+        "schemaVersion": 1,
+        "type": "routine.run_started",
+        "eventId": "evt:routine-1",
+        "time": 1760000000000,
+        "origin": {
+          "kind": "local",
+          "source": "scheduler"
+        },
+        "traceId": "trace-routine-1",
+        "principal": {
+          "botId": "main",
+          "sessionId": "gb-main--routine-daily",
+          "kind": "routine",
+          "capabilities": []
+        },
+        "causationId": null,
+        "correlationId": "daily",
+        "data": {
+          "routineId": "daily",
+          "runId": "run-1",
+          "attempt": 1,
+          "scheduledFor": 1760000000000,
+          "startedAt": 1760000000000
+        },
+        "runId": "run-1",
+        "attempt": 1
+      },
+      "validation": {
+        "valid": false,
+        "errors": [
+          {
+            "code": "MISSING_COMMIT_SEQ",
+            "field": "commitSeq",
+            "message": "durable events require a commitSeq"
+          }
+        ]
+      }
+    },
+    {
+      "event": {
+        "schemaVersion": 1,
+        "type": "future.required",
+        "eventId": "evt:routine-1",
+        "time": 1760000000000,
+        "origin": {
+          "kind": "local",
+          "source": "scheduler"
+        },
+        "traceId": "trace-routine-1",
+        "principal": {
+          "botId": "main",
+          "sessionId": "gb-main--routine-daily",
+          "kind": "routine",
+          "capabilities": []
+        },
+        "causationId": null,
+        "correlationId": "daily",
+        "data": {
+          "routineId": "daily",
+          "runId": "run-1",
+          "attempt": 1,
+          "scheduledFor": 1760000000000,
+          "startedAt": 1760000000000
+        },
+        "runId": "run-1",
+        "attempt": 1,
+        "commitSeq": 1
+      },
+      "validation": {
+        "valid": false,
+        "errors": [
+          {
+            "code": "UNKNOWN_REQUIRED_EVENT",
+            "field": "type",
+            "message": "unknown event type \"future.required\" is not ignorable; refusing to skip it"
+          }
+        ]
+      }
+    },
+    {
+      "event": {
+        "schemaVersion": 2,
+        "type": "routine.run_started",
+        "eventId": "evt:routine-1",
+        "time": 1760000000000,
+        "origin": {
+          "kind": "local",
+          "source": "scheduler"
+        },
+        "traceId": "trace-routine-1",
+        "principal": {
+          "botId": "main",
+          "sessionId": "gb-main--routine-daily",
+          "kind": "routine",
+          "capabilities": []
+        },
+        "causationId": null,
+        "correlationId": "daily",
+        "data": {
+          "routineId": "daily",
+          "runId": "run-1",
+          "attempt": 1,
+          "scheduledFor": 1760000000000,
+          "startedAt": 1760000000000
+        },
+        "runId": "run-1",
+        "attempt": 1,
+        "commitSeq": 1
+      },
+      "validation": {
+        "valid": false,
+        "errors": [
+          {
+            "code": "SCHEMA_TOO_NEW",
+            "field": "schemaVersion",
+            "message": "schemaVersion 2 is newer than 1; reader is read-only"
+          }
+        ]
+      }
+    },
+    {
+      "event": {
+        "schemaVersion": 1,
+        "type": "model.delta",
+        "eventId": "evt:routine-1",
+        "time": 1760000000000,
+        "origin": {
+          "kind": "local",
+          "source": "scheduler"
+        },
+        "traceId": "trace-routine-1",
+        "principal": {
+          "botId": "main",
+          "sessionId": "gb-main--routine-daily",
+          "kind": "routine",
+          "capabilities": []
+        },
+        "causationId": null,
+        "correlationId": "daily",
+        "data": {
+          "routineId": "daily",
+          "runId": "run-1",
+          "attempt": 1,
+          "scheduledFor": 1760000000000,
+          "startedAt": 1760000000000
+        },
+        "runId": "run-1",
+        "attempt": 1,
+        "commitSeq": 1
+      },
+      "validation": {
+        "valid": false,
+        "errors": [
+          {
+            "code": "EPHEMERAL_HAS_COMMIT_SEQ",
+            "field": "commitSeq",
+            "message": "ephemeral events must not carry commitSeq"
+          }
+        ]
+      }
+    }
+  ]
+}

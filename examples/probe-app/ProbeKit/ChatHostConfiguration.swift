@@ -11,6 +11,7 @@ import PhoneDSH
 import PhoneDSHAgentCore
 import enum PhoneDSHController.DeviceTier
 import PhoneDSHEngine
+import PhoneDSHLoopback
 
 /// Host assembly shared by the App and the simulator E2E suites.
 public enum ChatHostConfiguration {
@@ -99,6 +100,48 @@ public enum ChatHostConfiguration {
             "PDSH_MODEL_NAME": modelName,
             "PDSH_SHELL_TIMEOUT_MS": String(defaultShellTimeoutMs),
         ]
+        return configuration
+    }
+
+    /// The production Chat/Worker host values the App and the Bot E2E share.
+    ///
+    /// This is the one function that decides `nativeMCP`, the Worker
+    /// environment, boot/inactivity timeouts and the gateway inputs for a
+    /// production-shaped host. App-only services (shell/SSH/ADB exec
+    /// providers, web search and the Bot MCP grant) are layered on the
+    /// returned value so the E2E exercises the same assembly instead of
+    /// hand-copying it.
+    public static func makeProduction(
+        workspaceRoot: URL,
+        bundle: PhoneDSHBundleLocation,
+        deviceTier: DeviceTier = .forPhysicalMemory(ProcessInfo.processInfo.physicalMemory),
+        allowedModelHosts: Set<String>,
+        egressAllowHosts: Set<String>,
+        replaySafeModelEndpoints: Set<String> = [],
+        credentialProvider: any CredentialProvider,
+        egressAuthorizer: (any EgressHostAuthorizing)? = nil,
+        workerEnvironment: [String: String],
+        nativeMCP: (any NativeMCPServing)? = nil,
+        drainDeadline: TimeInterval = ChatHostConfiguration.defaultDrainDeadline,
+        helloTimeout: TimeInterval = ChatHostConfiguration.defaultHelloTimeout
+    ) -> PhoneDSHConfiguration {
+        var configuration = PhoneDSHConfiguration(
+            workspaceRoot: workspaceRoot,
+            token: "",
+            origin: URL(string: "http://127.0.0.1:1")!,
+            deviceTier: deviceTier,
+            bundle: bundle,
+            allowedModelHosts: allowedModelHosts,
+            egressAllowHosts: egressAllowHosts,
+            replaySafeModelEndpoints: replaySafeModelEndpoints,
+            credentialProvider: credentialProvider,
+            egressAuthorizer: egressAuthorizer,
+            drainDeadline: drainDeadline,
+            helloTimeout: helloTimeout)
+        configuration.turnInactivityTimeout = defaultTurnInactivityTimeout
+        configuration.nativeMCP = nativeMCP
+        configuration.engine.bootTimeout = defaultBootTimeout
+        configuration.engine.environment = workerEnvironment
         return configuration
     }
 }

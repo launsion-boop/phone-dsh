@@ -6,6 +6,7 @@ import PhoneDSHAgentCore
 import PhoneDSHWire
 
 struct NativeAutomationPage: View {
+    @Environment(\.dismiss) private var dismiss
     @State private var management = DSHManagementModel.shared
     @State private var creating = false
     @State private var editing: ManagedSchedule?
@@ -69,12 +70,14 @@ struct NativeAutomationPage: View {
                 Button { Task { await management.refreshAutomations() } } label: { Image(systemName: "arrow.clockwise") }
                     .accessibilityLabel("刷新自动化任务")
             }
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItem(placement: .topBarLeading) {
                 Button("新建") { creating = true }
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(NativePagePalette.accent)
                     .accessibilityLabel("新建")
                     .disabled(ChatModel.shared.currentSessionID == nil)
+            }
+            ToolbarItem(placement: .confirmationAction) {
+                Button("完成") { dismiss() }
+                    .fontWeight(.semibold)
             }
         }
         .refreshable { await management.refreshAutomations() }

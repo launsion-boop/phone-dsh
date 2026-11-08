@@ -85,6 +85,26 @@ final class PhoneMCPAccessSettingsTests: XCTestCase {
                                                      port: 8443)])
     }
 
+    func testBotRuntimeEndpointRoutesTokenOnlyToExactLocalPaths() async throws {
+        let policy = MCPEgressPolicy()
+        try policy.grantBotRuntimeEndpoint(
+            URL(string: "http://127.0.0.1:8787/mcp")!, token: "fixture-bot-token")
+        let base = RecordingCredentialProvider(value: "model-key")
+        let provider = PhoneMCPCredentialProvider(policy: policy, base: base)
+        for path in ["mcp", "identity/register", "identity/cancel", "approval"] {
+            let url = URL(string: "http://127.0.0.1:8787/\(path)")!
+            XCTAssertTrue(policy.allowsEgressHost(url))
+            let credential = try await provider.credential(
+                for: ModelGatewayCredentialRouting.scope(for: url))
+            XCTAssertEqual(credential.kind, .headers(["authorization": "Bearer fixture-bot-token"]))
+            XCTAssertEqual(credential.value, "")
+        }
+        XCTAssertFalse(policy.allowsEgressHost(URL(string: "http://127.0.0.1:8787/identity")!))
+        XCTAssertFalse(policy.allowsEgressHost(URL(string: "http://127.0.0.1:8788/mcp")!))
+        XCTAssertFalse(policy.allowsEgressHost(URL(string: "https://example.com/mcp")!))
+        XCTAssertNil(defaults.data(forKey: PhoneMCPAccessSettings.defaultsKey))
+    }
+
     func testSecondServerNameForTheSameExactURLIsRefusedBeforeAnySecretWrite() throws {
         let first = try settings.grant(serverName: "mcp",
                                        url: Self.mcpURL,

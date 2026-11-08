@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotActionResult v1",
+  "oneOf": [
+    {"type": "object", "required": ["status", "eventID"], "properties": {"status": {"const": "accepted"}, "eventID": {"type": "string", "minLength": 1}}, "additionalProperties": false},
+    {"type": "object", "required": ["status", "eventID"], "properties": {"status": {"const": "duplicate"}, "eventID": {"type": "string", "minLength": 1}}, "additionalProperties": false},
+    {"type": "object", "required": ["status", "reason"], "properties": {"status": {"const": "stale"}, "reason": {"type": "string", "minLength": 1}}, "additionalProperties": false},
+    {"type": "object", "required": ["status", "reason"], "properties": {"status": {"const": "rejected"}, "reason": {"type": "string", "minLength": 1}}, "additionalProperties": false}
+  ]
+}

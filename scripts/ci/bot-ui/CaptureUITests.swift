@@ -1,0 +1,162 @@
+// SPDX-License-Identifier: MIT
+
+import XCTest
+
+final class BotCaptureUITests: XCTestCase {
+    private var app: XCUIApplication!
+
+    override func setUpWithError() throws {
+        continueAfterFailure = false
+        app = XCUIApplication()
+    }
+
+    private func launch(_ fixture: String, dynamicType: Bool = false) {
+        app.terminate()
+        app.launchArguments = [
+            "-BotUIFixture", fixture,
+            "-BotUIAppearance", "light",
+            "-BotUIDiagnostics",
+        ]
+        if dynamicType {
+            app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+        }
+        app.launch()
+    }
+
+    private var actionLog: String {
+        let element = app.descendants(matching: .any)["bot.fixture.actions"]
+        XCTAssertTrue(element.waitForExistence(timeout: 3))
+        return element.label
+    }
+
+    private func assertCount(_ token: String, _ expected: Int, file: StaticString = #filePath, line: UInt = #line) {
+        let count = actionLog.components(separatedBy: token).count - 1
+        XCTAssertEqual(count, expected, "action log: \(actionLog)", file: file, line: line)
+    }
+
+    func testQuestionAnswerLocksAndHasNoCustomInput() throws {
+        launch("question")
+        let option = app.buttons["bot.choice.option.library"]
+        XCTAssertTrue(option.waitForExistence(timeout: 3))
+        XCTAssertGreaterThanOrEqual(option.frame.height, 44 - 0.01)
+        option.tap()
+        option.tap()
+        usleep(300_000)
+        assertCount("cardAnswer", 1)
+        XCTAssertTrue(app.staticTexts["已送出"].waitForExistence(timeout: 2))
+        XCTAssertFalse(app.textFields["bot.choice.custom"].exists)
+        XCTAssertFalse(app.buttons["bot.choice.custom.send"].exists)
+    }
+
+    func testChecklistToggleAndSendBack() throws {
+        launch("checklist")
+        app.buttons["bot.checklist.item.c2"].tap()
+        app.buttons["bot.checklist.send"].tap()
+        usleep(300_000)
+        assertCount("chat", 1)
+        XCTAssertFalse(app.buttons["bot.checklist.send"].isEnabled)
+    }
+
+    func testApprovalDecisionAndAlwaysScopeNone() throws {
+        launch("approval")
+        let once = app.buttons["bot.approval.once"]
+        XCTAssertTrue(once.waitForExistence(timeout: 3))
+        XCTAssertGreaterThanOrEqual(once.frame.height, 44 - 0.01)
+        XCTAssertTrue(app.buttons["bot.approval.always"].exists)
+        XCTAssertTrue(app.buttons["bot.approval.deny"].exists)
+        once.tap()
+        usleep(300_000)
+        assertCount("approval:allowOnce", 1)
+        XCTAssertFalse(app.buttons["bot.approval.once"].exists)
+
+        launch("overflow")
+        let always = app.buttons["bot.approval.always"]
+        XCTAssertFalse(always.exists)
+        XCTAssertTrue(app.buttons["bot.approval.deny"].waitForExistence(timeout: 3))
+    }
+
+    func testSteeringAndStopRemainIndependent() throws {
+        launch("chat")
+        let input = app.textFields["bot.composer.input"]
+        XCTAssertTrue(input.waitForExistence(timeout: 3))
+        input.tap()
+        input.typeText("第一条 steering")
+        app.buttons["bot.composer.send"].tap()
+        input.tap()
+        input.typeText("第二条 steering")
+        app.buttons["bot.composer.send"].tap()
+        usleep(300_000)
+        assertCount("chat", 2)
+        app.buttons["bot.composer.stop"].tap()
+        usleep(200_000)
+        assertCount("stop:fixture-chat-turn", 1)
+        XCTAssertFalse(app.buttons["bot.composer.stop"].exists)
+    }
+
+    func testDocumentAndSafeLinkActions() throws {
+        launch("document")
+        app.buttons["bot.document.open"].tap()
+        XCTAssertTrue(app.navigationBars["文档"].waitForExistence(timeout: 2))
+
+        launch("link")
+        app.buttons["bot.link.open.docs"].tap()
+        usleep(200_000)
+        assertCount("url:https://example.test/docs/cards", 1)
+    }
+
+    func testFailClosedAndNoSessionManagement() throws {
+        launch("failClosed")
+        let visible = app.descendants(matching: .any)["bot.fixture.visible"]
+        XCTAssertTrue(visible.waitForExistence(timeout: 3))
+        XCTAssertEqual(visible.label, "visible=0;attention=0")
+        XCTAssertFalse(app.staticTexts["不应显示"].exists)
+        XCTAssertFalse(app.buttons["新建对话"].exists)
+        XCTAssertFalse(app.buttons["对话列表"].exists)
+    }
+
+    func testOverflowAtAccessibilityDynamicType() throws {
+        launch("overflow", dynamicType: true)
+        let title = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "故意很长")).firstMatch
+        XCTAssertTrue(title.waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["bot.progress.more"].exists)
+        app.buttons["bot.progress.more"].tap()
+        XCTAssertTrue(app.buttons["bot.progress.more"].exists)
+        app.swipeUp()
+        XCTAssertTrue(app.buttons["bot.approval.deny"].waitForExistence(timeout: 2))
+    }
+
+    func testTaskAttachmentAndLongPressSource() throws {
+        launch("task")
+        let toggle = app.buttons["bot.task.toggle"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 3))
+        XCTAssertGreaterThanOrEqual(toggle.frame.height, 44 - 0.01)
+        toggle.tap()
+        XCTAssertTrue(app.staticTexts["收集来源"].waitForExistence(timeout: 2))
+
+        launch("attachment")
+        let open = app.buttons["bot.attachment.open"]
+        XCTAssertTrue(open.waitForExistence(timeout: 3))
+        XCTAssertGreaterThanOrEqual(open.frame.height, 44 - 0.01)
+        open.tap()
+        usleep(200_000)
+        assertCount("path:/tmp/phone-dsh-report.pdf", 1)
+
+        launch("question")
+        let message = app.staticTexts["Fixture：question"]
+        XCTAssertTrue(message.waitForExistence(timeout: 3))
+        message.press(forDuration: 1.2)
+        app.buttons["查看来源"].tap()
+        XCTAssertTrue(app.navigationBars["消息来源"].waitForExistence(timeout: 2))
+    }
+
+    func testInfoEmptyAndFailureAreDistinct() throws {
+        launch("infoEmpty")
+        app.buttons["bot.info.memory"].tap()
+        XCTAssertTrue(app.staticTexts["还没有已保存的记忆。"].waitForExistence(timeout: 2))
+
+        launch("infoError")
+        XCTAssertTrue(app.staticTexts["读取失败"].waitForExistence(timeout: 3))
+        app.buttons["bot.info.memory"].tap()
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "这不代表没有记忆")).firstMatch.waitForExistence(timeout: 2))
+    }
+}

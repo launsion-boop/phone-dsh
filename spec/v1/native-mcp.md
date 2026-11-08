@@ -6,6 +6,15 @@ binary channel frames. `PDSH_PHONE_MCP_URL` and `PDSH_PHONE_MCP_TOKEN` select
 the existing official `mcp-phone` Worker plugin. Only this exact same-origin
 path bypasses `/v1/http`; authorization and `X-PDSH-Idempotency-Key` are preserved.
 
+The native environment has one owner. When the App runs the Bot runtime, the Bot
+MCP listener is the Worker's only `phone` server and `PhoneDSHHost` must keep the
+App-supplied Bot URL instead of replacing it with `/mcp/native`. The Bot server
+forwards non-Bot `tools/list` and `tools/call` in-process to the same native MCP
+handler, so the Worker sees both tool families under one namespace (see
+[bot/v1/mcp-endpoint.md](../bot/v1/mcp-endpoint.md)). `/mcp/native` remains
+available for direct callers. Only a native-only configuration (no App-supplied
+`PDSH_PHONE_MCP_URL`) keeps the legacy `/mcp/native` Worker environment.
+
 The native server accepts single JSON-RPC POST requests (`initialize`, `ping`,
 `tools/list`, `tools/call`) and notifications (`initialized`, `cancelled`).
 Notifications receive empty 202 responses; GET receives 405 (no SSE stream).

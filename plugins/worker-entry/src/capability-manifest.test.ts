@@ -464,7 +464,7 @@ test('the production manifest fits its byte budget with SSH/SCP/ADB, advice and 
   assert.ok(bytes <= AGENTS_MD_MAX_BYTES, `AGENTS.md is ${String(bytes)} B; the budget is ${String(AGENTS_MD_MAX_BYTES)} B`)
   assert.doesNotMatch(manifest.markdown, /shortened to fit/u, 'the budget fallback keeps the whole document')
   assert.ok(manifest.markdown.includes(TASK_EXECUTION_GUIDANCE))
-  // Under the 5 KiB budget the production surface fits the full bounded command
+  // Under the 8 KiB budget the production surface fits the full bounded command
   // list, so the compact summary is the over-budget fallback rather than the
   // normal shape. Both spellings keep the exact lists in the JSON document; the
   // fallback itself is pinned by the over-budget case below.

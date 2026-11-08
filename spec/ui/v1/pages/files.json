@@ -150,7 +150,7 @@
       "destination": null,
       "condition": null,
       "provenance": "FilesPage.swift:68",
-      "anchor": "Button(NativeText(\"完成\", \"Done\")) { showingDemo = false }",
+      "anchor": "Button(NativeText(\"完成\", \"Done\")) { showingDemo = false }.fontWeight(.semibold)",
       "extraction": "syntax",
       "presents": "sheet-60"
     },

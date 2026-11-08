@@ -1,0 +1,95 @@
+{
+  "schemaVersion": 1,
+  "vector": "watchdog",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6"
+  },
+  "valid": {
+    "config": {
+      "heartbeatTimeoutMs": 120000,
+      "turnDeadlineMs": 900000,
+      "taskDeadlineMs": 600000,
+      "routineDeadlineMs": 660000,
+      "repeatedToolCalls": 5,
+      "repeatedToolErrors": 3,
+      "maxUnitTokens": 200000,
+      "maxUnitCostUsd": 2,
+      "goalMaxTotalTokens": 0,
+      "goalMaxTotalCostUsd": 0,
+      "tickMs": 5000,
+      "historyLimit": 200,
+      "maxUnits": 1000
+    },
+    "flagged": [
+      {
+        "check": "deadline",
+        "evidence": {
+          "deadlineAt": 1,
+          "now": 1760000000000,
+          "elapsedMs": 1759999999999
+        }
+      },
+      {
+        "check": "heartbeat",
+        "evidence": {
+          "lastEventAt": 1,
+          "now": 1760000000000,
+          "silentMs": 1759999999999,
+          "thresholdMs": 120000
+        }
+      },
+      {
+        "check": "repeated_tool_signature",
+        "evidence": {
+          "signature": "tool:digest",
+          "count": 5,
+          "threshold": 5
+        }
+      },
+      {
+        "check": "repeated_tool_error",
+        "evidence": {
+          "errorSignature": "tool:error",
+          "count": 3,
+          "threshold": 3
+        }
+      },
+      {
+        "check": "quota",
+        "evidence": {
+          "tokens": 200001,
+          "maxTokens": 200000,
+          "costUsd": 0,
+          "maxCostUsd": 2,
+          "reason": "tokens"
+        }
+      }
+    ],
+    "mobile": [
+      {
+        "check": "webcontent_terminated",
+        "eventType": "watchdog.flagged",
+        "observeOnly": true,
+        "oncePerUnit": true
+      },
+      {
+        "check": "thermal_pressure",
+        "eventType": "watchdog.flagged",
+        "observeOnly": true,
+        "oncePerUnit": true
+      },
+      {
+        "check": "battery_pressure",
+        "eventType": "watchdog.flagged",
+        "observeOnly": true,
+        "oncePerUnit": true
+      }
+    ]
+  },
+  "invalid": [
+    {
+      "check": "stop",
+      "reason": "watchdog_is_observe_only"
+    }
+  ]
+}

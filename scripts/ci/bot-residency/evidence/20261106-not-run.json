@@ -1,0 +1,47 @@
+{
+  "spdxLicenseIdentifier": "MIT",
+  "schema": "phonedsh-bot-residency-not-run/1",
+  "generatedAt": "2026-11-06T02:35:00.473770Z",
+  "status": "NOT_RUN",
+  "conclusion": "NOT_RUN",
+  "base": "f75f7a28c334f4dee2780ccf2de9075378fdf71f",
+  "contractRevision": "b5192c4a3eedd94ac4878bc0270684f7854ac273",
+  "command": "bash scripts/ci/bot-residency/run-device.sh --duration-seconds 7200 --events 10 --kill-webcontent 3 --seed 5192 --run-id wp1-not-run-20261106 --output-dir /tmp/phonedsh-bot-wp1-device-evidence",
+  "exitCode": 3,
+  "toolchain": {
+    "xcodebuild": "Xcode 26.5 (17F42)",
+    "devicectlJsonVersion": 3,
+    "devicectlVersion": "518.31"
+  },
+  "devices": [
+    {
+      "deviceType": "iPad",
+      "marketingName": "iPad Pro 13-inch (M4)",
+      "productType": "iPad16,5",
+      "osVersionNumber": "26.6.2",
+      "osBuildUpdate": "23G90",
+      "reality": "physical",
+      "pairingState": "paired",
+      "tunnelState": "unavailable"
+    },
+    {
+      "deviceType": "iPhone",
+      "marketingName": "iPhone Air",
+      "productType": "iPhone18,4",
+      "osVersionNumber": "27.0",
+      "osBuildUpdate": "24A437",
+      "reality": "physical",
+      "pairingState": "paired",
+      "tunnelState": "unavailable"
+    }
+  ],
+  "reason": "No available paired physical iOS device. Both paired devices had tunnelState=unavailable, so the command stopped before build, install, launch, lock timing, event injection, or WebContent SIGKILL.",
+  "durationSeconds": 7200,
+  "eventsRequested": 10,
+  "webContentKillsRequested": 3,
+  "eventsInjected": 0,
+  "webContentKillsAttempted": 0,
+  "simulatorUsedAsDeviceEvidence": false,
+  "realModel": false,
+  "ccr": []
+}

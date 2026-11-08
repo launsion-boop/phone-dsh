@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "vector": "memory-policy",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6"
+  },
+  "valid": {
+    "decision": "auto",
+    "reasons": [
+      "add_clean"
+    ],
+    "op": "ADD",
+    "scope": "agent",
+    "key": "style"
+  },
+  "invalid": [
+    {
+      "decision": "review",
+      "reasons": [
+        "user_scope_review"
+      ]
+    },
+    {
+      "decision": "reject",
+      "reasons": [
+        "text_empty"
+      ]
+    },
+    {
+      "decision": "review",
+      "reasons": [
+        "hypothetical"
+      ]
+    },
+    {
+      "decision": "reject",
+      "reasons": [
+        "duplicate"
+      ]
+    }
+  ]
+}

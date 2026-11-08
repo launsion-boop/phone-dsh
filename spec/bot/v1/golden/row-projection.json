@@ -1,0 +1,376 @@
+{
+  "schemaVersion": 1,
+  "vector": "row-projection",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6"
+  },
+  "valid": [
+    {
+      "input": {
+        "kind": "message",
+        "role": "user",
+        "text": "你好"
+      },
+      "surface": "bubble",
+      "renderable": true,
+      "wire": {
+        "kind": "message",
+        "type": "text",
+        "role": "user"
+      }
+    },
+    {
+      "input": {
+        "kind": "card",
+        "cardType": "question",
+        "question": "继续吗？",
+        "options": [
+          {
+            "label": "继续",
+            "recommended": true
+          },
+          {
+            "label": "停止"
+          }
+        ]
+      },
+      "surface": "widget-card",
+      "renderable": true,
+      "wire": {
+        "kind": "send-message",
+        "type": "widget"
+      }
+    },
+    {
+      "input": {
+        "kind": "card",
+        "cardType": "steps",
+        "steps": [
+          {
+            "label": "查看结果",
+            "recommended": true
+          },
+          {
+            "label": "稍后再说"
+          }
+        ]
+      },
+      "surface": "widget-card",
+      "renderable": true,
+      "wire": {
+        "kind": "send-message",
+        "type": "widget"
+      }
+    },
+    {
+      "input": {
+        "kind": "card",
+        "cardType": "attachment",
+        "path": "/tmp/report.txt",
+        "caption": "报告"
+      },
+      "surface": "attachment-card",
+      "renderable": true,
+      "wire": {
+        "kind": "send-message",
+        "type": "attachment"
+      }
+    },
+    {
+      "input": {
+        "kind": "card",
+        "cardType": "document",
+        "title": "状态报告",
+        "summary": "当前状态",
+        "docKind": "markdown",
+        "docTypeLabel": "Markdown",
+        "content": "# 状态\n正常",
+        "toc": [
+          "状态"
+        ]
+      },
+      "surface": "document-card",
+      "renderable": true,
+      "wire": {
+        "kind": "send-message",
+        "type": "widget"
+      }
+    },
+    {
+      "input": {
+        "kind": "card",
+        "cardType": "progress",
+        "title": "生成报告",
+        "state": "running",
+        "cardKey": "report-1",
+        "percent": 50,
+        "steps": [
+          {
+            "id": "step-0",
+            "label": "收集",
+            "state": "done"
+          },
+          {
+            "id": "step-1",
+            "label": "撰写",
+            "state": "active"
+          }
+        ]
+      },
+      "surface": "progress-card",
+      "renderable": true,
+      "wire": {
+        "kind": "send-message",
+        "type": "widget"
+      }
+    },
+    {
+      "input": {
+        "kind": "card",
+        "cardType": "checklist",
+        "title": "发布检查",
+        "items": [
+          {
+            "id": "item-0",
+            "text": "运行测试",
+            "done": true
+          },
+          {
+            "id": "item-1",
+            "text": "创建 PR",
+            "done": false
+          }
+        ]
+      },
+      "surface": "checklist-card",
+      "renderable": true,
+      "wire": {
+        "kind": "send-message",
+        "type": "widget"
+      }
+    },
+    {
+      "input": {
+        "kind": "card",
+        "cardType": "link",
+        "links": [
+          {
+            "url": "https://example.test/docs",
+            "title": "文档",
+            "site": "example.test",
+            "kind": "doc"
+          }
+        ]
+      },
+      "surface": "link-card",
+      "renderable": true,
+      "wire": {
+        "kind": "send-message",
+        "type": "widget"
+      }
+    },
+    {
+      "input": {
+        "kind": "card",
+        "cardType": "table",
+        "rows": [
+          {
+            "name": "A",
+            "count": 2
+          }
+        ],
+        "columns": [
+          {
+            "key": "name",
+            "label": "名称",
+            "type": "text",
+            "align": "left"
+          },
+          {
+            "key": "count",
+            "label": "数量",
+            "type": "number",
+            "align": "right",
+            "precision": 0
+          }
+        ]
+      },
+      "surface": "table-card",
+      "renderable": true,
+      "wire": {
+        "kind": "send-message",
+        "type": "widget"
+      }
+    },
+    {
+      "input": {
+        "kind": "card",
+        "cardType": "callout",
+        "title": "注意",
+        "body": "仍有未验证项目。",
+        "tone": "warning"
+      },
+      "surface": "callout",
+      "renderable": true,
+      "wire": {
+        "kind": "send-message",
+        "type": "widget"
+      }
+    },
+    {
+      "input": {
+        "kind": "card",
+        "cardType": "info",
+        "label": "状态",
+        "value": "进行中"
+      },
+      "surface": "info-row",
+      "renderable": true,
+      "wire": {
+        "kind": "send-message",
+        "type": "connector"
+      }
+    },
+    {
+      "input": {
+        "kind": "card",
+        "cardType": "payload",
+        "payloads": [
+          {
+            "id": "file-0",
+            "name": "report.txt",
+            "size": "128 B"
+          }
+        ]
+      },
+      "surface": "payload-row",
+      "renderable": true,
+      "wire": {
+        "kind": "send-message",
+        "type": "text"
+      }
+    },
+    {
+      "input": {
+        "kind": "card",
+        "cardType": "library",
+        "title": "文件庫：大肥鱼",
+        "summary": "2 份文件",
+        "fileName": "文件庫",
+        "docKind": "library",
+        "docTypeLabel": "文件庫",
+        "docCount": 2,
+        "library": true,
+        "size": "2 份文件"
+      },
+      "surface": "document-card",
+      "renderable": true,
+      "wire": {
+        "kind": "send-message",
+        "type": "widget"
+      }
+    },
+    {
+      "input": {
+        "kind": "card",
+        "cardType": "task",
+        "title": "后台任务",
+        "task": {
+          "status": "running"
+        }
+      },
+      "surface": "agent-thread-row",
+      "renderable": true,
+      "wire": {
+        "kind": "send-message",
+        "type": "widget"
+      }
+    },
+    {
+      "input": {
+        "kind": "approval",
+        "status": "pending",
+        "action": "删除旧文件"
+      },
+      "surface": "approval-card",
+      "renderable": false,
+      "wire": {
+        "kind": "send-message",
+        "type": "local-tool-permission"
+      }
+    },
+    {
+      "input": {
+        "kind": "routine-run",
+        "title": "晨间简报"
+      },
+      "surface": "automation-row",
+      "renderable": true,
+      "wire": {
+        "kind": "message",
+        "type": "text"
+      }
+    },
+    {
+      "input": {
+        "kind": "tool-call",
+        "name": "bash"
+      },
+      "surface": "hidden",
+      "renderable": false,
+      "wire": {
+        "kind": "event",
+        "type": "tool-call"
+      }
+    },
+    {
+      "input": {
+        "kind": "system-event",
+        "event": "other",
+        "text": "free text"
+      },
+      "surface": "hidden",
+      "renderable": false,
+      "wire": {
+        "kind": "event",
+        "type": "other"
+      }
+    },
+    {
+      "input": {
+        "kind": "notice",
+        "tone": "info",
+        "text": "信息"
+      },
+      "surface": "hidden",
+      "renderable": false,
+      "wire": {
+        "kind": "event",
+        "type": "notice"
+      }
+    },
+    {
+      "input": {
+        "kind": "notice",
+        "tone": "error",
+        "text": "失败"
+      },
+      "surface": "notice",
+      "renderable": true,
+      "wire": {
+        "kind": "event",
+        "type": "notice"
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "input": {
+        "kind": "card",
+        "cardType": "unknown"
+      },
+      "surface": "hidden",
+      "renderable": false
+    }
+  ]
+}

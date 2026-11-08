@@ -27,8 +27,6 @@ MUST / SHOULD / MAY 按 RFC 2119 读。权威顺序：**Harness 事件序列 > �
 
 同一轮可有多个独立的过程组。Android 会话列表用每组首个可见事件的完整行 ID
 区分它们。事件类型后缀不能用作身份，后续工具结果不应改动组的身份。
-
-
 本 lane 的自校验（失败退出 1；`--strict` 连 §4 的已登记无障碍债一起判失败）：
 
 ```
@@ -62,6 +60,7 @@ README ≤ 345 行（PR22 新增类型/几何表，cap 319→345，规则变更�
 | 页面 | 职责 | 入口 | 导航关系 | P5 |
 |---|---|---|---|---|
 | ChatPage | PR22 首页：对话、输入坞、审批/问题卡、目标条；空对话也是首页 | RootView 的默认原生面（NativeShell） | 根页；自绘页头：抽屉 / 改名 / 设备+更多（含产物、工作区、运行状态、插件与工具、导出） | must |
+| ConnectorsPage | 发现页：设备 / 网页搜索 / 自定义 MCP 服务 / Gmail 示例连接器 | 底部标签栏「发现」 | 连接器行打开详情 sheet，主操作 push 对应设置页；设备 push BluetoothDevicesPage | must |
 | SessionsPage | 抽屉会话列表（PR22 已不是产品首页） | **预览专用（`-uiPreview sessions`、`DrawerPreview`）；产品抽屉换 HomeDrawer** | 预览壳；选中会话即关闭 | later |
 | SessionActivityPage | 单会话的步骤/用量/上下文 | **触发点缺失（sheet 已接线但无人置位，基线不可达）** | sheet | later |
 | FilesPage | 工作区文件树、导入 | Chat 工具写出路径；文件段内联 | 页面栈；文件行 push `PreviewSurface`（独立预览面，契约 `pages/preview-surface.json`） | must |
@@ -75,6 +74,8 @@ README ≤ 345 行（PR22 新增类型/几何表，cap 319→345，规则变更�
 | NativeAgentPresetsPage | Agent 预设列表、设为默认、配置入口 | 设置 › Agent 预设 | push；预设卡进入会话 | must |
 | NativePluginInventoryPage | 内置插件清单、搜索 | 插件与工具 → 已加载插件 | push；搜索/刷新 | must |
 | ModelProviderSettingsPage | 模型服务、密钥、编解码 | 设置 › 模型服务；Chat 起手卡/启动失败横幅 | push；编辑子页 ModelProviderEditorPage | must |
+| SSHSettingsPage | 已保存 SSH 连接、凭据与服务器指纹 | 设置 › 权限与隐私 › SSH 主机 | push；编辑子页 SSHConnectionEditor；私钥保存到 Keychain | must |
+| AndroidADBSettingsPage | Android TCP/IP ADB 连接、保存、测试与停止 | 设置 › 权限与隐私 › Android ADB | push；保存立即生效，测试需 Android 调试授权 | must |
 | SessionArtifactsPage | 本会话产物、未归属产物与预览 | 页头 `⋯` →「产物」 | sheet；预览子页 SessionArtifactPreviewPage | must |
 | SessionArtifactPreviewPage | 单个产物的内容预览 | SessionArtifactsPage 的行点击 | 内嵌 sheet，不单独成页 | must |
 | NativeDeviceConnectionPage | 已配对的真机连接与传输能力 | 页头设备按钮 →「设备连接」 | sheet；行打开 NativeDeviceSessionPage | must |
@@ -95,9 +96,7 @@ README ≤ 345 行（PR22 新增类型/几何表，cap 319→345，规则变更�
 | DailyBriefPage | 每日简报 | **基线无入口（孤页）** | 不可达 | later |
 | ChatPreferencesPage | 聊天外观、字号、过程折叠、转录密度 | **不可达（全仓无调用点；设置已改分组索引）** | push | later |
 | NativeSettingsDocumentPage | 配置文件的只读查看与分享 | **不可达（全仓无调用点）** | sheet | later |
-| SSHSettingsPage | SSH 主机设置；完整结构契约待补 | 设置 › 权限与隐私 › SSH 主机 | push；编辑器与指纹确认需单独核对 | must |
 | BluetoothDevicesPage | 蓝牙设备扫描与连接；完整结构契约待补；iOS 断连等待及不可用状态见 [P07 本地授权条款](../../device/v1/ble-link.md#ios-standard-gatt-authorization-ordering) | 设置 › 权限与隐私 › 蓝牙设备 | push；设备任务入口默认关闭 | must |
-| AndroidADBSettingsPage | Android ADB 设置；完整结构契约待补 | 设置 › 权限与隐私 › Android ADB | push；测试连接含网络与密钥操作 | must |
 
 内嵌子页随父页实现、不单独排期：CommandExecutionResultPage、ModelProviderEditorPage、SessionQueuePage、PermissionDefaultsPage、LicensesPage、FontSizeSettingsPage、ConversationSettingsPage、ArchivedSessionsPage、ScheduleDetailPage、ScheduleHistoryPage、ScheduleEditorPage。`DevelopmentToolsPage` 已随 PR #13 删除，PR22 无此 struct；memory / probes / background / task-screen 因此仍不可达。
 

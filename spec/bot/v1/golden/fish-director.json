@@ -1,0 +1,549 @@
+{
+  "schemaVersion": 1,
+  "vector": "fish-director",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6"
+  },
+  "valid": {
+    "initial": {
+      "lifecycle": "idle",
+      "now": 0
+    },
+    "steps": [
+      {
+        "action": "reduce",
+        "event": {
+          "type": "turn.started",
+          "time": 100,
+          "data": {
+            "turn": 1,
+            "sessionId": "gb-main"
+          }
+        },
+        "expected": {
+          "directorState": {
+            "schemaVersion": 1,
+            "lifecycle": "thinking",
+            "current": "thinking",
+            "priority": 40,
+            "oneShot": null,
+            "lastOneShotAt": {},
+            "now": 100,
+            "debounceMs": 3000,
+            "lastEvent": "turn.started",
+            "version": 1
+          },
+          "command": {
+            "state": "thinking",
+            "oneShot": false,
+            "priority": 40,
+            "ttlMs": 0
+          }
+        }
+      },
+      {
+        "action": "reduce",
+        "event": {
+          "type": "conversation.user_message",
+          "time": 200,
+          "data": {
+            "text": "继续"
+          }
+        },
+        "expected": {
+          "directorState": {
+            "schemaVersion": 1,
+            "lifecycle": "listening",
+            "current": "listening",
+            "priority": 30,
+            "oneShot": null,
+            "lastOneShotAt": {},
+            "now": 200,
+            "debounceMs": 3000,
+            "lastEvent": "conversation.user_message",
+            "version": 2
+          },
+          "command": {
+            "state": "listening",
+            "oneShot": false,
+            "priority": 30,
+            "ttlMs": 0
+          }
+        }
+      },
+      {
+        "action": "reduce",
+        "event": {
+          "type": "model.delta",
+          "time": 300,
+          "data": {
+            "channel": "reasoning"
+          }
+        },
+        "expected": {
+          "directorState": {
+            "schemaVersion": 1,
+            "lifecycle": "thinking",
+            "current": "thinking",
+            "priority": 45,
+            "oneShot": null,
+            "lastOneShotAt": {},
+            "now": 300,
+            "debounceMs": 3000,
+            "lastEvent": "model.delta",
+            "version": 3
+          },
+          "command": {
+            "state": "thinking",
+            "oneShot": false,
+            "priority": 45,
+            "ttlMs": 0
+          }
+        }
+      },
+      {
+        "action": "reduce",
+        "event": {
+          "type": "conversation.tool_call",
+          "time": 400,
+          "data": {
+            "name": "read"
+          }
+        },
+        "expected": {
+          "directorState": {
+            "schemaVersion": 1,
+            "lifecycle": "working",
+            "current": "working",
+            "priority": 50,
+            "oneShot": null,
+            "lastOneShotAt": {},
+            "now": 400,
+            "debounceMs": 3000,
+            "lastEvent": "conversation.tool_call",
+            "version": 4
+          },
+          "command": {
+            "state": "working",
+            "oneShot": false,
+            "priority": 50,
+            "ttlMs": 0
+          }
+        }
+      },
+      {
+        "action": "reduce",
+        "event": {
+          "type": "approval.requested",
+          "time": 500,
+          "data": {
+            "requestId": "approval-1"
+          }
+        },
+        "expected": {
+          "directorState": {
+            "schemaVersion": 1,
+            "lifecycle": "alerting",
+            "current": "alerting",
+            "priority": 100,
+            "oneShot": null,
+            "lastOneShotAt": {},
+            "now": 500,
+            "debounceMs": 3000,
+            "lastEvent": "approval.requested",
+            "version": 5
+          },
+          "command": {
+            "state": "alerting",
+            "oneShot": false,
+            "priority": 100,
+            "ttlMs": 0
+          }
+        }
+      },
+      {
+        "action": "reduce",
+        "event": {
+          "type": "model.delta",
+          "time": 600,
+          "data": {
+            "channel": "text"
+          }
+        },
+        "expected": {
+          "directorState": {
+            "schemaVersion": 1,
+            "lifecycle": "alerting",
+            "current": "alerting",
+            "priority": 100,
+            "oneShot": null,
+            "lastOneShotAt": {},
+            "now": 500,
+            "debounceMs": 3000,
+            "lastEvent": "approval.requested",
+            "version": 5
+          },
+          "command": null
+        }
+      },
+      {
+        "action": "reduce",
+        "event": {
+          "type": "approval.decided",
+          "time": 700,
+          "data": {
+            "resolution": "once"
+          }
+        },
+        "expected": {
+          "directorState": {
+            "schemaVersion": 1,
+            "lifecycle": "working",
+            "current": "working",
+            "priority": 50,
+            "oneShot": null,
+            "lastOneShotAt": {},
+            "now": 700,
+            "debounceMs": 3000,
+            "lastEvent": "approval.decided",
+            "version": 6
+          },
+          "command": {
+            "state": "working",
+            "oneShot": false,
+            "priority": 50,
+            "ttlMs": 0
+          }
+        }
+      },
+      {
+        "action": "reduce",
+        "event": {
+          "type": "task.settled",
+          "time": 800,
+          "data": {
+            "status": "completed"
+          }
+        },
+        "expected": {
+          "directorState": {
+            "schemaVersion": 1,
+            "lifecycle": "idle",
+            "current": "celebrate",
+            "priority": 70,
+            "oneShot": {
+              "state": "celebrate",
+              "priority": 70,
+              "startedAt": 800,
+              "endsAt": 3000
+            },
+            "lastOneShotAt": {
+              "celebrate": 800
+            },
+            "now": 800,
+            "debounceMs": 3000,
+            "lastEvent": "task.settled",
+            "version": 7
+          },
+          "command": {
+            "state": "celebrate",
+            "oneShot": true,
+            "priority": 70,
+            "ttlMs": 2200
+          }
+        }
+      },
+      {
+        "action": "reduce",
+        "event": {
+          "type": "memory.written",
+          "time": 900,
+          "data": {
+            "scope": "agent"
+          }
+        },
+        "expected": {
+          "directorState": {
+            "schemaVersion": 1,
+            "lifecycle": "idle",
+            "current": "celebrate",
+            "priority": 70,
+            "oneShot": {
+              "state": "celebrate",
+              "priority": 70,
+              "startedAt": 800,
+              "endsAt": 3000
+            },
+            "lastOneShotAt": {
+              "celebrate": 800
+            },
+            "now": 800,
+            "debounceMs": 3000,
+            "lastEvent": "task.settled",
+            "version": 7
+          },
+          "command": null
+        }
+      },
+      {
+        "action": "reduce",
+        "event": {
+          "type": "task.settled",
+          "time": 1000,
+          "data": {
+            "status": "failed"
+          }
+        },
+        "expected": {
+          "directorState": {
+            "schemaVersion": 1,
+            "lifecycle": "idle",
+            "current": "sad",
+            "priority": 75,
+            "oneShot": {
+              "state": "sad",
+              "priority": 75,
+              "startedAt": 1000,
+              "endsAt": 4600
+            },
+            "lastOneShotAt": {
+              "celebrate": 800,
+              "sad": 1000
+            },
+            "now": 1000,
+            "debounceMs": 3000,
+            "lastEvent": "task.settled",
+            "version": 8
+          },
+          "command": {
+            "state": "sad",
+            "oneShot": true,
+            "priority": 75,
+            "ttlMs": 3600
+          }
+        }
+      },
+      {
+        "action": "reduce",
+        "event": {
+          "type": "task.settled",
+          "time": 1100,
+          "data": {
+            "status": "completed"
+          }
+        },
+        "expected": {
+          "directorState": {
+            "schemaVersion": 1,
+            "lifecycle": "idle",
+            "current": "sad",
+            "priority": 75,
+            "oneShot": {
+              "state": "sad",
+              "priority": 75,
+              "startedAt": 1000,
+              "endsAt": 4600
+            },
+            "lastOneShotAt": {
+              "celebrate": 800,
+              "sad": 1000
+            },
+            "now": 1000,
+            "debounceMs": 3000,
+            "lastEvent": "task.settled",
+            "version": 8
+          },
+          "command": null
+        }
+      },
+      {
+        "action": "reduce",
+        "event": {
+          "type": "turn.ended",
+          "time": 3600,
+          "data": {
+            "status": "completed"
+          }
+        },
+        "expected": {
+          "directorState": {
+            "schemaVersion": 1,
+            "lifecycle": "idle",
+            "current": "idle",
+            "priority": 0,
+            "oneShot": null,
+            "lastOneShotAt": {
+              "celebrate": 800,
+              "sad": 1000
+            },
+            "now": 3600,
+            "debounceMs": 3000,
+            "lastEvent": "turn.ended",
+            "version": 9
+          },
+          "command": {
+            "state": "idle",
+            "oneShot": false,
+            "priority": 0,
+            "ttlMs": 0
+          }
+        }
+      },
+      {
+        "action": "reduce",
+        "event": {
+          "type": "watchdog.flagged",
+          "time": 3700,
+          "data": {
+            "check": "heartbeat"
+          }
+        },
+        "expected": {
+          "directorState": {
+            "schemaVersion": 1,
+            "lifecycle": "alerting",
+            "current": "alerting",
+            "priority": 100,
+            "oneShot": null,
+            "lastOneShotAt": {
+              "celebrate": 800,
+              "sad": 1000
+            },
+            "now": 3700,
+            "debounceMs": 3000,
+            "lastEvent": "watchdog.flagged",
+            "version": 10
+          },
+          "command": {
+            "state": "alerting",
+            "oneShot": false,
+            "priority": 100,
+            "ttlMs": 0
+          }
+        }
+      },
+      {
+        "action": "reduce",
+        "event": {
+          "type": "approval.decided",
+          "time": 3800,
+          "data": {
+            "resolution": "deny"
+          }
+        },
+        "expected": {
+          "directorState": {
+            "schemaVersion": 1,
+            "lifecycle": "alerting",
+            "current": "alerting",
+            "priority": 100,
+            "oneShot": null,
+            "lastOneShotAt": {
+              "celebrate": 800,
+              "sad": 1000
+            },
+            "now": 3700,
+            "debounceMs": 3000,
+            "lastEvent": "watchdog.flagged",
+            "version": 10
+          },
+          "command": null
+        }
+      },
+      {
+        "action": "expire",
+        "event": {
+          "time": 8000
+        },
+        "expected": {
+          "directorState": {
+            "schemaVersion": 1,
+            "lifecycle": "alerting",
+            "current": "alerting",
+            "priority": 100,
+            "oneShot": null,
+            "lastOneShotAt": {
+              "celebrate": 800,
+              "sad": 1000
+            },
+            "now": 3700,
+            "debounceMs": 3000,
+            "lastEvent": "watchdog.flagged",
+            "version": 10
+          },
+          "command": null
+        }
+      },
+      {
+        "action": "lifecycle",
+        "event": {
+          "time": 8100,
+          "lifecycle": "working"
+        },
+        "expected": {
+          "directorState": {
+            "schemaVersion": 1,
+            "lifecycle": "working",
+            "current": "working",
+            "priority": 45,
+            "oneShot": null,
+            "lastOneShotAt": {
+              "celebrate": 800,
+              "sad": 1000
+            },
+            "now": 8100,
+            "debounceMs": 3000,
+            "lastEvent": "watchdog.flagged",
+            "version": 10
+          },
+          "command": {
+            "state": "working",
+            "oneShot": false,
+            "priority": 45,
+            "ttlMs": 0
+          }
+        }
+      },
+      {
+        "action": "lifecycle",
+        "event": {
+          "time": 8200,
+          "lifecycle": "idle"
+        },
+        "expected": {
+          "directorState": {
+            "schemaVersion": 1,
+            "lifecycle": "idle",
+            "current": "idle",
+            "priority": 0,
+            "oneShot": null,
+            "lastOneShotAt": {
+              "celebrate": 800,
+              "sad": 1000
+            },
+            "now": 8200,
+            "debounceMs": 3000,
+            "lastEvent": "watchdog.flagged",
+            "version": 10
+          },
+          "command": {
+            "state": "idle",
+            "oneShot": false,
+            "priority": 0,
+            "ttlMs": 0
+          }
+        }
+      }
+    ]
+  },
+  "invalid": [
+    {
+      "event": {
+        "type": "unknown.event",
+        "time": 1,
+        "data": {}
+      },
+      "expected": "ignored_without_state_change"
+    }
+  ]
+}

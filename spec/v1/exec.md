@@ -144,16 +144,13 @@ Only read-only **accelerators** advertised in the host HELLO caps may travel as 
   ran and failed is `tool_failed`, never `unsupported`. The distinction is what lets the Worker tell
   "the host never ran this" from "it ran and lost".
 - Accelerators never write the workspace. A local materialized-mount write attempt fails. SSH commands and SCP uploads may modify the remote server; they are not remote read-only capabilities. `exit`
-  carries **no change manifest**: VFS changes of a worker-local command travel as ordinary VFS_MUT
-  frames at their own mseq and are journaled independently of the exec event stream.
+  carries **no change manifest**: VFS changes of a worker-local command travel as ordinary VFS_MUT frames at their own mseq and are journaled independently of the exec event stream.
 - `EXEC_CTL` `cancel` and `stdin` map to exec-bridge v1 cancel/stdin. Events follow exec-bridge v1:
   `exit` is sent immediately after the process exited and both streams reached EOF; background
   children are reported with `quiescent: false` and a later `quiescent` event. The host keeps an
   accelerator running when its connection drops and retains its events for replay under §2.
 
-Native SSH/SCP use saved aliases, pinned host keys and explicit credentials; remote writes are
-intentional, while downloads are materialized as ordinary worker VFS writes. See
-[SSH/SCP contract and limits](../../docs/native-ssh.md).
+Native SSH/SCP use saved aliases, pinned host keys and explicit credentials; remote writes are intentional, while downloads are materialized as ordinary worker VFS writes. See [SSH/SCP contract and limits](../../docs/native-ssh.md).
 
 ## 4. Step state machine (D13)
 

@@ -322,11 +322,12 @@ struct PreviewSurface: View {
         }
         .toolbar {
             if isModal {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("关闭") { dismiss() }.leadingBarText()
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }.fontWeight(.semibold)
                 }
             }
-            ToolbarItem(placement: .primaryAction) {
+            // Full-screen: 完成 owns the trailing side, the page tools lead.
+            ToolbarItem(placement: isModal ? .topBarLeading : .primaryAction) {
                 HStack(spacing: 16) {
                     if model.kind == .html {
                         Menu {

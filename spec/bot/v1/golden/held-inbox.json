@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "vector": "held-inbox",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6"
+  },
+  "valid": {
+    "enqueued": {
+      "ok": true,
+      "item": {
+        "id": "held-1",
+        "kind": "routine-result",
+        "title": "晨间简报",
+        "text": "有三项变化",
+        "requestId": "daily:1",
+        "createdAt": 1760000000000,
+        "fromAgentId": null,
+        "fromAgentName": "",
+        "threadId": null,
+        "state": "pending"
+      },
+      "duplicate": false
+    },
+    "duplicate": {
+      "ok": true,
+      "item": {
+        "id": "held-1",
+        "kind": "routine-result",
+        "title": "晨间简报",
+        "text": "有三项变化",
+        "requestId": "daily:1",
+        "createdAt": 1760000000000,
+        "fromAgentId": null,
+        "fromAgentName": "",
+        "threadId": null,
+        "state": "pending"
+      },
+      "duplicate": true
+    },
+    "staged": {
+      "items": [
+        {
+          "id": "held-1",
+          "kind": "routine-result",
+          "title": "晨间简报",
+          "text": "有三项变化",
+          "requestId": "daily:1",
+          "createdAt": 1760000000000,
+          "fromAgentId": null,
+          "fromAgentName": "",
+          "threadId": null,
+          "state": "staged",
+          "stagedAt": 1760000002000,
+          "stagedKey": "stage-1"
+        }
+      ],
+      "key": "stage-1"
+    },
+    "committed": {
+      "removed": 1
+    }
+  },
+  "invalid": [
+    {
+      "id": "",
+      "kind": "routine-result",
+      "reason": "missing_id"
+    },
+    {
+      "id": "held-2",
+      "kind": "routine-result",
+      "state": "staged",
+      "stagedKey": "",
+      "reason": "missing_staged_key"
+    }
+  ]
+}
