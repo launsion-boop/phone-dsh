@@ -71,6 +71,10 @@ struct ADBShellDecoder {
     private(set) var exited = false
     let limit: Int
 
+    init(limit: Int) {
+        self.limit = limit
+    }
+
     mutating func append(_ bytes: Data) throws {
         pending.append(bytes)
         while pending.count >= 5 {
