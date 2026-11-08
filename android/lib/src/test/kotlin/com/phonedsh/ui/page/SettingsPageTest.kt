@@ -107,7 +107,7 @@ class SettingsPageTest {
             scrollTo(it)
             compose.onNodeWithText(it).assertIsDisplayed()
         }
-        listOf("模型服务", "Agent 预设", "插件与工具", "新会话默认权限", "手机权限", "网络访问",
+        listOf("模型服务", "Agent 预设", "插件与工具", "新会话默认权限", "手机权限", "网络访问", "MCP 与局域网设备",
             "外观", "语言", "字号", "工作过程", "快捷键", "文件夹", "已归档会话", "引擎状态",
             "运行状态", "关于 Phone DSH", "版本", UiStrings.ABOUT_LICENSES,
             UiStrings.SETTINGS_ROW_BACKGROUND, UiStrings.SETTINGS_ROW_EXPORT,
