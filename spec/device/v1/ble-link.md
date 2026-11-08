@@ -262,6 +262,167 @@ They do not establish which service-change sequences or object reuse an OS or
 peripheral produces. Duplicate discovery, multiple services with the same
 UUID and source attribution beyond this event remain open in GAP-31.
 
+#### iOS discovery ownership and ambiguity
+
+For each locally exclusive connected owner, submit service discovery at most
+once, and submit characteristic discovery at most once per selected concrete
+service object. Keep a local ledger of the actual peripheral and service object
+references, each request's planned/submitted/completed state, and immutable
+callback snapshots until that owner is retired. The ledger matches app-visible
+objects and local submissions only; CoreBluetooth does not provide an app
+request token. If an old callback and a current callback use indistinguishable
+objects and data, the ledger cannot prove the radio origin or freshness.
+Do not infer a peer's identity, bonding, database completeness or OS callback
+order from it. The service-change and disconnect boundaries above still apply.
+
+While a matching submitted request is still pending, a services callback with `error == nil` and `services == nil` is
+uncertain: do not publish a result, reissue discovery or restart the deadline;
+keep waiting until a non-nil result or the existing bounded timeout. A non-nil
+empty array is a completed empty local result, not proof the remote database
+has no services. A matching submitted characteristic callback with `error ==
+nil` and `characteristics == nil` is likewise uncertain and remains pending
+under the same fixed deadline; repeated nil callbacks have no side effect. An
+empty array is a completed result with no candidates. The existing 20-second
+connection deadline starts at the connection attempt, not at discovery or at
+each callback; this change does not extend it. An expected discovery error closes the current connection with
+the existing disconnected outcome and applicable disconnect boundary; it is
+not converted to a successful empty result. Unknown/unrequested callbacks or
+changed completed results from a current connected owner are quarantined under
+the existing unassignable-event policy. Closing/quarantined owners cannot be
+revived by a late discovery callback; an unknown ID while powered on cannot
+alter another owner. If the manager is unavailable at a discovery callback or
+becomes unavailable during a synchronous callback before a physical command,
+apply the existing all-owner manager-unavailable transition and send no new
+CoreBluetooth command. A nil or error callback after a non-nil result was
+already completed is not a successful duplicate and follows the same
+unassignable/changed policy; it must not reopen the completed request.
+
+Before publishing any candidate or sending a characteristic discovery, take
+a complete local services snapshot and plan all selected service instances.
+Retain actual service object references and UUIDs, including duplicate
+occurrences in the snapshot; do not use UUID as an instance identifier or
+reduce the snapshot to a set. Requests are made once per distinct selected
+service object, so repeated references to the same object do not cause
+duplicate physical requests. Before filtering any result, verify that every
+returned service's parent is the current peripheral by object identity;
+likewise every returned characteristic must have the exact callback service
+as its parent. An absent or different parent is unassignable and quarantines
+the current connected owner, even when that object has an unrelated UUID or
+another valid candidate exists. Ignore unrelated UUIDs only after this check.
+Record the selected
+objects for every standard UUID group before the first request is submitted;
+then consider distinct selected services in the order of their first appearance
+in that snapshot, skipping only the stated policy skips. Reserve each request
+immediately before its physical call, after checking
+the current owner, peer, ledger and powered state. This is a local
+may-have-been-submitted boundary, not evidence that the OS accepted a command:
+there is no await or user/test callback between the reservation and physical
+API entry. Any before-submit test hook runs before reservation; if it changes
+the state, no command is submitted. Once reservation wins, conservatively
+treat the request as possibly submitted. A callback for an object that was
+only planned and never reserved is not attributable to a later request.
+The power and ownership check is the last *locally observable* check, not an
+atomic guarantee about radio state. If unavailability is observed before
+reservation, run the all-owner unavailable transition without submitting.
+After an API returns or synchronous callback reenters, if unavailability is
+observed, run that transition before publishing or submitting another command.
+
+If the services snapshot contains no Link service, no Link discovery or
+notification is sent, `linkState` reports `本次未发现 Link`, and supported
+standard services may proceed. After a completed services snapshot, including
+an empty array, the device remains `已连接` unless a separate error/teardown
+wins; this initial local connection state does not assert characteristic
+discovery completion or profile availability, and the fixed discovery deadline
+continues until the completion rule below is met. The UI describes only this
+local result. If it has
+more than one distinct Link service object, do not select one, combine their
+characteristics or submit a Link request; display `发现多个 Link 服务，暂不可用`
+and allow separately valid standard profiles. Record each such Link instance
+as explicitly skipped for this reason. Repeated references to one Link
+object count as one instance for planning. With exactly one Link service,
+stage its characteristic result before publishing any endpoint or channel:
+RX, TX and audio-up each require exactly one distinct characteristic object
+of the required UUID, belonging to that service. RX must support write, TX
+and audio-up must support notify. Repeated references to the same actual
+characteristic count as one candidate, while different objects with the same
+required UUID are ambiguous even if only one has the needed property. An
+empty/incomplete/ambiguous/unsupported initial result displays
+`Link 特征不完整或存在歧义`, installs no Link channel and sends no Link
+notifications; unrelated characteristics do not make a required UUID
+ambiguous. Independently valid standard profiles remain available. Once a
+complete unique result is accepted, install only that actual channel and
+submit TX then audio-up notification under the existing owner/channel
+installation guards. A later changed, incomplete or unrequested result must
+never replace an endpoint table while retaining the old channel or identity.
+
+For each standard service UUID, collect all distinct service objects selected
+in the completed services snapshot. Publish no profile from that UUID group
+until every selected member has completed its submitted characteristic
+request or was explicitly and validly skipped; a planned-but-not-submitted
+member and a submitted-but-pending member both prevent group publication.
+Other completed UUID groups may publish independently. For each allowlisted profile, count
+distinct characteristic objects with its service/characteristic UUID and
+correct parent across the whole group *before* checking capabilities. Exactly
+one candidate with the required read or write-without-response property may
+become available. Multiple distinct candidates make only that profile
+ambiguous, including when one lacks the required property; no candidate or a
+single unsupported candidate makes that profile unavailable. Repeated array
+references to the same object do not create an extra candidate. No discovery
+implicitly grants read, alert, tool or task permission. The discovery deadline
+is cancelled only after the services result is completed and every selected
+member has completed its submitted request or was explicitly and validly
+skipped by the ambiguity policy. A planned-but-not-submitted member also
+prevents deadline cancellation; cached non-nil characteristics do not finish
+a request. An empty selected set, or one consisting entirely of explicit
+policy skips, satisfies this completion condition. Once the completion
+condition first becomes true, remove and cancel that owner's discovery deadline
+before publishing the completion-causing result or entering its Observation
+callbacks; this local timer action cannot authorize any operation. Recheck the
+owner and power before publication and any subsequent physical command. Timers
+for reads and other owners retain their own ownership.
+
+For a locally completed successful callback, store an immutable discovery
+snapshot before any Observation notification or next physical command. A
+later callback with the same current peripheral, service where applicable,
+and same object-reference **multiset** in any order is a no-op only while the
+manager is powered on and that current owner is connected and attributable,
+and only when its
+relevant snapshot fields also match. A services snapshot contains service
+object identity, UUID and primary status; it does not include characteristics
+which may be discovered later. A characteristic snapshot contains its parent
+service, each characteristic object identity, UUID and discovered properties
+bits. Runtime value, notification state, descriptors and RSSI are not
+discovery snapshot fields. Repeated occurrences remain in the multiset even
+though planning deduplicates the same object. A duplicate must not send a
+request or notification, publish any devices/status mutation, cancel a timer,
+restore a grant or replace a channel. An error callback is never an idempotent
+successful duplicate. A different object, parent, UUID, properties value or
+multiset after completion is changed, even if its UUID text matches. Manager
+unavailability takes precedence over this no-op and triggers the existing
+all-owner unavailability transition.
+
+Reserve a submitted local request before its physical call. Consume a request
+and record its accepted non-nil result before any subsequent synchronous
+callback or Observation notification; a nil uncertain result remains pending.
+After each such callback or notification, and inside
+the actual devices mutation after will-change observers, recheck the current
+owner, peer, relevant ledger/group revision and physical power before
+publishing or submitting the next command. A later disconnect, service change,
+different result or B-device grant must not be overwritten by an older A
+publication. The existing single read-outcome claim and no-replay rules apply
+to closing/quarantine while a read or Link operation is pending; a previously
+won outcome stays won. These rules describe local behavior and intentionally
+tighten compatibility for ambiguous devices; real OS and peripheral behavior
+still require separate evidence.
+
+The shared discovery object graphs, ordered callbacks and expected checkpoints
+are in `golden/standard-gatt-discovery-ownership.jsonl`, with malformed and
+semantic mutations in `golden/standard-gatt-discovery-mutations.json`. Their
+real-store setup, observation and physical submission rules and additional
+in-flight Link and reconnect tests are specified by
+`docs/protocol-changes/PC-20261107-gatt-discovery-ownership.md`. Shape checks
+alone do not establish that the production store follows these cases.
+
 The value callback is used for both reads and notifications and has no app
 request token. A standard read cannot rely on a callback as its result if the
 application has subscribed to notifications for that characteristic during

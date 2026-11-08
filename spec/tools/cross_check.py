@@ -109,6 +109,7 @@ GOLDEN_READERS = (
     ("spec/v1/golden/perturbations", "*.json", "spec/v1/tools/fixture_check.py", False),
     ("spec/v1/golden/upstream", "*.json", "spec/v1/tools/fixture_check.py", False),
     ("spec/v1/golden/trajectory", "notes.json", "spec/v1/tools/trajectory_norm.py", True),
+    ("spec/device/v1/golden", "standard-gatt-discovery-mutations.json", "spec/v1/tools/test_spec_golden.py", False),
 )
 
 

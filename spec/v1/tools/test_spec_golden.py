@@ -8,6 +8,7 @@ specification tree, so the real tree is never modified.
 
 from __future__ import annotations
 
+import copy
 import importlib.util
 import hashlib
 import json
@@ -886,6 +887,52 @@ class LegacyTaskInspectionFixtureTests(unittest.TestCase):
             spec_golden.validate_json(row, schema, row["name"])
         with self.assertRaises(spec_golden.SpecError):
             spec_golden.validate_json({**rows[0], "expected_reason": "trusted"}, schema, "mutation")
+
+
+class StandardGattDiscoveryOwnershipFixtureTests(unittest.TestCase):
+    def test_vectors_and_mutation_inventory(self):
+        device = SPEC_DIR.parent / "device" / "v1"
+        schema = json.loads((device / "schema/standard-gatt-discovery-ownership.schema.json").read_text())
+        data = (device / "golden/standard-gatt-discovery-ownership.jsonl").read_bytes()
+        self.assertEqual(hashlib.sha256(data).hexdigest(),
+                         "71e4f17e2a9b1abd2832447d56dddd3a894bbbb7a93d50fb12e5be32b0302451")
+        rows = [json.loads(line) for line in data.splitlines()]
+        self.assertEqual(len(rows), 66)
+        by_id = {row["id"]: row for row in rows}
+        self.assertEqual(len(by_id), len(rows))
+        for row in rows:
+            spec_golden.validate_json(row, schema, row["id"])
+            objects = row["objects"]
+            for obj in objects.values():
+                parent = obj.get("parent")
+                if parent is not None:
+                    self.assertIn(parent, objects, row["id"])
+                    kind = "peripheral" if obj["kind"] == "service" else "service"
+                    self.assertEqual(objects[parent]["kind"], kind, row["id"])
+
+        mutations = json.loads((device / "golden/standard-gatt-discovery-mutations.json").read_text())
+        self.assertEqual(sum(m["category"] == "invalid-schema" for m in mutations), 6)
+        self.assertEqual(sum(m["category"] == "semantic" for m in mutations), 10)
+        self.assertEqual(len({m["name"] for m in mutations}), len(mutations))
+        for mutation in mutations:
+            original = by_id[mutation["base"]]
+            changed = copy.deepcopy(original)
+            target = changed
+            for part in mutation["path"][:-1]:
+                target = target[part]
+            key = mutation["path"][-1]
+            if mutation["op"] == "delete":
+                del target[key]
+            else:
+                self.assertEqual(mutation["op"], "replace")
+                target[key] = mutation["value"]
+            self.assertNotEqual(changed, original, mutation["name"])
+            if mutation["category"] == "invalid-schema":
+                with self.assertRaises(spec_golden.SpecError, msg=mutation["name"]):
+                    spec_golden.validate_json(changed, schema, mutation["name"])
+            else:
+                self.assertEqual(mutation["category"], "semantic")
+                spec_golden.validate_json(changed, schema, mutation["name"])
 
 
 class StandardGattServiceChangeFixtureTests(unittest.TestCase):
