@@ -791,17 +791,6 @@ private fun PreviewBody(preview: WorkbenchPreview, onRefreshPending: (() -> Unit
                 text = UiStrings.WORKBENCH_PREVIEW_PENDING_HINT,
                 style = type.listItem.copy(color = tokens.colors.textSecondary, textAlign = TextAlign.Center),
             )
-            BasicText(
-                text = if (onRefreshPending == null) PENDING_REFRESH_UNAVAILABLE else PENDING_REFRESH_LABEL,
-                style = type.listItem.copy(color = tokens.colors.pageAccent),
-                modifier = Modifier
-                    .defaultMinSize(minHeight = HomeMetrics.defaultMinListRowHeight)
-                    .then(
-                        if (onRefreshPending == null) Modifier
-                        else Modifier.clickable(role = Role.Button, onClick = onRefreshPending),
-                    )
-                    .semantics { contentDescription = if (onRefreshPending == null) PENDING_REFRESH_UNAVAILABLE else PENDING_REFRESH_LABEL },
-            )
         }
 
         is WorkbenchPreview.Loading -> EmptyHint(
@@ -933,8 +922,6 @@ private fun Int?.ink(tokens: com.phonedsh.ui.theme.UiTokens): androidx.compose.u
 
 /** The one path separator the display helper splits on. */
 private const val PATH_SEPARATOR: Char = '/'
-private const val PENDING_REFRESH_LABEL: String = "重新检查文件"
-private const val PENDING_REFRESH_UNAVAILABLE: String = "宿主暂不支持重新检查"
 
 /** Canonical spec names backed by the legacy resolved palette roles. */
 private val UiColors.sessionSuccess get() = success

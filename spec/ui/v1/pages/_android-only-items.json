@@ -224,6 +224,18 @@
    },
    "owner": "android-ui",
    "reviewBy": "2027-06-30"
+  },
+  {
+   "page": "files",
+   "kind": "action",
+   "label": "导入文件",
+   "reason": {
+    "baselineLacks": "iOS exposes the workspace to the system Files app (UIFileSharingEnabled + LSSupportsOpeningDocumentsInPlace in examples/probe-app/Config/PhoneDSHProbe-Info.plist), so files are imported there and FilesPage needs no import control",
+    "androidNeeds": "the Android workspace lives in app-private storage that no other app or system file manager can write, so the only way to bring a file in is the host's document picker (HostShell.kt passes onFilesImportRequest = onPickWorkspaceFile from MainActivity)",
+    "withoutIt": "an Android user has no way to put a document into the workspace for the agent to read"
+   },
+   "owner": "android-ui",
+   "reviewBy": "2027-06-30"
   }
  ]
 }

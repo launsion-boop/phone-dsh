@@ -366,15 +366,8 @@ private fun PluginInventoryBody(
                         style = type.caption.copy(color = tokens.colors.danger),
                         modifier = Modifier.weight(1f),
                     )
-                    if (onRefresh != null) {
-                        SessionTextAction(
-                            label = UiStrings.RETRY,
-                            onClick = onRefresh,
-                            tone = SessionActionTone.SECONDARY,
-                            enabled = !state.refreshing,
-                            modifier = Modifier.testTag(UiPageTags.PLUGIN_INVENTORY_RETRY),
-                        )
-                    }
+                    // No retry button: pull-to-refresh is the recovery on both platforms
+                    // (page-structure-rules.md rule 2).
                 }
             }
         }

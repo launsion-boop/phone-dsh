@@ -49,8 +49,9 @@ class ArchivedSessionsPageTest {
         update(failed)
         compose.onNodeWithTag(ARCHIVED_PAGE_FAILURE_TAG).assertIsDisplayed()
         compose.onNodeWithText("归档列表读取失败").assertIsDisplayed()
-        compose.onNodeWithText(UiStrings.RETRY).performClick()
-        assertEquals(1, retried)
+        // No retry action (GAP-32): iOS has none and no host command re-reads the archive.
+        compose.onNodeWithText(UiStrings.RETRY).assertDoesNotExist()
+        assertEquals(0, retried)
         compose.onNodeWithTag(UiPageTags.SETTINGS_ARCHIVED_EMPTY).assertDoesNotExist()
     }
 
