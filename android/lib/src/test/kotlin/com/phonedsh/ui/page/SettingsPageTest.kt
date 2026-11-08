@@ -350,6 +350,9 @@ class SettingsPageTest {
         scrollTo("字号")
         compose.onNodeWithTag(com.phonedsh.ui.page.UiPageTags.SETTINGS_INDEX_ROW_PREFIX + "fontSize").performClick()
         compose.onNodeWithTag("pdsh.settings.index.back").performClick()
+        // The index keeps its scroll position on return; one more row (Android ADB)
+        // moved 字号 far enough that the first header is above the viewport.
+        scrollTo("模型与智能体")
         compose.onNodeWithText("模型与智能体").assertIsDisplayed()
     }
 }

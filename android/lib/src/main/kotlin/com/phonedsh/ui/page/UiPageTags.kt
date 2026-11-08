@@ -114,6 +114,17 @@ public object UiPageTags {
     public const val BLUETOOTH_GRANT_ALERT: String = "pdsh.bluetooth.grant.alert"
     public const val BLUETOOTH_READ: String = "pdsh.bluetooth.read"
 
+    // AndroidADBSettingsPage
+    public const val ANDROID_ADB_ROOT: String = "pdsh.androidadb.root"
+    public const val ANDROID_ADB_LIST: String = "pdsh.androidadb.list"
+    public const val ANDROID_ADB_TOGGLE: String = "pdsh.androidadb.toggle"
+    public const val ANDROID_ADB_HOST: String = "pdsh.androidadb.host"
+    public const val ANDROID_ADB_PORT: String = "pdsh.androidadb.port"
+    public const val ANDROID_ADB_SAVE: String = "pdsh.androidadb.save"
+    public const val ANDROID_ADB_CHECK: String = "pdsh.androidadb.check"
+    public const val ANDROID_ADB_CANCEL: String = "pdsh.androidadb.cancel"
+    public const val ANDROID_ADB_STATUS: String = "pdsh.androidadb.status"
+
     public const val WEB_SEARCH_ROOT: String = "pdsh.websearch.root"
     public const val WEB_SEARCH_LIST: String = "pdsh.websearch.list"
     public const val WEB_SEARCH_TOGGLE: String = "pdsh.websearch.toggle"

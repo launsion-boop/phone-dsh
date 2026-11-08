@@ -110,6 +110,8 @@ public data class PdshNavFacts(
     public val mcp: MCPRegistryFacts = MCPRegistryFacts(),
     public val mcpEditor: MCPEditorFacts = MCPEditorFacts(),
     public val bluetooth: com.phonedsh.ui.page.BluetoothFacts = com.phonedsh.ui.page.BluetoothFacts(),
+    /** Android ADB: the saved target and the last 保存 / 测试连接 status (host-owned). */
+    public val androidAdb: com.phonedsh.ui.page.AndroidAdbFacts = com.phonedsh.ui.page.AndroidAdbFacts(),
     public val runtime: RuntimeFacts = RuntimeFacts(),
     public val egress: EgressAllowListFacts = EgressAllowListFacts(),
     public val automation: AutomationFacts = AutomationFacts(),
@@ -459,6 +461,21 @@ public sealed interface PdshHostAction {
     /** Immediate Alert level 0–2 (write without response, unconfirmed). */
     public data class BluetoothAlert(public val id: String, public val level: Int) : PdshHostAction {
         override val wire: String = "bluetooth.alert"
+    }
+
+    /** Android ADB 保存: validate and persist the drafted target (refused while an operation runs). */
+    public data class AndroidAdbSave(public val draft: com.phonedsh.ui.page.AndroidAdbDraft) : PdshHostAction {
+        override val wire: String = "androidAdb.save"
+    }
+
+    /** Android ADB 测试连接 with the drafted target; serialized with the android_* tools. */
+    public data class AndroidAdbCheck(public val draft: com.phonedsh.ui.page.AndroidAdbDraft) : PdshHostAction {
+        override val wire: String = "androidAdb.check"
+    }
+
+    /** 停止当前 Android 操作: cancel the running tool call or connection check. */
+    public data object AndroidAdbCancel : PdshHostAction {
+        override val wire: String = "androidAdb.cancel"
     }
 
     /** Persist the web-search switch position. */

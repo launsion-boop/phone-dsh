@@ -22,6 +22,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.InputStream
@@ -79,6 +80,13 @@ class LoopbackServer(
      * credential provider here; without it the model routes are not mounted.
      */
     private val modelProxy: LoopbackModelProxy? = null,
+    /**
+     * The `/mcp/native` server, or `null` when this origin serves no native
+     * phone tools. [stop] cancels and settles its pending work.
+     */
+    private val nativeMcp: NativeMcpServing? = null,
+    /** D14 admission for native `tools/call` (503 while it returns false). */
+    private val nativeMcpAdmission: () -> Boolean = { true },
 ) : AutoCloseable {
     private val lock = ReentrantLock()
     private var running: Running? = null
@@ -130,6 +138,8 @@ class LoopbackServer(
                 handler = handler,
                 httpEgress = httpEgress,
                 modelProxy = modelProxy,
+                nativeMcp = nativeMcp,
+                nativeMcpAdmission = nativeMcpAdmission,
                 authority = { "${LoopbackConfiguration.LOOPBACK_HOST}:$boundPort" },
             )
             val failures = EngineFailureLog()
@@ -206,6 +216,11 @@ class LoopbackServer(
             }
             snapshot
         } ?: return
+        // native-mcp.md: host shutdown cancels and settles pending native work
+        // (its receipt records the outcome) before the origin goes away.
+        nativeMcp?.let { server ->
+            runCatching { runBlocking { withTimeoutOrNull(NATIVE_SETTLE_MILLIS) { server.cancelPendingOperations() } } }
+        }
         try {
             current.service.shutdown()
             current.engine.stop(STOP_GRACE_MILLIS, STOP_TIMEOUT_MILLIS)
@@ -419,6 +434,7 @@ class LoopbackServer(
     private companion object {
         const val STOP_GRACE_MILLIS = 50L
         const val STOP_TIMEOUT_MILLIS = 2_000L
+        const val NATIVE_SETTLE_MILLIS = 5_000L
 
         /** How long a failed `start` waits for the engine's own reason for dying. */
         const val ENGINE_FAILURE_WAIT_MILLIS = 1_500L
