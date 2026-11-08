@@ -784,7 +784,7 @@ struct LicensesPage: View {
         .navigationTitle("开源许可")
 ''')
         self.assertEqual("single-region", page["sectionModel"])
-        self.assertIn("direct LabeledContent license entries", page["sectionNote"])
+        self.assertIn("direct license catalog rows", page["sectionNote"])
         self.assertEqual(["SwiftTerm", "swift-nio"],
                          [row["label"] for row in page["sections"][0]["rows"]])
 
@@ -809,6 +809,100 @@ struct LicensesPage: View {
 ''')
         self.assertNotEqual("single-region", with_extra_row["sectionModel"])
         self.assertIsNone(with_extra_row["sectionNote"])
+
+
+    LICENCE_LINK = '''
+            NavigationLink("SSH 组件许可全文") {
+                ScrollView {
+                    Text((Bundle.main.url(forResource: "SSH-LICENSES", withExtension: "txt")
+                        .flatMap { try? String(contentsOf: $0, encoding: .utf8) }) ?? "许可文件不可用")
+                }.navigationTitle("SSH 组件许可")
+            }
+'''
+
+    def test_bundled_licence_text_links_are_catalog_rows_not_actions(self) -> None:
+        page = self._extract('''
+        List {
+            LabeledContent("SwiftTerm", value: "MIT")
+            LabeledContent("Citadel / BigInt", value: "MIT")
+            LabeledContent("swift-nio", value: "Apache 2.0")''' + self.LICENCE_LINK + '''
+        }
+        .navigationTitle("开源许可")
+''')
+        self.assertEqual("single-region", page["sectionModel"])
+        self.assertEqual([], page["actions"])
+        labels = [row["label"] for row in page["sections"][0]["rows"]]
+        self.assertIn("SSH 组件许可全文", labels)
+        self.assertEqual("开源许可", page["title"]["text"])
+
+    def test_a_link_that_is_not_bundled_licence_text_disables_the_catalog(self) -> None:
+        other = self._extract('''
+        List {
+            LabeledContent("SwiftTerm", value: "MIT")
+            NavigationLink("设置") { SettingsPage() }
+        }
+''')
+        self.assertEqual("unmodeled", other["sectionModel"])
+        self.assertIn("设置", [a["label"] for a in other["actions"]])
+        with_button = self._extract('''
+        List {
+            LabeledContent("SwiftTerm", value: "MIT")''' + self.LICENCE_LINK.replace(
+            "}.navigationTitle", "Button(\"复制\") {}\n                }.navigationTitle") + '''
+        }
+''')
+        self.assertEqual("unmodeled", with_button["sectionModel"])
+        only_links = self._extract("        List {" + self.LICENCE_LINK + "        }\n")
+        self.assertEqual("unmodeled", only_links["sectionModel"])
+
+
+class EmbeddedPublicSubpageTest(unittest.TestCase):
+    """README §1 embedded subpages are compared with the parent that presents them."""
+
+    SWIFT = """import SwiftUI
+struct ProviderPage: View {
+    @State private var editing: Item?
+    var body: some View {
+        List {
+            Button("添加") { editing = Item() }
+        }
+        .sheet(item: $editing) { item in
+            ModelProviderEditorPage(item: item)
+        }
+    }
+}
+
+struct ModelProviderEditorPage: View {
+    @State private var testing = false
+    var body: some View {
+        Form {
+            Section {
+                Button {
+                    run()
+                } label: {
+                    HStack {
+                        SettingsRowLabel(title: testing ? "正在测试…" : "测试连接", icon: "bolt")
+                    }
+                }
+            }
+        }
+    }
+}
+"""
+
+    def _extract(self) -> dict:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "examples/probe-app/PhoneDSHProbe/ProviderPage.swift"
+            path.parent.mkdir(parents=True)
+            path.write_text(self.SWIFT, encoding="utf-8")
+            source = E.Source(path, root)
+            return E.PageExtractor(source, "ProviderPage").run(E.page_structs(source))
+
+    def test_public_embedded_subpage_actions_are_inlined_with_both_wordings(self) -> None:
+        page = self._extract()
+        inlined = [a for a in page["actions"] if a.get("presentedBy")]
+        self.assertEqual(["测试连接"], [a["label"] for a in inlined])
+        self.assertEqual(["正在测试…"], inlined[0]["labelAlternatives"])
 
 
 class ChromeContractTest(unittest.TestCase):

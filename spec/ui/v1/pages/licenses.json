@@ -3,8 +3,8 @@
   "page": "LicensesPage",
   "pageId": "licenses",
   "structure": "swiftui-view",
-  "sectionModel": "unmodeled",
-  "sectionNote": null,
+  "sectionModel": "single-region",
+  "sectionNote": "one flat List of direct license catalog rows (LabeledContent name/licence entries, and NavigationLink rows that open a bundled licence text) with no Section headers; Android renders its host-reported platform catalog in one grouped card. Which components each platform ships is platform catalog content, so the rows and the full-text links are recorded but not compared here",
   "title": {
     "text": "开源许可",
     "provenance": "SettingsPage.swift:449",
@@ -105,22 +105,7 @@
       "note": "no Section/PageSection/GroupBox/header Text found: the whole body is one region, so a human must say what the group is (or the page has none)"
     }
   ],
-  "actions": [
-    {
-      "id": "ssh-组件许可全文",
-      "label": "SSH 组件许可全文",
-      "labelExpr": null,
-      "kind": "navigation",
-      "trigger": "tap",
-      "semantic": "navigate:ScrollView",
-      "writes": false,
-      "destination": "ScrollView",
-      "condition": null,
-      "provenance": "SettingsPage.swift:440",
-      "anchor": "NavigationLink(\"SSH 组件许可全文\") {",
-      "extraction": "syntax"
-    }
-  ],
+  "actions": [],
   "presentations": [],
   "states": {
     "advisory": true,
