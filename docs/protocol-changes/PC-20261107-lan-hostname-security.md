@@ -43,3 +43,7 @@ The reference server currently delegates its actual SRV target to the operating 
 ## Implementation evidence (2026-11-07)
 
 The Swift, Python and target-only Android candidate decoders reject the shared numeric-final-label and non-ASCII cases and consume the raw valid/invalid vectors. `swift test --filter LANAdvertisementTests` → PASS (5 tests); `python3 examples/lan-mcp-device/test_discovery.py` → PASS (4 tests); Android `:domain:testDebugUnitTest` filtered to `*LanDiscovery*` → PASS (4 tests); Node 22 `--experimental-strip-types --test plugins/tests/lan-discovery-mcp-input.test.ts` → PASS (2 tests against the real Worker input validator under Node). The producer's actual DNS-SD publication remains GAP-17, and invalid IDNA A-label interoperability remains GAP-18; these tests do not establish full producer or Android discovery conformance.
+
+## Follow-up (2026-11-08)
+
+The producer gap of Revision 2 (GAP-17) is resolved by [PC-20261108-lan-names-trust](PC-20261108-lan-names-trust.md): the reference publisher now verifies the actually published SRV target, port and TXT against its configured hostname and certificate, and withdraws on mismatch.
