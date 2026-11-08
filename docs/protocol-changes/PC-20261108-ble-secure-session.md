@@ -485,7 +485,42 @@ prebuilt (mutated) board for mutation evidence.
 
 Interop bugs found by this test and fixed: board KeyUpdate handling (close_notify instead of `unexpected_message`), board record-limit classification (§7.3 board 1–2), phone receive limit (§7.3 phone); harness-only issue: `run.sh` failed on Darwin since 8a63b3d4 (GNU `--wrap`), which also broke the existing `BLETaskCrossRuntimeTests` on macOS.
 
-### 7.5 Evidence
+### 7.5 Evidence (head `3a4deeb9`)
 
-Recorded in the commit that closes this revision (§7.6).
+```text
+Base / head:        3505b690 / 3a4deeb9 (contract revision commit 8762d192, implementation 3a4deeb9)
+Protocol impact:    P07; P06/P09/P12/P18: none (reasons in the commit bodies)
+Contract revision:  spec/device/v1/ble-secure-session.md@secure-session-v2.1 (8762d192)
+Changed files:      contract: spec/device/v1/{ble-secure-session.md,ble-link.md}, plaintext-admission
+                    schema+golden, task-store and matrix goldens, spec/v1/tools checkers,
+                    spec/README.md, spec/registry.json, this record;
+                    board: pdsh_secure_session.c; tests: run.sh, test_link_tools.c,
+                    test_secure_task_store.c, test_secure_session.c, test_secure_bridge.c (new);
+                    phone: BLESecureTLSCore.swift, BLESecureTLSClient.swift (DEBUG hook);
+                    tests: BLESecureTLSTests.swift, BLESecureCrossRuntimeTests.swift (new)
+Status per end:     board implemented (library + host); phone implemented (library; no product
+                    path, BLE grants still refused); physical acceptance not started
+```
+
+| Command | Result |
+| --- | --- |
+| `IDF_PATH=/opt/esp-idf bash firmware/tests/run.sh` on galic (Linux, ESP-IDF v6.1 `fff9895c`) | PASS — admission 10, task store v2 20, enrollment, identifiers/certificates/frames/messages/sequences, TLS loopback 33 cases, CoC, prove retired, heap 31653 ≤ 32768 bytes |
+| `idf.py set-target esp32s3 && idf.py build` on galic | PASS (`pdsh_ble_reference.bin` 0xc2950) |
+| `PDSH_MBEDTLS_SRC=<mbedtls a2b32072> bash firmware/tests/run.sh` on macOS | PASS; heap budget `NOT_RUN` on Darwin (no GNU `--wrap`) |
+| `swift test --filter BLESecure` | PASS (36 BLE + 6 DeviceTasks tests) |
+| `swift test --filter BLESecureCrossRuntimeTests` | PASS (8 tests; table §7.4) |
+| `swift test --filter PhoneDSHBLETests` | PASS (140 tests, 0 skipped; includes `BLETaskCrossRuntimeTests`) |
+| `swift test --filter PhoneDSHDeviceTasksTests` | PASS (59 tests) |
+| `bash scripts/ci/check.sh --only phone-spec,phone-cross-tree,phone-license` | PASS (registry byte-identical; 88 schemas, 0 breaking) |
+| `python3 scripts/ci/protocol_impact.py --base 3505b690 --body-file <3a4deeb9 body>` | PASS (P07 triggered, 21 paths) |
+| mutation: cross-runtime test against the board of `3505b690` (`PDSH_SECURE_BRIDGE`) | FAIL as intended: KeyUpdate (close_notify, no alert), record rows (padded 4370 stalls the board, bad tag closes without alert, unknown type and missing inner type answered `record_overflow`) |
+| mutation: phone limit back to 4608 | `testRecordLimitIsDecidedFromTheHeader` FAIL as intended (bad_record_mac) |
+| mutation: checkers (secure admission row visible; secure rows deleted; matrix row deleted and re-pinned; terminator case with NUL-free digest and re-pinned) | 4/4 caught; unmutated PASS |
+
+Not verified: any radio, NimBLE, real CoC credits, device, iPhone, Secure
+Enclave, entropy, power loss or physical gesture (§14 unchanged); the board's
+behaviour with `MBEDTLS_SSL_ALL_ALERT_MESSAGES` disabled; the matrix rows not
+named in §7.4 at the cross-runtime layer (they keep their per-end host /
+loopback results); KeyUpdate sent by the board (mbedTLS 4.1 cannot send one;
+phone end covered against OpenSSL). Remaining risks stay under GAP-16 and §6.6.
 
