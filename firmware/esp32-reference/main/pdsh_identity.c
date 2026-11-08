@@ -8,6 +8,7 @@
 #include "nvs.h"
 #include "psa/crypto.h"
 #include "pdsh_identity.h"
+#include "pdsh_secure_msg.h"
 
 #define IDENTITY_DOMAIN "phoneDSH BLE identity v1"
 #define PUB_LEN 65
@@ -17,57 +18,111 @@
 static psa_key_id_t key_id = 0;
 static uint8_t pub[PUB_LEN];
 static bool ready_flag;
+static pdsh_identity_status_t status = PDSH_IDENTITY_UNAVAILABLE;
 
-static bool load_or_generate_private(uint8_t priv[PRIV_LEN]) {
+/* An enrollment record (any content, even corrupt) proves authority existed. */
+static bool enrollment_record_present(void) {
     nvs_handle_t h;
-    if (nvs_open("pdsh_id", NVS_READWRITE, &h) != ESP_OK) return false;
-    size_t len = PRIV_LEN;
-    esp_err_t err = nvs_get_blob(h, "priv", priv, &len);
-    if (err == ESP_OK && len == PRIV_LEN) { nvs_close(h); return true; }
-    if (err != ESP_ERR_NVS_NOT_FOUND) { nvs_close(h); return false; }
-    /* First boot: generate with the PSA RNG, then persist before use. */
+    if (nvs_open("pdsh_enr", NVS_READWRITE, &h) != ESP_OK) return true; /* unknown: fail closed */
+    char buffer[512];
+    size_t len = sizeof(buffer);
+    esp_err_t err = nvs_get_blob(h, "rec_v1", buffer, &len);
+    nvs_close(h);
+    return err != ESP_ERR_NVS_NOT_FOUND;
+}
+
+static bool generate_and_store(nvs_handle_t h, uint8_t priv[PRIV_LEN]) {
+    /* Key generation source is pending secure-session-v2 review item M4. */
     psa_key_attributes_t attr = PSA_KEY_ATTRIBUTES_INIT;
     psa_set_key_usage_flags(&attr, PSA_KEY_USAGE_SIGN_HASH | PSA_KEY_USAGE_EXPORT);
     psa_set_key_algorithm(&attr, PSA_ALG_ECDSA(PSA_ALG_SHA_256));
     psa_set_key_type(&attr, PSA_KEY_TYPE_ECC_KEY_PAIR(PSA_ECC_FAMILY_SECP_R1));
     psa_set_key_bits(&attr, 256);
     psa_key_id_t generated = 0;
-    if (psa_generate_key(&attr, &generated) != PSA_SUCCESS) { nvs_close(h); return false; }
+    if (psa_generate_key(&attr, &generated) != PSA_SUCCESS) return false;
     size_t out = 0;
     psa_status_t st = psa_export_key(generated, priv, PRIV_LEN, &out);
     psa_destroy_key(generated);
-    if (st != PSA_SUCCESS || out != PRIV_LEN) { nvs_close(h); return false; }
-    if (nvs_set_blob(h, "priv", priv, PRIV_LEN) != ESP_OK || nvs_commit(h) != ESP_OK) {
-        nvs_close(h);
+    if (st != PSA_SUCCESS || out != PRIV_LEN) return false;
+    return nvs_set_blob(h, "priv", priv, PRIV_LEN) == ESP_OK && nvs_commit(h) == ESP_OK;
+}
+
+/* ble-secure-session.md §4.2: NOT_FOUND generates only when no enrollment
+ * record exists; with a record the key is lost and never regenerated here. */
+static pdsh_identity_status_t load_private(uint8_t priv[PRIV_LEN]) {
+    nvs_handle_t h;
+    if (nvs_open("pdsh_id", NVS_READWRITE, &h) != ESP_OK) return PDSH_IDENTITY_UNAVAILABLE;
+    size_t len = PRIV_LEN;
+    esp_err_t err = nvs_get_blob(h, "priv", priv, &len);
+    pdsh_identity_status_t result = PDSH_IDENTITY_UNAVAILABLE;
+    if (err == ESP_OK && len == PRIV_LEN) result = PDSH_IDENTITY_OK;
+    else if (err == ESP_ERR_NVS_NOT_FOUND)
+        result = enrollment_record_present() ? PDSH_IDENTITY_KEY_LOST
+                 : generate_and_store(h, priv) ? PDSH_IDENTITY_OK : PDSH_IDENTITY_UNAVAILABLE;
+    nvs_close(h);
+    return result;
+}
+
+static bool import_private(const uint8_t priv[PRIV_LEN]) {
+    psa_key_attributes_t attr = PSA_KEY_ATTRIBUTES_INIT;
+    psa_set_key_usage_flags(&attr, PSA_KEY_USAGE_SIGN_HASH | PSA_KEY_USAGE_SIGN_MESSAGE | PSA_KEY_USAGE_EXPORT);
+    psa_set_key_algorithm(&attr, PSA_ALG_ECDSA(PSA_ALG_SHA_256));
+    psa_set_key_type(&attr, PSA_KEY_TYPE_ECC_KEY_PAIR(PSA_ECC_FAMILY_SECP_R1));
+    psa_set_key_bits(&attr, 256);
+    psa_key_id_t id = 0;
+    if (psa_import_key(&attr, priv, PRIV_LEN, &id) != PSA_SUCCESS) return false;
+    size_t len = 0;
+    if (psa_export_public_key(id, pub, PUB_LEN, &len) != PSA_SUCCESS || len != PUB_LEN) {
+        psa_destroy_key(id);
         return false;
     }
-    nvs_close(h);
+    if (key_id) psa_destroy_key(key_id);
+    key_id = id;
     return true;
 }
 
 bool pdsh_identity_init(void) {
     if (ready_flag) return true;
     uint8_t priv[PRIV_LEN];
-    if (psa_crypto_init() != PSA_SUCCESS || !load_or_generate_private(priv)) {
-        memset(priv, 0, sizeof(priv));
+    if (psa_crypto_init() != PSA_SUCCESS) {
+        status = PDSH_IDENTITY_UNAVAILABLE;
         return false;
     }
-    psa_key_attributes_t attr = PSA_KEY_ATTRIBUTES_INIT;
-    psa_set_key_usage_flags(&attr, PSA_KEY_USAGE_SIGN_HASH | PSA_KEY_USAGE_EXPORT);
-    psa_set_key_algorithm(&attr, PSA_ALG_ECDSA(PSA_ALG_SHA_256));
-    psa_set_key_type(&attr, PSA_KEY_TYPE_ECC_KEY_PAIR(PSA_ECC_FAMILY_SECP_R1));
-    psa_set_key_bits(&attr, 256);
-    psa_status_t st = psa_import_key(&attr, priv, PRIV_LEN, &key_id);
+    status = load_private(priv);
+    if (status == PDSH_IDENTITY_OK && !import_private(priv)) status = PDSH_IDENTITY_UNAVAILABLE;
     memset(priv, 0, sizeof(priv));
-    if (st != PSA_SUCCESS) return false;
-    size_t len = 0;
-    if (psa_export_public_key(key_id, pub, PUB_LEN, &len) != PSA_SUCCESS || len != PUB_LEN) {
-        psa_destroy_key(key_id);
-        key_id = 0;
-        return false;
+    ready_flag = status == PDSH_IDENTITY_OK;
+    return ready_flag;
+}
+
+pdsh_identity_status_t pdsh_identity_probe(char fp_hex[65]) {
+    if (!ready_flag) return status;
+    return pdsh_fingerprint(pub, fp_hex) ? PDSH_IDENTITY_OK : PDSH_IDENTITY_UNAVAILABLE;
+}
+
+uint32_t pdsh_identity_key(void) { return ready_flag ? key_id : 0; }
+
+bool pdsh_identity_reset(char fp_hex[65]) {
+    nvs_handle_t enr, id;
+    if (nvs_open("pdsh_enr", NVS_READWRITE, &enr) != ESP_OK) return false;
+    esp_err_t e1 = nvs_erase_key(enr, "rec_v1");
+    bool ok = (e1 == ESP_OK || e1 == ESP_ERR_NVS_NOT_FOUND) && nvs_commit(enr) == ESP_OK;
+    nvs_close(enr);
+    if (!ok || nvs_open("pdsh_id", NVS_READWRITE, &id) != ESP_OK) return false;
+    esp_err_t e2 = nvs_erase_key(id, "priv");
+    uint8_t priv[PRIV_LEN];
+    ready_flag = false;
+    status = PDSH_IDENTITY_UNAVAILABLE;
+    ok = (e2 == ESP_OK || e2 == ESP_ERR_NVS_NOT_FOUND) && nvs_commit(id) == ESP_OK && generate_and_store(id, priv);
+    nvs_close(id);
+    if (ok) ok = import_private(priv);
+    memset(priv, 0, sizeof(priv));
+    if (ok) {
+        status = PDSH_IDENTITY_OK;
+        ready_flag = true;
+        ok = pdsh_fingerprint(pub, fp_hex);
     }
-    ready_flag = true;
-    return true;
+    return ok;
 }
 
 bool pdsh_identity_ready(void) { return ready_flag; }

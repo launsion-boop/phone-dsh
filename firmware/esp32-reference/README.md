@@ -69,6 +69,10 @@ idf.py -p /dev/cu.usbmodemYOUR_DEVICE flash monitor
 
 LE Secure Connections + Just Works + 物理窗口提供本参考的绑定流程，不包含设备证书 / ATTEST、MITM 数字比较或加密 NVS；生产设备可另接入身份认证与 Flash / NVS 加密。本版手机每次连接仍独立授权，设备 UUID / 广播名不能当作密码学身份。
 
+### 安全任务会话（secure-session-v1，`target`）
+
+[ble-secure-session.md](../../spec/device/v1/ble-secure-session.md) 的板端核心已在 `main/pdsh_enroll.c`（离线登记控制台语法、状态机、`pdsh_enr/rec_v1`）、`main/pdsh_secure_msg.c`（标识、u16 长度帧、封闭 JSON 消息）、`main/pdsh_secure_cert.c`（固定公钥自签证书的生成与校验）、`main/pdsh_secure_session.c`（TLS 1.3 服务端配置、就绪挑战、序号与任务处理，基于抽象字节流）和任务存储 v2（`tasks_v2`，按手机 `by` 归属）中实现，并由宿主测试驱动全部共享 golden 文件。`tasks_v1` 只读迁移，原值保持不变。登记控制台入口、LE CoC/GATT 绑定和计时参数等待安全评审后的 secure-session-v2，当前固件**不**开放控制台、不注册安全 GATT 服务，也不启用任何 BLE 任务授权；普通 Link 和明文任务拒绝不变。宿主测试需要 ESP-IDF 自带的 mbedTLS（设置 `IDF_PATH`），未在实体 ESP32 或 iPhone 上验证。
+
 ## 本地验证
 
 先 `idf.py build` 解析固定 cJSON 依赖，然后回仓库根目录：

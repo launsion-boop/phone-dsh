@@ -1,2 +1,3 @@
-idf_component_register(SRCS "main.c" "link_tools.c" "pdsh_identity.c" "pdsh_task_validate.c" "pdsh_task_store.c" INCLUDE_DIRS "."
+idf_component_register(SRCS "main.c" "link_tools.c" "pdsh_identity.c" "pdsh_task_validate.c" "pdsh_task_store.c"
+    "pdsh_enroll.c" "pdsh_secure_msg.c" "pdsh_secure_cert.c" "pdsh_secure_session.c" INCLUDE_DIRS "."
     REQUIRES bt nvs_flash esp_wifi esp_event esp_netif esp_timer esp_driver_gpio esp_hw_support mbedtls pdsh_link_wire pdsh_home espressif__cjson)
