@@ -28,6 +28,11 @@ import PhoneDSHAgentCore
         public var identityError = ""
         public var grantedTools: Set<String> = []
         public var homeOrigins = ""
+        /// secure-session-v2: the selected record's device ID for this
+        /// connection ("ble:" + 64 hex), or empty when none is selected.
+        public var secureDevice = ""
+        /// secure-session-v2 service / CoC state of this connection (UI text).
+        public var secureState = ""
         public var events: [String] = []
         public var readings: [String: String] = [:]
     }
@@ -91,7 +96,33 @@ import PhoneDSHAgentCore
         var standardSubscriptionUnknown = Set<StandardBLEProfile>()
         var discovery: DiscoveryLedger?
         var disconnectRevision = Revision()
+        // secure-session-v2 (§5, §8.2): captured at connect from the selection.
+        var secureDevice: String?
+        var secureLease: BLESecureLease?
+        var securePSMEndpoint: AnyObject?
+        var secureUnavailable = false
+        var secureSlot: SecureSlot?
+        var secureGrantAdmitted: BLESecureLease?
     }
+    /// One CoC attempt / channel on a connection: a fresh PSM read, the open,
+    /// then the bounded stream. At most one per connection at any time.
+    private final class SecureSlot {
+        let owner: Owner
+        let lease: BLESecureLease
+        var psm: UInt16?
+        var readContinuation: CheckedContinuation<[UInt8], Error>?
+        var openContinuation: CheckedContinuation<BLESecureByteStream, Error>?
+        var timer: Task<Void, Never>?
+        var stream: BLESecureBoundedStream?
+        /// Retains the CBL2CAPChannel wrapper (or the test I/O).
+        var io: AnyObject?
+        init(owner: Owner, lease: BLESecureLease) { self.owner = owner; self.lease = lease }
+        var pending: Bool { readContinuation != nil || openContinuation != nil }
+        var live: Bool { pending || (stream.map { !$0.isClosed } ?? false) }
+    }
+    /// ble-link ownership plus secure-session-v2 M1: the one record the next
+    /// connection to this peripheral is for.
+    @ObservationIgnored private var secureSelection: (id: UUID, device: String)?
     private final class Revision {}
     @ObservationIgnored private var statusRevision = Revision()
     @ObservationIgnored private var managerUnavailableRevision = Revision()
@@ -176,6 +207,7 @@ import PhoneDSHAgentCore
     enum TestCommand: Equatable {
         case connect(UUID), disconnect(UUID), read(UUID, StandardBLEProfile), alert(UUID, Int)
         case discoverServices(UUID), discoverCharacteristics(UUID), link(UUID), notify(UUID), other(UUID), scan, stopScan
+        case secureRead(UUID), secureOpen(UUID, UInt16)
     }
     final class TestAdapter {
         var poweredOn = true
@@ -203,6 +235,7 @@ import PhoneDSHAgentCore
         var beforeCharacteristicReserve: ((UUID, TestService) -> Void)?
         var afterCharacteristicSubmit: ((UUID, TestService) -> Void)?
         var linkNotifying: [UUID: Set<ObjectIdentifier>] = [:]
+        var serviceDiscoveryUUIDs: [UUID: [String]] = [:]
     }
     final class TestService: NSObject {
         var parent: AnyObject?, uuid: String, primary: Bool
@@ -405,9 +438,16 @@ import PhoneDSHAgentCore
         current.physicalIdentity = peripheral
         #endif
         owners[id] = current
+        if let selection = secureSelection, selection.id == id {
+            current.secureDevice = selection.device
+            current.secureLease = BLESecureLease(peripheral: id, device: selection.device)
+        }
         let initialErrorRevision = current.identityErrorRevision
+        let secureDevice = current.secureDevice
         update(id) {
             guard self.owners[id] === current, current.phase == .connecting else { return }
+            $0.secureDevice = secureDevice.map(BLESecureIdentifiers.deviceID(fingerprint:)) ?? ""
+            $0.secureState = secureDevice == nil ? "" : "等待发现安全会话服务"
             $0.allowRead = current.read; $0.allowAlert = current.alert; $0.state = "连接中"
             if current.identityErrorRevision === initialErrorRevision { $0.identityError = "" }
         }
@@ -544,6 +584,7 @@ import PhoneDSHAgentCore
         current.read = false; current.alert = false
         current.readVersion = Revision(); current.alertVersion = Revision()
         invalidateIdentity(current)
+        teardownSecure(current, reason: "连接已结束")
         let errorRevision = current.identityErrorRevision
         let oldRead = pending.flatMap { $0.device == id && $0.owner === current ? $0 : nil }
         if let oldRead, oldRead.claim.claim(outcome) {
@@ -597,6 +638,7 @@ import PhoneDSHAgentCore
             $0.allowDeviceTasks = false; $0.supportsDeviceTasks = false; $0.taskIdentity = ""; $0.pendingIdentity = ""; if current.identityErrorRevision === errorRevision { $0.identityError = "" }
             $0.grantedTools = []; $0.homeOrigins = ""; $0.events = []; $0.profiles = []; $0.readings = [:]
             $0.allowRead = current.read; $0.allowAlert = current.alert
+            $0.secureDevice = ""; $0.secureState = ""
         }
         if serviceChange && !poweredOn && managerUnavailableRevision === unavailableRevision { observeManagerUnavailable() }
     }
@@ -650,6 +692,7 @@ import PhoneDSHAgentCore
             current.read = false; current.alert = false
             current.readVersion = Revision(); current.alertVersion = Revision()
             invalidateIdentity(current)
+            teardownSecure(current, reason: "蓝牙不可用")
             errorRevisions[id] = current.identityErrorRevision
             if linkBusy[id]?.owner === current { linkBusy[id] = nil }
             if let task = linkTasks.removeValue(forKey: id) { tasks.append(task) }
@@ -672,7 +715,7 @@ import PhoneDSHAgentCore
                 $0.allowDeviceTasks = false; $0.supportsDeviceTasks = false
                 $0.linkIdentity = ""; $0.linkState = "未连接"; $0.linkTools = []; $0.linkToolDescriptors = []
                 $0.taskIdentity = ""; $0.pendingIdentity = ""; if current.identityErrorRevision === errorRevisions[id] { $0.identityError = "" }; $0.grantedTools = []; $0.homeOrigins = ""
-                $0.events = []; $0.profiles = []; $0.readings = [:]
+                $0.events = []; $0.profiles = []; $0.readings = [:]; $0.secureDevice = ""; $0.secureState = ""
             }
         }
         publishScanning(false, unavailableScan)
@@ -768,8 +811,12 @@ import PhoneDSHAgentCore
         #if DEBUG
         testAdapter?.discoverySubmissions.append((id, peer, nil))
         #endif
+        let secure = current.secureDevice != nil ? [BLESecureServiceProfile.serviceUUID] : []
+        #if DEBUG
+        testAdapter?.serviceDiscoveryUUIDs[id] = (Array(Set(StandardBLEProfile.allCases.map(\.service))) + [PDSHLink.service] + secure)
+        #endif
         submitConnected(id, current: current, action: .discoverServices) {
-            peripheral?.discoverServices((Array(Set(StandardBLEProfile.allCases.map(\.service))) + [PDSHLink.service]).map { CBUUID(string: $0) })
+            peripheral?.discoverServices((Array(Set(StandardBLEProfile.allCases.map(\.service))) + [PDSHLink.service] + secure).map { CBUUID(string: $0) })
         }
         if !poweredOn { observeManagerUnavailable() }
     }
@@ -891,11 +938,18 @@ import PhoneDSHAgentCore
         var distinct: [ServiceObservation] = []
         for service in services where !distinct.contains(where: { $0.object === service.object }) { distinct.append(service) }
         let linkCount = distinct.filter { $0.uuid == linkUUID }.count
+        // secure-session-v2 §5: only a connection to the selected, enrolled
+        // device plans the secure service; an ambiguous service is unusable.
+        let secureUUID = CBUUID(string: BLESecureServiceProfile.serviceUUID)
+        let secureSelected = current.secureDevice != nil
+        let secureCount = secureSelected ? distinct.filter { $0.uuid == secureUUID }.count : 0
         for service in distinct {
             let standard = StandardBLEProfile.allCases.contains { CBUUID(string: $0.service) == service.uuid }
-            guard standard || service.uuid == linkUUID else { continue }
+            let secure = secureSelected && service.uuid == secureUUID
+            guard standard || service.uuid == linkUUID || secure else { continue }
             let request = DiscoveryRequest(service)
             if service.uuid == linkUUID && linkCount > 1 { request.state = .skipped }
+            if secure && secureCount > 1 { request.state = .skipped }
             ledger.requests.append(request)
         }
         ledger.revision = Revision()
@@ -907,6 +961,11 @@ import PhoneDSHAgentCore
             if linkCount == 0 { $0.linkState = "本次未发现 Link" }
             else if linkCount > 1 { $0.linkState = "发现多个 Link 服务，暂不可用" }
             else { $0.linkState = "发现 Link 特征中" }
+            if secureSelected {
+                if secureCount == 0 { $0.secureState = "设备不支持安全任务会话" }
+                else if secureCount > 1 { $0.secureState = "发现多个安全会话服务，暂不可用" }
+                else { $0.secureState = "发现安全会话特征中" }
+            }
         }
         guard poweredOn else { observeManagerUnavailable(); return }
         for request in ledger.requests where request.state == .planned {
@@ -918,6 +977,7 @@ import PhoneDSHAgentCore
             guard discoveryCurrent(id, current, ledger), request.state == .planned else { return }
             let ids = request.service.uuid == linkUUID
                 ? [PDSHLink.rx, PDSHLink.tx, PDSHLink.audioUp].map { CBUUID(string: $0) }
+                : request.service.uuid == secureUUID ? [CBUUID(string: BLESecureServiceProfile.psmCharacteristicUUID)]
                 : StandardBLEProfile.allCases.filter { CBUUID(string: $0.service) == request.service.uuid }.map { CBUUID(string: $0.characteristic) }
             request.state = .submitted
             #if DEBUG
@@ -958,6 +1018,8 @@ import PhoneDSHAgentCore
         finishDiscoveryDeadline(id, current, ledger)
         if request.service.uuid == CBUUID(string: PDSHLink.service) {
             installDiscoveredLink(id, current: current, ledger: ledger, request: request, items: items)
+        } else if request.service.uuid == CBUUID(string: BLESecureServiceProfile.serviceUUID), current.secureDevice != nil {
+            installDiscoveredSecure(id, current: current, ledger: ledger, items: items)
         }
         guard poweredOn else { observeManagerUnavailable(); return }
         guard discoveryCurrent(id, current, ledger) else { return }
@@ -1152,6 +1214,190 @@ import PhoneDSHAgentCore
         physical(); return true
     }
 
+    // MARK: secure-session-v2 transport (§5, §8.2)
+
+    /// Selects the one committed record (`device`, bare 64 hex) the next
+    /// connection to peripheral `id` is for, or clears it with nil. Only that
+    /// connection discovers the secure service. Changing or clearing the
+    /// selection ends the secure part of a live connection to the previously
+    /// selected peripheral (its generation, grant and CoC) without reusing it.
+    @discardableResult public func selectSecureDevice(_ id: UUID, device: String?) -> Bool {
+        guard devices.contains(where: { $0.id == id }) else { return false }
+        guard let device else {
+            guard secureSelection?.id == id else { return true }
+            endSecureConnection(id)
+            secureSelection = nil
+            return true
+        }
+        guard BLESecureIdentifiers.isFingerprint(device) else { return false }
+        if let old = secureSelection, old.id != id || old.device != device { endSecureConnection(old.id) }
+        secureSelection = (id, device)
+        return true
+    }
+
+    public var secureSelectionPeripheral: UUID? { secureSelection?.id }
+
+    /// The connection generation token of the live connection to `id`, if it
+    /// was made for the current selection and the secure service is usable.
+    public func secureLease(_ id: UUID) -> BLESecureLease? {
+        guard poweredOn, let current = owners[id], current.phase == .connected, !current.secureUnavailable,
+              current.securePSMEndpoint != nil, let lease = current.secureLease, lease.isValid,
+              let selection = secureSelection, selection.id == id, selection.device == lease.device else { return nil }
+        return lease
+    }
+
+    private func endSecureConnection(_ id: UUID) {
+        guard let current = owners[id], current.secureDevice != nil else { return }
+        teardownSecure(current, reason: "所选设备已更改")
+        current.secureDevice = nil; current.securePSMEndpoint = nil; current.secureUnavailable = true
+        update(id) {
+            guard self.owners[id] === current else { return }
+            $0.secureDevice = ""; $0.secureState = current.phase == .connected ? "所选设备已更改，请断开后重新连接" : ""
+        }
+    }
+
+    /// Synchronous fail-closed teardown: the lease is invalidated first, then
+    /// any pending PSM read / CoC open fails and the stream closes.
+    private func teardownSecure(_ current: Owner, reason: String) {
+        current.secureGrantAdmitted = nil
+        current.secureLease?.invalidate()
+        if let slot = current.secureSlot { failSecureSlot(slot, BLEFailure(reason)) }
+    }
+
+    private func failSecureSlot(_ slot: SecureSlot, _ error: Error) {
+        if slot.owner.secureSlot === slot { slot.owner.secureSlot = nil }
+        slot.timer?.cancel(); slot.timer = nil
+        let read = slot.readContinuation, open = slot.openContinuation
+        slot.readContinuation = nil; slot.openContinuation = nil
+        let stream = slot.stream
+        slot.stream = nil
+        stream?.ownerClosed()
+        read?.resume(throwing: error)
+        open?.resume(throwing: error)
+    }
+
+    private func secureSlotCurrent(_ id: UUID, _ slot: SecureSlot) -> Bool {
+        poweredOn && owners[id] === slot.owner && slot.owner.phase == .connected &&
+        slot.owner.secureSlot === slot && slot.lease.isValid && slot.owner.secureLease === slot.lease
+    }
+
+    private func installDiscoveredSecure(_ id: UUID, current: Owner, ledger: DiscoveryLedger, items: [CharacteristicObservation]) {
+        var matches: [CharacteristicObservation] = []
+        for item in items where item.uuid == CBUUID(string: BLESecureServiceProfile.psmCharacteristicUUID) {
+            if !matches.contains(where: { $0.object === item.object }) { matches.append(item) }
+        }
+        let revision = ledger.revision
+        guard matches.count == 1, matches[0].properties.contains(.read) else {
+            current.secureUnavailable = true
+            update(id) { guard self.discoveryCurrent(id, current, ledger), ledger.revision === revision else { return }; $0.secureState = "安全会话特征不完整或存在歧义" }
+            return
+        }
+        current.securePSMEndpoint = matches[0].object
+        update(id) { guard self.discoveryCurrent(id, current, ledger), ledger.revision === revision else { return }; $0.secureState = "安全会话服务可用" }
+    }
+
+    /// Opens one CoC to the selected device on the live connection of
+    /// `lease`: reads the PSM afresh (never cached), validates it (§5), opens
+    /// the channel and returns its bounded stream. At most one channel per
+    /// connection is live; every owner teardown closes it.
+    public func openSecureStream(_ id: UUID, lease: BLESecureLease) async throws -> BLESecureByteStream {
+        guard poweredOn, let current = owners[id], current.phase == .connected, current.secureLease === lease,
+              lease.isValid, !current.secureUnavailable, let endpoint = current.securePSMEndpoint else {
+            throw BLEFailure("安全会话不可用")
+        }
+        if let old = current.secureSlot {
+            guard !old.live else { throw BLEFailure("本次连接已有安全通道") }
+            current.secureSlot = nil
+        }
+        let slot = SecureSlot(owner: current, lease: lease)
+        current.secureSlot = slot
+        update(id) { guard self.owners[id] === current else { return }; $0.secureState = "读取安全会话端口" }
+        let value: [UInt8] = try await withCheckedThrowingContinuation { continuation in
+            slot.readContinuation = continuation
+            armSecureTimer(id, slot, seconds: 10, "读取安全会话端口超时")
+            #if DEBUG
+            if let testAdapter { testAdapter.commands.append(.secureRead(id)); return }
+            #endif
+            guard let peripheral = current.peripheral, let characteristic = endpoint as? CBCharacteristic else {
+                failSecureSlot(slot, BLEFailure("安全会话不可用")); return
+            }
+            peripheral.readValue(for: characteristic)
+        }
+        guard secureSlotCurrent(id, slot) else { throw BLEFailure("连接已结束") }
+        guard let psm = BLESecureServiceProfile.psm(fromCharacteristic: value) else {
+            // §5: any other length or range → no secure session on this connection.
+            current.secureUnavailable = true
+            failSecureSlot(slot, BLEFailure("安全会话端口无效"))
+            update(id) { guard self.owners[id] === current else { return }; $0.secureState = "安全会话端口无效，本次连接不可用" }
+            throw BLEFailure("安全会话端口无效")
+        }
+        slot.psm = psm
+        let stream: BLESecureByteStream = try await withCheckedThrowingContinuation { continuation in
+            slot.openContinuation = continuation
+            armSecureTimer(id, slot, seconds: 15, "打开安全通道超时")
+            #if DEBUG
+            if let testAdapter { testAdapter.commands.append(.secureOpen(id, psm)); return }
+            #endif
+            guard let peripheral = current.peripheral else { failSecureSlot(slot, BLEFailure("安全会话不可用")); return }
+            peripheral.openL2CAPChannel(CBL2CAPPSM(psm))
+        }
+        guard secureSlotCurrent(id, slot) else { stream.close(); throw BLEFailure("连接已结束") }
+        update(id) { guard self.owners[id] === current, current.secureSlot === slot else { return }; $0.secureState = "安全通道已打开" }
+        return stream
+    }
+
+    private func armSecureTimer(_ id: UUID, _ slot: SecureSlot, seconds: Int, _ message: String) {
+        slot.timer?.cancel()
+        slot.timer = Task {
+            try? await Task.sleep(for: .seconds(seconds))
+            guard !Task.isCancelled, slot.pending else { return }
+            self.failSecureSlot(slot, BLEFailure(message))
+        }
+    }
+
+    private func receivedSecurePSM(_ id: UUID, slot: SecureSlot, data: Data, error: Error?) {
+        guard secureSlotCurrent(id, slot), let continuation = slot.readContinuation else { return }
+        slot.readContinuation = nil
+        slot.timer?.cancel(); slot.timer = nil
+        if let error { failSecureSlot(slot, error); continuation.resume(throwing: error); return }
+        continuation.resume(returning: Array(data))
+    }
+
+    private func dispatchSecureOpen(_ id: UUID, physical: AnyObject, psm: UInt16?, error: Error?,
+                                    make: () -> (io: AnyObject, stream: BLESecureBoundedStream)?) {
+        guard let current = acceptDelegatePeer(id, physical: physical), current.phase == .connected,
+              let slot = current.secureSlot, secureSlotCurrent(id, slot), let continuation = slot.openContinuation else {
+            // Unsolicited or stale: the channel is never adopted.
+            make()?.stream.close()
+            return
+        }
+        guard error == nil, let psm, psm == slot.psm, let made = make() else {
+            failSecureSlot(slot, error ?? BLEFailure("打开安全通道失败"))
+            return
+        }
+        slot.openContinuation = nil
+        slot.timer?.cancel(); slot.timer = nil
+        slot.io = made.io
+        slot.stream = made.stream
+        made.stream.onClose = { [weak self, weak slot] _ in
+            Task { @MainActor in
+                guard let self, let slot, slot.owner.secureSlot === slot else { return }
+                slot.owner.secureSlot = nil
+                slot.stream = nil; slot.io = nil
+                self.update(id) { guard self.owners[id] === slot.owner, slot.owner.phase == .connected else { return }; $0.secureState = "安全通道已关闭" }
+            }
+        }
+        continuation.resume(returning: made.stream)
+    }
+
+    public func peripheral(_ peripheral: CBPeripheral, didOpen channel: CBL2CAPChannel?, error: Error?) {
+        dispatchSecureOpen(peripheral.identifier, physical: peripheral, psm: channel.map { UInt16($0.psm) }, error: error) {
+            guard let channel else { return nil }
+            let io = BLESecureL2CAPStream(channel: channel)
+            return (io, io.stream)
+        }
+    }
+
     #if DEBUG
     final class TestTimerProbe {
         private let getState: () -> String
@@ -1161,6 +1407,26 @@ import PhoneDSHAgentCore
         }
         var state: String { getState() }
         func invoke() { fire() }
+    }
+    func testSecurePSMEndpoint(_ id: UUID) -> AnyObject? { owners[id]?.securePSMEndpoint }
+    func testSecureSlotLive(_ id: UUID) -> Bool { owners[id]?.secureSlot?.live ?? false }
+    func testSecureConnectionLease(_ id: UUID) -> BLESecureLease? { owners[id]?.secureLease }
+    func testSecurePSMValue(_ id: UUID, data: Data, notifying: Bool = false, error: Error? = nil) {
+        guard let peer = testAdapter?.validPeers[id], let endpoint = owners[id]?.securePSMEndpoint else { return }
+        dispatchPhysicalValue(id, physical: peer, endpoint: endpoint, data: data, notifying: notifying, error: error)
+    }
+    @discardableResult
+    func testSecureDidOpen(_ id: UUID, psm: UInt16?, io: BLESecureStreamIO?, error: Error? = nil,
+                           matchingPeer: Bool = true) -> BLESecureBoundedStream? {
+        guard let peer = matchingPeer ? testAdapter?.validPeers[id] : NSObject() else { return nil }
+        var made: BLESecureBoundedStream?
+        dispatchSecureOpen(id, physical: peer, psm: psm, error: error) {
+            guard let io else { return nil }
+            let stream = BLESecureBoundedStream(io: io)
+            made = stream
+            return (io, stream)
+        }
+        return made
     }
     func testDidConnect(_ id: UUID) {
         guard let peer = testAdapter?.validPeers[id], acceptDelegatePeer(id, physical: peer) != nil else { return }
@@ -1539,7 +1805,7 @@ import PhoneDSHAgentCore
         close(read.device, current: read.owner, outcome: .timeout, quarantine: false)
     }
     private enum ValueSource {
-        case linkTX(Data), linkOther, standard(StandardBLEProfile, Data, Bool), unknown
+        case linkTX(Data), linkOther, standard(StandardBLEProfile, Data, Bool), securePSM(Data, Bool), unknown
     }
     private func dispatchValue(_ id: UUID, source: ValueSource, error: Error?) {
         guard poweredOn, let current = owners[id], current.phase == .connected else { return }
@@ -1551,6 +1817,11 @@ import PhoneDSHAgentCore
             channel.receiveSegment(data, error: error)
         case .linkOther:
             return
+        case .securePSM(let data, let notifying):
+            guard let slot = current.secureSlot, slot.readContinuation != nil, !notifying else {
+                close(id, current: current, outcome: .disconnected, quarantine: true); return
+            }
+            receivedSecurePSM(id, slot: slot, data: data, error: error)
         case .standard(let profile, let data, let notifying):
             guard let read = pending, read.device == id, read.owner === current,
                   read.profile == profile, !notifying,
@@ -1566,7 +1837,9 @@ import PhoneDSHAgentCore
                                        data: Data, notifying: Bool, error: Error?) {
         guard acceptDelegatePeer(id, physical: physical) != nil else { return }
         let source: ValueSource
-        if linkPhysicalEndpoints[id]?.values.contains(where: { $0 === endpoint }) == true {
+        if let psm = owners[id]?.securePSMEndpoint, psm === endpoint {
+            source = .securePSM(data, notifying)
+        } else if linkPhysicalEndpoints[id]?.values.contains(where: { $0 === endpoint }) == true {
             if let channel = linkChannels[id] {
                 var isTX = channel.tx === endpoint
                 #if DEBUG
@@ -1950,15 +2223,37 @@ import PhoneDSHAgentCore
         }
     }
 
-    /// GAP-16 requires BLE task grants to remain unavailable until authenticated
-    /// peer binding is specified and verified. Revocation remains available.
+    /// GAP-16 requires BLE task grants to remain unavailable until the
+    /// secure-session-v2 acceptance (spec §14) is recorded. Every build of
+    /// this package refuses: nothing defines PDSH_ENABLE_DEVICE_TASKS for the
+    /// package (Package.swift does not, and the identity UI harness defines it
+    /// only for its app target). Even under the flag the plaintext Link grant
+    /// stays off (§11.2); only a live secure connection generation of the
+    /// selected record may be admitted. Revocation remains available.
     public func grantDeviceTasks(_ id: UUID, enabled: Bool) throws {
         if enabled {
             update(id) { $0.allowDeviceTasks = false }
+            #if PDSH_ENABLE_DEVICE_TASKS
+            guard poweredOn, let current = owners[id], current.phase == .connected,
+                  let lease = current.secureLease, lease.isValid, !current.secureUnavailable else {
+                throw BLEFailure("安全会话未就绪，不能授权蓝牙设备派任务")
+            }
+            current.secureGrantAdmitted = lease
+            return
+            #else
             throw BLEFailure("设备身份认证尚未完成验证，暂不能授权蓝牙设备派任务")
+            #endif
         }
         update(id) { $0.allowDeviceTasks = false }
+        owners[id]?.secureGrantAdmitted = nil
         if linkBusy[id] != nil { disconnect(id) }
+    }
+
+    /// True only after `grantDeviceTasks(id, enabled: true)` admitted this
+    /// exact, still-valid connection generation.
+    public func secureGrantAdmitted(_ id: UUID, lease: BLESecureLease) -> Bool {
+        guard poweredOn, let current = owners[id], current.phase == .connected, lease.isValid else { return false }
+        return current.secureLease === lease && current.secureGrantAdmitted === lease
     }
 
     func invokeTaskLink(_ id: UUID, identity: String, requestID: UUID, name: String,

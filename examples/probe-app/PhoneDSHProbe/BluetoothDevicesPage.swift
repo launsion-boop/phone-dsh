@@ -56,7 +56,7 @@ struct BluetoothDevicesPage: View {
             if !message.isEmpty { Section("结果") { Text(message).textSelection(.enabled) } }
             LegacyTaskInspectionSection(model: legacyInspection, language: NativeChatPreferences.shared.language)
             #if PDSH_ENABLE_DEVICE_TASKS
-            if let error = taskManager.error { Section { Text(error).foregroundStyle(.red) } }
+            if let error = taskManager.error { Section { Text(error).foregroundStyle(.red) } }; SecureEnrollmentSection()
             #endif
             Section("支持范围") {
                 Text("标准电量、环境温度 / 湿度、厂商 / 型号与 Immediate Alert；兼容 xiaozhi-link 握手的 PDSH Link 工具扩展支持 light.set 和 home.http。提醒是标准 Write Without Response，只能确认提交，不能确认硬件执行。暂不支持音频、HID 控制、HomeKit / Matter 或私有 GATT 协议。")
@@ -124,7 +124,7 @@ struct BluetoothDevicesPage: View {
                     Text(device.pendingIdentity).font(.caption.monospaced()).textSelection(.enabled)
                     Button("记录此实验性指纹") { store.trustPendingIdentity(device.id) }
                 }
-                if device.supportsDeviceTasks {
+                SecureDeviceControls(device: device); if device.supportsDeviceTasks {
                     let key = DeviceTaskManager.bleKey(device.id)
                     Toggle("允许设备向手机派任务", isOn: Binding(get: { taskManager.isActive(key) }, set: { enabled in
                         Task { if enabled { await taskManager.startBLE(device.id) } else { await taskManager.stop(key) } }
