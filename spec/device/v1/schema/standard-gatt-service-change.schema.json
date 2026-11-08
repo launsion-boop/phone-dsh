@@ -59,7 +59,8 @@
         "link-inflight",
         "connected-pending-identity",
         "read-error-wins",
-        "link-completed"
+        "link-completed",
+        "unknown-device-off"
       ]
     },
     "invalidated": {
@@ -87,6 +88,7 @@
         "power-off-claim",
         "repeat",
         "unknown-device",
+        "unknown-device-off",
         "value-claimed",
         "will-change"
       ]

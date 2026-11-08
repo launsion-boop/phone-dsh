@@ -893,14 +893,14 @@ class StandardGattServiceChangeFixtureTests(unittest.TestCase):
         device = SPEC_DIR.parent / "device" / "v1"
         schema = json.loads((device / "schema/standard-gatt-service-change.schema.json").read_text())
         rows = [json.loads(line) for line in (device / "golden/standard-gatt-service-change.jsonl").read_text().splitlines()]
-        self.assertEqual(len(rows), 21)
+        self.assertEqual(len(rows), 22)
         self.assertEqual(len(rows), len({row["scenario"] for row in rows}))
         for row in rows:
             spec_golden.validate_json(row, schema, row["scenario"])
         def digest(values):
             data = "\n".join(json.dumps(row, sort_keys=True, separators=(",", ":")) for row in values)
             return hashlib.sha256(data.encode()).hexdigest()
-        frozen = "3aa5fdd3efc1f9df9fed60fb4a8846e96de4cb5b4a1bc8aaa34bdcfde7c73c9f"
+        frozen = "185d5c37e6837df54f031d290845e5a53580d9d1f32c81796b9e895b2157c3a5"
         self.assertEqual(digest(rows), frozen)
         by = {row["scenario"]: row for row in rows}
         self.assertEqual(set(by), set(schema["properties"]["scenario"]["enum"]))
@@ -908,7 +908,7 @@ class StandardGattServiceChangeFixtureTests(unittest.TestCase):
             self.assertEqual((by[name]["a_phase"], by[name]["a_disconnects"], by[name]["a_link"]), ("closing", 1, "cleared"), name)
         self.assertEqual((by["read-value-wins"]["pending_result"], by["read-cancel-wins"]["pending_result"]), ("value", "cancelled"))
         self.assertEqual(by["manager-off-during-claim"]["pending_result"], "disconnected")
-        for name in ("manager-off-before-callback", "manager-off-during-claim"):
+        for name in ("manager-off-before-callback", "manager-off-during-claim", "unknown-device-off"):
             self.assertEqual((by[name]["a_phase"], by[name]["b_phase"], by[name]["a_disconnects"], by[name]["b_link"], by[name]["b_identity"]),
                              ("quarantined", "quarantined", 0, "cleared", "cleared"), name)
         self.assertEqual((by["disconnect-boundary"]["a_phase"], by["disconnect-boundary"]["a_connects"]), ("connecting", 1))

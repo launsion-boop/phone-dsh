@@ -235,8 +235,8 @@ quarantined must not submit another cancellation or release the boundary.
 Other independently unexpected events continue to follow their existing
 fail-closed rules. A current connecting or otherwise unassignable attempt is
 quarantined; any cancellation is subject to the existing pending-connect and
-manager-state rules. An event for no local owner cannot affect another device;
-a different physical object for a known UUID follows the existing unexpected
+manager-state rules. While the manager is powered on, an event for no local
+owner cannot affect another device; a different physical object for a known UUID follows the existing unexpected
 peer policy, not UUID-only attribution.
 
 If the manager is already unavailable when this callback arrives, apply the

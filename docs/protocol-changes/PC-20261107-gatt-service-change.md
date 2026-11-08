@@ -7,7 +7,7 @@ status: frozen
 breaking: true
 version_decision: Preserve existing wire, public grants and errors; tighten local lifecycle admission and require an explicit new connection after an applicable disconnect boundary.
 base: 1fb3385b9ed6cb133cf81c3fe444da01af0ec8bd
-contract_revision: spec/device/v1/ble-link.md@service-change-v1
+contract_revision: spec/device/v1/ble-link.md@service-change-v2
 ```
 
 Protocol impact: P07; P09; P18: none — stored intent and legacy preference
@@ -62,7 +62,7 @@ immediately after its real shared outcome claim and before `finishRead`, so the
 value/error-first cases execute that actual intermediate state. This hook must
 not replace the claim, fabricate its result, or alter release behavior.
 
-The 21 shared cases in
+The 22 shared cases in
 `spec/device/v1/golden/standard-gatt-service-change.jsonl` include empty,
 known and unrelated lists, all three read-outcome winners, pre/post-reserve,
 synchronous Observation reentry, duplicate service change, the disconnect
@@ -70,7 +70,7 @@ callback stack and later explicit reconnect, incorrect physical identity,
 manager unavailability before the callback and during the claimed outcome,
 other-device isolation, unknown device, connecting state and an in-flight
 ordinary Link operation. The canonical SHA-256 is
-`3aa5fdd3efc1f9df9fed60fb4a8846e96de4cb5b4a1bc8aaa34bdcfde7c73c9f`.
+`185d5c37e6837df54f031d290845e5a53580d9d1f32c81796b9e895b2157c3a5`.
 Every row checks exact physical submission counts, lifecycle states, grants,
 identity and channel, pending completion and timer, old Link deliveries and
 legacy preference preservation. Invalid/mutated expectations must fail the
@@ -123,6 +123,7 @@ never an active timer. All task grants stay disabled.
 | `manager-off-during-claim` | Deliver matching A change; after its disconnected result wins the real read claim but before further publication/submission, synchronously change only the simulated manager state to off. The all-owner unavailable transition preserves that winner and submits no cancellation. |
 | `other-device-change` | Deliver matching B change while A's read is pending; feed the real A value callback afterwards and await its successful result. Only B is closed. |
 | `unknown-device` | Deliver an event for an object with an ID having no local owner; neither A nor B is changed. |
+| `unknown-device-off` | Set only the simulated manager's powered state off without delivering its state callback, then deliver an event for an object with no local owner. The existing manager-unavailable transition invalidates A and B and finishes the pending read; no physical command is sent. |
 | `connecting-modification` | Set up A with a submitted connect that has not produced didConnect (B stays connected); a matching unexpected modification quarantines A and requests cancellation under the existing pending-connect rule. |
 | `link-inflight` | Start an ordinary non-task Link operation through the real client and store-owned channel with simulated physical I/O, wait until its real channel continuation is pending, then deliver A change. Await its one outcome-unknown termination; a later old response is not delivered or replayed. |
 | `link-completed` | Complete an ordinary Link operation through the same real channel before delivering A change; its already returned result remains completed and is not retried or reinterpreted. |
@@ -142,7 +143,7 @@ completion, absence of old Link delivery, A/B grants and state, unchanged
 historical suite, and exact command counts; a fixture `scenario` name or a
 fake-returned success is not itself an assertion.
 
-Acceptance: the shared 21 cases, valid/invalid mutations and focused
+Acceptance: the shared 22 cases, valid/invalid mutations and focused
 value/cancel/disconnected first-winner tests against real continuations; a
 real current `PDSHLinkClient` and store-owned `BLELinkChannel.exchange` with
 controlled physical write/response for the in-flight outcome (the test cannot
@@ -158,3 +159,8 @@ subset does not resolve GAP-31's multiple/duplicate discovery callbacks,
 GAP-30, GAP-16, Android device support or authenticated task sessions. Actual
 OS/device service-change and reconnect behavior remains NOT_RUN until tested
 with appropriate controlled peripherals.
+
+Revision v2 clarifies precedence: an unknown-owner event is ignored while
+powered on, but when the manager is already unavailable the independently
+required all-owner unavailability transition takes precedence. The new `unknown-device-off` shared case fixes the interaction explicitly. This clarifies the
+same conservative manager-state behavior and adds no wire or device capability.
