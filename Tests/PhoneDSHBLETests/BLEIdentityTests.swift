@@ -73,13 +73,21 @@ final class BLEIdentityTests: XCTestCase {
         XCTAssertEqual(reloaded.stringArray(forKey: BLETrustedIdentities.key), [identity])
     }
 
+    #if DEBUG
     @MainActor func testUntrustedIdentityAdvertisementDoesNotInterruptOrdinaryTools() async throws {
         let id = UUID()
-        let store = BLEDeviceStore(testDevices: [.init(id: id, name: "peer", rssi: 0)])
+        let adapter = BLEDeviceStore.TestAdapter()
+        let store = BLEDeviceStore(testAdapter: adapter, testDevices: [.init(id: id, name: "peer", rssi: 0)])
+        store.connect(id)
+        store.testDidConnect(id)
+        store.testDiscover(id, profiles: [.battery])
+        let owner = try XCTUnwrap(store.testOwner(id))
         let transport = IdentityAdvertisementTransport()
         let client = PDSHLinkClient(transport: transport)
         let peer = try await client.handshake()
-        try await store.discoverLinkTools(id, client: client, bootID: peer.bootID) { true }
+        try await store.discoverLinkTools(id, client: client, bootID: peer.bootID) {
+            store.testOwner(id) == owner && store.testPhase(id) == "connected"
+        }
 
         let device = try XCTUnwrap(store.devices.first)
         XCTAssertEqual(transport.methods, ["tools/list"])
@@ -90,6 +98,7 @@ final class BLEIdentityTests: XCTestCase {
         store.grantLinkTool(id, name: "pdsh.identity.prove", enabled: true)
         XCTAssertEqual(store.devices.first?.grantedTools, ["light.get"])
     }
+    #endif
 }
 
 /// Returns an unsolicited identity tool but fails any request other than tools/list.

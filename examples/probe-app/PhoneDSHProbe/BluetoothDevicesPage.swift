@@ -2,14 +2,23 @@
 import SwiftUI
 import PhoneDSHBLE
 
+@MainActor
 struct BluetoothDevicesPage: View {
-    @State private var store = BLEDeviceStore.shared
+    @State private var store: BLEDeviceStore
     @State private var message = ""
     @State private var showOtherDevices = false
     @State private var legacyInspection = LegacyTaskInspectionModel()
     #if PDSH_ENABLE_DEVICE_TASKS
     @State private var taskManager = DeviceTaskManager.shared
     #endif
+
+    init() {
+        _store = State(initialValue: .shared)
+    }
+
+    init(store: BLEDeviceStore) {
+        _store = State(initialValue: store)
+    }
 
     /// A device is shown by default when it is connecting/connected, has a known
     /// standard or Link capability, or is one of our own PDSH peripherals.
@@ -61,22 +70,35 @@ struct BluetoothDevicesPage: View {
     private func deviceSection(_ device: BLEDeviceStore.Device) -> some View {
         Section {
             Text(device.id.uuidString).font(.caption).textSelection(.enabled)
-            Text("\(device.state) · RSSI \(device.rssi)")
-            if device.state == "未连接" {
+            if device.state == "正在等待系统断开，暂不可重连" || device.state == "连接状态无法确认，暂不可用" {
+                Text(device.state)
+                    .accessibilityIdentifier("ble-device-unavailable-\(device.id.uuidString)")
+                Text("RSSI \(device.rssi)").font(.footnote)
+            } else if device.state == "未连接" {
+                Text("\(device.state) · RSSI \(device.rssi)")
                 Button("连接并发现设备能力") { store.connect(device.id) }
+                    .accessibilityIdentifier("ble-device-connect-\(device.id.uuidString)")
             } else {
+                Text("\(device.state) · RSSI \(device.rssi)")
                 Button("断开连接", role: .destructive) { store.disconnect(device.id) }
+                    .accessibilityIdentifier("ble-device-disconnect-\(device.id.uuidString)")
+                Text("每次建立新连接后，请重新授权读取或提醒控制。")
+                    .font(.footnote).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("ble-device-reauthorize-\(device.id.uuidString)")
                 Toggle("允许读取标准数据", isOn: Binding(get: {
                     store.devices.first(where: { $0.id == device.id })?.allowRead ?? false
                 }, set: { store.grant(device.id, read: $0) }))
+                .accessibilityIdentifier("ble-device-grant-read-\(device.id.uuidString)")
                 if device.profiles.contains(.alert) {
                     Toggle("允许提醒控制（蜂鸣 / 震动）", isOn: Binding(get: {
                         store.devices.first(where: { $0.id == device.id })?.allowAlert ?? false
                     }, set: { store.grant(device.id, alert: $0) }))
+                    .accessibilityIdentifier("ble-device-grant-alert-\(device.id.uuidString)")
                     ForEach(0...2, id: \.self) { level in
                         Button(["停止提醒", "轻度提醒", "高度提醒"][level]) {
                             do { message = try store.alert(device.id, level: level) } catch { message = error.localizedDescription }
                         }.disabled(!device.allowAlert)
+                            .accessibilityIdentifier("ble-device-alert-\(level)-\(device.id.uuidString)")
                     }
                 }
                 ForEach(device.profiles.filter { $0 != .alert }, id: \.self) { profile in
@@ -86,6 +108,7 @@ struct BluetoothDevicesPage: View {
                             catch { message = error.localizedDescription }
                         }
                     }.disabled(!device.allowRead)
+                        .accessibilityIdentifier("ble-device-read-\(profile.rawValue)-\(device.id.uuidString)")
                     if let value = device.readings[profile.rawValue] { Text(value).font(.caption) }
                 }
                 Text(device.linkState).font(.footnote)
@@ -110,6 +133,7 @@ struct BluetoothDevicesPage: View {
                     Toggle("允许工具：\(name)", isOn: Binding(get: {
                         store.devices.first(where: { $0.id == device.id })?.grantedTools.contains(name) ?? false
                     }, set: { store.grantLinkTool(device.id, name: name, enabled: $0) }))
+                    .accessibilityIdentifier("ble-device-link-\(name)-\(device.id.uuidString)")
                 }
                 if device.linkTools.contains("home.http") {
                     TextField("允许的家居地址：http://192.168.1.50:8123", text: Binding(get: {

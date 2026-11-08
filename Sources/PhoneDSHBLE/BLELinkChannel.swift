@@ -3,10 +3,10 @@ import CoreBluetooth
 import Foundation
 
 @MainActor final class BLELinkChannel: PDSHLinkTransport {
-    let peripheral: CBPeripheral
-    let rx: CBCharacteristic
-    let tx: CBCharacteristic
-    let audio: CBCharacteristic
+    let peripheral: CBPeripheral?
+    let rx: CBCharacteristic?
+    let tx: CBCharacteristic?
+    let audio: CBCharacteristic?
     var onFailure: (() -> Void)?
     var onEvent: ((Data) -> Void)?
     private var nextID: UInt32 = 1
@@ -17,9 +17,12 @@ import Foundation
     init(peripheral: CBPeripheral, rx: CBCharacteristic, tx: CBCharacteristic, audio: CBCharacteristic) {
         self.peripheral = peripheral; self.rx = rx; self.tx = tx; self.audio = audio
     }
+    #if DEBUG
+    init(testing: Void) { peripheral = nil; rx = nil; tx = nil; audio = nil }
+    #endif
     func exchange(opcode: UInt8, body: Data) async throws -> Data {
         try Task.checkCancellation()
-        guard pending == nil, peripheral.state == .connected, tx.isNotifying, audio.isNotifying, nextID <= 65535 else { throw BLEFailure("Link unavailable or busy") }
+        guard let peripheral, let tx, let audio, pending == nil, peripheral.state == .connected, tx.isNotifying, audio.isNotifying, nextID <= 65535 else { throw BLEFailure("Link unavailable or busy") }
         let id = UInt16(nextID); nextID += 1
         let segments = try PDSHLink.Envelope(opcode: opcode, requestID: id, body: body).segments(writeLimit: peripheral.maximumWriteValueLength(for: .withResponse))
         return try await withTaskCancellationHandler {
@@ -39,7 +42,7 @@ import Foundation
         }
     }
     private func writeNext() {
-        guard !packets.isEmpty else { return }
+        guard let peripheral, let rx, !packets.isEmpty else { return }
         peripheral.writeValue(packets.removeFirst(), for: rx, type: .withResponse)
     }
     func didWrite(_ characteristic: CBCharacteristic, error: Error?) {
@@ -48,9 +51,12 @@ import Foundation
     }
     func receive(_ characteristic: CBCharacteristic, error: Error?) {
         guard characteristic === tx else { return }
+        receiveSegment(characteristic.value ?? Data(), error: error)
+    }
+    func receiveSegment(_ data: Data, error: Error?) {
         if let error { fail(error); onFailure?(); return }
         do {
-            guard let envelope = try reassembler.push(characteristic.value ?? Data()) else { return }
+            guard let envelope = try reassembler.push(data) else { return }
             if envelope.opcode == 0x6c, envelope.requestID == 0 { onEvent?(envelope.body); return }
             guard let operation = pending, envelope.requestID == operation.id else { return }
             if envelope.opcode == 0xff { fail(BLEFailure("Link NAK: \(envelope.body.map(String.init).joined(separator: ","))")); return }

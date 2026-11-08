@@ -39,12 +39,17 @@ import PhoneDSHAgentCore
     @ObservationIgnored private var linkBootIDs: [UUID: UInt32] = [:]
     @ObservationIgnored private var linkEventSequences: [UUID: UInt32] = [:]
     @ObservationIgnored private var linkCharacteristics: [UUID: [String: CBCharacteristic]] = [:]
+    @ObservationIgnored private var linkPhysicalEndpoints: [UUID: [String: AnyObject]] = [:]
     @ObservationIgnored private var linkChannels: [UUID: BLELinkChannel] = [:]
     @ObservationIgnored private var linkClients: [UUID: PDSHLinkClient] = [:]
     @ObservationIgnored private var deviceTaskDiscoveryEnabled = false
     @ObservationIgnored private var linkTaskTools: [UUID: Set<String>] = [:]
     @ObservationIgnored private var linkTasks: [UUID: Task<Void, Never>] = [:]
-    @ObservationIgnored private var linkBusy = Set<UUID>()
+    private final class LinkOperation {
+        let owner: Owner
+        init(owner: Owner) { self.owner = owner }
+    }
+    @ObservationIgnored private var linkBusy: [UUID: LinkOperation] = [:]
     @ObservationIgnored private var scanRequested = false
     @ObservationIgnored private var central: CBCentralManager?
     @ObservationIgnored private var peripherals: [UUID: CBPeripheral] = [:]
@@ -52,8 +57,93 @@ import PhoneDSHAgentCore
     @ObservationIgnored private var ambiguousProfiles: [UUID: Set<StandardBLEProfile>] = [:]
     @ObservationIgnored private var connectionTimers: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored private var scanTimer: Task<Void, Never>?
-    @ObservationIgnored private var pending: (token: UUID, device: UUID, profile: StandardBLEProfile, continuation: CheckedContinuation<String, Error>)?
-    @ObservationIgnored private var operationTimer: Task<Void, Never>?
+    @ObservationIgnored private var closingTimers: [UUID: Task<Void, Never>] = [:]
+    private final class Owner {
+        enum Phase: String { case idle, connecting, connected, closing, quarantined }
+        var phase: Phase = .idle
+        var submitted = false
+        var wasConnected = false
+        var peripheral: CBPeripheral?
+        var physicalIdentity: AnyObject?
+        var read = false, alert = false
+        var readVersion = Revision(), alertVersion = Revision()
+        var standardSubscribed = Set<StandardBLEProfile>()
+        var standardSubscriptionUnknown = Set<StandardBLEProfile>()
+    }
+    private final class Revision {}
+    private final class ReadClaim: @unchecked Sendable {
+        enum Outcome { case cancelled, permission, timeout, unavailable, disconnected, value(Result<String, Error>) }
+        private let lock = NSLock()
+        private var outcome: Outcome?
+        private var submitted = false
+        func claim(_ proposed: Outcome) -> Bool {
+            lock.lock(); defer { lock.unlock() }
+            guard outcome == nil else { return false }
+            outcome = proposed; return true
+        }
+        func reserve() -> Bool {
+            lock.lock(); defer { lock.unlock() }
+            guard outcome == nil else { return false }
+            submitted = true; return true
+        }
+        func snapshot() -> (Outcome?, Bool) {
+            lock.lock(); defer { lock.unlock() }
+            return (outcome, submitted)
+        }
+    }
+    private final class PendingRead {
+        let token = UUID()
+        let device: UUID
+        let profile: StandardBLEProfile
+        let owner: Owner
+        let claim: ReadClaim
+        var continuation: CheckedContinuation<String, Error>?
+        var timer: Task<Void, Never>?
+        var timerCreated = false
+        var timerCancelled = false
+        init(device: UUID, profile: StandardBLEProfile, owner: Owner, claim: ReadClaim,
+             continuation: CheckedContinuation<String, Error>) {
+            self.device = device; self.profile = profile; self.owner = owner
+            self.claim = claim; self.continuation = continuation
+        }
+    }
+    @ObservationIgnored private var owners: [UUID: Owner] = [:]
+    @ObservationIgnored private var submittedDevices: Set<UUID> = []
+    @ObservationIgnored private var pending: PendingRead?
+
+    #if DEBUG
+    enum TestCommand: Equatable {
+        case connect(UUID), disconnect(UUID), read(UUID, StandardBLEProfile), alert(UUID, Int)
+        case discoverServices(UUID), discoverCharacteristics(UUID), link(UUID), notify(UUID), other(UUID), scan, stopScan
+    }
+    final class TestAdapter {
+        var poweredOn = true
+        var commands: [TestCommand] = []
+        var beforeConnect: ((UUID) -> Void)?
+        var beforeReadReserve: (() -> Void)?
+        var afterReadReserve: (() -> Void)?
+        var afterReadOutcomeClaim: (() -> Void)?
+        var profiles: [UUID: Set<StandardBLEProfile>] = [:]
+        var validPeers: [UUID: NSObject] = [:]
+        var profileEndpoints: [UUID: [StandardBLEProfile: NSObject]] = [:]
+    }
+    @ObservationIgnored private var testAdapter: TestAdapter?
+    init(testAdapter: TestAdapter, testDevices: [Device]) {
+        self.testAdapter = testAdapter; self.devices = testDevices
+        testAdapter.validPeers = Dictionary(uniqueKeysWithValues: testDevices.map { ($0.id, NSObject()) }); super.init()
+    }
+    #endif
+
+    private var poweredOn: Bool {
+        #if DEBUG
+        if let testAdapter { return testAdapter.poweredOn }
+        #endif
+        return central?.state == .poweredOn
+    }
+    private func owner(_ id: UUID) -> Owner {
+        if let value = owners[id] { return value }
+        let value = Owner(); owners[id] = value; return value
+    }
 
     public var bluetoothDiagnostics: String {
         "authorization=\(CBManager.authorization.rawValue) state=\(central?.state.rawValue ?? -1) scanning=\(central?.isScanning ?? false) delegate=\(central?.delegate === self)"
@@ -65,6 +155,12 @@ import PhoneDSHAgentCore
         deviceTaskDiscoveryEnabled = enabled
     }
     public func scan() {
+        #if DEBUG
+        if let testAdapter {
+            guard testAdapter.poweredOn else { return }
+            testAdapter.commands.append(.scan); scanning = true; return
+        }
+        #endif
         if central == nil { scanRequested = true; status = "正在初始化蓝牙"; central = CBCentralManager(delegate: self, queue: .main); return }
         guard central?.state == .poweredOn else { status = "请在系统设置中开启蓝牙并授权"; return }
         // Foreground, bounded scan. Unadvertised services are discovered after user selection.
@@ -73,105 +169,425 @@ import PhoneDSHAgentCore
         scanTimer?.cancel()
         scanTimer = Task { try? await Task.sleep(for: .seconds(15)); guard !Task.isCancelled else { return }; stopScan() }
     }
-    public func stopScan() { scanRequested = false; central?.stopScan(); scanning = false; scanTimer?.cancel() }
+    public func stopScan() {
+        scanRequested = false; scanTimer?.cancel(); scanTimer = nil
+        #if DEBUG
+        if let testAdapter { if testAdapter.poweredOn { testAdapter.commands.append(.stopScan) }; scanning = false; return }
+        #endif
+        if poweredOn { central?.stopScan() }
+        scanning = false
+    }
     public func centralManagerDidUpdateState(_ central: CBCentralManager) {
-        if central.state == .poweredOn {
+        guard self.central === central else { managerUnavailable(reset: true); return }
+        centralStateChanged(central.state)
+    }
+    private func centralStateChanged(_ state: CBManagerState) {
+        if state == .poweredOn {
             status = "蓝牙已就绪，请点击扫描"
             if scanRequested { scanRequested = false; scan() }
+        } else {
+            let invalidatesPeers: Bool
+            switch state {
+            case .unknown, .resetting, .unsupported, .unauthorized: invalidatesPeers = true
+            case .poweredOff, .poweredOn: invalidatesPeers = false
+            @unknown default: invalidatesPeers = true
+            }
+            #if DEBUG
+            if invalidatesPeers { testAdapter?.validPeers.removeAll(); testAdapter?.profiles.removeAll(); testAdapter?.profileEndpoints.removeAll() }
+            #endif
+            managerUnavailable(reset: invalidatesPeers)
+            status = "蓝牙不可用，状态：\(state.rawValue)"
         }
-        else {
-            stopScan(); status = "蓝牙不可用，状态：\(central.state.rawValue)"
-            finish(.failure(BLEFailure("Bluetooth unavailable")))
-            for id in peripherals.keys { clearConnection(id) }
+    }
+    private func recordDiscovery(_ id: UUID, physical: AnyObject, name: String, rssi: Int) {
+        guard peripherals[id] != nil || devices.contains(where: { $0.id == id }) || devices.count < 100 else { return }
+        #if DEBUG
+        if let testAdapter, let peer = physical as? NSObject { testAdapter.validPeers[id] = peer }
+        else if let peripheral = physical as? CBPeripheral { peripherals[id] = peripheral }
+        #else
+        if let peripheral = physical as? CBPeripheral { peripherals[id] = peripheral }
+        #endif
+        if devices.contains(where: { $0.id == id }) {
+            update(id) { $0.rssi = rssi; $0.name = name }
+        } else {
+            withMutation(keyPath: \.devices) {
+                guard !_devices.contains(where: { $0.id == id }), _devices.count < 100 else { return }
+                _devices.append(Device(id: id, name: name, rssi: rssi))
+            }
         }
     }
     public func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral, advertisementData: [String: Any], rssi RSSI: NSNumber) {
-        guard peripherals[peripheral.identifier] != nil || devices.count < 100 else { return }
-        peripherals[peripheral.identifier] = peripheral
+        guard self.central === central, poweredOn else { return }
         let advertisedName = advertisementData[CBAdvertisementDataLocalNameKey] as? String
         let name = advertisedName.flatMap { $0.isEmpty ? nil : $0 } ?? peripheral.name ?? "未命名 BLE 设备"
-        if let index = devices.firstIndex(where: { $0.id == peripheral.identifier }) {
-            devices[index].rssi = RSSI.intValue
-            devices[index].name = name
-        } else { devices.append(Device(id: peripheral.identifier, name: name, rssi: RSSI.intValue)) }
+        recordDiscovery(peripheral.identifier, physical: peripheral, name: name, rssi: RSSI.intValue)
     }
     public func connect(_ id: UUID) {
-        guard let peripheral = peripherals[id], central?.state == .poweredOn, peripheral.state == .disconnected else { return }
-        stopScan(); update(id) { $0.state = "连接中" }
-        peripheral.delegate = self; central?.connect(peripheral)
+        guard poweredOn, devices.contains(where: { $0.id == id }) else { return }
+        let old = owner(id)
+        guard old.phase == .idle else { return }
+        #if DEBUG
+        let testing = testAdapter?.validPeers[id] != nil
+        #else
+        let testing = false
+        #endif
+        let peripheral = peripherals[id]
+        guard testing || (peripheral != nil && peripheral?.state == .disconnected) else { return }
+        let current = Owner(); current.phase = .connecting; current.peripheral = peripheral
+        #if DEBUG
+        testAdapter?.profiles[id] = nil; testAdapter?.profileEndpoints[id] = nil
+        current.physicalIdentity = testAdapter?.validPeers[id] ?? peripheral
+        #else
+        current.physicalIdentity = peripheral
+        #endif
+        owners[id] = current
+        update(id) {
+            guard self.owners[id] === current, current.phase == .connecting else { return }
+            $0.allowRead = current.read; $0.allowAlert = current.alert; $0.state = "连接中"
+        }
+        guard owners[id] === current, current.phase == .connecting, poweredOn else { return }
+        stopScan()
+        guard owners[id] === current, current.phase == .connecting, poweredOn else { return }
+        #if DEBUG
+        testAdapter?.beforeConnect?(id)
+        #endif
+        guard owners[id] === current, current.phase == .connecting, poweredOn else { return }
+        current.submitted = true
+        submittedDevices.insert(id)
         connectionTimers[id] = Task {
             try? await Task.sleep(for: .seconds(20))
             guard !Task.isCancelled else { return }
-            status = "连接或服务发现超时"; disconnect(id)
+            connectionTimedOut(id, current: current)
         }
+        #if DEBUG
+        if let testAdapter { testAdapter.commands.append(.connect(id)); return }
+        #endif
+        guard let peripheral else { return }
+        peripheral.delegate = self
+        central?.connect(peripheral, options: nil)
+    }
+    private func connectionTimedOut(_ id: UUID, current: Owner) {
+        guard owners[id] === current, current.phase == .connecting || current.phase == .connected else { return }
+        status = "连接或服务发现超时"
+        guard owners[id] === current, current.phase == .connecting || current.phase == .connected else { return }
+        disconnect(id)
     }
     public func disconnect(_ id: UUID) {
-        guard let peripheral = peripherals[id] else { return }
-        central?.cancelPeripheralConnection(peripheral)
-        clearConnection(id)
+        guard let current = owners[id], current.phase != .idle else { return }
+        close(id, current: current, outcome: .disconnected, quarantine: current.phase == .connecting)
     }
     public func grant(_ id: UUID, read: Bool? = nil, alert: Bool? = nil) {
-        update(id) { if let read { $0.allowRead = read }; if let alert { $0.allowAlert = alert } }
-        if pending?.device == id { finish(.failure(BLEFailure("Device permissions changed"))); disconnect(id) }
+        guard devices.contains(where: { $0.id == id }) else { return }
+        let current = owner(id)
+        if let pending, pending.device == id, pending.owner === current {
+            close(id, current: current, outcome: .permission, quarantine: current.phase == .connecting)
+            return
+        }
+        if current.phase == .closing || current.phase == .quarantined {
+            // Positive declarations cannot reopen an unavailable owner.
+            return
+        }
+        guard read != nil || alert != nil else { return }
+        let readRevision = Revision(), alertRevision = Revision()
+        if read != nil { current.readVersion = readRevision; current.read = false }
+        if alert != nil { current.alertVersion = alertRevision; current.alert = false }
+        withMutation(keyPath: \.devices) {
+            guard self.owners[id] === current,
+                  current.phase != .closing, current.phase != .quarantined,
+                  let index = _devices.firstIndex(where: { $0.id == id }) else { return }
+            if let read, current.readVersion === readRevision {
+                current.read = read; _devices[index].allowRead = read
+            }
+            if let alert, current.alertVersion === alertRevision {
+                current.alert = alert; _devices[index].allowAlert = alert
+            }
+        }
     }
     private func update(_ id: UUID, _ body: (inout Device) -> Void) {
-        if let index = devices.firstIndex(where: { $0.id == id }) { body(&devices[index]) }
+        guard devices.contains(where: { $0.id == id }) else { return }
+        withMutation(keyPath: \.devices) {
+            guard let index = _devices.firstIndex(where: { $0.id == id }) else { return }
+            body(&_devices[index])
+        }
     }
-    private func clearConnection(_ id: UUID) {
-        linkTasks.removeValue(forKey: id)?.cancel()
-        linkChannels.removeValue(forKey: id)?.fail(BLEFailure("Link disconnected; outcome_unknown"))
-        linkClients[id] = nil; linkTaskTools[id] = nil; linkCharacteristics[id] = nil; linkBootIDs[id] = nil; linkEventSequences[id] = nil
-        update(id) { $0.linkState = "未连接"; $0.linkIdentity = ""; $0.linkTools = []; $0.linkToolDescriptors = []; $0.allowDeviceTasks = false; $0.supportsDeviceTasks = false; $0.taskIdentity = ""; $0.pendingIdentity = ""; $0.grantedTools = []; $0.homeOrigins = ""; $0.events = [] }
-        connectionTimers.removeValue(forKey: id)?.cancel(); characteristics[id] = nil; ambiguousProfiles[id] = nil
-        update(id) { $0.state = "未连接"; $0.profiles = []; $0.readings = [:]; $0.allowRead = false; $0.allowAlert = false }
-        if pending?.device == id { finish(.failure(BLEFailure("Device disconnected"))) }
+    private func finishRead(_ read: PendingRead) {
+        guard pending === read, let outcome = read.claim.snapshot().0 else { return }
+        pending = nil
+        if let timer = read.timer { timer.cancel(); read.timerCancelled = true; read.timer = nil }
+        let continuation = read.continuation; read.continuation = nil
+        switch outcome {
+        case .cancelled: continuation?.resume(throwing: CancellationError())
+        case .permission: continuation?.resume(throwing: BLEFailure("Device permissions changed"))
+        case .timeout: continuation?.resume(throwing: BLEFailure("Bluetooth read timed out"))
+        case .unavailable: continuation?.resume(throwing: BLEFailure("Bluetooth unavailable"))
+        case .disconnected: continuation?.resume(throwing: BLEFailure("Device disconnected"))
+        case .value(let result): continuation?.resume(with: result)
+        }
+    }
+
+    private func close(_ id: UUID, current: Owner, outcome: ReadClaim.Outcome,
+                       quarantine: Bool, sendDisconnect: Bool = true, forceQuarantine: Bool = false) {
+        guard owners[id] === current else { return }
+        if current.phase == .closing || current.phase == .quarantined { return }
+        let unsent = current.phase == .connecting && !current.submitted && !forceQuarantine
+        let connection = current.peripheral
+        current.phase = unsent ? .idle : (quarantine || !current.wasConnected || !poweredOn ? .quarantined : .closing)
+        current.read = false; current.alert = false
+        current.readVersion = Revision(); current.alertVersion = Revision()
+        let oldRead = pending.flatMap { $0.device == id && $0.owner === current ? $0 : nil }
+        if let oldRead, oldRead.claim.claim(outcome) {
+            #if DEBUG
+            testAdapter?.afterReadOutcomeClaim?()
+            #endif
+        }
+        if linkBusy[id]?.owner === current { linkBusy[id] = nil }
+        let task = linkTasks.removeValue(forKey: id)
+        let channel = linkChannels.removeValue(forKey: id)
+        linkClients[id] = nil; linkTaskTools[id] = nil; linkCharacteristics[id] = nil; linkPhysicalEndpoints[id] = nil
+        linkBootIDs[id] = nil; linkEventSequences[id] = nil
+        let timer = connectionTimers.removeValue(forKey: id)
+        characteristics[id] = nil; ambiguousProfiles[id] = nil
+        task?.cancel(); timer?.cancel()
+        channel?.fail(BLEFailure("Link disconnected; outcome_unknown"))
+        if let oldRead { finishRead(oldRead) }
+        if current.phase == .closing {
+            closingTimers[id]?.cancel()
+            closingTimers[id] = Task {
+                try? await Task.sleep(for: .seconds(20))
+                guard !Task.isCancelled else { return }
+                closingTimedOut(id, current: current)
+            }
+        }
+        if !unsent, sendDisconnect, poweredOn {
+            #if DEBUG
+            if let testAdapter { testAdapter.commands.append(.disconnect(id)) }
+            else if let connection { central?.cancelPeripheralConnection(connection) }
+            #else
+            if let connection { central?.cancelPeripheralConnection(connection) }
+            #endif
+        }
+        update(id) {
+            guard self.owners[id] === current else { return }
+            $0.state = self.phaseLabel(current.phase)
+            $0.linkState = "未连接"; $0.linkIdentity = ""; $0.linkTools = []; $0.linkToolDescriptors = []
+            $0.allowDeviceTasks = false; $0.supportsDeviceTasks = false; $0.taskIdentity = ""; $0.pendingIdentity = ""
+            $0.grantedTools = []; $0.homeOrigins = ""; $0.events = []; $0.profiles = []; $0.readings = [:]
+            $0.allowRead = current.read; $0.allowAlert = current.alert
+        }
+    }
+
+    private func closingTimedOut(_ id: UUID, current: Owner) {
+        guard owners[id] === current, current.phase == .closing else { return }
+        current.phase = .quarantined
+        closingTimers.removeValue(forKey: id)?.cancel()
+        update(id) {
+            guard self.owners[id] === current, current.phase == .quarantined else { return }
+            $0.state = self.phaseLabel(.quarantined)
+        }
+    }
+
+    private func phaseLabel(_ phase: Owner.Phase) -> String {
+        switch phase {
+        case .idle: return "未连接"
+        case .connecting: return "连接中"
+        case .connected: return "已连接"
+        case .closing: return "正在等待系统断开，暂不可重连"
+        case .quarantined: return "连接状态无法确认，暂不可用"
+        }
+    }
+
+    private func managerUnavailable(reset: Bool) {
+        scanRequested = false; scanTimer?.cancel(); scanTimer = nil
+        // Invalidate every owner before the first observer can reenter.
+        let snapshot = Array(owners)
+        var tasks: [Task<Void, Never>] = [], channels: [BLELinkChannel] = []
+        for (id, current) in snapshot {
+            let neverSubmitted = current.phase == .idle && !submittedDevices.contains(id)
+            current.phase = neverSubmitted ? .idle : .quarantined
+            current.read = false; current.alert = false
+            current.readVersion = Revision(); current.alertVersion = Revision()
+            if linkBusy[id]?.owner === current { linkBusy[id] = nil }
+            if let task = linkTasks.removeValue(forKey: id) { tasks.append(task) }
+            if let task = connectionTimers.removeValue(forKey: id) { tasks.append(task) }
+            if let task = closingTimers.removeValue(forKey: id) { tasks.append(task) }
+            if let channel = linkChannels.removeValue(forKey: id) { channels.append(channel) }
+            linkClients[id] = nil; linkTaskTools[id] = nil; linkCharacteristics[id] = nil; linkPhysicalEndpoints[id] = nil
+            linkBootIDs[id] = nil; linkEventSequences[id] = nil
+            characteristics[id] = nil; ambiguousProfiles[id] = nil
+        }
+        if reset { peripherals.removeAll() }
+        if let read = pending { _ = read.claim.claim(.unavailable); finishRead(read) }
+        tasks.forEach { $0.cancel() }
+        channels.forEach { $0.fail(BLEFailure("Bluetooth unavailable")) }
+        for (id, current) in snapshot {
+            update(id) {
+                guard self.owners[id] === current else { return }
+                $0.allowRead = current.read; $0.allowAlert = current.alert; $0.state = self.phaseLabel(current.phase)
+                $0.allowDeviceTasks = false; $0.supportsDeviceTasks = false
+                $0.linkIdentity = ""; $0.linkState = "未连接"; $0.linkTools = []; $0.linkToolDescriptors = []
+                $0.taskIdentity = ""; $0.pendingIdentity = ""; $0.grantedTools = []; $0.homeOrigins = ""
+                $0.events = []; $0.profiles = []; $0.readings = [:]
+            }
+        }
+        scanning = false
+    }
+    private func quarantineUnexpected(_ id: UUID, current: Owner, sendDisconnect: Bool) {
+        guard owners[id] === current else { return }
+        if current.phase == .closing {
+            current.phase = .quarantined
+            closingTimers.removeValue(forKey: id)?.cancel()
+            if sendDisconnect, poweredOn {
+                #if DEBUG
+                if let testAdapter { testAdapter.commands.append(.disconnect(id)) }
+                else if let peripheral = current.peripheral { central?.cancelPeripheralConnection(peripheral) }
+                #else
+                if let peripheral = current.peripheral { central?.cancelPeripheralConnection(peripheral) }
+                #endif
+            }
+            update(id) {
+                guard self.owners[id] === current, current.phase == .quarantined else { return }
+                $0.state = self.phaseLabel(.quarantined)
+            }
+        } else if current.phase != .quarantined {
+            close(id, current: current, outcome: .disconnected, quarantine: true, sendDisconnect: sendDisconnect, forceQuarantine: true)
+        }
+    }
+    private func acceptDelegatePeer(_ id: UUID, physical: AnyObject) -> Owner? {
+        guard poweredOn, let current = owners[id] else { return nil }
+        guard current.physicalIdentity === physical else {
+            quarantineUnexpected(id, current: current, sendDisconnect: current.submitted && current.phase != .closing)
+            return nil
+        }
+        return current
     }
     public func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
-        update(peripheral.identifier) { $0.state = "发现服务中" }
-        peripheral.discoverServices((Array(Set(StandardBLEProfile.allCases.map(\.service))) + [PDSHLink.service]).map { CBUUID(string: $0) })
+        guard self.central === central else { managerUnavailable(reset: true); return }
+        guard acceptDelegatePeer(peripheral.identifier, physical: peripheral) != nil else { return }
+        connected(peripheral.identifier, peripheral: peripheral)
     }
     public func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
-        status = error?.localizedDescription ?? "连接失败"; clearConnection(peripheral.identifier)
+        guard self.central === central else { managerUnavailable(reset: true); return }
+        guard acceptDelegatePeer(peripheral.identifier, physical: peripheral) != nil else { return }
+        failedConnect(peripheral.identifier)
+        status = error?.localizedDescription ?? "连接失败"
     }
-    public func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) { clearConnection(peripheral.identifier) }
+    public func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
+        guard self.central === central else { managerUnavailable(reset: true); return }
+        let id = peripheral.identifier
+        guard let current = acceptDelegatePeer(id, physical: peripheral) else { return }
+        disconnectCallback(id, current: current)
+        scheduleDisconnectBoundary(id, current: current)
+    }
+
+    private func connected(_ id: UUID, peripheral: CBPeripheral?) {
+        guard poweredOn, let current = owners[id] else { return }
+        if current.phase == .quarantined {
+            if current.submitted {
+                #if DEBUG
+                if let testAdapter { testAdapter.commands.append(.disconnect(id)) }
+                else if let peripheral { central?.cancelPeripheralConnection(peripheral) }
+                #else
+                if let peripheral { central?.cancelPeripheralConnection(peripheral) }
+                #endif
+            }
+            return
+        }
+        guard current.phase == .connecting, current.submitted,
+              current.peripheral === peripheral else {
+            quarantineUnexpected(id, current: current, sendDisconnect: true)
+            return
+        }
+        current.phase = .connected; current.wasConnected = true
+        update(id) {
+            guard self.owners[id] === current, current.phase == .connected else { return }
+            $0.state = "已连接"
+        }
+        guard owners[id] === current, current.phase == .connected, poweredOn else { return }
+        submitConnected(id, current: current, action: .discoverServices) {
+            peripheral?.discoverServices((Array(Set(StandardBLEProfile.allCases.map(\.service))) + [PDSHLink.service]).map { CBUUID(string: $0) })
+        }
+    }
+
+    private func failedConnect(_ id: UUID) {
+        guard let current = owners[id] else { return }
+        if current.phase == .connecting && current.submitted {
+            close(id, current: current, outcome: .disconnected, quarantine: true, sendDisconnect: false)
+        } else if current.phase != .quarantined {
+            quarantineUnexpected(id, current: current, sendDisconnect: current.phase == .connected)
+        }
+    }
+
+    private func disconnectCallback(_ id: UUID, current: Owner) {
+        guard owners[id] === current else { return }
+        if current.phase == .connected, current.wasConnected {
+            close(id, current: current, outcome: .disconnected, quarantine: false, sendDisconnect: false)
+        } else if current.phase != .closing && current.phase != .quarantined {
+            close(id, current: current, outcome: .disconnected, quarantine: true, sendDisconnect: false)
+        }
+    }
+
+    private func scheduleDisconnectBoundary(_ id: UUID, current: Owner) {
+        Task { @MainActor in self.finishDisconnectBoundary(id, current: current) }
+    }
+    private func finishDisconnectBoundary(_ id: UUID, current: Owner) {
+        guard owners[id] === current, current.phase == .closing, current.wasConnected, poweredOn else { return }
+        closingTimers.removeValue(forKey: id)?.cancel()
+        current.phase = .idle; current.submitted = false
+        update(id) {
+            guard self.owners[id] === current, current.phase == .idle else { return }
+            $0.state = "未连接"
+        }
+    }
     public func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
+        let id = peripheral.identifier
+        guard let current = acceptDelegatePeer(id, physical: peripheral), current.phase == .connected else { return }
         guard error == nil else { status = error!.localizedDescription; disconnect(peripheral.identifier); return }
         let services = peripheral.services ?? []
-        if services.isEmpty { connectionTimers.removeValue(forKey: peripheral.identifier)?.cancel(); update(peripheral.identifier) { $0.state = "无支持的标准服务" } }
+        if services.isEmpty { connectionTimers.removeValue(forKey: peripheral.identifier)?.cancel(); update(peripheral.identifier) { guard self.owners[id] === current, current.phase == .connected else { return }; $0.state = "无支持的标准服务" } }
         for service in services {
+            guard poweredOn, owners[id] === current, current.phase == .connected else { return }
             if service.uuid == CBUUID(string: PDSHLink.service) {
-                update(peripheral.identifier) { $0.linkState = "发现 Link 特征中" }
-                peripheral.discoverCharacteristics([PDSHLink.rx, PDSHLink.tx, PDSHLink.audioUp].map { CBUUID(string: $0) }, for: service)
+                update(peripheral.identifier) { guard self.owners[id] === current, current.phase == .connected else { return }; $0.linkState = "发现 Link 特征中" }
+                guard poweredOn, owners[id] === current, current.phase == .connected else { return }
+                submitConnected(id, current: current, action: .discoverCharacteristics) {
+                    peripheral.discoverCharacteristics([PDSHLink.rx, PDSHLink.tx, PDSHLink.audioUp].map { CBUUID(string: $0) }, for: service)
+                }
                 continue
             }
             let ids = StandardBLEProfile.allCases.filter { CBUUID(string: $0.service) == service.uuid }.map { CBUUID(string: $0.characteristic) }
-            peripheral.discoverCharacteristics(ids, for: service)
+            submitConnected(id, current: current, action: .discoverCharacteristics) { peripheral.discoverCharacteristics(ids, for: service) }
         }
     }
     public func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
+        let id = peripheral.identifier
+        guard let current = acceptDelegatePeer(id, physical: peripheral), current.phase == .connected else { return }
         guard error == nil else { status = error!.localizedDescription; disconnect(peripheral.identifier); return }
         if service.uuid == CBUUID(string: PDSHLink.service) {
             let id = peripheral.identifier
             var found: [String: CBCharacteristic] = [:]
             for c in service.characteristics ?? [] { found[c.uuid.uuidString.lowercased()] = c }
             linkCharacteristics[id] = found
+            recordLinkPhysicalEndpoints(id, current: current, endpoints: found.mapValues { $0 as AnyObject })
             if let rx = found[PDSHLink.rx], let tx = found[PDSHLink.tx], let audio = found[PDSHLink.audioUp],
                rx.properties.contains(.write), tx.properties.contains(.notify), audio.properties.contains(.notify) {
                 let channel = BLELinkChannel(peripheral: peripheral, rx: rx, tx: tx, audio: audio)
-                channel.onFailure = { [weak self] in self?.disconnect(id) }
-                channel.onEvent = { [weak self] data in
-                    guard let self, let bootID = self.linkBootIDs[id],
-                          let device = self.devices.first(where: { $0.id == id }),
-                          let event = try? PDSHLinkEvent(data: data, expectedBootID: bootID, expectedDeviceID: device.linkIdentity),
-                          event.sequence > (self.linkEventSequences[id] ?? 0), let text = String(data: data, encoding: .utf8) else { return }
-                    self.linkEventSequences[id] = event.sequence
-                    self.update(id) { $0.events.append(text); if $0.events.count > 32 { $0.events.removeFirst() } }
+                channel.onFailure = { [weak self, weak current] in
+                    guard let self, let current, self.owners[id] === current, current.phase == .connected else { return }
+                    self.disconnect(id)
+                }
+                channel.onEvent = { [weak self, weak current] data in
+                    guard let self, let current else { return }
+                    self.handleLinkEvent(id, current: current, data: data)
                 }
                 linkChannels[id] = channel
-                peripheral.setNotifyValue(true, for: tx); peripheral.setNotifyValue(true, for: audio)
-                update(id) { $0.linkState = "等待加密、绑定与订阅" }
-            } else { update(id) { $0.linkState = "Link 特征不完整" } }
+                guard poweredOn, owners[id] === current, current.phase == .connected else { return }
+                submitConnected(id, current: current, action: .notify) { peripheral.setNotifyValue(true, for: tx) }
+                guard poweredOn, owners[id] === current, current.phase == .connected else { return }
+                submitConnected(id, current: current, action: .notify) { peripheral.setNotifyValue(true, for: audio) }
+                update(id) { guard self.owners[id] === current, current.phase == .connected, self.linkChannels[id] === channel else { return }; $0.linkState = "等待加密、绑定与订阅" }
+            } else { update(id) { guard self.owners[id] === current, current.phase == .connected else { return }; $0.linkState = "Link 特征不完整" } }
         }
+        guard poweredOn, owners[id] === current, current.phase == .connected else { return }
         for characteristic in service.characteristics ?? [] {
             guard let profile = StandardBLEProfile.allCases.first(where: {
                 CBUUID(string: $0.service) == service.uuid && CBUUID(string: $0.characteristic) == characteristic.uuid
@@ -187,78 +603,406 @@ import PhoneDSHAgentCore
                 }
             }
         }
-        update(peripheral.identifier) { $0.profiles = StandardBLEProfile.allCases.filter { characteristics[peripheral.identifier]?[$0] != nil } }
+        update(peripheral.identifier) { guard self.owners[id] === current, current.phase == .connected else { return }; $0.profiles = StandardBLEProfile.allCases.filter { characteristics[peripheral.identifier]?[$0] != nil } }
+        guard poweredOn, owners[id] === current, current.phase == .connected else { return }
         if (peripheral.services ?? []).allSatisfy({ $0.characteristics != nil }) {
             connectionTimers.removeValue(forKey: peripheral.identifier)?.cancel()
-            update(peripheral.identifier) { $0.state = "已连接" }
+            update(peripheral.identifier) { guard self.owners[id] === current, current.phase == .connected else { return }; $0.state = "已连接" }
         }
     }
+    private func recordLinkPhysicalEndpoints(_ id: UUID, current: Owner, endpoints: [String: AnyObject]) {
+        guard poweredOn, owners[id] === current, current.phase == .connected else { return }
+        linkPhysicalEndpoints[id] = endpoints
+    }
+    private func handleLinkEvent(_ id: UUID, current: Owner, data: Data) {
+        guard poweredOn, owners[id] === current, current.phase == .connected,
+              let bootID = linkBootIDs[id], let device = devices.first(where: { $0.id == id }),
+              let event = try? PDSHLinkEvent(data: data, expectedBootID: bootID, expectedDeviceID: device.linkIdentity),
+              event.sequence > (linkEventSequences[id] ?? 0), let text = String(data: data, encoding: .utf8) else { return }
+        linkEventSequences[id] = event.sequence
+        update(id) {
+            guard self.owners[id] === current, current.phase == .connected else { return }
+            $0.events.append(text); if $0.events.count > 32 { $0.events.removeFirst() }
+        }
+    }
+    private enum ConnectedAction { case discoverServices, discoverCharacteristics, notify, link }
+    @discardableResult private func submitConnected(_ id: UUID, current: Owner?, action: ConnectedAction, physical: () -> Void) -> Bool {
+        guard poweredOn, let current, owners[id] === current, current.phase == .connected else { return false }
+        #if DEBUG
+        if let testAdapter {
+            switch action {
+            case .discoverServices: testAdapter.commands.append(.discoverServices(id))
+            case .discoverCharacteristics: testAdapter.commands.append(.discoverCharacteristics(id))
+            case .notify: testAdapter.commands.append(.notify(id))
+            case .link: testAdapter.commands.append(.link(id))
+            }
+            return true
+        }
+        #endif
+        physical(); return true
+    }
+
+    #if DEBUG
+    final class TestTimerProbe {
+        private let getState: () -> String
+        private let fire: () -> Void
+        init(state: @escaping () -> String, fire: @escaping () -> Void) {
+            self.getState = state; self.fire = fire
+        }
+        var state: String { getState() }
+        func invoke() { fire() }
+    }
+    func testDidConnect(_ id: UUID) {
+        guard let peer = testAdapter?.validPeers[id], acceptDelegatePeer(id, physical: peer) != nil else { return }
+        connected(id, peripheral: nil)
+    }
+    func testDidFail(_ id: UUID) {
+        guard let peer = testAdapter?.validPeers[id], acceptDelegatePeer(id, physical: peer) != nil else { return }
+        failedConnect(id)
+    }
+    func testDidDisconnect(_ id: UUID, during: (() -> Void)? = nil) {
+        guard let peer = testAdapter?.validPeers[id], let current = acceptDelegatePeer(id, physical: peer) else { return }
+        disconnectCallback(id, current: current)
+        during?()
+        scheduleDisconnectBoundary(id, current: current)
+    }
+    func testDiscover(_ id: UUID, profiles: Set<StandardBLEProfile>) {
+        guard let testAdapter, poweredOn, let current = owners[id], current.phase == .connected else { return }
+        testAdapter.profiles[id] = profiles
+        testAdapter.profileEndpoints[id] = Dictionary(uniqueKeysWithValues: profiles.map { ($0, NSObject()) })
+        connectionTimers.removeValue(forKey: id)?.cancel()
+        update(id) {
+            guard self.owners[id] === current, current.phase == .connected else { return }
+            $0.profiles = StandardBLEProfile.allCases.filter { profiles.contains($0) }
+        }
+    }
+    func testValue(_ id: UUID, profile: StandardBLEProfile?, data: Data, error: Error? = nil) {
+        guard let peer = testAdapter?.validPeers[id], acceptDelegatePeer(id, physical: peer) != nil else { return }
+        let source: ValueSource
+        if let profile, testAdapter?.profiles[id]?.contains(profile) == true { source = .standard(profile, data, false) }
+        else { source = .unknown }
+        dispatchValue(id, source: source, error: error)
+    }
+    func testUnassignablePeer(_ id: UUID) {
+        guard testAdapter != nil else { return }
+        _ = acceptDelegatePeer(id, physical: NSObject())
+    }
+    func testRadioUnavailable(reset: Bool) { testManagerState(reset ? .resetting : .poweredOff) }
+    func testManagerState(_ state: CBManagerState) {
+        guard let testAdapter else { return }
+        testAdapter.poweredOn = state == .poweredOn
+        centralStateChanged(state)
+    }
+    func testRadioOn() { testManagerState(.poweredOn) }
+    func testRediscover(_ id: UUID) {
+        guard testAdapter != nil, poweredOn, let device = devices.first(where: { $0.id == id }) else { return }
+        recordDiscovery(id, physical: NSObject(), name: device.name, rssi: device.rssi)
+    }
+    func testPhase(_ id: UUID) -> String { owner(id).phase.rawValue }
+    func testDeclarations(_ id: UUID) -> (read: Bool, alert: Bool) { let value = owner(id); return (value.read, value.alert) }
+    func testOwner(_ id: UUID) -> ObjectIdentifier? { owners[id].map(ObjectIdentifier.init) }
+    func testPending(_ id: UUID) -> Bool { pending?.device == id }
+    func testPendingToken(_ id: UUID) -> ObjectIdentifier? {
+        guard let pending, pending.device == id else { return nil }
+        return ObjectIdentifier(pending)
+    }
+    func testReadAdmission(_ id: UUID, profile: StandardBLEProfile) throws { _ = try readAdmission(id, profile: profile) }
+    func testInstallPending(_ id: UUID, profile: StandardBLEProfile, continuation: CheckedContinuation<String, Error>) throws {
+        let current = try readAdmission(id, profile: profile)
+        beginRead(id, profile: profile, current: current, claim: ReadClaim(), continuation: continuation)
+    }
+    func testCaptureReadTimeout() -> TestTimerProbe? {
+        guard let read = pending, read.timerCreated else { return nil }
+        return TestTimerProbe(state: { read.timerCancelled ? "cancelled" : "active" },
+                              fire: { [weak self] in self?.timeoutRead(read) })
+    }
+    func testCaptureClosingTimeout(_ id: UUID) -> TestTimerProbe? {
+        guard let current = owners[id], current.phase == .closing, closingTimers[id] != nil else { return nil }
+        return TestTimerProbe(state: { [weak self] in self?.closingTimers[id] == nil ? "cancelled" : "active" },
+                              fire: { [weak self] in self?.closingTimedOut(id, current: current) })
+    }
+    func testCaptureConnectionTimeout(_ id: UUID) -> TestTimerProbe? {
+        guard let current = owners[id], connectionTimers[id] != nil else { return nil }
+        return TestTimerProbe(state: { [weak self] in self?.owners[id] === current && self?.connectionTimers[id] != nil ? "active" : "cancelled" },
+                              fire: { [weak self] in self?.connectionTimedOut(id, current: current) })
+    }
+    func testSubscription(_ id: UUID, profile: StandardBLEProfile, state: String) {
+        testNotification(id, profile: profile, matchingPeer: true, notifying: state == "subscribed")
+    }
+    func testNotification(_ id: UUID, profile: StandardBLEProfile?, matchingPeer: Bool = true,
+                          notifying: Bool, error: Error? = nil) {
+        guard let adapter = testAdapter, let knownPeer = adapter.validPeers[id] else { return }
+        let peer = matchingPeer ? knownPeer : NSObject()
+        let endpoint = profile.flatMap { adapter.profileEndpoints[id]?[$0] } ?? NSObject()
+        let source = notificationSource(id, characteristic: endpoint, notifying: notifying)
+        dispatchNotification(id, physical: peer, source: source, error: error)
+    }
+    func testDiscoverIncompleteLink(_ id: UUID) {
+        guard testAdapter != nil, let current = owners[id], current.phase == .connected,
+              linkChannels[id] == nil else { return }
+        recordLinkPhysicalEndpoints(id, current: current, endpoints: [PDSHLink.tx: NSObject()])
+    }
+    @discardableResult func testIncompleteLinkNotification(_ id: UUID) -> Bool {
+        guard let peer = testAdapter?.validPeers[id], let endpoint = linkPhysicalEndpoints[id]?[PDSHLink.tx] else { return false }
+        let source = notificationSource(id, characteristic: endpoint, notifying: true)
+        dispatchNotification(id, physical: peer, source: source, error: nil)
+        return true
+    }
+    func testUnrelatedUpdate(_ id: UUID) { update(id) { $0.name += "!" } }
+    func testAttemptDiscovery(_ id: UUID) {
+        guard testAdapter != nil else { return }
+        submitConnected(id, current: owners[id], action: .discoverCharacteristics) {}
+    }
+    func testAttemptLink(_ id: UUID) {
+        guard testAdapter != nil else { return }
+        submitConnected(id, current: owners[id], action: .link) {}
+    }
+    func testAttemptNotify(_ id: UUID) {
+        guard testAdapter != nil else { return }
+        submitConnected(id, current: owners[id], action: .notify) {}
+    }
+    func testPrepareLink(_ id: UUID, bootID: UInt32, deviceID: String) {
+        guard testAdapter != nil, poweredOn, let current = owners[id], current.phase == .connected else { return }
+        let channel = BLELinkChannel(testing: ())
+        channel.onEvent = { [weak self, weak current] data in
+            guard let self, let current else { return }
+            self.handleLinkEvent(id, current: current, data: data)
+        }
+        channel.onFailure = { [weak self, weak current] in
+            guard let self, let current, self.owners[id] === current, current.phase == .connected else { return }
+            self.disconnect(id)
+        }
+        linkChannels[id] = channel; linkBootIDs[id] = bootID
+        update(id) {
+            guard self.owners[id] === current, current.phase == .connected else { return }
+            $0.linkIdentity = deviceID.lowercased()
+        }
+    }
+    func testLinkEvent(_ id: UUID, segment: Data) {
+        guard let peer = testAdapter?.validPeers[id], acceptDelegatePeer(id, physical: peer) != nil else { return }
+        dispatchValue(id, source: .linkTX(segment), error: nil)
+    }
+    func testLinkDeliveries(_ id: UUID) -> Int { devices.first(where: { $0.id == id })?.events.count ?? 0 }
+    #endif
+
+    private func readAdmission(_ id: UUID, profile: StandardBLEProfile) throws -> Owner {
+        guard profile != .alert, let current = owners[id], current.read else {
+            throw BLEFailure("Enable device read access in Settings → Bluetooth devices")
+        }
+        guard pending == nil else { throw BLEFailure("Another Bluetooth read is running") }
+        guard poweredOn, current.phase == .connected,
+              !current.standardSubscribed.contains(profile), !current.standardSubscriptionUnknown.contains(profile) else {
+            throw BLEFailure("Device disconnected or unsupported profile")
+        }
+        #if DEBUG
+        if let testAdapter {
+            guard testAdapter.profiles[id]?.contains(profile) == true else { throw BLEFailure("Device disconnected or unsupported profile") }
+            return current
+        }
+        #endif
+        guard let peripheral = current.peripheral, peripheral.state == .connected,
+              let characteristic = characteristics[id]?[profile], !characteristic.isNotifying else {
+            throw BLEFailure("Device disconnected or unsupported profile")
+        }
+        return current
+    }
+
+    private func beginRead(_ id: UUID, profile: StandardBLEProfile, current: Owner,
+                           claim: ReadClaim, continuation: CheckedContinuation<String, Error>) {
+        if case .cancelled? = claim.snapshot().0 { continuation.resume(throwing: CancellationError()); return }
+        guard owners[id] === current, (try? readAdmission(id, profile: profile)) === current else {
+            continuation.resume(throwing: BLEFailure("Device disconnected or unsupported profile")); return
+        }
+        let read = PendingRead(device: id, profile: profile, owner: current, claim: claim, continuation: continuation)
+        pending = read
+        #if DEBUG
+        testAdapter?.beforeReadReserve?()
+        #endif
+        guard claim.reserve() else { finishRead(read); return }
+        #if DEBUG
+        testAdapter?.afterReadReserve?()
+        #endif
+        if claim.snapshot().0 != nil { settleReadCancellation(read); return }
+        read.timer = Task {
+            try? await Task.sleep(for: .seconds(10))
+            guard !Task.isCancelled else { return }
+            self.timeoutRead(read)
+        }
+        read.timerCreated = true
+        #if DEBUG
+        if let testAdapter { testAdapter.commands.append(.read(id, profile)); return }
+        #endif
+        guard poweredOn, owners[id] === current, current.phase == .connected,
+              let peripheral = current.peripheral, let characteristic = characteristics[id]?[profile] else {
+            _ = claim.claim(.disconnected); finishRead(read); return
+        }
+        peripheral.readValue(for: characteristic)
+    }
+
     public func read(_ id: UUID, profile: StandardBLEProfile) async throws -> String {
         try Task.checkCancellation()
-        guard profile != .alert, let device = devices.first(where: { $0.id == id }), device.allowRead else { throw BLEFailure("Enable device read access in Settings → Bluetooth devices") }
-        guard pending == nil else { throw BLEFailure("Another Bluetooth read is running") }
-        guard let peripheral = peripherals[id], peripheral.state == .connected,
-              let characteristic = characteristics[id]?[profile] else { throw BLEFailure("Device disconnected or unsupported profile") }
-        let token = UUID()
+        let current = try readAdmission(id, profile: profile)
+        let claim = ReadClaim()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
-                pending = (token, id, profile, continuation)
-                operationTimer = Task {
-                    try? await Task.sleep(for: .seconds(10)); guard !Task.isCancelled, pending?.token == token else { return }
-                    finish(.failure(BLEFailure("Bluetooth read timed out"))); disconnect(id)
-                }
-                peripheral.readValue(for: characteristic)
+                beginRead(id, profile: profile, current: current, claim: claim, continuation: continuation)
             }
         } onCancel: {
-            Task { @MainActor in
-                guard self.pending?.token == token else { return }
-                self.finish(.failure(CancellationError())); self.disconnect(id)
+            if claim.claim(.cancelled) {
+                Task { @MainActor in
+                    guard let read = self.pending, read.claim === claim else { return }
+                    self.settleReadCancellation(read)
+                }
             }
+        }
+    }
+
+    private func settleReadCancellation(_ read: PendingRead) {
+        guard pending === read else { return }
+        let (outcome, submitted) = read.claim.snapshot()
+        guard case .cancelled? = outcome else { return }
+        if submitted, owners[read.device] === read.owner {
+            close(read.device, current: read.owner, outcome: .cancelled, quarantine: false)
+        } else { finishRead(read) }
+    }
+
+    private func timeoutRead(_ read: PendingRead) {
+        guard pending === read, owners[read.device] === read.owner, read.claim.claim(.timeout) else { return }
+        close(read.device, current: read.owner, outcome: .timeout, quarantine: false)
+    }
+    private enum ValueSource {
+        case linkTX(Data), linkOther, standard(StandardBLEProfile, Data, Bool), unknown
+    }
+    private func dispatchValue(_ id: UUID, source: ValueSource, error: Error?) {
+        guard poweredOn, let current = owners[id], current.phase == .connected else { return }
+        switch source {
+        case .linkTX(let data):
+            guard let channel = linkChannels[id] else {
+                close(id, current: current, outcome: .disconnected, quarantine: true); return
+            }
+            channel.receiveSegment(data, error: error)
+        case .linkOther:
+            return
+        case .standard(let profile, let data, let notifying):
+            guard let read = pending, read.device == id, read.owner === current,
+                  read.profile == profile, !notifying,
+                  !current.standardSubscribed.contains(profile), !current.standardSubscriptionUnknown.contains(profile) else {
+                close(id, current: current, outcome: .disconnected, quarantine: true); return
+            }
+            receivedRead(read, data: data, error: error)
+        case .unknown:
+            close(id, current: current, outcome: .disconnected, quarantine: true)
         }
     }
     public func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
-        if characteristic.service?.uuid == CBUUID(string: PDSHLink.service) {
-            linkChannels[peripheral.identifier]?.receive(characteristic, error: error); return
-        }
-        guard let pending, pending.device == peripheral.identifier,
-              characteristics[pending.device]?[pending.profile] === characteristic else { return }
-        if let error { finish(.failure(error)); return }
+        let id = peripheral.identifier
+        guard acceptDelegatePeer(id, physical: peripheral) != nil else { return }
+        let source: ValueSource
+        if linkCharacteristics[id]?.values.contains(where: { $0 === characteristic }) == true {
+            if let channel = linkChannels[id] {
+                source = channel.tx === characteristic ? .linkTX(characteristic.value ?? Data()) : .linkOther
+            } else { source = .unknown }
+        } else if let profile = StandardBLEProfile.allCases.first(where: { characteristics[id]?[$0] === characteristic }) {
+            source = .standard(profile, characteristic.value ?? Data(), characteristic.isNotifying)
+        } else { source = .unknown }
+        dispatchValue(id, source: source, error: error)
+    }
+    private func receivedRead(_ read: PendingRead, data: Data, error: Error?) {
+        guard pending === read else { return }
+        let result: Result<String, Error>
         do {
-            let value = try pending.profile.decode(characteristic.value ?? Data())
-            let result = "\(value) \(pending.profile.unit) @ \(ISO8601DateFormatter().string(from: Date()))"
-            update(pending.device) { $0.readings[pending.profile.rawValue] = result }
-            finish(.success(result))
-        } catch { finish(.failure(error)) }
+            if let error { throw error }
+            let value = try read.profile.decode(data)
+            result = .success("\(value) \(read.profile.unit) @ \(ISO8601DateFormatter().string(from: Date()))")
+        } catch { result = .failure(error) }
+        guard read.claim.claim(.value(result)) else { return }
+        finishRead(read)
+        if case .success(let value) = result {
+            update(read.device) {
+                guard self.owners[read.device] === read.owner, read.owner.phase == .connected else { return }
+                $0.readings[read.profile.rawValue] = value
+            }
+        }
     }
-    private func finish(_ result: Result<String, Error>) {
-        let continuation = pending?.continuation; pending = nil; operationTimer?.cancel(); operationTimer = nil
-        continuation?.resume(with: result)
+    public func cancelRead() {
+        guard let read = pending else { return }
+        guard read.claim.claim(.cancelled) else { return }
+        settleReadCancellation(read)
     }
-    public func cancelRead() { if let id = pending?.device { finish(.failure(CancellationError())); disconnect(id) } }
     public func alert(_ id: UUID, level: Int) throws -> String {
-        guard let device = devices.first(where: { $0.id == id }), device.allowAlert else { throw BLEFailure("Enable Immediate Alert access for this device in Settings") }
-        guard let peripheral = peripherals[id], peripheral.state == .connected,
+        guard let current = owners[id], current.alert else { throw BLEFailure("Enable Immediate Alert access for this device in Settings") }
+        let data = try StandardBLEProfile.alertCommand(level: level)
+        guard poweredOn, current.phase == .connected else { throw BLEFailure("Alert unavailable or Bluetooth busy") }
+        #if DEBUG
+        if let testAdapter {
+            guard testAdapter.profiles[id]?.contains(.alert) == true else { throw BLEFailure("Alert unavailable or Bluetooth busy") }
+            testAdapter.commands.append(.alert(id, level))
+            return "submitted_unconfirmed: Immediate Alert has no application acknowledgement; inspect device before repeating."
+        }
+        #endif
+        guard let peripheral = current.peripheral, peripheral.state == .connected,
               let characteristic = characteristics[id]?[.alert], peripheral.canSendWriteWithoutResponse else { throw BLEFailure("Alert unavailable or Bluetooth busy") }
-        peripheral.writeValue(try StandardBLEProfile.alertCommand(level: level), for: characteristic, type: .withoutResponse)
+        peripheral.writeValue(data, for: characteristic, type: .withoutResponse)
         return "submitted_unconfirmed: Immediate Alert has no application acknowledgement; inspect device before repeating."
     }
     public func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
+        guard let current = acceptDelegatePeer(peripheral.identifier, physical: peripheral), current.phase == .connected else { return }
         linkChannels[peripheral.identifier]?.didWrite(characteristic, error: error)
     }
-    public func peripheral(_ peripheral: CBPeripheral, didUpdateNotificationStateFor characteristic: CBCharacteristic, error: Error?) {
-        let id = peripheral.identifier
-        guard characteristic.service?.uuid == CBUUID(string: PDSHLink.service) else { return }
+    private enum NotificationSource { case standard(StandardBLEProfile, notifying: Bool), link, unknown }
+    private func dispatchNotification(_ id: UUID, physical: AnyObject, source: NotificationSource, error: Error?) {
+        guard let current = acceptDelegatePeer(id, physical: physical), current.phase == .connected else { return }
+        switch source {
+        case .standard(let profile, let notifying):
+            if error != nil { current.standardSubscriptionUnknown.insert(profile) }
+            if notifying { current.standardSubscribed.insert(profile) }
+            else { current.standardSubscriptionUnknown.insert(profile) }
+            return
+        case .unknown:
+            quarantineUnexpected(id, current: current, sendDisconnect: true)
+            return
+        case .link:
+            break
+        }
         guard error == nil else { status = error!.localizedDescription; disconnect(id); return }
-        guard let channel = linkChannels[id], channel.tx.isNotifying, channel.audio.isNotifying, linkTasks[id] == nil else { return }
+        guard let channel = linkChannels[id], channel.tx?.isNotifying == true, channel.audio?.isNotifying == true, linkTasks[id] == nil else { return }
         linkTasks[id] = Task {
             do {
                 let client = PDSHLinkClient(transport: channel, allowTaskProfile: deviceTaskDiscoveryEnabled), peer = try await client.handshake()
                 guard !Task.isCancelled, linkChannels[id] === channel else { return }
-                update(id) { $0.linkState = "Link \(peer.version >> 8).\(peer.version & 255) · boot \(peer.bootID)" }
-                guard peer.supportsTools else { update(id) { $0.linkState += " · 旧固件，未协商工具扩展" }; return }
+                update(id) { guard self.owners[id] === current, current.phase == .connected, self.linkChannels[id] === channel else { return }; $0.linkState = "Link \(peer.version >> 8).\(peer.version & 255) · boot \(peer.bootID)" }
+                guard poweredOn, owners[id] === current, current.phase == .connected, linkChannels[id] === channel else { return }
+                guard peer.supportsTools else { update(id) { guard self.owners[id] === current, current.phase == .connected, self.linkChannels[id] === channel else { return }; $0.linkState += " · 旧固件，未协商工具扩展" }; return }
                 try await discoverLinkTools(id, client: client, bootID: peer.bootID) { self.linkChannels[id] === channel }
-            } catch { if !Task.isCancelled { status = error.localizedDescription; disconnect(id) } }
+            } catch {
+                if !Task.isCancelled, owners[id] === current, current.phase == .connected {
+                    status = error.localizedDescription
+                    guard owners[id] === current, current.phase == .connected else { return }
+                    disconnect(id)
+                }
+            }
         }
+    }
+
+    private func notificationSource(_ id: UUID, characteristic: AnyObject, notifying: Bool) -> NotificationSource {
+        if let profile = StandardBLEProfile.allCases.first(where: { characteristics[id]?[$0] === characteristic }) {
+            return .standard(profile, notifying: notifying)
+        }
+        #if DEBUG
+        if let adapter = testAdapter,
+           let profile = StandardBLEProfile.allCases.first(where: { adapter.profileEndpoints[id]?[$0] === characteristic }) {
+            return .standard(profile, notifying: notifying)
+        }
+        #endif
+        if linkChannels[id] != nil, linkPhysicalEndpoints[id]?.values.contains(where: { $0 === characteristic }) == true {
+            return .link
+        }
+        return .unknown
+    }
+    public func peripheral(_ peripheral: CBPeripheral, didUpdateNotificationStateFor characteristic: CBCharacteristic, error: Error?) {
+        let id = peripheral.identifier
+        let source = notificationSource(id, characteristic: characteristic, notifying: characteristic.isNotifying)
+        dispatchNotification(id, physical: peripheral, source: source, error: error)
     }
 
     /// Installs ordinary Link tools without invoking the draft task identity profile.
@@ -278,13 +1022,14 @@ import PhoneDSHAgentCore
         linkTaskTools[id] = Set(names.filter(Self.isReservedTaskTool))
         let ordinaryTools = tools.filter { !Self.isReservedTaskTool($0["name"]?.stringValue ?? "") }
         // GAP-16 remains open; advertised task tools are never invoked here.
-        update(id) { $0.linkIdentity = deviceID.lowercased(); $0.linkTools = names.filter { !Self.isReservedTaskTool($0) }; $0.linkToolDescriptors = ordinaryTools; $0.supportsDeviceTasks = false; $0.taskIdentity = ""; $0.pendingIdentity = ""; $0.linkState += " · PDSH Tools v1" }
+        update(id) { guard isCurrent() else { return }; $0.linkIdentity = deviceID.lowercased(); $0.linkTools = names.filter { !Self.isReservedTaskTool($0) }; $0.linkToolDescriptors = ordinaryTools; $0.supportsDeviceTasks = false; $0.taskIdentity = ""; $0.pendingIdentity = ""; $0.linkState += " · PDSH Tools v1" }
     }
     public func grantLinkTool(_ id: UUID, name: String, enabled: Bool) {
-        guard !linkBusy.contains(id) else { status = "请等待当前设备操作结束，或断开连接"; return }
+        guard poweredOn, let current = owners[id], current.phase == .connected else { return }
+        guard linkBusy[id] == nil else { status = "请等待当前设备操作结束，或断开连接"; return }
         // These are host control-plane operations, never model device skills.
         guard !Self.isReservedTaskTool(name) else { return }
-        update(id) { if enabled && $0.linkTools.contains(name) { $0.grantedTools.insert(name) } else { $0.grantedTools.remove(name) } }
+        update(id) { guard self.owners[id] === current, current.phase == .connected else { return }; if enabled && $0.linkTools.contains(name) { $0.grantedTools.insert(name) } else { $0.grantedTools.remove(name) } }
     }
 
     /// Sends a fresh nonce and verifies the device's signed identity proof.
@@ -329,7 +1074,7 @@ import PhoneDSHAgentCore
             throw BLEFailure("设备身份认证尚未完成验证，暂不能授权蓝牙设备派任务")
         }
         update(id) { $0.allowDeviceTasks = false }
-        if linkBusy.contains(id) { disconnect(id) }
+        if linkBusy[id] != nil { disconnect(id) }
     }
 
     func invokeTaskLink(_ id: UUID, identity: String, requestID: UUID, name: String,
@@ -338,18 +1083,21 @@ import PhoneDSHAgentCore
         guard allowed.contains(name), let device = devices.first(where: { $0.id == id }),
               device.allowDeviceTasks, !device.taskIdentity.isEmpty, device.taskIdentity == identity,
               linkTaskTools[id]?.contains(name) == true, let client = linkClients[id],
-              !linkBusy.contains(id) else { throw BLEFailure("Device task grant or Link connection unavailable") }
-        linkBusy.insert(id); defer { linkBusy.remove(id) }
+              linkBusy[id] == nil else { throw BLEFailure("Device task grant or Link connection unavailable") }
+        guard let current = owners[id], current.phase == .connected, poweredOn else { throw BLEFailure("Link disconnected") }
+        let operation = LinkOperation(owner: current); linkBusy[id] = operation
+        defer { if linkBusy[id] === operation { linkBusy[id] = nil } }
+        guard submitConnected(id, current: current, action: .link, physical: {}) else { throw BLEFailure("Link disconnected") }
         if fresh { return try await client.invoke(requestID: requestID, name: name, arguments: arguments, idempotencyKey: key) }
         guard let result = try await client.query(requestID: requestID) else { throw BLEFailure("Link operation still running") }
         return result
     }
     public func setHomeOrigins(_ id: UUID, text: String) {
-        guard !linkBusy.contains(id) else { return }
+        guard linkBusy[id] == nil else { return }
         update(id) { $0.homeOrigins = text }
     }
     public func authorizeLink(_ id: UUID, name: String, arguments: JSONValue?) throws {
-        guard !Self.isReservedTaskTool(name),
+        guard poweredOn, owners[id]?.phase == .connected, !Self.isReservedTaskTool(name),
               let device = devices.first(where: { $0.id == id }), linkClients[id] != nil,
               device.grantedTools.contains(name), device.linkTools.contains(name) else { throw BLEFailure("Authorize this Link tool in Settings → Bluetooth devices") }
         if name == "home.http", let arguments {
@@ -358,16 +1106,22 @@ import PhoneDSHAgentCore
     }
     public func invokeLink(_ id: UUID, requestID: UUID, name: String, arguments: JSONValue, key: String) async throws -> JSONValue {
         try authorizeLink(id, name: name, arguments: arguments)
-        guard let client = linkClients[id], !linkBusy.contains(id) else { throw BLEFailure("Link is busy") }
-        linkBusy.insert(id); defer { linkBusy.remove(id) }
+        guard let client = linkClients[id], linkBusy[id] == nil else { throw BLEFailure("Link is busy") }
+        guard let current = owners[id], current.phase == .connected, poweredOn else { throw BLEFailure("Link disconnected") }
+        let operation = LinkOperation(owner: current); linkBusy[id] = operation
+        defer { if linkBusy[id] === operation { linkBusy[id] = nil } }
+        guard submitConnected(id, current: current, action: .link, physical: {}) else { throw BLEFailure("Link disconnected") }
         return try await client.invoke(requestID: requestID, name: name, arguments: arguments, idempotencyKey: key)
     }
     public func queryLink(_ id: UUID, requestID: UUID, name: String) async throws -> JSONValue? {
         try authorizeLink(id, name: name, arguments: nil)
-        guard let client = linkClients[id], !linkBusy.contains(id) else { throw BLEFailure("Link is busy") }
-        linkBusy.insert(id); defer { linkBusy.remove(id) }
+        guard let client = linkClients[id], linkBusy[id] == nil else { throw BLEFailure("Link is busy") }
+        guard let current = owners[id], current.phase == .connected, poweredOn else { throw BLEFailure("Link disconnected") }
+        let operation = LinkOperation(owner: current); linkBusy[id] = operation
+        defer { if linkBusy[id] === operation { linkBusy[id] = nil } }
+        guard submitConnected(id, current: current, action: .link, physical: {}) else { throw BLEFailure("Link disconnected") }
         return try await client.query(requestID: requestID)
     }
-    public func cancelLinkOperations() { for id in Array(linkBusy) { disconnect(id) } }
+    public func cancelLinkOperations() { for (id, operation) in Array(linkBusy) where owners[id] === operation.owner { disconnect(id) } }
 
 }

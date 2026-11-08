@@ -85,3 +85,20 @@ iPhone and controlled peripherals implementing the standard services, with
 read, cancellation, notification, disconnect and reconnect scenarios; the
 reference ESP32's Link-only services are not that evidence. GAP-16, Android
 device capability, identity recovery and P0 remain independently open.
+
+## Implementation handoff
+
+The v2 implementation covers the iOS store, Link callback routing and the
+Bluetooth page. Android standard GATT remains target; the firmware wire is
+unchanged. The local regression results below exercise the real store and
+channel with injected physical endpoints, not a CoreBluetooth radio:
+
+- `swift test -j 2 --filter 'StandardGattGrantOrderingTests|StandardBLETests|BLEDeviceMCPTests|PDSHLinkTests|BLEIdentityTests'` → PASS, 40 tests including all 50 shared scenarios and failure-path tests.
+- `swift build -c release --target PhoneDSHBLE -j 2` → PASS. `nm -g .build/out/Products/Release/PhoneDSHBLE.o` showed no test-adapter or test-callback symbols.
+- `PDSH_WITH_SHELL=1 xcodebuild -project PhoneDSHProbe.xcodeproj -scheme PhoneDSHSim -configuration Debug -destination 'generic/platform=iOS Simulator' -derivedDataPath /private/tmp/pdsh59-legacy-ui-derived -clonedSourcePackagesDirPath /private/tmp/pdsh59-legacy-ui-packages -only-testing:PhoneDSHSimTests/BluetoothDevicesPageTests -jobs 2 ARCHS=arm64 build-for-testing` → PASS.
+- The built Bluetooth page tests on a newly created iOS 18.4 simulator → INCOMPLETE: `xcodebuild test-without-building` exited 65 because the test bundle could not load `/usr/lib/swift/libswiftWebKit.dylib`. The task-created simulator was deleted. No page runtime success is claimed.
+- `bash scripts/ci/check.sh --only phone-spec,phone-p0-conformance,phone-cross-tree` → phone-spec PASS; phone-p0-conformance FAIL on missing/stale UI page contracts; phone-cross-tree PASS.
+
+Physical standard GATT, iPhone reconnect and radio behavior remain NOT_RUN;
+GAP-29 remains partial. This does not establish a secure task session or close
+GAP-16. The probe's device-task path remains disabled.
