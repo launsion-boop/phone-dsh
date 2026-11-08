@@ -13,7 +13,7 @@
   "source": {
     "file": "NativeAutomationPage.swift",
     "path": "examples/probe-app/PhoneDSHProbe/NativeAutomationPage.swift",
-    "lines": 413,
+    "lines": 414,
     "structLine": 8,
     "renderedFrom": [
       "body"
@@ -183,7 +183,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "NativeAutomationPage.swift:252",
+      "provenance": "NativeAutomationPage.swift:253",
       "anchor": "Toggle(\"修改计划时间\", isOn: $changeTiming)",
       "extraction": "syntax",
       "presentedBy": "sheet-82"
@@ -198,7 +198,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "NativeAutomationPage.swift:255",
+      "provenance": "NativeAutomationPage.swift:256",
       "anchor": "Picker(\"规则\", selection: $rule) {",
       "extraction": "syntax",
       "items": [
@@ -223,7 +223,7 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "NativeAutomationPage.swift:274",
+      "provenance": "NativeAutomationPage.swift:275",
       "anchor": "ToolbarItem(placement: .cancellationAction) { Button(\"取消\") { dismiss() }.leading",
       "extraction": "syntax",
       "presentedBy": "sheet-82"
@@ -238,7 +238,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "NativeAutomationPage.swift:276",
+      "provenance": "NativeAutomationPage.swift:277",
       "anchor": "Button(saving ? \"保存中…\" : \"保存\") { save() }",
       "extraction": "syntax",
       "presentedBy": "sheet-82"
@@ -377,58 +377,58 @@
   "subpages": [
     {
       "name": "ScheduleDetailPage",
-      "line": 107,
+      "line": 108,
       "private": true,
       "embedded": true,
       "sections": [
         {
           "title": "提醒",
-          "provenance": "NativeAutomationPage.swift:119"
+          "provenance": "NativeAutomationPage.swift:120"
         },
         {
           "title": "投递记录",
-          "provenance": "NativeAutomationPage.swift:126"
+          "provenance": "NativeAutomationPage.swift:127"
         },
         {
           "title": "错误",
-          "provenance": "NativeAutomationPage.swift:140"
+          "provenance": "NativeAutomationPage.swift:141"
         }
       ],
-      "provenance": "NativeAutomationPage.swift:107"
+      "provenance": "NativeAutomationPage.swift:108"
     },
     {
       "name": "ScheduleHistoryPage",
-      "line": 169,
+      "line": 170,
       "private": true,
       "embedded": true,
       "sections": [
         {
           "title": "错误",
-          "provenance": "NativeAutomationPage.swift:194"
+          "provenance": "NativeAutomationPage.swift:195"
         }
       ],
-      "provenance": "NativeAutomationPage.swift:169"
+      "provenance": "NativeAutomationPage.swift:170"
     },
     {
       "name": "ScheduleEditorPage",
-      "line": 204,
+      "line": 205,
       "private": true,
       "embedded": true,
       "sections": [
         {
           "title": "任务内容",
-          "provenance": "NativeAutomationPage.swift:244"
+          "provenance": "NativeAutomationPage.swift:245"
         },
         {
           "title": "计划时间",
-          "provenance": "NativeAutomationPage.swift:250"
+          "provenance": "NativeAutomationPage.swift:251"
         },
         {
           "title": "错误",
-          "provenance": "NativeAutomationPage.swift:268"
+          "provenance": "NativeAutomationPage.swift:269"
         }
       ],
-      "provenance": "NativeAutomationPage.swift:204"
+      "provenance": "NativeAutomationPage.swift:205"
     }
   ],
   "unreachable": [],
