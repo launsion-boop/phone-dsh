@@ -285,3 +285,15 @@ dereferences its slot before checking credits; resistance to an over-credit
 peer remains unverified and the laboratory workaround is not a production DoS
 fix. Record sizing, supported-platform compatibility, resource bounds and a
 safe upstream resolution remain open.
+
+
+## Independently reviewed candidate, still draft
+
+The [security design candidate](../design/device-ble-secure-session-candidate.md)
+records a possible two-way out-of-band enrollment, locally verified mutual
+TLS session, explicit readiness, protected task/receipt isolation and
+fail-closed recovery. Its independent review led to explicit partial-commit,
+old unclassified plaintext receipt, untrusted clock and peer-verification
+limitations. This is not a frozen protocol revision, a selected implementation
+or permission to enable task grants; the CCR's existing acceptance remains
+mandatory. No new physical or security experiment was performed for it.
