@@ -138,6 +138,182 @@ test('a cookie-authenticated Worker routes official web tools with its launch be
   }
 })
 
+// The frozen independent Search/Fetch contract
+// (spec/v1/gateway-independent-search.md) is judged by the shared cases that the
+// Kotlin gateway test also reads.
+const INDEPENDENT_CASES = JSON.parse(readFileSync(fileURLToPath(new URL(
+  '../../spec/v1/golden/gateway/independent-search/cases.json', import.meta.url)), 'utf8')) as {
+  bases: Array<{ input: string, canonical: string | null }>
+  requests: Array<{ base: string, method: string, url: string, allowed: boolean }>
+}
+
+test('independent Search/Fetch bases normalize exactly as the shared cases', async () => {
+  const { canonicalIndependentSearchBase } = await import('../llm-bridge/src/install.ts')
+  for (const { input, canonical } of INDEPENDENT_CASES.bases) {
+    assert.equal(canonicalIndependentSearchBase(input) ?? null, canonical, JSON.stringify(input))
+    if (canonical !== null) assert.equal(canonicalIndependentSearchBase(canonical), canonical)
+  }
+})
+
+/** Run `body` as a cookie-authenticated Worker whose platform fetch is recorded. */
+async function withCookieWorker(
+  env: Record<string, string | undefined>,
+  body: (calls: Request[], origin: string) => Promise<void>,
+): Promise<void> {
+  const keys = [
+    'PDSH_CHANNEL_TOKEN', 'PDSH_EXEC_BRIDGE_TOKEN', 'PDSH_CHANNEL_ORIGIN', 'PDSH_EXEC_BRIDGE_URL',
+    'PDSH_CHANNEL_URL', 'PDSH_DSH_LAUNCH_TOKEN', 'PDSH_WEB_SEARCH_PROVIDER', 'DEEPSEEK_SEARCH_API_BASE_URL',
+  ] as const
+  const previous = keys.map(key => [key, process.env[key]] as const)
+  const channel = Object.getOwnPropertyDescriptor(globalThis, '__PDSH_CHANNEL__')
+  const origin = 'http://127.0.0.1:23457'
+  for (const key of keys) delete process.env[key]
+  process.env.PDSH_CHANNEL_ORIGIN = origin
+  for (const [key, value] of Object.entries(env)) {
+    if (value === undefined) delete process.env[key]
+    else process.env[key] = value
+  }
+  Object.defineProperty(globalThis, '__PDSH_CHANNEL__', { configurable: true, value: {} })
+  const calls: Request[] = []
+  // Replaced by hand (not `t.mock`): one test runs this helper many times, and
+  // stacked mocks of the same property would not restore the original fetch.
+  const platformFetch = Object.getOwnPropertyDescriptor(globalThis, 'fetch')
+  Object.defineProperty(globalThis, 'fetch', {
+    configurable: true, enumerable: true, writable: true,
+    value: (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push(new Request(input, init))
+      return new Response('ok')
+    }) as typeof fetch,
+  })
+  try {
+    await body(calls, origin)
+  } finally {
+    if (platformFetch === undefined) Reflect.deleteProperty(globalThis, 'fetch')
+    else Object.defineProperty(globalThis, 'fetch', platformFetch)
+    if (channel === undefined) Reflect.deleteProperty(globalThis, '__PDSH_CHANNEL__')
+    else Object.defineProperty(globalThis, '__PDSH_CHANNEL__', channel)
+    for (const [key, value] of previous) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  }
+}
+
+test('a cookie Worker carries exactly the independent operations with its launch bearer', async () => {
+  const { installNodeFetch } = await import('../llm-bridge/src/install.ts')
+  const token = 'cookie-launch-independent'
+  for (const request of INDEPENDENT_CASES.requests) {
+    await withCookieWorker({
+      PDSH_DSH_LAUNCH_TOKEN: token,
+      PDSH_WEB_SEARCH_PROVIDER: 'deepseek-search-api',
+      DEEPSEEK_SEARCH_API_BASE_URL: request.base,
+    }, async (calls, origin) => {
+      const restore = installNodeFetch()
+      try {
+        await fetch(request.url, {
+          method: request.method,
+          headers: { authorization: 'Bearer phone-host-injects-search-key' },
+          ...(request.method === 'GET' ? {} : { body: '{}' }),
+        })
+      } finally {
+        restore()
+      }
+      const sent = calls.at(-1)
+      const label = `${request.method} ${request.url} on ${request.base}`
+      // The bridge routes by URL; the host owns the method check (§4). An
+      // operation URL is therefore never sent directly, whatever its method.
+      const operation = request.url === `${request.base}/search` || request.url === `${request.base}/fetch`
+      if (request.allowed) assert.ok(operation, `${label}: an allowed case names an operation URL`)
+      if (operation) {
+        assert.equal(sent?.url, origin + '/v1/http', label)
+        assert.equal(sent?.headers.get('authorization'), `Bearer ${token}`, label)
+        assert.equal(sent?.headers.get('x-pdsh-upstream-authorization'), 'Bearer phone-host-injects-search-key', label)
+        assert.equal(sent?.headers.get('x-pdsh-target-url'), request.url, label)
+        assert.equal(sent?.headers.get('x-pdsh-target-method'), request.method, label)
+      } else {
+        // Everything else keeps its existing transport and never gets the bearer.
+        assert.notEqual(sent?.url, origin + '/v1/http', label)
+        assert.notEqual(sent?.headers.get('authorization'), `Bearer ${token}`, label)
+      }
+    })
+  }
+})
+
+test('a cookie Worker routes a base only when it is already canonical', async () => {
+  const { installNodeFetch } = await import('../llm-bridge/src/install.ts')
+  const token = 'cookie-launch-independent'
+  for (const { input, canonical } of INDEPENDENT_CASES.bases) {
+    if (input === '') continue
+    const routed = canonical !== null && input === canonical
+    const base = input.replace(/\/+$/u, '')
+    await withCookieWorker({
+      PDSH_DSH_LAUNCH_TOKEN: token,
+      PDSH_WEB_SEARCH_PROVIDER: 'deepseek-search-api',
+      DEEPSEEK_SEARCH_API_BASE_URL: input,
+    }, async (calls, origin) => {
+      const restore = installNodeFetch()
+      try {
+        let target: URL
+        try {
+          target = new URL(`${base.trim()}/search`)
+        } catch {
+          return
+        }
+        await fetch(target, { method: 'POST', body: '{}' }).catch(() => undefined)
+      } finally {
+        restore()
+      }
+      assert.equal(calls.at(-1)?.url === origin + '/v1/http', routed, JSON.stringify(input))
+    })
+  }
+})
+
+test('independent web tools fail instead of going direct without the launch bearer', async () => {
+  const { installNodeFetch } = await import('../llm-bridge/src/install.ts')
+  await withCookieWorker({
+    PDSH_WEB_SEARCH_PROVIDER: 'deepseek-search-api',
+    DEEPSEEK_SEARCH_API_BASE_URL: 'https://pdsh.tonoai.cn/v1/web',
+  }, async calls => {
+    assert.throws(() => installNodeFetch(), /independent web tools need the host gateway/)
+    assert.equal(calls.length, 0)
+  })
+  await withCookieWorker({
+    PDSH_DSH_LAUNCH_TOKEN: 'cookie-launch-independent',
+    PDSH_CHANNEL_ORIGIN: undefined,
+    PDSH_WEB_SEARCH_PROVIDER: 'deepseek-search-api',
+    DEEPSEEK_SEARCH_API_BASE_URL: 'https://pdsh.tonoai.cn/v1/web',
+  }, async () => {
+    const location = Object.getOwnPropertyDescriptor(globalThis, 'location')
+    if (location !== undefined) Reflect.deleteProperty(globalThis, 'location')
+    try {
+      assert.throws(() => installNodeFetch(), /independent web tools need the host gateway/)
+    } finally {
+      if (location !== undefined) Object.defineProperty(globalThis, 'location', location)
+    }
+  })
+})
+
+test('a channel-token Worker keeps routing every request with the channel bearer', async () => {
+  const { installNodeFetch } = await import('../llm-bridge/src/install.ts')
+  await withCookieWorker({
+    PDSH_CHANNEL_TOKEN: 'channel-bearer',
+    PDSH_DSH_LAUNCH_TOKEN: 'cookie-launch-independent',
+    PDSH_WEB_SEARCH_PROVIDER: 'deepseek-search-api',
+    DEEPSEEK_SEARCH_API_BASE_URL: 'https://pdsh.tonoai.cn/v1/web',
+  }, async (calls, origin) => {
+    const restore = installNodeFetch()
+    try {
+      for (const url of ['https://pdsh.tonoai.cn/v1/web/search', 'https://model.example/v1/messages']) {
+        await fetch(url, { method: 'POST', body: '{}' })
+        assert.equal(calls.at(-1)?.url, origin + '/v1/http')
+        assert.equal(calls.at(-1)?.headers.get('authorization'), 'Bearer channel-bearer')
+      }
+    } finally {
+      restore()
+    }
+  })
+})
+
 // --- Response-delivery deadline (G2-FIX-1) --------------------------------
 
 test('native MCP stays on the authenticated origin and keeps tool idempotency', async () => {
