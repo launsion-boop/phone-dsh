@@ -52,7 +52,10 @@ import PhoneDSHAgentCore
         init(owner: Owner) { self.owner = owner }
     }
     @ObservationIgnored private var linkBusy: [UUID: LinkOperation] = [:]
-    @ObservationIgnored private var scanRequested = false
+    /// ble-link.md@scan-intent-v1: the latest admitted scan/stop owns every later scan effect.
+    @ObservationIgnored private var scanIntent = Revision()
+    /// The intent whose initialization still waits for a powered-on manager.
+    @ObservationIgnored private var pendingScan: Revision?
     @ObservationIgnored private var central: CBCentralManager?
     @ObservationIgnored private var peripherals: [UUID: CBPeripheral] = [:]
     @ObservationIgnored private var characteristics: [UUID: [StandardBLEProfile: AnyObject]] = [:]
@@ -62,7 +65,13 @@ import PhoneDSHAgentCore
         func cancel() { task?.cancel(); task = nil }
     }
     @ObservationIgnored private var connectionTimers: [UUID: ConnectionDeadline] = [:]
-    @ObservationIgnored private var scanTimer: Task<Void, Never>?
+    private final class ScanDeadline {
+        let intent: Revision
+        var task: Task<Void, Never>?
+        init(intent: Revision) { self.intent = intent }
+        func cancel() { task?.cancel(); task = nil }
+    }
+    @ObservationIgnored private var scanDeadline: ScanDeadline?
     @ObservationIgnored private var closingTimers: [UUID: Task<Void, Never>] = [:]
     private final class Owner {
         enum Phase: String { case idle, connecting, connected, closing, quarantined }
@@ -173,6 +182,7 @@ import PhoneDSHAgentCore
         var managerInitialized = true
         var managerState: CBManagerState = .poweredOn
         var commands: [TestCommand] = []
+        var managerConstructions = 0
         var beforeConnect: ((UUID) -> Void)?
         var beforeDisconnectSubmit: ((UUID) -> Void)?
         var beforeReadReserve: (() -> Void)?
@@ -249,13 +259,34 @@ import PhoneDSHAgentCore
         #endif
         return central?.state == state
     }
+    /// Supersedes every older scan intent, its pending start and its deadline.
+    private func takeScanIntent() -> Revision {
+        let intent = Revision()
+        scanIntent = intent; pendingScan = nil
+        scanDeadline?.cancel(); scanDeadline = nil
+        return intent
+    }
+    /// The value is rechecked inside the mutation: a nested newer intent
+    /// delivered by will-change wins over this older frame.
+    private func publishScanning(_ value: Bool, _ intent: Revision) {
+        guard scanIntent === intent, _scanning != value else { return }
+        withMutation(keyPath: \.scanning) {
+            guard self.scanIntent === intent else { return }
+            self._scanning = value
+        }
+    }
     public func scan() {
         if !managerInitialized {
+            let intent = takeScanIntent()
             let revision = reserveStatus()
-            scanRequested = true
-            publishStatus(revision, "正在初始化蓝牙", eligible: { !self.managerInitialized })
+            pendingScan = intent
+            publishStatus(revision, "正在初始化蓝牙", eligible: {
+                !self.managerInitialized && self.scanIntent === intent && self.pendingScan === intent
+            })
+            // A stop delivered by the status observer cancels construction.
+            guard scanIntent === intent, pendingScan === intent, !managerInitialized else { return }
             #if DEBUG
-            if let adapter = testAdapter { adapter.managerInitialized = true; return }
+            if let adapter = testAdapter { adapter.managerConstructions += 1; adapter.managerInitialized = true; return }
             #endif
             if central == nil { central = CBCentralManager(delegate: self, queue: .main) }
             return
@@ -265,6 +296,7 @@ import PhoneDSHAgentCore
             publishStatus(revision, "请在系统设置中开启蓝牙并授权", eligible: { self.managerInitialized && !self.poweredOn })
             return
         }
+        let intent = takeScanIntent()
         let revision = reserveStatus()
         // Foreground, bounded scan. Unadvertised services are discovered after user selection.
         #if DEBUG
@@ -273,20 +305,34 @@ import PhoneDSHAgentCore
         #else
         central?.scanForPeripherals(withServices: nil, options: [CBCentralManagerScanOptionAllowDuplicatesKey: false])
         #endif
-        scanning = true
+        publishScanning(true, intent)
+        guard scanIntent === intent else { return }
         guard poweredOn else { observeManagerUnavailable(); return }
-        publishStatus(revision, "正在扫描（15 秒）", eligible: { self.poweredOn && self.managerInitialized })
+        publishStatus(revision, "正在扫描（15 秒）", eligible: {
+            self.scanIntent === intent && self.poweredOn && self.managerInitialized
+        })
+        guard scanIntent === intent else { return }
         guard poweredOn else { observeManagerUnavailable(); return }
-        scanTimer?.cancel()
-        scanTimer = Task { try? await Task.sleep(for: .seconds(15)); guard !Task.isCancelled else { return }; stopScan() }
+        let deadline = ScanDeadline(intent: intent)
+        scanDeadline = deadline
+        deadline.task = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(15))
+            guard !Task.isCancelled else { return }
+            self?.scanDeadlineFired(deadline)
+        }
+    }
+    /// Identity first: a stale or cancelled deadline is inert regardless of power.
+    private func scanDeadlineFired(_ deadline: ScanDeadline) {
+        guard scanDeadline === deadline, scanIntent === deadline.intent else { return }
+        stopScan()
     }
     public func stopScan() {
-        scanRequested = false; scanTimer?.cancel(); scanTimer = nil
+        let intent = takeScanIntent()
         #if DEBUG
-        if let testAdapter { if testAdapter.poweredOn { testAdapter.commands.append(.stopScan) }; scanning = false; return }
+        if let testAdapter { if testAdapter.poweredOn { testAdapter.commands.append(.stopScan) }; publishScanning(false, intent); return }
         #endif
         if poweredOn { central?.stopScan() }
-        scanning = false
+        publishScanning(false, intent)
     }
     public func centralManagerDidUpdateState(_ central: CBCentralManager) {
         guard self.central === central else { managerUnavailable(reset: true); return }
@@ -301,7 +347,8 @@ import PhoneDSHAgentCore
         if state == .poweredOn {
             publishStatus(revision, "蓝牙已就绪，请点击扫描", eligible: { self.managerMatches(state) })
             guard poweredOn else { observeManagerUnavailable(); return }
-            if scanRequested { scanRequested = false; scan() }
+            // Only the still-current pending intent may start; a later stop cancelled it.
+            if let pending = pendingScan, pending === scanIntent { pendingScan = nil; scan() }
         } else {
             let invalidatesPeers: Bool
             switch state {
@@ -592,7 +639,7 @@ import PhoneDSHAgentCore
     private func managerUnavailable(reset: Bool, detachedChannels: [BLELinkChannel] = [],
                                     linkFailure: BLEFailure = BLEFailure("Bluetooth unavailable")) {
         managerUnavailableRevision = Revision()
-        scanRequested = false; scanTimer?.cancel(); scanTimer = nil
+        let unavailableScan = takeScanIntent()
         // Invalidate every owner before the first observer can reenter.
         let snapshot = Array(owners)
         var tasks: [Task<Void, Never>] = [], deadlines: [ConnectionDeadline] = [], channels: [BLELinkChannel] = detachedChannels
@@ -628,7 +675,7 @@ import PhoneDSHAgentCore
                 $0.events = []; $0.profiles = []; $0.readings = [:]
             }
         }
-        scanning = false
+        publishScanning(false, unavailableScan)
     }
     private func quarantineUnexpected(_ id: UUID, current: Owner, sendDisconnect: Bool, serviceChange: Bool = false) {
         guard owners[id] === current else { return }
@@ -1240,6 +1287,14 @@ import PhoneDSHAgentCore
         guard let current = owners[id], current.phase == .closing, closingTimers[id] != nil else { return nil }
         return TestTimerProbe(state: { [weak self] in self?.closingTimers[id] == nil ? "cancelled" : "active" },
                               fire: { [weak self] in self?.closingTimedOut(id, current: current) })
+    }
+    /// The real production scan deadline and its own handler, not a copy.
+    func testCaptureScanDeadline() -> TestTimerProbe? {
+        guard let deadline = scanDeadline else { return nil }
+        return TestTimerProbe(state: { [weak self] in
+                                  self?.scanDeadline === deadline && self?.scanIntent === deadline.intent ? "active" : "cancelled"
+                              },
+                              fire: { [weak self] in self?.scanDeadlineFired(deadline) })
     }
     func testCaptureConnectionTimeout(_ id: UUID) -> TestTimerProbe? {
         guard let current = owners[id], let deadline = connectionTimers[id] else { return nil }

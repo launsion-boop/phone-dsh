@@ -487,6 +487,33 @@ of event eligibility. The shared status inputs and expected local outcomes are
 required side-effect checks are in
 `docs/protocol-changes/PC-20261107-ble-status-order.md`.
 
+Scan intent (`scan-intent-v1`). An admitted `scan()` (powered-on manager, or
+an uninitialized manager that it will construct), every `stopScan()`, including
+the one issued by `connect`, a scan deadline expiry and all-owner manager
+unavailability each take a fresh, non-reusable local scan intent before any
+Observation, physical command or status evaluation. Taking it immediately
+invalidates the older intent, its pending initialization start and its
+15-second deadline. A `scan()` rejected because an initialized manager is
+unavailable takes no intent; it only publishes its rejection text. Every later
+effect of an operation — manager construction, the `scanning` write (rechecked
+inside the actual mutation, after will-change), its scan status eligibility,
+deadline installation and the powered-on automatic start — happens only while
+that operation's intent is still current; a superseded operation returns
+without writing. A physical command already submitted is never retracted, and
+a stale frame never submits another. Each deadline belongs to exactly one
+intent; on firing it first checks that it is still that current intent's
+deadline (a stale or cancelled deadline is inert regardless of power) and only
+then performs the ordinary stop. `stopScan()` publishes no status text, so a
+superseded start leaves the earlier text in place. `scanning` is the local
+projection of the current intent, not `CBCentralManager.isScanning` or radio
+acknowledgement; a same-value write makes no mutation. A constructor already
+entered cannot be retracted, but a cancelled initialization never enters it.
+Shared cases and malformed/semantic mutations are
+`golden/ble-scan-intent.jsonl` and `golden/ble-scan-intent-mutations.jsonl`;
+setup and assertions are in
+`docs/protocol-changes/PC-20261107-ble-scan-reentry-ccr.md`. This is local
+ordering only; real CoreBluetooth radio sequencing is not established by it.
+
 The shared discovery object graphs, ordered callbacks and expected checkpoints
 are in `golden/standard-gatt-discovery-ownership.jsonl`, with malformed and
 semantic mutations in `golden/standard-gatt-discovery-mutations.json`. Their

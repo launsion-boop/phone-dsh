@@ -965,6 +965,50 @@ class BLEStatusOrderingFixtureTests(unittest.TestCase):
             spec_golden.validate_json(changed, schema, mutation["base"])
 
 
+class BLEScanIntentFixtureTests(unittest.TestCase):
+    """Shape and mutation inventory for ble-link.md@scan-intent-v1.
+
+    Runtime conformance is BLEScanIntentTests in Tests/PhoneDSHBLETests; the
+    semantic mutations below are only proven wrong by that real-store comparator.
+    """
+    def test_vectors_and_mutations(self):
+        device = SPEC_DIR.parent / "device" / "v1"
+        schema = json.loads((device / "schema/ble-scan-intent.schema.json").read_text())
+        data = (device / "golden/ble-scan-intent.jsonl").read_bytes()
+        self.assertEqual(hashlib.sha256(data).hexdigest(),
+                         "3ea6ae6bee1154a91fa2b0e3a0474bd04c390446b8f3f4b37537978620322b02")
+        rows = [json.loads(line) for line in data.splitlines()]
+        self.assertEqual(len(rows), 14)
+        by_id = {row["id"]: row for row in rows}
+        self.assertEqual(len(by_id), len(rows))
+        for row in rows:
+            spec_golden.validate_json(row, schema, row["id"])
+        mutations = [json.loads(line) for line in
+                     (device / "golden/ble-scan-intent-mutations.jsonl").read_text().splitlines()]
+        self.assertEqual(sum(m["category"] == "invalid-schema" for m in mutations), 7)
+        self.assertEqual(sum(m["category"] == "semantic" for m in mutations), 15)
+        self.assertEqual(len({m["name"] for m in mutations}), len(mutations))
+        for mutation in mutations:
+            original = by_id[mutation["base"]]
+            changed = copy.deepcopy(original)
+            target = changed
+            for part in mutation["path"][:-1]:
+                target = target[part]
+            key = mutation["path"][-1]
+            if mutation["op"] == "delete":
+                del target[key]
+            else:
+                self.assertEqual(mutation["op"], "replace")
+                target[key] = mutation["value"]
+            self.assertNotEqual(changed, original, mutation["name"])
+            if mutation["category"] == "invalid-schema":
+                with self.assertRaises(spec_golden.SpecError, msg=mutation["name"]):
+                    spec_golden.validate_json(changed, schema, mutation["name"])
+            else:
+                self.assertEqual(mutation["category"], "semantic")
+                spec_golden.validate_json(changed, schema, mutation["name"])
+
+
 class StandardGattDiscoveryOwnershipFixtureTests(unittest.TestCase):
     def test_vectors_and_mutation_inventory(self):
         device = SPEC_DIR.parent / "device" / "v1"
