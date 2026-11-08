@@ -80,6 +80,37 @@ public enum BLESecureTransitionArguments: Equatable, Sendable {
     }
 }
 
+/// The secure-session binding of the executor (§9.2, §9.3). The executor
+/// durably installs the `ble-secure-ops` intent before every call. `fresh` is
+/// true only in the call that installed it; otherwise the binding MUST first
+/// query `status` and may resend the identical persisted arguments only as the
+/// very next request. A binding never sends anything without an intent.
+public protocol BLESecureTaskInbox: DeviceTaskInbox {
+    /// The current phone key (`phone:` + 64 hex) the intent is bound to.
+    var phoneID: String { get }
+    func transition(_ arguments: BLESecureTransitionArguments, intent: BLESecureTaskIntent, fresh: Bool) async throws
+}
+
+public extension BLESecureTaskInbox {
+    func accept(id: String) async throws { throw DeviceTaskError.unauthorized }
+    func report(id: String, outcome: DeviceTaskOutcome) async throws { throw DeviceTaskError.unauthorized }
+}
+
+/// Why a secure transition did not complete. Every case keeps the intent.
+public enum BLESecureTaskInboxError: Error, Equatable, Sendable {
+    /// A definitive device answer (§8.2 request-level error, §9.3 unresolved):
+    /// never resend; the user must see it.
+    case unresolved(String)
+    /// No authoritative answer (no ready session, timeout, fatal close):
+    /// query again with `status` in a later ready session.
+    case retryLater
+    /// The grant's accept window has ended; the parent stays `received` and
+    /// its intent is reconciled in a later grant.
+    case windowClosed
+    /// The grant or the connection generation ended.
+    case grantEnded
+}
+
 /// `schema/ble-secure-task-intent.schema.json`.
 public struct BLESecureTaskIntent: Codable, Equatable, Sendable {
     public enum Action: String, Codable, Sendable { case accept, complete, fail }

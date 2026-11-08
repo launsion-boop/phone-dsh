@@ -4,10 +4,12 @@
 // taken by BLESecurePhoneSessionCore; this actor adds the TLS client, the
 // framing, the monotonic clock and the timers.
 //
-// No product path constructs this type: BLE task grants stay refused until
-// the spec's §14 acceptance is recorded (GAP-16). Keepalive scheduling (a
-// `status` at most 30 s after the previous response while a task is accepted
-// or running) belongs to the caller's intake loop: `keepaliveDue` tells it when.
+// Constructed by BLESecureSessionCoordinator for the selected record; its
+// grant is reachable only through BLEDeviceStore.grantDeviceTasks, which
+// refuses in every build until the spec's §14 acceptance is recorded
+// (GAP-16). Keepalive scheduling (a `status` at most 30 s after the previous
+// response while a task is accepted or running) belongs to
+// BLESecureTaskIntake.
 import Foundation
 import PhoneDSHDeviceTasks
 
@@ -132,6 +134,17 @@ public actor BLESecurePhoneGeneration {
         if case BLESecureTLSError.certificate(.pinMismatch)? = error as? BLESecureTLSError { return .pinMismatch }
         return .fatal
     }
+
+    /// A session attempt that failed before the TLS client ran (no PSM, CoC
+    /// refused or timed out): a failed attempt toward the limit of three (§8.1).
+    @discardableResult
+    public func sessionAttemptFailed() -> BLESecurePhoneSessionCore.Output {
+        tick()
+        guard !ended, core.state == .closed else { return BLESecurePhoneSessionCore.Output(result: .ignored, send: nil, close: false, state: core.state, grant: core.grant) }
+        return core.handshakeFailed(.fatal)
+    }
+
+    public var isEnded: Bool { ended }
 
     /// Foreground user grant after readiness (§8.2 "Generation and grant").
     public func grantByUser() -> BLESecurePhoneSessionCore.Output { tick(); return core.grantByUser() }

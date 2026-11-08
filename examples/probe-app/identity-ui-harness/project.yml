@@ -21,6 +21,7 @@ targets:
       - path: Host.swift
       - path: DeviceTaskManagerStub.swift
       - path: ../PhoneDSHProbe/BluetoothDevicesPage.swift
+      - path: ../PhoneDSHProbe/SecureDeviceSession.swift
       - path: ../PhoneDSHProbe/LegacyTaskInspectionModel.swift
       - path: ../PhoneDSHProbe/LegacyTaskInspectionSection.swift
       - path: ../PhoneDSHProbe/NativeChatPreferences.swift

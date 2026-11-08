@@ -10,4 +10,6 @@ import Observation
     func isActive(_ key: String) -> Bool { fatalError("task path must not be called") }
     func startBLE(_ id: UUID) async { fatalError("task path must not be called") }
     func stop(_ key: String) async { fatalError("task path must not be called") }
+    func startSecureBLE() async { fatalError("task path must not be called") }
+    func stopSecureBLE() { fatalError("task path must not be called") }
 }

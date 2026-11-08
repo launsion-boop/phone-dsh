@@ -29,6 +29,7 @@ public struct BLESecurePhoneSessionCore: Sendable {
         case pinMismatch = "pin_mismatch", fatal, malformed, recordMismatch = "record_mismatch"
         case badChallenge = "bad_challenge", responseTimeout = "response_timeout", lifetimeExpired = "lifetime_expired"
         case disconnect, background, forget, recordChanged = "record_changed", keyLost = "key_lost"
+        case userRevoked = "user_revoked"
         case unresolved, applied, noTask = "no_task", localConflict = "local_conflict"
         case taskOffered = "task_offered", acceptedOffer = "accepted_offer", status
         case statusApplied = "status_applied", statusResend = "status_resend"
@@ -36,7 +37,11 @@ public struct BLESecurePhoneSessionCore: Sendable {
     }
 
     /// Events that end the whole generation (and its grant).
-    public enum GenerationEnd: String, Sendable { case disconnect, background, forget, recordChanged = "record_changed", keyLost = "key_lost" }
+    public enum GenerationEnd: String, Sendable {
+        case disconnect, background, forget, recordChanged = "record_changed", keyLost = "key_lost"
+        /// The user revoked the grant (§8.2 "user revocation").
+        case userRevoked = "user_revoked"
+    }
 
     public struct Record: Equatable, Sendable {
         public let device: String
