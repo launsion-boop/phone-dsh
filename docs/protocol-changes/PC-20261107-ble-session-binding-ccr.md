@@ -3,11 +3,11 @@
 ```yaml
 change: PC-20261107-ble-session-binding-ccr
 contracts: [P07]
-status: draft
+status: frozen
 breaking: true
-version_decision: pending — no new session format is approved by this request
+version_decision: resolved by PC-20261108-ble-secure-session — new ALPN-identified secure session (pdsh-ble-task/1); BLE task device_id becomes ble:<device key fingerprint>; plaintext Link tasks permanently refused
 base: 1a1313ac9562ab2ca5cfa1e7580bacfe2a7a140d
-contract_revision: pending
+contract_revision: spec/device/v1/ble-secure-session.md@secure-session-v1 (see PC-20261108-ble-secure-session)
 ```
 
 ## Trigger and evidence
@@ -297,3 +297,20 @@ old unclassified plaintext receipt, untrusted clock and peer-verification
 limitations. This is not a frozen protocol revision, a selected implementation
 or permission to enable task grants; the CCR's existing acceptance remains
 mandatory. No new physical or security experiment was performed for it.
+
+
+## Resolution (2026-11-08)
+
+Resolved by [PC-20261108-ble-secure-session](PC-20261108-ble-secure-session.md),
+which freezes `spec/device/v1/ble-secure-session.md@secure-session-v1`
+(`target`, not implemented). Answers to this request: authenticated session =
+offline enrollment of both P-256 fingerprints over a trusted serial console
+plus mutually pinned TLS 1.3 over LE CoC with a readiness exchange; task,
+result and receipt bytes travel only inside it. **Task `device_id`:** the BLE
+task identity is `ble:` + lowercase hex SHA-256 of the enrolled device's
+uncompressed public key, used unchanged in the existing journal v1 and
+`msg_id`; `ble:<Link UUID>` records and `ble-ops` intents become `legacy`,
+are preserved, never converted, never treated as authenticated and never
+auto-replayed. `pdsh.ble.trustedIdentities` labels are never imported. The
+acceptance list above still applies before any task grant is enabled; GAP-16
+stays open.

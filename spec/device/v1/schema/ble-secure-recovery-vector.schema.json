@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "secure-session-v1 lost-reply recovery decision vector",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "name",
+    "action",
+    "args",
+    "status",
+    "decision"
+  ],
+  "properties": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "action": {
+      "enum": [
+        "accept",
+        "complete",
+        "fail"
+      ]
+    },
+    "args": {
+      "type": "object"
+    },
+    "status": {
+      "type": "object"
+    },
+    "decision": {
+      "enum": [
+        "applied",
+        "resend",
+        "retry_query",
+        "unresolved"
+      ]
+    }
+  }
+}

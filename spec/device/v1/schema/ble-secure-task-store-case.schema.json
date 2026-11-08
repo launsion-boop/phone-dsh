@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "secure-session-v1 firmware task store selection/migration vector",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "name",
+    "nvs",
+    "result",
+    "view"
+  ],
+  "properties": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "nvs": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tasks_v1": {
+          "type": [
+            "object",
+            "string"
+          ]
+        },
+        "tasks_v2": {
+          "type": [
+            "object",
+            "string"
+          ]
+        }
+      }
+    },
+    "result": {
+      "enum": [
+        "use_v2",
+        "migrate_v1",
+        "empty",
+        "disabled"
+      ]
+    },
+    "view": {
+      "type": [
+        "array",
+        "null"
+      ]
+    }
+  }
+}

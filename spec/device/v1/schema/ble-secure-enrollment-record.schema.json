@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Persisted BLE secure-session enrollment record (ble-secure-session.md §4)",
+  "description": "Board: NVS namespace pdsh_enr key rec_v1 (committed|revoked only). Phone: one file per device key (staged|committed|revoked).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "v",
+    "side",
+    "state",
+    "device",
+    "phone",
+    "eid",
+    "rev"
+  ],
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "side": {
+      "enum": [
+        "board",
+        "phone"
+      ]
+    },
+    "state": {
+      "enum": [
+        "staged",
+        "committed",
+        "revoked"
+      ]
+    },
+    "device": {
+      "type": "string",
+      "pattern": "^ble:[0-9a-f]{64}$"
+    },
+    "phone": {
+      "type": "string",
+      "pattern": "^phone:[0-9a-f]{64}$"
+    },
+    "eid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "rev": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4294967295
+    }
+  }
+}

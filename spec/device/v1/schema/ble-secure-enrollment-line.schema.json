@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "secure-session-v1 enrollment console line vector",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "name",
+    "dir",
+    "bytes_hex",
+    "addressed",
+    "valid"
+  ],
+  "properties": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "dir": {
+      "enum": [
+        "host",
+        "board"
+      ]
+    },
+    "bytes_hex": {
+      "type": "string",
+      "pattern": "^([0-9a-f]{2})*0a$"
+    },
+    "addressed": {
+      "type": "boolean"
+    },
+    "valid": {
+      "type": "boolean"
+    },
+    "parsed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "verb",
+        "fields"
+      ],
+      "properties": {
+        "verb": {
+          "type": "string"
+        },
+        "fields": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "echo": {
+      "type": "string"
+    }
+  }
+}

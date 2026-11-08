@@ -1,0 +1,178 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "secure-session-v1 identifier vector",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "kind",
+        "hex",
+        "valid"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "kind": {
+          "const": "public_key"
+        },
+        "hex": {
+          "type": "string"
+        },
+        "valid": {
+          "type": "boolean"
+        },
+        "fingerprint": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "device_id": {
+          "type": "string",
+          "pattern": "^ble:[0-9a-f]{64}$"
+        },
+        "phone_id": {
+          "type": "string",
+          "pattern": "^phone:[0-9a-f]{64}$"
+        },
+        "reason": {
+          "enum": [
+            "not_hex",
+            "uppercase",
+            "length",
+            "not_uncompressed",
+            "coordinate_range",
+            "not_on_curve"
+          ]
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "kind",
+        "role",
+        "text",
+        "valid"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "kind": {
+          "const": "identifier"
+        },
+        "role": {
+          "enum": [
+            "device",
+            "phone"
+          ]
+        },
+        "text": {
+          "type": "string"
+        },
+        "valid": {
+          "type": "boolean"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "kind",
+        "text",
+        "valid"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "kind": {
+          "const": "eid"
+        },
+        "text": {
+          "type": "string"
+        },
+        "valid": {
+          "type": "boolean"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "kind",
+        "input",
+        "valid"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "kind": {
+          "const": "board_token"
+        },
+        "input": {
+          "type": "string"
+        },
+        "valid": {
+          "type": "boolean"
+        },
+        "normalized": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "device",
+            "eid"
+          ],
+          "properties": {
+            "device": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "eid": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "kind",
+        "input",
+        "valid"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "kind": {
+          "const": "phone_token"
+        },
+        "input": {
+          "type": "string"
+        },
+        "valid": {
+          "type": "boolean"
+        }
+      }
+    }
+  ]
+}

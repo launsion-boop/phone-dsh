@@ -1,0 +1,385 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "secure-session-v1 enrollment state-machine vector",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "side",
+        "given",
+        "steps"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "side": {
+          "const": "board"
+        },
+        "given": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "state",
+            "device",
+            "phone",
+            "eid",
+            "rev"
+          ],
+          "properties": {
+            "state": {
+              "enum": [
+                "none",
+                "committed",
+                "revoked",
+                "key_lost",
+                "key_unavailable",
+                "record_corrupt"
+              ]
+            },
+            "device": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "phone": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "eid": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "rev": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "button": {
+              "type": "boolean"
+            },
+            "eids": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{32}$"
+              }
+            },
+            "new_keys": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          }
+        },
+        "steps": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "out",
+              "durable"
+            ],
+            "properties": {
+              "line": {
+                "type": "string",
+                "maxLength": 384
+              },
+              "event": {
+                "enum": [
+                  "press",
+                  "press_timeout",
+                  "context_expired",
+                  "reboot",
+                  "fail_next_write"
+                ]
+              },
+              "out": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "durable": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "state",
+                  "device",
+                  "phone",
+                  "eid",
+                  "rev"
+                ],
+                "properties": {
+                  "state": {
+                    "enum": [
+                      "none",
+                      "committed",
+                      "revoked",
+                      "key_lost",
+                      "key_unavailable",
+                      "record_corrupt"
+                    ]
+                  },
+                  "device": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "phone": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "eid": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^[0-9a-f]{32}$"
+                  },
+                  "rev": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              },
+              "session_authority": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "side",
+        "given",
+        "steps"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "side": {
+          "const": "phone"
+        },
+        "given": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "key",
+            "phone",
+            "record"
+          ],
+          "properties": {
+            "key": {
+              "enum": [
+                "absent",
+                "present",
+                "lost"
+              ]
+            },
+            "phone": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "record": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "additionalProperties": false,
+              "required": [
+                "state",
+                "device",
+                "phone",
+                "eid",
+                "rev"
+              ],
+              "properties": {
+                "state": {
+                  "enum": [
+                    "staged",
+                    "committed",
+                    "revoked",
+                    "corrupt"
+                  ]
+                },
+                "device": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "phone": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "eid": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^[0-9a-f]{32}$"
+                },
+                "rev": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            },
+            "new_keys": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          }
+        },
+        "steps": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "op",
+              "result",
+              "after"
+            ],
+            "properties": {
+              "op": {
+                "enum": [
+                  "show_token",
+                  "enter_token",
+                  "confirm",
+                  "abort",
+                  "forget",
+                  "restart",
+                  "fail_next_write",
+                  "key_missing",
+                  "reset_phone_key",
+                  "session_eligible"
+                ]
+              },
+              "token": {
+                "type": "string"
+              },
+              "eid": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{32}$"
+              },
+              "device": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "result": {
+                "type": "string"
+              },
+              "after": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "key",
+                  "phone",
+                  "record"
+                ],
+                "properties": {
+                  "key": {
+                    "enum": [
+                      "absent",
+                      "present",
+                      "lost"
+                    ]
+                  },
+                  "phone": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "record": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "additionalProperties": false,
+                    "required": [
+                      "state",
+                      "device",
+                      "phone",
+                      "eid",
+                      "rev"
+                    ],
+                    "properties": {
+                      "state": {
+                        "enum": [
+                          "staged",
+                          "committed",
+                          "revoked",
+                          "corrupt"
+                        ]
+                      },
+                      "device": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      },
+                      "phone": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "pattern": "^[0-9a-f]{64}$"
+                      },
+                      "eid": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "pattern": "^[0-9a-f]{32}$"
+                      },
+                      "rev": {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

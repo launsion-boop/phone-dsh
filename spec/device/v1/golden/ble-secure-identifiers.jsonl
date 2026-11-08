@@ -1,0 +1,34 @@
+{"name":"device-key","kind":"public_key","hex":"04aa4e4caee9515c5c7b31e5088ca987e043a5644a65c63f22da3b57b9a05517d381fdae1aafa08ce86f73d5afedfbd3357c90e36ddcb40737017388bf8e050b83","valid":true,"fingerprint":"9f884378e0c09834f2d27bb467eb005ee6cba0e2b66e0220b1b702e31f74473c","device_id":"ble:9f884378e0c09834f2d27bb467eb005ee6cba0e2b66e0220b1b702e31f74473c","phone_id":"phone:9f884378e0c09834f2d27bb467eb005ee6cba0e2b66e0220b1b702e31f74473c"}
+{"name":"phone-key","kind":"public_key","hex":"0418ca689b5b4f1bb668f255a9149f305b926417617f92712a4b45ea45a6448d73e2978b76a3a1d2c3b3173dfeb301603206d7adc620e6176ab50c90c28519c263","valid":true,"fingerprint":"9b6cc456bc66478c30edb378c40b490e13480ddad90e59dda9efd13e4337f03e","device_id":"ble:9b6cc456bc66478c30edb378c40b490e13480ddad90e59dda9efd13e4337f03e","phone_id":"phone:9b6cc456bc66478c30edb378c40b490e13480ddad90e59dda9efd13e4337f03e"}
+{"name":"compressed-point","kind":"public_key","hex":"03aa4e4caee9515c5c7b31e5088ca987e043a5644a65c63f22da3b57b9a05517d3","valid":false,"reason":"length"}
+{"name":"hybrid-prefix","kind":"public_key","hex":"06aa4e4caee9515c5c7b31e5088ca987e043a5644a65c63f22da3b57b9a05517d381fdae1aafa08ce86f73d5afedfbd3357c90e36ddcb40737017388bf8e050b83","valid":false,"reason":"not_uncompressed"}
+{"name":"raw-xy-without-prefix","kind":"public_key","hex":"aa4e4caee9515c5c7b31e5088ca987e043a5644a65c63f22da3b57b9a05517d381fdae1aafa08ce86f73d5afedfbd3357c90e36ddcb40737017388bf8e050b83","valid":false,"reason":"length"}
+{"name":"y-flipped-off-curve","kind":"public_key","hex":"04aa4e4caee9515c5c7b31e5088ca987e043a5644a65c63f22da3b57b9a05517d381fdae1aafa08ce86f73d5afedfbd3357c90e36ddcb40737017388bf8e050b82","valid":false,"reason":"not_on_curve"}
+{"name":"x-equal-to-p","kind":"public_key","hex":"04ffffffff00000001000000000000000000000000ffffffffffffffffffffffff81fdae1aafa08ce86f73d5afedfbd3357c90e36ddcb40737017388bf8e050b83","valid":false,"reason":"coordinate_range"}
+{"name":"all-zero-point","kind":"public_key","hex":"0400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","valid":false,"reason":"not_on_curve"}
+{"name":"uppercase-hex","kind":"public_key","hex":"04AA4E4CAEE9515C5C7B31E5088CA987E043A5644A65C63F22DA3B57B9A05517D381FDAE1AAFA08CE86F73D5AFEDFBD3357C90E36DDCB40737017388BF8E050B83","valid":false,"reason":"uppercase"}
+{"name":"non-hex","kind":"public_key","hex":"04aa4e4caee9515c5c7b31e5088ca987e043a5644a65c63f22da3b57b9a05517d381fdae1aafa08ce86f73d5afedfbd3357c90e36ddcb40737017388bf8e050bzz","valid":false,"reason":"not_hex"}
+{"name":"device-identifier","kind":"identifier","role":"device","text":"ble:9f884378e0c09834f2d27bb467eb005ee6cba0e2b66e0220b1b702e31f74473c","valid":true}
+{"name":"phone-identifier","kind":"identifier","role":"phone","text":"phone:9b6cc456bc66478c30edb378c40b490e13480ddad90e59dda9efd13e4337f03e","valid":true}
+{"name":"legacy-link-uuid","kind":"identifier","role":"device","text":"ble:ce6ec956-1111-4222-8333-123456789abc","valid":false}
+{"name":"uppercase-identifier","kind":"identifier","role":"device","text":"ble:9F884378E0C09834F2D27BB467EB005EE6CBA0E2B66E0220B1B702E31F74473C","valid":false}
+{"name":"short-identifier","kind":"identifier","role":"device","text":"ble:9f884378e0c09834f2d27bb467eb005ee6cba0e2b66e0220b1b702e31f74473","valid":false}
+{"name":"phone-namespace-as-device","kind":"identifier","role":"device","text":"phone:9f884378e0c09834f2d27bb467eb005ee6cba0e2b66e0220b1b702e31f74473c","valid":false}
+{"name":"device-namespace-as-phone","kind":"identifier","role":"phone","text":"ble:9b6cc456bc66478c30edb378c40b490e13480ddad90e59dda9efd13e4337f03e","valid":false}
+{"name":"trailing-newline","kind":"identifier","role":"device","text":"ble:9f884378e0c09834f2d27bb467eb005ee6cba0e2b66e0220b1b702e31f74473c\n","valid":false}
+{"name":"lan-namespace","kind":"identifier","role":"device","text":"lan:9f884378e0c09834f2d27bb467eb005ee6cba0e2b66e0220b1b702e31f74473c","valid":false}
+{"name":"eid","kind":"eid","text":"6f1c0a8e2b9d4c3fa1e0b7d6c5f4e3d2","valid":true}
+{"name":"eid-short","kind":"eid","text":"6f1c0a8e2b9d4c3fa1e0b7d6c5f4e3d","valid":false}
+{"name":"eid-uppercase","kind":"eid","text":"6F1C0A8E2B9D4C3FA1E0B7D6C5F4E3D2","valid":false}
+{"name":"eid-non-hex","kind":"eid","text":"6f1c0a8e2b9d4c3fa1e0b7d6c5f4e3dg","valid":false}
+{"name":"board-token","kind":"board_token","input":"pdsh-board-v1:9f884378e0c09834f2d27bb467eb005ee6cba0e2b66e0220b1b702e31f74473c:6f1c0a8e2b9d4c3fa1e0b7d6c5f4e3d2","valid":true,"normalized":{"device":"9f884378e0c09834f2d27bb467eb005ee6cba0e2b66e0220b1b702e31f74473c","eid":"6f1c0a8e2b9d4c3fa1e0b7d6c5f4e3d2"}}
+{"name":"board-token-trimmed-uppercase","kind":"board_token","input":"  \tpdsh-board-v1:9F884378E0C09834F2D27BB467EB005EE6CBA0E2B66E0220B1B702E31F74473C:6F1C0A8E2B9D4C3FA1E0B7D6C5F4E3D2\r\n","valid":true,"normalized":{"device":"9f884378e0c09834f2d27bb467eb005ee6cba0e2b66e0220b1b702e31f74473c","eid":"6f1c0a8e2b9d4c3fa1e0b7d6c5f4e3d2"}}
+{"name":"board-token-inner-space","kind":"board_token","input":"pdsh-board-v1: 9f884378e0c09834f2d27bb467eb005ee6cba0e2b66e0220b1b702e31f74473c:6f1c0a8e2b9d4c3fa1e0b7d6c5f4e3d2","valid":false}
+{"name":"board-token-version-2","kind":"board_token","input":"pdsh-board-v2:9f884378e0c09834f2d27bb467eb005ee6cba0e2b66e0220b1b702e31f74473c:6f1c0a8e2b9d4c3fa1e0b7d6c5f4e3d2","valid":false}
+{"name":"board-token-short-device","kind":"board_token","input":"pdsh-board-v1:9f884378e0c09834f2d27bb467eb005ee6cba0e2b66e0220b1b702e31f74473:6f1c0a8e2b9d4c3fa1e0b7d6c5f4e3d2","valid":false}
+{"name":"board-token-missing-eid","kind":"board_token","input":"pdsh-board-v1:9f884378e0c09834f2d27bb467eb005ee6cba0e2b66e0220b1b702e31f74473c","valid":false}
+{"name":"board-token-prefix-case","kind":"board_token","input":"PDSH-board-v1:9f884378e0c09834f2d27bb467eb005ee6cba0e2b66e0220b1b702e31f74473c:6f1c0a8e2b9d4c3fa1e0b7d6c5f4e3d2","valid":false}
+{"name":"board-token-grouped","kind":"board_token","input":"pdsh-board-v1:9f884378e0c09834f2d27bb467eb005e e6cba0e2b66e0220b1b702e31f74473c:6f1c0a8e2b9d4c3fa1e0b7d6c5f4e3d2","valid":false}
+{"name":"phone-token","kind":"phone_token","input":"pdsh-phone-v1:9b6cc456bc66478c30edb378c40b490e13480ddad90e59dda9efd13e4337f03e","valid":true}
+{"name":"phone-token-uppercase","kind":"phone_token","input":"pdsh-phone-v1:9B6CC456BC66478C30EDB378C40B490E13480DDAD90E59DDA9EFD13E4337F03E","valid":false}
+{"name":"phone-token-bare-hex","kind":"phone_token","input":"9b6cc456bc66478c30edb378c40b490e13480ddad90e59dda9efd13e4337f03e","valid":false}

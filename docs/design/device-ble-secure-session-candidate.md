@@ -1,5 +1,13 @@
 # Candidate: authenticated BLE device-task session
 
+> **Superseded (2026-11-08).** The decisions below are frozen, with the
+> deviations recorded in its change record, as
+> [`spec/device/v1/ble-secure-session.md`](../../spec/device/v1/ble-secure-session.md)
+> (`secure-session-v1`, `target`), change record
+> [PC-20261108-ble-secure-session](../protocol-changes/PC-20261108-ble-secure-session.md).
+> This file is kept as design history; where it and the contract differ, the
+> contract wins.
+
 Status: **working security-design draft; not a frozen contract, not authority to
 implement or enable task grants**. Based on repository CCR
 `PC-20261107-ble-session-binding-ccr.md`, reviewed against its recorded

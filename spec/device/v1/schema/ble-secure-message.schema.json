@@ -1,0 +1,506 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BLE secure session application message (secure-session-v1, ble-secure-session.md §7)",
+  "description": "Closed member sets; semantic byte limits, direction, duplicate-name, NUL and task rules are in ble-secure-session.md §7.",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "t",
+        "seq",
+        "device",
+        "phone",
+        "eid",
+        "cc"
+      ],
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "t": {
+          "const": "ready_req"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "device": {
+          "type": "string",
+          "pattern": "^ble:[0-9a-f]{64}$"
+        },
+        "phone": {
+          "type": "string",
+          "pattern": "^phone:[0-9a-f]{64}$"
+        },
+        "eid": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "cc": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "t",
+        "seq",
+        "sc"
+      ],
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "t": {
+          "const": "next"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "sc": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "t",
+        "seq",
+        "sc",
+        "id",
+        "idem"
+      ],
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "t": {
+          "const": "accept"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "sc": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"
+        },
+        "idem": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "t",
+        "seq",
+        "sc",
+        "id",
+        "idem",
+        "output",
+        "truncated"
+      ],
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "t": {
+          "const": "complete"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "sc": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"
+        },
+        "idem": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"
+        },
+        "output": {
+          "type": "string",
+          "maxLength": 1024
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "t",
+        "seq",
+        "sc",
+        "id",
+        "idem",
+        "failure"
+      ],
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "t": {
+          "const": "fail"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "sc": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"
+        },
+        "idem": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"
+        },
+        "failure": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "message"
+          ],
+          "properties": {
+            "kind": {
+              "enum": [
+                "denied",
+                "unavailable",
+                "expired",
+                "failed",
+                "unknown_outcome"
+              ]
+            },
+            "message": {
+              "type": "string",
+              "maxLength": 256
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "t",
+        "seq",
+        "sc",
+        "id",
+        "idem"
+      ],
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "t": {
+          "const": "status"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "sc": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"
+        },
+        "idem": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "t",
+        "re",
+        "device",
+        "phone",
+        "eid",
+        "cc",
+        "sc"
+      ],
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "t": {
+          "const": "ready_ack"
+        },
+        "re": {
+          "const": 1
+        },
+        "device": {
+          "type": "string",
+          "pattern": "^ble:[0-9a-f]{64}$"
+        },
+        "phone": {
+          "type": "string",
+          "pattern": "^phone:[0-9a-f]{64}$"
+        },
+        "eid": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "cc": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "sc": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "t",
+        "re",
+        "task",
+        "phase"
+      ],
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "t": {
+          "const": "next_r"
+        },
+        "re": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "task": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "phase": {
+          "enum": [
+            "queued",
+            "accepted",
+            null
+          ]
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "t",
+        "re",
+        "result",
+        "phase"
+      ],
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "t": {
+          "const": "r"
+        },
+        "re": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "result": {
+          "enum": [
+            "applied",
+            "duplicate"
+          ]
+        },
+        "phase": {
+          "enum": [
+            "accepted",
+            "completed",
+            "failed"
+          ]
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "t",
+        "re",
+        "phase",
+        "mine"
+      ],
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "t": {
+          "const": "status_r"
+        },
+        "re": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "phase": {
+          "enum": [
+            "unknown",
+            "queued",
+            "accepted",
+            "completed",
+            "failed"
+          ]
+        },
+        "mine": {
+          "type": "boolean"
+        },
+        "outcome": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "output",
+                "truncated"
+              ],
+              "properties": {
+                "output": {
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                "truncated": {
+                  "type": "boolean"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "failure"
+              ],
+              "properties": {
+                "failure": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "kind",
+                    "message"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "denied",
+                        "unavailable",
+                        "expired",
+                        "failed",
+                        "unknown_outcome"
+                      ]
+                    },
+                    "message": {
+                      "type": "string",
+                      "maxLength": 256
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "t",
+        "re",
+        "code"
+      ],
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "t": {
+          "const": "err"
+        },
+        "re": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "code": {
+          "enum": [
+            "malformed",
+            "limit",
+            "bad_sequence",
+            "bad_challenge",
+            "not_ready",
+            "record_mismatch",
+            "revoked",
+            "storage",
+            "timeout",
+            "internal",
+            "unknown_task",
+            "invalid_transition",
+            "conflict",
+            "wrong_owner"
+          ]
+        }
+      }
+    }
+  ]
+}

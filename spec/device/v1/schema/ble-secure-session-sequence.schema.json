@@ -1,0 +1,364 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "secure-session-v1 session sequence vector",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "side",
+        "given",
+        "handshake",
+        "steps",
+        "final_store"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "side": {
+          "const": "device"
+        },
+        "given": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "record",
+            "peer_phone",
+            "sc",
+            "store"
+          ],
+          "properties": {
+            "record": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "state",
+                "device",
+                "phone",
+                "eid",
+                "rev"
+              ],
+              "properties": {
+                "state": {
+                  "enum": [
+                    "committed",
+                    "revoked"
+                  ]
+                },
+                "device": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "phone": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "eid": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{32}$"
+                },
+                "rev": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "peer_phone": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "sc": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "store": {
+              "type": "array",
+              "maxItems": 4,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "task",
+                  "phase"
+                ],
+                "properties": {
+                  "task": {
+                    "type": "object"
+                  },
+                  "phase": {
+                    "enum": [
+                      "queued",
+                      "accepted",
+                      "completed",
+                      "failed"
+                    ]
+                  },
+                  "by": {
+                    "type": "string",
+                    "pattern": "^phone:[0-9a-f]{64}$"
+                  },
+                  "outcome": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "output",
+                          "truncated"
+                        ],
+                        "properties": {
+                          "output": {
+                            "type": "string",
+                            "maxLength": 1024
+                          },
+                          "truncated": {
+                            "type": "boolean"
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "failure"
+                        ],
+                        "properties": {
+                          "failure": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "kind",
+                              "message"
+                            ],
+                            "properties": {
+                              "kind": {
+                                "enum": [
+                                  "denied",
+                                  "unavailable",
+                                  "expired",
+                                  "failed",
+                                  "unknown_outcome"
+                                ]
+                              },
+                              "message": {
+                                "type": "string",
+                                "maxLength": 256
+                              }
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "handshake": {
+          "enum": [
+            "accept",
+            "reject"
+          ]
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "expect"
+            ],
+            "properties": {
+              "recv": {
+                "type": "object"
+              },
+              "event": {
+                "enum": [
+                  "revoke",
+                  "idle_timeout",
+                  "ready_timeout",
+                  "fail_next_write"
+                ]
+              },
+              "expect": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "send",
+                  "close"
+                ],
+                "properties": {
+                  "send": {
+                    "type": [
+                      "object",
+                      "null"
+                    ]
+                  },
+                  "close": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "final_store": {
+          "type": "array",
+          "maxItems": 4,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "task",
+              "phase"
+            ],
+            "properties": {
+              "task": {
+                "type": "object"
+              },
+              "phase": {
+                "enum": [
+                  "queued",
+                  "accepted",
+                  "completed",
+                  "failed"
+                ]
+              },
+              "by": {
+                "type": "string",
+                "pattern": "^phone:[0-9a-f]{64}$"
+              },
+              "outcome": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "output",
+                      "truncated"
+                    ],
+                    "properties": {
+                      "output": {
+                        "type": "string",
+                        "maxLength": 1024
+                      },
+                      "truncated": {
+                        "type": "boolean"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "failure"
+                    ],
+                    "properties": {
+                      "failure": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "kind",
+                          "message"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "enum": [
+                              "denied",
+                              "unavailable",
+                              "expired",
+                              "failed",
+                              "unknown_outcome"
+                            ]
+                          },
+                          "message": {
+                            "type": "string",
+                            "maxLength": 256
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "side",
+        "given",
+        "steps"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "side": {
+          "const": "phone"
+        },
+        "given": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "device",
+            "phone",
+            "eid",
+            "cc"
+          ],
+          "properties": {
+            "device": {
+              "type": "string",
+              "pattern": "^ble:[0-9a-f]{64}$"
+            },
+            "phone": {
+              "type": "string",
+              "pattern": "^phone:[0-9a-f]{64}$"
+            },
+            "eid": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "cc": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        },
+        "steps": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "recv",
+              "expect"
+            ],
+            "properties": {
+              "recv": {
+                "type": "object"
+              },
+              "expect": {
+                "enum": [
+                  "ready",
+                  "close"
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}
