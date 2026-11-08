@@ -112,6 +112,7 @@ cc "${SECURE_CFLAGS[@]}" "$ROOT/firmware/tests/test_secure_enroll.c" "$ROOT/firm
   "$MAIN/pdsh_enroll.c" "$MAIN/pdsh_secure_msg.c" "$MAIN/pdsh_task_validate.c" "$CJSON/cJSON.c" \
   "${MBEDTLS_LIBS[@]}" -o "$OUT/secure-enroll"
 "$OUT/secure-enroll" "$GOLDEN/ble-secure-enrollment-lines.jsonl" "$GOLDEN/ble-secure-enrollment-states.jsonl"
+bash "$ROOT/firmware/tests/check_enroll_stack.sh"
 cc "${SECURE_CFLAGS[@]}" "$ROOT/firmware/tests/test_secure_session.c" "$ROOT/firmware/tests/test_secure_support.c" \
   "$MAIN/pdsh_secure_session.c" "$MAIN/pdsh_secure_msg.c" "$MAIN/pdsh_secure_cert.c" "$MAIN/pdsh_enroll.c" \
   "$MAIN/pdsh_identity.c" "$MAIN/pdsh_task_store.c" "$MAIN/pdsh_task_validate.c" "$CJSON/cJSON.c" \

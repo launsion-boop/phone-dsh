@@ -20,6 +20,13 @@
 #define PDSH_ENROLL_ARM_HOLD_MS 5000u
 #define PDSH_ENROLL_CONFIRM_HOLD_MS 3000u
 #define PDSH_ENROLL_DEBOUNCE_MS 50u
+/* Stack of the task that calls pdsh_enroll_feed()/pdsh_enroll_tick(). The
+ * console path process_line -> command -> emit -> write_line keeps three
+ * pdsh_enroll_line_t (~1.2 KiB each) live: 4304 bytes of frames on the
+ * ESP32-S3 (IDF 6.1, -Os) before printf and the console VFS. The former
+ * 4096-byte task overflowed on the first `begin` on hardware (on-air run
+ * 2026-11-08). firmware/tests/check_enroll_stack.sh guards the budget. */
+#define PDSH_ENROLL_CONSOLE_STACK 8192u
 
 typedef enum { PDSH_INDICATOR_OFF, PDSH_INDICATOR_ARMED, PDSH_INDICATOR_CONFIRM } pdsh_indicator_t;
 /* pdsh_enroll_button() result flags. */

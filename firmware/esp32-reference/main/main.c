@@ -465,7 +465,7 @@ static void secure_start(void) {
     if (!uart_is_driver_installed(CONFIG_ESP_CONSOLE_UART_NUM))
         ESP_ERROR_CHECK(uart_driver_install(CONFIG_ESP_CONSOLE_UART_NUM, 512, 0, 0, NULL, 0));
 #endif
-    xTaskCreate(console_task, "pdsh_enroll", 4096, NULL, 4, NULL);
+    xTaskCreate(console_task, "pdsh_enroll", PDSH_ENROLL_CONSOLE_STACK, NULL, 4, NULL);
     secure_lock = xSemaphoreCreateMutex();
     assert(secure_lock);
     xTaskCreate(secure_task, "pdsh_secure", 10240, NULL, 4, NULL);
