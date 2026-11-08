@@ -81,6 +81,8 @@ public sealed interface SettingsWrite {
  * @param mcp the MCP registry; the default reports no list.
  * @param mcpEditor the stored server the editor opens on; the default is a new
  *   server form (nothing is stored).
+ * @param lan LAN MCP device discovery; the default host has none, so 扫描局域网设备
+ *   renders disabled with the page's own "not wired" line.
  * @param runtime the engine/runtime snapshot; the default reports no read.
  * @param egress the effective allow list; the default reports no list.
  * @param automation the schedules; the default reports no list.
@@ -110,6 +112,7 @@ public data class PdshNavFacts(
     public val webSearch: WebSearchFacts = WebSearchFacts(),
     public val mcp: MCPRegistryFacts = MCPRegistryFacts(),
     public val mcpEditor: MCPEditorFacts = MCPEditorFacts(),
+    public val lan: com.phonedsh.ui.page.LanDiscoveryFacts = com.phonedsh.ui.page.LanDiscoveryFacts(),
     public val bluetooth: com.phonedsh.ui.page.BluetoothFacts = com.phonedsh.ui.page.BluetoothFacts(),
     public val ssh: com.phonedsh.ui.page.SSHFacts = com.phonedsh.ui.page.SSHFacts(),
     /** Android ADB: the saved target and the last 保存 / 测试连接 status (host-owned). */
@@ -451,6 +454,14 @@ public sealed interface PdshHostAction {
         public val port: Int,
     ) : PdshHostAction {
         override val wire: String = "ssh.inspect"
+    }
+
+    /**
+     * 扫描局域网设备 (`true`) / 停止扫描 (`false`): an explicit, user-started LAN MCP
+     * discovery (`spec/device/v1/lan-mcp.md`). It never connects or grants.
+     */
+    public data class LanScan(public val start: Boolean) : PdshHostAction {
+        override val wire: String = "lan.scan"
     }
 
     /** 蓝牙设备 page shown (`true`) or disposed (`false`); disposal stops scan and connections. */

@@ -10,8 +10,10 @@
 //   * `Streamable HTTP MCP` (`MCPSettingsPage.swift:46`) — the server rows, with
 //     the baseline's own footer (`:69`), and its 主机尚未启动 / 正在读取 MCP 注册表…
 //     / 尚未添加 MCP 服务器 states inside it;
-//   * `局域网设备` (`:101`) — 扫描局域网设备, rendered disabled with one line
-//     saying why: Android does not discover LAN devices (see below);
+//   * `局域网设备` (`:101`) — 扫描局域网设备 / 停止扫描, the host's status line,
+//     the discovered candidates (name + URL, marked 未验证) and the iOS
+//     unverified note. Discovery is `spec/device/v1/lan-mcp.md`: a candidate only
+//     opens the editor pre-filled; it never connects, saves or grants;
 //   * `操作` — 刷新注册表 and 添加 MCP 服务器.
 // The two untitled blocks at `:73` and `:78` are the error and notice lines; they
 // carry runtime text only and are the contract's own unresolved entries, so this
@@ -115,6 +117,69 @@ public data class MCPRegistryFacts(
     public val servers: List<MCPServer>? = null,
     public val failure: MCPFailureReason? = null,
 )
+
+/** Where the host's LAN discovery stands; the words are page-owned. */
+public enum class LanScanStatus {
+    /** The host has no LAN discovery; 扫描局域网设备 renders disabled. */
+    UNAVAILABLE,
+    IDLE,
+    SCANNING,
+
+    /** A scan finished with at least one candidate. */
+    FOUND,
+
+    /** A scan finished without a candidate. */
+    NONE_FOUND,
+
+    /** Results were cleared after the expiry window. */
+    EXPIRED,
+
+    /** No Wi-Fi network to browse on. */
+    NO_WIFI,
+    FAILED,
+}
+
+/**
+ * One discovered, **unverified** LAN MCP device: the display-only service name
+ * and the HTTPS URL built from the SRV hostname. Not an identity and not a grant.
+ */
+@Immutable
+public data class LanCandidateFact(
+    public val id: String,
+    public val name: String,
+    public val url: String,
+)
+
+/**
+ * The 局域网设备 group's input.
+ *
+ * @param status the discovery state; [LanScanStatus.UNAVAILABLE] (the default)
+ *   is a host that never wired discovery.
+ * @param scanning whether a scan is running (the verb reads 停止扫描).
+ * @param candidates validated candidates in display order.
+ */
+@Immutable
+public data class LanDiscoveryFacts(
+    public val status: LanScanStatus = LanScanStatus.UNAVAILABLE,
+    public val scanning: Boolean = false,
+    public val candidates: List<LanCandidateFact> = emptyList(),
+) {
+    /** Whether the scan verb can do anything on this host. */
+    public val available: Boolean get() = status != LanScanStatus.UNAVAILABLE
+
+    /** The page-owned status line. */
+    public val statusText: String
+        get() = when (status) {
+            LanScanStatus.UNAVAILABLE -> UiStrings.MCP_LAN_STATUS_UNAVAILABLE
+            LanScanStatus.IDLE -> UiStrings.MCP_LAN_STATUS_IDLE
+            LanScanStatus.SCANNING -> UiStrings.MCP_LAN_STATUS_SCANNING
+            LanScanStatus.FOUND -> UiStrings.MCP_LAN_STATUS_FOUND
+            LanScanStatus.NONE_FOUND -> UiStrings.MCP_LAN_STATUS_NONE
+            LanScanStatus.EXPIRED -> UiStrings.MCP_LAN_STATUS_EXPIRED
+            LanScanStatus.NO_WIFI -> UiStrings.MCP_LAN_STATUS_NO_WIFI
+            LanScanStatus.FAILED -> UiStrings.MCP_LAN_STATUS_FAILED
+        }
+}
 
 // ---------------------------------------------------------------------------
 // ScreenState
@@ -244,6 +309,9 @@ public data class MCPLocalState(public val fold: FoldState = FoldState()) {
  * @param onToggleServers collapse/expand the server group; the host applies
  *   `MCPUiEvent.ToggleServers` and re-projects.
  * @param onBack leave the page.
+ * @param lan the 局域网设备 group's discovery facts.
+ * @param onLanScan start (`true`) or stop (`false`) LAN discovery.
+ * @param onLanCandidate open the editor pre-filled with a candidate's URL.
  * @param onRefresh re-read the registry (`PdshHostAction.RefreshMcp`); it is also
  *   the retry after a failed read, so the page has one re-read verb instead of
  *   two. `null` renders 刷新注册表 disabled — a host without the command says so
@@ -258,6 +326,9 @@ public fun MCPSettingsPage(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     onRefresh: (() -> Unit)? = null,
+    lan: LanDiscoveryFacts = LanDiscoveryFacts(),
+    onLanScan: (Boolean) -> Unit = {},
+    onLanCandidate: (LanCandidateFact) -> Unit = {},
 ) {
     SettingsSubPageFrame(
         backGlyph = SETTINGS_CLOSE_GLYPH,
@@ -341,24 +412,60 @@ public fun MCPSettingsPage(
                 }
             }
             // 局域网设备 (`MCPSettingsPage.swift:101`), above 操作 as in the baseline.
-            // Android has no LAN discovery: the LAN profile needs the raw TXT bytes
-            // and the SRV hostname, which NsdManager does not expose, so the scan
-            // verb is shown disabled with its reason instead of pretending to scan.
+            // The verb toggles like iOS (`:102`); a host without discovery
+            // (status UNAVAILABLE) shows it disabled with its own status line.
             SessionSectionLabel(
                 text = UiStrings.MCP_LAN_SECTION,
                 modifier = Modifier.testTag(UiPageTags.MCP_LAN_SECTION),
             )
-            SessionTextAction(
-                label = UiStrings.MCP_LAN_SCAN,
-                onClick = {},
-                tone = SessionActionTone.ACCENT,
-                enabled = false,
-                modifier = Modifier.testTag(UiPageTags.MCP_LAN_SCAN),
-            )
+            if (lan.scanning) {
+                SessionTextAction(
+                    label = UiStrings.MCP_LAN_STOP,
+                    onClick = { onLanScan(false) },
+                    tone = SessionActionTone.ACCENT,
+                    modifier = Modifier.testTag(UiPageTags.MCP_LAN_SCAN),
+                )
+            } else {
+                SessionTextAction(
+                    label = UiStrings.MCP_LAN_SCAN,
+                    onClick = { onLanScan(true) },
+                    tone = SessionActionTone.ACCENT,
+                    enabled = lan.available,
+                    modifier = Modifier.testTag(UiPageTags.MCP_LAN_SCAN),
+                )
+            }
             SettingsSubPageFootnote(
-                text = UiStrings.MCP_LAN_UNSUPPORTED,
-                modifier = Modifier.testTag(UiPageTags.MCP_LAN_UNSUPPORTED),
+                text = lan.statusText,
+                modifier = Modifier.testTag(UiPageTags.MCP_LAN_STATUS),
             )
+            if (lan.candidates.isNotEmpty()) {
+                // At most the remaining half of the page: the server group keeps
+                // its weight and 操作 stays reachable however many devices answer.
+                LazyColumn(
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .testTag(UiPageTags.MCP_LAN_CANDIDATES),
+                ) {
+                    items(count = lan.candidates.size, key = { index -> "lan.${lan.candidates[index].id}" }) { index ->
+                        val candidate = lan.candidates[index]
+                        SettingsFormRow(
+                            title = candidate.name,
+                            value = UiStrings.MCP_LAN_UNVERIFIED,
+                            tone = PageTone.DEGRADED,
+                            subtitle = candidate.url,
+                            modifier = Modifier.testTag(UiPageTags.MCP_LAN_CANDIDATE_PREFIX + candidate.id),
+                            onClick = { onLanCandidate(candidate) },
+                        )
+                    }
+                }
+                // The iOS note (`:117`) qualifies the results, so it is drawn with
+                // them; without candidates the page keeps its height for the
+                // server group (the status line already says what happened).
+                SettingsSubPageFootnote(
+                    text = UiStrings.MCP_LAN_NOTE,
+                    modifier = Modifier.testTag(UiPageTags.MCP_LAN_NOTE),
+                )
+            }
             // 操作 (`MCPSettingsPage.swift:83`): the two verbs, in the baseline's order.
             SessionSectionLabel(
                 text = UiStrings.MCP_ACTION_SECTION,

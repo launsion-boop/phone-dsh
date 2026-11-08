@@ -1872,15 +1872,23 @@ public object UiStrings {
     public const val MCP_ACTION_REFRESH: String = "刷新注册表"
     public const val MCP_ACTION_ADD_SERVER: String = "添加 MCP 服务器"
 
-    // 局域网设备 (`MCPSettingsPage.swift:101`): the group and its scan verb. iOS
-    // toggles the verb between 扫描局域网设备 and 停止扫描; Android never scans, so
-    // it renders only the idle name, disabled, with the reason beside it. The LAN
-    // profile (`spec/device/v1/lan-mcp.md`) needs the raw TXT bytes and the SRV
-    // hostname (TLS validates that name); Android's NsdManager exposes neither.
+    // 局域网设备 (`MCPSettingsPage.swift:101`): the group, its scan verb and the
+    // iOS toggle 停止扫描 (`:102`), the status line (`:105`, page-owned words for
+    // the host's LanScanStatus) and the unverified note (`:117`, iOS copy). The
+    // discovery rules are `spec/device/v1/lan-mcp.md`; a candidate is never a grant.
     public const val MCP_LAN_SECTION: String = "局域网设备"
     public const val MCP_LAN_SCAN: String = "扫描局域网设备"
-    public const val MCP_LAN_UNSUPPORTED: String =
-        "Android 暂不支持发现局域网设备：系统的 DNS-SD 拿不到局域网协议要求的原始 TXT 记录和 SRV 主机名。"
+    public const val MCP_LAN_STOP: String = "停止扫描"
+    public const val MCP_LAN_STATUS_IDLE: String = "点击扫描局域网设备"
+    public const val MCP_LAN_STATUS_UNAVAILABLE: String = "本宿主未接入局域网发现"
+    public const val MCP_LAN_STATUS_SCANNING: String = "正在扫描局域网设备"
+    public const val MCP_LAN_STATUS_FOUND: String = "选择设备并确认地址与凭证"
+    public const val MCP_LAN_STATUS_NONE: String = "未发现设备，可重新扫描或手动添加"
+    public const val MCP_LAN_STATUS_EXPIRED: String = "扫描结果已过期，请重新扫描"
+    public const val MCP_LAN_STATUS_NO_WIFI: String = "未连接 Wi-Fi，无法扫描局域网设备；可手动添加"
+    public const val MCP_LAN_STATUS_FAILED: String = "局域网扫描失败，可重新扫描或手动添加"
+    public const val MCP_LAN_UNVERIFIED: String = "未验证"
+    public const val MCP_LAN_NOTE: String = "发现结果尚未验证。请核对设备地址并输入设备提供的授权凭证。"
 
     // The editor's two titled groups: 服务器 (`MCPSettingsPage.swift:188`, the form)
     // and 认证头与设备密钥 (`:203`, the header list) with its footer (`:229`).

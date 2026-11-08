@@ -1644,6 +1644,11 @@ private fun McpRoute(
     onNavigate: (PdshRoute) -> Unit,
 ) {
     var local by remember { mutableStateOf(MCPLocalState()) }
+    // Discovery is foreground-only (lan-mcp.md: explicitly started by the user):
+    // leaving the page stops a running scan; found candidates expire on their own.
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        onDispose { onHostAction(PdshHostAction.LanScan(false)) }
+    }
     MCPSettingsPage(
         state = MCPScreenState.from(facts.mcp, local),
         onAdd = { onNavigate(PdshRoute.McpEditor(null)) },
@@ -1653,6 +1658,14 @@ private fun McpRoute(
         // 操作's 刷新注册表 (`MCPSettingsPage.swift:87`). This host has no MCP read
         // yet, so the handoff is what it can do and the page keeps the row visible.
         onRefresh = { onHostAction(PdshHostAction.RefreshMcp) },
+        // 局域网设备 (`MCPSettingsPage.swift:101`): scan/stop are host actions; a
+        // candidate opens the ordinary editor pre-filled with its URL, like iOS
+        // `MCPEditorPage(candidate:)`. Nothing is saved or granted by selecting it.
+        lan = facts.lan,
+        onLanScan = { start -> onHostAction(PdshHostAction.LanScan(start)) },
+        onLanCandidate = { candidate ->
+            onNavigate(PdshRoute.McpEditor(serverId = null, discoveredUrl = candidate.url))
+        },
     )
 }
 
@@ -1716,7 +1729,7 @@ private fun McpEditorRoute(
     } else {
         facts.mcpEditor
     }
-    var local by remember(route) { mutableStateOf(MCPEditorLocalState()) }
+    var local by remember(route) { mutableStateOf(discoveredDraft(route.discoveredUrl)) }
     val state = MCPEditorScreenState.from(editorFacts, local)
     MCPEditorPage(
         state = state,
@@ -1758,6 +1771,27 @@ private fun McpEditorRoute(
             }
         },
         onBack = onBack,
+    )
+}
+
+/**
+ * The editor's starting point for a selected LAN candidate, mirroring the iOS
+ * `MCPEditorPage(candidate:)` draft: a fresh `device_<12 hex>` name, the
+ * candidate's HTTPS URL, a 60 s tool timeout and an empty `Authorization` row for
+ * the device credential (lan-mcp.md: the bearer credential is entered by the
+ * person, never taken from discovery). `null` is the ordinary blank form.
+ */
+internal fun discoveredDraft(url: String?): MCPEditorLocalState {
+    if (url == null) return MCPEditorLocalState()
+    val suffix = java.util.UUID.randomUUID().toString().replace("-", "").take(12).lowercase()
+    return MCPEditorLocalState(
+        draft = com.phonedsh.ui.page.MCPServerDraft(
+            name = "device_$suffix",
+            transport = com.phonedsh.ui.page.MCPTransport.HTTP,
+            url = url,
+            toolCallTimeoutMs = "60000",
+            headers = listOf(com.phonedsh.ui.page.MCPHeaderDraft(name = "Authorization")),
+        ),
     )
 }
 
