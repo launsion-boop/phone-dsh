@@ -76,8 +76,8 @@ struct ChatPreferencesPage: View {
         .navigationTitle("聊天外观")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("完成") { dismiss() }.leadingBarText()
+            ToolbarItem(placement: .confirmationAction) {
+                Button("完成") { dismiss() }.fontWeight(.semibold)
             }
         }
     }

@@ -95,6 +95,15 @@ enum HomeSpec {
                                topTrailingRadius: 0,
                                style: .continuous)
     }
+
+    /// The Bot's bubble mirrors the user's: the top-leading corner is square.
+    static var botBubbleShape: UnevenRoundedRectangle {
+        UnevenRoundedRectangle(topLeadingRadius: 0,
+                               bottomLeadingRadius: bubbleRadius,
+                               bottomTrailingRadius: bubbleRadius,
+                               topTrailingRadius: bubbleRadius,
+                               style: .continuous)
+    }
 }
 
 /// True for rows drawn inside a list card: they drop to the 14/22 list
@@ -266,3 +275,38 @@ struct HomeFieldRow<Field: View>: View {
     }
 }
 
+/// Gray capsule for the quieter alternative to the primary action (断开…):
+/// 50pt tall, 16pt semibold ink on #E8E8E8.
+struct HomeSecondaryButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: HomeSpec.bodySize, weight: .semibold))
+            .foregroundStyle(HomeSpec.textPrimary)
+            .frame(maxWidth: .infinity)
+            .frame(height: 50)
+            .background(HomeSpec.userBubble, in: Capsule())
+            .opacity(configuration.isPressed ? 0.8 : 1)
+    }
+}
+
+/// Sheet chrome rule: a sheet that cannot be dismissed by tapping outside it
+/// (full height) gets 完成 on the trailing side; every other bar button goes
+/// on the leading side. Half-height sheets close on an outside tap and carry
+/// no close button at all.
+private struct HomeSheetDone: ViewModifier {
+    @Environment(\.dismiss) private var dismiss
+
+    func body(content: Content) -> some View {
+        content.toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button("完成") { dismiss() }
+                    .fontWeight(.semibold)
+            }
+        }
+    }
+}
+
+extension View {
+    /// 完成 on the trailing side of a full-height sheet's root page.
+    func homeSheetDone() -> some View { modifier(HomeSheetDone()) }
+}

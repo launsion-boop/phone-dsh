@@ -89,11 +89,6 @@ struct SessionArtifactsPage: View {
         .homeGroupedList()
         .navigationTitle("本会话产物")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("完成") { dismiss() }.leadingBarText()
-            }
-        }
         .task(id: currentArtifactIDs) { await loadArtifacts() }
         .refreshable { await loadArtifacts() }
         .navigationDestination(item: $preview) { item in

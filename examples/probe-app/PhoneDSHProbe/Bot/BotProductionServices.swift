@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import PhoneDSHAgentCore
 import PhoneDSHBot
 #if canImport(ProbeKit)
 import ProbeKit
@@ -186,6 +187,10 @@ actor BotProductionRowService {
     private var plannerIdentity: ObjectIdentifier?
     private var started = false
     private var currentPresentation = BotRuntimePresentation()
+    /// Tool steps per turn, re-projected only when the session log changes.
+    private var processes: [Int: BotTurnProcess] = [:]
+    private var processSource: Data?
+    private var liveGeneration = 0
 
     init(environment: BotProductionEnvironment, history: BotRowHistory = BotRowHistory(),
          remote: BotDSHRemoteRuntime? = nil) {
@@ -211,12 +216,10 @@ actor BotProductionRowService {
 
     private func rebuild() async throws {
         let sessionID = await environment.sessionID
-        let sessionEvents: [BotDSHSessionEvent]
-        if let sessionLogURL = environment.sessionLogURL {
-            sessionEvents = try BotDSHSessionEvent.parseJSONL(Data(contentsOf: sessionLogURL))
-        } else {
-            sessionEvents = try BotSessionLogLocator.events(sessionID: sessionID)
-        }
+        let logURL = environment.sessionLogURL ?? BotSessionLogLocator.latestFile(sessionID: sessionID)
+        let logData = try logURL.map { try Data(contentsOf: $0) }
+        let sessionEvents = try logData.map { try BotDSHSessionEvent.parseJSONL($0) } ?? []
+        updateProcesses(from: logData)
         let uiEvents = try await BotProductionEventReader.all(domain: environment.domain)
         let heldRequestNonces = await remote?.heldChatActionNonces(sessionID: sessionID) ?? [:]
         _ = try await history.rebuild(botID: environment.botID, sessionID: sessionID,
@@ -225,6 +228,44 @@ actor BotProductionRowService {
         currentPresentation = BotRuntimePresentationFactory.make(
             botID: environment.botID, sessionID: sessionID,
             sessionEvents: sessionEvents, uiEvents: uiEvents)
+    }
+
+    private func updateProcesses(from data: Data?) {
+        guard data != processSource else { return }
+        processSource = data
+        guard let data else {
+            processes = [:]
+            return
+        }
+        let records = data.split(separator: UInt8(ascii: "\n")).compactMap { line in
+            try? JSONValue.parse(Data(line))
+        }
+        processes = BotTurnProcessProjector.make(records: records)
+    }
+
+    func turnProcesses() -> [Int: BotTurnProcess] { processes }
+
+    /// Live frames of the visible main-chat turn. One subscriber at a time;
+    /// a newer subscription replaces an older one, and only the current one
+    /// detaches the observer when it ends.
+    func liveFrames() -> AsyncStream<BotLiveTurnFrame> {
+        liveGeneration += 1
+        let generation = liveGeneration
+        let (stream, continuation) = AsyncStream<BotLiveTurnFrame>.makeStream(bufferingPolicy: .bufferingNewest(512))
+        guard let remote else {
+            continuation.finish()
+            return stream
+        }
+        continuation.onTermination = { [weak self] _ in
+            Task { await self?.endLive(generation: generation) }
+        }
+        Task { await remote.setLiveObserver { frame in continuation.yield(frame) } }
+        return stream
+    }
+
+    private func endLive(generation: Int) async {
+        guard generation == liveGeneration else { return }
+        await remote?.setLiveObserver(nil)
     }
 
     func presentation() async throws -> BotRuntimePresentation {

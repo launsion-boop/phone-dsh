@@ -353,6 +353,10 @@ struct BotChatDriver {
     var watch: (Int) async throws -> BotUIRowBatch
     var perform: (BotUIUserAction) async -> BotUIActionResult
     var stopCurrentTurn: (String?) async -> Void
+    /// Tool steps of finished turns, keyed by DSH turn number.
+    var turnProcesses: () async -> [Int: BotTurnProcess] = { [:] }
+    /// Live frames of the running main-chat turn.
+    var liveFrames: () async -> AsyncStream<BotLiveFrame> = { AsyncStream { $0.finish() } }
 }
 
 struct BotRuntimeContext: Equatable {

@@ -87,7 +87,6 @@ struct NativeTurnUsageDetails: View {
             .homeGroupedList()
             .navigationTitle("本轮用量")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("完成") { dismiss() } } }
         }
         .presentationDetents([.medium])
     }

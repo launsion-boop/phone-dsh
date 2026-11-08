@@ -13,6 +13,8 @@ struct BotChatPage: View {
     @State private var sourceRow: BotUIRow?
     @State private var documentRow: BotUIRow?
     @State private var preservingHistoryPosition = false
+    /// Finished turns whose process row the user opened.
+    @State private var openTurns: Set<Int> = []
     @FocusState private var composerFocused: Bool
 
     init(model: BotChatModel, cardActions: BotCardActions = BotCardActions(),
@@ -47,39 +49,35 @@ struct BotChatPage: View {
         .onOpenURL { _ = model.openDeepLink($0) }
     }
 
+    /// The DSH page header with the Bot's avatar where DSH has its menu
+    /// button: 44pt floating avatar (tap for Bot info), 17.5/14.5 title block
+    /// 16pt to its right.
     private var header: some View {
-        HStack(spacing: 12) {
-            BotStaticAvatar()
-            VStack(alignment: .leading, spacing: 4) {
-                Text(model.context.botName)
-                    .botFont(size: HomeSpec.navTitleSize, lineHeight: HomeSpec.navTitleLine,
-                             weight: .semibold, style: .headline)
-                    .foregroundStyle(HomeSpec.textPrimary)
-                    .lineLimit(1)
-                Text("跟进中 \(model.followingCount) · 需要你处理 \(model.needsAttentionCount)")
-                    .botCaptionFont(weight: .medium)
-                    .foregroundStyle(HomeSpec.textSecondary)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(NativeParityTokens.selector, in: Capsule())
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+        HStack(spacing: 0) {
             Button { onOpenInfo() } label: {
-                Image(systemName: "info.circle")
-                    .font(.system(size: 20))
-                    .frame(width: 44, height: 44)
-                    .background(HomeSpec.surface, in: Circle())
+                BotStaticAvatar(size: HomeSpec.navButton)
+                    .homeFloatingShadow()
             }
             .buttonStyle(.plain)
-            .foregroundStyle(HomeSpec.textPrimary)
             .accessibilityLabel("Bot 信息")
             .accessibilityIdentifier("bot.info.open")
+            VStack(alignment: .leading, spacing: 0) {
+                Text(model.context.botName)
+                    .font(.system(size: HomeSpec.navTitleSize, weight: .semibold))
+                    .foregroundStyle(HomeSpec.textPrimary)
+                    .frame(height: HomeSpec.navTitleLine)
+                Text("跟进中 \(model.followingCount) · 需要你处理 \(model.needsAttentionCount)")
+                    .font(.system(size: HomeSpec.navSubtitleSize))
+                    .foregroundStyle(HomeSpec.textSubtle)
+                    .frame(height: HomeSpec.navSubtitleLine)
+            }
+            .lineLimit(1)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
         }
         .padding(.horizontal, HomeSpec.chromeInset)
         .padding(.top, HomeSpec.navTop)
-        .padding(.bottom, 8)
+        .frame(height: HomeSpec.navTop + HomeSpec.navButton)
         .background(HomeSpec.page)
         .accessibilityElement(children: .contain)
     }
@@ -99,29 +97,46 @@ struct BotChatPage: View {
                         .onAppear { loadHistory(proxy: proxy) }
                         .accessibilityIdentifier("bot.history.loader")
                     }
-                    if model.visibleRows.isEmpty && model.streamingText == nil {
-                        VStack(spacing: 16) {
-                            BotStaticAvatar(size: 72)
-                            BotEmptyState(title: "嗨，我是 \(model.context.botName)",
-                                          message: "我可以处理任务、整理文件和查找资料。想让我帮你做什么？")
-                        }
-                        .accessibilityIdentifier("bot.chat.empty")
+                    if model.displayRows.isEmpty && model.streamingText == nil && model.live == nil {
+                        BotEmptyState(title: "嗨，我是 \(model.context.botName)",
+                                      message: "我可以处理任务、整理文件和查找资料。\n想让我帮你做什么？",
+                                      showsAvatar: true)
+                            .padding(.top, 120)
+                            .accessibilityIdentifier("bot.chat.empty")
                     }
-                    ForEach(model.visibleRows) { row in
+                    let anchors = processAnchors
+                    ForEach(model.displayRows) { row in
+                        if let turn = anchors[row.id], let process = model.turnProcesses[turn] {
+                            BotTurnProcessBlock(process: process, isOpen: openTurns.contains(turn)) {
+                                withAnimation(.easeOut(duration: 0.16)) {
+                                    if openTurns.contains(turn) { openTurns.remove(turn) } else { openTurns.insert(turn) }
+                                }
+                            }
+                            .id("process-\(turn)")
+                        }
                         BotTranscriptRow(row: row, model: model, actions: resolvedCardActions,
                                          sourceRow: $sourceRow)
                             .id(row.id)
+                    }
+                    if let live = model.live {
+                        BotLiveTurnView(live: live)
+                        Color.clear.frame(height: 1).id("bot-live-tail")
                     }
                     if let streaming = model.streamingText {
                         BotStreamingRow(text: streaming)
                             .id("bot-live-stream")
                     }
                 }
-                .padding(.vertical, 8)
+                .padding(.top, HomeSpec.blockGap)
+                .padding(.bottom, 16)
             }
+            .scrollDismissesKeyboard(.interactively)
             .onChange(of: model.visibleRows.map(\.id)) { _, _ in
                 guard !preservingHistoryPosition, model.scrollRequestID == nil else { return }
                 if let last = model.visibleRows.last { proxy.scrollTo(last.id, anchor: .bottom) }
+            }
+            .onChange(of: liveScrollKey) { _, key in
+                if key != nil { proxy.scrollTo("bot-live-tail", anchor: .bottom) }
             }
             .onChange(of: model.streamingText) { _, value in
                 if value != nil { proxy.scrollTo("bot-live-stream", anchor: .bottom) }
@@ -133,6 +148,14 @@ struct BotChatPage: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Same as DSH: a tap anywhere in the transcript, blank space
+        // included, hands the keyboard back.
+        .contentShape(Rectangle())
+        .simultaneousGesture(TapGesture().onEnded {
+            composerFocused = false
+            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),
+                                            to: nil, from: nil, for: nil)
+        })
         .accessibilityIdentifier("bot.chat.transcript")
     }
 
@@ -163,53 +186,73 @@ struct BotChatPage: View {
                     }
                     .padding(.horizontal, 14)
                     .frame(maxWidth: .infinity, minHeight: 44)
-                    .background(NativeParityTokens.selector, in: RoundedRectangle(cornerRadius: 12))
+                    .homeListCard()
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("bot.approval.banner")
             }
             if let notice = model.runtimeNotice {
-                HStack(spacing: 8) {
+                // DSH composer notice: one 13pt line above the card, dismissible.
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Image(systemName: "exclamationmark.circle")
+                        .font(.system(size: 13))
                     Text(notice)
-                        .botSecondaryFont()
-                        .foregroundStyle(NativeParityTokens.error)
+                        .font(.system(size: 13))
+                        .lineLimit(3)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     Button { model.runtimeNotice = nil } label: {
-                        Image(systemName: "xmark").frame(width: 44, height: 44)
+                        Image(systemName: "xmark")
+                            .font(.system(size: 11, weight: .semibold))
+                            .frame(width: 28, height: 28)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel("关闭提示")
                 }
+                .foregroundStyle(ChatPage.danger)
+                .padding(.horizontal, 4)
             }
-            HStack(alignment: .bottom, spacing: 8) {
+            // The DSH composer card: white, r24, its shadow; the text area on
+            // top and the 36pt send/stop buttons docked inside the lower edge.
+            VStack(spacing: 0) {
                 TextField("发消息给 \(model.context.botName)", text: $draft, axis: .vertical)
-                    .botBodyFont()
+                    .font(.system(size: HomeSpec.bodySize))
                     .textFieldStyle(.plain)
-                    .lineLimit(1...5)
+                    .lineLimit(1...6)
                     .focused($composerFocused)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier("bot.composer.input")
                     .onSubmit { send() }
-                if model.runningTurnID != nil {
-                    Button { model.stop() } label: {
-                        BotComposerGlyph(systemImage: "stop.fill")
+                HStack(spacing: 8) {
+                    Spacer(minLength: 0)
+                    if model.runningTurnID != nil {
+                        Button { model.stop() } label: {
+                            BotComposerGlyph(systemImage: "stop.fill")
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("停止当前回合")
+                        .accessibilityIdentifier("bot.composer.stop")
                     }
-                    .accessibilityLabel("停止当前回合")
-                    .accessibilityIdentifier("bot.composer.stop")
+                    Button(action: send) {
+                        BotComposerGlyph(systemImage: "arrow.up", enabled: canSend)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!canSend)
+                    .accessibilityLabel(model.runningTurnID == nil ? "发送消息" : "发送并 steering")
+                    .accessibilityIdentifier("bot.composer.send")
                 }
-                Button(action: send) {
-                    BotComposerGlyph(systemImage: "arrow.up")
-                }
-                .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .opacity(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.35 : 1)
-                .accessibilityLabel(model.runningTurnID == nil ? "发送消息" : "发送并 steering")
-                .accessibilityIdentifier("bot.composer.send")
+                .padding(.horizontal, 8)
+                .padding(.top, 12)
+                .padding(.bottom, 8)
             }
-            .padding(4)
-            .background(HomeSpec.surface, in: RoundedRectangle(cornerRadius: HomeSpec.composerOpenRadius, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: HomeSpec.composerOpenRadius, style: .continuous)
-                .strokeBorder(NativeParityTokens.borderL1, lineWidth: 0.5))
+            .frame(minHeight: HomeSpec.composerOpenMinHeight)
+            .background(HomeSpec.surface,
+                        in: RoundedRectangle(cornerRadius: HomeSpec.composerOpenRadius, style: .continuous))
+            .homeComposerShadow()
+            .contentShape(Rectangle())
+            .onTapGesture { composerFocused = true }
             if model.runningTurnID != nil {
                 Text("发送会并入当前回合，不会排队；停止只取消当前回合。")
                     .botCaptionFont()
@@ -223,6 +266,29 @@ struct BotChatPage: View {
         .padding(.bottom, 8)
         .background(HomeSpec.page)
         .accessibilityElement(children: .contain)
+    }
+
+    /// The first answer row of each turn that has tool steps carries that
+    /// turn's process row above it, as on the DSH page.
+    private var processAnchors: [String: Int] {
+        var anchors: [String: Int] = [:]
+        var seen: Set<Int> = []
+        for row in model.displayRows where BotChatModel.isAnswer(row) {
+            guard let turn = BotChatModel.turn(of: row), model.turnProcesses[turn] != nil,
+                  seen.insert(turn).inserted else { continue }
+            anchors[row.id] = turn
+        }
+        return anchors
+    }
+
+    private var liveScrollKey: String? {
+        model.live.map { live in
+            "\(live.segments.count):\(live.buffer.count):\(live.tools.count):\(live.ended)"
+        }
+    }
+
+    private var canSend: Bool {
+        !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private func send() {
@@ -257,8 +323,8 @@ private struct BotTranscriptRow: View {
                 BotTextRow(row: row)
             } else if let card = BotUICardContent.parse(row: row) {
                 BotCardView(row: row, card: card, model: model, actions: actions)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, HomeSpec.contentInset)
+                    .padding(.vertical, HomeSpec.blockGap / 2)
             }
         }
         .contextMenu {
@@ -272,19 +338,102 @@ private struct BotTextRow: View {
     let row: BotUIRow
     private var isUser: Bool { row.role == "user" }
 
+    /// DSH message rows: the user's words in the gray bubble (80% width,
+    /// top-trailing corner square), the Bot's answer as the DSH markdown body;
+    /// rows sit 20pt apart.
     var body: some View {
-        BotAdaptiveBubbleLayout(ratio: isUser ? 0.8 : 1, trailing: isUser) {
-            Text(row.body["text"]?.string ?? "")
-                .botBodyFont()
-                .foregroundStyle(HomeSpec.textPrimary)
-                .textSelection(.enabled)
-                .padding(.horizontal, isUser ? 16 : 0)
-                .padding(.vertical, isUser ? 12 : 4)
-                .background(isUser ? HomeSpec.userBubble : Color.clear,
-                            in: isUser ? HomeSpec.bubbleShape : UnevenRoundedRectangle())
+        Group {
+            if isUser {
+                BotAdaptiveBubbleLayout(ratio: 0.8, trailing: true) {
+                    Text(row.body["text"]?.string ?? "")
+                        .font(NativeChatTheme.bodyFont())
+                        .lineSpacing(NativeChatTheme.bodyLineSpacing)
+                        .foregroundStyle(HomeSpec.textPrimary)
+                        .textSelection(.enabled)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .background(HomeSpec.userBubble, in: HomeSpec.bubbleShape)
+                }
+            } else {
+                BotAnswerBubbleContent(text: row.body["text"]?.string ?? "", streaming: false)
+            }
         }
         .padding(.horizontal, HomeSpec.contentInset)
-        .padding(.vertical, 4)
+        .padding(.vertical, HomeSpec.blockGap / 2)
+    }
+}
+
+/// The Bot's own words: the DSH markdown body inside a white bubble on the
+/// leading side (top-leading corner square, hairline edge), up to 86% wide.
+private struct BotAnswerBubbleContent: View {
+    let text: String
+    let streaming: Bool
+
+    var body: some View {
+        BotAdaptiveBubbleLayout(ratio: 0.86, trailing: false) {
+            NativeMarkdownBody(markdown: text, streaming: streaming, workspaceFiles: [], onOpenFile: { _ in })
+                .font(NativeChatTheme.bodyFont())
+                .lineSpacing(NativeChatTheme.bodyLineSpacing)
+                .foregroundStyle(HomeSpec.textPrimary)
+                .textSelection(.enabled)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(HomeSpec.surface, in: HomeSpec.botBubbleShape)
+                .overlay(HomeSpec.botBubbleShape.strokeBorder(HomeSpec.borderList, lineWidth: 0.5))
+        }
+    }
+}
+
+/// A finished turn's process row ("已完成，用时 …"); open, it lists the
+/// turn's tool calls as DSH tool rows.
+private struct BotTurnProcessBlock: View {
+    let process: BotTurnProcess
+    let isOpen: Bool
+    let onToggle: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            NativeTurnProcessRow(state: process.state, isOpen: isOpen, isFoldable: true, onToggle: onToggle)
+            if isOpen {
+                ToolRunRow(items: process.items)
+            }
+        }
+        .padding(.horizontal, HomeSpec.contentInset)
+        .padding(.vertical, HomeSpec.blockGap / 2)
+    }
+}
+
+/// The running turn in arrival order: committed text bubbles, tool groups,
+/// the text still streaming, then DSH's running clock.
+private struct BotLiveTurnView: View {
+    let live: BotLiveTurn
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(live.segments.enumerated()), id: \.offset) { _, segment in
+                switch segment {
+                case .text(let text):
+                    BotAnswerBubbleContent(text: text, streaming: false)
+                        .padding(.horizontal, HomeSpec.contentInset)
+                        .padding(.vertical, HomeSpec.blockGap / 2)
+                case .tools(let ids):
+                    ToolRunRow(items: live.tools(for: ids))
+                        .padding(.horizontal, HomeSpec.contentInset)
+                        .padding(.vertical, HomeSpec.blockGap / 2)
+                }
+            }
+            if !live.buffer.isEmpty {
+                BotAnswerBubbleContent(text: live.buffer, streaming: true)
+                    .padding(.horizontal, HomeSpec.contentInset)
+                    .padding(.vertical, HomeSpec.blockGap / 2)
+                    .accessibilityIdentifier("bot.streaming.text")
+            }
+            if !live.ended {
+                NativeRunningStatus(startedAt: live.startedAt, showsDivider: false)
+                    .padding(.horizontal, HomeSpec.contentInset)
+                    .padding(.vertical, HomeSpec.blockGap / 2)
+            }
+        }
     }
 }
 
@@ -314,30 +463,26 @@ private struct BotStreamingRow: View {
     let text: String
 
     var body: some View {
-        Text(text)
-            .botBodyFont()
-            .foregroundStyle(HomeSpec.textPrimary)
-            .frame(maxWidth: .infinity, alignment: .leading)
+        BotAnswerBubbleContent(text: text, streaming: true)
             .padding(.horizontal, HomeSpec.contentInset)
-            .padding(.vertical, 8)
+            .padding(.vertical, HomeSpec.blockGap / 2)
             .accessibilityIdentifier("bot.streaming.text")
     }
 }
 
+/// The 36pt send / stop circle, as in DSH: black when it can act, the
+/// bubble gray with a muted glyph when it cannot.
 private struct BotComposerGlyph: View {
     let systemImage: String
+    var enabled = true
 
     var body: some View {
-        ZStack {
-            Circle()
-                .fill(HomeSpec.primaryButton)
-                .frame(width: HomeSpec.sendButton, height: HomeSpec.sendButton)
-            Image(systemName: systemImage)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(HomeSpec.primaryButtonInk)
-        }
-        .frame(width: 44, height: 44)
-        .contentShape(Rectangle())
+        Image(systemName: systemImage)
+            .font(.system(size: 15, weight: .bold))
+            .foregroundStyle(enabled ? HomeSpec.primaryButtonInk : HomeSpec.iconMuted)
+            .frame(width: HomeSpec.sendButton, height: HomeSpec.sendButton)
+            .background(enabled ? HomeSpec.primaryButton : HomeSpec.userBubble, in: Circle())
+            .contentShape(Circle())
     }
 }
 

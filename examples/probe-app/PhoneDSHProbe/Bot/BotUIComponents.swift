@@ -54,73 +54,6 @@ extension View {
     }
 }
 
-enum BotCardShape {
-    case conversation
-    case object
-    case work
-    case inline
-    case approval
-
-    var radius: CGFloat {
-        switch self {
-        case .conversation, .object: HomeSpec.bubbleRadius
-        case .work: HomeSpec.listCardRadius
-        case .inline, .approval: 12
-        }
-    }
-
-    var surface: Color {
-        switch self {
-        case .approval: NativeParityTokens.selector
-        default: HomeSpec.surface
-        }
-    }
-}
-
-struct BotCard<Content: View>: View {
-    let shape: BotCardShape
-    @ViewBuilder var content: Content
-
-    init(_ shape: BotCardShape = .work, @ViewBuilder content: () -> Content) {
-        self.shape = shape
-        self.content = content()
-    }
-
-    var body: some View {
-        content
-            .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(shape.surface, in: RoundedRectangle(cornerRadius: shape.radius, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: shape.radius, style: .continuous)
-                .strokeBorder(NativeParityTokens.borderL2, lineWidth: 0.5))
-    }
-}
-
-struct BotPrimaryButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .botFont(size: HomeSpec.bodySize, lineHeight: HomeSpec.bodyLine, weight: .semibold)
-            .foregroundStyle(HomeSpec.primaryButtonInk)
-            .frame(maxWidth: .infinity)
-            .frame(height: 48)
-            .background(HomeSpec.primaryButton, in: Capsule())
-            .opacity(configuration.isPressed ? 0.8 : 1)
-    }
-}
-
-struct BotSecondaryButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .botProcessFont(weight: .medium)
-            .foregroundStyle(NativeParityTokens.labelPrimary)
-            .frame(maxWidth: .infinity)
-            .frame(height: 44)
-            .background(NativeParityTokens.selector, in: Capsule())
-            .overlay(Capsule().strokeBorder(NativeParityTokens.borderL2, lineWidth: 0.5))
-            .opacity(configuration.isPressed ? 0.72 : 1)
-    }
-}
-
 struct BotTextButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -166,56 +99,30 @@ struct BotStatusPill: View {
     }
 }
 
-struct BotCardHeader: View {
-    let title: String
-    var systemImage: String?
-    var status: String?
-    var tone: BotStatusTone = .neutral
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            if let systemImage {
-                Image(systemName: systemImage)
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundStyle(NativeParityTokens.labelSecondary)
-                    .frame(width: 32, height: 32)
-                    .background(NativeParityTokens.selector, in: RoundedRectangle(cornerRadius: 10))
-            }
-            Text(title)
-                .botTitleFont()
-                .foregroundStyle(HomeSpec.textPrimary)
-                .lineLimit(2)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            if let status { BotStatusPill(text: status, tone: tone) }
-        }
-        .accessibilityElement(children: .contain)
-    }
-}
-
-struct BotIconTile: View {
-    let systemImage: String
-
-    var body: some View {
-        Image(systemName: systemImage)
-            .font(.system(size: 20, weight: .medium))
-            .foregroundStyle(NativeParityTokens.labelSecondary)
-            .frame(width: 42, height: 42)
-            .background(NativeParityTokens.selector, in: RoundedRectangle(cornerRadius: 12))
-            .accessibilityHidden(true)
-    }
-}
-
+/// The Bot's avatar: the DS big-fish character from dsh-bot, framed the way
+/// dsh-bot crops its circle avatar, on a white disc with a hairline edge.
 struct BotStaticAvatar: View {
     var size: CGFloat = 44
 
     var body: some View {
-        Text("Bot")
-            .botCaptionFont(weight: .semibold)
-            .foregroundStyle(HomeSpec.textSecondary)
-            .frame(width: size, height: size)
-            .background(HomeSpec.surface, in: Circle())
+        BotAvatarImage(size: size)
             .overlay(Circle().strokeBorder(HomeSpec.borderList, lineWidth: 0.5))
-            .accessibilityLabel("Bot 静态头像占位")
+            .accessibilityLabel("Bot 头像")
+    }
+}
+
+/// The bundled `BotAvatar` art clipped to a circle.
+struct BotAvatarImage: View {
+    var size: CGFloat
+
+    var body: some View {
+        Image("BotAvatar")
+            .resizable()
+            .scaledToFill()
+            .frame(width: size, height: size)
+            .background(Color.white)
+            .clipShape(Circle())
+            .accessibilityHidden(true)
     }
 }
 
@@ -223,14 +130,21 @@ struct BotEmptyState: View {
     let title: String
     let message: String
     var systemImage = "bubble.left.and.bubble.right"
+    /// The chat's welcome shows the Bot avatar instead of a symbol.
+    var showsAvatar = false
 
     var body: some View {
         VStack(spacing: 16) {
-            Image(systemName: systemImage)
-                .font(.system(size: 28, weight: .medium))
-                .foregroundStyle(HomeSpec.textTertiary)
-                .frame(width: 56, height: 56)
-                .background(HomeSpec.surface, in: Circle())
+            if showsAvatar {
+                BotStaticAvatar(size: 72)
+                    .shadow(color: .black.opacity(0.08), radius: 10, y: 4)
+            } else {
+                Image(systemName: systemImage)
+                    .font(.system(size: 28, weight: .medium))
+                    .foregroundStyle(HomeSpec.textTertiary)
+                    .frame(width: 56, height: 56)
+                    .background(HomeSpec.surface, in: Circle())
+            }
             Text(title)
                 .botTitleFont()
                 .foregroundStyle(HomeSpec.textPrimary)
