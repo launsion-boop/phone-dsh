@@ -61,9 +61,7 @@ struct SettingsPage: View {
     /// Deep entry (`SettingsPage(initialTab:)`) pushes that page on appear.
     @State private var deepLink: NativeSettingsTab?
 
-    @State private var devices = DeviceSessionCoordinator.shared
     @State private var showSchedules = false
-    @State private var showDevices = false
 
     init(initialTab: NativeSettingsTab = .general, isTab: Bool = false,
          onOpenSession: @escaping () -> Void = {}) {
@@ -113,10 +111,6 @@ struct SettingsPage: View {
         }
         .sheet(isPresented: $showSchedules) {
             NavigationStack { NativeAutomationPage() }
-                .homeSheetChrome()
-        }
-        .sheet(isPresented: $showDevices) {
-            NavigationStack { NativeDeviceConnectionPage() }
                 .homeSheetChrome()
         }
         .navigationDestination(item: $deepLink) { tab in deepPage(tab) }
@@ -316,10 +310,8 @@ struct SettingsPage: View {
                 SettingsRowLabel(title: NativeText("定时任务", "Scheduled tasks"), icon: "clock",
                                  value: management.scheduleRecords.isEmpty ? nil : "\(management.scheduleRecords.count)")
             }
-            Button { showDevices = true } label: {
-                SettingsRowLabel(title: NativeText("设备连接", "Devices"), icon: "dot.radiowaves.left.and.right",
-                                 value: devices.hasOnlineDevices ? NativeText("有设备在线", "Online") : nil)
-            }
+            link(NativeText("设备连接", "Devices"), icon: "dot.radiowaves.left.and.right",
+                 value: NativeText("蓝牙", "Bluetooth")) { BluetoothDevicesPage() }
         }
         Section {
             phonePermissionsLink

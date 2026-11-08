@@ -13,7 +13,7 @@
   "source": {
     "file": "SessionArtifactsPage.swift",
     "path": "examples/probe-app/PhoneDSHProbe/SessionArtifactsPage.swift",
-    "lines": 347,
+    "lines": 342,
     "structLine": 7,
     "renderedFrom": [
       "body",
@@ -242,7 +242,7 @@
       "extraction": "manual"
     },
     {
-      "id": "gesture-98",
+      "id": "gesture-93",
       "label": null,
       "labelExpr": null,
       "kind": "gesture",
@@ -251,22 +251,8 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "SessionArtifactsPage.swift:98",
+      "provenance": "SessionArtifactsPage.swift:93",
       "anchor": ".refreshable { await loadArtifacts() }",
-      "extraction": "syntax"
-    },
-    {
-      "id": "完成",
-      "label": "完成",
-      "labelExpr": null,
-      "kind": "button",
-      "trigger": "toolbar",
-      "semantic": "{ dismiss()",
-      "writes": false,
-      "destination": null,
-      "condition": null,
-      "provenance": "SessionArtifactsPage.swift:94",
-      "anchor": "Button(\"完成\") { dismiss() }.leadingBarText()",
       "extraction": "syntax"
     },
     {
@@ -279,13 +265,13 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "SessionArtifactsPage.swift:106",
+      "provenance": "SessionArtifactsPage.swift:101",
       "anchor": "Button(\"好\", role: .cancel) { openError = nil }",
       "extraction": "syntax",
-      "presents": "alert-102"
+      "presents": "alert-97"
     },
     {
-      "id": "button-113",
+      "id": "button-108",
       "label": null,
       "labelExpr": null,
       "kind": "button",
@@ -294,7 +280,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "SessionArtifactsPage.swift:113",
+      "provenance": "SessionArtifactsPage.swift:108",
       "anchor": "Button {",
       "extraction": "manual"
     },
@@ -308,15 +294,15 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "SessionArtifactsPage.swift:311",
+      "provenance": "SessionArtifactsPage.swift:306",
       "anchor": "Label(\"分享\", systemImage: \"square.and.arrow.up\")",
       "extraction": "syntax",
-      "presentedBy": "navigationDestination-99"
+      "presentedBy": "navigationDestination-94"
     }
   ],
   "presentations": [
     {
-      "id": "navigationDestination-99",
+      "id": "navigationDestination-94",
       "kind": "navigationDestination",
       "title": null,
       "destination": "SessionArtifactPreviewPage",
@@ -324,15 +310,15 @@
         "preview"
       ],
       "span": [
-        99,
-        101
+        94,
+        96
       ],
-      "provenance": "SessionArtifactsPage.swift:99",
+      "provenance": "SessionArtifactsPage.swift:94",
       "anchor": ".navigationDestination(item: $preview) { item in",
       "triggered": true
     },
     {
-      "id": "alert-102",
+      "id": "alert-97",
       "kind": "alert",
       "title": "无法打开产物",
       "destination": null,
@@ -340,10 +326,10 @@
         "openError"
       ],
       "span": [
-        102,
-        107
+        97,
+        102
       ],
-      "provenance": "SessionArtifactsPage.swift:102",
+      "provenance": "SessionArtifactsPage.swift:97",
       "anchor": ".alert(\"无法打开产物\", isPresented: Binding(",
       "triggered": true
     }
@@ -391,13 +377,13 @@
         {
           "renders": "无法打开产物",
           "when": null,
-          "provenance": "SessionArtifactsPage.swift:102",
+          "provenance": "SessionArtifactsPage.swift:97",
           "anchor": ".alert(\"无法打开产物\", isPresented: Binding("
         },
         {
           "renders": "无法读取产物：\\(error.localizedDescription)",
           "when": null,
-          "provenance": "SessionArtifactsPage.swift:166",
+          "provenance": "SessionArtifactsPage.swift:161",
           "anchor": "loadError = \"无法读取产物：\\(error.localizedDescription)\""
         }
       ],
@@ -418,7 +404,7 @@
         {
           "renders": "ProgressView",
           "when": "openingID == artifact.artifactID",
-          "provenance": "SessionArtifactsPage.swift:135",
+          "provenance": "SessionArtifactsPage.swift:130",
           "anchor": "ProgressView().controlSize(.small)"
         }
       ]
@@ -437,11 +423,11 @@
   "subpages": [
     {
       "name": "SessionArtifactPreviewPage",
-      "line": 294,
+      "line": 289,
       "private": true,
       "embedded": false,
       "sections": [],
-      "provenance": "SessionArtifactsPage.swift:294"
+      "provenance": "SessionArtifactsPage.swift:289"
     }
   ],
   "unreachable": [],

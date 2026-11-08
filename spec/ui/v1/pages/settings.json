@@ -5,19 +5,28 @@
   "structure": "swiftui-view",
   "sectionModel": "section",
   "sectionNote": null,
-  "title": {
-    "text": "设置",
-    "provenance": "SettingsPage.swift:161",
-    "anchor": ".navigationTitle(NativeText(\"设置\", \"Settings\"))"
-  },
+  "title": null,
   "source": {
     "file": "SettingsPage.swift",
     "path": "examples/probe-app/PhoneDSHProbe/SettingsPage.swift",
-    "lines": 451,
-    "structLine": 45,
+    "lines": 629,
+    "structLine": 52,
     "renderedFrom": [
       "body",
+      "profileSection",
+      "tabSections",
+      "restartEngineButton",
+      "restartEngineFooter",
       "link",
+      "phonePermissionsLink",
+      "archivedLink",
+      "aboutLink",
+      "modelsSection",
+      "permissionsSection",
+      "conversationSection",
+      "sessionsSection",
+      "engineSection",
+      "aboutSection",
       "deepPage"
     ],
     "sectionOrder": "declaration order inside the page struct"
@@ -48,8 +57,8 @@
           "clickable": true,
           "destination": "ModelProviderSettingsPage",
           "writes": false,
-          "condition": null,
-          "provenance": "SettingsPage.swift:64",
+          "condition": "includesProviders",
+          "provenance": "SettingsPage.swift:136",
           "anchor": "link(NativeText(\"模型服务\", \"Model providers\"), icon: \"cpu\") { ModelProviderSettings",
           "extraction": "syntax"
         },
@@ -64,7 +73,7 @@
           "destination": "NativeAgentPresetsPage",
           "writes": false,
           "condition": null,
-          "provenance": "SettingsPage.swift:65",
+          "provenance": "SettingsPage.swift:138",
           "anchor": "link(NativeText(\"Agent 预设\", \"Agent presets\"), icon: \"person.2\") {",
           "extraction": "syntax"
         },
@@ -79,12 +88,12 @@
           "destination": "NativeConfigurationPage",
           "writes": false,
           "condition": null,
-          "provenance": "SettingsPage.swift:68",
+          "provenance": "SettingsPage.swift:141",
           "anchor": "link(NativeText(\"插件与工具\", \"Plugins and tools\"), icon: \"puzzlepiece.extension\") {",
           "extraction": "syntax"
         }
       ],
-      "provenance": "SettingsPage.swift:63",
+      "provenance": "SettingsPage.swift:134",
       "anchor": "Section(NativeText(\"模型与智能体\", \"Models and agents\")) {",
       "extraction": "syntax"
     },
@@ -109,7 +118,7 @@
           "destination": "PermissionDefaultsPage",
           "writes": false,
           "condition": null,
-          "provenance": "SettingsPage.swift:74",
+          "provenance": "SettingsPage.swift:149",
           "anchor": "link(NativeText(\"新会话默认权限\", \"Default permission\"), icon: \"lock.shield\",",
           "extraction": "syntax"
         },
@@ -123,8 +132,8 @@
           "clickable": true,
           "destination": "PhonePermissionsPage",
           "writes": false,
-          "condition": null,
-          "provenance": "SettingsPage.swift:76",
+          "condition": "includesPhone",
+          "provenance": "SettingsPage.swift:229",
           "anchor": "link(NativeText(\"手机权限\", \"Phone permissions\"), icon: \"hand.raised\",",
           "extraction": "syntax"
         },
@@ -139,7 +148,7 @@
           "destination": "EgressAllowListPage",
           "writes": false,
           "condition": null,
-          "provenance": "SettingsPage.swift:78",
+          "provenance": "SettingsPage.swift:152",
           "anchor": "link(NativeText(\"网络访问\", \"Network access\"), icon: \"network\") { EgressAllowListPag",
           "extraction": "syntax"
         },
@@ -154,7 +163,7 @@
           "destination": "MCPSettingsPage",
           "writes": false,
           "condition": null,
-          "provenance": "SettingsPage.swift:79",
+          "provenance": "SettingsPage.swift:153",
           "anchor": "link(NativeText(\"MCP 与局域网设备\", \"MCP and LAN devices\"), icon: \"server.rack\") { MCP",
           "extraction": "syntax"
         },
@@ -169,7 +178,7 @@
           "destination": "SSHSettingsPage",
           "writes": false,
           "condition": null,
-          "provenance": "SettingsPage.swift:80",
+          "provenance": "SettingsPage.swift:154",
           "anchor": "link(NativeText(\"SSH 主机\", \"SSH hosts\"), icon: \"terminal\",",
           "extraction": "syntax"
         },
@@ -184,7 +193,7 @@
           "destination": "BluetoothDevicesPage",
           "writes": false,
           "condition": null,
-          "provenance": "SettingsPage.swift:82",
+          "provenance": "SettingsPage.swift:156",
           "anchor": "link(NativeText(\"蓝牙设备\", \"Bluetooth devices\"), icon: \"dot.radiowaves.left.and.rig",
           "extraction": "syntax"
         },
@@ -199,12 +208,12 @@
           "destination": "AndroidADBSettingsPage",
           "writes": false,
           "condition": null,
-          "provenance": "SettingsPage.swift:85",
+          "provenance": "SettingsPage.swift:159",
           "anchor": "link(NativeText(\"Android ADB\", \"Android ADB\"), icon: \"iphone.gen3\") {",
           "extraction": "syntax"
         }
       ],
-      "provenance": "SettingsPage.swift:73",
+      "provenance": "SettingsPage.swift:148",
       "anchor": "Section(NativeText(\"权限与隐私\", \"Permissions and privacy\")) {",
       "extraction": "syntax"
     },
@@ -229,7 +238,7 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "SettingsPage.swift:97",
+          "provenance": "SettingsPage.swift:173",
           "anchor": "SettingsRowLabel(title: NativeText(\"外观\", \"Appearance\"), icon: \"circle.lefthalf.f",
           "extraction": "syntax"
         },
@@ -244,7 +253,7 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "SettingsPage.swift:105",
+          "provenance": "SettingsPage.swift:181",
           "anchor": "SettingsRowLabel(title: NativeText(\"语言\", \"Language\"), icon: \"globe\")",
           "extraction": "syntax"
         },
@@ -259,7 +268,7 @@
           "destination": "FontSizeSettingsPage",
           "writes": false,
           "condition": null,
-          "provenance": "SettingsPage.swift:107",
+          "provenance": "SettingsPage.swift:183",
           "anchor": "link(NativeText(\"字号\", \"Text size\"), icon: \"textformat.size\",",
           "extraction": "syntax"
         },
@@ -274,7 +283,7 @@
           "destination": "ConversationSettingsPage",
           "writes": false,
           "condition": null,
-          "provenance": "SettingsPage.swift:109",
+          "provenance": "SettingsPage.swift:185",
           "anchor": "link(NativeText(\"工作过程\", \"Work details\"), icon: \"list.bullet.rectangle\") {",
           "extraction": "syntax"
         },
@@ -289,12 +298,12 @@
           "destination": "NativeShortcutsPage",
           "writes": false,
           "condition": null,
-          "provenance": "SettingsPage.swift:112",
+          "provenance": "SettingsPage.swift:188",
           "anchor": "link(NativeText(\"快捷键\", \"Shortcuts\"), icon: \"command\") { NativeShortcutsPage() }",
           "extraction": "syntax"
         }
       ],
-      "provenance": "SettingsPage.swift:90",
+      "provenance": "SettingsPage.swift:166",
       "anchor": "Section(NativeText(\"对话\", \"Conversation\")) {",
       "extraction": "syntax"
     },
@@ -319,7 +328,7 @@
           "destination": "WorkspaceFoldersPage",
           "writes": false,
           "condition": null,
-          "provenance": "SettingsPage.swift:116",
+          "provenance": "SettingsPage.swift:194",
           "anchor": "link(NativeText(\"文件夹\", \"Folders\"), icon: \"folder\",",
           "extraction": "syntax"
         },
@@ -333,13 +342,13 @@
           "clickable": true,
           "destination": "ArchivedSessionsPage",
           "writes": false,
-          "condition": null,
-          "provenance": "SettingsPage.swift:120",
+          "condition": "includesArchived",
+          "provenance": "SettingsPage.swift:234",
           "anchor": "link(NativeText(\"已归档会话\", \"Archived sessions\"), icon: \"archivebox\",",
           "extraction": "syntax"
         }
       ],
-      "provenance": "SettingsPage.swift:115",
+      "provenance": "SettingsPage.swift:193",
       "anchor": "Section(NativeText(\"会话与文件\", \"Sessions and files\")) {",
       "extraction": "syntax"
     },
@@ -364,7 +373,7 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "SettingsPage.swift:128",
+          "provenance": "SettingsPage.swift:205",
           "anchor": "SettingsRowLabel(title: NativeText(\"引擎状态\", \"Engine\"), icon: \"bolt.horizontal\",",
           "extraction": "syntax",
           "template": "SettingsRowLabel"
@@ -380,8 +389,8 @@
           "destination": null,
           "writes": true,
           "condition": "chat.engineNeedsReset",
-          "provenance": "SettingsPage.swift:135",
-          "anchor": "SettingsRowLabel(title: NativeText(\"重新启动引擎\", \"Restart engine\"),",
+          "provenance": "SettingsPage.swift:248",
+          "anchor": "SettingsRowLabel(title: NativeText(\"重新启动引擎\", \"Restart engine\"), icon: \"arrow.clo",
           "extraction": "syntax"
         },
         {
@@ -395,20 +404,20 @@
           "destination": "RuntimeDetailsPage",
           "writes": false,
           "condition": null,
-          "provenance": "SettingsPage.swift:139",
+          "provenance": "SettingsPage.swift:209",
           "anchor": "link(NativeText(\"运行状态\", \"Runtime details\"), icon: \"waveform.path.ecg\") {",
           "extraction": "syntax"
         }
       ],
-      "provenance": "SettingsPage.swift:143",
+      "provenance": "SettingsPage.swift:213",
       "anchor": "Text(NativeText(\"引擎\", \"Engine\"))",
       "extraction": "syntax",
       "hasHeader": true,
       "footer": {
-        "text": "上次启动失败后引擎不会自动重试。重新启动会确认这次失败并重新启动，会话数据不受影响。",
+        "text": null,
         "labelExpr": null,
-        "provenance": "SettingsPage.swift:147",
-        "anchor": "\"上次启动失败后引擎不会自动重试。重新启动会确认这次失败并重新启动，会话数据不受影响。\","
+        "provenance": "SettingsPage.swift:214",
+        "anchor": "} footer: {"
       }
     },
     {
@@ -431,8 +440,8 @@
           "clickable": true,
           "destination": "SettingsAboutPage",
           "writes": false,
-          "condition": null,
-          "provenance": "SettingsPage.swift:153",
+          "condition": "includesAboutPage",
+          "provenance": "SettingsPage.swift:241",
           "anchor": "link(NativeText(\"关于 Phone DSH\", \"About Phone DSH\"), icon: \"info.circle\") { Setti",
           "extraction": "syntax"
         },
@@ -447,7 +456,7 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "SettingsPage.swift:154",
+          "provenance": "SettingsPage.swift:222",
           "anchor": "SettingsRowLabel(title: NativeText(\"版本\", \"Version\"), icon: \"number\",",
           "extraction": "syntax",
           "template": "SettingsRowLabel"
@@ -463,14 +472,255 @@
           "destination": "LicensesPage",
           "writes": false,
           "condition": null,
-          "provenance": "SettingsPage.swift:156",
+          "provenance": "SettingsPage.swift:224",
           "anchor": "link(NativeText(\"开源许可\", \"Open-source licenses\"), icon: \"doc.text\") { LicensesPag",
           "extraction": "syntax"
         }
       ],
-      "provenance": "SettingsPage.swift:152",
+      "provenance": "SettingsPage.swift:220",
       "anchor": "Section(NativeText(\"关于\", \"About\")) {",
       "extraction": "syntax"
+    },
+    {
+      "id": "section-263",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "absent",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "phone-dsh",
+          "label": "Phone DSH",
+          "labelExpr": null,
+          "kind": "navigation",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": "RuntimeDetailsPage",
+          "writes": false,
+          "condition": null,
+          "provenance": "SettingsPage.swift:276",
+          "anchor": "Text(\"Phone DSH\")",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "SettingsPage.swift:263",
+      "anchor": "Section {",
+      "extraction": "syntax",
+      "criterion": {
+        "kind": "first-clickable-row",
+        "label": "Phone DSH",
+        "provenance": "SettingsPage.swift:276"
+      }
+    },
+    {
+      "id": "section-301",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "absent",
+      "condition": "chat.engineNeedsReset",
+      "collection": null,
+      "rows": [
+        {
+          "id": "重新启动引擎",
+          "label": "重新启动引擎",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "SettingsPage.swift:248",
+          "anchor": "SettingsRowLabel(title: NativeText(\"重新启动引擎\", \"Restart engine\"), icon: \"arrow.clo",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "SettingsPage.swift:301",
+      "anchor": "Section {",
+      "extraction": "syntax",
+      "criterion": {
+        "kind": "first-clickable-row",
+        "label": "重新启动引擎",
+        "provenance": "SettingsPage.swift:248"
+      },
+      "footer": {
+        "text": null,
+        "labelExpr": null,
+        "provenance": "SettingsPage.swift:303",
+        "anchor": "} footer: {"
+      }
+    },
+    {
+      "id": "section-307",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "absent",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "模型服务",
+          "label": "模型服务",
+          "labelExpr": null,
+          "kind": "navigation",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": "ModelProviderSettingsPage",
+          "writes": false,
+          "condition": null,
+          "provenance": "SettingsPage.swift:308",
+          "anchor": "link(NativeText(\"模型服务\", \"Model providers\"), icon: \"cpu\") { ModelProviderSettings",
+          "extraction": "syntax"
+        },
+        {
+          "id": "定时任务",
+          "label": "定时任务",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "SettingsPage.swift:310",
+          "anchor": "SettingsRowLabel(title: NativeText(\"定时任务\", \"Scheduled tasks\"), icon: \"clock\",",
+          "extraction": "syntax"
+        },
+        {
+          "id": "设备连接",
+          "label": "设备连接",
+          "labelExpr": null,
+          "kind": "navigation",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": "BluetoothDevicesPage",
+          "writes": false,
+          "condition": null,
+          "provenance": "SettingsPage.swift:313",
+          "anchor": "link(NativeText(\"设备连接\", \"Devices\"), icon: \"dot.radiowaves.left.and.right\",",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "SettingsPage.swift:307",
+      "anchor": "Section {",
+      "extraction": "syntax",
+      "criterion": {
+        "kind": "first-clickable-row",
+        "label": "模型服务",
+        "provenance": "SettingsPage.swift:308"
+      }
+    },
+    {
+      "id": "section-316",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "absent",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "手机权限",
+          "label": "手机权限",
+          "labelExpr": null,
+          "kind": "navigation",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": "PhonePermissionsPage",
+          "writes": false,
+          "condition": null,
+          "provenance": "SettingsPage.swift:229",
+          "anchor": "link(NativeText(\"手机权限\", \"Phone permissions\"), icon: \"hand.raised\",",
+          "extraction": "syntax"
+        },
+        {
+          "id": "已归档会话",
+          "label": "已归档会话",
+          "labelExpr": null,
+          "kind": "navigation",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": "ArchivedSessionsPage",
+          "writes": false,
+          "condition": null,
+          "provenance": "SettingsPage.swift:234",
+          "anchor": "link(NativeText(\"已归档会话\", \"Archived sessions\"), icon: \"archivebox\",",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "SettingsPage.swift:316",
+      "anchor": "Section {",
+      "extraction": "syntax",
+      "criterion": {
+        "kind": "first-clickable-row",
+        "label": "手机权限",
+        "provenance": "SettingsPage.swift:229"
+      }
+    },
+    {
+      "id": "section-320",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "absent",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "设置",
+          "label": "设置",
+          "labelExpr": null,
+          "kind": "navigation",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": "SettingsPage",
+          "writes": false,
+          "condition": null,
+          "provenance": "SettingsPage.swift:321",
+          "anchor": "link(NativeText(\"设置\", \"Settings\"), icon: \"gearshape\") {",
+          "extraction": "syntax"
+        },
+        {
+          "id": "关于-phone-dsh",
+          "label": "关于 Phone DSH",
+          "labelExpr": null,
+          "kind": "navigation",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": "SettingsAboutPage",
+          "writes": false,
+          "condition": null,
+          "provenance": "SettingsPage.swift:241",
+          "anchor": "link(NativeText(\"关于 Phone DSH\", \"About Phone DSH\"), icon: \"info.circle\") { Setti",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "SettingsPage.swift:320",
+      "anchor": "Section {",
+      "extraction": "syntax",
+      "criterion": {
+        "kind": "first-clickable-row",
+        "label": "设置",
+        "provenance": "SettingsPage.swift:321"
+      }
     }
   ],
   "actions": [
@@ -484,7 +734,7 @@
       "writes": false,
       "destination": "ModelProviderSettingsPage",
       "condition": null,
-      "provenance": "SettingsPage.swift:64",
+      "provenance": "SettingsPage.swift:136",
       "anchor": "link(NativeText(\"模型服务\", \"Model providers\"), icon: \"cpu\") { ModelProviderSettings",
       "extraction": "syntax"
     },
@@ -498,7 +748,7 @@
       "writes": false,
       "destination": "NativeAgentPresetsPage",
       "condition": null,
-      "provenance": "SettingsPage.swift:65",
+      "provenance": "SettingsPage.swift:138",
       "anchor": "link(NativeText(\"Agent 预设\", \"Agent presets\"), icon: \"person.2\") {",
       "extraction": "syntax"
     },
@@ -512,7 +762,7 @@
       "writes": false,
       "destination": "NativeConfigurationPage",
       "condition": null,
-      "provenance": "SettingsPage.swift:68",
+      "provenance": "SettingsPage.swift:141",
       "anchor": "link(NativeText(\"插件与工具\", \"Plugins and tools\"), icon: \"puzzlepiece.extension\") {",
       "extraction": "syntax"
     },
@@ -526,7 +776,7 @@
       "writes": false,
       "destination": "PermissionDefaultsPage",
       "condition": null,
-      "provenance": "SettingsPage.swift:74",
+      "provenance": "SettingsPage.swift:149",
       "anchor": "link(NativeText(\"新会话默认权限\", \"Default permission\"), icon: \"lock.shield\",",
       "extraction": "syntax"
     },
@@ -540,7 +790,7 @@
       "writes": false,
       "destination": "PhonePermissionsPage",
       "condition": null,
-      "provenance": "SettingsPage.swift:76",
+      "provenance": "SettingsPage.swift:229",
       "anchor": "link(NativeText(\"手机权限\", \"Phone permissions\"), icon: \"hand.raised\",",
       "extraction": "syntax"
     },
@@ -554,7 +804,7 @@
       "writes": false,
       "destination": "EgressAllowListPage",
       "condition": null,
-      "provenance": "SettingsPage.swift:78",
+      "provenance": "SettingsPage.swift:152",
       "anchor": "link(NativeText(\"网络访问\", \"Network access\"), icon: \"network\") { EgressAllowListPag",
       "extraction": "syntax"
     },
@@ -568,7 +818,7 @@
       "writes": false,
       "destination": "MCPSettingsPage",
       "condition": null,
-      "provenance": "SettingsPage.swift:79",
+      "provenance": "SettingsPage.swift:153",
       "anchor": "link(NativeText(\"MCP 与局域网设备\", \"MCP and LAN devices\"), icon: \"server.rack\") { MCP",
       "extraction": "syntax"
     },
@@ -582,7 +832,7 @@
       "writes": false,
       "destination": "SSHSettingsPage",
       "condition": null,
-      "provenance": "SettingsPage.swift:80",
+      "provenance": "SettingsPage.swift:154",
       "anchor": "link(NativeText(\"SSH 主机\", \"SSH hosts\"), icon: \"terminal\",",
       "extraction": "syntax"
     },
@@ -596,7 +846,7 @@
       "writes": false,
       "destination": "BluetoothDevicesPage",
       "condition": null,
-      "provenance": "SettingsPage.swift:82",
+      "provenance": "SettingsPage.swift:156",
       "anchor": "link(NativeText(\"蓝牙设备\", \"Bluetooth devices\"), icon: \"dot.radiowaves.left.and.rig",
       "extraction": "syntax"
     },
@@ -610,7 +860,7 @@
       "writes": false,
       "destination": "AndroidADBSettingsPage",
       "condition": null,
-      "provenance": "SettingsPage.swift:85",
+      "provenance": "SettingsPage.swift:159",
       "anchor": "link(NativeText(\"Android ADB\", \"Android ADB\"), icon: \"iphone.gen3\") {",
       "extraction": "syntax"
     },
@@ -624,7 +874,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "SettingsPage.swift:97",
+      "provenance": "SettingsPage.swift:173",
       "anchor": "SettingsRowLabel(title: NativeText(\"外观\", \"Appearance\"), icon: \"circle.lefthalf.f",
       "extraction": "syntax",
       "items": [
@@ -647,7 +897,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "SettingsPage.swift:105",
+      "provenance": "SettingsPage.swift:181",
       "anchor": "SettingsRowLabel(title: NativeText(\"语言\", \"Language\"), icon: \"globe\")",
       "extraction": "syntax",
       "items": [
@@ -668,7 +918,7 @@
       "writes": false,
       "destination": "FontSizeSettingsPage",
       "condition": null,
-      "provenance": "SettingsPage.swift:107",
+      "provenance": "SettingsPage.swift:183",
       "anchor": "link(NativeText(\"字号\", \"Text size\"), icon: \"textformat.size\",",
       "extraction": "syntax"
     },
@@ -682,7 +932,7 @@
       "writes": false,
       "destination": "ConversationSettingsPage",
       "condition": null,
-      "provenance": "SettingsPage.swift:109",
+      "provenance": "SettingsPage.swift:185",
       "anchor": "link(NativeText(\"工作过程\", \"Work details\"), icon: \"list.bullet.rectangle\") {",
       "extraction": "syntax"
     },
@@ -696,7 +946,7 @@
       "writes": false,
       "destination": "NativeShortcutsPage",
       "condition": null,
-      "provenance": "SettingsPage.swift:112",
+      "provenance": "SettingsPage.swift:188",
       "anchor": "link(NativeText(\"快捷键\", \"Shortcuts\"), icon: \"command\") { NativeShortcutsPage() }",
       "extraction": "syntax"
     },
@@ -710,7 +960,7 @@
       "writes": false,
       "destination": "WorkspaceFoldersPage",
       "condition": null,
-      "provenance": "SettingsPage.swift:116",
+      "provenance": "SettingsPage.swift:194",
       "anchor": "link(NativeText(\"文件夹\", \"Folders\"), icon: \"folder\",",
       "extraction": "syntax"
     },
@@ -724,7 +974,7 @@
       "writes": false,
       "destination": "ArchivedSessionsPage",
       "condition": null,
-      "provenance": "SettingsPage.swift:120",
+      "provenance": "SettingsPage.swift:234",
       "anchor": "link(NativeText(\"已归档会话\", \"Archived sessions\"), icon: \"archivebox\",",
       "extraction": "syntax"
     },
@@ -738,8 +988,8 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "SettingsPage.swift:135",
-      "anchor": "SettingsRowLabel(title: NativeText(\"重新启动引擎\", \"Restart engine\"),",
+      "provenance": "SettingsPage.swift:248",
+      "anchor": "SettingsRowLabel(title: NativeText(\"重新启动引擎\", \"Restart engine\"), icon: \"arrow.clo",
       "extraction": "syntax",
       "labelAlternatives": []
     },
@@ -753,7 +1003,7 @@
       "writes": false,
       "destination": "RuntimeDetailsPage",
       "condition": null,
-      "provenance": "SettingsPage.swift:139",
+      "provenance": "SettingsPage.swift:209",
       "anchor": "link(NativeText(\"运行状态\", \"Runtime details\"), icon: \"waveform.path.ecg\") {",
       "extraction": "syntax"
     },
@@ -767,7 +1017,7 @@
       "writes": false,
       "destination": "SettingsAboutPage",
       "condition": null,
-      "provenance": "SettingsPage.swift:153",
+      "provenance": "SettingsPage.swift:241",
       "anchor": "link(NativeText(\"关于 Phone DSH\", \"About Phone DSH\"), icon: \"info.circle\") { Setti",
       "extraction": "syntax"
     },
@@ -781,8 +1031,80 @@
       "writes": false,
       "destination": "LicensesPage",
       "condition": null,
-      "provenance": "SettingsPage.swift:156",
+      "provenance": "SettingsPage.swift:224",
       "anchor": "link(NativeText(\"开源许可\", \"Open-source licenses\"), icon: \"doc.text\") { LicensesPag",
+      "extraction": "syntax"
+    },
+    {
+      "id": "phone-dsh",
+      "label": "Phone DSH",
+      "labelExpr": null,
+      "kind": "navigation",
+      "trigger": "tap",
+      "semantic": "navigate:RuntimeDetailsPage",
+      "writes": false,
+      "destination": "RuntimeDetailsPage",
+      "condition": null,
+      "provenance": "SettingsPage.swift:276",
+      "anchor": "Text(\"Phone DSH\")",
+      "extraction": "syntax"
+    },
+    {
+      "id": "模型服务",
+      "label": "模型服务",
+      "labelExpr": null,
+      "kind": "navigation",
+      "trigger": "tap",
+      "semantic": "navigate:ModelProviderSettingsPage",
+      "writes": false,
+      "destination": "ModelProviderSettingsPage",
+      "condition": null,
+      "provenance": "SettingsPage.swift:308",
+      "anchor": "link(NativeText(\"模型服务\", \"Model providers\"), icon: \"cpu\") { ModelProviderSettings",
+      "extraction": "syntax"
+    },
+    {
+      "id": "定时任务",
+      "label": "定时任务",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ showSchedules = true",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "SettingsPage.swift:310",
+      "anchor": "SettingsRowLabel(title: NativeText(\"定时任务\", \"Scheduled tasks\"), icon: \"clock\",",
+      "extraction": "syntax",
+      "labelAlternatives": [],
+      "presents": "sheet-112"
+    },
+    {
+      "id": "设备连接",
+      "label": "设备连接",
+      "labelExpr": null,
+      "kind": "navigation",
+      "trigger": "tap",
+      "semantic": "navigate:BluetoothDevicesPage",
+      "writes": false,
+      "destination": "BluetoothDevicesPage",
+      "condition": null,
+      "provenance": "SettingsPage.swift:313",
+      "anchor": "link(NativeText(\"设备连接\", \"Devices\"), icon: \"dot.radiowaves.left.and.right\",",
+      "extraction": "syntax"
+    },
+    {
+      "id": "设置",
+      "label": "设置",
+      "labelExpr": null,
+      "kind": "navigation",
+      "trigger": "tap",
+      "semantic": "navigate:SettingsPage",
+      "writes": false,
+      "destination": "SettingsPage",
+      "condition": null,
+      "provenance": "SettingsPage.swift:321",
+      "anchor": "link(NativeText(\"设置\", \"Settings\"), icon: \"gearshape\") {",
       "extraction": "syntax"
     },
     {
@@ -795,14 +1117,30 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "SettingsPage.swift:165",
+      "provenance": "SettingsPage.swift:107",
       "anchor": "Button(NativeText(\"完成\", \"Done\")) { dismiss() }",
       "extraction": "syntax"
     }
   ],
   "presentations": [
     {
-      "id": "navigationDestination-169",
+      "id": "sheet-112",
+      "kind": "sheet",
+      "title": null,
+      "destination": "NativeAutomationPage",
+      "triggerBindings": [
+        "showSchedules"
+      ],
+      "span": [
+        112,
+        115
+      ],
+      "provenance": "SettingsPage.swift:112",
+      "anchor": ".sheet(isPresented: $showSchedules) {",
+      "triggered": true
+    },
+    {
+      "id": "navigationDestination-116",
       "kind": "navigationDestination",
       "title": null,
       "destination": "tab in deepPage(tab)",
@@ -810,10 +1148,10 @@
         "deepLink"
       ],
       "span": [
-        169,
-        169
+        116,
+        116
       ],
-      "provenance": "SettingsPage.swift:169",
+      "provenance": "SettingsPage.swift:116",
       "anchor": ".navigationDestination(item: $deepLink) { tab in deepPage(tab) }",
       "triggered": true
     }
@@ -822,12 +1160,19 @@
     "advisory": true,
     "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
     "sites": {
-      "empty": [],
+      "empty": [
+        {
+          "renders": "还没有配置模型服务",
+          "when": null,
+          "provenance": "SettingsPage.swift:349",
+          "anchor": "return NativeText(\"还没有配置模型服务\", \"No model provider yet\")"
+        }
+      ],
       "data": [
         {
-          "renders": "模型与智能体 | 权限与隐私 | 对话 | 会话与文件 | 引擎 | 关于",
+          "renders": "模型与智能体 | 权限与隐私 | 对话 | 会话与文件 | 引擎 | 关于 | untitled section at 263 | untitled section at 301 | untitled section at 307 | untitled section at 316 | untitled section at 320",
           "when": null,
-          "provenance": "SettingsPage.swift:45",
+          "provenance": "SettingsPage.swift:52",
           "anchor": "struct SettingsPage: View {",
           "note": "structural default: the sections above, when no condition overrides them"
         }
@@ -835,8 +1180,8 @@
       "failure": [
         {
           "renders": "上次启动失败后引擎不会自动重试。重新启动会确认这次失败并重新启动，会话数据不受影响。",
-          "when": "chat.engineNeedsReset",
-          "provenance": "SettingsPage.swift:147",
+          "when": null,
+          "provenance": "SettingsPage.swift:254",
           "anchor": "\"上次启动失败后引擎不会自动重试。重新启动会确认这次失败并重新启动，会话数据不受影响。\","
         }
       ],
@@ -844,24 +1189,23 @@
         {
           "renders": "—",
           "when": null,
-          "provenance": "SettingsPage.swift:155",
+          "provenance": "SettingsPage.swift:223",
           "anchor": "value: Bundle.main.infoDictionary?[\"CFBundleShortVersionString\"] as? String ?? \""
         },
         {
           "renders": "未设置",
           "when": null,
-          "provenance": "SettingsPage.swift:202",
+          "provenance": "SettingsPage.swift:380",
           "anchor": "guard let id = configuration.defaultPermissionMode else { return NativeText(\"未设置"
         }
       ],
       "loading": []
     },
     "absent": [
-      "empty",
       "loading"
     ],
     "coverage": {
-      "empty": 0,
+      "empty": 1,
       "data": 1,
       "failure": 1,
       "unknown": 2,
@@ -871,66 +1215,66 @@
   "subpages": [
     {
       "name": "FontSizeSettingsPage",
-      "line": 247,
+      "line": 425,
       "private": true,
       "embedded": true,
       "sections": [],
-      "provenance": "SettingsPage.swift:247"
+      "provenance": "SettingsPage.swift:425"
     },
     {
       "name": "ConversationSettingsPage",
-      "line": 285,
+      "line": 463,
       "private": true,
       "embedded": true,
       "sections": [
         {
           "title": "工作步骤",
-          "provenance": "SettingsPage.swift:290"
+          "provenance": "SettingsPage.swift:468"
         },
         {
           "title": "发送与用量",
-          "provenance": "SettingsPage.swift:309"
+          "provenance": "SettingsPage.swift:487"
         }
       ],
-      "provenance": "SettingsPage.swift:285"
+      "provenance": "SettingsPage.swift:463"
     },
     {
       "name": "ArchivedSessionsPage",
-      "line": 334,
+      "line": 512,
       "private": true,
       "embedded": true,
       "sections": [],
-      "provenance": "SettingsPage.swift:334"
+      "provenance": "SettingsPage.swift:512"
     },
     {
       "name": "PermissionDefaultsPage",
-      "line": 396,
+      "line": 574,
       "private": true,
       "embedded": true,
       "sections": [
         {
           "title": "只影响之后新开的会话，当前会话保持不变。",
-          "provenance": "SettingsPage.swift:401"
+          "provenance": "SettingsPage.swift:579"
         }
       ],
-      "provenance": "SettingsPage.swift:396"
+      "provenance": "SettingsPage.swift:574"
     },
     {
       "name": "LicensesPage",
-      "line": 434,
+      "line": 612,
       "private": true,
       "embedded": true,
       "sections": [],
-      "provenance": "SettingsPage.swift:434"
+      "provenance": "SettingsPage.swift:612"
     }
   ],
   "unreachable": [],
   "extraction": {
     "tool": "extract_ios_pages.py",
     "mode": "syntax",
-    "sectionKeywordsInPage": 6,
+    "sectionKeywordsInPage": 11,
     "regionsExtracted": 0,
-    "sectionsExtracted": 6,
+    "sectionsExtracted": 11,
     "warnings": []
   }
 }

@@ -26,7 +26,7 @@
   "handRegistered": {
     "reason": "`PreviewSurface` is not a `*Page` struct, so the extractor does not generate a contract for it (PR15 made the preview a standalone surface, `PreviewSurface.swift:230`, replacing the `FilePreviewPage` that used to hide inside `FilesPage.swift`). The surface is still a real entrance with its own actions, so it gets a hand-written contract instead of disappearing from the gate.",
     "mechanism": "a whole contract file, not a `_spec-required.json` entry: that file merges items into a contract the extractor generated, and no extracted contract exists for this page. `extract_ios_pages.py` never writes or deletes `pages/preview-surface.json` (`discover_pages` walks `*Page` structs only), and `page_structure_check.py` reads it like every other contract, provenance included.",
-    "scope": "the actions the Android entry composable implements. Three baseline controls stay outside this contract's Android comparison set, on purpose: 关闭 (`PreviewSurface.swift:326`) is drawn only for the modal presentation, and Android renders this surface as a pushed route whose frame back is that gesture; 网页网络权限 and 重新加载页面 (`:338`, `:344`) are HTML/page-source-only, and Android does not do an HTML preview — a second page source is blocked by the app-wide single-WebView invariant (§6.3-5; L28 §4) — so the three are not part of this contract's Android comparison set. Everything else the baseline renders a label for is listed above."
+    "scope": "the actions the Android entry composable implements. Three baseline controls stay outside this contract's Android comparison set, on purpose: 关闭 (`PreviewSurface.swift:326`) is drawn only for the modal presentation, and Android renders this surface as a pushed route whose frame back is that gesture; 网页网络权限 and 重新加载页面 (`:339`, `:345`) are HTML/page-source-only, and Android does not do an HTML preview — a second page source is blocked by the app-wide single-WebView invariant (§6.3-5; L28 §4) — so the three are not part of this contract's Android comparison set. Everything else the baseline renders a label for is listed above."
   },
   "sections": [],
   "actions": [
@@ -68,7 +68,7 @@
       "writes": false,
       "destination": null,
       "condition": "model.fileURL != nil",
-      "provenance": "PreviewSurface.swift:353",
+      "provenance": "PreviewSurface.swift:354",
       "anchor": ".accessibilityLabel(\"分享\")",
       "extraction": "manual"
     },
@@ -82,7 +82,7 @@
       "writes": false,
       "destination": null,
       "condition": "model.kind is unsupported && model.fileURL != nil",
-      "provenance": "PreviewSurface.swift:535",
+      "provenance": "PreviewSurface.swift:536",
       "anchor": "Label(\"分享文件\", systemImage: \"square.and.arrow.up\")",
       "extraction": "manual"
     }

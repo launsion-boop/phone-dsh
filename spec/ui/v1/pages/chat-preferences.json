@@ -261,7 +261,7 @@
       "destination": null,
       "condition": null,
       "provenance": "ChatPreferencesPage.swift:80",
-      "anchor": "Button(\"完成\") { dismiss() }.leadingBarText()",
+      "anchor": "Button(\"完成\") { dismiss() }.fontWeight(.semibold)",
       "extraction": "syntax"
     }
   ],

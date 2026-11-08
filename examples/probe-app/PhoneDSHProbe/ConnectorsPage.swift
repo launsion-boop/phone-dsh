@@ -43,7 +43,7 @@ enum DiscoverConnector: String, CaseIterable, Identifiable, Hashable {
 
     var subtitle: String {
         switch self {
-        case .devices: return NativeText("通过蓝牙或局域网连接外设", "Peripherals over Bluetooth or LAN")
+        case .devices: return NativeText("通过蓝牙连接外设", "Peripherals over Bluetooth")
         case .webSearch: return NativeText("让 DSH 搜索和读取网页", "Let DSH search and read the web")
         case .mcp: return NativeText("添加你自己的服务地址", "Add your own server")
         case .gmail: return NativeText("读取、撰写和发送邮件", "Read, write and send mail")
@@ -64,7 +64,6 @@ enum DiscoverConnector: String, CaseIterable, Identifiable, Hashable {
 }
 
 struct ConnectorsPage: View {
-    @State private var devices = DeviceSessionCoordinator.shared
     @State private var selected: DiscoverConnector?
     /// The sheet's action: pushed once the sheet has gone, so the dismissal
     /// and the push never animate over each other.
@@ -98,7 +97,7 @@ struct ConnectorsPage: View {
                 pushed = next
             }
         }) { connector in
-            ConnectorDetailSheet(connector: connector, devicesOnline: devices.hasOnlineDevices) {
+            ConnectorDetailSheet(connector: connector) {
                 pendingPush = connector
                 selected = nil
             }
@@ -115,7 +114,7 @@ struct ConnectorsPage: View {
     @ViewBuilder
     private func destination(_ connector: DiscoverConnector) -> some View {
         switch connector {
-        case .devices: NativeDeviceConnectionPage(showsDone: false)
+        case .devices: BluetoothDevicesPage()
         case .webSearch: WebSearchSettingsPage()
         case .mcp: MCPSettingsPage()
         case .gmail: EmptyView()
@@ -143,13 +142,7 @@ struct ConnectorsPage: View {
                         .lineLimit(1)
                 }
                 Spacer(minLength: 8)
-                if connector == .devices && devices.hasOnlineDevices {
-                    Text(NativeText("在线", "Online"))
-                        .font(.system(size: 14))
-                        .foregroundStyle(HomeSpec.textPlaceholder)
-                } else {
-                    ConnectPill(title: connector.pillTitle)
-                }
+                ConnectPill(title: connector.pillTitle)
             }
             .padding(.vertical, 4)
             .contentShape(Rectangle())
@@ -197,7 +190,6 @@ private struct ConnectPill: View {
 /// outside closes it, so it has no close button.
 private struct ConnectorDetailSheet: View {
     let connector: DiscoverConnector
-    let devicesOnline: Bool
     let onOpen: () -> Void
 
     var body: some View {
@@ -249,7 +241,7 @@ private struct ConnectorDetailSheet: View {
     private var actionTitle: String {
         switch connector {
         case .devices:
-            return devicesOnline ? NativeText("管理设备", "Manage devices") : NativeText("连接设备", "Connect a device")
+            return NativeText("连接设备", "Connect a device")
         case .webSearch: return NativeText("设置网页搜索", "Set up web search")
         case .mcp: return NativeText("添加服务", "Add a server")
         case .gmail: return NativeText("连接", "Connect")
@@ -259,8 +251,8 @@ private struct ConnectorDetailSheet: View {
     private var summary: String {
         switch connector {
         case .devices:
-            return NativeText("把附近的电脑、手机或其他外设连到 DSH，让它在这些设备上读取文件、执行任务。",
-                              "Link nearby computers, phones or peripherals so DSH can read files and run tasks on them.")
+            return NativeText("连接附近的蓝牙外设，读取标准数据或控制提醒。局域网设备在「自定义 MCP 服务」中添加。",
+                              "Connect nearby Bluetooth peripherals to read standard data or control alerts. LAN devices are added under Custom MCP server.")
         case .webSearch:
             return NativeText("让 DSH 在对话里搜索网页、打开链接并读取内容，回答时附上来源。",
                               "Let DSH search the web, open links and read pages, citing its sources.")
@@ -277,12 +269,12 @@ private struct ConnectorDetailSheet: View {
         switch connector {
         case .devices:
             return [
-                ("antenna.radiowaves.left.and.right", NativeText("蓝牙或局域网", "Bluetooth or LAN"),
-                 NativeText("在同一网络或蓝牙范围内发现设备，配对后才会连接。",
-                            "Finds devices on your network or in Bluetooth range; connects only after pairing.")),
-                ("lock.shield", NativeText("每台设备单独授权", "Each device is approved"),
-                 NativeText("DSH 只能使用你配对过的设备，随时可以移除。",
-                            "DSH only uses devices you paired; remove one any time.")),
+                ("antenna.radiowaves.left.and.right", NativeText("蓝牙设备", "Bluetooth devices"),
+                 NativeText("只在蓝牙设备页主动扫描，连接后才会发现可用能力。",
+                            "Scan is explicit on the Bluetooth devices page; capabilities appear only after connecting.")),
+                ("lock.shield", NativeText("每次连接单独授权", "Authorized per connection"),
+                 NativeText("每次建立新连接后，需重新授权读取或提醒控制。",
+                            "Each new connection needs read or alert permission again.")),
             ]
         case .webSearch:
             return [

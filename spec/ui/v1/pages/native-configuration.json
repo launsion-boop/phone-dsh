@@ -5,15 +5,11 @@
   "structure": "swiftui-view",
   "sectionModel": "section",
   "sectionNote": null,
-  "title": {
-    "text": "插件与工具",
-    "provenance": "NativeConfigurationPage.swift:36",
-    "anchor": ".navigationTitle(NativeText(\"插件与工具\", \"Plugins and Tools\"))"
-  },
+  "title": null,
   "source": {
     "file": "NativeConfigurationPage.swift",
     "path": "examples/probe-app/PhoneDSHProbe/NativeConfigurationPage.swift",
-    "lines": 420,
+    "lines": 426,
     "structLine": 6,
     "renderedFrom": [
       "body",
@@ -38,7 +34,7 @@
   },
   "sections": [
     {
-      "id": "section-16",
+      "id": "section-21",
       "title": null,
       "titleTemplate": null,
       "dynamicTitle": false,
@@ -48,7 +44,7 @@
       "collection": null,
       "rows": [
         {
-          "id": "loading-18",
+          "id": "loading-23",
           "label": null,
           "labelExpr": null,
           "kind": "loading",
@@ -58,7 +54,7 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "NativeConfigurationPage.swift:18",
+          "provenance": "NativeConfigurationPage.swift:23",
           "anchor": "ProgressView().controlSize(.small)",
           "extraction": "manual"
         },
@@ -73,22 +69,22 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "NativeConfigurationPage.swift:19",
+          "provenance": "NativeConfigurationPage.swift:24",
           "anchor": "Text(NativeText(\"正在读取插件与设置…\", \"Loading plugins and settings…\"))",
           "extraction": "syntax"
         }
       ],
-      "provenance": "NativeConfigurationPage.swift:16",
+      "provenance": "NativeConfigurationPage.swift:21",
       "anchor": "Section {",
       "extraction": "syntax",
       "criterion": {
         "kind": "first-row",
         "label": "正在读取插件与设置…",
-        "provenance": "NativeConfigurationPage.swift:19"
+        "provenance": "NativeConfigurationPage.swift:24"
       }
     },
     {
-      "id": "section-25",
+      "id": "section-30",
       "title": null,
       "titleTemplate": null,
       "dynamicTitle": false,
@@ -98,7 +94,7 @@
       "collection": null,
       "rows": [
         {
-          "id": "text-26",
+          "id": "text-31",
           "label": null,
           "labelExpr": "nativeConfigurationError(error)",
           "kind": "text",
@@ -108,18 +104,18 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "NativeConfigurationPage.swift:26",
+          "provenance": "NativeConfigurationPage.swift:31",
           "anchor": "Label(nativeConfigurationError(error), systemImage: \"exclamationmark.triangle\")",
           "extraction": "manual"
         }
       ],
-      "provenance": "NativeConfigurationPage.swift:25",
+      "provenance": "NativeConfigurationPage.swift:30",
       "anchor": "Section {",
       "extraction": "syntax",
       "criterion": {
         "kind": "first-row-expression",
         "labelExpr": "nativeConfigurationError(error)",
-        "provenance": "NativeConfigurationPage.swift:26"
+        "provenance": "NativeConfigurationPage.swift:31"
       }
     },
     {
@@ -143,12 +139,12 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "NativeConfigurationPage.swift:59",
+          "provenance": "NativeConfigurationPage.swift:70",
           "anchor": "Text(NativeText(\"这一页显示引擎里真正装着的插件。保存后马上生效。\", \"This page shows the plugins actuall",
           "extraction": "syntax"
         }
       ],
-      "provenance": "NativeConfigurationPage.swift:58",
+      "provenance": "NativeConfigurationPage.swift:69",
       "anchor": "Section(NativeText(\"本机管理范围\", \"Local management scope\")) {",
       "extraction": "syntax"
     },
@@ -173,7 +169,7 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "NativeConfigurationPage.swift:62",
+          "provenance": "NativeConfigurationPage.swift:73",
           "anchor": "Text(nativePluginManagementMessage(\"This iPhone Worker has no pnpm, execa or sub",
           "extraction": "syntax"
         },
@@ -188,12 +184,12 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "NativeConfigurationPage.swift:63",
+          "provenance": "NativeConfigurationPage.swift:74",
           "anchor": "Text(NativeText(\"只有真正加载起来的插件才会显示为已启用。没装的,这里不会假装它在跑。\", \"Only plugins that are act",
           "extraction": "syntax"
         }
       ],
-      "provenance": "NativeConfigurationPage.swift:61",
+      "provenance": "NativeConfigurationPage.swift:72",
       "anchor": "Section(NativeText(\"iPhone Worker 限制\", \"iPhone Worker limitations\")) {",
       "extraction": "syntax"
     },
@@ -218,18 +214,18 @@
           "destination": "WebSearchSettingsPage",
           "writes": false,
           "condition": null,
-          "provenance": "NativeConfigurationPage.swift:114",
+          "provenance": "NativeConfigurationPage.swift:120",
           "anchor": "SettingsRowLabel(title: NativeText(\"网页搜索与抓取\", \"Web Search and Fetch\"), icon: \"gl",
           "extraction": "syntax"
         }
       ],
-      "provenance": "NativeConfigurationPage.swift:117",
+      "provenance": "NativeConfigurationPage.swift:123",
       "anchor": "Text(NativeText(\"工具\", \"Tools\"))",
       "extraction": "syntax",
       "hasHeader": true
     },
     {
-      "id": "section-127",
+      "id": "section-133",
       "title": null,
       "titleTemplate": null,
       "dynamicTitle": false,
@@ -239,7 +235,7 @@
       "collection": null,
       "rows": [
         {
-          "id": "dynamic-129",
+          "id": "dynamic-135",
           "label": null,
           "labelExpr": "settingField(field, namespace: group.namespace, writable: group.writable)",
           "kind": "dynamic",
@@ -249,7 +245,7 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "NativeConfigurationPage.swift:129",
+          "provenance": "NativeConfigurationPage.swift:135",
           "anchor": "settingField(field, namespace: group.namespace, writable: group.writable)",
           "extraction": "manual",
           "templateLabels": [
@@ -261,7 +257,7 @@
           "collection": "group.fields.filter { $0.id != \"allowedModels\" }"
         },
         {
-          "id": "dynamic-132",
+          "id": "dynamic-138",
           "label": null,
           "labelExpr": "saveRow(save: { Task { _ = await model.save(group.namespace) } }, discard: { model.discard(group.namespace) }, canSave: group.writable)",
           "kind": "dynamic",
@@ -271,7 +267,7 @@
           "destination": null,
           "writes": false,
           "condition": "model.isDirty(group.namespace)",
-          "provenance": "NativeConfigurationPage.swift:132",
+          "provenance": "NativeConfigurationPage.swift:138",
           "anchor": "saveRow(save: { Task { _ = await model.save(group.namespace) } },",
           "extraction": "manual",
           "templateLabels": [
@@ -282,24 +278,24 @@
           ]
         }
       ],
-      "provenance": "NativeConfigurationPage.swift:137",
+      "provenance": "NativeConfigurationPage.swift:143",
       "anchor": "Text(nativeSettingsGroupTitle(group))",
       "extraction": "syntax",
       "criterion": {
         "kind": "first-row-expression",
         "labelExpr": "settingField(field, namespace: group.namespace, writable: group.writable)",
-        "provenance": "NativeConfigurationPage.swift:129"
+        "provenance": "NativeConfigurationPage.swift:135"
       },
       "hasHeader": true,
       "footer": {
         "text": null,
         "labelExpr": null,
-        "provenance": "NativeConfigurationPage.swift:138",
+        "provenance": "NativeConfigurationPage.swift:144",
         "anchor": "} footer: {"
       }
     },
     {
-      "id": "section-144",
+      "id": "section-150",
       "title": null,
       "titleTemplate": null,
       "dynamicTitle": false,
@@ -319,7 +315,7 @@
           "destination": null,
           "writes": false,
           "condition": "model.modelCatalogError != nil",
-          "provenance": "NativeConfigurationPage.swift:149",
+          "provenance": "NativeConfigurationPage.swift:155",
           "anchor": "Text(NativeText(\"暂时读不到模型列表。\", \"The model list is temporarily unavailable.\"))",
           "extraction": "syntax"
         },
@@ -334,12 +330,12 @@
           "destination": null,
           "writes": false,
           "condition": "model.modelRoutes.isEmpty",
-          "provenance": "NativeConfigurationPage.swift:152",
+          "provenance": "NativeConfigurationPage.swift:158",
           "anchor": "Text(NativeText(\"没有可给子任务用的模型。\", \"No models are available for subtasks.\"))",
           "extraction": "syntax"
         },
         {
-          "id": "control-156",
+          "id": "control-162",
           "label": null,
           "labelExpr": null,
           "kind": "control",
@@ -349,13 +345,13 @@
           "destination": null,
           "writes": true,
           "condition": "!(model.modelRoutes.isEmpty)",
-          "provenance": "NativeConfigurationPage.swift:156",
+          "provenance": "NativeConfigurationPage.swift:162",
           "anchor": "Toggle(isOn: Binding(",
           "extraction": "manual",
           "collection": "model.modelRoutes"
         },
         {
-          "id": "dynamic-171",
+          "id": "dynamic-177",
           "label": null,
           "labelExpr": "saveRow(save: { Task { _ = await model.save(group.namespace) } }, discard: { model.discard(group.namespace) }, canSave: group.writable)",
           "kind": "dynamic",
@@ -365,7 +361,7 @@
           "destination": null,
           "writes": false,
           "condition": "model.isDirty(group.namespace)",
-          "provenance": "NativeConfigurationPage.swift:171",
+          "provenance": "NativeConfigurationPage.swift:177",
           "anchor": "saveRow(save: { Task { _ = await model.save(group.namespace) } },",
           "extraction": "manual",
           "templateLabels": [
@@ -376,19 +372,19 @@
           ]
         }
       ],
-      "provenance": "NativeConfigurationPage.swift:176",
+      "provenance": "NativeConfigurationPage.swift:182",
       "anchor": "Text(nativeSettingsGroupTitle(group))",
       "extraction": "syntax",
       "criterion": {
         "kind": "first-row",
         "label": "暂时读不到模型列表。",
-        "provenance": "NativeConfigurationPage.swift:149"
+        "provenance": "NativeConfigurationPage.swift:155"
       },
       "hasHeader": true,
       "footer": {
         "text": null,
         "labelExpr": null,
-        "provenance": "NativeConfigurationPage.swift:177",
+        "provenance": "NativeConfigurationPage.swift:183",
         "anchor": "} footer: {"
       }
     },
@@ -413,7 +409,7 @@
           "destination": null,
           "writes": false,
           "condition": "model.permissionCatalogError != nil",
-          "provenance": "NativeConfigurationPage.swift:262",
+          "provenance": "NativeConfigurationPage.swift:268",
           "anchor": "Text(NativeText(\"没能读到权限列表。\", \"The permission list could not be loaded.\"))",
           "extraction": "syntax"
         },
@@ -428,7 +424,7 @@
           "destination": null,
           "writes": false,
           "condition": "model.defaultPermissionModes.isEmpty",
-          "provenance": "NativeConfigurationPage.swift:265",
+          "provenance": "NativeConfigurationPage.swift:271",
           "anchor": "Text(NativeText(\"没有可选的权限预设。\", \"No permission presets are available.\"))",
           "extraction": "syntax"
         },
@@ -443,12 +439,12 @@
           "destination": null,
           "writes": true,
           "condition": "!(model.defaultPermissionModes.isEmpty)",
-          "provenance": "NativeConfigurationPage.swift:268",
+          "provenance": "NativeConfigurationPage.swift:274",
           "anchor": "Picker(NativeText(\"默认权限\", \"Default permission\"), selection: Binding(",
           "extraction": "syntax"
         },
         {
-          "id": "dynamic-278",
+          "id": "dynamic-284",
           "label": null,
           "labelExpr": "saveRow(save: { Task { _ = await model.saveDefaultPermissionMode() } }, discard: { model.discardDefaultPermissionMode() }, canSave: model.settingsWritable)",
           "kind": "dynamic",
@@ -458,7 +454,7 @@
           "destination": null,
           "writes": false,
           "condition": "model.hasDefaultPermissionDraft",
-          "provenance": "NativeConfigurationPage.swift:278",
+          "provenance": "NativeConfigurationPage.swift:284",
           "anchor": "saveRow(save: { Task { _ = await model.saveDefaultPermissionMode() } },",
           "extraction": "manual",
           "templateLabels": [
@@ -469,14 +465,14 @@
           ]
         }
       ],
-      "provenance": "NativeConfigurationPage.swift:284",
+      "provenance": "NativeConfigurationPage.swift:290",
       "anchor": "Text(NativeText(\"新会话默认权限\", \"Default Permission for New Sessions\"))",
       "extraction": "syntax",
       "hasHeader": true,
       "footer": {
         "text": null,
         "labelExpr": "detail",
-        "provenance": "NativeConfigurationPage.swift:289",
+        "provenance": "NativeConfigurationPage.swift:295",
         "anchor": "Text(detail)"
       }
     },
@@ -491,7 +487,7 @@
       "collection": null,
       "rows": [
         {
-          "id": "text-310",
+          "id": "text-316",
           "label": null,
           "labelExpr": "title",
           "kind": "text",
@@ -501,13 +497,13 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "NativeConfigurationPage.swift:310",
+          "provenance": "NativeConfigurationPage.swift:316",
           "anchor": "Text(title)",
           "extraction": "manual",
           "collection": "model.experimentalPlugins"
         },
         {
-          "id": "text-311",
+          "id": "text-317",
           "label": null,
           "labelExpr": "nativeExperimentalPluginStatus(plugin)",
           "kind": "text",
@@ -517,7 +513,7 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "NativeConfigurationPage.swift:311",
+          "provenance": "NativeConfigurationPage.swift:317",
           "anchor": "Text(nativeExperimentalPluginStatus(plugin))",
           "extraction": "manual",
           "collection": "model.experimentalPlugins"
@@ -533,26 +529,26 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "NativeConfigurationPage.swift:316",
+          "provenance": "NativeConfigurationPage.swift:322",
           "anchor": "HomeTag(text: plugin.loaded ? NativeText(\"已加载\", \"Loaded\") : NativeText(\"未加载\", \"N",
           "extraction": "syntax",
           "template": "HomeTag",
           "collection": "model.experimentalPlugins"
         }
       ],
-      "provenance": "NativeConfigurationPage.swift:321",
+      "provenance": "NativeConfigurationPage.swift:327",
       "anchor": "Text(NativeText(\"实验插件\", \"Experimental Plugins\"))",
       "extraction": "syntax",
       "hasHeader": true,
       "footer": {
         "text": "This iPhone Worker has no pnpm, execa or subprocess installation environment. Plugins and bundles can be viewed here; install, enable and disable them in desktop DSH.",
         "labelExpr": null,
-        "provenance": "NativeConfigurationPage.swift:323",
+        "provenance": "NativeConfigurationPage.swift:329",
         "anchor": "Text(nativePluginManagementMessage(\"This iPhone Worker has no pnpm, execa or sub"
       }
     },
     {
-      "id": "section-328",
+      "id": "section-334",
       "title": null,
       "titleTemplate": null,
       "dynamicTitle": false,
@@ -572,7 +568,7 @@
           "destination": null,
           "writes": false,
           "condition": "model.inventoryError != nil",
-          "provenance": "NativeConfigurationPage.swift:330",
+          "provenance": "NativeConfigurationPage.swift:336",
           "anchor": "Text(NativeText(\"暂时读不到插件状态。\", \"Plugin status is temporarily unavailable.\"))",
           "extraction": "syntax"
         },
@@ -587,28 +583,28 @@
           "destination": "NativePluginInventoryPage",
           "writes": false,
           "condition": "!(model.inventoryError != nil)",
-          "provenance": "NativeConfigurationPage.swift:336",
+          "provenance": "NativeConfigurationPage.swift:342",
           "anchor": "SettingsRowLabel(title: NativeText(\"已加载插件\", \"Loaded Plugins\"), icon: \"puzzlepiec",
           "extraction": "syntax"
         }
       ],
-      "provenance": "NativeConfigurationPage.swift:328",
+      "provenance": "NativeConfigurationPage.swift:334",
       "anchor": "Section {",
       "extraction": "syntax",
       "criterion": {
         "kind": "first-clickable-row",
         "label": "已加载插件",
-        "provenance": "NativeConfigurationPage.swift:336"
+        "provenance": "NativeConfigurationPage.swift:342"
       },
       "footer": {
         "text": "显示的是引擎里真实加载的插件,手机上不会另外记一份。",
         "labelExpr": null,
-        "provenance": "NativeConfigurationPage.swift:341",
+        "provenance": "NativeConfigurationPage.swift:347",
         "anchor": "Text(NativeText(\"显示的是引擎里真实加载的插件,手机上不会另外记一份。\", \"Shows the plugins the engine actu"
       }
     },
     {
-      "id": "section-346",
+      "id": "section-352",
       "title": null,
       "titleTemplate": null,
       "dynamicTitle": false,
@@ -628,24 +624,24 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "NativeConfigurationPage.swift:347",
+          "provenance": "NativeConfigurationPage.swift:353",
           "anchor": "Text(NativeText(\"暂不可用\", \"Unavailable\"))",
           "extraction": "syntax"
         }
       ],
-      "provenance": "NativeConfigurationPage.swift:350",
+      "provenance": "NativeConfigurationPage.swift:356",
       "anchor": "Text(title)",
       "extraction": "syntax",
       "criterion": {
         "kind": "first-row",
         "label": "暂不可用",
-        "provenance": "NativeConfigurationPage.swift:347"
+        "provenance": "NativeConfigurationPage.swift:353"
       },
       "hasHeader": true,
       "footer": {
         "text": null,
         "labelExpr": "detail",
-        "provenance": "NativeConfigurationPage.swift:352",
+        "provenance": "NativeConfigurationPage.swift:358",
         "anchor": "Text(detail)"
       }
     }
@@ -661,12 +657,12 @@
       "writes": false,
       "destination": "WebSearchSettingsPage",
       "condition": null,
-      "provenance": "NativeConfigurationPage.swift:114",
+      "provenance": "NativeConfigurationPage.swift:120",
       "anchor": "SettingsRowLabel(title: NativeText(\"网页搜索与抓取\", \"Web Search and Fetch\"), icon: \"gl",
       "extraction": "syntax"
     },
     {
-      "id": "toggle-156",
+      "id": "toggle-162",
       "label": null,
       "labelExpr": null,
       "kind": "toggle",
@@ -675,7 +671,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "NativeConfigurationPage.swift:156",
+      "provenance": "NativeConfigurationPage.swift:162",
       "anchor": "Toggle(isOn: Binding(",
       "extraction": "manual"
     },
@@ -689,7 +685,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "NativeConfigurationPage.swift:268",
+      "provenance": "NativeConfigurationPage.swift:274",
       "anchor": "Picker(NativeText(\"默认权限\", \"Default permission\"), selection: Binding(",
       "extraction": "syntax",
       "items": [
@@ -708,12 +704,26 @@
       "writes": false,
       "destination": "NativePluginInventoryPage",
       "condition": null,
-      "provenance": "NativeConfigurationPage.swift:336",
+      "provenance": "NativeConfigurationPage.swift:342",
       "anchor": "SettingsRowLabel(title: NativeText(\"已加载插件\", \"Loaded Plugins\"), icon: \"puzzlepiec",
       "extraction": "syntax"
     },
     {
-      "id": "button-40",
+      "id": "完成",
+      "label": "完成",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "toolbar",
+      "semantic": "{ dismiss()",
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "NativeConfigurationPage.swift:46",
+      "anchor": "Button(NativeText(\"完成\", \"Done\")) { dismiss() }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "button-51",
       "label": null,
       "labelExpr": null,
       "kind": "button",
@@ -722,13 +732,13 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "NativeConfigurationPage.swift:40",
+      "provenance": "NativeConfigurationPage.swift:51",
       "anchor": "Button {",
       "extraction": "manual",
-      "presents": "sheet-55"
+      "presents": "sheet-66"
     },
     {
-      "id": "button-46",
+      "id": "button-57",
       "label": null,
       "labelExpr": null,
       "kind": "button",
@@ -737,23 +747,9 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "NativeConfigurationPage.swift:46",
+      "provenance": "NativeConfigurationPage.swift:57",
       "anchor": "Button {",
       "extraction": "manual"
-    },
-    {
-      "id": "完成",
-      "label": "完成",
-      "labelExpr": null,
-      "kind": "button",
-      "trigger": "toolbar",
-      "semantic": "{ showInformation = false",
-      "writes": true,
-      "destination": null,
-      "condition": null,
-      "provenance": "NativeConfigurationPage.swift:71",
-      "anchor": "Button(NativeText(\"完成\", \"Done\")) { showInformation = false }.trailingBarText()",
-      "extraction": "syntax"
     },
     {
       "id": "恢复默认",
@@ -765,7 +761,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "NativeConfigurationPage.swift:217",
+      "provenance": "NativeConfigurationPage.swift:223",
       "anchor": "Button(NativeText(\"恢复默认\", \"Reset\")) { Task { _ = await model.reset(field, in: na",
       "extraction": "syntax"
     },
@@ -779,7 +775,7 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "NativeConfigurationPage.swift:239",
+      "provenance": "NativeConfigurationPage.swift:245",
       "anchor": "Button(NativeText(\"撤销\", \"Discard\"), action: discard)",
       "extraction": "syntax"
     },
@@ -793,14 +789,14 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "NativeConfigurationPage.swift:242",
+      "provenance": "NativeConfigurationPage.swift:248",
       "anchor": "Button(NativeText(\"保存\", \"Save\"), action: save)",
       "extraction": "syntax"
     }
   ],
   "presentations": [
     {
-      "id": "sheet-55",
+      "id": "sheet-66",
       "kind": "sheet",
       "title": null,
       "destination": "NavigationStack",
@@ -808,10 +804,10 @@
         "showInformation"
       ],
       "span": [
-        55,
-        77
+        66,
+        83
       ],
-      "provenance": "NativeConfigurationPage.swift:55",
+      "provenance": "NativeConfigurationPage.swift:66",
       "anchor": ".sheet(isPresented: $showInformation) {",
       "triggered": true
     }
@@ -824,19 +820,19 @@
         {
           "renders": "没有可给子任务用的模型。",
           "when": "model.modelRoutes.isEmpty",
-          "provenance": "NativeConfigurationPage.swift:152",
+          "provenance": "NativeConfigurationPage.swift:158",
           "anchor": "Text(NativeText(\"没有可给子任务用的模型。\", \"No models are available for subtasks.\"))"
         },
         {
           "renders": "没有可选的权限预设。",
           "when": "model.defaultPermissionModes.isEmpty",
-          "provenance": "NativeConfigurationPage.swift:265",
+          "provenance": "NativeConfigurationPage.swift:271",
           "anchor": "Text(NativeText(\"没有可选的权限预设。\", \"No permission presets are available.\"))"
         }
       ],
       "data": [
         {
-          "renders": "untitled section at 16 | untitled section at 25 | 本机管理范围 | iPhone Worker 限制 | 工具 | untitled section at 137 | untitled section at 176 | 新会话默认权限 | 实验插件 | untitled section at 328 | untitled section at 350",
+          "renders": "untitled section at 21 | untitled section at 30 | 本机管理范围 | iPhone Worker 限制 | 工具 | untitled section at 143 | untitled section at 182 | 新会话默认权限 | 实验插件 | untitled section at 334 | untitled section at 356",
           "when": null,
           "provenance": "NativeConfigurationPage.swift:6",
           "anchor": "struct NativeConfigurationPage: View {",
@@ -847,13 +843,13 @@
         {
           "renders": "暂时读不到模型列表。",
           "when": "model.modelCatalogError != nil",
-          "provenance": "NativeConfigurationPage.swift:149",
+          "provenance": "NativeConfigurationPage.swift:155",
           "anchor": "Text(NativeText(\"暂时读不到模型列表。\", \"The model list is temporarily unavailable.\"))"
         },
         {
           "renders": "暂时读不到插件状态。",
           "when": "model.inventoryError != nil",
-          "provenance": "NativeConfigurationPage.swift:330",
+          "provenance": "NativeConfigurationPage.swift:336",
           "anchor": "Text(NativeText(\"暂时读不到插件状态。\", \"Plugin status is temporarily unavailable.\"))"
         }
       ],
@@ -862,19 +858,19 @@
         {
           "renders": "正在读取插件与设置…",
           "when": "model.isLoading && model.pluginEntries.isEmpty && model.settingsGroups.isEmpty",
-          "provenance": "NativeConfigurationPage.swift:19",
+          "provenance": "NativeConfigurationPage.swift:24",
           "anchor": "Text(NativeText(\"正在读取插件与设置…\", \"Loading plugins and settings…\"))"
         },
         {
           "renders": "只影响之后新开的会话。正在聊的这个,权限在输入框里的盾牌菜单里改。",
           "when": null,
-          "provenance": "NativeConfigurationPage.swift:294",
+          "provenance": "NativeConfigurationPage.swift:300",
           "anchor": "Text(NativeText(\"只影响之后新开的会话。正在聊的这个,权限在输入框里的盾牌菜单里改。\", \"Only new sessions are affe"
         },
         {
           "renders": "ProgressView",
           "when": "model.isLoading && model.pluginEntries.isEmpty && model.settingsGroups.isEmpty",
-          "provenance": "NativeConfigurationPage.swift:18",
+          "provenance": "NativeConfigurationPage.swift:23",
           "anchor": "ProgressView().controlSize(.small)"
         }
       ]

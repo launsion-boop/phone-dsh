@@ -2434,11 +2434,8 @@ class PageExtractor:
         source = self.source
         if not self.has_body:
             return None
-        # The page's own title is the outermost `.navigationTitle` in `body`. A
-        # title nested deeper (a `NavigationLink { … }.navigationTitle(…)`
-        # destination) belongs to the pushed screen, not to this page.
         masked = source.masked
-        best = None
+        candidates = []
         for m in re.finditer(r"\.navigationTitle[ \t]*\(", masked[self.body_start:self.body_end]):
             if not self._live(self.body_start + m.start()):
                 continue
@@ -2447,12 +2444,18 @@ class PageExtractor:
             if close < 0:
                 continue
             label, label_pos = first_label(source, open_paren + 1, close)
-            if not label:
-                continue
             depth = (masked.count("{", self.body_start, open_paren)
                      - masked.count("}", self.body_start, open_paren))
-            if best is None or depth < best[0]:
-                best = (depth, label, label_pos)
+            candidates.append((depth, label, label_pos))
+        if not candidates:
+            return None
+        # The page's own title is the outermost `.navigationTitle` in `body`.
+        # When that outermost call is an expression (`navigationTitle(title)`),
+        # the page has no fixed title; a deeper literal belongs to a pushed
+        # screen or a sheet and must not be promoted to the page title.
+        outermost = min(candidate[0] for candidate in candidates)
+        best = next((candidate for candidate in candidates
+                     if candidate[0] == outermost and candidate[1]), None)
         if best is None:
             return None
         prov, anchor = source.provenance(best[2])

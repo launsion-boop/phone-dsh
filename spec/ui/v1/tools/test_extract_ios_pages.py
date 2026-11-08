@@ -981,6 +981,30 @@ struct LicensesPage: View {
         self.assertEqual("开源许可", page["title"]["text"])
         self.assertEqual("SettingsPage.swift:9", page["title"]["provenance"])
 
+    def test_dynamic_outer_title_does_not_promote_a_nested_literal(self) -> None:
+        swift = """import SwiftUI
+struct LicensesPage: View {
+    var title: String = "插件与工具"
+    var body: some View {
+        List {
+            Text("x")
+        }
+        .navigationTitle(title)
+        .sheet(isPresented: .constant(false)) {
+            Text("y").navigationTitle("插件说明")
+        }
+    }
+}
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_path = root / "examples/probe-app/PhoneDSHProbe/SettingsPage.swift"
+            source_path.parent.mkdir(parents=True)
+            source_path.write_text(swift, encoding="utf-8")
+            source = E.Source(source_path, root)
+            page = E.PageExtractor(source, "LicensesPage").run(E.page_structs(source))
+        self.assertIsNone(page["title"])
+
 
 if __name__ == "__main__":
     unittest.main()
