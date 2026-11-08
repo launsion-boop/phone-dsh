@@ -37,6 +37,7 @@ import com.phonedsh.ui.page.RuntimeFacts
 import com.phonedsh.ui.page.SettingsFacts
 import com.phonedsh.ui.page.ShellSnapshot
 import com.phonedsh.ui.page.WebSearchFacts
+import com.phonedsh.ui.page.WebSearchMode
 import com.phonedsh.ui.page.WebSurfaceFacts
 import com.phonedsh.ui.page.WorkbenchSnapshot
 import com.phonedsh.ui.page.WorkspaceFoldersSnapshot
@@ -469,6 +470,42 @@ public sealed interface PdshHostAction {
     /** Persist the selected web-search backend. */
     public data class SelectWebSearchBackend(public val id: String) : PdshHostAction {
         override val wire: String = "websearch.backend"
+    }
+
+    /** 用哪一份搜索: follow the model service, or the page's own Search/Fetch service. */
+    public data class SetWebSearchMode(public val mode: WebSearchMode) : PdshHostAction {
+        override val wire: String = "websearch.mode"
+    }
+
+    /** Commit the typed Search/Fetch base URL; the host validates and normalizes it. */
+    public data class CommitWebSearchAddress(public val address: String) : PdshHostAction {
+        override val wire: String = "websearch.address"
+    }
+
+    /**
+     * Store the pasted Search/Fetch key for the committed address.
+     *
+     * The payload is the secret itself, handed to the host once; [toString] never
+     * prints it, so a log line or crash report built from this value stays clean.
+     */
+    public class CommitWebSearchKey(public val key: String) : PdshHostAction {
+        override val wire: String = "websearch.key"
+
+        override fun equals(other: Any?): Boolean = other is CommitWebSearchKey && other.key == key
+
+        override fun hashCode(): Int = key.hashCode()
+
+        override fun toString(): String = "CommitWebSearchKey(key=***)"
+    }
+
+    /** 清除密钥 was confirmed. */
+    public data object ClearWebSearchKey : PdshHostAction {
+        override val wire: String = "websearch.key.clear"
+    }
+
+    /** 删除这个搜索服务 was confirmed. */
+    public data object RemoveWebSearchConfiguration : PdshHostAction {
+        override val wire: String = "websearch.remove"
     }
 
     /** Persist one MCP server draft. */

@@ -1610,9 +1610,14 @@ private fun WebSearchRoute(
         onSelectBackend = { id -> onHostAction(PdshHostAction.SelectWebSearchBackend(id)) },
         onToggleBackends = { local = local.apply(WebSearchUiEvent.ToggleBackends) },
         onBack = onBack,
-        // 什么时候生效's two engine verbs are real host commands. The write controls stay
-        // disabled (`writable = NO` and the host's own reason under them), but without
-        // these two the page still drew a live-looking 启动本地引擎 that nobody performs.
+        // The five writes are host commands; the page arms each control only while the
+        // host reports `writable = YES`, and the host answers with new facts.
+        onModeChange = { mode -> onHostAction(PdshHostAction.SetWebSearchMode(mode)) },
+        onCommitAddress = { address -> onHostAction(PdshHostAction.CommitWebSearchAddress(address)) },
+        onCommitKey = { key -> onHostAction(PdshHostAction.CommitWebSearchKey(key)) },
+        onClearKey = { onHostAction(PdshHostAction.ClearWebSearchKey) },
+        onRemoveConfiguration = { onHostAction(PdshHostAction.RemoveWebSearchConfiguration) },
+        // 什么时候生效's two engine verbs are real host commands.
         onStartEngine = { onHostAction(PdshHostAction.RestartRuntime) },
         onStopEngine = { onHostAction(PdshHostAction.StopRuntime) },
     )

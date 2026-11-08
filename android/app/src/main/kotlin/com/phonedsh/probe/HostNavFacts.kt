@@ -68,8 +68,6 @@ import com.phonedsh.ui.page.SettingsFacts
 import com.phonedsh.ui.page.SettingsPlatformFacts
 import com.phonedsh.ui.page.ShellLimits
 import com.phonedsh.ui.page.ShellSnapshot
-import com.phonedsh.ui.page.WebSearchFacts
-import com.phonedsh.ui.page.WebSearchMode
 import com.phonedsh.ui.page.WebSurfaceFacts
 import com.phonedsh.ui.page.WebSurfaceSnapshot
 import com.phonedsh.ui.page.WebViewRuntime
@@ -112,6 +110,8 @@ import java.time.ZoneId
  * @param officialWebSearchEnabled whether this launch mounted the automatic
  *   official Search/Fetch grant (selected official model + readable saved key).
  *   It is measured in the composition root, not re-derived by the page.
+ * @param independentWebSearchEnabled whether this launch mounted the independent
+ *   Search/Fetch grant instead (`spec/v1/gateway-independent-search.md`).
  */
 internal data class HostReadings(
     val webView: View?,
@@ -121,6 +121,7 @@ internal data class HostReadings(
     val webViewKernel: WebViewKernelReport?,
     val egressGrant: GatewayHostRule?,
     val officialWebSearchEnabled: Boolean = false,
+    val independentWebSearchEnabled: Boolean = false,
     val batteryExemption: FactState,
     val background: HostBackgroundReadings,
     val workspacePresent: Boolean,
@@ -264,20 +265,14 @@ internal fun buildNavFacts(
         // is installed — a host without it has no save command, and saying NO is the
         // difference between "the page is read-only" and "this build cannot save".
         modelProvider = modelProviderFacts(engineFact),
-        webSearch = WebSearchFacts(
-            mode = WebSearchMode.FOLLOW_MODEL,
-            modelSearchSupported = when {
-                readings.officialWebSearchEnabled -> FactState.YES
-                ProbeLaunchConfig.active().deepseekBaseUrl != null -> FactState.NO
-                else -> FactState.UNKNOWN
-            },
-            noModelProfile = ProbeLaunchConfig.active().deepseekBaseUrl == null,
-            hasCredential = if (readings.officialWebSearchEnabled) FactState.YES else FactState.UNKNOWN,
-            writable = FactState.NO,
-            readOnlyReason = WEB_SEARCH_READ_ONLY_REASON,
-            // 什么时候生效 offers the one engine verb that matches this state; the page
-            // must not offer 启动 while the engine already runs (the router now passes
-            // both verbs to the host).
+        // 网页搜索 is writable: the independent Search/Fetch document and its own key
+        // account (`WebSearchSettingsStore`), projected by `webSearchFacts`. 什么时候生效
+        // offers the one engine verb that matches this state.
+        webSearch = webSearchFacts(
+            store = WebSearchSettingsStore.active(),
+            officialEnabled = readings.officialWebSearchEnabled,
+            modelConfigured = ProbeLaunchConfig.active().deepseekBaseUrl != null,
+            proxyRequested = ProbeLaunchConfig.active().modelProxy,
             engineStarted = engineFact,
         ),
         mcp = MCPRegistryFacts(),
@@ -855,6 +850,3 @@ private fun shellSnapshot(handshake: HandshakeSummary?): ShellSnapshot {
 
 /** The HELLO capability prefix one executable accelerator is advertised under. */
 private const val ACCELERATOR_CAPABILITY_PREFIX: String = "accelerator:"
-
-private const val WEB_SEARCH_READ_ONLY_REASON: String =
-    "网页搜索和抓取会自动使用官方 DeepSeek 模型服务的密钥。请在「模型服务」保存密钥，然后重启本地引擎。"

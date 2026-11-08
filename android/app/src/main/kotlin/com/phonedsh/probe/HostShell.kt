@@ -1525,6 +1525,12 @@ private fun handleHostAction(
 ): String? {
     // The label is token-free: an action never carries user text into the log.
     Log.i(TAG_NAV, "host action handed off: ${action.wire}")
+    // 网页搜索's five writes land in the independent Search/Fetch store. Its
+    // line never contains the key; a write that changed nothing re-reads nothing.
+    handleWebSearchAction(action, WebSearchSettingsStore.active())?.let { result ->
+        if (result.changed) onSettingsChanged()
+        return result.message
+    }
     return when (action) {
         PdshHostAction.StopRuntime -> {
             onStop()
@@ -1655,6 +1661,11 @@ private fun actionLabel(action: PdshHostAction): String = when (action) {
     PdshHostAction.RevokeUbuntuApproval -> "撤销本地 Ubuntu 授权"
     is PdshHostAction.SetWebSearchEnabled -> "网页搜索开关"
     is PdshHostAction.SelectWebSearchBackend -> "网页搜索后端"
+    is PdshHostAction.SetWebSearchMode -> "选择网页搜索方式"
+    is PdshHostAction.CommitWebSearchAddress -> "保存搜索服务地址"
+    is PdshHostAction.CommitWebSearchKey -> "保存搜索服务密钥"
+    PdshHostAction.ClearWebSearchKey -> "清除搜索服务密钥"
+    PdshHostAction.RemoveWebSearchConfiguration -> "删除搜索服务"
     PdshHostAction.RefreshWebSearch -> "重新读取网页搜索"
     PdshHostAction.RefreshMcp -> "重新读取 MCP 服务器"
     is PdshHostAction.BluetoothPageVisible -> "蓝牙设备页"
