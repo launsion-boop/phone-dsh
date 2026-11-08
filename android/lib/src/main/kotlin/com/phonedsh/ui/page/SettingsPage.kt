@@ -998,13 +998,14 @@ public data class PermissionOptionView(
  * The 权限 sub-page's state, mirroring the baseline's PermissionDefaultsPage
  * (`SettingsPage.swift:218-245`).
  *
- * @param note the baseline's one explanatory line, verbatim.
+ * @param languageId the Settings language the page renders in; [note] is the
+ *   baseline's one explanatory line (`SettingsPage.swift:401`) in that language.
  * @param options the three presets in menu order.
  * @param readOnlyReason why the selector is disabled, when the host measured a lock.
  */
 @Immutable
 public data class PermissionDefaultsState(
-    public val note: String = UiStrings.PERMISSION_DEFAULTS_NOTE,
+    public val languageId: String? = null,
     public val options: List<PermissionOptionView> = emptyList(),
     public val busy: Boolean = false,
     public val writable: Boolean = false,
@@ -1012,6 +1013,18 @@ public data class PermissionDefaultsState(
     public val statusMessage: String? = null,
     public val readOnlyReason: String? = null,
 ) {
+    /**
+     * The explanatory line in [languageId]. The page renders the same
+     * `UiStrings.settingsNativeText(...)` call directly, so the wording stays a
+     * static contract label rather than opaque state.
+     */
+    public val note: String
+        get() = UiStrings.settingsNativeText(
+            languageId,
+            UiStrings.PERMISSION_DEFAULTS_NOTE,
+            UiStrings.PERMISSION_DEFAULTS_SCOPE_EN,
+        )
+
     public companion object {
         /** Projects the host's current preset into the three option rows. */
         public fun from(
@@ -1039,11 +1052,7 @@ public data class PermissionDefaultsState(
                 )
             }
             return PermissionDefaultsState(
-                note = UiStrings.settingsNativeText(
-                    languageId,
-                    UiStrings.PERMISSION_DEFAULTS_NOTE,
-                    UiStrings.PERMISSION_DEFAULTS_SCOPE_EN,
-                ),
+                languageId = languageId,
                 busy = busy,
                 writable = writable,
                 failure = failure,

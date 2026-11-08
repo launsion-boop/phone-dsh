@@ -215,6 +215,25 @@ EXPLICIT_ACTION_IDIOMS = frozenset({
     "SessionSectionLabel", "EmptyHint", "PageFrame",
 })
 CHIP_CONTROLS = ("SegmentedButton", "FilterChip", "AssistChip", "InputChip")
+#: The settings frame's navigation-bar text button (`SettingsChrome.kt`). Only a
+#: call inside the frame's `trailing = { … }` slot is a page action: that slot is the
+#: baseline's `.confirmationAction` / `.topBarTrailing` text Button (`保存`), which
+#: the contract records as a labelled toolbar action. The `leading` slot carries
+#: back/close glyphs and icon buttons the baseline draws as an Image (unlabelled in
+#: the contract), so counting it would invent extras the contract cannot express.
+#: The visible wording is the `text` argument, never `description` (a11y copy).
+NAV_TEXT_ACTIONS = ("SettingsNavAction",)
+NAV_TRAILING_SLOT_RE = re.compile(r"\btrailing\s*=\s*(?:if\s*\([^(){}]*\)\s*)?\{")
+
+
+def in_trailing_slot(masked: str, pos: int) -> bool:
+    """`pos` sits inside a `trailing = { … }` (or `trailing = if (c) { … }`) lambda."""
+    for m in NAV_TRAILING_SLOT_RE.finditer(masked, 0, pos):
+        brace = m.end() - 1
+        close = match_delim(masked, brace, "{", "}")
+        if brace < pos < close:
+            return True
+    return False
 TOGGLE_CONTROLS = ("Switch", "Checkbox")
 #: Named arguments that carry the page title, in priority order (a frame that has
 #: both draws `title` in its bar and `largeTitle` in the body; they are one title).
@@ -245,6 +264,9 @@ ROW_CALLS = frozenset({
 DECLARATION_TAIL_RE = re.compile(r"(?:\b(?:data|enum|sealed|abstract|open|private|internal|public|inline|suspend)\s+)*"
                                  r"(?:class|fun|object|interface|typealias)\s+$")
 DYN_EXPR_MAX = 60
+#: The automation editor's saving flag: its progress/steady pair is resolved by the
+#: verified `saving_action` rule in `kotlin_label_variants`, never by the general one.
+SAVING_LABEL_GUARD_RE = re.compile(r"editor\.saving")
 
 
 class CheckError(Exception):
@@ -534,6 +556,10 @@ def resolve_kotlin_expr(expr: str, strings: dict, consts: dict | None = None) ->
         name = localized.group(1)
         body = localized.group(2)
         parts = split_args(mask_kotlin(body), 0, len(body))
+        # Kotlin allows a trailing comma (`settingsNativeText(\n id,\n zh,\n en,\n)`);
+        # it adds no argument, so the empty tail does not change the arity.
+        if parts and not body[parts[-1][0]:parts[-1][1]].strip():
+            parts = parts[:-1]
         expected = 3 if name == "UiStrings.settingsNativeText" else 2
         verified = name != "native" or consts.get("__native_text_forwarder__") is True
         if len(parts) == expected and verified:
@@ -548,13 +574,58 @@ def resolve_kotlin_expr(expr: str, strings: dict, consts: dict | None = None) ->
     return None, True
 
 
-def kotlin_label_variants(expr: str, strings: dict, consts: dict) -> list[str]:
+DATA_STATIC_WORDING_RE = re.compile(
+    r"\bUiStrings\b|\b[A-Z][A-Z0-9_]{2,}\b|\bnative\s*\(|\.format\s*\(")
+DATA_LITERAL_RE = re.compile(r'"((?:[^"\\]|\\.)*)"')
+DATA_WORDING_RE = re.compile(r"[A-Za-z0-9\u4e00-\u9fff]")
+
+
+def is_data_label(expr: str) -> bool:
+    """A label expression that carries no static wording at all: host data.
+
+    `row.name`, `field.title`, `mode.name`, `if (draft.isEmpty()) field.title else
+    "$draft"`: every visible character comes from runtime data, so there is no
+    wording to compare. The baseline side already reads its twin that way — a
+    `Button { Text(profile.name) }` is an *unlabelled* action in the contract and is
+    never compared — so reporting the Android twin as `unresolved` made one control
+    a divergence on one side only.
+
+    Anything that names a static wording stays unresolved: a string literal with
+    text outside its `${…}` slots, a `UiStrings.NAME`, a page CONST, `native(…)` or
+    a `.format(…)` template. Those could hide a contract wording, data cannot. A
+    truncated expression (`DYN_EXPR_MAX`) is never classified as data.
+    """
+    text = strip_kotlin_comments(collapse(expr))
+    if not text or len(text) >= DYN_EXPR_MAX:
+        return False
+    for literal in DATA_LITERAL_RE.findall(text):
+        rest = re.sub(r"\$\{[^}]*\}|\$[A-Za-z_]\w*", "", literal)
+        if DATA_WORDING_RE.search(rest):
+            return False
+    bare = DATA_LITERAL_RE.sub('""', text)
+    if DATA_STATIC_WORDING_RE.search(bare):
+        return False
+    # The data itself may sit only inside a `${…}` slot (`"${row.name}"`).
+    return bool(re.search(r"[A-Za-z_]", text))
+
+
+def kotlin_label_variants(expr: str, strings: dict, consts: dict,
+                          wording_sets: list | None = None,
+                          require_pair: bool = False) -> list[str]:
     """Resolve the literal alternatives of a small Compose label expression.
 
     Supports a `when` whose every branch returns one static label, an availability
-    ternary whose unavailable branch explicitly says `不可用`, and the verified
-    automation saving label ternary. Other expressions remain unresolved so
-    state-derived wording does not become a static action inventory.
+    ternary whose unavailable branch explicitly says `不可用` (or is the branch taken
+    when the callback is null), the verified automation saving label ternary, and a
+    two-wording ternary the contract records as ONE control (`label` +
+    `labelAlternatives`, passed in `wording_sets`). Other expressions remain
+    unresolved so state-derived wording does not become a static action inventory.
+
+    The last rule is the symmetric reading of the baseline's own
+    `testing ? "正在测试…" : "测试连接"`: one control with two wordings. Two arbitrary
+    static wordings (`if (toggle) "保存" else "取消"`) are not resolved that way —
+    they could satisfy two different contract controls with one Android control —
+    so a pair resolves only when one contract action owns both wordings.
     """
     value = strip_kotlin_comments(collapse(expr))
     when = re.fullmatch(r"when\s*\([^{}]*\)\s*\{(.*)\}", value, re.S)
@@ -571,17 +642,36 @@ def kotlin_label_variants(expr: str, strings: dict, consts: dict) -> list[str]:
             if resolved not in out:
                 out.append(resolved)
         return out
+    # Each branch is one static wording: a literal, `UiStrings.NAME` or a page
+    # const. Those are as static as a literal, and `if (fetching)
+    # UiStrings.PROVIDER_FETCHING else UiStrings.PROVIDER_FETCH` is the same
+    # progress/steady pair the contract records as `labelAlternatives`; reading only
+    # literals reported it as unresolved while the baseline's twin resolved.
+    static = r"(\"(?:[^\"\\]|\\.)*\"|UiStrings\.[A-Z][A-Z0-9_]*|[A-Z][A-Z0-9_]*)"
     conditional = re.fullmatch(
-        r"if\s*\((.+)\)\s*(\"(?:[^\"\\]|\\.)*\")\s*else\s*(\"(?:[^\"\\]|\\.)*\")",
-        value, re.S)
-    if conditional:
+        r"if\s*\((.+)\)\s*" + static + r"\s*else\s*" + static, value, re.S)
+    if conditional and not SAVING_LABEL_GUARD_RE.fullmatch(collapse(conditional.group(1))):
         branches = [resolve_kotlin_expr(conditional.group(index), strings, consts)
                     for index in (2, 3)]
         if all(not dynamic and label for label, dynamic in branches):
+            # A branch taken exactly when the callback is null cannot be tapped: it
+            # is the disabled-state explanation (`宿主暂不支持重新检查`), not the
+            # label of an action, the same way `归档不可用` is.
+            guard = re.fullmatch(r"([A-Za-z_]\w*)\s*([=!])=\s*null", collapse(conditional.group(1)))
+            if guard:
+                return [branches[0 if guard.group(2) == "!" else 1][0]]
             # A fallback such as `归档不可用` is a disabled-state explanation, not
             # the label of the action the user can perform.
             available = [label for label, _ in branches if "不可用" not in label]
-            return available or [label for label, _ in branches]
+            if len(available) < len(branches):
+                return available or [label for label, _ in branches]
+            literal_only = all(conditional.group(i).startswith('"') for i in (2, 3))
+            if literal_only and not require_pair:
+                return available
+            pair = {normalize(label) for label, _ in branches}
+            if any(pair <= {normalize(w) for w in owned} for owned in (wording_sets or ())):
+                return available
+            return []
     # A saving-state toolbar action keeps its ordinary action identity while its
     # label briefly changes to a progress word. Count the steady action only when
     # both branches resolve to the exact verified static labels and the guard is
@@ -1684,8 +1774,12 @@ def verified_developer_tools_action_positions(text: str, masked: str,
 def android_actions(text: str, masked: str, strings: dict, consts: dict,
                     stats: dict | None = None, wrappers: frozenset | None = None,
                     positions: list | None = None,
-                    fold_labels: frozenset | None = None) -> tuple:
+                    fold_labels: frozenset | None = None,
+                    wording_sets: list | None = None) -> tuple:
     """(labelled action labels, unresolved expressions, (label, pos) occurrences).
+
+    `wording_sets` is the contract's controls that carry more than one wording
+    (normalised `label` + `labelAlternatives`); see `kotlin_label_variants`.
 
     The third value is every resolved label with its source position, independent of
     `positions` (which only feeds the untitled-group criterion). The caller maps a
@@ -1734,7 +1828,9 @@ def android_actions(text: str, masked: str, strings: dict, consts: dict,
                 r"if\s*\(editor\.saving\)\s*AUTOMATION_EDITOR_SAVING_LABEL"
                 r"\s*else\s*UiStrings\.AUTOMATION_EDITOR_SAVE",
                 raw_label)
-            variants = kotlin_label_variants(raw_label, strings, consts) if saving_expr else []
+            variants = (kotlin_label_variants(raw_label, strings, consts) if saving_expr
+                        else kotlin_label_variants(raw_label, strings, consts, wording_sets,
+                                                   require_pair=True))
             if saving_expr:
                 click_span = named.get("onClick")
                 enabled_span = named.get("enabled")
@@ -1791,6 +1887,13 @@ def android_actions(text: str, masked: str, strings: dict, consts: dict,
             enc = enclosing_function(function_spans(masked), open_paren)
             if enc and expr in enc["params"]:
                 continue  # this BasicText renders a wrapper's parameter
+            variants = kotlin_label_variants(expr, strings, consts, wording_sets,
+                                             require_pair=True)
+            if variants:
+                for variant in variants:
+                    labels.append(variant)
+                    found.append((variant, m.start()))
+                continue
             unresolved.append(expr[:DYN_EXPR_MAX])
         elif value and value.strip():
             labels.append(value)
@@ -1873,11 +1976,11 @@ def android_actions(text: str, masked: str, strings: dict, consts: dict,
             found.append((label, m.start()))
     # -- standard Compose controls (the label is visible in the source) --------
     spans = function_spans(masked)
-    wrappers = set(wrappers or ()) | button_wrappers(masked, spans)
+    wrappers = set(wrappers or ()) | button_wrappers(masked, spans) | set(NAV_TEXT_ACTIONS)
 
     def record(value, dynamic, idiom: str, pos: int = 0) -> None:
         if dynamic:
-            variants = kotlin_label_variants(dynamic, strings, consts)
+            variants = kotlin_label_variants(dynamic, strings, consts, wording_sets)
             if variants:
                 for variant in variants:
                     labels.append(variant)
@@ -1901,6 +2004,8 @@ def android_actions(text: str, masked: str, strings: dict, consts: dict,
         if is_declaration(masked, m.start()):
             continue
         if callee not in MATERIAL_BUTTONS + CHIP_CONTROLS + ("DropdownMenuItem",) and callee not in wrappers:
+            continue
+        if callee in NAV_TEXT_ACTIONS and not in_trailing_slot(masked, m.start()):
             continue
         call = call_at(masked, m.start())
         if not call:
@@ -1949,7 +2054,8 @@ def android_actions(text: str, masked: str, strings: dict, consts: dict,
             record(value, dynamic, idiom, m.start())
             continue
         span = None
-        for key in (("label", "description", "text", "title") if callee in wrappers
+        for key in (("text",) if callee in NAV_TEXT_ACTIONS
+                    else ("label", "description", "text", "title") if callee in wrappers
                     else ("text", "label", "title")):
             if key in call["named"]:
                 span = call["named"][key]
@@ -2213,6 +2319,10 @@ class Report:
         self.android_only = []      # (page_id, kind, name, meta)
         self.dead_actions = []      # (page_id, action)
         self.subpages = []          # (page_id, subpage entries)
+        # (page_id, "section"|"action", expression): Android labels made only of host
+        # data (`is_data_label`). Not compared, exactly like the contract's unlabelled
+        # (data-labelled) actions and expression-titled sections; printed, never hidden.
+        self.data_labels = []
         self.dead_decls = []        # (page_id, unreachable member)
         # (page_id, kind, label, guard, contract condition, divergent): a section
         # title or action label that only renders behind a nullable-callback guard.
@@ -2405,7 +2515,7 @@ def compare(root: Path, contract: dict, report: Report, strings: dict, shared_co
                # same 24 wordings (36 labelled actions collapse to 24 by wording).
                "actions": {"contract": 0, "labelled": 0, "keys": 0, "unlabelled": 0,
                            "dynamic": 0, "dead": 0, "androidOnly": 0, "android": 0,
-                           "android_keys": 0, "conditional": 0},
+                           "android_keys": 0, "conditional": 0, "androidData": 0},
                "title": {"contract": None, "android": None, "status": "none",
                          "dynamic": False},
                "findings": 0}
@@ -2480,9 +2590,11 @@ def compare(root: Path, contract: dict, report: Report, strings: dict, shared_co
     fold_labels = frozenset(normalize(value) for a in labelled for value in action_wording(a))
     android_titles, unresolved_titles = android_sections(text, masked, strings, consts,
                                                         positions=section_positions)
+    wording_sets = [frozenset(normalize(value) for value in action_wording(a))
+                    for a in labelled if len(action_wording(a)) > 1]
     android_labels, unresolved_labels, action_occurrences = android_actions(
         text, masked, strings, consts, wrappers=wrappers, positions=action_positions,
-        fold_labels=fold_labels)
+        fold_labels=fold_labels, wording_sets=wording_sets)
     verified_model = verified_settings_index_model(text, masked, strings, consts)
     if verified_model is not None:
         model_titles, model_section_positions, model_labels, model_action_positions = verified_model
@@ -2633,6 +2745,9 @@ def compare(root: Path, contract: dict, report: Report, strings: dict, shared_co
                     detail += f" (rendered only behind `{guard}`)"
                 report.add(page_id, "extra-section", title, detail)
         for expr in sorted(set(unresolved_titles)):
+            if is_data_label(expr):
+                report.data_labels.append((page_id, "section", expr))
+                continue
             report.add(page_id, "unresolved-section", expr,
                        "section title is an expression, so it cannot be compared to the contract")
     elif section_model == "single-region":
@@ -2761,6 +2876,10 @@ def compare(root: Path, contract: dict, report: Report, strings: dict, shared_co
                 detail += f" (rendered only behind `{guard}`)"
             report.add(page_id, "extra-action", label, detail)
     for expr in sorted(set(unresolved_labels)):
+        if is_data_label(expr):
+            report.data_labels.append((page_id, "action", expr))
+            summary["actions"]["androidData"] += 1
+            continue
         report.add(page_id, "unresolved-action", expr,
                    "action label is an expression, so it cannot be compared to the contract")
 
@@ -2900,7 +3019,9 @@ def run(root: Path, strict: bool, baseline_path: Path | None, write_baseline: Pa
               f"android {actions['android']} labels "
               f"({actions['android_keys']} keys: "
               f"{actions['android_keys'] - conditional} unconditional, "
-              f"{conditional} conditional)   "
+              f"{conditional} conditional"
+              + (f", {actions['androidData']} data-labelled" if actions.get("androidData") else "")
+              + ")   "
               f"divergences {len([f for f in findings if f[1].endswith('action')])}")
         title = summary.get("title") or {}
         if title.get("contract") is None:
@@ -2954,6 +3075,11 @@ def run(root: Path, strict: bool, baseline_path: Path | None, write_baseline: Pa
             print(f"      baselineLacks: {meta['reason']['baselineLacks']}")
             print(f"      androidNeeds : {meta['reason']['androidNeeds']}")
             print(f"      withoutIt    : {meta['reason']['withoutIt']}")
+    if report.data_labels:
+        print("\ndata-labelled Android items (host data only, no static wording; not "
+              "compared, like the contract's unlabelled actions and expression titles):")
+        for page_id, kind, expr in sorted(set(report.data_labels)):
+            print(f"  {page_id} {kind} {expr!r}")
     if report.suppressed:
         print("\nsuppressed sections (the baseline's header is not a rendered title):")
         for page_id, section in report.suppressed:

@@ -490,7 +490,62 @@ class VerifiedFontSizeRoleModelTests(unittest.TestCase):
         self.assertIsNone(self._read(source))
 
 
+class DataLabelTests(unittest.TestCase):
+    def test_host_data_only_expressions_are_data(self):
+        for expr in ("row.name", "field.title", "mode.name", "state.note",
+                     'if (draft.isEmpty()) field.title else "$draft"', '"${a.b}"'):
+            self.assertTrue(check.is_data_label(expr), expr)
+
+    def test_any_static_wording_keeps_an_expression_unresolved(self):
+        for expr in ('if (x) field.title else "全部"', "UiStrings.TITLE", "TITLE_LABEL",
+                     'native("工作步骤", "Steps")', "UiStrings.NAMED.format(row.name)",
+                     '"共 ${count} 项"', "x" * check.DYN_EXPR_MAX):
+            self.assertFalse(check.is_data_label(expr), expr)
+
+
+class PairedLabelVariantTests(unittest.TestCase):
+    STRINGS = {"FETCH": "获取模型", "FETCHING": "正在获取模型…", "SAVE": "保存", "CANCEL": "取消"}
+
+    def test_static_pair_needs_one_contract_control_owning_both_wordings(self):
+        expr = "if (fetching) UiStrings.FETCHING else UiStrings.FETCH"
+        self.assertEqual([], check.kotlin_label_variants(expr, self.STRINGS, {}))
+        owned = [frozenset({"获取模型", "正在获取模型…"})]
+        self.assertEqual(["正在获取模型…", "获取模型"],
+                         check.kotlin_label_variants(expr, self.STRINGS, {}, owned))
+        # Two separate contract controls do not license one Android control to be both.
+        split = [frozenset({"保存"}), frozenset({"取消"})]
+        self.assertEqual([], check.kotlin_label_variants(
+            "if (x) UiStrings.SAVE else UiStrings.CANCEL", self.STRINGS, {}, split))
+
+    def test_null_callback_branch_is_the_disabled_explanation(self):
+        consts = {"LABEL": "重新检查文件", "UNAVAILABLE": "宿主暂不支持重新检查"}
+        self.assertEqual(["重新检查文件"], check.kotlin_label_variants(
+            "if (onRefresh == null) UNAVAILABLE else LABEL", {}, consts))
+        self.assertEqual(["重新检查文件"], check.kotlin_label_variants(
+            "if (onRefresh != null) LABEL else UNAVAILABLE", {}, consts))
+
+    def test_session_text_action_pair_resolves_only_when_owned(self):
+        source = "SessionTextAction(label = if (fetching) UiStrings.FETCHING else UiStrings.FETCH, onClick = {})"
+        labels, unresolved, _ = check.android_actions(
+            source, check.mask_kotlin(source), self.STRINGS, {},
+            wording_sets=[frozenset({"获取模型", "正在获取模型…"})])
+        self.assertEqual(["正在获取模型…", "获取模型"], labels)
+        self.assertEqual([], unresolved)
+        labels, unresolved, _ = check.android_actions(
+            source, check.mask_kotlin(source), self.STRINGS, {})
+        self.assertEqual([], labels)
+        self.assertEqual(1, len(unresolved))
+
+
 class LocalizedLabelResolutionTests(unittest.TestCase):
+    def test_trailing_comma_does_not_change_the_arity(self):
+        value, dynamic = check.resolve_kotlin_expr(
+            "UiStrings.settingsNativeText(\n    state.languageId,\n    UiStrings.NOTE,\n"
+            "    UiStrings.NOTE_EN,\n)",
+            {"NOTE": "只影响之后新开的会话，当前会话保持不变。", "NOTE_EN": "Only new sessions"},
+        )
+        self.assertEqual(("只影响之后新开的会话，当前会话保持不变。", False), (value, dynamic))
+
     def test_known_translation_keeps_chinese_contract_label(self):
         value, dynamic = check.resolve_kotlin_expr(
             'UiStrings.settingsNativeText(state.language, UiStrings.ROW, "English, label")',
@@ -767,13 +822,79 @@ class PageStructureCheckTests(unittest.TestCase):
         self.assertIn("missing-action", out)
         self.assertIn("'运行'", out)
 
-    def test_material_button_with_variable_label_is_unresolved(self) -> None:
+    def test_material_button_with_a_data_label_is_not_compared_but_the_contract_label_is_missing(self) -> None:
+        """A label made only of host data is data-labelled, like the contract's twin.
+
+        It is not `unresolved` any more (the baseline's `Button { Text(name) }` is an
+        unlabelled action that is never compared), but it cannot satisfy a literal
+        contract label either: the contract's `运行` is still reported missing.
+        """
         self._actions("运行")
         self._compose_page("    Button(onClick = {}) {\n        Text(text = state.label)\n    }")
         rc, out = run_check(self.fx.root)
         self.assertEqual(rc, 1, out)
-        self.assertIn("unresolved-action", out)
+        self.assertNotIn("unresolved-action", out)
+        self.assertIn("missing-action", out)
+        self.assertIn("'运行'", out)
+        self.assertIn("data-labelled Android items", out)
         self.assertIn("state.label", out)
+
+    def test_a_label_expression_with_static_wording_stays_unresolved(self) -> None:
+        self._actions("运行")
+        self._compose_page('    Button(onClick = {}) {\n'
+                           '        Text(text = if (busy) state.label else "运行中")\n    }')
+        rc, out = run_check(self.fx.root)
+        self.assertEqual(rc, 1, out)
+        self.assertIn("unresolved-action", out)
+
+    def test_a_data_labelled_section_title_is_not_a_divergence(self) -> None:
+        text = self.fx.android().replace(
+            "    SessionSectionLabel(text = UiStrings.BETA)\n",
+            "    SessionSectionLabel(text = UiStrings.BETA)\n"
+            "    SessionSectionLabel(text = group.title)\n")
+        self.fx.write_android(text)
+        rc, out = run_check(self.fx.root)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("data-labelled Android items", out)
+        self.assertIn("group.title", out)
+
+    def test_progress_pair_resolves_only_against_one_contract_control(self) -> None:
+        """`if (testing) UiStrings.A else UiStrings.B` is one control with two wordings."""
+        data = contract()
+        data["actions"][0]["label"] = "Go"
+        data["actions"][0]["labelAlternatives"] = ["Going…"]
+        self.fx.write_contract(data)
+        self.fx._write(UISTRINGS_REL, UISTRINGS.replace(
+            'public const val GO: String = "Go"',
+            'public const val GO: String = "Go"\n    public const val GOING: String = "Going…"'))
+        self.fx.write_android(ANDROID.replace(
+            "UiStrings.GO", "if (busy) UiStrings.GOING else UiStrings.GO"))
+        rc, out = run_check(self.fx.root)
+        self.assertEqual(rc, 0, out)
+        # Without the contract owning both wordings the same expression is unresolved.
+        data["actions"][0]["labelAlternatives"] = []
+        self.fx.write_contract(data)
+        rc, out = run_check(self.fx.root)
+        self.assertEqual(rc, 1, out)
+        self.assertIn("unresolved-action", out)
+
+    def test_trailing_nav_text_action_counts_and_leading_does_not(self) -> None:
+        self._actions("保存")
+        self._compose_page(
+            "    SettingsSubPageFrame(\n"
+            '        leading = { SettingsNavAction(text = "刷新", onClick = {}) },\n'
+            '        trailing = if (editing) { { SettingsNavAction(text = "保存", onClick = {}, '
+            'description = "Save") } } else null,\n'
+            "    ) {}")
+        rc, out = run_check(self.fx.root)
+        self.assertEqual(rc, 0, out)
+        self._compose_page(
+            "    SettingsSubPageFrame(\n"
+            '        leading = { SettingsNavAction(text = "保存", onClick = {}) },\n'
+            "    ) {}")
+        rc, out = run_check(self.fx.root)
+        self.assertEqual(rc, 1, out)
+        self.assertIn("missing-action", out)
 
     def test_button_takes_only_the_first_text(self) -> None:
         self._actions("标题")
