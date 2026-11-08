@@ -87,6 +87,259 @@ The separately negotiated [task profile](task-delegation.md) additionally define
 
 取消当前 Link 工具会断开链路、停止客户端等待。已提交操作可能仍运行，恢复后只能查询；客户端错误必须保留 request_id。固件不会自动擦除 NVS 修复错误，否则会丢失幂等记录与绑定。
 
+### iOS standard GATT authorization ordering
+
+Status: frozen local amendment, implementation pending. This is not a device
+identity, authenticated session, change to ATT/Link encoding, or permission to
+call the target device-task profile. Android standard GATT remains target.
+
+The iOS standard-data read and Immediate Alert permissions are separate,
+per-device local declarations. A declaration with a nil field leaves that
+field unchanged; later synchronous reentrant declarations of the same field
+win. A declaration for a different field or device must not be lost merely
+because it is nested in an Observation callback. A declaration covering both
+fields records both intentions before any observable notification; a later
+declaration may replace only the field it names. An invalidated connection
+owner revokes both permissions, taking precedence over older declarations.
+Revocation immediately prevents admission before any observer can reenter.
+An enabling declaration does not grant admission until its still-current
+observable commit completes. A stale publication must never restore a revoked
+permission or overwrite an unrelated later device change.
+
+Each accepted connection attempt begins a new local owner and clears both
+earlier permissions before notifying observers or sending the connect command.
+A disconnected caller can still set a declaration as before, but it cannot
+operate GATT while disconnected and it does not survive an accepted connect.
+A declaration made during the new `connecting` owner is an explicit new
+declaration; it grants no operation until the local owner is connected, any
+required prior disconnect boundary has completed, services have been
+rediscovered, and the characteristic belongs to that current owner. A
+`CBPeripheral.state` value by itself is not sufficient admission evidence.
+These local labels do not prove peer identity, link encryption, or radio
+liveness. No authorization is inherited from discovery, the device name,
+an old owner, a prior task identity or a characteristic's presence.
+
+For compatibility, a `grant` call when a standard read is pending for the
+same device ends that captured read and requests disconnection even if both
+arguments are nil, a value is unchanged, or only alert was specified. Before
+any observable notification, the old owner becomes closing, both permissions
+become unavailable, and that specific read continuation and timer are
+detached. If this grant wins the pending operation's outcome claim, complete
+it once with the existing permission-changed failure; if another terminal
+event already won, preserve that earlier outcome. Do not finish a later read, cancel a later timer, or disconnect a
+new owner by re-looking-up a UUID. If no matching read was pending at entry,
+this call must not cancel one installed by a later reentrant operation.
+
+When a submitted read instead times out or the caller cancels it before an
+eligible completion callback, detach that exact continuation and, if this
+event wins its outcome claim, fail it once with the existing timeout or
+cancellation result. Preserve any earlier winning outcome. Revoke the old owner's
+grants and enter the same closing quarantine before an observer can install
+a new read. If the manager is powered on, request disconnection of that old
+connection; otherwise do not issue CoreBluetooth commands. A read cancelled
+before submission reservation may end locally without a disconnect. An eligible
+completion callback for the sole submitted read on a never-subscribed
+characteristic may finish that read with its actual value or error; this rule
+does not assert that the OS supplies a request token or that undocumented
+duplicate radio callbacks can be distinguished from a later read.
+
+Caller cancellation can arrive off the main actor. Cancellation, eligible
+value/error completion, timeout, grant, disconnect and manager unavailability
+must compete for the same single thread-safe local outcome claim for the
+captured operation. The first valid claim decides the continuation's result;
+later events cannot replace it or resume it twice. An operation whose outcome
+is claimed but whose continuation or owner has not yet been cleaned up remains
+an old resource: a later grant still performs the applicable revocation and
+closing, without changing the claimed result. Create the claim before any
+possible submission. Reserve submission under the same short bookkeeping
+before the physical call: cancellation that wins before reservation prevents
+submission; if reservation wins first, cancellation treats the operation as
+possibly submitted and requires closing even if the eventual physical call is
+suppressed. No claim lock is held across an Observation notification,
+CoreBluetooth call, continuation resume or await. This determines local
+cancellation order, not the physical origin of an OS callback.
+
+Closing denies new standard reads, alerts, Link calls, discovery operations
+and connection attempts for that peripheral. A positive grant while closing
+or quarantined is refused and leaves both effective permissions unavailable;
+the interface reports that the connection is unavailable. Revocations remain
+permitted. Cancellation of a submitted
+CoreBluetooth command is not a completed disconnect. For a locally exclusive,
+previously connected attempt with system auto-reconnect disabled, a candidate
+may leave closing only after the applicable `didDisconnectPeripheral`
+delegate callback has completely returned; subsequent attempts rediscover
+services and characteristics. User requests during that callback do not pass
+the boundary early. If the application cannot establish this boundary,
+including a cancelled pending connection, unexpected callback, radio reset or
+manager replacement, it stays unavailable rather than using a timeout or
+`CBPeripheral.state` as proof. A connect cancelled before being submitted to
+CoreBluetooth can terminate locally, because it has no submitted operation.
+The interface must tell the user when the peripheral remains unavailable and
+that a new connection requires new authorization. It must not claim an
+operation has been undone; an already submitted alert remains
+`submitted_unconfirmed` and is not automatically retried.
+The Bluetooth page keeps that device visible, displays `正在等待系统断开，暂不可重连`
+while closing and `连接状态无法确认，暂不可用` while quarantined, and does not
+offer connect, read, alert or Link actions for that owner. A successfully
+started new connection explains that authorization must be given again. These
+are local UI statements, not a claim that a physical connection has ended.
+
+When the central becomes unavailable, revoke local admission and detach the
+affected pending read before publishing status. If unavailability wins its
+outcome claim, finish it once with the existing Bluetooth-unavailable failure;
+otherwise preserve the already claimed outcome. Do not issue CoreBluetooth
+commands while the manager is not powered on. When the manager state makes
+previously obtained peripheral objects invalid, discard them and require new
+discovery. A later powered-on state or rediscovery alone is not proof that
+old callbacks have drained. A positive declaration during closing or
+quarantine is refused; revocation is always accepted and cannot make a
+closing connection usable.
+
+The value callback is used for both reads and notifications and has no app
+request token. A standard read cannot rely on a callback as its result if the
+application has subscribed to notifications for that characteristic during
+the current owner or cannot establish that no such subscription occurred;
+disabling notifications alone is not evidence that queued updates drained.
+Application-level operation tokens protect locally captured timers,
+continuations and side effects, but do not label arbitrary OS callbacks.
+Unknown or unassignable events fail closed; no app epoch is evidence of the
+radio source. Before the standard-read decision, events for a supported Link
+characteristic discovered for the current connected local owner are routed
+to that owner's real, still-active Link channel and do not finish a standard
+read merely because one is pending. A late Link event while closing,
+quarantined or manager-unavailable does not invoke the old channel's event
+handler or recreate resources. A truly unassigned event is not made valid by a UUID match.
+System auto-reconnect must remain disabled for the proposed
+disconnect boundary. The Apple documentation cited in
+`PC-20261107-standard-gatt-quarantine-ccr.md` is the basis for that boundary;
+physical OS and peripheral behavior still requires independent verification.
+
+Shared `golden/standard-gatt-grant-order.jsonl` cases define the local
+success and failure interleavings, including same-field and cross-field
+reentry, admission during revoke, old pending ownership and the disconnect
+boundary. Tests drive the actual store and its actual authorization and
+continuation transitions with controlled callbacks; injected labels are not
+evidence that CoreBluetooth supplies a radio request token. An OS/device test
+requires an actual controlled peripheral implementing the relevant standard
+services. The Link-only reference ESP32 is not that evidence.
+
+For those cases, A and B are distinct locally simulated peripherals with
+independent initial connected owners unless a case explicitly specifies a
+different starting phase; unspecified grants begin false. The internal test
+adapter may replace physical peripheral/characteristic identity, state,
+received bytes and CoreBluetooth submissions, and feeds the same production
+callback transitions and real Link channel byte-level receive path. It cannot
+directly set grants or claim that an OS callback carries an app request token.
+Grants, admission, local owner and
+pending-continuation state all run through the real store. Initial true grants
+are established by real `grant` calls before tracking begins, and a real
+controlled `read` installs any initial pending operation. Each nested action
+is executed synchronously once from a real `withObservationTracking`
+callback. Counts exclude setup submissions; observations must be bounded.
+The fixture's booleans are the final displayed grants, `phase` is A's local
+phase, `pending` records the old/new continuation outcome, and submission
+counts count only actions after setup. `b_phase` is B's local phase;
+`unavailable_visible` checks the store's user-visible unavailable state for A;
+separate real Bluetooth-page tests must verify that state renders its message,
+does not offer blocked actions, and clears or transitions correctly after the
+applicable boundary. A package-level store test alone is not UI evidence.
+`discovery_submissions` counts service or characteristic discovery,
+`link_submissions` counts outgoing Link operations; `link_deliveries` counts
+an actual decoded TX event delivered through the real Link channel, not a
+call to a fake channel. The existing audio characteristic is not asserted to
+deliver an event. `other_closing_commands` counts
+GATT/notification commands other than the
+separately counted disconnect request attempted after A enters closing or quarantine. In those cases the test actively
+attempts read, alert, Link, discovery and another GATT/notification submission;
+none may reach the adapter. `pending_error`, `pending_value`, and
+`old_read_timer` describe the captured old read, not an invented OS request
+token. `absent-or-cancelled` accepts either no timer ever created or an
+existing timer actually cancelled; it never accepts an active old timer.
+Compare the existing error category and actual timer ownership rather than
+only a generic failed state. For `pending_value=expected`, the controlled
+adapter supplies the Battery Level byte 37. Exercise the production decoder
+and public returned string, require its exact `37 % @ ` prefix, parse its
+ISO-8601 timestamp and check it against the test's bounded start/end interval
+with one second of rounding tolerance. Do not replace the production decoder
+or formatter with a prebuilt result string.
+`other_unavailable_commands` counts other CoreBluetooth commands attempted
+while the manager is unavailable. `closing` means a sent or immediately
+pending disconnect is awaiting an applicable boundary; `quarantined` means
+the required boundary cannot presently be established and no retry is
+submitted. `inner_admission=denied` means the
+operation attempted at the specified checkpoint does not reach the physical
+adapter. For `pending-nil`, `pending-same`, and `pending-alert`, also assert
+the original continuation is resumed once with permission-changed failure and
+its timer is cancelled. For `radio-off`, the original continuation fails once
+with the existing Bluetooth-unavailable failure and no CoreBluetooth command
+is sent while unavailable.
+
+| Scenario | Required actions and checkpoints |
+| --- | --- |
+| `read-grant-revoke`, `read-revoke-grant` | Start A read false/true respectively. Outer sets it true/false; notification sets it false/true. |
+| `alert-grant-revoke`, `alert-revoke-grant` | The corresponding two interleavings for A alert. |
+| `cross-fields` | Outer enables A read; notification enables A alert. |
+| `both-read-revoke`, `both-alert-revoke` | Outer enables both A grants; notification revokes only the named field. |
+| `cross-device-grant` | Outer enables A read; notification enables B read. |
+| `cross-device-revoke` | Initially B read is true; outer enables A read and notification revokes B read. |
+| `alert-revoke-admission` | Initially A alert is true. Outer revokes it; notification invokes the public alert operation, which must be denied with zero adapter writes. |
+| `alert-grant-admission` | Outer enables A alert. Notification's public alert is denied; after the enable commits, one explicit alert reaches the adapter once. |
+| `other-write-revoke` | Initially A read is true. An unrelated real device-field update notifies; its observer revokes A read. The outer update must not restore read. |
+| `clear-during-grant` | Outer enables A read; notification invokes the real disconnect operation. It submits one cancellation request, old grants cannot be restored and A is closing. |
+| `retry-after-barrier` | A previously connected owner is closing. Inside its actual disconnect callback request reconnect and assert no connect submission. After that callback returns and the local owner reaches idle, issue a new explicit connect; it is submitted once under a new owner with both grants false. |
+| `cancel-pending-connect` | Setup has already submitted A's first connect and A is connecting. After counters reset, cancel it. A later ambiguous connect callback must not authorize or start discovery and causes a second cancellation request; a further connect is denied while the attempt remains quarantined. |
+| `radio-off`, `radio-reset` | A and B both have both grants; A has one pending read. Simulate the named manager unavailability, attempt scan/stop, discovery, Link and standard operations while unavailable, then power on without a confirmed boundary. Both devices are quarantined and grants revoked, the old read fails once, no unavailable command is sent, and a new attempt is denied. A reset invalidates both old peripheral objects. |
+| `pending-nil`, `pending-same`, `pending-alert` | A has both grants and one pending read. Call `grant` with nil/nil, read=true, or alert=false respectively. The captured read fails once and the owner closes. |
+| `stale-timer-new-owner` | In setup, fail the old pending read, process an applicable disconnect boundary, explicitly reconnect and authorize A read, then start a new pending read. Assert each step and the old continuation's single failure, then reset submission counters. Deliver the old application's captured timer/cancel callback: the new read remains pending and its owner is not disconnected. This token is app-local, not an OS callback field. |
+| `notification-ambiguous` | A read grant is true but the characteristic was subscribed during this owner; the read is denied before physical submission. |
+| `timeout-no-barrier` | A closing owner receives only a local timeout and no applicable disconnect boundary. A new connect remains denied. |
+| `idle-grant-connect-clear` | A is idle with both grants explicitly set. Accept a new connect; before any physical connect submission, both old grants are false. The new owner is connecting and submits one connect. |
+| `connecting-grant` | A is connecting. An explicit new read grant is recorded for that owner, but a read attempted before connection and rediscovery is denied without physical submission. |
+| `cancel-before-connect-submit` | A connect starts from idle; a synchronous observer requests disconnect before the physical connect is submitted. End that unsent attempt locally without a connect or disconnect submission. |
+| `read-revoke-admission` | Initially A read is true. The outer call revokes it; the notification exercises the synchronous admission boundary used by the real async read and is denied before any adapter read. |
+| `new-pending-during-grant` | A read is true and no read is pending at entry. The outer call enables alert; its notification installs a new actual read continuation through the same production pending transition and submits one fake read. The earlier grant must not cancel that later read or disconnect its owner. |
+| `grant-during-closing` | A is closing. A new positive grant is refused, both grants stay false and the unavailable state is displayed. |
+| `connect-cancel-didfail` | A submitted connect is cancelled, then a failed-connect callback arrives without a proven boundary for the old attempt. A remains quarantined and a new connect is denied. |
+| `notification-unknown` | A read grant is true, but the store cannot establish that the characteristic was never subscribed during this owner. Read admission is denied without adapter submission. |
+| `pending-timeout`, `pending-cancel` | A has both grants and one submitted pending read. Trigger its real local timeout or caller cancellation. The captured continuation fails once with the existing timeout or cancellation error, both grants are revoked, one old disconnect is requested and A closes. A new read and connect before a boundary are denied. |
+| `unexpected-central` | A new owner is connected with both grants. Deliver an extra `didConnect` for that same connected peripheral without inventing an OS token. The store fails closed, revokes grants, requests a disconnect and reports unavailable. Then actually attempt both connect and read; neither reaches the adapter. An event indistinguishable from a valid event is not thereby classified as old. |
+| `unknown-characteristic` | A has both grants and one submitted pending read. Deliver a value callback for a different, unassignable characteristic without inventing an OS token. The pending read fails once, both grants are revoked, one disconnect is requested and A is unavailable. Then actually attempt both connect and read; neither reaches the adapter. |
+| `new-connect-discovery` | A's prior confirmed disconnect boundary is complete and a new attempt is connecting. Deliver the new attempt's applicable connection event; the real transition submits one service discovery, remains unauthorized, and marks the local owner connected. |
+| `link-event-while-read` | A has an authorized standard read pending and an active Link channel. Deliver a valid current-owner Link TX event through the real shared dispatch and channel reassembler; the real channel delivers that event once, the standard read and its timer remain pending, and the connection is not cancelled. A truly unknown characteristic still follows `unknown-characteristic`. |
+| `link-event-while-closing` | In setup, A has an active Link channel and a pending standard read, then a grant ends that read and begins closing. Assert its single permission-changed failure, then reset submission counters. Deliver a late Link TX event before the disconnect callback returns: no Link event is delivered, no grant or read is restored, and no new command is sent. |
+| `duplicate-closing-grant` | A is closing. Refuse a positive grant, then install a fresh observer and repeat the same request. It remains unavailable, sends no command and does not recursively notify for a no-effect repeat. |
+| `cancel-before-value`, `value-before-cancel` | A has one submitted read. Arrange the local cancellation claim before an otherwise eligible controlled value callback, or the value completion claim before cancellation, respectively. The former fails once and closes; the latter completes once with the expected value and later cancellation cannot replace it. Neither order assigns an app token to an OS event. |
+| `cancel-before-grant`, `grant-before-cancel` | A has one submitted read. Arrange the named first local outcome claim, then the other event before cleanup completes. The winner's existing error is retained, the read resumes once and the old owner closes once. |
+| `cancel-before-radio-off` | A has one submitted read. A background caller claims cancellation; before main-actor cleanup runs, the manager becomes unavailable. Retain cancellation as the outcome, revoke both devices as for radio-off, and issue no unavailable CoreBluetooth command. |
+| `value-before-timeout` | A's eligible value completion wins; before a new read is started, deliver the old local timeout callback. The value remains the outcome, the old timer is cancelled and the old timeout does not close the owner. |
+| `cancel-before-read-reserve`, `cancel-after-read-reserve` | Cancel from a background caller at a controlled point before, or after, the local submission reservation but before the fake adapter submits. Before reservation, no read or disconnect is submitted and the current owner remains usable. After reservation, the read may have been submitted: the test suppresses the not-yet-issued fake call, but the owner still closes and requests disconnect. Both cases return cancellation once. |
+
+For `retry-after-barrier`, record a checkpoint inside the disconnect callback
+before it returns and a second checkpoint after it returns; neither a queued
+callback nor a fake that accepts an app token substitutes for the real store
+transition. For `stale-timer-new-owner`, inspect both old and new continuations
+and timers: the old one finishes once, while the new one remains unresolved
+until the test explicitly cleans it up. The fixture does not claim that a
+CoreBluetooth value callback identifies which physical read produced it.
+Because a synchronous Observation callback cannot await `read`, an
+inside-notification read-admission case must exercise the same synchronous
+admission boundary called by the real `read`; scheduling an async task only
+after the callback returns is not evidence for that checkpoint. The public
+`alert` method is synchronous and is exercised directly in its cases.
+`new-pending-during-grant` exercises the same synchronous pending/admission
+transition called by the real public async read with a pre-captured real
+continuation. Separate allowed and denied public async `read` tests must
+verify that wiring; directly mutating a test pending field is insufficient.
+For `cancel-before-value` and `cancel-before-radio-off`, while the main actor remains in a controlled
+synchronous test callback, cancel the real read task from a background thread
+and wait only for that cancellation call to return, with a bounded timeout.
+Deliver the eligible value or manager-unavailable event respectively before
+allowing any queued main-actor cleanup to run; this proves the cancellation
+claim is not merely a later actor task.
+In the reservation cases, use a controlled test barrier immediately before
+or after the real production submission reservation, cancel from another
+thread, then resume the actor; no synthetic OS request token is introduced.
+
 ## Home HTTP Profile
 
 `home.http` 的 args：method、url，及可选 headers、body、timeout_ms。手机与设备使用同一份从 xiaozhi-link 固定的 `xl_home_policy.c`，来源 / 哈希见 vendor/UPSTREAM.json。首版在旧策略之上进一步只允许私网 IPv4 字面量，不支持 DNS、.local、TLS、IPv6 或重定向。

@@ -9,6 +9,7 @@ specification tree, so the real tree is never modified.
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import json
 import shutil
 import subprocess
@@ -679,6 +680,95 @@ class DeviceTaskPlaintextAdmissionFixtureTests(unittest.TestCase):
                     {**rows[0], "app_caps": -1}, {**rows[0], "extra": True}):
             with self.assertRaises(spec_golden.SpecError):
                 spec_golden.validate_json(bad, schema, "mutation")
+
+
+class StandardGattGrantOrderingFixtureTests(unittest.TestCase):
+    def test_scenarios_and_schema(self):
+        device = SPEC_DIR.parent / "device" / "v1"
+        schema = json.loads((device / "schema" / "standard-gatt-grant-order.schema.json").read_text())
+        rows = [json.loads(line) for line in (device / "golden" / "standard-gatt-grant-order.jsonl").read_text().splitlines()]
+        self.assertEqual(len(rows), 47)
+        self.assertEqual(len(rows), len({row["scenario"] for row in rows}))
+        for row in rows:
+            spec_golden.validate_json(row, schema, row["scenario"])
+        # Lock the complete reviewed fixture revision. This detects changes to
+        # every field but does not replace the real store's runtime tests.
+        def fixture_digest(values):
+            data = "\n".join(json.dumps(row, sort_keys=True, separators=(",", ":")) for row in values)
+            return hashlib.sha256(data.encode()).hexdigest()
+        frozen = "f24755201a5ce6375e7b7baf2f2cf0146c24b3ba452c3fdd568b679ef888f40e"
+        self.assertEqual(fixture_digest(rows), frozen)
+        by = {row["scenario"]: row for row in rows}
+        self.assertEqual(set(by), set(schema["properties"]["scenario"]["enum"]))
+        for name in ("read-grant-revoke", "alert-grant-revoke", "other-write-revoke", "clear-during-grant"):
+            self.assertFalse(by[name]["a_read"] or by[name]["a_alert"], name)
+        self.assertTrue(by["both-read-revoke"]["a_alert"])
+        self.assertFalse(by["both-read-revoke"]["a_read"])
+        self.assertTrue(by["both-alert-revoke"]["a_read"])
+        self.assertFalse(by["both-alert-revoke"]["a_alert"])
+        for name in ("pending-nil", "pending-same", "pending-alert"):
+            self.assertEqual((by[name]["phase"], by[name]["pending"], by[name]["disconnect_submissions"]),
+                             ("closing", "failed-once", 1), name)
+            self.assertFalse(by[name]["a_read"] or by[name]["a_alert"], name)
+        for name in ("pending-timeout", "pending-cancel"):
+            self.assertEqual((by[name]["phase"], by[name]["pending"], by[name]["disconnect_submissions"]),
+                             ("closing", "failed-once", 1), name)
+        self.assertEqual((by["pending-timeout"]["pending_error"], by["pending-cancel"]["pending_error"]),
+                         ("timeout", "cancelled"))
+        self.assertEqual((by["cancel-before-value"]["pending"], by["cancel-before-value"]["pending_error"]),
+                         ("failed-once", "cancelled"))
+        self.assertEqual((by["value-before-cancel"]["pending"], by["value-before-cancel"]["pending_value"]),
+                         ("completed-once", "expected"))
+        for name in ("radio-off", "radio-reset"):
+            self.assertEqual((by[name]["phase"], by[name]["b_phase"], by[name]["other_unavailable_commands"]),
+                             ("quarantined", "quarantined", 0), name)
+        self.assertEqual((by["retry-after-barrier"]["phase"], by["retry-after-barrier"]["connect_submissions"]),
+                         ("connecting", 1))
+        self.assertEqual((by["timeout-no-barrier"]["phase"], by["timeout-no-barrier"]["connect_submissions"]),
+                         ("quarantined", 0))
+        self.assertEqual(by["stale-timer-new-owner"]["pending"], "new-pending")
+        for name in ("alert-revoke-admission", "alert-grant-admission", "read-revoke-admission", "notification-ambiguous", "notification-unknown"):
+            self.assertEqual(by[name]["inner_admission"], "denied", name)
+            self.assertEqual(by[name]["read_submissions"], 0, name)
+        self.assertEqual(by["alert-grant-admission"]["alert_submissions"], 1)
+        self.assertTrue(by["read-revoke-grant"]["a_read"])
+        self.assertEqual(by["new-connect-discovery"]["discovery_submissions"], 1)
+        claim_expected = {
+            "cancel-before-read-reserve": (0, 0, "cancelled", "none", "absent-or-cancelled"),
+            "cancel-after-read-reserve": (0, 1, "cancelled", "none", "absent-or-cancelled"),
+            "cancel-before-value": (0, 1, "cancelled", "none", "cancelled"),
+            "value-before-cancel": (0, 0, "none", "expected", "cancelled"),
+            "cancel-before-grant": (0, 1, "cancelled", "none", "cancelled"),
+            "grant-before-cancel": (0, 1, "permission-changed", "none", "cancelled"),
+            "cancel-before-radio-off": (0, 0, "cancelled", "none", "cancelled"),
+            "value-before-timeout": (0, 0, "none", "expected", "cancelled"),
+        }
+        claim_fields = ("read_submissions", "disconnect_submissions", "pending_error", "pending_value", "old_read_timer")
+        def check_claim(row):
+            self.assertEqual(tuple(row[field] for field in claim_fields), claim_expected[row["scenario"]], row["scenario"])
+        for name in claim_expected:
+            check_claim(by[name])
+        self.assertEqual((by["link-event-while-read"]["link_deliveries"], by["link-event-while-read"]["pending"],
+                          by["link-event-while-read"]["old_read_timer"]), (1, "same-pending", "active"))
+        for bad in ({**by["cancel-before-read-reserve"], "read_submissions": 1},
+                    {**by["cancel-before-read-reserve"], "pending_error": "timeout"},
+                    {**by["grant-before-cancel"], "pending_error": "cancelled"}):
+            spec_golden.validate_json(bad, schema, "semantic mutation")
+            with self.assertRaises(AssertionError):
+                check_claim(bad)
+        for bad in ({**rows[0], "scenario": "invented"}, {**rows[0], "a_read": "yes"},
+                    {**rows[0], "pending": "authenticated"}, {**rows[0], "extra": True}):
+            with self.assertRaises(spec_golden.SpecError):
+                spec_golden.validate_json(bad, schema, "mutation")
+        for name, field, value in (("link-event-while-closing", "link_deliveries", 1),
+                                   ("cancel-before-read-reserve", "phase", "closing"),
+                                   ("cancel-before-read-reserve", "pending", "completed-once"),
+                                   ("pending-timeout", "other_closing_commands", 1)):
+            altered = [dict(row) for row in rows]
+            target = next(row for row in altered if row["scenario"] == name)
+            target[field] = value
+            spec_golden.validate_json(target, schema, "semantic mutation")
+            self.assertNotEqual(fixture_digest(altered), frozen)
 
 
 class LegacyTaskInspectionFixtureTests(unittest.TestCase):

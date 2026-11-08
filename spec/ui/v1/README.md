@@ -96,7 +96,7 @@ README ≤ 345 行（PR22 新增类型/几何表，cap 319→345，规则变更�
 | ChatPreferencesPage | 聊天外观、字号、过程折叠、转录密度 | **不可达（全仓无调用点；设置已改分组索引）** | push | later |
 | NativeSettingsDocumentPage | 配置文件的只读查看与分享 | **不可达（全仓无调用点）** | sheet | later |
 | SSHSettingsPage | SSH 主机设置；完整结构契约待补 | 设置 › 权限与隐私 › SSH 主机 | push；编辑器与指纹确认需单独核对 | must |
-| BluetoothDevicesPage | 蓝牙设备扫描与连接；完整结构契约待补 | 设置 › 权限与隐私 › 蓝牙设备 | push；设备任务入口默认关闭 | must |
+| BluetoothDevicesPage | 蓝牙设备扫描与连接；完整结构契约待补；iOS 断连等待及不可用状态见 [P07 本地授权条款](../../device/v1/ble-link.md#ios-standard-gatt-authorization-ordering) | 设置 › 权限与隐私 › 蓝牙设备 | push；设备任务入口默认关闭 | must |
 | AndroidADBSettingsPage | Android ADB 设置；完整结构契约待补 | 设置 › 权限与隐私 › Android ADB | push；测试连接含网络与密钥操作 | must |
 
 内嵌子页随父页实现、不单独排期：CommandExecutionResultPage、ModelProviderEditorPage、SessionQueuePage、PermissionDefaultsPage、LicensesPage、FontSizeSettingsPage、ConversationSettingsPage、ArchivedSessionsPage、ScheduleDetailPage、ScheduleHistoryPage、ScheduleEditorPage。`DevelopmentToolsPage` 已随 PR #13 删除，PR22 无此 struct；memory / probes / background / task-screen 因此仍不可达。
