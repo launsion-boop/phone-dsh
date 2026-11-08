@@ -7,7 +7,7 @@ status: frozen
 breaking: false
 version_decision: Preserve BLE wire, status texts, 15-second deadline and explicit restart; add a local scan intent so a superseded scan/stop/initialization frame cannot write after a newer one.
 base: a379f2ba (codex/fix-pr59)
-contract_revision: spec/device/v1/ble-link.md@scan-intent-v1 (freeze commit recorded in the implementation handoff below)
+contract_revision: spec/device/v1/ble-link.md@scan-intent-v1 (freeze commit aed8634b)
 ```
 
 Protocol impact: P07; P09; P18: none — no stored identity, grant or
@@ -120,3 +120,27 @@ Ownership for this task: one agent holds coordinator, implementer
 
 Not verified by any of the above: real CoreBluetooth scan/stop sequencing,
 permission prompt timing, physical power loss, device runtime.
+
+## Implementation handoff
+
+Freeze committed at `aed8634b` (spec, schema, cases, mutations, shape test).
+The implementation adds `scanIntent`/`pendingScan` and a per-intent
+`ScanDeadline` to `BLEDeviceStore.swift`, routes every `scanning` write
+through an intent-checked mutation, and adds the DEBUG-only
+`testCaptureScanDeadline` probe and `TestAdapter.managerConstructions` counter.
+The four diagnostics became `Tests/PhoneDSHBLETests/BLEScanIntentTests.swift`.
+
+Evidence (isolated scratch/TMPDIR/module cache under `/Volumes/dream/pdsh59-scratch-scan`):
+
+- The unmodified diagnostic file run against the fixed store: all 4 old-bug
+  assertions FAIL (expected — the defects no longer reproduce).
+- `swift test --filter 'BLEScanIntentTests|BLEStatusOrderingTests|StandardGatt|BLEDeviceMCPTests|BLEIdentityTests|PDSHLinkTests|LegacyIdentityObservationTests|StandardBLETests|BLETrustedIdentitiesTests'` → PASS, 94 tests.
+- Mutant check: dropping the in-mutation intent recheck in `publishScanning`
+  makes `BLEScanIntentTests` FAIL (3 tests, 7 failures); source restored.
+- Full `--filter PhoneDSHBLETests` → 97 tests, only the two pre-existing
+  `BLETaskCrossRuntimeTests` C-bridge cases FAIL ("C task bridge build failed",
+  missing pinned cJSON component).
+- `swift build -c release --target PhoneDSHBLE` → PASS.
+- `bash scripts/ci/check.sh --only phone-spec,phone-cross-tree` → PASS / PASS.
+
+NOT_RUN: real CoreBluetooth radio, device, simulator UI, power loss.
