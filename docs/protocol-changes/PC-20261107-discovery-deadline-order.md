@@ -115,3 +115,64 @@ phone-spec,phone-p0-conformance,phone-cross-tree` → phone-spec PASS,
 phone-p0-conformance FAIL on missing/stale page contracts, phone-cross-tree
 PASS. These checks do not exercise the deadline implementation. At this
 revision all new runtime scenarios, simulator and physical tests are NOT_RUN.
+
+## Implementation handoff
+
+The iOS store now couples each real scheduled connection deadline to a fresh
+object identity and validates it before processing an expiry. It claims and
+cancels the eligible deadline before entering close, and uses a separate
+manager-unavailable revision to prevent a nested off/on transition from
+reviving an older frame. The shared disconnect submission path also guards
+against a nested duplicate submission. These are local ordering decisions;
+they do not establish physical disconnection or authenticated device identity.
+
+An independent review requested two additional checks before runtime evidence
+could satisfy this record: compare B's actual authoritative read and alert
+declarations and real endpoints, and compare the entire returned Link object.
+The runtime test now includes both and a positive real Alert admission control.
+Four focused cases separately exercise an off/on transition in the read-claim
+window, an unavailable event after a physical bit change, a nested duplicate
+didConnect and an off/on transition immediately before disconnect submission.
+
+`TMPDIR=/Volumes/dream/pdsh59-isolated.oyliws/tmp PYTHONDONTWRITEBYTECODE=1
+bash scripts/ci/check.sh --only phone-spec,phone-p0-conformance,phone-cross-tree`
+on the implementation → phone-spec PASS; phone-p0-conformance FAIL (missing or
+stale page contracts); phone-cross-tree PASS. Full log:
+`/Volumes/dream/pdsh59-isolated.oyliws/deadline-final-gates.log`. The macOS
+arm64 `swift build -c release --target PhoneDSHBLE -j 2` with isolated scratch
+and caches → PASS; `xcrun nm -m` piped to `xcrun swift-demangle` found no
+inspected DEBUG adapter, timer, or disconnect-hook symbols in the release
+object. Build and symbol logs are `deadline-release.log` and
+`deadline-release-symbols.txt` in the same isolated directory. These checks
+are not a real-device, task-session, or P0 conformance result.
+
+The isolated `deadline_ui.py` runner built the actual Bluetooth devices page
+and ran its three UI regression cases on an iOS 18.4 simulator → PASS (3/3),
+then deleted its task-created simulator. The radio and callbacks in this UI
+harness are simulated. The build, test, and runner logs are under
+`/Volumes/dream/pdsh59-isolated.oyliws/`; no physical iPhone or ESP32 result is
+implied.
+
+After the independent-review test strengthening, the following command with
+all scratch, configuration and caches isolated under
+`/Volumes/dream/pdsh59-isolated.oyliws/` → PASS, 73 tests and 0 failures:
+
+```sh
+swift test --scratch-path /Volumes/dream/pdsh59-isolated.oyliws/scratch \
+  --cache-path /Volumes/dream/pdsh59-isolated.oyliws/cache \
+  --config-path /Volumes/dream/pdsh59-isolated.oyliws/config \
+  --security-path /Volumes/dream/pdsh59-isolated.oyliws/security \
+  --skip-update -j 2 \
+  --filter 'StandardGattDiscoveryDeadlineTests|BLEStatusOrderingTests|StandardGattDiscoveryOwnershipTests|StandardGattServiceChangeTests|StandardGattGrantOrderingTests|LegacyIdentityObservationTests|BLEIdentityTests|BLEDeviceMCPTests|PDSHLinkTests'
+```
+
+The full runtime log is `deadline-final-runtime.log` in that isolated
+directory. This final rerun also checks A's authoritative grants and every
+standard and Link endpoint after all-owner unavailability, plus real admission
+rejection with no additional physical command. An independent review examined
+the same source and test files before the run (SHA-256 `6ecb5940fcc8c9d63b21b481fbd8916f019a6d28a2b275c28c98710a155fc2cb`
+and `b2d4d65dc1fcfc32650ce9590c2d0227972b0df0420de2b6b2efd95d8c5f9c41`,
+respectively). The run includes all 19 shared deadline rows and 22 schema-valid
+semantic mutation rejections by the same actual-state comparator. The four
+known-bug scan diagnostics described in the separate CCR are excluded from
+this count. Device, power-loss, production TLS and task E2E remain NOT_RUN.

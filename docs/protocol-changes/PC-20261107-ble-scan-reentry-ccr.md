@@ -21,6 +21,19 @@ physical submission order. A stop during manager initialization can also be
 followed by the older invocation constructing a manager. These are
 source-derived cases, not physical OS or radio evidence.
 
+Four temporary diagnostic XCTest cases subsequently reproduced these paths in
+the real store with synchronous Observation and a substituted physical edge:
+status-observer stop leaves old scanning text and reinstalls its timer;
+scanning-observer stop is overwritten by the older `true` setter;
+scanning-observer restart is overwritten by the older `false` setter; and a
+stop during initial status publication still enters the fake manager
+constructor. The four tests intentionally assert the current defects; their
+passing result is diagnostic evidence, not a regression pass or physical
+CoreBluetooth evidence. Their combined log is
+`/Volumes/dream/pdsh59-isolated.oyliws/deadline-first-runtime.log`. The
+diagnostic source is excluded from the change until converted into regressions
+against a separately frozen contract.
+
 The owner must freeze start/stop/initialization intent ordering, timer ownership,
 pre- and post-Observation revalidation, power loss and status compatibility,
 and the effect of a new start during an older stop before implementation. A

@@ -57,7 +57,11 @@ import PhoneDSHAgentCore
     @ObservationIgnored private var peripherals: [UUID: CBPeripheral] = [:]
     @ObservationIgnored private var characteristics: [UUID: [StandardBLEProfile: AnyObject]] = [:]
     @ObservationIgnored private var ambiguousProfiles: [UUID: Set<StandardBLEProfile>] = [:]
-    @ObservationIgnored private var connectionTimers: [UUID: Task<Void, Never>] = [:]
+    private final class ConnectionDeadline {
+        var task: Task<Void, Never>?
+        func cancel() { task?.cancel(); task = nil }
+    }
+    @ObservationIgnored private var connectionTimers: [UUID: ConnectionDeadline] = [:]
     @ObservationIgnored private var scanTimer: Task<Void, Never>?
     @ObservationIgnored private var closingTimers: [UUID: Task<Void, Never>] = [:]
     private final class Owner {
@@ -77,10 +81,11 @@ import PhoneDSHAgentCore
         var standardSubscribed = Set<StandardBLEProfile>()
         var standardSubscriptionUnknown = Set<StandardBLEProfile>()
         var discovery: DiscoveryLedger?
-        let deadlineRevision = Revision()
+        var disconnectRevision = Revision()
     }
     private final class Revision {}
     @ObservationIgnored private var statusRevision = Revision()
+    @ObservationIgnored private var managerUnavailableRevision = Revision()
     private func reserveStatus() -> Revision {
         let revision = Revision(); statusRevision = revision; return revision
     }
@@ -169,6 +174,7 @@ import PhoneDSHAgentCore
         var managerState: CBManagerState = .poweredOn
         var commands: [TestCommand] = []
         var beforeConnect: ((UUID) -> Void)?
+        var beforeDisconnectSubmit: ((UUID) -> Void)?
         var beforeReadReserve: (() -> Void)?
         var afterReadReserve: (() -> Void)?
         var afterReadOutcomeClaim: (() -> Void)?
@@ -367,10 +373,12 @@ import PhoneDSHAgentCore
         guard owners[id] === current, current.phase == .connecting, poweredOn else { return }
         current.submitted = true
         submittedDevices.insert(id)
-        connectionTimers[id] = Task {
+        let deadline = ConnectionDeadline()
+        connectionTimers[id] = deadline
+        deadline.task = Task {
             try? await Task.sleep(for: .seconds(20))
             guard !Task.isCancelled else { return }
-            connectionTimedOut(id, current: current)
+            connectionTimedOut(id, current: current, deadline: deadline)
         }
         #if DEBUG
         if let testAdapter { testAdapter.commands.append(.connect(id)); return }
@@ -379,17 +387,26 @@ import PhoneDSHAgentCore
         peripheral.delegate = self
         central?.connect(peripheral, options: nil)
     }
-    private func connectionTimedOut(_ id: UUID, current: Owner) {
-        guard connectionTimers[id] != nil, owners[id] === current, current.phase == .connecting || current.phase == .connected else { return }
+    private func connectionTimedOut(_ id: UUID, current: Owner, deadline: ConnectionDeadline) {
+        guard owners[id] === current, connectionTimers[id] === deadline,
+              current.phase == .connecting || current.phase == .connected else { return }
         guard poweredOn else { observeManagerUnavailable(); return }
+        let unavailableRevision = managerUnavailableRevision
         let revision = reserveStatus()
+        connectionTimers.removeValue(forKey: id)?.cancel()
+        let peer = current.physicalIdentity
+        close(id, current: current, outcome: .disconnected, quarantine: current.phase == .connecting,
+              serviceChange: true)
+        // close applies all-owner unavailability itself at each reentrant edge.
+        guard poweredOn, managerUnavailableRevision === unavailableRevision,
+              owners[id] === current, current.physicalIdentity === peer,
+              current.phase == .closing || current.phase == .quarantined else { return }
+        let phase = current.phase
         publishStatus(revision, "连接或服务发现超时", eligible: {
-            self.poweredOn && self.connectionTimers[id] != nil && self.owners[id] === current &&
-            (current.phase == .connecting || current.phase == .connected)
+            self.poweredOn && self.managerUnavailableRevision === unavailableRevision &&
+            self.owners[id] === current && current.physicalIdentity === peer && current.phase == phase
         })
-        guard poweredOn else { observeManagerUnavailable(); return }
-        guard owners[id] === current, current.phase == .connecting || current.phase == .connected else { return }
-        disconnect(id)
+        if !poweredOn, managerUnavailableRevision === unavailableRevision { observeManagerUnavailable() }
     }
     public func disconnect(_ id: UUID) {
         guard let current = owners[id], current.phase != .idle else { return }
@@ -444,11 +461,36 @@ import PhoneDSHAgentCore
         }
     }
 
+    private func submitDisconnect(_ id: UUID, current: Owner, peripheral: CBPeripheral? = nil,
+                                  expectedSubmission: Revision? = nil) {
+        guard poweredOn, owners[id] === current,
+              expectedSubmission.map({ current.disconnectRevision === $0 }) ?? true else { return }
+        let unavailableRevision = managerUnavailableRevision
+        #if DEBUG
+        testAdapter?.beforeDisconnectSubmit?(id)
+        #endif
+        guard owners[id] === current, managerUnavailableRevision === unavailableRevision,
+              expectedSubmission.map({ current.disconnectRevision === $0 }) ?? true else { return }
+        guard poweredOn else { observeManagerUnavailable(); return }
+        #if DEBUG
+        if let testAdapter {
+            current.disconnectRevision = Revision()
+            testAdapter.commands.append(.disconnect(id))
+            return
+        }
+        #endif
+        guard let connection = peripheral ?? current.peripheral, let central else { return }
+        current.disconnectRevision = Revision()
+        central.cancelPeripheralConnection(connection)
+    }
+
     private func close(_ id: UUID, current: Owner, outcome: ReadClaim.Outcome,
                        quarantine: Bool, sendDisconnect: Bool = true, forceQuarantine: Bool = false,
                        serviceChange: Bool = false) {
         guard owners[id] === current else { return }
         if current.phase == .closing || current.phase == .quarantined { return }
+        let unavailableRevision = managerUnavailableRevision
+        let disconnectRevision = current.disconnectRevision
         let unsent = current.phase == .connecting && !current.submitted && !forceQuarantine
         let connection = current.peripheral
         current.phase = unsent ? .idle : (quarantine || !current.wasConnected || !poweredOn ? .quarantined : .closing)
@@ -462,6 +504,7 @@ import PhoneDSHAgentCore
             testAdapter?.afterReadOutcomeClaim?()
             #endif
         }
+        if serviceChange && managerUnavailableRevision !== unavailableRevision { return }
         if serviceChange && !poweredOn { observeManagerUnavailable(); return }
         if linkBusy[id]?.owner === current { linkBusy[id] = nil }
         let task = linkTasks.removeValue(forKey: id)
@@ -471,13 +514,19 @@ import PhoneDSHAgentCore
         let timer = connectionTimers.removeValue(forKey: id)
         characteristics[id] = nil; ambiguousProfiles[id] = nil
         task?.cancel(); timer?.cancel()
+        if serviceChange && managerUnavailableRevision !== unavailableRevision {
+            channel?.fail(BLEFailure("Link disconnected; outcome_unknown"))
+            return
+        }
         if serviceChange && !poweredOn {
             observeManagerUnavailable(detachedChannels: channel.map { [$0] } ?? [])
             return
         }
         channel?.fail(BLEFailure("Link disconnected; outcome_unknown"))
+        if serviceChange && managerUnavailableRevision !== unavailableRevision { return }
         if serviceChange && !poweredOn { observeManagerUnavailable(); return }
         if let oldRead { finishRead(oldRead) }
+        if serviceChange && managerUnavailableRevision !== unavailableRevision { return }
         if serviceChange && !poweredOn { observeManagerUnavailable(); return }
         if current.phase == .closing {
             closingTimers[id]?.cancel()
@@ -489,23 +538,20 @@ import PhoneDSHAgentCore
         }
         if serviceChange && !poweredOn { observeManagerUnavailable(); return }
         if !unsent, sendDisconnect, poweredOn {
-            #if DEBUG
-            if let testAdapter { testAdapter.commands.append(.disconnect(id)) }
-            else if let connection { central?.cancelPeripheralConnection(connection) }
-            #else
-            if let connection { central?.cancelPeripheralConnection(connection) }
-            #endif
+            submitDisconnect(id, current: current, peripheral: connection, expectedSubmission: disconnectRevision)
         }
+        if serviceChange && managerUnavailableRevision !== unavailableRevision { return }
         if serviceChange && !poweredOn { observeManagerUnavailable(); return }
         update(id) {
-            guard self.owners[id] === current, !serviceChange || self.poweredOn else { return }
+            guard self.owners[id] === current,
+                  !serviceChange || (self.poweredOn && self.managerUnavailableRevision === unavailableRevision) else { return }
             $0.state = self.phaseLabel(current.phase)
             $0.linkState = "未连接"; $0.linkIdentity = ""; $0.linkTools = []; $0.linkToolDescriptors = []
             $0.allowDeviceTasks = false; $0.supportsDeviceTasks = false; $0.taskIdentity = ""; $0.pendingIdentity = ""; if current.identityErrorRevision === errorRevision { $0.identityError = "" }
             $0.grantedTools = []; $0.homeOrigins = ""; $0.events = []; $0.profiles = []; $0.readings = [:]
             $0.allowRead = current.read; $0.allowAlert = current.alert
         }
-        if serviceChange && !poweredOn { observeManagerUnavailable() }
+        if serviceChange && !poweredOn && managerUnavailableRevision === unavailableRevision { observeManagerUnavailable() }
     }
 
     private func closingTimedOut(_ id: UUID, current: Owner) {
@@ -545,10 +591,11 @@ import PhoneDSHAgentCore
     }
     private func managerUnavailable(reset: Bool, detachedChannels: [BLELinkChannel] = [],
                                     linkFailure: BLEFailure = BLEFailure("Bluetooth unavailable")) {
+        managerUnavailableRevision = Revision()
         scanRequested = false; scanTimer?.cancel(); scanTimer = nil
         // Invalidate every owner before the first observer can reenter.
         let snapshot = Array(owners)
-        var tasks: [Task<Void, Never>] = [], channels: [BLELinkChannel] = detachedChannels
+        var tasks: [Task<Void, Never>] = [], deadlines: [ConnectionDeadline] = [], channels: [BLELinkChannel] = detachedChannels
         var errorRevisions: [UUID: Revision] = [:]
         for (id, current) in snapshot {
             let neverSubmitted = current.phase == .idle && !submittedDevices.contains(id)
@@ -559,7 +606,7 @@ import PhoneDSHAgentCore
             errorRevisions[id] = current.identityErrorRevision
             if linkBusy[id]?.owner === current { linkBusy[id] = nil }
             if let task = linkTasks.removeValue(forKey: id) { tasks.append(task) }
-            if let task = connectionTimers.removeValue(forKey: id) { tasks.append(task) }
+            if let deadline = connectionTimers.removeValue(forKey: id) { deadlines.append(deadline) }
             if let task = closingTimers.removeValue(forKey: id) { tasks.append(task) }
             if let channel = linkChannels.removeValue(forKey: id) { channels.append(channel) }
             linkClients[id] = nil; linkTaskTools[id] = nil; linkCharacteristics[id] = nil; linkPhysicalEndpoints[id] = nil; linkPhysicalServices[id] = nil
@@ -569,6 +616,7 @@ import PhoneDSHAgentCore
         if reset { peripherals.removeAll() }
         if let read = pending { _ = read.claim.claim(.unavailable); finishRead(read) }
         tasks.forEach { $0.cancel() }
+        deadlines.forEach { $0.cancel() }
         channels.forEach { $0.fail(linkFailure) }
         for (id, current) in snapshot {
             update(id) {
@@ -588,12 +636,7 @@ import PhoneDSHAgentCore
             current.phase = .quarantined
             closingTimers.removeValue(forKey: id)?.cancel()
             if sendDisconnect, poweredOn {
-                #if DEBUG
-                if let testAdapter { testAdapter.commands.append(.disconnect(id)) }
-                else if let peripheral = current.peripheral { central?.cancelPeripheralConnection(peripheral) }
-                #else
-                if let peripheral = current.peripheral { central?.cancelPeripheralConnection(peripheral) }
-                #endif
+                submitDisconnect(id, current: current)
             }
             if serviceChange && !poweredOn { observeManagerUnavailable(); return }
             update(id) {
@@ -657,12 +700,7 @@ import PhoneDSHAgentCore
         guard poweredOn, let current = owners[id] else { return }
         if current.phase == .quarantined {
             if current.submitted {
-                #if DEBUG
-                if let testAdapter { testAdapter.commands.append(.disconnect(id)) }
-                else if let peripheral { central?.cancelPeripheralConnection(peripheral) }
-                #else
-                if let peripheral { central?.cancelPeripheralConnection(peripheral) }
-                #endif
+                submitDisconnect(id, current: current, peripheral: peripheral)
             }
             return
         }
@@ -1114,8 +1152,8 @@ import PhoneDSHAgentCore
         testAdapter == nil ? nil : characteristics[id]?[profile]
     }
     func testConnectionDeadlineToken(_ id: UUID) -> ObjectIdentifier? {
-        guard testAdapter != nil, connectionTimers[id] != nil, let current = owners[id] else { return nil }
-        return ObjectIdentifier(current.deadlineRevision)
+        guard testAdapter != nil, let deadline = connectionTimers[id] else { return nil }
+        return ObjectIdentifier(deadline)
     }
     func testReadClaim(_ id: UUID) -> String? {
         guard testAdapter != nil, let read = pending, read.device == id else { return nil }
@@ -1154,6 +1192,10 @@ import PhoneDSHAgentCore
         guard let adapter = testAdapter, let peer = adapter.validPeers[id] else { return }
         let endpoint = profile.flatMap { characteristics[id]?[$0] } ?? NSObject()
         dispatchPhysicalValue(id, physical: peer, endpoint: endpoint, data: data, notifying: false, error: error)
+    }
+    func testPhysicalValue(_ id: UUID, physical: AnyObject, endpoint: AnyObject, data: Data, error: Error? = nil) {
+        guard testAdapter != nil else { return }
+        dispatchPhysicalValue(id, physical: physical, endpoint: endpoint, data: data, notifying: false, error: error)
     }
     func testServicesModified(_ id: UUID, matchingPeer: Bool = true, invalidated: [AnyObject] = []) {
         guard let adapter = testAdapter else { return }
@@ -1200,9 +1242,9 @@ import PhoneDSHAgentCore
                               fire: { [weak self] in self?.closingTimedOut(id, current: current) })
     }
     func testCaptureConnectionTimeout(_ id: UUID) -> TestTimerProbe? {
-        guard let current = owners[id], connectionTimers[id] != nil else { return nil }
-        return TestTimerProbe(state: { [weak self] in self?.owners[id] === current && self?.connectionTimers[id] != nil ? "active" : "cancelled" },
-                              fire: { [weak self] in self?.connectionTimedOut(id, current: current) })
+        guard let current = owners[id], let deadline = connectionTimers[id] else { return nil }
+        return TestTimerProbe(state: { [weak self] in self?.owners[id] === current && self?.connectionTimers[id] === deadline ? "active" : "cancelled" },
+                              fire: { [weak self] in self?.connectionTimedOut(id, current: current, deadline: deadline) })
     }
     func testSubscription(_ id: UUID, profile: StandardBLEProfile, state: String) {
         testNotification(id, profile: profile, matchingPeer: true, notifying: state == "subscribed")
