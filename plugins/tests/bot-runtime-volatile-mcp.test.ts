@@ -8,6 +8,7 @@ import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createMcpToolDefinition } from '@deepseek-ai/dsh-mcp-client'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import dshbotVolatileContext from '../bot-runtime/src/volatile-context.ts'
 import {
@@ -61,6 +62,7 @@ async function mountConsumer(): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt, {})
   await ctx.plugin(ToolRuntime, {})
+  await ctx.plugin(NativeToolExecutor)
   return ctx
 }
 

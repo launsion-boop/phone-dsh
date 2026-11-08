@@ -68,14 +68,18 @@ export function createPhoneVolatileContextSource(ctx: Context): VolatileContextS
     if (!validVolatileSessionId(sessionId)) return EMPTY_SNAPSHOT
     nextCallId += 1
     try {
-      const result = await ctx.tools.execute({
-        callId: `dshbot-volatile-${nextCallId}` as ToolCallId,
-        name: BOT_VOLATILE_CONTEXT_TOOL,
-        arguments: { sessionId },
+      const batch = await ctx.tools.execute({
+        calls: [{
+          type: 'tool-call',
+          id: `dshbot-volatile-${nextCallId}` as ToolCallId,
+          name: BOT_VOLATILE_CONTEXT_TOOL,
+          arguments: JSON.stringify({ sessionId }),
+        }],
         signal: signal ?? new AbortController().signal,
         ...agent === undefined ? {} : { agent },
       })
-      if (result.isError || signal?.aborted || !isRecord(result.value)) return EMPTY_SNAPSHOT
+      const result = batch.results[0]?.result
+      if (result === undefined || result.isError || signal?.aborted || !isRecord(result.value)) return EMPTY_SNAPSHOT
       return validateVolatileContextResponse(result.value.structuredContent, sessionId) ?? EMPTY_SNAPSHOT
     } catch {
       return EMPTY_SNAPSHOT

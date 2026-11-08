@@ -167,10 +167,10 @@ export default function dshbotVolatileContext(ctx: Context, config: VolatileCont
     text: context => renderVolatileContext(snapshotFor(context), { now: now(), lang: lang() }),
   })
 
-  ctx.on('system-prompt/assemble', async (assembly, context, next) => {
+  ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
     await refresh(context)
     const transformed = await next()
-    return ctx.systemPrompt.refreshContext(transformed, context)
+    return ctx.systemPrompt.refreshContext({ ...transformed, tools: [] }, context)
   })
 }
 

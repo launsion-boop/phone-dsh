@@ -3,12 +3,13 @@ import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
-import { createUserMessage, LlmAdapter } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, LlmAdapter, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
 import LlmRuntime from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 
 export type ScriptEntry = StreamChunk[] | 'hang'
@@ -97,8 +98,34 @@ export async function mountRuntime(): Promise<Context> {
   await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(SystemPrompt, {})
   await ctx.plugin(ToolRuntime, {})
+  await ctx.plugin(NativeToolExecutor)
   await ctx.plugin(AgentRegistry)
   return ctx
+}
+
+export interface ToolExecuteRequest {
+  readonly callId: string
+  readonly name: string
+  readonly arguments?: unknown
+  readonly signal: AbortSignal
+  readonly agent?: Agent
+}
+
+/** Run one model-shaped call through the 0.2.2 batch executor and return its outcome. */
+export async function executeTool(ctx: Context, request: ToolExecuteRequest) {
+  const batch = await ctx.tools.execute({
+    calls: [{
+      type: 'tool-call',
+      id: ToolCallId(request.callId),
+      name: request.name,
+      arguments: JSON.stringify(request.arguments ?? {}),
+    }],
+    signal: request.signal,
+    ...request.agent === undefined ? {} : { agent: request.agent },
+  })
+  const result = batch.results[0]?.result
+  if (result === undefined) throw new Error(`tool ${request.name} returned no outcome`)
+  return result
 }
 
 export async function createAgent(ctx: Context, id: string): Promise<Agent> {

@@ -5,8 +5,9 @@ import { Context } from '@deepseek-ai/cordis'
 import GoalService from '@deepseek-ai/dsh-goal'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
-import { createAgent, mountRuntime, ScriptAdapter, textResponse, userMessage } from './bot-runtime-test-kit.ts'
+import { createAgent, executeTool, mountRuntime, ScriptAdapter, textResponse, userMessage } from './bot-runtime-test-kit.ts'
 
 test('tools pre-execute, execute wrapper and post-execute run in the real ToolRuntime pipeline', async () => {
   const ctx = new Context()
@@ -14,6 +15,7 @@ test('tools pre-execute, execute wrapper and post-execute run in the real ToolRu
   try {
     await ctx.plugin(SystemPrompt, {})
     await ctx.plugin(ToolRuntime, {})
+    await ctx.plugin(NativeToolExecutor)
     ctx.on('tools/pre-execute', async (_exec, next) => {
       calls.push('pre')
       return next()
@@ -41,7 +43,7 @@ test('tools pre-execute, execute wrapper and post-execute run in the real ToolRu
         return 'ok'
       },
     }))
-    const result = await ctx.tools.execute({
+    const result = await executeTool(ctx, {
       callId: ToolCallId('bot-mount-probe'),
       name: 'bot_mount_probe',
       arguments: {},

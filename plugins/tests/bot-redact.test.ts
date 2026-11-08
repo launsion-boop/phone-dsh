@@ -4,8 +4,10 @@ import { test } from 'node:test'
 import { Context } from '@deepseek-ai/cordis'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
 import dshbotRedact, { createRedactor, redactContentBlocks } from '../bot-runtime/src/redact.ts'
+import { executeTool } from './bot-runtime-test-kit.ts'
 
 test('generic secrets and known encodings are redacted without logging raw values', () => {
   const redactor = createRedactor(['token-value'])
@@ -25,6 +27,7 @@ test('real ToolRuntime returns redacted model-facing content', async () => {
   try {
     await ctx.plugin(SystemPrompt, {})
     await ctx.plugin(ToolRuntime, {})
+    await ctx.plugin(NativeToolExecutor)
     await ctx.plugin(dshbotRedact)
     ctx.tools.register(defineTool({
       name: 'secret_probe', description: 'probe', parameters: {},
@@ -34,7 +37,7 @@ test('real ToolRuntime returns redacted model-facing content', async () => {
       },
       execute: async () => 'credential is sk-abcdefghijklmnop',
     }))
-    const result = await ctx.tools.execute({
+    const result = await executeTool(ctx, {
       callId: ToolCallId('secret'), name: 'secret_probe', arguments: {},
       signal: new AbortController().signal,
     })

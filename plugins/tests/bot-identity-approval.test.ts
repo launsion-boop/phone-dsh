@@ -6,11 +6,13 @@ import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
 import { BotRuntimeRemote, BotStreamHub } from '../bot-runtime/src/channel.ts'
 import dshbotIdentityBridge, { argsDigest, needsIdentityRegistration } from '../bot-runtime/src/identity-bridge.ts'
 import dshbotApprovalGate, { needsStructuralApproval, phoneEffectsForApproval } from '../bot-runtime/src/approval-gate.ts'
 import type { ApprovalEffect } from '../bot-runtime/src/approval-gate.ts'
+import { executeTool } from './bot-runtime-test-kit.ts'
 
 const WORKBENCH_SESSION = 'session-workbench'
 
@@ -22,6 +24,7 @@ async function mount(withBot = true): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt, {})
   await ctx.plugin(ToolRuntime, {})
+  await ctx.plugin(NativeToolExecutor)
   if (withBot) registerProbe(ctx, 'mcp__phone__BotVolatileContext')
   return ctx
 }
@@ -48,7 +51,7 @@ test('ordinary DSH without Bot MCP never calls Bot identity or approval endpoint
     await ctx.plugin(dshbotApprovalGate, {
       request: async () => { calls += 1; return { ok: true, allowed: true } },
     })
-    const result = await ctx.tools.execute({
+    const result = await executeTool(ctx, {
       callId: ToolCallId('ordinary-bash'), name: 'bash',
       arguments: { command: 'rm -rf /tmp/wp7-artifact' },
       signal: new AbortController().signal, agent: agent(WORKBENCH_SESSION),
@@ -78,7 +81,7 @@ test('workbench session keeps the ordinary DSH chain even when Bot MCP is visibl
     await ctx.plugin(dshbotApprovalGate, {
       request: async () => { approvals += 1; return { ok: true, allowed: true } },
     })
-    const result = await ctx.tools.execute({
+    const result = await executeTool(ctx, {
       callId: ToolCallId('workbench-bash'), name: 'bash',
       arguments: { command: 'rm -rf /tmp/wp7-artifact' },
       signal: new AbortController().signal, agent: agent(WORKBENCH_SESSION),
@@ -110,7 +113,7 @@ test('Bot session with unavailable Bot MCP fails closed', async () => {
     await ctx.plugin(dshbotApprovalGate, {
       request: async () => { approvals += 1; return { ok: true, allowed: true } },
     })
-    const result = await ctx.tools.execute({
+    const result = await executeTool(ctx, {
       callId: ToolCallId('unavailable-bash'), name: 'bash',
       arguments: { command: 'rm -rf /tmp/wp7-artifact' },
       signal: new AbortController().signal, agent: agent(),
@@ -149,7 +152,7 @@ test('Bot session registers once, asks once and executes once', async () => {
         return { ok: true, allowed: true }
       },
     })
-    const result = await ctx.tools.execute({
+    const result = await executeTool(ctx, {
       callId: ToolCallId('single-registration'), name: 'bash',
       arguments: { command: 'printf ONCE' },
       signal: new AbortController().signal, agent: agent(),
@@ -192,7 +195,7 @@ test('botClaimSession owns a legacy session id without the gb- namespace', async
     await ctx.plugin(dshbotApprovalGate, {
       request: async () => { approvals += 1; return { ok: true, allowed: true } },
     })
-    const result = await ctx.tools.execute({
+    const result = await executeTool(ctx, {
       callId: ToolCallId('legacy-bash'), name: 'bash',
       arguments: { command: 'printf LEGACY' },
       signal: new AbortController().signal, agent: agent('session-legacy'),
@@ -222,7 +225,7 @@ test('pre-execute and execute share the pinned identity and cancel once', async 
       },
       cancel: async id => { cancellations.push(id) },
     })
-    const result = await ctx.tools.execute({
+    const result = await executeTool(ctx, {
       callId: ToolCallId('call-1'), name: 'mcp__phone__ListRoutines',
       arguments: { value: 1 }, signal: new AbortController().signal, agent: agent(),
     })
@@ -267,12 +270,12 @@ test('identical call IDs in independent sessions do not deadlock or overwrite id
       cancel: async () => {},
     })
     const args = { prompt: 'same', task_title: 'same' }
-    const parent = ctx.tools.execute({
+    const parent = executeTool(ctx, {
       callId: ToolCallId('shared'), name: 'mcp__phone__Task', arguments: args,
       signal: new AbortController().signal, agent: agent('gb-parent'),
     })
     await parentStarted
-    const child = ctx.tools.execute({
+    const child = executeTool(ctx, {
       callId: ToolCallId('shared'), name: 'mcp__phone__Task', arguments: args,
       signal: new AbortController().signal, agent: agent('gb-child'),
     })
@@ -318,7 +321,7 @@ test('identity unknown_tool fails closed for every registration-required tool', 
         request: async () => ({ ok: false, error: 'unknown_tool' }),
         cancel: async () => {},
       })
-      const result = await ctx.tools.execute({
+      const result = await executeTool(ctx, {
         callId: ToolCallId(`unknown-tool-${name}`), name, arguments: {},
         signal: new AbortController().signal, agent: agent(),
       })
@@ -367,7 +370,7 @@ test('BLE native-MCP effects match the shared golden and stay ask-gated', async 
         return { ok: true, allowed: true }
       },
     })
-    const result = await ctx.tools.execute({
+    const result = await executeTool(ctx, {
       callId: ToolCallId('ble-read'), name: 'mcp__phone__ble_read',
       arguments: { device_id: 'device-a' }, signal: new AbortController().signal, agent: agent(),
     })
@@ -403,7 +406,7 @@ test('approval memory effect matches the Swift execution resource and sensitive 
     await ctx.plugin(dshbotApprovalGate, {
       request: async () => { sent += 1; return { ok: true, allowed: true } },
     })
-    const result = await ctx.tools.execute({
+    const result = await executeTool(ctx, {
       callId: ToolCallId('sensitive'), name: 'bash',
       arguments: { command: 'cat ~/.ssh/id_rsa' }, signal: new AbortController().signal, agent: agent(),
     })
@@ -425,7 +428,7 @@ test('approval gate forwards the full effect before allowing the real tool body'
         return { ok: true, allowed: true }
       },
     })
-    const result = await ctx.tools.execute({
+    const result = await executeTool(ctx, {
       callId: ToolCallId('forget-user'), name: 'mcp__phone__UpdateMemory',
       arguments: { action: 'forget', scope: 'user', fact: 'private' },
       signal: new AbortController().signal, agent: agent(),
@@ -455,7 +458,7 @@ test('structural bash approval carries recomputable effects and consumes at its 
         return { ok: true, allowed: true }
       },
     })
-    const result = await ctx.tools.execute({
+    const result = await executeTool(ctx, {
       callId: ToolCallId('destructive'), name: 'bash', arguments: args,
       signal: new AbortController().signal, agent: agent(),
     })
@@ -502,7 +505,7 @@ test('identity registration precedes the structural approval gate for bash', asy
         return { ok: true, allowed: true }
       },
     })
-    const result = await ctx.tools.execute({
+    const result = await executeTool(ctx, {
       callId: ToolCallId('structural-bash'),
       name: 'bash', arguments: { command: 'rm -rf /tmp/wp7-artifact' },
       signal: new AbortController().signal, agent: agent(),
@@ -536,7 +539,7 @@ test('native phone tools and unrelated built-ins neither register nor ask for ap
       request: async () => { approvals += 1; return { ok: true, allowed: true } },
     })
     for (const name of ['mcp__phone__android_connect', 'read']) {
-      const result = await ctx.tools.execute({
+      const result = await executeTool(ctx, {
         callId: ToolCallId(`skip-${name}`), name, arguments: {},
         signal: new AbortController().signal, agent: agent(),
       })

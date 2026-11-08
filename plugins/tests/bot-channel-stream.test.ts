@@ -6,12 +6,13 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { LlmAttemptId, ToolCallId } from '@deepseek-ai/dsh-llm'
 import { SessionSeq } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
 import { BotRuntimeRemote, BotStreamHub } from '../bot-runtime/src/channel.ts'
 import type { BotStreamFrame } from '../bot-runtime/src/channel.ts'
 import dshbotStreamForward from '../bot-runtime/src/stream-forward.ts'
 import { steerInsertedMessage } from '../bot-runtime/src/steering.ts'
-import { createAgent, mountRuntime, ScriptAdapter, userMessage } from './bot-runtime-test-kit.ts'
+import { createAgent, executeTool, mountRuntime, ScriptAdapter, userMessage } from './bot-runtime-test-kit.ts'
 import { botStreamHub, registerBotStreamHub } from '../bot-runtime/src/runtime-registry.ts'
 
 test('stream hub registry is shared by sibling plugin contexts', async () => {
@@ -92,6 +93,7 @@ test('question cards suppress trailing deltas and hidden prompts never steer int
   try {
     await ctx.plugin(SystemPrompt, {})
     await ctx.plugin(ToolRuntime, {})
+    await ctx.plugin(NativeToolExecutor)
     registerBotStreamHub(ctx, hub)
     await ctx.plugin(dshbotStreamForward, { hub })
     const agent = { id: 'gb-main', session: { id: 'gb-main' } } as unknown as Agent
@@ -108,7 +110,7 @@ test('question cards suppress trailing deltas and hidden prompts never steer int
       output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
       execute: async () => 'ok',
     }))
-    await ctx.tools.execute({
+    await executeTool(ctx, {
       callId: ToolCallId('question'), name: 'mcp__phone__ask_user', arguments: {},
       signal: new AbortController().signal, agent,
     })
@@ -140,6 +142,7 @@ test('question suppression clears at turn end rather than attempt end', async ()
   try {
     await ctx.plugin(SystemPrompt, {})
     await ctx.plugin(ToolRuntime, {})
+    await ctx.plugin(NativeToolExecutor)
     registerBotStreamHub(ctx, hub)
     await ctx.plugin(dshbotStreamForward, { hub })
     const agent = { id: 'gb-main', session: { id: 'gb-main' } } as unknown as Agent
@@ -148,7 +151,7 @@ test('question suppression clears at turn end rather than attempt end', async ()
       output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
       execute: async () => 'ok',
     }))
-    await ctx.tools.execute({
+    await executeTool(ctx, {
       callId: ToolCallId('question-turn'), name: 'mcp__phone__ask_user', arguments: {},
       signal: new AbortController().signal, agent,
     })
@@ -166,6 +169,7 @@ test('hidden prompt suppression clears at turn end rather than attempt end', asy
   try {
     await ctx.plugin(SystemPrompt, {})
     await ctx.plugin(ToolRuntime, {})
+    await ctx.plugin(NativeToolExecutor)
     registerBotStreamHub(ctx, hub)
     await ctx.plugin(dshbotStreamForward, { hub })
     const agent = { id: 'gb-hidden', session: { id: 'gb-hidden' } } as unknown as Agent
