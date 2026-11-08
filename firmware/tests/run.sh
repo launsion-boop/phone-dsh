@@ -40,23 +40,23 @@ cc -std=c11 -Wall -Wextra -Werror -Wno-deprecated-declarations -fsanitize=addres
   "$ROOT/firmware/tests/test_task_store.c" "$ROOT/firmware/esp32-reference/main/pdsh_task_store.c" \
   "$ROOT/firmware/esp32-reference/main/pdsh_task_validate.c" "$CJSON/cJSON.c" -o "$OUT/task-store"
 "$OUT/task-store" "$ROOT/spec/device/v1/golden/ble-task-store-cases.jsonl" "$ROOT/spec/device/v1/golden/task-outcome-cases.jsonl"
-cc -std=c11 -Wall -Wextra -Werror -Wno-deprecated-declarations -DPDSH_TASK_HOST_TEST -fsanitize=address,undefined \
+cc -std=c11 -Wall -Wextra -Werror -Wno-deprecated-declarations -D_DEFAULT_SOURCE -DPDSH_TASK_HOST_TEST -fsanitize=address,undefined \
   -I"$ROOT/firmware/tests/stubs" -I"$ROOT/firmware/components/pdsh_link_wire/include" \
   -I"$ROOT/firmware/esp32-reference/main" -I"$ROOT/firmware/components/pdsh_home/include" \
   -I"$ROOT/firmware/components/pdsh_home/vendor/include" -I"$CJSON" \
   "$ROOT/firmware/tests/test_link_tools.c" "$ROOT/firmware/esp32-reference/main/link_tools.c" \
   "$ROOT/firmware/esp32-reference/main/pdsh_task_store.c" "$ROOT/firmware/esp32-reference/main/pdsh_task_validate.c" \
   "$ROOT/firmware/components/pdsh_link_wire/pdsh_link_wire.c" "$ROOT/firmware/components/pdsh_home/pdsh_home.c" \
-  "$ROOT/firmware/components/pdsh_home/vendor/xl_home_policy.c" "$CJSON/cJSON.c" -o "$OUT/link-tools"
+  "$ROOT/firmware/components/pdsh_home/vendor/xl_home_policy.c" "$CJSON/cJSON.c" -o "$OUT/link-tools" -lm
 "$OUT/link-tools"
 "$OUT/link-tools" --task
 "$OUT/link-tools" --negotiation "$ROOT/spec/device/v1/golden/ble-task-negotiation.jsonl"
 "$OUT/link-tools" --plaintext-admission "$ROOT/spec/device/v1/golden/ble-task-plaintext-admission.jsonl"
-cc -std=c11 -Wall -Wextra -Werror -Wno-deprecated-declarations -DPDSH_TASK_HOST_TEST -fsanitize=address,undefined \
+cc -std=c11 -Wall -Wextra -Werror -Wno-deprecated-declarations -D_DEFAULT_SOURCE -DPDSH_TASK_HOST_TEST -fsanitize=address,undefined \
   -I"$ROOT/firmware/tests/stubs" -I"$ROOT/firmware/components/pdsh_link_wire/include" \
   -I"$ROOT/firmware/esp32-reference/main" -I"$ROOT/firmware/components/pdsh_home/include" \
   -I"$ROOT/firmware/components/pdsh_home/vendor/include" -I"$CJSON" \
   "$ROOT/firmware/tests/test_task_bridge.c" "$ROOT/firmware/esp32-reference/main/link_tools.c" \
   "$ROOT/firmware/esp32-reference/main/pdsh_task_store.c" "$ROOT/firmware/esp32-reference/main/pdsh_task_validate.c" \
   "$ROOT/firmware/components/pdsh_link_wire/pdsh_link_wire.c" "$ROOT/firmware/components/pdsh_home/pdsh_home.c" \
-  "$ROOT/firmware/components/pdsh_home/vendor/xl_home_policy.c" "$CJSON/cJSON.c" -o "$OUT/task-bridge"
+  "$ROOT/firmware/components/pdsh_home/vendor/xl_home_policy.c" "$CJSON/cJSON.c" -o "$OUT/task-bridge" -lm
