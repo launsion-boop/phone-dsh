@@ -124,8 +124,14 @@ public sealed interface PdshRoute {
      * The MCP server editor, opened from [Mcp]'s list.
      *
      * @param serverId the server to edit, or `null` when adding a new one.
+     * @param discoveredUrl the HTTPS URL of a selected, still unverified LAN
+     *   discovery candidate; a new-server form opens pre-filled with it (the
+     *   iOS `MCPEditorPage(candidate:)`). Selecting is not saving or granting.
      */
-    public data class McpEditor(public val serverId: String? = null) : PdshRoute {
+    public data class McpEditor(
+        public val serverId: String? = null,
+        public val discoveredUrl: String? = null,
+    ) : PdshRoute {
         override val presentation: PdshPresentation = PdshPresentation.PUSH
     }
 

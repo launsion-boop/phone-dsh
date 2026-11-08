@@ -14,6 +14,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
@@ -48,6 +49,9 @@ class MCPSettingsPageTest {
         onAdd: () -> Unit = {},
         onEdit: (String) -> Unit = {},
         onRefresh: (() -> Unit)? = null,
+        lan: LanDiscoveryFacts = LanDiscoveryFacts(),
+        onLanScan: (Boolean) -> Unit = {},
+        onLanCandidate: (LanCandidateFact) -> Unit = {},
     ) {
         val state = MCPScreenState.from(facts)
         compose.setContent {
@@ -59,6 +63,9 @@ class MCPSettingsPageTest {
                     onToggleServers = {},
                     onBack = {},
                     onRefresh = onRefresh,
+                    lan = lan,
+                    onLanScan = onLanScan,
+                    onLanCandidate = onLanCandidate,
                 )
             }
         }
@@ -154,17 +161,63 @@ class MCPSettingsPageTest {
     }
 
     @Test
-    fun `局域网设备 shows a disabled 扫描局域网设备 and says Android cannot discover`() {
+    fun `局域网设备 on a host without discovery shows 扫描局域网设备 disabled and says so`() {
         show(MCPRegistryFacts(servers = emptyList()), onRefresh = {})
         compose.onNodeWithTag(UiPageTags.MCP_LAN_SECTION).assertIsDisplayed()
         compose.onNodeWithText(UiStrings.MCP_LAN_SECTION).assertIsDisplayed()
-        // Android has no LAN discovery: the verb is visible but never enabled, and
-        // there is no 停止扫描 state because no scan ever starts.
         compose.onNodeWithText(UiStrings.MCP_LAN_SCAN).assertIsDisplayed()
         compose.onNodeWithTag(UiPageTags.MCP_LAN_SCAN).assertIsNotEnabled()
-        compose.onAllNodesWithText("停止扫描").assertCountEquals(0)
-        compose.onNodeWithTag(UiPageTags.MCP_LAN_UNSUPPORTED).assertIsDisplayed()
-        compose.onNodeWithText(UiStrings.MCP_LAN_UNSUPPORTED).assertIsDisplayed()
+        compose.onAllNodesWithText(UiStrings.MCP_LAN_STOP).assertCountEquals(0)
+        compose.onNodeWithText(UiStrings.MCP_LAN_STATUS_UNAVAILABLE).assertIsDisplayed()
+        // No results, no results note.
+        compose.onNodeWithTag(UiPageTags.MCP_LAN_NOTE).assertDoesNotExist()
+    }
+
+    @Test
+    fun `扫描局域网设备 starts a scan and 停止扫描 stops it`() {
+        val scans = mutableListOf<Boolean>()
+        show(
+            MCPRegistryFacts(servers = emptyList()),
+            lan = LanDiscoveryFacts(status = LanScanStatus.IDLE),
+            onLanScan = { scans += it },
+        )
+        compose.onNodeWithText(UiStrings.MCP_LAN_STATUS_IDLE).assertIsDisplayed()
+        compose.onNodeWithTag(UiPageTags.MCP_LAN_SCAN).assertIsEnabled().performClick()
+        assertEquals(listOf(true), scans)
+    }
+
+    @Test
+    fun `a running scan offers 停止扫描`() {
+        val scans = mutableListOf<Boolean>()
+        show(
+            MCPRegistryFacts(servers = emptyList()),
+            lan = LanDiscoveryFacts(status = LanScanStatus.SCANNING, scanning = true),
+            onLanScan = { scans += it },
+        )
+        compose.onNodeWithText(UiStrings.MCP_LAN_STATUS_SCANNING).assertIsDisplayed()
+        compose.onAllNodesWithText(UiStrings.MCP_LAN_SCAN).assertCountEquals(0)
+        compose.onNodeWithText(UiStrings.MCP_LAN_STOP).performClick()
+        assertEquals(listOf(false), scans)
+    }
+
+    @Test
+    fun `candidates show name and URL marked unverified and open the editor`() {
+        val lamp = LanCandidateFact(id = "Lamp@lamp.local:8443", name = "Lamp", url = "https://lamp.local:8443/mcp")
+        val opened = mutableListOf<LanCandidateFact>()
+        show(
+            MCPRegistryFacts(servers = emptyList()),
+            lan = LanDiscoveryFacts(status = LanScanStatus.FOUND, candidates = listOf(lamp)),
+            onLanCandidate = { opened += it },
+        )
+        compose.onNodeWithText(UiStrings.MCP_LAN_STATUS_FOUND).assertIsDisplayed()
+        compose.onNodeWithText("Lamp").assertIsDisplayed()
+        compose.onNodeWithText("https://lamp.local:8443/mcp").assertIsDisplayed()
+        compose.onNodeWithText(UiStrings.MCP_LAN_UNVERIFIED).assertIsDisplayed()
+        compose.onNodeWithText(UiStrings.MCP_LAN_NOTE).assertIsDisplayed()
+        compose.onNodeWithTag(UiPageTags.MCP_LAN_CANDIDATE_PREFIX + lamp.id).performClick()
+        assertEquals(listOf(lamp), opened)
+        // 操作 stays reachable below the candidates.
+        compose.onNodeWithTag(UiPageTags.MCP_ACTION_ADD_SERVER).assertIsDisplayed()
     }
 
     @Test

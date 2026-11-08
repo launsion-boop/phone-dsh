@@ -221,6 +221,9 @@ internal fun HostShell(
     val bleDevices = remember { AndroidBleDevices.get(context) }
     BindBluetoothHost(bleDevices)
     val bluetoothFacts by bleDevices.facts.collectAsState()
+    // 局域网设备 on the MCP page: the user-started mDNS browse (lan-mcp.md).
+    val lanDiscovery = remember { AndroidLanDiscovery.get(context) }
+    val lanFacts by lanDiscovery.facts.collectAsState()
     val systemDark = isSystemInDarkTheme()
     // L69: the chat page's one state. Collected here so a Worker event rebuilds the
     // page on the next frame; the view model is its only writer.
@@ -790,7 +793,7 @@ internal fun HostShell(
     // platform really carries this app's back gesture through the invoker. It is
     // measured by the back callback (one gesture moves it), so it is applied here
     // rather than inside the remembered walk.
-    val shownFacts = PredictiveBack.measured(facts).copy(bluetooth = bluetoothFacts)
+    val shownFacts = PredictiveBack.measured(facts).copy(bluetooth = bluetoothFacts, lan = lanFacts)
     LaunchedEffect(chatUi.commandExecution?.id) {
         if (chatUi.commandExecution != null) nav = nav.push(PdshRoute.CommandResult)
     }
@@ -926,6 +929,9 @@ internal fun HostShell(
                             if (action.wire.startsWith("bluetooth.")) {
                                 // The page owns its result line (结果); no host note.
                                 bleDevices.handle(action)
+                            } else if (action is PdshHostAction.LanScan) {
+                                // The page owns its status line; no host note.
+                                lanDiscovery.handle(action)
                             } else if (action is PdshHostAction.OpenWorkspaceFiles) {
                                 notice = null
                                 nav = nav.push(PdshRoute.Files(action.id.ifBlank { null }))
@@ -1659,6 +1665,7 @@ private fun actionLabel(action: PdshHostAction): String = when (action) {
     PdshHostAction.RefreshMcp -> "重新读取 MCP 服务器"
     is PdshHostAction.BluetoothPageVisible -> "蓝牙设备页"
     is PdshHostAction.BluetoothScan -> "扫描蓝牙设备"
+    is PdshHostAction.LanScan -> "扫描局域网设备"
     is PdshHostAction.BluetoothConnect -> "连接蓝牙设备"
     is PdshHostAction.BluetoothDisconnect -> "断开蓝牙设备"
     is PdshHostAction.BluetoothGrant -> "蓝牙授权"
