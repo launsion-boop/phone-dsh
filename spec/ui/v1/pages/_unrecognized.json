@@ -67,14 +67,6 @@
    "reviewBy": "2027-06-30"
   },
   {
-   "page": "native-agent-presets",
-   "kind": "unresolved-section",
-   "name": "<untitled: error>",
-   "reason": "NativeAgentPresetsPage.swift:159 renders `Section { Text(error) }`: an untitled error block whose only row is runtime text, so no literal criterion exists. The identical shape is already registered for mcp-settings / mcp-editor.",
-   "owner": "ui-contract",
-   "reviewBy": "2027-06-30"
-  },
-  {
    "page": "daily-brief",
    "kind": "missing-action",
    "name": "删除",
@@ -120,6 +112,14 @@
    "name": "<untitled: empty>",
    "reason": "The first RuntimeDetailsPage Section (ChatPage.swift:4324) opens with `runtimeRow(\"状态\", model.isStarted ? statusValue : \"已停止\")`; the label's value is a ternary, so no stable first-row criterion exists. The row and the stop/restart action are judged by the actions, not by this group title.",
    "owner": "ui-contract",
+   "reviewBy": "2027-06-30"
+  },
+  {
+   "page": "bluetooth-devices",
+   "kind": "unresolved-section",
+   "name": "device.name",
+   "reason": "BluetoothDevicesPage.swift:154 headers each device section with the peripheral's advertised name (`header: { Text(device.name) }`); Android's SettingsSectionLabel(device.name) is the same runtime value. Untrusted advertisement text has no literal criterion on either platform.",
+   "owner": "android-parity",
    "reviewBy": "2027-06-30"
   }
  ],

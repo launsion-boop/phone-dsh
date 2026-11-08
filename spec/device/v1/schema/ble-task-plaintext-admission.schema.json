@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BLE plaintext task admission vector",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "app_caps", "identity_visible", "task_visible", "new_task_status"],
+  "properties": {
+    "name": {"type": "string", "minLength": 1},
+    "app_caps": {"type": "integer", "minimum": 0, "maximum": 4294967295},
+    "identity_visible": {"type": "boolean"},
+    "task_visible": {"const": false},
+    "new_task_status": {"const": 14}
+  }
+}

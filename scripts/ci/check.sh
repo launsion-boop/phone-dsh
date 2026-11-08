@@ -29,7 +29,7 @@ STAGES="phone-spec phone-p0-conformance phone-cross-tree phone-rust-tests phone-
 stage_desc() {
     case "$1" in
         phone-spec)            echo "spec/v1 --full golden vectors, schemas and the spec tool unit tests" ;;
-        phone-p0-conformance)  echo "Android-port P0 contract trees: catalog, bridge, gateway, trajectory, fixtures, host, platform, ui, page structure" ;;
+        phone-p0-conformance)  echo "Android-port P0 contract trees: catalog, bridge, gateway, trajectory, fixtures, host, platform, ui, page source inventory and structure" ;;
         phone-cross-tree)      echo "spec/tools/cross_check.py: 8 cross-tree invariants + registry build/check + schema diff + mutation tests" ;;
         phone-rust-tests)      echo "cargo test -p pdsh-wire -p pdsh-wal (SKIP without cargo; aggregate INCOMPLETE)" ;;
         phone-compat)          echo "M99 build-time compatibility gate over the shared TypeScript (PDSH_NODE or node)" ;;
@@ -150,6 +150,9 @@ stage_phone_p0_conformance() {
     # The contract trees the Kotlin host reads instead of translating Swift.
     # Each checker is mandatory: a missing checker is a failure, not a skip,
     # because a specification tree without a gate rots into prose.
+    # Run all independent read-only checks so an earlier failure cannot hide
+    # the new inventory evidence or the existing parity checks.
+    p0_failed=0
     for pair in \
         "spec/v1/tools/catalog_check.py|catalog" \
         "spec/v1/tools/bridge_check.py|bridge" \
@@ -161,20 +164,56 @@ stage_phone_p0_conformance() {
     do
         script="${pair%%|*}"
         name="${pair##*|}"
-        [ -f "$ROOT/$script" ] || { echo "missing $name checker: $script"; return 1; }
-        ( cd "$ROOT" && "$PYTHON" "$script" --root "$ROOT" ) || return 1
+        if [ ! -f "$ROOT/$script" ]; then
+            echo "missing $name checker: $script"
+            p0_failed=1
+            continue
+        fi
+        ( cd "$ROOT" && "$PYTHON" "$script" --root "$ROOT" ) || p0_failed=1
     done
-    "$PYTHON" "$ROOT/spec/v1/tools/trajectory_norm.py" --check-golden --root "$ROOT"
+    "$PYTHON" "$ROOT/spec/v1/tools/trajectory_norm.py" --check-golden --root "$ROOT" || p0_failed=1
+    # Raw-source inventory is intentionally broader than production parity:
+    # the extractor currently includes inactive Swift branches (GAP-19).
+    page_extractor="$ROOT/spec/ui/v1/tools/extract_ios_pages.py"
+    page_extractor_tests="$ROOT/spec/ui/v1/tools/test_extract_ios_pages.py"
+    if [ -f "$page_extractor" ]; then
+        ( cd "$ROOT" && "$PYTHON" "$page_extractor" --root "$ROOT" --check ) || p0_failed=1
+    else
+        echo "missing page extractor: $page_extractor"
+        p0_failed=1
+    fi
+    if [ -f "$page_extractor_tests" ]; then
+        ( cd "$ROOT" && "$PYTHON" -m unittest discover -s spec/ui/v1/tools \
+            -p 'test_extract_ios_pages.py' ) || p0_failed=1
+        # Discovery treats an empty file as success. Require the shared
+        # completeness scenarios explicitly so they cannot silently vanish.
+        ( cd "$ROOT/spec/ui/v1/tools" && "$PYTHON" -m unittest \
+            test_extract_ios_pages.PageSourceCompletenessTests.test_shared_completeness_cases_use_real_extractor ) || p0_failed=1
+    else
+        echo "missing page extractor tests: $page_extractor_tests"
+        p0_failed=1
+    fi
     # The page-structure contract (`spec/ui/v1/pages`): every contract is checked
     # against the Android screen it names, and the checker's own mutation tests run
     # next to it. CI runs the known-divergence ratchet (the Android lane has not
     # aligned every page yet); `--strict` prints the full remaining workload.
     page_checker="$ROOT/spec/ui/v1/tools/page_structure_check.py"
-    [ -f "$page_checker" ] || { echo "missing page-structure checker: spec/ui/v1/tools/page_structure_check.py"; return 1; }
-    ( cd "$ROOT" && "$PYTHON" "$page_checker" --root "$ROOT" \
-        --baseline spec/ui/v1/pages/_baseline.json ) || return 1
-    ( cd "$ROOT" && "$PYTHON" -m unittest discover -s spec/ui/v1/tools \
-        -p 'test_page_structure_check.py' ) || return 1
+    page_checker_tests="$ROOT/spec/ui/v1/tools/test_page_structure_check.py"
+    if [ -f "$page_checker" ]; then
+        ( cd "$ROOT" && "$PYTHON" "$page_checker" --root "$ROOT" \
+            --baseline spec/ui/v1/pages/_baseline.json ) || p0_failed=1
+    else
+        echo "missing page-structure checker: spec/ui/v1/tools/page_structure_check.py"
+        p0_failed=1
+    fi
+    if [ -f "$page_checker_tests" ]; then
+        ( cd "$ROOT" && "$PYTHON" -m unittest discover -s spec/ui/v1/tools \
+            -p 'test_page_structure_check.py' ) || p0_failed=1
+    else
+        echo "missing page-structure tests: $page_checker_tests"
+        p0_failed=1
+    fi
+    return "$p0_failed"
 }
 
 stage_phone_cross_tree() {
@@ -274,7 +313,7 @@ stage_phone_sdk() {
     # latter mix plain unit tests with runner entry points that need scenarios.sh / sim.sh (PhoneDSHScenarioTests.PhoneDSHScenarioTests,
     # the smoke/probe/kill suites), so they are listed by class here. A new unit-test class in a PhoneDSH* target must either be
     # named PhoneDSH* or be added to this filter, otherwise no gate executes it.
-    sdk_filter='PhoneDSH(Wire|Log|Loopback|Gateway|Controller|Engine|Harness|Shell|SSH|AgentCore|ADB)Tests|PhoneDSHTests|PhoneDSHScenario[A-Z][A-Za-z]*Tests|PhoneDSHScenarioTestsSelectionGuard|PhoneDSHScenarioLibraryContractTests|ScenarioHostEvaluationTests|ScenarioRepositoryRootTests|ScenarioEvidenceArtifactTests|ScenarioDetailTruncationTests|PhoneDSHScenarioTestsBudgetInjection|PhoneDSHScenarioTestsWebContentKill|PhoneDSHScenarioTestsPerturbationCapabilities|ZPhoneDSHAbortStopDurabilityHostTests'
+    sdk_filter='PhoneDSH(Wire|Log|Loopback|Gateway|Controller|Engine|Harness|Shell|SSH|AgentCore|ADB|BLE|LAN|DeviceTasks)Tests|PhoneDSHTests|PhoneDSHScenario[A-Z][A-Za-z]*Tests|PhoneDSHScenarioTestsSelectionGuard|PhoneDSHScenarioLibraryContractTests|ScenarioHostEvaluationTests|ScenarioRepositoryRootTests|ScenarioEvidenceArtifactTests|ScenarioDetailTruncationTests|PhoneDSHScenarioTestsBudgetInjection|PhoneDSHScenarioTestsWebContentKill|PhoneDSHScenarioTestsPerturbationCapabilities|ZPhoneDSHAbortStopDurabilityHostTests'
     ( cd "$SDK" && swift test --filter "$sdk_filter" ) 2>&1 | tee "$sdk_log"
     rc=${PIPESTATUS[0]}
     [ "$rc" = 0 ] || { echo "swift test failed (rc=$rc)"; return 1; }
@@ -308,6 +347,7 @@ stage_phone_gate_contracts() {
     "$PYTHON" "$ROOT/scripts/ci/gates_test.py" || return 1
     "$PYTHON" "$ROOT/scripts/ci/test_protocol_impact.py" || return 1
     "$PYTHON" "$ROOT/scripts/ci/test_rust_stage.py" || return 1
+    "$PYTHON" "$ROOT/scripts/ci/test_p0_completeness.py" || return 1
     "$PYTHON" "$ROOT/scripts/ci/selftest.py" || return 1
 }
 

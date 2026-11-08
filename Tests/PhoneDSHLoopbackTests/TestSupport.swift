@@ -1098,11 +1098,15 @@ final class RawTCPClient: @unchecked Sendable {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             let lock = NSLock()
             var resumed = false
-            let finish: (Result<Void, Error>) -> Void = { result in
+            let claim: () -> Bool = {
                 lock.lock()
-                if resumed { lock.unlock(); return }
+                defer { lock.unlock() }
+                guard !resumed else { return false }
                 resumed = true
-                lock.unlock()
+                return true
+            }
+            let finish: (Result<Void, Error>) -> Void = { result in
+                guard claim() else { return }
                 continuation.resume(with: result)
             }
             connection.stateUpdateHandler = { state in
@@ -1115,7 +1119,9 @@ final class RawTCPClient: @unchecked Sendable {
             }
             connection.start(queue: self.queue)
             self.queue.asyncAfter(deadline: .now() + timeout) {
+                guard claim() else { return }
                 connection.cancel()
+                continuation.resume(throwing: HTTPTestError.timeout)
             }
         }
     }

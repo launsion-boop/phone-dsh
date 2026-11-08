@@ -101,6 +101,7 @@
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_pdsh._tcp.</string>
+		<string>_pdsh-mcp._tcp.</string>
 	</array>
 	<!-- Phone permissions: each description is requested only when the user
 	     taps that capability in Settings → Phone permissions. -->

@@ -1,0 +1,205 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Local discovery deadline first-winner",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "setup",
+    "outer",
+    "inject",
+    "expect"
+  ],
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "setup": {
+      "enum": [
+        "basic",
+        "read-pending",
+        "link-pending",
+        "reconnected",
+        "connecting",
+        "read-cancel-claimed"
+      ]
+    },
+    "outer": {
+      "enum": [
+        "final-then-old-timer",
+        "final",
+        "timeout-then-final",
+        "timeout",
+        "read-value",
+        "link-response-then-timeout",
+        "old-timer",
+        "poweroff-then-timeout",
+        "timeout-then-services",
+        "final-then-poweroff-old-timer"
+      ]
+    },
+    "inject": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "point",
+          "event",
+          "expect"
+        ],
+        "properties": {
+          "point": {
+            "enum": [
+              "final-devices-will-change",
+              "timeout-devices-will-change",
+              "timeout-status-will-change",
+              "after-read-value-claim",
+              "after-read-outcome-claim"
+            ]
+          },
+          "event": {
+            "enum": [
+              "old-timer",
+              "final",
+              "b-error",
+              "poweroff",
+              "timeout",
+              "read-value",
+              "manager-off"
+            ]
+          },
+          "expect": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "phase",
+              "final_endpoint",
+              "disconnects",
+              "other",
+              "old_timer"
+            ],
+            "properties": {
+              "phase": {
+                "enum": [
+                  "connected",
+                  "closing",
+                  "quarantined"
+                ]
+              },
+              "final_endpoint": {
+                "type": "boolean"
+              },
+              "disconnects": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "other": {
+                "enum": [
+                  "unchanged",
+                  "b-closing",
+                  "all-quarantined"
+                ]
+              },
+              "old_timer": {
+                "enum": [
+                  "cancelled",
+                  "active"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "expect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "phase",
+        "final_endpoint",
+        "old_timer",
+        "disconnects",
+        "other",
+        "read",
+        "link",
+        "status",
+        "b_timer",
+        "new_timer",
+        "extra_discovery_requests",
+        "physical_commands_after_poweroff"
+      ],
+      "properties": {
+        "phase": {
+          "enum": [
+            "connected",
+            "closing",
+            "quarantined"
+          ]
+        },
+        "final_endpoint": {
+          "type": "boolean"
+        },
+        "old_timer": {
+          "enum": [
+            "cancelled"
+          ]
+        },
+        "disconnects": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "other": {
+          "enum": [
+            "unchanged",
+            "b-closing",
+            "all-quarantined"
+          ]
+        },
+        "read": {
+          "enum": [
+            "none",
+            "disconnected-once",
+            "value-once",
+            "cancelled-once"
+          ]
+        },
+        "link": {
+          "enum": [
+            "none",
+            "unknown-once",
+            "value-once"
+          ]
+        },
+        "status": {
+          "enum": [
+            "prior",
+            "timeout",
+            "b-error",
+            "manager-off"
+          ]
+        },
+        "b_timer": {
+          "enum": [
+            "active",
+            "cancelled"
+          ]
+        },
+        "new_timer": {
+          "enum": [
+            "active",
+            "none"
+          ]
+        },
+        "extra_discovery_requests": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "physical_commands_after_poweroff": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

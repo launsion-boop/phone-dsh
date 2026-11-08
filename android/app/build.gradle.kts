@@ -657,4 +657,7 @@ dependencies {
     // Host-side unit tests: the permission matrix's row-by-row mapping and what the
     // page prints for it. Pure JVM, no Robolectric and no device.
     testImplementation(libs.junit)
+    // Exercise the real AndroidX permission registry, including restored results.
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("androidx.test:core:1.6.1")
 }

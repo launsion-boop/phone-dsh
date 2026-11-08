@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
 """Focused tests for isolated Rust bootstrap resolution and checksum failure."""
 from __future__ import annotations
 

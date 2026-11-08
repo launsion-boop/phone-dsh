@@ -1,10 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- SPDX-License-Identifier: MIT -->
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- :engine's AAR already declares INTERNET (it binds the loopback origin).
          Declared here too so the demo's requirement is visible in :app. -->
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- 蓝牙设备 page: foreground scan + standard GATT only
+         (spec/device/v1/android-ble-discovery.md, android-standard-gatt.md).
+         API 31+: scan never derives location; connect is asked at the first 连接.
+         API 26-30: the legacy pair plus fine location, which scanning requires there. -->
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation"
+        tools:targetApi="31" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30" />
 
     <!-- Do Not Disturb access for the phone-permissions page's 专注模式 row.
          `protectionLevel=normal`, so it needs no runtime prompt — but without the

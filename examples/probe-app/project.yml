@@ -89,6 +89,12 @@ targets:
         product: PhoneDSHSSH
       - package: PhoneDSH
         product: PhoneDSHADB
+      - package: PhoneDSH
+        product: PhoneDSHLAN
+      - package: PhoneDSH
+        product: PhoneDSHBLE
+      - package: PhoneDSH
+        product: PhoneDSHDeviceTasks
       - package: SwiftMarkdown
         product: Markdown
       - package: SwiftMath
@@ -104,6 +110,7 @@ targets:
         # errSecMissingEntitlement for every keychain query.
         CODE_SIGN_ENTITLEMENTS: Config/PhoneDSHProbe.entitlements
         SUPPORTS_MACCATALYST: NO
+        # The target device-task profile is enabled only in explicit test builds.
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks"
 
   ProbeKit:
@@ -210,6 +217,9 @@ targets:
       - path: PhoneDSHProbe/NativeChatTheme.swift
       - path: PhoneDSHProbe/HomeSpec.swift
       - path: PhoneDSHProbe/NativeChatPreferences.swift
+      - path: PhoneDSHProbe/LegacyTaskInspectionModel.swift
+      - path: PhoneDSHProbe/LegacyTaskInspectionSection.swift
+      - path: PhoneDSHProbe/BluetoothDevicesPage.swift
       # The scripted model upstream, the smoke evidence readers (WAL
       # replay/journal/step formats) and the kill-matrix support ship as the
       # regular SwiftPM target `PhoneDSHHarness`; this target links its
@@ -234,6 +244,10 @@ targets:
         product: PhoneDSHLoopback
       - package: PhoneDSH
         product: PhoneDSHAgentCore
+      - package: PhoneDSH
+        product: PhoneDSHDeviceTasks
+      - package: PhoneDSH
+        product: PhoneDSHBLE
       # The simulator suites import the linked shell provider exposed by the
       # shared WebHostConfiguration assembly.
       - package: PhoneDSH
@@ -283,6 +297,7 @@ targets:
     platform: iOS
     sources:
       - path: PhoneDSHSimTests
+      - path: PhoneDSHDeviceTests
       # Keep the device twin at parity with PhoneDSHSimTests: each shared
       # production presentation source is compiled into this test module too.
       - path: PhoneDSHProbe/MCPSettingsModel.swift
@@ -302,6 +317,9 @@ targets:
       - path: PhoneDSHProbe/NativeChatTheme.swift
       - path: PhoneDSHProbe/HomeSpec.swift
       - path: PhoneDSHProbe/NativeChatPreferences.swift
+      - path: PhoneDSHProbe/LegacyTaskInspectionModel.swift
+      - path: PhoneDSHProbe/LegacyTaskInspectionSection.swift
+      - path: PhoneDSHProbe/BluetoothDevicesPage.swift
     dependencies:
       - target: PhoneDSHProbe
       - target: ProbeKit
@@ -321,6 +339,10 @@ targets:
         product: PhoneDSHLoopback
       - package: PhoneDSH
         product: PhoneDSHAgentCore
+      - package: PhoneDSH
+        product: PhoneDSHDeviceTasks
+      - package: PhoneDSH
+        product: PhoneDSHBLE
       - package: PhoneDSH
         product: PhoneDSHShell
     settings:
@@ -349,6 +371,27 @@ targets:
         SKIP_INSTALL: YES
         TARGETED_DEVICE_FAMILY: "1"
         TEST_TARGET_NAME: PhoneDSHProbe
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @loader_path/Frameworks"
+
+  PhoneDSHBLEHardwareTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: PhoneDSHBLEHardwareTests
+    dependencies:
+      - target: PhoneDSHProbe
+      - package: PhoneDSH
+        product: PhoneDSHBLE
+      - package: PhoneDSH
+        product: PhoneDSHAgentCore
+      - package: PhoneDSH
+        product: PhoneDSHLoopback
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.phone-dsh.probe.blehardwaretests
+        PRODUCT_NAME: PhoneDSHBLEHardwareTests
+        GENERATE_INFOPLIST_FILE: YES
+        SKIP_INSTALL: YES
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @loader_path/Frameworks"
 
 schemes:
@@ -468,3 +511,13 @@ schemes:
       config: Debug
     archive:
       config: Debug
+
+  PhoneDSHBLEHardware:
+    build:
+      targets:
+        PhoneDSHProbe: all
+        PhoneDSHBLEHardwareTests: [test]
+    test:
+      config: Debug
+      targets:
+        - PhoneDSHBLEHardwareTests

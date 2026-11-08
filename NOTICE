@@ -86,3 +86,8 @@ Artwork: the mascot in docs/assets/logo.png, the community QR image
 of the DeepSeek assistant character, included as project branding. They are
 not covered by the MIT licence of the source code and are not official
 DeepSeek assets.
+
+PDSH BLE Home Bridge includes the MIT-licensed policy, bounded TCP transport,
+legacy control vectors, and related tests identified by
+firmware/components/pdsh_home/vendor/UPSTREAM.json. The original license and
+copyright notice are retained in that vendor directory.

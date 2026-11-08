@@ -1,0 +1,13 @@
+{"id":"missing","present":false,"incoming":"ble:new","accepted":true,"expected":["ble:new"]}
+{"id":"empty","present":true,"initial":[],"incoming":"ble:new","accepted":true,"expected":["ble:new"]}
+{"id":"append-preserve-order","present":true,"initial":["ble:old-uuid","unknown","ble:old-uuid"],"incoming":"ble:new","accepted":true,"expected":["ble:old-uuid","unknown","ble:old-uuid","ble:new"]}
+{"id":"existing-no-write","present":true,"initial":["ble:old","ble:old"],"incoming":"ble:old","accepted":true,"expected":["ble:old","ble:old"]}
+{"id":"canonical-equivalent-no-rewrite","present":true,"initial":["ble:café"],"incoming":"ble:café","accepted":true,"expected":["ble:café"]}
+{"id":"unicode-append","present":true,"initial":["ble:old"],"incoming":"ble:新","accepted":true,"expected":["ble:old","ble:新"]}
+{"id":"scalar-preserved","present":true,"initial":"malformed","incoming":"ble:new","accepted":false,"expected":"malformed"}
+{"id":"boolean-preserved","present":true,"initial":false,"incoming":"ble:new","accepted":false,"expected":false}
+{"id":"integer-preserved","present":true,"initial":19,"incoming":"ble:new","accepted":false,"expected":19}
+{"id":"dictionary-preserved","present":true,"initial":{"future":"value"},"incoming":"ble:new","accepted":false,"expected":{"future":"value"}}
+{"id":"mixed-array-preserved","present":true,"initial":["ble:old",7],"incoming":"ble:new","accepted":false,"expected":["ble:old",7]}
+{"id":"mixed-array-matching-label-still-invalid","present":true,"initial":["ble:new",7],"incoming":"ble:new","accepted":false,"expected":["ble:new",7]}
+{"id":"number-array-preserved","present":true,"initial":[1,2],"incoming":"ble:new","accepted":false,"expected":[1,2]}

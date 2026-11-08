@@ -275,6 +275,30 @@ final class GoldenFrameTests: XCTestCase {
         }
     }
 
+    func testGoldenExecRequestNativeSSHAndSCP() throws {
+        let vectors: [(String, [String], String)] = [
+            ("exec-req-2.json", ["ssh", "demo", "uname -a"],
+             "1c91799614a11ca5d008986f845feeeeb376cd06a958e7d42b6ef3c894594356"),
+            ("exec-req-3.json", ["scp", "--pdsh-v1", "download", "file", "demo", "default", "/tmp/report.txt"],
+             "9b0ba3de4535d8e1d082a5eecb444b13ce36dc6162e7b78399e953b363f5380d"),
+        ]
+        for (filename, argv, idemKey) in vectors {
+            try assertJSONGolden(filename) { data in
+                let request = try ExecRequestPayload.decode(data)
+                XCTAssertEqual(request.requiresMseq, 47, filename)
+                XCTAssertEqual(request.idemKey, idemKey, filename)
+                let body = try XCTUnwrap(JSONSerialization.jsonObject(with: request.body) as? [String: Any])
+                XCTAssertEqual(body["argv"] as? [String], argv, filename)
+                XCTAssertNil(body["requires_mseq"], filename)
+                XCTAssertNil(body["idem_key"], filename)
+                let decoded = try JSONDecoder().decode(ExecRequestPayload.self, from: data)
+                XCTAssertEqual(decoded, request, filename)
+                XCTAssertEqual(try CanonicalJSON.encode(decoded), data, filename)
+                return try request.encodedPayload()
+            }
+        }
+    }
+
     func testGoldenExecEventExit() throws {
         try assertJSONGolden("exec-evt-1.json") { data in
             let event = try ExecEventPayload.decode(data)

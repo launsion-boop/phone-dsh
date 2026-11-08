@@ -1,0 +1,15 @@
+{
+  "title": "LAN discovery raw TXT test vector",
+  "type": "object",
+  "required": ["name", "service", "host", "port", "txt_hex"],
+  "properties": {
+    "name": {"type": "string", "minLength": 1},
+    "service": {"type": "string"},
+    "host": {"type": "string"},
+    "port": {"type": "integer"},
+    "txt_hex": {"type": "string", "pattern": "^([0-9a-f][0-9a-f])*$"},
+    "url": {"type": "string"},
+    "error": {"const": "invalid_advertisement"}
+  },
+  "additionalProperties": false
+}

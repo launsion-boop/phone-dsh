@@ -1,0 +1,3 @@
+{"name":"bad_crc","hex":"0101000600020100040000191f","error":"invalid_frame"}
+{"name":"truncated","hex":"0101","error":"invalid_frame"}
+{"name":"declared_length_mismatch","hex":"0101000700020100040000191e","error":"invalid_frame"}

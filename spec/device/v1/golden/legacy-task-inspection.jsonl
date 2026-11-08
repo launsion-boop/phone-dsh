@@ -1,0 +1,16 @@
+{"name":"missing_directory","scenario":"absent","expected":"incomplete"}
+{"name":"ordinary_record","scenario":"ordinary","expected":"incomplete"}
+{"name":"ble_and_lan","scenario":"mixed","expected":"incomplete"}
+{"name":"malformed_record","scenario":"malformed","expected":"incomplete"}
+{"name":"orphan_intent","scenario":"orphan","expected":"incomplete"}
+{"name":"symlink_not_followed","scenario":"symlink","expected":"incomplete"}
+{"name":"fifo_not_opened","scenario":"fifo","expected":"incomplete"}
+{"name":"lock_inode_hardlink","scenario":"hardlink-lock","expected":"busy"}
+{"name":"journal_owner_active","scenario":"active-owner","expected":"busy"}
+{"name":"initializer_pending","scenario":"pending-init","expected":"busy"}
+{"name":"second_scanner","scenario":"concurrent-scan","expected":"busy"}
+{"name":"preview_budget_exhausted","scenario":"budget","expected":"incomplete"}
+{"name":"inspection_cancelled","scenario":"cancel","expected":"incomplete"}
+{"name":"candidate_replaced","scenario":"replace","expected":"incomplete"}
+{"name":"child_lock_is_unexamined","scenario":"child-lock","expected":"incomplete"}
+{"name":"child_lock_hardlinked_to_root","scenario":"child-hardlinked-lock","expected":"incomplete"}

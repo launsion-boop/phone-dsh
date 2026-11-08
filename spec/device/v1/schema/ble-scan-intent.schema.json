@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "iOS BLE scan intent ordering (ble-link.md@scan-intent-v1)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "setup", "action", "then", "expect"],
+  "properties": {
+    "id": {"type": "string"},
+    "setup": {"enum": ["ready", "scanning", "uninitialized"]},
+    "action": {"enum": ["start", "stop", "fire-setup-deadline"]},
+    "injection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["checkpoint", "event"],
+      "properties": {
+        "checkpoint": {"enum": ["status-will-change", "scanning-will-change"]},
+        "event": {"enum": ["start", "stop"]}
+      }
+    },
+    "then": {
+      "type": "array",
+      "items": {"enum": ["start", "manager-powered-on", "fire-setup-deadline"]}
+    },
+    "expect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "scanning", "commands", "deadline"],
+      "properties": {
+        "status": {"enum": ["prompt", "init", "ready", "scan"]},
+        "scanning": {"type": "boolean"},
+        "commands": {"type": "array", "items": {"enum": ["scan", "stop"]}},
+        "deadline": {"enum": ["none", "active"]},
+        "setup_deadline": {"enum": ["active", "cancelled"]},
+        "manager_constructions": {"type": "integer", "minimum": 0}
+      }
+    }
+  }
+}

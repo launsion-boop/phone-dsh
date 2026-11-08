@@ -87,7 +87,7 @@ test('phone timeout distinguishes read-only retry from unknown write outcome', (
   }
 })
 
-test('an accelerator keeps the host\'s own provider code and message, not a re-worded JSON body', async () => {
+test('a phone provider failure keeps its typed code and safe host message in a bounded result', async () => {
   const [command] = createAcceleratorCommands({
     names: ['phone'],
     exec: async () => ({
@@ -100,11 +100,13 @@ test('an accelerator keeps the host\'s own provider code and message, not a re-w
     cwd: '/dsh/workspace', fs: new InMemoryFs(), env: new Map(),
   })
   const result = await command.execute(['doc.write', '{}'], context)
-  // `hostRefusal`'s KDoc: only `phone` + `unsupported` is rewritten (exit 127).
-  // Every other accelerator keeps the host's own code and message, because those
-  // describe a program the Worker does serve — so the exit code passes through
-  // and the sentence is the host's, with no re-worded JSON on stdout.
   assert.equal(result.exitCode, 69)
-  assert.equal(Buffer.from(byteStringToBytes(result.stdout)).toString('utf8'), '')
-  assert.equal(Buffer.from(byteStringToBytes(result.stderr)).toString('utf8'), 'not_configured: mount unavailable')
+  assert.deepEqual(JSON.parse(Buffer.from(byteStringToBytes(result.stdout)).toString('utf8')), {
+    ok: false,
+    error: {
+      code: 'provider_unavailable', message: 'mount unavailable', retryable: false,
+      foreground_required: false, outcome: 'unknown', tool: 'doc.write', cause: 'not_configured',
+    },
+  })
+  assert.equal(Buffer.from(byteStringToBytes(result.stderr)).toString('utf8'), '')
 })

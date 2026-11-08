@@ -68,6 +68,7 @@ class SettingsNavigationTest {
         val rows = listOf(
             com.phonedsh.ui.page.UiPageTags.SETTINGS_INDEX_ROW_PREFIX + "modelProvider" to SettingsDestination.MODEL_PROVIDER,
             com.phonedsh.ui.page.UiPageTags.SETTINGS_INDEX_ROW_PREFIX + "network" to SettingsDestination.EGRESS,
+            com.phonedsh.ui.page.UiPageTags.SETTINGS_INDEX_ROW_PREFIX + "mcp" to SettingsDestination.MCP,
             com.phonedsh.ui.page.UiPageTags.SETTINGS_INDEX_ROW_PREFIX + "shortcuts" to SettingsDestination.SHORTCUTS,
             com.phonedsh.ui.page.UiPageTags.SETTINGS_INDEX_ROW_PREFIX + "runtimeDetails" to SettingsDestination.RUNTIME_DETAILS,
             com.phonedsh.ui.page.UiPageTags.SETTINGS_INDEX_ROW_PREFIX + "about" to SettingsDestination.ABOUT,
@@ -78,7 +79,7 @@ class SettingsNavigationTest {
             assertEquals(destination, opened.lastOrNull())
         }
         assertEquals(
-            listOf(SettingsDestination.MODEL_PROVIDER, SettingsDestination.EGRESS,
+            listOf(SettingsDestination.MODEL_PROVIDER, SettingsDestination.EGRESS, SettingsDestination.MCP,
                 SettingsDestination.SHORTCUTS, SettingsDestination.RUNTIME_DETAILS, SettingsDestination.ABOUT),
             opened,
         )

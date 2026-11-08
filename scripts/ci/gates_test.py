@@ -8,6 +8,7 @@ import copy
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -38,6 +39,40 @@ def recalculate_summary(report):
 
 
 class GateContracts(unittest.TestCase):
+    def test_sdk_stage_selects_device_module_tests(self):
+        # Exercise the actual stage with a fake Swift binary; otherwise adding
+        # a module's tests can leave them permanently outside the gate.
+        with tempfile.TemporaryDirectory(prefix="pdsh-sdk-selection-") as temp:
+            root = Path(temp)
+            script = root / "scripts/ci/check.sh"
+            script.parent.mkdir(parents=True)
+            script.write_bytes((HERE / "check.sh").read_bytes())
+            (root / "Sources/PhoneDSHWire").mkdir(parents=True)
+            binary = root / "bin"
+            binary.mkdir()
+            capture = root / "swift-args.json"
+            fake = binary / "swift"
+            fake.write_text(
+                "#!/usr/bin/env python3\nimport json,os,sys\n"
+                "from pathlib import Path\n"
+                "Path(os.environ['PDSH_TEST_CAPTURE']).write_text(json.dumps(sys.argv[1:]))\n"
+                "print('Executed 1 test, with 0 failures')\n",
+                encoding="utf-8",
+            )
+            fake.chmod(0o755)
+            env = {**os.environ, "PATH": str(binary) + os.pathsep + os.environ["PATH"],
+                   "PDSH_TEST_CAPTURE": str(capture), "CI_TMP": str(root)}
+            result = subprocess.run(["bash", str(script), "--only", "phone-sdk"],
+                                    cwd=root, env=env, text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            args = json.loads(capture.read_text(encoding="utf-8"))
+            self.assertEqual(args[:2], ["test", "--filter"])
+            selector = re.compile(args[2])
+            for module in ("PhoneDSHBLETests", "PhoneDSHLANTests", "PhoneDSHDeviceTasksTests",
+                           "PhoneDSHWireTests", "PhoneDSHAgentCoreTests"):
+                self.assertIsNotNone(selector.search(module), module)
+            self.assertIsNone(selector.search("PhoneDSHScenarioTests.PhoneDSHScenarioTests"))
+
     def test_simulator_failure_replays_log_without_appending_it_to_itself(self):
         source = (HERE / "sim.sh").read_text(encoding="utf-8")
         setup = source[source.index("exec 3>&1"):source.index("sim_require_tools ||")]

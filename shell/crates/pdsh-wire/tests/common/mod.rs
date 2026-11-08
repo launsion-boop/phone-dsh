@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 //! Shared helpers for the golden-vector conformance tests.
 //!
-//! The 33 vectors are the 32 files of `spec/v1/golden/frames` plus the inline
+//! The 35 vectors are the 34 files of `spec/v1/golden/frames` plus the inline
 //! `channel.md` §4.8 golden frame (identical bytes to `error-2.json`), which is
 //! checked against the document text by the golden test. The file list is
 //! fixed, so a removed or added vector fails the suite instead of passing
@@ -19,7 +19,7 @@ use pdsh_wire::{
 use serde_json::Value as Json;
 
 /// Every golden frame file, sorted; a missing or extra file fails the suite.
-pub const EXPECTED_GOLDEN_FILES: [&str; 32] = [
+pub const EXPECTED_GOLDEN_FILES: [&str; 34] = [
     "api-abort-1.json",
     "api-end-1.json",
     "api-req-1.json",
@@ -36,6 +36,8 @@ pub const EXPECTED_GOLDEN_FILES: [&str; 32] = [
     "exec-evt-1.json",
     "exec-evt-2.json",
     "exec-req-1.json",
+    "exec-req-2.json",
+    "exec-req-3.json",
     "fence-1.json",
     "hello-host-1.json",
     "hello-worker-1.json",
@@ -54,8 +56,8 @@ pub const EXPECTED_GOLDEN_FILES: [&str; 32] = [
     "vfs-resync-1.json",
 ];
 
-/// The fixed number of golden frame vectors: 32 files plus the inline one.
-pub const EXPECTED_GOLDEN_VECTORS: usize = 33;
+/// The fixed number of golden frame vectors: 34 files plus the inline one.
+pub const EXPECTED_GOLDEN_VECTORS: usize = 35;
 
 /// The `spec/v1` directory, resolved from the crate manifest at compile time.
 pub fn spec_root() -> PathBuf {
@@ -110,7 +112,7 @@ pub fn load_golden_vectors() -> Vec<GoldenVector> {
     assert_eq!(
         names.len() + 1,
         EXPECTED_GOLDEN_VECTORS,
-        "32 vector files plus the inline channel.md vector are the 33 vectors"
+        "34 vector files plus the inline channel.md vector are the 35 vectors"
     );
     names
         .iter()

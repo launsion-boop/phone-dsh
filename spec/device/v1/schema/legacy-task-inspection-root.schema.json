@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Legacy task inspection root scenario",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "scenario", "expected_reason", "sees_record"],
+  "properties": {
+    "name": {"type": "string", "minLength": 1},
+    "scenario": {"enum": ["normal", "trailing", "root_link", "link_trailing", "link_dot", "link_dotdot", "encoded_dot", "encoded_dotdot", "remote_host", "localhost", "encoded_localhost", "userinfo_empty", "password", "port", "query", "empty_query", "fragment", "empty_fragment", "non_file", "relative", "root_only", "trusted_ancestor"]},
+    "expected_reason": {"enum": [null, "rootUnsupported"]},
+    "sees_record": {"type": "boolean"}
+  }
+}

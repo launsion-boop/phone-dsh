@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Legacy inspection presentation reentry scenario",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "scenario", "watch", "inspect_calls", "paused_inspecting", "paused_cancellation_requested", "cancellation_observed", "final_result"],
+  "properties": {
+    "name": {"type": "string", "minLength": 1},
+    "scenario": {"enum": ["ordinary", "start-reentered", "cancel-before-inspect", "clear-before-inspect", "start-while-inspecting", "cancel-while-inspecting", "clear-while-inspecting", "clear-during-result", "start-during-completion", "clear-during-completion", "duplicate-cancel", "busy-result", "clear-then-start", "start-then-clear", "start-then-cancel", "clear-start-clear", "duplicate-clear", "restart-clears-prior"]},
+    "watch": {"enum": ["none", "result", "isInspecting", "cancellationRequested"]},
+    "inspect_calls": {"type": "integer", "minimum": 0, "maximum": 2},
+    "paused_inspecting": {"type": ["boolean", "null"]},
+    "paused_cancellation_requested": {"type": ["boolean", "null"]},
+    "cancellation_observed": {"type": "boolean"},
+    "final_result": {"enum": ["none", "first-incomplete", "first-cancelled", "first-busy", "second-incomplete"]}
+  }
+}

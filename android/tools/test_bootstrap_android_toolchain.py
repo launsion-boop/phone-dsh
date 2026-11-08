@@ -18,7 +18,9 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import os
+import shlex
 import shutil
 import subprocess
 import tarfile
@@ -108,10 +110,20 @@ case "$args" in
     exit 0
     ;;
   *" --list_installed "*)
+    if [ -n "${FAKE_SDKMANAGER_LIST_OVERRIDE:-}" ]; then
+      printf '%s' "$FAKE_SDKMANAGER_LIST_OVERRIDE"
+      printf '%s' "${FAKE_SDKMANAGER_LIST_STDERR:-}" >&2
+      exit "${FAKE_SDKMANAGER_LIST_EXIT:-0}"
+    fi
     echo "Installed packages:"
     [ -d "$sdk_root/platform-tools" ] && echo "  platform-tools | 35.0.1 | Android SDK Platform-Tools"
-    [ -d "$sdk_root/platforms/android-35" ] && echo "  platforms;android-35 | 2 | Android SDK Platform 35"
-    [ -d "$sdk_root/build-tools/35.0.0" ] && echo "  build-tools;35.0.0 | 35.0.0 | Android SDK Build-Tools 35"
+    if [ "${FAKE_SDKMANAGER_LIST_FORMAT:-legacy}" = slash ]; then
+      [ -d "$sdk_root/platforms/android-35" ] && echo "  platforms/android-35  2.0.0  Android SDK Platform 35"
+      [ -d "$sdk_root/build-tools/35.0.0" ] && echo "  build-tools/35.0.0  35.0.0  Android SDK Build-Tools 35"
+    else
+      [ -d "$sdk_root/platforms/android-35" ] && echo "  platforms;android-35 | 2 | Android SDK Platform 35"
+      [ -d "$sdk_root/build-tools/35.0.0" ] && echo "  build-tools;35.0.0 | 35.0.0 | Android SDK Build-Tools 35"
+    fi
     exit 0
     ;;
 esac
@@ -280,6 +292,10 @@ class BootstrapToolchainTests(unittest.TestCase):
             "FAKE_SDKMANAGER_MARKER",
             "FAKE_SDKMANAGER_LICENSE_EXIT",
             "FAKE_SDKMANAGER_INSTALL_EXIT",
+            "FAKE_SDKMANAGER_LIST_FORMAT",
+            "FAKE_SDKMANAGER_LIST_OVERRIDE",
+            "FAKE_SDKMANAGER_LIST_EXIT",
+            "FAKE_SDKMANAGER_LIST_STDERR",
         ):
             env.pop(key, None)
         env.update(
@@ -455,6 +471,140 @@ class BootstrapToolchainTests(unittest.TestCase):
         self.assertIn("LOCAL_PROPERTIES_SDK={}".format(self.toolchain / "android-sdk"), output)
         self.assertIn("toolchain check passed", output)
         self.assertNotIn("fake-curl", output)
+
+    def test_check_recognizes_current_sdkmanager_slash_package_rows(self):
+        install = self.run_script()
+        self.assertEqual(install.returncode, 0, self.combined(install))
+        proc = self.run_script("--check", FAKE_SDKMANAGER_LIST_FORMAT="slash")
+        output = self.combined(proc)
+        self.assertEqual(proc.returncode, 0, output)
+        self.assertIn("PACKAGE platforms;android-35=installed", output)
+        self.assertIn("PACKAGE build-tools;35.0.0=installed", output)
+        self.assertIn("PACKAGE platform-tools=installed", output)
+
+    def test_check_rejects_wrong_and_non_row_package_names(self):
+        install = self.run_script()
+        self.assertEqual(install.returncode, 0, self.combined(install))
+        listing = "\n".join([
+            "Installed packages:",
+            "  platform-tools-extra 35.0.1 Other platform tools",
+            "  platforms/android-350 2.0.0 Other platform",
+            "  build-tools/135.0.0 135.0.0 Other build tools",
+            "warning: platform-tools platforms;android-35 build-tools;35.0.0",
+        ])
+        proc = self.run_script("--check", FAKE_SDKMANAGER_LIST_OVERRIDE=listing)
+        output = self.combined(proc)
+        self.assertNotEqual(proc.returncode, 0, output)
+        for package in ("platform-tools", "platforms;android-35", "build-tools;35.0.0"):
+            self.assertIn("PACKAGE {}=MISSING".format(package), output)
+        self.assertNotIn("directory-missing", output)
+
+    def test_shared_sdk_listing_vectors_drive_real_adapter(self):
+        install = self.run_script()
+        self.assertEqual(install.returncode, 0, self.combined(install))
+        fixture = SCRIPT.parents[2] / "spec/toolchain/v1/golden/sdk-manager-listing.jsonl"
+        rows = [json.loads(line) for line in fixture.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(len(rows), 28)
+        required = ("platform-tools", "platforms;android-35", "build-tools;35.0.0")
+        for row in rows:
+            with self.subTest(case=row["name"]):
+                overrides = dict(FAKE_SDKMANAGER_LIST_OVERRIDE=row["listing"],
+                                 FAKE_SDKMANAGER_LIST_EXIT=str(row["exit_code"]),
+                                 FAKE_SDKMANAGER_LIST_STDERR=row["stderr"])
+                fake_tee = self.fake_bin / "tee"
+                capture_tmp = self.root / "capture-tmp"
+                capture_tmp.mkdir(exist_ok=True)
+                overrides["TMPDIR"] = str(capture_tmp)
+                if row["capture_exit"] or row["capture_diverge"]:
+                    real_tee = shutil.which("tee")
+                    self.assertIsNotNone(real_tee, "tee is required by the adapter")
+                    tee_command = shlex.quote(real_tee)
+                    fake_tee.write_text(
+                        "#!/bin/sh\n"
+                        "if [ \"$FAKE_TEE_DIVERGE\" = 1 ]; then\n"
+                        "  if mkdir \"$FAKE_TEE_MARKER\" 2>/dev/null; then\n"
+                        "    cat > \"$FAKE_TEE_FULL\"; cat \"$FAKE_TEE_FULL\"\n"
+                        "    printf '%s' \"$FAKE_TEE_PREFIX\" > \"$1\"; exit 0\n"
+                        "  fi\n"
+                        "  exec " + tee_command + " \"$@\"\n"
+                        "fi\n"
+                        "cat >/dev/null\nprintf '%s' \"$FAKE_TEE_PREFIX\" | " + tee_command + " \"$@\"\nexit \"$FAKE_TEE_EXIT\"\n",
+                        encoding="utf-8")
+                    fake_tee.chmod(0o755)
+                    overrides.update(PATH=str(self.fake_bin) + os.pathsep + os.environ.get("PATH", ""),
+                                     FAKE_TEE_PREFIX=row["capture_prefix"],
+                                     FAKE_TEE_EXIT=str(row["capture_exit"]),
+                                     FAKE_TEE_DIVERGE="1" if row["capture_diverge"] else "0",
+                                     FAKE_TEE_MARKER=str(self.root / "tee-marker"),
+                                     FAKE_TEE_FULL=str(self.root / "tee-full"))
+                try:
+                    proc = self.run_script("--check", **overrides)
+                finally:
+                    fake_tee.unlink(missing_ok=True)
+                self.assertEqual(list(capture_tmp.glob("pdsh-sdkmanager-*")), [], row["name"])
+                output = self.combined(proc)
+                if row["stderr"]:
+                    self.assertIn(row["stderr"], output)
+                self.assertEqual(proc.returncode == 0,
+                                 row["exit_code"] == 0 and row["capture_exit"] == 0 and not row["capture_diverge"] and len(row["installed"]) == 3,
+                                 output)
+                if row["capture_exit"]:
+                    self.assertIn("sdkmanager output capture failed", output)
+                if row["capture_diverge"]:
+                    self.assertIn("sdkmanager output captures differ", output)
+                for name in required:
+                    if row["exit_code"] != 0 or row["capture_exit"] != 0 or row["capture_diverge"]:
+                        self.assertNotIn("PACKAGE {}=installed".format(name), output)
+                    else:
+                        expected = "installed" if name in row["installed"] else "MISSING"
+                        self.assertIn("PACKAGE {}={}".format(name, expected), output.splitlines())
+
+    def test_each_capture_rejects_failure_and_silent_divergence(self):
+        install = self.run_script()
+        self.assertEqual(install.returncode, 0, self.combined(install))
+        real_tee = shutil.which("tee")
+        self.assertIsNotNone(real_tee, "tee is required by the adapter")
+        tee_command = shlex.quote(real_tee)
+        prefix = ("Installed packages:\nplatform-tools 37.0.1 Tools\n"
+                  "platforms/android-35 2 Platform\nbuild-tools/35.0.0 35 Build\n")
+        fake_tee = self.fake_bin / "tee"
+        fake_tee.write_text(
+            "#!/bin/sh\n"
+            "case \"$1\" in *pdsh-sdkmanager-list.*) slot=list;; *pdsh-sdkmanager-mirror.*) slot=mirror;; *) exit 3;; esac\n"
+            "if [ \"$slot\" != \"$FAKE_TEE_TARGET\" ]; then exec " + tee_command + " \"$@\"; fi\n"
+            "cat > \"$FAKE_TEE_FULL\"\n"
+            "if [ \"$FAKE_TEE_MODE\" = diverge ]; then cat \"$FAKE_TEE_FULL\"; printf '%s' \"$FAKE_TEE_PREFIX\" > \"$1\"; exit 0; fi\n"
+            "printf '%s' \"$FAKE_TEE_PREFIX\" | " + tee_command + " \"$@\"; exit 1\n",
+            encoding="utf-8")
+        fake_tee.chmod(0o755)
+        capture_tmp = self.root / "each-capture-tmp"
+        capture_tmp.mkdir()
+        try:
+            for target in ("list", "mirror"):
+                for mode in ("failure", "diverge"):
+                    with self.subTest(target=target, mode=mode):
+                        proc = self.run_script(
+                            "--check", PATH=str(self.fake_bin) + os.pathsep + os.environ.get("PATH", ""),
+                            TMPDIR=str(capture_tmp), FAKE_SDKMANAGER_LIST_OVERRIDE=prefix + "Available packages:\n",
+                            FAKE_TEE_TARGET=target, FAKE_TEE_MODE=mode,
+                            FAKE_TEE_PREFIX=prefix, FAKE_TEE_FULL=str(self.root / "each-tee-full"))
+                        output = self.combined(proc)
+                        self.assertNotEqual(proc.returncode, 0, output)
+                        self.assertIn("sdkmanager output capture failed" if mode == "failure" else
+                                      "sdkmanager output captures differ", output)
+                        self.assertNotIn("PACKAGE platform-tools=installed", output)
+                        self.assertEqual(list(capture_tmp.glob("pdsh-sdkmanager-*")), [])
+        finally:
+            fake_tee.unlink(missing_ok=True)
+
+    def test_sdkmanager_listing_error_preserves_exit_code(self):
+        install = self.run_script()
+        self.assertEqual(install.returncode, 0, self.combined(install))
+        listing = "Installed packages:\nplatform-tools 37.0.1 Tools\n"
+        proc = self.run_script("--check", FAKE_SDKMANAGER_LIST_OVERRIDE=listing,
+                               FAKE_SDKMANAGER_LIST_EXIT="7")
+        self.assertEqual(proc.returncode, 7, self.combined(proc))
+        self.assertIn("sdkmanager --list_installed failed (exit 7)", self.combined(proc))
 
     def test_android_home_override_is_honoured(self):
         sdk = self.root / "existing-sdk"

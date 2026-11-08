@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Draft BLE status event-intent ordering",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "setup",
+    "event",
+    "injections",
+    "expect"
+  ],
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "setup": {
+      "enum": [
+        "ab-discovering",
+        "abc-discovering",
+        "a-closing-b-discovering",
+        "a-link-b-discovering",
+        "ab-discovering-status-prior"
+      ]
+    },
+    "event": {
+      "enum": [
+        "a-error-a",
+        "b-error-b",
+        "a-discovery-timeout",
+        "a-link-notification-error-a",
+        "manager-powered-on"
+      ]
+    },
+    "injections": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "checkpoint",
+          "event"
+        ],
+        "properties": {
+          "checkpoint": {
+            "enum": [
+              "a-status-will-change",
+              "b-status-will-change",
+              "a-close-devices-will-change",
+              "manager-status-will-change"
+            ]
+          },
+          "event": {
+            "enum": [
+              "b-error-b",
+              "b-error-ready",
+              "c-error-a",
+              "physical-power-off",
+              "a-stale-error-a"
+            ]
+          }
+        }
+      }
+    },
+    "expect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "phases",
+        "disconnects"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "READY",
+            "A",
+            "B",
+            "PRIOR"
+          ]
+        },
+        "phases": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "A",
+            "B"
+          ],
+          "properties": {
+            "A": {
+              "enum": [
+                "connected",
+                "closing",
+                "quarantined"
+              ]
+            },
+            "B": {
+              "enum": [
+                "connected",
+                "closing",
+                "quarantined"
+              ]
+            },
+            "C": {
+              "enum": [
+                "connected",
+                "closing",
+                "quarantined"
+              ]
+            }
+          }
+        },
+        "disconnects": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "A",
+            "B"
+          ],
+          "properties": {
+            "A": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "B": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "C": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "status_notifications": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "other": {
+          "enum": [
+            "all-owner-unavailable",
+            "a-timeout-teardown",
+            "a-link-teardown"
+          ]
+        }
+      }
+    }
+  }
+}
