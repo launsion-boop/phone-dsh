@@ -127,6 +127,30 @@ final class BLESecureTLSTests: XCTestCase {
         }
     }
 
+    func testRecordLimitIsDecidedFromTheHeader() async throws {
+        // v2.1 §6.1: a protected record over 4352 + 1 + 16 = 4369 bytes is
+        // record_overflow before decryption; an invalid record within the
+        // limit fails the session with another alert (here bad_record_mac).
+        var (result, _, _, tls, pipe) = try await handshake(.init())
+        XCTAssertNoThrow(try result.get())
+        try pipe.server.write([23, 3, 3, 0x11, 0x12] + [UInt8](repeating: 0, count: 4370))
+        do { _ = try await tls.receive(); XCTFail("accepted a 4370-byte protected record") } catch {
+            guard case .sentAlert(22, _)? = error as? BLESecureTLSError else { return XCTFail("\(error)") }
+        }
+        (result, _, _, tls, pipe) = try await handshake(.init())
+        XCTAssertNoThrow(try result.get())
+        try pipe.server.write([23, 3, 3, 0x11, 0x11] + [UInt8](repeating: 0, count: 4369))
+        do { _ = try await tls.receive(); XCTFail("accepted a forged record") } catch {
+            guard case .sentAlert(20, _)? = error as? BLESecureTLSError else { return XCTFail("within the limit is not record_overflow: \(error)") }
+        }
+        (result, _, _, tls, pipe) = try await handshake(.init())
+        XCTAssertNoThrow(try result.get())
+        try pipe.server.write([22, 3, 3, 0x11, 0x01] + [UInt8](repeating: 0, count: 4353))
+        do { _ = try await tls.receive(); XCTFail("accepted an unprotected record over 4352") } catch {
+            guard case .sentAlert(22, _)? = error as? BLESecureTLSError else { return XCTFail("\(error)") }
+        }
+    }
+
     func testPhoneCertificateIsAcceptedByServerVerifier() async throws {
         // The server side of the loopback pins the phone with the same §6.2
         // verifier: a phone key it does not know is refused.

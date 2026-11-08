@@ -389,6 +389,17 @@ public actor BLESecureTLSClient {
         }
     }
 
+    #if DEBUG
+    /// Test hook (spec §13, test builds only): writes one raw protected record
+    /// under the current write keys (inner type, content and zero padding
+    /// chosen by the test, no sender cap). Used by the cross-runtime tests to
+    /// send KeyUpdate and records at and beyond the receive limit.
+    func writeProtectedRecordForTesting(innerType: UInt8, content: [UInt8], padding: Int = 0) throws {
+        guard established, !finished, writeKeys != nil else { throw BLESecureTLSError.transportClosed }
+        try stream.write(try writeKeys!.sealForTesting(innerType: innerType, content: content, padding: padding))
+    }
+    #endif
+
     // MARK: closure
 
     /// Sends close_notify (if keys exist) and closes the stream.

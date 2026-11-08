@@ -32,7 +32,13 @@ enum TLS {
     static let alpn = Array(BLESecureServiceProfile.alpn.utf8)
     /// §6.1: each side sends records whose plaintext is at most 4352 bytes.
     static let maxPlaintext = 4352
-    static let maxCiphertext = maxPlaintext + 256
+    /// secure-session-v2.1 §6.1: TLSInnerPlaintext (content, content type and
+    /// padding) is at most 4352 + 1 bytes, so under the profile's only AEAD
+    /// (16-byte tag) a protected record is at most 4369 bytes. A longer
+    /// protected record, or an unprotected record over 4352 bytes, is
+    /// record_overflow, decided from the header before decryption.
+    static let maxInnerPlaintext = maxPlaintext + 1
+    static let maxCiphertext = maxInnerPlaintext + 16
 
     enum ContentType: UInt8 { case changeCipherSpec = 20, alert = 21, handshake = 22, applicationData = 23 }
     enum HandshakeType: UInt8 {
@@ -187,6 +193,19 @@ struct TLSRecordKeys {
         let box = try AES.GCM.seal(inner, using: key, nonce: try nonce(), authenticating: header)
         return header + Array(box.ciphertext) + Array(box.tag)
     }
+
+    #if DEBUG
+    /// Test hook (spec §13, test builds only): one protected record with an
+    /// explicit inner type and zero padding, without the sender cap, so the
+    /// receiver's record limits can be exercised by an independent peer.
+    mutating func sealForTesting(innerType: UInt8, content: [UInt8], padding: Int) throws -> [UInt8] {
+        let inner = content + [innerType] + [UInt8](repeating: 0, count: padding)
+        let length = inner.count + 16
+        let header: [UInt8] = [TLS.ContentType.applicationData.rawValue, 0x03, 0x03, UInt8(length >> 8), UInt8(length & 0xff)]
+        let box = try AES.GCM.seal(inner, using: key, nonce: try nonce(), authenticating: header)
+        return header + Array(box.ciphertext) + Array(box.tag)
+    }
+    #endif
 
     /// Opens one protected record; returns the inner content type and content.
     mutating func open(header: [UInt8], body: [UInt8]) throws -> (UInt8, [UInt8]) {

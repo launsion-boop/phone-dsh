@@ -93,6 +93,15 @@ SECURE_CFLAGS=(-std=c11 -Wall -Wextra -Werror -Wno-deprecated-declarations -D_DE
   -fsanitize=address,undefined -fno-sanitize-recover=undefined $MBEDTLS_DEFS "${MBEDTLS_INC[@]}" \
   -I"$ROOT/firmware/tests" -I"$ROOT/firmware/tests/stubs" -I"$ROOT/firmware/esp32-reference/main" -I"$CJSON" \
   -include "$ROOT/firmware/tests/test_secure_support.h")
+# The §5 heap budget wraps malloc with GNU ld --wrap; Darwin ld has no such
+# option, so there the budget run is NOT_RUN (reported, never PASS) and the
+# session test links without tracking.
+if [ "$(uname -s)" = Darwin ]; then
+  HEAP_LINK=()
+  SECURE_CFLAGS+=(-DPDSH_NO_HEAP_WRAP)
+else
+  HEAP_LINK=(-Wl,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=free)
+fi
 MAIN="$ROOT/firmware/esp32-reference/main"
 GOLDEN="$ROOT/spec/device/v1/golden"
 cc "${SECURE_CFLAGS[@]}" "$ROOT/firmware/tests/test_secure_task_store.c" "$ROOT/firmware/tests/test_secure_support.c" \
@@ -106,7 +115,7 @@ cc "${SECURE_CFLAGS[@]}" "$ROOT/firmware/tests/test_secure_enroll.c" "$ROOT/firm
 cc "${SECURE_CFLAGS[@]}" "$ROOT/firmware/tests/test_secure_session.c" "$ROOT/firmware/tests/test_secure_support.c" \
   "$MAIN/pdsh_secure_session.c" "$MAIN/pdsh_secure_msg.c" "$MAIN/pdsh_secure_cert.c" "$MAIN/pdsh_enroll.c" \
   "$MAIN/pdsh_identity.c" "$MAIN/pdsh_task_store.c" "$MAIN/pdsh_task_validate.c" "$CJSON/cJSON.c" \
-  "${MBEDTLS_LIBS[@]}" -Wl,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=free -o "$OUT/secure-session"
+  "${MBEDTLS_LIBS[@]}" ${HEAP_LINK[@]+"${HEAP_LINK[@]}"} -o "$OUT/secure-session"
 "$OUT/secure-session" --identifiers "$GOLDEN/ble-secure-identifiers.jsonl" \
   --certificates "$GOLDEN/ble-secure-certificates.jsonl" --frames "$GOLDEN/ble-secure-frames.jsonl" \
   --messages "$GOLDEN/ble-secure-messages.jsonl" --sequences "$GOLDEN/ble-secure-session-sequences.jsonl"
@@ -124,6 +133,16 @@ cc -std=c11 -Wall -Wextra -Werror -Wno-deprecated-declarations -D_DEFAULT_SOURCE
   "$ROOT/firmware/components/pdsh_link_wire/pdsh_link_wire.c" "$ROOT/firmware/components/pdsh_home/pdsh_home.c" \
   "$ROOT/firmware/components/pdsh_home/vendor/xl_home_policy.c" "$CJSON/cJSON.c" -o "$OUT/secure-board" -lm
 "$OUT/secure-board"
+# Cross-runtime conformance: the real board end as a host process, driven by
+# the real Swift client (Tests/PhoneDSHBLETests/BLESecureCrossRuntimeTests).
+cc "${SECURE_CFLAGS[@]}" "$ROOT/firmware/tests/test_secure_bridge.c" "$ROOT/firmware/tests/test_secure_support.c" \
+  "$MAIN/pdsh_secure_session.c" "$MAIN/pdsh_secure_msg.c" "$MAIN/pdsh_secure_cert.c" "$MAIN/pdsh_enroll.c" \
+  "$MAIN/pdsh_identity.c" "$MAIN/pdsh_task_store.c" "$MAIN/pdsh_task_validate.c" "$CJSON/cJSON.c" \
+  "${MBEDTLS_LIBS[@]}" -o "$OUT/secure-bridge"
+if [ "$(uname -s)" = Darwin ]; then
+  echo "secure-session heap budget (<= 32 KiB per session): NOT_RUN on Darwin (needs GNU ld --wrap; run on Linux)"
+  exit 0
+fi
 # Heap budget at the device buffer sizes (§5 <= 32 KiB per session): the same
 # session test against a host mbedTLS built with the device's 4352/4096 record
 # buffers (the overflow row needs the default build above and is skipped here).
@@ -140,7 +159,7 @@ cc "${SECURE_CFLAGS[@]}" -DMBEDTLS_SSL_OUT_CONTENT_LEN=4096 -DPDSH_HEAP_PROFILE 
   "$MAIN/pdsh_identity.c" "$MAIN/pdsh_task_store.c" "$MAIN/pdsh_task_validate.c" "$CJSON/cJSON.c" \
   "$MBEDTLS_DEV_BUILD/library/libmbedtls.a" "$MBEDTLS_DEV_BUILD/library/libmbedx509.a" \
   "$MBEDTLS_DEV_BUILD/library/libtfpsacrypto.a" "$MBEDTLS_DEV_BUILD/library/libmbedcrypto.a" \
-  -Wl,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=free -o "$OUT/secure-session-heap"
+  "${HEAP_LINK[@]}" -o "$OUT/secure-session-heap"
 "$OUT/secure-session-heap" --heap-only --identifiers "$GOLDEN/ble-secure-identifiers.jsonl" \
   --certificates "$GOLDEN/ble-secure-certificates.jsonl" --frames "$GOLDEN/ble-secure-frames.jsonl" \
   --messages "$GOLDEN/ble-secure-messages.jsonl" --sequences "$GOLDEN/ble-secure-session-sequences.jsonl"

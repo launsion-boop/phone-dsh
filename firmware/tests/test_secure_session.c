@@ -28,12 +28,22 @@
 /* §5 heap budget: allocations made while the board's session code runs are
  * tracked (link with --wrap=malloc,calloc,realloc,free); the peak of live
  * server bytes for one session must stay within 32 KiB. */
+#ifdef PDSH_NO_HEAP_WRAP
+/* Darwin ld has no --wrap: allocations are not tracked and the heap budget is
+ * NOT_RUN in this build (run.sh measures it on Linux). */
+#define __real_malloc malloc
+#define __real_calloc calloc
+#define __real_realloc realloc
+#define __real_free free
+#else
 void *__real_malloc(size_t n);
 void *__real_calloc(size_t a, size_t b);
 void *__real_realloc(void *p, size_t n);
 void __real_free(void *p);
+#endif
 static bool track_server_heap;
 static size_t server_live, server_peak;
+#ifndef PDSH_NO_HEAP_WRAP
 #define TRACK_SLOTS 8192
 static struct { void *p; size_t n; } tracked[TRACK_SLOTS];
 static void track_add(void *p, size_t n) {
@@ -84,6 +94,7 @@ void __wrap_free(void *p) {
     track_del(p);
     __real_free(p);
 }
+#endif
 #define SERVER(expr) (track_server_heap = true, (expr), track_server_heap = false)
 
 /* ---------------- identifiers ---------------- */
@@ -847,8 +858,12 @@ static int loopback(const char *cert_path) {
     max_server_record = record_hdr_have = record_left = 0;
     CHECK(run_case(&cfg, &good, "happy", true, &reason, &alert), "happy handshake (%s)", reason);
     CHECK(max_server_record <= 4352 + 256, "sender cap: record of %zu bytes", max_server_record);
+#ifdef PDSH_NO_HEAP_WRAP
+    printf("  board session heap peak: NOT_RUN in this build (no --wrap; measured by run.sh on Linux)\n");
+#else
     printf("  board session heap peak with this build's mbedTLS buffers: %zu bytes (budget checked at device buffer sizes)\n",
            server_peak);
+#endif
     printf("  loopback tls-no-ticket-sent / tls-no-half-rtt-data / tls-record-sender-cap: PASS (largest board record %zu bytes)\n",
            max_server_record);
     cases++;
@@ -894,10 +909,13 @@ static int loopback(const char *cert_path) {
         if (neg[i].reason) CHECK(!strcmp(reason, neg[i].reason), "%s: reason %s", neg[i].label, reason);
         if (neg[i].alert) CHECK(alert == neg[i].alert, "%s: alert %d", neg[i].label, alert);
         int want_client = neg[i].client_alert >= 0 ? neg[i].client_alert : neg[i].alert;
-        /* mbedTLS 4.1 as a TLS 1.3 server encrypts an alert about the client
-         * flight under its handshake keys although it already sent Finished;
-         * a client that switched keys sees bad_record_mac instead of the
-         * alert. Either way the handshake fails closed (recorded finding). */
+        /* secure-session-v2.1 §6.1 "client-observable outcome": mbedTLS 4.1
+         * as a TLS 1.3 server protects its alert about the client flight with
+         * the handshake keys although it already sent Finished, so a client
+         * that switched to application keys sees bad_record_mac. The client
+         * must fail before any application data with either the expected
+         * alert or bad_record_mac; the decision itself is asserted here at
+         * the board (reason). */
         bool post_finished = neg[i].client_alert > 0 && neg[i].alert == 0 && client_error == MBEDTLS_ERR_SSL_INVALID_MAC;
         if (want_client > 0 && !post_finished)
             CHECK(client_alert == want_client, "%s: client saw alert %d", neg[i].label, client_alert);
@@ -1132,6 +1150,9 @@ static void deterministic_signatures(void) {
 
 /* §5: one session's heap at the device's mbedTLS buffer sizes. */
 static void heap_profile(void) {
+#ifdef PDSH_NO_HEAP_WRAP
+    CHECK(false, "heap profile needs a linker with --wrap (Linux); never reported as PASS without it");
+#endif
     fake_nvs_reset();
     clock_ms = 7000000;
     CHECK(pdsh_identity_init() && pdsh_identity_probe(device_fp) == PDSH_IDENTITY_OK, "identity");

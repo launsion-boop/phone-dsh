@@ -283,7 +283,17 @@ struct pdsh_ss_conn {
     uint8_t rx[RX_CAP], tx[TX_CAP];
     size_t rx_len, tx_len;
     bool eof, hello_checked, closing;
+    bool fatal; /* a fatal TLS error or alert: no close_notify afterwards */
     int alert;
+    /* §6.1 (secure-session-v2.1) record limit, decided from each record header
+     * as the bytes pass to mbedTLS: a protected record (outer type
+     * application_data) over 4352 + 1 + 16 bytes, or any other record over
+     * 4352 bytes, is record_overflow. mbedTLS 4.1 cannot tell this apart from
+     * other invalid records (it returns INVALID_RECORD or BAD_INPUT_DATA
+     * without an alert), so the board decides it here. */
+    uint8_t rec_hdr[5];
+    size_t rec_hdr_have, rec_left;
+    bool overflow;
     const char *reason;
     char verified_pin[65];
     uint8_t *pend; /* response frames not yet accepted by mbedtls_ssl_write */
@@ -304,11 +314,35 @@ static int bio_send(void *ctx, const unsigned char *buf, size_t len) {
     c->tx_len += n;
     return (int)n;
 }
+#define PDSH_SS_MAX_PLAINTEXT 4352
+#define PDSH_SS_MAX_PROTECTED (PDSH_SS_MAX_PLAINTEXT + 1 + 16)
+static void track_records(pdsh_ss_conn_t *c, const uint8_t *p, size_t n) {
+    while (n) {
+        if (c->rec_left) {
+            size_t k = n < c->rec_left ? n : c->rec_left;
+            c->rec_left -= k;
+            p += k;
+            n -= k;
+            continue;
+        }
+        c->rec_hdr[c->rec_hdr_have++] = *p++;
+        n--;
+        if (c->rec_hdr_have == 5) {
+            size_t len = (size_t)c->rec_hdr[3] << 8 | c->rec_hdr[4];
+            size_t limit = c->rec_hdr[0] == MBEDTLS_SSL_MSG_APPLICATION_DATA ? PDSH_SS_MAX_PROTECTED : PDSH_SS_MAX_PLAINTEXT;
+            if (len > limit) c->overflow = true;
+            c->rec_left = len;
+            c->rec_hdr_have = 0;
+        }
+    }
+}
 static int bio_recv(void *ctx, unsigned char *buf, size_t len) {
     pdsh_ss_conn_t *c = ctx;
+    if (c->overflow) return MBEDTLS_ERR_SSL_WANT_READ; /* nothing more reaches mbedTLS */
     if (!c->rx_len) return c->eof ? MBEDTLS_ERR_SSL_CONN_EOF : MBEDTLS_ERR_SSL_WANT_READ;
     size_t n = len < c->rx_len ? len : c->rx_len;
     memcpy(buf, c->rx, n);
+    track_records(c, c->rx, n);
     memmove(c->rx, c->rx + n, c->rx_len - n);
     c->rx_len -= n;
     return (int)n;
@@ -355,7 +389,7 @@ static int check_client_hello(const uint8_t *p, size_t n) {
     if (n < 5) return 0;
     if (p[0] != 0x16) return -MBEDTLS_SSL_ALERT_MSG_UNEXPECTED_MESSAGE;
     size_t rec = (size_t)p[3] << 8 | p[4];
-    if (rec > 16384) return -MBEDTLS_SSL_ALERT_MSG_DECODE_ERROR;
+    if (rec > PDSH_SS_MAX_PLAINTEXT) return -MBEDTLS_SSL_ALERT_MSG_RECORD_OVERFLOW; /* §6.1 unprotected record */
     if (n < 5 + rec) return 0;
     const uint8_t *h = p + 5, *end = h + rec;
     if (rec < 4 || h[0] != 0x01) return -MBEDTLS_SSL_ALERT_MSG_UNEXPECTED_MESSAGE;
@@ -546,11 +580,21 @@ int pdsh_ss_conn_alert(const pdsh_ss_conn_t *c) { return c->alert; }
 static void finish(pdsh_ss_conn_t *c, const char *reason) {
     if (c->state == PDSH_SS_CONN_OPEN) {
         pdsh_ss_app_close(&c->app);
-        if (!c->alert) mbedtls_ssl_close_notify(&c->ssl); /* after a fatal alert, nothing more */
+        if (!c->alert && !c->fatal) mbedtls_ssl_close_notify(&c->ssl); /* after a fatal error, nothing more */
     }
     if (reason) c->reason = reason;
     c->state = PDSH_SS_CONN_CLOSED;
     c->rx_len = 0;
+}
+
+/* Fatal TLS failure with the board's own alert (never followed by close_notify). */
+static void fail_tls(pdsh_ss_conn_t *c, uint8_t alert, const char *reason) {
+    c->fatal = true;
+    if (alert) {
+        c->alert = alert;
+        mbedtls_ssl_send_alert_message(&c->ssl, MBEDTLS_SSL_ALERT_LEVEL_FATAL, alert);
+    }
+    finish(c, reason);
 }
 
 pdsh_ss_conn_state_t pdsh_ss_conn_poll(pdsh_ss_conn_t *c, uint64_t now_ms) {
@@ -574,6 +618,10 @@ pdsh_ss_conn_state_t pdsh_ss_conn_poll(pdsh_ss_conn_t *c, uint64_t now_ms) {
             c->hello_checked = true;
         }
         int r = mbedtls_ssl_handshake(&c->ssl);
+        if (c->overflow) {
+            fail_tls(c, MBEDTLS_SSL_ALERT_MSG_RECORD_OVERFLOW, "record_overflow");
+            return c->state;
+        }
         if (r == MBEDTLS_ERR_SSL_WANT_READ || r == MBEDTLS_ERR_SSL_WANT_WRITE) {
             if (c->eof) finish(c, "eof");
             return c->state;
@@ -603,6 +651,10 @@ pdsh_ss_conn_state_t pdsh_ss_conn_poll(pdsh_ss_conn_t *c, uint64_t now_ms) {
     for (;;) {
         if (c->pend) break; /* one outstanding response: read on once it is out */
         int r = mbedtls_ssl_read(&c->ssl, buf, sizeof(buf));
+        if (c->overflow) {
+            fail_tls(c, MBEDTLS_SSL_ALERT_MSG_RECORD_OVERFLOW, "record_overflow");
+            return c->state;
+        }
         if (r > 0) {
             if (!pdsh_ss_app_input(&c->app, buf, (size_t)r, now_ms) || c->closing) break;
             continue;
@@ -614,16 +666,30 @@ pdsh_ss_conn_state_t pdsh_ss_conn_poll(pdsh_ss_conn_t *c, uint64_t now_ms) {
             }
             break;
         }
-        if (r == MBEDTLS_ERR_SSL_INVALID_RECORD) {
-            /* mbedTLS 4.1 drops a record whose plaintext exceeds
-             * MBEDTLS_SSL_IN_CONTENT_LEN (4352) without an alert; §6.1
-             * requires record_overflow, so the board sends it. */
-            c->alert = MBEDTLS_SSL_ALERT_MSG_RECORD_OVERFLOW;
-            mbedtls_ssl_send_alert_message(&c->ssl, MBEDTLS_SSL_ALERT_LEVEL_FATAL, MBEDTLS_SSL_ALERT_MSG_RECORD_OVERFLOW);
-            finish(c, "record_overflow");
+        if (r == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY) {
+            finish(c, "peer_close");
             return c->state;
         }
-        finish(c, r == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY ? "peer_close" : "tls");
+        /* Every other read error is fatal (§6.1, v2.1): record_overflow only
+         * for the header-decided overflow above; an invalid record within the
+         * limit (unknown type, bad version, empty, no inner content type,
+         * malformed alert) is decode_error; a post-handshake handshake message
+         * (KeyUpdate, anything but the client's own flight) is
+         * unexpected_message; a record that fails authentication is
+         * bad_record_mac; a peer alert gets no answer. */
+        if (r == MBEDTLS_ERR_SSL_INVALID_RECORD || r == MBEDTLS_ERR_SSL_BAD_INPUT_DATA)
+            fail_tls(c, MBEDTLS_SSL_ALERT_MSG_DECODE_ERROR, "invalid_record");
+        else if (r == MBEDTLS_ERR_SSL_UNEXPECTED_MESSAGE)
+            fail_tls(c, MBEDTLS_SSL_ALERT_MSG_UNEXPECTED_MESSAGE, "unexpected_message");
+        else if (r == MBEDTLS_ERR_SSL_INVALID_MAC) {
+#if defined(MBEDTLS_SSL_ALL_ALERT_MESSAGES)
+            c->alert = MBEDTLS_SSL_ALERT_MSG_BAD_RECORD_MAC; /* already sent by mbedTLS */
+            fail_tls(c, 0, "bad_record_mac");
+#else
+            fail_tls(c, MBEDTLS_SSL_ALERT_MSG_BAD_RECORD_MAC, "bad_record_mac");
+#endif
+        } else
+            fail_tls(c, 0, r == MBEDTLS_ERR_SSL_FATAL_ALERT_MESSAGE ? "peer_alert" : "tls");
         return c->state;
     }
     if (c->closing) finish(c, "closed");
