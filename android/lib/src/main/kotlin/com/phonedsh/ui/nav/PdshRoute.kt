@@ -134,6 +134,11 @@ public sealed interface PdshRoute {
         override val presentation: PdshPresentation = PdshPresentation.PUSH
     }
 
+    /** 设置行「Android ADB」; §1: push. The android_* tools' saved target (native-mcp.md). */
+    public data object AndroidAdb : PdshRoute {
+        override val presentation: PdshPresentation = PdshPresentation.PUSH
+    }
+
     /**
      * The MCP server editor, opened from [Mcp]'s list.
      *
@@ -453,6 +458,7 @@ public object PdshSettingsRows {
         SettingsDestination.MCP -> PdshRoute.Mcp
         SettingsDestination.SSH -> PdshRoute.Ssh
         SettingsDestination.BLUETOOTH -> PdshRoute.Bluetooth
+        SettingsDestination.ANDROID_ADB -> PdshRoute.AndroidAdb
         SettingsDestination.EGRESS -> PdshRoute.Egress
         SettingsDestination.PLUGIN_CONFIGURATION -> PdshRoute.Configuration
         SettingsDestination.COMMAND -> PdshRoute.Tools

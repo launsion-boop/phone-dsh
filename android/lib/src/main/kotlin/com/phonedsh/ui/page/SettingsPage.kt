@@ -236,6 +236,9 @@ public enum class SettingsDestination {
 
     /** 蓝牙设备: scan + standard GATT (`spec/device/v1/android-standard-gatt.md`). */
     BLUETOOTH,
+
+    /** Android ADB: the LAN ADB target of the native android_* tools (`spec/v1/native-mcp.md`). */
+    ANDROID_ADB,
     WEB_SEARCH,
     EGRESS,
     PLUGIN_CONFIGURATION,
@@ -1329,6 +1332,7 @@ private fun SettingsIndexList(
             SettingsIndexEntry("mcp", native("MCP 与局域网设备", "MCP and LAN devices"), com.phonedsh.ui.icon.PdshIcon.DATABASE, callback = { onNavigate(SettingsDestination.MCP) }),
             SettingsIndexEntry("ssh", native("SSH 主机", "SSH hosts"), com.phonedsh.ui.icon.PdshIcon.TERMINAL, callback = { onNavigate(SettingsDestination.SSH) }),
             SettingsIndexEntry("bluetooth", native("蓝牙设备", "Bluetooth devices"), com.phonedsh.ui.icon.PdshIcon.NETWORK, callback = { onNavigate(SettingsDestination.BLUETOOTH) }),
+            SettingsIndexEntry("androidAdb", native("Android ADB", "Android ADB"), com.phonedsh.ui.icon.PdshIcon.DEVICE, callback = { onNavigate(SettingsDestination.ANDROID_ADB) }),
         )),
         SettingsIndexSection("conversation", native(UiStrings.SETTINGS_SECTION_CONVERSATION, UiStrings.SETTINGS_SECTION_CONVERSATION_EN), listOf(
             SettingsIndexEntry.menu("appearance", native("外观", UiStrings.SETTINGS_ROW_APPEARANCE_EN), com.phonedsh.ui.icon.PdshIcon.GEAR, appearance,

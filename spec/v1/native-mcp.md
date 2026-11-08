@@ -42,6 +42,16 @@ validates and persists an enabled target before checking model/OS/display. It
 works while control is disabled, is serialized with other operations and uses
 the same receipt rules. Failed connection checks retain the saved target.
 
+Host status: the iOS host (`Sources/PhoneDSHADB`) and the Android host
+(`android/net/src/main/kotlin/com/phonedsh/adb`, mounted by `WebViewEngine` behind
+the loopback token gate and D14 admission) serve the same 26 Android tools, the
+same receipt rules and the same `initialize` answer. `tap.json`, `connect.json`
+and `package-management.json` run through both servers. The Android host does
+not advertise accelerator `adb`, so the Worker file transfer bridge below and
+`file-transfer.json` are iOS-only; the tool descriptions and `instructions`
+still name the iPhone and that bridge (open request in
+[PC-20261108-android-adb-host](../../docs/protocol-changes/PC-20261108-android-adb-host.md)).
+
 ## Worker ADB file transfer bridge
 
 The host advertises accelerator `adb`. Worker commands `adb push LOCAL REMOTE`

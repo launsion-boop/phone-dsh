@@ -511,6 +511,13 @@ public fun PdshNavHost(
             )
             is PdshRoute.SshEditor -> SshEditorRoute(route, facts, onBack, onHostAction)
             PdshRoute.Bluetooth -> BluetoothRoute(facts, onBack, onHostAction)
+            PdshRoute.AndroidAdb -> com.phonedsh.ui.page.AndroidADBSettingsPage(
+                facts = facts.androidAdb,
+                onBack = onBack,
+                onSave = { onHostAction(PdshHostAction.AndroidAdbSave(it)) },
+                onCheck = { onHostAction(PdshHostAction.AndroidAdbCheck(it)) },
+                onCancel = { onHostAction(PdshHostAction.AndroidAdbCancel) },
+            )
             is PdshRoute.McpEditor -> McpEditorRoute(route, facts, onBack, onHostAction)
             PdshRoute.Runtime -> RuntimeRoute(facts, onBack, onHostAction, backLevel)
             PdshRoute.Egress -> EgressRoute(facts, onBack)

@@ -227,6 +227,9 @@ internal fun HostShell(
     // SSH 主机: the process-wide saved connections (docs/native-ssh.md).
     val sshSettings = remember { SshSettingsStore.get(context) }
     val sshFacts by sshSettings.facts.collectAsState()
+    // Android ADB: the process-owned native android_* tool host (native-mcp.md).
+    val androidAdb = remember { AndroidAdbHost.get(context) }
+    val androidAdbFacts by androidAdb.facts.collectAsState()
     val systemDark = isSystemInDarkTheme()
     // L69: the chat page's one state. Collected here so a Worker event rebuilds the
     // page on the next frame; the view model is its only writer.
@@ -796,9 +799,13 @@ internal fun HostShell(
     // platform really carries this app's back gesture through the invoker. It is
     // measured by the back callback (one gesture moves it), so it is applied here
     // rather than inside the remembered walk.
-    val shownFacts = PredictiveBack.measured(facts).copy(bluetooth = bluetoothFacts, ssh = sshFacts)
+    val shownFacts = PredictiveBack.measured(facts).copy(bluetooth = bluetoothFacts, ssh = sshFacts, androidAdb = androidAdbFacts)
     LaunchedEffect(chatUi.commandExecution?.id) {
         if (chatUi.commandExecution != null) nav = nav.push(PdshRoute.CommandResult)
+    }
+    // The model may have saved a new target with android_connect since the last read.
+    LaunchedEffect(nav.current) {
+        if (nav.current == PdshRoute.AndroidAdb) androidAdb.refresh()
     }
     var drawerOpen by remember { mutableStateOf(false) }
     var webFaceOpened by remember { mutableStateOf(false) }
@@ -935,6 +942,9 @@ internal fun HostShell(
                             } else if (action.wire.startsWith("ssh.")) {
                                 // The page owns its result lines; no host note.
                                 sshSettings.handle(action)
+                            } else if (action.wire.startsWith("androidAdb.")) {
+                                // The page owns its 连接状态 line; no host note.
+                                androidAdb.handle(action)
                             } else if (action is PdshHostAction.OpenWorkspaceFiles) {
                                 notice = null
                                 nav = nav.push(PdshRoute.Files(action.id.ifBlank { null }))
@@ -1676,6 +1686,9 @@ private fun actionLabel(action: PdshHostAction): String = when (action) {
     is PdshHostAction.SshSaveConnection -> "保存 SSH 连接"
     is PdshHostAction.SshDeleteConnection -> "删除 SSH 连接"
     is PdshHostAction.SshInspectHostKey -> "读取 SSH 服务器指纹"
+    is PdshHostAction.AndroidAdbSave -> "保存 Android ADB"
+    is PdshHostAction.AndroidAdbCheck -> "测试 Android ADB 连接"
+    PdshHostAction.AndroidAdbCancel -> "停止当前 Android 操作"
     is PdshHostAction.SaveMcpServer -> "保存 MCP 服务器"
     PdshHostAction.StopRuntime -> "停止本地引擎"
     PdshHostAction.RestartRuntime -> "启动本地引擎"
@@ -1725,6 +1738,7 @@ private fun hostRouteNote(route: PdshRoute): String? = when (route) {
 
     PdshRoute.Bluetooth -> null
     PdshRoute.Ssh, is PdshRoute.SshEditor -> null
+    PdshRoute.AndroidAdb -> null
 
     PdshRoute.Configuration -> null
     PdshRoute.Automation -> null

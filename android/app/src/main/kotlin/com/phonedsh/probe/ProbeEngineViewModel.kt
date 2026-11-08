@@ -1124,6 +1124,10 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
         } else {
             null
         },
+        // spec/v1/native-mcp.md: the android_* tools on `/mcp/native`, the same
+        // process-owned server the Android ADB settings page tests with (iOS sets
+        // `configuration.nativeMCP` unconditionally too).
+        nativeMcp = AndroidAdbHost.get(application).server,
     )
 
     private val clock = AndroidClock()
@@ -1287,6 +1291,9 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
      * measured no turn, so it claims nothing and the page lists every file as 未归属.
      */
     private val sessionArtifacts = HostSessionArtifacts(walPaths.materializedWorkspace)
+
+    /** `android_install_apk source=workspace` reads the materialized `/dsh/workspace` (iOS ChatModel does the same). */
+    private val adbWorkspaceBound: Unit = AndroidAdbHost.get(application).bindWorkspace(walPaths.materializedWorkspace)
 
     /** The artifact fact the shell collects; one value per turn measurement. */
     internal val artifactFacts: kotlinx.coroutines.flow.StateFlow<com.phonedsh.ui.page.SessionArtifactsFacts> =

@@ -82,6 +82,7 @@ class PdshSettingsRouteTest {
                 SettingsDestination.MCP,
                 SettingsDestination.SSH, // PdshRoute.Ssh
                 SettingsDestination.BLUETOOTH, // PdshRoute.Bluetooth
+                SettingsDestination.ANDROID_ADB, // PdshRoute.AndroidAdb
                 SettingsDestination.WEB_SEARCH,
                 SettingsDestination.EGRESS,
                 SettingsDestination.PLUGIN_CONFIGURATION,

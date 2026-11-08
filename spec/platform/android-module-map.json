@@ -9,9 +9,9 @@
     },
     {
       "swift": "PhoneDSHADB",
-      "kotlin": null,
-      "gradle": null,
-      "status": "absent"
+      "kotlin": "com.phonedsh.adb",
+      "gradle": ":net",
+      "status": "mapped"
     },
     {
       "swift": "PhoneDSHAgentCore",
