@@ -249,3 +249,85 @@ v1. The contract owner chose and froze global local intent ordering in
 separate shared fixtures and actual-callback tests. The v1 discovery object,
 read, grant and Link cases remain required. The new revision does not close
 GAP-30's separate status-driven side effects or imply radio evidence.
+
+## Local implementation handoff
+
+The store now takes immutable parent/object/UUID/property snapshots through one
+production dispatcher for real CoreBluetooth callbacks and controlled physical
+substitutes. Its store-owned endpoint map supplies the same read, alert, value
+and notification admission on both paths. The 66 shared rows, wrong-expectation
+mutations, real Link channel and pending operation, old endpoint callbacks,
+manager-off reentry, and unrequested old service after reconnect run through
+that store. This does not prove callback origin when the same OS objects are
+reused, physical radio behavior or authenticated identity. Task grants remain
+disabled. A non-active Link test verifies the underlying physical service and
+endpoint storage is empty; B's physical standard endpoints remain the original
+objects where its state is unaffected.
+
+- After building the current candidate in the isolated scratch directory,
+  `TMPDIR=/Volumes/dream/pdsh59-isolated.oyliws/tmp
+  XDG_CACHE_HOME=/Volumes/dream/pdsh59-isolated.oyliws/cache
+  SWIFTPM_MODULECACHE_OVERRIDE=/Volumes/dream/pdsh59-isolated.oyliws/clang-cache
+  CLANG_MODULE_CACHE_PATH=/Volumes/dream/pdsh59-isolated.oyliws/clang-cache
+  swift test --scratch-path /Volumes/dream/pdsh59-isolated.oyliws/scratch
+  --cache-path /Volumes/dream/pdsh59-isolated.oyliws/cache
+  --config-path /Volumes/dream/pdsh59-isolated.oyliws/config
+  --security-path /Volumes/dream/pdsh59-isolated.oyliws/security --skip-build
+  -j 2 --filter
+  'BLEStatusOrderingTests|StandardGattDiscoveryOwnershipTests|StandardGattServiceChangeTests|StandardGattGrantOrderingTests|LegacyIdentityObservationTests|BLEIdentityTests|BLEDeviceMCPTests|PDSHLinkTests'`
+  → PASS, 67 XCTest cases, including all 66 discovery vectors, ten semantic
+  mutation checks, the v2 status tests and existing lifecycle tests. The
+  initial combined run before the observation-test correction failed in the
+  status test; its failure was not treated as a pass. Logs are in the isolated
+  `full-retest.log` and `swift-test.log`.
+- `TMPDIR=/Volumes/dream/pdsh59-isolated.oyliws/tmp
+  XDG_CACHE_HOME=/Volumes/dream/pdsh59-isolated.oyliws/cache
+  SWIFTPM_MODULECACHE_OVERRIDE=/Volumes/dream/pdsh59-isolated.oyliws/release-clang-cache
+  CLANG_MODULE_CACHE_PATH=/Volumes/dream/pdsh59-isolated.oyliws/release-clang-cache
+  swift build --scratch-path /Volumes/dream/pdsh59-isolated.oyliws/scratch
+  --cache-path /Volumes/dream/pdsh59-isolated.oyliws/cache
+  --config-path /Volumes/dream/pdsh59-isolated.oyliws/config
+  --security-path /Volumes/dream/pdsh59-isolated.oyliws/security --skip-update
+  -c release --target PhoneDSHBLE -j 2` → PASS, macOS arm64, with existing
+  Swift concurrency warnings. After one invalid inspection attempt in which
+  `swift-demangle` was not on PATH, the corrected inspection used
+  `xcrun nm -m /Volumes/dream/pdsh59-isolated.oyliws/scratch/out/Intermediates.noindex/PhoneDSH.build/Release/PhoneDSHBLE-t.build/Objects-normal/arm64/BLEDeviceStore.o | xcrun swift-demangle > /Volumes/dream/pdsh59-isolated.oyliws/release-store-symbols.txt`
+  with `set -o pipefail`, then
+  `rg 'testDiscovery|testAdapter|TestAdapter|TestService|TestCharacteristic|testCaptureConnection|testReinstallCurrent' /Volumes/dream/pdsh59-isolated.oyliws/release-store-symbols.txt`
+  → no matches. The corresponding BLELinkChannel object and inspected I/O
+  seam names likewise yielded no matches.
+- `TMPDIR=/Volumes/dream/pdsh59-isolated.oyliws/tmp
+  XDG_CACHE_HOME=/Volumes/dream/pdsh59-isolated.oyliws/cache
+  CLANG_MODULE_CACHE_PATH=/Volumes/dream/pdsh59-isolated.oyliws/clang-cache
+  python3 -u examples/probe-app/identity-ui-harness/run.py --runtime
+  com.apple.CoreSimulator.SimRuntime.iOS-18-4 --output-parent
+  /Volumes/dream/pdsh59-isolated.oyliws --package-cache
+  /Volumes/dream/pdsh59-isolated.oyliws/ios-packages` → FAIL: the new UI test
+  tapped the switch row rather than its actual control; two original UI tests
+  passed, and xcodebuild timed out while collecting diagnostics. After fixing
+  that test, `TMPDIR=/Volumes/dream/pdsh59-isolated.oyliws/tmp
+  XDG_CACHE_HOME=/Volumes/dream/pdsh59-isolated.oyliws/cache
+  CLANG_MODULE_CACHE_PATH=/Volumes/dream/pdsh59-isolated.oyliws/clang-cache
+  python3 -u /Volumes/dream/pdsh59-isolated.oyliws/rerun_ui.py` rebuilt the
+  generated harness and ran all three tests on a new iOS 18.4 simulator → PASS.
+  Both task-created simulators were deleted. Logs and retained runner are under
+  `/Volumes/dream/pdsh59-isolated.oyliws/`. This is simulated radio input.
+- `TMPDIR=/Volumes/dream/pdsh59-isolated.oyliws/tmp PYTHONDONTWRITEBYTECODE=1
+  bash scripts/ci/check.sh --only phone-spec,phone-p0-conformance,phone-cross-tree`
+  → phone-spec PASS; phone-p0-conformance FAIL on missing/stale page
+  contracts; phone-cross-tree PASS. P0 remains a real failure and must not be
+  downgraded to a skip. The earlier broader
+  `swift test -j 2 --filter PhoneDSHBLETests` also remains FAIL: its two C
+  bridge tests could not compile their pinned cJSON component and those target
+  task paths are not exercised by the acceptance filter here.
+
+Physical standard-GATT peripheral behavior, iPhone/ESP32 authenticated task
+execution, reboot, key change, production TLS, Android device support, P0 and
+independent security review are NOT_RUN or open. GAP-30 and GAP-31 remain
+partial; GAP-16 remains open.
+
+Post-integration source review identified the untested timeout/final-discovery
+reentry described in [the deadline CCR](PC-20261107-discovery-deadline-ccr.md).
+The 66 shared rows do not cover that winner; this handoff is partial and does
+not claim complete conformance or merge readiness. Scan/stop reentry is tracked
+separately in [the scan CCR](PC-20261107-ble-scan-reentry-ccr.md).

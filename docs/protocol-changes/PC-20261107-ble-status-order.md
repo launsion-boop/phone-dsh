@@ -173,3 +173,24 @@ phone-spec PASS, phone-p0-conformance FAIL on the missing/stale page
 contracts, and phone-cross-tree PASS. The pre-v2 discovery candidate's
 57 local Swift tests passed, but status-v2 runtime, semantic-mutation,
 simulator and physical-device acceptance are NOT_RUN at this revision.
+
+## Local implementation handoff
+
+All store status publication sites now reserve a non-reusable local intent
+before applicable reentrant operations and commit only while the intent and
+its original local guards remain valid. Equal text suppresses redundant
+Observation without undoing the new intent. Discovery error and manager cleanup
+claim their own lifecycle before publishing; stale connect failures and a
+physically unavailable timeout do not reserve a status. Link notification
+failure also retains the channel-installation revision across observation.
+The status losing a race does not alone skip its required teardown.
+
+The isolated `BLEStatusOrderingTests` retry → PASS, nine XCTest methods,
+including the ten shared vectors, all ten semantic mutations through the real
+comparator, and focused scan, stale owner, same-channel reinstall and actual
+Link handshake failure. The complete affected filter then → PASS, 67 XCTest
+methods; exact command, earlier failed attempt and log paths are recorded in
+[the discovery handoff](PC-20261107-gatt-discovery-ownership.md). A release
+build and inspected DEBUG seam symbols passed as recorded there. The local
+ordering tests use simulated physical callbacks, not actual CoreBluetooth
+radio evidence; other status-driven effects in GAP-30 remain open.

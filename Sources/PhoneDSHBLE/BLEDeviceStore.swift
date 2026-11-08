@@ -55,7 +55,7 @@ import PhoneDSHAgentCore
     @ObservationIgnored private var scanRequested = false
     @ObservationIgnored private var central: CBCentralManager?
     @ObservationIgnored private var peripherals: [UUID: CBPeripheral] = [:]
-    @ObservationIgnored private var characteristics: [UUID: [StandardBLEProfile: CBCharacteristic]] = [:]
+    @ObservationIgnored private var characteristics: [UUID: [StandardBLEProfile: AnyObject]] = [:]
     @ObservationIgnored private var ambiguousProfiles: [UUID: Set<StandardBLEProfile>] = [:]
     @ObservationIgnored private var connectionTimers: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored private var scanTimer: Task<Void, Never>?
@@ -76,8 +76,48 @@ import PhoneDSHAgentCore
         var identityErrorRevision = Revision()
         var standardSubscribed = Set<StandardBLEProfile>()
         var standardSubscriptionUnknown = Set<StandardBLEProfile>()
+        var discovery: DiscoveryLedger?
+        let deadlineRevision = Revision()
     }
     private final class Revision {}
+    @ObservationIgnored private var statusRevision = Revision()
+    private func reserveStatus() -> Revision {
+        let revision = Revision(); statusRevision = revision; return revision
+    }
+    private func publishStatus(_ revision: Revision, _ text: @autoclosure () -> String,
+                               eligible: () -> Bool = { true }) {
+        let message = text()
+        guard statusRevision === revision, eligible(), _status != message else { return }
+        withMutation(keyPath: \.status) {
+            guard self.statusRevision === revision, eligible(), self._status != message else { return }
+            self._status = message
+        }
+    }
+    private struct ServiceObservation {
+        let object: AnyObject, parent: AnyObject?
+        let uuid: CBUUID
+        let primary: Bool
+    }
+    private struct CharacteristicObservation {
+        let object: AnyObject, parent: AnyObject?
+        let uuid: CBUUID
+        let properties: CBCharacteristicProperties
+    }
+    private final class DiscoveryRequest {
+        enum State { case planned, submitted, completed, skipped }
+        let service: ServiceObservation
+        var state: State = .planned
+        var snapshot: [CharacteristicObservation]?
+        init(_ service: ServiceObservation) { self.service = service }
+    }
+    private final class DiscoveryLedger {
+        let peer: AnyObject
+        var servicesSubmitted = false
+        var services: [ServiceObservation]?
+        var requests: [DiscoveryRequest] = []
+        var revision = Revision()
+        init(peer: AnyObject) { self.peer = peer }
+    }
     private final class ReadClaim: @unchecked Sendable {
         enum Outcome { case cancelled, permission, timeout, unavailable, disconnected, value(Result<String, Error>) }
         private let lock = NSLock()
@@ -125,6 +165,8 @@ import PhoneDSHAgentCore
     }
     final class TestAdapter {
         var poweredOn = true
+        var managerInitialized = true
+        var managerState: CBManagerState = .poweredOn
         var commands: [TestCommand] = []
         var beforeConnect: ((UUID) -> Void)?
         var beforeReadReserve: (() -> Void)?
@@ -141,6 +183,22 @@ import PhoneDSHAgentCore
         var validPeers: [UUID: NSObject] = [:]
         var profileEndpoints: [UUID: [StandardBLEProfile: NSObject]] = [:]
         var identityDefaults: UserDefaults?
+        var discoverySubmissions: [(id: UUID, peer: AnyObject, service: AnyObject?)] = []
+        var beforeCharacteristicReserve: ((UUID, TestService) -> Void)?
+        var afterCharacteristicSubmit: ((UUID, TestService) -> Void)?
+        var linkNotifying: [UUID: Set<ObjectIdentifier>] = [:]
+    }
+    final class TestService: NSObject {
+        var parent: AnyObject?, uuid: String, primary: Bool
+        init(parent: AnyObject?, uuid: String, primary: Bool = true) {
+            self.parent = parent; self.uuid = uuid; self.primary = primary
+        }
+    }
+    final class TestCharacteristic: NSObject {
+        var parent: AnyObject?, uuid: String, properties: CBCharacteristicProperties
+        init(parent: AnyObject?, uuid: String, properties: CBCharacteristicProperties) {
+            self.parent = parent; self.uuid = uuid; self.properties = properties
+        }
     }
     @ObservationIgnored private var testAdapter: TestAdapter?
     @ObservationIgnored private var testCommittedLinkEvents: [UUID: Int] = [:]
@@ -170,18 +228,49 @@ import PhoneDSHAgentCore
         guard linkClients.isEmpty, linkTasks.isEmpty else { return }
         deviceTaskDiscoveryEnabled = enabled
     }
-    public func scan() {
+    private var managerInitialized: Bool {
         #if DEBUG
-        if let testAdapter {
-            guard testAdapter.poweredOn else { return }
-            testAdapter.commands.append(.scan); scanning = true; return
+        if let testAdapter { return testAdapter.managerInitialized }
+        #endif
+        return central != nil
+    }
+    private func managerMatches(_ state: CBManagerState) -> Bool {
+        #if DEBUG
+        if let adapter = testAdapter {
+            return adapter.managerInitialized && adapter.managerState == state &&
+                   (state == .poweredOn ? adapter.poweredOn : !adapter.poweredOn)
         }
         #endif
-        if central == nil { scanRequested = true; status = "正在初始化蓝牙"; central = CBCentralManager(delegate: self, queue: .main); return }
-        guard central?.state == .poweredOn else { status = "请在系统设置中开启蓝牙并授权"; return }
+        return central?.state == state
+    }
+    public func scan() {
+        if !managerInitialized {
+            let revision = reserveStatus()
+            scanRequested = true
+            publishStatus(revision, "正在初始化蓝牙", eligible: { !self.managerInitialized })
+            #if DEBUG
+            if let adapter = testAdapter { adapter.managerInitialized = true; return }
+            #endif
+            if central == nil { central = CBCentralManager(delegate: self, queue: .main) }
+            return
+        }
+        guard poweredOn else {
+            let revision = reserveStatus()
+            publishStatus(revision, "请在系统设置中开启蓝牙并授权", eligible: { self.managerInitialized && !self.poweredOn })
+            return
+        }
+        let revision = reserveStatus()
         // Foreground, bounded scan. Unadvertised services are discovered after user selection.
+        #if DEBUG
+        if let adapter = testAdapter { adapter.commands.append(.scan) }
+        else { central?.scanForPeripherals(withServices: nil, options: [CBCentralManagerScanOptionAllowDuplicatesKey: false]) }
+        #else
         central?.scanForPeripherals(withServices: nil, options: [CBCentralManagerScanOptionAllowDuplicatesKey: false])
-        scanning = true; status = "正在扫描（15 秒）"
+        #endif
+        scanning = true
+        guard poweredOn else { observeManagerUnavailable(); return }
+        publishStatus(revision, "正在扫描（15 秒）", eligible: { self.poweredOn && self.managerInitialized })
+        guard poweredOn else { observeManagerUnavailable(); return }
         scanTimer?.cancel()
         scanTimer = Task { try? await Task.sleep(for: .seconds(15)); guard !Task.isCancelled else { return }; stopScan() }
     }
@@ -198,8 +287,14 @@ import PhoneDSHAgentCore
         centralStateChanged(central.state)
     }
     private func centralStateChanged(_ state: CBManagerState) {
+        guard managerMatches(state) else {
+            if !poweredOn { observeManagerUnavailable() }
+            return
+        }
+        let revision = reserveStatus()
         if state == .poweredOn {
-            status = "蓝牙已就绪，请点击扫描"
+            publishStatus(revision, "蓝牙已就绪，请点击扫描", eligible: { self.managerMatches(state) })
+            guard poweredOn else { observeManagerUnavailable(); return }
             if scanRequested { scanRequested = false; scan() }
         } else {
             let invalidatesPeers: Bool
@@ -212,7 +307,7 @@ import PhoneDSHAgentCore
             if invalidatesPeers { testAdapter?.validPeers.removeAll(); testAdapter?.profiles.removeAll(); testAdapter?.profileEndpoints.removeAll() }
             #endif
             managerUnavailable(reset: invalidatesPeers)
-            status = "蓝牙不可用，状态：\(state.rawValue)"
+            publishStatus(revision, "蓝牙不可用，状态：\(state.rawValue)", eligible: { self.managerMatches(state) })
         }
     }
     private func recordDiscovery(_ id: UUID, physical: AnyObject, name: String, rssi: Int) {
@@ -251,7 +346,7 @@ import PhoneDSHAgentCore
         guard testing || (peripheral != nil && peripheral?.state == .disconnected) else { return }
         let current = Owner(); current.phase = .connecting; current.peripheral = peripheral
         #if DEBUG
-        testAdapter?.profiles[id] = nil; testAdapter?.profileEndpoints[id] = nil
+        testAdapter?.profiles[id] = nil; testAdapter?.profileEndpoints[id] = nil; testAdapter?.linkNotifying[id] = nil
         current.physicalIdentity = testAdapter?.validPeers[id] ?? peripheral
         #else
         current.physicalIdentity = peripheral
@@ -285,8 +380,14 @@ import PhoneDSHAgentCore
         central?.connect(peripheral, options: nil)
     }
     private func connectionTimedOut(_ id: UUID, current: Owner) {
-        guard owners[id] === current, current.phase == .connecting || current.phase == .connected else { return }
-        status = "连接或服务发现超时"
+        guard connectionTimers[id] != nil, owners[id] === current, current.phase == .connecting || current.phase == .connected else { return }
+        guard poweredOn else { observeManagerUnavailable(); return }
+        let revision = reserveStatus()
+        publishStatus(revision, "连接或服务发现超时", eligible: {
+            self.poweredOn && self.connectionTimers[id] != nil && self.owners[id] === current &&
+            (current.phase == .connecting || current.phase == .connected)
+        })
+        guard poweredOn else { observeManagerUnavailable(); return }
         guard owners[id] === current, current.phase == .connecting || current.phase == .connected else { return }
         disconnect(id)
     }
@@ -542,9 +643,7 @@ import PhoneDSHAgentCore
     }
     public func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
         guard self.central === central else { managerUnavailable(reset: true); return }
-        guard acceptDelegatePeer(peripheral.identifier, physical: peripheral) != nil else { return }
-        failedConnect(peripheral.identifier)
-        status = error?.localizedDescription ?? "连接失败"
+        dispatchConnectFailure(peripheral.identifier, physical: peripheral, error: error)
     }
     public func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
         guard self.central === central else { managerUnavailable(reset: true); return }
@@ -577,10 +676,17 @@ import PhoneDSHAgentCore
             guard self.owners[id] === current, current.phase == .connected else { return }
             $0.state = "已连接"
         }
-        guard owners[id] === current, current.phase == .connected, poweredOn else { return }
+        guard poweredOn else { observeManagerUnavailable(); return }
+        guard owners[id] === current, current.phase == .connected, let peer = current.physicalIdentity else { return }
+        let ledger = DiscoveryLedger(peer: peer); current.discovery = ledger
+        ledger.servicesSubmitted = true
+        #if DEBUG
+        testAdapter?.discoverySubmissions.append((id, peer, nil))
+        #endif
         submitConnected(id, current: current, action: .discoverServices) {
             peripheral?.discoverServices((Array(Set(StandardBLEProfile.allCases.map(\.service))) + [PDSHLink.service]).map { CBUUID(string: $0) })
         }
+        if !poweredOn { observeManagerUnavailable() }
     }
 
     private func failedConnect(_ id: UUID) {
@@ -590,6 +696,24 @@ import PhoneDSHAgentCore
         } else if current.phase != .quarantined {
             quarantineUnexpected(id, current: current, sendDisconnect: current.phase == .connected)
         }
+    }
+    private func dispatchConnectFailure(_ id: UUID, physical: AnyObject, error: Error?) {
+        guard let current = acceptDelegatePeer(id, physical: physical) else { return }
+        guard current.phase == .connecting, current.submitted else {
+            // An unexpected callback still follows the lifecycle quarantine
+            // policy, but is not an eligible status publication.
+            failedConnect(id)
+            return
+        }
+        let revision = reserveStatus()
+        failedConnect(id)
+        guard poweredOn else { observeManagerUnavailable(); return }
+        guard owners[id] === current, current.physicalIdentity === physical else { return }
+        let phase = current.phase
+        publishStatus(revision, error?.localizedDescription ?? "连接失败", eligible: {
+            self.poweredOn && self.owners[id] === current && current.physicalIdentity === physical && current.phase == phase
+        })
+        if !poweredOn { observeManagerUnavailable() }
     }
 
     private func disconnectCallback(_ id: UUID, current: Owner) {
@@ -613,66 +737,221 @@ import PhoneDSHAgentCore
             $0.state = "未连接"
         }
     }
-    public func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
-        let id = peripheral.identifier
-        guard let current = acceptDelegatePeer(id, physical: peripheral), current.phase == .connected else { return }
-        guard error == nil else { status = error!.localizedDescription; disconnect(peripheral.identifier); return }
-        let services = peripheral.services ?? []
-        if services.isEmpty { connectionTimers.removeValue(forKey: peripheral.identifier)?.cancel(); update(peripheral.identifier) { guard self.owners[id] === current, current.phase == .connected else { return }; $0.state = "无支持的标准服务" } }
-        for service in services {
-            guard poweredOn, owners[id] === current, current.phase == .connected else { return }
-            if service.uuid == CBUUID(string: PDSHLink.service) {
-                update(peripheral.identifier) { guard self.owners[id] === current, current.phase == .connected else { return }; $0.linkState = "发现 Link 特征中" }
-                guard poweredOn, owners[id] === current, current.phase == .connected else { return }
-                submitConnected(id, current: current, action: .discoverCharacteristics) {
-                    peripheral.discoverCharacteristics([PDSHLink.rx, PDSHLink.tx, PDSHLink.audioUp].map { CBUUID(string: $0) }, for: service)
-                }
-                continue
+    private func sameMultiset<T>(_ lhs: [T], _ rhs: [T], equal: (T, T) -> Bool) -> Bool {
+        guard lhs.count == rhs.count else { return false }
+        var remaining = rhs
+        for item in lhs {
+            guard let index = remaining.firstIndex(where: { equal(item, $0) }) else { return false }
+            remaining.remove(at: index)
+        }
+        return true
+    }
+    private func sameServices(_ a: [ServiceObservation], _ b: [ServiceObservation]) -> Bool {
+        sameMultiset(a, b) { $0.object === $1.object && $0.parent === $1.parent && $0.uuid == $1.uuid && $0.primary == $1.primary }
+    }
+    private func sameCharacteristics(_ a: [CharacteristicObservation], _ b: [CharacteristicObservation]) -> Bool {
+        sameMultiset(a, b) { $0.object === $1.object && $0.parent === $1.parent && $0.uuid == $1.uuid && $0.properties == $1.properties }
+    }
+    private func discoveryCurrent(_ id: UUID, _ current: Owner, _ ledger: DiscoveryLedger) -> Bool {
+        poweredOn && owners[id] === current && current.phase == .connected &&
+        current.discovery === ledger && current.physicalIdentity === ledger.peer
+    }
+    private func finishDiscoveryDeadline(_ id: UUID, _ current: Owner, _ ledger: DiscoveryLedger) {
+        guard discoveryCurrent(id, current, ledger), ledger.services != nil,
+              ledger.requests.allSatisfy({ $0.state == .completed || $0.state == .skipped }) else { return }
+        connectionTimers.removeValue(forKey: id)?.cancel()
+    }
+    private func discoveryError(_ id: UUID, current: Owner, ledger: DiscoveryLedger, error: Error) {
+        let revision = reserveStatus()
+        // Closing is the error's claim. No observer may complete the pending
+        // discovery or issue another request while the error is published.
+        close(id, current: current, outcome: .disconnected, quarantine: false, serviceChange: true)
+        guard poweredOn else { observeManagerUnavailable(); return }
+        guard owners[id] === current, current.phase == .closing, current.discovery === ledger else { return }
+        publishStatus(revision, error.localizedDescription, eligible: {
+            self.poweredOn && self.owners[id] === current && current.phase == .closing && current.discovery === ledger
+        })
+        guard poweredOn else { observeManagerUnavailable(); return }
+    }
+    private func discoveryPeer(_ id: UUID, physical: AnyObject) -> (Owner, DiscoveryLedger)? {
+        guard poweredOn else { observeManagerUnavailable(); return nil }
+        guard let current = acceptDelegatePeer(id, physical: physical, serviceChange: true) else { return nil }
+        guard current.phase == .connected else {
+            if current.phase == .connecting || current.phase == .idle {
+                quarantineUnexpected(id, current: current, sendDisconnect: current.submitted, serviceChange: true)
             }
-            let ids = StandardBLEProfile.allCases.filter { CBUUID(string: $0.service) == service.uuid }.map { CBUUID(string: $0.characteristic) }
-            submitConnected(id, current: current, action: .discoverCharacteristics) { peripheral.discoverCharacteristics(ids, for: service) }
+            return nil
+        }
+        guard let ledger = current.discovery, ledger.peer === physical else {
+            quarantineUnexpected(id, current: current, sendDisconnect: true, serviceChange: true); return nil
+        }
+        return (current, ledger)
+    }
+    private func dispatchServices(_ id: UUID, physical: AnyObject, services: [ServiceObservation]?, error: Error?) {
+        guard let (current, ledger) = discoveryPeer(id, physical: physical) else { return }
+        guard ledger.servicesSubmitted else { quarantineUnexpected(id, current: current, sendDisconnect: true, serviceChange: true); return }
+        if let old = ledger.services {
+            guard error == nil, let services, sameServices(old, services) else {
+                quarantineUnexpected(id, current: current, sendDisconnect: true, serviceChange: true); return
+            }
+            return
+        }
+        if let error { discoveryError(id, current: current, ledger: ledger, error: error); return }
+        guard let services else { return }
+        guard services.allSatisfy({ $0.parent === physical }) else {
+            quarantineUnexpected(id, current: current, sendDisconnect: true, serviceChange: true); return
+        }
+        ledger.services = services
+        let linkUUID = CBUUID(string: PDSHLink.service)
+        var distinct: [ServiceObservation] = []
+        for service in services where !distinct.contains(where: { $0.object === service.object }) { distinct.append(service) }
+        let linkCount = distinct.filter { $0.uuid == linkUUID }.count
+        for service in distinct {
+            let standard = StandardBLEProfile.allCases.contains { CBUUID(string: $0.service) == service.uuid }
+            guard standard || service.uuid == linkUUID else { continue }
+            let request = DiscoveryRequest(service)
+            if service.uuid == linkUUID && linkCount > 1 { request.state = .skipped }
+            ledger.requests.append(request)
+        }
+        ledger.revision = Revision()
+        finishDiscoveryDeadline(id, current, ledger)
+        let revision = ledger.revision
+        update(id) {
+            guard self.discoveryCurrent(id, current, ledger), ledger.revision === revision else { return }
+            $0.state = "已连接"
+            if linkCount == 0 { $0.linkState = "本次未发现 Link" }
+            else if linkCount > 1 { $0.linkState = "发现多个 Link 服务，暂不可用" }
+            else { $0.linkState = "发现 Link 特征中" }
+        }
+        guard poweredOn else { observeManagerUnavailable(); return }
+        for request in ledger.requests where request.state == .planned {
+            guard discoveryCurrent(id, current, ledger) else { return }
+            #if DEBUG
+            if let service = request.service.object as? TestService { testAdapter?.beforeCharacteristicReserve?(id, service) }
+            #endif
+            guard poweredOn else { observeManagerUnavailable(); return }
+            guard discoveryCurrent(id, current, ledger), request.state == .planned else { return }
+            let ids = request.service.uuid == linkUUID
+                ? [PDSHLink.rx, PDSHLink.tx, PDSHLink.audioUp].map { CBUUID(string: $0) }
+                : StandardBLEProfile.allCases.filter { CBUUID(string: $0.service) == request.service.uuid }.map { CBUUID(string: $0.characteristic) }
+            request.state = .submitted
+            #if DEBUG
+            if let adapter = testAdapter, let service = request.service.object as? TestService {
+                adapter.discoverySubmissions.append((id, physical, service))
+                adapter.commands.append(.discoverCharacteristics(id))
+                adapter.afterCharacteristicSubmit?(id, service)
+            } else if let peripheral = physical as? CBPeripheral, let service = request.service.object as? CBService {
+                peripheral.discoverCharacteristics(ids, for: service)
+            }
+            #else
+            if let peripheral = physical as? CBPeripheral, let service = request.service.object as? CBService {
+                peripheral.discoverCharacteristics(ids, for: service)
+            }
+            #endif
+            guard poweredOn else { observeManagerUnavailable(); return }
         }
     }
-    public func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
-        let id = peripheral.identifier
-        guard let current = acceptDelegatePeer(id, physical: peripheral), current.phase == .connected else { return }
-        guard error == nil else { status = error!.localizedDescription; disconnect(peripheral.identifier); return }
-        if service.uuid == CBUUID(string: PDSHLink.service) {
-            let id = peripheral.identifier
-            var found: [String: CBCharacteristic] = [:]
-            for c in service.characteristics ?? [] { found[c.uuid.uuidString.lowercased()] = c }
-            linkCharacteristics[id] = found
-            recordLinkPhysicalEndpoints(id, current: current, service: service, endpoints: found.mapValues { $0 as AnyObject })
-            if let rx = found[PDSHLink.rx], let tx = found[PDSHLink.tx], let audio = found[PDSHLink.audioUp],
-               rx.properties.contains(.write), tx.properties.contains(.notify), audio.properties.contains(.notify) {
-                let channel = BLELinkChannel(peripheral: peripheral, rx: rx, tx: tx, audio: audio)
-                guard installAndSubscribeLink(id, current: current, channel: channel, txEndpoint: tx, audioEndpoint: audio,
-                          notifyTX: { peripheral.setNotifyValue(true, for: tx) },
-                          notifyAudio: { peripheral.setNotifyValue(true, for: audio) }) else { return }
-            } else { update(id) { guard self.owners[id] === current, current.phase == .connected else { return }; $0.linkState = "Link 特征不完整" } }
+    private func dispatchCharacteristics(_ id: UUID, physical: AnyObject, service: AnyObject,
+                                         items: [CharacteristicObservation]?, error: Error?) {
+        guard let (current, ledger) = discoveryPeer(id, physical: physical) else { return }
+        guard let request = ledger.requests.first(where: { $0.service.object === service }),
+              request.state == .submitted || request.state == .completed else {
+            quarantineUnexpected(id, current: current, sendDisconnect: true, serviceChange: true); return
         }
-        guard poweredOn, owners[id] === current, current.phase == .connected else { return }
-        for characteristic in service.characteristics ?? [] {
-            guard let profile = StandardBLEProfile.allCases.first(where: {
-                CBUUID(string: $0.service) == service.uuid && CBUUID(string: $0.characteristic) == characteristic.uuid
-            }) else { continue }
-            let supported = profile == .alert ? characteristic.properties.contains(.writeWithoutResponse) : characteristic.properties.contains(.read)
-            if supported {
-                let id = peripheral.identifier
-                if characteristics[id]?[profile] != nil {
-                    ambiguousProfiles[id, default: []].insert(profile)
-                    characteristics[id]?[profile] = nil
-                } else if !(ambiguousProfiles[id]?.contains(profile) ?? false) {
-                    characteristics[id, default: [:]][profile] = characteristic
-                }
+        if request.state == .completed {
+            guard error == nil, let items, let old = request.snapshot, sameCharacteristics(old, items) else {
+                quarantineUnexpected(id, current: current, sendDisconnect: true, serviceChange: true); return
             }
+            return
         }
-        update(peripheral.identifier) { guard self.owners[id] === current, current.phase == .connected else { return }; $0.profiles = StandardBLEProfile.allCases.filter { characteristics[peripheral.identifier]?[$0] != nil } }
-        guard poweredOn, owners[id] === current, current.phase == .connected else { return }
-        if (peripheral.services ?? []).allSatisfy({ $0.characteristics != nil }) {
-            connectionTimers.removeValue(forKey: peripheral.identifier)?.cancel()
-            update(peripheral.identifier) { guard self.owners[id] === current, current.phase == .connected else { return }; $0.state = "已连接" }
+        if let error { discoveryError(id, current: current, ledger: ledger, error: error); return }
+        guard let items else { return }
+        guard items.allSatisfy({ $0.parent === service }) else {
+            quarantineUnexpected(id, current: current, sendDisconnect: true, serviceChange: true); return
         }
+        request.snapshot = items; request.state = .completed; ledger.revision = Revision()
+        finishDiscoveryDeadline(id, current, ledger)
+        if request.service.uuid == CBUUID(string: PDSHLink.service) {
+            installDiscoveredLink(id, current: current, ledger: ledger, request: request, items: items)
+        }
+        guard poweredOn else { observeManagerUnavailable(); return }
+        guard discoveryCurrent(id, current, ledger) else { return }
+        publishDiscoveryProfiles(id, current: current, ledger: ledger)
+        if !poweredOn { observeManagerUnavailable() }
+    }
+    private func publishDiscoveryProfiles(_ id: UUID, current: Owner, ledger: DiscoveryLedger) {
+        guard discoveryCurrent(id, current, ledger) else { return }
+        var selected: [StandardBLEProfile: CharacteristicObservation] = [:]
+        for profile in StandardBLEProfile.allCases {
+            let group = ledger.requests.filter { $0.service.uuid == CBUUID(string: profile.service) }
+            guard !group.isEmpty, group.allSatisfy({ $0.state == .completed || $0.state == .skipped }) else { continue }
+            var candidates: [CharacteristicObservation] = []
+            for item in group.flatMap({ $0.snapshot ?? [] }) where item.uuid == CBUUID(string: profile.characteristic) {
+                if !candidates.contains(where: { $0.object === item.object }) { candidates.append(item) }
+            }
+            guard candidates.count == 1, let item = candidates.first else { continue }
+            let required: CBCharacteristicProperties = profile == .alert ? .writeWithoutResponse : .read
+            if item.properties.contains(required) { selected[profile] = item }
+        }
+        let revision = ledger.revision
+        let result = StandardBLEProfile.allCases.filter { selected[$0] != nil }
+        update(id) {
+            guard self.discoveryCurrent(id, current, ledger), ledger.revision === revision else { return }
+            self.characteristics[id] = selected.mapValues { $0.object }
+            $0.profiles = result
+        }
+    }
+    private func installDiscoveredLink(_ id: UUID, current: Owner, ledger: DiscoveryLedger,
+                                       request: DiscoveryRequest, items: [CharacteristicObservation]) {
+        func unique(_ name: String) -> CharacteristicObservation? {
+            var matches: [CharacteristicObservation] = []
+            for item in items where item.uuid == CBUUID(string: name) {
+                if !matches.contains(where: { $0.object === item.object }) { matches.append(item) }
+            }
+            return matches.count == 1 ? matches[0] : nil
+        }
+        guard let rx = unique(PDSHLink.rx), let tx = unique(PDSHLink.tx), let audio = unique(PDSHLink.audioUp),
+              rx.properties.contains(.write), tx.properties.contains(.notify), audio.properties.contains(.notify) else {
+            let revision = ledger.revision
+            update(id) { guard self.discoveryCurrent(id, current, ledger), ledger.revision === revision else { return }; $0.linkState = "Link 特征不完整或存在歧义" }
+            return
+        }
+        guard discoveryCurrent(id, current, ledger) else { return }
+        let endpoints = [PDSHLink.rx: rx.object, PDSHLink.tx: tx.object, PDSHLink.audioUp: audio.object]
+        recordLinkPhysicalEndpoints(id, current: current, service: request.service.object, endpoints: endpoints)
+        #if DEBUG
+        if let adapter = testAdapter, let r = rx.object as? NSObject, let t = tx.object as? NSObject {
+            adapter.linkRXEndpoints[id] = r; adapter.linkTXEndpoints[id] = t
+            let io = BLELinkChannel.TestIO(), channel = BLELinkChannel(testingIO: io)
+            io.write = { [weak adapter] data in adapter?.linkWrites.append((id, data)); adapter?.onLinkWrite?(id, data) }
+            let installed = installAndSubscribeLink(id, current: current, channel: channel, txEndpoint: tx.object,
+                                                    audioEndpoint: audio.object, installed: { installation in
+                io.ready = { [weak self, weak current, weak channel, weak adapter] in
+                    guard let self, let current, let channel, let adapter,
+                          self.isCurrentChannelInstallation(id, current: current, channel: channel, installation: installation) else { return false }
+                    let notified = adapter.linkNotifying[id] ?? []
+                    return notified.contains(ObjectIdentifier(tx.object)) && notified.contains(ObjectIdentifier(audio.object))
+                }
+            }, notifyTX: {}, notifyAudio: {})
+            guard installed, discoveryCurrent(id, current, ledger), linkChannels[id] === channel else { return }
+            return
+        }
+        #endif
+        guard let peripheral = ledger.peer as? CBPeripheral, let r = rx.object as? CBCharacteristic,
+              let t = tx.object as? CBCharacteristic, let a = audio.object as? CBCharacteristic else { return }
+        linkCharacteristics[id] = [PDSHLink.rx: r, PDSHLink.tx: t, PDSHLink.audioUp: a]
+        let channel = BLELinkChannel(peripheral: peripheral, rx: r, tx: t, audio: a)
+        _ = installAndSubscribeLink(id, current: current, channel: channel, txEndpoint: t, audioEndpoint: a,
+                                    notifyTX: { peripheral.setNotifyValue(true, for: t) },
+                                    notifyAudio: { peripheral.setNotifyValue(true, for: a) })
+    }
+    public func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
+        let services = peripheral.services?.map { ServiceObservation(object: $0, parent: $0.peripheral, uuid: $0.uuid, primary: $0.isPrimary) }
+        dispatchServices(peripheral.identifier, physical: peripheral, services: services, error: error)
+    }
+    public func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
+        let items = service.characteristics?.map { CharacteristicObservation(object: $0, parent: $0.service, uuid: $0.uuid, properties: $0.properties) }
+        dispatchCharacteristics(peripheral.identifier, physical: peripheral, service: service, items: items, error: error)
     }
     private func invalidateIdentity(_ current: Owner) {
         current.identityRevision = Revision()
@@ -702,7 +981,7 @@ import PhoneDSHAgentCore
         oldTask?.cancel()
         if oldChannel !== channel { oldChannel?.fail(BLEFailure("Link replaced; outcome_unknown")) }
         update(id) {
-            guard self.owners[id] === current, current.phase == .connected,
+            guard self.poweredOn, self.owners[id] === current, current.phase == .connected,
                   current.identityRevision === revision, self.linkChannels[id] === channel else { return }
             $0.pendingIdentity = ""; $0.taskIdentity = ""; $0.supportsDeviceTasks = false; $0.allowDeviceTasks = false
             if current.identityErrorRevision === errorRevision { $0.identityError = "" }
@@ -715,9 +994,12 @@ import PhoneDSHAgentCore
     }
     @discardableResult private func installAndSubscribeLink(_ id: UUID, current: Owner, channel: BLELinkChannel,
                                                              txEndpoint: AnyObject, audioEndpoint: AnyObject,
+                                                             installed: (Revision) -> Void = { _ in },
                                                              notifyTX: () -> Void, notifyAudio: () -> Void) -> Bool {
         guard let installation = installIdentityChannel(id, current: current, channel: channel),
               isCurrentChannelInstallation(id, current: current, channel: channel, installation: installation) else { return false }
+        installed(installation)
+        guard isCurrentChannelInstallation(id, current: current, channel: channel, installation: installation) else { return false }
         submitConnected(id, current: current, action: .notify, endpoint: txEndpoint, physical: notifyTX)
         guard isCurrentChannelInstallation(id, current: current, channel: channel, installation: installation) else { return false }
         submitConnected(id, current: current, action: .notify, endpoint: audioEndpoint, physical: notifyAudio)
@@ -799,9 +1081,57 @@ import PhoneDSHAgentCore
         guard let peer = testAdapter?.validPeers[id], acceptDelegatePeer(id, physical: peer) != nil else { return }
         connected(id, peripheral: nil)
     }
-    func testDidFail(_ id: UUID) {
-        guard let peer = testAdapter?.validPeers[id], acceptDelegatePeer(id, physical: peer) != nil else { return }
-        failedConnect(id)
+    func testPhysicalPeer(_ id: UUID) -> AnyObject? { testAdapter?.validPeers[id] }
+    func testDiscoveryServices(_ id: UUID, peer: AnyObject, services: [TestService]?, error: Error? = nil) {
+        guard testAdapter != nil else { return }
+        let snapshot = services?.map { ServiceObservation(object: $0, parent: $0.parent, uuid: CBUUID(string: $0.uuid), primary: $0.primary) }
+        dispatchServices(id, physical: peer, services: snapshot, error: error)
+    }
+    func testDiscoveryCharacteristics(_ id: UUID, peer: AnyObject, service: TestService,
+                                      characteristics: [TestCharacteristic]?, error: Error? = nil) {
+        guard testAdapter != nil else { return }
+        let snapshot = characteristics?.map { CharacteristicObservation(object: $0, parent: $0.parent, uuid: CBUUID(string: $0.uuid), properties: $0.properties) }
+        dispatchCharacteristics(id, physical: peer, service: service, items: snapshot, error: error)
+    }
+    func testDiscoveryNotification(_ id: UUID, peer: AnyObject, characteristic: TestCharacteristic,
+                                   notifying: Bool, error: Error? = nil) {
+        guard testAdapter != nil else { return }
+        dispatchNotification(id, physical: peer, source: notificationSource(id, characteristic: characteristic, notifying: notifying),
+                             endpoint: characteristic, notifying: notifying, error: error)
+    }
+    func testDiscoveryLinkEndpoints(_ id: UUID) -> (service: AnyObject, rx: AnyObject, tx: AnyObject, audio: AnyObject)? {
+        guard testAdapter != nil, let service = linkPhysicalServices[id], let endpoints = linkPhysicalEndpoints[id],
+              let rx = endpoints[PDSHLink.rx], let tx = endpoints[PDSHLink.tx], let audio = endpoints[PDSHLink.audioUp],
+              linkChannels[id] != nil else { return nil }
+        return (service, rx, tx, audio)
+    }
+    func testDiscoveryRawLinkStorageEmpty(_ id: UUID) -> Bool {
+        guard testAdapter != nil else { return false }
+        return linkPhysicalServices[id] == nil && (linkPhysicalEndpoints[id]?.isEmpty ?? true) &&
+               (linkCharacteristics[id]?.isEmpty ?? true)
+    }
+    func testDiscoveryProfileEndpoint(_ id: UUID, profile: StandardBLEProfile) -> AnyObject? {
+        testAdapter == nil ? nil : characteristics[id]?[profile]
+    }
+    func testConnectionDeadlineToken(_ id: UUID) -> ObjectIdentifier? {
+        guard testAdapter != nil, connectionTimers[id] != nil, let current = owners[id] else { return nil }
+        return ObjectIdentifier(current.deadlineRevision)
+    }
+    func testReadClaim(_ id: UUID) -> String? {
+        guard testAdapter != nil, let read = pending, read.device == id else { return nil }
+        switch read.claim.snapshot().0 {
+        case nil: return "none"
+        case .cancelled?: return "cancelled"
+        case .permission?: return "permission"
+        case .timeout?: return "timeout"
+        case .unavailable?: return "unavailable"
+        case .disconnected?: return "disconnected"
+        case .value?: return "value"
+        }
+    }
+    func testDidFail(_ id: UUID, error: Error? = nil) {
+        guard let peer = testAdapter?.validPeers[id] else { return }
+        dispatchConnectFailure(id, physical: peer, error: error)
     }
     func testDidDisconnect(_ id: UUID, during: (() -> Void)? = nil) {
         guard let peer = testAdapter?.validPeers[id], let current = acceptDelegatePeer(id, physical: peer) else { return }
@@ -813,6 +1143,7 @@ import PhoneDSHAgentCore
         guard let testAdapter, poweredOn, let current = owners[id], current.phase == .connected else { return }
         testAdapter.profiles[id] = profiles
         testAdapter.profileEndpoints[id] = Dictionary(uniqueKeysWithValues: profiles.map { ($0, NSObject()) })
+        characteristics[id] = testAdapter.profileEndpoints[id]?.mapValues { $0 as AnyObject }
         connectionTimers.removeValue(forKey: id)?.cancel()
         update(id) {
             guard self.owners[id] === current, current.phase == .connected else { return }
@@ -821,7 +1152,7 @@ import PhoneDSHAgentCore
     }
     func testValue(_ id: UUID, profile: StandardBLEProfile?, data: Data, error: Error? = nil) {
         guard let adapter = testAdapter, let peer = adapter.validPeers[id] else { return }
-        let endpoint = profile.flatMap { adapter.profileEndpoints[id]?[$0] } ?? NSObject()
+        let endpoint = profile.flatMap { characteristics[id]?[$0] } ?? NSObject()
         dispatchPhysicalValue(id, physical: peer, endpoint: endpoint, data: data, notifying: false, error: error)
     }
     func testServicesModified(_ id: UUID, matchingPeer: Bool = true, invalidated: [AnyObject] = []) {
@@ -836,6 +1167,7 @@ import PhoneDSHAgentCore
     func testRadioUnavailable(reset: Bool) { testManagerState(reset ? .resetting : .poweredOff) }
     func testManagerState(_ state: CBManagerState) {
         guard let testAdapter else { return }
+        testAdapter.managerInitialized = true; testAdapter.managerState = state
         testAdapter.poweredOn = state == .poweredOn
         centralStateChanged(state)
     }
@@ -879,7 +1211,7 @@ import PhoneDSHAgentCore
                           notifying: Bool, error: Error? = nil) {
         guard let adapter = testAdapter, let knownPeer = adapter.validPeers[id] else { return }
         let peer = matchingPeer ? knownPeer : NSObject()
-        let endpoint = profile.flatMap { adapter.profileEndpoints[id]?[$0] } ?? NSObject()
+        let endpoint = profile.flatMap { characteristics[id]?[$0] } ?? NSObject()
         let source = notificationSource(id, characteristic: endpoint, notifying: notifying)
         dispatchNotification(id, physical: peer, source: source, error: error)
     }
@@ -1035,14 +1367,12 @@ import PhoneDSHAgentCore
               !current.standardSubscribed.contains(profile), !current.standardSubscriptionUnknown.contains(profile) else {
             throw BLEFailure("Device disconnected or unsupported profile")
         }
+        guard let endpoint = characteristics[id]?[profile] else { throw BLEFailure("Device disconnected or unsupported profile") }
         #if DEBUG
-        if let testAdapter {
-            guard testAdapter.profiles[id]?.contains(profile) == true else { throw BLEFailure("Device disconnected or unsupported profile") }
-            return current
-        }
+        if testAdapter != nil { return current }
         #endif
         guard let peripheral = current.peripheral, peripheral.state == .connected,
-              let characteristic = characteristics[id]?[profile], !characteristic.isNotifying else {
+              let characteristic = endpoint as? CBCharacteristic, !characteristic.isNotifying else {
             throw BLEFailure("Device disconnected or unsupported profile")
         }
         return current
@@ -1074,7 +1404,7 @@ import PhoneDSHAgentCore
         if let testAdapter { testAdapter.commands.append(.read(id, profile)); return }
         #endif
         guard poweredOn, owners[id] === current, current.phase == .connected,
-              let peripheral = current.peripheral, let characteristic = characteristics[id]?[profile] else {
+              let peripheral = current.peripheral, let characteristic = characteristics[id]?[profile] as? CBCharacteristic else {
             _ = claim.claim(.disconnected); finishRead(read); return
         }
         peripheral.readValue(for: characteristic)
@@ -1149,16 +1479,7 @@ import PhoneDSHAgentCore
             } else { source = .unknown }
         } else if let profile = StandardBLEProfile.allCases.first(where: { characteristics[id]?[$0] === endpoint }) {
             source = .standard(profile, data, notifying)
-        } else {
-            #if DEBUG
-            if let adapter = testAdapter,
-               let profile = StandardBLEProfile.allCases.first(where: { adapter.profileEndpoints[id]?[$0] === endpoint }) {
-                source = .standard(profile, data, notifying)
-            } else { source = .unknown }
-            #else
-            source = .unknown
-            #endif
-        }
+        } else { source = .unknown }
         dispatchValue(id, source: source, error: error)
     }
     public func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
@@ -1194,15 +1515,15 @@ import PhoneDSHAgentCore
         guard let current = owners[id], current.alert else { throw BLEFailure("Enable Immediate Alert access for this device in Settings") }
         let data = try StandardBLEProfile.alertCommand(level: level)
         guard poweredOn, current.phase == .connected else { throw BLEFailure("Alert unavailable or Bluetooth busy") }
+        guard let endpoint = characteristics[id]?[.alert] else { throw BLEFailure("Alert unavailable or Bluetooth busy") }
         #if DEBUG
         if let testAdapter {
-            guard testAdapter.profiles[id]?.contains(.alert) == true else { throw BLEFailure("Alert unavailable or Bluetooth busy") }
             testAdapter.commands.append(.alert(id, level))
             return "submitted_unconfirmed: Immediate Alert has no application acknowledgement; inspect device before repeating."
         }
         #endif
         guard let peripheral = current.peripheral, peripheral.state == .connected,
-              let characteristic = characteristics[id]?[.alert], peripheral.canSendWriteWithoutResponse else { throw BLEFailure("Alert unavailable or Bluetooth busy") }
+              let characteristic = endpoint as? CBCharacteristic, peripheral.canSendWriteWithoutResponse else { throw BLEFailure("Alert unavailable or Bluetooth busy") }
         peripheral.writeValue(data, for: characteristic, type: .withoutResponse)
         return "submitted_unconfirmed: Immediate Alert has no application acknowledgement; inspect device before repeating."
     }
@@ -1220,7 +1541,8 @@ import PhoneDSHAgentCore
         dispatchLinkWrite(peripheral.identifier, physical: peripheral, endpoint: characteristic, error: error)
     }
     private enum NotificationSource { case standard(StandardBLEProfile, notifying: Bool), link, unknown }
-    private func dispatchNotification(_ id: UUID, physical: AnyObject, source: NotificationSource, error: Error?) {
+    private func dispatchNotification(_ id: UUID, physical: AnyObject, source: NotificationSource,
+                                      endpoint: AnyObject? = nil, notifying: Bool = false, error: Error?) {
         guard let current = acceptDelegatePeer(id, physical: physical), current.phase == .connected else { return }
         switch source {
         case .standard(let profile, let notifying):
@@ -1232,10 +1554,40 @@ import PhoneDSHAgentCore
             quarantineUnexpected(id, current: current, sendDisconnect: true)
             return
         case .link:
+            #if DEBUG
+            if let adapter = testAdapter, let endpoint {
+                if notifying && error == nil { adapter.linkNotifying[id, default: []].insert(ObjectIdentifier(endpoint)) }
+                else { adapter.linkNotifying[id]?.remove(ObjectIdentifier(endpoint)) }
+            }
+            #endif
             break
         }
-        guard error == nil else { status = error!.localizedDescription; disconnect(id); return }
-        guard let channel = linkChannels[id], channel.tx?.isNotifying == true, channel.audio?.isNotifying == true else { return }
+        if let error {
+            guard let channel = linkChannels[id] else { return }
+            let installation = current.channelRevision
+            let revision = reserveStatus()
+            publishStatus(revision, error.localizedDescription, eligible: {
+                self.poweredOn && self.owners[id] === current && current.phase == .connected &&
+                current.physicalIdentity === physical && self.linkChannels[id] === channel &&
+                current.channelRevision === installation
+            })
+            guard poweredOn else { observeManagerUnavailable(); return }
+            guard owners[id] === current, current.phase == .connected,
+                  current.physicalIdentity === physical, linkChannels[id] === channel,
+                  current.channelRevision === installation else { return }
+            close(id, current: current, outcome: .disconnected, quarantine: false, serviceChange: true)
+            return
+        }
+        guard let channel = linkChannels[id] else { return }
+        #if DEBUG
+        if testAdapter != nil {
+            guard channel.testPhysicalReady else { return }
+        } else {
+            guard channel.tx?.isNotifying == true, channel.audio?.isNotifying == true else { return }
+        }
+        #else
+        guard channel.tx?.isNotifying == true, channel.audio?.isNotifying == true else { return }
+        #endif
         startLinkHandshake(id, current: current, channel: channel, transport: channel)
     }
     private func startLinkHandshake(_ id: UUID, current: Owner, channel: BLELinkChannel,
@@ -1255,12 +1607,13 @@ import PhoneDSHAgentCore
             } catch {
                 if !Task.isCancelled, poweredOn, owners[id] === current, current.phase == .connected,
                    linkChannels[id] === channel, current.identityRevision === handshakeRevision {
-                    withMutation(keyPath: \.status) {
-                        guard self.poweredOn, self.owners[id] === current, current.phase == .connected,
-                              self.linkChannels[id] === channel, current.identityRevision === handshakeRevision else { return }
-                        _status = error.localizedDescription
-                    }
-                    guard poweredOn, owners[id] === current, current.phase == .connected,
+                    let revision = reserveStatus()
+                    publishStatus(revision, error.localizedDescription, eligible: {
+                        !Task.isCancelled && self.poweredOn && self.owners[id] === current && current.phase == .connected &&
+                        self.linkChannels[id] === channel && current.identityRevision === handshakeRevision
+                    })
+                    guard poweredOn else { observeManagerUnavailable(); return }
+                    guard !Task.isCancelled, poweredOn, owners[id] === current, current.phase == .connected,
                           linkChannels[id] === channel, current.identityRevision === handshakeRevision else { return }
                     disconnect(id)
                 }
@@ -1272,12 +1625,6 @@ import PhoneDSHAgentCore
         if let profile = StandardBLEProfile.allCases.first(where: { characteristics[id]?[$0] === characteristic }) {
             return .standard(profile, notifying: notifying)
         }
-        #if DEBUG
-        if let adapter = testAdapter,
-           let profile = StandardBLEProfile.allCases.first(where: { adapter.profileEndpoints[id]?[$0] === characteristic }) {
-            return .standard(profile, notifying: notifying)
-        }
-        #endif
         if linkChannels[id] != nil, linkPhysicalEndpoints[id]?.values.contains(where: { $0 === characteristic }) == true {
             return .link
         }
@@ -1286,7 +1633,7 @@ import PhoneDSHAgentCore
     public func peripheral(_ peripheral: CBPeripheral, didUpdateNotificationStateFor characteristic: CBCharacteristic, error: Error?) {
         let id = peripheral.identifier
         let source = notificationSource(id, characteristic: characteristic, notifying: characteristic.isNotifying)
-        dispatchNotification(id, physical: peripheral, source: source, error: error)
+        dispatchNotification(id, physical: peripheral, source: source, endpoint: characteristic, notifying: characteristic.isNotifying, error: error)
     }
 
     /// Installs ordinary Link tools without invoking the draft task identity profile.
@@ -1323,7 +1670,14 @@ import PhoneDSHAgentCore
     }
     public func grantLinkTool(_ id: UUID, name: String, enabled: Bool) {
         guard poweredOn, let current = owners[id], current.phase == .connected else { return }
-        guard linkBusy[id] == nil else { status = "请等待当前设备操作结束，或断开连接"; return }
+        guard linkBusy[id] == nil else {
+            let busy = linkBusy[id], revision = reserveStatus()
+            publishStatus(revision, "请等待当前设备操作结束，或断开连接", eligible: {
+                self.poweredOn && self.owners[id] === current && current.phase == .connected && self.linkBusy[id] === busy
+            })
+            if !poweredOn { observeManagerUnavailable() }
+            return
+        }
         // These are host control-plane operations, never model device skills.
         guard !Self.isReservedTaskTool(name) else { return }
         update(id) { guard self.owners[id] === current, current.phase == .connected else { return }; if enabled && $0.linkTools.contains(name) { $0.grantedTools.insert(name) } else { $0.grantedTools.remove(name) } }

@@ -28,18 +28,21 @@ final class IdentityUITests: XCTestCase {
     /// SwiftUI List lazily materializes rows, so inspect each target in its
     /// own viewport. Never tap while searching and stop after a bounded sweep.
     private func show(_ target: XCUIElement, in app: XCUIApplication,
-                      towardTopFirst: Bool = false,
+                      towardTopFirst: Bool = false, requireHittable: Bool = true,
                       file: StaticString = #filePath, line: UInt = #line) -> Bool {
         let list = app.collectionViews.firstMatch
         guard list.waitForExistence(timeout: 5) else {
             XCTFail("Device list not found: \(app.debugDescription)", file: file, line: line)
             return false
         }
-        if target.exists && target.isHittable { return true }
+        func visible() -> Bool {
+            target.exists && (requireHittable ? target.isHittable : target.frame.intersects(list.frame))
+        }
+        if visible() { return true }
         for towardTop in [towardTopFirst, !towardTopFirst] {
             for step in 1...sweepSteps {
                 scrollStep(list, towardTop: towardTop)
-                if target.exists && target.isHittable { return true }
+                if visible() { return true }
                 if step.isMultiple(of: 6) {
                     reportScrollPosition(list, towardTop: towardTop, step: step)
                 }
@@ -68,6 +71,46 @@ final class IdentityUITests: XCTestCase {
         }
         XCTFail("Did not reach the section after the device: \(app.debugDescription)", file: file, line: line)
         return false
+    }
+
+    func testAmbiguousLinkLeavesStandardProfileAvailableWithoutImplicitGrant() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--discovery-ambiguity"]
+        app.launch()
+        let peer = "12345678-1234-4234-8234-123456789ABC"
+        let warning = app.staticTexts["发现多个 Link 服务，暂不可用"]
+        guard show(warning, in: app, requireHittable: false) else { return }
+        XCTAssertEqual(warning.label, "发现多个 Link 服务，暂不可用")
+        let read = app.buttons["ble-device-read-battery-\(peer)"]
+        guard show(read, in: app, towardTopFirst: true, requireHittable: false) else { return }
+        XCTAssertFalse(read.isEnabled, app.debugDescription)
+        let grant = app.switches["ble-device-grant-read-\(peer)"]
+        guard show(grant, in: app, towardTopFirst: true) else { return }
+        XCTAssertEqual(grant.value as? String, "0", app.debugDescription)
+        let audit = app.staticTexts["identity-harness-discovery-audit"]
+        XCTAssertTrue(audit.waitForExistence(timeout: 5))
+        XCTAssertEqual(audit.label, "phase=connected;battery=true;read=false;readAdmitted=false;alert=false;tasks=false;tool=false;channel=false;rawEmpty=true;requests=1;notifies=0;duplicates=0;deviceNotifications=0;statusNotifications=0;unchanged=true;deadline=cancelled")
+
+        app.buttons["identity-harness-repeat-discovery"].tap()
+        XCTAssertEqual(audit.label, "phase=connected;battery=true;read=false;readAdmitted=false;alert=false;tasks=false;tool=false;channel=false;rawEmpty=true;requests=1;notifies=0;duplicates=1;deviceNotifications=0;statusNotifications=0;unchanged=true;deadline=cancelled")
+        XCTAssertEqual(grant.value as? String, "0", app.debugDescription)
+        guard show(read, in: app, requireHittable: false) else { return }
+        XCTAssertFalse(read.isEnabled, app.debugDescription)
+        guard show(warning, in: app, requireHittable: false) else { return }
+        XCTAssertEqual(warning.label, "发现多个 Link 服务，暂不可用")
+
+        guard show(grant, in: app, towardTopFirst: true) else { return }
+        // SwiftUI exposes the entire row as the identified Switch, with the
+        // actual UISwitch nested inside it. Tapping the row's center can hit
+        // its label instead of the control.
+        let grantControl = grant.descendants(matching: .switch).firstMatch
+        guard show(grantControl, in: app, towardTopFirst: true) else { return }
+        XCTAssertEqual(grantControl.value as? String, "0", app.debugDescription)
+        grantControl.tap()
+        XCTAssertEqual(grant.value as? String, "1", app.debugDescription)
+        guard show(read, in: app, requireHittable: false) else { return }
+        XCTAssertTrue(read.isEnabled, app.debugDescription)
+        XCTAssertEqual(audit.label, "phase=connected;battery=true;read=true;readAdmitted=true;alert=false;tasks=false;tool=false;channel=false;rawEmpty=true;requests=1;notifies=0;duplicates=1;deviceNotifications=0;statusNotifications=0;unchanged=true;deadline=cancelled")
     }
 
     func testServiceChangeClosesPageUntilDisconnectBoundary() throws {
