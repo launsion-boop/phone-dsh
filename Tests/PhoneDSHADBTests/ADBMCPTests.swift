@@ -213,19 +213,26 @@ final class ADBMCPTests: XCTestCase {
         import { Context } from '@deepseek-ai/cordis'
         import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
         import ToolRuntime from '@deepseek-ai/dsh-tools'
+        import * as nativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
         import { ToolCallId } from '@deepseek-ai/dsh-llm'
         import * as mcp from '@deepseek-ai/dsh-mcp-client'
         const ctx = new Context()
         try {
           await ctx.plugin(SystemPrompt)
           await ctx.plugin(ToolRuntime)
+          await ctx.plugin(nativeToolExecutor)
           await ctx.plugin(mcp, { serverName: 'phone', transport: 'streamable-http',
             url: process.env.ADB_TEST_URL, headers: { Authorization: `Bearer ${process.env.ADB_TEST_TOKEN}` },
             failOnStartupError: true, toolCallTimeoutMs: 5000 })
           const names = ctx.tools.schemas().map(t => t.name)
           assert.equal(names.filter(n => n.startsWith('mcp__phone__android_')).length, 26)
-          const result = await ctx.tools.execute({ callId: ToolCallId('android-native-test'),
-            name: 'mcp__phone__android_tap', arguments: { x: 20, y: 30 }, signal: new AbortController().signal })
+          const { results } = await ctx.tools.execute({
+            calls: [{ type: 'tool-call', id: ToolCallId('android-native-test'),
+              name: 'mcp__phone__android_tap', arguments: JSON.stringify({ x: 20, y: 30 }) }],
+            signal: new AbortController().signal,
+          })
+          assert.equal(results.length, 1)
+          const [{ result }] = results
           assert.equal(result.isError, false, JSON.stringify(result))
           assert.match(JSON.stringify(result.content), /fixture/)
           console.log('official DSH tool call passed')

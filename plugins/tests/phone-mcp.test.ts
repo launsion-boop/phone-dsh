@@ -15,6 +15,7 @@ import { after, before, test } from 'node:test'
 import { Context } from '@deepseek-ai/cordis'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import * as mcpClient from '@deepseek-ai/dsh-mcp-client'
 import * as phoneMcp from '../phone-mcp/src/index.ts'
@@ -55,6 +56,7 @@ async function mountPlugin(target: string, environment: NodeJS.ProcessEnv): Prom
   const context = new Context()
   await context.plugin(SystemPrompt)
   await context.plugin(ToolRuntime)
+  await context.plugin(NativeToolExecutor)
   await context.plugin(phoneMcp, { file: target, env: environment })
   const remote = context.get('phoneMcpRemote') as PhoneMcpRemote | undefined
   assert.ok(remote !== undefined, 'the phone/mcp Remote service must be registered')
@@ -101,12 +103,15 @@ test('phone-mcp: add, list, real tool result, reconnect, remove', { timeout: 30_
 
   // The MCP tools are real ToolRuntime registrations: call one and observe the
   // server's actual JSON-RPC result.
-  const result = await ctx.tools.execute({
-    callId: ToolCallId('phone-mcp-echo'),
-    name: 'mcp__local__echo',
-    arguments: { message: 'from-test' },
+  const batch = await ctx.tools.execute({
+    calls: [{
+      type: 'tool-call', id: ToolCallId('phone-mcp-echo'), name: 'mcp__local__echo',
+      arguments: JSON.stringify({ message: 'from-test' }),
+    }],
     signal: new AbortController().signal,
   })
+  const result = batch.results[0]?.result
+  assert.ok(result)
   assert.equal(result.isError, false)
   assert.match(JSON.stringify(result.content), /echo:from-test/)
   assert.ok(fixture.calls.some(call => call.name === 'echo' && call.arguments.message === 'from-test'))

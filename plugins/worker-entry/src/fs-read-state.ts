@@ -77,7 +77,7 @@ export interface FsObservationFileSystem {
 
 /** The Cordis `Context` subset the replay uses. */
 export interface FsObservationPolicyContext {
-  on(name: string, listener: (...args: any[]) => unknown, options?: { readonly prepend?: boolean }): unknown
+  on(name: 'fs/observed' | 'agent/created' | 'fs/write-intent' | 'fs/edit-intent', listener: (...args: any[]) => unknown, options?: { readonly prepend?: boolean }): unknown
   get(name: string): unknown
   emit(name: string, ...args: unknown[]): void
 }

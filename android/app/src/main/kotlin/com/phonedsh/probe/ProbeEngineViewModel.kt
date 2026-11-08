@@ -76,6 +76,7 @@ import com.phonedsh.gateway.GatewayHttpEgress
 import com.phonedsh.gateway.GatewaySession
 import com.phonedsh.gateway.HttpUrlConnectionGatewayTransport
 import com.phonedsh.gateway.ModelKeySource
+import com.phonedsh.gateway.IndependentSearchWebToolsEgress
 import com.phonedsh.gateway.OfficialDeepSeekWebToolsEgress
 import com.phonedsh.hostevents.HostEvent
 import com.phonedsh.hostevents.HostEventKind
@@ -997,26 +998,51 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
 
     private val diagnosticHttpEgress = gateway?.let { GatewayHttpEgress(it) }
 
-    private val officialWebSearchLaunch = OfficialWebSearchLaunch.resolve(
-        baseUrl = launchConfig.deepseekBaseUrl,
-        proxyRequested = modelProxy != null,
-        credentialAccount = launchConfig.credentialAccount,
-        keyState = launchConfig.credentialAccount?.let { ApiKeyStore.activeState(it) },
-    )
+    /**
+     * Which web-search grant this launch mounts (`spec/v1/gateway-independent-search.md`
+     * §3). The independent mode replaces the official grant; an incomplete or
+     * unreadable independent setup mounts neither, never the model key.
+     */
+    private val webSearchPlan: WebSearchLaunchPlan = run {
+        val settings = WebSearchSettingsStore.active()
+        WebSearchLaunchPlan.resolve(
+            settings = settings?.read() ?: WebSearchSettingsRead.Absent,
+            independentKey = { settings?.keyState() ?: ApiKeyState.Absent },
+            proxyRequested = launchConfig.modelProxy,
+            official = {
+                OfficialWebSearchLaunch.resolve(
+                    baseUrl = launchConfig.deepseekBaseUrl,
+                    proxyRequested = modelProxy != null,
+                    credentialAccount = launchConfig.credentialAccount,
+                    keyState = launchConfig.credentialAccount?.let { ApiKeyStore.activeState(it) },
+                )
+            },
+        )
+    }
 
-    private val officialWebSearch = officialWebSearchLaunch?.let { launch ->
-        OfficialDeepSeekWebToolsEgress(
+    private val webSearchEgress: LoopbackHttpEgress? = when (val plan = webSearchPlan) {
+        is WebSearchLaunchPlan.Official -> OfficialDeepSeekWebToolsEgress(
             keys = ModelKeySource {
                 val store = ApiKeyStore.active() ?: throw CredentialUnavailableException()
-                store.readKey(launch.credentialAccount)
+                store.readKey(plan.launch.credentialAccount)
             },
             transport = HttpUrlConnectionGatewayTransport(),
             fallback = diagnosticHttpEgress,
         )
+        is WebSearchLaunchPlan.Independent -> IndependentSearchWebToolsEgress(
+            base = plan.base,
+            keys = ModelKeySource {
+                val store = WebSearchSettingsStore.active() ?: throw CredentialUnavailableException()
+                store.readKey()
+            },
+            transport = HttpUrlConnectionGatewayTransport(),
+            fallback = diagnosticHttpEgress,
+        )
+        is WebSearchLaunchPlan.Off -> null
     }
 
     /** The `/v1/http` policy the engine serves; `null` keeps the route at 503. */
-    private val httpEgress: LoopbackHttpEgress? = officialWebSearch ?: diagnosticHttpEgress
+    private val httpEgress: LoopbackHttpEgress? = webSearchEgress ?: diagnosticHttpEgress
 
     /**
      * What this launch can honestly say about model traffic (P27).
@@ -1067,7 +1093,7 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
         )
         val env = if (hostEnv == null) JSONObject() else JSONObject(hostEnv)
         for ((name, value) in modelRoute.workerEnvironment()) env.put(name, value)
-        for ((name, value) in officialWebSearchLaunch?.environment.orEmpty()) env.put(name, value)
+        for ((name, value) in webSearchPlan.environment) env.put(name, value)
         mapOf("env" to env.toString())
     }
 
@@ -1124,6 +1150,10 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
         } else {
             null
         },
+        // spec/v1/native-mcp.md: the android_* tools on `/mcp/native`, the same
+        // process-owned server the Android ADB settings page tests with (iOS sets
+        // `configuration.nativeMCP` unconditionally too).
+        nativeMcp = AndroidAdbHost.get(application).server,
     )
 
     private val clock = AndroidClock()
@@ -1288,6 +1318,9 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
      */
     private val sessionArtifacts = HostSessionArtifacts(walPaths.materializedWorkspace)
 
+    /** `android_install_apk source=workspace` reads the materialized `/dsh/workspace` (iOS ChatModel does the same). */
+    private val adbWorkspaceBound: Unit = AndroidAdbHost.get(application).bindWorkspace(walPaths.materializedWorkspace)
+
     /** The artifact fact the shell collects; one value per turn measurement. */
     internal val artifactFacts: kotlinx.coroutines.flow.StateFlow<com.phonedsh.ui.page.SessionArtifactsFacts> =
         sessionArtifacts.facts
@@ -1392,6 +1425,18 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
             AcceleratorMount(AcceleratorMount.HOME, walPaths.materializedHome.toString()),
         ),
         seal = ubuntuSeal,
+        // Native `ssh` / `scp` (docs/native-ssh.md): saved aliases, pinned host
+        // keys and Keystore credentials; uploads read the same two mounts.
+        nativeTools = com.phonedsh.ssh.SshExecTool(
+            mounts = mapOf(
+                "/dsh/workspace" to walPaths.materializedWorkspace,
+                "/dsh/home" to walPaths.materializedHome,
+            ),
+            byteLimit = deviceBudgets.singleFileBytes,
+            clock = clock,
+            connections = { SshSettingsStore.get(application).list() },
+            resolve = { destination -> SshSettingsStore.get(application).resolve(destination) },
+        ).registeredTools(),
         ubuntuSessionFactory = ubuntuSessionFactory,
     )
 
@@ -1647,7 +1692,8 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
         // is null until then, and the page renders 未知 — never "supported".
         webViewKernel = engine.kernelReport(),
         egressGrant = launchConfig.egressGrant(),
-        officialWebSearchEnabled = officialWebSearch != null,
+        officialWebSearchEnabled = webSearchPlan is WebSearchLaunchPlan.Official,
+        independentWebSearchEnabled = webSearchPlan is WebSearchLaunchPlan.Independent,
         batteryExemption = batteryExemption,
         background = HostBackground.readings(getApplication(), backgroundDeclaration),
         // The one workspace this app owns is `workspaceRoot`; its files page reads

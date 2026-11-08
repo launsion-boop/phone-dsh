@@ -48,6 +48,7 @@ from __future__ import annotations
 import argparse
 import copy
 import json
+import functools
 import re
 import sys
 from pathlib import Path
@@ -145,7 +146,7 @@ SINGLE_REGION_PAGES = {
     "SettingsAboutPage": "flat List: one version row + one sentence; no group header",
     "NativeWorkbenchPage": "NavigationStack/VStack: a segmented mode switch over two embedded pages; no group header",
     "NativeDeviceSessionPage": "VStack: a read-only 36 pt header row, an optional error label, then one LazyVStack transcript; no Section anywhere",
-    "LicensesPage": "one flat List of direct LabeledContent license entries with no Section headers; Android renders its host-reported platform catalog in one grouped card. The catalogs are platform-specific and their rows are not compared here",
+    "LicensesPage": "one flat List of direct license catalog rows (LabeledContent name/licence entries, and NavigationLink rows that open a bundled licence text) with no Section headers; Android renders its host-reported platform catalog in one grouped card. Which components each platform ships is platform catalog content, so the rows and the full-text links are recorded but not compared here",
 }
 
 #: How a Button's surrounding syntax names its trigger.
@@ -312,6 +313,7 @@ class Source:
 
     def __init__(self, path: Path, root: Path) -> None:
         self.path = path
+        self.root = root
         self.rel = str(path.relative_to(root))
         self.text = path.read_text(encoding="utf-8")
         self.masked = mask_inactive_conditionals(mask_comments(self.text))
@@ -874,6 +876,7 @@ class PageExtractor:
                     # Preserve existing implicit-row extraction; the verified shape
                     # only classifies this list, it does not invent a header.
                     self._scan_regions()
+                    self._drop_licence_catalog_actions()
                 elif self.name in SINGLE_REGION_PAGES:
                     self.sections = [self._single_region()]
                 else:
@@ -922,6 +925,13 @@ class PageExtractor:
                 "warnings": self.warnings,
             },
         }
+
+    def _has_own_contract(self, name: str) -> bool:
+        """`collect_pages`' rule for an embedded subpage: it is a contract of its own
+        only when the Android tree ships a same-named screen."""
+        mapping = _cached_android_mapping(self.source.root, name)
+        return (mapping["match"] in ("composable", "alias")
+                and (not mapping["file"] or Path(mapping["file"]).stem == name))
 
     def _live(self, pos: int) -> bool:
         if not (self.body_start <= pos <= self.body_end):
@@ -1429,6 +1439,9 @@ class PageExtractor:
                 span = (call["named"].get("title") or call["named"].get("text")
                         or (call["positional"][0] if call["positional"] else None))
                 if span:
+                    ternary = self._ternary_literals(span)
+                    if ternary is not None:
+                        return ternary
                     label, pos = first_label(source, *span)
                     if label is not None:
                         return label, pos, None, []
@@ -1512,6 +1525,24 @@ class PageExtractor:
             rest = [value for value in values[:-1] if value not in alternatives]
             return steady, steady_pos, None, alternatives + rest
         return label, pos, expr, alternatives
+
+    def _ternary_literals(self, span: tuple):
+        """`SettingsRowLabel(title: testing ? "正在测试…" : "测试连接")`: both wordings.
+
+        The same rule `_button_label` applies to `Button(saving ? "添加中…" : "添加")`:
+        the steady state (last literal) is the label, the transient one an
+        alternative. Without it a label wrapper kept only the first literal, so the
+        contract named the transient `正在测试…` and lost `测试连接` entirely.
+        """
+        expr = self.source.text[span[0]:span[1]]
+        if " ? " not in expr or " : " not in expr:
+            return None
+        literals = [(unescape(raw), at) for raw, at in self.source.literals(*span)
+                    if unescape(raw).strip() and not SYMBOL_LITERAL_RE.match(unescape(raw))]
+        if len(literals) < 2:
+            return None
+        steady, steady_pos = literals[-1]
+        return steady, steady_pos, None, [value for value, _at in literals[:-1]]
 
     def _ternary_span(self, start: int, end: int):
         """The argument span of a `Text(cond ? "A" : "B")` statement, if it is one."""
@@ -1868,7 +1899,17 @@ class PageExtractor:
         # Only private view structs are inlined: a *public* presented page
         # (SettingsPage, NativeConfigurationPage) has its own contract and is compared
         # there, so copying its buttons here would count them twice.
-        private_views = {st["name"]: st for st in view_structs(self.source) if st["private"]}
+        # The exception is a public struct README §1 names as an embedded subpage
+        # (EMBEDDED_HINTS): `collect_pages` emits no contract of its own for it unless
+        # Android ships a same-named screen, so the parent is the only contract that
+        # can carry its controls. ModelProviderEditorPage is that case: a public
+        # struct presented as the parent's sheet. Leaving it out made every editor
+        # control Android draws in ModelProviderSettingsPage.kt (高级设置, 获取模型,
+        # 测试连接, the toggles) an invented `extra-action` while the editor's sections
+        # were already excluded as subpage titles: one sub-screen, two treatments.
+        private_views = {st["name"]: st for st in view_structs(self.source)
+                         if st["private"] or (st["name"] in EMBEDDED_HINTS
+                                              and not self._has_own_contract(st["name"]))}
         for presentation in self.presentations:
             destination = presentation.get("destination")
             if not destination or destination == self.name or destination not in private_views:
@@ -2035,8 +2076,30 @@ class PageExtractor:
 
     def _is_flat_licenses_list(self) -> bool:
         """Guard LicensesPage's one-region classification against layout drift."""
+        return self._flat_licence_catalog() is not None
+
+    #: A catalog row that opens one bundled licence text: the destination reads a
+    #: `.txt` resource from the app bundle and renders it, nothing else.
+    LICENCE_TEXT_RE = re.compile(
+        r"Bundle\.main\.url\(\s*forResource:\s*\"[^\"]+\"\s*,\s*withExtension:\s*\"txt\"\s*\)")
+
+    def _flat_licence_catalog(self) -> list | None:
+        """The catalog rows of a flat licence List, or None when the shape drifted.
+
+        The page is the platform's licence catalog: one List whose direct children
+        are only `LabeledContent("Name", value: "Licence")` entries and
+        `NavigationLink("Title") { … }` rows that open a bundled licence text
+        (`Bundle.main.url(forResource:withExtension: "txt")`) and contain no other
+        control. Which components a platform ships — and so which entries and
+        full-text links it lists — is platform catalog content (spec/ui/v1/page-structure-rules.md), so the
+        rows are recorded but neither they nor the full-text links are compared.
+        Any Section, Button, wrapper or other child stops this classification and
+        the page falls back to `unmodeled` (a human must look again).
+
+        Returns `[(start, end, kind)]` for each direct child, kind `entry`/`text`.
+        """
         if self.name != "LicensesPage" or not self.has_body:
-            return False
+            return None
         masked = self.source.masked
         lists = []
         for match in re.finditer(r"\bList[ \t]*\{", masked[self.body_start:self.body_end]):
@@ -2046,37 +2109,64 @@ class PageExtractor:
             open_brace = self.body_start + match.end() - 1
             close_brace = match_delim(masked, open_brace)
             if close_brace < 0:
-                return False
+                return None
             lists.append((open_brace, close_brace))
         if len(lists) != 1:
-            return False
+            return None
         open_brace, close_brace = lists[0]
-
-        # The current list has exactly two direct child views, both labeled license rows.
-        # A new Section, wrapper, button, or extra child must stop this classification.
-        children = []
+        rows = []
         for match in re.finditer(r"\b([A-Z]\w*)[ \t]*[({]", masked[open_brace + 1:close_brace]):
             pos = open_brace + 1 + match.start()
             depth = (masked.count("{", open_brace + 1, pos)
                      - masked.count("}", open_brace + 1, pos))
             if depth != 0:
                 continue
-            if match.group(1) != "LabeledContent":
-                return False
-            children.append(pos)
-        if len(children) != 2:
-            return False
-        labels = []
-        for pos in children:
+            callee = match.group(1)
+            if callee not in ("LabeledContent", "NavigationLink"):
+                return None
             open_paren = masked.find("(", pos)
+            if open_paren < 0 or open_paren > close_brace:
+                return None
             close_paren = match_delim(masked, open_paren, "(", ")")
             if close_paren < 0 or close_paren > close_brace:
-                return False
+                return None
             label, _ = first_label(self.source, open_paren + 1, close_paren)
             if label is None:
-                return False
-            labels.append(label)
-        return labels == ["SwiftTerm", "swift-nio"]
+                return None
+            if callee == "LabeledContent":
+                if not re.search(r"\bvalue\s*:\s*\"[^\"]+\"",
+                                 self.source.text[open_paren:close_paren + 1]):
+                    return None
+                rows.append((pos, close_paren, "entry"))
+                continue
+            k = close_paren + 1
+            while k < close_brace and masked[k] in " \t\r\n":
+                k += 1
+            if k >= close_brace or masked[k] != "{":
+                return None
+            end = match_delim(masked, k)
+            if end < 0 or end > close_brace:
+                return None
+            destination = self.source.text[k:end + 1]
+            if not self.LICENCE_TEXT_RE.search(destination):
+                return None
+            if re.search(r"\b(Button|NavigationLink|Toggle|Picker|Menu|Link|ShareLink)\s*[({]",
+                         masked[k + 1:end]):
+                return None
+            rows.append((pos, end, "text"))
+        if not any(kind == "entry" for _s, _e, kind in rows):
+            return None
+        return rows
+
+    def _drop_licence_catalog_actions(self) -> None:
+        """Full-text links are catalog rows, not page actions (`_flat_licence_catalog`)."""
+        rows = self._flat_licence_catalog()
+        if not rows:
+            return
+        lines = {self.source.line_of(start) for start, _end, kind in rows if kind == "text"}
+        self.actions = [action for action in self.actions
+                        if not (action.get("kind") == "navigation"
+                                and int(str(action.get("provenance", ":0")).rsplit(":", 1)[1]) in lines)]
 
     def _section_model(self) -> str:
         if not self.has_body:
@@ -2482,6 +2572,12 @@ class PageExtractor:
 # ---------------------------------------------------------------------------
 # Android mapping: the contract must name the file that has to obey it.
 # ---------------------------------------------------------------------------
+
+
+@functools.lru_cache(maxsize=None)
+def _cached_android_mapping(root: Path, page_name: str) -> dict:
+    """`android_mapping` for the extractor's per-presentation probe (read-only)."""
+    return android_mapping(root, page_name)
 
 
 def android_mapping(root: Path, page_name: str) -> dict:

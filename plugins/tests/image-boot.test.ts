@@ -160,7 +160,7 @@ function run(command: string, args: string[], environment: NodeJS.ProcessEnv): P
   })
 }
 
-test('the packed phone image boots DSH 0.2.1 with every roster row live or documented pending', {
+test('the packed phone image boots the pinned DSH with every roster row live or documented pending', {
   skip,
   timeout: 180_000,
 }, async () => {

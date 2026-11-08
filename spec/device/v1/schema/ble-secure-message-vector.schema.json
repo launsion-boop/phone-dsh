@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "secure-session-v2 application message vector",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "name",
+    "dir",
+    "payload_hex",
+    "valid"
+  ],
+  "properties": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "dir": {
+      "enum": [
+        "c2s",
+        "s2c"
+      ]
+    },
+    "payload_hex": {
+      "type": "string",
+      "pattern": "^([0-9a-f]{2})+$"
+    },
+    "valid": {
+      "type": "boolean"
+    },
+    "t": {
+      "type": "string"
+    }
+  }
+}

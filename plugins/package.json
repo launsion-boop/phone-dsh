@@ -5,7 +5,7 @@
   "type": "module",
   "description": "DeepSeek Harness plugins that run DSH phone-style: in the host app process, commands on the app's exec provider.",
   "engines": {
-    "node": ">=22.19.0"
+    "node": ">=24.9.0"
   },
   "workspaces": [
     "exec-bridge",
@@ -40,7 +40,8 @@
     "postinstall": "node shell-ext/tools/patch-just-bash.mjs"
   },
   "devDependencies": {
-    "@deepseek-ai/dsh": "0.2.1-rc.2",
+    "@deepseek-ai/dsh": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-tool-executor-native": "0.2.2-rc.1",
     "@types/node": "24.10.1",
     "@types/react": "18.3.27",
     "esbuild": "0.25.10",

@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
-// The pinned DSH cleanup listeners call `fiber.dispose().catch(...)`. A Cordis
+// The pinned file-reference-local listener calls `fiber.dispose().catch(...)`. A Cordis
 // fiber returns a Promise on the first disposal but `undefined` after its
-// owning scope already disposed it, so the two phone-image call sites are
+// owning scope already disposed it, so the phone image call site is
 // normalised with `Promise.resolve`. These tests load the real built DSH
-// packages (originals and transformed copies) and drive their actual
-// `agent/disposed` listeners with a real Cordis fiber, a rejected disposal and
+// package and drive its
+// `agent/disposed` listener with a real Cordis fiber, a rejected disposal and
 // a deferred disposal.
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
@@ -45,7 +45,7 @@ function importBuilt(directory, file = 'lib/index.js') {
   return import(pathToFileURL(join(directory, file)).href)
 }
 
-/** Stage transformed copies of the two real installed packages. */
+/** Stage transformed copy of the real installed package. */
 function stageTransformedPackages() {
   const root = mkdtempSync(join(tmpdir(), 'pdsh-dispose-compat-test-'))
   temporaryRoots.push(root)
@@ -75,43 +75,6 @@ function serviceContext() {
   root.provide('subagentModelSelection', { current: () => ({ enabled: false }) })
   root.provide('workingDirectory', {})
   return root
-}
-
-/**
- * Drive the real tool-subagent standing composition:
- * create a composition scope, mount apply, create a child Agent scope, emit
- * `agent/created`, dispose the Agent scope first, then emit `agent/disposed`.
- * @returns {Error | undefined} the synchronous listener error, if any.
- */
-async function disposeToolSubagent(moduleUrl) {
-  const { apply } = await import(moduleUrl)
-  const root = serviceContext()
-  const compositionKey = { name: 'composition' }
-  const composition = createScope(root, compositionKey)
-  await composition.ctx.plugin({
-    name: 'tool-subagent-dispose-compat-test',
-    apply,
-    inject: ['agents', 'subagents', 'sessionProjections', 'tools', 'systemPrompt'],
-  }, { provider: 'spawn', modelSelectionSettings: true })
-
-  const agentKey = { name: 'agent' }
-  const agentScope = createScope(composition.ctx, agentKey, { parent: compositionKey })
-  const agent = {
-    id: 'dispose-compat-agent',
-    ctx: agentScope.ctx,
-    session: { firstLiveSeq: 1, header: { origin: 'parent' } },
-  }
-  root.emit('agent/created', { agent })
-  await agentScope.dispose()
-
-  let error
-  try {
-    root.emit('agent/disposed', { agent })
-  } catch (reason) {
-    error = reason
-  }
-  await root.fiber.dispose()
-  return error
 }
 
 /**
@@ -163,17 +126,6 @@ test('the exact pinned call sites rewrite once and fail on drift', () => {
       )
     }
   }
-})
-
-test('the real tool-subagent agent/disposed listener no longer throws after the Agent scope disposed its fiber', async () => {
-  const original = await disposeToolSubagent(pathToFileURL(join(installedPackage('@deepseek-ai/dsh-tool-subagent'), 'lib/index.js')).href)
-  assert.ok(original instanceof TypeError, 'the untransformed pinned listener must reproduce the TypeError')
-  assert.match(original.message, /catch/u)
-
-  const staged = stageTransformedPackages()
-  const directory = staged.workspaces.get('@deepseek-ai/dsh-tool-subagent')
-  const error = await disposeToolSubagent(pathToFileURL(join(directory, 'lib/index.js')).href)
-  assert.equal(error, undefined, 'the transformed listener must accept a void disposal return')
 })
 
 test('the real file-reference-local listener accepts a void disposal, a rejection and a pending cleanup', async () => {

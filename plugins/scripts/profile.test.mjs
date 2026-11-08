@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Worker profile patch tests: DSH's own loader must parse the file with its
-// `!!js` expressions intact, and every row id must exist in a 0.2.1 roster or
+// `!!js` expressions intact, and every row id must exist in the pinned roster or
 // be declared by this file's insert list.
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
@@ -26,7 +26,7 @@ import {
 
 const checkout = process.env.PDSH_DSH_CHECKOUT
 const skip = checkout === undefined || checkout === ''
-  ? 'PDSH_DSH_CHECKOUT is unset; the 0.2.1 roster is the oracle for row ids'
+  ? 'PDSH_DSH_CHECKOUT is unset; the pinned roster is the oracle for row ids'
   : false
 const worktree = fileURLToPath(new URL('..', import.meta.url))
 const scratch = []
@@ -48,7 +48,7 @@ async function loadRows(file) {
 /**
  * Load the shared profile through the published app-boot when the pinned
  * checkout's build products are not present. The published package is the same
- * 0.2.1-rc.2 parser; this keeps the row/shape checks runnable on Linux.
+ * pinned parser; this keeps the row/shape checks runnable on Linux.
  * @param file - absolute patch path.
  * @returns Loader rows with `!!js` expression markers.
  */
@@ -99,7 +99,7 @@ function evaluateLoaderValue(value, env = {}) {
   return value
 }
 
-test('every row id exists in a 0.2.1 roster or in the insert list', { skip }, async () => {
+test('every row id exists in the pinned roster or in the insert list', { skip }, async () => {
   const workerRows = await loadRows(WORKER_PROFILE_PATCH)
   const baseRows = await loadRows(join(checkout, 'packages/bundle/base/cordis.patch.yml'))
   const surfaceRows = await loadRows(join(worktree, 'surface-phone', 'cordis.patch.yml'))
@@ -110,7 +110,7 @@ test('every row id exists in a 0.2.1 roster or in the insert list', { skip }, as
   const targets = topLevel(workerRows).map(row => row.id)
   assert.ok(targets.length > 0)
   for (const id of targets) {
-    assert.ok(allowed.has(id), `row id ${id} is neither in a 0.2.1 roster nor in the insert list`)
+    assert.ok(allowed.has(id), `row id ${id} is neither in the pinned roster nor in the insert list`)
   }
 
   assert.ok(inserted.length > 0)
@@ -288,7 +288,7 @@ test('the worker patch mounts the six phone surfaces and the model/search wiring
   assert.equal(byId.get('workspace-controller')?.config?.documentsDirectory, '/dsh/workspace')
 })
 
-test('standard keeps its Worker workflow rows and ptc keeps its presentation row', { skip }, async () => {
+test('standard keeps its Worker workflow rows and ptc uses the native executor', { skip }, async () => {
   const appBoot = await import(pathToFileURL(join(checkout, 'packages/boot/app-boot/lib/index.js')).href)
   const rows = loadWorkerHomePatch(appBoot, WORKER_PROFILE_PATCH, checkout)
   const byId = new Map(flattenRows(rows).filter(row => typeof row.id === 'string').map(row => [row.id, row]))
@@ -303,10 +303,10 @@ test('standard keeps its Worker workflow rows and ptc keeps its presentation row
   assert.equal(findRow(standard, 'tool-workflow')?.name, '@deepseek-ai/dsh-tool-workflow')
 
   const ptc = byId.get('preset-ptc')?.config?.plugins ?? []
-  const presentation = ptc.find(row => row.id === 'tool-presentation')
-  assert.equal(presentation?.name, '@deepseek-ai/dsh-agent-tool-presentation')
-  assert.equal(presentation?.config?.mode, 'ptc')
-  assert.equal(presentation?.disabled, undefined, 'ptc presentation is served by the native-equivalent shim')
+  const executor = findRow(ptc, 'tool-executor-native')
+  assert.equal(executor?.name, '@deepseek-ai/dsh-tool-executor-native')
+  assert.equal(executor?.disabled, undefined)
+  assert.equal(findRow(ptc, 'tool-executor-ptc'), undefined)
 
   // The two genuinely unsupported presets stay visible with their own real
   // rows; the default switch must not hide or rewrite them.
@@ -388,7 +388,6 @@ test('the browser roster names every row the mobile Web UI needs', { skip }, asy
     ['ui-plan', '@deepseek-ai/dsh-client-ui-plan'],
     ['ui-user-questions', '@deepseek-ai/dsh-client-ui-user-questions'],
     ['ui-trajectory', '@deepseek-ai/dsh-client-ui-trajectory'],
-    ['ui-mobile', '@deepseek-ai/dsh-client-ui-mobile'],
   ]
   for (const [id, name] of required) {
     assert.equal(byId.get(id)?.name, name, `${id} must name ${name}`)
@@ -468,7 +467,6 @@ test('the packed image carries browser bundles and gates web tools in every pres
   for (const packageName of [
     CLIENT_MODULES_PACKAGE,
     CONNECTION_PACKAGE,
-    '@deepseek-ai/dsh-client-ui-mobile',
     '@deepseek-ai/dsh-client-ui-sidebar-documentpreview',
     '@deepseek-ai/dsh-client-ui-sidebar-files',
     '@deepseek-ai/dsh-client-ui-sidebar-browser',

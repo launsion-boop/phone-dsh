@@ -1,14 +1,46 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "BLE plaintext task admission vector",
+  "description": "One ordinary Link ingress scenario of the reference firmware. secure_service: whether the firmware registered the secure-session GATT service (ble-secure-session.md section 11.3); identity_visible: pdsh.identity.prove is listed in tools/list; identity_call: proof (completed with a signature), unsupported (UNSUPPORTED 14, no receipt, no signature: the retired tool), or refused (the existing capability refusal of ble-link.md, non-zero, no receipt, no signature).",
   "type": "object",
   "additionalProperties": false,
-  "required": ["name", "app_caps", "identity_visible", "task_visible", "new_task_status"],
+  "required": [
+    "name",
+    "secure_service",
+    "app_caps",
+    "identity_visible",
+    "identity_call",
+    "task_visible",
+    "new_task_status"
+  ],
   "properties": {
-    "name": {"type": "string", "minLength": 1},
-    "app_caps": {"type": "integer", "minimum": 0, "maximum": 4294967295},
-    "identity_visible": {"type": "boolean"},
-    "task_visible": {"const": false},
-    "new_task_status": {"const": 14}
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "secure_service": {
+      "type": "boolean"
+    },
+    "app_caps": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295
+    },
+    "identity_visible": {
+      "type": "boolean"
+    },
+    "identity_call": {
+      "enum": [
+        "proof",
+        "unsupported",
+        "refused"
+      ]
+    },
+    "task_visible": {
+      "const": false
+    },
+    "new_task_status": {
+      "const": 14
+    }
   }
 }

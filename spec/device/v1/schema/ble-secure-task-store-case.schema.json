@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "secure-session-v2 firmware task store selection/migration vector",
+  "description": "NVS text of an object value is its compact JSON serialization in fixture member order; write_v1_sha256 is the v1_sha256 the next tasks_v2 write carries (null for none or when no write is allowed).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "name",
+    "nvs",
+    "result",
+    "view",
+    "write_v1_sha256"
+  ],
+  "properties": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "nvs": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tasks_v1": {
+          "type": [
+            "object",
+            "string"
+          ]
+        },
+        "tasks_v2": {
+          "type": [
+            "object",
+            "string"
+          ]
+        }
+      }
+    },
+    "result": {
+      "enum": [
+        "use_v2",
+        "migrate_v1",
+        "empty",
+        "disabled"
+      ]
+    },
+    "view": {
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "write_v1_sha256": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

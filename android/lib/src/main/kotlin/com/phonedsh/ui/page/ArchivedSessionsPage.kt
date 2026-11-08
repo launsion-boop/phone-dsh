@@ -116,8 +116,10 @@ public fun ArchivedSessionsPage(
                 SessionFailureLine(
                     message = state.failure ?: UiStrings.SESSIONS_ARCHIVED_UNKNOWN,
                     tag = ARCHIVED_PAGE_FAILURE_TAG,
-                    retryLabel = UiStrings.RETRY,
-                    onRetry = onRetry,
+                    // No retry: iOS has none, and no host command re-reads the archive
+                    // (GAP-32; page-structure-rules.md rule 3). Re-entering the page re-reads.
+                    retryLabel = null,
+                    onRetry = null,
                 )
             }
             if (state.status == ArchivedSessionsPageStatus.WAITING) {

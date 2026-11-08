@@ -28,7 +28,7 @@ Phone DSH 是一个**非官方**的 DeepSeek Harness 宿主实现。目标不是
 
 DeepSeek Harness（DSH）自带 `webworker-runtime`，让 harness 在 Web Worker 里执行。Phone DSH 做的是宿主这一侧：iOS 使用 Swift SDK 与系统 WebKit（WKWebView），Android 使用 Kotlin 宿主与 Android WebView，并提供手机真正能提供的服务。WebView 保不住的东西都留在 App 进程：日志、回环源、凭据和生命周期。
 
-DSH 版本钉在 [`plugins/dsh-pin.json`](plugins/dsh-pin.json)：`0.2.1-rc.2`，commit `7be5505b0be06009d74891c869063c9cf19a0df0`。DSH 源码树不会被复制、vendor 或修改。Worker 镜像由 `plugins/scripts/pack-image.mjs` 驱动 DSH 检出自带的 packer 库构建，phone-dsh 的插件 staged 在旁边。packer 只规范化两个包里 built `dispose()` 清理调用点各一处；每个位置都有锚点，改写前后的 SHA-256 记进 `sizes.json`，源码边界由 `scripts/ci/no_dsh_patch.py` 守住。
+DSH 版本钉在 [`plugins/dsh-pin.json`](plugins/dsh-pin.json)：`0.2.2-rc.1`，commit `66491b05e3f05ad35bcdd4f6cd7ed26041d9e3db`。DSH 源码树不会被复制、vendor 或修改。Worker 镜像由 `plugins/scripts/pack-image.mjs` 驱动 DSH 检出自带的 packer 库构建，phone-dsh 的插件 staged 在旁边。packer 只规范化 `dsh-file-reference-local` 构建产物中的一处 `dispose()` 清理调用；该位置有锚点，改写前后的 SHA-256 记进 `sizes.json`，源码边界由 `scripts/ci/no_dsh_patch.py` 守住。
 
 如果没有这层拆分，要么得为手机重写官方 DSH 插件树（模型适配、工具、子代理、会话持久化），要么得让 WebView 承担它保不住的权威。
 
@@ -131,7 +131,7 @@ SDK 不广播任何加速器能力。
 | Xcode 26、Swift 6.3+ | 记录在案的构建使用 Xcode 26.5 与 Swift 6.3.2 |
 | XcodeGen | `brew install xcodegen`；用来重新生成 `examples/probe-app/PhoneDSHProbe.xcodeproj` |
 | iOS 17+（SwiftPM 包同时支持 macOS 14） | `project.yml`、`Package.swift` |
-| Node.js ≥ 22.19、npm、pnpm | plugins、Worker 镜像、DSH 检出构建 |
+| Node.js ≥ 24.9、npm、pnpm | plugins、Worker 镜像、DSH 检出构建 |
 | 钉住版本的 DSH 检出 | 本地构建，不入库 |
 | Rust stable 与 Apple targets（可选） | 只用于加速器 XCFramework |
 
@@ -140,8 +140,8 @@ SDK 不广播任何加速器能力。
 ```bash
 export PDSH_DSH_CHECKOUT="$PWD/../deepseek-harness"
 git clone https://github.com/deepseek-ai/deepseek-harness "$PDSH_DSH_CHECKOUT"
-git -C "$PDSH_DSH_CHECKOUT" checkout 7be5505b0be06009d74891c869063c9cf19a0df0
-(cd "$PDSH_DSH_CHECKOUT" && pnpm install --frozen-lockfile && pnpm build)
+git -C "$PDSH_DSH_CHECKOUT" checkout 66491b05e3f05ad35bcdd4f6cd7ed26041d9e3db
+(cd "$PDSH_DSH_CHECKOUT" && export CI=true LEFTHOOK=0 && pnpm install --frozen-lockfile && pnpm build)
 
 mkdir -p "$HOME/.config/phone-dsh"
 echo "$PDSH_DSH_CHECKOUT" > "$HOME/.config/phone-dsh/dsh-checkout"

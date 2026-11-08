@@ -1,0 +1,1066 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "secure-session-v2 session sequence vector",
+  "description": "side=device replays the board session (§8.3); side=phone replays the phone session (§8.2): device selection, readiness, response correlation, grant windows and resend.",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "side",
+        "given",
+        "handshake",
+        "steps",
+        "final_store"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "side": {
+          "const": "device"
+        },
+        "given": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "record",
+            "peer_phone",
+            "sc",
+            "store"
+          ],
+          "properties": {
+            "record": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "state",
+                "device",
+                "phone",
+                "eid",
+                "rev"
+              ],
+              "properties": {
+                "state": {
+                  "enum": [
+                    "committed",
+                    "revoked"
+                  ]
+                },
+                "device": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "phone": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "eid": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{32}$"
+                },
+                "rev": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "peer_phone": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "sc": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "store": {
+              "type": "array",
+              "maxItems": 4,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "task",
+                  "phase"
+                ],
+                "properties": {
+                  "task": {
+                    "type": "object"
+                  },
+                  "phase": {
+                    "enum": [
+                      "queued",
+                      "accepted",
+                      "completed",
+                      "failed"
+                    ]
+                  },
+                  "by": {
+                    "type": "string",
+                    "pattern": "^phone:[0-9a-f]{64}$"
+                  },
+                  "outcome": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "output",
+                          "truncated"
+                        ],
+                        "properties": {
+                          "output": {
+                            "type": "string",
+                            "maxLength": 1024
+                          },
+                          "truncated": {
+                            "type": "boolean"
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "failure"
+                        ],
+                        "properties": {
+                          "failure": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "kind",
+                              "message"
+                            ],
+                            "properties": {
+                              "kind": {
+                                "enum": [
+                                  "denied",
+                                  "unavailable",
+                                  "expired",
+                                  "failed",
+                                  "unknown_outcome"
+                                ]
+                              },
+                              "message": {
+                                "type": "string",
+                                "maxLength": 256
+                              }
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "handshake": {
+          "enum": [
+            "accept",
+            "reject"
+          ]
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "expect"
+            ],
+            "properties": {
+              "recv": {
+                "type": "object"
+              },
+              "event": {
+                "enum": [
+                  "revoke",
+                  "record_replaced",
+                  "elapse",
+                  "fail_next_write"
+                ]
+              },
+              "seconds": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "record": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "state",
+                  "device",
+                  "phone",
+                  "eid",
+                  "rev"
+                ],
+                "properties": {
+                  "state": {
+                    "enum": [
+                      "committed",
+                      "revoked"
+                    ]
+                  },
+                  "device": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "phone": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "eid": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{32}$"
+                  },
+                  "rev": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
+              },
+              "expect": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "send",
+                  "close"
+                ],
+                "properties": {
+                  "send": {
+                    "type": [
+                      "object",
+                      "null"
+                    ]
+                  },
+                  "close": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "final_store": {
+          "type": "array",
+          "maxItems": 4,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "task",
+              "phase"
+            ],
+            "properties": {
+              "task": {
+                "type": "object"
+              },
+              "phase": {
+                "enum": [
+                  "queued",
+                  "accepted",
+                  "completed",
+                  "failed"
+                ]
+              },
+              "by": {
+                "type": "string",
+                "pattern": "^phone:[0-9a-f]{64}$"
+              },
+              "outcome": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "output",
+                      "truncated"
+                    ],
+                    "properties": {
+                      "output": {
+                        "type": "string",
+                        "maxLength": 1024
+                      },
+                      "truncated": {
+                        "type": "boolean"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "failure"
+                    ],
+                    "properties": {
+                      "failure": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "kind",
+                          "message"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "enum": [
+                              "denied",
+                              "unavailable",
+                              "expired",
+                              "failed",
+                              "unknown_outcome"
+                            ]
+                          },
+                          "message": {
+                            "type": "string",
+                            "maxLength": 256
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "side",
+        "given",
+        "steps"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "side": {
+          "const": "phone"
+        },
+        "given": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "phone",
+            "records",
+            "selected",
+            "ccs"
+          ],
+          "properties": {
+            "phone": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "records": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "device",
+                  "eid",
+                  "rev",
+                  "state"
+                ],
+                "properties": {
+                  "device": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "eid": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{32}$"
+                  },
+                  "rev": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "state": {
+                    "enum": [
+                      "staged",
+                      "committed",
+                      "revoked"
+                    ]
+                  }
+                }
+              }
+            },
+            "selected": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "ccs": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            },
+            "parents": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "steps": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "event",
+                  "server_key",
+                  "expect"
+                ],
+                "properties": {
+                  "event": {
+                    "const": "handshake"
+                  },
+                  "server_key": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "expect": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "result",
+                      "send",
+                      "close",
+                      "state",
+                      "grant"
+                    ],
+                    "properties": {
+                      "result": {
+                        "enum": [
+                          "sent",
+                          "ready",
+                          "granted",
+                          "ok",
+                          "ignored",
+                          "pin_mismatch",
+                          "record_mismatch",
+                          "bad_challenge",
+                          "malformed",
+                          "fatal",
+                          "response_timeout",
+                          "lifetime_expired",
+                          "applied",
+                          "unresolved",
+                          "no_task",
+                          "task_offered",
+                          "accepted_offer",
+                          "local_conflict",
+                          "status",
+                          "status_applied",
+                          "status_resend",
+                          "status_unresolved",
+                          "status_retry_query",
+                          "refused_not_eligible",
+                          "refused_not_ready",
+                          "refused_busy",
+                          "refused_no_grant",
+                          "refused_window",
+                          "refused_next_suspended",
+                          "refused_requery",
+                          "refused_seq_exhausted",
+                          "disconnect",
+                          "background",
+                          "forget",
+                          "record_changed",
+                          "key_lost"
+                        ]
+                      },
+                      "send": {
+                        "type": [
+                          "object",
+                          "null"
+                        ]
+                      },
+                      "close": {
+                        "type": "boolean"
+                      },
+                      "state": {
+                        "enum": [
+                          "closed",
+                          "ready_wait",
+                          "ready"
+                        ]
+                      },
+                      "grant": {
+                        "enum": [
+                          "none",
+                          "active",
+                          "report_only"
+                        ]
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "event",
+                  "seconds",
+                  "expect"
+                ],
+                "properties": {
+                  "event": {
+                    "const": "elapse"
+                  },
+                  "seconds": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "expect": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "result",
+                      "send",
+                      "close",
+                      "state",
+                      "grant"
+                    ],
+                    "properties": {
+                      "result": {
+                        "enum": [
+                          "sent",
+                          "ready",
+                          "granted",
+                          "ok",
+                          "ignored",
+                          "pin_mismatch",
+                          "record_mismatch",
+                          "bad_challenge",
+                          "malformed",
+                          "fatal",
+                          "response_timeout",
+                          "lifetime_expired",
+                          "applied",
+                          "unresolved",
+                          "no_task",
+                          "task_offered",
+                          "accepted_offer",
+                          "local_conflict",
+                          "status",
+                          "status_applied",
+                          "status_resend",
+                          "status_unresolved",
+                          "status_retry_query",
+                          "refused_not_eligible",
+                          "refused_not_ready",
+                          "refused_busy",
+                          "refused_no_grant",
+                          "refused_window",
+                          "refused_next_suspended",
+                          "refused_requery",
+                          "refused_seq_exhausted",
+                          "disconnect",
+                          "background",
+                          "forget",
+                          "record_changed",
+                          "key_lost"
+                        ]
+                      },
+                      "send": {
+                        "type": [
+                          "object",
+                          "null"
+                        ]
+                      },
+                      "close": {
+                        "type": "boolean"
+                      },
+                      "state": {
+                        "enum": [
+                          "closed",
+                          "ready_wait",
+                          "ready"
+                        ]
+                      },
+                      "grant": {
+                        "enum": [
+                          "none",
+                          "active",
+                          "report_only"
+                        ]
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "event",
+                  "seq",
+                  "expect"
+                ],
+                "properties": {
+                  "event": {
+                    "const": "set_last_seq"
+                  },
+                  "seq": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 65535
+                  },
+                  "expect": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "result",
+                      "send",
+                      "close",
+                      "state",
+                      "grant"
+                    ],
+                    "properties": {
+                      "result": {
+                        "enum": [
+                          "sent",
+                          "ready",
+                          "granted",
+                          "ok",
+                          "ignored",
+                          "pin_mismatch",
+                          "record_mismatch",
+                          "bad_challenge",
+                          "malformed",
+                          "fatal",
+                          "response_timeout",
+                          "lifetime_expired",
+                          "applied",
+                          "unresolved",
+                          "no_task",
+                          "task_offered",
+                          "accepted_offer",
+                          "local_conflict",
+                          "status",
+                          "status_applied",
+                          "status_resend",
+                          "status_unresolved",
+                          "status_retry_query",
+                          "refused_not_eligible",
+                          "refused_not_ready",
+                          "refused_busy",
+                          "refused_no_grant",
+                          "refused_window",
+                          "refused_next_suspended",
+                          "refused_requery",
+                          "refused_seq_exhausted",
+                          "disconnect",
+                          "background",
+                          "forget",
+                          "record_changed",
+                          "key_lost"
+                        ]
+                      },
+                      "send": {
+                        "type": [
+                          "object",
+                          "null"
+                        ]
+                      },
+                      "close": {
+                        "type": "boolean"
+                      },
+                      "state": {
+                        "enum": [
+                          "closed",
+                          "ready_wait",
+                          "ready"
+                        ]
+                      },
+                      "grant": {
+                        "enum": [
+                          "none",
+                          "active",
+                          "report_only"
+                        ]
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "event",
+                  "expect"
+                ],
+                "properties": {
+                  "event": {
+                    "enum": [
+                      "grant",
+                      "disconnect",
+                      "background",
+                      "forget",
+                      "record_changed",
+                      "key_lost"
+                    ]
+                  },
+                  "expect": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "result",
+                      "send",
+                      "close",
+                      "state",
+                      "grant"
+                    ],
+                    "properties": {
+                      "result": {
+                        "enum": [
+                          "sent",
+                          "ready",
+                          "granted",
+                          "ok",
+                          "ignored",
+                          "pin_mismatch",
+                          "record_mismatch",
+                          "bad_challenge",
+                          "malformed",
+                          "fatal",
+                          "response_timeout",
+                          "lifetime_expired",
+                          "applied",
+                          "unresolved",
+                          "no_task",
+                          "task_offered",
+                          "accepted_offer",
+                          "local_conflict",
+                          "status",
+                          "status_applied",
+                          "status_resend",
+                          "status_unresolved",
+                          "status_retry_query",
+                          "refused_not_eligible",
+                          "refused_not_ready",
+                          "refused_busy",
+                          "refused_no_grant",
+                          "refused_window",
+                          "refused_next_suspended",
+                          "refused_requery",
+                          "refused_seq_exhausted",
+                          "disconnect",
+                          "background",
+                          "forget",
+                          "record_changed",
+                          "key_lost"
+                        ]
+                      },
+                      "send": {
+                        "type": [
+                          "object",
+                          "null"
+                        ]
+                      },
+                      "close": {
+                        "type": "boolean"
+                      },
+                      "state": {
+                        "enum": [
+                          "closed",
+                          "ready_wait",
+                          "ready"
+                        ]
+                      },
+                      "grant": {
+                        "enum": [
+                          "none",
+                          "active",
+                          "report_only"
+                        ]
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "request",
+                  "expect"
+                ],
+                "properties": {
+                  "request": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "op"
+                    ],
+                    "properties": {
+                      "op": {
+                        "enum": [
+                          "next",
+                          "accept",
+                          "complete",
+                          "fail",
+                          "status"
+                        ]
+                      },
+                      "id": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"
+                      },
+                      "idem": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"
+                      },
+                      "output": {
+                        "type": "string"
+                      },
+                      "truncated": {
+                        "type": "boolean"
+                      },
+                      "failure": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "kind",
+                          "message"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "enum": [
+                              "denied",
+                              "unavailable",
+                              "expired",
+                              "failed",
+                              "unknown_outcome"
+                            ]
+                          },
+                          "message": {
+                            "type": "string",
+                            "maxLength": 256
+                          }
+                        }
+                      },
+                      "resend": {
+                        "const": true
+                      },
+                      "intent": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "action",
+                          "args",
+                          "phone_id"
+                        ],
+                        "properties": {
+                          "action": {
+                            "enum": [
+                              "accept",
+                              "complete",
+                              "fail"
+                            ]
+                          },
+                          "args": {
+                            "type": "object"
+                          },
+                          "phone_id": {
+                            "type": "string",
+                            "pattern": "^phone:[0-9a-f]{64}$"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "expect": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "result",
+                      "send",
+                      "close",
+                      "state",
+                      "grant"
+                    ],
+                    "properties": {
+                      "result": {
+                        "enum": [
+                          "sent",
+                          "ready",
+                          "granted",
+                          "ok",
+                          "ignored",
+                          "pin_mismatch",
+                          "record_mismatch",
+                          "bad_challenge",
+                          "malformed",
+                          "fatal",
+                          "response_timeout",
+                          "lifetime_expired",
+                          "applied",
+                          "unresolved",
+                          "no_task",
+                          "task_offered",
+                          "accepted_offer",
+                          "local_conflict",
+                          "status",
+                          "status_applied",
+                          "status_resend",
+                          "status_unresolved",
+                          "status_retry_query",
+                          "refused_not_eligible",
+                          "refused_not_ready",
+                          "refused_busy",
+                          "refused_no_grant",
+                          "refused_window",
+                          "refused_next_suspended",
+                          "refused_requery",
+                          "refused_seq_exhausted",
+                          "disconnect",
+                          "background",
+                          "forget",
+                          "record_changed",
+                          "key_lost"
+                        ]
+                      },
+                      "send": {
+                        "type": [
+                          "object",
+                          "null"
+                        ]
+                      },
+                      "close": {
+                        "type": "boolean"
+                      },
+                      "state": {
+                        "enum": [
+                          "closed",
+                          "ready_wait",
+                          "ready"
+                        ]
+                      },
+                      "grant": {
+                        "enum": [
+                          "none",
+                          "active",
+                          "report_only"
+                        ]
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "recv",
+                  "expect"
+                ],
+                "properties": {
+                  "recv": {
+                    "type": "object"
+                  },
+                  "expect": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "result",
+                      "send",
+                      "close",
+                      "state",
+                      "grant"
+                    ],
+                    "properties": {
+                      "result": {
+                        "enum": [
+                          "sent",
+                          "ready",
+                          "granted",
+                          "ok",
+                          "ignored",
+                          "pin_mismatch",
+                          "record_mismatch",
+                          "bad_challenge",
+                          "malformed",
+                          "fatal",
+                          "response_timeout",
+                          "lifetime_expired",
+                          "applied",
+                          "unresolved",
+                          "no_task",
+                          "task_offered",
+                          "accepted_offer",
+                          "local_conflict",
+                          "status",
+                          "status_applied",
+                          "status_resend",
+                          "status_unresolved",
+                          "status_retry_query",
+                          "refused_not_eligible",
+                          "refused_not_ready",
+                          "refused_busy",
+                          "refused_no_grant",
+                          "refused_window",
+                          "refused_next_suspended",
+                          "refused_requery",
+                          "refused_seq_exhausted",
+                          "disconnect",
+                          "background",
+                          "forget",
+                          "record_changed",
+                          "key_lost"
+                        ]
+                      },
+                      "send": {
+                        "type": [
+                          "object",
+                          "null"
+                        ]
+                      },
+                      "close": {
+                        "type": "boolean"
+                      },
+                      "state": {
+                        "enum": [
+                          "closed",
+                          "ready_wait",
+                          "ready"
+                        ]
+                      },
+                      "grant": {
+                        "enum": [
+                          "none",
+                          "active",
+                          "report_only"
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

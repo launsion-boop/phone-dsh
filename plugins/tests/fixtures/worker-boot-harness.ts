@@ -316,12 +316,10 @@ interface LiveHostContext {
   get(name: string): unknown
   tools: {
     execute(exec: {
-      callId: string
-      name: string
-      arguments: unknown
+      calls: readonly { type: 'tool-call'; id: string; name: string; arguments: string }[]
       signal: AbortSignal
       agent?: unknown
-    }): Promise<{ isError: boolean; content: unknown; value?: unknown }>
+    }): Promise<{ results: readonly { result: { isError: boolean; content: unknown; value?: unknown } }[] }>
     schemas(scope?: object): { name: string }[]
   }
 }
@@ -577,13 +575,13 @@ try {
   probe.deviceTaskProjection = await call('session/projections', {request: {sessionId: taskSession}})
   probe.deviceTaskPreset = await call('agentPresets/read', {agentPreset: 'pdsh-device-task'})
   probe.deviceTaskTools = hostContext.tools.schemas(taskAgent).map(tool => tool.name)
-  const denied = await hostContext.tools.execute({callId: randomUUID(), name: 'bash', arguments: {command: 'echo unsafe'}, agent: taskAgent, signal: new AbortController().signal})
-  probe.deviceTaskDenied = denied.isError
+  const denied = await hostContext.tools.execute({calls: [{type: 'tool-call', id: randomUUID(), name: 'bash', arguments: JSON.stringify({command: 'echo unsafe'})}], agent: taskAgent, signal: new AbortController().signal})
+  probe.deviceTaskDenied = denied.results[0]?.result.isError
   probe.deviceTaskHeaderPreset = (taskAgent as {session?: {header?: {agentPreset?: string}}}).session?.header?.agentPreset
   await call('agentPresets/select', {agentId: taskSession, agentPreset: 'standard'})
   probe.deviceTaskSwitchTools = hostContext.tools.schemas(taskAgent).map(tool => tool.name)
-  const deniedAfterSwitch = await hostContext.tools.execute({callId: randomUUID(), name: 'bash', arguments: {command: 'echo unsafe'}, agent: taskAgent, signal: new AbortController().signal})
-  probe.deviceTaskSwitchDenied = deniedAfterSwitch.isError
+  const deniedAfterSwitch = await hostContext.tools.execute({calls: [{type: 'tool-call', id: randomUUID(), name: 'bash', arguments: JSON.stringify({command: 'echo unsafe'})}], agent: taskAgent, signal: new AbortController().signal})
+  probe.deviceTaskSwitchDenied = deniedAfterSwitch.results[0]?.result.isError
 
   const creatorId = probe.presetSessions.cordis
   if (creatorId === undefined || hostContext === undefined) throw new Error('Creator did not mount')
@@ -591,9 +589,12 @@ try {
   const creatorAgent = await lookup?.resolve(creatorId)
   if (creatorAgent === undefined) throw new Error('Creator has no real Agent')
   const creatorTools = async (name: string, args: unknown): Promise<unknown> => {
-    const result = await hostContext!.tools.execute({
-      callId: randomUUID(), name, arguments: args, agent: creatorAgent, signal: new AbortController().signal,
+    const batch = await hostContext!.tools.execute({
+      calls: [{ type: 'tool-call', id: randomUUID(), name, arguments: JSON.stringify(args) }],
+      agent: creatorAgent, signal: new AbortController().signal,
     })
+    const result = batch.results[0]?.result
+    if (result === undefined) throw new Error(`Creator tool ${name} returned no outcome`)
     if (result.isError) throw new Error(`Creator tool ${name} failed: ${JSON.stringify(result.content)}`)
     return typeof result.value === 'string' ? JSON.parse(result.value) : result.value
   }
@@ -748,12 +749,15 @@ try {
   probe.mcpListStatus = typeof listedServer?.status === 'string' ? listedServer.status : undefined
   probe.mcpListTools = Array.isArray(listedServer?.tools) ? listedServer.tools as string[] : undefined
   if (hostContext === undefined) throw new Error('boot harness did not observe the live app-boot context')
-  const executedMcp = await hostContext.tools.execute({
-    callId: 'image-mcp-echo',
-    name: 'mcp__image__echo',
-    arguments: { message: 'from-image' },
+  const mcpBatch = await hostContext.tools.execute({
+    calls: [{
+      type: 'tool-call', id: 'image-mcp-echo', name: 'mcp__image__echo',
+      arguments: JSON.stringify({ message: 'from-image' }),
+    }],
     signal: new AbortController().signal,
   })
+  const executedMcp = mcpBatch.results[0]?.result
+  if (executedMcp === undefined) throw new Error('MCP echo returned no outcome')
   probe.mcpCallIsError = executedMcp.isError
   probe.mcpCallContent = JSON.stringify(executedMcp.content)
   const removedMcp = await call('phone/mcpRemove', { request: { serverName: 'image' } })

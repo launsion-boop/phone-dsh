@@ -38,20 +38,24 @@ internal class HostAutomation(
 
     fun save(draft: AutomationScheduleDraft, requestID: String) = launch(requestID) {
         val old = draft.id?.let { records[it] ?: error("schedule no longer exists") }
-        val session = old?.text("sessionId") ?: sessionID() ?: error("no active session")
-        val request = linkedMapOf<String, JsonValue>("sessionId" to JsonString(session),
-            "title" to JsonString(draft.title.trim()), "prompt" to JsonString(draft.prompt.trim()))
-        var savedID = draft.id
-        if (old == null) {
-            request.putAll(automationTimingRequest(draft, editing = false).members.filterKeys { it != "kind" })
+        val content = linkedMapOf<String, JsonValue>(
+            "title" to JsonString(draft.title.trim()), "prompt" to JsonString(draft.prompt.trim()),
+        )
+        val savedID = if (old == null) {
+            val session = sessionID() ?: error("no active session")
+            val request = content + ("sessionId" to JsonString(session)) +
+                automationTimingRequest(draft, editing = false).members.filterKeys { it != "kind" }
             val created = call("phone/createSchedule", args(request)) as? JsonObject
-            savedID = created?.text("id") ?: error("create returned no schedule id")
+            created?.text("id") ?: error("create returned no schedule id")
         } else {
-            request["id"] = JsonString(draft.id!!)
-            request["expected"] = JsonObject(old.members.filterKeys { it in EXPECTED_KEYS })
-            if (draft.changeTiming) request["change"] = automationTimingRequest(draft, editing = true)
-            val updated = call("schedule/update", args(request)) as? JsonObject
-            check((updated?.get("updated") as? JsonBool)?.value != false) { "schedule revision changed" }
+            val id = requireNotNull(draft.id)
+            if (draft.changeTiming) content["timing"] = automationTimingRequest(draft, editing = true)
+            val updated = call("schedule/edit", args(mapOf(
+                "id" to JsonString(id), "action" to JsonString("update"),
+                "expectedUpdatedAt" to (old["updatedAt"] ?: JsonNull), "patch" to JsonObject(content),
+            ))) as? JsonObject
+            check(updated?.text("id") == id && updated["code"] == null) { "schedule revision changed" }
+            id
         }
         val refreshed = try {
             refreshNow()
@@ -74,9 +78,11 @@ internal class HostAutomation(
     }
 
     fun delete(id: String) = launch {
-        val row = records[id] ?: error("schedule no longer exists")
-        val session = row.text("sessionId") ?: error("schedule missing session")
-        call("schedule/delete", args(mapOf("sessionId" to JsonString(session), "id" to JsonString(id))))
+        check(id in records) { "schedule no longer exists" }
+        val deleted = call("schedule/edit", args(mapOf(
+            "id" to JsonString(id), "action" to JsonString("delete"),
+        ))) as? JsonObject
+        check((deleted?.get("deleted") as? JsonBool)?.value == true) { "schedule delete failed" }
         val refreshed = try {
             refreshNow()
         } catch (_: Exception) {
@@ -89,9 +95,8 @@ internal class HostAutomation(
     }
 
     fun history(id: String, before: String? = null) = launch {
-        val row = records[id] ?: error("schedule no longer exists")
-        val request = linkedMapOf<String, JsonValue>("sessionId" to JsonString(row.text("sessionId") ?: error("missing session")),
-            "id" to JsonString(id), "limit" to JsonNumber("50"))
+        check(id in records) { "schedule no longer exists" }
+        val request = linkedMapOf<String, JsonValue>("id" to JsonString(id), "limit" to JsonNumber("50"))
         before?.let { request["before"] = JsonString(it) }
         val result = call("schedule/history", args(request)) as? JsonObject ?: error("history missing")
         val deliveries = (result["records"] as? JsonArray)?.values.orEmpty().mapNotNull { raw ->
@@ -124,10 +129,6 @@ internal class HostAutomation(
     }
 
     private fun args(request: Map<String, JsonValue>) = JsonObject(mapOf("request" to JsonObject(request)))
-
-    companion object {
-        private val EXPECTED_KEYS = setOf("id", "kind", "title", "prompt", "scheduledAt", "afterSeconds", "everySeconds", "time", "timeZone", "expression", "weekdays")
-    }
 }
 
 internal fun automationScheduleOf(row: JsonObject): AutomationSchedule? {
@@ -137,7 +138,7 @@ internal fun automationScheduleOf(row: JsonObject): AutomationSchedule? {
     val timing = AutomationTiming(rule, row.numberText("afterSeconds"), row.text("scheduledAt"),
         row.numberText("everySeconds"), row.text("time"), row.text("timeZone"), days, row.text("expression"))
     return AutomationSchedule(id, row.text("title") ?: "提醒", row.text("prompt"),
-        status = when (row.text("status")) { "active" -> ScheduleStatus.ACTIVE; "stopped" -> ScheduleStatus.STOPPED; else -> ScheduleStatus.UNKNOWN },
+        status = when (row.text("status")) { "active" -> ScheduleStatus.ACTIVE; "paused", "ended" -> ScheduleStatus.STOPPED; else -> ScheduleStatus.UNKNOWN },
         rule = rule.optionLabel, nextRun = row.text("scheduledAt"),
         latestDelivery = (row["lastDelivery"] as? JsonObject)?.text("deliveredAt"), timing = timing)
 }

@@ -18,6 +18,8 @@ import PhoneDSHDeviceTasks
     @ObservationIgnored private var monitors: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var intake: DeviceTaskIntake?
     @ObservationIgnored private var runner: DeviceDSHRunner?
+    /// The one journal owner shared by LAN and secure BLE intake.
+    @ObservationIgnored private var executor: DeviceTaskExecutor?
     @ObservationIgnored private var creating: Task<(DeviceTaskIntake, DeviceDSHRunner), Error>?
     #if PDSH_TEST_HOOKS
     @ObservationIgnored var testEngine: (DeviceTaskIntake, DeviceDSHRunner)?
@@ -61,6 +63,7 @@ import PhoneDSHDeviceTasks
             try await runner.verifyIsolation()
             let support = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
             let executor = try DeviceTaskExecutor(directory: support.appendingPathComponent("device-task-journal", isDirectory: true), runner: runner)
+            self.executor = executor
             return (DeviceTaskIntake(executor: executor), runner)
         }
         creating = task
@@ -162,6 +165,24 @@ import PhoneDSHDeviceTasks
             }
         }
     }
+    #if PDSH_ENABLE_DEVICE_TASKS
+    /// secure-session-v2 grant for the coordinator's ready generation. The
+    /// store gate refuses in every package build (GAP-16); the error is shown.
+    func startSecureBLE() async {
+        guard foreground else { return }
+        error = nil
+        do {
+            _ = try await engine()
+            guard foreground, let executor else { throw DeviceTaskError.unauthorized }
+            try await BLESecureSessionCoordinator.shared.grant(executor: executor)
+        } catch {
+            self.error = "无法授权安全设备派任务：\(error.localizedDescription)"
+        }
+    }
+
+    func stopSecureBLE() { BLESecureSessionCoordinator.shared.revoke() }
+    #endif
+
     private func invalidate(_ key: String) -> Task<Void, Never>? {
         generation[key] = nil; active.remove(key); starting.remove(key); monitors.removeValue(forKey: key)?.cancel()
         if let id = bleIDs.removeValue(forKey: key) { try? BLEDeviceStore.shared.grantDeviceTasks(id, enabled: false) }
@@ -180,6 +201,9 @@ import PhoneDSHDeviceTasks
     }
     func sceneActive(_ active: Bool) async {
         foreground = active
+        #if PDSH_ENABLE_DEVICE_TASKS
+        BLESecureSessionCoordinator.shared.sceneActive(active)
+        #endif
         guard !active else { return }
         creating?.cancel()
         let pending = Array(generation.keys).compactMap { invalidate($0) }

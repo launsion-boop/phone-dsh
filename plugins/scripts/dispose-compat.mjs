@@ -2,23 +2,10 @@
 /**
  * Pack-time compatibility for Cordis fibers whose `dispose()` returns `void`.
  *
- * Cordis declares `Fiber.dispose` as `() => Promise<void>`, but its effect
- * wrapper returns `undefined` when the fiber was already disposed (the wrapper
- * short-circuits after the first call). Two pinned DSH listeners call
- * `fiber.dispose().catch(...)` from `agent/disposed`, where the Agent scope may
- * already have disposed the fiber, so JavaScriptCore (and Node) raises
- * "Cannot read properties of undefined (reading 'catch')".
- *
- * The phone image therefore rewrites exactly those two built call sites while
- * staging the pinned packages: the disposer still runs immediately, `this`
- * stays the fiber, and a rejected cleanup still reaches the same listener.
- * `Promise.resolve` only normalises the return value; it adds no policy.
- *
- * The rewrite is deliberately not a global replacement. Each entry names one
- * package and one file, and the staging step fails loudly when the anchor or
- * the call statement is absent or duplicated. The transformed hashes and the
- * pinned commit/version are recorded in `sizes.json` by `pack-image.mjs`; the
- * DSH checkout is never modified.
+ * The file-reference-local listener can dispose a fiber that Cordis already
+ * disposed. The repeat call returns void, despite Fiber.dispose's Promise type.
+ * Normalize that one built call while staging, preserving immediate cleanup and
+ * rejection handling. A missing or duplicated anchor fails packaging.
  * @module @phone-dsh/dsh-plugins/scripts/dispose-compat
  */
 import { createHash } from 'node:crypto'
@@ -42,20 +29,7 @@ import { dirname, join } from 'node:path'
  * @property {readonly DisposeCompatSite[]} sites - exact sites in that package.
  */
 
-/** The pinned packages and the two `agent/disposed` cleanup listeners. */
 export const DISPOSE_COMPAT_PACKAGES = Object.freeze([
-  Object.freeze({
-    package: '@deepseek-ai/dsh-tool-subagent',
-    sites: Object.freeze([
-      Object.freeze({
-        file: 'lib/index.js',
-        callSite: 'tool-subagent: agent/disposed removeScoped',
-        anchor: 'const removeScoped = (candidate) => {',
-        statement: 'fiber.dispose().catch((error) => {',
-        replacement: 'Promise.resolve(fiber.dispose()).catch((error) => {',
-      }),
-    ]),
-  }),
   Object.freeze({
     package: '@deepseek-ai/dsh-file-reference-local',
     sites: Object.freeze([

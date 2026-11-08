@@ -21,6 +21,8 @@ route or launch bearer is unavailable.
 
 On iOS, follow-model mode uses this grant with the selected model key.
 Independent Search/Fetch mode keeps its own endpoint and credential routing.
+The [independent Search/Fetch clause](gateway-independent-search.md) defines that
+mode's base URL, operations and cookie route. It replaces this grant when it is selected.
 The Worker receives the existing provider IDs, official base URL, and placeholder.
 The gateway resolves the grant before dispatch and refuses redirects for this grant.
 

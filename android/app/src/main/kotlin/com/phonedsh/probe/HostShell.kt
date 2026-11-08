@@ -150,6 +150,9 @@ private val ANDROID_NATIVE_LICENSE_FACTS = listOf(
     com.phonedsh.ui.nav.PdshLicenseFact("kotlin-stdlib", "Kotlin standard library 2.1.0", "Apache-2.0"),
     com.phonedsh.ui.nav.PdshLicenseFact("androidx-core-ktx", "AndroidX Core KTX 1.15.0", "Apache-2.0"),
     com.phonedsh.ui.nav.PdshLicenseFact("androidx-compose-ui", "Jetpack Compose UI 1.7.6", "Apache-2.0"),
+    // Native SSH/SCP (docs/native-ssh.md); versions are the catalog pins.
+    com.phonedsh.ui.nav.PdshLicenseFact("jsch", "JSch (com.github.mwiede) 2.28.8", "BSD-3-Clause AND ISC"),
+    com.phonedsh.ui.nav.PdshLicenseFact("bcprov", "Bouncy Castle Provider (bcprov-jdk18on) 1.86", "MIT"),
 )
 
 /**
@@ -221,6 +224,15 @@ internal fun HostShell(
     val bleDevices = remember { AndroidBleDevices.get(context) }
     BindBluetoothHost(bleDevices)
     val bluetoothFacts by bleDevices.facts.collectAsState()
+    // SSH 主机: the process-wide saved connections (docs/native-ssh.md).
+    val sshSettings = remember { SshSettingsStore.get(context) }
+    val sshFacts by sshSettings.facts.collectAsState()
+    // Android ADB: the process-owned native android_* tool host (native-mcp.md).
+    val androidAdb = remember { AndroidAdbHost.get(context) }
+    val androidAdbFacts by androidAdb.facts.collectAsState()
+    // 局域网设备 on the MCP page: the user-started mDNS browse (lan-mcp.md).
+    val lanDiscovery = remember { AndroidLanDiscovery.get(context) }
+    val lanFacts by lanDiscovery.facts.collectAsState()
     val systemDark = isSystemInDarkTheme()
     // L69: the chat page's one state. Collected here so a Worker event rebuilds the
     // page on the next frame; the view model is its only writer.
@@ -790,9 +802,13 @@ internal fun HostShell(
     // platform really carries this app's back gesture through the invoker. It is
     // measured by the back callback (one gesture moves it), so it is applied here
     // rather than inside the remembered walk.
-    val shownFacts = PredictiveBack.measured(facts).copy(bluetooth = bluetoothFacts)
+    val shownFacts = PredictiveBack.measured(facts).copy(bluetooth = bluetoothFacts, ssh = sshFacts, androidAdb = androidAdbFacts, lan = lanFacts)
     LaunchedEffect(chatUi.commandExecution?.id) {
         if (chatUi.commandExecution != null) nav = nav.push(PdshRoute.CommandResult)
+    }
+    // The model may have saved a new target with android_connect since the last read.
+    LaunchedEffect(nav.current) {
+        if (nav.current == PdshRoute.AndroidAdb) androidAdb.refresh()
     }
     var drawerOpen by remember { mutableStateOf(false) }
     var webFaceOpened by remember { mutableStateOf(false) }
@@ -926,6 +942,15 @@ internal fun HostShell(
                             if (action.wire.startsWith("bluetooth.")) {
                                 // The page owns its result line (结果); no host note.
                                 bleDevices.handle(action)
+                            } else if (action.wire.startsWith("ssh.")) {
+                                // The page owns its result lines; no host note.
+                                sshSettings.handle(action)
+                            } else if (action.wire.startsWith("androidAdb.")) {
+                                // The page owns its 连接状态 line; no host note.
+                                androidAdb.handle(action)
+                            } else if (action is PdshHostAction.LanScan) {
+                                // The page owns its status line; no host note.
+                                lanDiscovery.handle(action)
                             } else if (action is PdshHostAction.OpenWorkspaceFiles) {
                                 notice = null
                                 nav = nav.push(PdshRoute.Files(action.id.ifBlank { null }))
@@ -1525,6 +1550,12 @@ private fun handleHostAction(
 ): String? {
     // The label is token-free: an action never carries user text into the log.
     Log.i(TAG_NAV, "host action handed off: ${action.wire}")
+    // 网页搜索's five writes land in the independent Search/Fetch store. Its
+    // line never contains the key; a write that changed nothing re-reads nothing.
+    handleWebSearchAction(action, WebSearchSettingsStore.active())?.let { result ->
+        if (result.changed) onSettingsChanged()
+        return result.message
+    }
     return when (action) {
         PdshHostAction.StopRuntime -> {
             onStop()
@@ -1655,15 +1686,27 @@ private fun actionLabel(action: PdshHostAction): String = when (action) {
     PdshHostAction.RevokeUbuntuApproval -> "撤销本地 Ubuntu 授权"
     is PdshHostAction.SetWebSearchEnabled -> "网页搜索开关"
     is PdshHostAction.SelectWebSearchBackend -> "网页搜索后端"
+    is PdshHostAction.SetWebSearchMode -> "选择网页搜索方式"
+    is PdshHostAction.CommitWebSearchAddress -> "保存搜索服务地址"
+    is PdshHostAction.CommitWebSearchKey -> "保存搜索服务密钥"
+    PdshHostAction.ClearWebSearchKey -> "清除搜索服务密钥"
+    PdshHostAction.RemoveWebSearchConfiguration -> "删除搜索服务"
     PdshHostAction.RefreshWebSearch -> "重新读取网页搜索"
     PdshHostAction.RefreshMcp -> "重新读取 MCP 服务器"
     is PdshHostAction.BluetoothPageVisible -> "蓝牙设备页"
     is PdshHostAction.BluetoothScan -> "扫描蓝牙设备"
+    is PdshHostAction.LanScan -> "扫描局域网设备"
     is PdshHostAction.BluetoothConnect -> "连接蓝牙设备"
     is PdshHostAction.BluetoothDisconnect -> "断开蓝牙设备"
     is PdshHostAction.BluetoothGrant -> "蓝牙授权"
     is PdshHostAction.BluetoothRead -> "读取蓝牙数据"
     is PdshHostAction.BluetoothAlert -> "蓝牙提醒"
+    is PdshHostAction.SshSaveConnection -> "保存 SSH 连接"
+    is PdshHostAction.SshDeleteConnection -> "删除 SSH 连接"
+    is PdshHostAction.SshInspectHostKey -> "读取 SSH 服务器指纹"
+    is PdshHostAction.AndroidAdbSave -> "保存 Android ADB"
+    is PdshHostAction.AndroidAdbCheck -> "测试 Android ADB 连接"
+    PdshHostAction.AndroidAdbCancel -> "停止当前 Android 操作"
     is PdshHostAction.SaveMcpServer -> "保存 MCP 服务器"
     PdshHostAction.StopRuntime -> "停止本地引擎"
     PdshHostAction.RestartRuntime -> "启动本地引擎"
@@ -1712,6 +1755,8 @@ private fun hostRouteNote(route: PdshRoute): String? = when (route) {
         "保存不会落盘：本宿主没有 phone/mcpUpsert 这个 host tool"
 
     PdshRoute.Bluetooth -> null
+    PdshRoute.Ssh, is PdshRoute.SshEditor -> null
+    PdshRoute.AndroidAdb -> null
 
     PdshRoute.Configuration -> null
     PdshRoute.Automation -> null

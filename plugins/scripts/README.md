@@ -46,7 +46,7 @@ node --test scripts/
 
 `--verify` exits 2 on usage errors and 1 on a verification failure. The pin is
 `dsh-pin.json`: repository, full 40-character commit, and version
-`0.2.1-rc.2`. A checkout is clean when it has no tracked modifications and no
+`0.2.2-rc.1`. A checkout is clean when it has no tracked modifications and no
 untracked file under a root the packer reads (`apps/`, `native/`, `packages/`,
 `vendor/`). The packer indexes workspaces from the live filesystem and honours
 package `files` allowlists, config trees, and the installation manifest, so an
@@ -163,33 +163,32 @@ future face named `client` or `client.*` cannot regress silently.
 
 `Fiber.dispose` is typed `() => Promise<void>`, but Cordis's effect wrapper
 returns `undefined` once the fiber was already disposed. The pinned
-`tool-subagent` and `file-reference-local` `agent/disposed` listeners call
-`fiber.dispose().catch(...)`, so a child Agent whose scope already disposed the
-fiber makes that listener throw `TypeError: ... reading 'catch'` (observed on
-the real iPhone WebWorker after a successful workflow). The checkout cannot be
-patched, and normalising every fiber would change Cordis globally.
+`file-reference-local` listener calls `fiber.dispose().catch(...)` on
+`agent/disposed`. If the scope has already disposed the fiber, that call throws
+`TypeError: ... reading 'catch'`. DSH 0.2.2 removed the equivalent call in
+`tool-subagent`.
 
-`dispose-compat.mjs` therefore stages only those two built packages and
-rewrites exactly one call statement in each to
+`dispose-compat.mjs` stages the built `file-reference-local` package and
+rewrites one call statement to
 `Promise.resolve(fiber.dispose())...`. The call still happens synchronously on
 the same `this`, a rejection still reaches the existing listener, and
 `file-reference-local` keeps adding the normalised promise to `promptDisposals`
-until it settles. Each site names its package, file, enclosing declaration and
+until it settles. The site names its package, file, enclosing declaration and
 exact statement; a missing or duplicated match fails the pack instead of
 guessing, and `sizes.json` records the pinned commit/version and the source and
 transformed SHA-256. The pinned checkout itself is never modified. Because the
-staged copies live under `tmpdir()`, each also carries a `node_modules` view
+staged copy lives under `tmpdir()`, it also carries a `node_modules` view
 that links every declared dependency and peer to the pinned workspace or install
 directory; the packer's collector skips those links, so they restore the same
 resolution the checkout has without changing image contents. The behaviour
-tests load the real built packages and drive their actual listeners with a real
+tests load the real built package and drive its listener with a real
 Cordis fiber, a rejecting disposer and a deferred disposer; the integration test
 runs the pinned packer's `packVfsImage` over a `tmpdir()` stage and asserts no
-missing packages and both transformed statements in the image.
+missing packages and the transformed statement in the image.
 
 ## Roster and profile
 
-The image's roster is the 0.2.1 `@deepseek-ai/dsh-base` bundle, every package its
+The image's roster is the pinned `@deepseek-ai/dsh-base` bundle, every package its
 patch rows name, the six phone-dsh packages, every package named by
 `profile/phone.worker.cordis.patch.yml`, the Worker assembly's literal image
 entry seeds (`dsh-app-boot`, `dsh-cmdline`, `dsh-launch-environment`, `cordis`,

@@ -29,7 +29,7 @@ If DeepSeek ships an official phone DSH in the future, the host- and connector-l
 
 DeepSeek Harness (DSH) ships a `webworker-runtime` that executes the harness inside a Web Worker. Phone DSH is the host side: a Swift SDK with system WebKit (WKWebView) on iOS, and a Kotlin host with Android WebView on Android. Both provide native phone services. The parts a WebView cannot own stay in the app process: the log, the origin, the credentials and the lifecycle.
 
-The pinned release is in [`plugins/dsh-pin.json`](plugins/dsh-pin.json): DSH `0.2.1-rc.2`, commit `7be5505b0be06009d74891c869063c9cf19a0df0`. No DSH source tree is copied, vendored or modified. The Worker image is built from that checkout by driving DSH's own packer library from `plugins/scripts/pack-image.mjs`, with this repository's plugins staged beside it. The packer normalizes exactly two built `dispose()` cleanup call sites in two packages; each site is anchored and hashed in `sizes.json`, and `scripts/ci/no_dsh_patch.py` enforces the source boundary.
+The pinned release is in [`plugins/dsh-pin.json`](plugins/dsh-pin.json): DSH `0.2.2-rc.1`, commit `66491b05e3f05ad35bcdd4f6cd7ed26041d9e3db`. No DSH source tree is copied, vendored or modified. The Worker image is built from that checkout by driving DSH's own packer library from `plugins/scripts/pack-image.mjs`, with this repository's plugins staged beside it. The packer normalizes one built `dispose()` cleanup call in `dsh-file-reference-local`; the site is anchored and hashed in `sizes.json`, and `scripts/ci/no_dsh_patch.py` enforces the source boundary.
 
 Without this split, the official DSH plugin tree (model adapters, tools, sub-agents, session persistence) would have to be reimplemented for a phone, or the phone would have to hand a WebView authority it cannot keep.
 
@@ -105,7 +105,7 @@ All commands run from the repository root unless stated otherwise.
 | Xcode 26 with a Swift 6.3+ toolchain | recorded builds use Xcode 26.5 and Swift 6.3.2 |
 | XcodeGen | `brew install xcodegen`; regenerates `examples/probe-app/PhoneDSHProbe.xcodeproj` |
 | iOS 17+ (the SwiftPM package also builds for macOS 14) | `project.yml`, `Package.swift` |
-| Node.js ≥ 22.19, npm and pnpm | plugins, Worker image, pinned DSH build |
+| Node.js ≥ 24.9, npm and pnpm | plugins, Worker image, pinned DSH build |
 | A DSH checkout at the pinned commit | built locally, never committed |
 | Rust stable and Apple targets (optional) | only for the accelerator XCFramework |
 
@@ -114,8 +114,8 @@ All commands run from the repository root unless stated otherwise.
 ```bash
 export PDSH_DSH_CHECKOUT="$PWD/../deepseek-harness"
 git clone https://github.com/deepseek-ai/deepseek-harness "$PDSH_DSH_CHECKOUT"
-git -C "$PDSH_DSH_CHECKOUT" checkout 7be5505b0be06009d74891c869063c9cf19a0df0
-(cd "$PDSH_DSH_CHECKOUT" && pnpm install --frozen-lockfile && pnpm build)
+git -C "$PDSH_DSH_CHECKOUT" checkout 66491b05e3f05ad35bcdd4f6cd7ed26041d9e3db
+(cd "$PDSH_DSH_CHECKOUT" && export CI=true LEFTHOOK=0 && pnpm install --frozen-lockfile && pnpm build)
 
 mkdir -p "$HOME/.config/phone-dsh"
 echo "$PDSH_DSH_CHECKOUT" > "$HOME/.config/phone-dsh/dsh-checkout"

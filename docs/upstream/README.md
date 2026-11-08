@@ -6,8 +6,7 @@ maintainers, produced for the phone-DSH work package. They are **drafts only**:
 - They are **not applied** to the pinned DSH checkout and **not applied** to this
   repository. The zero-DSH-source-patch rule is unchanged: this repository consumes
   DSH only through the pinned checkout named by `PDSH_DSH_CHECKOUT`, and no DSH
-  source is vendored or patched here. The image packer's two built `dispose()`
-  call-site normalizations are not source; they are described in
+  source is vendored or patched here. The image packer's built `dispose()` call-site normalization is described in
   [`plugins/scripts/README.md`](../../plugins/scripts/README.md#cordis-disposal-compatibility).
 - Each `.patch` file is a `git format-patch` output generated in a temporary clone of the
   pinned checkout (DSH `0.2.1-rc.2`, commit
@@ -43,17 +42,17 @@ git -C "$PDSH_DSH_CHECKOUT" apply "$PWD/docs/upstream/0001-worker-host-pass-sink
 
 ## Pending proposal — Cordis `Fiber.dispose` return value
 
-This is a proposal note, not a generated patch yet. In the pinned
+This is a proposal note, not a generated patch yet. In DSH's
 `vendor/cordis/src/fiber.ts`, `Fiber.dispose` is declared
 `() => Promise<void>`, but the effect disposer it aliases returns `void` once
 the owning fiber has already been disposed. The two DSH `agent/disposed`
-call sites normalized by the phone image call `.catch` on that value, so a
+call sites in 0.2.1-rc.2 called `.catch` on that value, so a
 second disposal throws `TypeError`. Upstream should choose one contract:
 
 - keep the declared Promise and make the already-disposed branch return a
   resolved promise (`Promise.resolve()`), so every caller may chain; or
 - widen `Fiber.dispose` and the effect disposer to `() => void | Promise<void>`,
-  document that callers must normalize, and update the two DSH `.catch` sites.
+  document that callers must normalize, and update the remaining `file-reference-local` call. The `tool-subagent` call was removed upstream.
 
 Once maintainers choose a shape, regenerate a `git format-patch` draft from a
 temporary clone and add it to the table above. Until then the phone image keeps

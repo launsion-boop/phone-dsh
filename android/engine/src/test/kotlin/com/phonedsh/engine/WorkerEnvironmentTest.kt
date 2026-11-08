@@ -46,6 +46,20 @@ class WorkerEnvironmentTest {
     }
 
     @Test
+    fun aMountedNativeMcpPointsTheWorkerPhonePluginAtTheOrigin() {
+        val parsed = JSONObject(
+            WorkerEnvironment.pageParam(
+                launchToken = "ee".repeat(32),
+                hostSupplied = """{"PDSH_PHONE_MCP_URL":"http://stale.invalid/mcp","PDSH_PHONE_MCP_TOKEN":"stale"}""",
+                phoneMcpUrl = "http://127.0.0.1:4242/mcp/native",
+            ),
+        )
+        assertEquals("http://127.0.0.1:4242/mcp/native", parsed.getString("PDSH_PHONE_MCP_URL"))
+        assertEquals("ee".repeat(32), parsed.getString("PDSH_PHONE_MCP_TOKEN"))
+        assertFalse(JSONObject(WorkerEnvironment.pageParam("ff")).has("PDSH_PHONE_MCP_URL"))
+    }
+
+    @Test
     fun aHostEnvWithoutTheKeyIsJustTheToken() {
         val parsed = JSONObject(WorkerEnvironment.pageParam("bb", null))
         assertEquals("bb", parsed.getString(WorkerEnvironment.LAUNCH_TOKEN))

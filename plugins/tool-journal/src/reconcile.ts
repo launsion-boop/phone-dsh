@@ -211,12 +211,3 @@ export function toolResultEvent(call: InterruptedCall, seq: number, time: number
     ...call.callSeq === undefined ? {} : { sourceEventSeqs: [call.callSeq] },
   }
 }
-
-/** Parse model arguments the way the agent loop does: empty → {}, invalid JSON stays text. */
-export function parseArguments(raw: string): unknown {
-  try {
-    return raw ? JSON.parse(raw) : {}
-  } catch {
-    return raw
-  }
-}

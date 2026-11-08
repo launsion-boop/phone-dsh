@@ -105,6 +105,10 @@ object HostExec {
      *   a factory over `ProotUbuntuSession`, which is the only place the real
      *   adapter is selected. `:dsh` never names the real backend.
      *
+     * @param nativeTools tools the composition root implements outside `:dsh`
+     *   (the native `ssh` / `scp` accelerators of `docs/native-ssh.md`). Each
+     *   name must be one of exec.md §3; an empty list advertises none of them.
+     *
      * Historical note: this function was named `phoneOnly` while `phone info`
      * was the only registered accelerator. The old name is kept here so code
      * search and older reports still find the call site.
@@ -117,6 +121,7 @@ object HostExec {
         ledger: RequestLedger = InMemoryRequestLedger(),
         shellMounts: List<AcceleratorMount> = emptyList(),
         seal: UbuntuSeal = UbuntuSeal.unwired,
+        nativeTools: List<RegisteredTool> = emptyList(),
         ubuntuSessionFactory: UbuntuSessionFactory = UbuntuSessionFactory(
             backend = MockUbuntuSession.BACKEND,
         ) {
@@ -159,6 +164,10 @@ object HostExec {
                 ),
             )
         }
+        // Native accelerators the composition root owns (`ssh` / `scp`): they
+        // are registered only when the host really has an implementation, so
+        // the HELLO never advertises a command this process cannot run.
+        tools.addAll(nativeTools)
         // `phone` always exists, so the non-empty factory is the right one; the
         // advertised names are exactly the tools registered above.
         val capability = ExecCapability.of(tools.first(), *tools.drop(1).toTypedArray())

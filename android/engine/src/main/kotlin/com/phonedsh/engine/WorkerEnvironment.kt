@@ -65,12 +65,26 @@ object WorkerEnvironment {
         launchToken: String,
         hostSupplied: String? = null,
         modelBaseUrl: String? = null,
+        phoneMcpUrl: String? = null,
     ): String {
         val env = parseObject(hostSupplied)
         if (modelBaseUrl != null) env.put(MODEL_BASE_URL, modelBaseUrl)
+        // native-mcp.md: with a mounted `/mcp/native` the host points the official
+        // `mcp-phone` plugin at it (iOS `PhoneDSHHost.swift`, same two keys). The
+        // token is this start's loopback token, i.e. the launch token.
+        if (phoneMcpUrl != null) {
+            env.put(PHONE_MCP_URL, phoneMcpUrl)
+            env.put(PHONE_MCP_TOKEN, launchToken)
+        }
         env.put(LAUNCH_TOKEN, launchToken)
         return env.toString()
     }
+
+    /** `plugins/profile/phone.worker.cordis.patch.yml`: the app MCP endpoint (optional). */
+    const val PHONE_MCP_URL: String = "PDSH_PHONE_MCP_URL"
+
+    /** Bearer token for [PHONE_MCP_URL]; the same per-start origin token. */
+    const val PHONE_MCP_TOKEN: String = "PDSH_PHONE_MCP_TOKEN"
 
     private fun parseObject(raw: String?): JSONObject {
         if (raw.isNullOrBlank()) return JSONObject()

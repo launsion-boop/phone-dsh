@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "secure-session-v2 conformance matrix row (ble-secure-session.md §13, §14)",
+  "description": "A required test that cannot be fixed bytes. Each listed end runs it at each listed layer and records the result under this name.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "name",
+    "area",
+    "ends",
+    "layers",
+    "stimulus",
+    "expect",
+    "alert"
+  ],
+  "properties": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "area": {
+      "enum": [
+        "tls",
+        "coc",
+        "board",
+        "physical"
+      ]
+    },
+    "ends": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "phone",
+          "board"
+        ]
+      }
+    },
+    "layers": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "loopback",
+          "host",
+          "device"
+        ]
+      }
+    },
+    "stimulus": {
+      "type": "string",
+      "minLength": 1
+    },
+    "expect": {
+      "enum": [
+        "board_alive_bounded_memory",
+        "certificate_vectors_match",
+        "client_hello_profile",
+        "closed_after_timeout",
+        "coc_closed_board_alive",
+        "credit_vectors_match",
+        "enrolled_session_ok",
+        "entropy_source_active",
+        "full_handshake_no_psk",
+        "handshake_completes",
+        "handshake_failed",
+        "no_duplicate_no_leak",
+        "no_early_data_accepted",
+        "no_half_rtt_data",
+        "no_ticket_sent",
+        "pass",
+        "prove_refused",
+        "records_within_cap",
+        "rejected",
+        "second_coc_refused",
+        "session_failed",
+        "signature_deterministic",
+        "ticket_discarded"
+      ]
+    },
+    "alert": {
+      "enum": [
+        null,
+        "protocol_version",
+        "handshake_failure",
+        "bad_certificate",
+        "certificate_required",
+        "no_application_protocol",
+        "record_overflow"
+      ]
+    }
+  }
+}

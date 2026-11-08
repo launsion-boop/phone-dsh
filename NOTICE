@@ -87,6 +87,14 @@ of the DeepSeek assistant character, included as project branding. They are
 not covered by the MIT licence of the source code and are not official
 DeepSeek assets.
 
+The Android app's native SSH/SCP accelerator (docs/native-ssh.md) links two
+Maven Central libraries, pinned in android/gradle/libs.versions.toml:
+
+  - JSch 2.28.8 (com.github.mwiede:jsch)     BSD-3-Clause (JSch, JZlib) and
+    ISC (jBCrypt); https://github.com/mwiede/jsch
+  - Bouncy Castle bcprov-jdk18on 1.86        MIT-style Bouncy Castle Licence;
+    https://www.bouncycastle.org/licence.html
+
 PDSH BLE Home Bridge includes the MIT-licensed policy, bounded TCP transport,
 legacy control vectors, and related tests identified by
 firmware/components/pdsh_home/vendor/UPSTREAM.json. The original license and

@@ -258,6 +258,8 @@ PATH_PROJECTIONS['P18']['authority'].append('harmony/entry/src/main/ets/host/Hos
 PATH_PROJECTIONS['P18']['authority'].append('spec/device/v1/legacy-identity-preferences.md')
 PATH_PROJECTIONS['P18']['ends']['Swift'].append('Sources/PhoneDSHBLE/BLEIdentity.swift')
 PATH_PROJECTIONS['P18']['evidence'].append('Tests/PhoneDSHBLETests/BLEIdentityTests.swift')
+PATH_PROJECTIONS['P07']['authority'].append('spec/device/v1/ble-secure-session.md')
+PATH_PROJECTIONS['P07']['evidence'].append('spec/v1/tools/test_ble_secure_session_golden.py')
 
 
 def registry_schema():

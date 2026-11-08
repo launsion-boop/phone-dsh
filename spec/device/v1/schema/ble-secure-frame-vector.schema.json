@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "secure-session-v2 application frame decoding vector",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "name",
+    "chunks_hex",
+    "eof",
+    "payloads_hex",
+    "error"
+  ],
+  "properties": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "chunks_hex": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^([0-9a-f]{2})*$"
+      }
+    },
+    "eof": {
+      "type": "boolean"
+    },
+    "payloads_hex": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^([0-9a-f]{2})+$"
+      }
+    },
+    "error": {
+      "enum": [
+        null,
+        "limit",
+        "truncated"
+      ]
+    }
+  }
+}

@@ -13,6 +13,8 @@ androidx-activity-compose = "1.9.3" # unverified pin
 junit = "4.13.2"                    # unverified pin
 androidx-test-ext-junit = "1.2.1"   # unverified pin
 espresso = "3.6.1"                  # unverified pin
+jsch = "2.28.8"                     # unverified pin
+bouncycastle = "1.86"               # unverified pin
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidx-core" }
@@ -22,6 +24,8 @@ androidx-compose-ui = { module = "androidx.compose.ui:ui" }
 junit = { module = "junit:junit", version.ref = "junit" }
 androidx-test-ext-junit = { module = "androidx.test.ext:junit", version.ref = "androidx-test-ext-junit" }
 androidx-espresso-core = { module = "androidx.test.espresso:espresso-core", version.ref = "espresso" }
+jsch = { module = "com.github.mwiede:jsch", version.ref = "jsch" }
+bouncycastle-bcprov = { module = "org.bouncycastle:bcprov-jdk18on", version.ref = "bouncycastle" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

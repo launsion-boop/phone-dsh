@@ -133,13 +133,29 @@ public actor DeviceTaskExecutor {
         try await report(record: record, outcome: bounded, inbox: inbox)
     }
 
+    /// Parent tasks already journaled for `deviceID` (secure-session §8.2
+    /// local conflict check and the "accepted offer without parent" rule).
+    public func tasks(deviceID: String) throws -> [DeviceTask] {
+        try journal.records().filter { $0.deviceID == deviceID }.map(\.task)
+    }
+
     private func accept(record: DeviceTaskRecord, inbox: any DeviceTaskInbox) async throws {
+        if let secure = inbox as? any BLESecureTaskInbox {
+            try await secureOperation(record: record, action: .accept, inbox: secure)
+            return
+        }
         guard let link = inbox as? any BLETaskLinkInbox else { try await inbox.accept(id: record.task.id); return }
         try await linkOperation(record: record, action: .accept,
                                 arguments: .object(["id": .string(record.task.id)]), link: link)
     }
 
     private func report(record: DeviceTaskRecord, outcome: DeviceTaskOutcome, inbox: any DeviceTaskInbox) async throws {
+        if let secure = inbox as? any BLESecureTaskInbox {
+            let action: BLESecureTaskIntent.Action
+            switch outcome { case .completed: action = .complete; case .failed: action = .fail }
+            try await secureOperation(record: record, action: action, inbox: secure)
+            return
+        }
         guard let link = inbox as? any BLETaskLinkInbox else { try await inbox.report(id: record.task.id, outcome: outcome); return }
         let action: BLETaskIntent.Action
         let args: JSONValue
@@ -152,6 +168,16 @@ public actor DeviceTaskExecutor {
             args = .object(["id": .string(record.task.id), "failure": .object(["kind": .string(kind.rawValue), "message": .string(message)])])
         }
         try await linkOperation(record: record, action: action, arguments: args, link: link)
+    }
+
+    /// secure-session-v2 §9.2: the arguments are reconstructed solely from the
+    /// persisted parent, and the intent is durable before the binding may send.
+    private func secureOperation(record: DeviceTaskRecord, action: BLESecureTaskIntent.Action,
+                                 inbox: any BLESecureTaskInbox) async throws {
+        let arguments = try BLESecureTransitionArguments.reconstruct(record: record, action: action)
+        let (intent, fresh) = try journal.prepareBLESecureTransition(record: record, phoneID: inbox.phoneID, arguments: arguments)
+        try Task.checkCancellation()
+        try await inbox.transition(arguments, intent: intent, fresh: fresh)
     }
 
     private func linkOperation(record: DeviceTaskRecord, action: BLETaskIntent.Action,

@@ -1,17 +1,39 @@
 // SPDX-License-Identifier: MIT
 #include "driver/gpio.h"
 #include "esp_event.h"
+#include "esp_log.h"
 #include "esp_netif.h"
 #include "esp_random.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "host/ble_hs.h"
 #include "host/ble_store.h"
 #include "host/util/util.h"
 #include "link_tools.h"
+#include "pdsh_enroll.h"
+#include "pdsh_identity.h"
+#include "pdsh_secure_cert.h"
+#include "pdsh_secure_session.h"
+#include "pdsh_task_store.h"
+#include "psa/crypto.h"
+/* §5 credit mechanism: the CoC receive function of the pinned NimBLE
+ * (ESP-IDF v6.1 fff9895c, ble_l2cap_coc_rx_fn) dereferences the receive slot
+ * before checking credits. This firmware never lets it run: on
+ * BLE_L2CAP_EVENT_COC_ACCEPT (before the connection response, so before any
+ * K-frame can arrive) chan->rx_fn is replaced by secure_coc_rx, which checks
+ * credits first (pdsh_ss_coc_kframe) and returns credits only after TLS
+ * consumed an SDU. The private NimBLE headers are pinned to that revision. */
+#include "ble_l2cap_priv.h"
+#include "ble_l2cap_sig_priv.h"
+#if CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
+#include "driver/usb_serial_jtag.h"
+#elif CONFIG_ESP_CONSOLE_UART
+#include "driver/uart.h"
+#endif
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
 #include "nvs_flash.h"
@@ -30,6 +52,15 @@
 static const ble_uuid128_t service_uuid = UUID(0x0100), rx_uuid = UUID(0x0101),
                            tx_uuid = UUID(0x0102), audio_uuid = UUID(0x0103);
 static uint16_t tx_handle, audio_handle;
+/* §5 secure session service d04ea024-c7fd-4a52-9ace-cf9d7567d0e6 with the
+ * Apple L2CAP PSM characteristic abdd3056-28fa-441d-a470-55a75a52553a. */
+static const ble_uuid128_t secure_uuid = BLE_UUID128_INIT(0xe6, 0xd0, 0x67, 0x75, 0x9d, 0xcf, 0xce, 0x9a, 0x52,
+                                                          0x4a, 0xfd, 0xc7, 0x24, 0xa0, 0x4e, 0xd0);
+static const ble_uuid128_t psm_uuid = BLE_UUID128_INIT(0x3a, 0x55, 0x52, 0x5a, 0xa7, 0x55, 0x70, 0xa4, 0x1d, 0x44,
+                                                       0xfa, 0x28, 0x56, 0x30, 0xdd, 0xab);
+#define SECURE_PSM 0x00A5
+#define SECURE_MTU 512
+static bool secure_available;
 static uint8_t address_type;
 static uint32_t boot_id, app_caps, event_seq;
 static atomic_uint connection = BLE_HS_CONN_HANDLE_NONE, generation = 1;
@@ -161,6 +192,21 @@ static int access_gatt(uint16_t conn, uint16_t attr, struct ble_gatt_access_ctxt
     }
     return 0;
 }
+static int access_psm(uint16_t conn, uint16_t attr, struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    (void)conn;
+    (void)attr;
+    (void)arg;
+    if (ctxt->op != BLE_GATT_ACCESS_OP_READ_CHR) return BLE_ATT_ERR_READ_NOT_PERMITTED;
+    uint8_t value[2] = {SECURE_PSM & 0xff, SECURE_PSM >> 8};
+    return os_mbuf_append(ctxt->om, value, sizeof(value)) ? BLE_ATT_ERR_INSUFFICIENT_RES : 0;
+}
+static const struct ble_gatt_svc_def secure_services[] = {
+    {.type = BLE_GATT_SVC_TYPE_PRIMARY,
+     .uuid = &secure_uuid.u,
+     .characteristics = (struct ble_gatt_chr_def[]){
+         {.uuid = &psm_uuid.u, .access_cb = access_psm, .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_READ_ENC},
+         {0}}},
+    {0}};
 static const struct ble_gatt_svc_def services[] = {
     {.type = BLE_GATT_SVC_TYPE_PRIMARY,
      .uuid = &service_uuid.u,
@@ -220,10 +266,214 @@ static void status_info(uint8_t out[35]) {
     put32(out + 4, esp_timer_get_time() / 1000000);
     put16(out + 33, ble_att_mtu(atomic_load(&connection)));
 }
+
+/* ===================== secure session binding (§5) ===================== */
+
+static SemaphoreHandle_t secure_lock;
+static struct {
+    struct ble_l2cap_chan *chan; /* the one CoC (global limit 1) */
+    uint16_t conn_handle, peer_mtu;
+    bool accepted, opened, reached_open, closing;
+    pdsh_ss_coc_t coc;
+    pdsh_ss_tx_t tx;
+    pdsh_ss_conn_t *tls;
+    pdsh_ss_server_cfg_t cfg;
+    uint8_t cert[PDSH_CERT_MAX_DER];
+} S;
+static pdsh_ss_admission_t admission;
+static uint64_t now_ms(void) { return (uint64_t)(esp_timer_get_time() / 1000); }
+
+static int secure_coc_rx(struct ble_l2cap_chan *chan, struct os_mbuf **om) {
+    uint8_t frame[SECURE_MTU];
+    uint16_t len = OS_MBUF_PKTLEN(*om);
+    xSemaphoreTake(secure_lock, portMAX_DELAY);
+    pdsh_coc_close_t r = chan != S.chan ? PDSH_COC_CREDIT_OVERRUN : PDSH_COC_OK;
+    if (r == PDSH_COC_OK) {
+        /* Credits first: the receive path is not touched for a K-frame the
+         * peer had no credit for. */
+        if (S.coc.peer_credits == 0) r = pdsh_ss_coc_kframe(&S.coc, NULL, 0);
+        else if (len > sizeof(frame)) r = pdsh_ss_coc_kframe(&S.coc, NULL, (size_t)S.coc.mps + 1);
+        else if (os_mbuf_copydata(*om, 0, len, frame) != 0) r = PDSH_COC_KFRAME_SHORT;
+        else r = pdsh_ss_coc_kframe(&S.coc, frame, len);
+    }
+    if (r != PDSH_COC_OK && !S.closing) {
+        S.closing = true;
+        ESP_LOGW("pdsh", "secure CoC closed: %s", pdsh_coc_close_name(r));
+        ble_l2cap_disconnect(chan); /* the CoC only; the LE link stays */
+    }
+    xSemaphoreGive(secure_lock);
+    return 0; /* the caller frees *om */
+}
+
+static int secure_coc_event(struct ble_l2cap_event *event, void *arg) {
+    (void)arg;
+    xSemaphoreTake(secure_lock, portMAX_DELAY);
+    int rc = 0;
+    switch (event->type) {
+    case BLE_L2CAP_EVENT_COC_ACCEPT: {
+        struct ble_l2cap_chan *chan = event->accept.chan;
+        struct ble_gap_conn_desc desc;
+        bool encrypted = ble_gap_conn_find(event->accept.conn_handle, &desc) == 0 && desc.sec_state.encrypted;
+        if (!secure_available || !encrypted || S.chan || !pdsh_ss_admit(&admission, event->accept.conn_handle, now_ms()) ||
+            !pdsh_ss_coc_init(&S.coc, SECURE_MTU, chan->my_coc_mps, (uint8_t)chan->coc_rx.credits)) {
+            if (S.chan == NULL && admission.open && admission.conn_handle == event->accept.conn_handle)
+                admission.open = false;
+            rc = BLE_HS_ENOMEM; /* refused: second CoC, back-off, or unsupported layout */
+            break;
+        }
+        chan->rx_fn = secure_coc_rx; /* before the response: no K-frame has arrived */
+        memset(&S.tx, 0, sizeof(S.tx));
+        S.chan = chan;
+        S.conn_handle = event->accept.conn_handle;
+        S.peer_mtu = event->accept.peer_sdu_size;
+        S.accepted = true;
+        S.opened = S.reached_open = S.closing = false;
+        break;
+    }
+    case BLE_L2CAP_EVENT_COC_CONNECTED:
+        if (event->connect.status) S.accepted = false;
+        break;
+    case BLE_L2CAP_EVENT_COC_TX_UNSTALLED:
+        pdsh_ss_tx_unstalled(&S.tx, event->tx_unstalled.status);
+        break;
+    case BLE_L2CAP_EVENT_COC_DISCONNECTED:
+        if (event->disconnect.chan == S.chan) {
+            pdsh_ss_tx_disconnected(&S.tx); /* NimBLE frees a queued SDU in channel cleanup */
+            S.chan = NULL;
+            S.closing = true;
+        }
+        break;
+    case BLE_L2CAP_EVENT_COC_DATA_RECEIVED:
+        os_mbuf_free_chain(event->receive.sdu_rx); /* unreachable: rx_fn is replaced */
+        break;
+    default:
+        break;
+    }
+    xSemaphoreGive(secure_lock);
+    return rc;
+}
+
+static bool secure_random(uint8_t *out, size_t n) { return pdsh_entropy_random(out, n); }
+
+/* Session task: TLS work never runs in the NimBLE host task. */
+static void secure_task(void *arg) {
+    (void)arg;
+    static uint8_t sdu[SECURE_MTU];
+    for (;;) {
+        vTaskDelay(pdMS_TO_TICKS(20));
+        xSemaphoreTake(secure_lock, portMAX_DELAY);
+        uint64_t t = now_ms();
+        if (S.accepted && !S.tls && !S.closing) {
+            size_t len = 0;
+            if (pdsh_cert_build(pdsh_identity_key(), true, S.cert, sizeof(S.cert), &len)) {
+                S.cfg = (pdsh_ss_server_cfg_t){S.cert, len, pdsh_identity_key(), &pdsh_ss_timers_v2, secure_random};
+                S.tls = pdsh_ss_conn_new(&S.cfg, t); /* <= 32 KiB, freed on close */
+            }
+            if (!S.tls) S.closing = true;
+        }
+        if (S.tls) {
+            /* Consume SDUs only into free TLS input; credits follow consumption. */
+            size_t ready;
+            while ((ready = pdsh_ss_coc_ready(&S.coc)) && ready <= pdsh_ss_conn_rx_free(S.tls)) {
+                uint8_t credits = 0;
+                size_t n = pdsh_ss_coc_consume(&S.coc, sdu, sizeof(sdu), &credits);
+                pdsh_ss_conn_rx(S.tls, sdu, n);
+                if (S.chan && credits) ble_l2cap_sig_le_credits(S.conn_handle, S.chan->scid, credits);
+            }
+            if (!S.chan) pdsh_ss_conn_eof(S.tls);
+            pdsh_ss_conn_state_t st = pdsh_ss_conn_poll(S.tls, t);
+            if (st == PDSH_SS_CONN_OPEN) S.reached_open = true;
+            /* Send path: one SDU at a time, waiting on BLE_HS_ESTALLED. */
+            while (S.chan && pdsh_ss_tx_can_send(&S.tx)) {
+                size_t cap = S.peer_mtu < sizeof(sdu) ? S.peer_mtu : sizeof(sdu);
+                size_t n = pdsh_ss_conn_tx(S.tls, sdu, cap);
+                if (!n) break;
+                struct os_mbuf *om = ble_hs_mbuf_from_flat(sdu, n);
+                int rc = om ? ble_l2cap_send(S.chan, om) : BLE_HS_ENOMEM;
+                pdsh_tx_rc_t kind = rc == 0 ? PDSH_TX_RC_OK : rc == BLE_HS_ESTALLED ? PDSH_TX_RC_STALLED
+                                    : (!om || rc == BLE_HS_EBUSY || rc == BLE_HS_EBADDATA) ? PDSH_TX_RC_NOT_TAKEN
+                                                                                         : PDSH_TX_RC_FAILED;
+                bool caller_frees;
+                pdsh_ss_tx_sent(&S.tx, kind, &caller_frees);
+                if (caller_frees && om) os_mbuf_free_chain(om);
+            }
+            if (S.tx.broken && S.chan && !S.closing) {
+                S.closing = true;
+                ble_l2cap_disconnect(S.chan);
+            }
+            if (st == PDSH_SS_CONN_CLOSED && S.chan && !S.closing && !S.tx.in_stack) {
+                S.closing = true;
+                ble_l2cap_disconnect(S.chan);
+            }
+        }
+        if (S.accepted && S.closing && !S.chan) { /* channel gone: free everything */
+            pdsh_ss_conn_free(S.tls);
+            S.tls = NULL;
+            pdsh_ss_released(&admission, S.reached_open, t);
+            S.accepted = false;
+            memset(&S.coc, 0, sizeof(S.coc));
+        }
+        xSemaphoreGive(secure_lock);
+    }
+}
+
+/* Enrollment console (§3.2) on the primary console; authority needs the
+ * 5 s arm hold, so an attached host alone can change nothing. */
+static void console_line(const char *line) {
+    printf("%s\n", line);
+    fflush(stdout);
+}
+static uint64_t enroll_now(void) { return now_ms(); }
+static bool indicator_available(void) {
+    return CONFIG_PDSH_INDICATOR_GPIO >= 0 && CONFIG_PDSH_INDICATOR_GPIO != CONFIG_PDSH_LED_GPIO &&
+           CONFIG_PDSH_INDICATOR_GPIO != CONFIG_PDSH_BUTTON_GPIO;
+}
+static pdsh_enroll_ops_t enroll_ops;
+static void console_task(void *arg) {
+    (void)arg;
+    uint8_t buf[64];
+    for (;;) {
+        int n = 0;
+#if CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
+        n = usb_serial_jtag_read_bytes(buf, sizeof(buf), pdMS_TO_TICKS(100));
+#elif CONFIG_ESP_CONSOLE_UART
+        n = uart_read_bytes(CONFIG_ESP_CONSOLE_UART_NUM, buf, sizeof(buf), pdMS_TO_TICKS(100));
+#else
+        vTaskDelay(pdMS_TO_TICKS(1000));
+#endif
+        if (n > 0) pdsh_enroll_feed(buf, (size_t)n);
+        pdsh_enroll_tick();
+    }
+}
+static void secure_start(void) {
+    nvs_handle_t enr;
+    enroll_ops = (pdsh_enroll_ops_t){enroll_now, pdsh_entropy_random, CONFIG_PDSH_BUTTON_GPIO >= 0,
+                                     indicator_available(), console_line, pdsh_identity_probe,
+                                     pdsh_identity_reset, NULL};
+    ESP_ERROR_CHECK(nvs_open("pdsh_enr", NVS_READWRITE, &enr));
+    pdsh_enroll_init(&enroll_ops, enr);
+    if (indicator_available()) {
+        int pin = CONFIG_PDSH_INDICATOR_GPIO < 0 ? 0 : CONFIG_PDSH_INDICATOR_GPIO;
+        gpio_config_t config = {.pin_bit_mask = 1ULL << pin, .mode = GPIO_MODE_OUTPUT};
+        ESP_ERROR_CHECK(gpio_config(&config));
+        gpio_set_level(CONFIG_PDSH_INDICATOR_GPIO, 0);
+    }
+#if CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
+    usb_serial_jtag_driver_config_t usj = USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT();
+    ESP_ERROR_CHECK(usb_serial_jtag_driver_install(&usj));
+#elif CONFIG_ESP_CONSOLE_UART
+    if (!uart_is_driver_installed(CONFIG_ESP_CONSOLE_UART_NUM))
+        ESP_ERROR_CHECK(uart_driver_install(CONFIG_ESP_CONSOLE_UART_NUM, 512, 0, 0, NULL, 0));
+#endif
+    xTaskCreate(console_task, "pdsh_enroll", PDSH_ENROLL_CONSOLE_STACK, NULL, 4, NULL);
+    secure_lock = xSemaphoreCreateMutex();
+    assert(secure_lock);
+    xTaskCreate(secure_task, "pdsh_secure", 10240, NULL, 4, NULL);
+}
+
 static void io_task(void *arg) {
     (void)arg;
     message_t message;
-    bool last_pressed = false;
     uint32_t seen_generation = 0;
     for (;;) {
         if (seen_generation != atomic_load(&generation)) {
@@ -310,9 +560,12 @@ static void io_task(void *arg) {
                 notify_frame(0xff, id, nak, 2, message.generation);
             }
         }
+        if (indicator_available()) gpio_set_level(CONFIG_PDSH_INDICATOR_GPIO, pdsh_enroll_indicator_level(now_ms()));
         if (CONFIG_PDSH_BUTTON_GPIO >= 0) {
             bool pressed = gpio_get_level(CONFIG_PDSH_BUTTON_GPIO) == 0;
-            if (pressed && !last_pressed) {
+            /* The gesture classifier owns the button while armed (§3.3): the
+             * ordinary meaning applies only to a press edge while locked. */
+            if (pdsh_enroll_button(pressed) & PDSH_BUTTON_LEGACY_EDGE) {
                 int bonds = 0;
                 ble_store_util_count(BLE_STORE_OBJ_TYPE_PEER_SEC, &bonds);
                 if (!bonds)
@@ -330,7 +583,6 @@ static void io_task(void *arg) {
                     notify_frame(PDSH_EVENT, 0, (uint8_t *)event, n, atomic_load(&generation));
                 }
             }
-            last_pressed = pressed;
         }
     }
 }
@@ -348,6 +600,8 @@ static void wifi_event(void *arg, esp_event_base_t base, int32_t id, void *data)
 void app_main(void) {
     // Never erase NVS automatically: that would discard uncertain operations and bonds.
     ESP_ERROR_CHECK(nvs_flash_init());
+    /* §2: the BLE controller (RF entropy) runs before any key is generated. */
+    ESP_ERROR_CHECK(nimble_port_init());
     boot_id = esp_random();
     tools_init(boot_id);
     messages = xQueueCreate(8, sizeof(message_t));
@@ -374,7 +628,6 @@ void app_main(void) {
         ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &config));
         ESP_ERROR_CHECK(esp_wifi_start());
     }
-    ESP_ERROR_CHECK(nimble_port_init());
     ble_hs_cfg.sync_cb = sync_host;
     ble_hs_cfg.sm_io_cap = BLE_HS_IO_NO_INPUT_OUTPUT;
     ble_hs_cfg.sm_bonding = 1;
@@ -388,6 +641,13 @@ void app_main(void) {
     ble_svc_gap_device_name_set("PDSH ESP32 Link");
     ESP_ERROR_CHECK(ble_gatts_count_cfg(services));
     ESP_ERROR_CHECK(ble_gatts_add_svcs(services));
+    char fp[65];
+    secure_available = pdsh_identity_probe(fp) == PDSH_IDENTITY_OK &&
+                       ble_gatts_count_cfg(secure_services) == 0 && ble_gatts_add_svcs(secure_services) == 0 &&
+                       ble_l2cap_create_server(SECURE_PSM, SECURE_MTU, secure_coc_event, NULL) == 0;
+    /* §11.3: with the secure service the device key is no signing oracle. */
+    tools_set_secure_service(secure_available);
+    secure_start();
     int bonds = 0;
     ble_store_util_count(BLE_STORE_OBJ_TYPE_PEER_SEC, &bonds);
     atomic_store(&pairing_until, !bonds ? esp_timer_get_time() + 60000000 : 0);

@@ -102,9 +102,9 @@ README ≤ 345 行（PR22 新增类型/几何表，cap 319→345，规则变更�
 
 产品抽屉是 `HomeDrawer`（`HomeDrawer.swift:12`，不是 `*Page`）：新会话 / 定时任务、文件夹分组（默认「日常」）、长按重命名/归档、底部设置栏；它用手写契约 `pages/home-drawer.json` 进 gate，`extract_ios_pages.py` 的 `CHROME_CONTRACTS` 钉住文件与 struct。`HomeSpec.swift` 是 430×932 的页面/文字/间距/圆角值来源（#F7F7F7 page、#1A1A1A ink、16/24 body、16 chrome/20 content），不生成页面契约，由 `CHROME_VALUE_FILES` 钉住。`FilePreviewPage` 已删除（PR15），预览是独立面 `PreviewSurface`（`pages/preview-surface.json`）。
 
-页面结构另有机器可读契约：`pages/<page-id>.json`（分区/行/动作/呈现，每项带 `file:line`）由 `tools/extract_ios_pages.py` 抽取，`tools/page_structure_check.py` 比对 Android；平台被迫差异只走 `_whitelist.json`（引用 `spec/platform/whitelist.json` 的 id），已知差异记 `_baseline.json` 只减不增；`states` 只作人读，Android 无对应页登记 `_android-only.json`，有 `public fun *Page()` 无契约即失败。
+页面结构另有机器可读契约：`pages/<page-id>.json`（分区/行/动作/呈现，每项带 `file:line`）由 `tools/extract_ios_pages.py` 抽取，`tools/page_structure_check.py` 比对 Android；平台被迫差异只走 `_whitelist.json`（引用 `spec/platform/whitelist.json` 的 id），已知差异记 `_baseline.json` 只减不增；`states` 只作人读，Android 无对应页登记 `_android-only.json`，Android 同页多出的单项登记 `_android-only-items.json`（准入规则与对称判定见 [page-structure-rules.md](page-structure-rules.md)），有 `public fun *Page()` 无契约即失败。
 标题 MUST 是渲染形态：`dynamicTitle` 只给「固定模板+一个可变量」；数据即标题记 `title:null`+`titleSource:"expression"`+`titleExpression`+`criterion`；无字面判据的项登记 `_unrecognized.json`（owner+reviewBy+理由，stale 即失败）；死 UI 标 `deadUi`+证据；整页一坨记 `single-region`。
-Android 侧 MUST 走 `SessionSectionLabel`/`SectionHeader(title=…)`/`*SectionView(_, title)` 与 `SessionTextAction`/`InfoRow(..., onClick=…)`；标题是表达式记 `unresolved`；标准控件（`Button`、`FilterChip`、`Switch`、`DropdownMenuItem`、`label:` 包装器）也算动作；判据是 gate 看不见正确实现时修 gate、实现藏信息时修实现。
+Android 侧 MUST 走 `SessionSectionLabel`/`SectionHeader(title=…)`/`*SectionView(_, title)` 与 `SessionTextAction`/`InfoRow(..., onClick=…)`；标题/标签含静态文案却无法解析记 `unresolved`，纯宿主数据记 data-labelled 不比较；标准控件（`Button`、`FilterChip`、`Switch`、`DropdownMenuItem`、`label:` 包装器）也算动作；判据是 gate 看不见正确实现时修 gate、实现藏信息时修实现。
 
 ### 1.1 已知基线观察（只记录，不改基线）
 

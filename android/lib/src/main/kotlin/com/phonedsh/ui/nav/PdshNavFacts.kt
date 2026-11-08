@@ -37,6 +37,7 @@ import com.phonedsh.ui.page.RuntimeFacts
 import com.phonedsh.ui.page.SettingsFacts
 import com.phonedsh.ui.page.ShellSnapshot
 import com.phonedsh.ui.page.WebSearchFacts
+import com.phonedsh.ui.page.WebSearchMode
 import com.phonedsh.ui.page.WebSurfaceFacts
 import com.phonedsh.ui.page.WorkbenchSnapshot
 import com.phonedsh.ui.page.WorkspaceFoldersSnapshot
@@ -80,6 +81,8 @@ public sealed interface SettingsWrite {
  * @param mcp the MCP registry; the default reports no list.
  * @param mcpEditor the stored server the editor opens on; the default is a new
  *   server form (nothing is stored).
+ * @param lan LAN MCP device discovery; the default host has none, so 扫描局域网设备
+ *   renders disabled with the page's own "not wired" line.
  * @param runtime the engine/runtime snapshot; the default reports no read.
  * @param egress the effective allow list; the default reports no list.
  * @param automation the schedules; the default reports no list.
@@ -109,7 +112,11 @@ public data class PdshNavFacts(
     public val webSearch: WebSearchFacts = WebSearchFacts(),
     public val mcp: MCPRegistryFacts = MCPRegistryFacts(),
     public val mcpEditor: MCPEditorFacts = MCPEditorFacts(),
+    public val lan: com.phonedsh.ui.page.LanDiscoveryFacts = com.phonedsh.ui.page.LanDiscoveryFacts(),
     public val bluetooth: com.phonedsh.ui.page.BluetoothFacts = com.phonedsh.ui.page.BluetoothFacts(),
+    public val ssh: com.phonedsh.ui.page.SSHFacts = com.phonedsh.ui.page.SSHFacts(),
+    /** Android ADB: the saved target and the last 保存 / 测试连接 status (host-owned). */
+    public val androidAdb: com.phonedsh.ui.page.AndroidAdbFacts = com.phonedsh.ui.page.AndroidAdbFacts(),
     public val runtime: RuntimeFacts = RuntimeFacts(),
     public val egress: EgressAllowListFacts = EgressAllowListFacts(),
     public val automation: AutomationFacts = AutomationFacts(),
@@ -422,6 +429,41 @@ public sealed interface PdshHostAction {
         override val wire: String = "mcp.refresh"
     }
 
+    /**
+     * 保存 one SSH connection. The draft may carry a freshly typed secret, so
+     * this action is not a data class and [toString] never prints it.
+     */
+    public class SshSaveConnection(
+        public val requestId: String,
+        public val draft: com.phonedsh.ui.page.SSHConnectionDraft,
+    ) : PdshHostAction {
+        override val wire: String = "ssh.save"
+
+        override fun toString(): String = "SshSaveConnection(redacted)"
+    }
+
+    /** 删除连接: the profile and its Keystore credential. */
+    public data class SshDeleteConnection(public val requestId: String, public val id: String) : PdshHostAction {
+        override val wire: String = "ssh.delete"
+    }
+
+    /** 读取并核对指纹: observe the server key for (host, port); nothing is trusted yet. */
+    public data class SshInspectHostKey(
+        public val requestId: String,
+        public val host: String,
+        public val port: Int,
+    ) : PdshHostAction {
+        override val wire: String = "ssh.inspect"
+    }
+
+    /**
+     * 扫描局域网设备 (`true`) / 停止扫描 (`false`): an explicit, user-started LAN MCP
+     * discovery (`spec/device/v1/lan-mcp.md`). It never connects or grants.
+     */
+    public data class LanScan(public val start: Boolean) : PdshHostAction {
+        override val wire: String = "lan.scan"
+    }
+
     /** 蓝牙设备 page shown (`true`) or disposed (`false`); disposal stops scan and connections. */
     public data class BluetoothPageVisible(public val visible: Boolean) : PdshHostAction {
         override val wire: String = "bluetooth.page"
@@ -461,6 +503,21 @@ public sealed interface PdshHostAction {
         override val wire: String = "bluetooth.alert"
     }
 
+    /** Android ADB 保存: validate and persist the drafted target (refused while an operation runs). */
+    public data class AndroidAdbSave(public val draft: com.phonedsh.ui.page.AndroidAdbDraft) : PdshHostAction {
+        override val wire: String = "androidAdb.save"
+    }
+
+    /** Android ADB 测试连接 with the drafted target; serialized with the android_* tools. */
+    public data class AndroidAdbCheck(public val draft: com.phonedsh.ui.page.AndroidAdbDraft) : PdshHostAction {
+        override val wire: String = "androidAdb.check"
+    }
+
+    /** 停止当前 Android 操作: cancel the running tool call or connection check. */
+    public data object AndroidAdbCancel : PdshHostAction {
+        override val wire: String = "androidAdb.cancel"
+    }
+
     /** Persist the web-search switch position. */
     public data class SetWebSearchEnabled(public val enabled: Boolean) : PdshHostAction {
         override val wire: String = "websearch.toggle"
@@ -469,6 +526,42 @@ public sealed interface PdshHostAction {
     /** Persist the selected web-search backend. */
     public data class SelectWebSearchBackend(public val id: String) : PdshHostAction {
         override val wire: String = "websearch.backend"
+    }
+
+    /** 用哪一份搜索: follow the model service, or the page's own Search/Fetch service. */
+    public data class SetWebSearchMode(public val mode: WebSearchMode) : PdshHostAction {
+        override val wire: String = "websearch.mode"
+    }
+
+    /** Commit the typed Search/Fetch base URL; the host validates and normalizes it. */
+    public data class CommitWebSearchAddress(public val address: String) : PdshHostAction {
+        override val wire: String = "websearch.address"
+    }
+
+    /**
+     * Store the pasted Search/Fetch key for the committed address.
+     *
+     * The payload is the secret itself, handed to the host once; [toString] never
+     * prints it, so a log line or crash report built from this value stays clean.
+     */
+    public class CommitWebSearchKey(public val key: String) : PdshHostAction {
+        override val wire: String = "websearch.key"
+
+        override fun equals(other: Any?): Boolean = other is CommitWebSearchKey && other.key == key
+
+        override fun hashCode(): Int = key.hashCode()
+
+        override fun toString(): String = "CommitWebSearchKey(key=***)"
+    }
+
+    /** 清除密钥 was confirmed. */
+    public data object ClearWebSearchKey : PdshHostAction {
+        override val wire: String = "websearch.key.clear"
+    }
+
+    /** 删除这个搜索服务 was confirmed. */
+    public data object RemoveWebSearchConfiguration : PdshHostAction {
+        override val wire: String = "websearch.remove"
     }
 
     /** Persist one MCP server draft. */

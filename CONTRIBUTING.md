@@ -10,9 +10,8 @@
   evidence that a feature is implemented.
 - **Zero DSH source patches.** The pinned DeepSeek Harness checkout is never modified or vendored
   (`scripts/ci/check.sh --only phone-no-dsh-patch` enforces that on the source tree). The image packer has one controlled
-  exception: it stages DSH's built `@deepseek-ai/dsh-tool-subagent` and `@deepseek-ai/dsh-file-reference-local` packages
-  and normalizes exactly one Cordis `dispose()` cleanup statement in each. Every site is anchored to one package, file and
-  statement; a missing or duplicated match fails the pack, and `sizes.json` records the pinned commit/version plus the
+  exception: it stages the built `@deepseek-ai/dsh-file-reference-local` package and normalizes one Cordis `dispose()`
+  cleanup statement. A missing or duplicated match fails the pack, and `sizes.json` records the pinned commit/version plus the
   source and transformed SHA-256 (see [`plugins/scripts/README.md`](plugins/scripts/README.md#cordis-disposal-compatibility)).
   Any other change DSH itself needs becomes a patch proposal under `docs/upstream/`.
 - **Contract first.** `spec/v1` is the host↔Worker contract; golden vectors are the interoperability oracle for the Swift

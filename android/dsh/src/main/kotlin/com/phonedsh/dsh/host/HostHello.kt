@@ -112,8 +112,10 @@ data class HostFence(
  *   value, so `exec/1` can only be advertised when at least one executable tool
  *   was registered. This lane registers `phone` (`phone info`).
  * - `accelerator:*` — **conditional**: one entry per executable tool in
- *   [com.phonedsh.dsh.exec.ExecCapability.Available]. Only the six names of
- *   `exec.md` §3 are accepted; `phone` is the first one this host really runs.
+ *   [com.phonedsh.dsh.exec.ExecCapability.Available]. Only the names of
+ *   `exec.md` §3 / channel.md §4.1 are accepted; `phone` is the first one this
+ *   host really runs, and `ssh` / `scp` appear only when the composition root
+ *   registers the native SSH tool.
  *
  * A host that later gains one of the remaining capabilities extends
  * [WalUplink] (for the WAL half) or [ExecCapability] (for the exec half); it
@@ -160,9 +162,9 @@ data class HostCapabilities(val values: Set<String>) {
         /** `exec/1`: EXEC_REQ is dispatched and answered with EXEC_EVT. */
         const val EXEC: String = "exec/1"
 
-        /** The only read-only accelerator names §4.1 defines. */
+        /** The only accelerator names §4.1 defines (the same set as `ToolSet.ACCELERATORS`). */
         val ACCELERATORS: Set<String> =
-            setOf("rg", "jaq", "ts-parse", "ts-query", "phone", "ctx")
+            setOf("rg", "jaq", "ts-parse", "ts-query", "phone", "ctx", "ssh", "scp", "adb")
 
         private val CORE_ORDER: List<String> = listOf(CHANNEL, WAL, EXEC)
 

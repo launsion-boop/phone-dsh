@@ -13,35 +13,32 @@ persistent log, the single loopback origin, the ordered channel, the model
 gateway and every side effect that survives the WebContent process.
 
 The integration is **zero DSH source patch**. DSH is consumed from the pinned
-checkout (`plugins/dsh-pin.json`: version `0.2.1-rc.2`, commit `7be5505`). No
+checkout (`plugins/dsh-pin.json`: version `0.2.2-rc.1`, commit `66491b0`). No
 DSH source tree is copied, vendored or modified; the packer copies the pinned
-build into the image, and stages two of those built packages for the one
+build into the image, and stages one built package for the
 compatibility rewrite below. The repository contains the host (Swift), the wire
 contract, the Worker entry, the phone profile and the image tooling.
 `scripts/ci/no_dsh_patch.py` enforces that source boundary.
 
 The image has one controlled pack-time exception. Cordis types
 `Fiber.dispose` as `() => Promise<void>`, but its effect wrapper returns `void`
-once the fiber was already disposed. The `agent/disposed` listeners in the
-pinned `@deepseek-ai/dsh-tool-subagent` and
-`@deepseek-ai/dsh-file-reference-local` packages call `.catch` on that return
-value, so that listener threw `TypeError: ... reading 'catch'` after a
-successful workflow. During packing, `dispose-compat.mjs` stages only
-those two built packages and rewrites exactly one anchored call statement in
-each to `Promise.resolve(fiber.dispose())...`. The original disposer still runs
+once the fiber was already disposed. The `agent/disposed` listener in
+`@deepseek-ai/dsh-file-reference-local` calls `.catch` on that return value.
+During packing, `dispose-compat.mjs` stages the built package and rewrites one
+anchored call statement to `Promise.resolve(fiber.dispose())...`. The original disposer still runs
 synchronously on the same `this`; a rejection still reaches the existing
 listener, and `file-reference-local` still tracks the normalized promise in
 `promptDisposals` until it settles. A missing or duplicated anchor/statement
 fails the pack instead of guessing, and `sizes.json` records the pinned
 commit/version plus the source and transformed SHA-256 hashes. The checkout is
 never written, and no Promise prototype, Cordis wrapper, context, agent loop or
-VFS is changed. The staged copies also carry a `node_modules` view linking each
+VFS is changed. The staged copy also carries a `node_modules` view linking each
 declared dependency and peer to the pinned workspace or install directory, so
 the packer resolves the same closure from `tmpdir()` that it would from the
-checkout. The regression tests load the real built packages and drive their
-actual listeners with a real Cordis fiber (void, rejected and pending disposal);
-the integration test runs `packVfsImage` over a `tmpdir()` stage and requires an
-empty `missing` list plus both rewritten statements in the packed files. See
+checkout. The regression tests load the built package and exercise its listener
+with a real Cordis fiber, a rejected disposal, and a pending disposal.
+The integration test runs `packVfsImage` over a `tmpdir()` stage and requires an
+empty `missing` list and the rewritten statement in the packed files. See
 [Cordis disposal compatibility](../plugins/scripts/README.md#cordis-disposal-compatibility).
 The durable fix is recorded as a [pending upstream proposal](upstream/README.md).
 

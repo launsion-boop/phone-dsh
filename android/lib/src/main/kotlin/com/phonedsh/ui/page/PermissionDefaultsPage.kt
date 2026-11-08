@@ -42,7 +42,14 @@ public fun PermissionDefaultsPage(
         ) {
             item(key = "permission-defaults") {
                 Column {
-                    com.phonedsh.ui.surface.SettingsSectionLabel(title = state.note, modifier = Modifier.testTag(PERMISSION_DEFAULTS_NOTE_TAG))
+                    com.phonedsh.ui.surface.SettingsSectionLabel(
+                        title = UiStrings.settingsNativeText(
+                            state.languageId,
+                            UiStrings.PERMISSION_DEFAULTS_NOTE,
+                            UiStrings.PERMISSION_DEFAULTS_SCOPE_EN,
+                        ),
+                        modifier = Modifier.testTag(PERMISSION_DEFAULTS_NOTE_TAG),
+                    )
                     state.statusMessage?.let { message ->
                         androidx.compose.foundation.text.BasicText(
                             text = message,
