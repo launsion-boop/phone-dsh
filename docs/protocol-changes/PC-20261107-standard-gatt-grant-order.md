@@ -7,7 +7,7 @@ status: frozen
 breaking: true
 version_decision: Preserve the existing local grant signatures and wire formats; tighten local admission, cancellation and connection lifecycle.
 base: ef6afede85c0580bca75ccb2b3b6e97caa78a955
-contract_revision: spec/device/v1/ble-link.md@standard-gatt-grant-v1
+contract_revision: spec/device/v1/ble-link.md@standard-gatt-grant-v2
 ```
 
 Protocol impact: P07; P09; P05: none — the existing MCP request and result
@@ -18,10 +18,20 @@ later local revocation overwritten by an older `grant`. The owning contract
 now fixes local field ordering, immediate revocation admission, captured
 pending-read outcome and continuation ownership, and conservative
 disconnect quarantine. It retains the existing nil/same-value/alert-only
-pending-read side effect. The 47 shared positive and negative scenarios fix
+pending-read side effect. The 50 shared positive and negative scenarios fix
 real Observation, cancellation races, Link dispatch, resource ownership and
 adapter-side-effect expectations; the canonical fixture digest is
-`f24755201a5ce6375e7b7baf2f2cf0146c24b3ba452c3fdd568b679ef888f40e`.
+`7b0c25385c6996ce25f38d0d7251ff2a2d6cebccbc73fbdb46145fe7d0298ca4`.
+
+Revision v2 resolves the implementer's lifecycle change request: a natural
+disconnect for a locally exclusive, previously connected current owner can
+release that owner only after the applicable callback returns; an explicit
+user connection then establishes a new owner with cleared grants. An idle
+peripheral for which no connection was ever submitted need not be quarantined
+solely due to manager unavailability; invalidated objects require discovery.
+Outstanding and ambiguous attempts remain unavailable. These rules introduce
+no OS request token and do not establish physical callback provenance or radio
+liveness. GAP-29 and the physical acceptance requirements remain open.
 
 Old callers retain their method signatures. A new implementation clears old
 grants when a new connect is accepted, rejects operations while a connection
@@ -54,7 +64,13 @@ store, observation, admission, outcome claim, continuation and Link reassembly;
 they do not substitute a hand-written state machine. Test callbacks cannot
 claim that a synthetic owner was supplied by CoreBluetooth.
 
-Acceptance: shared 47-case runtime tests and mutations of critical expected
+The coordinator owns the test-only `examples/probe-app/project.yml` wiring:
+the simulator and device-twin test targets compile the real Bluetooth page
+and link the already-declared `PhoneDSHBLE` product. P24: none — this adds no
+package, version or lockfile change; it makes the required page tests
+buildable. The existing app target's dependency is unchanged.
+
+Acceptance: shared 50-case runtime tests and mutations of critical expected
 fields against the real store; `swift test --filter
 'StandardGattGrantOrderingTests|StandardBLETests|BLEDeviceMCPTests|PDSHLinkTests'`;
 release build of `PhoneDSHBLE`; iOS Bluetooth-page build and real page tests

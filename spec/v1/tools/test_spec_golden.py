@@ -687,7 +687,7 @@ class StandardGattGrantOrderingFixtureTests(unittest.TestCase):
         device = SPEC_DIR.parent / "device" / "v1"
         schema = json.loads((device / "schema" / "standard-gatt-grant-order.schema.json").read_text())
         rows = [json.loads(line) for line in (device / "golden" / "standard-gatt-grant-order.jsonl").read_text().splitlines()]
-        self.assertEqual(len(rows), 47)
+        self.assertEqual(len(rows), 50)
         self.assertEqual(len(rows), len({row["scenario"] for row in rows}))
         for row in rows:
             spec_golden.validate_json(row, schema, row["scenario"])
@@ -696,7 +696,7 @@ class StandardGattGrantOrderingFixtureTests(unittest.TestCase):
         def fixture_digest(values):
             data = "\n".join(json.dumps(row, sort_keys=True, separators=(",", ":")) for row in values)
             return hashlib.sha256(data.encode()).hexdigest()
-        frozen = "f24755201a5ce6375e7b7baf2f2cf0146c24b3ba452c3fdd568b679ef888f40e"
+        frozen = "7b0c25385c6996ce25f38d0d7251ff2a2d6cebccbc73fbdb46145fe7d0298ca4"
         self.assertEqual(fixture_digest(rows), frozen)
         by = {row["scenario"]: row for row in rows}
         self.assertEqual(set(by), set(schema["properties"]["scenario"]["enum"]))
@@ -724,6 +724,14 @@ class StandardGattGrantOrderingFixtureTests(unittest.TestCase):
                              ("quarantined", "quarantined", 0), name)
         self.assertEqual((by["retry-after-barrier"]["phase"], by["retry-after-barrier"]["connect_submissions"]),
                          ("connecting", 1))
+        for name, b_phase in (("natural-disconnect-barrier", "connected"),
+                              ("idle-radio-off-on", "idle"), ("idle-radio-reset", "idle")):
+            row = by[name]
+            self.assertEqual((row["phase"], row["b_phase"], row["inner_admission"],
+                              row["connect_submissions"], row["disconnect_submissions"],
+                              row["other_unavailable_commands"]),
+                             ("connecting", b_phase, "denied", 1, 0, 0), name)
+            self.assertFalse(row["a_read"] or row["a_alert"] or row["b_read"] or row["b_alert"], name)
         self.assertEqual((by["timeout-no-barrier"]["phase"], by["timeout-no-barrier"]["connect_submissions"]),
                          ("quarantined", 0))
         self.assertEqual(by["stale-timer-new-owner"]["pending"], "new-pending")

@@ -76,7 +76,10 @@
         "value-before-timeout",
         "cancel-before-read-reserve",
         "cancel-after-read-reserve",
-        "link-event-while-closing"
+        "link-event-while-closing",
+        "natural-disconnect-barrier",
+        "idle-radio-off-on",
+        "idle-radio-reset"
       ]
     },
     "a_read": {
@@ -103,7 +106,8 @@
     "b_phase": {
       "enum": [
         "connected",
-        "quarantined"
+        "quarantined",
+        "idle"
       ]
     },
     "pending": {

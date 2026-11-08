@@ -169,7 +169,11 @@ previously connected attempt with system auto-reconnect disabled, a candidate
 may leave closing only after the applicable `didDisconnectPeripheral`
 delegate callback has completely returned; subsequent attempts rediscover
 services and characteristics. User requests during that callback do not pass
-the boundary early. If the application cannot establish this boundary,
+the boundary early. A natural disconnect of the current, previously
+connected, locally exclusive owner follows the same rule: revoke and clear
+the old owner, then allow a new explicit connection after the applicable
+callback has returned. An ambiguous or unexpected event does not acquire
+that owner merely by matching its UUID. If the application cannot establish this boundary,
 including a cancelled pending connection, unexpected callback, radio reset or
 manager replacement, it stays unavailable rather than using a timeout or
 `CBPeripheral.state` as proof. A connect cancelled before being submitted to
@@ -194,6 +198,12 @@ discovery. A later powered-on state or rediscovery alone is not proof that
 old callbacks have drained. A positive declaration during closing or
 quarantine is refused; revocation is always accepted and cannot make a
 closing connection usable.
+If no connection attempt has ever been submitted for an idle peripheral, there
+is no old connection attempt to quarantine solely because the manager becomes
+unavailable. Commands remain disabled while it is unavailable; after power
+returns an explicit connection can start if the peripheral object is still
+valid, or after the required rediscovery if the manager invalidated it. This
+exception does not release an outstanding or ambiguously finished attempt.
 
 The value callback is used for both reads and notifications and has no app
 request token. A standard read cannot rely on a callback as its result if the
@@ -313,6 +323,8 @@ is sent while unavailable.
 | `cancel-before-radio-off` | A has one submitted read. A background caller claims cancellation; before main-actor cleanup runs, the manager becomes unavailable. Retain cancellation as the outcome, revoke both devices as for radio-off, and issue no unavailable CoreBluetooth command. |
 | `value-before-timeout` | A's eligible value completion wins; before a new read is started, deliver the old local timeout callback. The value remains the outcome, the old timer is cancelled and the old timeout does not close the owner. |
 | `cancel-before-read-reserve`, `cancel-after-read-reserve` | Cancel from a background caller at a controlled point before, or after, the local submission reservation but before the fake adapter submits. Before reservation, no read or disconnect is submitted and the current owner remains usable. After reservation, the read may have been submitted: the test suppresses the not-yet-issued fake call, but the owner still closes and requests disconnect. Both cases return cancellation once. |
+| `natural-disconnect-barrier` | A is the sole current connected owner, with auto-reconnect disabled. Deliver its natural disconnect. During its callback an explicit connect is denied; after the callback returns and the boundary is applied, a new explicit connect is submitted once with both grants cleared. |
+| `idle-radio-off-on`, `idle-radio-reset` | A and B are idle and no connection attempt has been submitted. Turn the manager off or reset it, then power it on; in the reset case rediscover A as a new valid peripheral. No command is issued while unavailable; a subsequent explicit connect for A is submitted once, with no old grants. |
 
 For `retry-after-barrier`, record a checkpoint inside the disconnect callback
 before it returns and a second checkpoint after it returns; neither a queued
