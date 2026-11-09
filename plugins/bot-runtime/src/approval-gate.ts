@@ -40,6 +40,10 @@ const UI_TOOLS = new Set([
 ])
 const AUTO_TOOLS = new Set([
   'RecallMemory', 'Task', 'AwaitTask', 'StopSubagent', 'UpdateRoutine', 'ListRoutines', 'SendToUser',
+  // Team tools are auto-policy but audited by the App: SendToAgent is an
+  // external send and CreateTeammate creates a local Bot. Neither asks the
+  // user for another approval card.
+  'SendToAgent', 'CreateTeammate',
 ])
 // PR59's native-MCP "BLE tools" (`spec/v1/native-mcp.md`), forwarded by the
 // Bot server as `mcp__phone__ble_*`. PR59's per-connection grant is the real

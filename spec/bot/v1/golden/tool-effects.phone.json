@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "vector": "tool-effects.phone",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6",
+    "note": "phoneDSH team-tool delta. Re-running export-vectors.mjs rewrites tool-effects.json but not this file."
+  },
+  "valid": [
+    {
+      "name": "SendToAgent",
+      "args": {
+        "agent_id": "bot-b",
+        "message": "帮我检查厨房温度",
+        "priority": true
+      },
+      "policy": "auto",
+      "effect": {
+        "tool": "SendToAgent",
+        "operation": "dshbot.SendToAgent",
+        "resource": "agent=bot-b&message=帮我检查厨房温度",
+        "target": "agent=bot-b&message=帮我检查厨房温度",
+        "mutability": "external-send",
+        "policy": "auto",
+        "label": "傳送訊息給其他 Bot",
+        "detail": "把訊息送給另一個 Bot，對方回覆後會以 agent-comm 行回來；這是對外動作，結果未知時不自動重試。",
+        "ui": false,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "CreateTeammate",
+      "args": {
+        "name": "Builder",
+        "color": "amber"
+      },
+      "policy": "auto",
+      "effect": {
+        "tool": "CreateTeammate",
+        "operation": "dshbot.CreateTeammate",
+        "resource": "dshbot:create-teammate&name=Builder",
+        "target": "dshbot:create-teammate&name=Builder",
+        "mutability": "write",
+        "policy": "auto",
+        "label": "建立隊友 Bot",
+        "detail": "建立一個有獨立對話與記憶的 Bot；只有主 Bot 可以呼叫。",
+        "ui": false,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    }
+  ]
+}

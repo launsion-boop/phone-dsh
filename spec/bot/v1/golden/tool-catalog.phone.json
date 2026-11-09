@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "vector": "tool-catalog.phone",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6",
+    "note": "phoneDSH team-tool delta; the upstream tool-catalog.json and its schema stay untouched."
+  },
+  "team": {
+    "tools": [
+      "SendToAgent",
+      "CreateTeammate"
+    ],
+    "sendToAgent": {
+      "required": [
+        "agent_id",
+        "message"
+      ],
+      "properties": [
+        "agentId",
+        "agent_id",
+        "bot_name",
+        "delivery",
+        "message",
+        "priority",
+        "target_id",
+        "text",
+        "title"
+      ],
+      "descriptionContains": [
+        "Available bots:",
+        "priority",
+        "Never send to yourself"
+      ]
+    },
+    "createTeammate": {
+      "required": [
+        "name"
+      ],
+      "properties": [
+        "color",
+        "description",
+        "hairstyle",
+        "name",
+        "section_id"
+      ],
+      "descriptionContains": [
+        "Available bots:",
+        "Only the main Bot"
+      ]
+    },
+    "rosterLine": {
+      "mainCaller": "Available bots: Bee (id: bot-b); Xray (id: bot-x).",
+      "teammateCaller": "Available bots: Alpha (id: bot-a, main Bot); Xray (id: bot-x)."
+    }
+  }
+}

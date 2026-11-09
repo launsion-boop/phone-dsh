@@ -84,8 +84,25 @@ public enum BotDisplayContract {
         let kind = BotRowJSON.string(input, "kind") ?? "message"
         switch kind {
         case "message":
+            if let direction = agentCommDirection(input) {
+                let role = BotRowJSON.string(input, "role")
+                // Only the sender-side exchange collapses into one comm row.
+                // The target's `incoming` user row and its `reply` assistant
+                // row stay normal bubbles, exactly like upstream.
+                guard direction == .outbound || direction == .inbound else {
+                    let hasBody = hasText(input, keys: ["text", "content"])
+                        || hasText(input, keys: ["replyText"])
+                    let isUser = role == "user"
+                    return projection("bubble", hasBody,
+                                      BotWireRecord(kind: isUser ? "message" : "send-message",
+                                                    type: "text", role: role))
+                }
+                let hasBody = hasText(input, keys: ["text", "content", "replyText"])
+                return projection("agent-comm", hasBody,
+                                  BotWireRecord(kind: "message", type: "text", role: role))
+            }
             if input["toAgent"] != nil || input["fromAgent"] != nil || BotRowJSON.bool(input, "agentComm") == true {
-                return projection("agent-comm", hasText(input, keys: ["text", "content"]),
+                return projection("agent-comm", hasText(input, keys: ["text", "content", "replyText"]),
                                   BotWireRecord(kind: "message", type: "text", role: BotRowJSON.string(input, "role")))
             }
             let role = BotRowJSON.string(input, "role")
@@ -221,7 +238,7 @@ public enum BotDisplayContract {
         default:
             return projection(hidden, false, BotWireRecord(kind: "send-message", type: "widget"))
         }
-        if profile == .phoneP0 && (p1CardTypes.rawValues.contains(rawType) || rawType == "team-bot") {
+        if profile == .phoneP0 && p1CardTypes.rawValues.contains(rawType) {
             return projection(hidden, false, BotWireRecord(kind: "send-message", type: wireType))
         }
         return projection(surface, hasData, BotWireRecord(kind: "send-message", type: wireType))
@@ -236,6 +253,19 @@ public enum BotDisplayContract {
         case "team-bot": return "team-bot"
         default: return nil
         }
+    }
+
+    /// The upstream `agentComm.direction` object wins. Rows written before that
+    /// object existed derive the direction from `fromAgent`/`toAgent`.
+    private static func agentCommDirection(_ input: [String: BotJSONValue]) -> BotAgentCommDirection? {
+        if let object = BotRowJSON.object(input["agentComm"]),
+           let raw = BotRowJSON.string(object, "direction"),
+           let direction = BotAgentCommDirection(rawValue: raw) {
+            return direction
+        }
+        if input["fromAgent"] != nil { return .inbound }
+        if input["toAgent"] != nil { return .outbound }
+        return nil
     }
 
     private static func hasText(_ input: [String: BotJSONValue], keys: [String]) -> Bool {

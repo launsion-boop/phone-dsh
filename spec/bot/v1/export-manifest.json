@@ -24,7 +24,9 @@
     "row-protocol.json",
     "row-protocol.phone.json",
     "tool-catalog.json",
+    "tool-catalog.phone.json",
     "tool-effects.json",
+    "tool-effects.phone.json",
     "volatile-context.json",
     "wake-routine.json",
     "watchdog.json"
