@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+// PHONE-ONLY: model-provider settings belong to the phone backend in v1
+// (plan v2 §6.1); they are not a PC workspace setting.
 // phone-dsh phone DSH — native model/API provider configuration.
 //
 // The profile list and every edit are backed by PhoneModelProviderSettings:

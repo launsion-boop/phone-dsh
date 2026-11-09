@@ -332,6 +332,8 @@ struct WorkspaceFile: Identifiable, Hashable {
 @MainActor
 @Observable
 final class ChatModel {
+    /// The phone backend's instance (`BackendID.phone`). D2 adds a factory for
+    /// other backends; this singleton stays the phone one.
     static let shared = ChatModel()
 
     /// 参数只取一层标量,拼成 [键:字符串];嵌套结构换成 JSON 文本,够卡上用。
@@ -536,6 +538,9 @@ final class ChatModel {
     /// The production Bot page builds its drivers from this composition; it
     /// is created before the first Host so the page never falls back to a
     /// fixture.
+    ///
+    /// PHONE-ONLY: Bot runtime stays bound to the phone backend (plan v2 §6.2);
+    /// a PC workspace never starts or reads it.
     var botRuntime: BotRuntimeComposition? { botLaunch?.composition }
     private var phoneCapabilityBridge: PhoneCapabilityBridge?
     private let keepAlive = SilentAudioKeepAlive.shared
@@ -895,10 +900,64 @@ final class ChatModel {
         PhoneMCPAccessSettings.shared.apply(to: mcpAccessPolicy)
     }
 
-    /// Returns the host's DSH RPC transport for session-management surfaces.
+    /// The current workspace backend. PHONE-ONLY in this unit: D2 inserts a
+    /// second backend here (or a factory keyed by `BackendID`) without the 78
+    /// `ChatModel.shared` sites changing.
+    @ObservationIgnored private lazy var phoneBackend: PhoneWorkspaceBackend = {
+        PhoneWorkspaceBackend(
+            displayName: "本机",
+            lifecycle: PhoneWorkspaceBackendLifecycle(
+                // Keep the App's scene-phase methods as the only lifecycle state
+                // owners: they carry `parked`, `hostLifecycleTransition`, the
+                // watchdog, background-task release and the post-resume
+                // running-state reconcile. The seam never calls the host
+                // directly. D2 can route `scenePhaseChanged` through this same
+                // object without introducing a second state source.
+                pause: { [weak self] in
+                    guard let self, let host = self.host else { throw ProbeHostError.notStarted }
+                    await self.parkHost(host)
+                },
+                resume: { [weak self] in
+                    guard let self, let host = self.host else { throw ProbeHostError.notStarted }
+                    await self.resumeHost(host)
+                },
+                startKeepAlive: { [weak self] in
+                    guard let self else { throw ProbeHostError.notStarted }
+                    guard self.host != nil else { throw ProbeHostError.notStarted }
+                    guard !self.keepingAlive else { return }
+                    self.beginBackgroundTask()
+                    do {
+                        try self.beginKeepAlive()
+                    } catch {
+                        self.endBackgroundTask()
+                        throw error
+                    }
+                },
+                stopKeepAlive: { [weak self] in
+                    guard let self, self.keepingAlive else { return }
+                    self.endKeepAlive()
+                    self.endBackgroundTask()
+                }),
+            transport: { [weak self] in
+                guard let self, let host = self.host else { throw ProbeHostError.notStarted }
+                return try await host.makeTransport()
+            },
+            harness: { [weak self] in
+                guard let self else { throw ProbeHostError.notStarted }
+                if let harness = self.harness { return harness }
+                guard let host = self.host else { throw ProbeHostError.notStarted }
+                let harness = try await host.harness()
+                self.harness = harness
+                return harness
+            })
+    }()
+
+    var workspaceBackend: any WorkspaceBackend { phoneBackend }
+
+    /// Returns the current backend's DSH RPC transport for session-management
+    /// surfaces. Today the backend is always the phone host.
     func transportForManagement() async throws -> any DSHRemoteTransport {
-        guard let host else { throw ProbeHostError.notStarted }
-        return try await host.makeTransport()
+        try await workspaceBackend.transport()
     }
 
     let workspaceRoot: URL = ChatHostConfiguration.workspaceRoot()
@@ -992,7 +1051,7 @@ final class ChatModel {
     /// Retry the Bot half after a visible disconnect. A running Host is
     /// rebound; without a Host the normal engine start is attempted again.
     func retryBotRuntime() async {
-        if let composition = botLaunch?.composition, let host {
+        if let composition = botLaunch?.composition, host != nil {
             await composition.retry()
             botRuntimeState = composition.state
         } else {
@@ -1418,7 +1477,7 @@ final class ChatModel {
             reportError("设备会话只能以只读监视方式打开")
             return false
         }
-        guard let host else { reportError("Start the host before opening a session"); return false }
+        guard self.host != nil else { reportError("Start the host before opening a session"); return false }
         guard !busy else { return false }
         guard !hostLifecycleTransition else {
             reportError("Wait for the host to finish pausing or resuming before switching sessions")
@@ -1431,13 +1490,7 @@ final class ChatModel {
         busy = true
         defer { busy = false }
         do {
-            let harness: any AgentHarness
-            if let activeHarness = self.harness {
-                harness = activeHarness
-            } else {
-                harness = try await host.harness()
-                self.harness = harness
-            }
+            let harness = try await workspaceBackend.harness()
             let session = try await harness.openSession(HarnessSessionRequest(
                 sessionID: id, preset: preset, workspace: "/dsh/workspace"))
             let transport = try await transportForManagement()
@@ -1618,12 +1671,9 @@ final class ChatModel {
             // A running turn is kept alive (the user's task continues); an idle
             // host is parked as before, which costs no battery.
             if backgroundKeepAlive && turnRunning {
-                keepAlive.onEvent = { [weak self] message in self?.appendStatus(message) }
                 do {
-                    try keepAlive.start()
-                    keepingAlive = true
+                    try beginKeepAlive()
                     appendStatus("App in background: keeping the agent alive with a silent audio session; the turn continues")
-                    startBackgroundHeartbeat()
                     return
                 } catch {
                     appendStatus("Keep-alive audio failed (\(error)); parking the host instead")
@@ -1632,9 +1682,7 @@ final class ChatModel {
             await parkHost(host)
         case .active:
             if keepingAlive {
-                stopBackgroundHeartbeat()
-                keepAlive.stop()
-                keepingAlive = false
+                endKeepAlive()
                 appendStatus("Back in the foreground; keep-alive audio stopped")
                 endBackgroundTask()
                 refreshFiles()
@@ -1652,6 +1700,25 @@ final class ChatModel {
         @unknown default:
             break
         }
+    }
+
+    /// Starts the silent-audio keep-alive and its background heartbeat. Shared
+    /// by `scenePhaseChanged` and the backend lifecycle seam so `keepingAlive`
+    /// and the heartbeat task are owned in one place.
+    private func beginKeepAlive() throws {
+        keepAlive.onEvent = { [weak self] message in self?.appendStatus(message) }
+        try keepAlive.start()
+        keepingAlive = true
+        startBackgroundHeartbeat()
+    }
+
+    /// Stops the silent-audio keep-alive and heartbeat. The caller owns the
+    /// user-facing status line and the background-task release.
+    private func endKeepAlive() {
+        guard keepingAlive else { return }
+        stopBackgroundHeartbeat()
+        keepAlive.stop()
+        keepingAlive = false
     }
 
     private func parkHost(_ host: PhoneDSHHost) async {
@@ -1745,7 +1812,7 @@ final class ChatModel {
         guard let sessionID else { return }
         do {
             let transport = try await transportForManagement()
-            let value = try await transport.call("session/list", args: .object([:]))
+            let value = try await transport.call("session/list", args: .object(["_request": .object([:])]))
             let running = (value["items"]?.arrayValue ?? []).first { item in
                 item["sessionId"]?.stringValue == sessionID
             }?["running"]?.boolValue
@@ -1758,7 +1825,9 @@ final class ChatModel {
             appendStatus("Turn was cancelled while the app was in the background; state cleared")
         } catch {
             // A failed probe leaves the previous behaviour in place; the next
-            // turn event or an explicit stop still corrects the state.
+            // turn event or an explicit stop still corrects the state. The
+            // failure is kept in the diagnostic log (it used to be silent).
+            Self.appendDiagnostic("session/list resume probe failed: \(error)")
         }
     }
 
@@ -2110,95 +2179,32 @@ final class ChatModel {
         var hasMore: Bool
         var beforeSeq: Int?
         var throughSeq: Int?
-        var turnFacts: TurnFacts
+        var turnFacts: SessionTurnFacts
         var inputReceipts: [String: Int]
-    }
-
-    /// Durable turn/start + turn/end facts, kept beside (not inside) ChatItem so
-    /// history replay can draw the same closed-Turn control row as live events.
-    private struct TurnFacts {
-        var starts: [Int: Date] = [:]
-        var endReasons: [Int: String] = [:]
-        var ends: [Int: Date] = [:]
     }
 
     /// Reads DSH's durable event log directly so user prompts, which are not
     /// projected by AgentHarness.events, appear in their original position.
+    /// The wire reads live in ProbeKit's `SessionHistoryReader` (follow
+    /// snapshot + page backfill -> raw records); only the App-specific
+    /// compaction folding stays here.
     private func loadSessionHistory(sessionID: String,
                                    transport: any DSHRemoteTransport,
                                    requireRunningState: Bool = false,
                                    pendingInputs: [ChatItem] = []) async throws -> SessionHistory {
-        let mux = try await transport.openMux()
-        let streamID = "phone-chat-history-\(UUID().uuidString)"
-        let cursor: Int
-        let snapshot: JSONValue
-        do {
-            try await mux.send(.object([
-                "type": .string("open"),
-                "streamId": .string(streamID),
-                "endpoint": .string("session/follow"),
-                "payload": .object(["args": .object(["request": .object([
-                    "address": .object(["kind": .string("session"), "sessionId": .string(sessionID)]),
-                    "maxMessages": .number(1),
-                    "assistantStream": .bool(false),
-                ])])]),
-            ]))
-            snapshot = try await receiveHistorySnapshot(from: mux, streamID: streamID)
-            guard let snapshotCursor = snapshot["cursor"]?.intValue else {
-                throw ProviderError.invalidResponse("session/follow snapshot has no cursor")
-            }
-            cursor = snapshotCursor
-            await mux.close()
-        } catch {
-            await mux.close()
-            throw error
-        }
-
-        var records: [JSONValue] = []
-        var hasMore = false
-        var beforeSeq: Int?
-        var historyPage: JSONValue = .object([:])
-        if cursor >= 0 {
-            let page = try await transport.call("session/page", args: .object(["request": .object([
-                "address": .object(["kind": .string("session"), "sessionId": .string(sessionID)]),
-                "throughSeq": .number(Double(cursor)),
-                "maxMessages": .number(60),
-            ])]))
-            records = (page["records"]?.arrayValue ?? []).compactMap { $0["event"] }
-            hasMore = page["hasMore"]?.boolValue ?? false
-            beforeSeq = records.compactMap { $0["seq"]?.intValue }.min()
-            historyPage = page
-        }
-        let inputReceipts = try await NativeTranscriptProjector.inputReceipts(
-            for: pendingInputs, historyPage: historyPage, inbox: snapshot["projections"]?["values"]?["inbox"]
-        ) { before in
-            try await transport.call("session/page", args: .object(["request": .object([
-                "address": .object(["kind": .string("session"), "sessionId": .string(sessionID)]),
-                "throughSeq": .number(Double(cursor)), "beforeSeq": .number(Double(before)),
-                "maxMessages": .number(60),
-            ])]))
-        }
-        let after = cursor >= 0
-            ? UInt64(cursor + 1) * DSHEventMapper.partsPerEvent - 1
-            : nil
-        let running: Bool?
-        if requireRunningState {
-            let sessions = try await transport.call("session/list", args: .object([:]))
-            guard let confirmed = sessions["items"]?.arrayValue?.first(where: {
-                $0["sessionId"]?.stringValue == sessionID
-            })?["running"]?.boolValue else {
-                throw PhoneDSHError.invalidResponse("session running state is unavailable")
-            }
-            running = confirmed
-        } else if let sessions = try? await transport.call("session/list", args: .object([:])),
-                  let row = sessions["items"]?.arrayValue?.first(where: { $0["sessionId"]?.stringValue == sessionID }) {
-            running = row["running"]?.boolValue
-        } else { running = nil }
-        return SessionHistory(items: Self.transcriptItems(from: records, sessionID: sessionID), after: after,
-                              turnRunning: running ?? Self.isTurnRunning(in: records),
-                              hasMore: hasMore, beforeSeq: beforeSeq,
-                              throughSeq: cursor >= 0 ? cursor : nil,
-                              turnFacts: Self.turnFacts(in: records), inputReceipts: inputReceipts)
+        let snapshot = try await SessionHistoryReader.load(
+            sessionID: sessionID, transport: transport,
+            requireRunningState: requireRunningState, pendingInputs: pendingInputs)
+        for diagnostic in snapshot.diagnostics { Self.appendDiagnostic(diagnostic) }
+        return SessionHistory(
+            items: Self.transcriptItems(from: snapshot.records, sessionID: sessionID),
+            after: snapshot.after,
+            turnRunning: snapshot.running ?? snapshot.inferredTurnRunning,
+            hasMore: snapshot.hasMore,
+            beforeSeq: snapshot.beforeSeq,
+            throughSeq: snapshot.throughSeq,
+            turnFacts: snapshot.turnFacts,
+            inputReceipts: snapshot.inputReceipts)
     }
 
     /// Loads one older message-aligned page and prepends unseen durable events.
@@ -2225,7 +2231,7 @@ final class ChatModel {
             let existingIDs = Set(items.map(\.id))
             let older = Self.transcriptItems(from: events, sessionID: sessionID)
                 .filter { !existingIDs.contains($0.id) }
-            let facts = Self.turnFacts(in: events)
+            let facts = SessionHistoryReader.turnFacts(in: events)
             turnStartTimes.merge(facts.starts) { _, new in new }
             turnEndReasons.merge(facts.endReasons) { _, new in new }
             turnEndTimes.merge(facts.ends) { _, new in new }
@@ -2239,74 +2245,9 @@ final class ChatModel {
         }
     }
 
-    private func receiveHistoryCursor(from mux: any DSHMuxConnection, streamID: String) async throws -> Int {
-        let snapshot = try await receiveHistorySnapshot(from: mux, streamID: streamID)
-        guard let cursor = snapshot["cursor"]?.intValue else {
-            throw ProviderError.invalidResponse("session/follow snapshot has no cursor")
-        }
-        return cursor
-    }
-
-    private func receiveHistorySnapshot(from mux: any DSHMuxConnection, streamID: String) async throws -> JSONValue {
-        try await withThrowingTaskGroup(of: JSONValue.self) { group in
-            group.addTask {
-                while !Task.isCancelled {
-                    guard let frame = try await mux.receive() else {
-                        throw ProviderError.unavailable(retryAfter: nil)
-                    }
-                    guard frame["streamId"]?.stringValue == streamID else { continue }
-                    switch frame["type"]?.stringValue {
-                    case "error":
-                        throw ProviderError.invalidResponse("session/follow failed: \(frame["error"]?["message"]?.stringValue ?? "unknown error")")
-                    case "end":
-                        throw ProviderError.invalidResponse("session/follow ended before its history cursor")
-                    case "item":
-                        let value = frame["value"] ?? .null
-                        if value["type"]?.stringValue == "snapshot" {
-                            guard value["cursor"]?.intValue != nil else {
-                                throw ProviderError.invalidResponse("session/follow snapshot has no cursor")
-                            }
-                            return value
-                        }
-                    default:
-                        continue
-                    }
-                }
-                throw ProviderError.cancelled
-            }
-            group.addTask {
-                try await Task.sleep(for: .seconds(10))
-                await mux.close()
-                throw ProviderError.unavailable(retryAfter: nil)
-            }
-            guard let cursor = try await group.next() else {
-                throw ProviderError.invalidResponse("session/follow did not publish a history cursor")
-            }
-            group.cancelAll()
-            return cursor
-        }
-    }
-
     private func currentJournalCursor(sessionID: String,
                                       transport: any DSHRemoteTransport) async throws -> Int {
-        let mux = try await transport.openMux()
-        let streamID = "phone-trajectory-cursor-\(UUID().uuidString)"
-        do {
-            try await mux.send(.object([
-                "type": .string("open"), "streamId": .string(streamID),
-                "endpoint": .string("session/follow"),
-                "payload": .object(["args": .object(["request": .object([
-                    "address": .object(["kind": .string("session"), "sessionId": .string(sessionID)]),
-                    "maxMessages": .number(1), "assistantStream": .bool(false),
-                ])])]),
-            ]))
-            let cursor = try await receiveHistoryCursor(from: mux, streamID: streamID)
-            await mux.close()
-            return cursor
-        } catch {
-            await mux.close()
-            throw error
-        }
+        try await SessionHistoryReader.followCursor(sessionID: sessionID, transport: transport)
     }
 
     private func scheduleTrajectoryRefresh(sessionID: String) {
@@ -2485,38 +2426,6 @@ final class ChatModel {
             markers[checkpoint.seq] = marker
         }
         return markers
-    }
-
-    private static func turnFacts(in records: [JSONValue]) -> TurnFacts {
-        var facts = TurnFacts()
-        for event in records {
-            guard let type = event["type"]?.stringValue else { continue }
-            let data = event["data"] ?? .null
-            guard let turn = data["turn"]?.intValue else { continue }
-            let time = event["time"]?.numberValue.map { Date(timeIntervalSince1970: $0 / 1_000) }
-            switch type {
-            case "turn/start":
-                if let time { facts.starts[turn] = time }
-            case "turn/end":
-                if let time { facts.ends[turn] = time }
-                facts.endReasons[turn] = data["reason"]?["kind"]?.stringValue ?? "completed"
-            default:
-                break
-            }
-        }
-        return facts
-    }
-
-    private static func isTurnRunning(in records: [JSONValue]) -> Bool {
-        var running = false
-        for event in records {
-            switch event["type"]?.stringValue {
-            case "turn/start": running = true
-            case "turn/end": running = false
-            default: break
-            }
-        }
-        return running
     }
 
     private static func contentText(_ content: JSONValue?) -> String {
@@ -2931,12 +2840,10 @@ final class ChatModel {
         guard let sessionID else { return false }
         do {
             let transport = try await transportForManagement()
-            _ = try await transport.call("messageFeedback/put", args: .object([
-                "sessionId": .string(sessionID),
-                "messageId": .string(messageID),
-                "rating": .string(positive ? "positive" : "negative"),
-                "ifVersion": .null,
-            ]))
+            // The pin returns the business result inside the RPC value; a
+            // rejected write is `{ok:false,error}` rather than a thrown error.
+            try await MessageFeedbackClient(transport: transport)
+                .rate(messageID: messageID, sessionID: sessionID, positive: positive)
             return true
         } catch {
             reportError("反馈没有提交成功，请重试。")

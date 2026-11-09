@@ -5,6 +5,7 @@
 // Both come from the Bot's own DSH session: finished turns from its session
 // log, the running turn from the live frames the Bot runtime forwards.
 
+import ProbeKit
 import Foundation
 import PhoneDSHAgentCore
 

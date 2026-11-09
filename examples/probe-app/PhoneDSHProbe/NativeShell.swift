@@ -3,6 +3,7 @@
 // 原生外壳的骨架（重构第一步）：底部四标签 对话 / 会话 / 工作区 / 设置。
 // 会话占一格是产品决定（高频检索）；定时任务并进会话页的第二段。
 
+import ProbeKit
 import SwiftUI
 import PhoneDSH
 import PhoneDSHAgentCore

@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+// PHONE-ONLY: Agent presets are a phone-settings surface in v1 (plan v2 §6.1);
+// the calls resolve through ChatModel's current (phone) backend.
 
 import Observation
 import PhoneDSHAgentCore

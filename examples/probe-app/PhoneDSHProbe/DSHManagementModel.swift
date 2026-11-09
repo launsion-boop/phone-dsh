@@ -9,23 +9,9 @@ import PhoneDSHEngine
 import PhoneDSHWire
 import ProbeKit
 
-struct ManagedSession: Identifiable, Hashable {
-    let id: String
-    var title: String
-    var updatedAt: Date
-    var running: Bool
-    var blank: Bool
-    var cwd: String?
-    var parentSessionID: String?
-    var searchSnippet: String?
-}
-
-struct ManagedWorkspace: Identifiable, Hashable {
-    let id: String
-    var title: String
-    var path: String
-    var sessionIDs: [String]
-}
+// `ManagedSession` / `ManagedWorkspace` and their decoders live in
+// ProbeKit/Management so a second WorkspaceBackend and the simulator suite can
+// consume them; they arrive through `import ProbeKit` above.
 
 struct ManagedReasoningEffort: Identifiable, Hashable {
     let id: String
@@ -182,11 +168,11 @@ final class DSHManagementModel {
         isLoading = true
         defer { isLoading = false }
         do {
-            let client = try await ChatModel.shared.transportForManagement()
+            let client = try await ChatModel.shared.workspaceBackend.transport()
             transport = client
-            // This Remote has a reserved optional input in its TypeScript
-            // contract, but the wire method takes no arguments at this pin.
-            let sessionValue = try await client.call("session/list", args: .object([:]))
+            // DSH 0.2.2-rc.1's generated gateway descriptor requires the
+            // reserved `_request` member even though it carries no fields.
+            let sessionValue = try await client.call("session/list", args: .object(["_request": .object([:])]))
             let deviceSessionIDs = DeviceSessionCoordinator.shared.mappedSessionIDs
             // Bot sessions are a private runtime domain. They are filtered at
             // the single read point so every DSH surface that reads
@@ -474,7 +460,7 @@ final class DSHManagementModel {
             let client: any DSHRemoteTransport
             if let transport { client = transport }
             else {
-                client = try await ChatModel.shared.transportForManagement()
+                client = try await ChatModel.shared.workspaceBackend.transport()
                 transport = client
             }
             let result = try await client.call("session/projections", args: .object(["request": .object(["sessionId": .string(sessionID)])]))
@@ -514,14 +500,20 @@ final class DSHManagementModel {
             let client: any DSHRemoteTransport
             if let transport { client = transport }
             else {
-                client = try await ChatModel.shared.transportForManagement()
+                client = try await ChatModel.shared.workspaceBackend.transport()
                 transport = client
             }
             activityErrors = [:]
             async let projectionResponse = try? client.call("session/projections", args: .object(["request": .object(["sessionId": .string(sessionID)])]))
             async let skillResponse = try? client.call("skills/list", args: .object(["request": .object(["sessionId": .string(sessionID)])]))
             async let scheduleResponse = try? client.call("schedule/catalog", args: .object([:]))
-            async let goalResponse = try? client.call("goals/get", args: .object(["sessionId": .string(sessionID)]))
+            // `goals/get` resolves the session's agent (pin
+            // session-controller/src/agent.ts:138-190) and can wake it. Every
+            // caller here is the open session: ChatPage's current-session
+            // `task(id:)`/job/schedule sheets and SessionActivityPage opened
+            // from that page. A session list must use the passive
+            // `session/projections.values.goal` instead, never this call.
+            async let goalResponse = Self.readOptional(client, "goals/get", args: .object(["agentId": .string(sessionID)]))
             let (projectionValue, skillValue, scheduleValue, goalValue) = await
                 (projectionResponse, skillResponse, scheduleResponse, goalResponse)
 
@@ -631,7 +623,7 @@ final class DSHManagementModel {
         do {
             guard let transport else { throw ManagementError.notConnected }
             _ = try await transport.call("goals/\(operation)", args: .object([
-                "sessionId": .string(sessionID),
+                "agentId": .string(sessionID),
                 "ref": .object(["id": .string(goal.id), "revision": .number(Double(goal.revision))]),
             ]))
             await refreshActivity(sessionID: sessionID)
@@ -690,6 +682,7 @@ final class DSHManagementModel {
     func createSchedule(request: [String: JSONValue]) async -> Bool {
         do {
             guard let transport else { throw ManagementError.notConnected }
+            // PHONE-ONLY: schedule creation is a phone endpoint in v1.
             _ = try await transport.call("phone/createSchedule", args: .object(["request": .object(request)]))
             await refreshAutomations()
             return true
@@ -701,7 +694,7 @@ final class DSHManagementModel {
             let client: any DSHRemoteTransport
             if let transport { client = transport }
             else {
-                client = try await ChatModel.shared.transportForManagement()
+                client = try await ChatModel.shared.workspaceBackend.transport()
                 transport = client
             }
             async let schedulesResponse = try? client.call("schedule/catalog", args: .object([:]))
@@ -787,6 +780,7 @@ final class DSHManagementModel {
     func loadToolInventory() async {
         do {
             guard let transport else { throw ManagementError.notConnected }
+            // PHONE-ONLY: `phone/*` endpoints exist only on the phone backend.
             let result = try await transport.call("phone/listTools", args: .object([:]))
             tools = result["tools"]?.arrayValue?.compactMap { row in
                 guard let name = row["name"]?.stringValue else { return nil }
@@ -920,12 +914,7 @@ final class DSHManagementModel {
     }
 
     private static func decodeWorkspace(_ value: JSONValue) -> ManagedWorkspace? {
-        guard let id = value["workspaceId"]?.stringValue,
-              let title = value["title"]?.stringValue,
-              let path = value["path"]?.stringValue else { return nil }
-        let sessionIDs = value["sessionIds"]?.arrayValue?.compactMap(\.stringValue) ?? []
-        return ManagedWorkspace(id: id, title: title, path: path,
-                               sessionIDs: sessionIDs.filter { !isBotSessionID($0) })
+        ManagementDecoding.decodeWorkspace(value, isExcludedSessionID: isBotSessionID)
     }
 
     private func setStreamError(_ error: Error) { self.error = error.localizedDescription }
@@ -933,31 +922,28 @@ final class DSHManagementModel {
 
     /// Default session names. The host sends no title for a fresh session, so
     /// these are the only names the user ever sees for one.
-    static let newSessionName = "新会话"
-    static let untitledSessionName = "未命名会话"
+    static let newSessionName = ManagementDecoding.newSessionName
+    static let untitledSessionName = ManagementDecoding.untitledSessionName
 
+    private static func decodeSessions(_ value: JSONValue) -> [ManagedSession] {
+        ManagementDecoding.decodeSessions(
+            value,
+            titleHint: SessionTitleHints.title(for:),
+            newSessionName: newSessionName,
+            untitledSessionName: untitledSessionName)
+    }
 
-private static func decodeSessions(_ value: JSONValue) -> [ManagedSession] {
-        (value["items"]?.arrayValue ?? []).compactMap { item in
-            guard let id = item["sessionId"]?.stringValue else { return nil }
-            // `title` is a plain string in the session projection (or null),
-            // not { title: string }. The old wrapper made every projected
-            // title nil and forced the local hint fallback.
-            let projected = item["projections"]?["values"]?["title"]?.stringValue
-                .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
-            let title = projected
-                ?? SessionTitleHints.title(for: id)
-                ?? (item["blank"]?.boolValue == true ? "\(Self.newSessionName)" : "\(Self.untitledSessionName)")
-            return ManagedSession(
-                id: id, title: title,
-                // DSH stores wall-clock timestamps in milliseconds (Date.now).
-                updatedAt: Date(timeIntervalSince1970: (item["updatedAt"]?.numberValue ?? 0) / 1_000),
-                running: item["running"]?.boolValue ?? false,
-                blank: item["blank"]?.boolValue ?? false,
-                cwd: item["cwd"]?.stringValue,
-                parentSessionID: item["parentSessionId"]?.stringValue,
-                searchSnippet: nil)
-        }.sorted { $0.updatedAt > $1.updatedAt }
+    /// Optional management read whose failure must not hide the valid rows, but
+    /// must still leave a diagnostic trail (previously `try?` erased it).
+    private static func readOptional(_ client: any DSHRemoteTransport,
+                                     _ endpoint: String,
+                                     args: JSONValue) async -> JSONValue? {
+        do {
+            return try await client.call(endpoint, args: args)
+        } catch {
+            ChatModel.appendDiagnostic("\(endpoint) failed: \(error)")
+            return nil
+        }
     }
 
     private static func decodeModelRoutes(_ value: JSONValue) -> [ManagedModelRoute] {

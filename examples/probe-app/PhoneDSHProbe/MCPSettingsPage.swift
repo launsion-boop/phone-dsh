@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+// PHONE-ONLY: this page edits the phone host's MCP settings in v1 (plan v2
+// §6.1).
 // phone-dsh phone DSH — native MCP network and credential configuration.
 //
 // This sheet is an editor for the Worker's existing `/dsh/home/mcp.json`
