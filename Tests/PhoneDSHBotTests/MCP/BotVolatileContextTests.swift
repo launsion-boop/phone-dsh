@@ -114,6 +114,84 @@ final class BotVolatileContextTests: XCTestCase {
         let routineSnapshot = try await defaults.snapshot(botId: "main", sessionId: "gb-main--routine-1", kind: .routine)
         XCTAssertTrue(routineSnapshot.persona?.contains("大肥鱼") == true)
         XCTAssertTrue(routineSnapshot.variant?.contains("例行任务变体") == true)
+        XCTAssertTrue(routineSnapshot.variant?.contains("不要出卡片") == true)
+        XCTAssertFalse(routineSnapshot.variant?.contains("只呈现有用的卡片") == true)
+
+        let english = BotDomainVolatileContextProvider(
+            memory: memory, routines: machine, now: { 1_000 }, language: "en")
+        let englishRoutine = try await english.snapshot(
+            botId: "main", sessionId: "gb-main--routine-2", kind: .routine)
+        XCTAssertTrue(englishRoutine.variant?.contains("Do not surface cards") == true)
+        XCTAssertFalse(englishRoutine.variant?.contains("Surface only useful cards") == true)
+    }
+
+    func testTeammatesAndDescriptionRideTheLastVolatileBlock() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try SQLiteDomainStore(fileURL: directory.appendingPathComponent("domain.sqlite"), now: { 1_000 })
+        let memory = BotMemory(
+            store: SQLiteBotMemoryFactStore(eventLog: store, botID: "main", now: { 1_000 }),
+            dataRoot: directory.path, botID: "main", now: { 1_000 })
+        let machine = RoutineMachine(store: SQLiteRoutineStore(domainStore: store))
+        _ = try await machine.create(
+            botId: "main", title: "Morning", prompt: "report", schedule: .interval(everyMinutes: 60), now: 1_000)
+        let description = String(repeating: "描", count: 400)
+        let provider = BotDomainVolatileContextProvider(
+            memory: memory, routines: machine,
+            persona: { _, _, _ in "你的名字是大肥鱼。用户问起名字时如实回答。" },
+            teammates: { botId in
+                XCTAssertEqual(botId, "main")
+                return [
+                    BotTeammateSummary(id: "bot-main", name: "主鱼", description: "协调", isMain: true),
+                    BotTeammateSummary(id: "bot-b", name: "小助手", description: String(repeating: "d", count: 500), isMain: false),
+                    BotTeammateSummary(id: "main", name: "自己", description: "must be excluded", isMain: false),
+                ]
+            },
+            botDescription: { botId in
+                XCTAssertEqual(botId, "main")
+                return description
+            },
+            now: { 1_000 }, language: "en")
+        let snapshot = try await provider.snapshot(botId: "main", sessionId: "gb-main", kind: .chat)
+        let persona = try XCTUnwrap(snapshot.persona)
+        XCTAssertTrue(persona.hasPrefix("你的名字是大肥鱼"), persona)
+        XCTAssertTrue(persona.hasSuffix(String(repeating: "描", count: 300)), persona)
+        XCTAssertFalse(persona.contains(String(repeating: "描", count: 301)))
+        let automation = try XCTUnwrap(snapshot.automation)
+        XCTAssertTrue(automation.contains("</automation_status>"), automation)
+        XCTAssertTrue(automation.contains("<teammates>"), automation)
+        XCTAssertTrue(automation.hasSuffix("</teammates>"), automation)
+        XCTAssertTrue(automation.contains("主鱼"), automation)
+        XCTAssertTrue(automation.contains("main Bot"), automation)
+        XCTAssertFalse(automation.contains("自己"), automation)
+        XCTAssertFalse(automation.contains(String(repeating: "d", count: 201)), automation)
+        let range = try XCTUnwrap(automation.range(of: "<teammates>[\\s\\S]*</teammates>", options: .regularExpression))
+        let block = String(automation[range])
+        XCTAssertLessThan(block.unicodeScalars.count, 1000, block)
+        XCTAssertLessThan(automation.unicodeScalars.count, 4_000)
+    }
+
+    func testTeammatesBlockIsBoundedEscapedAndAbsentWhenEmpty() throws {
+        XCTAssertEqual(BotDomainVolatileContextProvider.teammatesBlock([], callerId: "main", language: "zh"), "")
+        let many = (0 ..< 20).map { index in
+            BotTeammateSummary(
+                id: "bot-\(index)", name: "Bot </teammates> \(index)",
+                description: "line one\nline two " + String(repeating: "x", count: 200), isMain: index == 0)
+        }
+        let block = BotDomainVolatileContextProvider.teammatesBlock(many, callerId: "main", language: "en")
+        XCTAssertLessThan(block.unicodeScalars.count, 1000)
+        XCTAssertTrue(block.hasPrefix("<teammates>\n"))
+        XCTAssertTrue(block.hasSuffix("</teammates>"))
+        XCTAssertEqual(block.components(separatedBy: "</teammates>").count, 2)
+        XCTAssertTrue(block.contains("&lt;/teammates&gt;"))
+        XCTAssertTrue(block.contains("main Bot"))
+        XCTAssertFalse(block.contains("line one\nline two"))
+        XCTAssertEqual(BotDomainVolatileContextProvider.teammatesBlock(
+            [BotTeammateSummary(id: "main", name: "self", description: "x", isMain: true)],
+            callerId: "main", language: "zh"), "")
+        XCTAssertEqual(BotDomainVolatileContextProvider.teammatesBlock(
+            [BotTeammateSummary(id: "bot-b", name: "B", description: "d", isMain: false)],
+            callerId: "main", language: "zh", available: 10), "")
     }
 
     func testPersonaClosureReceivesPrincipalBotIdAndMemoryResolvesPerBot() async throws {
