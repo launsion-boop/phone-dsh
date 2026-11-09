@@ -100,7 +100,7 @@ struct ConnectedComputerPage: View {
         Section {
             row("本机指纹", models.pcLink.ownFingerprint)
             row("中继", record.relayOrigin)
-            row("配对时间", record.pairedAt)
+            row("配对时间", PCLinkWorkspaceText.pairedAtDisplay(record.pairedAt))
         } header: {
             Text("本机")
         } footer: {

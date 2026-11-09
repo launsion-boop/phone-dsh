@@ -101,6 +101,15 @@ final class WorkspaceModels {
         }
     }
 
+    /// Foreground return: wake the PC relay even when the selected segment is
+    /// the phone (the PC record may still be live) and resynchronize the PC
+    /// pump's follow stream. Router/background delivery stays in the app.
+    func scenePhaseChanged(_ isActive: Bool) async {
+        guard isActive else { return }
+        await pcLink.scenePhaseChanged(true)
+        await pcChat?.foregroundResumedForPC()
+    }
+
     /// Persist the segment choice (P18). Selecting PC never requires pairing and
     /// never falls back to the phone when the PC turns out to be offline.
     func select(_ value: DrawerBackendSetting) {

@@ -209,6 +209,60 @@ Protocol impact: P28; P09; P18: none — no storage key, scope or migration chan
 
 理由：P28 是 C 端插件/編碼器行為與 D 端 `PCLinkClientStatus`/配對狀態流的修復（wire 與 `spec/pclink` 不變）；P09 是已連接的電腦頁版本列與配對頁自動導航／文案，及由提取工具機械產生的 provenance 更新。
 
+
+### 4.9 pclink-f2s 全分支审查修复（本轮）
+
+Base `2fc4dbf29`，分支 `fix/pclink-f2-swift`，脏工作树，未 commit。冻结契约仍是 `pclink-v1.3`；本轮未发现需要 `CONTRACT CHANGE REQUEST` 的契约缺口，`spec/pclink/**` 零修改。AEAD 解密失败按 §5.4「Any change to v/type/sid/seq/from/to fails decryption (`auth_failed`)」映射为 `auth_failed`（不是 `bad_frame`）；`seq` 顺序错误仍按 §5.4 分成 `replay`/`bad_frame`。
+
+#### 4.9.1 问题 → 修复 → 回归测试
+
+| # | 问题 | 修复位置 | 回归测试 |
+| --- | --- | --- | --- |
+| 1 High | mux 局部 `events`/`follow` 原样上线；同会话第二次 follow 被 PC 以 streamId 重用拒绝 | `PCLinkE2E.allocateWireStreamID()` 每会话计数器；`PCLinkClient.MuxState.wireToLocal`/`StreamState.wireStreamID` 双向映射，路由按 `(sid, 线上 ID)`，收帧换回局部 ID | `RelayDSHTransportTests.testWireStreamIDsAreSessionUniqueAcrossMuxesAndSessions`、`testMuxStreamItemsAndEnd`、`testMuxCancelReachesPCAndEndsStream`；`FakePCServer.registerOpenStreamID` 强制唯一并发 `rpc.stream.error` |
+| 2 High | `seal` 后 `await relay.send`/`socket.send` 让出，线上 seq 可能乱序 | `PCLinkClient` 单 outbound writer：seal+入队同一 actor 临界区；`PCLinkRelayClient` 单 socket writer（FIFO），所有发送经 writer | `RelayDSHTransportTests.testConcurrentCallsKeepWireSeqStrictlyIncreasing`（48 并发 + 奇偶延迟注入，断言 PC 收到 seq 严格连续）；`testStopWaitsForOldLoopAndStartIsIdempotent` |
+| 3 Medium | 旧 `chat.drafts.v1` 是 `@AppStorage` JSON **字符串**，迁移/回退按字典读；marker 后仍回退旧键 | `WorkspaceStorage.legacyDraftsMap` 先 `string(forKey:)` JSON 解码、再兼容字典；`legacyFallbackAllowed` 在 marker 后关闭 current-session/drafts/title-hints/collapsed 旧键回退 | `PCLinkWorkspaceSimTests.testMigrationCopiesLegacyKeysAndIsIdempotent`（改用 JSON 字符串）、`testLegacyDraftJSONStringAndDictionaryCompatibility`、`testClearedDraftAndCollapsedSetDoNotReviveAfterMigration` |
+| 4 Medium | `relay.offline` 把所有 pending call 判 `peer_offline`，已发出的 unsafe 应为 `unknown_outcome` | `PCLinkClient.handleRelayOffline`/`failPendingForRelayDrop`：仅匹配 `id` 的帧确定未送达；`sid`-only 已发调用走 `PCLinkSessionLost`（§7 决定 unknown_outcome/重试） | `testRelayOfflineForSentUnsafeCallIsUnknownOutcome`、`testRelayOfflineWithCorrelationIDIsPeerOffline` |
+| 5 Medium | `peer.hello` 能力无交集只抛错，未发 `session.close{version_unsupported}`，未禁止重试 | `PCLinkClient.sendVersionUnsupportedClose`（握手阶段可 seal）、`handleSessionError(.versionUnsupported)` 终止并置 `offline(.versionUnsupported)`；UI 文案提示升级 | `testNoCapabilityIntersectionClosesVersionUnsupportedAndDoesNotRetry`、`testVersionUnsupportedCopyTellsTheUserToUpgrade` |
+| 6 Medium | `rate_limited` 被忽略，调用悬挂 | `PCLinkClient.handleRelayEvent(.rateLimited)` 拆会话、记录 `retryAfterMs`，连接循环以 `max(backoff,retryAfter)` 重连；pending 按 §7 处理 | `testRateLimitedTearsDownWaitsRetryAfterAndReconnects`（3 s 上限，旧实现会失败而非挂起） |
+| 7 Medium | `stop()` 先 await 旧 task，旧循环停在 `waitForDisconnect` 时会死锁；快速 stop/start 可能双循环 | `performStop` 先 `signalDisconnect()` + teardown，再 await 旧 task；`connectionGeneration` 防旧循环接管；`start` 等待在途 stop | `testStopWaitsForOldLoopAndStartIsIdempotent`（重复 start + 5 次 stop/start，连接数精确） |
+| 8 Medium | `beginPairing` 在加载记录前检查「已有配对」，可能覆盖磁盘记录 | 先 `loadIdentityAndRecordIfNeeded()` 再检查 `record` | `PCLinkPairingFlowTests.testBeginPairingLoadsRecordBeforeAlreadyPairedCheck`（注入立即失败的 factory，旧代码会走到网络路径） |
+| 9 Medium | `relay.ready` 早于 `awaitReady` 安装等待者时被丢 | `PCLinkRelayClient` 缓存 `readyReceived`（并同样缓存早到 challenge） | `PCLinkRelayClientTests.testReadyArrivingBeforeWaiterIsCached` |
+| 10 Medium | 默认中继占位是 `wss://`，而 origin 校验只接受 http(s) | `ProbeKit/PCLinkRelayConfiguration.swift` 单点占位 `https://relay.example.invalid`；DEBUG 环境 loopback 归一化为 http，`PCLinkValidation.websocketURL` 统一派生 ws(s) | `testQRAndManualOriginsDeriveWSSURLs`、`testRelayPlaceholderOriginAndLoopbackNormalization`、`testOriginOnlyAllowsHTTPSOrLoopbackHTTP` |
+| 11 Medium | scenePhase 只转给 `ChatModel.shared`，PC 后端回前台不重连/不补帧 | `PhoneDSHProbeApp` 转发 `WorkspaceModels.scenePhaseChanged(true)`；`PCLinkWorkspace` 调 `foregroundResumed`；`ChatModel.foregroundResumedForPC` 从 `lastSeq` 重开 follow；`PCLinkClient.foregroundResumed` 替换挂起连接 | `PCLinkWorkspaceSimTests.testForegroundWakesPCClient`、`RelayDSHTransportTests.testForegroundResumedReplacesTheSuspendedConnection` |
+| 12 Low | `PDSH_DEBUG_DRAWER` 在 Release 仍被读取 | `ProbeKit/NativeDebugDefaults.drawerOpen` 的 `#if DEBUG` 分支；`NativeShell` 只调该 helper | `PCLinkWorkspaceSimTests.testDebugDrawerDefaultIsEnvironmentGated`；Release 分支由编译条件保证 |
+| 13 Low | PC 返回的 sessionId 直接拼文件路径，可穿越 | `WorkspaceStorage.isValidSessionID`（DSH 字符集、拒绝 `/`/`..`）；`transcriptSnapshotURL`/legacy 返回 `nil`；`ChatModel` 拒绝写入 | `PCLinkWorkspaceSimTests.testSessionIDPathValidationRejectsTraversal` |
+| 14 Low | 解除配对后残留 `pc:<machineId>` 草稿/快照 | `PCLinkWorkspace` 在 unpair/ack/remove 确认删除后调 `WorkspaceStorage.removeLocalData(for:)`（只删该 scope） | `PCLinkWorkspaceSimTests.testUnpairCleanupRemovesOnlyScopedDraftsAndSnapshots` |
+| 15 Low | 迁移 snapshot 用 `copyItem`，非原子 | 迁移改为 `Data.write(.atomic)`（临时文件 + rename） | `testMigrationCopiesLegacyKeysAndIsIdempotent`（内容/幂等；原子性由 `.atomic` API 保证） |
+| 16 Low | `rpc.result` 未知成员被忽略；流分块超限不发 cancel；closeMux 用错 chunk 键；AEAD 失败映射成 `bad_frame` | `dispatchResult` 使用 `closedObject` 拒未知成员；`handleStreamFrame` 超限后 `rpc.stream.cancel`；`closeMux` 用 wire id 清 `streamChunks`；`PCLinkE2ESession.open` AEAD 失败抛 `auth_failed` | `testRpcResultWithUnknownMemberIsBadFrame`、`testOversizedStreamChunkSendsCancel`、`testCloseMuxClearsPartialChunkBufferByWireKey`、`testAEADFailureMapsToAuthFailed` |
+| 17 Low | 非 loopback `http` origin 被接受 | `PCLinkValidation.origin` 仅允许 `https` 或 loopback `http`（`127.0.0.1`/`localhost`） | `testOriginOnlyAllowsHTTPSOrLoopbackHTTP`、`testQRAndManualOriginsDeriveWSSURLs` |
+| 18 Low | 「已连接的电脑」显示 ISO 原文 | `PCLinkWorkspaceText.pairedAtDisplay`（RFC 3339 → 本地化 long date + short time）；`ConnectedComputerPage` 使用它 | `PCLinkWorkspaceSimTests.testPairedAtIsLocalizedNotISO`（zh_CN/UTC 断言 `2026年11月10日 03:13`） |
+
+#### 4.9.2 命令 → 结果（本轮实跑）
+
+| 命令 | 结果 | 证据 |
+| --- | --- | --- |
+| `swift build --disable-sandbox` | **PASS** `Build complete! (7.29s)` | `/tmp/pclink-f2-build-final3.log` |
+| `swift test --disable-sandbox --filter PhoneDSHPCLinkTests` | **PASS** 63 tests, 1 skipped, 0 failures | `/tmp/pclink-f2-test-final4.log` |
+| `cd examples/probe-app && xcodegen generate` | **PASS** | `/tmp/pclink-f2-xcodegen2.log` |
+| ADAPTED `xcodebuild -scheme PhoneDSHProbe ... build`（模拟器 `620D518D-D125-4154-B1B7-32A65327482B`、`/tmp/pclink-f2-dd`、`CFFIXED_USER_HOME=/tmp/pclink-f2-home`、`-disable-sandbox`） | **PASS** `** BUILD SUCCEEDED **` | `/tmp/pclink-f2-xcodebuild-final2.log` |
+| ADAPTED `xcodebuild -scheme PhoneDSHSim ... build-for-testing` | **PASS** `** TEST BUILD SUCCEEDED **` | `/tmp/pclink-f2-buildtests-final.log` |
+| ADAPTED `simctl spawn … xctest -XCTest PCLinkWorkspaceSimTests,ProbeKitHistoryTests,ProbeKitManagementTests,ProbeKitBackendTests,MessageFeedbackTests,ChatInputRecoveryTests,NativeChatPresentationTests,ChatWorkflowTests,ChatEventPumpTests,ComposerQueueTests,ProbeScenePhaseForwardingTests,PhoneAudioSessionLeaseTests` | **PASS** 89 tests, 0 failures | `/tmp/pclink-f2-simtests-final.log` |
+| `python3 -B spec/ui/v1/tools/extract_ios_pages.py --root . --check` | **PASS** `contracts up to date` | `/tmp/pclink-f2-extract-check3.log` |
+| `python3 -B spec/ui/v1/tools/ui_check.py --root .` | **PASS** `ok (13 contrast pairs, 6 deferred AA pairs…)` | `/tmp/pclink-f2-ui-check3.log` |
+| `python3 -B spec/ui/v1/tools/page_structure_check.py --root . --baseline spec/ui/v1/pages/_baseline.json` | **FAIL (17)**：既有 12 + GAP-34 的 5，与 §4.4 一致 | `/tmp/pclink-f2-page-check3.log` |
+
+**NOT_RUN**：真实 relay + 真 DSH 的三端 E2E（本轮未重跑）、真机 Keychain/相机、公网 WSS、`xcodebuild test`（改用同 bundle 的 `simctl spawn`）、Release 配置的独立构建。**ADAPTED**：xcodebuild 走本机模拟器与 `-disable-sandbox`；`simctl spawn` 为同 bundle 的既有回退路径。`Package.resolved` 被 Xcode 改写后已按 HEAD 恢复，未纳入改动。
+
+#### 4.9.3 建议提交信息（Protocol impact）
+
+```text
+fix(pclink): session-unique stream ids, ordered E2E sends and iOS app fixes
+
+Protocol impact: P28; P09; P18; P24: none — Package.resolved restored unchanged; P12: none — no Package.swift/native ABI change; P06: none — no DSH event semantics change; P14: none — reuses the existing DSHRemoteTransport/mux; P16: none — no PDSH_* Worker URL/env change; P01/P02/P04/P05/P10/P11/P13: none — no relay wire, WAL, bridge, loopback HTTP or plugin protocol change.
+```
+
+理由：P28 是 PCLink 客户端会话/流/发送顺序与 relay 事件处理；P09 是「已连接的电脑」配对时间显示与 provenance；P18 是旧草稿格式读取与解除配对后的本地清理/路径校验。契约 revision 保持 `pclink-v1.3`。
+
 ## 5. 修訂紀錄
 
 | revision | 由誰 | 原因（含收到的 CONTRACT CHANGE REQUEST） | 通知了哪些端 |
@@ -216,3 +270,4 @@ Protocol impact: P28; P09; P18: none — no storage key, scope or migration chan
 | `pclink-d2-r1` | iOS D2 implementer / contract owner | 初始凍結 P09/P18；P28 只消費；GAP-34 登記 12+5 | iOS；android-parity；P18 owner |
 | `pclink-d2-r2` | iOS D2 implementer | 實作後以提取工具更新 provenance；E2E 發現 CCR-1/2/3，未在本地繞過 | P28 C/D owner；android-parity |
 | `pclink-fix1-r1` | PCLink fix1 implementer（iOS/C/D） | 關閉 CCR-1/2/3；配對自動完成並進 PC 工作區；`phone-sdk` filter 加 `PhoneDSHPCLinkTests`；以機械提取更新兩個頁面 provenance；重跑三端 E2E 與 CI | P28 C/D owner；P09 owner；android-parity（頁面 provenance） |
+| `pclink-f2s-r1` | PCLink f2s implementer（iOS/App） | 全分支審查：session 內唯一線上 streamId、單寫者 FIFO、relay.offline/rate_limited/version_unsupported、stop/start、ready 缓存、origin/路徑/快照/日期等 18 項；PCLink v1.3 不變 | P28 D/App owner；P09/P18 owner；android-parity（頁面 provenance） |

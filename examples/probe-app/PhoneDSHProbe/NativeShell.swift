@@ -91,7 +91,8 @@ struct NativeShell: View {
         HomeAppearance.apply()
     }
 
-    @State private var drawerOpen = ProcessInfo.processInfo.environment["PDSH_DEBUG_DRAWER"] == "1"
+    @State private var drawerOpen = NativeDebugDefaults.drawerOpen(
+        environment: ProcessInfo.processInfo.environment)
     /// Bottom menu selection; 任务 (the chat page) is where the app opens.
     @State private var selectedTab: HomeTab = .tasks
     @State private var keyboardVisible = false

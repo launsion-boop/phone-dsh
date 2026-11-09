@@ -11,36 +11,6 @@ import PhoneDSHPCLink
 import ProbeKit
 import UIKit
 
-/// One place for the default relay address and the DEBUG-only loopback
-/// override. The production domain is not assigned yet: `wss://relay.example.invalid`
-/// is a deliberate placeholder and must be replaced before shipping.
-enum PCLinkRelayConfiguration {
-    static let placeholderOrigin = "wss://relay.example.invalid"
-
-    /// Manual-code pairing has no relay in the code, so it uses this origin.
-    /// A QR/manual URI that carries its own `r=` field wins over this value.
-    static var manualPairingOrigin: String {
-        #if DEBUG
-        if let raw = ProcessInfo.processInfo.environment["PDSH_PCLINK_RELAY"],
-           isLoopbackRelay(raw) {
-            return raw
-        }
-        #endif
-        return placeholderOrigin
-    }
-
-    /// Only a loopback ws/http origin is accepted from the DEBUG environment;
-    /// release builds have no override.
-    static func isLoopbackRelay(_ raw: String) -> Bool {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let url = URL(string: trimmed),
-              let scheme = url.scheme?.lowercased(),
-              scheme == "ws" || scheme == "http" else { return false }
-        let host = url.host?.lowercased()
-        return host == "127.0.0.1" || host == "localhost"
-    }
-}
-
 #if DEBUG
 /// File-backed identity seed for unsigned simulator E2E runs only. The
 /// production store stays `PCLinkKeychainIdentityStore`.
@@ -213,17 +183,32 @@ final class PCLinkWorkspace {
     }
 
     func unpair() async throws {
+        let backend = status.record.map { BackendID.pc(machineId: $0.peerMachineId) }
         try await client.unpair()
+        if let backend { WorkspaceStorage.removeLocalData(for: backend) }
         await refreshStatus()
     }
 
     func acknowledgePCUnpair() async throws {
+        let backend = status.record.map { BackendID.pc(machineId: $0.peerMachineId) }
         try await client.acknowledgePCUnpair()
+        if let backend { WorkspaceStorage.removeLocalData(for: backend) }
         await refreshStatus()
     }
 
     func removeLocalRecord() async throws {
+        let backend = status.record.map { BackendID.pc(machineId: $0.peerMachineId) }
         try await client.removeLocalRecord()
+        if let backend { WorkspaceStorage.removeLocalData(for: backend) }
+        await refreshStatus()
+    }
+
+    /// Foreground return: replace a possibly suspended relay socket and let
+    /// the PC backend's pump resynchronize (contract §10). `WorkspaceModels`
+    /// also restarts the PC ChatModel pump.
+    func scenePhaseChanged(_ isActive: Bool) async {
+        guard isActive, started, status.record != nil else { return }
+        await client.foregroundResumed()
         await refreshStatus()
     }
 

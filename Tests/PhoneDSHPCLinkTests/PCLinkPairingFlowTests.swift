@@ -218,4 +218,42 @@ final class PCLinkPairingFlowTests: XCTestCase {
         XCTAssertEqual(handshakes, 1)
         XCTAssertEqual(calls.count, 1)
     }
+
+    /// The durable record must be loaded before the "already paired" check; a
+    /// record that exists only on disk must never be overwritten by a new
+    /// pairing attempt.
+    func testBeginPairingLoadsRecordBeforeAlreadyPairedCheck() async throws {
+        let phone = try PCLinkIdentity(seed: PCLinkCrypto.sha256(Data("pair-guard/phone".utf8)))
+        let pc = try PCLinkIdentity(seed: PCLinkCrypto.sha256(Data("pair-guard/pc".utf8)))
+        let origin = "https://relay.example"
+        let record = TestSupport.record(peerMachineId: pc.machineId,
+                                        peerPublicKey: pc.publicKey,
+                                        peerName: "My PC",
+                                        relayOrigin: origin)
+        let store = InMemoryPairingStore(record: record, phoneMachineId: phone.machineId)
+        let client = PCLinkClient(
+            identityStore: InMemoryIdentityStore(seed: phone.seed),
+            pairingStore: store,
+            configuration: PCLinkClientConfiguration(
+                websocketFactory: FailingWebSocketFactory(),
+                connectTimeout: 1, handshakeTimeout: 1, callRetryDeadline: 1))
+        let uri = try PCLinkQRCode.makeURI(relayOrigin: origin, pcMachineId: pc.machineId,
+                                           pcPublicKey: pc.publicKey,
+                                           secret: try PCLinkRandom.bytes(16),
+                                           pcName: "My PC")
+        do {
+            _ = try await client.beginPairing(qrURI: uri)
+            XCTFail("an existing on-disk record must block a new pairing")
+        } catch let error as PCLinkError {
+            XCTAssertEqual(error.code, "already_paired")
+        }
+        let status = await client.status()
+        XCTAssertEqual(status.record, record, "the existing record must not be replaced")
+    }
+}
+
+private struct FailingWebSocketFactory: PCLinkWebSocketFactory {
+    func connect(to url: URL) async throws -> any PCLinkWebSocket {
+        throw PCLinkError.unavailable("not used in this test")
+    }
 }

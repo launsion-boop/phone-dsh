@@ -43,14 +43,19 @@ actor FakeInbox {
 final class FakeWebSocket: PCLinkWebSocket, @unchecked Sendable {
     let inbox: FakeInbox
     let peer: FakeInbox
+    /// Test-only hook used by the send-order pressure test.
+    let sendHook: (@Sendable (String) async -> Void)?
     private(set) var closedCode: UInt16?
 
-    init(inbox: FakeInbox, peer: FakeInbox) {
+    init(inbox: FakeInbox, peer: FakeInbox,
+         sendHook: (@Sendable (String) async -> Void)? = nil) {
         self.inbox = inbox
         self.peer = peer
+        self.sendHook = sendHook
     }
 
     func send(text: String) async throws {
+        if let sendHook { await sendHook(text) }
         let delivered = await peer.push(.text(text))
         guard delivered else { throw PCLinkError.peerOffline }
     }
@@ -67,10 +72,11 @@ final class FakeWebSocket: PCLinkWebSocket, @unchecked Sendable {
 }
 
 enum FakeDuplex {
-    static func make() -> (client: FakeWebSocket, server: FakeWebSocket) {
+    static func make(clientSendHook: (@Sendable (String) async -> Void)? = nil)
+        -> (client: FakeWebSocket, server: FakeWebSocket) {
         let clientInbox = FakeInbox()
         let serverInbox = FakeInbox()
-        return (FakeWebSocket(inbox: clientInbox, peer: serverInbox),
+        return (FakeWebSocket(inbox: clientInbox, peer: serverInbox, sendHook: clientSendHook),
                 FakeWebSocket(inbox: serverInbox, peer: clientInbox))
     }
 }
@@ -82,6 +88,10 @@ enum FakeCallPolicy: Sendable {
     case chunkedResult
     case dropFirst
     case relayOfflineFirst
+    case relayOfflineWithIDFirst
+    case rateLimitedFirst(retryAfterMs: Int)
+    case unknownResultMember
+    case corruptAEAD
     case ignore
 }
 
@@ -89,6 +99,8 @@ enum FakeStreamPolicy: Sendable {
     case snapshotThenEnd
     case chunkedThenEnd
     case awaitCancelThenEnd
+    case oversizeChunkThenEnd
+    case partialChunkThenAwaitCancel
 }
 
 struct FakeCallRecord: Sendable {
@@ -117,12 +129,20 @@ actor FakePCServer {
     private(set) var cancels: [String] = []
     private(set) var sessionIDs: [String] = []
     private(set) var handshakes = 0
+    private(set) var receivedCloseCodes: [String] = []
+    private(set) var reusedStreamIDs: [String] = []
+    private(set) var receivedSeqs: [Int64] = []
+    private(set) var sawOutOfOrderSeq = false
+    private var lastReceivedSeq: Int64?
+    private var usedStreamIDs = Set<String>()
     private var droppedEndpoints = Set<String>()
     private var policies: [String: FakeCallPolicy] = [:]
     private var streamPolicies: [String: FakeStreamPolicy] = [:]
     var result: PCLinkJSON = .object(["items": .array([])])
     var dshVersion = "0.2.2-rc.1"
+    var caps = ["workspace/1", PCLinkCrypto.suite]
     var rejectUnpaired = false
+    var extraResultMember = false
     private var pendingNotice = false
 
     init(pcIdentity: PCLinkIdentity, phoneMachineId: String, phonePublicKey: Data,
@@ -159,6 +179,34 @@ actor FakePCServer {
         dshVersion = version
     }
 
+    func setCaps(_ value: [String]) {
+        caps = value
+    }
+
+    func recordCloseCode(_ code: String) {
+        receivedCloseCodes.append(code)
+    }
+
+    /// Enforces §6.2 uniqueness on the real receive path: a second open with a
+    /// previously used wire streamId is a protocol violation, not accepted.
+    func registerOpenStreamID(_ streamID: String) -> Bool {
+        guard usedStreamIDs.insert(streamID).inserted else {
+            reusedStreamIDs.append(streamID)
+            return false
+        }
+        return true
+    }
+
+    func noteReceivedSeq(_ seq: Int64) {
+        receivedSeqs.append(seq)
+        if let lastReceivedSeq {
+            if seq != lastReceivedSeq + 1 { sawOutOfOrderSeq = true }
+        } else if seq != 0 {
+            sawOutOfOrderSeq = true
+        }
+        lastReceivedSeq = seq
+    }
+
     func setRejectUnpaired(_ reject: Bool) {
         rejectUnpaired = reject
     }
@@ -174,6 +222,7 @@ actor FakePCServer {
 
     var dshVersionValue: String { dshVersion }
     var rejectUnpairedValue: Bool { rejectUnpaired }
+    var capsValue: [String] { caps }
 
     func handleCall(_ call: FakeCallRecord) -> FakeCallOutcome {
         calls.append(call)
@@ -192,9 +241,25 @@ actor FakePCServer {
         case .relayOfflineFirst:
             if !droppedEndpoints.contains(call.endpoint) {
                 droppedEndpoints.insert(call.endpoint)
-                return .relayOffline
+                return .relayOffline(id: nil)
             }
             return .result(result)
+        case .relayOfflineWithIDFirst:
+            if !droppedEndpoints.contains(call.endpoint) {
+                droppedEndpoints.insert(call.endpoint)
+                return .relayOffline(id: call.id)
+            }
+            return .result(result)
+        case .rateLimitedFirst(let retryAfterMs):
+            if !droppedEndpoints.contains(call.endpoint) {
+                droppedEndpoints.insert(call.endpoint)
+                return .rateLimited(retryAfterMs: retryAfterMs)
+            }
+            return .result(result)
+        case .unknownResultMember:
+            return .unknownResultMember
+        case .corruptAEAD:
+            return .corruptAEAD
         case .ignore:
             return .ignore
         }
@@ -214,7 +279,10 @@ enum FakeCallOutcome: Sendable {
     case result(PCLinkJSON)
     case chunkedResult(PCLinkJSON)
     case drop
-    case relayOffline
+    case relayOffline(id: String?)
+    case rateLimited(retryAfterMs: Int)
+    case unknownResultMember
+    case corruptAEAD
     case ignore
 }
 
@@ -327,6 +395,7 @@ final class FakePCConnection: @unchecked Sendable {
                 return false
             }
             guard let seq = frame["seq"]?.intValue, seq >= 0 else { return false }
+            await server.noteReceivedSeq(seq)
             do {
                 guard let body = try? PCLinkBase64URL.decode(
                     frame["body"]?.stringValue ?? "") else { return false }
@@ -452,7 +521,7 @@ final class FakePCConnection: @unchecked Sendable {
                   PCLinkCrypto.constantTimeEquals(
                     confirm, PCLinkCrypto.confirmation(key: keys.confirmPhone, th: th3)) else { return }
             let hello = try? PCLinkPeerHello.make(
-                role: "pc", caps: ["workspace/1", PCLinkCrypto.suite],
+                role: "pc", caps: await server.capsValue,
                 dshVersion: await server.dshVersionValue, dshCommit: "66491b05",
                 appName: "dsh-pclink", appVersion: "0.1.0", name: "My PC")
             guard let hello else { return }
@@ -524,17 +593,43 @@ final class FakePCConnection: @unchecked Sendable {
             case .drop:
                 await socket.close(code: 1001, reason: "drop")
                 return
-            case .relayOffline:
-                await sendRelay(socket, .object([
+            case .relayOffline(let offlineID):
+                var frame: PCLinkJSONObject = [
                     "v": .int(1), "type": .string("relay.offline"),
                     "to": .string(phoneIdentity.machineId), "sid": .string(sid),
+                ]
+                if let offlineID { frame["id"] = .string(offlineID) }
+                await sendRelay(socket, .object(frame))
+            case .rateLimited(let retryAfterMs):
+                await sendRelay(socket, .object([
+                    "v": .int(1), "type": .string("relay.error"),
+                    "code": .string("rate_limited"),
+                    "retryAfterMs": .int(Int64(retryAfterMs)),
+                    "sid": .string(sid),
                 ]))
+            case .unknownResultMember:
+                await sendInner(.object([
+                    "type": .string("rpc.result"), "id": .string(id), "ok": .bool(true),
+                    "result": .object([:]), "unexpected": .bool(true),
+                ]), socket: socket)
+            case .corruptAEAD:
+                await sendCorruptInner(socket: socket)
             case .ignore:
                 break
             }
         case "rpc.stream.open":
             guard let streamId = inner["streamId"]?.stringValue,
                   let endpoint = inner["endpoint"]?.stringValue else { return }
+            guard await server.registerOpenStreamID(streamId) else {
+                await sendInner(.object([
+                    "type": .string("rpc.stream.error"), "streamId": .string(streamId),
+                    "error": .object([
+                        "code": .string("bad_frame"),
+                        "message": .string("streamId was reused in this session"),
+                    ]),
+                ]), socket: socket)
+                return
+            }
             let record = FakeOpenRecord(sid: sid, streamId: streamId, endpoint: endpoint,
                                         payload: inner["payload"] ?? .null)
             let policy = await server.handleOpen(record)
@@ -561,6 +656,21 @@ final class FakePCConnection: @unchecked Sendable {
             case .awaitCancelThenEnd:
                 waitingCancels.insert(streamId)
                 await emitSnapshot(streamId: streamId, socket: socket)
+            case .oversizeChunkThenEnd:
+                waitingCancels.insert(streamId)
+                await sendInner(.object([
+                    "type": .string("rpc.stream.chunk"), "streamId": .string(streamId),
+                    "part": .int(0), "last": .bool(false),
+                    "data": .string(String(repeating: "A",
+                                           count: PCLinkLimits.maxChunkCharacters + 1)),
+                ]), socket: socket)
+            case .partialChunkThenAwaitCancel:
+                waitingCancels.insert(streamId)
+                await sendInner(.object([
+                    "type": .string("rpc.stream.chunk"), "streamId": .string(streamId),
+                    "part": .int(0), "last": .bool(false),
+                    "data": .string(PCLinkBase64URL.encode(Data("partial".utf8))),
+                ]), socket: socket)
             }
         case "rpc.stream.cancel":
             guard let streamId = inner["streamId"]?.stringValue else { return }
@@ -570,6 +680,9 @@ final class FakePCConnection: @unchecked Sendable {
                                          "streamId": .string(streamId)]), socket: socket)
             }
         case "session.close":
+            if let code = inner["code"]?.stringValue {
+                await server.recordCloseCode(code)
+            }
             return
         default:
             if type.hasPrefix("task.") || type.hasPrefix("call.") {
@@ -580,6 +693,33 @@ final class FakePCConnection: @unchecked Sendable {
                 ]), socket: socket)
             }
         }
+    }
+
+    /// Produces a structurally valid e2e frame whose AEAD tag is wrong. The
+    /// phone must map that to `auth_failed` (§5.4), not `bad_frame`.
+    private func sendCorruptInner(socket: FakeWebSocket) async {
+        guard let keys, let sid else { return }
+        let inner: PCLinkJSON = .object([
+            "type": .string("rpc.result"), "id": .string("corrupt"), "ok": .bool(true),
+            "result": .object([:]),
+        ])
+        guard let plaintext = try? PCLinkJSONEncoder.encode(inner) else { return }
+        let seq = sendSeq
+        let aad = PCLinkCrypto.aad(sid: sid, seq: seq,
+                                   from: pcMachineId, to: phoneIdentity.machineId)
+        guard var body = try? PCLinkCrypto.aeadSeal(plaintext: plaintext, key: keys.pcToPhone,
+                                                    nonce: PCLinkCrypto.aeadNonce(seq: seq),
+                                                    aad: aad),
+              !body.isEmpty else { return }
+        body[body.count - 1] ^= 0xFF
+        sendSeq += 1
+        await sendRelay(socket, .object([
+            "v": .int(1), "type": .string("e2e"), "sid": .string(sid),
+            "seq": .int(Int64(seq)),
+            "from": .string(pcMachineId),
+            "to": .string(phoneIdentity.machineId),
+            "body": .string(PCLinkBase64URL.encode(body)),
+        ]))
     }
 
     private func emitSnapshot(streamId: String, socket: FakeWebSocket) async {
@@ -598,15 +738,18 @@ final class FakeRelayNetwork: PCLinkWebSocketFactory, @unchecked Sendable {
     let server: FakePCServer
     let phoneIdentity: PCLinkIdentity
     let origin: String
+    let clientSendHook: (@Sendable (String) async -> Void)?
 
-    init(server: FakePCServer, phoneIdentity: PCLinkIdentity, origin: String) {
+    init(server: FakePCServer, phoneIdentity: PCLinkIdentity, origin: String,
+         clientSendHook: (@Sendable (String) async -> Void)? = nil) {
         self.server = server
         self.phoneIdentity = phoneIdentity
         self.origin = origin
+        self.clientSendHook = clientSendHook
     }
 
     func connect(to url: URL) async throws -> any PCLinkWebSocket {
-        let pair = FakeDuplex.make()
+        let pair = FakeDuplex.make(clientSendHook: clientSendHook)
         let connection = FakePCConnection(server: server, phoneIdentity: phoneIdentity,
                                           origin: origin)
         Task { await connection.run(socket: pair.server) }
@@ -615,6 +758,32 @@ final class FakeRelayNetwork: PCLinkWebSocketFactory, @unchecked Sendable {
 }
 
 // MARK: - Client fixture
+
+/// Clients created by fixtures are stopped at the end of each test so a leaked
+/// reconnect loop from an earlier case cannot perturb a later one.
+enum PCLinkTestTracker {
+    private static let lock = NSLock()
+    private static var clients: [PCLinkClient] = []
+
+    static func track(_ client: PCLinkClient) {
+        lock.lock(); defer { lock.unlock() }
+        clients.append(client)
+    }
+
+    private static func takeAll() -> [PCLinkClient] {
+        lock.lock(); defer { lock.unlock() }
+        let current = clients
+        clients.removeAll()
+        return current
+    }
+
+    static func stopAll() async {
+        let current = takeAll()
+        for client in current {
+            await client.stop()
+        }
+    }
+}
 
 struct PCLinkTestFixture {
     let phoneIdentity: PCLinkIdentity
@@ -627,6 +796,7 @@ struct PCLinkTestFixture {
 
     static func make(seedSuffix: String = UUID().uuidString,
                      configure: (inout PCLinkClientConfiguration) -> Void = { _ in },
+                     clientSendHook: (@Sendable (String) async -> Void)? = nil,
                      prepareServer: (FakePCServer) async -> Void = { _ in }) async throws -> PCLinkTestFixture {
         let phone = try PCLinkIdentity(seed: PCLinkCrypto.sha256(Data("pclink-test/phone/\(seedSuffix)".utf8)))
         let pc = try PCLinkIdentity(seed: PCLinkCrypto.sha256(Data("pclink-test/pc/\(seedSuffix)".utf8)))
@@ -634,7 +804,8 @@ struct PCLinkTestFixture {
                                   phonePublicKey: phone.publicKey, relayOrigin: "https://relay.example")
         await prepareServer(server)
         let network = FakeRelayNetwork(server: server, phoneIdentity: phone,
-                                       origin: "https://relay.example")
+                                       origin: "https://relay.example",
+                                       clientSendHook: clientSendHook)
         var config = PCLinkClientConfiguration(
             websocketFactory: network,
             reconnectPolicy: PCLinkReconnectPolicy(delays: [0.01]),
@@ -654,6 +825,7 @@ struct PCLinkTestFixture {
             identityStore: InMemoryIdentityStore(seed: phone.seed),
             pairingStore: InMemoryPairingStore(record: record, phoneMachineId: phone.machineId),
             configuration: config)
+        PCLinkTestTracker.track(client)
         try await client.start()
         let transport = RelayDSHTransport(client: client)
         return PCLinkTestFixture(phoneIdentity: phone, pcIdentity: pc, server: server,

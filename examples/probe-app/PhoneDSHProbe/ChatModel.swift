@@ -1756,7 +1756,7 @@ final class ChatModel {
         // PC lifecycle is connection-only: nothing to park or keep alive. On
         // foreground return, nudge the relay client's reconnect loop.
         if let pcRuntime {
-            if phase == .active { try? await pcRuntime.client.start() }
+            if phase == .active { await pcRuntime.client.foregroundResumed() }
             return
         }
         guard let host else { return }
@@ -2541,6 +2541,24 @@ final class ChatModel {
         }.joined()
     }
 
+    /// PC foreground return: after the relay reconnects, reopen the follow
+    /// stream from the last delivered seq so events missed while suspended are
+    /// filled in (contract §10 "stream recovery"). The phone backend keeps its
+    /// existing park/resume path.
+    func foregroundResumedForPC() async {
+        guard pcRuntime != nil, let sessionID else { return }
+        let resolved: any AgentHarness
+        if let harness {
+            resolved = harness
+        } else if let created = try? await workspaceBackend.harness() {
+            harness = created
+            resolved = created
+        } else {
+            return
+        }
+        startPump(harness: resolved, sessionID: sessionID, after: lastSeq)
+    }
+
     private func startPump(harness: any AgentHarness, sessionID: String, after initialSeq: UInt64? = nil) {
         pumpTask?.cancel()
         eventStreamRecovering = false
@@ -3003,7 +3021,7 @@ final class ChatModel {
         var text: String
     }
 
-    private func snapshotURL(for sessionID: String) -> URL {
+    private func snapshotURL(for sessionID: String) -> URL? {
         WorkspaceStorage.transcriptSnapshotURL(for: backendID, sessionID: sessionID)
     }
 
@@ -3077,7 +3095,7 @@ final class ChatModel {
                                  text: item.text)
         }
         guard let data = try? JSONEncoder().encode(cached) else { return }
-        let url = snapshotURL(for: sessionID)
+        guard let url = snapshotURL(for: sessionID) else { return }
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
                                                  withIntermediateDirectories: true)
         try? data.write(to: url, options: .atomic)

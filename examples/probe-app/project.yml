@@ -237,6 +237,9 @@ targets:
       - path: PhoneDSHProbe/LegacyTaskInspectionModel.swift
       - path: PhoneDSHProbe/LegacyTaskInspectionSection.swift
       - path: PhoneDSHProbe/BluetoothDevicesPage.swift
+      # The PCLink connection owner is UI-free except for the debug identity
+      # store; the simulator suite drives its foreground wake-through.
+      - path: PhoneDSHProbe/PCLinkWorkspace.swift
       # The scripted model upstream, the smoke evidence readers (WAL
       # replay/journal/step formats) and the kill-matrix support ship as the
       # regular SwiftPM target `PhoneDSHHarness`; this target links its
@@ -341,6 +344,7 @@ targets:
       - path: PhoneDSHProbe/LegacyTaskInspectionModel.swift
       - path: PhoneDSHProbe/LegacyTaskInspectionSection.swift
       - path: PhoneDSHProbe/BluetoothDevicesPage.swift
+      - path: PhoneDSHProbe/PCLinkWorkspace.swift
     dependencies:
       - target: PhoneDSHProbe
       - target: ProbeKit
