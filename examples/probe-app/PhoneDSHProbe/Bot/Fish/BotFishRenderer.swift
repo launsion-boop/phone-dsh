@@ -162,13 +162,31 @@ final class BotFishRenderer {
         cg.saveGState()
     }
 
+    /// Draws a `CGImage` upright inside the flipped (top-left origin) context.
+    /// `CGContext.draw` alone would render it upside down, while
+    /// `UIImage.draw(in:)` would silently reset the context alpha and blend
+    /// mode. The local flip is undone by `restoreGState`, so callers keep
+    /// their CTM, alpha and blend mode.
+    private func drawUpright(_ image: CGImage, in rect: CGRect, on cg: CGContext) {
+        cg.saveGState()
+        cg.translateBy(x: rect.minX, y: rect.maxY)
+        cg.scaleBy(x: 1, y: -1)
+        cg.draw(image, in: CGRect(origin: .zero, size: rect.size))
+        cg.restoreGState()
+    }
+
+    /// Convenience overload for the UIKit assets. `rect` is in the current
+    /// (source/design or output-pixel) space and does not depend on the
+    /// asset's `UIImage.scale`: the full `cgImage` fills the same rect that
+    /// `UIImage.draw(in:)` used to receive.
+    private func drawUpright(_ image: UIImage, in rect: CGRect, on cg: CGContext) {
+        guard let cgImage = image.cgImage else { return }
+        drawUpright(cgImage, in: rect, on: cg)
+    }
+
     private func renderFlat(into cg: CGContext, assets: BotFishAssets, p: BotFishParams,
                             time: Double, pixelSide target: Int) -> Bool {
         guard let body = bodyLayer, let hairLayers else { return false }
-        // UIImage.draw(in:) uses UIKit's current context. Push the reusable
-        // bitmap for this paint and pop it before returning to the frame loop.
-        UIGraphicsPushContext(cg)
-        defer { UIGraphicsPopContext() }
         let alpha = CGFloat(BotFishMath.clamp(p.alpha, 0, 1))
         let pixelScale = CGFloat(target) / Self.cropSide
         resetCTM(cg)
@@ -185,13 +203,13 @@ final class BotFishRenderer {
         cg.translateBy(x: -256, y: -350)
 
         let frame = CGRect(x: 0, y: 0, width: Self.size, height: Self.size)
-        body.draw(in: frame)
-        hairLayers.fixed.draw(in: frame)
+        drawUpright(body, in: frame, on: cg)
+        drawUpright(hairLayers.fixed, in: frame, on: cg)
 
         if p.blush > 0.01 {
             cg.saveGState()
             cg.setAlpha(alpha * CGFloat(p.blush))
-            assets.blush.draw(in: frame)
+            drawUpright(assets.blush, in: frame, on: cg)
             cg.restoreGState()
         }
 
@@ -215,7 +233,7 @@ final class BotFishRenderer {
         if let brows {
             cg.saveGState()
             cg.setAlpha(alpha)
-            cg.draw(brows, in: fullPixelRect)
+            drawUpright(brows, in: fullPixelRect, on: cg)
             cg.restoreGState()
         }
         return true
@@ -228,16 +246,21 @@ final class BotFishRenderer {
     private func renderMotion(stage: CGImage, into cg: CGContext, p: BotFishParams,
                               pixelSide target: Int) -> Bool {
         let pixelScale = CGFloat(target) / Self.cropSide
-        let sliceHeight = max(0.5, 8 * pixelScale)
         resetCTM(cg)
         cg.setAlpha(1)
         cg.clear(fullPixelRect)
         var y = 0.0
         while y < Double(Self.size) {
+            let nextY = min(Double(Self.size), y + 8)
             // The stage starts at source y=30 (the circle crop), not at zero.
             let yPixel = (CGFloat(y) - Self.cropOrigin.y) * pixelScale
-            let top = max(0, yPixel)
-            let bottom = min(CGFloat(target), yPixel + sliceHeight)
+            let nextPixel = (CGFloat(nextY) - Self.cropOrigin.y) * pixelScale
+            // Snap both edges of every slice to whole output pixels. Adjacent
+            // slices round the same shared boundary the same way, so the clips
+            // tile exactly: no fractional clip edge leaves an antialiased
+            // hairline, and no overlap double-composites a translucent edge.
+            let top = max(0, floor(yPixel))
+            let bottom = min(CGFloat(target), floor(nextPixel))
             if bottom > top {
                 let v = BotFishMath.clamp((y - 365) / 65, 0, 1)
                 let head = 1 - v * v * (3 - 2 * v)
@@ -246,12 +269,13 @@ final class BotFishRenderer {
                 let dy = p.headY * 2.8 * head
                     + p.earFlutter * exp(-pow((y - 245) / 45, 2))
                 cg.saveGState()
+                cg.setShouldAntialias(false)
                 cg.translateBy(x: CGFloat(dx) * pixelScale, y: CGFloat(dy) * pixelScale)
                 cg.clip(to: CGRect(x: 0, y: top, width: CGFloat(target), height: bottom - top))
-                cg.draw(stage, in: fullPixelRect)
+                drawUpright(stage, in: fullPixelRect, on: cg)
                 cg.restoreGState()
             }
-            y += 8
+            y = nextY
         }
         return true
     }
@@ -285,7 +309,8 @@ final class BotFishRenderer {
                 cg.saveGState()
                 cg.translateBy(x: CGFloat(cx + p.gazeX * 2), y: CGFloat(cy + p.gazeY * 1.2))
                 cg.scaleBy(x: 1, y: CGFloat(blink))
-                assets.eyeCels[cel].draw(in: CGRect(x: -51, y: -51, width: 102, height: 102))
+                drawUpright(assets.eyeCels[cel],
+                            in: CGRect(x: -51, y: -51, width: 102, height: 102), on: cg)
                 cg.restoreGState()
                 return
             }
@@ -368,9 +393,11 @@ final class BotFishRenderer {
 
     private func drawEyeBase(_ cg: CGContext, image: UIImage, cx: Double, cy: Double) {
         let inverse = Double(BotFishRenderer.size) / Double(BotFishRenderer.scale)
-        image.draw(in: CGRect(x: -Double(BotFishRenderer.pad) / Double(BotFishRenderer.scale) - cx,
-                              y: -Double(BotFishRenderer.pad) / Double(BotFishRenderer.scale) - cy,
-                              width: inverse, height: inverse))
+        drawUpright(image,
+                    in: CGRect(x: -Double(BotFishRenderer.pad) / Double(BotFishRenderer.scale) - cx,
+                               y: -Double(BotFishRenderer.pad) / Double(BotFishRenderer.scale) - cy,
+                               width: inverse, height: inverse),
+                    on: cg)
     }
 
     private static func eyePath(w: Double, h: Double, tilt: Double) -> CGPath {
@@ -409,8 +436,6 @@ final class BotFishRenderer {
     private func browImage(p: BotFishParams) -> CGImage? {
         guard abs(p.browL) + abs(p.browR) + p.anger + p.sorrow >= 0.02,
               let b = browContext, let hairLayers else { return nil }
-        UIGraphicsPushContext(b)
-        defer { UIGraphicsPopContext() }
         let pixelScale = CGFloat(pixelSide) / BotFishRenderer.cropSide
         resetCTM(b)
         b.setAlpha(1)
@@ -433,12 +458,16 @@ final class BotFishRenderer {
             b.restoreGState()
         }
         b.restoreGState()
+        // Keep only the stroke pixels that fall inside the face: the mask must
+        // be a destination-in pass, never an opaque image painted on top.
         b.setBlendMode(.destinationIn)
         b.saveGState()
         b.scaleBy(x: pixelScale, y: pixelScale)
         b.translateBy(x: -BotFishRenderer.cropOrigin.x, y: -BotFishRenderer.cropOrigin.y)
-        hairLayers.faceMask.draw(in: CGRect(x: 0, y: 0, width: BotFishRenderer.size,
-                                            height: BotFishRenderer.size))
+        drawUpright(hairLayers.faceMask,
+                    in: CGRect(x: 0, y: 0, width: BotFishRenderer.size,
+                               height: BotFishRenderer.size),
+                    on: b)
         b.restoreGState()
         b.setBlendMode(.normal)
         return b.makeImage()
@@ -466,8 +495,10 @@ final class BotFishRenderer {
                                  p: BotFishParams, art: String?) {
         if let index = BotFishMouthCel.index(of: art), index < assets.mouthCels.count {
             let w = 90 * p.mouthWidth
-            assets.mouthCels[index].draw(in: CGRect(x: 256 - w / 2, y: 335 - w / 4,
-                                                    width: w, height: w / 2))
+            drawUpright(assets.mouthCels[index],
+                        in: CGRect(x: 256 - w / 2, y: 335 - w / 4,
+                                   width: w, height: w / 2),
+                        on: cg)
             return
         }
         paintMouth(cg, p: p)
