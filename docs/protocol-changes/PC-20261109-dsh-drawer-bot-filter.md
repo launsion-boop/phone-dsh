@@ -55,6 +55,7 @@ contract_revision: spec/ui/v1/pages/home-drawer.json (working tree; contract own
 
 - `dsh-filter` 獨占：`examples/probe-app/PhoneDSHProbe/{DSHManagementModel,HomeDrawer,SessionsPage,ChatPage}.swift`、`android/lib/src/main/kotlin/com/phonedsh/ui/**`、`android/lib/src/test/**`、`spec/ui/v1/**`、本 PC。
 - 必需的最小 app 接線：`android/app/.../HostShell.kt` 移除已刪除的抽屜排程 callback/fact，並把 `preferences.language?.id` 傳入 `HomeDrawerFacts.languageId`；不改 app 的會話/排程資料。
+- 導航校驗：`android/tools/verify-nav-entries.sh` 的定時任務入口由抽屜改為「設定 › 定時任務」，與 HomeDrawer 的刪除同步。
 - `bot-root` 獨占 `examples/probe-app/PhoneDSHProbe/BotSessionRegistry.swift`；本單不建立、不複製該類型。凍結介面見 `contract-bot-session-registry.md` revision 1。
 - 共享 fixtures：無新 wire fixture；UI gate 為 `spec/ui/v1/pages/home-drawer.json`、`sessions.json`、Android structure/page checks。
 - Exact commands → 結果：
