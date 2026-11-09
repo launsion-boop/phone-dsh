@@ -5,7 +5,7 @@ import XCTest
 @MainActor
 final class BotChatModelTests: XCTestCase {
     func testSameTextFromSeparateSendsReconcilesByNonce() {
-        let model = BotChatModel(fixtureActions: true)
+        let model = BotChatModel(context: BotRuntimeContext(botID: "main", botName: "大肥鱼"), fixtureActions: true)
         model.send(text: "same text")
         model.send(text: "same text")
         let pending = model.rows
@@ -32,7 +32,7 @@ final class BotChatModelTests: XCTestCase {
             watch: { _ in BotUIRowBatch(rows: [], deletes: [], cursor: 0, reset: false) },
             perform: { _ in .rejected(reason: "unused") },
             stopCurrentTurn: { _ in })
-        let model = BotChatModel(driver: driver)
+        let model = BotChatModel(context: BotRuntimeContext(botID: "main", botName: "大肥鱼"), driver: driver)
         model.apply(BotUIRowBatch(rows: rows, deletes: [], cursor: 99, reset: true))
         XCTAssertEqual(model.rows.count, 50)
         XCTAssertTrue(model.hasMoreHistory)
@@ -46,7 +46,7 @@ final class BotChatModelTests: XCTestCase {
     /// Regression for the removed production fallback: without a driver the
     /// model must report a failed action and never fabricate an accepted event.
     func testWithoutDriverFailsClosed() async throws {
-        let model = BotChatModel()
+        let model = BotChatModel(context: BotRuntimeContext(botID: "main", botName: "大肥鱼"))
         model.send(text: "没有 driver 不应被接受")
         try await Task.sleep(nanoseconds: 200_000_000)
         XCTAssertTrue(model.actionStates.values.contains {

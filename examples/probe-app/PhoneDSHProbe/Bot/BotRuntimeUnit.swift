@@ -1,0 +1,220 @@
+// SPDX-License-Identifier: MIT
+
+import Foundation
+import PhoneDSH
+import PhoneDSHAgentCore
+import PhoneDSHBot
+
+/// One Bot's runtime half. The App shares exactly one `BotMCPRuntime`, one
+/// `BotMCPHTTPServer` and one effect outbox; every Bot gets its own DSH remote
+/// (subscription for live frames), routine scheduler, wake inbox, planner and
+/// row/info service. Units are created on demand and torn down by the delete
+/// cascade.
+/// Counts in-flight routine runs for one Bot. Routine turns are hidden and do
+/// not publish live chat frames, but they still keep the process alive and
+/// must show as running in the roster model.
+actor BotRoutineActivityFlag {
+    private var count = 0
+
+    func begin() { count += 1 }
+    func end() { count = max(0, count - 1) }
+    func isRunning() -> Bool { count > 0 }
+}
+
+@MainActor
+final class BotRuntimeUnit {
+    let botID: String
+    let environment: BotProductionEnvironment
+    let remote: BotDSHRemoteRuntime
+    let scheduler: RoutineScheduler
+    let wakeInbox: WakeInbox
+    let planner: BotRemoteActionPlanner
+    let routineOutbox: BotRoutineOutbox
+    let rows: BotProductionRowService
+    let info: BotProductionInfoService
+    private let routineActivity: BotRoutineActivityFlag
+
+    private(set) var started = false
+    private var liveSubscription: BotLiveFrameSubscription?
+    private var liveEvents: [JSONValue] = []
+    private var livePresentation: BotRuntimePresentation?
+    private var liveRunning = false
+    private var liveGeneration = 0
+
+    private init(botID: String, environment: BotProductionEnvironment,
+                 remote: BotDSHRemoteRuntime, scheduler: RoutineScheduler,
+                 wakeInbox: WakeInbox, planner: BotRemoteActionPlanner,
+                 routineOutbox: BotRoutineOutbox, rows: BotProductionRowService,
+                 info: BotProductionInfoService,
+                 routineActivity: BotRoutineActivityFlag) {
+        self.botID = botID
+        self.environment = environment
+        self.remote = remote
+        self.scheduler = scheduler
+        self.wakeInbox = wakeInbox
+        self.planner = planner
+        self.routineOutbox = routineOutbox
+        self.rows = rows
+        self.info = info
+        self.routineActivity = routineActivity
+    }
+
+    static func make(runtime: BotMCPRuntime, handler: BotMCPHandler,
+                     store: SQLiteDomainStore, botID: String,
+                     displayName: String) async throws -> BotRuntimeUnit {
+        let memory = await runtime.memory(for: botID)
+        let machine = await runtime.routineMachine
+        let environment = BotProductionEnvironment(
+            domain: store, botID: botID, sessionID: botID,
+            routineMachine: machine, memory: memory,
+            fallbackName: displayName)
+        let inbox = WakeInbox(store: SQLiteWakeInboxStore(domainStore: store, botId: botID))
+        let remote = try await BotDSHRemoteRuntime(
+            transport: UnstartedBotTransport(), runtime: runtime,
+            botId: botID, wakeInbox: inbox,
+            botDataDirectory: BotSessionRegistry.botDataDirectory,
+            onSessionRegistered: { sessionID in
+                Task { @MainActor in BotSessionRegistry.shared.register(sessionID) }
+            })
+        let planner = BotRemoteActionPlanner(
+            remote: remote, runtime: runtime, handler: handler,
+            store: store, botID: botID, wakeInbox: inbox)
+        let routineOutbox = BotRoutineOutbox(store: store, machine: machine, botID: botID)
+        let rows = BotProductionRowService(environment: environment, remote: remote)
+        let info = BotProductionInfoService(environment: environment)
+        let routineActivity = BotRoutineActivityFlag()
+        let scheduler = RoutineScheduler(
+            botId: botID, machine: machine, inbox: inbox, sink: routineOutbox,
+            runner: { [remote] request in
+                await routineActivity.begin()
+                let result = await remote.runRoutine(request)
+                await routineActivity.end()
+                return result
+            },
+            cancelRunner: { [remote] cancellation in await remote.cancelRoutine(cancellation) },
+            available: { [remote] _ in await remote.isAvailable() },
+            busy: { [remote] _ in await remote.isMainTurnBusy() },
+            leaseOwner: "bot-runtime-composition")
+        return BotRuntimeUnit(
+            botID: botID, environment: environment, remote: remote,
+            scheduler: scheduler, wakeInbox: inbox, planner: planner,
+            routineOutbox: routineOutbox, rows: rows, info: info,
+            routineActivity: routineActivity)
+    }
+
+    /// Rebinds this Bot's private remote to a fresh Host transport. The shared
+    /// engine session id and environment are maintained in the same order as
+    /// the single-Bot composition: invalidate the replaced Worker first (the
+    /// composition does it once for all units), then transport, session,
+    /// durable routines and interrupted tasks, then the scheduler.
+    func start(transport: any DSHRemoteTransport) async throws {
+        await remote.attachTransport(transport)
+        let sessionID = try await remote.startMainSession()
+        try await environment.connect(BotProductionComposition(
+            sessionID: sessionID, planner: planner,
+            turnStopping: BotRuntimeTurnStopper(remote: remote)))
+        _ = try await scheduler.recover()
+        _ = await remote.deliverInterruptedTaskWakes()
+        await scheduler.start()
+        await startLiveObservation()
+        started = true
+    }
+
+    /// Drops the Host-bound half but keeps the unit and its durable data. A
+    /// later `start(transport:)` reuses the same remote and scheduler.
+    func detach() async {
+        await scheduler.stop()
+        await stopLiveObservation()
+        started = false
+        liveRunning = false
+        livePresentation = nil
+        await remote.attachTransport(UnstartedBotTransport())
+    }
+
+    func wakeHeldMessages() async throws {
+        try await remote.wakeWithHeldMessages()
+    }
+
+    func stopCurrentTurn() async throws {
+        try await remote.cancelMainTurn()
+    }
+
+    func abortRunningWork() async {
+        try? await remote.cancelMainTurn()
+        await remote.workerRestarted()
+    }
+
+    func pendingRoutineCount() async -> Int {
+        let machine = await environment.routineMachine
+        return (try? await machine.list(botId: botID).count) ?? 0
+    }
+
+    /// Live status for the sidebar. It is intentionally cheap (no durable
+    /// row rebuild): visible chat turns publish live frames; a selected Bot's
+    /// cached `BotChatModel` supplies the richer detail when its page is open.
+    func statusSnapshot(pendingApprovalCount: Int,
+                        runtimeState: BotRuntimeState) async -> BotRosterRuntimeState {
+        let live = livePresentation
+        let remoteBusy = await remote.isMainTurnBusy()
+        let routineRunning = await routineActivity.isRunning()
+        let running = liveRunning || remoteBusy || routineRunning
+        let fish = running ? (live?.fishState ?? .working) : .idle
+        return BotRosterRuntimeState(
+            fishState: fish,
+            activity: live?.activity,
+            isRunning: running,
+            pendingApprovalCount: pendingApprovalCount,
+            runtimeState: runtimeState)
+    }
+
+    // MARK: - Live observation
+
+    private func startLiveObservation() async {
+        guard liveSubscription == nil else { return }
+        liveGeneration += 1
+        let generation = liveGeneration
+        liveEvents = []
+        let subscription = await remote.subscribeLiveFrames { [weak self] frame in
+            guard let self else { return }
+            Task { @MainActor [weak self] in
+                guard let self, self.liveGeneration == generation else { return }
+                self.receive(frame)
+            }
+        }
+        liveSubscription = subscription
+    }
+
+    private func stopLiveObservation() async {
+        liveGeneration += 1
+        guard let subscription = liveSubscription else { return }
+        liveSubscription = nil
+        await remote.unsubscribeLiveFrames(subscription)
+    }
+
+    private func receive(_ frame: BotLiveTurnFrame) {
+        switch frame.kind {
+        case .streamStart:
+            if liveEvents.isEmpty { liveRunning = true }
+        case .textDelta:
+            break
+        case .event(let event):
+            let type = event["type"]?.stringValue ?? ""
+            guard let data = try? JSONEncoder().encode(event),
+                  let value = try? JSONValue.parse(data) else { return }
+            if type == "turn/start" {
+                liveEvents = [value]
+                liveRunning = true
+            } else {
+                if type == "turn/end" { liveRunning = false }
+                liveEvents.append(value)
+            }
+            livePresentation = BotRuntimePresentationFactory.live(
+                botID: botID, events: liveEvents)
+            if type == "turn/end" {
+                // `statusSnapshot` already reports `isRunning == false`; the
+                // final durable projection replaces this once rows rebuild.
+                livePresentation = nil
+            }
+        }
+    }
+}

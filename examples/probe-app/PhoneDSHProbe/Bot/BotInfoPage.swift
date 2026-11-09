@@ -44,7 +44,10 @@ struct BotInfoDriver {
     var load: () async throws -> BotInfoSnapshot
     var rename: (String) async throws -> Void
     var forget: (BotMemoryFact) async throws -> Void
+    /// Erases this Bot's agent scope only.
     var erase: () async throws -> Void
+    /// Erases the shared user scope for every Bot; a separate confirmed entry.
+    var eraseShared: () async throws -> Void = {}
     var setRoutineEnabled: (String, Bool) async throws -> Void
 }
 
@@ -68,6 +71,8 @@ final class BotInfoModel: ObservableObject {
     /// The profile's appearance is the authority for the preview and for the
     /// 4 hairstyle thumbnails; selecting one saves immediately.
     @Published private(set) var appearance: BotFishAppearance
+    /// Mirrors the roster main-Bot pointer so the avatar gets the crown.
+    @Published private(set) var isMainBot = false
 
     private let driver: BotInfoDriver?
     private let fixtureError: String?
@@ -216,12 +221,28 @@ final class BotInfoModel: ObservableObject {
         }
     }
 
+    func setMainBot(_ isMain: Bool) {
+        guard isMainBot != isMain else { return }
+        isMainBot = isMain
+    }
+
+    /// Only this Bot's agent facts disappear from the page; shared facts stay
+    /// visible and remain available to every Bot.
     func erase() async {
         do {
             try await driver?.erase()
-            memories = []
+            memories.removeAll { $0.scope != "user" }
         } catch {
             actionError = "抹除失败：\(error.localizedDescription)"
+        }
+    }
+
+    func eraseShared() async {
+        do {
+            try await driver?.eraseShared()
+            memories.removeAll { $0.scope == "user" }
+        } catch {
+            actionError = "清除共享记忆失败：\(error.localizedDescription)"
         }
     }
 
@@ -247,11 +268,20 @@ enum BotInfoSection: Hashable {
 /// data (memory, routines, approvals). Same grouped-list chrome as 我的.
 struct BotInfoPage: View {
     @ObservedObject var model: BotInfoModel
+    let isMainBot: Bool
+    let onDelete: (() async throws -> Void)?
     @Environment(\.dismiss) private var dismiss
     @State private var path: [BotInfoSection]
+    @State private var confirmDelete = false
+    @State private var deleting = false
+    @State private var deleteError: String?
 
-    init(model: BotInfoModel, initialSection: BotInfoSection? = nil) {
+    init(model: BotInfoModel, isMainBot: Bool = false,
+         initialSection: BotInfoSection? = nil,
+         onDelete: (() async throws -> Void)? = nil) {
         self.model = model
+        self.isMainBot = isMainBot
+        self.onDelete = onDelete
         _path = State(initialValue: initialSection.map { [$0] } ?? [])
     }
 
@@ -265,7 +295,8 @@ struct BotInfoPage: View {
             List {
                 Section {
                     VStack(spacing: 12) {
-                        BotFishView(state: .idle, size: 80, appearance: model.appearance, still: true)
+                        BotFishView(state: .idle, size: 80, appearance: model.appearance,
+                                    crowned: isMainBot, still: true)
                         Text(model.botName)
                             .font(.system(size: 22, weight: .bold))
                             .foregroundStyle(HomeSpec.textPrimary)
@@ -330,6 +361,31 @@ struct BotInfoPage: View {
                             .foregroundStyle(BotUIPalette.danger)
                     }
                 }
+
+                if onDelete != nil {
+                    Section {
+                        Button(role: .destructive) {
+                            confirmDelete = true
+                        } label: {
+                            HStack {
+                                Text(deleting ? "正在删除…" : "删除这个 Bot")
+                                if deleting { Spacer(); ProgressView().controlSize(.small) }
+                            }
+                        }
+                        .disabled(deleting)
+                        .accessibilityIdentifier("bot.info.delete")
+                        if let deleteError {
+                            Label(deleteError, systemImage: "exclamationmark.triangle")
+                                .font(.system(size: 14))
+                                .foregroundStyle(BotUIPalette.danger)
+                                .accessibilityIdentifier("bot.info.delete.error")
+                        }
+                    } header: {
+                        Text("危险操作")
+                    } footer: {
+                        Text("删除会中止运行中的回合、拒绝待审批、撤销授权、归档 DSH 会话并清除本 Bot 的 agent 记忆。至少保留一个 Bot。")
+                    }
+                }
             }
             .homeGroupedList()
             .navigationTitle("Bot 信息")
@@ -356,9 +412,43 @@ struct BotInfoPage: View {
                 }
             }
             .task {
+                model.setMainBot(isMainBot)
                 if model.memoryState == .loading { await model.refresh() }
             }
+            .onChange(of: isMainBot) { _, newValue in
+                model.setMainBot(newValue)
+            }
+            .confirmationDialog("删除这个 Bot？", isPresented: $confirmDelete) {
+                Button("删除", role: .destructive) {
+                    deleting = true
+                    deleteError = nil
+                    Task {
+                        do {
+                            try await onDelete?()
+                            dismiss()
+                        } catch {
+                            deleteError = deleteFailureText(error)
+                        }
+                        deleting = false
+                    }
+                }
+                Button("取消", role: .cancel) {}
+            } message: {
+                Text("删除后不能从页面内撤销。最后一个 Bot 不能删除。")
+            }
         }
+    }
+
+    private func deleteFailureText(_ error: Error) -> String {
+        if let profileError = error as? BotProfileStoreError {
+            switch profileError {
+            case .lastBot: return "这是最后一个 Bot，不能删除。"
+            case .unknownBot: return "这个 Bot 已经不存在。"
+            default: return profileError.description
+            }
+        }
+        if let failure = error as? BotDeletionFailure { return failure.description }
+        return "删除失败：\(error.localizedDescription)"
     }
 }
 
@@ -398,6 +488,16 @@ private struct BotMemoryPage: View {
     @ObservedObject var model: BotInfoModel
     @State private var forgetting: BotMemoryFact?
     @State private var confirmErase = false
+    @State private var confirmShared = false
+    @State private var confirmSharedAgain = false
+
+    private var botFacts: [BotMemoryFact] {
+        model.memories.filter { $0.scope != "user" }
+    }
+
+    private var sharedFacts: [BotMemoryFact] {
+        model.memories.filter { $0.scope == "user" }
+    }
 
     var body: some View {
         List {
@@ -410,31 +510,52 @@ private struct BotMemoryPage: View {
                 }
                 .listRowBackground(Color.clear)
             case .loaded:
-                if model.memories.isEmpty {
-                    Text("还没有已保存的记忆。")
-                        .foregroundStyle(HomeSpec.textSecondary)
-                } else {
-                    ForEach(model.memories) { fact in
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(fact.text)
-                                .botBodyFont()
-                                .foregroundStyle(HomeSpec.textPrimary)
-                                .fixedSize(horizontal: false, vertical: true)
-                            Text("\(fact.tier) · \(fact.scope) · \(fact.source)")
-                                .botCaptionFont()
+                if botFacts.isEmpty && sharedFacts.isEmpty {
+                    Section {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("还没有已保存的记忆。")
                                 .foregroundStyle(HomeSpec.textSecondary)
-                            Text(fact.learnedAt.formatted(date: .abbreviated, time: .shortened))
+                            Text("本 Bot 自己的记忆和所有 Bot 共享的记忆都会显示在这里。")
                                 .botCaptionFont()
                                 .foregroundStyle(HomeSpec.textTertiary)
-                            Button("忘记这条") { forgetting = fact }
-                                .buttonStyle(BotTextButtonStyle())
-                            .botHitTarget()
                         }
-                        .padding(.vertical, 4)
                     }
-                    Button("抹除全部记忆", role: .destructive) { confirmErase = true }
-                        .disabled(model.memories.isEmpty)
-                        .accessibilityIdentifier("bot.memory.erase")
+                } else {
+                    Section {
+                        if botFacts.isEmpty {
+                            Text("这个 Bot 还没有自己的记忆。")
+                                .foregroundStyle(HomeSpec.textSecondary)
+                        } else {
+                            ForEach(botFacts) { fact in
+                                memoryRow(fact)
+                            }
+                            Button("抹除这个 Bot 的记忆", role: .destructive) { confirmErase = true }
+                                .accessibilityIdentifier("bot.memory.erase")
+                        }
+                    } header: {
+                        Text("本 Bot")
+                    } footer: {
+                        Text("只清除这个 Bot 的 agent 记忆；共享记忆和其他 Bot 的记忆不受影响。")
+                    }
+
+                    Section {
+                        if sharedFacts.isEmpty {
+                            Text("还没有所有 Bot 共享的记忆。")
+                                .foregroundStyle(HomeSpec.textSecondary)
+                        } else {
+                            ForEach(sharedFacts) { fact in
+                                memoryRow(fact)
+                            }
+                            Button("清除所有 Bot 共享的记忆", role: .destructive) {
+                                confirmShared = true
+                            }
+                            .accessibilityIdentifier("bot.memory.erase.shared")
+                        }
+                    } header: {
+                        Text("共享")
+                    } footer: {
+                        Text("user scope 的记忆属于所有 Bot；清除后每个 Bot 都会失去这些事实。")
+                    }
                 }
             }
         }
@@ -449,12 +570,49 @@ private struct BotMemoryPage: View {
             }
             Button("取消", role: .cancel) { forgetting = nil }
         }
-        .confirmationDialog("抹除这个 Bot 的全部记忆？", isPresented: $confirmErase) {
-            Button("全部抹除", role: .destructive) { Task { await model.erase() } }
+        .confirmationDialog("抹除这个 Bot 的记忆？", isPresented: $confirmErase) {
+            Button("抹除本 Bot 的记忆", role: .destructive) { Task { await model.erase() } }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("这会移除 facts 和派生视图，不能在页面内回滚。")
+            Text("只移除这个 Bot 的 agent facts，不会动共享记忆。")
         }
+        .confirmationDialog("清除所有 Bot 共享的记忆？", isPresented: $confirmShared) {
+            Button("继续", role: .destructive) {
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 150_000_000)
+                    confirmSharedAgain = true
+                }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("这会影响每一个 Bot。")
+        }
+        .confirmationDialog("最后确认：清除全部共享记忆？", isPresented: $confirmSharedAgain) {
+            Button("清除共享记忆", role: .destructive) { Task { await model.eraseShared() } }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("此操作不能在页面内回滚。")
+        }
+    }
+
+    @ViewBuilder
+    private func memoryRow(_ fact: BotMemoryFact) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(fact.text)
+                .botBodyFont()
+                .foregroundStyle(HomeSpec.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("\(fact.tier) · \(fact.scope) · \(fact.source)")
+                .botCaptionFont()
+                .foregroundStyle(HomeSpec.textSecondary)
+            Text(fact.learnedAt.formatted(date: .abbreviated, time: .shortened))
+                .botCaptionFont()
+                .foregroundStyle(HomeSpec.textTertiary)
+            Button("忘记这条") { forgetting = fact }
+                .buttonStyle(BotTextButtonStyle())
+                .botHitTarget()
+        }
+        .padding(.vertical, 4)
     }
 }
 
@@ -575,7 +733,8 @@ private struct BotAppearanceEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            BotFishView(state: .idle, size: 112, appearance: model.appearance, allowsPoke: true)
+            BotFishView(state: .idle, size: 112, appearance: model.appearance,
+                        crowned: model.isMainBot, allowsPoke: true)
                 .frame(maxWidth: .infinity)
                 .accessibilityLabel("外观预览，\(model.appearance.color.displayName)，\(model.appearance.hairstyle.displayName)")
 
@@ -611,7 +770,8 @@ private struct BotAppearanceEditor: View {
         return Button {
             Task { await model.select(hairstyle: hairstyle) }
         } label: {
-            BotFishView(state: .idle, size: 40, appearance: model.appearance(for: hairstyle), still: true)
+            BotFishView(state: .idle, size: 40, appearance: model.appearance(for: hairstyle),
+                        crowned: model.isMainBot, still: true)
                 .frame(width: 44, height: 44)
                 .background(selected ? HomeSpec.userBubble : Color.clear, in: Circle())
                 .overlay {

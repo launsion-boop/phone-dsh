@@ -7,6 +7,20 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)
 OUT="$ROOT/scripts/ci/bot-ui/artifacts"
 APPEARANCES="light,dark"
 DEVICE_ID="${BOT_UI_DEVICE_ID:-}"
+# CI environments that cannot use SwiftPM/macro-plugin nested sandboxes set
+# this to "$(inherited) -disable-sandbox". Normal local runs leave it empty.
+SWIFT_FLAGS=()
+if [ -n "${BOT_UI_OTHER_SWIFT_FLAGS:-}" ]; then
+    SWIFT_FLAGS=("OTHER_SWIFT_FLAGS=${BOT_UI_OTHER_SWIFT_FLAGS}")
+fi
+# A DSH work-tree sandbox can build and launch the app but cannot start the
+# XCUITest runner (Pseudo Terminal Setup Error). In that case the fixtures'
+# own conformance checks still run via simctl launch; the interaction test is
+# recorded as NOT_RUN instead of a pass.
+RUN_UI_TESTS=1
+if [ "${BOT_UI_SKIP_UI_TESTS:-0}" = "1" ]; then
+    RUN_UI_TESTS=0
+fi
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -105,6 +119,7 @@ targets:
           - "Bot/BotProductionServices.swift"
           - "Bot/BotProductionUIAdapters.swift"
           - "Bot/BotRuntimeComposition.swift"
+          - "Bot/BotRuntimeUnit.swift"
           - "Bot/BotRuntimeEffects.swift"
       # Layered 大肥鱼 art, copied with the same "BotFish/..." layout as the
       # probe app so BotFishAssets loads it unchanged.
@@ -162,12 +177,16 @@ DERIVED="$WORK/DerivedData"
 
 xcodebuild -project "$PROJECT" -scheme PhoneDSHBotUICapture \
     -configuration Debug -destination "$DESTINATION" -derivedDataPath "$DERIVED" \
-    CODE_SIGNING_ALLOWED=NO build | tee "$OUT/build.log"
+    CODE_SIGNING_ALLOWED=NO ${SWIFT_FLAGS[@]+"${SWIFT_FLAGS[@]}"} build | tee "$OUT/build.log"
 
-rm -rf "$OUT/BotUI.xcresult"
-xcodebuild -project "$PROJECT" -scheme PhoneDSHBotUICapture \
-    -configuration Debug -destination "$DESTINATION" -derivedDataPath "$DERIVED" \
-    -resultBundlePath "$OUT/BotUI.xcresult" CODE_SIGNING_ALLOWED=NO test | tee "$OUT/ui-tests.log"
+if [ "$RUN_UI_TESTS" = 1 ]; then
+    rm -rf "$OUT/BotUI.xcresult"
+    xcodebuild -project "$PROJECT" -scheme PhoneDSHBotUICapture \
+        -configuration Debug -destination "$DESTINATION" -derivedDataPath "$DERIVED" \
+        -resultBundlePath "$OUT/BotUI.xcresult" CODE_SIGNING_ALLOWED=NO ${SWIFT_FLAGS[@]+"${SWIFT_FLAGS[@]}"} test | tee "$OUT/ui-tests.log"
+else
+    echo "BOT_UI_SKIP_UI_TESTS=1: XCUITest runner skipped; fixtures run via simctl launch" | tee "$OUT/ui-tests.log"
+fi
 
 APP="$DERIVED/Build/Products/Debug-iphonesimulator/PhoneDSHBotUICapture.app"
 [ -d "$APP" ] || { echo "capture app missing at expected build output" >&2; exit 1; }
@@ -260,12 +279,13 @@ PY
     done
 done
 
-python3 - "$OUT" "$APPEARANCES" "$DEVICE_ID" "$CASES" <<'PY'
+if [ "$RUN_UI_TESTS" = 1 ]; then INTERACTIONS="PASS"; else INTERACTIONS="NOT_RUN"; fi
+python3 - "$OUT" "$APPEARANCES" "$DEVICE_ID" "$CASES" "$INTERACTIONS" <<'PY'
 import hashlib
 import json
 import os
 import sys
-out, appearances, device, case_list = sys.argv[1:]
+out, appearances, device, case_list, interactions = sys.argv[1:]
 cases = case_list.split()
 shots = []
 bursts = []
@@ -292,7 +312,7 @@ result = {
     "evidence": "iOS Simulator; XCUIApplication interaction tests and simctl screen captures",
     "deviceID": device,
     "conformance": "PASS",
-    "interactions": "PASS",
+    "interactions": interactions,
     "screenshots": shots,
     "bursts": {
         "states": ["thinking", "working", "speaking", "alerting", "celebrate"],

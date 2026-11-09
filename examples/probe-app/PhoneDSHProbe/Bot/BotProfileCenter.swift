@@ -24,7 +24,7 @@ final class BotProfileCenter: ObservableObject {
     private let legacyName: String?
     private(set) var bootstrapped = false
 
-    init(botID: String = "main", store: BotProfileStore? = nil,
+    init(botID: String, store: BotProfileStore? = nil,
          legacyName: String? = nil, fallbackName: String = "大肥鱼",
          appearance initialAppearance: BotFishAppearance = .classic) {
         self.botID = botID
@@ -34,18 +34,24 @@ final class BotProfileCenter: ObservableObject {
         self.appearance = initialAppearance
     }
 
-    /// Creates the one "main" record on first launch: name from the last
-    /// `renamed` event (else 大肥鱼), explicit blue/long so the existing fish
-    /// keeps its look. An existing index is returned unchanged.
-    func bootstrap() async {
+    /// Loads this Bot's record. The composition root bootstraps the first
+    /// record separately; this method never creates a second `main` record.
+    func loadProfile() async {
         guard let store, !bootstrapped else { return }
         do {
-            let created = try await store.bootstrapMainIfNeeded(legacyName: legacyName)
-            apply(created)
+            if let profile = try await store.profile(id: botID) {
+                apply(profile)
+            }
             bootstrapped = true
         } catch {
             errorMessage = "Bot 资料读取失败：\(error.localizedDescription)"
         }
+    }
+
+    /// Backward-compatible alias for the page bootstrap path. The first record
+    /// is created by the composition root; an existing record is loaded.
+    func bootstrap() async {
+        await loadProfile()
     }
 
     /// Applies an appearance choice immediately, then persists only the fields

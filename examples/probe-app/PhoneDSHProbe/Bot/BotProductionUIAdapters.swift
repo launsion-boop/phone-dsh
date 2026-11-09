@@ -74,6 +74,7 @@ extension BotProductionInfoService {
             rename: { [self] name in try await self.rename(name) },
             forget: { [self] fact in try await self.forget(factID: fact.id) },
             erase: { [self] in try await self.eraseMemories() },
+            eraseShared: { [self] in try await self.eraseSharedMemories() },
             setRoutineEnabled: { [self] id, enabled in
                 try await self.setRoutineEnabled(id, enabled: enabled)
             })
