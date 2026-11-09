@@ -2155,6 +2155,7 @@ private fun SessionsRoute(facts: PdshNavFacts, onBack: () -> Unit) {
             },
             archivedSessions = null,
             newSessionBlock = null,
+            languageId = facts.settings.preferences.language?.id,
         ),
         onSelect = {},
         onQueryChange = { query -> local = local.copy(query = query) },

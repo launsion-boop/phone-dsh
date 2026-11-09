@@ -437,15 +437,8 @@ public fun ChatPage(
                 onDismiss = { state.banners.firstOrNull()?.let { onDismissBanner(it.id) } },
             )
         }
-        if (state.accessModeError != null) {
-            NoticeBanner(
-                glyph = LOCK_GLYPH,
-                message = state.accessModeError,
-                retryLabel = UiStrings.RETRY,
-                onRetry = onRetryAccessModes,
-                tag = UiPageTags.CHAT_BANNER_ACCESS_MODE,
-            )
-        }
+        // The access-mode read retries itself (ProbeEngineViewModel); its state
+        // lives on the composer control and in its menu, never as a page banner.
         if (state.commandsError != null) {
             NoticeBanner(
                 glyph = COMMAND_GLYPH,
@@ -504,6 +497,7 @@ public fun ChatPage(
                 onAddImages = onAddImages,
                 onAddFiles = onAddFiles,
                 onSelectAccessMode = onSelectAccessMode,
+                onRetryAccessModes = onRetryAccessModes,
                 onSelectModel = onSelectModel,
                 onPickCommand = onPickCommand,
                 onExecuteCommand = onExecuteCommand,
@@ -2361,6 +2355,7 @@ private fun ComposerDock(
     onAddImages: () -> Unit,
     onAddFiles: () -> Unit,
     onSelectAccessMode: (String) -> Unit,
+    onRetryAccessModes: () -> Unit = {},
     onSelectModel: (String, String?) -> Unit,
     onPickCommand: (String) -> Unit,
     onExecuteCommand: ((String) -> Unit)?,
@@ -2630,6 +2625,7 @@ private fun ComposerDock(
                         onAddImages = onAddImages,
                         onAddFiles = onAddFiles,
                         onSelectAccessMode = onSelectAccessMode,
+                        onRetryAccessModes = onRetryAccessModes,
                         onSelectModel = onSelectModel,
                     )
                 },
@@ -3419,6 +3415,7 @@ private fun ComposerControls(
     onAddImages: () -> Unit,
     onAddFiles: () -> Unit,
     onSelectAccessMode: (String) -> Unit,
+    onRetryAccessModes: () -> Unit = {},
     onSelectModel: (String, String?) -> Unit,
 ) {
     val tokens = LocalUiTokens.current
@@ -3468,7 +3465,12 @@ private fun ComposerControls(
             }
         }
         },
-        access = { AccessModeMenuButton(state = state, available = availability.selectAccessMode, onSelect = onSelectAccessMode) },
+        access = {
+            AccessModeMenuButton(
+                state = state, available = availability.selectAccessMode,
+                onSelect = onSelectAccessMode, onRetry = onRetryAccessModes,
+            )
+        },
         model = { ModelMenuButton(state = state, available = availability.selectModel, onSelect = onSelectModel) },
     )
 }
@@ -3479,6 +3481,7 @@ private fun AccessModeMenuButton(
     state: ChatScreenState,
     available: Boolean,
     onSelect: (String) -> Unit,
+    onRetry: () -> Unit = {},
 ) {
     val tokens = LocalUiTokens.current
     val type = LocalUiType.current
@@ -3490,22 +3493,46 @@ private fun AccessModeMenuButton(
             modifier = Modifier
                 .defaultMinSize(minWidth = ChatMetrics.COMPOSER_CONTROL_MIN_WIDTH_PT.dp)
                 .height(ChatMetrics.COMPOSER_CONTROL_ROW_HEIGHT_PT.dp)
-                .clickable(enabled = menu.enabled && available, role = Role.Button) { open = true }
+                .clickable(enabled = menu.enabled && available, role = Role.Button) {
+                    // Opening the menu after a failed read starts the read again.
+                    if (menu.error != null && !menu.loading) onRetry()
+                    open = true
+                }
                 .semantics { contentDescription = UiStrings.ACCESS_MODE_LABEL.format(menu.label) }
                 .testTag(UiPageTags.COMPOSER_ACCESS_MODE),
             verticalAlignment = Alignment.CenterVertically,
             // Native ChatPage.swift composerControls uses a 2pt shield/chevron gap.
             horizontalArrangement = Arrangement.spacedBy(ChatMetrics.ACCESS_MODE_ICON_GAP_PT.dp),
         ) {
-            PdshIconView(PdshIcon.LOCK_SHIELD, ChatMetrics.ACCESS_MODE_SHIELD_GLYPH_PT.dp, tokens.colors.iconMuted, null)
-            PdshIconView(PdshIcon.CHEVRON_DOWN, ChatMetrics.ACCESS_MODE_CHEVRON_GLYPH_PT.dp, tokens.colors.iconMuted, null)
+            Box {
+                PdshIconView(PdshIcon.LOCK_SHIELD, ChatMetrics.ACCESS_MODE_SHIELD_GLYPH_PT.dp, tokens.colors.iconMuted, null)
+                if (menu.error != null && !menu.loading) {
+                    // Reads failed even after the automatic retries: a quiet mark
+                    // on the control (iOS orange dot), not a page banner.
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .size(ChatMetrics.ACCESS_MODE_ALERT_DOT_PT.dp)
+                            .background(tokens.colors.warning, androidx.compose.foundation.shape.CircleShape),
+                    )
+                }
+            }
+            if (menu.loading) {
+                androidx.compose.material3.CircularProgressIndicator(
+                    modifier = Modifier.size(ChatMetrics.ACCESS_MODE_CHEVRON_GLYPH_PT.dp),
+                    color = tokens.colors.iconMuted,
+                    strokeWidth = ChatMetrics.ACCESS_MODE_SPINNER_STROKE_PT.dp,
+                )
+            } else {
+                PdshIconView(PdshIcon.CHEVRON_DOWN, ChatMetrics.ACCESS_MODE_CHEVRON_GLYPH_PT.dp, tokens.colors.iconMuted, null)
+            }
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             val error = menu.error
             if (error != null) {
                 // iOS `Section("暂不可用") { Text(error) }`: a group title and the
-                // read failure's own words. The retry is the page banner's
-                // (`accessModeErrorBanner`), so the menu does not repeat it.
+                // read failure's own words. There is no page banner; opening this
+                // menu already started another read.
                 ChatMenuSectionLabel(text = UiStrings.ACCESS_MODE_UNAVAILABLE)
                 BasicText(
                     text = error,

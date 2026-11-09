@@ -212,7 +212,7 @@ struct NativeShell: View {
         ZStack {
             tabPage(.bot) {
                 NavigationStack {
-                    BotProductionPage()
+                    BotProductionPage().environment(\.botFishPaused, selectedTab != .bot)
                         .toolbar(.hidden, for: .navigationBar)
                         .modifier(tabRoot(.bot))
                 }

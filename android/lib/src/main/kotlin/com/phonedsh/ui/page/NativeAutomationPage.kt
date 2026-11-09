@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 //
 // Spec: `spec/ui/v1/README.md` §1 row NativeAutomationPage (定时任务、计划详情与历史;
-// entries: 抽屉「定时任务」、会话页入口; exit: push; child pages
+// entries: 设置 › 定时任务、会话页入口; exit: push; child pages
 // ScheduleDetailPage, ScheduleHistoryPage, ScheduleEditorPage), §3.1 (the
 // ScreenState layer) and §5 (`insets`).
 //

@@ -1,0 +1,910 @@
+{
+  "idle": {
+    "file": "expressions/idle.png",
+    "fps": 0,
+    "loop": true,
+    "anchor": [
+      0.5,
+      0.5
+    ],
+    "size": [
+      512,
+      512
+    ],
+    "group": "P0",
+    "derived": true,
+    "method": "重用 Image Gen 藍色基準，遮罩去白底、LUT 身體與原色五官分層合成。",
+    "animation": {
+      "implementation": "sample:idle",
+      "period": 2400
+    }
+  },
+  "thinking": {
+    "file": "expressions/thinking.png",
+    "fps": 0,
+    "loop": true,
+    "anchor": [
+      0.5,
+      0.5
+    ],
+    "size": [
+      512,
+      512
+    ],
+    "group": "P0",
+    "derived": true,
+    "method": "上望瞳孔、不對稱細眉、微歪頭與三點思考標記。",
+    "animation": {
+      "implementation": "sample:thinking",
+      "period": 2800
+    }
+  },
+  "streaming": {
+    "file": "expressions/streaming.png",
+    "fps": 0,
+    "loop": true,
+    "anchor": [
+      0.5,
+      0.5
+    ],
+    "size": [
+      512,
+      512
+    ],
+    "group": "P0",
+    "derived": true,
+    "method": "半閉眼，兩種微張嘴型連續插值。",
+    "animation": {
+      "implementation": "sample:streaming",
+      "period": 1000
+    }
+  },
+  "working": {
+    "file": "expressions/working.png",
+    "fps": 0,
+    "loop": true,
+    "anchor": [
+      0.5,
+      0.5
+    ],
+    "size": [
+      512,
+      512
+    ],
+    "group": "P0",
+    "derived": true,
+    "method": "收緊上眼瞼、內側眉勢、週期性輕點頭。",
+    "animation": {
+      "implementation": "sample:working",
+      "period": 1800
+    }
+  },
+  "sleeping": {
+    "file": "expressions/sleeping.png",
+    "fps": 0,
+    "loop": true,
+    "anchor": [
+      0.5,
+      0.5
+    ],
+    "size": [
+      512,
+      512
+    ],
+    "group": "P0",
+    "derived": true,
+    "method": "閉眼曲線、慢呼吸與睡眠氣泡。",
+    "animation": {
+      "implementation": "sample:sleeping",
+      "period": 4200
+    }
+  },
+  "alerting": {
+    "file": "expressions/alerting.png",
+    "fps": 0,
+    "loop": true,
+    "anchor": [
+      0.5,
+      0.5
+    ],
+    "size": [
+      512,
+      512
+    ],
+    "group": "P0",
+    "derived": true,
+    "method": "睜大眼、圓嘴、驚嘆號及有節奏的彈跳。",
+    "animation": {
+      "implementation": "sample:alerting",
+      "period": 1100
+    }
+  },
+  "listening": {
+    "file": "expressions/listening.png",
+    "fps": 0,
+    "loop": true,
+    "anchor": [
+      0.5,
+      0.5
+    ],
+    "size": [
+      512,
+      512
+    ],
+    "group": "P0",
+    "derived": true,
+    "method": "專注前望、細微歪頭、抬鰭與聲波弧線。",
+    "animation": {
+      "implementation": "sample:listening",
+      "period": 3200
+    }
+  },
+  "speaking": {
+    "file": "expressions/speaking.png",
+    "fps": 9,
+    "loop": true,
+    "anchor": [
+      0.5,
+      0.5
+    ],
+    "size": [
+      512,
+      512
+    ],
+    "group": "P0",
+    "derived": true,
+    "method": "三個獨立嘴型按 9 fps 循環，眼白與虹膜保持原色。",
+    "animation": {
+      "implementation": "sample:speaking",
+      "period": 900
+    },
+    "frames": [
+      "anim/speaking/frame-000.png",
+      "anim/speaking/frame-001.png",
+      "anim/speaking/frame-002.png"
+    ]
+  },
+  "happy": {
+    "file": "expressions/happy.png",
+    "fps": 0,
+    "loop": true,
+    "anchor": [
+      0.5,
+      0.5
+    ],
+    "size": [
+      512,
+      512
+    ],
+    "group": "P0",
+    "derived": true,
+    "method": "上揚眼瞼、微張笑嘴、額外腮紅與輕浮動。",
+    "animation": {
+      "implementation": "sample:happy",
+      "period": 2200
+    }
+  },
+  "sad": {
+    "file": "expressions/sad.png",
+    "fps": 0,
+    "loop": true,
+    "anchor": [
+      0.5,
+      0.5
+    ],
+    "size": [
+      512,
+      512
+    ],
+    "group": "P0",
+    "derived": true,
+    "method": "下垂眼瞼、細眉、倒弧嘴與滑落淚滴。",
+    "animation": {
+      "implementation": "sample:sad",
+      "period": 3600
+    }
+  },
+  "surprised": {
+    "file": "expressions/surprised.png",
+    "fps": 0,
+    "loop": true,
+    "anchor": [
+      0.5,
+      0.5
+    ],
+    "size": [
+      512,
+      512
+    ],
+    "group": "P1",
+    "derived": true,
+    "method": "放大眼形、縮小瞳孔與 O 形嘴。",
+    "animation": {
+      "implementation": "sample:surprised",
+      "period": 2000
+    }
+  },
+  "confused": {
+    "file": "expressions/confused.png",
+    "fps": 0,
+    "loop": true,
+    "anchor": [
+      0.5,
+      0.5
+    ],
+    "size": [
+      512,
+      512
+    ],
+    "group": "P1",
+    "derived": true,
+    "method": "不對稱眼瞼、左右眼神、歪頭與問號。",
+    "animation": {
+      "implementation": "sample:confused",
+      "period": 3200
+    }
+  },
+  "laughing": {
+    "file": "expressions/laughing.png",
+    "fps": 0,
+    "loop": true,
+    "anchor": [
+      0.5,
+      0.5
+    ],
+    "size": [
+      512,
+      512
+    ],
+    "group": "P1",
+    "derived": true,
+    "method": "彎眼笑、露齒張嘴、腮紅與肩部回彈。",
+    "animation": {
+      "implementation": "sample:laughing",
+      "period": 900
+    }
+  },
+  "love": {
+    "file": "expressions/love.png",
+    "fps": 0,
+    "loop": true,
+    "anchor": [
+      0.5,
+      0.5
+    ],
+    "size": [
+      512,
+      512
+    ],
+    "group": "P1",
+    "derived": true,
+    "method": "心形瞳孔覆蓋、腮紅、微笑與漂浮愛心。",
+    "animation": {
+      "implementation": "sample:love",
+      "period": 2400
+    }
+  },
+  "angry": {
+    "file": "expressions/angry.png",
+    "fps": 0,
+    "loop": true,
+    "anchor": [
+      0.5,
+      0.5
+    ],
+    "size": [
+      512,
+      512
+    ],
+    "group": "P1",
+    "derived": true,
+    "method": "傾斜上眼瞼、內收細眉、抿嘴與額側短線。",
+    "animation": {
+      "implementation": "sample:angry",
+      "period": 2400
+    }
+  },
+  "wink": {
+    "file": "expressions/wink.png",
+    "fps": 0,
+    "loop": true,
+    "anchor": [
+      0.5,
+      0.5
+    ],
+    "size": [
+      512,
+      512
+    ],
+    "group": "P1",
+    "derived": true,
+    "method": "左眼閉眼曲線、右眼保留原畫、微歪頭。",
+    "animation": {
+      "implementation": "sample:wink",
+      "period": 2200
+    }
+  },
+  "nod": {
+    "file": "expressions/nod.png",
+    "fps": 0,
+    "loop": true,
+    "anchor": [
+      0.5,
+      0.5
+    ],
+    "size": [
+      512,
+      512
+    ],
+    "group": "P1",
+    "derived": true,
+    "method": "垂直平移與小幅縱向縮放形成點頭。",
+    "animation": {
+      "implementation": "sample:nod",
+      "period": 2000
+    }
+  },
+  "shrug": {
+    "file": "expressions/shrug.png",
+    "fps": 0,
+    "loop": true,
+    "anchor": [
+      0.5,
+      0.5
+    ],
+    "size": [
+      512,
+      512
+    ],
+    "group": "P1",
+    "derived": true,
+    "method": "兩側 SVG 式鰭形路徑抬起、輕歪頭與平嘴。",
+    "animation": {
+      "implementation": "sample:shrug",
+      "period": 2800
+    }
+  },
+  "celebrate": {
+    "file": "expressions/celebrate.png",
+    "fps": 0,
+    "loop": true,
+    "anchor": [
+      0.5,
+      0.5
+    ],
+    "size": [
+      512,
+      512
+    ],
+    "group": "P1",
+    "derived": true,
+    "method": "笑眼、張嘴、雙鰭抬起與確定性彩紙路徑。",
+    "animation": {
+      "implementation": "sample:celebrate",
+      "period": 1500
+    }
+  },
+  "poke": {
+    "file": "expressions/poke.png",
+    "fps": 10,
+    "loop": false,
+    "anchor": [
+      0.5,
+      0.5
+    ],
+    "size": [
+      512,
+      512
+    ],
+    "group": "P1",
+    "derived": true,
+    "method": "以置中錨點連續 squash/stretch，四幀回彈。",
+    "animation": {
+      "implementation": "sample:poke",
+      "duration": 420,
+      "loop": false
+    },
+    "frames": [
+      "anim/poke/frame-000.png",
+      "anim/poke/frame-001.png",
+      "anim/poke/frame-002.png",
+      "anim/poke/frame-003.png"
+    ]
+  },
+  "waking": {
+    "file": "expressions/waking.png",
+    "fps": 0,
+    "loop": false,
+    "anchor": [
+      0.5,
+      0.5
+    ],
+    "size": [
+      512,
+      512
+    ],
+    "group": "P2",
+    "derived": true,
+    "method": "眼瞼漸開、輕抬頭、淡入的甦醒光點。",
+    "animation": {
+      "implementation": "sample:waking",
+      "duration": 1400,
+      "loop": false
+    }
+  },
+  "waiting": {
+    "file": "expressions/waiting.png",
+    "fps": 0,
+    "loop": true,
+    "anchor": [
+      0.5,
+      0.5
+    ],
+    "size": [
+      512,
+      512
+    ],
+    "group": "P2",
+    "derived": true,
+    "method": "柔和眼神、慢呼吸與等待省略號。",
+    "animation": {
+      "implementation": "sample:waiting",
+      "period": 4000
+    }
+  },
+  "loading": {
+    "file": "expressions/loading.png",
+    "fps": 0,
+    "loop": true,
+    "anchor": [
+      0.5,
+      0.5
+    ],
+    "size": [
+      512,
+      512
+    ],
+    "group": "P2",
+    "derived": true,
+    "method": "保留角色並增加旋轉進度點環。",
+    "animation": {
+      "implementation": "sample:loading",
+      "period": 1600
+    }
+  },
+  "done": {
+    "file": "expressions/done.png",
+    "fps": 0,
+    "loop": false,
+    "anchor": [
+      0.5,
+      0.5
+    ],
+    "size": [
+      512,
+      512
+    ],
+    "group": "P2",
+    "derived": true,
+    "method": "完成微笑、單次回彈與勾選路徑。",
+    "animation": {
+      "implementation": "sample:done",
+      "duration": 1200,
+      "loop": false
+    }
+  },
+  "standby": {
+    "file": "expressions/standby.png",
+    "fps": 0,
+    "loop": false,
+    "anchor": [
+      0.5,
+      0.5
+    ],
+    "size": [
+      512,
+      512
+    ],
+    "group": "P2",
+    "derived": true,
+    "method": "半閉眼、降低不透明度、靜止省電。",
+    "animation": {
+      "implementation": "sample:standby",
+      "static": true
+    }
+  },
+  "powering-down": {
+    "file": "expressions/powering-down.png",
+    "fps": 0,
+    "loop": false,
+    "anchor": [
+      0.5,
+      0.5
+    ],
+    "size": [
+      512,
+      512
+    ],
+    "group": "P2",
+    "derived": true,
+    "method": "逐漸閉眼、下沉、淡出到待命形象。",
+    "animation": {
+      "implementation": "sample:powering-down",
+      "duration": 1400,
+      "loop": false
+    }
+  },
+  "spawning": {
+    "file": "expressions/spawning.png",
+    "fps": 0,
+    "loop": false,
+    "anchor": [
+      0.5,
+      0.5
+    ],
+    "size": [
+      512,
+      512
+    ],
+    "group": "P2",
+    "derived": true,
+    "method": "從縮小淡入，帶一次過衝的出現動作。",
+    "animation": {
+      "implementation": "sample:spawning",
+      "duration": 1000,
+      "loop": false
+    }
+  },
+  "bouncing": {
+    "file": "expressions/bouncing.png",
+    "fps": 0,
+    "loop": true,
+    "anchor": [
+      0.5,
+      0.5
+    ],
+    "size": [
+      512,
+      512
+    ],
+    "group": "P2",
+    "derived": true,
+    "method": "以底部支點做連續輕跳，保持透明留白。",
+    "animation": {
+      "implementation": "sample:bouncing",
+      "period": 1400
+    }
+  },
+  "dancing": {
+    "file": "expressions/dancing.png",
+    "fps": 0,
+    "loop": true,
+    "anchor": [
+      0.5,
+      0.5
+    ],
+    "size": [
+      512,
+      512
+    ],
+    "group": "P2",
+    "derived": true,
+    "method": "左右搖擺、交替鰭形動作與音符。",
+    "animation": {
+      "implementation": "sample:dancing",
+      "period": 1800
+    }
+  },
+  "waving": {
+    "file": "expressions/waving.png",
+    "fps": 0,
+    "loop": true,
+    "anchor": [
+      0.5,
+      0.5
+    ],
+    "size": [
+      512,
+      512
+    ],
+    "group": "P2",
+    "derived": true,
+    "method": "右側鰭形路徑反覆揮動，笑眼回應。",
+    "animation": {
+      "implementation": "sample:waving",
+      "period": 1600
+    }
+  },
+  "shy": {
+    "file": "expressions/shy.png",
+    "fps": 0,
+    "loop": true,
+    "anchor": [
+      0.5,
+      0.5
+    ],
+    "size": [
+      512,
+      512
+    ],
+    "group": "EXTRA",
+    "derived": true,
+    "method": "側望、紅臉、縮肩與髮尾滯後；新 Image Gen 害羞眼／小嘴。",
+    "animation": {
+      "implementation": "sample:shy",
+      "period": 3200
+    }
+  },
+  "smug": {
+    "file": "expressions/smug.png",
+    "fps": 0,
+    "loop": true,
+    "anchor": [
+      0.5,
+      0.5
+    ],
+    "size": [
+      512,
+      512
+    ],
+    "group": "EXTRA",
+    "derived": true,
+    "method": "半瞇眼、偏頭、上揚嘴角與自信微晃。",
+    "animation": {
+      "implementation": "sample:smug",
+      "period": 2600
+    }
+  },
+  "crying": {
+    "file": "expressions/crying.png",
+    "fps": 0,
+    "loop": true,
+    "anchor": [
+      0.5,
+      0.5
+    ],
+    "size": [
+      512,
+      512
+    ],
+    "group": "EXTRA",
+    "derived": true,
+    "method": "淚汪汪眼、顫嘴、肩膀抽動與連續淚滴。",
+    "animation": {
+      "implementation": "sample:crying",
+      "period": 2400
+    }
+  },
+  "sighing": {
+    "file": "expressions/sighing.png",
+    "fps": 0,
+    "loop": true,
+    "anchor": [
+      0.5,
+      0.5
+    ],
+    "size": [
+      512,
+      512
+    ],
+    "group": "EXTRA",
+    "derived": true,
+    "method": "抬肩吸氣、低頭吐氣、閉眼再回正。",
+    "animation": {
+      "implementation": "sample:sighing",
+      "period": 3600
+    }
+  },
+  "cheering": {
+    "file": "expressions/cheering.png",
+    "fps": 0,
+    "loop": true,
+    "anchor": [
+      0.5,
+      0.5
+    ],
+    "size": [
+      512,
+      512
+    ],
+    "group": "EXTRA",
+    "derived": true,
+    "method": "左右鰭交替舉起、笑眼與兩拍輕跳。",
+    "animation": {
+      "implementation": "sample:cheering",
+      "period": 1600
+    }
+  },
+  "bowing": {
+    "file": "expressions/bowing.png",
+    "fps": 0,
+    "loop": true,
+    "anchor": [
+      0.5,
+      0.5
+    ],
+    "size": [
+      512,
+      512
+    ],
+    "group": "EXTRA",
+    "derived": true,
+    "method": "抬頭準備、低頭停留、柔和回正；皇冠隨頭部。",
+    "animation": {
+      "implementation": "sample:bowing",
+      "period": 2800
+    }
+  },
+  "shaking-head": {
+    "file": "expressions/shaking-head.png",
+    "fps": 0,
+    "loop": true,
+    "anchor": [
+      0.5,
+      0.5
+    ],
+    "size": [
+      512,
+      512
+    ],
+    "group": "EXTRA",
+    "derived": true,
+    "method": "有準備與回正的左右兩次搖頭，不做無限勻速擺動。",
+    "animation": {
+      "implementation": "sample:shaking-head",
+      "period": 2400
+    }
+  },
+  "clapping": {
+    "file": "expressions/clapping.png",
+    "fps": 0,
+    "loop": true,
+    "anchor": [
+      0.5,
+      0.5
+    ],
+    "size": [
+      512,
+      512
+    ],
+    "group": "EXTRA",
+    "derived": true,
+    "method": "雙鰭朝中線收合再分開，笑眼與同步肩部反應。",
+    "animation": {
+      "implementation": "sample:clapping",
+      "period": 1200
+    }
+  },
+  "stretching": {
+    "file": "expressions/stretching.png",
+    "fps": 0,
+    "loop": true,
+    "anchor": [
+      0.5,
+      0.5
+    ],
+    "size": [
+      512,
+      512
+    ],
+    "group": "EXTRA",
+    "derived": true,
+    "method": "雙鰭慢慢舉高、拉伸、停留再放下。",
+    "animation": {
+      "implementation": "sample:stretching",
+      "period": 4200
+    }
+  },
+  "yawning": {
+    "file": "expressions/yawning.png",
+    "fps": 0,
+    "loop": true,
+    "anchor": [
+      0.5,
+      0.5
+    ],
+    "size": [
+      512,
+      512
+    ],
+    "group": "EXTRA",
+    "derived": true,
+    "method": "瞇眼、張大哈欠嘴、抬鰭遮嘴與回落。",
+    "animation": {
+      "implementation": "sample:yawning",
+      "period": 4800
+    }
+  },
+  "kiss": {
+    "file": "expressions/kiss.png",
+    "fps": 0,
+    "loop": true,
+    "anchor": [
+      0.5,
+      0.5
+    ],
+    "size": [
+      512,
+      512
+    ],
+    "group": "EXTRA",
+    "derived": true,
+    "method": "害羞眼、噘嘴、抬鰭送出愛心後回正。",
+    "animation": {
+      "implementation": "sample:kiss",
+      "period": 2600
+    }
+  },
+  "high-five": {
+    "file": "expressions/high-five.png",
+    "fps": 0,
+    "loop": true,
+    "anchor": [
+      0.5,
+      0.5
+    ],
+    "size": [
+      512,
+      512
+    ],
+    "group": "EXTRA",
+    "derived": true,
+    "method": "右鰭向前抬起、停留、落下，帶反衝。",
+    "animation": {
+      "implementation": "sample:high-five",
+      "period": 2200
+    }
+  },
+  "blink": {
+    "frames": [
+      "anim/blink/frame-000.png",
+      "anim/blink/frame-001.png"
+    ],
+    "fps": 8,
+    "loop": false,
+    "anchor": [
+      0.5,
+      0.5
+    ],
+    "size": [
+      512,
+      512
+    ],
+    "derived": true,
+    "method": "同一中性底圖，只替換眼部曲線；無位移、無縮放。",
+    "implementation": "controller.blink"
+  },
+  "look": {
+    "derived": true,
+    "method": "700ms 方向覆寫後恢復原 gaze／pointer 目標。",
+    "implementation": "controller.look",
+    "anchor": [
+      0.5,
+      0.5
+    ],
+    "fps": 0,
+    "loop": false
+  },
+  "gaze": {
+    "derived": true,
+    "method": "−1..1 clamp，臨界阻尼瞳孔位移；原色虹膜與眼白分開。",
+    "implementation": "controller.gaze",
+    "anchor": [
+      0.5,
+      0.5
+    ],
+    "fps": 0,
+    "loop": false
+  },
+  "morph": {
+    "derived": true,
+    "method": "保留魚形輪廓，連續 squash/stretch；不冒稱幾何形體 morph。",
+    "implementation": "controller.morph",
+    "anchor": [
+      0.5,
+      0.5
+    ],
+    "fps": 0,
+    "loop": false
+  }
+}

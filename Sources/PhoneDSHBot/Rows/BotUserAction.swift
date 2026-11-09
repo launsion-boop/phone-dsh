@@ -27,11 +27,15 @@ public struct BotUserAction: Codable, Sendable, Equatable {
     public var decision: BotApprovalDecision?
     public var digest: String?
     public var threadID: String?
+    /// `chat` only. nil/empty means a text-only message; a non-empty list may
+    /// accompany empty text (the schema allows one or the other).
+    public var attachments: [BotAttachment]?
 
     public init(nonce: String, botID: String, kind: BotUserActionKind, text: String? = nil,
                 cardID: String? = nil, optionID: String? = nil,
                 approvalID: String? = nil, decision: BotApprovalDecision? = nil,
-                digest: String? = nil, threadID: String? = nil) {
+                digest: String? = nil, threadID: String? = nil,
+                attachments: [BotAttachment]? = nil) {
         self.nonce = nonce
         self.botID = botID
         self.kind = kind
@@ -42,10 +46,11 @@ public struct BotUserAction: Codable, Sendable, Equatable {
         self.decision = decision
         self.digest = digest
         self.threadID = threadID
+        self.attachments = attachments
     }
 
     private enum CodingKeys: String, CodingKey {
-        case nonce, botID, kind, text, cardID, optionID, approvalID, decision, digest, threadID
+        case nonce, botID, kind, text, cardID, optionID, approvalID, decision, digest, threadID, attachments
     }
 
     private struct DynamicKey: CodingKey {
@@ -78,6 +83,11 @@ public struct BotUserAction: Codable, Sendable, Equatable {
                 codingPath: decoder.codingPath,
                 debugDescription: "cardAnswer must not contain text; free-form replies use kind=chat"))
         }
+        if kind != .chat, raw.contains(DynamicKey("attachments")) {
+            throw DecodingError.dataCorrupted(.init(
+                codingPath: decoder.codingPath,
+                debugDescription: "only chat actions may carry attachments"))
+        }
         nonce = try container.decode(String.self, forKey: .nonce)
         botID = try container.decode(String.self, forKey: .botID)
         self.kind = kind
@@ -88,6 +98,7 @@ public struct BotUserAction: Codable, Sendable, Equatable {
         decision = try container.decodeIfPresent(BotApprovalDecision.self, forKey: .decision)
         digest = try container.decodeIfPresent(String.self, forKey: .digest)
         threadID = try container.decodeIfPresent(String.self, forKey: .threadID)
+        attachments = try container.decodeIfPresent([BotAttachment].self, forKey: .attachments)
     }
 }
 
@@ -220,9 +231,21 @@ public actor BotUserActionDispatcher {
 enum BotUserActionValidation {
     static func validate(_ action: BotUserAction) -> BotActionResult? {
         guard !action.nonce.isEmpty, !action.botID.isEmpty else { return .rejected(reason: "invalid_action") }
+        if action.kind != .chat, action.attachments != nil {
+            return .rejected(reason: "unexpected_attachments")
+        }
         switch action.kind {
         case .chat:
-            guard action.text != nil else { return .rejected(reason: "missing_text") }
+            let attachments = action.attachments ?? []
+            guard attachments.count <= BotAttachmentPolicy.maxCount else {
+                return .rejected(reason: "too_many_attachments")
+            }
+            guard attachments.allSatisfy({ $0.name.isEmpty == false && $0.path.isEmpty == false
+                && $0.kind.isEmpty == false && $0.size >= 0 }) else {
+                return .rejected(reason: "invalid_attachment")
+            }
+            let text = (action.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty || !attachments.isEmpty else { return .rejected(reason: "missing_text") }
         case .cardAnswer:
             guard action.cardID?.isEmpty == false else { return .rejected(reason: "missing_card_id") }
             guard action.text == nil else {

@@ -1,0 +1,152 @@
+{
+  "source": {
+    "repo": "launsion-boop/dsh-bot",
+    "commit": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6",
+    "files": [
+      "src/main/attachments.cjs",
+      "src/main/dshTranscript.cjs"
+    ]
+  },
+  "limits": {
+    "maxAttachments": 10,
+    "maxBytes": 26214400
+  },
+  "promptBlock": {
+    "items": [
+      {
+        "name": "周报.pdf",
+        "path": "/data/agents/main/attachments/m1/周报.pdf",
+        "size": 2048,
+        "mimeType": "application/pdf",
+        "kind": "pdf"
+      },
+      {
+        "name": "photo.jpg",
+        "path": "/data/agents/main/attachments/m1/photo.jpg",
+        "size": 1234567,
+        "mimeType": "image/jpeg",
+        "kind": "image"
+      }
+    ],
+    "text": "帮我看看这两个文件",
+    "prompt": "帮我看看这两个文件\n\n[dshbot-attachments]\nThe user attached these files. They are saved on this Mac; read them with your file tools when the task needs their contents.\n- {\"name\":\"周报.pdf\",\"path\":\"/data/agents/main/attachments/m1/周报.pdf\",\"size\":2048,\"mimeType\":\"application/pdf\",\"kind\":\"pdf\"}\n- {\"name\":\"photo.jpg\",\"path\":\"/data/agents/main/attachments/m1/photo.jpg\",\"size\":1234567,\"mimeType\":\"image/jpeg\",\"kind\":\"image\"}\n[/dshbot-attachments]"
+  },
+  "emptyBlock": "",
+  "parse": [
+    {
+      "input": "帮我看看这两个文件\n\n[dshbot-attachments]\nThe user attached these files. They are saved on this Mac; read them with your file tools when the task needs their contents.\n- {\"name\":\"周报.pdf\",\"path\":\"/data/agents/main/attachments/m1/周报.pdf\",\"size\":2048,\"mimeType\":\"application/pdf\",\"kind\":\"pdf\"}\n- {\"name\":\"photo.jpg\",\"path\":\"/data/agents/main/attachments/m1/photo.jpg\",\"size\":1234567,\"mimeType\":\"image/jpeg\",\"kind\":\"image\"}\n[/dshbot-attachments]",
+      "output": {
+        "text": "帮我看看这两个文件",
+        "attachments": [
+          {
+            "name": "周报.pdf",
+            "path": "/data/agents/main/attachments/m1/周报.pdf",
+            "size": 2048,
+            "mimeType": "application/pdf",
+            "kind": "pdf"
+          },
+          {
+            "name": "photo.jpg",
+            "path": "/data/agents/main/attachments/m1/photo.jpg",
+            "size": 1234567,
+            "mimeType": "image/jpeg",
+            "kind": "image"
+          }
+        ]
+      }
+    },
+    {
+      "input": "no attachments here",
+      "output": {
+        "text": "no attachments here",
+        "attachments": []
+      }
+    },
+    {
+      "input": "[dshbot-attachments]\nThe user attached these files. They are saved on this Mac; read them with your file tools when the task needs their contents.\n- {\"name\":\"周报.pdf\",\"path\":\"/data/agents/main/attachments/m1/周报.pdf\",\"size\":2048,\"mimeType\":\"application/pdf\",\"kind\":\"pdf\"}\n- {\"name\":\"photo.jpg\",\"path\":\"/data/agents/main/attachments/m1/photo.jpg\",\"size\":1234567,\"mimeType\":\"image/jpeg\",\"kind\":\"image\"}\n[/dshbot-attachments]",
+      "output": {
+        "text": "",
+        "attachments": [
+          {
+            "name": "周报.pdf",
+            "path": "/data/agents/main/attachments/m1/周报.pdf",
+            "size": 2048,
+            "mimeType": "application/pdf",
+            "kind": "pdf"
+          },
+          {
+            "name": "photo.jpg",
+            "path": "/data/agents/main/attachments/m1/photo.jpg",
+            "size": 1234567,
+            "mimeType": "image/jpeg",
+            "kind": "image"
+          }
+        ]
+      }
+    },
+    {
+      "input": "前缀\n\n[dshbot-attachments]\nThe user attached these files. They are saved on this Mac; read them with your file tools when the task needs their contents.\n- {\"name\":\"周报.pdf\",\"path\":\"/data/agents/main/attachments/m1/周报.pdf\",\"size\":2048,\"mimeType\":\"application/pdf\",\"kind\":\"pdf\"}\n- {\"name\":\"photo.jpg\",\"path\":\"/data/agents/main/attachments/m1/photo.jpg\",\"size\":1234567,\"mimeType\":\"image/jpeg\",\"kind\":\"image\"}\n[/dshbot-attachments]\n后缀",
+      "output": {
+        "text": "前缀",
+        "attachments": [
+          {
+            "name": "周报.pdf",
+            "path": "/data/agents/main/attachments/m1/周报.pdf",
+            "size": 2048,
+            "mimeType": "application/pdf",
+            "kind": "pdf"
+          },
+          {
+            "name": "photo.jpg",
+            "path": "/data/agents/main/attachments/m1/photo.jpg",
+            "size": 1234567,
+            "mimeType": "image/jpeg",
+            "kind": "image"
+          }
+        ]
+      }
+    }
+  ],
+  "kindFor": [
+    {
+      "name": "a.png",
+      "mimeType": "image/png",
+      "kind": "image"
+    },
+    {
+      "name": "b.HEIC",
+      "mimeType": "",
+      "kind": "image"
+    },
+    {
+      "name": "c.mp3",
+      "mimeType": "",
+      "kind": "audio"
+    },
+    {
+      "name": "d.mov",
+      "mimeType": "",
+      "kind": "video"
+    },
+    {
+      "name": "e.pdf",
+      "mimeType": "",
+      "kind": "pdf"
+    },
+    {
+      "name": "f.docx",
+      "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "kind": "document"
+    },
+    {
+      "name": "g.txt",
+      "mimeType": "text/plain",
+      "kind": "file"
+    },
+    {
+      "name": "h",
+      "mimeType": "",
+      "kind": "file"
+    }
+  ]
+}

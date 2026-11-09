@@ -2,12 +2,11 @@
 // SPDX-License-Identifier: MIT
 package com.phonedsh.ui.nav
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -24,6 +23,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -44,10 +44,14 @@ import androidx.compose.ui.semantics.isTraversalGroup
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.phonedsh.ui.HomeMetrics
 import com.phonedsh.ui.SessionsMetrics
+import com.phonedsh.ui.UiStrings
+import com.phonedsh.ui.page.workspaceTitle
 import com.phonedsh.ui.icon.PdshIcon
 import com.phonedsh.ui.icon.PdshIconView
 import com.phonedsh.ui.theme.LocalUiDarkTheme
@@ -107,7 +111,6 @@ public fun HomeDrawer(
     isOpen: Boolean = true,
     onNavigate: ((PdshRoute) -> Unit)? = null,
     onCreateSession: (suspend () -> Boolean)? = null,
-    onOpenSchedules: (() -> Unit)? = null,
     /** Confirmed host writes for folder and session metadata; missing capabilities stay disabled. */
     onMutation: HomeDrawerMutationAction? = null,
     onArchiveSession: HomeDrawerArchiveAction? = null,
@@ -297,28 +300,53 @@ public fun HomeDrawer(
                     .testTag(HomeDrawerTags.SCROLL)
                     .padding(top = HomeMetrics.NAV_TOP_PT.dp, bottom = 24.dp),
             ) {
-                Column(Modifier.padding(horizontal = SessionsMetrics.rowInset)) {
-                    EntryRow("新会话", PdshIcon.NEW_CHAT,
-                        detail = facts.newSessionBlockedReason ?: "",
-                        enabled = onCreateSession != null && facts.newSessionBlockedReason == null,
-                        unavailable = onCreateSession == null,
-                        modifier = Modifier.focusRequester(initialFocus).testTag(HomeDrawerTags.NEW_SESSION),
+                Column(Modifier.padding(horizontal = 16.dp)) {
+                    val blockedReason = drawerNewSessionBlockedReason(facts.languageId, facts.newSessionBlockedReason)
+                    val enabled = onCreateSession != null && facts.newSessionBlockedReason == null
+                    val newSessionLabel = drawerNativeText(facts.languageId, UiStrings.NEW_SESSION, UiStrings.DRAWER_NEW_SESSION_EN)
+                    Button(
+                        onClick = {
+                            val create = onCreateSession
+                            if (create != null) {
+                                coroutineScope.launch {
+                                    if (isOpen && !dismissedLocally && create()) dismissDrawer()
+                                }
+                            }
+                        },
+                        enabled = enabled,
+                        modifier = Modifier.fillMaxWidth().height(52.dp)
+                            .focusRequester(initialFocus)
+                            .testTag(HomeDrawerTags.NEW_SESSION)
+                            .semantics { contentDescription = newSessionLabel },
+                        shape = RoundedCornerShape(26.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = tokens.colors.surface,
+                            contentColor = tokens.colors.textPrimary,
+                            disabledContainerColor = tokens.colors.surface.copy(alpha = 0.55f),
+                            disabledContentColor = tokens.colors.textPlaceholder,
+                        ),
+                        border = BorderStroke(0.5.dp, tokens.colors.borderList),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
                     ) {
-                        val create = onCreateSession ?: return@EntryRow
-                        coroutineScope.launch {
-                            if (isOpen && !dismissedLocally && create()) dismissDrawer()
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                            PdshIconView(PdshIcon.NEW_CHAT_PLUS, 20.dp,
+                                if (enabled) tokens.colors.textPrimary else tokens.colors.textPlaceholder, null)
+                            Spacer(Modifier.width(10.dp))
+                            Text(newSessionLabel, style = type.body.copy(fontSize = 17.sp, fontWeight = FontWeight.Medium))
                         }
                     }
-                    Spacer(Modifier.height(2.dp))
-                    EntryRow("定时任务", PdshIcon.CLOCK,
-                        detail = facts.scheduleCount?.takeIf { it > 0 }?.toString() ?: "",
-                        enabled = onOpenSchedules != null || onNavigate != null,
-                        unavailable = onOpenSchedules == null && onNavigate == null,
-                        modifier = Modifier.testTag(HomeDrawerTags.SCHEDULES),
-                    ) { if (onOpenSchedules != null) onOpenSchedules.invoke() else onNavigate?.invoke(PdshRoute.Automation) }
+                    if (blockedReason != null) {
+                        Text(
+                            blockedReason,
+                            modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
+                                .testTag(HomeDrawerTags.NEW_SESSION_REASON),
+                            style = type.caption.copy(fontSize = 13.sp, color = tokens.colors.textSecondary),
+                            textAlign = TextAlign.Center,
+                        )
+                    }
                 }
-                Spacer(Modifier.height(24.dp))
-                Row(Modifier.fillMaxWidth().height(36.dp).padding(start = HomeMetrics.CONTENT_INSET_PT.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Spacer(Modifier.height(16.dp))
+                if (DRAWER_FOLDERS_ENABLED) Row(Modifier.fillMaxWidth().height(36.dp).padding(start = HomeMetrics.CONTENT_INSET_PT.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("文件夹", style = type.secondary.copy(color = tokens.colors.textSecondary))
                     Spacer(Modifier.weight(1f))
                     Box {
@@ -351,13 +379,14 @@ public fun HomeDrawer(
                     val folders = facts.folders
                     if (folders == null) {
                         Text("文件夹列表未知", Modifier.padding(horizontal = HomeMetrics.CONTENT_INSET_PT.dp, vertical = 8.dp), style = type.secondary.copy(color = tokens.colors.textSecondary))
-                    } else if (folders.isEmpty() && facts.unassignedSessions.isNullOrEmpty()) {
+                    } else if (DRAWER_FOLDERS_ENABLED && folders.isEmpty() && facts.unassignedSessions.isNullOrEmpty()) {
                         Text("还没有文件夹。点右上角的 + 新建一个，文件夹用于整理会话；文件仍使用工作区。", Modifier.padding(horizontal = HomeMetrics.CONTENT_INSET_PT.dp, vertical = 8.dp), style = type.secondary.copy(color = tokens.colors.textSubtle))
                     }
                     val defaultFolder = folders?.firstOrNull { it.isDefault }
                     val loose = facts.unassignedSessions
+                    val looseTitle = drawerDefaultFolderTitle(facts.languageId)
                     if (folders == null && loose != null && loose.isNotEmpty()) {
-                        FolderGroup("__unknown_folder__", "未分配文件夹", loose, state,
+                        FolderGroup("__unknown_folder__", looseTitle, loose, state,
                             onOpenSession, canRenameSession = onMutation != null, onArchiveSession, pendingArchiveIds,
                             archiveFailureById, ::archiveSession, canRenameFolder = false, canDeleteFolder = false,
                             onNewSessionInFolder = null,
@@ -367,7 +396,7 @@ public fun HomeDrawer(
                             activeSessionId = facts.activeSessionId)
                     }
                     if (folders != null && defaultFolder == null && loose != null && loose.isNotEmpty()) {
-                        FolderGroup("__unassigned__", "未分配", loose, state,
+                        FolderGroup("__unassigned__", looseTitle, loose, state,
                             onOpenSession, canRenameSession = onMutation != null, onArchiveSession, pendingArchiveIds,
                             archiveFailureById, ::archiveSession, canRenameFolder = false, canDeleteFolder = false,
                             onNewSessionInFolder = null,
@@ -383,11 +412,17 @@ public fun HomeDrawer(
                         val sessions = if (folder === defaultFolder || folder.id == defaultFolder?.id) {
                             folder.sessions + (loose ?: emptyList())
                         } else folder.sessions
-                        FolderGroup(folder.id, folder.title.ifBlank { "文件夹" }, sessions, state,
+                        val folderIndex = (folders.orEmpty().indexOfFirst { it.id == folder.id } + 1).coerceAtLeast(1)
+                        val folderTitle = if (folder.isDefault) {
+                            workspaceTitle(folder.title, folderIndex, facts.languageId)
+                        } else {
+                            folder.title.ifBlank { "文件夹" }
+                        }
+                        FolderGroup(folder.id, folderTitle, sessions, state,
                             onOpenSession, canRenameSession = onMutation != null, onArchiveSession, pendingArchiveIds,
                             archiveFailureById, ::archiveSession,
-                            canRenameFolder = onMutation != null,
-                            canDeleteFolder = onMutation != null && !folder.isDefault,
+                            canRenameFolder = DRAWER_FOLDERS_ENABLED && onMutation != null,
+                            canDeleteFolder = DRAWER_FOLDERS_ENABLED && onMutation != null && !folder.isDefault,
                             onNewSessionInFolder = onCreateSessionInFolder?.let { { folderId -> createSessionInFolder(folderId) } },
                             emptyMessage = "还没有会话",
                             onRequestRename = { id, name -> targetId = id; draft = name; dialog = "rename-folder" },
@@ -462,11 +497,18 @@ public fun HomeDrawer(
     }
 }
 
+/**
+ * Folder management (the 文件夹 title, 新建文件夹, the empty-folder hint, folder
+ * rename/delete) is not offered yet, matching iOS `HomeDrawer.foldersEnabled`.
+ * Session groups such as 手机工作区 still show.
+ */
+internal const val DRAWER_FOLDERS_ENABLED: Boolean = false
+
 public object HomeDrawerTags {
     public const val PANEL = "home.drawer.panel"
     public const val SCRIM = "home.drawer.scrim"
     public const val NEW_SESSION = "home.drawer.new-session"
-    public const val SCHEDULES = "home.drawer.schedules"
+    public const val NEW_SESSION_REASON = "home.drawer.new-session.reason"
     public const val CREATE_FOLDER = "home.drawer.create-folder"
     public const val SETTINGS = "home.drawer.settings"
     public const val EDITOR = "home.drawer.editor"
@@ -477,27 +519,6 @@ public object HomeDrawerTags {
     public const val RETRY = "home.drawer.retry"
     public const val FOLDER_PREFIX = "home.drawer.folder."
     public const val SESSION_PREFIX = "home.drawer.session."
-}
-
-@Composable
-private fun EntryRow(label: String, icon: PdshIcon, detail: String, enabled: Boolean, unavailable: Boolean,
-                     modifier: Modifier = Modifier, action: () -> Unit) {
-    val colors = LocalUiTokens.current.colors
-    val type = LocalUiType.current
-    val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
-    Row(modifier.fillMaxWidth().height(SessionsMetrics.ACTION_ROW_HEIGHT_PT.dp)
-        .background(if (pressed) colors.userBubble.copy(alpha = SessionsMetrics.DRAWER_PRESS_ALPHA) else Color.Transparent,
-            RoundedCornerShape(SessionsMetrics.DRAWER_CARD_RADIUS_PT.dp))
-        .clickable(interactionSource = interaction, indication = null, enabled = enabled, role = Role.Button, onClick = action)
-        .semantics { if (!enabled) stateDescription = if (detail.isNotEmpty()) detail else if (unavailable) "不可用" else "不可用" }
-        .padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-        PdshIconView(icon, SessionsMetrics.DRAWER_ROW_GLYPH_REF_PT.dp, if (enabled) colors.textPrimary else colors.textPlaceholder, null, Modifier.size(24.dp))
-        Spacer(Modifier.width(SessionsMetrics.DRAWER_ROW_SPACING_PT.dp))
-        Text(label, style = type.body.copy(color = if (enabled) colors.textPrimary else colors.textPlaceholder))
-        Spacer(Modifier.weight(1f))
-        if (detail.isNotEmpty()) Text(detail, style = type.caption.copy(color = colors.textPlaceholder), maxLines = 1, overflow = TextOverflow.Ellipsis)
-    }
 }
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
@@ -537,10 +558,12 @@ private fun FolderGroup(id: String, title: String, sessions: List<HomeDrawerSess
             properties = PopupProperties(focusable = true, clippingEnabled = true)) {
             DropdownMenuItem(text = { Text("在这里新建会话") }, enabled = onNewSessionInFolder != null,
                 onClick = { folderMenu = false; onNewSessionInFolder?.invoke(id) })
-            DropdownMenuItem(text = { Text("重命名") }, enabled = canRenameFolder,
-                onClick = { folderMenu = false; onRequestRename(id, title) })
-            DropdownMenuItem(text = { Text("删除文件夹") }, enabled = canDeleteFolder,
-                onClick = { folderMenu = false; onRequestDelete(id) })
+            if (DRAWER_FOLDERS_ENABLED) {
+                DropdownMenuItem(text = { Text("重命名") }, enabled = canRenameFolder,
+                    onClick = { folderMenu = false; onRequestRename(id, title) })
+                DropdownMenuItem(text = { Text("删除文件夹") }, enabled = canDeleteFolder,
+                    onClick = { folderMenu = false; onRequestDelete(id) })
+            }
         }
     }
     if (expanded) {

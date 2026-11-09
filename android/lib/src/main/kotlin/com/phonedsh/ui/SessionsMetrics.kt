@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: MIT
 //
 // PR22 replaces the 320 pt drawer with the full-screen `HomeDrawer.swift`
-// surface: a #F7F7F7 page, 44 pt global entries, a 40 pt folder header, 44 pt
-// session rows, 12 pt row corners and a bottom settings bar. Authority is
+// surface: a #F7F7F7 page, a 52 pt full-width 新会话 capsule, a 40 pt folder
+// header, 44 pt session rows, 12 pt row corners and a bottom settings bar. Authority is
 // `HomeDrawer.swift` first; the system search field / empty-state CTA constants
 // kept below are legacy measurements for the presentation HomeDrawer no longer
 // renders, and their KDoc says so. The old `SessionsPage.swift` numbers are
@@ -44,7 +44,7 @@ public object SessionsMetrics {
     /** Outer row-card inset inside the drawer. Source: `HomeDrawer.swift:140,278` (`.padding(.horizontal, 8)`). Confidence: exact. */
     public const val ROW_INSET_PT: Int = 8
 
-    /** Global entry row (新会话 / 定时任务) height. Source: `HomeDrawer.swift:166` (`.frame(height: 44)`). Confidence: exact. */
+    /** Legacy furniture row height; the 新会话 entry is now a 52 pt capsule. */
     public const val DRAWER_ROW_HEIGHT_PT: Int = 44
 
     /** Entry-row icon slot. Source: `HomeDrawer.swift:150` (`.frame(width: 24, height: 24)`). Confidence: exact. */
@@ -67,7 +67,7 @@ public object SessionsMetrics {
     /** Folder ("group") header height. Source: `HomeDrawer.swift:325` (`.frame(height: 40)`). Confidence: exact. */
     public const val WORKSPACE_ROW_HEIGHT_PT: Int = 40
 
-    /** Action row height (新会话 / 定时任务 / retry). Source: `HomeDrawer.swift:166`. Confidence: exact. */
+    /** Action row height used by the standalone SessionsPage rows. */
     public const val ACTION_ROW_HEIGHT_PT: Int = 44
 
     /** Standalone session row content inset. Source: `SessionsPage.swift:588` (`.padding(.horizontal, 8)`). Confidence: exact. */
@@ -215,7 +215,7 @@ public object SessionsMetrics {
     /** [ROW_INSET_PT] as a Compose length. */
     public val rowInset: Dp get() = ROW_INSET_PT.dp
 
-    /** [DRAWER_ROW_HEIGHT_PT] as a Compose length (the 定时任务 / 设置 furniture rows). */
+    /** [DRAWER_ROW_HEIGHT_PT] as a Compose length (legacy drawer furniture). */
     public val drawerRowHeight: Dp get() = DRAWER_ROW_HEIGHT_PT.dp
 
     /** [DRAWER_ROW_ICON_SLOT_PT] as a Compose length. */

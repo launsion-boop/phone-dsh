@@ -260,11 +260,14 @@ public data class SessionListing(
  * @param title the host title; a default or path-like name is reworded for
  *   display.
  * @param sessionIDs the host's membership list, in the folder's own order.
+ * @param isDefault the host says this is its built-in phone workspace. The
+ *   title fallback also covers older hosts that only send `default-workspace`.
  */
 public data class SessionWorkspace(
     public val id: String,
     public val title: String,
     public val sessionIDs: List<String> = emptyList(),
+    public val isDefault: Boolean = false,
 )
 
 /**
@@ -504,6 +507,8 @@ public data class SessionsScreenState(
             archivedSessions: List<SessionListing>? = null,
             currentSessionID: String? = null,
             newSessionBlock: NewSessionBlock? = null,
+            /** Explicit app language id; `null` keeps the established Chinese copy. */
+            languageId: String? = null,
             pinnedSessionIDs: List<String>? = null,
             workspaceOrder: List<String>? = null,
             refreshing: Boolean = false,
@@ -525,9 +530,19 @@ public data class SessionsScreenState(
             }
             val memberIDs = groups.flatMap { it.second }.map { it.id }.toSet()
             val ungrouped = active.filterNot { it.id in memberIDs }
+            // Loose sessions belong to the built-in phone workspace, not to a
+            // separate synthetic 日常 group. A host that has not registered a
+            // default folder yet keeps the temporary group (the baseline's
+            // `looseHeader`), so the rows are still reachable.
+            val defaultGroup = groups.firstOrNull { (workspace, _) ->
+                workspace.isDefault || isDefaultWorkspaceTitle(workspace.title)
+            }
+            val grouped = groups.map { (workspace, members) ->
+                workspace to (if (defaultGroup?.first?.id == workspace.id) members + ungrouped else members)
+            }
             // Titles are numbered over the whole (unfiltered) list, so a search
             // never renumbers rows and a pin never changes a name.
-            val titleOrder = groups.flatMap { it.second } + ungrouped
+            val titleOrder = grouped.flatMap { it.second } + (if (defaultGroup == null) ungrouped else emptyList())
             val titles = displayTitles(titleOrder)
             val query = local.query.trim()
             val currentID = currentSessionID ?: local.selectedID
@@ -549,10 +564,12 @@ public data class SessionsScreenState(
                 menuOpen = session.id == local.sessionMenuID,
             )
 
-            val ungroupedRows = pinnedFirst(ungrouped, pinnedSessionIDs.orEmpty())
-                .filter { matches(it) }
-                .map { rowOf(it) }
-            val workspaceViews = groups.mapIndexed { index, pair ->
+            val ungroupedRows = if (defaultGroup == null) {
+                pinnedFirst(ungrouped, pinnedSessionIDs.orEmpty())
+                    .filter { matches(it) }
+                    .map { rowOf(it) }
+            } else emptyList()
+            val workspaceViews = grouped.mapIndexed { index, pair ->
                 val (workspace, members) = pair
                 val rows = pinnedFirst(members, pinnedSessionIDs.orEmpty())
                     .filter { matches(it) }
@@ -560,7 +577,7 @@ public data class SessionsScreenState(
                 val expanded = workspace.id !in local.collapsedWorkspaceIDs
                 SessionWorkspaceView(
                     id = workspace.id,
-                    title = workspaceTitle(workspace.title, index + 1),
+                    title = workspaceTitle(workspace.title, index + 1, languageId),
                     sessionCount = rows.size.toLong(),
                     expanded = expanded,
                     menuOpen = workspace.id == local.workspaceMenuID,
@@ -2233,18 +2250,29 @@ internal fun displayTitle(raw: String, index: Int): String = sessionTitle(raw, i
 
 /**
  * The visible workspace name, the baseline's `DrawerTitles.workspaceTitle`:
- * a default/blank name becomes 日常 (numbered from the second folder), a
- * path-like name keeps only its last segment, and an empty segment falls back
- * to 未命名文件夹.
+ * a default/blank name becomes 手机工作区 / Phone Workspace (numbered from the
+ * second folder), a path-like name keeps only its last segment, and an empty
+ * segment falls back to 未命名文件夹.
  */
-internal fun workspaceTitle(raw: String, index: Int): String {
+internal fun isDefaultWorkspaceTitle(raw: String): Boolean {
     val trimmed = raw.trim()
-    if (trimmed.isEmpty() || trimmed.lowercase() in DEFAULT_WORKSPACE_TITLES) {
-        return if (index > 1) {
+    return trimmed.isEmpty() || trimmed.lowercase() in DEFAULT_WORKSPACE_TITLES
+}
+
+internal fun workspaceTitle(raw: String, index: Int, languageId: String? = null): String {
+    val trimmed = raw.trim()
+    if (isDefaultWorkspaceTitle(trimmed)) {
+        val chinese = if (index > 1) {
             UiStrings.DRAWER_DEFAULT_FOLDER_INDEXED.format(index)
         } else {
             UiStrings.DRAWER_DEFAULT_FOLDER
         }
+        val english = if (index > 1) {
+            UiStrings.DRAWER_DEFAULT_FOLDER_INDEXED_EN.format(index)
+        } else {
+            UiStrings.DRAWER_DEFAULT_FOLDER_EN
+        }
+        return if (languageId == null) chinese else UiStrings.settingsNativeText(languageId, chinese, english)
     }
     return lastSegmentName(trimmed, UiStrings.SESSIONS_WORKSPACE_UNNAMED)
 }
@@ -2343,7 +2371,7 @@ private val DEFAULT_SESSION_TITLES: Set<String> =
 
 /** The baseline's default folder names, compared lowercase and never shown raw. */
 private val DEFAULT_WORKSPACE_TITLES: Set<String> =
-    setOf("workspace", "工作区", "工作文件夹", "default")
+    setOf("workspace", "工作区", "工作文件夹", "default", "default-workspace", "日常", "手机工作区", "phone workspace")
 
 private const val WORKSPACE_NAME_LIMIT: Int = 12
 private const val EXPANDED_ROTATION: Float = 90f

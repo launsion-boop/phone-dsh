@@ -1649,10 +1649,10 @@
           "glob": "spec/bot/v1/README.md"
         },
         {
-          "glob": "spec/bot/v1/{tool-catalog,card-payload,volatile-context,tool-effects,approval-patterns,memory-fact,memory-policy,memory-injection,memory-recall,routine,wake-routine,held-inbox-item,llm-ledger,model-purpose-policy,watchdog,fish-director,context-profiles,context-lint}.schema.json"
+          "glob": "spec/bot/v1/{tool-catalog,card-payload,volatile-context,tool-effects,approval-patterns,memory-fact,memory-policy,memory-injection,memory-recall,routine,wake-routine,held-inbox-item,llm-ledger,model-purpose-policy,watchdog,fish-director,context-profiles,context-lint,bot-profile}.schema.json"
         },
         {
-          "glob": "spec/bot/v1/golden/{tool-catalog,card-payload,card-payload.phone,volatile-context,tool-effects,approval-patterns,memory-fact,memory-policy,memory-injection,memory-recall,routine,wake-routine,held-inbox,llm-ledger,model-purpose-policy,watchdog,fish-director,context-profiles,context-lint}.json"
+          "glob": "spec/bot/v1/golden/{tool-catalog,card-payload,card-payload.phone,volatile-context,tool-effects,approval-patterns,memory-fact,memory-policy,memory-injection,memory-recall,routine,wake-routine,held-inbox,llm-ledger,model-purpose-policy,watchdog,fish-director,context-profiles,context-lint,bot-profile}.json"
         },
         {
           "glob": "spec/bot/v1/dshbot-pin.json"
@@ -1677,10 +1677,10 @@
         "spec/bot/v1/tools/validate_vectors.py"
       ],
       "source": {
-        "authority": "[bot/v1/README.md](bot/v1/README.md)、`spec/bot/v1/{tool-catalog,card-payload,volatile-context,tool-effects,approval-patterns,memory-fact,memory-policy,memory-injection,memory-recall,routine,wake-routine,held-inbox-item,llm-ledger,model-purpose-policy,watchdog,fish-director,context-profiles,context-lint}.schema.json` 與 golden",
+        "authority": "[bot/v1/README.md](bot/v1/README.md)、`spec/bot/v1/{tool-catalog,card-payload,volatile-context,tool-effects,approval-patterns,memory-fact,memory-policy,memory-injection,memory-recall,routine,wake-routine,held-inbox-item,llm-ledger,model-purpose-policy,watchdog,fish-director,context-profiles,context-lint,bot-profile}.schema.json` 與 golden",
         "ends": "dsh-bot `mcp/dshbotServer.cjs`、`cardPayloads.cjs`、`authz/`、`memory.cjs`、`wake.cjs`、`routines.cjs`、`ledger.cjs`、`llm/`、`watchdog/`、`prompt/assemble.cjs`、`eval/contextLint.cjs`；Swift `Sources/PhoneDSHBot/{MCP,Memory,Wake,Routines,Proactive,Providers,Ledger,Watchdog}`；TS `plugins/bot-runtime/`",
         "evidence": "`spec/bot/v1/tools/validate_vectors.py`；Swift/TS 各工作包測試；P1 卡片只登記 target，不進第一版工具面；macOS／Team／CloudAgent 不在手機工具面",
-        "triggers": "`spec/bot/v1/README.md`、`spec/bot/v1/{tool-catalog,card-payload,volatile-context,tool-effects,approval-patterns,memory-fact,memory-policy,memory-injection,memory-recall,routine,wake-routine,held-inbox-item,llm-ledger,model-purpose-policy,watchdog,fish-director,context-profiles,context-lint}.schema.json`、`spec/bot/v1/golden/{tool-catalog,card-payload,card-payload.phone,volatile-context,tool-effects,approval-patterns,memory-fact,memory-policy,memory-injection,memory-recall,routine,wake-routine,held-inbox,llm-ledger,model-purpose-policy,watchdog,fish-director,context-profiles,context-lint}.json`、`spec/bot/v1/dshbot-pin.json`、`spec/bot/v1/export-manifest.json`、`spec/tools/bot/**`、`Sources/PhoneDSHBot/**`、`plugins/{bot-runtime,profile}/**`"
+        "triggers": "`spec/bot/v1/README.md`、`spec/bot/v1/{tool-catalog,card-payload,volatile-context,tool-effects,approval-patterns,memory-fact,memory-policy,memory-injection,memory-recall,routine,wake-routine,held-inbox-item,llm-ledger,model-purpose-policy,watchdog,fish-director,context-profiles,context-lint,bot-profile}.schema.json`、`spec/bot/v1/golden/{tool-catalog,card-payload,card-payload.phone,volatile-context,tool-effects,approval-patterns,memory-fact,memory-policy,memory-injection,memory-recall,routine,wake-routine,held-inbox,llm-ledger,model-purpose-policy,watchdog,fish-director,context-profiles,context-lint,bot-profile}.json`、`spec/bot/v1/dshbot-pin.json`、`spec/bot/v1/export-manifest.json`、`spec/tools/bot/**`、`Sources/PhoneDSHBot/**`、`plugins/{bot-runtime,profile}/**`"
       }
     },
     {
@@ -1700,7 +1700,7 @@
           "glob": "spec/bot/v1/{row,row-batch,row-projection,user-action,action-result}.schema.json"
         },
         {
-          "glob": "spec/bot/v1/golden/{row-projection,row-protocol}.json"
+          "glob": "spec/bot/v1/golden/{bot-attachments,row-projection,row-protocol,row-protocol.phone}.json"
         },
         {
           "glob": "spec/bot/v1/dshbot-pin.json"
@@ -1725,10 +1725,10 @@
         "spec/bot/v1/tools/validate_vectors.py"
       ],
       "source": {
-        "authority": "`spec/bot/v1/{row,row-batch,row-projection,user-action,action-result}.schema.json` 與 golden",
+        "authority": "`spec/bot/v1/{row,row-batch,row-projection,user-action,action-result}.schema.json` 與 `spec/bot/v1/golden/{bot-attachments,row-projection,row-protocol,row-protocol.phone}.json`",
         "ends": "dsh-bot `dshProjection.cjs`、`transcriptWire.cjs`、`displayContract.js`；Swift `Sources/PhoneDSHBot/Rows`、SwiftUI `examples/probe-app/PhoneDSHProbe/Bot`",
         "evidence": "`spec/bot/v1/tools/validate_vectors.py`；Swift 行投影與 UI 測試隨 WP8/WP9 實作",
-        "triggers": "`spec/bot/v1/{row,row-batch,row-projection,user-action,action-result}.schema.json`、`spec/bot/v1/golden/{row-projection,row-protocol}.json`、`spec/bot/v1/dshbot-pin.json`、`spec/bot/v1/export-manifest.json`、`spec/tools/bot/**`、`Sources/PhoneDSHBot/**`、`examples/probe-app/PhoneDSHProbe/**`"
+        "triggers": "`spec/bot/v1/{row,row-batch,row-projection,user-action,action-result}.schema.json`、`spec/bot/v1/golden/{bot-attachments,row-projection,row-protocol,row-protocol.phone}.json`、`spec/bot/v1/dshbot-pin.json`、`spec/bot/v1/export-manifest.json`、`spec/tools/bot/**`、`Sources/PhoneDSHBot/**`、`examples/probe-app/PhoneDSHProbe/**`"
       }
     }
   ]
