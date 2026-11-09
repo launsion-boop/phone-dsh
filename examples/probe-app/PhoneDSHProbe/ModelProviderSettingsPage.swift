@@ -74,6 +74,7 @@ struct ModelProviderSettingsPage: View {
         .homeGroupedList()
         .navigationTitle(NativeText("模型服务", "Model Providers"))
         .navigationBarTitleDisplayMode(.inline)
+        .phoneOwnedSettingsNotice()
         .task { reload() }
         .onChange(of: hostRunning) { _, _ in reload() }
         .sheet(item: $editorSheet, onDismiss: {

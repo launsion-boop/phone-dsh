@@ -91,7 +91,7 @@ struct NativeShell: View {
         HomeAppearance.apply()
     }
 
-    @State private var drawerOpen = false
+    @State private var drawerOpen = ProcessInfo.processInfo.environment["PDSH_DEBUG_DRAWER"] == "1"
     /// Bottom menu selection; 任务 (the chat page) is where the app opens.
     @State private var selectedTab: HomeTab = .tasks
     @State private var keyboardVisible = false
@@ -102,9 +102,14 @@ struct NativeShell: View {
     @State private var sidebarCollapsed = false
     @State private var dragOffset: CGFloat = 0
     @State private var preferences = NativeChatPreferences.shared
+    @Environment(\.workspaceModels) private var models
     private let drawerWidth: CGFloat = 320
     #if DEBUG
     @State private var preview = PreviewScreen.requested
+    @State private var debugPCLinkScreen: String? = {
+        let value = ProcessInfo.processInfo.environment["PDSH_PCLINK_SCREEN"]
+        return value?.isEmpty == false ? value : nil
+    }()
     #endif
 
     var body: some View {
@@ -171,6 +176,17 @@ struct NativeShell: View {
         .fullScreenCover(item: $preview) { screen in
             NavigationStack { screen.body }
         }
+        // Unattended D2 E2E: open the real PC surfaces without a tap.
+        .fullScreenCover(item: Binding(
+            get: { debugPCLinkScreen.flatMap(DebugPCLinkScreen.init(rawValue:)) },
+            set: { debugPCLinkScreen = $0?.rawValue })) { screen in
+            NavigationStack {
+                switch screen {
+                case .pairing: PCPairingPage()
+                case .connected: ConnectedComputerPage()
+                }
+            }
+        }
         #endif
         #if DEBUG
         .task {
@@ -219,15 +235,51 @@ struct NativeShell: View {
                 }
             }
             tabPage(.tasks) {
-                NavigationStack {
-                    ChatPage(openDrawer: {
-                        if usesSidebar {
-                            withAnimation(.easeInOut(duration: 0.22)) { sidebarCollapsed.toggle() }
-                        } else {
-                            openDrawer()
+                // D2: keep one ChatPage per backend alive. Both stay in the
+                // hierarchy so drafts, scroll offsets and running turns never
+                // cross when the drawer segment changes.
+                ZStack {
+                    NavigationStack {
+                        ChatPage(modelOverride: models.phoneChat,
+                                 managementOverride: models.phoneManagement,
+                                 openDrawer: {
+                            if usesSidebar {
+                                withAnimation(.easeInOut(duration: 0.22)) { sidebarCollapsed.toggle() }
+                            } else {
+                                openDrawer()
+                            }
+                        }, drawerExpanded: sidebarVisible)
+                        .modifier(tabRoot(.tasks))
+                    }
+                    .opacity(models.isPhoneSelected ? 1 : 0)
+                    .allowsHitTesting(models.isPhoneSelected)
+                    .accessibilityHidden(!models.isPhoneSelected)
+
+                    if let pcChat = models.pcChat {
+                        NavigationStack {
+                            ChatPage(modelOverride: pcChat,
+                                     managementOverride: models.pcManagement,
+                                     openDrawer: {
+                                         if usesSidebar {
+                                             withAnimation(.easeInOut(duration: 0.22)) { sidebarCollapsed.toggle() }
+                                         } else {
+                                             openDrawer()
+                                         }
+                                     }, drawerExpanded: sidebarVisible)
+                            .modifier(tabRoot(.tasks))
                         }
-                    }, drawerExpanded: sidebarVisible)
-                    .modifier(tabRoot(.tasks))
+                        .opacity(models.isPhoneSelected ? 0 : 1)
+                        .allowsHitTesting(!models.isPhoneSelected)
+                        .accessibilityHidden(models.isPhoneSelected)
+                    } else if !models.isPhoneSelected {
+                        PCWorkspaceChatPlaceholder(openDrawer: {
+                            if usesSidebar {
+                                withAnimation(.easeInOut(duration: 0.22)) { sidebarCollapsed.toggle() }
+                            } else {
+                                openDrawer()
+                            }
+                        }, drawerExpanded: sidebarVisible)
+                    }
                 }
             }
             tabPage(.discover) {
@@ -740,6 +792,13 @@ struct EgressAllowListPage: View {
 #if DEBUG
 /// Debug-only screen router: one launch argument, one screen. Names are the
 /// same ones used in docs/screen-inventory.md.
+/// Unattended D2 screens, opened by `PDSH_PCLINK_SCREEN`.
+enum DebugPCLinkScreen: String, Identifiable, CaseIterable {
+    case pairing
+    case connected
+    var id: String { rawValue }
+}
+
 enum PreviewScreen: String, Identifiable, CaseIterable {
     case settings
     case settingsModel = "settings.model"

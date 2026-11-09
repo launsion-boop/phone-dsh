@@ -10,6 +10,13 @@ import UniformTypeIdentifiers
 import UIKit
 
 struct ChatPage: View {
+    /// D2: the DSH tab keeps one ChatPage per backend alive. Overrides pin the
+    /// instance to that backend; previews omit them and follow the drawer's
+    /// current model. Declared first so call sites can pass them before the
+    /// existing optional page parameters.
+    var modelOverride: ChatModel? = nil
+    var managementOverride: DSHManagementModel? = nil
+
     var openDrawer: (() -> Void)? = nil
     var drawerExpanded: Bool = false
     /// Optional deep entry used by the preview router/debug route.
@@ -21,19 +28,21 @@ struct ChatPage: View {
     var previewDraft: String? = nil
     #endif
 
-    @State private var model = ChatModel.shared
+    @Environment(\.workspaceModels) private var workspaceModels
+    private var model: ChatModel { modelOverride ?? workspaceModels.currentChat ?? ChatModel.shared }
+    private var management: DSHManagementModel {
+        managementOverride ?? workspaceModels.currentManagement ?? DSHManagementModel.shared
+    }
     @State private var voice = ComposerVoiceInput()
     @State private var showDeviceConnections = false
     @State private var deviceCoordinator = DeviceSessionCoordinator.shared
     @Environment(\.colorScheme) private var colorScheme
-    @State private var management = DSHManagementModel.shared
     @State private var draft = ""
     #if DEBUG
     @State private var didInjectDebugState = false
     @State private var hitProbe = ""
     #endif
     @State private var previousSessionKey = ""
-    @AppStorage("chat.drafts.v1") private var savedDrafts = "{}"
     private var busyEnterMode: String { preferences.busyEnterMode }
     /// Official default is completion-time folding; the `On next message`
     /// option is the iOS adaptation exposed in the header `...` menu.
@@ -242,6 +251,7 @@ struct ChatPage: View {
             .padding(.horizontal, 16)
 
             HeaderActionPill(hasOnlineDevices: deviceCoordinator.hasOnlineDevices,
+                             showsConnect: model.capabilities.phoneOnlyEndpoints,
                              connectIdentifier: "chat.connect-device",
                              menuIdentifier: nil,
                              showsMenuActivityDot: headerActivityRunning,
@@ -258,7 +268,14 @@ struct ChatPage: View {
     private var projectSubtitle: String {
         guard let id = model.currentSessionID,
               let workspace = management.workspaces.first(where: { $0.sessionIDs.contains(id) })
-        else { return DrawerTitles.defaultFolderName }
+        else {
+            return model.backendID == .phone
+                ? DrawerTitles.defaultFolderName
+                : workspaceModels.pcWorkspaceTitle
+        }
+        if model.backendID != .phone, management.isDefaultWorkspace(workspace) {
+            return workspaceModels.pcWorkspaceTitle
+        }
         return DrawerTitles.workspaceTitle(workspace.title, index: 1)
     }
 
@@ -319,6 +336,27 @@ struct ChatPage: View {
     var body: some View {
         VStack(spacing: 0) {
             chatHeader
+            // D2: PC-only status strips. They are plain text on purpose: the
+            // offline recovery action lives in the drawer's empty state, and a
+            // new Button here would be a new page-contract action.
+            if model.backendID != .phone {
+                if let warning = workspaceModels.pcLink.versionWarning {
+                    PCVersionWarningBar(warning: warning)
+                        .padding(.horizontal, HomeSpec.chromeInset)
+                        .padding(.bottom, 6)
+                }
+                if !model.isStarted {
+                    Text("电脑离线，发送已停用。草稿保留在 PC 工作区，不会自动切回手机。")
+                        .font(.system(size: 12))
+                        .foregroundStyle(HomeSpec.textSecondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(HomeSpec.userBubble, in: RoundedRectangle(cornerRadius: 10))
+                        .padding(.horizontal, HomeSpec.chromeInset)
+                        .padding(.bottom, 6)
+                }
+            }
             // A failure that belongs to one message is rendered under it; every
             // other failure (send refused, session open, stream error) needed a
             // surface too — it used to be invisible on this page.
@@ -533,6 +571,15 @@ struct ChatPage: View {
             debugInjectIfReady()
             #endif
         }
+        .onChange(of: model.isStarted) { _, started in
+            // PC reconnect: re-arm the session/adopt the remembered one and
+            // re-read the session list so the drawer is current again.
+            guard model.backendID != .phone else { return }
+            if started {
+                Task { await model.start() }
+                Task { await management.refresh() }
+            }
+        }
         .onAppear {
             if let initialPreviewTarget, previewTarget == nil {
                 previewTarget = initialPreviewTarget
@@ -553,13 +600,18 @@ struct ChatPage: View {
             // at launch, so reopening the App is enough to get a working
             // engine back.
             if !model.isStarted, !model.busy {
-                #if DEBUG
-                if previewItems == nil && PreviewScreen.requested == nil {
+                // The hidden phone ChatPage must not boot the phone host while
+                // the drawer is on the PC segment; switching back starts it.
+                let startsNow = model.backendID != .phone || workspaceModels.isPhoneSelected
+                if startsNow {
+                    #if DEBUG
+                    if previewItems == nil && PreviewScreen.requested == nil {
+                        Task { await model.start(autoRecover: true) }
+                    }
+                    #else
                     Task { await model.start(autoRecover: true) }
+                    #endif
                 }
-                #else
-                Task { await model.start(autoRecover: true) }
-                #endif
             }
             // Device-test automation (PDSH_CHAT_AUTOSTART / PDSH_CHAT_AUTOPROMPT).
             model.autostartIfRequested()
@@ -1330,7 +1382,8 @@ struct ChatPage: View {
     /// overshoots into empty space (the blank page). The last row is a real,
     /// laid-out frame; the lazy tail anchor can be scrolled past its estimate.
     private func scrollToTail(_ proxy: ScrollViewProxy, viewportHeight: CGFloat) {
-        guard transcriptContentHeight > viewportHeight + 1 else { return }
+        guard transcriptContentHeight.isFinite, viewportHeight.isFinite,
+              transcriptContentHeight > viewportHeight + 1 else { return }
         // The last row may be a folded tool-run group, not the last message;
         // scroll to the row that is actually last.
         if let last = timelineRows.last?.id {
@@ -1356,9 +1409,18 @@ struct ChatPage: View {
             guard !Task.isCancelled, followsTail else { return }
             if Date().timeIntervalSince(lastScrollTrace) > 1 {
                 lastScrollTrace = Date()
+                // Layout can briefly report a non-finite geometry during a
+                // rotation/keyboard transition; logging must not trap.
+                func integer(_ value: CGFloat) -> Int {
+                    // `.isFinite` alone is not enough: CGFloat can hold values
+                    // outside Int's range (e.g. a broken measurement sentinel).
+                    guard value.isFinite,
+                          value > CGFloat(Int.min), value < CGFloat(Int.max) else { return -1 }
+                    return Int(value.rounded())
+                }
                 ChatModel.appendDiagnostic(
-                    "scroll tail content=\(Int(transcriptContentHeight)) viewport=\(Int(viewportHeight)) "
-                    + "tail=\(Int(scrollTrace.tailOffsetY)) near=\(nearBottom) away=\(userScrolledAway)")
+                    "scroll tail content=\(integer(transcriptContentHeight)) viewport=\(integer(viewportHeight)) "
+                    + "tail=\(integer(scrollTrace.tailOffsetY)) near=\(nearBottom) away=\(userScrolledAway)")
             }
             scrollToTail(proxy, viewportHeight: viewportHeight)
         }
@@ -1371,7 +1433,10 @@ struct ChatPage: View {
     /// - C 两者都好:居中两行文字
     @ViewBuilder
     private func emptyTimeline(viewportHeight: CGFloat) -> some View {
-        if !model.isStarted {
+        if model.backendID != .phone {
+            pcEmptyTimeline
+                .padding(.top, 88)
+        } else if !model.isStarted {
             engineNotStartedState
                 .padding(.top, 88)
         } else if providerNeedsKey {
@@ -1380,6 +1445,26 @@ struct ChatPage: View {
         } else {
             readyState(viewportHeight: viewportHeight)
         }
+    }
+
+    /// PC workspace empty state. The phone's "start engine"/"configure model"
+    /// states do not apply: the computer owns both, and actions live in the
+    /// drawer.
+    private var pcEmptyTimeline: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(model.isStarted ? "这台电脑还没有打开会话" : "电脑离线")
+                .font(.system(size: 17.5, weight: .semibold))
+                .foregroundStyle(HomeSpec.textPrimary)
+            Text(model.isStarted
+                 ? "从会话列表选择会话，或新建一个。"
+                 : "停留在 PC 工作区，恢复后会自动重连；也可以在会话列表里重试。")
+                .font(.system(size: 14))
+                .foregroundStyle(HomeSpec.textPlaceholder)
+                .padding(.top, 8)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, HomeSpec.contentInset)
     }
 
     /// A:引擎还没启动。标题 + 说明 + 黑色主按钮,左右按内容边距 20 撑满。
@@ -2726,6 +2811,12 @@ struct ChatPage: View {
     }
 
     private func openWorkspaceResult(_ path: String) {
+        // PC artifacts stay on the computer in v1: no local page origin, no
+        // preview attempt. Show the location placeholder instead.
+        guard model.capabilities.localFilePreview else {
+            attachmentError = "文件在电脑上：v1 不能在手机本地预览或下载。"
+            return
+        }
         let normalized = Self.normalizedWorkspacePath(path)
         guard !normalized.isEmpty, !normalized.split(separator: "/").contains("..") else {
             attachmentError = "这个路径不能预览。"
@@ -3259,19 +3350,16 @@ struct ChatPage: View {
         }
     }
 
+    /// Drafts are keyed by `(BackendID, sessionID)` (P18/§6.2), so the same
+    /// DSH session ID on the phone and the PC never share a draft. The page is
+    /// kept alive per backend, so the in-memory draft is already isolated too.
     private func savedDraft(for key: String) -> String {
-        guard let data = savedDrafts.data(using: .utf8),
-              let values = try? JSONDecoder().decode([String: String].self, from: data) else { return "" }
-        return values[key] ?? ""
+        WorkspaceStorage.draft(for: model.backendID, sessionID: key) ?? ""
     }
 
     private func persistDraft(_ value: String, for key: String) {
         guard !key.isEmpty else { return }
-        var values = (try? JSONDecoder().decode([String: String].self, from: Data(savedDrafts.utf8))) ?? [:]
-        values[key] = value
-        if let data = try? JSONEncoder().encode(values), let string = String(data: data, encoding: .utf8) {
-            savedDrafts = string
-        }
+        WorkspaceStorage.setDraft(value, for: model.backendID, sessionID: key)
     }
 }
 
@@ -4621,6 +4709,15 @@ extension View {
 /// 权限卡本体。真实对话和 `-uiPreview chat.permission` 用同一份画法,
 /// 文案、颜色、按钮尺寸不会两处漂移。
 struct PermissionCardView: View {
+    /// A sandbox upgrade is visible in the host's reason text; this is a
+    /// warning-strength presentation, not a protocol field.
+    static func isSandboxEscalation(_ permission: ChatPermission) -> Bool {
+        let reason = permission.summary.lowercased()
+        let markers = ["danger-full-access", "danger full access", "full-access",
+                       "sandbox upgrade", "escalat", "完全权限", "沙箱升级"]
+        return markers.contains { reason.contains($0) }
+    }
+
     let permission: ChatPermission
     var isBusy: Bool = false
     var onAllow: () -> Void = {}
@@ -4642,6 +4739,17 @@ struct PermissionCardView: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .textSelection(.enabled)
+            }
+            // Sandbox escalation is the one approval that widens what the
+            // agent may touch for the rest of the turn; keep it loud. Multiple
+            // approvals in one turn replace this card one at a time, so the
+            // user answers each one (plan v2 §12.2.1).
+            if Self.isSandboxEscalation(permission) {
+                Label("这次审批可能把沙箱升级到完全权限，请先确认命令和影响。",
+                      systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(NativePagePalette.warning)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Button {

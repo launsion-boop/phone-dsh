@@ -192,6 +192,7 @@ struct NativeAgentPresetsPage: View {
         }
         .homeGroupedList()
         .navigationTitle(NativeText("Agent 预设", "Agent Presets"))
+        .phoneOwnedSettingsNotice()
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await model.refresh() }
         .task { await model.refresh() }

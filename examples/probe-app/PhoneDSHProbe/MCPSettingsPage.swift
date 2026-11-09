@@ -138,6 +138,7 @@ struct MCPSettingsPage: View {
         .homeGroupedList()
         .navigationTitle("MCP 网络与密钥")
         .navigationBarTitleDisplayMode(.inline)
+        .phoneOwnedSettingsNotice()
         .task { await model.refresh() }
         .onDisappear { discovery.clear() }
     }

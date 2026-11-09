@@ -106,6 +106,8 @@ targets:
         product: PhoneDSHDeviceTasks
       - package: PhoneDSH
         product: PhoneDSHVenus
+      - package: PhoneDSH
+        product: PhoneDSHPCLink
       - package: SwiftMarkdown
         product: Markdown
       - package: SwiftMath
@@ -157,6 +159,8 @@ targets:
       # runnable accelerator set for the production Web surface and the E2E.
       - package: PhoneDSH
         product: PhoneDSHShell
+      - package: PhoneDSH
+        product: PhoneDSHPCLink
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.phone-dsh.probe.probekit
@@ -265,6 +269,10 @@ targets:
       # shared WebHostConfiguration assembly.
       - package: PhoneDSH
         product: PhoneDSHShell
+      # PCLink D2: the pairing flow and PC backend are driven through the
+      # injected client seam in ProbeKit; the suite also names PCLink types.
+      - package: PhoneDSH
+        product: PhoneDSHPCLink
       - package: SwiftMarkdown
         product: Markdown
     settings:

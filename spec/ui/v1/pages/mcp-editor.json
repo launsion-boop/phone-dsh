@@ -7,14 +7,14 @@
   "sectionNote": null,
   "title": {
     "text": "添加 MCP 服务器",
-    "provenance": "MCPSettingsPage.swift:315",
+    "provenance": "MCPSettingsPage.swift:316",
     "anchor": ".navigationTitle(existing == nil ? \"添加 MCP 服务器\" : \"编辑 MCP 服务器\")"
   },
   "source": {
     "file": "MCPSettingsPage.swift",
     "path": "examples/probe-app/PhoneDSHProbe/MCPSettingsPage.swift",
-    "lines": 337,
-    "structLine": 204,
+    "lines": 338,
+    "structLine": 205,
     "renderedFrom": [
       "body"
     ],
@@ -47,7 +47,7 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "MCPSettingsPage.swift:236",
+          "provenance": "MCPSettingsPage.swift:237",
           "anchor": "TextField(\"名称（A-Z a-z 0-9 _ -）\", text: $draft.serverName)",
           "extraction": "syntax"
         },
@@ -62,7 +62,7 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "MCPSettingsPage.swift:240",
+          "provenance": "MCPSettingsPage.swift:241",
           "anchor": "TextField(\"MCP URL（http(s)://host/path）\", text: $draft.url)",
           "extraction": "syntax"
         },
@@ -77,7 +77,7 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "MCPSettingsPage.swift:246",
+          "provenance": "MCPSettingsPage.swift:247",
           "anchor": "Toggle(\"启用\", isOn: $draft.enabled)",
           "extraction": "syntax"
         },
@@ -92,12 +92,12 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "MCPSettingsPage.swift:247",
+          "provenance": "MCPSettingsPage.swift:248",
           "anchor": "TextField(\"工具调用超时（毫秒）\", text: $draft.toolCallTimeoutMs)",
           "extraction": "syntax"
         }
       ],
-      "provenance": "MCPSettingsPage.swift:235",
+      "provenance": "MCPSettingsPage.swift:236",
       "anchor": "Section(\"服务器\") {",
       "extraction": "syntax"
     },
@@ -122,7 +122,7 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "MCPSettingsPage.swift:254",
+          "provenance": "MCPSettingsPage.swift:255",
           "anchor": "TextField(\"Header，例如 Authorization\", text: $header.name)",
           "extraction": "syntax",
           "collection": "$draft.headers"
@@ -138,7 +138,7 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "MCPSettingsPage.swift:257",
+          "provenance": "MCPSettingsPage.swift:258",
           "anchor": "TextField(\"环境变量名（可留空自动生成）\", text: $header.envName)",
           "extraction": "syntax",
           "collection": "$draft.headers"
@@ -154,7 +154,7 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "MCPSettingsPage.swift:261",
+          "provenance": "MCPSettingsPage.swift:262",
           "anchor": "SecureField(header.hasStoredValue ? \"已保存；留空保持不变\" : \"认证值（只写入设备 Keychain）\",",
           "extraction": "syntax",
           "collection": "$draft.headers"
@@ -170,24 +170,24 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "MCPSettingsPage.swift:272",
+          "provenance": "MCPSettingsPage.swift:273",
           "anchor": "Label(\"添加认证头\", systemImage: \"plus\")",
           "extraction": "syntax"
         }
       ],
-      "provenance": "MCPSettingsPage.swift:275",
+      "provenance": "MCPSettingsPage.swift:276",
       "anchor": "Text(\"认证头与设备密钥\")",
       "extraction": "syntax",
       "hasHeader": true,
       "footer": {
         "text": "值只存在这台手机的钥匙串里,不会写进配置文件,也不会进日志。留空就是保留已经存过的值。",
         "labelExpr": null,
-        "provenance": "MCPSettingsPage.swift:277",
+        "provenance": "MCPSettingsPage.swift:278",
         "anchor": "Text(\"值只存在这台手机的钥匙串里,不会写进配置文件,也不会进日志。留空就是保留已经存过的值。\")"
       }
     },
     {
-      "id": "section-281",
+      "id": "section-282",
       "title": null,
       "titleTemplate": null,
       "dynamicTitle": false,
@@ -197,7 +197,7 @@
       "collection": null,
       "rows": [
         {
-          "id": "text-282",
+          "id": "text-283",
           "label": null,
           "labelExpr": "errorText",
           "kind": "text",
@@ -207,22 +207,22 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "MCPSettingsPage.swift:282",
+          "provenance": "MCPSettingsPage.swift:283",
           "anchor": "Text(errorText).foregroundStyle(.red)",
           "extraction": "manual"
         }
       ],
-      "provenance": "MCPSettingsPage.swift:281",
+      "provenance": "MCPSettingsPage.swift:282",
       "anchor": "Section {",
       "extraction": "syntax",
       "criterion": {
         "kind": "first-row-expression",
         "labelExpr": "errorText",
-        "provenance": "MCPSettingsPage.swift:282"
+        "provenance": "MCPSettingsPage.swift:283"
       }
     },
     {
-      "id": "section-286",
+      "id": "section-287",
       "title": null,
       "titleTemplate": null,
       "dynamicTitle": false,
@@ -242,7 +242,7 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "MCPSettingsPage.swift:293",
+          "provenance": "MCPSettingsPage.swift:294",
           "anchor": "Text(existing == nil ? \"保存并连接\" : \"保存修改并重连\")",
           "extraction": "syntax"
         },
@@ -257,18 +257,18 @@
           "destination": null,
           "writes": true,
           "condition": "let existing",
-          "provenance": "MCPSettingsPage.swift:308",
+          "provenance": "MCPSettingsPage.swift:309",
           "anchor": "Label(\"删除并撤销授权与密钥\", systemImage: \"trash\")",
           "extraction": "syntax"
         }
       ],
-      "provenance": "MCPSettingsPage.swift:286",
+      "provenance": "MCPSettingsPage.swift:287",
       "anchor": "Section {",
       "extraction": "syntax",
       "criterion": {
         "kind": "first-clickable-row",
         "label": "删除并撤销授权与密钥",
-        "provenance": "MCPSettingsPage.swift:308"
+        "provenance": "MCPSettingsPage.swift:309"
       }
     }
   ],
@@ -283,7 +283,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "MCPSettingsPage.swift:246",
+      "provenance": "MCPSettingsPage.swift:247",
       "anchor": "Toggle(\"启用\", isOn: $draft.enabled)",
       "extraction": "syntax"
     },
@@ -297,7 +297,7 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "MCPSettingsPage.swift:272",
+      "provenance": "MCPSettingsPage.swift:273",
       "anchor": "Label(\"添加认证头\", systemImage: \"plus\")",
       "extraction": "syntax",
       "labelAlternatives": []
@@ -312,7 +312,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "MCPSettingsPage.swift:293",
+      "provenance": "MCPSettingsPage.swift:294",
       "anchor": "Text(existing == nil ? \"保存并连接\" : \"保存修改并重连\")",
       "extraction": "syntax",
       "labelAlternatives": [
@@ -329,7 +329,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "MCPSettingsPage.swift:308",
+      "provenance": "MCPSettingsPage.swift:309",
       "anchor": "Label(\"删除并撤销授权与密钥\", systemImage: \"trash\")",
       "extraction": "syntax",
       "labelAlternatives": []
@@ -385,9 +385,9 @@
       "empty": [],
       "data": [
         {
-          "renders": "服务器 | 认证头与设备密钥 | untitled section at 281 | untitled section at 286",
+          "renders": "服务器 | 认证头与设备密钥 | untitled section at 282 | untitled section at 287",
           "when": null,
-          "provenance": "MCPSettingsPage.swift:204",
+          "provenance": "MCPSettingsPage.swift:205",
           "anchor": "private struct MCPEditorPage: View {",
           "note": "structural default: the sections above, when no condition overrides them"
         }
@@ -398,7 +398,7 @@
         {
           "renders": "ProgressView",
           "when": "saving",
-          "provenance": "MCPSettingsPage.swift:291",
+          "provenance": "MCPSettingsPage.swift:292",
           "anchor": "ProgressView()"
         }
       ]

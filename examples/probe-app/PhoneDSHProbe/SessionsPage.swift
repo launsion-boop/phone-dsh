@@ -91,8 +91,11 @@ struct SessionsPage: View {
     /// 运行中是正常状态,不抢眼:和「5 分钟前」同一档灰,不许用橙色(橙留给「要你注意」)。
     static let runningInk = NativePagePalette.inkSecondary
 
-    @State private var management = DSHManagementModel.shared
-    @State private var chat = ChatModel.shared
+    @Environment(\.workspaceModels) private var models
+    private var management: DSHManagementModel {
+        models.currentManagement ?? models.phoneManagement
+    }
+    private var chat: ChatModel { models.currentChat ?? models.phoneChat }
     @State private var showSchedules = false
     @State private var renameSessionTarget: ManagedSession?
     @State private var renameWorkspaceTarget: ManagedWorkspace?
@@ -112,7 +115,7 @@ struct SessionsPage: View {
         guard !trimmed.isEmpty else { return true }
         return displaySessionTitle(session).localizedCaseInsensitiveContains(trimmed)
     }
-    @State private var collapsedWorkspaceIDs = Set(UserDefaults.standard.stringArray(forKey: "phone-dsh.sidebar.collapsed-workspaces") ?? [])
+    @State private var collapsedWorkspaceIDs: Set<String> = []
     @State private var selectedQueueSession: ManagedSession?
     @State private var showingConfiguration = false
 
@@ -371,7 +374,11 @@ struct SessionsPage: View {
                     .homeSheetChrome()
             }
 
-            .task { await management.refresh() }
+            .task {
+                collapsedWorkspaceIDs = WorkspaceStorage.collapsedWorkspaceIDs(
+                    for: models.currentBackendID ?? .phone)
+                await management.refresh()
+            }
             .refreshable { await management.refresh() }
             .sheet(isPresented: $showingConfiguration) { NavigationStack { NativeConfigurationPage() } }
             .navigationDestination(item: $selectedQueueSession) { session in
@@ -525,7 +532,7 @@ struct SessionsPage: View {
     private func toggleWorkspace(_ id: String) {
         if collapsedWorkspaceIDs.contains(id) { collapsedWorkspaceIDs.remove(id) }
         else { collapsedWorkspaceIDs.insert(id) }
-        UserDefaults.standard.set(Array(collapsedWorkspaceIDs).sorted(), forKey: "phone-dsh.sidebar.collapsed-workspaces")
+        WorkspaceStorage.setCollapsedWorkspaceIDs(collapsedWorkspaceIDs, for: models.currentBackendID ?? .phone)
     }
 
     /// 新建会话这一行为什么按不动,一句话说清;能按就是 nil。
