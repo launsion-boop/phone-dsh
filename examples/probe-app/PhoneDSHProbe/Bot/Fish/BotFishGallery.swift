@@ -44,4 +44,39 @@ struct BotFishGalleryView: View {
         .accessibilityIdentifier("bot.fish.gallery")
     }
 }
+
+/// Animated companion to the still grid: the five runtime states whose motion
+/// the acceptance run samples three times. It lives in the capture app only.
+struct BotFishDynamicGalleryView: View {
+    static let states: [BotFishLifecycle] = [
+        .thinking, .working, .speaking, .alerting, .celebrate,
+    ]
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 8) {
+                ForEach(Self.states, id: \.rawValue) { state in
+                    HStack(spacing: 16) {
+                        BotFishView(state: state, size: 88)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(state.rawValue)
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(HomeSpec.textPrimary)
+                            Text("animated")
+                                .font(.system(size: 12))
+                                .foregroundStyle(HomeSpec.textSecondary)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 20)
+                    .accessibilityIdentifier("bot.fish.dynamic.\(state.rawValue)")
+                }
+            }
+            .padding(.vertical, 16)
+        }
+        .background(HomeSpec.page)
+        .accessibilityIdentifier("bot.fish.dynamic")
+    }
+}
+
 #endif

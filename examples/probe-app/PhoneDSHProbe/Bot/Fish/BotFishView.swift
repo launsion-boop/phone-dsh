@@ -18,6 +18,8 @@ struct BotFishView: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.displayScale) private var displayScale
+    @Environment(\.botFishPaused) private var botFishPaused
     @State private var engine = BotFishEngine()
     /// Re-evaluates the timeline after a poke or an environment change while
     /// the schedule was paused.
@@ -34,6 +36,10 @@ struct BotFishView: View {
     private var side: CGFloat { max(1, size) }
 
     private var paused: Bool {
+        // The Bot tab stays mounted while another tab is selected. NativeShell
+        // sets this key on that tab, so an invisible Bot tab stops scheduling
+        // frames and keeps whatever it painted last.
+        if botFishPaused { return true }
         if !isVisible { return true }
         // Always allow one frame so `still`, reduced-motion and static states
         // are painted before the schedule freezes.
@@ -46,7 +52,8 @@ struct BotFishView: View {
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: paused)) { timeline in
             let image = engine.advance(at: timeline.date, state: state,
-                                       still: still, reduced: reduceMotion)
+                                       still: still, reduced: reduceMotion,
+                                       size: side, displayScale: displayScale)
             layers(image)
         }
         // A paused `TimelineView` keeps its last content; changing identity on
@@ -81,6 +88,17 @@ struct BotFishView: View {
             engine.resetClock()
             refreshToken &+= 1
         }
+        .onChange(of: displayScale) { _, _ in
+            // A moved window can change the backing scale; the renderer
+            // rebuilds its display-sized buffers on the next frame.
+            engine.resetClock()
+            refreshToken &+= 1
+        }
+        .onChange(of: botFishPaused) { _, isPaused in
+            guard !isPaused else { return }
+            engine.resetClock()
+            refreshToken &+= 1
+        }
         .gesture(
             TapGesture().onEnded {
                 guard allowsPoke, !still else { return }
@@ -96,16 +114,11 @@ struct BotFishView: View {
     private func layers(_ image: UIImage?) -> some View {
         if let image {
             Canvas { context, canvasSize in
-                let width = canvasSize.width
-                let cropScale = width / 416
-                let destination = CGRect(
-                    x: -48 * cropScale,
-                    y: -30 * cropScale,
-                    width: 512 * cropScale,
-                    height: 512 * cropScale
-                )
+                // The renderer already rasterises only the 416px circle crop
+                // at this view's display scale, so the canvas draws 1:1.
                 context.clip(to: Path(ellipseIn: CGRect(origin: .zero, size: canvasSize)))
-                context.draw(Image(uiImage: image), in: destination)
+                context.draw(Image(uiImage: image),
+                             in: CGRect(origin: .zero, size: canvasSize))
             }
             .background(Color.white)
             .clipShape(Circle())
@@ -119,5 +132,18 @@ struct BotFishView: View {
                 .clipShape(Circle())
                 .overlay(Circle().strokeBorder(HomeSpec.borderList, lineWidth: 0.5))
         }
+    }
+}
+
+private struct BotFishPausedKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// True while the Bot tab is off-screen. `BotFishView` pauses its
+    /// `TimelineView` and keeps the last frame instead of rendering at 30fps.
+    var botFishPaused: Bool {
+        get { self[BotFishPausedKey.self] }
+        set { self[BotFishPausedKey.self] = newValue }
     }
 }

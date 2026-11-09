@@ -1,22 +1,25 @@
 // SPDX-License-Identifier: MIT
 
-// Shared, lazily loaded 大肥鱼 layers. The grayscale `body.png` is tinted once
-// through the upstream LUT and cached for the whole process: every
-// `BotFishView` instance paints from the same decoded images.
+// Shared, lazily loaded 大肥鱼 layers. The grayscale `body.png` is tinted
+// through the upstream LUT once per (colour, display-size bucket) and cached
+// for the whole process: every `BotFishView` instance paints from the same
+// decoded layers without allocating or re-tinting a 512×512 bitmap per frame.
 
 import Foundation
 import UIKit
 
 struct BotFishPalette {
+    let id: String
     let lut: [UInt8]
     let ink: UIColor
     let mid: UIColor
     let light: UIColor
 
     /// The fixed classic fish colour, `#1680F3`.
-    static let blue = BotFishPalette(hex: 0x1680F3)
+    static let blue = BotFishPalette(id: "blue", hex: 0x1680F3)
 
-    private init(hex: UInt32) {
+    private init(id: String, hex: UInt32) {
+        self.id = id
         let rgb = [
             Double((hex >> 16) & 0xFF),
             Double((hex >> 8) & 0xFF),
@@ -68,7 +71,7 @@ struct BotFishPalette {
 }
 
 final class BotFishAssets {
-    let body: UIImage
+    private let lumaBody: UIImage
     let fixed: UIImage
     let faceMask: UIImage
     let eyesOpen: UIImage
@@ -84,14 +87,20 @@ final class BotFishAssets {
     /// 12 pre-cropped 256×128 cells in row-major grid order.
     let mouthCels: [UIImage]
 
-    private static let pixelSize = 512
+    /// The visible circle crops 416 of the 512px source. A tinted body at a
+    /// 512-space raster side therefore reaches `pixelSide * 512 / 416` pixels;
+    /// round that up to a small bucket so a 32pt header avatar and a 96pt
+    /// empty-state avatar share one cache entry per process.
+    private static let sizeBuckets = [32, 48, 64, 96, 128, 192, 256, 384, 512, 768, 1024, 1536, 2048]
+    private var tintedBodies: [String: UIImage] = [:]
+    private let tintedBodyLock = NSLock()
 
     static let shared: BotFishAssets? = load()
 
-    private init(body: UIImage, fixed: UIImage, faceMask: UIImage, eyesOpen: UIImage,
+    private init(lumaBody: UIImage, fixed: UIImage, faceMask: UIImage, eyesOpen: UIImage,
                  eyesWhite: UIImage, irisLeft: UIImage, irisRight: UIImage, blush: UIImage,
                  expressiveEyes: UIImage, expressiveMouths: UIImage) {
-        self.body = body
+        self.lumaBody = lumaBody
         self.fixed = fixed
         self.faceMask = faceMask
         self.eyesOpen = eyesOpen
@@ -116,10 +125,9 @@ final class BotFishAssets {
               let irisRight = image("iris-right", folder: "base"),
               let blush = image("blush", folder: "base"),
               let expressiveEyes = image("eyes", folder: "expressive"),
-              let expressiveMouths = image("mouths", folder: "expressive"),
-              let body = tintBody(luma, palette: .blue)
+              let expressiveMouths = image("mouths", folder: "expressive")
         else { return nil }
-        return BotFishAssets(body: body, fixed: fixed, faceMask: faceMask,
+        return BotFishAssets(lumaBody: luma, fixed: fixed, faceMask: faceMask,
                              eyesOpen: eyesOpen, eyesWhite: eyesWhite,
                              irisLeft: irisLeft, irisRight: irisRight, blush: blush,
                              expressiveEyes: expressiveEyes, expressiveMouths: expressiveMouths)
@@ -162,17 +170,39 @@ final class BotFishAssets {
         return result
     }
 
+    /// Returns the LUT-tinted body at the nearest display-size bucket. The
+    /// returned bitmap is in the 512px source space, so callers keep the
+    /// upstream coordinates and only the colour/size rasterisation is shared.
+    func bodyLayer(palette: BotFishPalette, pixelSide: CGFloat) -> UIImage? {
+        let fullSourceSide = max(1, pixelSide * BotFishRenderer.size / BotFishRenderer.cropSide)
+        let bucket = Self.sizeBucket(for: fullSourceSide)
+        let key = "\(palette.id)@\(bucket)"
+        tintedBodyLock.lock()
+        defer { tintedBodyLock.unlock() }
+        if let cached = tintedBodies[key] { return cached }
+        guard let image = Self.tintBody(lumaBody, palette: palette, width: bucket, height: bucket) else {
+            return nil
+        }
+        tintedBodies[key] = image
+        return image
+    }
+
+    private static func sizeBucket(for pixelSide: CGFloat) -> Int {
+        let rounded = max(1, Int(ceil(Double(pixelSide))))
+        return sizeBuckets.first(where: { $0 >= rounded }) ?? sizeBuckets[sizeBuckets.count - 1]
+    }
+
     /// Upstream `tintBody`: grayscale luma drives a 256-entry LUT; alpha and
     /// framing are preserved. Returns a premultiplied RGBA bitmap.
-    private static func tintBody(_ image: UIImage, palette: BotFishPalette) -> UIImage? {
+    private static func tintBody(_ image: UIImage, palette: BotFishPalette,
+                                 width: Int, height: Int) -> UIImage? {
         guard let source = image.cgImage else { return nil }
-        let width = pixelSize
-        let height = pixelSize
         guard let context = CGContext(data: nil, width: width, height: height,
                                       bitsPerComponent: 8, bytesPerRow: width * 4,
                                       space: CGColorSpaceCreateDeviceRGB(),
                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
         else { return nil }
+        context.interpolationQuality = .high
         context.draw(source, in: CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)))
         guard let data = context.data else { return nil }
         let pixels = data.bindMemory(to: UInt8.self, capacity: width * height * 4)
@@ -194,6 +224,4 @@ final class BotFishAssets {
         guard let output = context.makeImage() else { return nil }
         return UIImage(cgImage: output, scale: 1, orientation: .up)
     }
-
-
 }

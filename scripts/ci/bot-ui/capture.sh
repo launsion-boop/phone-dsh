@@ -68,6 +68,7 @@ for file in NativeParityTokens.swift HomeSpec.swift NativeChatPreferences.swift 
         cp "$ROOT/examples/probe-app/PhoneDSHProbe/$file" "$WORK/Sources/$file"
     fi
 done
+cp "$ROOT/scripts/ci/bot-ui/CaptureDependencies.swift" "$WORK/Sources/CaptureDependencies.swift"
 cp "$ROOT/scripts/ci/bot-ui/CaptureApp.swift" "$WORK/Sources/CaptureApp.swift"
 cp "$ROOT/scripts/ci/bot-ui/CaptureUITests.swift" "$WORK/UITests/CaptureUITests.swift"
 
@@ -174,7 +175,7 @@ xcrun simctl install "$DEVICE_ID" "$APP"
 
 # Keep the capture list in step with `BotUIFixtureCase` without a second
 # hardcoded copy: bot-page owns the enum and may add fixture ids. `gallery`
-# is capture-only and is appended here.
+# and the animated `dynamic` burst page are capture-only and appended here.
 CASES=$(python3 - "$ROOT/examples/probe-app/PhoneDSHProbe/Bot/BotFixtures.swift" <<'PY'
 import sys
 
@@ -202,7 +203,7 @@ for line in lines[start + 1:]:
         break
 if not cases:
     raise SystemExit("no BotUIFixtureCase cases parsed from " + path)
-print(" ".join(cases + ["gallery"]))
+print(" ".join(cases + ["gallery", "dynamic"]))
 PY
 )
 APPEARANCE_LIST=$(echo "$APPEARANCES" | tr ',' ' ')
@@ -218,6 +219,8 @@ for APPEARANCE in $APPEARANCE_LIST; do
             -BotUIRowGolden "$ROOT/spec/bot/v1/golden/row-protocol.json" >/dev/null
         if [ "$CASE" = "gallery" ]; then
             sleep 4
+        elif [ "$CASE" = "dynamic" ]; then
+            sleep 2
         else
             sleep 2
         fi
@@ -234,23 +237,51 @@ print("Bot UI conformance checks: PASS (" + ", ".join(result.get("checks", [])) 
 PY
             CHECKED=1
         fi
-        xcrun simctl io "$DEVICE_ID" screenshot "$OUT/$APPEARANCE/$CASE.png" >/dev/null
-        [ -s "$OUT/$APPEARANCE/$CASE.png" ] || { echo "empty screenshot: $APPEARANCE/$CASE" >&2; exit 1; }
-        echo "captured $APPEARANCE/$CASE.png"
+        if [ "$CASE" = "dynamic" ]; then
+            # Three consecutive frames of the same running process, ~150ms
+            # apart, for thinking/working/speaking/alerting/celebrate.
+            for FRAME in 1 2 3; do
+                python3 -c 'import time; time.sleep(0.15)'
+                SHOT="$OUT/$APPEARANCE/dynamic-$FRAME.png"
+                xcrun simctl io "$DEVICE_ID" screenshot "$SHOT" >/dev/null
+                [ -s "$SHOT" ] || { echo "empty screenshot: $APPEARANCE/dynamic-$FRAME" >&2; exit 1; }
+                echo "captured $APPEARANCE/dynamic-$FRAME.png"
+            done
+        else
+            xcrun simctl io "$DEVICE_ID" screenshot "$OUT/$APPEARANCE/$CASE.png" >/dev/null
+            [ -s "$OUT/$APPEARANCE/$CASE.png" ] || { echo "empty screenshot: $APPEARANCE/$CASE" >&2; exit 1; }
+            echo "captured $APPEARANCE/$CASE.png"
+        fi
     done
 done
 
 python3 - "$OUT" "$APPEARANCES" "$DEVICE_ID" "$CASES" <<'PY'
+import hashlib
 import json
 import os
 import sys
 out, appearances, device, case_list = sys.argv[1:]
 cases = case_list.split()
 shots = []
+bursts = []
 for appearance in appearances.split(","):
     for case in cases:
-        path = os.path.join(out, appearance, case + ".png")
-        shots.append({"appearance": appearance, "case": case, "path": os.path.relpath(path, out), "bytes": os.path.getsize(path)})
+        if case == "dynamic":
+            burst = {"appearance": appearance, "intervalMs": 150, "paths": []}
+            for frame in (1, 2, 3):
+                path = os.path.join(out, appearance, f"dynamic-{frame}.png")
+                burst["paths"].append(os.path.relpath(path, out))
+                shots.append({"appearance": appearance, "case": f"dynamic-{frame}",
+                              "path": os.path.relpath(path, out), "bytes": os.path.getsize(path)})
+            bursts.append(burst)
+        else:
+            path = os.path.join(out, appearance, case + ".png")
+            shots.append({"appearance": appearance, "case": case,
+                          "path": os.path.relpath(path, out), "bytes": os.path.getsize(path)})
+for shot in shots:
+    path = os.path.join(out, shot["path"])
+    with open(path, "rb") as handle:
+        shot["sha256"] = hashlib.sha256(handle.read()).hexdigest()
 result = {
     "status": "PASS",
     "evidence": "iOS Simulator; XCUIApplication interaction tests and simctl screen captures",
@@ -258,6 +289,11 @@ result = {
     "conformance": "PASS",
     "interactions": "PASS",
     "screenshots": shots,
+    "bursts": {
+        "states": ["thinking", "working", "speaking", "alerting", "celebrate"],
+        "intervalMs": 150,
+        "captures": bursts,
+    },
 }
 with open(os.path.join(out, "manifest.json"), "w", encoding="utf-8") as handle:
     json.dump(result, handle, ensure_ascii=False, indent=2)
