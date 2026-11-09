@@ -18,6 +18,16 @@ public enum BotToolCatalog {
     public static let sendToAgentName = "SendToAgent"
     public static let createTeammateName = "CreateTeammate"
 
+    /// FishAction is advertised by the catalog but executed through the same
+    /// host-tool seam as the team tools. The model-facing enum is the upstream
+    /// `FISH_REACTIONS` vocabulary; `isRegistered` stays false so the runtime
+    /// never lets the generic catalog dispatch claim the cosmetic call.
+    public static let fishActionName = "FishAction"
+    public static let fishActionNames = [fishActionName]
+    public static let fishActions = BotFishReactionVocabulary.actions
+    public static let fishExpressions = BotFishReactionVocabulary.expressions
+    public static let fishReactions = BotFishReactionVocabulary.reactions
+
     public static let definitions: [BotMCPToolDefinition] = [
         tool("ask_user", "Show a question card with 2-4 concrete suggested replies. The host assigns each option a stable optionID. Put a clearly best option first, mark at most one option recommended:true (or style:primary), and never recommend a danger option. A successful card ends the turn.", schema([
             "question": string(), "options": array(object([
@@ -146,7 +156,7 @@ public enum BotToolCatalog {
 
     public static func allDefinitions(roster: BotRoster,
                                       callerBotID: String?) -> [BotMCPToolDefinition] {
-        definitions + [volatileContextDefinition]
+        definitions + [fishActionDefinition, volatileContextDefinition]
             + teamDefinitions(roster: roster, callerBotID: callerBotID)
     }
 
@@ -168,6 +178,24 @@ public enum BotToolCatalog {
         return "Available bots: \(entries.isEmpty ? "(none)" : entries.joined(separator: "; "))."
     }
 
+    /// Upstream `tools/fish.cjs` description, verbatim: cosmetic, at most once
+    /// per reply, never completion evidence, and never forced on a plain or
+    /// serious answer.
+    public static let fishActionDescription =
+        "Play one cosmetic gesture or temporary facial expression on the DS big-fish character. "
+        + "Use it at most once per reply, only when the emotional beat genuinely fits (celebration, apology, shyness, cheering the user up). "
+        + "It never changes task state, progress, files, approvals or what actually happened; never use it as evidence that work is done. "
+        + "Do not use it when the user asks for a plain, serious answer. "
+        + "Actions: \(fishActions.joined(separator: ", ")). "
+        + "Expressions: \(fishExpressions.joined(separator: ", "))."
+
+    public static let fishActionDefinition = BotMCPToolDefinition(
+        name: fishActionName,
+        description: fishActionDescription,
+        inputSchema: schema([
+            "action": enumString(fishReactions),
+        ], required: ["action"], additionalProperties: false))
+
     public static let volatileContextDefinition = BotMCPToolDefinition(
         name: volatileContextName,
         description: "Return only the caller session's current Bot variant, persona, memory and automation snapshot.",
@@ -181,7 +209,7 @@ public enum BotToolCatalog {
         ]))
 
     public static var allDefinitions: [BotMCPToolDefinition] {
-        definitions + [volatileContextDefinition] + baseTeamDefinitions
+        definitions + [fishActionDefinition, volatileContextDefinition] + baseTeamDefinitions
     }
 
     public static func isRegistered(_ name: String) -> Bool {
@@ -190,6 +218,10 @@ public enum BotToolCatalog {
 
     public static func isTeamTool(_ name: String) -> Bool {
         teamToolNames.contains(name)
+    }
+
+    public static func isFishTool(_ name: String) -> Bool {
+        (name.components(separatedBy: "__").last ?? name) == fishActionName
     }
 
     private static let sendToAgentDescription =

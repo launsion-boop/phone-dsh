@@ -79,6 +79,22 @@ public enum BotDisplayContract {
     public static let hidden = "hidden"
     public static let p1CardTypes: Set<BotWidgetCardType> = [.table, .callout, .info, .payload, .library]
 
+    /// Cosmetic tool invocations never enter the transcript's tool list.
+    /// Upstream hides every `tool-call` row; phoneDSH keeps its process rows
+    /// for real work but must exclude the Agent's fish gestures so a wink or a
+    /// bow is not presented as task progress. `FishAction` is the only
+    /// advertisement-only tool today; the check also accepts the
+    /// `mcp__phone__`/`mcp__dshbot__` prefixed names.
+    public static let hiddenToolNames: Set<String> = [BotToolCatalog.fishActionName]
+
+    public static func isToolCallVisible(named name: String) -> Bool {
+        !hiddenToolNames.contains(name.components(separatedBy: "__").last ?? name)
+    }
+
+    public static func visibleToolCallNames(_ names: [String]) -> [String] {
+        names.filter { isToolCallVisible(named: $0) }
+    }
+
     public static func project(_ input: [String: BotJSONValue],
                                profile: BotDisplayProfile = .phoneP0) -> BotDisplayProjection {
         let kind = BotRowJSON.string(input, "kind") ?? "message"
@@ -139,6 +155,9 @@ public enum BotDisplayContract {
             return projection(visible ? "notice" : hidden, visible && hasText(input, keys: ["text"]),
                               BotWireRecord(kind: "event", type: "notice"))
         case "tool-call":
+            // Every tool-call row is hidden by the upstream contract. The
+            // name-aware helper above exists for the mobile process list, which
+            // renders dots for real tools but must never show FishAction.
             return projection(hidden, false, BotWireRecord(kind: "event", type: "tool-call"))
         case "deleted":
             return projection(hidden, false, BotWireRecord(kind: "event", type: "deleted"))

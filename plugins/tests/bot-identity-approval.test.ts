@@ -585,3 +585,26 @@ test('team tools are auto-audited and never ask for another approval card', asyn
     await ctx.fiber.dispose()
   }
 })
+
+test('FishAction is cosmetic, auto-policy and never asks for an approval card', async () => {
+  assert.equal(phoneEffectsForApproval('mcp__phone__FishAction', { action: 'happy' }).length, 0)
+  assert.equal(needsStructuralApproval('mcp__phone__FishAction'), true)
+
+  const ctx = await mount()
+  let approvals = 0
+  try {
+    registerProbe(ctx, 'mcp__phone__FishAction')
+    await ctx.plugin(dshbotApprovalGate, {
+      request: async () => { approvals += 1; return { ok: true, allowed: true } },
+    })
+    const result = await executeTool(ctx, {
+      callId: ToolCallId('fish-happy'), name: 'mcp__phone__FishAction',
+      arguments: { action: 'happy' },
+      signal: new AbortController().signal, agent: agent(),
+    })
+    assert.equal(result.isError, false)
+    assert.equal(approvals, 0)
+  } finally {
+    await ctx.fiber.dispose()
+  }
+})

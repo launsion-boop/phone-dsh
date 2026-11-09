@@ -26,13 +26,26 @@ struct BotFishGalleryView: View {
     /// The four crowned states the capture flow checks at 96pt.
     static let crownedStates: [BotFishLifecycle] = [.idle, .thinking, .working, .happy]
 
+    /// Every Agent-triggerable gesture/expression, one still tile each. The
+    /// renderer freezes an action at a recognisable beat and a face at 650 ms,
+    /// so a screenshot can verify the pose and the upright head direction.
+    static let reactions: [BotFishReaction] = BotFishReactionVocabulary.reactions.compactMap { name in
+        BotFishReaction.reaction(
+            from: BotFishToolCall(id: "gallery-\(name)", name: "FishAction",
+                                  arguments: .object(["action": .string(name)]),
+                                  time: 0),
+            now: 0)
+    }
+
     private let columns = [GridItem(.adaptive(minimum: 100), spacing: 12)]
     private let crownedColumns = [GridItem(.adaptive(minimum: 96), spacing: 12)]
+    private let reactionColumns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 6)
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 crownedSection
+                reactionsSection
                 LazyVGrid(columns: columns, spacing: 14) {
                     ForEach(Self.states, id: \.rawValue) { state in
                         VStack(spacing: 4) {
@@ -51,6 +64,38 @@ struct BotFishGalleryView: View {
         }
         .background(HomeSpec.page)
         .accessibilityIdentifier("bot.fish.gallery")
+    }
+
+    /// One still tile per action/expression. Tiles are kept compact so the
+    /// whole reaction grid and the beginning of the lifecycle grid fit the
+    /// capture screen without scrolling.
+    private var reactionsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("reactions")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(HomeSpec.textPrimary)
+                Text("FishAction · 一次性动作 / 表情")
+                    .font(.system(size: 11))
+                    .foregroundStyle(HomeSpec.textSecondary)
+            }
+            LazyVGrid(columns: reactionColumns, spacing: 8) {
+                ForEach(Self.reactions) { reaction in
+                    VStack(spacing: 2) {
+                        BotFishView(state: .idle, size: 64, still: true, reaction: reaction)
+                        Text(reaction.name)
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(HomeSpec.textSecondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                    }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("reaction \(reaction.name)")
+                    .accessibilityIdentifier("bot.fish.gallery.reaction.\(reaction.name)")
+                }
+            }
+        }
+        .accessibilityIdentifier("bot.fish.gallery.reactions")
     }
 
     /// The main-Bot crown row: idle/thinking/working/happy at 96pt, then the

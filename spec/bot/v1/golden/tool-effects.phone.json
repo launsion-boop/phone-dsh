@@ -50,6 +50,27 @@
         "known": true,
         "isMcp": false
       }
+    },
+    {
+      "name": "FishAction",
+      "args": {
+        "action": "happy"
+      },
+      "policy": "auto",
+      "effect": {
+        "tool": "FishAction",
+        "operation": "ui.FishAction",
+        "resource": "*",
+        "target": "*",
+        "mutability": "read",
+        "policy": "auto",
+        "label": "播放角色動作",
+        "detail": "工具 FishAction（action=happy）",
+        "ui": true,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
     }
   ]
 }
