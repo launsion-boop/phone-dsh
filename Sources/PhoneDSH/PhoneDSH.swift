@@ -212,6 +212,26 @@ public struct PhoneDSHConfiguration: Equatable, Sendable {
     public var drainDeadline: TimeInterval
     /// How long ``PhoneDSHHost/start()`` waits for the Worker HELLO.
     public var helloTimeout: TimeInterval
+    /// Resume-only budget for the page navigation and its boot-ready report.
+    ///
+    /// A cold start may spend `engine.bootTimeout` (the App's 600 s ceiling);
+    /// a foreground resume must not. The observed cold boot is 1–2 s, so the
+    /// default is 30 s (15–30× the measured value, and still far below the
+    /// App's old 300 s watchdog). A timeout is a transient boot fault: the
+    /// controller enters `Backoff` and the App rebuilds the engine once.
+    public var resumeBootReadyTimeout: TimeInterval
+    /// Resume-only budget for the Worker HELLO after boot-ready. Defaults to
+    /// the same 30 s as ``resumeBootReadyTimeout``.
+    public var resumeHelloTimeout: TimeInterval
+    /// How long a resume waits for the WKWebView to be attached and
+    /// occlusion-visible before it loads the page anyway.
+    ///
+    /// This is deliberately short (5 s): the evidence points at the
+    /// scenePhase transition handing WebKit a page before RunningBoard grants
+    /// the foreground assertion, but the page must still boot in a harness
+    /// where the signal is never reported. A timeout continues, is logged, and
+    /// is not a failure.
+    public var resumeVisibilityTimeout: TimeInterval
     /// How long the session event stream of an open turn may stay silent
     /// before the host aborts the turn (G2-FIX-12).
     ///
@@ -272,6 +292,11 @@ public struct PhoneDSHConfiguration: Equatable, Sendable {
     ///   - plannedRestartInterval: WebContent restart interval (PLAN §2.5).
     ///   - drainDeadline: `Running -> Draining` deadline (PLAN §2.5).
     ///   - helloTimeout: How long `start()` waits for the Worker HELLO.
+    ///   - resumeBootReadyTimeout: Resume-only page navigation/boot-ready
+    ///     budget.
+    ///   - resumeHelloTimeout: Resume-only Worker HELLO budget.
+    ///   - resumeVisibilityTimeout: Resume-only wait for the WebView to be
+    ///     attached and occlusion-visible.
     ///   - turnInactivityTimeout: Event-silence threshold of an open turn
     ///     (G2-FIX-12); must be a positive finite number of seconds.
     public init(workspaceRoot: URL, token: String, origin: URL,
@@ -290,6 +315,9 @@ public struct PhoneDSHConfiguration: Equatable, Sendable {
                 plannedRestartInterval: TimeInterval? = nil,
                 drainDeadline: TimeInterval? = nil,
                 helloTimeout: TimeInterval = 60,
+                resumeBootReadyTimeout: TimeInterval = 30,
+                resumeHelloTimeout: TimeInterval = 30,
+                resumeVisibilityTimeout: TimeInterval = 5,
                 turnInactivityTimeout: TimeInterval =
                     PhoneDSHConfiguration.defaultTurnInactivityTimeout,
                 singleFileLimitBytes: Int? = nil) {
@@ -327,6 +355,9 @@ public struct PhoneDSHConfiguration: Equatable, Sendable {
             ?? TimeInterval(resolvedBudgets.plannedRestartIntervalSeconds)
         self.drainDeadline = drainDeadline ?? HostStateMachine.drainDeadlineSeconds
         self.helloTimeout = max(1, helloTimeout)
+        self.resumeBootReadyTimeout = max(1, resumeBootReadyTimeout)
+        self.resumeHelloTimeout = max(1, resumeHelloTimeout)
+        self.resumeVisibilityTimeout = max(0, resumeVisibilityTimeout)
         // Left exactly as configured so ``validateForStart()`` can reject an
         // unusable value instead of silently clamping it.
         self.turnInactivityTimeout = turnInactivityTimeout
@@ -374,6 +405,9 @@ public struct PhoneDSHConfiguration: Equatable, Sendable {
             && lhs.plannedRestartInterval == rhs.plannedRestartInterval
             && lhs.drainDeadline == rhs.drainDeadline
             && lhs.helloTimeout == rhs.helloTimeout
+            && lhs.resumeBootReadyTimeout == rhs.resumeBootReadyTimeout
+            && lhs.resumeHelloTimeout == rhs.resumeHelloTimeout
+            && lhs.resumeVisibilityTimeout == rhs.resumeVisibilityTimeout
             && lhs.turnInactivityTimeout == rhs.turnInactivityTimeout
             && lhs.credentialProviderIdentity == rhs.credentialProviderIdentity
             && lhs.officialDeepSeekWebCredentialProvider.map(Self.identity(of:))

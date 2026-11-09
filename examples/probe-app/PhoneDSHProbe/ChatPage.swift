@@ -362,6 +362,9 @@ struct ChatPage: View {
             // A failure that belongs to one message is rendered under it; every
             // other failure (send refused, session open, stream error) needed a
             // surface too — it used to be invisible on this page.
+            if let recovery = model.recoveryBannerText {
+                recoveryBanner(recovery)
+            }
             if model.failedItemID == nil, let error = model.userFacingError {
                 errorBanner(error)
             }
@@ -1012,6 +1015,26 @@ struct ChatPage: View {
                 }
             }
         }
+    }
+
+    private func recoveryBanner(_ message: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            ProgressView()
+                .controlSize(.mini)
+                .tint(HomeSpec.textSecondary)
+            Text(message)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(HomeSpec.textSecondary)
+            Spacer(minLength: 0)
+            if let hint = model.recoveryQueuedHint {
+                Text(hint)
+                    .font(.system(size: 12))
+                    .foregroundStyle(HomeSpec.textPlaceholder)
+            }
+        }
+        .padding(.horizontal, 4)
+        .padding(.vertical, 6)
+        .accessibilityElement(children: .combine)
     }
 
     private func errorBanner(_ message: String) -> some View {
@@ -2593,6 +2616,10 @@ struct ChatPage: View {
 
     private var composerEnabled: Bool {
         guard model.pendingQuestion == nil, model.pendingPermission == nil, !isSelectingAccessMode else { return false }
+        // During a resume/rebuild the send is queued and delivered afterwards;
+        // the composer must not refuse the person mid-recovery, even if the
+        // stale pre-park turn flag is still set until the resume reconciles it.
+        if model.isHostRecovering { return model.canQueuePromptDuringRecovery }
         if model.turnRunning { return busyEnterMode == "steer" ? model.canSteer : model.canSend }
         return model.canSend || model.canStartBySending
     }

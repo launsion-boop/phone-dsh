@@ -64,8 +64,9 @@ final class WebEngineReadableState: @unchecked Sendable {
     private var attached = false
     private var occlusionVisible: Bool?
     private var terminations: UInt64 = 0
-    private var status: WebEngineBootStatus?
+    var status: WebEngineBootStatus?
     private var probeBaseline: Double?
+    private var bootTimings = WebEngineBootPhaseTimings()
 
     var isLockdownModeEnabled: Bool {
         lock.lock()
@@ -126,6 +127,18 @@ final class WebEngineReadableState: @unchecked Sendable {
     func setBootStatus(_ value: WebEngineBootStatus?) {
         lock.lock()
         status = value
+        lock.unlock()
+    }
+
+    var bootPhaseTimings: WebEngineBootPhaseTimings {
+        lock.lock()
+        defer { lock.unlock() }
+        return bootTimings
+    }
+
+    func setBootPhaseTimings(_ value: WebEngineBootPhaseTimings) {
+        lock.lock()
+        bootTimings = value
         lock.unlock()
     }
 

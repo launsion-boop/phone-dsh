@@ -981,11 +981,13 @@ final class GatedExecProvider: ExecProvider, @unchecked Sendable {
 
 final class MockEngine: WebEngineControlling, WebEngineRestartRequesting,
     WebEngineWorkerTerminating, WebEngineShutdownRequesting,
-    PhoneDSHEngineEventSource, @unchecked Sendable {
+    PhoneDSHEngineEventSource, WebEngineBootPhaseTimingReporting,
+    @unchecked Sendable {
     let worker: MockWorker
     private let lock = NSLock()
     private var lockdown = false
     private var attached = true
+    private var occlusion: Bool? = true
     private var bootError: Error?
     /// How many more boots `bootError` fails; `Int.max` means every boot.
     private var bootFailuresRemaining = 0
@@ -995,10 +997,20 @@ final class MockEngine: WebEngineControlling, WebEngineRestartRequesting,
     private var terminateCountValue = 0
     private var shutdownCountValue = 0
     private var lastConfigurationValue: WebEngineConfiguration?
+    private var phaseTimings = WebEngineBootPhaseTimings()
+    private var attachedAtBootValue = true
+    private var shutdownHookValue: (@Sendable () -> Void)?
     /// Test-only pause before the Worker connects. A recovery boot keeps the
     /// controller in `Recovering` (and therefore the replay window open) for
     /// this long, so a regression can observe the edge before HELLO.
     private var bootDelayValue: TimeInterval = 0
+    /// A boot that never reports ready. The task sleeps until the host cancels
+    /// it (or the test ends), so the resume timeout is exercised end to end.
+    private var bootHangsValue = false
+    private var bootHangsAfterNavigationValue = false
+    /// A visibility refresh that never returns, like a UI-actor hop that a
+    /// synchronously blocked main thread can never service.
+    private var refreshHangsValue = false
     /// Test-only hook run while the old Worker is being replaced, after the
     /// controller seal and before the replacement Worker connects. It lets a
     /// planned-restart regression simulate the old Worker writing a child
@@ -1026,6 +1038,40 @@ final class MockEngine: WebEngineControlling, WebEngineRestartRequesting,
         lock.lock()
         defer { lock.unlock() }
         return attached
+    }
+
+    var isWindowOcclusionVisible: Bool? {
+        lock.lock()
+        defer { lock.unlock() }
+        return occlusion
+    }
+
+    func refreshVisibilityForResume() async -> Bool {
+        lock.lock()
+        let hangs = refreshHangsValue
+        lock.unlock()
+        if hangs {
+            // Deliberately never resumed: the caller's bounded wait must still
+            // expire without the main run loop servicing a queued hop.
+            await withCheckedContinuation { (_: CheckedContinuation<Void, Never>) in }
+        }
+        return isAttachedWithVisibleArea
+    }
+
+    var phaseTimingsValue: WebEngineBootPhaseTimings {
+        lock.lock()
+        defer { lock.unlock() }
+        return phaseTimings
+    }
+
+    func bootPhaseTimings() -> WebEngineBootPhaseTimings {
+        phaseTimingsValue
+    }
+
+    var attachedAtBoot: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return attachedAtBootValue
     }
 
     var bootCount: Int {
@@ -1094,6 +1140,33 @@ final class MockEngine: WebEngineControlling, WebEngineRestartRequesting,
         lock.unlock()
     }
 
+    func setOcclusionVisible(_ value: Bool?) {
+        lock.lock()
+        occlusion = value
+        lock.unlock()
+    }
+
+    func setRefreshHangs(_ value: Bool) {
+        lock.lock()
+        refreshHangsValue = value
+        lock.unlock()
+    }
+
+    func setShutdownHook(_ hook: (@Sendable () -> Void)?) {
+        lock.lock()
+        shutdownHookValue = hook
+        lock.unlock()
+    }
+
+    /// Makes every later boot suspend without connecting the Worker. The sleep
+    /// is cancellable so the host's deadline teardown can end it.
+    func setBootHangs(_ value: Bool, afterNavigation: Bool = false) {
+        lock.lock()
+        bootHangsValue = value
+        bootHangsAfterNavigationValue = afterNavigation
+        lock.unlock()
+    }
+
     /// Makes the next `times` boots fail with `error` (`Int.max` for every
     /// boot). A bounded count lets a regression prove the host's one-retry
     /// replacement-Worker recovery without inventing a second engine.
@@ -1115,9 +1188,11 @@ final class MockEngine: WebEngineControlling, WebEngineRestartRequesting,
     func load(_ url: URL) async throws {}
 
     func bootWorker(_ configuration: WebEngineConfiguration) async throws {
+        let startedAt = Date()
         lock.lock()
         bootCountValue += 1
         lastConfigurationValue = configuration
+        attachedAtBootValue = attached
         var error = bootError
         if error != nil {
             if bootFailuresRemaining > 0 {
@@ -1128,12 +1203,34 @@ final class MockEngine: WebEngineControlling, WebEngineRestartRequesting,
             }
         }
         let delay = bootDelayValue
+        let hangs = bootHangsValue
+        let hangsAfterNavigation = bootHangsAfterNavigationValue
+        phaseTimings = WebEngineBootPhaseTimings(reachedPhase: "navigation")
         lock.unlock()
         if let error { throw error }
+        if hangs && !hangsAfterNavigation {
+            try await Task.sleep(nanoseconds: 60_000_000_000)
+            throw CancellationError()
+        }
+        if hangsAfterNavigation {
+            lock.lock()
+            phaseTimings = WebEngineBootPhaseTimings(
+                navigationMilliseconds: 5,
+                reachedPhase: "boot-ready")
+            lock.unlock()
+            try await Task.sleep(nanoseconds: 60_000_000_000)
+            throw CancellationError()
+        }
         if delay > 0 {
             try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
         }
         try await worker.connect(configuration)
+        lock.lock()
+        phaseTimings = WebEngineBootPhaseTimings(
+            navigationMilliseconds: 1,
+            bootReadyMilliseconds: Date().timeIntervalSince(startedAt) * 1_000,
+            reachedPhase: "boot-ready")
+        lock.unlock()
     }
 
     func restart() async throws {
@@ -1167,7 +1264,9 @@ final class MockEngine: WebEngineControlling, WebEngineRestartRequesting,
         lock.lock()
         shutdownCountValue += 1
         let error = shutdownError
+        let hook = shutdownHookValue
         lock.unlock()
+        hook?()
         if let error { throw error }
         await worker.disconnect()
     }

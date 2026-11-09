@@ -158,6 +158,13 @@ public actor PhoneDSHHost: PhoneDSHHosting {
     private var periodicEpochCloseIntervalOverride: TimeInterval?
     private var periodicEpochCloseObserver: (@Sendable (PeriodicEpochCloseOutcome) -> Void)?
     private var lastError: String?
+    /// The resume line being accumulated, and the phase currently in flight.
+    /// The exclusive resume gate guarantees one at a time.
+    private var activeResumeTiming: PhoneDSHResumeTiming?
+    private var activeResumePhase: String?
+    private var activeResumeNote: String?
+    /// Visibility-wait clock; tests replace it with a virtual one.
+    private var resumeVisibilityClock = PhoneDSHResumeVisibilityClock.system
     /// The most specific wal.md §5.2 drain-close mismatch detail (path + mseq).
     /// The controller wraps an epoch-close failure as "epoch close failed before
     /// parked", so the host keeps this detail and reports it instead of losing
@@ -543,14 +550,165 @@ public actor PhoneDSHHost: PhoneDSHHosting {
             throw PhoneDSHError.invalidState("resume requires a parked controller")
         }
         setState(.starting)
+        let timing = PhoneDSHResumeTiming()
+        activeResumeTiming = timing
+        activeResumePhase = nil
+        activeResumeNote = nil
+        var outcome = "failed"
+        defer {
+            // `markResumePhase` updates `activeResumeTiming`, not the local
+            // initial value; read it back for the line.
+            let finalTiming = activeResumeTiming ?? timing
+            writeResumeTiming(finalTiming.line(outcome: outcome,
+                                               stoppedAt: activeResumePhase,
+                                               note: activeResumeNote))
+            activeResumeTiming = nil
+            activeResumePhase = nil
+            activeResumeNote = nil
+        }
         do {
+            beginResumePhase("preflight")
             _ = try await runtime.machine.handle(.scenePhase(.active))
-            try await bootRuntime(runtime)
+            try await bootRuntime(runtime, resume: ResumeBootPlan(
+                bootReadyTimeout: configuration.resumeBootReadyTimeout,
+                helloTimeout: configuration.resumeHelloTimeout,
+                visibilityTimeout: configuration.resumeVisibilityTimeout))
+            outcome = "ok"
         } catch {
+            if Self.isResumeTimeout(error) { outcome = "timeout" }
             await failClassifying(error, context: "resume")
             throw error
         }
     }
+
+    /// The resume-only budgets. A cold start deliberately keeps the App's
+    /// larger `engine.bootTimeout`/`helloTimeout`: device evidence shows every
+    /// cold start completes in 1–2 s, and the long ceiling only ever mattered
+    /// on the stuck resume path.
+    private struct ResumeBootPlan {
+        let bootReadyTimeout: TimeInterval
+        let helloTimeout: TimeInterval
+        let visibilityTimeout: TimeInterval
+    }
+
+    private func markResumePhase(_ name: String,
+                                 milliseconds: Double? = nil) {
+        activeResumePhase = name
+        guard var timing = activeResumeTiming else { return }
+        if let milliseconds {
+            timing.mark(name, milliseconds: milliseconds)
+        } else {
+            timing.mark(name)
+        }
+        activeResumeTiming = timing
+    }
+
+    private func beginResumePhase(_ name: String) {
+        guard activeResumeTiming != nil else { return }
+        activeResumePhase = name
+    }
+
+    private static func isResumeTimeout(_ error: Error) -> Bool {
+        if let error = error as? PhoneDSHError, case .startTimedOut = error {
+            return true
+        }
+        if let error = error as? WebEngineError {
+            switch error {
+            case .navigationTimedOut, .bootTimedOut: return true
+            default: return false
+            }
+        }
+        return false
+    }
+
+    private func writeResumeTiming(_ line: String) {
+        // Same adjacency as `boot-timings.log`: the workspace root's parent is
+        // the App's Documents directory on the phone.
+        let url = configuration.workspaceRoot.deletingLastPathComponent()
+            .appendingPathComponent("boot-timings.log")
+        guard let data = line.data(using: .utf8) else { return }
+        if let handle = try? FileHandle(forWritingTo: url) {
+            defer { try? handle.close() }
+            _ = try? handle.seekToEnd()
+            try? handle.write(contentsOf: data)
+        } else {
+            try? data.write(to: url)
+        }
+    }
+
+    // MARK: Resume visibility and teardown
+
+    /// Waits until the engine reports both halves of the WebKit visibility
+    /// precondition. The timeout is not a failure: a harness may never publish
+    /// the occlusion signal, and the page must still boot there.
+    private func waitForResumeVisibility(
+        _ engine: any WebEngineControlling,
+        timeout: TimeInterval
+    ) async -> (waitedMilliseconds: Double, timedOut: Bool) {
+        let clock = resumeVisibilityClock
+        let startedAt = clock.now()
+        let deadline = startedAt.addingTimeInterval(max(0, timeout))
+        while true {
+            let beforeRefresh = clock.now()
+            let remaining = deadline.timeIntervalSince(beforeRefresh)
+            if remaining <= 0 {
+                return (max(0, beforeRefresh.timeIntervalSince(startedAt) * 1_000), true)
+            }
+            // Bound the UI-actor refresh itself. On iOS it hops to the main
+            // actor; a harness that synchronously waits on the main thread can
+            // leave that hop queued forever, so the resume budget must expire
+            // without a pumped run loop. The helper's deadline uses its own
+            // Task.sleep and does not need one.
+            _ = await phoneDSHResultWithinDeadline(min(remaining, 1)) {
+                await engine.refreshVisibilityForResume()
+            }
+            let attached = engine.isAttachedWithVisibleArea
+            // `nil` means the platform has no equivalent signal or the view is
+            // not in a window; keep the same unknown-as-visible rule as
+            // `WebEngine/isVisibleForWebKit`, but require the window when the
+            // engine does publish it.
+            let occlusion = engine.isWindowOcclusionVisible
+            if attached, occlusion != false {
+                return (max(0, clock.now().timeIntervalSince(startedAt) * 1_000), false)
+            }
+            let now = clock.now()
+            let remainingAfterRefresh = deadline.timeIntervalSince(now)
+            if remainingAfterRefresh <= 0 {
+                return (max(0, now.timeIntervalSince(startedAt) * 1_000), true)
+            }
+            await clock.sleep(min(max(0.01, clock.pollInterval),
+                                  remainingAfterRefresh))
+        }
+    }
+
+    /// Stops the old page/bridge before the host drops its reference.
+    ///
+    /// A WKWebView retained by the anchor view hierarchy keeps its WebContent
+    /// process alive even after the engine object is gone. Park/resume used to
+    /// replace the engine without `shutdown()`, which is consistent with the
+    /// eight `com.apple.WebKit.WebContent` processes seen on the device.
+    private func shutdownEngineBestEffort(
+        _ engine: (any WebEngineControlling)?,
+        terminate: Bool = false,
+        budget: TimeInterval = 2
+    ) async {
+        guard let engine else { return }
+        _ = await phoneDSHResultWithinDeadline(budget) {
+            if terminate, let terminator = engine as? any WebEngineWorkerTerminating {
+                try? await terminator.terminateWorker()
+            }
+            if let stopper = engine as? any WebEngineShutdownRequesting {
+                try? await stopper.shutdownWorker()
+            }
+        }
+    }
+
+    internal func setResumeVisibilityClockForTesting(
+        _ clock: PhoneDSHResumeVisibilityClock
+    ) {
+        resumeVisibilityClock = clock
+    }
+
 
     /// D24 planned restart: the D14 `Running -> Recovering -> Running` edge.
     ///
@@ -740,7 +898,8 @@ public actor PhoneDSHHost: PhoneDSHHosting {
                 // Before the CAS the coordinator fails the controller. Any
                 // unexpected refusal still fails loud instead of leaving a
                 // running controller without its local Worker.
-                await failClassifying(error, context: "handoff")
+                await failClassifying(error, context: "handoff",
+                                      shutdownEngine: false)
             }
             throw error
         }
@@ -1278,6 +1437,7 @@ public actor PhoneDSHHost: PhoneDSHHosting {
     private func releaseRuntimeAfterReclaim(_ runtime: RuntimeServices) async {
         engineObserver?.cancel()
         engineObserver = nil
+        await shutdownEngineBestEffort(runtime.engine)
         await runtime.loopback.stop()
         await runtime.machine.shutdown()
         await drainMachineObserver()
@@ -1294,6 +1454,7 @@ public actor PhoneDSHHost: PhoneDSHHosting {
     private func releaseFailedRuntime(_ runtime: RuntimeServices) async {
         engineObserver?.cancel()
         engineObserver = nil
+        await shutdownEngineBestEffort(runtime.engine)
         await runtime.loopback.stop()
         _ = await runtime.coordinator.waitForInboundWritesToQuiesce()
         await runtime.machine.shutdown()
@@ -1406,7 +1567,8 @@ public actor PhoneDSHHost: PhoneDSHHosting {
     ///   boot keeps the historical behaviour: the scenario/kill contracts
     ///   expect an interrupted step to stay open until the run reconciles it.
     private func bootRuntime(_ runtime: RuntimeServices,
-                             reconcileOrphans: Bool = false) async throws {
+                             reconcileOrphans: Bool = false,
+                             resume: ResumeBootPlan? = nil) async throws {
         // `userReset()` and `resume()` reuse a live runtime, so the pre-start
         // guard in `beginStart()` alone is not enough: a persisted unresolved
         // CAS intent must also keep this path closed. A definite-rejection
@@ -1421,13 +1583,34 @@ public actor PhoneDSHHost: PhoneDSHHosting {
         // resident Activation in it.
         beginWorkerIncarnation()
         await runtime.coordinator.prepareForReboot()
+        if resume != nil { beginResumePhase("overlay") }
         // The overlay path is stable for this boot id; rewriting it picks up
         // every mutation that the parked or failed Worker acknowledged.
         _ = try await runtime.log.overlay(bootID: bootID)
+        if resume != nil { markResumePhase("overlay") }
+        if resume != nil { beginResumePhase("loopback") }
         let endpoint = try await runtime.loopback.start()
+        if resume != nil { markResumePhase("loopback") }
         var engineConfiguration = makeEngineConfiguration(
             endpoint: endpoint, fence: await runtime.authority.wireFence())
         engineConfiguration.bootID = bootID
+        if let resume {
+            // The resume budget reaches the engine, so even a page that never
+            // reports boot-ready is bounded inside WebEngine itself. The cold
+            // path keeps the App's larger timeout unchanged.
+            engineConfiguration.bootTimeout = resume.bootReadyTimeout
+        }
+        if resume != nil { beginResumePhase("webview") }
+        // A failed boot leaves the previous engine installed in `runtime`.
+        // Never build a second WKWebView on top of it: the old page would keep
+        // its WebContent process alive and the new one would load beside it.
+        if let existing = self.runtime?.engine {
+            await shutdownEngineBestEffort(existing)
+            if var services = self.runtime {
+                services.engine = nil
+                self.runtime = services
+            }
+        }
         let engine = try await engineFactory(engineConfiguration)
         lockdownModeObserved = engine.isLockdownModeEnabled
         if var services = self.runtime {
@@ -1436,9 +1619,49 @@ public actor PhoneDSHHost: PhoneDSHHosting {
             self.runtime = services
         }
         startEngineObserver(engine)
-        try checkEngine(engine)
-        try await engine.bootWorker(engineConfiguration)
-        let hello = try await runtime.coordinator.waitForHello(timeout: configuration.helloTimeout)
+        if resume == nil {
+            try checkEngine(engine)
+        } else if engine.isLockdownModeEnabled {
+            throw PhoneDSHError.lockdownMode
+        }
+        if resume != nil { markResumePhase("webview") }
+        if let resume {
+            beginResumePhase("visible")
+            let visibility = await waitForResumeVisibility(
+                engine, timeout: resume.visibilityTimeout)
+            markResumePhase("visible", milliseconds: visibility.waitedMilliseconds)
+            if visibility.timedOut {
+                activeResumeNote = "visible-timeout"
+                // Not a failure: a harness may never publish the occlusion
+                // signal. Record the enum only — no window/view paths.
+                eventBus.send(.console(ConsolePayload(
+                    level: .warn,
+                    text: "webview-visibility=not_visible_timeout; "
+                        + "the resume continued after \(Int(visibility.waitedMilliseconds.rounded())) ms "
+                        + "without both visibility halves")))
+            }
+            // The wait may have ended on the timeout without ever seeing an
+            // attached view; that is still the existing fail-loud refusal.
+            guard engine.isAttachedWithVisibleArea else {
+                throw PhoneDSHError.engineNotAttached
+            }
+            beginResumePhase("navigation")
+        }
+        let engineBootStartedAt = Date()
+        do {
+            try await bootWorkerForResume(engine, engineConfiguration,
+                                          timeout: resume?.bootReadyTimeout)
+        } catch {
+            recordEngineBootPhases(engine, startedAt: engineBootStartedAt,
+                                   success: false)
+            throw error
+        }
+        recordEngineBootPhases(engine, startedAt: engineBootStartedAt,
+                               success: true)
+        if resume != nil { beginResumePhase("hello") }
+        let helloTimeout = resume?.helloTimeout ?? configuration.helloTimeout
+        let hello = try await runtime.coordinator.waitForHello(timeout: helloTimeout)
+        if resume != nil { markResumePhase("hello") }
         try await verifyLease(hello, runtime: runtime)
         // D13: never open admission over a step this host gave up on. The
         // replacement-Worker paths already reconcile before `sendOpenFrames`;
@@ -1448,12 +1671,71 @@ public actor PhoneDSHHost: PhoneDSHHosting {
         if reconcileOrphans {
             try await waitForWorkerToCloseOrphanSteps(runtime, reason: "boot-retry")
         }
+        if resume != nil { beginResumePhase("running") }
         try await sendOpenFrames(hello.connection, runtime: runtime)
         setState(.running)
+        if resume != nil { markResumePhase("running") }
         // This boot supersedes any deferred termination: a foreground return
         // must not inject a second recovery into a healthy host.
         pendingRecovery = false
         await evaluateBudget(runtime)
+    }
+
+    /// Waits for the boot-ready handshake under a host-side deadline, on top
+    /// of the engine's own `bootTimeout`.
+    ///
+    /// The engine timeout is the primary bound; this guard covers an injected
+    /// engine or a WebKit call that never returns. On expiry the caller tears
+    /// the engine down and `resume()` throws, so the exclusive operation gate
+    /// is released and the App can rebuild.
+    private func bootWorkerForResume(
+        _ engine: any WebEngineControlling,
+        _ configuration: WebEngineConfiguration,
+        timeout: TimeInterval?
+    ) async throws {
+        guard let timeout else {
+            try await engine.bootWorker(configuration)
+            return
+        }
+        let hardDeadline = timeout + 1
+        let result = await phoneDSHResultWithinDeadline(hardDeadline) {
+            try await engine.bootWorker(configuration)
+        }
+        switch result {
+        case .success?:
+            return
+        case .failure(let error)?:
+            throw error
+        case nil:
+            throw PhoneDSHError.startTimedOut(
+                "resume boot-ready did not finish within \(hardDeadline) s")
+        }
+    }
+
+    /// Adds the engine's navigation/boot-ready marks to the resume line.
+    /// Engine durations are relative to `bootWorker`; the recorder wants
+    /// milliseconds since the resume started.
+    private func recordEngineBootPhases(_ engine: any WebEngineControlling,
+                                        startedAt: Date,
+                                        success: Bool) {
+        guard activeResumeTiming != nil else { return }
+        let base = activeResumeTiming?.elapsedMilliseconds(at: startedAt) ?? 0
+        guard let reporting = engine as? any WebEngineBootPhaseTimingReporting else {
+            if success { markResumePhase("boot-ready") }
+            return
+        }
+        let timings = reporting.bootPhaseTimings()
+        if let navigation = timings.navigationMilliseconds {
+            markResumePhase("navigation", milliseconds: base + navigation)
+        }
+        if let bootReady = timings.bootReadyMilliseconds {
+            markResumePhase("boot-ready", milliseconds: base + bootReady)
+        }
+        if timings.reachedPhase == "boot-ready" {
+            activeResumePhase = success ? "hello" : "boot-ready"
+        } else {
+            activeResumePhase = "navigation"
+        }
     }
 
     /// Waits inside the controller's D14 drain window for the `0x40 API_REQ`
@@ -2655,6 +2937,10 @@ public actor PhoneDSHHost: PhoneDSHHosting {
                 await runtime.machine.shutdown()
             }
             await runtime.gateway.shutdown()
+            // A stop that did not take the running/draining park path (for
+            // example a Backoff host being rebuilt) still owns the failed
+            // page. Shut it down before the runtime is released.
+            await shutdownEngineBestEffort(self.runtime?.engine)
         }
         self.runtime = nil
         var finalSnapshot = snapshot
@@ -3600,6 +3886,10 @@ public actor PhoneDSHHost: PhoneDSHHosting {
         parking = false
         engineObserver?.cancel()
         engineObserver = nil
+        // A parked host has no live page: remove the WKWebView before the host
+        // drops its reference. Otherwise the view stays in the App's anchor
+        // hierarchy and its WebContent process survives the next resume.
+        await shutdownEngineBestEffort(runtime.engine)
         if var services = self.runtime {
             services.engine = nil
             self.runtime = services
@@ -3704,7 +3994,7 @@ public actor PhoneDSHHost: PhoneDSHHosting {
     /// Both classifications keep the existing abort teardown: admission
     /// closes, the loopback stops, the channel drops its connections and the
     /// WAL is sealed at the accepted tail.
-    private func fail(_ fault: HostFault) async {
+    private func fail(_ fault: HostFault, shutdownEngine: Bool = true) async {
         let message = fault.description
         lastError = message
         lastMismatchDetail = message.contains("unrepaired base mismatch") ? message : nil
@@ -3725,6 +4015,14 @@ public actor PhoneDSHHost: PhoneDSHHosting {
             }
             engineObserver?.cancel()
             engineObserver = nil
+            // The failed engine may still own a WKWebView (and its WebContent
+            // process). Shut it down before dropping the reference, so a
+            // retry cannot leave the old page alive beside the new one. The
+            // handoff path owns its own two-phase stop and its regressions
+            // assert that a refused/cancelled stop never adds a shutdown.
+            if shutdownEngine, !fault.isHandoff {
+                await shutdownEngineBestEffort(self.runtime?.engine)
+            }
             await runtime.loopback.stop()
             _ = await runtime.coordinator.waitForInboundWritesToQuiesce()
             await runtime.coordinator.prepareForReboot()
@@ -3778,9 +4076,10 @@ public actor PhoneDSHHost: PhoneDSHHosting {
     /// not silently leave a half-booted host.
     private func failClassifying(_ error: Error,
                                  context: String,
-                                 unknownIsFailure: Bool = true) async {
+                                 unknownIsFailure: Bool = true,
+                                 shutdownEngine: Bool = true) async {
         if let fault = HostFault.classify(error) {
-            await fail(fault)
+            await fail(fault, shutdownEngine: shutdownEngine)
             return
         }
         if HostFault.isBenign(error) {
@@ -3788,7 +4087,8 @@ public actor PhoneDSHHost: PhoneDSHHosting {
             return
         }
         guard unknownIsFailure else { return }
-        await fail(.boot(.unclassified("\(context): \(error)")))
+        await fail(.boot(.unclassified("\(context): \(error)")),
+                  shutdownEngine: shutdownEngine)
     }
 
     /// Acquires the one exclusive lifecycle/handoff operation before the
