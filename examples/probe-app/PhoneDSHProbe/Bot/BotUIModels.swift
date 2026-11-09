@@ -503,12 +503,23 @@ struct BotUIChoice: Equatable, Identifiable {
     var recommended: Bool
     var danger: Bool
 
+    /// Mirrors dsh-bot `WidgetCard.normaliseChoice`: a bare string is a choice,
+    /// and a choice without an id gets the stable `"<index>:<label>"` id, so a
+    /// next-steps card from the shared card-payload golden (labels only)
+    /// renders and answers exactly as on the desktop.
     static func parse(_ value: BotJSONValue, index: Int) -> BotUIChoice? {
+        if let raw = value.string {
+            let label = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !label.isEmpty else { return nil }
+            return BotUIChoice(id: "\(index):\(label)", label: label, value: label,
+                               description: nil, recommended: false, danger: false)
+        }
         guard let object = value.object,
               let rawLabel = object.string("label", "text", "title", "value"),
-              !rawLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              let id = object.string("id", "optionID"), !id.isEmpty else { return nil }
+              !rawLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         let label = rawLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let explicitID = object.string("id", "optionID") ?? ""
+        let id = explicitID.isEmpty ? "\(index):\(rawLabel)" : explicitID
         let style = object["style"]?.string?.lowercased() ?? "default"
         return BotUIChoice(id: id, label: label,
                            value: object["value"]?.string ?? label,

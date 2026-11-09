@@ -130,11 +130,15 @@ class SessionPagesStateTest {
         // The built-in phone workspace owns loose sessions; repeated default
         // names are numbered by position. Ordering stays unchanged.
         assertEquals(listOf("手机工作区", "手机工作区 2"), state.workspaces.map { it.title })
-        // A folder's rows follow the host's membership list, then its loose rows.
-        assertEquals(listOf("s2", "s1", "s3"), state.workspaces[1].sessions.map { it.id })
-        assertEquals(3L, state.workspaces[1].sessionCount)
+        // Loose sessions join the first default-named folder in display order
+        // (w2 here), the same rule as iOS HomeDrawer.defaultFolder.
+        assertEquals(listOf("s3"), state.workspaces[0].sessions.map { it.id })
+        assertEquals(1L, state.workspaces[0].sessionCount)
+        assertFalse(state.workspaces[0].empty)
+        // A folder's rows follow the host's membership list.
+        assertEquals(listOf("s2", "s1"), state.workspaces[1].sessions.map { it.id })
+        assertEquals(2L, state.workspaces[1].sessionCount)
         assertEquals(emptyList<String>(), state.rows.map { it.id })
-        assertTrue(state.workspaces[0].empty)
     }
 
     @Test

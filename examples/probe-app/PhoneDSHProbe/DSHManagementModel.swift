@@ -709,7 +709,7 @@ final class DSHManagementModel {
             let (schedulesValue, toolsValue) = await (schedulesResponse, toolsResponse)
             var failures: [String] = []
             if let schedulesValue {
-                scheduleRecords = schedulesValue.arrayValue?.compactMap(Self.decodeSchedule)?
+                scheduleRecords = schedulesValue.arrayValue?.compactMap(Self.decodeSchedule)
                     .filter { !Self.isBotSessionID($0.sessionID) } ?? []
             } else {
                 failures.append("DSH schedule catalog is unavailable.")

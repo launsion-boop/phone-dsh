@@ -757,9 +757,11 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
             let events = try await runtime.store.events(after: cursor, limit: 1_000)
             for event in events where event.type == "runtime.started"
                 && event.principal.botId == botId && event.principal.kind == BotSessionKind.chat.rawValue {
-                latest = RecoveredMainSession(
-                    sessionId: event.data["sessionId"]?.stringValue ?? event.principal.sessionId,
-                    cwd: event.data["cwd"]?.stringValue)
+                // An event that names no session cannot identify the main
+                // session; skip it instead of recovering an empty id.
+                guard let sessionId = event.data["sessionId"]?.stringValue ?? event.principal.sessionId,
+                      !sessionId.isEmpty else { continue }
+                latest = RecoveredMainSession(sessionId: sessionId, cwd: event.data["cwd"]?.stringValue)
             }
             guard events.count == 1_000, let commitSeq = events.last?.commitSeq else { return latest }
             cursor = commitSeq

@@ -422,6 +422,9 @@ final class BotDSHRemoteRuntimeTests: XCTestCase {
         defer { fixture.cleanup() }
         let oldID = "gb-main"
         let oldCwd = "/dsh/workspace"
+        // Startup recovers grants before any runtime event is written; seeding
+        // the log first would leave events without the initial grant snapshot.
+        try await fixture.runtime.grants.recover()
         let principal = try await fixture.runtime.issueSession(botId: "main", sessionId: oldID, kind: .chat)
         _ = try await fixture.runtime.eventWriter.append(
             type: "runtime.started", principal: principal,
@@ -457,6 +460,9 @@ final class BotDSHRemoteRuntimeTests: XCTestCase {
         defer { fixture.cleanup() }
         let oldID = "gb-main"
         let oldCwd = "/dsh/workspace"
+        // Startup recovers grants before any runtime event is written; seeding
+        // the log first would leave events without the initial grant snapshot.
+        try await fixture.runtime.grants.recover()
         let principal = try await fixture.runtime.issueSession(botId: "main", sessionId: oldID, kind: .chat)
         _ = try await fixture.runtime.eventWriter.append(
             type: "runtime.started", principal: principal,
@@ -476,6 +482,9 @@ final class BotDSHRemoteRuntimeTests: XCTestCase {
         defer { fixture.cleanup() }
         let oldID = "gb-main"
         let oldCwd = "/dsh/workspace"
+        // Startup recovers grants before any runtime event is written; seeding
+        // the log first would leave events without the initial grant snapshot.
+        try await fixture.runtime.grants.recover()
         let principal = try await fixture.runtime.issueSession(botId: "main", sessionId: oldID, kind: .chat)
         _ = try await fixture.runtime.eventWriter.append(
             type: "runtime.started", principal: principal,
