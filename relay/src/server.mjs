@@ -14,6 +14,7 @@ import { makeRelayConfig } from './config.mjs'
 import { parseRelayFrame } from './frames.mjs'
 import { parseStrictJsonObject } from './json.mjs'
 import { hashPrefix, machineIdFromPublicKey, verifyRelayAuthSignature } from './identity.mjs'
+import { hashIpForLog } from './logger.mjs'
 import { DailyBytes, TokenBucket, perMinuteBucket, sweepBuckets } from './rate-limit.mjs'
 import { ipKey, resolveClientIp } from './net-util.mjs'
 import { replaceOriginPort } from './origin.mjs'
@@ -30,6 +31,9 @@ const CLOSE = Object.freeze({
 })
 
 const TEXT_DECODER = new TextDecoder('utf-8', { fatal: true })
+// A dropped slow-receiver frame is advisory-retried after one second; the
+// sender can also use its own backpressure state.
+const SLOW_RECEIVER_RETRY_AFTER_MS = 1000
 
 function closeReasonText(reason) {
   if (typeof reason !== 'string') return undefined
@@ -79,7 +83,7 @@ export function createRelayServer(overrides = {}) {
   const handshakeSourceBuckets = new Map()
   const handshakeTargetBuckets = new Map()
   const joinBuckets = new Map()
-  const dailyBytes = new DailyBytes(config.dailyBytesPerMachine)
+  const dailyBytes = new DailyBytes(config.dailyBytesPerMachine, config.dailyBytesMaxMachines)
 
   let connectionSequence = 0
   let listening = false
@@ -138,6 +142,14 @@ export function createRelayServer(overrides = {}) {
 
   function sendError(connect, code, message, extra = {}) {
     return sendTo(connect, errorFrame(code, message, extra))
+  }
+
+  // Never add a forwarded frame that would push the target socket's outbound
+  // queue over the configured cap.  The incoming frame byte length is an upper
+  // bound for the forwarded encoding (the only change is overwriting `from`
+  // with an equal-length authenticated machineId), so the check is conservative.
+  function targetBufferWouldExceed(target, bytes) {
+    return target.ws.bufferedAmount + bytes > config.maxBufferedBytesPerConnection
   }
 
   function closeWithError(connect, code, message, closeCode) {
@@ -230,16 +242,21 @@ export function createRelayServer(overrides = {}) {
     connect.heartbeatTimer = null
   }
 
+  function releaseConnectionCount(connect) {
+    if (!connect.counted) return
+    connect.counted = false
+    const current = ipCounts.get(connect.sourceKey) ?? 0
+    if (current <= 1) ipCounts.delete(connect.sourceKey)
+    else ipCounts.set(connect.sourceKey, current - 1)
+  }
+
   function terminateConnection(connect, code, reason) {
     if (connect.closed) return
     connect.closed = true
     clearTimers(connect)
-    if (connect.counted) {
-      const current = ipCounts.get(connect.sourceKey) ?? 0
-      if (current <= 1) ipCounts.delete(connect.sourceKey)
-      else ipCounts.set(connect.sourceKey, current - 1)
-      connect.counted = false
-    }
+    // The per-IP slot is released only when the socket's `close` event fires:
+    // closeWs() starts a closing handshake that can take up to 30 s, and the
+    // peer still occupies a source-IP slot until then (contract §3.5).
     connections.delete(connect)
     if (connect.machineId !== null && peers.get(connect.machineId) === connect) {
       peers.delete(connect.machineId)
@@ -426,13 +443,19 @@ export function createRelayServer(overrides = {}) {
     }
     // The pair bandwidth/daily quota applies to every forwarded frame between
     // the two machineIds, including opaque pairing payloads.
+    if (targetBufferWouldExceed(target, bytes)) {
+      rateLimited(connect, SLOW_RECEIVER_RETRY_AFTER_MS, 'receiver is not draining frames')
+      return
+    }
     if (!consumeForwardLimits(connect, target.machineId, bytes)) return
-    safeSend(target.ws, {
+    if (safeSend(target.ws, {
       v: 1,
       type: 'relay.pair.message',
       rendezvous: frame.rendezvous,
       payload: frame.payload,
-    })
+    })) {
+      touchBusiness(target)
+    }
     logger.info('pair.message', {
       from: hashPrefix(connect.machineId),
       to: hashPrefix(target.machineId),
@@ -460,6 +483,9 @@ export function createRelayServer(overrides = {}) {
       bucket = new TokenBucket({
         ratePerSecond: config.pairRateBytesPerSec,
         burst: config.pairBurstBytes,
+        // A single frame may exceed the burst when the bucket is full; the
+        // balance then refills from negative (contract §3.5, pclink-v1.4).
+        overdraftSingleFrame: true,
       })
       pairBuckets.set(key, bucket)
     }
@@ -554,12 +580,19 @@ export function createRelayServer(overrides = {}) {
       })
       return
     }
+    if (targetBufferWouldExceed(target, bytes)) {
+      rateLimited(connect, SLOW_RECEIVER_RETRY_AFTER_MS, 'receiver is not draining frames')
+      return
+    }
     if (!consumeForwardLimits(connect, frame.to, bytes)) return
     const forwarded = { ...frame, from: connect.machineId }
     if (!safeSend(target.ws, forwarded)) {
       sendOffline(connect, frame)
       return
     }
+    // A frame forwarded in either direction is business traffic for the phone
+    // and resets its relay idle timer (contract §3.4).
+    touchBusiness(target)
     logger.info('frame.forwarded', {
       from: hashPrefix(connect.machineId),
       to: hashPrefix(frame.to),
@@ -647,7 +680,13 @@ export function createRelayServer(overrides = {}) {
     const byteLength = typeof data === 'string'
       ? Buffer.byteLength(data, 'utf8')
       : (data?.byteLength ?? data?.length ?? 0)
-    if (byteLength > config.maxFrameBytes) {
+    // Before relay.ready only peer.auth is legal; cap the frame before UTF-8
+    // decoding and JSON parsing so an unauthenticated peer cannot make the
+    // relay parse a multi-MiB frame (contract §3.5, pclink-v1.4).
+    const frameLimit = connect.authenticated
+      ? config.maxFrameBytes
+      : config.unauthenticatedMaxFrameBytes
+    if (byteLength > frameLimit) {
       closeWithError(connect, 'frame_too_large', 'frame exceeds the configured limit', CLOSE.TOO_LARGE)
       return
     }
@@ -753,7 +792,7 @@ export function createRelayServer(overrides = {}) {
       ws.on('error', () => {})
       logger.info('connection.rate_limited', {
         connectionId,
-        ip: hashPrefix(clientIp),
+        ip: hashIpForLog(clientIp),
         limit: config.maxConnectionsPerIp,
       })
       safeSend(ws, errorFrame('rate_limited', 'too many connections from this source', { retryAfterMs: 1000 }))
@@ -765,7 +804,7 @@ export function createRelayServer(overrides = {}) {
       id: connectionId,
       ws,
       sourceKey,
-      clientIpHash: hashPrefix(clientIp),
+      clientIpHash: hashIpForLog(clientIp),
       challengeNonce: randomBytes(32),
       authenticated: false,
       machineId: null,
@@ -783,8 +822,11 @@ export function createRelayServer(overrides = {}) {
     connections.add(connect)
     ws.on('message', (data, isBinary) => handleIncoming(connect, data, isBinary))
     ws.on('close', code => {
-      if (connect.closed) return
-      terminateConnection(connect, typeof code === 'number' ? code : 1000, undefined)
+      if (!connect.closed) {
+        terminateConnection(connect, typeof code === 'number' ? code : 1000, undefined)
+      }
+      // Release the source-IP slot only now, when the socket is really closed.
+      releaseConnectionCount(connect)
     })
     ws.on('error', error => {
       logger.info('connection.error', {

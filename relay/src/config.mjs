@@ -9,6 +9,16 @@ import { isLoopbackOrigin, normalizeOrigin } from './origin.mjs'
 import { parseTrustedProxies } from './net-util.mjs'
 
 export const MAX_FRAME_BYTES = 16 * 1024 * 1024
+// Before relay.ready the relay only needs peer.auth (a few hundred bytes).
+// Capping this at 4 KiB keeps an unauthenticated peer from making the relay
+// parse a multi-MiB frame (contract §3.5, pclink-v1.4).
+export const UNAUTHENTICATED_MAX_FRAME_BYTES = 4 * 1024
+// Maximum bytes queued for one target WebSocket before the relay drops a
+// forwarded frame instead of adding to the buffer (contract §3.5).  The
+// default leaves room for one 16 MiB frame plus in-flight traffic.
+export const MAX_BUFFERED_BYTES_PER_CONNECTION = 24 * 1024 * 1024
+// Upper bound on the in-memory daily byte counters for one UTC day.
+export const MAX_DAILY_BYTE_MACHINES = 100_000
 
 export const DEFAULTS = Object.freeze({
   host: '0.0.0.0',
@@ -19,7 +29,10 @@ export const DEFAULTS = Object.freeze({
   pairRateBytesPerSec: 1 * 1024 * 1024,
   pairBurstBytes: 4 * 1024 * 1024,
   maxFrameBytes: MAX_FRAME_BYTES,
+  unauthenticatedMaxFrameBytes: UNAUTHENTICATED_MAX_FRAME_BYTES,
+  maxBufferedBytesPerConnection: MAX_BUFFERED_BYTES_PER_CONNECTION,
   dailyBytesPerMachine: 2 * 1024 * 1024 * 1024,
+  dailyBytesMaxMachines: MAX_DAILY_BYTE_MACHINES,
   pairJoinsPerIpPerMinute: 5,
   pairAttemptsPerRendezvous: 10,
   pairRendezvousTtlMs: 300 * 1000,
@@ -49,7 +62,13 @@ export function makeRelayConfig(overrides = {}) {
   assertInteger(config.pairRateBytesPerSec, 'pairRateBytesPerSec', 1, Number.MAX_SAFE_INTEGER)
   assertInteger(config.pairBurstBytes, 'pairBurstBytes', 1, Number.MAX_SAFE_INTEGER)
   assertInteger(config.maxFrameBytes, 'maxFrameBytes', 1024, MAX_FRAME_BYTES)
+  if (overrides.unauthenticatedMaxFrameBytes === undefined) {
+    config.unauthenticatedMaxFrameBytes = Math.min(config.unauthenticatedMaxFrameBytes, config.maxFrameBytes)
+  }
+  assertInteger(config.unauthenticatedMaxFrameBytes, 'unauthenticatedMaxFrameBytes', 1024, config.maxFrameBytes)
+  assertInteger(config.maxBufferedBytesPerConnection, 'maxBufferedBytesPerConnection', 1024, 1024 * 1024 * 1024)
   assertInteger(config.dailyBytesPerMachine, 'dailyBytesPerMachine', 1, Number.MAX_SAFE_INTEGER)
+  assertInteger(config.dailyBytesMaxMachines, 'dailyBytesMaxMachines', 1, 10_000_000)
   assertInteger(config.pairJoinsPerIpPerMinute, 'pairJoinsPerIpPerMinute', 1, 1_000_000)
   assertInteger(config.pairAttemptsPerRendezvous, 'pairAttemptsPerRendezvous', 1, 1000)
   assertInteger(config.pairRendezvousTtlMs, 'pairRendezvousTtlMs', 1, 24 * 60 * 60 * 1000)
@@ -123,6 +142,7 @@ export function loadConfigFromEnvironment(argv = [], env = process.env) {
   if (new URL(origin).protocol === 'http:' && !isLoopbackOrigin(origin)) {
     throw new Error('production PCLINK_PUBLIC_ORIGIN must be https; http is allowed only for a loopback test')
   }
+  const maxFrameBytes = envInteger(env, 'PCLINK_MAX_FRAME_BYTES', DEFAULTS.maxFrameBytes, 1024, MAX_FRAME_BYTES)
   const config = makeRelayConfig({
     host: cli.host ?? '0.0.0.0',
     port: cli.port ?? 8080,
@@ -131,8 +151,17 @@ export function loadConfigFromEnvironment(argv = [], env = process.env) {
     maxConnectionsPerIp: envInteger(env, 'PCLINK_MAX_CONNECTIONS_PER_IP', DEFAULTS.maxConnectionsPerIp, 1, 1_000_000),
     pairRateBytesPerSec: envInteger(env, 'PCLINK_PAIR_RATE_BYTES_PER_SEC', DEFAULTS.pairRateBytesPerSec, 1, Number.MAX_SAFE_INTEGER),
     pairBurstBytes: envInteger(env, 'PCLINK_PAIR_BURST_BYTES', DEFAULTS.pairBurstBytes, 1, Number.MAX_SAFE_INTEGER),
-    maxFrameBytes: envInteger(env, 'PCLINK_MAX_FRAME_BYTES', DEFAULTS.maxFrameBytes, 1024, MAX_FRAME_BYTES),
+    maxFrameBytes,
+    unauthenticatedMaxFrameBytes: envInteger(
+      env,
+      'PCLINK_UNAUTHENTICATED_MAX_FRAME_BYTES',
+      Math.min(DEFAULTS.unauthenticatedMaxFrameBytes, maxFrameBytes),
+      1024,
+      maxFrameBytes,
+    ),
+    maxBufferedBytesPerConnection: envInteger(env, 'PCLINK_MAX_BUFFERED_BYTES_PER_CONNECTION', DEFAULTS.maxBufferedBytesPerConnection, 1024, 1024 * 1024 * 1024),
     dailyBytesPerMachine: envInteger(env, 'PCLINK_DAILY_BYTES_PER_MACHINE', DEFAULTS.dailyBytesPerMachine, 1, Number.MAX_SAFE_INTEGER),
+    dailyBytesMaxMachines: envInteger(env, 'PCLINK_DAILY_BYTES_MAX_MACHINES', DEFAULTS.dailyBytesMaxMachines, 1, 10_000_000),
     pairJoinsPerIpPerMinute: envInteger(env, 'PCLINK_PAIR_JOINS_PER_IP_PER_MINUTE', DEFAULTS.pairJoinsPerIpPerMinute, 1, 1_000_000),
     pairAttemptsPerRendezvous: envInteger(env, 'PCLINK_PAIR_ATTEMPTS_PER_RENDEZVOUS', DEFAULTS.pairAttemptsPerRendezvous, 1, 1000),
     pairRendezvousTtlMs: envInteger(env, 'PCLINK_PAIR_RENDEZVOUS_TTL_SECONDS', DEFAULTS.pairRendezvousTtlMs / 1000, 1, 24 * 60 * 60, 1000),

@@ -19,7 +19,10 @@ test('config defaults match contract §3.5 exactly', () => {
   assert.equal(config.pairRateBytesPerSec, 1 * 1024 * 1024)
   assert.equal(config.pairBurstBytes, 4 * 1024 * 1024)
   assert.equal(config.maxFrameBytes, 16 * 1024 * 1024)
+  assert.equal(config.unauthenticatedMaxFrameBytes, 4 * 1024)
+  assert.equal(config.maxBufferedBytesPerConnection, 24 * 1024 * 1024)
   assert.equal(config.dailyBytesPerMachine, 2 * 1024 * 1024 * 1024)
+  assert.equal(config.dailyBytesMaxMachines, 100_000)
   assert.equal(config.pairJoinsPerIpPerMinute, 5)
   assert.equal(config.pairAttemptsPerRendezvous, 10)
   assert.equal(config.pairRendezvousTtlMs, 300 * 1000)
@@ -41,7 +44,10 @@ test('documented environment variables override the defaults', () => {
     PCLINK_PAIR_RATE_BYTES_PER_SEC: '1000',
     PCLINK_PAIR_BURST_BYTES: '2000',
     PCLINK_MAX_FRAME_BYTES: '2048',
+    PCLINK_UNAUTHENTICATED_MAX_FRAME_BYTES: '1024',
+    PCLINK_MAX_BUFFERED_BYTES_PER_CONNECTION: '4096',
     PCLINK_DAILY_BYTES_PER_MACHINE: '5000',
+    PCLINK_DAILY_BYTES_MAX_MACHINES: '7',
     PCLINK_PAIR_JOINS_PER_IP_PER_MINUTE: '2',
     PCLINK_PAIR_ATTEMPTS_PER_RENDEZVOUS: '3',
     PCLINK_PAIR_RENDEZVOUS_TTL_SECONDS: '30',
@@ -58,7 +64,10 @@ test('documented environment variables override the defaults', () => {
   assert.equal(config.pairRateBytesPerSec, 1000)
   assert.equal(config.pairBurstBytes, 2000)
   assert.equal(config.maxFrameBytes, 2048)
+  assert.equal(config.unauthenticatedMaxFrameBytes, 1024)
+  assert.equal(config.maxBufferedBytesPerConnection, 4096)
   assert.equal(config.dailyBytesPerMachine, 5000)
+  assert.equal(config.dailyBytesMaxMachines, 7)
   assert.equal(config.pairJoinsPerIpPerMinute, 2)
   assert.equal(config.pairAttemptsPerRendezvous, 3)
   assert.equal(config.pairRendezvousTtlMs, 30_000)
@@ -107,6 +116,40 @@ test('the frame cap can be lowered but never raised above 16 MiB', () => {
     PCLINK_MAX_FRAME_BYTES: '2048',
   })
   assert.equal(lowered.maxFrameBytes, 2048)
+  // The pre-auth default is clamped when the operator lowers only the
+  // authenticated frame cap.
+  assert.equal(lowered.unauthenticatedMaxFrameBytes, 2048)
+  assert.equal(makeRelayConfig({
+    publicOrigin: 'http://127.0.0.1:1',
+    maxFrameBytes: 1024,
+  }).unauthenticatedMaxFrameBytes, 1024)
+})
+
+test('the pre-auth and buffered-byte caps cannot be misconfigured', () => {
+  assert.throws(
+    () => loadConfigFromEnvironment([], {
+      ...BASE_ENV,
+      PCLINK_MAX_FRAME_BYTES: '2048',
+      PCLINK_UNAUTHENTICATED_MAX_FRAME_BYTES: '4096',
+    }),
+    /out of range/,
+  )
+  assert.throws(
+    () => makeRelayConfig({
+      publicOrigin: 'http://127.0.0.1:1',
+      maxFrameBytes: 2048,
+      unauthenticatedMaxFrameBytes: 4096,
+    }),
+    /unauthenticatedMaxFrameBytes/,
+  )
+  assert.throws(
+    () => makeRelayConfig({ publicOrigin: 'http://127.0.0.1:1', maxBufferedBytesPerConnection: 0 }),
+    /maxBufferedBytesPerConnection/,
+  )
+  assert.throws(
+    () => makeRelayConfig({ publicOrigin: 'http://127.0.0.1:1', dailyBytesMaxMachines: 0 }),
+    /dailyBytesMaxMachines/,
+  )
 })
 
 test('CLI host/port and unknown-argument handling', () => {

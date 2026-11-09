@@ -52,14 +52,23 @@ export function parseStrictJsonObject(text) {
   const parseString = () => {
     if (text.charCodeAt(index) !== 0x22) fail('expected string')
     index += 1
+    const start = index
+    let segmentStart = start
     let out = ''
+    let hasEscape = false
     while (index < length) {
       const code = text.charCodeAt(index)
       if (code === 0x22) {
+        // Slice the whole run at once instead of appending one character per
+        // iteration; a large string frame must not allocate a rope with one
+        // node per byte.
+        const tail = text.slice(segmentStart, index)
         index += 1
-        return out
+        return hasEscape ? out + tail : tail
       }
       if (code === 0x5c) {
+        out += text.slice(segmentStart, index)
+        hasEscape = true
         index += 1
         if (index >= length) fail('unterminated escape')
         const escaped = text.charCodeAt(index)
@@ -102,6 +111,7 @@ export function parseStrictJsonObject(text) {
           default:
             fail('unknown escape')
         }
+        segmentStart = index
         continue
       }
       if (code < 0x20) fail('raw control character in string')
@@ -109,12 +119,11 @@ export function parseStrictJsonObject(text) {
         if (index + 1 >= length) fail('unpaired high surrogate')
         const low = text.charCodeAt(index + 1)
         if (low < 0xdc00 || low > 0xdfff) fail('unpaired high surrogate')
-        out += text.slice(index, index + 2)
+        // The pair is already in the sliced run; only validate it here.
         index += 2
         continue
       }
       if (code >= 0xdc00 && code <= 0xdfff) fail('unpaired low surrogate')
-      out += text[index]
       index += 1
     }
     fail('unterminated string')
@@ -206,7 +215,6 @@ export function parseStrictJsonObject(text) {
     if (depth > MAX_DEPTH) fail('JSON nesting is too deep')
     index += 1
     const out = Object.create(null)
-    const keys = new Set()
     skipWhitespace()
     if (index < length && text.charCodeAt(index) === 0x7d) {
       index += 1
@@ -217,8 +225,10 @@ export function parseStrictJsonObject(text) {
       if (index >= length) fail('unterminated object')
       if (text.charCodeAt(index) !== 0x22) fail('object member name must be a string')
       const key = parseString()
-      if (keys.has(key)) fail(`duplicate member name ${JSON.stringify(key)}`)
-      keys.add(key)
+      // The output object is null-prototype and only holds this object's own
+      // members, so a hasOwnProperty check replaces a per-object Set and keeps
+      // duplicate detection allocation-free.
+      if (Object.prototype.hasOwnProperty.call(out, key)) fail(`duplicate member name ${JSON.stringify(key)}`)
       skipWhitespace()
       if (index >= length || text.charCodeAt(index) !== 0x3a) fail('expected colon')
       index += 1
