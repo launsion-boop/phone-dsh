@@ -536,7 +536,7 @@ struct ChatPage: View {
             NavigationStack {
                 ScrollView {
                     NativeMarkdownBody(markdown: plan.markdown, streaming: false,
-                                       workspaceFiles: model.files, onOpenFile: openWorkspaceResult)
+                                       fileIndex: model.fileIndex, onOpenFile: openWorkspaceResult)
                         .font(NativeChatTheme.bodyFont())
                         .lineSpacing(NativeChatTheme.bodyLineSpacing)
                         .padding(NativeParityTokens.transcriptSide)
@@ -714,7 +714,7 @@ struct ChatPage: View {
         // a path the person already tapped as soon as it appears.
         .onChange(of: model.files) { _, files in
             guard let pending = pendingPreviewPath else { return }
-            guard let match = files.first(where: { $0.relativePath == pending })
+            guard let match = model.fileIndex.file(atPath: pending)
                 ?? Self.uniqueBasenameMatch(pending, in: files) else { return }
             pendingPreviewPath = nil
             attachmentError = nil
@@ -1143,7 +1143,7 @@ struct ChatPage: View {
                                     return snapshot.turnFacts[turn] ?? .empty
                                 }()
                                 VStack(alignment: .leading, spacing: 0) {
-                                    ChatMessageRow(item: item, workspaceFiles: model.files,
+                                    ChatMessageRow(item: item, fileIndex: model.fileIndex,
                                                    isTurnClosingAssistant: facts.closingAssistantID == item.id,
                                                    submittedPlans: facts.plans,
                                                    turnChanges: facts.changes,
@@ -1158,7 +1158,7 @@ struct ChatPage: View {
                             case .contexts(let items):
                                 NativeContextSourceGroup(items: items)
                             case .tools(let items):
-                                ToolRunRow(items: items, workspaceFiles: model.files,
+                                ToolRunRow(items: items,
                                            onOpenFile: openWorkspaceResult)
                             case .turnProcess(let turn):
                                 if let state = model.turnProcessState(for: turn) {
@@ -2769,14 +2769,14 @@ struct ChatPage: View {
         // here; the cached list is therefore a hint, not the authority. Refresh
         // and retry, then fall back to a unique basename match before saying
         // anything failed.
-        if !model.files.contains(where: { $0.relativePath == normalized }) {
+        if model.fileIndex.file(atPath: normalized) == nil {
             model.refreshFiles()
         }
         // The tool result and the file list can disagree only in Unicode
         // normalization (a Chinese name written NFC, listed NFD); try the
         // canonical spelling before falling back to a unique basename.
         let canonical = normalized.precomposedStringWithCanonicalMapping
-        if let match = model.files.first(where: { $0.relativePath == normalized })
+        if let match = model.fileIndex.file(atPath: normalized)
             ?? model.files.first(where: { $0.relativePath.precomposedStringWithCanonicalMapping == canonical })
             ?? (normalized.contains("/") ? nil : Self.uniqueBasenameMatch(normalized, in: model.files)) {
             // One tap: open the preview directly. The preview model owns the
@@ -3079,7 +3079,7 @@ struct ChatPage: View {
 
     private var referenceFiles: [WorkspaceFile] {
         guard let token = referenceToken else { return [] }
-        return model.files.filter { token.isEmpty || $0.relativePath.localizedCaseInsensitiveContains(token) }.prefix(6).map { $0 }
+        return WorkspaceFileQueryCache.shared.search(in: model.fileIndex, token: token, limit: 6)
     }
 
     private var referenceSessions: [ManagedSession] {
@@ -3917,7 +3917,7 @@ private struct NativePlanPreview: Identifiable {
 
 private struct ChatMessageRow: View {
     let item: ChatItem
-    var workspaceFiles: [WorkspaceFile]
+    var fileIndex: WorkspaceFileIndex = .empty
     var isTurnClosingAssistant = false
     var submittedPlans: [NativeTimelinePlanEntry] = []
     var turnChanges: NativeChangedFiles?
@@ -3990,7 +3990,7 @@ private struct ChatMessageRow: View {
     private var assistantBody: some View {
         VStack(alignment: .leading, spacing: 6) {
             NativeMarkdownBody(markdown: item.text.isEmpty ? "…" : item.text,
-                               streaming: item.streaming, workspaceFiles: workspaceFiles,
+                               streaming: item.streaming, fileIndex: fileIndex,
                                onOpenFile: onOpenFile,
                                cacheItemID: item.id, cacheRevision: item.renderRevision)
                 .font(NativeChatTheme.bodyFont())
@@ -4051,7 +4051,6 @@ private struct ChatMessageRow: View {
 /// Shared with the Bot page, which draws its tool steps the same way.
 struct ToolRunRow: View {
     let items: [ChatItem]
-    var workspaceFiles: [WorkspaceFile] = []
     var onOpenFile: (String) -> Void = { _ in }
     @State private var expanded = true
     @State private var scrollMetrics = ProcessScrollMetrics()
@@ -4340,11 +4339,11 @@ private struct FlatDisclosureStyle: DisclosureGroupStyle {
 
 private struct WorkspaceOutputReferences: View {
     let text: String
-    let files: [WorkspaceFile]
+    let fileIndex: WorkspaceFileIndex
     let onOpenFile: (String) -> Void
 
     private var referencedFiles: [WorkspaceFile] {
-        files.filter { text.localizedStandardContains($0.relativePath) }.prefix(6).map { $0 }
+        WorkspaceFileQueryCache.shared.references(in: fileIndex, text: text, limit: 6)
     }
 
     var body: some View {
@@ -4369,6 +4368,61 @@ private struct WorkspaceOutputReferences: View {
             }
             .padding(.top, 4)
         }
+    }
+}
+
+/// Bounded cache for the two workspace-wide text searches that cannot be
+/// answered by the index's dictionary lookups. Their keys carry the index
+/// revision, so rebuilding the file list invalidates every entry; the
+/// count/cost bounds mirror the other render caches and keep long command
+/// output from pinning unbounded memory.
+private final class WorkspaceFileQueryCache {
+    static let shared = WorkspaceFileQueryCache()
+
+    private struct SearchKey: Hashable {
+        let revision: Int
+        let token: String
+        let limit: Int
+    }
+
+    private struct ReferencesKey: Hashable {
+        let revision: Int
+        let textHash: UInt64
+        let textLength: Int
+        let limit: Int
+    }
+
+    private let searchResults: NativeBoundedCache<SearchKey, [WorkspaceFile]>
+    private let referenceResults: NativeBoundedCache<ReferencesKey, [WorkspaceFile]>
+
+    init() {
+        searchResults = NativeBoundedCache(name: "WorkspaceFileSearchCache",
+                                           countLimit: 64,
+                                           totalCostLimit: 1_000_000)
+        referenceResults = NativeBoundedCache(name: "WorkspaceFileReferenceCache",
+                                              countLimit: 32,
+                                              totalCostLimit: 4_000_000)
+    }
+
+    func search(in index: WorkspaceFileIndex, token: String, limit: Int) -> [WorkspaceFile] {
+        let key = SearchKey(revision: index.revision, token: token, limit: limit)
+        if let cached = searchResults.value(forKey: key) { return cached }
+        let files = index.files(matchingCaseInsensitive: token, limit: limit)
+        searchResults.insert(files, forKey: key,
+                             cost: token.utf8.count + files.count * 128)
+        return files
+    }
+
+    func references(in index: WorkspaceFileIndex, text: String, limit: Int) -> [WorkspaceFile] {
+        let key = ReferencesKey(revision: index.revision,
+                                textHash: NativeStableHash.fnv1a64(text),
+                                textLength: text.utf8.count,
+                                limit: limit)
+        if let cached = referenceResults.value(forKey: key) { return cached }
+        let files = index.filesReferenced(in: text, limit: limit)
+        referenceResults.insert(files, forKey: key,
+                                cost: text.utf8.count * 2 + files.count * 128)
+        return files
     }
 }
 
@@ -4526,7 +4580,7 @@ private struct CommandExecutionResultPage: View {
                         .background(HomeSpec.surface, in: RoundedRectangle(cornerRadius: 12))
                     if let text = execution.text, !text.isEmpty {
                         MarkdownContent(text: text, onOpenFile: onOpenFile)
-                        WorkspaceOutputReferences(text: text, files: model.files, onOpenFile: onOpenFile)
+                        WorkspaceOutputReferences(text: text, fileIndex: model.fileIndex, onOpenFile: onOpenFile)
                     } else {
                         Text("这次没有更多输出。")
                             .font(.footnote).foregroundStyle(.secondary)
@@ -4609,7 +4663,7 @@ private struct NativeTrajectoryRow: View {
             VStack(alignment: .leading, spacing: 10) {
                 if !entry.preview.isEmpty {
                     MarkdownContent(text: entry.preview, onOpenFile: onOpenFile)
-                    WorkspaceOutputReferences(text: entry.preview, files: ChatModel.shared.files, onOpenFile: onOpenFile)
+                    WorkspaceOutputReferences(text: entry.preview, fileIndex: ChatModel.shared.fileIndex, onOpenFile: onOpenFile)
                 }
                 Text(payloadText)
                     .font(.system(.caption, design: .monospaced))

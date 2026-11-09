@@ -6,12 +6,12 @@
   "sectionModel": "single-region",
   "sectionNote": "one body under a navigation title: the file's preview (or its honest failure/unsupported card) plus the paging footer. The baseline groups nothing with Section/PageSection/GroupBox, so there is no section title to compare",
   "title": null,
-  "titleNote": "the navigation title is the file's last path component (`PreviewSurface.swift:295`), i.e. runtime data; the contract pins the actions and the states, not a literal title",
+  "titleNote": "the navigation title is the file's last path component (`PreviewSurface.swift:296`), i.e. runtime data; the contract pins the actions and the states, not a literal title",
   "source": {
     "file": "PreviewSurface.swift",
     "path": "examples/probe-app/PhoneDSHProbe/PreviewSurface.swift",
-    "lines": 865,
-    "structLine": 230,
+    "lines": 867,
+    "structLine": 231,
     "renderedFrom": [
       "body"
     ],
@@ -24,9 +24,9 @@
     "note": "the mirrored Swift type is `struct PreviewSurface`; the Android entry composable is `public fun PreviewPage(`, the alias this contract asserts. It lives outside `ui/page` because `PdshRoute.Preview` renders it as the app's one preview face, not as a page-layer screen"
   },
   "handRegistered": {
-    "reason": "`PreviewSurface` is not a `*Page` struct, so the extractor does not generate a contract for it (PR15 made the preview a standalone surface, `PreviewSurface.swift:230`, replacing the `FilePreviewPage` that used to hide inside `FilesPage.swift`). The surface is still a real entrance with its own actions, so it gets a hand-written contract instead of disappearing from the gate.",
+    "reason": "`PreviewSurface` is not a `*Page` struct, so the extractor does not generate a contract for it (PR15 made the preview a standalone surface, `PreviewSurface.swift:231`, replacing the `FilePreviewPage` that used to hide inside `FilesPage.swift`). The surface is still a real entrance with its own actions, so it gets a hand-written contract instead of disappearing from the gate.",
     "mechanism": "a whole contract file, not a `_spec-required.json` entry: that file merges items into a contract the extractor generated, and no extracted contract exists for this page. `extract_ios_pages.py` never writes or deletes `pages/preview-surface.json` (`discover_pages` walks `*Page` structs only), and `page_structure_check.py` reads it like every other contract, provenance included.",
-    "scope": "the actions the Android entry composable implements. Three baseline controls stay outside this contract's Android comparison set, on purpose: 关闭 (`PreviewSurface.swift:326`) is drawn only for the modal presentation, and Android renders this surface as a pushed route whose frame back is that gesture; 网页网络权限 and 重新加载页面 (`:339`, `:345`) are HTML/page-source-only, and Android does not do an HTML preview — a second page source is blocked by the app-wide single-WebView invariant (§6.3-5; L28 §4) — so the three are not part of this contract's Android comparison set. Everything else the baseline renders a label for is listed above."
+    "scope": "the actions the Android entry composable implements. Three baseline controls stay outside this contract's Android comparison set, on purpose: 关闭 (`PreviewSurface.swift:327`) is drawn only for the modal presentation, and Android renders this surface as a pushed route whose frame back is that gesture; 网页网络权限 and 重新加载页面 (`:339`, `:345`) are HTML/page-source-only, and Android does not do an HTML preview — a second page source is blocked by the app-wide single-WebView invariant (§6.3-5; L28 §4) — so the three are not part of this contract's Android comparison set. Everything else the baseline renders a label for is listed above."
   },
   "sections": [],
   "actions": [
@@ -40,7 +40,7 @@
       "writes": true,
       "destination": null,
       "condition": "model.error != nil",
-      "provenance": "PreviewSurface.swift:268",
+      "provenance": "PreviewSurface.swift:269",
       "anchor": "Button(\"重试\") { model.retry() }",
       "extraction": "manual"
     },
@@ -54,7 +54,7 @@
       "writes": true,
       "destination": null,
       "condition": "!model.eof && (model.kind == .text || model.kind == .markdown)",
-      "provenance": "PreviewSurface.swift:285",
+      "provenance": "PreviewSurface.swift:286",
       "anchor": "Label(\"加载更多\", systemImage: \"arrow.down.circle\")",
       "extraction": "manual"
     },
@@ -68,7 +68,7 @@
       "writes": false,
       "destination": null,
       "condition": "model.fileURL != nil",
-      "provenance": "PreviewSurface.swift:354",
+      "provenance": "PreviewSurface.swift:355",
       "anchor": ".accessibilityLabel(\"分享\")",
       "extraction": "manual"
     },
@@ -82,7 +82,7 @@
       "writes": false,
       "destination": null,
       "condition": "model.kind is unsupported && model.fileURL != nil",
-      "provenance": "PreviewSurface.swift:536",
+      "provenance": "PreviewSurface.swift:537",
       "anchor": "Label(\"分享文件\", systemImage: \"square.and.arrow.up\")",
       "extraction": "manual"
     }
@@ -97,7 +97,7 @@
         {
           "renders": "the body for the resolved kind (text / markdown / image / PDF / video)",
           "when": "model.isLoading == false && model.error == nil && the kind has a renderer",
-          "provenance": "PreviewSurface.swift:272",
+          "provenance": "PreviewSurface.swift:273",
           "anchor": "body(for: model.kind)"
         }
       ],
@@ -105,7 +105,7 @@
         {
           "renders": "无法预览 + the host reason + 重试",
           "when": "model.error != nil",
-          "provenance": "PreviewSurface.swift:266",
+          "provenance": "PreviewSurface.swift:267",
           "anchor": "ContentUnavailableView(\"无法预览\", systemImage: \"doc.questionmark\","
         }
       ],
@@ -113,7 +113,7 @@
         {
           "renders": "暂时不能预览这个文件 + why + 分享文件",
           "when": "the kind has no renderer",
-          "provenance": "PreviewSurface.swift:520",
+          "provenance": "PreviewSurface.swift:522",
           "anchor": "Text(\"暂时不能预览这个文件\")"
         }
       ],
@@ -121,7 +121,7 @@
         {
           "renders": "正在读取… (the first frame)",
           "when": "model.isLoading && model.text.isEmpty",
-          "provenance": "PreviewSurface.swift:262",
+          "provenance": "PreviewSurface.swift:263",
           "anchor": "ProgressView(\"正在读取…\")"
         }
       ]

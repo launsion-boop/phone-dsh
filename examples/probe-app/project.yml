@@ -207,6 +207,7 @@ targets:
       # exercise add → refresh → persist → offline reload against ProbeKit.
       - path: PhoneDSHProbe/DailyBriefModel.swift
       - path: PhoneDSHProbe/NativeConversationModels.swift
+      - path: PhoneDSHProbe/WorkspaceFileIndex.swift
       - path: PhoneDSHProbe/NativeBoundedCache.swift
       - path: PhoneDSHProbe/NativePerfCounters.swift
       - path: PhoneDSHProbe/NativeStableHash.swift
@@ -318,6 +319,7 @@ targets:
       - path: PhoneDSHProbe/MCPSettingsModel.swift
       - path: PhoneDSHProbe/DailyBriefModel.swift
       - path: PhoneDSHProbe/NativeConversationModels.swift
+      - path: PhoneDSHProbe/WorkspaceFileIndex.swift
       - path: PhoneDSHProbe/NativeBoundedCache.swift
       - path: PhoneDSHProbe/NativePerfCounters.swift
       - path: PhoneDSHProbe/NativeStableHash.swift

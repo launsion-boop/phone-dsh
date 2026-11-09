@@ -317,13 +317,6 @@ enum AccessModeWording {
     }
 }
 
-/// One file under the materialized workspace.
-struct WorkspaceFile: Identifiable, Hashable {
-    let relativePath: String
-    let size: Int
-    var id: String { relativePath }
-}
-
 // MARK: - Model
 
 /// Owns the host, the harness session and the transcript. One instance per app
@@ -507,7 +500,12 @@ final class ChatModel {
     private(set) var turnEndTimes: [Int: Date] = [:]
     /// 这次引擎起来的时间点,「运行状态」第一行要报「已运行多久」;停掉就清空。
     private(set) var startedAt: Date?
-    private(set) var files: [WorkspaceFile] = []
+    /// Rebuilt exactly once per `files` change. Rendering consumes this index
+    /// instead of scanning the array in every inline code span.
+    private(set) var fileIndex = WorkspaceFileIndex.empty
+    private(set) var files: [WorkspaceFile] = [] {
+        didSet { fileIndex = WorkspaceFileIndex(files: files) }
+    }
     private(set) var previewPath: String?
     private(set) var previewText: String?
 
@@ -3389,7 +3387,7 @@ final class ChatModel {
             }
         }
         files = found.sorted { $0.relativePath < $1.relativePath }
-        if let previewPath, !files.contains(where: { $0.relativePath == previewPath }) {
+        if let previewPath, fileIndex.file(atPath: previewPath) == nil {
             self.previewPath = nil; previewText = nil
         }
     }
