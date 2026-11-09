@@ -106,6 +106,7 @@ def main() -> int:
     check(load("wake-routine.json")["valid"]["quietDefer"], "routine.schema.json", "routine")
     held = load("held-inbox.json")["valid"]
     check(held["enqueued"]["item"], "held-inbox-item.schema.json", "held-item")
+    check(held["deviceTaskResult"], "held-inbox-item.schema.json", "held-device-task-result")
     check_many(held["staged"]["items"], "held-inbox-item.schema.json", "held-staged")
     for index, case in enumerate(load("held-inbox.json")["invalid"]):
         rejects(case, "held-inbox-item.schema.json", f"held.invalid[{index}]")

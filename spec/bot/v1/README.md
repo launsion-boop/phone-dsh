@@ -64,6 +64,8 @@ facts 是 SQLite 唯一权威。写入归一为单行；注入块逐字对齐；
 
 routine、cron、run-attempt、安静时段、silent/held/interrupt、held inbox、隐藏唤醒和 `<automation_status>` 与上游一致。安静时段延后而不是丢弃；urgent 必须有理由；WebContent 不可用时常驻宿主排队，恢复后依次运行且错过的只补一次。
 
+设备任务终态另有一条只读 held 通知：`device-task-result` 只告诉 Bot 哪台设备、任务目标摘要和最终结果，不授予工具，也不提供把回复发回设备的路径。它来自 [device task-delegation](../../device/v1/task-delegation.md) 的终态记录，在 journal 落盘后、向设备回报前入队；投递至多一次（at-most-once）：Bot 未运行或落盘与入队之间崩溃时该通知丢失，journal 不受影响，不按 journal 补投或回放。`held-inbox-item.schema.json` 的该分支与 `golden/held-inbox.json` 的 `deviceTaskResult` 是 phoneDSH 增量：重跑 `spec/tools/bot/export-vectors.mjs` 会覆盖 golden 例子（schema 不由导出器改写），必须像 `tool-effects.json` 的 `nativeMcp` 一样把例子合并回来。
+
 主动提醒规则链只用于 interrupt。iOS 通知深链为 `phonedsh://bot/<botID>/row/<rowID>`。推送中继不在本轮，只保留 WakeSignalSource 接口。
 
 ## 5. 行与交互

@@ -14,6 +14,13 @@ import PhoneDSHDeviceTasks
     @ObservationIgnored private var generation: [String: UUID] = [:]
     @ObservationIgnored private let grants = DeviceTaskGrantCoordinator()
     @ObservationIgnored private var deviceIDs: [String: String] = [:]
+    /// deviceID → the name shown to the Bot for a terminal task result. It is
+    /// cleared with the same lifecycle as `deviceIDs`.
+    @ObservationIgnored private var deviceNames: [String: String] = [:]
+    @ObservationIgnored private var onTaskSettledOwner: ObjectIdentifier?
+    /// Read-only settlement delivery installed by the Bot runtime composition.
+    /// There is intentionally no journal replay if the Bot is not running.
+    @ObservationIgnored var onTaskSettled: (@MainActor (DeviceTaskSettlement, String) -> Void)?
     @ObservationIgnored private var bleIDs: [String: UUID] = [:]
     @ObservationIgnored private var monitors: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var intake: DeviceTaskIntake?
@@ -25,6 +32,9 @@ import PhoneDSHDeviceTasks
     @ObservationIgnored var testEngine: (DeviceTaskIntake, DeviceDSHRunner)?
     @ObservationIgnored var testMonitorFinished: ((UUID) -> Void)?
     func testGeneration(_ key: String) -> UUID? { generation[key] }
+    /// Exercises the display-name mapping and owner-scoped callback without
+    /// building a real DSH transport in the host test.
+    func testDeliverSettlement(_ settlement: DeviceTaskSettlement) { deliverSettlement(settlement) }
     #endif
     private var foreground = true
     @ObservationIgnored private let settings: PhoneMCPAccessSettings
@@ -51,6 +61,32 @@ import PhoneDSHDeviceTasks
     static func lanKey(_ name: String) -> String { "lan-ui:" + name }
     static func bleKey(_ id: UUID) -> String { "ble-ui:" + id.uuidString.lowercased() }
 
+    /// The Bot composition owns the settlement callback while it is running.
+    /// The owner token keeps an older composition's teardown from clearing a
+    /// newer one that already replaced it.
+    func installTaskSettlementHandler(owner: AnyObject,
+                                      handler: @escaping @MainActor (DeviceTaskSettlement, String) -> Void) {
+        onTaskSettledOwner = ObjectIdentifier(owner)
+        onTaskSettled = handler
+    }
+
+    func removeTaskSettlementHandler(owner: AnyObject) {
+        guard onTaskSettledOwner == ObjectIdentifier(owner) else { return }
+        onTaskSettledOwner = nil
+        onTaskSettled = nil
+    }
+
+    private func deliverSettlement(_ settlement: DeviceTaskSettlement) {
+        let name = deviceNames[settlement.deviceID] ?? settlement.deviceID
+        onTaskSettled?(settlement, name)
+    }
+
+    private func clearDeviceBinding(key: String) {
+        if let deviceID = deviceIDs.removeValue(forKey: key) {
+            deviceNames.removeValue(forKey: deviceID)
+        }
+    }
+
     private func engine() async throws -> (DeviceTaskIntake, DeviceDSHRunner) {
         #if PDSH_TEST_HOOKS
         if let testEngine { intake = testEngine.0; runner = testEngine.1; return testEngine }
@@ -62,7 +98,17 @@ import PhoneDSHDeviceTasks
             let runner = DeviceDSHRunner(transport: transport)
             try await runner.verifyIsolation()
             let support = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
-            let executor = try DeviceTaskExecutor(directory: support.appendingPathComponent("device-task-journal", isDirectory: true), runner: runner)
+            let executor = try DeviceTaskExecutor(
+                directory: support.appendingPathComponent("device-task-journal", isDirectory: true),
+                runner: runner,
+                onSettled: { [weak self] settlement in
+                    // The executor calls observers synchronously after the
+                    // terminal journal write. Hop to the manager's actor and
+                    // never let delivery affect the journal or device report.
+                    Task { @MainActor [weak self] in
+                        self?.deliverSettlement(settlement)
+                    }
+                })
             self.executor = executor
             return (DeviceTaskIntake(executor: executor), runner)
         }
@@ -96,7 +142,9 @@ import PhoneDSHDeviceTasks
             guard try await isLANConnected(row) else { throw DeviceTaskError.unauthorized }
             guard foreground, generation[key] == token, validLAN(name: row.serverName, grant: grant, secrets: secrets) else { throw DeviceTaskError.unauthorized }
             guard !deviceIDs.values.contains(inbox.deviceID) else { throw DeviceTaskError.deviceBusy }
-            deviceIDs[key] = inbox.deviceID; active.insert(key)
+            deviceIDs[key] = inbox.deviceID
+            deviceNames[inbox.deviceID] = row.serverName.isEmpty ? inbox.deviceID : row.serverName
+            active.insert(key)
             let start = try grants.start(key: key, token: token, deviceID: inbox.deviceID, intake: pair.0, inbox: inbox,
                 onStopped: { [weak self] in await self?.finished(key: key, token: token) }) { [weak self] in
                     for try await task in inbox.tasks() {
@@ -145,7 +193,14 @@ import PhoneDSHDeviceTasks
             let pair = try await engine()
             guard foreground, generation[key] == token, BLEDeviceStore.shared.devices.first(where: { $0.id == id })?.allowDeviceTasks == true else { throw DeviceTaskError.unauthorized }
             guard !deviceIDs.values.contains(inbox.deviceID) else { throw DeviceTaskError.deviceBusy }
-            deviceIDs[key] = inbox.deviceID; active.insert(key)
+            deviceIDs[key] = inbox.deviceID
+            let knownName = BLEDeviceStore.shared.devices.first(where: { $0.id == id })?.name
+            if let knownName, !knownName.isEmpty {
+                deviceNames[inbox.deviceID] = knownName
+            } else {
+                deviceNames[inbox.deviceID] = inbox.deviceID
+            }
+            active.insert(key)
             let start = try grants.start(key: key, token: token, deviceID: inbox.deviceID, intake: pair.0, inbox: inbox,
                 onStopped: { [weak self] in await self?.finished(key: key, token: token) }) { try await inbox.next() }
             let ok = try await start.value
@@ -186,7 +241,7 @@ import PhoneDSHDeviceTasks
     private func invalidate(_ key: String) -> Task<Void, Never>? {
         generation[key] = nil; active.remove(key); starting.remove(key); monitors.removeValue(forKey: key)?.cancel()
         if let id = bleIDs.removeValue(forKey: key) { try? BLEDeviceStore.shared.grantDeviceTasks(id, enabled: false) }
-        deviceIDs[key] = nil
+        clearDeviceBinding(key: key)
         return grants.invalidate(key: key)
     }
     func stop(_ key: String) async {
@@ -195,7 +250,7 @@ import PhoneDSHDeviceTasks
     }
     private func finished(key: String, token: UUID) async {
         guard generation[key] == token else { return }
-        generation[key] = nil; active.remove(key); starting.remove(key); deviceIDs[key] = nil; monitors.removeValue(forKey: key)?.cancel()
+        generation[key] = nil; active.remove(key); starting.remove(key); clearDeviceBinding(key: key); monitors.removeValue(forKey: key)?.cancel()
         if let id = bleIDs.removeValue(forKey: key) { try? BLEDeviceStore.shared.grantDeviceTasks(id, enabled: false) }
         error = "设备任务连接已停止；请检查设备连接和任务协议后重新授权。"
     }
