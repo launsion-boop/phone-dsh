@@ -137,15 +137,12 @@ struct NativeShell: View {
                         .accessibilityHidden(true)
                 }
 
-                SessionsDrawerPanel(isOpen: panelOpen,
-                                    topInset: proxy.safeAreaInsets.top,
-                                    bottomInset: proxy.safeAreaInsets.bottom,
-                                    isPersistent: usesSidebar)
-                    .offset(x: drawerOffset(usesSidebar: usesSidebar, sidebarVisible: sidebarVisible))
-                    .shadow(color: .black.opacity(modalDrawerVisible ? 0.12 : 0), radius: 20, x: 6)
-                    .simultaneousGesture(modalDrawerVisible ? closeDrag : nil)
-                    .allowsHitTesting(sidebarVisible || modalDrawerVisible)
-                    .accessibilityHidden(!sidebarVisible && !modalDrawerVisible)
+                drawerPanel(panelOpen: panelOpen,
+                            topInset: proxy.safeAreaInsets.top,
+                            bottomInset: proxy.safeAreaInsets.bottom,
+                            usesSidebar: usesSidebar,
+                            sidebarVisible: sidebarVisible,
+                            modalDrawerVisible: modalDrawerVisible)
             }
             .ignoresSafeArea()
             .preferredColorScheme(preferences.appearance.colorScheme)
@@ -153,9 +150,10 @@ struct NativeShell: View {
                 drawerOpen = false
                 dragOffset = 0
             }
-            // The session drawer belongs to 任务; leaving that tab closes it.
-            .onChange(of: selectedTab) { _, tab in
-                if tab != .tasks { closeDrawer() }
+            // Each drawer belongs to its own tab (任务 sessions, Bot roster);
+            // any tab change closes it and the new tab gets its own panel.
+            .onChange(of: selectedTab) { _, _ in
+                closeDrawer()
             }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
                 keyboardVisible = true
@@ -212,9 +210,16 @@ struct NativeShell: View {
         ZStack {
             tabPage(.bot) {
                 NavigationStack {
-                    BotProductionPage().environment(\.botFishPaused, selectedTab != .bot)
-                        .toolbar(.hidden, for: .navigationBar)
-                        .modifier(tabRoot(.bot))
+                    BotProductionPage(openDrawer: {
+                        if usesSidebar {
+                            withAnimation(.easeInOut(duration: 0.22)) { sidebarCollapsed.toggle() }
+                        } else {
+                            openDrawer()
+                        }
+                    })
+                    .environment(\.botFishPaused, selectedTab != .bot)
+                    .toolbar(.hidden, for: .navigationBar)
+                    .modifier(tabRoot(.bot))
                 }
             }
             tabPage(.tasks) {
@@ -251,6 +256,33 @@ struct NativeShell: View {
             .opacity(selected ? 1 : 0)
             .allowsHitTesting(selected)
             .accessibilityHidden(!selected)
+    }
+
+    /// The one drawer mechanism serves both tabs: 任务 shows the session list,
+    /// Bot shows the Bot roster. Width, corners, drag, scrim and the wide
+    /// persistent form are the same panel chrome.
+    @ViewBuilder
+    private func drawerPanel(panelOpen: Binding<Bool>, topInset: CGFloat,
+                             bottomInset: CGFloat, usesSidebar: Bool,
+                             sidebarVisible: Bool, modalDrawerVisible: Bool) -> some View {
+        Group {
+            if selectedTab == .bot {
+                BotDrawerHost(isOpen: panelOpen,
+                              topInset: topInset,
+                              bottomInset: bottomInset,
+                              isPersistent: usesSidebar)
+            } else {
+                SessionsDrawerPanel(isOpen: panelOpen,
+                                    topInset: topInset,
+                                    bottomInset: bottomInset,
+                                    isPersistent: usesSidebar)
+            }
+        }
+        .offset(x: drawerOffset(usesSidebar: usesSidebar, sidebarVisible: sidebarVisible))
+        .shadow(color: .black.opacity(modalDrawerVisible ? 0.12 : 0), radius: 20, x: 6)
+        .simultaneousGesture(modalDrawerVisible ? closeDrag : nil)
+        .allowsHitTesting(sidebarVisible || modalDrawerVisible)
+        .accessibilityHidden(!sidebarVisible && !modalDrawerVisible)
     }
 
     /// The phone drawer's x: 0 open, following a leftward drag, fully off

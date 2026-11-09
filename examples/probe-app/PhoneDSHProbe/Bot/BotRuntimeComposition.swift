@@ -185,6 +185,20 @@ final class BotRuntimeComposition {
                 return "你的名字是\(name)。用户问起名字时如实回答。"
             },
             memoryForBot: { botID in await runtime.memory(for: botID) },
+            teammates: { callerBotID in
+                let roster = (try? await profileStore.roster())
+                    ?? BotRoster(bots: [], mainBotID: nil)
+                return roster.bots
+                    .filter { !$0.hiddenByUser && $0.id != callerBotID }
+                    .map { bot in
+                        BotTeammateSummary(id: bot.id, name: bot.name,
+                                           description: bot.description,
+                                           isMain: bot.id == roster.mainBotID)
+                    }
+            },
+            botDescription: { botID in
+                try? await profileStore.profile(id: botID)?.description
+            },
             language: language)
         await deferred.attach(volatile)
 
@@ -203,6 +217,7 @@ final class BotRuntimeComposition {
             store: store, machine: machine, profileStore: profileStore,
             selectionStore: selectionStore)
         await runtime.registerTeamTools(BotTeamTools(host: composition))
+        await runtime.registerFishActionTool()
         rosterModel.start()
         composition.startRosterObservation()
         let selectedUnit = try await composition.ensureUnit(
@@ -246,6 +261,12 @@ final class BotRuntimeComposition {
     // MARK: - Unit lifecycle
 
     func unit(for botID: String) -> BotRuntimeUnit? { units[botID] }
+
+    /// Any typed/poked/tapped page wakes the sidebar's 60 s idle clock for the
+    /// same Bot, so the drawer and the open page never disagree.
+    func noteInteraction(for botID: String) {
+        units[botID]?.noteInteraction()
+    }
 
     @discardableResult
     func ensureUnit(for botID: String, reason: String = "selected") async throws -> BotRuntimeUnit {

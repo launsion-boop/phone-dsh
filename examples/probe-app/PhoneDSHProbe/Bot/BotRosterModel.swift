@@ -12,6 +12,9 @@ struct BotRosterRuntimeState: Equatable, Sendable {
     var activity: BotActivity?
     var isRunning = false
     var pendingApprovalCount = 0
+    /// One-shot FishAction overlay for every avatar of this Bot. It is
+    /// cosmetic; `fishState` remains the lifecycle base underneath.
+    var reaction: BotFishReaction?
     var runtimeState: BotRuntimeState = .idle
 }
 
@@ -33,6 +36,7 @@ struct BotRosterEntry: Identifiable, Equatable {
     var activity: BotActivity? { runtime.activity }
     var isRunning: Bool { runtime.isRunning }
     var pendingApprovalCount: Int { runtime.pendingApprovalCount }
+    var reaction: BotFishReaction? { runtime.reaction }
 }
 
 /// The one App-side roster view. It owns selection, unread/read state and the
@@ -140,6 +144,7 @@ final class BotRosterModel {
     func refresh() async {
         do {
             apply(try await store.roster())
+            loadError = nil
         } catch {
             loadError = error.localizedDescription
         }
@@ -175,6 +180,7 @@ final class BotRosterModel {
     func setMain(_ botID: String) async {
         do {
             try await store.setMainBotID(botID)
+            actionError = nil
             await refresh()
         } catch {
             actionError = "设为主 Bot 失败：\(error.localizedDescription)"
@@ -184,10 +190,19 @@ final class BotRosterModel {
     func setHidden(_ botID: String, hidden: Bool) async {
         do {
             try await store.setHidden(id: botID, hidden: hidden)
+            actionError = nil
             await refresh()
         } catch {
             actionError = "更新隐藏状态失败：\(error.localizedDescription)"
         }
+    }
+
+    /// Renames one record through the profile store, then refreshes the
+    /// roster. The store owns the trimmed/non-empty/<= 60 UTF-16-unit rules.
+    func rename(_ botID: String, to name: String) async throws {
+        _ = try await store.upsert(id: botID, patch: BotProfilePatch(name: name))
+        actionError = nil
+        await refresh()
     }
 
     @discardableResult

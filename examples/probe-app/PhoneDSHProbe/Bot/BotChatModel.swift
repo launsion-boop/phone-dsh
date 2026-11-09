@@ -68,6 +68,8 @@ final class BotChatModel: ObservableObject {
     /// The same projection rebuilt from the live turn frames, which are the
     /// authority while a turn is running.
     @Published private(set) var livePresentation: BotRuntimePresentation?
+    /// Agent-driven one-shot FishAction for every avatar of this Bot.
+    @Published private(set) var reaction: BotFishReaction?
     /// Sixty seconds without a turn or a touch: the fish sleeps until the
     /// next interaction. Approvals and running turns always win over this.
     @Published private(set) var idleSleeping = false
@@ -87,6 +89,9 @@ final class BotChatModel: ObservableObject {
     /// Importing is an app-layer dependency: the fixture model leaves it nil and
     /// the production hub injects the real workspace importer.
     var attachmentImporter: (any BotAttachmentImporting)?
+    /// Lets the production hub reset the per-Bot idle clock in the runtime
+    /// unit when this page sees a touch, so the sidebar and the page agree.
+    var onInteraction: (() -> Void)?
     @Published var scrollRequestID: String?
     @Published private(set) var loadingHistory = false
     @Published private(set) var hasMoreHistory = false
@@ -97,9 +102,9 @@ final class BotChatModel: ObservableObject {
     @Published private(set) var turnProcesses: [Int: BotTurnProcess] = [:]
     private var pendingDelta = ""
     private var deltaFlush: Task<Void, Never>?
-    /// Live session events of the open turn, in arrival order, for the one
-    /// runtime-presentation factory. Cleared on `turn/start`.
-    private var livePresentationEvents: [JSONValue] = []
+    /// Live frames of the open turn, replayed through the one director mapper.
+    private var liveFish: BotLiveFishProjection
+    private var fishExpiryTask: Task<Void, Never>?
     private var sleepTask: Task<Void, Never>?
 
     let context: BotRuntimeContext
@@ -129,6 +134,7 @@ final class BotChatModel: ObservableObject {
         self.fixtureHistoryCursor = fixtureHistory.first?.id
         self.hasMoreHistory = driver != nil || !fixtureHistory.isEmpty
         self.botName = context.botName
+        self.liveFish = BotLiveFishProjection(botID: context.botID)
         attach(profileCenter: profileCenter)
     }
 
@@ -216,7 +222,12 @@ final class BotChatModel: ObservableObject {
     var fishState: BotFishLifecycle {
         if pendingApprovalCount > 0 { return .alerting }
         if idleSleeping, runningTurnID == nil, live == nil { return .sleeping }
-        if live != nil, let state = livePresentation?.fishState { return state }
+        if let presentation = livePresentation {
+            if live != nil { return presentation.fishState }
+            if let shot = presentation.oneShot, shot.endsAt > BotLiveFishProjection.now {
+                return shot.state
+            }
+        }
         return runtimePresentation.fishState
     }
 
@@ -380,6 +391,7 @@ final class BotChatModel: ObservableObject {
     /// 60-second sleep clock.
     func noteInteraction() {
         if idleSleeping { idleSleeping = false }
+        onInteraction?()
         guard runningTurnID == nil, live == nil else {
             sleepTask?.cancel()
             sleepTask = nil
@@ -398,6 +410,7 @@ final class BotChatModel: ObservableObject {
 
     private func applyDurablePresentation(_ presentation: BotRuntimePresentation) {
         runtimePresentation = presentation
+        if live == nil { reaction = presentation.reaction }
         guard live == nil else { return }
         if let turn = presentation.runningTurnID {
             if runningTurnID == nil, !cancelledTurnIDs.contains(turn) { runningTurnID = turn }
@@ -509,6 +522,8 @@ final class BotChatModel: ObservableObject {
                 }
             } catch {
                 runtimeNotice = "Bot 实时更新失败：\(error.localizedDescription)"
+                liveFish.noteError("Bot 实时更新失败：\(error.localizedDescription)")
+                refreshLiveFishPresentation()
             }
             try? await Task.sleep(nanoseconds: 800_000_000)
         }
@@ -523,6 +538,7 @@ final class BotChatModel: ObservableObject {
     }
 
     func receive(_ frame: BotLiveFrame) {
+        liveFish.receive(frame)
         switch frame {
         case .streamStart:
             pendingDelta = ""
@@ -545,26 +561,48 @@ final class BotChatModel: ObservableObject {
                 deltaFlush?.cancel()
                 deltaFlush = nil
                 live = BotLiveTurn()
-                livePresentationEvents = [event]
                 sleepTask?.cancel()
                 sleepTask = nil
                 idleSleeping = false
             } else {
                 flushDelta()
-                livePresentationEvents.append(event)
             }
             var turn = live ?? BotLiveTurn()
             turn.apply(event: event)
             live = turn
-            livePresentation = BotRuntimePresentationFactory.live(botID: context.botID,
-                                                                  events: livePresentationEvents)
             if type == "turn/start" {
-                runningTurnID = livePresentation?.runningTurnID
+                runningTurnID = liveFish.presentation().runningTurnID
                 streamingText = nil
             } else if type == "turn/end" {
                 runningTurnID = nil
                 scheduleIdleSleep(reset: true)
             }
+        }
+        refreshLiveFishPresentation()
+    }
+
+    private func refreshLiveFishPresentation() {
+        let presentation = liveFish.presentation()
+        livePresentation = presentation
+        reaction = presentation.reaction
+        scheduleFishExpiry(presentation)
+    }
+
+    /// The renderer owns the reaction TTL, but the lifecycle fallback is a
+    /// model value: wake once the one-shot ends so an error turn returns to
+    /// idle even when no further frame arrives.
+    private func scheduleFishExpiry(_ presentation: BotRuntimePresentation) {
+        fishExpiryTask?.cancel()
+        fishExpiryTask = nil
+        let now = BotLiveFishProjection.now
+        var deadlines: [Int64] = []
+        if let shot = presentation.oneShot, shot.endsAt > now { deadlines.append(shot.endsAt) }
+        if let reaction = presentation.reaction, reaction.endsAt > now { deadlines.append(reaction.endsAt) }
+        guard let next = deadlines.min() else { return }
+        fishExpiryTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(max(0, next - now)) * 1_000_000)
+            guard !Task.isCancelled, let self else { return }
+            self.refreshLiveFishPresentation()
         }
     }
 

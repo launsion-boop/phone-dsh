@@ -17,7 +17,10 @@ struct BotChatPage: View {
     let isMainBot: Bool
     let onSelectBot: (String) -> Void
     let peerAppearance: (String) -> BotFishAppearance?
+    let peerIsMainBot: (String) -> Bool
+    let peerReaction: (String) -> BotFishReaction?
     let handleExternalDeepLink: (URL) -> Bool
+    let openDrawer: (() -> Void)?
 
     @State private var draft = ""
     @State private var sourceRow: BotUIRow?
@@ -40,6 +43,9 @@ struct BotChatPage: View {
          onOpenInfoSection: @escaping (BotInfoSection) -> Void = { _ in },
          onSelectBot: @escaping (String) -> Void = { _ in },
          peerAppearance: @escaping (String) -> BotFishAppearance? = { _ in nil },
+         peerIsMainBot: @escaping (String) -> Bool = { _ in false },
+         peerReaction: @escaping (String) -> BotFishReaction? = { _ in nil },
+         openDrawer: (() -> Void)? = nil,
          hasOnlineDevices: Bool = false,
          onConnectDevice: @escaping () -> Void = {},
          handleExternalDeepLink: @escaping (URL) -> Bool = { _ in false },
@@ -56,7 +62,10 @@ struct BotChatPage: View {
         self.isMainBot = isMainBot
         self.onSelectBot = onSelectBot
         self.peerAppearance = peerAppearance
+        self.peerIsMainBot = peerIsMainBot
+        self.peerReaction = peerReaction
         self.handleExternalDeepLink = handleExternalDeepLink
+        self.openDrawer = openDrawer
         _pendingAttachments = State(initialValue: initialAttachments)
         _attachmentNotice = State(initialValue: initialAttachmentNotice)
     }
@@ -107,16 +116,36 @@ struct BotChatPage: View {
     /// the screen and can never grow under the menu.
     private var header: some View {
         HStack(spacing: 0) {
-            Color.clear
-                .frame(width: HomeSpec.navPillWidth, height: 1)
-                .accessibilityHidden(true)
+            if let openDrawer {
+                Button(action: openDrawer) {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Capsule().frame(width: 18, height: 2.4)
+                        Capsule().frame(width: 12, height: 2.4)
+                    }
+                    .foregroundStyle(HomeSpec.primaryButton)
+                    .frame(width: HomeSpec.navButton, height: HomeSpec.navButton)
+                    .background(HomeSpec.surface, in: Circle())
+                    .homeFloatingShadow()
+                    .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("打开 Bot 列表")
+                .accessibilityIdentifier("bot.drawer.open")
+                Color.clear
+                    .frame(width: HomeSpec.navPillWidth - HomeSpec.navButton, height: 1)
+                    .accessibilityHidden(true)
+            } else {
+                Color.clear
+                    .frame(width: HomeSpec.navPillWidth, height: 1)
+                    .accessibilityHidden(true)
+            }
             Button {
                 model.noteInteraction()
                 onOpenInfo()
             } label: {
                 HStack(spacing: 8) {
                     BotFishView(state: model.fishState, size: 32, appearance: model.appearance,
-                                crowned: isMainBot)
+                                crowned: isMainBot, reaction: model.reaction)
                     Text(model.botName)
                         .font(.system(size: 17, weight: .semibold))
                         .foregroundStyle(HomeSpec.textPrimary)
@@ -289,7 +318,7 @@ struct BotChatPage: View {
     private var emptyState: some View {
         VStack(spacing: 12) {
             BotFishView(state: model.fishState, size: 96, appearance: model.appearance,
-                        crowned: isMainBot, allowsPoke: true)
+                        crowned: isMainBot, allowsPoke: true, reaction: model.reaction)
             Text("嗨，我是 \(model.botName)")
                 .botFont(size: 15, lineHeight: 22, weight: .semibold, style: .body)
                 .foregroundStyle(HomeSpec.textPrimary)
@@ -312,7 +341,8 @@ struct BotChatPage: View {
     private var composerDock: some View {
         VStack(spacing: 8) {
             if model.showsActivityLine, let activity = model.activity {
-                BotActivityLine(activity: activity, fishState: model.fishState, appearance: model.appearance)
+                BotActivityLine(activity: activity, fishState: model.fishState,
+                                appearance: model.appearance, reaction: model.reaction)
                     .transition(.opacity.combined(with: .offset(y: 6)))
             }
             if model.pendingApprovalCount > 0 {
@@ -639,7 +669,9 @@ struct BotChatPage: View {
     private func transcriptRow(_ row: BotUIRow) -> some View {
         BotTranscriptRow(row: row, model: model, actions: resolvedCardActions,
                          sourceRow: $sourceRow, onSelectBot: onSelectBot,
-                         peerAppearance: peerAppearance)
+                         peerAppearance: peerAppearance,
+                         peerIsMainBot: peerIsMainBot,
+                         peerReaction: peerReaction)
     }
 
     private func loadHistory(proxy: ScrollViewProxy) {
@@ -726,12 +758,16 @@ private struct BotTranscriptRow: View {
     @Binding var sourceRow: BotUIRow?
     let onSelectBot: (String) -> Void
     let peerAppearance: (String) -> BotFishAppearance?
+    let peerIsMainBot: (String) -> Bool
+    let peerReaction: (String) -> BotFishReaction?
 
     var body: some View {
         Group {
             if let comm = BotAgentCommRendering.presentation(for: row) {
                 BotAgentCommRow(presentation: comm,
                                 appearance: comm.peerID.flatMap(peerAppearance),
+                                crowned: comm.peerID.map(peerIsMainBot) ?? false,
+                                reaction: comm.peerID.flatMap(peerReaction),
                                 onSelectBot: onSelectBot)
                     .padding(.horizontal, HomeSpec.contentInset)
                     .padding(.vertical, HomeSpec.blockGap / 2)
@@ -756,6 +792,8 @@ private struct BotTranscriptRow: View {
 private struct BotAgentCommRow: View {
     let presentation: BotAgentCommPresentation
     let appearance: BotFishAppearance?
+    let crowned: Bool
+    let reaction: BotFishReaction?
     let onSelectBot: (String) -> Void
 
     private var icon: String {
@@ -775,7 +813,8 @@ private struct BotAgentCommRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             if let appearance {
-                BotFishView(state: .idle, size: 28, appearance: appearance, still: true)
+                BotFishView(state: .idle, size: 28, appearance: appearance,
+                            crowned: crowned, still: true, reaction: reaction)
             } else {
                 Image(systemName: "person.2")
                     .font(.system(size: 12))
