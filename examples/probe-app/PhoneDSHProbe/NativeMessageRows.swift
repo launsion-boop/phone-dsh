@@ -6,6 +6,8 @@ struct NativeDisclosureRow<Content: View>: View {
     let icon: NativeChatIcon.Name
     let title: String
     var summary: String = ""
+    /// Small non-blocking badge after the title (e.g. `可能较重`).
+    var hint: String? = nil
     var running = false
     var expandable = true
     var showsSummaryWhenExpanded = false
@@ -38,6 +40,16 @@ struct NativeDisclosureRow<Content: View>: View {
                     Text(title)
                         .font(font)
                         .fixedSize(horizontal: true, vertical: false)
+                    if let hint, !hint.isEmpty {
+                        Text(hint)
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(NativeParityTokens.labelTertiary)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(NativeParityTokens.borderL1, in: Capsule())
+                            .fixedSize(horizontal: true, vertical: false)
+                            .accessibilityLabel("该操作可能较重")
+                    }
                     if !summary.isEmpty && (showsSummaryWhenExpanded || !expanded) {
                         Circle()
                             .fill(HomeSpec.textPlaceholder)

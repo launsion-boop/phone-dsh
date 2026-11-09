@@ -635,6 +635,34 @@ function gitSection(git: NonNullable<CapabilityManifestDocument['git']>): string
   ]
 }
 
+/** Heading of the fixed phone-resource practice section. */
+export const MOBILE_RESOURCE_HEADING = '## 手机上的资源做法'
+/** Hard byte budget of that section (S1-F: "no more than 600 bytes"). */
+export const MOBILE_RESOURCE_MAX_BYTES = 600
+
+/**
+ * The fixed "phone resource practice" section of AGENTS.md.
+ *
+ * It is task-independent advice, not a scenario answer: the model should not
+ * clone a whole repository, install dependencies, build on the phone, or read
+ * a directory it does not need. The workspace budget comes from the manifest's
+ * own `limits` (the tier row), never a hard-coded number, so every device reads
+ * the budget its host enforces.
+ * @param workspaceBytes - the tier's `vfs_workspace_bytes`.
+ * @returns the Markdown lines of the section, heading included.
+ */
+export function mobileResourceSection(workspaceBytes: number): string[] {
+  return [
+    MOBILE_RESOURCE_HEADING,
+    '- 克隆用 `git clone --depth 1 --single-branch`；只需个别文件时直接读，不要整库克隆。',
+    '- 不在手机上安装依赖、不跑构建。',
+    '- 搜索时排除 `.git`、`node_modules`。',
+    '- 大文件按片读取。',
+    '- 只处理任务需要的那部分目录。',
+    `- 工作区预算 ${formatBytes(workspaceBytes)}；接近上限时先删除不需要的产物。`,
+  ]
+}
+
 function markdownFor(document: CapabilityManifestDocument, compactCommands = false): string {
   const limits = document.limits
   const commandSummary = compactCommands
@@ -691,6 +719,8 @@ function markdownFor(document: CapabilityManifestDocument, compactCommands = fal
       + `${String(limits.execution.max_sed_iterations)} loop/awk/sed iterations; over limit non-zero `
       + '`reason=iterations` (awk/seq/for/while/sed share the ceiling).',
     `- <= ${String(limits.max_sub_agents)} sub-agents (1 thermal); restart only at a tool-call boundary (heap/WebContent/24 h).`,
+    '',
+    ...mobileResourceSection(limits.vfs_workspace_bytes),
     '',
     '## Network',
     document.accelerators.includes('ssh')

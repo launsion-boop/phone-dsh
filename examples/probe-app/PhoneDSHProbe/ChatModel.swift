@@ -508,6 +508,13 @@ final class ChatModel {
     }
     private(set) var previewPath: String?
     private(set) var previewText: String?
+    /// App-layer resource meter (S1 round 8): read-only sampling, the
+    /// three-band display and its UI degradation. It never changes host
+    /// admission or the budgets.md policy actions.
+    let resourceMeter = ResourceMeter()
+    /// Pending streamed deltas, drained at `ResourceLevel`'s refresh cap.
+    private var streamAccumulator = NativeStreamAccumulator()
+    private var streamFlushTask: Task<Void, Never>?
     /// Serializes off-main workspace scans. `refreshFiles()` only requests a
     /// scan; the traversal never runs on the main actor.
     @ObservationIgnored private lazy var fileRefresh = WorkspaceFileRefreshController(
@@ -1030,7 +1037,7 @@ final class ChatModel {
             await botLaunch?.composition.attachNativeMCP(DeviceMCPServer.shared)
             try await launch.host.start()
         } catch {
-            Self.appendDiagnostic("host start failed: \(error)")
+            Self.appendDiagnostic("host start failed: \(NativeLogRedaction.error(error))")
             // D24: a persisted backoff window is a healthy wait, not a failed
             // engine. Never show the red "引擎停了" line here; schedule one
             // retry just past the host's own deadline instead.
@@ -1159,7 +1166,7 @@ final class ChatModel {
             }
         } catch {
             modelName = ""
-            appendStatus("Model service settings are invalid; booting without a model route: \(error.localizedDescription)")
+            appendStatus("Model service settings are invalid; booting without a model route: \(NativeLogRedaction.localizedError(error))")
         }
         var launchPlan = ModelProviderLaunchPlan(allowedModelHosts: allowedModelHosts,
                                                  credentialProvider: credentialProvider,
@@ -1324,7 +1331,7 @@ final class ChatModel {
                 try await launch.host.reset()
             }
         } catch {
-            Self.appendDiagnostic("host reset failed: \(error)")
+            Self.appendDiagnostic("host reset failed: \(NativeLogRedaction.error(error))")
             reportError("引擎无法重新启动：\(Self.condensed(String(describing: error)))")
             hostEventTask?.cancel(); hostEventTask = nil
             let state = await launch.host.state
@@ -1361,6 +1368,10 @@ final class ChatModel {
         engineNeedsReset = false
         startedAt = Date()
         restartPolicyBudget = budgets
+        resourceMeter.attach(host: newHost, budgets: budgets,
+                             workspaceRoot: workspaceRoot,
+                             logSink: { Self.appendDiagnostic($0) })
+        resourceMeter.updateWorkspace(files: files)
         startRestartPolicyMonitor()
         do {
             let harness = try await newHost.harness()
@@ -1383,13 +1394,14 @@ final class ChatModel {
                 do {
                     try await selectProviderModel(selectedProfile, sessionID: session.id, transport: transport)
                 } catch {
-                    appendStatus("The provider model could not be selected for this session: \(error.localizedDescription)")
+                    appendStatus("The provider model could not be selected for this session: \(NativeLogRedaction.localizedError(error))")
                 }
             }
             let history: SessionHistory
             do {
                 history = try await loadSessionHistory(sessionID: session.id,
                                                         transport: transport)
+                flushStreamingText()
                 items = history.items
             turnStartTimes = history.turnFacts.starts
             turnEndReasons = history.turnFacts.endReasons
@@ -1422,7 +1434,7 @@ final class ChatModel {
             Task { await self.refreshTrajectory() }
             Task { await self.loadCommands() }
             statusLine = "Session \(session.id.prefix(8)) open — type a task"
-            appendStatus("Session \(requestedSessionID == nil ? "created" : "resumed"): \(session.id); egress allow-list: \(egressHosts.isEmpty ? "(none)" : egressHosts.sorted().joined(separator: ", "))")
+            appendStatus("Session \(requestedSessionID == nil ? "created" : "resumed"): \(session.id); egress hosts=\(egressHosts.count)")
         } catch {
             reportError("Session failed: \(error)")
         }
@@ -1544,7 +1556,7 @@ final class ChatModel {
                 // that re-runs it once the engine is back.
                 try await selectProviderModel(profile, sessionID: session.id, transport: transport)
             } catch {
-                appendStatus("The provider model could not be selected for this session: \(error.localizedDescription)")
+                appendStatus("The provider model could not be selected for this session: \(NativeLogRedaction.localizedError(error))")
             }
         }
         try Task.checkCancellation()
@@ -1557,6 +1569,7 @@ final class ChatModel {
         self.sessionID = session.id
         UserDefaults.standard.set(session.id, forKey: Self.currentSessionDefaultsKey)
         lastSeq = history.after
+        flushStreamingText()
         items = history.items
         turnStartTimes = history.turnFacts.starts
         turnEndReasons = history.turnFacts.endReasons
@@ -1638,7 +1651,7 @@ final class ChatModel {
                 guard isReloadCurrent(token: token, expectedSessionID: expectedSessionID) else {
                     return
                 }
-                appendStatus("Session reload failed: \(error)")
+                appendStatus("Session reload failed: \(NativeLogRedaction.error(error))")
                 if let existing = userFacingError {
                     // Keep the failure that stranded the session; the person
                     // still needs that text if the retries do not recover it.
@@ -1684,7 +1697,7 @@ final class ChatModel {
         }
         // Keep whatever `restoreCachedTranscriptIfAvailable` painted.
         restoreCachedTranscriptIfAvailable()
-        statusLine = "正在重新加載會話…"
+        statusLine = "正在重新加载会话…"
         appendStatus("Reloading session \(expectedSessionID.prefix(8)) (\(reason))…")
         let applied = try await openAndActivateSession(
             id: expectedSessionID,
@@ -1778,6 +1791,8 @@ final class ChatModel {
         harness = nil
         sessionID = nil
         transcriptReady = false
+        resourceMeter.endTurn()
+        flushStreamingText()
         items = []
         pendingPermission = nil
         pendingQuestion = nil
@@ -1944,6 +1959,7 @@ final class ChatModel {
         do {
             try await host.park()
             parked = true
+            resourceMeter.endTurn()
             appendStatus("Host parked; resume by returning to the app")
         } catch {
             parked = false
@@ -2114,12 +2130,14 @@ final class ChatModel {
                     self.hostState = "\(to)"
                     if to == .failed { self.hostDidFail(host) }
                 case .error(let message):
-                    // Keep the raw host text: the friendly summary alone made
-                    // a WAL recovery failure look like a model-service error.
-                    Self.appendDiagnostic("host error: \(message)")
+                    // The friendly summary alone made a WAL recovery failure
+                    // look like a model-service error, so keep the host event
+                    // fingerprint for correlation; the raw text stays on screen.
+                    Self.appendDiagnostic("host error: \(NativeLogRedaction.value(message))")
                     self.reportError("引擎报错：\(Self.condensed(message))")
                 case .webContentTerminated(let count):
                     self.restartPolicySawTermination = true
+                    self.resourceMeter.recordWebContentTermination()
                     self.appendStatus("WebContent terminated (\(count)); the host restarts the Worker")
                 case .restarted:
                     self.restartPolicyHighSamples = 0
@@ -2340,7 +2358,7 @@ final class ChatModel {
                     try await harness.send(.cancel, to: sessionID)
                 } catch {
                     // A wedged Worker can also fail the cancel call itself.
-                    await MainActor.run { self.appendStatus("取消请求发送失败：\(error.localizedDescription)") }
+                    await MainActor.run { self.appendStatus("取消请求发送失败：\(NativeLogRedaction.localizedError(error))") }
                 }
             }
             group.addTask {
@@ -2361,6 +2379,7 @@ final class ChatModel {
         guard turnRunning else { return }
         finishStreamingAssistant()
         turnRunning = false
+        resourceMeter.endTurn()
         syncIdleTimer()
         clearQueueLines()
         clearError()
@@ -2518,6 +2537,7 @@ final class ChatModel {
             turnStartTimes.merge(facts.starts) { _, new in new }
             turnEndReasons.merge(facts.endReasons) { _, new in new }
             turnEndTimes.merge(facts.ends) { _, new in new }
+            flushStreamingText()
             items = older + items
             transcriptBeforeSeq = nextBeforeSeq
             transcriptHasMore = page["hasMore"]?.boolValue ?? false
@@ -2839,7 +2859,7 @@ final class ChatModel {
                     guard let self else { return }
                     self.eventStreamRecovering = true
                     self.statusLine = "事件流中断，正在重新同步会话"
-                    self.appendStatus("Event stream interrupted: \(error)")
+                    self.appendStatus("Event stream interrupted; resynchronizing (len=\(error.localizedDescription.count))")
                 },
                 recovered: { [weak self] in
                     guard let self else { return }
@@ -2856,6 +2876,7 @@ final class ChatModel {
                                                    requireRunningState: true, pendingInputs: items)
         try Task.checkCancellation()
         guard self.sessionID == sessionID else { throw CancellationError() }
+        flushStreamingText()
         items = NativeTranscriptProjector.restoring(history.items, preservingInputsFrom: items,
                                                     inputReceipts: history.inputReceipts)
         turnStartTimes = history.turnFacts.starts
@@ -2899,6 +2920,14 @@ final class ChatModel {
 
     private func handle(_ event: HarnessEvent) {
         eventsHandled += 1
+        // Deltas are coalesced; every other event is an ordering boundary and
+        // sees the transcript with the pending text already applied.
+        switch event.kind {
+        case .assistantDelta, .reasoningDelta:
+            break
+        default:
+            flushStreamingText()
+        }
         // A queued message only needs its dispatch label until the turn shows
         // any activity. Assistant text is not the only first output: a turn
         // that starts with a tool call used to keep 发送中… forever.
@@ -2913,31 +2942,35 @@ final class ChatModel {
             clearSendingLabels()
             if let index = items.indices.last, items[index].kind == .reasoning,
                items[index].streaming {
-                items[index].text += text
-                items[index].bumpRenderRevision()
+                streamAccumulator.append(text, to: items[index].id)
+                scheduleStreamingFlush()
             } else {
                 finishStreamingReasoning()
                 var item = ChatItem(id: eventItemID(event), kind: .reasoning,
-                                    title: "思考", text: text, streaming: true)
+                                    title: "思考", text: "", streaming: true)
                 item.timestamp = event.time
                 item.turn = activeTurn
                 item.step = activeStep
                 items.append(item)
+                streamAccumulator.append(text, to: item.id)
+                scheduleStreamingFlush()
             }
         case .assistantDelta(let text):
             recordLatency("first-assistant", event: event, once: true)
             clearSendingLabels()
             finishStreamingReasoning()
             if let index = items.indices.last, items[index].kind == .assistant, items[index].streaming {
-                items[index].text += text
-                items[index].bumpRenderRevision()
+                streamAccumulator.append(text, to: items[index].id)
+                scheduleStreamingFlush()
             } else {
                 var item = ChatItem(id: eventItemID(event), kind: .assistant,
-                                    title: "Assistant", text: text, streaming: true)
+                                    title: "Assistant", text: "", streaming: true)
                 item.timestamp = event.time
                 item.turn = activeTurn
                 item.step = activeStep
                 items.append(item)
+                streamAccumulator.append(text, to: item.id)
+                scheduleStreamingFlush()
             }
         case .assistantMessage(let text):
             recordLatency("assistant-message", event: event)
@@ -3028,7 +3061,7 @@ final class ChatModel {
                                                arguments: recentToolArguments[request.tool] ?? [:])
         case .questionRequested(let question):
             pendingQuestion = question
-            appendStatus("The agent asks: \(question.prompt)")
+            appendStatus("The agent asks: len=\(question.prompt.count)")
         case .turnStarted(let turnID):
             let turnNumber = Int(turnID) ?? activeTurn ?? 0
             activeTurn = turnNumber
@@ -3040,6 +3073,7 @@ final class ChatModel {
             promoteQueuedToSending()
             turnBoundaryRevision += 1
             turnRunning = true
+            resourceMeter.beginTurn()
             syncIdleTimer()
             statusLine = "Turn running…"
         case .turnEnded(let turnID, let reason):
@@ -3048,6 +3082,7 @@ final class ChatModel {
             finishStreamingReasoning()
             clearSendingLabels()
             turnRunning = false
+            resourceMeter.endTurn()
             turnBoundaryRevision += 1
             activeTurnStartedAt = nil
             let finishedTurn = Int(turnID) ?? activeTurn ?? 0
@@ -3079,7 +3114,11 @@ final class ChatModel {
                 // A finished turn has no queued or dispatching message left;
                 // "已并入当前任务" used to stay under the message forever.
                 clearQueueLines()
-                appendStatus("Turn ended: \(Self.describe(reason))")
+                if case .budgetExhausted(let message) = reason {
+                    appendStatus("Turn ended: budget exhausted \(NativeLogRedaction.value(message))")
+                } else {
+                    appendStatus("Turn ended: \(Self.describe(reason))")
+                }
             }
             refreshFiles()
             Task { await self.refreshGoal() }
@@ -3120,13 +3159,15 @@ final class ChatModel {
                 items[index].turnUsage = usage
             }
         case .exited(let reason):
-            appendStatus("Agent exited: \(reason)")
+            appendStatus("Agent exited: \(NativeLogRedaction.value(reason))")
             turnRunning = false
+            resourceMeter.endTurn()
             syncIdleTimer()
         }
     }
 
     private func finishStreamingAssistant() {
+        flushStreamingText()
         if let index = items.indices.last, items[index].kind == .assistant, items[index].streaming {
             items[index].streaming = false
             items[index].bumpRenderRevision()
@@ -3134,9 +3175,37 @@ final class ChatModel {
     }
 
     private func finishStreamingReasoning() {
+        flushStreamingText()
         for index in items.indices where items[index].kind == .reasoning && items[index].streaming {
             items[index].streaming = false
             items[index].bumpRenderRevision()
+        }
+    }
+
+    /// Applies every pending streamed delta to `items` now.
+    ///
+    /// Called at ordering boundaries (tool call/result, turn start/end, a
+    /// history reload), when the person scrolls back to the bottom and by the
+    /// throttled flush task. Taking the chunks is atomic on the main actor, so
+    /// two flush paths can never apply the same text twice or out of order.
+    func flushStreamingText() {
+        streamFlushTask?.cancel()
+        streamFlushTask = nil
+        let chunks = streamAccumulator.take()
+        guard !chunks.isEmpty else { return }
+        var next = items
+        next.applyStreamChunks(chunks)
+        items = next
+    }
+
+    private func scheduleStreamingFlush() {
+        guard streamFlushTask == nil else { return }
+        let delay = resourceMeter.level.streamUpdateIntervalNanoseconds
+        streamFlushTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: delay)
+            guard !Task.isCancelled, let self else { return }
+            self.streamFlushTask = nil
+            self.flushStreamingText()
         }
     }
 
@@ -3186,13 +3255,14 @@ final class ChatModel {
         do {
             let next = try await harness.goal(sessionID: sessionID)
             goal = next
-            let summary = next.map { "\($0.phase.rawValue) \($0.objective.prefix(40))" } ?? "none"
+            // The objective is user text: correlate on phase + length only.
+            let summary = next.map { "\($0.phase.rawValue) len=\($0.objective.count)" } ?? "none"
             if summary != lastLoggedGoal {
                 lastLoggedGoal = summary
                 appendStatus("goal: \(summary)")
             }
         } catch {
-            appendStatus("goal read failed: \(error)")
+            appendStatus("goal read failed: \(NativeLogRedaction.error(error))")
         }
     }
 
@@ -3220,7 +3290,7 @@ final class ChatModel {
             contextPressure = NativeContextPressure(value: values?["contextPressure"])
             contextBreakdown = NativeContextBreakdown(value: values?["contextBreakdown"])
         } catch {
-            appendStatus("Native conversation metrics unavailable: \(error.localizedDescription)")
+            appendStatus("Native conversation metrics unavailable: \(NativeLogRedaction.localizedError(error))")
         }
     }
 
@@ -3278,7 +3348,7 @@ final class ChatModel {
         do {
             try await host.plannedRestart(reason: "restart policy: \(trigger.rawValue)")
         } catch {
-            appendStatus("Planned restart failed: \(error.localizedDescription)")
+            appendStatus("Planned restart failed: \(NativeLogRedaction.localizedError(error))")
         }
     }
 
@@ -3342,6 +3412,7 @@ final class ChatModel {
               let data = try? Data(contentsOf: Self.snapshotURL(for: sessionID)),
               let cached = try? JSONDecoder().decode([CachedTranscriptItem].self, from: data),
               !cached.isEmpty else { return }
+        flushStreamingText()
         items = cached.compactMap { item in
             guard let kind = Self.chatKind(from: item.kind) else { return nil }
             return ChatItem(id: item.id, kind: kind, title: item.title, text: item.text)
@@ -3382,7 +3453,7 @@ final class ChatModel {
     /// 原话只写进 chat-status.log 供诊断导出。
     static func userFacingFailure(_ raw: String) -> String {
         let lower = raw.lowercased()
-        Self.appendDiagnostic("turn failed: \(raw)")
+        Self.appendDiagnostic(NativeLogRedaction.failedTurn(raw))
         // 六种说法,认不出来只写「没发出去」:宿主原句永远不上屏。
         if lower.contains("403") || lower.contains("forbidden") || lower.contains("host_not_allowed")
             || lower.contains("not on the configured allow-list") {
@@ -3599,7 +3670,11 @@ final class ChatModel {
     private func reportError(_ text: String) {
         userFacingError = text
         statusLine = text
-        appendStatus(text)
+        // The user keeps the actionable wording on screen; the persisted
+        // diagnostic line records only the value's length and a hash prefix so
+        // a host error that echoes a prompt or a credential cannot leak.
+        items.append(ChatItem(kind: .status, title: "Host", text: text))
+        Self.persistStatus("error: \(NativeLogRedaction.value(text))")
     }
 
     /// Status rows also go to `Documents/chat-status.log` so a host error can
@@ -3718,6 +3793,7 @@ final class ChatModel {
         // a stale result can never land after a workspace switch.
         guard root == materializedWorkspace else { return }
         if self.files != files { self.files = files }
+        resourceMeter.updateWorkspace(files: files)
         if let previewPath, fileIndex.file(atPath: previewPath) == nil {
             self.previewPath = nil; previewText = nil
         }
@@ -3737,6 +3813,7 @@ final class ChatModel {
     }
 
     func clearTranscript() {
+        flushStreamingText()
         items.removeAll()
         inputTokens = 0; outputTokens = 0; modelRequests = 0
     }

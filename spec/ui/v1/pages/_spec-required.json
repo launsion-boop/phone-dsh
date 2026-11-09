@@ -7,17 +7,17 @@
    "label": "提交回答",
    "kind": "button",
    "writes": true,
-   "provenance": "ChatPage.swift:3744",
+   "provenance": "ChatPage.swift:3805",
    "anchor": "Button(\"提交回答\", systemImage: \"arrow.up\") { submitAnswers() }",
    "baselineReachable": true,
-   "reason": "`QuestionCard` is a sibling view struct (ChatPage.swift:3711), outside the page struct the extractor walks; the card is rendered in ChatPage's pending-answer slot and Android implements the submit button."
+   "reason": "`QuestionCard` is a sibling view struct (ChatPage.swift:3851), outside the page struct the extractor walks; the card is rendered in ChatPage's pending-answer slot and Android implements the submit button."
   },
   {
    "page": "chat",
    "label": "打开会话列表",
    "kind": "button",
    "writes": false,
-   "provenance": "ChatPage.swift:239",
+   "provenance": "ChatPage.swift:253",
    "anchor": ".accessibilityLabel(\"打开会话列表\")",
    "baselineReachable": true,
    "reason": "The drawer button has no visible text: its accessible name is the only label. Without it in the contract, merging the drawer and ⋯ header buttons into one `HeaderAction(label, glyph, …)` would be reported as `extra-action '打开会话列表'`, which is why the page carries two near-duplicate header components."

@@ -144,6 +144,20 @@ struct ChatPage: View {
     /// has laid the new rows out (see `scheduleTailScroll`).
     @State private var tailScrollTask: Task<Void, Never>?
     @State private var loadingEarlierTranscript = false
+    /// The red banner's reason signature the person chose to continue past.
+    /// A changed reason set shows the banner again (S1-D.1).
+    @State private var dismissedRedReasons: String?
+
+    /// The App-layer resource band (display only; host policy is separate).
+    private var resourceLevel: ResourceLevel { model.resourceMeter.level }
+    private var resourceReasons: [ResourceReasonHit] { model.resourceMeter.reasons }
+    private var showsResourceBanners: Bool { model.turnRunning && model.resourceMeter.isTurnActive }
+    /// A red banner is dismissed for this turn only while its reasons are
+    /// unchanged; a new reason reopens it.
+    private var redResourceSignature: String {
+        resourceReasons.filter { $0.level == .red }
+            .map { $0.reason.rawValue }.sorted().joined(separator: ",")
+    }
 
     private var providerNeedsKey: Bool {
         guard let profile = (try? PhoneModelProviderSettings.shared.load())?.selected else { return true }
@@ -388,6 +402,7 @@ struct ChatPage: View {
             }
             if let error = model.accessModeError { accessModeErrorBanner(error) }
             if let error = model.commandsError { commandErrorBanner(error) }
+            resourceBanner
             cardsRegion
             transcript
         }
@@ -401,6 +416,12 @@ struct ChatPage: View {
                 questionTakeover(question)
             } else {
                 composer
+            }
+        }
+        .onChange(of: model.turnRunning) { _, running in
+            if running {
+                dismissedRedReasons = nil
+                model.flushStreamingText()
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
@@ -995,6 +1016,40 @@ struct ChatPage: View {
     #endif
 
     /// 「没发出去」+ 间距 +「重试」;中间不加标点,也不补半句原因。
+    /// The yellow/red resource banner stack (S1-C.3 / D.1).
+    ///
+    /// The banner itself is a sibling view struct: its iOS-only presentation is
+    /// not part of the cross-platform page contract the extractor compares with
+    /// Android (the same seam `QuestionCard` uses). Yellow is informational and
+    /// expands inline; red offers continue/stop. The generic handoff entry is
+    /// intentionally absent.
+    @ViewBuilder
+    private var resourceBanner: some View {
+        if showsResourceBanners {
+            switch resourceLevel {
+            case .green:
+                EmptyView()
+            case .yellow:
+                ResourceStatusBanner(level: .yellow, reasons: resourceReasons,
+                                     onContinue: {}, onStop: {})
+            case .red:
+                if dismissedRedReasons != redResourceSignature {
+                    ResourceStatusBanner(
+                        level: .red,
+                        reasons: resourceReasons.filter { $0.level == .red },
+                        onContinue: { dismissedRedReasons = redResourceSignature },
+                        onStop: {
+                            let signature = redResourceSignature
+                            Task {
+                                await model.cancelTurn()
+                                dismissedRedReasons = signature
+                            }
+                        })
+                }
+            }
+        }
+    }
+
     private func errorBanner(_ message: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             Text(message)
@@ -1379,7 +1434,12 @@ struct ChatPage: View {
     private func applyTailMetrics(tailY: CGFloat, viewportHeight: CGFloat) {
         scrollTrace.tailOffsetY = tailY
         let near = tailY >= -1 && tailY <= viewportHeight + 44
-        if nearBottom != near { nearBottom = near }
+        if nearBottom != near {
+            nearBottom = near
+            // Scrolling to the bottom shows the newest text immediately; the
+            // throttled flush must not leave the live tail one beat behind.
+            if near { model.flushStreamingText() }
+        }
         if tracksScrollPhase {
             // Follow mode belongs to the person: drag away to stop it, drag
             // back to the tail to resume it.
@@ -1416,6 +1476,7 @@ struct ChatPage: View {
                     "scroll tail content=\(Int(scrollTrace.contentHeight)) viewport=\(Int(viewportHeight)) "
                     + "tail=\(Int(scrollTrace.tailOffsetY)) near=\(nearBottom) away=\(userScrolledAway)")
             }
+            model.flushStreamingText()
             scrollToTail(proxy, viewportHeight: viewportHeight)
         }
     }
@@ -2630,7 +2691,7 @@ struct ChatPage: View {
                         model.markSteered(itemID: id)
                     } else if wasRunning {
                         model.markQueued(itemID: id, requestID: model.lastPromptRequestID)
-                        ChatModel.appendDiagnostic("queued: \(text.prefix(40))")
+                        ChatModel.appendDiagnostic(NativeLogRedaction.queued(text))
                     }
                 }
                 pendingAttachments.removeAll()
@@ -4049,6 +4110,109 @@ private struct ChatMessageRow: View {
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
 
+}
+
+/// The App's resource banner (S1-C.3 / D.1).
+///
+/// Kept outside `ChatPage` on purpose: the cross-platform page contract
+/// compares `*Page` structs with the Android screens, and this banner is an
+/// iOS-only runtime-degradation surface, not a product row Android owes.
+private struct ResourceStatusBanner: View {
+    let level: ResourceLevel
+    let reasons: [ResourceReasonHit]
+    let onContinue: () -> Void
+    let onStop: () -> Void
+    @State private var showsReasons = false
+
+    var body: some View {
+        switch level {
+        case .green:
+            EmptyView()
+        case .yellow:
+            yellowBanner
+        case .red:
+            redBanner
+        }
+    }
+
+    private var yellowBanner: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Image(systemName: "thermometer.medium")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(ChatPage.warning)
+                Text("手机负载较高，已进入省电模式")
+                    .font(.system(size: 13))
+                    .foregroundStyle(HomeSpec.textSecondary)
+                Spacer(minLength: 8)
+                Button {
+                    withAnimation(.easeOut(duration: 0.16)) { showsReasons.toggle() }
+                } label: {
+                    Text(showsReasons ? "收起" : "原因")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(ChatPage.warning)
+                        .frame(minHeight: 28)
+                }
+                .buttonStyle(.plain)
+            }
+            if showsReasons {
+                ForEach(reasons, id: \.reason.rawValue) { reason in
+                    Text("· \(reason.displayText)")
+                        .font(.system(size: 12))
+                        .foregroundStyle(HomeSpec.textTertiary)
+                        .padding(.leading, 21)
+                }
+            }
+        }
+        .padding(.horizontal, HomeSpec.chromeInset)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(ChatPage.warning.opacity(0.08))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("手机负载较高，已进入省电模式")
+    }
+
+    private var redBanner: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(ChatPage.danger)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("手机资源紧张")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(ChatPage.danger)
+                    ForEach(reasons, id: \.reason.rawValue) { reason in
+                        Text("· \(reason.displayText)")
+                            .font(.system(size: 12))
+                            .foregroundStyle(HomeSpec.textSecondary)
+                    }
+                }
+                Spacer(minLength: 8)
+            }
+            HStack(spacing: 16) {
+                Button("继续", action: onContinue)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(HomeSpec.textSecondary)
+                    .buttonStyle(.plain)
+                Button("停止本轮", action: onStop)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(ChatPage.danger)
+                    .buttonStyle(.plain)
+                Spacer(minLength: 0)
+            }
+            .padding(.leading, 22)
+        }
+        .padding(.horizontal, HomeSpec.chromeInset)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(ChatPage.danger.opacity(0.09))
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(ChatPage.danger.opacity(0.25)).frame(height: 0.5)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("手机资源紧张，请选择继续或停止本轮")
+    }
 }
 
 /// Shared with the Bot page, which draws its tool steps the same way.

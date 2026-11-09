@@ -22,6 +22,7 @@ struct NativeToolCallRow: View {
                 NativeSubagentToolRow(data: subagent)
             } else {
                 NativeDisclosureRow(icon: model.icon, title: model.title, summary: model.summary,
+                                    hint: model.heavyOperationHint,
                                     running: model.state == .running || model.state == .preparing,
                                     expandable: model.hasDetails, showsSummaryWhenExpanded: true,
                                     expanded: $expanded) {
@@ -119,11 +120,12 @@ private struct NativeTerminalCard: View {
             .background(NativeChatTheme.codeBanner)
             if !output.isEmpty {
                 ScrollView {
-                    Text(output)
-                        .font(NativeChatTheme.codeFont())
-                        .foregroundStyle(exitCode == 0 || exitCode == nil ? NativeChatTheme.secondary : NativeChatTheme.danger)
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
+                    NativeToolOutputText(
+                        text: output,
+                        isError: !(exitCode == 0 || exitCode == nil),
+                        color: NativeChatTheme.secondary,
+                        font: NativeChatTheme.codeFont(),
+                        lineSpacing: NativeParityTokens.codeLineSpacing)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(12)
                 }
@@ -238,10 +240,11 @@ private struct NativeIOCard: View {
         HStack(alignment: .top, spacing: 14) {
             Text(title).foregroundStyle(NativeChatTheme.caption)
             ScrollView {
-                Text(text)
-                    .foregroundStyle(isError ? NativeChatTheme.danger : NativeChatTheme.secondary)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
+                NativeToolOutputText(
+                    text: text,
+                    isError: isError,
+                    color: NativeChatTheme.secondary,
+                    font: NativeChatTheme.codeFont())
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxHeight: 150)

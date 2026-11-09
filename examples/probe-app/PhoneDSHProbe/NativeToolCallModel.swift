@@ -2,6 +2,7 @@
 
 import Foundation
 import PhoneDSHAgentCore
+import ProbeKit
 
 struct NativeToolCallModel {
     enum Variant {
@@ -21,6 +22,9 @@ struct NativeToolCallModel {
     let filePath: String?
     let askContent: NativeAskQuestionCardContent?
     let summary: String
+    /// `可能较重` when the App's local heuristic recognises a typical heavy
+    /// invocation (S1-E). Read-only: it never blocks or estimates a size.
+    let heavyOperationHint: String?
 
     init(item: ChatItem) {
         self.item = item
@@ -54,6 +58,10 @@ struct NativeToolCallModel {
         self.output = output
         self.filePath = filePath
         self.askContent = askContent
+        self.heavyOperationHint = HeavyOperationHint.isHeavy(
+            toolName: resolvedName,
+            arguments: Self.flattenedArguments(argumentsObject))
+            ? HeavyOperationHint.badge : nil
         summary = NativeRowSummaryCache.shared.toolSummary(for: item) {
             Self.makeSummary(item: item, name: resolvedName, variant: variant, state: state,
                              argumentsObject: argumentsObject, output: output,
@@ -167,6 +175,21 @@ struct NativeToolCallModel {
 
         return .make(toolKey: name, title: title, status: status, items: items,
                      fields: shape.fields(pairs), summary: summary)
+    }
+
+    private static func flattenedArguments(_ object: [String: JSONValue]?) -> [String: String] {
+        guard let object else { return [:] }
+        var result: [String: String] = [:]
+        for (key, value) in object {
+            if let string = value.stringValue {
+                result[key] = string
+            } else if let number = value.numberValue {
+                result[key] = String(describing: number)
+            } else if let data = try? value.encoded(), let text = String(data: data, encoding: .utf8) {
+                result[key] = text
+            }
+        }
+        return result
     }
 
     var hasDetails: Bool { input != nil || output != nil || filePath != nil }
