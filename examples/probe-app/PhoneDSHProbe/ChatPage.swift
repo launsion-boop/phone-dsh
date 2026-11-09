@@ -2766,9 +2766,12 @@ struct ChatPage: View {
             return
         }
         // A tool can write a file seconds before its bytes are materialized
-        // here; the cached list is therefore a hint, not the authority. Refresh
-        // and retry, then fall back to a unique basename match before saying
-        // anything failed.
+        // here; the cached list is therefore a hint, not the authority. The
+        // refresh is now asynchronous, so the miss path below deliberately
+        // opens the waiting preview and leaves `pendingPreviewPath` set: the
+        // page's `.onChange(of: model.files)` opens it when a later scan lands,
+        // and PreviewSurface has its own bounded retry. No synchronous read
+        // depends on the post-refresh list here.
         if model.fileIndex.file(atPath: normalized) == nil {
             model.refreshFiles()
         }

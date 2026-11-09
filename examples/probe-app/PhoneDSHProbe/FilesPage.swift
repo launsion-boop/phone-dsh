@@ -52,7 +52,7 @@ struct FilesPage: View {
             .navigationBarTitleDisplayMode(.inline)
             .homeGroupedList()
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: NativeText("搜索文件", "Search files"))
-            .refreshable { model.refreshFiles() }
+            .refreshable { await model.refreshFilesAndWait() }
             .task { await openInitialPathIfNeeded() }
             .navigationDestination(item: $previewTarget) { target in
                 PreviewSurface(target: target, isModal: false)
@@ -136,7 +136,7 @@ struct FilesPage: View {
 
     /// Opens the requested file once: lands in its folder and presents it.
     private func openInitialPathIfNeeded() async {
-        model.refreshFiles()
+        await model.refreshFilesAndWait()
         guard !didOpenInitialPath, let initialPath else { return }
         didOpenInitialPath = true
         let normalized = ChatPage.normalizedWorkspacePath(initialPath)

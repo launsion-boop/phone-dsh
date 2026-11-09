@@ -508,6 +508,21 @@ final class ChatModel {
     }
     private(set) var previewPath: String?
     private(set) var previewText: String?
+    /// Serializes off-main workspace scans. `refreshFiles()` only requests a
+    /// scan; the traversal never runs on the main actor.
+    @ObservationIgnored private lazy var fileRefresh = WorkspaceFileRefreshController(
+        scanner: { root in
+            await Task.detached(priority: .utility) {
+                WorkspaceFileScanner.scan(root: root)
+            }.value
+        },
+        deliver: { [weak self] root, files in
+            self?.applyWorkspaceFileSnapshot(root: root, files: files)
+        })
+    /// Consecutive automatic D24 backoff retries already scheduled. Reset by a
+    /// manual/other start path and by a successful adoption.
+    private var backoffRetryAttempts = 0
+    private var backoffRetryTask: Task<Void, Never>?
 
     var isStarted: Bool { host != nil }
     /// True between the background park and the foreground resume (D14).
@@ -981,6 +996,13 @@ final class ChatModel {
     /// Boots the host and adopts the persisted session. Launching and sending
     /// may acknowledge one persisted `Failed` controller per process.
     func start(autoRecover: Bool = false) async {
+        await start(autoRecover: autoRecover, backoffRetry: false)
+    }
+
+    private func start(autoRecover: Bool, backoffRetry: Bool) async {
+        // Every start except the scheduled backoff retry is a new intent: it
+        // supersedes any pending retry, including a manual tap.
+        if !backoffRetry { cancelBackoffRetry() }
         guard host == nil, !busy else { return }
         if engineNeedsReset, failedHost != nil {
             await restartEngine()
@@ -1002,6 +1024,16 @@ final class ChatModel {
             try await launch.host.start()
         } catch {
             Self.appendDiagnostic("host start failed: \(error)")
+            // D24: a persisted backoff window is a healthy wait, not a failed
+            // engine. Never show the red "引擎停了" line here; schedule one
+            // retry just past the host's own deadline instead.
+            if let phoneError = error as? PhoneDSHError,
+               case .backoffNotElapsed(let deadline) = phoneError {
+                hostEventTask?.cancel(); hostEventTask = nil
+                scheduleBackoffRetry(for: deadline)
+                return
+            }
+            backoffRetryAttempts = 0
             reportError("引擎停了：\(Self.condensed(String(describing: error)))")
             hostEventTask?.cancel(); hostEventTask = nil
             let state = await launch.host.state
@@ -1024,6 +1056,48 @@ final class ChatModel {
                                budgets: launch.budgets,
                                selectedProfile: launch.selectedProfile,
                                egressHosts: launch.egressHosts)
+    }
+
+    /// Handle a persisted D24 window: retry once the deadline passes, but only
+    /// for a near deadline and at most `ChatBackoffRetry.maximumAttempts`
+    /// consecutive times. There is exactly one scheduled retry Task.
+    private func scheduleBackoffRetry(for deadline: Date) {
+        switch ChatBackoffRetry.decision(deadline: deadline,
+                                         now: Date(),
+                                         attempts: backoffRetryAttempts) {
+        case .retry(let delay, let attempt):
+            backoffRetryAttempts = attempt
+            let seconds = max(1, Int(ceil(max(0, delay))))
+            statusLine = "引擎将在 \(seconds) 秒后自动启动"
+            appendStatus("Engine backoff: auto-start \(attempt)/\(ChatBackoffRetry.maximumAttempts) in \(String(format: "%.1f", delay)) s")
+            backoffRetryTask?.cancel()
+            let nanoseconds = UInt64(max(0, delay) * 1_000_000_000)
+            backoffRetryTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: nanoseconds)
+                guard !Task.isCancelled, let self else { return }
+                self.backoffRetryTask = nil
+                // A manual start or another path won the race; never stack a
+                // second boot on top of it.
+                guard self.host == nil, !self.busy, !self.parked else { return }
+                self.statusLine = "正在自动启动引擎…"
+                self.appendStatus("Engine backoff elapsed; retrying start()")
+                await self.start(autoRecover: false, backoffRetry: true)
+            }
+        case .waitForManualStart(let remaining):
+            backoffRetryTask?.cancel(); backoffRetryTask = nil
+            let seconds = max(1, Int(ceil(remaining)))
+            statusLine = "引擎将在 \(seconds) 秒后可启动，请稍后手动启动"
+            appendStatus("Engine backoff deadline is far away; automatic retry disabled")
+        case .exhausted(let attempts):
+            backoffRetryTask?.cancel(); backoffRetryTask = nil
+            reportError("引擎自动重试 \(attempts) 次仍未启动，请手动启动")
+        }
+    }
+
+    private func cancelBackoffRetry() {
+        backoffRetryTask?.cancel()
+        backoffRetryTask = nil
+        backoffRetryAttempts = 0
     }
 
     private func makeHostLaunch() -> HostLaunch? {
@@ -1207,6 +1281,7 @@ final class ChatModel {
     /// A failure that survives this stays fail-loud: the host is kept in
     /// ``failedHost`` and ``engineNeedsReset`` stays true.
     func restartEngine() async {
+        cancelBackoffRetry()
         guard host == nil, !busy else { return }
         guard let failed = failedHost else {
             await start()
@@ -1272,6 +1347,7 @@ final class ChatModel {
                                   budgets: BudgetTable,
                                   selectedProfile: ProviderProfile?,
                                   egressHosts: Set<String>) async {
+        cancelBackoffRetry()
         host = newHost
         await attachBotRuntime(to: newHost)
         failedHost = nil
@@ -1484,6 +1560,7 @@ final class ChatModel {
     }
 
     func stop() async {
+        cancelBackoffRetry()
         guard let host else {
             await botLaunch?.composition.stop()
             if let composition = botLaunch?.composition {
@@ -1569,6 +1646,9 @@ final class ChatModel {
     /// A running turn with background keep-alive holds a silent playback
     /// session and leaves the host running. An idle host still parks.
     func scenePhaseChanged(_ phase: ScenePhase) async {
+        // Leaving the foreground drops a pending D24 retry; the person will
+        // start the engine explicitly when they come back.
+        if phase == .background { cancelBackoffRetry() }
         guard let host else { return }
         switch phase {
         case .background:
@@ -1816,6 +1896,7 @@ final class ChatModel {
 
     private func hostDidFail(_ failed: PhoneDSHHost) {
         guard host === failed else { return }
+        cancelBackoffRetry()
         pumpTask?.cancel(); pumpTask = nil
         eventStreamRecovering = false
         hostEventTask?.cancel(); hostEventTask = nil
@@ -2695,7 +2776,7 @@ final class ChatModel {
                 items.append(item)
             }
             scheduleNativeMetricsRefresh()
-            refreshFiles()
+            refreshFiles(debounced: true)
         case .permissionRequested(let request):
             pendingPermission = ChatPermission(id: request.requestID, tool: request.tool,
                                                summary: request.summary,
@@ -3369,24 +3450,29 @@ final class ChatModel {
 
     // MARK: Workspace files
 
-    func refreshFiles() {
-        let root = materializedWorkspace.standardizedFileURL.resolvingSymlinksInPath()
-        let rootPrefix = root.path + "/"
-        var found: [WorkspaceFile] = []
-        if let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey]) {
-            for case let url as URL in enumerator {
-                guard let values = try? url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]),
-                      values.isRegularFile == true else { continue }
-                let path = url.standardizedFileURL.resolvingSymlinksInPath().path
-                // A path outside the materialized root is not a workspace file;
-                // an absolute path here would break the list grouping and every
-                // preview/share decision downstream.
-                guard path.hasPrefix(rootPrefix) else { continue }
-                found.append(WorkspaceFile(relativePath: String(path.dropFirst(rootPrefix.count)),
-                                           size: values.fileSize ?? 0))
-            }
+    /// Request a workspace scan. `debounced` is for tool results: a burst of
+    /// them coalesces into one trailing scan. Every other caller (session
+    /// open/switch, foreground, resume, turn end) asks for the scan now, still
+    /// through the same serialized off-main path.
+    func refreshFiles(debounced: Bool = false) {
+        if debounced {
+            fileRefresh.requestDebounced(root: materializedWorkspace)
+        } else {
+            fileRefresh.requestImmediately(root: materializedWorkspace)
         }
-        files = found.sorted { $0.relativePath < $1.relativePath }
+    }
+
+    /// Await a scan started at (or after) this call. Used where the caller
+    /// reads `files`/`fileIndex` immediately afterwards.
+    func refreshFilesAndWait() async {
+        await fileRefresh.requestImmediatelyAndWait(root: materializedWorkspace)
+    }
+
+    private func applyWorkspaceFileSnapshot(root: URL, files: [WorkspaceFile]) {
+        // The controller already checks this; keep the state guard here too so
+        // a stale result can never land after a workspace switch.
+        guard root == materializedWorkspace else { return }
+        if self.files != files { self.files = files }
         if let previewPath, fileIndex.file(atPath: previewPath) == nil {
             self.previewPath = nil; previewText = nil
         }

@@ -136,7 +136,7 @@
       "destination": null,
       "condition": null,
       "provenance": "FilesPage.swift:55",
-      "anchor": ".refreshable { model.refreshFiles() }",
+      "anchor": ".refreshable { await model.refreshFilesAndWait() }",
       "extraction": "syntax"
     },
     {
