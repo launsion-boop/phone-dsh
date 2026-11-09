@@ -38,10 +38,11 @@ typedef struct {
     size_t n;
     uint8_t data[4400];
 } entry_t;
-static entry_t disk[40], pending_disk[40];
+#define NVS_ENTRIES 80
+static entry_t disk[NVS_ENTRIES], pending_disk[NVS_ENTRIES];
 static bool staged;
 static entry_t *find(entry_t *entries, const char *key) {
-    for (int i = 0; i < 40; i++)
+    for (int i = 0; i < NVS_ENTRIES; i++)
         if (!strcmp(entries[i].key, key))
             return &entries[i];
     return NULL;
@@ -72,7 +73,7 @@ esp_err_t nvs_set_blob(nvs_handle_t h, const char *key, const void *data, size_t
     }
     entry_t *e = find(pending_disk, key);
     if (!e)
-        for (int i = 0; i < 40; i++)
+        for (int i = 0; i < NVS_ENTRIES; i++)
             if (!pending_disk[i].key[0]) {
                 e = &pending_disk[i];
                 break;
@@ -89,6 +90,18 @@ esp_err_t nvs_get_u32(nvs_handle_t h, const char *key, uint32_t *out) {
 }
 esp_err_t nvs_set_u32(nvs_handle_t h, const char *key, uint32_t value) {
     return nvs_set_blob(h, key, &value, 4);
+}
+esp_err_t nvs_erase_key(nvs_handle_t h, const char *key) {
+    (void)h;
+    if (!staged) {
+        memcpy(pending_disk, disk, sizeof(disk));
+        staged = true;
+    }
+    entry_t *e = find(pending_disk, key);
+    if (!e)
+        return ESP_ERR_NVS_NOT_FOUND;
+    memset(e, 0, sizeof(*e));
+    return ESP_OK;
 }
 esp_err_t nvs_commit(nvs_handle_t h) {
     (void)h;
@@ -522,18 +535,29 @@ int main(int argc, char **argv) {
     r = query(7, &state);
     assert(state == 2 && !strcmp(cJSON_GetObjectItem(r, "status")->valuestring, "failed"));
     cJSON_Delete(r);
+    /* ble-link.md receipt retention: past 16 mutations the oldest finished receipt is evicted
+     * into a tombstone instead of answering STORE_FULL forever. */
     for (int i = 10; i < 40; i++) {
         char key[30];
         snprintf(key, sizeof(key), "bounded-%d", i);
-        int result = submit(i, "light.set", "{\"on\":true}", key, out);
-        if (result == 15)
-            break;
-        assert(!result);
+        assert(!submit(i, "light.set", "{\"on\":true}", key, out));
         run_job();
     }
+    (void)query(10, &state);
+    assert(state == 3); /* evicted: tombstone answers outcome_unknown */
+    r = query(39, &state);
+    assert(state == 2);
+    cJSON_Delete(r);
     tools_reset_upload();
-    assert(submit(99, "light.set", "{\"on\":true}", "full", out) == 15 && !job_fn);
+    assert(submit(98, "light.set", "{\"on\":true}", "bounded-10", out) == 5 && !job_fn); /* no replay */
+    tools_init(4); /* reboot: tombstones are durable */
+    tools_reset_upload();
+    (void)query(10, &state);
+    assert(state == 3);
+    assert(submit(99, "light.set", "{\"on\":true}", "bounded-10", out) == 5 && !job_fn);
+    assert(!submit(100, "light.set", "{\"on\":false}", "after-reboot", out));
+    run_job();
     puts("link tools: durable intents, duplicate/conflict, redirect, private origin, reboot and "
-         "full ledger PASS");
+         "bounded ledger with tombstones PASS");
     return 0;
 }

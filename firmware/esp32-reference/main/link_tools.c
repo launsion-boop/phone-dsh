@@ -29,6 +29,14 @@ typedef struct {
     char result[PDSH_RPC_MAX + 1];
 } receipt_t;
 static receipt_t receipts[RECEIPTS], readonly_result;
+/* Tombstones of evicted receipts (D-01): a replayed key is still refused and RESULT answers
+ * outcome_unknown, so eviction never lets an old command run again. */
+#define TOMBS 16
+typedef struct {
+    uint8_t id[16], key[32];
+} tomb_t;
+static tomb_t tombs[TOMBS];
+static uint32_t tomb_next;
 static pdsh_upload_t upload;
 static nvs_handle_t storage;
 static bool healthy, busy, light_available;
@@ -51,11 +59,96 @@ static void uuid_text(const uint8_t id[16], char out[37]) {
              id[13], id[14], id[15]);
 }
 const char *tools_device_id(void) { return device_id; }
-static bool save(int slot) {
-    char key[8];
+/* Receipt age lives beside the receipt (keys "s%02d" and the counter "rseq"), so the stored
+ * receipt_t layout is unchanged. A receipt without an age (written by older firmware) is oldest. */
+static uint32_t receipt_seq(int slot) {
+    char key[16];
+    uint32_t seq = 0;
+    snprintf(key, sizeof(key), "s%02d", slot);
+    return nvs_get_u32(storage, key, &seq) == ESP_OK ? seq : 0;
+}
+static esp_err_t stamp_receipt(int slot) {
+    uint32_t next = 0;
+    char key[16];
+    esp_err_t err = nvs_get_u32(storage, "rseq", &next);
+    if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND)
+        return err;
+    next++;
+    snprintf(key, sizeof(key), "s%02d", slot);
+    err = nvs_set_u32(storage, "rseq", next);
+    return err == ESP_OK ? nvs_set_u32(storage, key, next) : err;
+}
+/* ble-link.md receipt retention: when every slot is used, the oldest finished receipt
+ * (state 2 completed or 3 outcome_unknown) is removed; a running receipt (state 1) never is.
+ * Returns the freed slot, or -1 when nothing may be evicted. */
+static bool tombstoned_key(const uint8_t key[32]) {
+    for (int i = 0; i < TOMBS; i++)
+        if (memcmp(tombs[i].key, (uint8_t[32]){0}, 32) && !memcmp(tombs[i].key, key, 32))
+            return true;
+    return false;
+}
+static bool tombstoned_id(const uint8_t id[16]) {
+    for (int i = 0; i < TOMBS; i++)
+        if (memcmp(tombs[i].key, (uint8_t[32]){0}, 32) && !memcmp(tombs[i].id, id, 16))
+            return true;
+    return false;
+}
+static int evict_oldest_finished(int keep) {
+    int victim = -1;
+    uint32_t oldest = UINT32_MAX;
+    for (int i = 0; i < RECEIPTS; i++) {
+        if (i == keep || receipts[i].magic != MAGIC || receipts[i].state == 1)
+            continue;
+        uint32_t seq = receipt_seq(i);
+        if (victim < 0 || seq < oldest) {
+            victim = i;
+            oldest = seq;
+        }
+    }
+    if (victim < 0)
+        return -1;
+    /* The tombstone is durable before the receipt is erased. */
+    tomb_t *t = &tombs[tomb_next % TOMBS];
+    memcpy(t->id, receipts[victim].id, 16);
+    memcpy(t->key, receipts[victim].key, 32);
+    tomb_next++;
+    if (nvs_set_blob(storage, "tombs", tombs, sizeof(tombs)) != ESP_OK ||
+        nvs_set_u32(storage, "tomb_n", tomb_next) != ESP_OK || nvs_commit(storage) != ESP_OK)
+        return -1;
+    char key[16];
+    snprintf(key, sizeof(key), "r%02d", victim);
+    esp_err_t a = nvs_erase_key(storage, key);
+    snprintf(key, sizeof(key), "s%02d", victim);
+    esp_err_t b = nvs_erase_key(storage, key);
+    if ((a != ESP_OK && a != ESP_ERR_NVS_NOT_FOUND) || (b != ESP_OK && b != ESP_ERR_NVS_NOT_FOUND) ||
+        nvs_commit(storage) != ESP_OK)
+        return -1;
+    memset(&receipts[victim], 0, sizeof(receipts[victim]));
+    return victim;
+}
+static esp_err_t save_err(int slot) {
+    char key[16];
     snprintf(key, sizeof(key), "r%02d", slot);
-    return nvs_set_blob(storage, key, &receipts[slot], sizeof(receipt_t)) == ESP_OK &&
-           nvs_commit(storage) == ESP_OK;
+    esp_err_t err = nvs_set_blob(storage, key, &receipts[slot], sizeof(receipt_t));
+    return err == ESP_OK ? nvs_commit(storage) : err;
+}
+static bool save(int slot) { return save_err(slot) == ESP_OK; }
+/* NVS fills long before the receipt slots do (a receipt is ~4.2 KB of a 24 KB partition shared
+ * with bonds). On NOT_ENOUGH_SPACE the oldest finished receipt is evicted into a tombstone and
+ * the write retried, instead of marking the ledger unhealthy. `stamp` also records the age. */
+static bool persist_with_room(int slot, bool stamp) {
+    for (int attempt = 0; attempt <= RECEIPTS; attempt++) {
+        esp_err_t err = stamp ? stamp_receipt(slot) : ESP_OK;
+        if (err == ESP_OK)
+            err = nvs_set_u32(storage, "revision", revision);
+        if (err == ESP_OK)
+            err = save_err(slot);
+        if (err == ESP_OK)
+            return true;
+        if (err != ESP_ERR_NVS_NOT_ENOUGH_SPACE || evict_oldest_finished(slot) < 0)
+            return false;
+    }
+    return false;
 }
 static const char *str(const cJSON *o, const char *key) {
     const cJSON *v = cJSON_GetObjectItemCaseSensitive(o, key);
@@ -210,7 +303,7 @@ static void execute(void *arg) {
     xSemaphoreTake(lock, portMAX_DELAY);
     receipt_t *receipt = &receipts[job->slot];
     result_json(receipt, status, result);
-    if (nvs_set_u32(storage, "revision", revision) != ESP_OK || !save(job->slot)) {
+    if (!persist_with_room(job->slot, false)) {
         receipt->state = 3;
         receipt->len = 0;
         healthy = false;
@@ -267,6 +360,21 @@ void tools_init(uint32_t boot_id) {
         if (receipts[i].state == 1) {
             receipts[i].state = 3;
             receipts[i].len = 0;
+        }
+    }
+    memset(tombs, 0, sizeof(tombs));
+    tomb_next = 0;
+    if (healthy) {
+        size_t tlen = sizeof(tombs);
+        esp_err_t terr = nvs_get_blob(storage, "tombs", tombs, &tlen);
+        esp_err_t nerr = nvs_get_u32(storage, "tomb_n", &tomb_next);
+        if (terr == ESP_ERR_NVS_NOT_FOUND) {
+            memset(tombs, 0, sizeof(tombs));
+            tomb_next = 0;
+        } else if (terr != ESP_OK || tlen != sizeof(tombs) || nerr != ESP_OK) {
+            /* Without its tombstones the ledger cannot refuse replays: stop mutations. */
+            memset(tombs, 0, sizeof(tombs));
+            healthy = false;
         }
     }
     if (healthy) (void)pdsh_task_store_init(storage); else pdsh_task_store_disable();
@@ -476,6 +584,12 @@ static int commit(const uint8_t id[16], uint8_t *state, bool task_admitted) {
             goto done;
         }
     }
+    if (tombstoned_key(hash) || tombstoned_id(id)) {
+        error = 5;
+        goto done;
+    }
+    if (slot < 0)
+        slot = evict_oldest_finished(-1);
     if (slot < 0) {
         error = 15;
         goto done;
@@ -501,7 +615,7 @@ static int commit(const uint8_t id[16], uint8_t *state, bool task_admitted) {
     memcpy(r->key, hash, 32);
     memcpy(r->digest, digest, 32);
     // NVS commit is the point before which no GPIO or network operation is permitted.
-    if (!save(slot)) {
+    if (!persist_with_room(slot, true)) {
         healthy = false;
         r->state = 3;
         free(job->json);
@@ -523,6 +637,10 @@ static int commit(const uint8_t id[16], uint8_t *state, bool task_admitted) {
     error = 0;
 done:
     cJSON_Delete(root);
+    /* A refused COMMIT ran nothing and is never retried: release the single upload buffer so the
+     * next request is not answered BUSY until this one's TTL runs out. */
+    if (error && upload.active && !memcmp(upload.id, id, 16))
+        upload.active = false;
     if (!upload.active)
         memset(upload.data, 0, sizeof(upload.data));
     return error;
@@ -552,7 +670,7 @@ static size_t tools_request_internal(uint8_t op, const uint8_t *body, size_t n,
             r = &readonly_result;
         uint16_t offset = u16(body + 16);
         memset(out, 0, 6);
-        out[1] = r ? r->state : 0;
+        out[1] = r ? r->state : (tombstoned_id(body) ? 3 : 0);
         count = 6;
         if (r && r->state == 2) {
             if (offset >= r->len) {
