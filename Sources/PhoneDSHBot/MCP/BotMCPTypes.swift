@@ -128,6 +128,15 @@ public protocol BotTeamToolHandling: Sendable {
                  context: BotMCPRequestContext) async -> BotMCPCallResult
 }
 
+/// Optional team-handler hook that supplies the roster-aware tool catalog.
+/// The runtime uses it for the MCP `tools/list` response once a caller is
+/// identified, so registering the team tools is enough for the App to get a
+/// per-caller catalog without additional wiring. Returning `nil` keeps the
+/// static catalog for that request.
+public protocol BotTeamToolCatalogProviding: Sendable {
+    func toolDefinitions(callerBotID: String?) async -> [BotMCPToolDefinition]?
+}
+
 public protocol BotTaskExecuting: Actor {
     func start(request: BotTaskRequest) async throws -> BotTaskRecord
     func await(taskId: String, timeoutMs: Int, parent: BotResolvedToolCall) async throws -> BotTaskRecord

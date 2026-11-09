@@ -28,6 +28,7 @@ public actor BotMCPRuntime {
     private var taskExecutors: [String: any BotTaskExecuting] = [:]
     private var memories: [String: BotMemory] = [:]
     private var teamToolHandlers: [any BotTeamToolHandling] = []
+    private var toolCatalogProvider: (@Sendable (String?) async -> [BotMCPToolDefinition]?)?
     private var registrations: [String: BotAttribution] = [:]
     private var registrationArguments: [String: BotJSONValue] = [:]
     /// Bumped by `workerRestarted()`. Every registration/claim/approval is
@@ -167,9 +168,47 @@ public actor BotMCPRuntime {
 
     /// Registers a team tool surface. New names are routed after normal
     /// identity attribution and authorization; the existing tool catalog and
-    /// tool list are not modified.
+    /// tool list are not modified. When the handler also implements
+    /// ``BotTeamToolCatalogProviding`` and no explicit provider was installed,
+    /// its roster-aware catalog becomes the per-caller `tools/list` source.
     public func registerTeamTools(_ handler: any BotTeamToolHandling) {
         teamToolHandlers.append(handler)
+        if toolCatalogProvider == nil, let catalog = handler as? any BotTeamToolCatalogProviding {
+            toolCatalogProvider = { callerBotID in
+                await catalog.toolDefinitions(callerBotID: callerBotID)
+            }
+        }
+    }
+
+    /// Replaces the roster-aware catalog provider. Pass `nil` to fall back to
+    /// the static catalog. The App does not normally need this; registering
+    /// `BotTeamTools` installs its provider automatically.
+    public func setToolCatalogProvider(
+        _ provider: (@Sendable (String?) async -> [BotMCPToolDefinition]?)?) {
+        toolCatalogProvider = provider
+    }
+
+    /// Tool definitions for one caller. Without an identified caller (or when
+    /// the provider declines), the historical static catalog is returned so
+    /// standard MCP clients keep their current behaviour. The provider is
+    /// installed by `registerTeamTools`; the App needs no extra wiring.
+    public func toolDefinitions(callerBotID: String?) async -> [BotMCPToolDefinition] {
+        guard let callerBotID, !callerBotID.isEmpty else {
+            return BotToolCatalog.allDefinitions
+        }
+        if let provider = toolCatalogProvider,
+           let definitions = await provider(callerBotID) {
+            return definitions
+        }
+        return BotToolCatalog.allDefinitions
+    }
+
+    /// Resolves the caller Bot from the App-minted MCP session identity. This
+    /// is the same session principal `tools/call` attribution uses; no tool
+    /// arguments or model-supplied Bot id participate.
+    public func callerBotID(forSession sessionID: String?) async -> String? {
+        guard let sessionID, !sessionID.isEmpty else { return nil }
+        return await gateway.tokens.lookupSession(sessionID)?.botId
     }
 
     private func teamToolHandler(for name: String) -> (any BotTeamToolHandling)? {

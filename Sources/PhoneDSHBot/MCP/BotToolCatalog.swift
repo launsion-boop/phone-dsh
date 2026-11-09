@@ -143,15 +143,24 @@ public enum BotToolCatalog {
     /// every Bot the user hid. A hidden Bot is still reachable by id/name; it
     /// is only absent from the model-facing list, like the upstream roster
     /// injection with the phone privacy fix applied.
+    ///
+    /// `CreateTeammate` is only advertised to the roster's main Bot. A caller
+    /// that cannot be identified (`nil`) keeps the historical two-tool list so
+    /// a standard MCP client that never sends caller identity sees no change;
+    /// the execution path still enforces the main-Bot rule.
     public static func teamDefinitions(roster: BotRoster,
                                         callerBotID: String?) -> [BotMCPToolDefinition] {
         let line = availableBotsLine(roster: roster, callerBotID: callerBotID)
-        return [
+        var definitions = [
             teamTool(sendToAgentName, sendToAgentDescription + "\n" + line,
                      baseTeamDefinitions[0].inputSchema),
             teamTool(createTeammateName, createTeammateDescription + "\n" + line,
                      baseTeamDefinitions[1].inputSchema),
         ]
+        if let callerBotID, roster.mainBotID != callerBotID {
+            definitions.removeAll { $0.name == createTeammateName }
+        }
+        return definitions
     }
 
     public static func allDefinitions(roster: BotRoster,
