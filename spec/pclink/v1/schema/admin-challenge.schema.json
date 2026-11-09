@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PCLink v1 admin server-proof challenge (CLI to loopback server)",
+  "$comment": "The CLI verifies proof = HMAC-SHA256(token, \"pclink-v1/admin-proof\"||0x00||nonce) before sending the Bearer token.",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": [
+        "nonce"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "nonce": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{43}$"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "v",
+        "nonce",
+        "proof"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "nonce": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{43}$"
+        },
+        "proof": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{43}$"
+        }
+      }
+    }
+  ]
+}

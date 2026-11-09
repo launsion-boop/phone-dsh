@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PCLink v1 e2e outer frame (AEAD application plane)",
+  "type": "object",
+  "required": [
+    "v",
+    "type",
+    "sid",
+    "seq",
+    "from",
+    "to",
+    "body"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "type": {
+      "const": "e2e"
+    },
+    "sid": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{22}$"
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1048575
+    },
+    "from": {
+      "type": "string",
+      "pattern": "^[a-z2-7]{26}$"
+    },
+    "to": {
+      "type": "string",
+      "pattern": "^[a-z2-7]{26}$"
+    },
+    "body": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]+$",
+      "minLength": 22,
+      "maxLength": 22000000
+    }
+  },
+  "$comment": "seq 0..2^20-1. Sender MUST rekey at 2^19 frames/1 GiB (soft); receiver closes at 2^20 frames/2 GiB (hard)."
+}

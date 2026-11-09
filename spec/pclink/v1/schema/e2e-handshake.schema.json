@@ -1,0 +1,191 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PCLink v1 e2e.handshake outer frame (bootstrap plane)",
+  "type": "object",
+  "required": [
+    "v",
+    "type",
+    "sid",
+    "from",
+    "to",
+    "body"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "type": {
+      "const": "e2e.handshake"
+    },
+    "sid": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{22}$"
+    },
+    "from": {
+      "type": "string",
+      "pattern": "^[a-z2-7]{26}$"
+    },
+    "to": {
+      "type": "string",
+      "pattern": "^[a-z2-7]{26}$"
+    },
+    "body": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "v",
+            "type",
+            "sid",
+            "suite",
+            "eph",
+            "nonce"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "v": {
+              "const": 1
+            },
+            "type": {
+              "const": "session.init"
+            },
+            "sid": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{22}$"
+            },
+            "suite": {
+              "const": "pclink-x25519-ed25519-chacha20poly1305-1"
+            },
+            "eph": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{43}$"
+            },
+            "nonce": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{43}$"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "v",
+            "type",
+            "sid",
+            "eph",
+            "nonce",
+            "sig",
+            "confirm"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "v": {
+              "const": 1
+            },
+            "type": {
+              "const": "session.resp"
+            },
+            "sid": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{22}$"
+            },
+            "eph": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{43}$"
+            },
+            "nonce": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{43}$"
+            },
+            "sig": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{86}$"
+            },
+            "confirm": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{43}$"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "v",
+            "type",
+            "sid",
+            "sig",
+            "confirm"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "v": {
+              "const": 1
+            },
+            "type": {
+              "const": "session.confirm"
+            },
+            "sid": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{22}$"
+            },
+            "sig": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{86}$"
+            },
+            "confirm": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{43}$"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "v",
+            "type",
+            "sid",
+            "code"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "v": {
+              "const": 1
+            },
+            "type": {
+              "const": "session.reject"
+            },
+            "sid": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{22}$"
+            },
+            "code": {
+              "enum": [
+                "unpaired",
+                "auth_failed",
+                "version_unsupported",
+                "rate_limited",
+                "bad_frame",
+                "replay",
+                "frame_too_large",
+                "unavailable",
+                "session_expired"
+              ]
+            },
+            "message": {
+              "type": "string",
+              "minLength": 0,
+              "maxLength": 512
+            },
+            "sig": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{86}$"
+            }
+          },
+          "$comment": "A PC reject answering a valid session.init MUST carry sig over T_reject; unsigned rejects never delete a record."
+        }
+      ]
+    }
+  },
+  "$comment": "The reject signature is T_reject = \"pclink-v1/session-reject\"||0x00||th1||0x00||UTF8(code)."
+}

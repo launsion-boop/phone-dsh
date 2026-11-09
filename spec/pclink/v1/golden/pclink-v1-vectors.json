@@ -1,0 +1,1768 @@
+{
+  "format": "pclink-v1-vectors",
+  "format_version": 3,
+  "revision": "pclink-v1.2",
+  "suite": "pclink-x25519-ed25519-chacha20poly1305-1",
+  "test_key_rule": "sha256(utf8(label)) is the raw private key; these are public test labels, never production keys",
+  "labels": {
+    "phoneIdentity": "pclink-v1/test/identity/phone",
+    "pcIdentity": "pclink-v1/test/identity/pc",
+    "phoneEph": "pclink-v1/test/eph/phone",
+    "pcEph": "pclink-v1/test/eph/pc",
+    "relayNonce": "pclink-v1/test/nonce/relay",
+    "phoneNonce": "pclink-v1/test/nonce/session/phone",
+    "pcNonce": "pclink-v1/test/nonce/session/pc",
+    "pairNoncePc": "pclink-v1/test/nonce/pair/pc",
+    "pairNoncePhone": "pclink-v1/test/nonce/pair/phone",
+    "sid": "pclink-v1/test/sid"
+  },
+  "identities": {
+    "phone": {
+      "seed_label": "pclink-v1/test/identity/phone",
+      "public_key": "1lwESsTkiaI8FEW0MCjDT7h3qasGPHFfHwHKl0fNAGc",
+      "machine_id": "gewra3lzquaxpctdtkvzv2drdp",
+      "sha256_hex": "312d106d798501778a639aab9ae8711bc09d6515fe9666f32317e0b4a8d6a564"
+    },
+    "pc": {
+      "seed_label": "pclink-v1/test/identity/pc",
+      "public_key": "zdQJTTRY7dv6K44pc9hFLxabV-rdlkyOjIeVsHLWyPw",
+      "machine_id": "7gdxeackpmfrjk3ylal74yyubv",
+      "sha256_hex": "f98772004a7b0b14ab785817fe63140d5b2963d93a68e845c2b6b6d13e7622c5"
+    }
+  },
+  "relay_auth": {
+    "origin": "https://relay.example",
+    "nonce": "rSyMLVvYGSyuGdhbneFVosNrZ90zUe5lcxYdBAKJEF8",
+    "transcript_hex": "70636c696e6b2d76312f72656c61792d617574680068747470733a2f2f72656c61792e6578616d706c6500ad2c8c2d5bd8192cae19d85b9de155a2c36b67dd3351ee6573161d040289105f",
+    "phone": {
+      "machine_id": "gewra3lzquaxpctdtkvzv2drdp",
+      "public_key": "1lwESsTkiaI8FEW0MCjDT7h3qasGPHFfHwHKl0fNAGc",
+      "role": "phone",
+      "signature": "FzGvjOBH28UEkVbZRfEsuHSFqVt-u94BDK6L2jgTVnB9nyntopeyAe9Fa-4YXUV-b-HZfTW6CW22OX5pEJ2GDw"
+    },
+    "pc": {
+      "machine_id": "7gdxeackpmfrjk3ylal74yyubv",
+      "public_key": "zdQJTTRY7dv6K44pc9hFLxabV-rdlkyOjIeVsHLWyPw",
+      "role": "pc",
+      "signature": "2gY6VquwITQdCuRiCVVR96knqZtVYckycYDN5dLKeq9qTqZwGWfEKTNVqXp6AziL6iiflc8CeBHQV3K5F-VgBQ"
+    }
+  },
+  "handshake": {
+    "from": "gewra3lzquaxpctdtkvzv2drdp",
+    "to": "7gdxeackpmfrjk3ylal74yyubv",
+    "sid": "ODU-xxharZz-k1yXN2XWRA",
+    "suite": "pclink-x25519-ed25519-chacha20poly1305-1",
+    "version": "1",
+    "phone_eph": {
+      "seed_label": "pclink-v1/test/eph/phone",
+      "public_key": "KLee2EXqnI0TL8dD1sE_fFb5RX0UHe8FNtjmGKOPX1Q"
+    },
+    "pc_eph": {
+      "seed_label": "pclink-v1/test/eph/pc",
+      "public_key": "k2qXEO8sGzp_Y3hkFYdajtcKdyMvHHq_nd5uZKC6dkI"
+    },
+    "phone_nonce": "uoWTFgOGEO6Mb5wZFKBgcAYVc8T_84ksDUYHUeLm4S4",
+    "pc_nonce": "L0TQyxbsNCXjT_mrbfdTgtU0cFqmZC1R5KFWJDAdouI",
+    "init": {
+      "v": 1,
+      "type": "session.init",
+      "sid": "ODU-xxharZz-k1yXN2XWRA",
+      "suite": "pclink-x25519-ed25519-chacha20poly1305-1",
+      "eph": "KLee2EXqnI0TL8dD1sE_fFb5RX0UHe8FNtjmGKOPX1Q",
+      "nonce": "uoWTFgOGEO6Mb5wZFKBgcAYVc8T_84ksDUYHUeLm4S4"
+    },
+    "resp": {
+      "v": 1,
+      "type": "session.resp",
+      "sid": "ODU-xxharZz-k1yXN2XWRA",
+      "eph": "k2qXEO8sGzp_Y3hkFYdajtcKdyMvHHq_nd5uZKC6dkI",
+      "nonce": "L0TQyxbsNCXjT_mrbfdTgtU0cFqmZC1R5KFWJDAdouI",
+      "sig": "2OebF3dOyYYET2Mdv7SnqJqNicQtQg4DYAixAow0EWvCQ1b0nr9V_vaFZiC5b5Yv2ZOdBFqyVim3saIv09oRDg",
+      "confirm": "nqr4BnZ7-WUK4G03qqCSdU1DG31jPVkacwTdUSCJBEQ"
+    },
+    "confirm": {
+      "v": 1,
+      "type": "session.confirm",
+      "sid": "ODU-xxharZz-k1yXN2XWRA",
+      "sig": "QHeDuOw7EsZ2XHu07wGx16_MZ3dkfWDLIaaLXcdrb2asT6y689pa8wSYfZKeSdok_WAjEHfFcU59uCCc_9y0DA",
+      "confirm": "du5Osh_Dfh0hpRgwG1cUTGWtayYFF2An-XnWy-zPCtA"
+    },
+    "reject": {
+      "v": 1,
+      "type": "session.reject",
+      "sid": "ODU-xxharZz-k1yXN2XWRA",
+      "code": "unpaired",
+      "sig": "VyqArAKkueNKYpPhNDr3vft6_wuUkogNTobrPrBP9wPxuk15dwSFFwnxLrZqiXPqYpjC6QTZI26y4t22BieTAg",
+      "message": "no pairing record"
+    },
+    "transcripts": {
+      "init_hex": "70636c696e6b2d76312f73657373696f6e2d696e697400310070636c696e6b2d7832353531392d656432353531392d6368616368613230706f6c79313330352d31006765777261336c7a7175617870637464746b767a76326472647000376764786561636b706d66726a6b33796c616c373479797562760038353ec7185aad9cfe935c973765d6440028b79ed845ea9c8d132fc743d6c13f7c56f9457d141def0536d8e618a38f5f5400ba859316038610ee8c6f9c1914a06070061573c4fff3892c0d460751e2e6e12e",
+      "th1_hex": "f87417b3e668b72ec03386414e996a4c0e48d0faff504309da768b326d31a7a2",
+      "resp_hex": "70636c696e6b2d76312f73657373696f6e2d7265737000f87417b3e668b72ec03386414e996a4c0e48d0faff504309da768b326d31a7a200936a9710ef2c1b3a7f63786415875a8ed70a77232f1c7abf9dde6e64a0ba7642002f44d0cb16ec3425e34ff9ab6df75382d534705aa6642d51e4a15624301da2e2",
+      "th2_hex": "28b4b0ce6489d76c63630c0f7db00ee97643f72ffdd2ba21bfbf2623409b70de",
+      "confirm_hex": "70636c696e6b2d76312f73657373696f6e2d636f6e6669726d0028b4b0ce6489d76c63630c0f7db00ee97643f72ffdd2ba21bfbf2623409b70de006765777261336c7a7175617870637464746b767a76326472647000376764786561636b706d66726a6b33796c616c373479797562760038353ec7185aad9cfe935c973765d644",
+      "th3_hex": "f5369e69b01428a6a3d373ef57430c9bc46c9298a089c46359983dd42c2148b5",
+      "reject_hex": "70636c696e6b2d76312f73657373696f6e2d72656a65637400f87417b3e668b72ec03386414e996a4c0e48d0faff504309da768b326d31a7a200756e706169726564"
+    },
+    "dh_hex": "11261bdd4503f705b8e63665f5ad7df16947e2fbb9cb3eed195c777784daf505",
+    "keys": {
+      "phone_to_pc": "haBsWTgDCdq0G61PvlRjdbUZ3nwo5Yr52nu6vw7tGcA",
+      "pc_to_phone": "CXeXLR0RvjTprGy9y8DiDhFh4QB2kEeeYkRZ3woeROI",
+      "confirm_phone": "-ZvVnrgfrJlKgvCgL-rRzG2TtmL8yYX8SeI0hCOdh0k",
+      "confirm_pc": "shJa56SQKmHjgXYiaN0_ip6xld_l5IZ-QxRTpenQD7c"
+    },
+    "confirmations": {
+      "pc": "nqr4BnZ7-WUK4G03qqCSdU1DG31jPVkacwTdUSCJBEQ",
+      "phone": "du5Osh_Dfh0hpRgwG1cUTGWtayYFF2An-XnWy-zPCtA"
+    }
+  },
+  "frames": [
+    {
+      "case": "phone-peer-hello-seq0",
+      "direction": "phone_to_pc",
+      "sid": "ODU-xxharZz-k1yXN2XWRA",
+      "seq": 0,
+      "from": "gewra3lzquaxpctdtkvzv2drdp",
+      "to": "7gdxeackpmfrjk3ylal74yyubv",
+      "inner_type": "peer.hello",
+      "plaintext": "{\"v\":1,\"type\":\"peer.hello\",\"role\":\"phone\",\"caps\":[\"workspace/1\",\"pclink-x25519-ed25519-chacha20poly1305-1\"],\"dsh\":{\"version\":\"0.2.2-rc.1\",\"commit\":\"66491b05\"},\"app\":{\"name\":\"phoneDSH\",\"version\":\"0.1.0\"},\"name\":\"iPhone\"}",
+      "aad_hex": "70636c696e6b2d76312f616164003100653265004f44552d78786861725a7a2d6b3179584e32585752410030006765777261336c7a7175617870637464746b767a76326472647000376764786561636b706d66726a6b33796c616c37347979756276",
+      "nonce_hex": "000000000000000000000000",
+      "body": "cjrnDJXUdQpzKGCbssqbd5XG547JQRVfCmUkh56m_cI13-NX-hh6f9V5pELVExm3E298K9YFErfZUKn9w6ZNYGobe1u3k7dni136cKwghdM3_bgk9cnOZAq8u3XFfySd1FNECi6iP6wX_0k4tSZ-FJSBGJjusT1RRwJr3KA73FfQJosgW2Xc1eYZ7C7-YDtSbxRyGHNWawQJG2bhipEqt7n3AlgvJ2Kw6EGAc1O5mutf1LUrEmPsNRSBUWFP0OZponkad3k1_niIrpnALzB-RIv9bl0ahLqAsY1U8K5tp2u-64ZH464Cr0zj7Q"
+    },
+    {
+      "case": "pc-peer-hello-seq0",
+      "direction": "pc_to_phone",
+      "sid": "ODU-xxharZz-k1yXN2XWRA",
+      "seq": 0,
+      "from": "7gdxeackpmfrjk3ylal74yyubv",
+      "to": "gewra3lzquaxpctdtkvzv2drdp",
+      "inner_type": "peer.hello",
+      "plaintext": "{\"v\":1,\"type\":\"peer.hello\",\"role\":\"pc\",\"caps\":[\"workspace/1\",\"pclink-x25519-ed25519-chacha20poly1305-1\"],\"dsh\":{\"version\":\"0.2.2-rc.1\",\"commit\":\"66491b05\"},\"app\":{\"name\":\"dsh-pclink\",\"version\":\"0.1.0\"},\"name\":\"My PC\"}",
+      "aad_hex": "70636c696e6b2d76312f616164003100653265004f44552d78786861725a7a2d6b3179584e3258575241003000376764786561636b706d66726a6b33796c616c37347979756276006765777261336c7a7175617870637464746b767a763264726470",
+      "nonce_hex": "000000000000000000000000",
+      "body": "FxXVIAlQ8OhnRTr-BpGFkzU_LK6RxM9xbAprNd_5inAxzdVcEbIL74XLRC4AkILNuNV2-NRYBxzFqX8Sg-fiWPkqaBzOvqRHMtq4urHhuCODek__yxecgZ4VXFkS7Fm6JGyFU-nt4yvo-GLEd1f9Z-6p7WROTjYzNPccZS_rzpvUBZ5SePYMyR_4FLaw-Fl_jgU5BWuTZv81_yb2P0_24a4EEkehxSC48ysPwhwqxR1wUgBY_qE69k7NO0pD3dXNerlU4tfdW9ZQHAElEyKuu-ssrZ3yAZu0VTbABqVh4LmuyjEA7-TvqkM"
+    },
+    {
+      "case": "phone-rpc-call-seq1",
+      "direction": "phone_to_pc",
+      "sid": "ODU-xxharZz-k1yXN2XWRA",
+      "seq": 1,
+      "from": "gewra3lzquaxpctdtkvzv2drdp",
+      "to": "7gdxeackpmfrjk3ylal74yyubv",
+      "inner_type": "rpc.call",
+      "plaintext": "{\"type\":\"rpc.call\",\"id\":\"call-1\",\"endpoint\":\"session/list\",\"args\":{\"_request\":{}}}",
+      "aad_hex": "70636c696e6b2d76312f616164003100653265004f44552d78786861725a7a2d6b3179584e32585752410031006765777261336c7a7175617870637464746b767a76326472647000376764786561636b706d66726a6b33796c616c37347979756276",
+      "nonce_hex": "000000000000000000000001",
+      "body": "ULuWiF5Ro0rn5J8HyXnoqj0pgwVcj_lWN6k7DGeyGGYT3P_7eGaMiOoXbP8J59AqKcext_DITW1FCQaie3JJsbwk0s7fGDasDrO55dCIrRoutRRS2lCx7vWPH-se188XiQw"
+    },
+    {
+      "case": "pc-rpc-result-seq1",
+      "direction": "pc_to_phone",
+      "sid": "ODU-xxharZz-k1yXN2XWRA",
+      "seq": 1,
+      "from": "7gdxeackpmfrjk3ylal74yyubv",
+      "to": "gewra3lzquaxpctdtkvzv2drdp",
+      "inner_type": "rpc.result",
+      "plaintext": "{\"type\":\"rpc.result\",\"id\":\"call-1\",\"ok\":true,\"result\":{\"items\":[]}}",
+      "aad_hex": "70636c696e6b2d76312f616164003100653265004f44552d78786861725a7a2d6b3179584e3258575241003100376764786561636b706d66726a6b33796c616c37347979756276006765777261336c7a7175617870637464746b767a763264726470",
+      "nonce_hex": "000000000000000000000001",
+      "body": "ujMWUn_Z5n4GgwHHaG1PTl3atuA9MO0W-T9_V8RJzcsWnmCmgvaXQH9GwAPb6kwpkzYjBihmcisIDUUoSZF7qeO8dFiOBdV0lZzFADW_pGsAO5A"
+    },
+    {
+      "case": "phone-stream-open-seq2",
+      "direction": "phone_to_pc",
+      "sid": "ODU-xxharZz-k1yXN2XWRA",
+      "seq": 2,
+      "from": "gewra3lzquaxpctdtkvzv2drdp",
+      "to": "7gdxeackpmfrjk3ylal74yyubv",
+      "inner_type": "rpc.stream.open",
+      "plaintext": "{\"type\":\"rpc.stream.open\",\"streamId\":\"stream-1\",\"endpoint\":\"session/follow\",\"payload\":{\"args\":{\"request\":{\"address\":{\"kind\":\"session\",\"sessionId\":\"session-1\"},\"maxMessages\":1,\"assistantStream\":true}}}}",
+      "aad_hex": "70636c696e6b2d76312f616164003100653265004f44552d78786861725a7a2d6b3179584e32585752410032006765777261336c7a7175617870637464746b767a76326472647000376764786561636b706d66726a6b33796c616c37347979756276",
+      "nonce_hex": "000000000000000000000002",
+      "body": "B4aNaB6jCN4BFn-m9-KoGJmJZWpjeCJ_nnwiuL0qp_4wYjHL_2n-rTbi1b30fkhmGXdhd7d9vvVeM_kJYGgMC3eVDGEmpcbJwUdekg_lI6XSYdZnBtpt1Y-16JAOvruDeTInopTWJryFommkE6FIPl2dSTSxqBr_BWWHVdqwlM2bSn6vDzHuJbvuMfSvJQGcmWQtmCXyiI7Tl8C9DAdyl7MqPIIZ9PC21FYvtPhpNgLCL9bUrcifccxUdPZuVqyEUUiVMnIWOFk_IaN3wSOXLKFLvSkPXuOahw"
+    },
+    {
+      "case": "pc-stream-item-seq2",
+      "direction": "pc_to_phone",
+      "sid": "ODU-xxharZz-k1yXN2XWRA",
+      "seq": 2,
+      "from": "7gdxeackpmfrjk3ylal74yyubv",
+      "to": "gewra3lzquaxpctdtkvzv2drdp",
+      "inner_type": "rpc.stream.item",
+      "plaintext": "{\"type\":\"rpc.stream.item\",\"streamId\":\"stream-1\",\"value\":{\"type\":\"snapshot\",\"cursor\":0,\"records\":[]}}",
+      "aad_hex": "70636c696e6b2d76312f616164003100653265004f44552d78786861725a7a2d6b3179584e3258575241003200376764786561636b706d66726a6b33796c616c37347979756276006765777261336c7a7175617870637464746b767a763264726470",
+      "nonce_hex": "000000000000000000000002",
+      "body": "5NUo6EdePapwM_-unfvqq__hUoeXJliCVUWTQ6u9qfXAfIxnlnOtPgpJA3ldFtk9c1x7YMgjXB2BF4ei512Ao8OuKiiAYEeunxje9JF_SN5CYBEMAGIXTv-wZCnaMKSN4ISglw6lHrqE-EGXLhTpPBy8R-I"
+    },
+    {
+      "case": "pc-stream-chunk-seq3",
+      "direction": "pc_to_phone",
+      "sid": "ODU-xxharZz-k1yXN2XWRA",
+      "seq": 3,
+      "from": "7gdxeackpmfrjk3ylal74yyubv",
+      "to": "gewra3lzquaxpctdtkvzv2drdp",
+      "inner_type": "rpc.stream.chunk",
+      "plaintext": "{\"type\":\"rpc.stream.chunk\",\"streamId\":\"stream-1\",\"part\":0,\"last\":true,\"data\":\"eyJ0eXBlIjoic25hcHNob3QiLCJjdXJzb3IiOjAsInJlY29yZHMiOltdfQ\"}",
+      "aad_hex": "70636c696e6b2d76312f616164003100653265004f44552d78786861725a7a2d6b3179584e3258575241003300376764786561636b706d66726a6b33796c616c37347979756276006765777261336c7a7175617870637464746b767a763264726470",
+      "nonce_hex": "000000000000000000000003",
+      "body": "QEri4hotyBPucqQz1FEueJTmQkDXfgK-PXXEOiA5bLQGxcAQMYwZw4ybfMvUMuMdz0AJoHzjgG0ch7WPhw3ayXvgfwUbUvkX6dX58Jjd8Qg4osJlSQoEjXmOYfoWg1fQhKjYqL48qrtYw1_Mz37DC4Kd4iudvzMS9pIBoUO8fZykzHR4UhuexiHAMZP4Rwto3A9Ry0PjbFENXQ"
+    },
+    {
+      "case": "pc-result-chunk-seq4",
+      "direction": "pc_to_phone",
+      "sid": "ODU-xxharZz-k1yXN2XWRA",
+      "seq": 4,
+      "from": "7gdxeackpmfrjk3ylal74yyubv",
+      "to": "gewra3lzquaxpctdtkvzv2drdp",
+      "inner_type": "rpc.result.chunk",
+      "plaintext": "{\"type\":\"rpc.result.chunk\",\"id\":\"call-2\",\"part\":0,\"last\":true,\"data\":\"eyJ0eXBlIjoicnBjLnJlc3VsdCIsImlkIjoiY2FsbC0yIiwib2siOnRydWUsInJlc3VsdCI6eyJpdGVtcyI6W119fQ\"}",
+      "aad_hex": "70636c696e6b2d76312f616164003100653265004f44552d78786861725a7a2d6b3179584e3258575241003400376764786561636b706d66726a6b33796c616c37347979756276006765777261336c7a7175617870637464746b767a763264726470",
+      "nonce_hex": "000000000000000000000004",
+      "body": "6dR49d8JCMBsQDZNz1fF2i7lTsP-fBZAZdBuk2nWEnWsnv5RtmlQq0eSmjAEU1QBE2LPHAM4P5MW0WtJ0qGTWHfRkCc75ZQDjn_unN0DGCXslfHJOtVd9sW_Klv8UyLDy3-GiTlsD34LcM1o0EoXHHhwA3lNmR5AVBB5_7hPgw7sJhq5Us-4ri1LZ8ufADyB5izfX4AJt0li6R5xMDNpvhkWGSxViOIZVIPAKofiwF16lg"
+    },
+    {
+      "case": "phone-session-close-seq3",
+      "direction": "phone_to_pc",
+      "sid": "ODU-xxharZz-k1yXN2XWRA",
+      "seq": 3,
+      "from": "gewra3lzquaxpctdtkvzv2drdp",
+      "to": "7gdxeackpmfrjk3ylal74yyubv",
+      "inner_type": "session.close",
+      "plaintext": "{\"type\":\"session.close\",\"code\":\"unavailable\",\"message\":\"test close\"}",
+      "aad_hex": "70636c696e6b2d76312f616164003100653265004f44552d78786861725a7a2d6b3179584e32585752410033006765777261336c7a7175617870637464746b767a76326472647000376764786561636b706d66726a6b33796c616c37347979756276",
+      "nonce_hex": "000000000000000000000003",
+      "body": "qTsNB_H4ahjJJ0KQey3Sxs31nbR4GWQMJ3PUGx5_GhRXwQ_BrGUET30-hLRZda-fyQgQxNhvRrGykzPy5YvucdzZhTsPLO_9dxmKQ2Um92sVddbM"
+    }
+  ],
+  "chunking": {
+    "threshold_bytes": 1048576,
+    "max_value_bytes": 8388608,
+    "max_frame_bytes": 16777216,
+    "seq_rekey": 524288,
+    "seq_max": 1048576,
+    "byte_rekey": 1073741824,
+    "byte_hard": 2147483648,
+    "small": {
+      "test_only": true,
+      "value": {
+        "text": "abcdef"
+      },
+      "chunk_bytes": 5,
+      "chunks": [
+        {
+          "part": 0,
+          "last": false,
+          "data": "eyJ0ZXg"
+        },
+        {
+          "part": 1,
+          "last": false,
+          "data": "dCI6ImE"
+        },
+        {
+          "part": 2,
+          "last": false,
+          "data": "YmNkZWY"
+        },
+        {
+          "part": 3,
+          "last": true,
+          "data": "In0"
+        }
+      ],
+      "reassembled_sha256": "2dcfce3659942a7683feca1ac4aa240e1e785dde097fe80ec57548d8ee80c283"
+    },
+    "result_chunk": {
+      "test_only": true,
+      "result": {
+        "type": "rpc.result",
+        "id": "call-2",
+        "ok": true,
+        "result": {
+          "items": []
+        }
+      },
+      "chunk_bytes": 8,
+      "chunks": [
+        {
+          "part": 0,
+          "last": false,
+          "data": "eyJ0eXBlIjo"
+        },
+        {
+          "part": 1,
+          "last": false,
+          "data": "InJwYy5yZXM"
+        },
+        {
+          "part": 2,
+          "last": false,
+          "data": "dWx0IiwiaWQ"
+        },
+        {
+          "part": 3,
+          "last": false,
+          "data": "IjoiY2FsbC0"
+        },
+        {
+          "part": 4,
+          "last": false,
+          "data": "MiIsIm9rIjo"
+        },
+        {
+          "part": 5,
+          "last": false,
+          "data": "dHJ1ZSwicmU"
+        },
+        {
+          "part": 6,
+          "last": false,
+          "data": "c3VsdCI6eyI"
+        },
+        {
+          "part": 7,
+          "last": false,
+          "data": "aXRlbXMiOls"
+        },
+        {
+          "part": 8,
+          "last": true,
+          "data": "XX19"
+        }
+      ],
+      "reassembled_sha256": "5f985321381a4c9cb93333df4554cafe516d0094d223d845baa3284d3a0cf491"
+    },
+    "interleave": {
+      "test_only": true,
+      "chunk_bytes": 4,
+      "events": [
+        {
+          "part": 0,
+          "last": false,
+          "data": "eyJ0ZQ",
+          "streamId": "stream-a"
+        },
+        {
+          "part": 0,
+          "last": false,
+          "data": "eyJ0ZQ",
+          "streamId": "stream-b"
+        },
+        {
+          "part": 1,
+          "last": false,
+          "data": "eHQiOg",
+          "streamId": "stream-a"
+        },
+        {
+          "part": 1,
+          "last": false,
+          "data": "eHQiOg",
+          "streamId": "stream-b"
+        },
+        {
+          "part": 2,
+          "last": false,
+          "data": "ImFscA",
+          "streamId": "stream-a"
+        },
+        {
+          "part": 2,
+          "last": false,
+          "data": "ImJldA",
+          "streamId": "stream-b"
+        },
+        {
+          "part": 3,
+          "last": false,
+          "data": "aGEtMA",
+          "streamId": "stream-a"
+        },
+        {
+          "part": 3,
+          "last": false,
+          "data": "YS1BQg",
+          "streamId": "stream-b"
+        },
+        {
+          "part": 4,
+          "last": false,
+          "data": "MTIzNA",
+          "streamId": "stream-a"
+        },
+        {
+          "part": 4,
+          "last": false,
+          "data": "Q0RFRg",
+          "streamId": "stream-b"
+        },
+        {
+          "part": 5,
+          "last": false,
+          "data": "NTY3OA",
+          "streamId": "stream-a"
+        },
+        {
+          "part": 5,
+          "last": false,
+          "data": "R0hJSg",
+          "streamId": "stream-b"
+        },
+        {
+          "part": 6,
+          "last": true,
+          "data": "OSJ9",
+          "streamId": "stream-a"
+        },
+        {
+          "part": 6,
+          "last": true,
+          "data": "In0",
+          "streamId": "stream-b"
+        }
+      ],
+      "values": {
+        "stream-a": {
+          "text": "alpha-0123456789"
+        },
+        "stream-b": {
+          "text": "beta-ABCDEFGHIJ"
+        }
+      },
+      "reassembled_sha256": {
+        "stream-a": "52fb8904a069f15ef8218201d5a36cee9b0f2d597ee6614fef2ff9368f2ef928",
+        "stream-b": "b295c8e5f021a8375b227c770beee877b541ff4735fc614a2ec89bfb5db44038"
+      }
+    },
+    "threshold": {
+      "repeat": "a",
+      "repeat_count": 1048576,
+      "json_bytes": 1048578,
+      "chunk_bytes": 1048576,
+      "parts": 2,
+      "last_last": true,
+      "reassembled_sha256": "249654dc6c054203321aa70e6a1bdfad6b108058db82600d14300c2e0800f907"
+    },
+    "too_large": {
+      "json_bytes": 8388609,
+      "limit": 8388608,
+      "expected": "frame_too_large"
+    },
+    "cancel": {
+      "chunks_before_cancel": 1,
+      "expected": "discard"
+    }
+  },
+  "canonical_json": {
+    "scalar_order": {
+      "object": {
+        "": "bmp-private-use",
+        "𐀀": "astral"
+      },
+      "canonical": "{\"\":\"bmp-private-use\",\"𐀀\":\"astral\"}",
+      "sha256_hex": "47954350feb2ff9e359617180f73c1f6df8a37df7d1e74a336ecf4adcca9e751"
+    },
+    "slash_and_nonascii": {
+      "object": {
+        "path": "a/b",
+        "name": "café",
+        "note": "line\nbreak"
+      },
+      "canonical": "{\"name\":\"café\",\"note\":\"line\\nbreak\",\"path\":\"a/b\"}",
+      "sha256_hex": "d45985180c0cc143858d8421ff5cb3cee8fd2e5a5e5d267b43c7967ca49d8ba9"
+    }
+  },
+  "admin_proof": {
+    "test_only": true,
+    "token": "X37-3JnoPGPjTBOIGpT4QmWRc35HyTZP-JE9inboTzk",
+    "nonce": "vTJ-_I-wlK7xjfIkoGR5vOJXkuq_k2nQQ0b7fP-HdTc",
+    "proof": "006WP2KlMMTV2JPF7DOkOPfR5ovymaPbRLJQwfqspWU",
+    "rule": "HMAC-SHA256(token, \"pclink-v1/admin-proof\" || 0x00 || nonce)"
+  },
+  "resources": {
+    "sid_cache": {
+      "limit": 4096,
+      "cases": [
+        {
+          "entries": 4096,
+          "expected": "accept"
+        },
+        {
+          "entries": 4097,
+          "expected": "evict_lru"
+        }
+      ]
+    },
+    "pairing_slots": {
+      "limit": 2,
+      "cases": [
+        {
+          "open": 2,
+          "expected": "accept"
+        },
+        {
+          "open": 3,
+          "expected": "exhausted"
+        }
+      ]
+    },
+    "ipv6": {
+      "address": "2001:db8:1:2::1",
+      "expected": "2001:db8:1:2::/64"
+    },
+    "e2e_idle": {
+      "idle_ms": 900001,
+      "limit_ms": 900000,
+      "expected": "session_expired"
+    },
+    "confirm_recheck": {
+      "approved": {
+        "record": {
+          "peerMachineId": "gewra3lzquaxpctdtkvzv2drdp",
+          "peerPublicKey": "1lwESsTkiaI8FEW0MCjDT7h3qasGPHFfHwHKl0fNAGc",
+          "peerName": "iPhone",
+          "pairedAt": "2026-11-09T00:00:00Z",
+          "relayOrigin": "https://relay.example",
+          "connection": {
+            "mode": "relay"
+          },
+          "approvedAt": "2026-11-09T00:00:05Z",
+          "approvedVia": "cli"
+        },
+        "audit": [
+          {
+            "v": 1,
+            "event": "pair",
+            "peerMachineId": "gewra3lzquaxpctdtkvzv2drdp",
+            "peerPublicKey": "1lwESsTkiaI8FEW0MCjDT7h3qasGPHFfHwHKl0fNAGc",
+            "recordSha256": "db8dd841014dc744d9d16efe940bf3434efbc3cbeb8e493a5433a8d2f2593042",
+            "approvedAt": "2026-11-09T00:00:05Z",
+            "approvedVia": "cli",
+            "at": "2026-11-09T00:00:05Z"
+          }
+        ],
+        "expected": "establish"
+      },
+      "revoked": {
+        "record": {
+          "peerMachineId": "gewra3lzquaxpctdtkvzv2drdp",
+          "peerPublicKey": "1lwESsTkiaI8FEW0MCjDT7h3qasGPHFfHwHKl0fNAGc",
+          "peerName": "iPhone",
+          "pairedAt": "2026-11-09T00:00:00Z",
+          "relayOrigin": "https://relay.example",
+          "connection": {
+            "mode": "relay"
+          },
+          "approvedAt": "2026-11-09T00:00:05Z",
+          "approvedVia": "cli"
+        },
+        "audit": [
+          {
+            "v": 1,
+            "event": "pair",
+            "peerMachineId": "gewra3lzquaxpctdtkvzv2drdp",
+            "peerPublicKey": "1lwESsTkiaI8FEW0MCjDT7h3qasGPHFfHwHKl0fNAGc",
+            "recordSha256": "db8dd841014dc744d9d16efe940bf3434efbc3cbeb8e493a5433a8d2f2593042",
+            "approvedAt": "2026-11-09T00:00:05Z",
+            "approvedVia": "cli",
+            "at": "2026-11-09T00:00:05Z"
+          },
+          {
+            "v": 1,
+            "event": "unpair",
+            "peerMachineId": "gewra3lzquaxpctdtkvzv2drdp",
+            "at": "2026-11-09T01:00:00Z"
+          }
+        ],
+        "expected": "abort"
+      }
+    },
+    "unpair_abort": {
+      "handshake_in_progress": true,
+      "unpair": true,
+      "expected": "abort"
+    },
+    "approval": {
+      "blocked": {
+        "approved": false,
+        "expected": "blocked"
+      },
+      "confirm_sent": {
+        "approved": true,
+        "expected": "confirm_sent"
+      }
+    },
+    "admin_peer": {
+      "rule": "the /api/pclink.admin/* handler decides by the request source Peer, not by the endpoint string; the forwarder prefix check is a fast path only",
+      "cases": [
+        {
+          "source": "pclink_remote",
+          "endpoint": "pclink.admin/status",
+          "expected": "forbidden"
+        },
+        {
+          "source": "pclink_remote",
+          "endpoint": "PCLink.Admin/status",
+          "expected": "forbidden"
+        },
+        {
+          "source": "owner_webui",
+          "endpoint": "pclink.admin/status",
+          "expected": "allow"
+        }
+      ]
+    }
+  },
+  "pairing": {
+    "origin": "https://relay.example",
+    "qr": {
+      "uri": "pclink://pair?v=1&r=https%3A%2F%2Frelay.example&m=7gdxeackpmfrjk3ylal74yyubv&k=zdQJTTRY7dv6K44pc9hFLxabV-rdlkyOjIeVsHLWyPw&s=AAECAwQFBgcICQoLDA0ODw&n=My%20PC",
+      "parsed": {
+        "origin": "https://relay.example",
+        "machineId": "7gdxeackpmfrjk3ylal74yyubv",
+        "publicKey": "zdQJTTRY7dv6K44pc9hFLxabV-rdlkyOjIeVsHLWyPw",
+        "secret": "AAECAwQFBgcICQoLDA0ODw",
+        "name": "My PC",
+        "ws_url": "wss://relay.example/"
+      }
+    },
+    "manual": {
+      "display": "18DJ-RFAE-BXG7-30MK",
+      "canonical": "18DJRFAEBXG730MK",
+      "input": "l8dj-rfae bxg7-3omk",
+      "equivalent_inputs": [
+        "18DJRFAEBXG730MK",
+        "l8dj-rfae bxg7-3omk",
+        "18djrfaebxg730mk"
+      ],
+      "normalized": "18DJRFAEBXG730MK",
+      "secret_hex": "0a1b2c3d4e5f60718293",
+      "rendezvous": "26l6RgoVBLpUDAvQ7-IWZe",
+      "pair_key": "iMayLGM9gge3hjZ_fu4mYIyc4wIqZUEQiZSJYyPFnZQ",
+      "hello": {
+        "v": 1,
+        "type": "pair.hello",
+        "role": "pc",
+        "machineId": "7gdxeackpmfrjk3ylal74yyubv",
+        "publicKey": "zdQJTTRY7dv6K44pc9hFLxabV-rdlkyOjIeVsHLWyPw",
+        "name": "My PC",
+        "relay": "https://relay.example",
+        "nonce": "temwmBPBIkm61wIo9M7KyvFcopu5Ai1wtl4CTWMOva0",
+        "mac": "QZlL-ZPnYiSlzSSpsgvmorD1TTmxkfPST4RovRj8xCA"
+      },
+      "auth": {
+        "v": 1,
+        "type": "pair.auth",
+        "role": "phone",
+        "machineId": "gewra3lzquaxpctdtkvzv2drdp",
+        "publicKey": "1lwESsTkiaI8FEW0MCjDT7h3qasGPHFfHwHKl0fNAGc",
+        "name": "iPhone",
+        "relay": "https://relay.example",
+        "nonce": "U3WAJdzkgDIiDkktOoecHIT1VuCucyZzA5dY8umumsE",
+        "peerNonce": "temwmBPBIkm61wIo9M7KyvFcopu5Ai1wtl4CTWMOva0",
+        "mac": "EfroJCFhL4Oos-RaHhoBzWBxWiOycpuucVXIUJc6Jl0"
+      },
+      "confirm": {
+        "v": 1,
+        "type": "pair.confirm",
+        "role": "pc",
+        "nonce": "temwmBPBIkm61wIo9M7KyvFcopu5Ai1wtl4CTWMOva0",
+        "peerNonce": "U3WAJdzkgDIiDkktOoecHIT1VuCucyZzA5dY8umumsE",
+        "transcriptHash": "iSztsEjYDIGN2cV23Vu7uqFLIHzBppcFugCFW8HIIJ8",
+        "mac": "ORIASu_Orgyvr2AFVCGGgmGKOjkYdL0KsWoChDGNRMc"
+      },
+      "final": {
+        "v": 1,
+        "type": "pair.final",
+        "role": "phone",
+        "nonce": "U3WAJdzkgDIiDkktOoecHIT1VuCucyZzA5dY8umumsE",
+        "peerNonce": "temwmBPBIkm61wIo9M7KyvFcopu5Ai1wtl4CTWMOva0",
+        "transcriptHash": "iSztsEjYDIGN2cV23Vu7uqFLIHzBppcFugCFW8HIIJ8",
+        "mac": "529tAydb4MXe5YawfQSXhmfb2vg-GYia5mKF0Ij_vv4"
+      },
+      "transcript_hash": "iSztsEjYDIGN2cV23Vu7uqFLIHzBppcFugCFW8HIIJ8"
+    },
+    "secret_s": "AAECAwQFBgcICQoLDA0ODw",
+    "rendezvous_s": "IlLoEaRdmKjrHcOpMtEOP0",
+    "rendezvous_s_other_origin": "T5zAzFo2AJq9nWghKfntPo",
+    "pair_key_s": "KefATr6JOtHQE2CtGzC99ULnrIFjdvQimUbco0B1tKM",
+    "hello": {
+      "v": 1,
+      "type": "pair.hello",
+      "role": "pc",
+      "machineId": "7gdxeackpmfrjk3ylal74yyubv",
+      "publicKey": "zdQJTTRY7dv6K44pc9hFLxabV-rdlkyOjIeVsHLWyPw",
+      "name": "My PC",
+      "relay": "https://relay.example",
+      "nonce": "temwmBPBIkm61wIo9M7KyvFcopu5Ai1wtl4CTWMOva0",
+      "mac": "m8Rp1MZUoK9_tg1E2Rh0Co42OTyco-wP8f0nP7xW2U0"
+    },
+    "auth": {
+      "v": 1,
+      "type": "pair.auth",
+      "role": "phone",
+      "machineId": "gewra3lzquaxpctdtkvzv2drdp",
+      "publicKey": "1lwESsTkiaI8FEW0MCjDT7h3qasGPHFfHwHKl0fNAGc",
+      "name": "iPhone",
+      "relay": "https://relay.example",
+      "nonce": "U3WAJdzkgDIiDkktOoecHIT1VuCucyZzA5dY8umumsE",
+      "peerNonce": "temwmBPBIkm61wIo9M7KyvFcopu5Ai1wtl4CTWMOva0",
+      "mac": "a9cH6E7I4t0s-ErBOG7tTP0cMABycXCZohIyctS1Zdw"
+    },
+    "confirm": {
+      "v": 1,
+      "type": "pair.confirm",
+      "role": "pc",
+      "nonce": "temwmBPBIkm61wIo9M7KyvFcopu5Ai1wtl4CTWMOva0",
+      "peerNonce": "U3WAJdzkgDIiDkktOoecHIT1VuCucyZzA5dY8umumsE",
+      "transcriptHash": "iSztsEjYDIGN2cV23Vu7uqFLIHzBppcFugCFW8HIIJ8",
+      "mac": "hPZpkT3UYholYLa3aqtsAGRxqj3mSYdCetZ1oAXKjHY"
+    },
+    "final": {
+      "v": 1,
+      "type": "pair.final",
+      "role": "phone",
+      "nonce": "U3WAJdzkgDIiDkktOoecHIT1VuCucyZzA5dY8umumsE",
+      "peerNonce": "temwmBPBIkm61wIo9M7KyvFcopu5Ai1wtl4CTWMOva0",
+      "transcriptHash": "iSztsEjYDIGN2cV23Vu7uqFLIHzBppcFugCFW8HIIJ8",
+      "mac": "kwuWm9zpSYfANlBO9fFmwEzf0lwy9onrvxiSpXG_SAo"
+    },
+    "transcript_hash": "iSztsEjYDIGN2cV23Vu7uqFLIHzBppcFugCFW8HIIJ8",
+    "records": {
+      "phone": {
+        "peerMachineId": "7gdxeackpmfrjk3ylal74yyubv",
+        "peerPublicKey": "zdQJTTRY7dv6K44pc9hFLxabV-rdlkyOjIeVsHLWyPw",
+        "peerName": "My PC",
+        "pairedAt": "2026-11-09T00:00:00Z",
+        "relayOrigin": "https://relay.example",
+        "connection": {
+          "mode": "relay"
+        }
+      },
+      "pc": {
+        "peerMachineId": "gewra3lzquaxpctdtkvzv2drdp",
+        "peerPublicKey": "1lwESsTkiaI8FEW0MCjDT7h3qasGPHFfHwHKl0fNAGc",
+        "peerName": "iPhone",
+        "pairedAt": "2026-11-09T00:00:00Z",
+        "relayOrigin": "https://relay.example",
+        "connection": {
+          "mode": "relay"
+        },
+        "approvedAt": "2026-11-09T00:00:05Z",
+        "approvedVia": "cli"
+      }
+    },
+    "approval": {
+      "peerName": "iPhone",
+      "peerMachineId": "gewra3lzquaxpctdtkvzv2drdp",
+      "fingerprint": "gewr-a3lz-quax",
+      "pcFingerprint": "7gdx-eack-pmfr",
+      "accepted_inputs": [
+        "gewr-a3lz-quax",
+        "GEWR-A3LZ-QUAX",
+        "gewr a3lz quax",
+        "gewra3lzquax",
+        "GEWR  A3LZ  QUAX"
+      ],
+      "rejected_input": "2222-2222-2222",
+      "approvedAt": "2026-11-09T00:00:05Z",
+      "approvedVia": "cli",
+      "rule": "machineId[0:12] grouped xxxx-xxxx-xxxx; 60-bit fingerprint typed from the phone screen"
+    },
+    "audit": {
+      "pair_entry": {
+        "v": 1,
+        "event": "pair",
+        "peerMachineId": "gewra3lzquaxpctdtkvzv2drdp",
+        "peerPublicKey": "1lwESsTkiaI8FEW0MCjDT7h3qasGPHFfHwHKl0fNAGc",
+        "recordSha256": "db8dd841014dc744d9d16efe940bf3434efbc3cbeb8e493a5433a8d2f2593042",
+        "approvedAt": "2026-11-09T00:00:05Z",
+        "approvedVia": "cli",
+        "at": "2026-11-09T00:00:05Z"
+      },
+      "unpair_entry": {
+        "v": 1,
+        "event": "unpair",
+        "peerMachineId": "gewra3lzquaxpctdtkvzv2drdp",
+        "at": "2026-11-09T01:00:00Z"
+      },
+      "record_sha256": "db8dd841014dc744d9d16efe940bf3434efbc3cbeb8e493a5433a8d2f2593042",
+      "approved_usable": {
+        "record": {
+          "peerMachineId": "gewra3lzquaxpctdtkvzv2drdp",
+          "peerPublicKey": "1lwESsTkiaI8FEW0MCjDT7h3qasGPHFfHwHKl0fNAGc",
+          "peerName": "iPhone",
+          "pairedAt": "2026-11-09T00:00:00Z",
+          "relayOrigin": "https://relay.example",
+          "connection": {
+            "mode": "relay"
+          },
+          "approvedAt": "2026-11-09T00:00:05Z",
+          "approvedVia": "cli"
+        },
+        "audit": [
+          {
+            "v": 1,
+            "event": "pair",
+            "peerMachineId": "gewra3lzquaxpctdtkvzv2drdp",
+            "peerPublicKey": "1lwESsTkiaI8FEW0MCjDT7h3qasGPHFfHwHKl0fNAGc",
+            "recordSha256": "db8dd841014dc744d9d16efe940bf3434efbc3cbeb8e493a5433a8d2f2593042",
+            "approvedAt": "2026-11-09T00:00:05Z",
+            "approvedVia": "cli",
+            "at": "2026-11-09T00:00:05Z"
+          }
+        ],
+        "expected": "usable"
+      }
+    }
+  },
+  "invalid": [
+    {
+      "case": "hs-resp-wrong-signature",
+      "kind": "handshake_signature",
+      "transcript_hex": "70636c696e6b2d76312f73657373696f6e2d7265737000f87417b3e668b72ec03386414e996a4c0e48d0faff504309da768b326d31a7a200936a9710ef2c1b3a7f63786415875a8ed70a77232f1c7abf9dde6e64a0ba7642002f44d0cb16ec3425e34ff9ab6df75382d534705aa6642d51e4a15624301da2e2",
+      "public_key": "zdQJTTRY7dv6K44pc9hFLxabV-rdlkyOjIeVsHLWyPw",
+      "signature": "J-ebF3dOyYYET2Mdv7SnqJqNicQtQg4DYAixAow0EWvCQ1b0nr9V_vaFZiC5b5Yv2ZOdBFqyVim3saIv09oRDg",
+      "expected": "auth_failed",
+      "evidence": "crypto"
+    },
+    {
+      "case": "hs-resp-signed-by-phone-key",
+      "kind": "handshake_signature",
+      "transcript_hex": "70636c696e6b2d76312f73657373696f6e2d7265737000f87417b3e668b72ec03386414e996a4c0e48d0faff504309da768b326d31a7a200936a9710ef2c1b3a7f63786415875a8ed70a77232f1c7abf9dde6e64a0ba7642002f44d0cb16ec3425e34ff9ab6df75382d534705aa6642d51e4a15624301da2e2",
+      "public_key": "zdQJTTRY7dv6K44pc9hFLxabV-rdlkyOjIeVsHLWyPw",
+      "signature": "X5jDuG7bQI3A9Fo8ZxQks3f1jQwiswgrrAqxaqN-OSL7XA4a1hHhYUbUFcMI_RAy8mcUjwPa97hD5rG9mhWECQ",
+      "expected": "auth_failed",
+      "evidence": "crypto"
+    },
+    {
+      "case": "hs-confirm-signed-by-pc-key",
+      "kind": "handshake_signature",
+      "transcript_hex": "70636c696e6b2d76312f73657373696f6e2d636f6e6669726d0028b4b0ce6489d76c63630c0f7db00ee97643f72ffdd2ba21bfbf2623409b70de006765777261336c7a7175617870637464746b767a76326472647000376764786561636b706d66726a6b33796c616c373479797562760038353ec7185aad9cfe935c973765d644",
+      "public_key": "1lwESsTkiaI8FEW0MCjDT7h3qasGPHFfHwHKl0fNAGc",
+      "signature": "L-sK_FEavlTmMrSq6G9h7jXP2JKi4vJwCQ3_dK5xBt-t2Kq24kDAS2KrjZ86qtdAzMPErZBg6IweDd2IUM3nAQ",
+      "expected": "auth_failed",
+      "evidence": "crypto"
+    },
+    {
+      "case": "hs-init-version-mutated",
+      "kind": "handshake_transcript",
+      "init": {
+        "v": 2,
+        "type": "session.init",
+        "sid": "ODU-xxharZz-k1yXN2XWRA",
+        "suite": "pclink-x25519-ed25519-chacha20poly1305-1",
+        "eph": "KLee2EXqnI0TL8dD1sE_fFb5RX0UHe8FNtjmGKOPX1Q",
+        "nonce": "uoWTFgOGEO6Mb5wZFKBgcAYVc8T_84ksDUYHUeLm4S4"
+      },
+      "from": "gewra3lzquaxpctdtkvzv2drdp",
+      "to": "7gdxeackpmfrjk3ylal74yyubv",
+      "reference_hex": "f87417b3e668b72ec03386414e996a4c0e48d0faff504309da768b326d31a7a2",
+      "expected": "auth_failed",
+      "evidence": "crypto"
+    },
+    {
+      "case": "hs-init-suite-mutated",
+      "kind": "handshake_transcript",
+      "init": {
+        "v": 1,
+        "type": "session.init",
+        "sid": "ODU-xxharZz-k1yXN2XWRA",
+        "suite": "pclink-unknown-suite",
+        "eph": "KLee2EXqnI0TL8dD1sE_fFb5RX0UHe8FNtjmGKOPX1Q",
+        "nonce": "uoWTFgOGEO6Mb5wZFKBgcAYVc8T_84ksDUYHUeLm4S4"
+      },
+      "from": "gewra3lzquaxpctdtkvzv2drdp",
+      "to": "7gdxeackpmfrjk3ylal74yyubv",
+      "reference_hex": "f87417b3e668b72ec03386414e996a4c0e48d0faff504309da768b326d31a7a2",
+      "expected": "auth_failed",
+      "evidence": "crypto"
+    },
+    {
+      "case": "hs-init-machineid-swapped",
+      "kind": "handshake_transcript",
+      "init": {
+        "v": 1,
+        "type": "session.init",
+        "sid": "ODU-xxharZz-k1yXN2XWRA",
+        "suite": "pclink-x25519-ed25519-chacha20poly1305-1",
+        "eph": "KLee2EXqnI0TL8dD1sE_fFb5RX0UHe8FNtjmGKOPX1Q",
+        "nonce": "uoWTFgOGEO6Mb5wZFKBgcAYVc8T_84ksDUYHUeLm4S4"
+      },
+      "from": "7gdxeackpmfrjk3ylal74yyubv",
+      "to": "gewra3lzquaxpctdtkvzv2drdp",
+      "reference_hex": "f87417b3e668b72ec03386414e996a4c0e48d0faff504309da768b326d31a7a2",
+      "expected": "auth_failed",
+      "evidence": "crypto"
+    },
+    {
+      "case": "hs-outer-body-sid-mismatch",
+      "kind": "sid_mismatch",
+      "outer_sid": "ODU-xxharZz-k1yXN2XWRA",
+      "body_sid": "fY2pYq3xFu1e1ZxIP8ZO7A",
+      "expected": "bad_frame",
+      "evidence": "crypto"
+    },
+    {
+      "case": "hs-resp-cross-sid",
+      "kind": "cross_sid",
+      "expected_sid": "ODU-xxharZz-k1yXN2XWRA",
+      "message_type": "session.resp",
+      "message_sid": "fY2pYq3xFu1e1ZxIP8ZO7A",
+      "expected": "replay",
+      "evidence": "crypto"
+    },
+    {
+      "case": "hs-confirm-cross-sid-replay",
+      "kind": "cross_sid",
+      "expected_sid": "ODU-xxharZz-k1yXN2XWRA",
+      "message_type": "session.confirm",
+      "message_sid": "tc3UTlfQFhvUTBL-3RXJ6Q",
+      "expected": "replay",
+      "evidence": "crypto"
+    },
+    {
+      "case": "hs-x25519-all-zero",
+      "kind": "x25519",
+      "private_label": "pclink-v1/test/eph/phone",
+      "public_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "expected": "auth_failed",
+      "evidence": "crypto"
+    },
+    {
+      "case": "hs-x25519-low-order-one",
+      "kind": "x25519",
+      "private_label": "pclink-v1/test/eph/phone",
+      "public_key": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "expected": "auth_failed",
+      "evidence": "crypto"
+    },
+    {
+      "case": "hs-reflect-init-to-phone",
+      "kind": "reflection",
+      "sender": "pc",
+      "body_type": "session.init",
+      "expected": "bad_frame",
+      "evidence": "model"
+    },
+    {
+      "case": "hs-phone-sends-resp",
+      "kind": "reflection",
+      "sender": "phone",
+      "body_type": "session.resp",
+      "expected": "bad_frame",
+      "evidence": "model"
+    },
+    {
+      "case": "hs-unpaired-from",
+      "kind": "pairing_lookup",
+      "from": "aaaaaaaabbbbbbbbccccccccdd",
+      "paired_machine_ids": [
+        "gewra3lzquaxpctdtkvzv2drdp"
+      ],
+      "records_sid": false,
+      "expected": "unpaired",
+      "evidence": "model"
+    },
+    {
+      "case": "reject-unsigned-unpaired-keeps-record",
+      "kind": "reject",
+      "verified": false,
+      "code": "unpaired",
+      "th1_matches": true,
+      "has_record": true,
+      "expected": "keep_record",
+      "evidence": "model"
+    },
+    {
+      "case": "reject-wrong-key-unpaired-keeps-record",
+      "kind": "reject",
+      "verified": false,
+      "code": "unpaired",
+      "th1_matches": true,
+      "has_record": true,
+      "expected": "keep_record",
+      "evidence": "model"
+    },
+    {
+      "case": "reject-signed-unpaired-prompts",
+      "kind": "reject",
+      "verified": true,
+      "code": "unpaired",
+      "th1_matches": true,
+      "has_record": true,
+      "expected": "prompt",
+      "evidence": "model"
+    },
+    {
+      "case": "reject-signed-auth-failed-keeps-record",
+      "kind": "reject",
+      "verified": true,
+      "code": "auth_failed",
+      "th1_matches": true,
+      "has_record": true,
+      "expected": "keep_record",
+      "evidence": "model"
+    },
+    {
+      "case": "unapproved-record-rejected",
+      "kind": "record",
+      "record": {
+        "peerMachineId": "gewra3lzquaxpctdtkvzv2drdp",
+        "peerPublicKey": "1lwESsTkiaI8FEW0MCjDT7h3qasGPHFfHwHKl0fNAGc",
+        "peerName": "iPhone",
+        "pairedAt": "2026-11-09T00:00:00Z",
+        "relayOrigin": "https://relay.example",
+        "connection": {
+          "mode": "relay"
+        },
+        "approvedAt": "2026-11-09T00:00:05Z",
+        "approvedVia": "cli"
+      },
+      "audit": [],
+      "expected": "unapproved",
+      "evidence": "model"
+    },
+    {
+      "case": "revoked-record-rejected",
+      "kind": "record",
+      "record": {
+        "peerMachineId": "gewra3lzquaxpctdtkvzv2drdp",
+        "peerPublicKey": "1lwESsTkiaI8FEW0MCjDT7h3qasGPHFfHwHKl0fNAGc",
+        "peerName": "iPhone",
+        "pairedAt": "2026-11-09T00:00:00Z",
+        "relayOrigin": "https://relay.example",
+        "connection": {
+          "mode": "relay"
+        },
+        "approvedAt": "2026-11-09T00:00:05Z",
+        "approvedVia": "cli"
+      },
+      "audit": [
+        {
+          "v": 1,
+          "event": "pair",
+          "peerMachineId": "gewra3lzquaxpctdtkvzv2drdp",
+          "peerPublicKey": "1lwESsTkiaI8FEW0MCjDT7h3qasGPHFfHwHKl0fNAGc",
+          "recordSha256": "db8dd841014dc744d9d16efe940bf3434efbc3cbeb8e493a5433a8d2f2593042",
+          "approvedAt": "2026-11-09T00:00:05Z",
+          "approvedVia": "cli",
+          "at": "2026-11-09T00:00:05Z"
+        },
+        {
+          "v": 1,
+          "event": "unpair",
+          "peerMachineId": "gewra3lzquaxpctdtkvzv2drdp",
+          "at": "2026-11-09T01:00:00Z"
+        }
+      ],
+      "expected": "revoked",
+      "evidence": "model"
+    },
+    {
+      "case": "pairing-awaiting-approval-no-confirm",
+      "kind": "approval",
+      "approved": false,
+      "expected": "blocked",
+      "evidence": "model"
+    },
+    {
+      "case": "approval-wrong-phone-fingerprint",
+      "kind": "fingerprint",
+      "public_key": "1lwESsTkiaI8FEW0MCjDT7h3qasGPHFfHwHKl0fNAGc",
+      "entered": "2222-2222-2222",
+      "expected": "blocked",
+      "evidence": "crypto"
+    },
+    {
+      "case": "status-awaiting-approval-hides-fingerprint",
+      "kind": "status_redaction",
+      "state": "awaiting_approval",
+      "fields": [
+        "id",
+        "state",
+        "mode",
+        "expiresAt",
+        "peerName"
+      ],
+      "forbidden": [
+        "peerFingerprint",
+        "peerMachineId",
+        "peerPublicKey"
+      ],
+      "expected": "redacted",
+      "evidence": "model"
+    },
+    {
+      "case": "reject-valid-for-init-a-fails-init-b",
+      "kind": "reject_transcript",
+      "signed_th1_hex": "f87417b3e668b72ec03386414e996a4c0e48d0faff504309da768b326d31a7a2",
+      "signed_code": "unpaired",
+      "verified_th1_hex": "4b38113ca1b9d4749cd51b5758d7c508f4992f85d6ea6e886c8e33e7a0ab57a8",
+      "verified_code": "unpaired",
+      "public_key": "zdQJTTRY7dv6K44pc9hFLxabV-rdlkyOjIeVsHLWyPw",
+      "signature": "VyqArAKkueNKYpPhNDr3vft6_wuUkogNTobrPrBP9wPxuk15dwSFFwnxLrZqiXPqYpjC6QTZI26y4t22BieTAg",
+      "expected": "auth_failed",
+      "evidence": "crypto"
+    },
+    {
+      "case": "reject-unpaired-code-swapped",
+      "kind": "reject_transcript",
+      "signed_th1_hex": "f87417b3e668b72ec03386414e996a4c0e48d0faff504309da768b326d31a7a2",
+      "signed_code": "unpaired",
+      "verified_th1_hex": "f87417b3e668b72ec03386414e996a4c0e48d0faff504309da768b326d31a7a2",
+      "verified_code": "auth_failed",
+      "public_key": "zdQJTTRY7dv6K44pc9hFLxabV-rdlkyOjIeVsHLWyPw",
+      "signature": "VyqArAKkueNKYpPhNDr3vft6_wuUkogNTobrPrBP9wPxuk15dwSFFwnxLrZqiXPqYpjC6QTZI26y4t22BieTAg",
+      "expected": "auth_failed",
+      "evidence": "crypto"
+    },
+    {
+      "case": "aead-reverse-direction-key",
+      "kind": "aead",
+      "direction": "phone_to_pc",
+      "key_direction": "pc_to_phone",
+      "frame": {
+        "case": "phone-rpc-call-seq1",
+        "direction": "phone_to_pc",
+        "sid": "ODU-xxharZz-k1yXN2XWRA",
+        "seq": 1,
+        "from": "gewra3lzquaxpctdtkvzv2drdp",
+        "to": "7gdxeackpmfrjk3ylal74yyubv",
+        "inner_type": "rpc.call",
+        "plaintext": "{\"type\":\"rpc.call\",\"id\":\"call-1\",\"endpoint\":\"session/list\",\"args\":{\"_request\":{}}}",
+        "aad_hex": "70636c696e6b2d76312f616164003100653265004f44552d78786861725a7a2d6b3179584e32585752410031006765777261336c7a7175617870637464746b767a76326472647000376764786561636b706d66726a6b33796c616c37347979756276",
+        "nonce_hex": "000000000000000000000001",
+        "body": "ULuWiF5Ro0rn5J8HyXnoqj0pgwVcj_lWN6k7DGeyGGYT3P_7eGaMiOoXbP8J59AqKcext_DITW1FCQaie3JJsbwk0s7fGDasDrO55dCIrRoutRRS2lCx7vWPH-se188XiQw"
+      },
+      "expected": "auth_failed",
+      "evidence": "crypto"
+    },
+    {
+      "case": "aead-tamper-from",
+      "kind": "aead",
+      "direction": "phone_to_pc",
+      "frame": {
+        "case": "phone-rpc-call-seq1",
+        "direction": "phone_to_pc",
+        "sid": "ODU-xxharZz-k1yXN2XWRA",
+        "seq": 1,
+        "from": "7gdxeackpmfrjk3ylal74yyubv",
+        "to": "7gdxeackpmfrjk3ylal74yyubv",
+        "inner_type": "rpc.call",
+        "plaintext": "{\"type\":\"rpc.call\",\"id\":\"call-1\",\"endpoint\":\"session/list\",\"args\":{\"_request\":{}}}",
+        "aad_hex": "70636c696e6b2d76312f616164003100653265004f44552d78786861725a7a2d6b3179584e32585752410031006765777261336c7a7175617870637464746b767a76326472647000376764786561636b706d66726a6b33796c616c37347979756276",
+        "nonce_hex": "000000000000000000000001",
+        "body": "ULuWiF5Ro0rn5J8HyXnoqj0pgwVcj_lWN6k7DGeyGGYT3P_7eGaMiOoXbP8J59AqKcext_DITW1FCQaie3JJsbwk0s7fGDasDrO55dCIrRoutRRS2lCx7vWPH-se188XiQw"
+      },
+      "expected": "auth_failed",
+      "evidence": "crypto"
+    },
+    {
+      "case": "aead-tamper-sid",
+      "kind": "aead",
+      "direction": "phone_to_pc",
+      "frame": {
+        "case": "phone-rpc-call-seq1",
+        "direction": "phone_to_pc",
+        "sid": "fY2pYq3xFu1e1ZxIP8ZO7A",
+        "seq": 1,
+        "from": "gewra3lzquaxpctdtkvzv2drdp",
+        "to": "7gdxeackpmfrjk3ylal74yyubv",
+        "inner_type": "rpc.call",
+        "plaintext": "{\"type\":\"rpc.call\",\"id\":\"call-1\",\"endpoint\":\"session/list\",\"args\":{\"_request\":{}}}",
+        "aad_hex": "70636c696e6b2d76312f616164003100653265004f44552d78786861725a7a2d6b3179584e32585752410031006765777261336c7a7175617870637464746b767a76326472647000376764786561636b706d66726a6b33796c616c37347979756276",
+        "nonce_hex": "000000000000000000000001",
+        "body": "ULuWiF5Ro0rn5J8HyXnoqj0pgwVcj_lWN6k7DGeyGGYT3P_7eGaMiOoXbP8J59AqKcext_DITW1FCQaie3JJsbwk0s7fGDasDrO55dCIrRoutRRS2lCx7vWPH-se188XiQw"
+      },
+      "expected": "auth_failed",
+      "evidence": "crypto"
+    },
+    {
+      "case": "aead-tamper-v",
+      "kind": "aead",
+      "direction": "phone_to_pc",
+      "frame": {
+        "case": "phone-rpc-call-seq1",
+        "direction": "phone_to_pc",
+        "sid": "ODU-xxharZz-k1yXN2XWRA",
+        "seq": 1,
+        "from": "gewra3lzquaxpctdtkvzv2drdp",
+        "to": "7gdxeackpmfrjk3ylal74yyubv",
+        "inner_type": "rpc.call",
+        "plaintext": "{\"type\":\"rpc.call\",\"id\":\"call-1\",\"endpoint\":\"session/list\",\"args\":{\"_request\":{}}}",
+        "aad_hex": "70636c696e6b2d76312f616164003100653265004f44552d78786861725a7a2d6b3179584e32585752410031006765777261336c7a7175617870637464746b767a76326472647000376764786561636b706d66726a6b33796c616c37347979756276",
+        "nonce_hex": "000000000000000000000001",
+        "body": "ULuWiF5Ro0rn5J8HyXnoqj0pgwVcj_lWN6k7DGeyGGYT3P_7eGaMiOoXbP8J59AqKcext_DITW1FCQaie3JJsbwk0s7fGDasDrO55dCIrRoutRRS2lCx7vWPH-se188XiQw",
+        "v": 2
+      },
+      "expected": "auth_failed",
+      "evidence": "crypto"
+    },
+    {
+      "case": "aead-cross-session-splice",
+      "kind": "aead",
+      "direction": "phone_to_pc",
+      "key_b64": "OhDp5H8PWlEwj8wNtyUx-3R2fAdSXk3RJlJJG6qqfHI",
+      "frame": {
+        "case": "phone-rpc-call-seq1",
+        "direction": "phone_to_pc",
+        "sid": "ODU-xxharZz-k1yXN2XWRA",
+        "seq": 1,
+        "from": "gewra3lzquaxpctdtkvzv2drdp",
+        "to": "7gdxeackpmfrjk3ylal74yyubv",
+        "inner_type": "rpc.call",
+        "plaintext": "{\"type\":\"rpc.call\",\"id\":\"call-1\",\"endpoint\":\"session/list\",\"args\":{\"_request\":{}}}",
+        "aad_hex": "70636c696e6b2d76312f616164003100653265004f44552d78786861725a7a2d6b3179584e32585752410031006765777261336c7a7175617870637464746b767a76326472647000376764786561636b706d66726a6b33796c616c37347979756276",
+        "nonce_hex": "000000000000000000000001",
+        "body": "ULuWiF5Ro0rn5J8HyXnoqj0pgwVcj_lWN6k7DGeyGGYT3P_7eGaMiOoXbP8J59AqKcext_DITW1FCQaie3JJsbwk0s7fGDasDrO55dCIrRoutRRS2lCx7vWPH-se188XiQw"
+      },
+      "expected": "auth_failed",
+      "evidence": "crypto"
+    },
+    {
+      "case": "seq-first-nonzero",
+      "kind": "seq",
+      "first": true,
+      "last_seq": 0,
+      "seq": 1,
+      "expected": "bad_frame",
+      "evidence": "model"
+    },
+    {
+      "case": "seq-replay",
+      "kind": "seq",
+      "first": false,
+      "last_seq": 3,
+      "seq": 3,
+      "expected": "replay",
+      "evidence": "model"
+    },
+    {
+      "case": "seq-gap",
+      "kind": "seq",
+      "first": false,
+      "last_seq": 3,
+      "seq": 5,
+      "expected": "bad_frame",
+      "evidence": "model"
+    },
+    {
+      "case": "seq-hard-cap",
+      "kind": "seq",
+      "first": false,
+      "last_seq": 1048575,
+      "seq": 1048576,
+      "expected": "session_expired",
+      "evidence": "model"
+    },
+    {
+      "case": "seq-byte-hard-cap",
+      "kind": "seq",
+      "first": false,
+      "last_seq": 0,
+      "seq": 1,
+      "bytes": 2147483649,
+      "expected": "session_expired",
+      "evidence": "model"
+    },
+    {
+      "case": "first-frame-rpc-call",
+      "kind": "first_frame",
+      "type": "rpc.call",
+      "expected": "bad_frame",
+      "evidence": "model"
+    },
+    {
+      "case": "b64url-padding",
+      "kind": "encoding",
+      "text": "zdQJTTRY7dv6K44pc9hFLxabV-rdlkyOjIeVsHLWyPw=",
+      "expected": "bad_frame",
+      "evidence": "crypto"
+    },
+    {
+      "case": "b64url-noncanonical-last-char",
+      "kind": "encoding",
+      "text": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB",
+      "expected": "bad_frame",
+      "evidence": "crypto"
+    },
+    {
+      "case": "canonical-slash-escaped",
+      "kind": "canonical",
+      "candidate": "{\"path\":\"a\\/b\",\"name\":\"café\",\"note\":\"line\\nbreak\"}",
+      "expected": "bad_frame",
+      "evidence": "crypto"
+    },
+    {
+      "case": "canonical-nonascii-escaped",
+      "kind": "canonical",
+      "candidate": "{\"path\":\"a/b\",\"name\":\"caf\\u00e9\",\"note\":\"line\\nbreak\"}",
+      "expected": "bad_frame",
+      "evidence": "crypto"
+    },
+    {
+      "case": "canonical-utf16-key-order",
+      "kind": "canonical",
+      "candidate": "{\"𐀀\":\"astral\",\"\":\"bmp\"}",
+      "expected": "bad_frame",
+      "evidence": "crypto"
+    },
+    {
+      "case": "canonical-uppercase-hex-escape",
+      "kind": "canonical",
+      "candidate": "{\"path\":\"a/b\",\"name\":\"café\",\"note\":\"line\\u000Abreak\"}",
+      "expected": "bad_frame",
+      "evidence": "crypto"
+    },
+    {
+      "case": "chunk-duplicate-part",
+      "kind": "chunk",
+      "events": [
+        {
+          "streamId": "stream-x",
+          "part": 0,
+          "last": false,
+          "data": "YQ"
+        },
+        {
+          "streamId": "stream-x",
+          "part": 0,
+          "last": false,
+          "data": "Yg"
+        },
+        {
+          "streamId": "stream-x",
+          "part": 1,
+          "last": true,
+          "data": "Yw"
+        }
+      ],
+      "expected": "bad_frame",
+      "evidence": "crypto"
+    },
+    {
+      "case": "chunk-two-last",
+      "kind": "chunk",
+      "events": [
+        {
+          "streamId": "stream-y",
+          "part": 0,
+          "last": true,
+          "data": "YQ"
+        },
+        {
+          "streamId": "stream-y",
+          "part": 1,
+          "last": true,
+          "data": "Yg"
+        }
+      ],
+      "expected": "bad_frame",
+      "evidence": "crypto"
+    },
+    {
+      "case": "chunk-missing-part",
+      "kind": "chunk",
+      "events": [
+        {
+          "streamId": "stream-z",
+          "part": 0,
+          "last": false,
+          "data": "YQ"
+        },
+        {
+          "streamId": "stream-z",
+          "part": 2,
+          "last": true,
+          "data": "Yw"
+        }
+      ],
+      "expected": "bad_frame",
+      "evidence": "crypto"
+    },
+    {
+      "case": "chunk-too-large",
+      "kind": "chunk",
+      "bytes": 8388609,
+      "limit": 8388608,
+      "expected": "frame_too_large",
+      "evidence": "crypto"
+    },
+    {
+      "case": "qr-unknown-param",
+      "kind": "qr",
+      "uri": "pclink://pair?v=1&r=https%3A%2F%2Frelay.example&m=7gdxeackpmfrjk3ylal74yyubv&k=zdQJTTRY7dv6K44pc9hFLxabV-rdlkyOjIeVsHLWyPw&s=AAECAwQFBgcICQoLDA0ODw&n=My%20PC&x=1",
+      "expected": "bad_frame",
+      "evidence": "crypto"
+    },
+    {
+      "case": "qr-duplicate-param",
+      "kind": "qr",
+      "uri": "pclink://pair?v=1&r=https%3A%2F%2Frelay.example&m=7gdxeackpmfrjk3ylal74yyubv&k=zdQJTTRY7dv6K44pc9hFLxabV-rdlkyOjIeVsHLWyPw&s=AAECAwQFBgcICQoLDA0ODw&n=My%20PC&v=1",
+      "expected": "bad_frame",
+      "evidence": "crypto"
+    },
+    {
+      "case": "qr-plus",
+      "kind": "qr",
+      "uri": "pclink://pair?v=1&r=https%3A%2F%2Frelay.example&m=7gdxeackpmfrjk3ylal74yyubv&k=zdQJTTRY7dv6K44pc9hFLxabV-rdlkyOjIeVsHLWyPw&s=AAECAwQFBgcICQoLDA0ODw&n=My+PC",
+      "expected": "bad_frame",
+      "evidence": "crypto"
+    },
+    {
+      "case": "qr-too-long",
+      "kind": "qr",
+      "uri": "pclink://pair?v=1&r=https%3A%2F%2Frelay.example&m=7gdxeackpmfrjk3ylal74yyubv&k=zdQJTTRY7dv6K44pc9hFLxabV-rdlkyOjIeVsHLWyPw&s=AAECAwQFBgcICQoLDA0ODw&n=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&x=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expected": "bad_frame",
+      "evidence": "crypto"
+    },
+    {
+      "case": "qr-wrong-scheme",
+      "kind": "qr",
+      "uri": "https://pair.example/?v=1",
+      "expected": "bad_frame",
+      "evidence": "crypto"
+    },
+    {
+      "case": "qr-key-swap",
+      "kind": "qr",
+      "uri": "pclink://pair?v=1&r=https%3A%2F%2Frelay.example&m=gewra3lzquaxpctdtkvzv2drdp&k=1lwESsTkiaI8FEW0MCjDT7h3qasGPHFfHwHKl0fNAGc&s=AAECAwQFBgcICQoLDA0ODw&n=My%20PC",
+      "expected_public_key": "zdQJTTRY7dv6K44pc9hFLxabV-rdlkyOjIeVsHLWyPw",
+      "expected": "auth_failed",
+      "evidence": "crypto"
+    },
+    {
+      "case": "qr-machineid-mismatch",
+      "kind": "qr",
+      "uri": "pclink://pair?v=1&r=https%3A%2F%2Frelay.example&m=gewra3lzquaxpctdtkvzv2drdp&k=zdQJTTRY7dv6K44pc9hFLxabV-rdlkyOjIeVsHLWyPw&s=AAECAwQFBgcICQoLDA0ODw&n=My%20PC",
+      "expected_machine_id": "7gdxeackpmfrjk3ylal74yyubv",
+      "expected": "auth_failed",
+      "evidence": "crypto"
+    },
+    {
+      "case": "manual-illegal-u",
+      "kind": "manual",
+      "input": "U8DJRFAEBXG730MK",
+      "expected": "bad_frame",
+      "evidence": "crypto"
+    },
+    {
+      "case": "manual-too-short",
+      "kind": "manual",
+      "input": "18DJ-RFAE",
+      "expected": "bad_frame",
+      "evidence": "crypto"
+    },
+    {
+      "case": "manual-illegal-char",
+      "kind": "manual",
+      "input": "18DJ-RFAE-BXG7-30M!",
+      "expected": "bad_frame",
+      "evidence": "crypto"
+    },
+    {
+      "case": "name-overlong-bytes",
+      "kind": "name",
+      "name": "汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉",
+      "expected": "bad_frame",
+      "evidence": "crypto"
+    },
+    {
+      "case": "name-non-nfc",
+      "kind": "name",
+      "name": "Café",
+      "expected": "bad_frame",
+      "evidence": "crypto"
+    },
+    {
+      "case": "name-bidi-format",
+      "kind": "name",
+      "name": "My ‮PC",
+      "expected": "bad_frame",
+      "evidence": "crypto"
+    },
+    {
+      "case": "name-c0-control",
+      "kind": "name",
+      "name": "My\nPC",
+      "expected": "bad_frame",
+      "evidence": "crypto"
+    },
+    {
+      "case": "relay-origin-mismatch",
+      "kind": "origin",
+      "actual": "https://other.example",
+      "expected_origin": "https://relay.example",
+      "expected": "auth_failed",
+      "evidence": "crypto"
+    },
+    {
+      "case": "unknown-pclink-code",
+      "kind": "unknown_code",
+      "code": "too_many_requests",
+      "expected": "bad_frame",
+      "evidence": "crypto"
+    },
+    {
+      "case": "frame-missing-to",
+      "kind": "frame",
+      "frame": {
+        "v": 1,
+        "type": "e2e",
+        "sid": "ODU-xxharZz-k1yXN2XWRA",
+        "seq": 0,
+        "from": "gewra3lzquaxpctdtkvzv2drdp",
+        "body": "cjrnDJXUdQpzKGCbssqbd5XG547JQRVfCmUkh56m_cI13-NX-hh6f9V5pELVExm3E298K9YFErfZUKn9w6ZNYGobe1u3k7dni136cKwghdM3_bgk9cnOZAq8u3XFfySd1FNECi6iP6wX_0k4tSZ-FJSBGJjusT1RRwJr3KA73FfQJosgW2Xc1eYZ7C7-YDtSbxRyGHNWawQJG2bhipEqt7n3AlgvJ2Kw6EGAc1O5mutf1LUrEmPsNRSBUWFP0OZponkad3k1_niIrpnALzB-RIv9bl0ahLqAsY1U8K5tp2u-64ZH464Cr0zj7Q"
+      },
+      "expected": "bad_frame",
+      "evidence": "crypto"
+    },
+    {
+      "case": "frame-too-large",
+      "kind": "size",
+      "bytes": 16777217,
+      "limit": 16777216,
+      "expected": "frame_too_large",
+      "evidence": "crypto"
+    },
+    {
+      "case": "value-too-large",
+      "kind": "size",
+      "bytes": 8388609,
+      "limit": 8388608,
+      "expected": "frame_too_large",
+      "evidence": "crypto"
+    },
+    {
+      "case": "suite-unsupported",
+      "kind": "suite",
+      "suite": "pclink-unknown-suite",
+      "expected": "version_unsupported",
+      "evidence": "crypto"
+    },
+    {
+      "case": "caps-no-intersection",
+      "kind": "caps",
+      "caps": [
+        "workspace/1"
+      ],
+      "required": [
+        "workspace/1",
+        "pclink-x25519-ed25519-chacha20poly1305-1"
+      ],
+      "expected": "version_unsupported",
+      "evidence": "crypto"
+    },
+    {
+      "case": "slot-expired",
+      "kind": "slot",
+      "opened_ms": 0,
+      "now_ms": 300001,
+      "ttl_ms": 300000,
+      "joins": 1,
+      "limit": 10,
+      "matched": false,
+      "expected": "expired",
+      "evidence": "model"
+    },
+    {
+      "case": "slot-exhausted",
+      "kind": "slot",
+      "opened_ms": 0,
+      "now_ms": 1,
+      "ttl_ms": 300000,
+      "joins": 11,
+      "limit": 10,
+      "matched": false,
+      "expected": "exhausted",
+      "evidence": "model"
+    },
+    {
+      "case": "chunk-interleave-missing-last",
+      "kind": "chunk",
+      "events": [
+        {
+          "streamId": "stream-a",
+          "part": 0,
+          "last": false,
+          "data": "YQ"
+        },
+        {
+          "streamId": "stream-b",
+          "part": 0,
+          "last": true,
+          "data": "Yg"
+        },
+        {
+          "streamId": "stream-a",
+          "part": 1,
+          "last": false,
+          "data": "Yw"
+        }
+      ],
+      "expected": "bad_frame",
+      "evidence": "crypto"
+    },
+    {
+      "case": "remote-admin-endpoint-forbidden",
+      "kind": "forbidden_endpoint",
+      "endpoint": "pclink.admin/status",
+      "expected": "forbidden",
+      "evidence": "model"
+    },
+    {
+      "case": "admin-remote-peer-case-variant",
+      "kind": "admin_peer",
+      "source": "pclink_remote",
+      "endpoint": "PCLink.Admin/status",
+      "expected": "forbidden",
+      "evidence": "model"
+    },
+    {
+      "case": "confirm-recheck-revoked",
+      "kind": "confirm_recheck",
+      "record": {
+        "peerMachineId": "gewra3lzquaxpctdtkvzv2drdp",
+        "peerPublicKey": "1lwESsTkiaI8FEW0MCjDT7h3qasGPHFfHwHKl0fNAGc",
+        "peerName": "iPhone",
+        "pairedAt": "2026-11-09T00:00:00Z",
+        "relayOrigin": "https://relay.example",
+        "connection": {
+          "mode": "relay"
+        },
+        "approvedAt": "2026-11-09T00:00:05Z",
+        "approvedVia": "cli"
+      },
+      "audit": [
+        {
+          "v": 1,
+          "event": "pair",
+          "peerMachineId": "gewra3lzquaxpctdtkvzv2drdp",
+          "peerPublicKey": "1lwESsTkiaI8FEW0MCjDT7h3qasGPHFfHwHKl0fNAGc",
+          "recordSha256": "db8dd841014dc744d9d16efe940bf3434efbc3cbeb8e493a5433a8d2f2593042",
+          "approvedAt": "2026-11-09T00:00:05Z",
+          "approvedVia": "cli",
+          "at": "2026-11-09T00:00:05Z"
+        },
+        {
+          "v": 1,
+          "event": "unpair",
+          "peerMachineId": "gewra3lzquaxpctdtkvzv2drdp",
+          "at": "2026-11-09T01:00:00Z"
+        }
+      ],
+      "expected": "abort",
+      "evidence": "model"
+    },
+    {
+      "case": "unpair-aborts-in-progress-handshake",
+      "kind": "unpair_abort",
+      "handshake_in_progress": true,
+      "unpair": true,
+      "expected": "abort",
+      "evidence": "model"
+    },
+    {
+      "case": "e2e-idle-timeout",
+      "kind": "idle",
+      "idle_ms": 900001,
+      "limit_ms": 900000,
+      "expected": "session_expired",
+      "evidence": "model"
+    },
+    {
+      "case": "pair-slots-per-connection",
+      "kind": "slots",
+      "open": 3,
+      "limit": 2,
+      "expected": "exhausted",
+      "evidence": "model"
+    },
+    {
+      "case": "relay-origin-uppercase",
+      "kind": "origin",
+      "actual": "https://Relay.Example",
+      "expected_origin": "https://relay.example",
+      "expected": "auth_failed",
+      "evidence": "crypto"
+    },
+    {
+      "case": "pair-mac-mutated",
+      "kind": "pair_mac",
+      "pair_key_b64": "KefATr6JOtHQE2CtGzC99ULnrIFjdvQimUbco0B1tKM",
+      "domain": "pclink-v1/pair-auth",
+      "object": {
+        "v": 1,
+        "type": "pair.auth",
+        "role": "phone",
+        "machineId": "gewra3lzquaxpctdtkvzv2drdp",
+        "publicKey": "1lwESsTkiaI8FEW0MCjDT7h3qasGPHFfHwHKl0fNAGc",
+        "name": "iPhone",
+        "relay": "https://relay.example",
+        "nonce": "U3WAJdzkgDIiDkktOoecHIT1VuCucyZzA5dY8umumsE",
+        "peerNonce": "temwmBPBIkm61wIo9M7KyvFcopu5Ai1wtl4CTWMOva0",
+        "mac": "lNcH6E7I4t0s-ErBOG7tTP0cMABycXCZohIyctS1Zdw"
+      },
+      "expected": "auth_failed",
+      "evidence": "crypto"
+    },
+    {
+      "case": "manual-auth-mac-mutated",
+      "kind": "pair_mac",
+      "pair_key_b64": "iMayLGM9gge3hjZ_fu4mYIyc4wIqZUEQiZSJYyPFnZQ",
+      "domain": "pclink-v1/pair-auth",
+      "object": {
+        "v": 1,
+        "type": "pair.auth",
+        "role": "phone",
+        "machineId": "gewra3lzquaxpctdtkvzv2drdp",
+        "publicKey": "1lwESsTkiaI8FEW0MCjDT7h3qasGPHFfHwHKl0fNAGc",
+        "name": "iPhone",
+        "relay": "https://relay.example",
+        "nonce": "U3WAJdzkgDIiDkktOoecHIT1VuCucyZzA5dY8umumsE",
+        "peerNonce": "temwmBPBIkm61wIo9M7KyvFcopu5Ai1wtl4CTWMOva0",
+        "mac": "7vroJCFhL4Oos-RaHhoBzWBxWiOycpuucVXIUJc6Jl0"
+      },
+      "expected": "auth_failed",
+      "evidence": "crypto"
+    },
+    {
+      "case": "manual-confirm-mac-wrong-key",
+      "kind": "pair_mac",
+      "pair_key_b64": "KefATr6JOtHQE2CtGzC99ULnrIFjdvQimUbco0B1tKM",
+      "domain": "pclink-v1/pair-confirm",
+      "object": {
+        "v": 1,
+        "type": "pair.confirm",
+        "role": "pc",
+        "nonce": "temwmBPBIkm61wIo9M7KyvFcopu5Ai1wtl4CTWMOva0",
+        "peerNonce": "U3WAJdzkgDIiDkktOoecHIT1VuCucyZzA5dY8umumsE",
+        "transcriptHash": "iSztsEjYDIGN2cV23Vu7uqFLIHzBppcFugCFW8HIIJ8",
+        "mac": "ORIASu_Orgyvr2AFVCGGgmGKOjkYdL0KsWoChDGNRMc"
+      },
+      "expected": "auth_failed",
+      "evidence": "crypto"
+    },
+    {
+      "case": "manual-hello-mac-wrong-key",
+      "kind": "pair_mac",
+      "pair_key_b64": "iMayLGM9gge3hjZ_fu4mYIyc4wIqZUEQiZSJYyPFnZQ",
+      "domain": "pclink-v1/pair-hello",
+      "object": {
+        "v": 1,
+        "type": "pair.hello",
+        "role": "pc",
+        "machineId": "7gdxeackpmfrjk3ylal74yyubv",
+        "publicKey": "zdQJTTRY7dv6K44pc9hFLxabV-rdlkyOjIeVsHLWyPw",
+        "name": "My PC",
+        "relay": "https://relay.example",
+        "nonce": "temwmBPBIkm61wIo9M7KyvFcopu5Ai1wtl4CTWMOva0",
+        "mac": "m8Rp1MZUoK9_tg1E2Rh0Co42OTyco-wP8f0nP7xW2U0"
+      },
+      "expected": "auth_failed",
+      "evidence": "crypto"
+    }
+  ]
+}

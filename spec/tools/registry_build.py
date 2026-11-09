@@ -217,7 +217,18 @@ PATH_PROJECTIONS = {'P01': {'authority': ['spec/v1/channel.md', 'spec/v1/schema'
          'ends': {'Swift': ['Sources/PhoneDSHBot',
                             'examples/probe-app/PhoneDSHProbe']},
          'status': ['target'],
-         'evidence': ['spec/bot/v1/tools/validate_vectors.py']}}
+         'evidence': ['spec/bot/v1/tools/validate_vectors.py']},
+ # P28 is a frozen target with no implementation tree yet.  Its structured
+ # ends are the shared contract-side checker/fixtures; the planned relay,
+ # plugin and Swift paths are recorded in spec/README.md §3.1 and the change
+ # record.  The contract owner adds those globs when the directories land.
+ 'P28': {'authority': ['spec/pclink/v1/README.md', 'spec/pclink/v1/schema',
+                       'spec/pclink/v1/golden', 'spec/pclink/v1/endpoints.json'],
+         'ends': {'Node': ['spec/pclink/v1/tools/vectors.mjs'],
+                  'Swift': ['spec/pclink/v1/golden']},
+         'status': ['target'],
+         'evidence': ['spec/pclink/v1/tools/vectors.mjs',
+                      'spec/pclink/v1/tools/check_samples.py']}}
 
 
 # New HarmonyOS ends remain partial until their runtime matrix is verified.
