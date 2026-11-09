@@ -100,6 +100,12 @@ the conservative settlement rule (a settled record holds the contiguous watermar
 record is applied inside the same prefix), the §7.2 mseq-1 rebuild and the invalid cases that must
 stay Failed; see [wal/replay/README.md](wal/replay/README.md).
 
+`golden/wal/lifecycle/*.json` are the §7.2/§9/§10 lifecycle vectors: a real manifest, the segment
+files present at boot and the expected droppable/re-listed/adopted classification. They pin the
+reading that a listed epoch at or below `last_durable_epoch` is durable without a retained close
+record, so an unclosed old epoch no longer blocks the recovery fast path; see
+[wal/lifecycle/README.md](wal/lifecycle/README.md).
+
 ## 6. Canonical JSON
 
 JSON payload vectors are stored in canonical form (channel.md §5): UTF-8, no insignificant

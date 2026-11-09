@@ -246,6 +246,10 @@ public actor ResponseLog: ResponseLogging {
         self.stagingDirectory = logDirectory.appendingPathComponent(".staging", isDirectory: true)
         self.replacingDirectory = logDirectory.appendingPathComponent(".replacing", isDirectory: true)
         try fileManager.createDirectory(at: logDirectory, withIntermediateDirectories: true)
+        // The response log is replay cache: it is safe to rebuild after a
+        // restore from a backup, so it must not consume the user's backup
+        // quota. The attribute is on the directory; every child inherits it.
+        Self.excludeFromBackup(logDirectory)
         // A same-key replacement moves the old commit aside before it installs
         // the staged one. Recover that crash window before discarding the
         // staging area, so the old or the fully installed new commit survives.
@@ -529,6 +533,17 @@ public actor ResponseLog: ResponseLogging {
         try? fileManager.createDirectory(at: pendingDirectory, withIntermediateDirectories: true)
         try? fileManager.createDirectory(at: stagingDirectory, withIntermediateDirectories: true)
         try? fileManager.createDirectory(at: replacingDirectory, withIntermediateDirectories: true)
+        Self.excludeFromBackup(logDirectory)
+    }
+
+    /// Marks a replay-cache directory as excluded from iCloud/device backup.
+    /// Best effort: a platform that refuses the resource value still keeps the
+    /// cache correct, it just does not save the backup space.
+    private static func excludeFromBackup(_ url: URL) {
+        var target = url
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try? target.setResourceValues(values)
     }
 
     /// Content-addressed key of one gateway request.

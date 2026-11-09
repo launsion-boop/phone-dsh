@@ -164,10 +164,12 @@ public actor WALWriter {
     private let groupCommitBytes: Int
 
     private var segments: [SegmentState]
-    /// Epochs with a verified D18 close record. Only these may be truncated
-    /// (wal.md §9); the set is rebuilt from the scan on open and extended by
-    /// every close this writer performs.
-    private var durableEpochs: Set<UInt64> = []
+    /// Segments the durable manifest currently lists. §9's droppable rule
+    /// requires the candidate to be listed; the set is seeded from the
+    /// manifest read at open and advanced only after a successful manifest
+    /// write. Epochs, not close records, carry the durability proof
+    /// (`last_durable_epoch`).
+    private var manifestListedFiles: Set<String> = []
     private var currentSegmentIndex: Int
     private var currentFD: Int32 = -1
     private var epochWrittenSegmentNames: Set<String> = []
@@ -241,8 +243,7 @@ public actor WALWriter {
         self.lastDurableEpoch = resume.lastDurableEpoch
         self.currentEpoch = resume.startEpoch
         self.materializedUpto = resume.materializedUptoMseq
-        self.durableEpochs = WALSegmentLifecycle.durableEpochs(
-            of: states.map(\.lifecycle))
+        self.manifestListedFiles = Set((manifest?.segments ?? []).map(\.file))
         self.truncatedTornTail = resume.truncatedTornTail || scan.truncatedTornTail
         self.discardedTornTailBytes = scan.discardedBytes
         let created = try WALWriter.createSegmentFile(paths: workspacePaths,
@@ -397,7 +398,6 @@ public actor WALWriter {
         try LogFile.fsyncDirectory(paths.walDirectory)
 
         lastDurableEpoch = max(lastDurableEpoch, closedEpoch)
-        durableEpochs.insert(closedEpoch)
         durableMseq = max(durableMseq, durableUpto)
         epochWrittenSegmentNames.removeAll()
 
@@ -499,11 +499,24 @@ public actor WALWriter {
         }
 
         let currentFile = segments[currentSegmentIndex].name.manifestFile
-        let droppableFiles = Set(WALSegmentLifecycle.droppableRecords(
-            segments.map(\.lifecycle),
-            materializedUptoMseq: materializedUpto,
-            durableEpochs: durableEpochs,
-            currentFile: currentFile).map(\.file))
+        // §9 (decided reading): listed + epoch at or below `last_durable_epoch`
+        // + every mutation at or below the watermark (the writer's own segment
+        // state is the read-back evidence) + not current + not the newest
+        // epoch-close segment.
+        let newestClose = WALSegmentLifecycle.newestEpochClose(
+            segments.map(\.lifecycle))
+        let droppableFiles = Set(segments.filter { segment in
+            let record = segment.lifecycle
+            return WALSegmentLifecycle.isDroppable(
+                record,
+                listedFiles: manifestListedFiles,
+                lastDurableEpoch: lastDurableEpoch,
+                materializedUptoMseq: materializedUpto,
+                newestEpochClose: newestClose,
+                isCurrent: record.file == currentFile,
+                allMutationsAtOrBelowWatermark:
+                    record.lastMutationMseq <= materializedUpto)
+        }.map(\.lifecycle.file))
         var dropped: [SegmentState] = []
         var kept: [SegmentState] = []
         for segment in segments {
@@ -567,6 +580,7 @@ public actor WALWriter {
         try WALSegmentLifecycle.assertConsistent(
             manifest, knownLastMseq: max(flushedUpto, durableMseq))
         try ManifestStore(paths: paths).write(manifest)
+        manifestListedFiles = Set(manifest.segments.map(\.file))
     }
 
     // MARK: Group commit internals

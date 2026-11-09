@@ -66,6 +66,10 @@ public struct RecoveryManager: Sendable {
     /// Test seam for the replay fixture runner: every Materializer this
     /// recovery creates reports its per-record decision here.
     let decisionObserver: (@Sendable (MaterializeDecision) -> Void)?
+    /// Test-only seam: called immediately before the full materialized-copy
+    /// verification pass. Production leaves it nil; the fast-path regression
+    /// uses it to prove `checkAndRepair` was not invoked.
+    var verificationObserver: (@Sendable () -> Void)?
 
     public init(configuration: WorkspaceLogConfiguration, bootID: Data,
                 decisionObserver: (@Sendable (MaterializeDecision) -> Void)? = nil) {
@@ -203,12 +207,25 @@ public struct RecoveryManager: Sendable {
             }
         }
 
+        // §7.2 zero-length: a length-0 file has no header and no record. A
+        // listed one was already handled by the listed/missing rule above; an
+        // unlisted one is dropped only after the shorter manifest is durable,
+        // at the same unlink point as the other dropped names.
+        for name in scan.zeroLengthSegments where !listedFiles.contains(name.manifestFile) {
+            droppedNames.append(name.manifestFile)
+        }
+
         retained.sort { $0.name < $1.name }
         let retainedRecords = retained.flatMap(\.records)
         let lastMutation = retained.compactMap(\.lastMutationMseq).max() ?? 0
         let lastMseq = max(manifest.lastMseq, lastMutation, scan.lastMutationMseq, watermark)
         let tail = try validatedTail(retained: retained, watermark: watermark,
                                      lastMseq: lastMseq)
+        // A crash tail is real history above the durable checkpoint. It is
+        // replayed and then verified, so this is not a "fast path" boot even
+        // when the manifest itself is otherwise clean. The unclosed-epoch
+        // cleanup below still only trusts the durable checkpoint watermark.
+        let tailReplayNeeded = !tail.isEmpty
 
         // Replay the tail (or redo the staged reconcile) into the copy.
         var resyncPaths: Set<String> = []
@@ -246,22 +263,31 @@ public struct RecoveryManager: Sendable {
 
         // A checkpoint is worthless if the copy it describes is wrong: verify
         // (and if necessary rebuild from the WAL) before any segment can be
-        // unlinked. A clean park exit has no adopted or unclosed epoch, so it
-        // skips the extra pass.
-        let durableEpochs = WALSegmentLifecycle.durableEpochs(
-            of: retained.map { WALSegmentLifecycleRecord(segment: $0) })
+        // unlinked. A clean park exit has no adopted or unclosed epoch, no
+        // crash tail and no pending resync, so it skips the extra pass.
+        //
+        // §9's decided reading: unclosed history means an epoch above the
+        // manifest's `last_durable_epoch`, or an unlisted retained segment that
+        // holds records. A listed segment whose epoch is at or below the marker
+        // is durable even without its own close record; it no longer blocks the
+        // fast path. A real crash tail is still replayed and verified via
+        // `tailReplayNeeded`, so this only removes the false positive that made
+        // every force-kill boot scan the whole WAL.
         let hasUnclosedHistory = retained.contains { segment in
-            !segment.records.isEmpty && !durableEpochs.contains(segment.epoch)
+            guard !segment.records.isEmpty else { return false }
+            guard listedFiles.contains(segment.manifestFile) else { return true }
+            return segment.epoch > manifest.lastDurableEpoch
         }
         // Fast path: every retained record is at or below a fsynced
-        // materialized watermark and belongs to a durable epoch. The tree is
-        // then the checkpoint the verification would re-prove, and a full
-        // scan cannot repair anything below the watermark anyway (there is no
+        // materialized watermark, belongs to an epoch the manifest proves
+        // durable, and no crash tail had to be replayed. The tree is then the
+        // checkpoint the verification would re-prove, and a full scan cannot
+        // repair anything below the watermark anyway (there is no
         // un-materialized base). The boot after a force-kill used to spend
         // ~18 s scanning hundreds of MB for exactly this case.
         let fullyMaterialized = currentWatermark >= lastMseq
         let checkpointProven = fullyMaterialized && !hasUnclosedHistory
-            && resyncPaths.isEmpty
+            && resyncPaths.isEmpty && !tailReplayNeeded
         // wal.md §5.1/§7.2: a boot replay that leaves a resync first runs the
         // materialized-copy invariant. With a retained mseq-1/no-hole history
         // the whole copy is rebuilt from the WAL — the WAL alone is a legal
@@ -288,8 +314,9 @@ public struct RecoveryManager: Sendable {
                 // watermark and resync, and request the Worker repair after
                 // HELLO (wal.md §5.1). The scratch tree was discarded.
             }
-        } else if (needsVerification || hasUnclosedHistory || !resyncPaths.isEmpty)
-            && !checkpointProven {
+        } else if (needsVerification || hasUnclosedHistory || tailReplayNeeded
+            || !resyncPaths.isEmpty) && !checkpointProven {
+            verificationObserver?()
             let report = try MaterializedInvariant.checkAndRepair(
                 paths: paths,
                 records: retainedRecords,
@@ -315,10 +342,18 @@ public struct RecoveryManager: Sendable {
         let durableMseq = retained.compactMap { $0.epochClose?.durableUpto }.max() ?? 0
         let nextEpoch = max(lastDurableEpoch, scan.highestEpoch,
                             retained.map(\.epoch).max() ?? 0) + 1
-        // Truncation (D18/D11): a segment is droppable only when its epoch
-        // closed in the D18 order, every mutation is at or below the verifiable
-        // watermark and it is not the newest epoch-close segment. The rule is
-        // shared with the live writer so the two can never disagree.
+        // Truncation (D18/D11, wal.md §9): the candidate must be listed in the
+        // durable manifest, its epoch must be at or below `last_durable_epoch`,
+        // every mutation in its own read-back records must be at or below the
+        // durable checkpoint watermark, it must not be the current open segment
+        // and it must not be the retained newest-epoch-close segment.
+        //
+        // Recovery judges against the manifest watermark it booted from, not
+        // the post-replay watermark: a segment that contributed a replayed
+        // crash-tail record is retained this boot and reconsidered after the
+        // next manifest write. A stale/unlisted segment is also never unlinked
+        // by the recovery that re-lists it (§7.2); it is passed with
+        // `listedFiles` from the old manifest and therefore fails condition 1.
         let newestClose = WALSegmentLifecycle.newestEpochClose(
             retained.map { WALSegmentLifecycleRecord(segment: $0) })
         var finalSegments: [WALSegmentFile] = []
@@ -326,10 +361,14 @@ public struct RecoveryManager: Sendable {
             let record = WALSegmentLifecycleRecord(segment: segment)
             let droppable = WALSegmentLifecycle.isDroppable(
                 record,
-                materializedUptoMseq: currentWatermark,
-                durableEpochs: durableEpochs,
+                listedFiles: listedFiles,
+                lastDurableEpoch: lastDurableEpoch,
+                materializedUptoMseq: watermark,
                 newestEpochClose: newestClose,
-                isCurrent: false)
+                isCurrent: false,
+                allMutationsAtOrBelowWatermark:
+                    WALSegmentLifecycle.everyMutationAtOrBelow(
+                        segment.records, watermark: watermark))
             if droppable {
                 droppedNames.append(segment.manifestFile)
             } else {
@@ -404,15 +443,18 @@ public struct RecoveryManager: Sendable {
             if markerPresent {
                 try? LogFile.unlink(paths.reconcileMarkerURL)
             }
+            // §7.2: an unlisted length-0 file is dropped only after the
+            // manifest that omits it is durable.
+            let droppedEmpty = dropZeroLengthSegments(scan, paths: paths)
             return RecoveryReport(materializedUptoMseq: materializer.materializedUptoMseq,
                                   nextMseq: 1,
                                   durableMseq: 0,
                                   lastDurableEpoch: 0,
                                   truncatedTornTail: scan.truncatedTornTail,
                                   ackedMseq: 0,
-                                  nextEpoch: 1,
+                                  nextEpoch: max(1, scan.highestEpoch + 1),
                                   replayedRecords: 0,
-                                  droppedSegments: [],
+                                  droppedSegments: droppedEmpty,
                                   needsResync: [],
                                   coldRecovery: false,
                                   reconciled: false)
@@ -460,6 +502,9 @@ public struct RecoveryManager: Sendable {
         // (D11): a crash before this point makes the next boot redo the rebuild.
         try LogFile.unlink(marker)
         try LogFile.fsyncDirectory(configuration.root)
+        // §7.2: the rebuilt manifest is durable; now an unlisted length-0 file
+        // may be removed. It holds no header and no record.
+        let droppedEmpty = dropZeroLengthSegments(scan, paths: paths)
         return RecoveryReport(
             materializedUptoMseq: materializer.materializedUptoMseq,
             nextMseq: lastMseq + 1,
@@ -469,11 +514,29 @@ public struct RecoveryManager: Sendable {
             ackedMseq: lastMseq,
             nextEpoch: max(scan.lastDurableEpoch, scan.highestEpoch) + 1,
             replayedRecords: replay.applied + replay.skipped,
-            droppedSegments: [],
+            droppedSegments: droppedEmpty,
             needsResync: Array(materializer.needsResyncPaths).sorted(),
             resyncHolds: materializer.heldMismatches,
             coldRecovery: true,
             reconciled: false)
+    }
+
+    // MARK: - Zero-length segments (wal.md §7.2)
+
+    /// Drops the scanned length-0 files after the caller has made a manifest
+    /// that omits them durable (`wal.md` §7.2). A missing file is not an error:
+    /// the next boot classifies identically, and the file holds nothing.
+    private func dropZeroLengthSegments(_ scan: WALScan,
+                                        paths: WorkspacePaths) -> [String] {
+        guard !scan.zeroLengthSegments.isEmpty else { return [] }
+        var dropped: [String] = []
+        for name in scan.zeroLengthSegments {
+            if (try? LogFile.unlink(name.url(in: paths.walDirectory))) != nil {
+                dropped.append(name.manifestFile)
+            }
+        }
+        try? LogFile.fsyncDirectory(paths.walDirectory)
+        return dropped
     }
 
     // MARK: - Staged reconcile (wal.md §7.2)
