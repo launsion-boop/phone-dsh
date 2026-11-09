@@ -4,7 +4,9 @@ import {
   closeSync,
   existsSync,
   fchmodSync,
+  fstatSync,
   fsyncSync,
+  ftruncateSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -55,12 +57,47 @@ export function ensureStateDir(dir) {
  * @param {number} [mode] Creation mode.
  */
 export function atomicWriteFile(file, data, mode = 0o600) {
+  commitFileWrite(file, stageFileWrite(file, data, mode))
+}
+
+/**
+ * Stage one file replacement without touching the destination.
+ *
+ * The caller may append its audit line only after this succeeds, and must call
+ * {@link commitFileWrite} (or discard) with the returned temporary path.
+ * @param {string} file Destination.
+ * @param {string | Uint8Array} data Bytes or text.
+ * @param {number} [mode] Creation mode.
+ * @returns {string} temporary path in the destination directory.
+ */
+export function stageFileWrite(file, data, mode = 0o600) {
   const directory = dirname(file)
   ensureStateDir(directory)
   const temporary = join(directory, `.${process.pid}.${randomBytes(8).toString('hex')}.tmp`)
   const bytes = typeof data === 'string' ? Buffer.from(data, 'utf8') : Buffer.from(data)
   closestWrite(temporary, bytes, mode)
+  return temporary
+}
+
+/**
+ * Commit a staged replacement (rename + directory fsync).
+ * @param {string} file Destination.
+ * @param {string} temporary Staged temp path from {@link stageFileWrite}.
+ */
+export function commitFileWrite(file, temporary) {
   renameSync(temporary, file)
+  syncDirectory(dirname(file))
+}
+
+/**
+ * Discard a staged replacement after a failed append/commit.
+ * @param {string} temporary Staged temp path.
+ */
+export function discardFileWrite(temporary) {
+  rmSync(temporary, { force: true })
+}
+
+function syncDirectory(directory) {
   let descriptor
   try {
     descriptor = openSync(directory, 'r')
@@ -147,15 +184,108 @@ export function loadPairs(dir, currentMachineId) {
 }
 
 /**
+ * Validate and stage a `pairs.json` replacement.
+ *
+ * Staging can fail (read-only directory, ENOSPC, invalid record) before any
+ * audit line is appended, so a failed re-pair leaves the old file and its
+ * approval line intact.
+ * @param {string} dir State directory.
+ * @param {string} pcMachineId Current identity machineId.
+ * @param {Array<Record<string, unknown>>} pairs Records.
+ * @returns {string} staged temp path.
+ */
+export function stagePairs(dir, pcMachineId, pairs) {
+  if (!Array.isArray(pairs) || pairs.length > MAX_PAIR_RECORDS) throw pclinkError('bad_frame', 'too many pairing records')
+  const validated = pairs.map(record => validatePairingRecord(record))
+  return stageFileWrite(
+    join(dir, 'pairs.json'),
+    `${JSON.stringify({ v: 1, pcMachineId, pairs: validated })}\n`,
+    0o600,
+  )
+}
+
+/**
+ * Commit a staged `pairs.json` replacement.
+ * @param {string} dir State directory.
+ * @param {string} temporary Staged temp path.
+ */
+export function commitPairs(dir, temporary) {
+  commitFileWrite(join(dir, 'pairs.json'), temporary)
+}
+
+/**
+ * Discard a staged `pairs.json` replacement.
+ * @param {string} temporary Staged temp path.
+ */
+export function discardPairs(temporary) {
+  discardFileWrite(temporary)
+}
+
+/**
  * Atomically replace `pairs.json`.
  * @param {string} dir State directory.
  * @param {string} pcMachineId Current identity machineId.
  * @param {Array<Record<string, unknown>>} pairs Records.
  */
 export function savePairs(dir, pcMachineId, pairs) {
-  if (!Array.isArray(pairs) || pairs.length > MAX_PAIR_RECORDS) throw pclinkError('bad_frame', 'too many pairing records')
-  const validated = pairs.map(record => validatePairingRecord(record))
-  atomicWriteFile(join(dir, 'pairs.json'), `${JSON.stringify({ v: 1, pcMachineId, pairs: validated })}\n`, 0o600)
+  commitPairs(dir, stagePairs(dir, pcMachineId, pairs))
+}
+
+/**
+ * Preserve an unreadable `pairs.json` under a sidecar name so a later pairing
+ * cannot silently overwrite the corrupt bytes.
+ * @param {string} dir State directory.
+ * @returns {string} backup path.
+ */
+export function preserveCorruptPairs(dir) {
+  const file = join(dir, 'pairs.json')
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z')
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const candidate = join(dir, `pairs.json.corrupt-${stamp}${attempt === 0 ? '' : `-${String(attempt)}`}`)
+    if (existsSync(candidate)) continue
+    renameSync(file, candidate)
+    syncDirectory(dir)
+    return candidate
+  }
+  throw new Error('could not allocate a corrupt pairs.json backup name')
+}
+
+/**
+ * Probe that `pairs.log` can be appended to and fsynced (§4.6 fail-closed).
+ *
+ * The probe appends one byte, fsyncs, then truncates back to the original size
+ * and fsyncs again, so an ENOSPC/read-only filesystem is detected before the
+ * relay is dialed without leaving a non-event line in the audit log.
+ * @param {string} dir State directory.
+ */
+export function probeAuditAppend(dir) {
+  ensureStateDir(dir)
+  const file = join(dir, 'pairs.log')
+  const descriptor = openSync(file, 'a+', 0o600)
+  let size
+  try {
+    fchmodSync(descriptor, 0o600)
+    size = fstatSync(descriptor).size
+    writeSync(descriptor, '\n')
+    fsyncSync(descriptor)
+    // Restore the exact byte stream: the probe must not leave a non-event line.
+    ftruncateSync(descriptor, size)
+    fsyncSync(descriptor)
+  } catch (error) {
+    // A failed append may still have written bytes; restore the log length so
+    // the byte stream stays event-only as far as the write succeeded.
+    try {
+      if (size !== undefined) {
+        ftruncateSync(descriptor, size)
+        fsyncSync(descriptor)
+      }
+    } catch {
+      // The reader tolerates an empty line; surface the original failure.
+    }
+    throw error
+  } finally {
+    closeSync(descriptor)
+  }
 }
 
 /**

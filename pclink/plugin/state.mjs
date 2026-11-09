@@ -13,12 +13,17 @@ import {
 import {
   appendAuditEvent,
   atomicWriteFile,
+  commitPairs,
+  discardPairs,
   ensureStateDir,
   loadOrCreateIdentity,
   loadPairs,
+  preserveCorruptPairs,
   readAuditLog,
   rotateIdentityFile,
   savePairs,
+  stagePairs,
+  MAX_PAIR_RECORDS,
   pclinkStateDir,
 } from '../core/store.mjs'
 
@@ -36,6 +41,7 @@ export class PclinkStore {
     this.stale = false
     this.audit = []
     this.corruptAudit = false
+    this.pairsWriteBlocked = false
     this.warnings = []
     this.lastPairing = undefined
   }
@@ -53,7 +59,15 @@ export class PclinkStore {
     } catch (error) {
       this.records = []
       this.stale = false
-      this.warnings.push(`pairs.json 无法读取，所有配对不可用：${error.message}`)
+      // Preserve the corrupt bytes before any later pairing can replace the
+      // file. If even that fails, refuse to overwrite it from addPair.
+      try {
+        const backup = preserveCorruptPairs(this.dir)
+        this.warnings.push(`pairs.json 无法读取，已保留副本 ${backup}；所有配对不可用：${error.message}`)
+      } catch (preserveError) {
+        this.pairsWriteBlocked = true
+        this.warnings.push(`pairs.json 无法读取且无法保留副本（${preserveError.message}）；拒绝覆盖该文件。`)
+      }
     }
     const audit = readAuditLog(this.dir)
     this.audit = audit.events
@@ -117,9 +131,10 @@ export class PclinkStore {
    * @param {{at?: string}} [options] Audit event time.
    */
   addPair(record, options = {}) {
+    if (this.pairsWriteBlocked) {
+      throw new Error('pairs.json is corrupt and could not be preserved; refusing to overwrite it')
+    }
     const line = buildAuditPairEntry(record, options.at ?? record.approvedAt)
-    appendAuditEvent(this.dir, line)
-    this.audit.push(line)
     // A stale file belongs to the previous PC identity. Writing its records
     // under the new pcMachineId would re-adopt records the contract declares
     // stale, so the new durable file starts with only the new record. The old
@@ -127,8 +142,28 @@ export class PclinkStore {
     const next = this.stale
       ? [record]
       : [...this.records.filter(candidate => candidate.peerMachineId !== record.peerMachineId), record]
-    if (next.length > 1024) throw new Error('pairing record limit reached')
-    savePairs(this.dir, this.pcMachineId, next)
+    // The cap check happens before the audit append (§4.6 order otherwise
+    // leaves a pair line with no matching record).
+    if (next.length > MAX_PAIR_RECORDS) throw new Error('pairing record limit reached')
+    // Stage the replacement before appending the audit line. A write/validation
+    // failure here leaves the previous pairs.json and its approval line intact,
+    // so re-pairing the same phone cannot turn the old usable record unapproved.
+    const staged = stagePairs(this.dir, this.pcMachineId, next)
+    try {
+      appendAuditEvent(this.dir, line)
+    } catch (error) {
+      discardPairs(staged)
+      throw error
+    }
+    // The audit line is durable from here on; reflect it in memory even if the
+    // final rename fails so the process fails closed consistently with a reload.
+    this.audit.push(line)
+    try {
+      commitPairs(this.dir, staged)
+    } catch (error) {
+      discardPairs(staged)
+      throw new Error(`pairs.json replace failed after the audit append: ${error.message}`)
+    }
     if (this.stale) {
       this.warnings.push('旧身份的配对记录未写入新身份文件；pairs.log 保留原审计，所有旧手机必须重新配对。')
       this.stale = false

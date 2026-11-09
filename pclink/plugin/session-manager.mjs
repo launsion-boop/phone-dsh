@@ -57,6 +57,10 @@ export const SID_CACHE_TTL_MS = 300_000
 export const UNKNOWN_REJECTS_PER_FROM = 5
 /** Unknown-peer signed rejects process-wide per minute. */
 export const UNKNOWN_REJECTS_GLOBAL = 120
+/** LRU cap on unknown-`from` rate windows (§5.1; bounded memory under identity rotation). */
+export const UNKNOWN_RATE_ENTRIES = 1024
+/** Unknown-`from` rate-window lifetime, matching the one-minute reject window. */
+export const UNKNOWN_RATE_WINDOW_MS = 60_000
 /** Cancel must settle within 30 s (§6.2). */
 export const CANCEL_SETTLE_MS = 30_000
 
@@ -225,6 +229,7 @@ export class SessionManager {
     this.sidCache = new SidCache({ now: this.timers.now })
     this.attemptsByPeer = new Map()
     this.unknownByFrom = new Map()
+    this.unknownPurgeAt = 0
     this.unknownGlobal = new RateWindow({ limit: UNKNOWN_REJECTS_GLOBAL, windowMs: 60_000, now: this.timers.now })
     this.versionWarnings = []
     this.reassemblers = new Map()
@@ -278,6 +283,38 @@ export class SessionManager {
   }
 
   /**
+   * Per-`from` unknown-peer reject window with a bounded LRU and periodic purge.
+   * Unknown `from` values are attacker-chosen, so this map must never grow
+   * without limit.
+   * @param {string} peerMachineId Outer `from`.
+   * @returns {RateWindow} that peer's window.
+   */
+  unknownWindowFor(peerMachineId) {
+    const now = this.timers.now()
+    if (now >= this.unknownPurgeAt) {
+      for (const [key, window] of this.unknownByFrom) {
+        if (now - window.startedAt >= UNKNOWN_RATE_WINDOW_MS) this.unknownByFrom.delete(key)
+      }
+      this.unknownPurgeAt = now + UNKNOWN_RATE_WINDOW_MS
+    }
+    const existing = this.unknownByFrom.get(peerMachineId)
+    if (existing !== undefined) {
+      // Refresh LRU recency without extending the fixed one-minute window.
+      this.unknownByFrom.delete(peerMachineId)
+      this.unknownByFrom.set(peerMachineId, existing)
+      return existing
+    }
+    while (this.unknownByFrom.size >= UNKNOWN_RATE_ENTRIES) {
+      this.unknownByFrom.delete(this.unknownByFrom.keys().next().value)
+    }
+    const window = new RateWindow({
+      limit: UNKNOWN_REJECTS_PER_FROM, windowMs: UNKNOWN_RATE_WINDOW_MS, now: this.timers.now,
+    })
+    this.unknownByFrom.set(peerMachineId, window)
+    return window
+  }
+
+  /**
    * Handle one `e2e.handshake` outer frame.
    * @param {Record<string, unknown>} frame Parsed outer frame.
    */
@@ -295,9 +332,12 @@ export class SessionManager {
     if (body?.type === 'session.init') return this.handleInit(outer, body)
     if (body?.type === 'session.confirm') return this.handleConfirm(outer, body)
     if (body?.type === 'session.reject') return this.handlePhoneReject(outer, body)
-    this.log(`wrong-direction handshake body ${String(body?.type)} from ${outer.from}`)
-    // A phone must never send session.resp; answer with an unsigned bad_frame
-    // reject (only a PC reject of a valid init carries a signature).
+    // A phone must never send session.resp (or any other wrong-direction
+    // body). The unsigned bad_frame answer is bounded by the same per-from and
+    // process-wide window as unknown-peer rejects, so it is not an unbounded
+    // reflection oracle to an arbitrary `from`.
+    this.log(`dropping wrong-direction handshake body ${String(body?.type)} from ${outer.from}`)
+    if (!this.unknownWindowFor(outer.from).allow() || !this.unknownGlobal.allow()) return
     this.link.send({
       v: 1,
       type: 'e2e.handshake',
@@ -336,10 +376,7 @@ export class SessionManager {
     }
     const record = this.store.usableRecord(outer.from)
     if (record === undefined) {
-      const fromWindow = this.unknownByFrom.get(outer.from) ?? new RateWindow({
-        limit: UNKNOWN_REJECTS_PER_FROM, windowMs: 60_000, now: this.timers.now,
-      })
-      this.unknownByFrom.set(outer.from, fromWindow)
+      const fromWindow = this.unknownWindowFor(outer.from)
       if (!fromWindow.allow() || !this.unknownGlobal.allow()) return
       this.sendRejectTo(outer.from, init.sid, 'unpaired', th1, 'no pairing record')
       return
@@ -415,7 +452,12 @@ export class SessionManager {
       return
     }
     if (outer.sid !== confirm.sid) {
-      const pending = this.pending.get(outer.sid) ?? this.pending.get(confirm.sid)
+      const pending = this.pending.get(confirm.sid) ?? this.pending.get(outer.sid)
+      if (pending !== undefined && pending.peerMachineId !== outer.from) {
+        // Never let a different `from` abort another peer's pending handshake.
+        this.log(`dropping cross-peer session.confirm from ${outer.from}`)
+        return
+      }
       const cached = pending?.th1 ?? this.sidCache.get(confirm.sid)?.th1 ?? this.sidCache.get(outer.sid)?.th1
       if (cached !== undefined) {
         const th1 = Buffer.isBuffer(cached) ? cached : b64urlDecode(cached, { length: 32 })
@@ -870,9 +912,9 @@ export class SessionManager {
   async runStream(session, record, message) {
     let iterable
     try {
-      iterable = await this.gateway.wireStream.open(
+      iterable = await runAsPclinkRemote(() => this.gateway.wireStream.open(
         message.endpoint, message.payload, emptyUplink(), session.ownerPeer, record.controller.signal,
-      )
+      ))
     } catch (error) {
       if (record.cancelled) {
         this.log(`stream open cancelled id=${record.streamId}`)

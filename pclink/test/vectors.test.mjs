@@ -39,6 +39,10 @@ import {
   PAIR_DOMAINS,
   parseQrUri,
   rendezvousFor,
+  verifyPairAuth,
+  verifyPairConfirm,
+  verifyPairFinal,
+  verifyPairHello,
 } from '../core/pairing.mjs'
 import {
   decodeInnerMessage,
@@ -376,6 +380,54 @@ test('pairing: QR, Crockford manual code, origin-bound rendezvous and keyC MACs'
   const pairKey = pairKeyFor(Buffer.from(manual.secret_hex, 'hex'))
   for (const domain of ['hello', 'auth', 'confirm', 'final']) {
     assert.equal(b64urlEncode(pairMac(pairKey, PAIR_DOMAINS[domain], manual[domain])), manual[domain].mac)
+  }
+})
+
+test('pairing: MAC and key-confirmation comparisons reject tampering', () => {
+  const manual = VECTORS.pairing.manual
+  const pairKey = pairKeyFor(Buffer.from(manual.secret_hex, 'hex'))
+  const relay = VECTORS.pairing.origin
+  const helloNonce = b64urlDecode(manual.hello.nonce, { length: 32 })
+  const authNonce = b64urlDecode(manual.auth.nonce, { length: 32 })
+  const transcriptHash = b64urlDecode(manual.transcript_hash, { length: 32 })
+  const badMac = b64urlEncode(Buffer.alloc(32, 0))
+  const badTranscript = b64urlEncode(Buffer.alloc(32, 9))
+  const isAuthFailed = error => error.code === 'auth_failed'
+  assert.throws(() => verifyPairHello({ ...manual.hello, mac: badMac }, { pairKey, relay }), isAuthFailed)
+  assert.throws(() => verifyPairAuth({ ...manual.auth, mac: badMac }, { pairKey, relay, peerNonce: helloNonce }), isAuthFailed)
+  assert.throws(() => verifyPairConfirm({ ...manual.confirm, mac: badMac }, {
+    pairKey, expectedNonce: helloNonce, expectedPeerNonce: authNonce, transcriptHash,
+  }), isAuthFailed)
+  assert.throws(() => verifyPairConfirm({ ...manual.confirm, transcriptHash: badTranscript }, {
+    pairKey, expectedNonce: helloNonce, expectedPeerNonce: authNonce, transcriptHash,
+  }), isAuthFailed)
+  assert.throws(() => verifyPairFinal({ ...manual.final, mac: badMac }, {
+    pairKey, expectedNonce: authNonce, expectedPeerNonce: helloNonce, transcriptHash,
+  }), isAuthFailed)
+  assert.throws(() => verifyPairFinal({ ...manual.final, transcriptHash: badTranscript }, {
+    pairKey, expectedNonce: authNonce, expectedPeerNonce: helloNonce, transcriptHash,
+  }), isAuthFailed)
+
+  const phoneSide = fixedHandshake()
+  const response = phoneSide.responder.respond(phoneSide.initiator.buildInit(), {
+    from: VECTORS.handshake.from, to: VECTORS.handshake.to, sid: VECTORS.handshake.sid,
+  })
+  assert.throws(() => phoneSide.initiator.acceptResp({ ...response.resp, confirm: badMac }), isAuthFailed)
+
+  const pcSide = fixedHandshake()
+  const pcResponse = pcSide.responder.respond(pcSide.initiator.buildInit(), {
+    from: VECTORS.handshake.from, to: VECTORS.handshake.to, sid: VECTORS.handshake.sid,
+  })
+  const confirm = pcSide.initiator.acceptResp(pcResponse.resp)
+  assert.throws(() => pcSide.responder.acceptConfirm({ ...confirm, confirm: badMac }), isAuthFailed)
+})
+
+test('MAC and confirm comparisons use the constant-time byte helper', () => {
+  const expected = [['pairing.mjs', 6], ['handshake.mjs', 2]]
+  for (const [file, callSites] of expected) {
+    const source = readFileSync(new URL(`../core/${file}`, import.meta.url), 'utf8')
+    assert.equal((source.match(/timingSafeEqualBytes\(/g) ?? []).length, callSites, file)
+    assert.equal(/macValue\([^)]*\)\.equals\(|b64urlDecode\([^)]*\)\.equals\(/.test(source), false, file)
   }
 })
 

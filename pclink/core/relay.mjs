@@ -10,6 +10,7 @@ const MACHINE_ID = /^[a-z2-7]{26}$/
 const SID = /^[A-Za-z0-9_-]{22}$/
 const ID = /^[A-Za-z0-9._:-]{1,64}$/
 const RENDEZVOUS = /^[A-Za-z0-9_-]{22}$/
+const LOOPBACK_HOST = /^localhost$|^127\.(?:25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])\.(?:25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])\.(?:25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])$/
 
 /**
  * Validate and normalize the §3.1 origin form. Uppercase is rejected, never lowered.
@@ -26,6 +27,10 @@ export function validateRelayOrigin(origin) {
   if (match === null) throw pclinkError('bad_frame', 'invalid relay origin')
   const [, scheme, host, portText] = match
   if (host.includes('..') || host.startsWith('.') || host.endsWith('.')) throw pclinkError('bad_frame', 'invalid relay host')
+  // §3.1: cleartext WebSocket is allowed only for loopback tests.
+  if (scheme === 'http' && !LOOPBACK_HOST.test(host)) {
+    throw pclinkError('bad_frame', 'http relay origin is loopback-only')
+  }
   if (portText !== undefined) {
     const port = Number(portText)
     if (port < 1 || port > 65535) throw pclinkError('bad_frame', 'relay port out of range')

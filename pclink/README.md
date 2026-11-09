@@ -3,7 +3,7 @@
 PCLink pairs one iPhone with one PC running `dsh web`. The phone gets the DSH
 owner API through the PC plugin; every end-to-end payload is encrypted and
 authenticated before it reaches the untrusted relay. The frozen contract is
-`spec/pclink/v1/README.md` (revision `pclink-v1.2`). This tree is the **C end**:
+`spec/pclink/v1/README.md` (revision `pclink-v1.3`). This tree is the **C end**:
 `dsh-pclink` (Cordis plugin), `npx pclink` CLI and the shared Node core. It has
 no npm runtime dependencies beyond Node built-ins.
 
@@ -89,12 +89,21 @@ the endpoint spelling; the `pclink.admin/` prefix check in the forwarder is only
 a fast path. Remote PCLink `rpc.call`/`rpc.stream.open` calls get the PCLink
 `forbidden` error.
 
-**Trade-off:** a bundled front-end plugin page (QR image, persistent
-new-pairing banner, revoke buttons) is deferred to a follow-up UI change. The
-owner routes already expose the same operations and the status body includes a
-persistent `warnings` banner entry for the most recent successful pairing; a
-future page only needs to consume these routes. The CLI is the supported UI in
-this phase.
+**Known gap:** the bundled Web UI plugin page is not implemented in this phase
+(see [Known gaps](#known-gaps)). The six owner routes above are already the
+complete backend surface it needs: a future page only has to consume them, and
+the status body already includes a persistent `warnings` banner entry for the
+most recent successful pairing. The CLI is the supported UI in this phase.
+
+## Known gaps
+
+- **Web UI plugin page not implemented (PC plugin).** The contract requires a
+  page with a QR image, a persistent new-pairing banner and revoke buttons
+  (§4.6/§8.2). The owner routes `POST /api/pclink.admin/status`, `/pair`,
+  `/pair/approve`, `/pair/cancel`, `/unpair` and `/rotate-identity` are already
+  registered and fenced, and the status body carries the banner data, but no
+  bundled browser page consumes them yet. This is a known PC-side UI gap; it
+  does not change the wire contract or the CLI/loopback admin API.
 
 ## Configuration and environment
 
@@ -125,7 +134,10 @@ replace (temp file in the same directory, fsync, rename, directory fsync):
   (`usable:false, reason:"unapproved"`); a later `unpair` makes them
   `revoked`. An unpair appends the tombstone and fsyncs **before** removing the
   record. If the tombstone append fails, the plugin stops its relay connection
-  and stays fail-closed until the retry succeeds.
+  and stays fail-closed until the retry succeeds. On every start, before dialing
+  the relay, the plugin probes an append+fsync of `pairs.log` (restoring its
+  bytes); a read-only or full disk keeps the plugin fail-closed after a restart
+  too, with the error shown in `status.warnings`.
 - `admin.json` — `{"v":1,"port":49152-65535,"token":"<32B b64url>"}`, replaced
   on every plugin start. The loopback server binds `127.0.0.1` only, requires
   exact `Host`, no `Origin`, JSON `Content-Type`, a constant-time Bearer token

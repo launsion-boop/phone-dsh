@@ -1,12 +1,14 @@
 /** Pairing manager, admin carriers, runtime unpair/fail-closed and CLI-adjacent plugin tests. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { request as httpRequest } from 'node:http'
-import { statSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { buildPairingRecord } from '../core/pairing.mjs'
 import { generateIdentity } from '../core/identity.mjs'
 import { PclinkStore } from '../plugin/state.mjs'
+import { probeAuditAppend } from '../core/store.mjs'
 import {
   b64urlDecode,
   b64urlEncode,
@@ -35,6 +37,52 @@ import { runAsPclinkRemote } from '../plugin/remote-context.mjs'
 import { FakeLink, FakeTimers, makeStore } from './helpers.mjs'
 
 const ORIGIN = 'https://relay.example'
+
+/** Minimal WebSocket double: only construction matters for the gate tests. */
+function makeSocketRecorder() {
+  const instances = []
+  class RecordingWebSocket {
+    constructor(url) {
+      this.url = url
+      this.readyState = 0
+      this.sent = []
+      instances.push(this)
+    }
+
+    addEventListener() {}
+
+    send(text) {
+      this.sent.push(text)
+    }
+
+    close() {
+      this.readyState = 3
+    }
+  }
+  return { instances, RecordingWebSocket }
+}
+
+/** Deterministic valid machineId for an arbitrary integer (RFC 4648 base32). */
+function machineIdFor(index) {
+  const alphabet = 'abcdefghijklmnopqrstuvwxyz234567'
+  let value = BigInt(index + 1)
+  let text = ''
+  for (let position = 0; position < 26; position += 1) {
+    text = alphabet[Number(value % 32n)] + text
+    value /= 32n
+  }
+  return text
+}
+
+/** Fresh DSH home whose `pclink/` state dir has an empty audit log. */
+function makeRuntimeHome() {
+  const home = mkdtempSync(join(tmpdir(), 'pclink-runtime-'))
+  const dir = join(home, 'pclink')
+  new PclinkStore({ dir }).load()
+  const logPath = join(dir, 'pairs.log')
+  writeFileSync(logPath, '')
+  return { home, dir, logPath }
+}
 
 function makePairing(options = {}) {
   const { store, phone } = makeStore({ records: false })
@@ -389,6 +437,75 @@ test('a failing unpair tombstone enters fail-closed and retries before reconnect
   assert.equal(store.records.length, 0)
 })
 
+test('startup audit probe keeps the plugin fail-closed and re-probes after a restart', async () => {
+  const { home, logPath } = makeRuntimeHome()
+  chmodSync(logPath, 0o444)
+  const firstSockets = makeSocketRecorder()
+  const firstTimers = new FakeTimers()
+  const first = new PclinkRuntime({
+    connection: {}, gateway: {}, dshHome: home,
+    relayOrigin: ORIGIN, pcName: 'My PC',
+    log: () => {}, timers: firstTimers, WebSocketCtor: firstSockets.RecordingWebSocket,
+  })
+  try {
+    try {
+      await first.start()
+      assert.equal(first.failClosed, true)
+      assert.equal(firstSockets.instances.length, 0, 'a failed audit append probe must not dial the relay')
+      const status = first.adminPlane.status()
+      assert.equal(status.relay.state, 'offline')
+      assert.match(status.warnings.join('\n'), /fail-closed|pairs\.log/)
+    } finally {
+      await first.stop()
+    }
+
+    // Restarting does not clear fail-closed while the storage failure persists.
+    const secondSockets = makeSocketRecorder()
+    const secondTimers = new FakeTimers()
+    const second = new PclinkRuntime({
+      connection: {}, gateway: {}, dshHome: home,
+      relayOrigin: ORIGIN, pcName: 'My PC',
+      log: () => {}, timers: secondTimers, WebSocketCtor: secondSockets.RecordingWebSocket,
+    })
+    try {
+      await second.start()
+      assert.equal(second.failClosed, true)
+      assert.equal(secondSockets.instances.length, 0)
+      // Once the log is writable again the retry probes, clears the gate, and connects.
+      chmodSync(logPath, 0o600)
+      secondTimers.advance(5_001)
+      assert.equal(second.failClosed, false)
+      assert.equal(secondSockets.instances.length, 1)
+      assert.doesNotMatch(second.adminPlane.status().warnings.join('\n'), /fail-closed/)
+    } finally {
+      await second.stop()
+    }
+  } finally {
+    chmodSync(logPath, 0o600)
+  }
+})
+
+test('a full-disk audit probe fails closed and reports the storage error in status', async () => {
+  const { home } = makeRuntimeHome()
+  const sockets = makeSocketRecorder()
+  const runtime = new PclinkRuntime({
+    connection: {}, gateway: {}, dshHome: home,
+    relayOrigin: ORIGIN, pcName: 'My PC',
+    log: () => {}, timers: new FakeTimers(), WebSocketCtor: sockets.RecordingWebSocket,
+    probeAudit: () => { throw Object.assign(new Error('ENOSPC: no space left on device'), { code: 'ENOSPC' }) },
+  })
+  try {
+    await runtime.start()
+    assert.equal(runtime.failClosed, true)
+    assert.equal(sockets.instances.length, 0)
+    const status = runtime.adminPlane.status()
+    assert.equal(status.relay.state, 'offline')
+    assert.match(status.warnings.join('\n'), /ENOSPC/)
+  } finally {
+    await runtime.stop()
+  }
+})
+
 test('rotate-identity makes every record stale and restarts the relay identity', () => {
   const { store, phone } = makeStore()
   const timers = new FakeTimers()
@@ -444,6 +561,75 @@ test('rotating identity then pairing a new phone does not re-adopt stale records
   assert.equal(reloaded.records.length, 1)
   assert.equal(reloaded.records[0].peerMachineId, phone.machineId)
   assert.equal(reloaded.usableRecord(oldPeer), undefined)
+})
+
+test('addPair checks the 1024-record cap before appending the audit line', () => {
+  const { store } = makeStore()
+  const base = store.records[0]
+  store.records = Array.from({ length: 1024 }, (_, index) => ({ ...base, peerMachineId: machineIdFor(index) }))
+  const phone = generateIdentity()
+  const nextRecord = buildPairingRecord({
+    peerMachineId: phone.machineId,
+    peerPublicKey: b64urlEncode(phone.publicKey),
+    peerName: 'Overflow Phone',
+    pairedAt: '2026-11-10T00:00:00Z',
+    relayOrigin: ORIGIN,
+    approvedAt: '2026-11-10T00:00:05Z',
+    approvedVia: 'cli',
+  })
+  const before = readFileSync(`${store.dir}/pairs.log`, 'utf8')
+  assert.throws(() => store.addPair(nextRecord, { at: '2026-11-10T00:00:05Z' }), /limit/)
+  assert.equal(readFileSync(`${store.dir}/pairs.log`, 'utf8'), before)
+  assert.equal(store.audit.length, 1)
+})
+
+test('a failed re-pair write keeps the previous record usable', () => {
+  const { store, phone, record } = makeStore()
+  // Force the durable replace of pairs.json to fail at its validation/write
+  // step. The still-durable old record must stay usable: the old code appended
+  // the new pair audit line first, so the old record became "unapproved" even
+  // though the new file never landed.
+  store.records = [...store.records, { peerMachineId: 'not-a-machine-id' }]
+  const replacement = { ...record, approvedAt: '2026-11-10T00:00:05Z' }
+  const before = readFileSync(`${store.dir}/pairs.log`, 'utf8')
+  assert.throws(() => store.addPair(replacement, { at: '2026-11-10T00:00:05Z' }))
+  assert.equal(readFileSync(`${store.dir}/pairs.log`, 'utf8'), before)
+  assert.notEqual(store.usableRecord(phone.machineId), undefined)
+  const reloaded = new PclinkStore({ dir: store.dir }).load()
+  assert.notEqual(reloaded.usableRecord(phone.machineId), undefined)
+})
+
+test('a corrupt pairs.json is preserved before a later pairing writes a new file', () => {
+  const { store } = makeStore()
+  const corrupt = '{ "v":1, "pcMachineId": "broken"'
+  writeFileSync(`${store.dir}/pairs.json`, corrupt)
+  const reloaded = new PclinkStore({ dir: store.dir }).load()
+  assert.match(reloaded.warnings.join('\n'), /pairs\.json/)
+  const backups = readdirSync(store.dir).filter(name => name.startsWith('pairs.json.corrupt'))
+  assert.equal(backups.length, 1)
+  assert.equal(readFileSync(`${store.dir}/${backups[0]}`, 'utf8'), corrupt)
+
+  const phone = generateIdentity()
+  const record = buildPairingRecord({
+    peerMachineId: phone.machineId,
+    peerPublicKey: b64urlEncode(phone.publicKey),
+    peerName: 'After Corruption',
+    pairedAt: '2026-11-10T00:00:00Z',
+    relayOrigin: ORIGIN,
+    approvedAt: '2026-11-10T00:00:05Z',
+    approvedVia: 'cli',
+  })
+  reloaded.addPair(record, { at: '2026-11-10T00:00:05Z' })
+  assert.equal(JSON.parse(readFileSync(`${store.dir}/pairs.json`, 'utf8')).pairs.length, 1)
+  // The corrupt bytes remain inspectable in the backup.
+  assert.equal(readFileSync(`${store.dir}/${backups[0]}`, 'utf8'), corrupt)
+})
+
+test('the audit append probe leaves pairs.log byte-identical', () => {
+  const { store } = makeStore()
+  const before = readFileSync(`${store.dir}/pairs.log`)
+  probeAuditAppend(store.dir)
+  assert.deepEqual(readFileSync(`${store.dir}/pairs.log`), before)
 })
 
 test('state files use the contract modes 0700/0600', async () => {

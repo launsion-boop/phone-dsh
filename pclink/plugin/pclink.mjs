@@ -5,7 +5,7 @@
 import { join } from 'node:path'
 import { pclinkError } from '../core/errors.mjs'
 import { b64urlEncode } from '../core/encoding.mjs'
-import { loadAdminFile, pclinkStateDir, removeFile } from '../core/store.mjs'
+import { loadAdminFile, pclinkStateDir, probeAuditAppend, removeFile } from '../core/store.mjs'
 import { AdminPlane } from './admin-plane.mjs'
 import { AdminServer } from './admin-server.mjs'
 import { dshRuntimeInfo } from './dsh-info.mjs'
@@ -16,6 +16,8 @@ import { PclinkStore } from './state.mjs'
 
 /** Plugin version reported in `peer.hello.app.version`. */
 export const PLUGIN_VERSION = '0.1.0'
+/** Fail-closed probe retry interval. */
+export const FAIL_CLOSED_RETRY_MS = 5_000
 
 /**
  * The PC plugin runtime. `start()` is async because the admin listener binds
@@ -35,6 +37,7 @@ export class PclinkRuntime {
    *   random?: () => number,
    *   dshInfo?: {version: string, commit?: string},
    *   appVersion?: string,
+   *   probeAudit?: (dir: string) => void,
    * }} options Runtime dependencies and config.
    */
   constructor(options) {
@@ -53,9 +56,12 @@ export class PclinkRuntime {
     this.WebSocketCtor = options.WebSocketCtor
     this.dshInfo = options.dshInfo ?? dshRuntimeInfo(this.log)
     this.appVersion = options.appVersion ?? PLUGIN_VERSION
+    this.probeAudit = options.probeAudit ?? probeAuditAppend
     this.stateDir = pclinkStateDir(this.dshHome)
     this.warnings = []
     this.failClosed = false
+    this.failClosedWarning = undefined
+    this.auditProbeError = undefined
     this.pendingTombstones = []
     this.failClosedTimer = undefined
     this.started = false
@@ -120,11 +126,41 @@ export class PclinkRuntime {
       relay: { origin: this.relayOrigin, state: 'offline' },
       unpair: body => this.unpair(body),
       rotateIdentity: body => this.rotateIdentity(body),
-      extraWarnings: () => [...this.warnings, ...this.sessions.versionWarnings],
+      extraWarnings: () => [
+        ...this.warnings,
+        ...(this.failClosedWarning === undefined ? [] : [this.failClosedWarning]),
+        ...this.sessions.versionWarnings,
+      ],
     })
     this.adminServer = new AdminServer({ dir: this.stateDir, plane: this.adminPlane, log: this.log, random: this.random })
     await this.adminServer.start()
-    this.link.start()
+    // §4.6: a tombstone append that failed must keep the whole plugin off the
+    // relay until a later append succeeds, including across a restart. Probe
+    // the append+fsync path before dialing; the admin server still starts so
+    // `status` can report the storage failure.
+    if (!this.checkAuditWritable()) {
+      this.failClosed = true
+      this.failClosedWarning = this.auditProbeError
+      this.log(`startup fail-closed: ${this.auditProbeError}`)
+      this.scheduleFailClosedRetry()
+    } else {
+      this.link.start()
+    }
+  }
+
+  /**
+   * Probe `pairs.log` append+fsync. A failure keeps the plugin fail-closed.
+   * @returns {boolean} true when the audit log is writable now.
+   */
+  checkAuditWritable() {
+    try {
+      this.probeAudit(this.stateDir)
+      this.auditProbeError = undefined
+      return true
+    } catch (error) {
+      this.auditProbeError = `pairs.log 无法追加并 fsync（${error.message}）；插件保持 fail-closed，未连接中继。`
+      return false
+    }
   }
 
   handleRelayState(state) {
@@ -213,31 +249,46 @@ export class PclinkRuntime {
   }
 
   /**
-   * Enter the fail-closed state after a tombstone append failure and retry it.
+   * Enter the fail-closed state after a tombstone/probe failure and retry it.
    * @param {string[]} targets Peers whose tombstones must be durable.
    */
   enterFailClosed(targets) {
     this.failClosed = true
     this.pendingTombstones = [...new Set([...this.pendingTombstones, ...targets])]
+    this.failClosedWarning = this.auditProbeError
+      ?? 'pairs.log 的 tombstone 写入失败；插件保持 fail-closed，未连接中继，直到写入成功。'
     this.link?.stop()
-    this.log('fail-closed: tombstone append failed; relay connection stopped')
-    if (this.failClosedTimer !== undefined) return
+    this.log('fail-closed: audit append failed; relay connection stopped')
+    this.scheduleFailClosedRetry()
+  }
+
+  /** Schedule the next probe/retry of the fail-closed gate (idempotent). */
+  scheduleFailClosedRetry() {
+    if (this.failClosedTimer !== undefined || this.stopped) return
     const retry = () => {
       this.failClosedTimer = undefined
       if (this.stopped) return
-      try {
-        this.store.unpair(this.pendingTombstones)
-        this.pendingTombstones = []
-        this.failClosed = false
-        this.link?.start()
-        this.log('fail-closed cleared: tombstone append succeeded; reconnecting the relay')
-      } catch (error) {
-        this.log(`fail-closed retry failed: ${error.message}`)
-        this.failClosedTimer = this.timers.setTimeout(retry, 5_000)
-        this.failClosedTimer?.unref?.()
+      if (!this.checkAuditWritable()) {
+        this.failClosedWarning = this.auditProbeError
+        this.log(`fail-closed retry: ${this.auditProbeError}`)
+        this.scheduleFailClosedRetry()
+        return
       }
+      try {
+        if (this.pendingTombstones.length > 0) this.store.unpair(this.pendingTombstones)
+      } catch (error) {
+        this.failClosedWarning = `pairs.log 的 tombstone 重试失败（${error.message}）；插件保持 fail-closed。`
+        this.log(`fail-closed retry failed: ${error.message}`)
+        this.scheduleFailClosedRetry()
+        return
+      }
+      this.pendingTombstones = []
+      this.failClosed = false
+      this.failClosedWarning = undefined
+      this.link?.start()
+      this.log('fail-closed cleared: audit append succeeded; reconnecting the relay')
     }
-    this.failClosedTimer = this.timers.setTimeout(retry, 5_000)
+    this.failClosedTimer = this.timers.setTimeout(retry, FAIL_CLOSED_RETRY_MS)
     this.failClosedTimer?.unref?.()
   }
 

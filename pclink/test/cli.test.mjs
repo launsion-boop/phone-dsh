@@ -74,17 +74,25 @@ test('runPair approves only after a TTY fingerprint prompt and prints no PC-side
   assert.match(output.text, /此手机将能完整操作/)
 })
 
-test('runPair without a TTY cancels and never approves', async () => {
+test('runPair without a TTY fails before opening a pairing slot', async () => {
   const output = collector()
   const calls = []
   const client = {
-    pair: async () => ({ v: 1, pairing: { id: 'p1', mode: 'qr', qrURI: 'pclink://pair?x', expiresAt: '2026-11-09T00:05:00Z' } }),
-    status: async () => statusWithPairs({ pairing: { id: 'p1', state: 'awaiting_approval', mode: 'qr', expiresAt: '2026-11-09T00:05:00Z', peerName: 'iPhone' } }),
-    cancel: async id => { calls.push(['cancel', id]); return { v: 1, cancelled: true } },
-    approve: async () => { calls.push(['approve']); return { approved: true } },
+    pair: async () => {
+      calls.push('pair')
+      return { v: 1, pairing: { id: 'p1', mode: 'qr', qrURI: 'pclink://pair?x', expiresAt: '2026-11-09T00:05:00Z' } }
+    },
+    status: async () => {
+      calls.push('status')
+      return statusWithPairs({ pairing: { id: 'p1', state: 'awaiting_approval', mode: 'qr', expiresAt: '2026-11-09T00:05:00Z', peerName: 'iPhone' } })
+    },
+    cancel: async () => { calls.push('cancel'); return { v: 1, cancelled: true } },
+    approve: async () => { calls.push('approve'); return { approved: true } },
   }
   await assert.rejects(() => runPair({ client, output, stdinIsTTY: false, pollMs: 1, ask: async () => 'nope' }), error => error.code === 'unavailable')
-  assert.deepEqual(calls, [['cancel', 'p1']])
+  // No slot was opened and no phone can join a pairing that this process
+  // could never approve.
+  assert.deepEqual(calls, [])
 })
 
 test('runPair propagates a fingerprint mismatch as auth_failed', async () => {

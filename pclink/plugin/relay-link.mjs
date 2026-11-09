@@ -85,6 +85,7 @@ export class RelayLink {
     this.connectedAt = undefined
     this.lastError = undefined
     this.replaced = false
+    this.allowlistDeferred = false
   }
 
   /** Begin connecting (or return when stopped/forbidden). */
@@ -362,9 +363,9 @@ export class RelayLink {
     this.heartbeatTimer = this.timers.setTimeout(() => {
       this.heartbeatTimer = undefined
       if (this.phase !== 'ready' || this.stopping) return
-      const nonce = b64urlEncode(randomBytes(16))
-      this.outstandingPings.push(nonce)
-      this.sendRaw({ v: 1, type: 'relay.ping', nonce })
+      // §3.4: two consecutive pings without a matching pong close the
+      // connection. Check before sending the next ping so the second ping gets
+      // its full interval to be answered.
       if (this.outstandingPings.length >= this.maxUnansweredPings) {
         this.log('relay heartbeat timed out')
         const socket = this.socket
@@ -372,14 +373,26 @@ export class RelayLink {
         this.disconnectSocket(socket, { detail: 'heartbeat timeout', closeSocket: true, closeCode: 1001, closeReason: 'heartbeat timeout' })
         return
       }
+      const nonce = b64urlEncode(randomBytes(16))
+      this.outstandingPings.push(nonce)
+      this.sendRaw({ v: 1, type: 'relay.ping', nonce })
       this.scheduleHeartbeat()
     }, delay)
     this.heartbeatTimer?.unref?.()
   }
 
   sendAllowlist() {
+    // §3.1: no client frame other than peer.auth is accepted before
+    // relay.ready. A pairing change can call this while the supervisor is
+    // reconnecting; remember it and let the ready handler send the list.
+    if (!this.ready) {
+      this.allowlistDeferred = true
+      return false
+    }
+    if (this.allowlistDeferred) this.log('sending the deferred relay.allow after relay.ready')
+    this.allowlistDeferred = false
     const peers = this.allowlist()
-    this.sendRaw({ v: 1, type: 'relay.allow', peers })
+    return this.sendRaw({ v: 1, type: 'relay.allow', peers })
   }
 
   /**
