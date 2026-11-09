@@ -117,6 +117,17 @@ public actor EmptyBotVolatileContextProvider: BotVolatileContextProviding {
     }
 }
 
+/// Host-registered team tools (for example agent-to-agent messaging). The
+/// runtime keeps the existing tool catalog untouched; a registered handler is
+/// consulted only for names the catalog does not advertise, after the normal
+/// identity registration and authorization path.
+public protocol BotTeamToolHandling: Sendable {
+    func handles(_ toolName: String) -> Bool
+    func execute(name: String, arguments: BotJSONValue,
+                 principal: BotGatewayPrincipal,
+                 context: BotMCPRequestContext) async -> BotMCPCallResult
+}
+
 public protocol BotTaskExecuting: Actor {
     func start(request: BotTaskRequest) async throws -> BotTaskRecord
     func await(taskId: String, timeoutMs: Int, parent: BotResolvedToolCall) async throws -> BotTaskRecord

@@ -20,6 +20,19 @@ private actor StubVolatileProvider: BotVolatileContextProviding {
     }
 }
 
+private final class PersonaCallRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [(botId: String, sessionId: String, kind: BotSessionKind)] = []
+
+    func record(botId: String, sessionId: String, kind: BotSessionKind) {
+        lock.withLock { recorded.append((botId, sessionId, kind)) }
+    }
+
+    var calls: [(botId: String, sessionId: String, kind: BotSessionKind)] {
+        lock.withLock { recorded }
+    }
+}
+
 final class BotVolatileContextTests: XCTestCase {
     func testRealBlocksUseOnlyCurrentPrincipalAndMonotonicRevision() async throws {
         let provider = StubVolatileProvider(blocks: BotVolatileBlocks(
@@ -90,7 +103,7 @@ final class BotVolatileContextTests: XCTestCase {
         let provider = BotDomainVolatileContextProvider(
             memory: memory, routines: machine,
             variant: { session, kind in "\(kind.rawValue):\(session)" },
-            persona: { _, _ in "大肥鱼" }, now: { 1_000 })
+            persona: { _, _, _ in "大肥鱼" }, now: { 1_000 })
         let snapshot = try await provider.snapshot(botId: "main", sessionId: "gb-main", kind: .chat)
         XCTAssertEqual(snapshot.variant, "chat:gb-main")
         XCTAssertEqual(snapshot.persona, "大肥鱼")
@@ -101,6 +114,48 @@ final class BotVolatileContextTests: XCTestCase {
         let routineSnapshot = try await defaults.snapshot(botId: "main", sessionId: "gb-main--routine-1", kind: .routine)
         XCTAssertTrue(routineSnapshot.persona?.contains("大肥鱼") == true)
         XCTAssertTrue(routineSnapshot.variant?.contains("例行任务变体") == true)
+    }
+
+    func testPersonaClosureReceivesPrincipalBotIdAndMemoryResolvesPerBot() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try SQLiteDomainStore(
+            fileURL: directory.appendingPathComponent("domain.sqlite"), now: { 1_000 })
+        let machine = RoutineMachine(store: SQLiteRoutineStore(domainStore: store))
+        let mainMemory = BotMemory(
+            store: SQLiteBotMemoryFactStore(eventLog: store, botID: "main", now: { 1_000 }),
+            dataRoot: directory.path, botID: "main", now: { 1_000 })
+        let botMemory = BotMemory(
+            store: SQLiteBotMemoryFactStore(eventLog: store, botID: "bot-b", now: { 1_000 }),
+            dataRoot: directory.path, botID: "bot-b", now: { 1_000 })
+        _ = try await mainMemory.write(BotMemoryWriteRequest(
+            text: "main scoped memory", source: BotMemorySource(kind: .agentMessage)))
+        _ = try await botMemory.write(BotMemoryWriteRequest(
+            text: "bot-b scoped memory", source: BotMemorySource(kind: .agentMessage)))
+
+        let recorder = PersonaCallRecorder()
+        let provider = BotDomainVolatileContextProvider(
+            memory: mainMemory, routines: machine,
+            persona: { botId, sessionId, kind in
+                recorder.record(botId: botId, sessionId: sessionId, kind: kind)
+                return "persona:\(botId):\(sessionId):\(kind.rawValue)"
+            },
+            memoryForBot: { botId in botId == "bot-b" ? botMemory : mainMemory },
+            now: { 1_000 })
+        let mainSnapshot = try await provider.snapshot(
+            botId: "main", sessionId: "gb-main", kind: .chat)
+        let botSnapshot = try await provider.snapshot(
+            botId: "bot-b", sessionId: "gb-bot-b", kind: .task)
+        XCTAssertEqual(mainSnapshot.persona, "persona:main:gb-main:chat")
+        XCTAssertEqual(botSnapshot.persona, "persona:bot-b:gb-bot-b:task")
+        XCTAssertTrue(mainSnapshot.memory?.contains("main scoped memory") == true)
+        XCTAssertFalse(mainSnapshot.memory?.contains("bot-b scoped memory") == true)
+        XCTAssertTrue(botSnapshot.memory?.contains("bot-b scoped memory") == true)
+        XCTAssertFalse(botSnapshot.memory?.contains("main scoped memory") == true)
+        XCTAssertEqual(recorder.calls.map(\.botId), ["main", "bot-b"])
+        XCTAssertEqual(recorder.calls.map(\.sessionId), ["gb-main", "gb-bot-b"])
+        XCTAssertEqual(recorder.calls.map(\.kind), [.chat, .task])
+        try await store.close()
     }
 
     private static func principal() -> BotGatewayPrincipal {

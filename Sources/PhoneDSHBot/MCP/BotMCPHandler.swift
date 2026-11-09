@@ -68,7 +68,9 @@ public actor BotMCPHandler {
             let arguments = object["arguments"] ?? .object([:])
             guard case .object = arguments else { return rpcError(id, code: -32602, message: "arguments must be an object") }
             let bareName = Self.bareToolName(name)
-            guard BotToolCatalog.isRegistered(bareName) else {
+            let catalogTool = BotToolCatalog.isRegistered(bareName)
+            let teamTool = catalogTool ? false : await runtime.handlesTeamTool(bareName)
+            guard catalogTool || teamTool else {
                 if let forwarded = await forwardNative(method: method, params: params, id: id,
                                                        headers: headers) {
                     return forwarded

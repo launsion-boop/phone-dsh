@@ -121,7 +121,7 @@ final class BotRuntimeComposition {
         let language = Locale.preferredLanguages.first?.hasPrefix("zh") == true ? "zh" : "en"
         let volatile = await BotDomainVolatileContextProvider(
             memory: memory, routines: machine,
-            personaAsync: { _, _ in
+            personaAsync: { _, _, _ in
                 let context = try await environment.context()
                 let name = context.botName.replacingOccurrences(of: "\n", with: " ").prefix(80)
                 return "你的名字是\(name)。用户问起名字时如实回答。"
