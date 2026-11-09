@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 package com.phonedsh.ui.nav
 
+import com.phonedsh.ui.UiStrings
+
 /** Host reported session row. A missing title/time stays visibly unknown. */
 public data class HomeDrawerSession(
     public val id: String,
@@ -29,12 +31,38 @@ public data class HomeDrawerFacts(
     public val folders: List<HomeDrawerFolder>? = null,
     public val unassignedSessions: List<HomeDrawerSession>? = null,
     public val activeSessionId: String? = null,
-    public val scheduleCount: Int? = null,
     public val engine: HomeDrawerEngineState = HomeDrawerEngineState.UNKNOWN,
     public val newSessionBlockedReason: String? = null,
     /** Actual session/folder snapshot failure, if the host read failed. */
     public val failure: String? = null,
+    /**
+     * The app's explicit language id (`zh`, `en`, `system`), or `null` when
+     * the host has not loaded the preference. `null` keeps the drawer's
+     * established Chinese copy rather than guessing from the test JVM locale.
+     */
+    public val languageId: String? = null,
 )
+
+/** Drawer copy follows the same explicit language id as the settings pages. */
+internal fun drawerNativeText(languageId: String?, chinese: String, english: String): String =
+    if (languageId == null) chinese else UiStrings.settingsNativeText(languageId, chinese, english)
+
+/** The host default folder's display name, numbered from the second one. */
+internal fun drawerDefaultFolderTitle(languageId: String?, index: Int = 1): String {
+    val chinese = if (index > 1) UiStrings.DRAWER_DEFAULT_FOLDER_INDEXED.format(index) else UiStrings.DRAWER_DEFAULT_FOLDER
+    val english = if (index > 1) UiStrings.DRAWER_DEFAULT_FOLDER_INDEXED_EN.format(index) else UiStrings.DRAWER_DEFAULT_FOLDER_EN
+    return drawerNativeText(languageId, chinese, english)
+}
+
+/** Why 新会话 cannot be pressed, in the drawer's one short sentence. */
+internal fun drawerNewSessionBlockedReason(languageId: String?, reason: String?): String? = when (reason) {
+    null -> null
+    UiStrings.SESSIONS_NEW_BLOCKED_ENGINE, "引擎未启动" ->
+        drawerNativeText(languageId, "引擎未启动", UiStrings.DRAWER_NEW_BLOCKED_ENGINE_EN)
+    UiStrings.DRAWER_NEW_BLOCKED_TURN, UiStrings.SESSIONS_NEW_BLOCKED_TURN ->
+        drawerNativeText(languageId, UiStrings.DRAWER_NEW_BLOCKED_TURN, UiStrings.DRAWER_NEW_BLOCKED_TURN_EN)
+    else -> reason
+}
 
 /** One archive request passed from the drawer to its host adapter. */
 public data class HomeDrawerArchiveRequest(

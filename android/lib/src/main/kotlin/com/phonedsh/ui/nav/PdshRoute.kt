@@ -85,7 +85,7 @@ public sealed interface PdshRoute {
         override val presentation: PdshPresentation = PdshPresentation.PUSH
     }
 
-    /** 抽屉「定时任务」; `SessionsPage.swift:345-347` presents the catalog as a sheet. */
+    /** 设置 › 定时任务; the drawer no longer carries a duplicate entry. */
     public data object Automation : PdshRoute {
         override val presentation: PdshPresentation = PdshPresentation.SHEET
     }

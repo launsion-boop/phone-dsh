@@ -28,7 +28,11 @@ enum SessionTime {
 /// 撞名的时候从第二个起带序号。
 enum DrawerTitles {
     private static let defaultSessions: Set<String> = ["new conversation", "新会话", "conversation", "untitled"]
-    private static let defaultWorkspaces: Set<String> = ["workspace", "工作区", "工作文件夹", "default"]
+    /// `default-workspace` is the real Worker title on a phone; `default` and
+    /// the generic names are kept for older hosts.
+    private static let defaultWorkspaces: Set<String> = [
+        "workspace", "工作区", "工作文件夹", "default", "default-workspace",
+    ]
 
     static func sessionTitle(_ raw: String, index: Int) -> String {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -38,9 +42,10 @@ enum DrawerTitles {
         return trimmed
     }
 
-    /// The host's default workspace on a phone: no desktop exists here, so the
-    /// folder is named for what lands in it — everyday, unfiled asks.
-    static let defaultFolderName = "日常"
+    /// The host's default workspace on a phone. It holds every DSH session
+    /// that belongs to no explicit folder, so it is named for the phone
+    /// workspace itself rather than the old synthetic "日常" group.
+    static var defaultFolderName: String { NativeText("手机工作区", "Phone Workspace") }
 
     static func isDefaultWorkspace(_ raw: String) -> Bool {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -122,8 +127,16 @@ struct SessionsPage: View {
         return management.archivedSessions
     }
 
+    /// Loose DSH sessions are part of the host's default folder on the phone,
+    /// not a second synthetic group. While no default folder exists yet they
+    /// still get a temporary group with the same name.
+    private var defaultWorkspace: ManagedWorkspace? {
+        visibleWorkspaces.first { management.isDefaultWorkspace($0) }
+    }
+
     private var ungroupedSessions: [ManagedSession] {
-        pinnedFirst(management.ungroupedSessions).filter(matchesQuery)
+        guard defaultWorkspace == nil else { return [] }
+        return pinnedFirst(management.ungroupedSessions).filter(matchesQuery)
     }
 
     private var visibleWorkspaces: [ManagedWorkspace] { orderedWorkspaces }
@@ -246,7 +259,8 @@ struct SessionsPage: View {
                 }
 
                 ForEach(visibleWorkspaces) { workspace in
-                    let rows = pinnedFirst(management.sessions(in: workspace)).filter(matchesQuery)
+                    let defaultRows = workspace.id == defaultWorkspace?.id ? management.ungroupedSessions : []
+                    let rows = pinnedFirst(management.sessions(in: workspace) + defaultRows).filter(matchesQuery)
                     // 文件夹是一行,不是吸顶的分组标题:整行点=展开收起,⋯ 只吃它自己那 32。
                     Section {
                         workspaceRow(workspace, count: rows.count)
@@ -522,7 +536,10 @@ struct SessionsPage: View {
 
     /// 同名(或都是默认名)的会话从第二个起加序号,顺序跟列表一致。
     private func displaySessionTitle(_ session: ManagedSession) -> String {
-        let ordered = orderedWorkspaces.flatMap { management.sessions(in: $0) } + management.ungroupedSessions
+        let ordered = orderedWorkspaces.flatMap { workspace in
+            management.sessions(in: workspace)
+                + (workspace.id == defaultWorkspace?.id ? management.ungroupedSessions : [])
+        }
         var index = 0
         for candidate in ordered {
             let base = DrawerTitles.sessionTitle(candidate.title, index: 1)
