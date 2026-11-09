@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -18,6 +19,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.activity.OnBackPressedDispatcherOwner
 import androidx.activity.ComponentActivity
 import kotlinx.coroutines.CompletableDeferred
+import com.phonedsh.ui.UiStrings
 import com.phonedsh.ui.theme.PdshTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -45,8 +47,8 @@ class HomeDrawerStateTest {
             }
         }
         compose.onNodeWithTag(HomeDrawerTags.NEW_SESSION).assertIsDisplayed()
-        compose.onNodeWithTag(HomeDrawerTags.SCHEDULES).assertExists()
         compose.onNodeWithTag(HomeDrawerTags.SETTINGS).assertExists()
+        compose.onNodeWithText("定时任务").assertDoesNotExist()
         compose.onNodeWithTag(HomeDrawerTags.SCRIM).performSemanticsAction(SemanticsActions.OnClick)
         compose.runOnIdle { assertEquals(true, closed) }
     }
@@ -103,6 +105,35 @@ class HomeDrawerStateTest {
         compose.onNodeWithTag(HomeDrawerTags.SESSION_PREFIX + "s1").assertExists()
     }
 
+
+    @Test fun defaultFolderUsesPhoneWorkspaceWhenTheAppLanguageIsEnglish() {
+        val facts = HomeDrawerFacts(
+            folders = listOf(HomeDrawerFolder("daily", "日常", emptyList(), isDefault = true)),
+            languageId = "en",
+        )
+        compose.setContent {
+            PdshTheme(darkTheme = false) {
+                HomeDrawer(facts, onClose = {})
+            }
+        }
+        compose.onNodeWithTag(HomeDrawerTags.FOLDER_PREFIX + "daily")
+            .assertContentDescriptionEquals("Phone Workspace，0 个会话")
+    }
+
+    @Test fun blockedNewSessionShowsItsReasonBelowTheDisabledCapsule() {
+        val facts = HomeDrawerFacts(
+            newSessionBlockedReason = UiStrings.DRAWER_NEW_BLOCKED_TURN,
+        )
+        compose.setContent {
+            PdshTheme(darkTheme = false) {
+                HomeDrawer(facts, onClose = {}, onCreateSession = { true })
+            }
+        }
+        compose.onNodeWithTag(HomeDrawerTags.NEW_SESSION).assertIsNotEnabled()
+        compose.onNodeWithTag(HomeDrawerTags.NEW_SESSION_REASON).assertIsDisplayed()
+        compose.onNodeWithText(UiStrings.DRAWER_NEW_BLOCKED_TURN).assertIsDisplayed()
+    }
+
     @Test fun title日常DoesNotTurnACustomFolderIntoTheDefaultOrAbsorbLooseSessions() {
         val facts = HomeDrawerFacts(
             folders = listOf(
@@ -118,7 +149,7 @@ class HomeDrawerStateTest {
         compose.onNodeWithTag(HomeDrawerTags.FOLDER_PREFIX + "custom-daily")
             .assertContentDescriptionEquals("日常，0 个会话")
         compose.onNodeWithTag(HomeDrawerTags.FOLDER_PREFIX + "__unassigned__")
-            .assertContentDescriptionEquals("未分配，1 个会话")
+            .assertContentDescriptionEquals("${UiStrings.DRAWER_DEFAULT_FOLDER}，1 个会话")
         compose.onNodeWithTag(HomeDrawerTags.SESSION_PREFIX + "loose").assertIsDisplayed()
     }
 

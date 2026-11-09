@@ -105,6 +105,10 @@ final class DSHManagementModel {
     private(set) var sessions: [ManagedSession] = []
     private(set) var workspaces: [ManagedWorkspace] = []
     private(set) var workspaceOrder: [String] = []
+    /// The host's authoritative default workspace id, when `workspace/follow`
+    /// reports it. The phone still falls back to the title policy for hosts
+    /// that predate the field.
+    private(set) var defaultWorkspaceID: String?
     #if DEBUG
     /// 预览造了假数据之后,refresh() 不许把界面冲空。
     private(set) var previewDataInstalled = false
@@ -184,7 +188,13 @@ final class DSHManagementModel {
             // contract, but the wire method takes no arguments at this pin.
             let sessionValue = try await client.call("session/list", args: .object([:]))
             let deviceSessionIDs = DeviceSessionCoordinator.shared.mappedSessionIDs
-            sessions = Self.decodeSessions(sessionValue).filter { !deviceSessionIDs.contains($0.id) }
+            // Bot sessions are a private runtime domain. They are filtered at
+            // the single read point so every DSH surface that reads
+            // `sessions` (drawer, folders, synthetic group, archive, @
+            // mentions, activity headers) cannot list them by accident.
+            sessions = Self.decodeSessions(sessionValue).filter {
+                !deviceSessionIDs.contains($0.id) && !Self.isBotSessionID($0.id)
+            }
             // Optional catalog failures must not hide the valid session list.
             async let catalogResponse = try? client.call("session/modelCatalog", args: .object([:]))
             if let catalogValue = await catalogResponse {
@@ -538,7 +548,7 @@ final class DSHManagementModel {
                                    status: row["status"]?.stringValue)
             } ?? []
             scheduleRecords = (scheduleValue?.arrayValue ?? []).compactMap(Self.decodeSchedule)
-                .filter { $0.sessionID == sessionID }
+                .filter { $0.sessionID == sessionID && !Self.isBotSessionID($0.sessionID) }
             if scheduleValue == nil { activityErrors["计划任务"] = "schedule/catalog 未返回数据。" }
             if let goalValue, goalValue != .null {
                 let ref = goalValue["goal"] ?? goalValue
@@ -699,7 +709,8 @@ final class DSHManagementModel {
             let (schedulesValue, toolsValue) = await (schedulesResponse, toolsResponse)
             var failures: [String] = []
             if let schedulesValue {
-                scheduleRecords = schedulesValue.arrayValue?.compactMap(Self.decodeSchedule) ?? []
+                scheduleRecords = schedulesValue.arrayValue?.compactMap(Self.decodeSchedule)?
+                    .filter { !Self.isBotSessionID($0.sessionID) } ?? []
             } else {
                 failures.append("DSH schedule catalog is unavailable.")
             }
@@ -862,18 +873,45 @@ final class DSHManagementModel {
     }
 
     private func applyWorkspaceBaseline(_ value: JSONValue) {
+        if let id = value["defaultWorkspaceId"]?.stringValue, !id.isEmpty {
+            defaultWorkspaceID = id
+        }
         workspaces = (value["items"]?.arrayValue ?? []).compactMap(Self.decodeWorkspace)
+            .filter { !Self.isBotWorkspacePath($0) }
         workspaceOrder = workspaces.map(\.id)
         archivedIDs = Set(value["archivedSessionIds"]?.arrayValue?.compactMap(\.stringValue) ?? [])
         pinnedSessionIDs = value["pinnedSessionIds"]?.arrayValue?.compactMap(\.stringValue) ?? []
     }
 
     private func upsertWorkspace(_ workspace: ManagedWorkspace) {
+        guard !Self.isBotWorkspacePath(workspace) else {
+            workspaces.removeAll { $0.id == workspace.id }
+            workspaceOrder.removeAll { $0 == workspace.id }
+            return
+        }
         if let index = workspaces.firstIndex(where: { $0.id == workspace.id }) { workspaces[index] = workspace }
         else {
             workspaces.append(workspace)
             workspaceOrder.append(workspace.id)
         }
+    }
+
+    /// The host default is authoritative; older Workers only expose a title.
+    /// A user-renamed default folder still groups loose sessions here, but its
+    /// visible custom name is kept because the title policy only rewrites the
+    /// host's placeholder names.
+    func isDefaultWorkspace(_ workspace: ManagedWorkspace) -> Bool {
+        if let defaultWorkspaceID, defaultWorkspaceID == workspace.id { return true }
+        return DrawerTitles.isDefaultWorkspace(workspace.title)
+    }
+
+    private static func isBotSessionID(_ sessionID: String) -> Bool {
+        sessionID.hasPrefix(BotSessionRegistry.sessionIDPrefix)
+            || BotSessionRegistry.shared.isBotSession(sessionID)
+    }
+
+    private static func isBotWorkspacePath(_ workspace: ManagedWorkspace) -> Bool {
+        BotSessionRegistry.shared.isBotWorkspacePath(workspace.path)
     }
 
     private func latestActivity(in workspace: ManagedWorkspace) -> Date {
@@ -885,8 +923,9 @@ final class DSHManagementModel {
         guard let id = value["workspaceId"]?.stringValue,
               let title = value["title"]?.stringValue,
               let path = value["path"]?.stringValue else { return nil }
+        let sessionIDs = value["sessionIds"]?.arrayValue?.compactMap(\.stringValue) ?? []
         return ManagedWorkspace(id: id, title: title, path: path,
-                               sessionIDs: value["sessionIds"]?.arrayValue?.compactMap(\.stringValue) ?? [])
+                               sessionIDs: sessionIDs.filter { !isBotSessionID($0) })
     }
 
     private func setStreamError(_ error: Error) { self.error = error.localizedDescription }
