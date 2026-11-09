@@ -32,6 +32,13 @@ public data class HomeDrawerFacts(
     public val unassignedSessions: List<HomeDrawerSession>? = null,
     public val activeSessionId: String? = null,
     public val engine: HomeDrawerEngineState = HomeDrawerEngineState.UNKNOWN,
+    /**
+     * Why 新会话 is unavailable. Callers pass this only for a real running
+     * turn or background keep-alive; a session switch's transient busy state
+     * must not be reported as a reason because the reason row takes part in
+     * the drawer's list geometry (it keeps a fixed height either way, but the
+     * wording would flash).
+     */
     public val newSessionBlockedReason: String? = null,
     /** Actual session/folder snapshot failure, if the host read failed. */
     public val failure: String? = null,
@@ -42,6 +49,36 @@ public data class HomeDrawerFacts(
      */
     public val languageId: String? = null,
 )
+
+/**
+ * Keeps the drawer's first-seen session order while it is open.
+ *
+ * The host may reorder a refreshed list (for example when a switch touches a
+ * session's timestamp). Applying that order under the user's finger moves the
+ * row they just tapped, so the drawer holds the old order and appends sessions
+ * it has not seen before. The first result is the stable order to render; the
+ * second is the hold to keep for the next walk. Both are pure so the policy is
+ * testable without a rendered drawer.
+ */
+internal fun homeDrawerStableSessionOrder(
+    held: List<String>,
+    current: List<String>,
+): Pair<List<String>, List<String>> {
+    val distinctCurrent = current.distinct()
+    if (held.isEmpty()) return distinctCurrent to distinctCurrent
+    val known = held.toSet()
+    val nextHeld = held + distinctCurrent.filterNot { it in known }
+    val rank = nextHeld.withIndex().associate { (index, id) -> id to index }
+    return distinctCurrent.sortedBy { rank[it] ?: Int.MAX_VALUE } to nextHeld
+}
+
+/** Sorts session rows by the held order. Unknown rows keep the host's list tail. */
+internal fun homeDrawerSessionsInHeldOrder(
+    sessions: List<HomeDrawerSession>,
+    rank: Map<String, Int>,
+): List<HomeDrawerSession> =
+    if (rank.isEmpty()) sessions
+    else sessions.sortedBy { rank[it.id] ?: Int.MAX_VALUE }
 
 /** Drawer copy follows the same explicit language id as the settings pages. */
 internal fun drawerNativeText(languageId: String?, chinese: String, english: String): String =

@@ -1395,6 +1395,16 @@ internal fun HostShell(
                         state == EngineHostState.Stopped -> if (providerConfigured) HomeDrawerEngineState.STOPPED else HomeDrawerEngineState.CONFIGURATION_REQUIRED
                         else -> HomeDrawerEngineState.UNKNOWN
                     },
+                    // A session switch is not a reason: Android closes the
+                    // drawer as soon as the tap starts, and chatUi.running is
+                    // the real turn fact. Only a stopped engine or a genuinely
+                    // running turn supplies the line; the drawer keeps a fixed
+                    // height for it either way.
+                    newSessionBlockedReason = when {
+                        state !is EngineHostState.Running -> UiStrings.SESSIONS_NEW_BLOCKED_ENGINE
+                        chatUi.running -> UiStrings.DRAWER_NEW_BLOCKED_TURN
+                        else -> null
+                    },
                     failure = drawerSnapshotFailure,
                 )
                 val legacyCollapsed = remember(preferences.collapsedWorkspaceFolders) {
