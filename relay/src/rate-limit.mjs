@@ -12,11 +12,12 @@ function retryAfterMs(ratePerSecond, missingTokens) {
 }
 
 export class TokenBucket {
-  constructor({ ratePerSecond, burst, now = performance.now() }) {
+  constructor({ ratePerSecond, burst, overdraftSingleFrame = false, now = performance.now() }) {
     if (!Number.isFinite(ratePerSecond) || ratePerSecond <= 0) throw new Error('token bucket rate must be positive')
     if (!Number.isFinite(burst) || burst <= 0) throw new Error('token bucket burst must be positive')
     this.ratePerSecond = ratePerSecond
     this.burst = burst
+    this.overdraftSingleFrame = overdraftSingleFrame
     this.tokens = burst
     this.lastRefill = now
     this.lastUsed = now
@@ -33,12 +34,24 @@ export class TokenBucket {
   check(cost, now = performance.now()) {
     this.refill(now)
     if (cost <= this.tokens + 1e-9) return { ok: true, retryAfterMs: 0 }
-    return { ok: false, retryAfterMs: retryAfterMs(this.ratePerSecond, cost - this.tokens) }
+    if (this.overdraftSingleFrame && cost > this.burst && this.tokens >= this.burst - 1e-9) {
+      // A single frame larger than the steady-state burst is allowed from a
+      // full bucket.  The balance goes negative and refills at the configured
+      // rate, so a repeated oversized frame is still rate-limited.
+      return { ok: true, retryAfterMs: 0, overdraft: true }
+    }
+    // With overdraft enabled, a large frame must wait for the bucket to be
+    // full (not for the full frame cost) because the overdraft is absolute.
+    const required = this.overdraftSingleFrame && cost > this.burst ? this.burst : cost
+    return { ok: false, retryAfterMs: retryAfterMs(this.ratePerSecond, required - this.tokens) }
   }
 
   consume(cost, now = performance.now()) {
     this.refill(now)
-    this.tokens = Math.max(0, this.tokens - cost)
+    // No floor: an allowed single-frame overdraft must leave a debt that the
+    // next refill pays back.  check()/take() only consume an approved cost, so
+    // the ordinary path never goes below zero.
+    this.tokens -= cost
   }
 
   take(cost, now = performance.now()) {
@@ -53,9 +66,11 @@ export function perMinuteBucket(perMinute, burst = perMinute) {
 }
 
 export class DailyBytes {
-  constructor(limitBytes) {
+  constructor(limitBytes, maxEntries = 100_000) {
     if (!Number.isFinite(limitBytes) || limitBytes <= 0) throw new Error('daily byte limit must be positive')
+    if (!Number.isInteger(maxEntries) || maxEntries <= 0) throw new Error('daily byte machine cap must be a positive integer')
     this.limitBytes = limitBytes
+    this.maxEntries = maxEntries
     this.entries = new Map()
   }
 
@@ -72,12 +87,19 @@ export class DailyBytes {
   entry(machineId, nowMs) {
     const day = DailyBytes.dayKey(nowMs)
     const current = this.entries.get(machineId)
-    if (current === undefined || current.day !== day) {
-      const fresh = { day, bytes: 0 }
-      this.entries.set(machineId, fresh)
-      return fresh
+    if (current !== undefined && current.day === day) return current
+    // Bound the in-memory map within one UTC day.  Evicting the oldest counter
+    // is deliberate: the daily quota is best-effort, and the map must not grow
+    // with attacker-chosen identities (contract §3.5).  Replacing an existing
+    // machineId's stale entry does not grow the map, so no eviction is needed
+    // in that case.
+    if (current === undefined && this.entries.size >= this.maxEntries) {
+      const oldest = this.entries.keys().next().value
+      if (oldest !== undefined) this.entries.delete(oldest)
     }
-    return current
+    const fresh = { day, bytes: 0 }
+    this.entries.set(machineId, fresh)
+    return fresh
   }
 
   check(machineId, bytes, nowMs = Date.now()) {

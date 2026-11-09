@@ -1,10 +1,10 @@
 # PCLink v1 public relay (P28, B stage)
 
 This directory is the self-contained PCLink relay plane. It implements
-`spec/pclink/v1/README.md@pclink-v1.2` §3 and the relay side of the §4.3 pairing
-rendezvous. It does **not** implement, inspect or decrypt the end-to-end
-protocol: `e2e.body` and `relay.pair.message.payload` are opaque to this
-process.
+`spec/pclink/v1/README.md` §3 (including the `pclink-v1.4` clarifications in
+§3.4/§3.5) and the relay side of the §4.3 pairing rendezvous. It does **not**
+implement, inspect or decrypt the end-to-end protocol: `e2e.body` and
+`relay.pair.message.payload` are opaque to this process.
 
 - Runtime: Node.js ≥ 20, one dependency (`ws` pinned to exactly `8.21.3`).
 - State: memory only. No database, volume, queue, log file or other disk write.
@@ -14,9 +14,9 @@ process.
 - Contract authority: [`../spec/pclink/v1/README.md`](../spec/pclink/v1/README.md)
   and the change record
   [`../docs/protocol-changes/PC-20261109-pclink-v1.md`](../docs/protocol-changes/PC-20261109-pclink-v1.md)
-  §4.1. This is the B-stage implementation against `pclink-v1.2`; P28 stays
-  `target` until the integrator has the real relay/WSS, PC and iPhone runtime
-  evidence described in the change record.
+  §4.1. This is the B-stage implementation against the `pclink-v1.4`
+  §3.4/§3.5 clarification; P28 stays `target` until the integrator has the real
+  relay/WSS, PC and iPhone runtime evidence described in the change record.
 
 ## What it does
 
@@ -45,14 +45,19 @@ process.
   `peer_offline` close on participant disconnect. The rendezvous is an opaque
   22-character key; it is never decoded, inspected or logged.
 - `relay.ping`/`relay.pong` every 20–30 seconds, close after two unanswered
-  pings, and a 10-minute phone idle close (`session_expired`/4004). The PC is
-  not idle-closed by the relay.
-- The §3.5 limits: per-IP connections (IPv6 /64), per-machineId-pair bandwidth
-  and burst, 16 MiB frame cap, per-machineId UTC-day bytes, unauthenticated
-  timeout, handshake buckets, join rate and rendezvous attempts.
-- Metadata-only stdout logs: timestamp, event, hashed machineId/IP prefix,
-  frame type/length and error code. No body, payload, rendezvous, pairing code,
-  nonce, signature or token.
+  pings, and a 10-minute phone idle close (`session_expired`/4004). A business
+  frame forwarded to or from the phone resets the idle timer. The PC is not
+  idle-closed by the relay.
+- The §3.5 limits: per-IP connections (IPv6 /64, released only on the real
+  socket close), per-machineId-pair bandwidth and burst with single-frame token
+  overdraft, 16 MiB authenticated frame cap, 4 KiB pre-auth frame cap before
+  JSON parsing, 24 MiB outbound buffer cap per target connection (drop the
+  frame and return `rate_limited`, never queue it), per-machineId UTC-day
+  bytes with a 100,000-counter cap, unauthenticated timeout, handshake buckets,
+  join rate and rendezvous attempts.
+- Metadata-only stdout logs: timestamp, event, hashed machineId prefix,
+  source-IP HMAC prefix, frame type/length and error code. No body, payload,
+  rendezvous, pairing code, nonce, signature or token.
 
 `relay.redirect` is reserved by the contract. The relay never sends it and
 rejects it from clients; clients ignore it if another implementation sends it.
@@ -92,9 +97,12 @@ public relay should keep the contract defaults.
 | `PCLINK_PUBLIC_ORIGIN` | **required** | Public `https://` origin (or loopback `http://` for tests). Sent in `relay.challenge.relay`. |
 | `PCLINK_MAX_CONNECTIONS_PER_IP` | 20 | Active connections per source IP; IPv6 is aggregated by /64. |
 | `PCLINK_PAIR_RATE_BYTES_PER_SEC` | 1048576 | Token-bucket rate for bytes forwarded between one unordered machineId pair (1 MiB/s). |
-| `PCLINK_PAIR_BURST_BYTES` | 4194304 | Burst size for the same pair bucket (4 MiB). |
-| `PCLINK_MAX_FRAME_BYTES` | 16777216 | Maximum client frame; values above 16 MiB refuse startup. |
+| `PCLINK_PAIR_BURST_BYTES` | 4194304 | Burst size for the same pair bucket (4 MiB). A single larger frame may overdraw a full bucket; the debt refills at the rate. |
+| `PCLINK_MAX_FRAME_BYTES` | 16777216 | Maximum authenticated client frame; values above 16 MiB refuse startup. |
+| `PCLINK_UNAUTHENTICATED_MAX_FRAME_BYTES` | 4096 | Maximum frame before `relay.ready`, checked before JSON parsing. Must be ≤ `PCLINK_MAX_FRAME_BYTES`. |
+| `PCLINK_MAX_BUFFERED_BYTES_PER_CONNECTION` | 25165824 | Per-target outbound-buffer cap (24 MiB). A frame that would exceed it is dropped with `rate_limited`; the target stays and nothing is queued. |
 | `PCLINK_DAILY_BYTES_PER_MACHINE` | 2147483648 | UTC-day forwarded bytes per machineId (2 GiB); memory-only and reset by restart. |
+| `PCLINK_DAILY_BYTES_MAX_MACHINES` | 100000 | Maximum daily byte counters per day; a new machineId at the cap evicts the oldest counter (best-effort quota). |
 | `PCLINK_PAIR_JOINS_PER_IP_PER_MINUTE` | 5 | Pairing joins per source IP (/64 for IPv6). |
 | `PCLINK_PAIR_ATTEMPTS_PER_RENDEZVOUS` | 10 | Total join attempts per rendezvous; the next is `rendezvous_exhausted`. |
 | `PCLINK_PAIR_RENDEZVOUS_TTL_SECONDS` | 300 | Absolute rendezvous lifetime. |
@@ -158,10 +166,12 @@ The container does not need outbound network access.
   key mapping, pairing payload objects (the contract treats their keys, names
   and MACs as relay-visible; the relay does not inspect or log their fields) and
   timing. PCLink v1 does not provide identity hiding.
-- **Logs.** Runtime logs go to stdout only. machineIds and source IPs appear
-  only as short SHA-256 prefixes; frame type/length and error code are logged.
-  Bodies, payloads, rendezvous values, pairing codes, nonces, signatures and
-  tokens are not logged. Set your platform's log retention to 7 days or less.
+- **Logs.** Runtime logs go to stdout only. machineIds appear only as short
+  SHA-256 prefixes and source IPs only as a prefix of an HMAC-SHA-256 keyed by a
+  random salt generated at process start (never persisted, changes on restart);
+  frame type/length and error code are logged. Bodies, payloads, rendezvous
+  values, pairing codes, nonces, signatures and tokens are not logged. Set your
+  platform's log retention to 7 days or less.
 - **Restart.** All allowlists, rendezvous, counters and quotas are in memory
   and disappear on restart. A daily quota is best-effort across restarts.
 - **No store-and-forward.** A message for an offline peer produces
@@ -191,10 +201,12 @@ npm test
 The suite uses Node's built-in `node:test` and covers authentication and
 origin binding, replacement/role conflict, routing and the target-PC allowlist,
 `relay.offline`, pair rendezvous expiry/single-success/join attempts/slot caps,
-per-IP (including IPv6 /64 and trusted `X-Forwarded-For`), per-pair bandwidth,
-daily byte and handshake buckets, heartbeats, phone idle close, restart
-re-authentication, static and runtime no-filesystem-write assertions, and
-metadata-only logging.
+per-IP (including IPv6 /64, trusted `X-Forwarded-For` and close-time release),
+per-pair bandwidth with single-frame overdraft, daily byte and handshake
+buckets, slow-receiver backpressure, the pre-auth frame cap, heartbeats, phone
+idle close in both directions, restart re-authentication, parser heap bounds,
+static and runtime no-filesystem-write assertions, and metadata-only
+(source-IP HMAC) logging.
 
 The tests drive the real relay parser/auth/base32/machineId code with the shared
 fixtures:

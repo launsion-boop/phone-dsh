@@ -2,10 +2,12 @@
 
 Status: `target` — frozen contract; the B relay is implemented in this branch,
 but P28 stays `target` until the C/D ends and the runtime evidence exist.
-Revision label `pclink-v1.3` (the CCR revision after `pclink-v1.2`; see the
-change record's revision log). The change record is
+Revision label `pclink-v1.4` (the relay §3.4/§3.5 clarification after
+`pclink-v1.3`; see the change record's revision log). The golden fixture
+revision stays `pclink-v1.3` because no frame, schema or vector byte changed in
+`pclink-v1.4`. The change record is
 [PC-20261109-pclink-v1](../../../docs/protocol-changes/PC-20261109-pclink-v1.md);
-its `contract_revision` is `spec/pclink/v1/README.md@pclink-v1.3`.
+its `contract_revision` is `spec/pclink/v1/README.md@pclink-v1.4`.
 
 PCLink is the pair of a relay plane and an end-to-end plane between one iPhone
 and one PC running `dsh web` through a PC plugin. It is **not** the DSH Remote
@@ -479,10 +481,14 @@ and a client MAY close without a frame. Pongs for an unknown/old nonce are
 ignored. Timers use a monotonic clock and are not extended by traffic.
 
 The relay closes a phone connection that has carried no authenticated
-**business** frame (anything except `relay.ping`/`relay.pong`) for 10 minutes:
-it sends `relay.error{code:"session_expired"}` and closes 4004. The phone
-reconnects on demand and establishes a new end-to-end session; there is no
-application keepalive in v1. The PC connection is not idle-closed by this rule.
+**business** frame (anything except `relay.ping`/`relay.pong`) in **either
+direction** for 10 minutes: it sends `relay.error{code:"session_expired"}` and
+closes 4004. A business frame forwarded **to** the phone (`e2e`,
+`e2e.handshake` or `relay.pair.message`) resets the timer exactly like one sent
+by it, so a phone that is only receiving from its PC is not idle-closed. (This
+direction rule is the `pclink-v1.4` clarification.) The phone reconnects on
+demand and establishes a new end-to-end session; there is no application
+keepalive in v1. The PC connection is not idle-closed by this rule.
 
 The PC cannot observe the phone's relay connection directly; it only sees the
 E2E frames that arrive. The PC therefore applies its own E2E idle timeout: if
@@ -501,12 +507,19 @@ policy (`bad_frame`), 1009 frame too large, 4001 `replaced`, 4002 `auth_failed`,
 
 ### 3.5 Limits (relay defaults; environment-tunable)
 
+No limit below introduces a queue: an offline target gets `relay.offline`, and
+a frame dropped by the pair, daily, or slow-receiver limit is not retained for
+later delivery.
+
 | Limit | Default | Enforcement |
 | --- | --- | --- |
-| connections per source IP | 20 | reject/close with `relay.error{code:"rate_limited"}` before auth; IPv6 counts aggregate by /64 (§ below) |
-| bytes per unordered machineId pair | 1 MiB/s, burst 4 MiB | token bucket over all forwarded frames; excess frame dropped and `relay.error{code:"rate_limited",retryAfterMs}` sent to the sender; connection stays |
+| connections per source IP | 20 | reject/close with `relay.error{code:"rate_limited"}` before auth; IPv6 counts aggregate by /64 (§ below). The slot is released when the socket's `close` event fires, not when the relay starts its closing handshake (the handshake can take up to 30 s). |
+| bytes per unordered machineId pair | 1 MiB/s, burst 4 MiB | token bucket over all forwarded frames; excess frame dropped and `relay.error{code:"rate_limited",retryAfterMs}` sent to the sender; connection stays. A single frame larger than the burst (up to the 16 MiB frame cap; §6.1's 8 MiB plaintext value can encode to more than 4 MiB on the wire) is forwarded when the bucket is full by **overdrawing** tokens: the balance goes negative and refills at the configured rate, so repeated oversized frames are still limited and none is queued. |
+| bytes per unauthenticated frame | 4 KiB | before `relay.ready` the relay checks the frame length before UTF-8 decoding and JSON parsing; a larger frame is `frame_too_large` and close 1009. After `relay.ready` the 16 MiB single-frame cap applies. The pre-auth cap MUST be at most the frame cap. |
 | single forwarded frame | 16 MiB | `frame_too_large` and close 1009 |
+| buffered bytes per target connection | 24 MiB | checked as the target WebSocket `bufferedAmount` plus the incoming frame length before forwarding; if that would exceed the cap the frame is dropped, the sender receives `relay.error{code:"rate_limited",retryAfterMs}`, and the target connection stays. The relay keeps no application queue and never adds a frame that would exceed this cap (the §3.3 "never queues" rule); the sender retries after the receiver drains. |
 | bytes per machineId per UTC day | 2 GiB | counter in memory; excess frame dropped and `rate_limited`/`retryAfterMs`; connection stays |
+| machineId counters per UTC day | 100,000 | the in-memory daily byte map is capped; at the cap a new machineId evicts the oldest counter (FIFO), so the daily quota is best-effort. |
 | open pairing slots per relay connection | 2 | `rendezvous_exhausted`/`bad_frame`; v1 opens exactly one slot per pairing (§4.3) |
 | `e2e.handshake` frames per source machineId | 30/minute, burst 10 | separate token bucket for the allowlist bypass; excess frame dropped and `relay.error{code:"rate_limited",retryAfterMs}` to the sender; connection stays |
 | `e2e.handshake` frames per target machineId | 300/minute, burst 100 | separate bucket so a PC cannot be flooded through the bypass; excess dropped + `rate_limited` to the sender |
@@ -517,20 +530,25 @@ policy (`bad_frame`), 1009 frame too large, 4001 `replaced`, 4002 `auth_failed`,
 
 The relay reads these from `PCLINK_MAX_CONNECTIONS_PER_IP`,
 `PCLINK_PAIR_RATE_BYTES_PER_SEC`, `PCLINK_PAIR_BURST_BYTES`,
-`PCLINK_MAX_FRAME_BYTES`, `PCLINK_DAILY_BYTES_PER_MACHINE`,
-`PCLINK_PAIR_JOINS_PER_IP_PER_MINUTE`, `PCLINK_PAIR_ATTEMPTS_PER_RENDEZVOUS`,
+`PCLINK_MAX_FRAME_BYTES`, `PCLINK_UNAUTHENTICATED_MAX_FRAME_BYTES`,
+`PCLINK_MAX_BUFFERED_BYTES_PER_CONNECTION`, `PCLINK_DAILY_BYTES_PER_MACHINE`,
+`PCLINK_DAILY_BYTES_MAX_MACHINES`, `PCLINK_PAIR_JOINS_PER_IP_PER_MINUTE`,
+`PCLINK_PAIR_ATTEMPTS_PER_RENDEZVOUS`,
 `PCLINK_PAIR_RENDEZVOUS_TTL_SECONDS`, `PCLINK_MAX_PAIR_SLOTS_PER_CONNECTION`,
 `PCLINK_HANDSHAKE_FRAMES_PER_SOURCE_PER_MINUTE`,
 `PCLINK_HANDSHAKE_FRAMES_PER_TARGET_PER_MINUTE` and `PCLINK_PUBLIC_ORIGIN`. It
-MUST refuse to start with a frame cap above 16 MiB. For every per-IP limit, an
-IPv6 source is counted by its /64 prefix (mask the low 64 bits), so a single
-subscriber cannot rotate addresses within its /64 to multiply a limit; IPv4
-uses the exact address. Counters and allowlists are in memory only; a relay
-restart clears them (a daily quota is therefore best-effort across restarts).
-The relay has no database, no volume and no persistent queue. It logs only
-metadata (timestamp, event, short machineId hash prefix, frame type/length,
-error code), never `body`, pairing codes, secrets or tokens; retention is 7
-days or less.
+MUST refuse to start with a frame cap above 16 MiB or with the unauthenticated
+cap above the frame cap. For every per-IP limit, an IPv6 source is counted by
+its /64 prefix (mask the low 64 bits), so a single subscriber cannot rotate
+addresses within its /64 to multiply a limit; IPv4 uses the exact address.
+Counters and allowlists are in memory only; a relay restart clears them (a
+daily quota is therefore best-effort across restarts). The relay has no
+database, no volume and no persistent queue. It logs only metadata (timestamp,
+event, short machineId hash prefix, frame type/length, error code), never
+`body`, pairing codes, secrets or tokens; a source IP appears only as a
+prefix of an HMAC-SHA-256 with a random salt generated at process start, which
+is never persisted and changes on restart, so the log cannot be brute-forced
+back to an IPv4 address. Retention is 7 days or less.
 
 ### 3.6 `relay.redirect` (reserved)
 
@@ -1818,7 +1836,7 @@ does not prompt for a DSH cookie.
 
 ## 11. Compatibility and versioning
 
-PCLink v1 is the first PCLink version; `pclink-v1.3` is the current revised
+PCLink v1 is the first PCLink version; `pclink-v1.4` is the current revised
 freeze before any implementation is accepted as conformant. There is no old
 PCLink implementation or persisted PCLink data to interoperate with; the pair
 records, `pairs.log`, identity files and admin token are new. The unfrozen
