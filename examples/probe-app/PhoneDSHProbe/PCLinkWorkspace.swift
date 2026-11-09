@@ -140,12 +140,11 @@ final class PCLinkWorkspace {
     var isOnline: Bool { status.record != nil && connection.isOnline }
     var isUnpaired: Bool { status.record == nil }
 
-    /// DSH version of the paired PC. The frozen client only exposes the
-    /// version when it is outside the tested range; in range the exact value is
-    /// not part of `PCLinkClientStatus` (CCR in the D2 change record). The
-    /// page shows the tested-range explanation in that case instead of
-    /// inventing a version.
-    var pcDSHVersion: String? { status.versionWarning?.dshVersion }
+    /// DSH version of the paired PC from the verified `peer.hello` (CCR-2).
+    /// `versionWarning` stays the UI banner for out-of-range versions.
+    var pcDSHVersion: String? { status.peerDshVersion ?? status.versionWarning?.dshVersion }
+    var pcAppName: String? { status.peerAppName }
+    var pcAppVersion: String? { status.peerAppVersion }
 
     func startAtLaunch() async {
         guard !started else { return }

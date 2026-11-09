@@ -181,9 +181,14 @@ forwards unary calls through `createSharedFetchHandler('/api')` with
 Streams use `typertGateway.wireStream.open` with an empty uplink; cancel aborts
 the controller and waits for `iterator.return()` before `rpc.stream.end`.
 `task.*`/`call.*` receive the `unavailable` error. 1 MiB items are chunked; a
-value/result over 8 MiB becomes `frame_too_large`. Relay reconnects use
-0.5 s → 30 s backoff with ±20 % jitter, reset after 60 s healthy; replacement
-waits at least 30 s. The PC E2E idle timeout is 15 minutes.
+value/result over 8 MiB becomes `frame_too_large`. Every `ok:true` unary result
+carries `result`; a DSH endpoint with no return value is sent as `result:null`
+(§6.1). Both the inner encoder and the unary-result encoder validate the exact
+serialized frame, so an illegal `rpc.result` is refused before sealing. Relay
+reconnects use 0.5 s → 30 s backoff with ±20 % jitter, reset after 60 s healthy;
+replacement waits at least 30 s. Every failed connection attempt (error without
+close, non-101 upgrade, connect timeout, heartbeat timeout, close) enters that
+schedule. The PC E2E idle timeout is 15 minutes.
 
 ## JSON NUL boundary (pending v1.3 CCR)
 
@@ -205,7 +210,11 @@ npm test
 `npm test` runs 80+ `node:test` cases: the full golden vector document and every
 invalid crypto/model row through the real codecs/state machines, every schema
 sample through the shared validator, plugin pairing/admin/unpair/fail-closed
-tests, CLI TTY/install planning, and a real-DSH integration.
+tests, CLI TTY/install planning, a real-DSH integration, and a real-relay
+restart regression. `test/relay-restart.test.mjs` imports `relay/src/server.mjs`
+itself (not the test double), authenticates the real `RelayLink`, closes the
+relay, starts a fresh one on the same origin/port, and asserts a new
+`peer.auth` plus a re-sent `relay.allow` inside the §10 backoff ceiling.
 
 The integration test needs the pinned checkout (default
 `/private/tmp/dsh-0.2.2`, override `DSH_PIN_ROOT`) and

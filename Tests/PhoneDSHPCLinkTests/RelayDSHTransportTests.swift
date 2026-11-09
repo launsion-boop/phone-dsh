@@ -184,6 +184,23 @@ final class RelayDSHTransportTests: XCTestCase {
         await mux.close()
     }
 
+    func testPeerHelloExposesDshAndAppMetadataInRange() async throws {
+        let fixture = try await PCLinkTestFixture.make()
+        try await fixture.client.connectAndWait()
+        let status = await fixture.client.status()
+        XCTAssertNil(status.versionWarning)
+        XCTAssertEqual(status.peerDshVersion, "0.2.2-rc.1")
+        XCTAssertEqual(status.peerAppName, "dsh-pclink")
+        XCTAssertEqual(status.peerAppVersion, "0.1.0")
+        // The same verified metadata survives an ordinary status read while the
+        // session stays usable (the App's connected-computer page reads it).
+        let value = try await fixture.transport.call("session/list",
+                                                     args: .object(["_request": .object([:])]))
+        XCTAssertNotNil(value.objectValue)
+        let afterCall = await fixture.client.status()
+        XCTAssertEqual(afterCall.peerDshVersion, "0.2.2-rc.1")
+    }
+
     func testOutOfRangeDSHVersionIsOnlyAWarning() async throws {
         let fixture = try await PCLinkTestFixture.make { server in
             await server.setDSHVersion("0.3.0")
@@ -191,6 +208,9 @@ final class RelayDSHTransportTests: XCTestCase {
         try await fixture.client.connectAndWait()
         let status = await fixture.client.status()
         XCTAssertEqual(status.versionWarning?.dshVersion, "0.3.0")
+        XCTAssertEqual(status.peerDshVersion, "0.3.0")
+        XCTAssertEqual(status.peerAppName, "dsh-pclink")
+        XCTAssertEqual(status.peerAppVersion, "0.1.0")
         if case .versionWarning(let warning) = status.state {
             XCTAssertEqual(warning.dshVersion, "0.3.0")
         } else {

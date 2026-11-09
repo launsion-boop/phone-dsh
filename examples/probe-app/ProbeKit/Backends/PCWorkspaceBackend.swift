@@ -27,6 +27,7 @@ public protocol PCLinkClientProtocol: Sendable {
     func status() async -> PCLinkClientStatus
     func stateStream() async -> AsyncStream<PCLinkClientState>
     func noticeStream() async -> AsyncStream<PCLinkNotice>
+    func pairingUpdates() async -> AsyncStream<PCLinkPairingUpdate>
 
     func start() async throws
     func stop() async
@@ -225,6 +226,7 @@ public enum PCPairingPageState: Equatable, Sendable {
 public final class PCPairingFlow {
     public private(set) var state: PCPairingPageState = .idle
     public let client: any PCLinkClientProtocol
+    @ObservationIgnored private var updateTask: Task<Void, Never>?
 
     public init(client: any PCLinkClientProtocol) {
         self.client = client
@@ -236,6 +238,7 @@ public final class PCPairingFlow {
         do {
             let prompt = try await client.startPairing(qrURI: trimmed(qrURI))
             state = .awaitingApproval(prompt)
+            observePairingUpdates()
         } catch {
             state = .failed(Self.message(for: error))
         }
@@ -248,6 +251,7 @@ public final class PCPairingFlow {
             let prompt = try await client.startManualPairing(
                 code: code, relayOrigin: relayOrigin, pcName: nil)
             state = .awaitingApproval(prompt)
+            observePairingUpdates()
         } catch {
             state = .failed(Self.message(for: error))
         }
@@ -260,19 +264,64 @@ public final class PCPairingFlow {
         state = .confirming
         do {
             let record = try await client.confirmPairingApproval(prompt.id)
-            state = .paired(record)
+            finish(record)
         } catch {
             state = .failed(Self.message(for: error))
+            stopObserving()
         }
     }
 
     public func cancel() async {
+        stopObserving()
         await client.cancelPairing()
         state = .idle
     }
 
     public func reset() {
+        stopObserving()
         state = .idle
+    }
+
+    /// Completion is driven by the client's pairing stream, not by a second
+    /// button press: after the PC approval arrives as `pair.confirm`, the
+    /// client emits `.completed` and the page moves to `.paired` even while a
+    /// pending `confirm()` call is still returning. The approval button stays
+    /// as the explicit consent / timeout retry entry.
+    private func observePairingUpdates() {
+        stopObserving()
+        updateTask = Task { [weak self] in
+            guard let self else { return }
+            let updates = await client.pairingUpdates()
+            for await update in updates {
+                guard !Task.isCancelled else { return }
+                switch update {
+                case .completed(let record):
+                    finish(record)
+                    return
+                case .failed(let error):
+                    switch state {
+                    case .awaitingApproval, .confirming:
+                        state = .failed(Self.message(for: error))
+                        return
+                    default:
+                        return
+                    }
+                case .awaitingApproval:
+                    continue
+                }
+            }
+        }
+    }
+
+    private func finish(_ record: PCLinkPairingRecord) {
+        stopObserving()
+        if case .paired = state { return }
+        state = .paired(record)
+    }
+
+    private func stopObserving() {
+        updateTask?.cancel()
+        updateTask = nil
     }
 
     /// The client owns the timeout/rejection clock. When it has left pairing
@@ -282,20 +331,23 @@ public final class PCPairingFlow {
         guard case .awaitingApproval(let prompt) = state else { return }
         if let current = status.pairingPrompt, current.id == prompt.id { return }
         if status.pcUnpairedPrompt != nil {
+            stopObserving()
             state = .failed(PCLinkPCUnpairedPrompt.text)
             return
         }
         switch status.state {
         case .offline(.unpairedPrompt):
+            stopObserving()
             state = .failed(PCLinkPCUnpairedPrompt.text)
             return
         case .online, .versionWarning:
             // Confirmation completed elsewhere and the record is in place.
-            if let record = status.record { state = .paired(record) }
+            if let record = status.record { finish(record) }
         case .unpaired:
             // A destroyed/timed-out/refused slot lands here. The authenticated
             // unpaired prompt is not a pairing result: the record is the old
             // one and must only be removed after the user confirms the alert.
+            stopObserving()
             state = .failed(status.lastError.map(Self.message(for:))
                 ?? "配对已取消或超时，请重新开始。")
         case .offline, .pairing, .connecting:

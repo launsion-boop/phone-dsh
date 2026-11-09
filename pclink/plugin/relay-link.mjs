@@ -47,6 +47,8 @@ export class RelayLink {
    *   heartbeatBaseMs?: number,
    *   retryStableMs?: number,
    *   maxUnansweredPings?: number,
+   *   connectTimeoutMs?: number,
+   *   errorGraceMs?: number,
    * }} options Dependencies and limits.
    */
   constructor(options) {
@@ -63,6 +65,12 @@ export class RelayLink {
     this.heartbeatBaseMs = options.heartbeatBaseMs
     this.retryStableMs = options.retryStableMs ?? RETRY_STABLE_MS
     this.maxUnansweredPings = options.maxUnansweredPings ?? MAX_UNANSWERED_PINGS
+    // A TCP/TLS/upgrade attempt that never reaches `relay.ready` still has to
+    // enter the reconnect schedule (CCR-3).
+    this.connectTimeoutMs = options.connectTimeoutMs ?? 15_000
+    // Runtimes normally emit `close` after `error`, but an upgrade failure can
+    // surface only the `error` event; wait this long for the normal close.
+    this.errorGraceMs = options.errorGraceMs ?? 250
     this.state = 'offline'
     this.socket = undefined
     this.phase = 'idle'
@@ -71,6 +79,8 @@ export class RelayLink {
     this.reconnectTimer = undefined
     this.heartbeatTimer = undefined
     this.stableTimer = undefined
+    this.connectTimer = undefined
+    this.errorGraceTimer = undefined
     this.outstandingPings = []
     this.connectedAt = undefined
     this.lastError = undefined
@@ -104,6 +114,7 @@ export class RelayLink {
   restart() {
     this.stop()
     this.attempt = 0
+    this.replaced = false
     this.start()
   }
 
@@ -126,6 +137,7 @@ export class RelayLink {
       this.scheduleReconnect(true)
       return
     }
+    this.clearConnectionTimers()
     this.setState('connecting')
     let socket
     try {
@@ -139,6 +151,16 @@ export class RelayLink {
     this.phase = 'awaitingChallenge'
     this.challenge = undefined
     this.outstandingPings = []
+    // Every attempt, including a hung TCP/TLS/upgrade, is bounded. The timer is
+    // cleared on `relay.ready` or on any disconnect; the failure path below
+    // always schedules the next backoff attempt (CCR-3).
+    this.connectTimer = this.timers.setTimeout(() => {
+      this.connectTimer = undefined
+      if (this.socket !== socket || this.phase === 'ready' || this.stopping) return
+      this.log(`relay connect timed out after ${String(this.connectTimeoutMs)}ms`)
+      this.disconnectSocket(socket, { detail: 'relay connect timeout', closeSocket: true })
+    }, this.connectTimeoutMs)
+    this.connectTimer?.unref?.()
     socket.addEventListener('open', () => {
       if (this.socket !== socket) return
       this.log('relay socket open; waiting for challenge')
@@ -148,23 +170,57 @@ export class RelayLink {
       this.handleText(typeof event.data === 'string' ? event.data : Buffer.from(event.data).toString('utf8'))
     })
     socket.addEventListener('close', (event) => {
-      if (this.socket !== socket) return
-      this.socket = undefined
-      this.phase = 'idle'
-      this.clearConnectionTimers()
-      if (this.stopping) {
-        this.setState('offline')
-        return
-      }
-      const replaced = this.replaced || event.code === 4001
-      this.setState('offline', `relay closed code=${String(event.code)}`)
-      this.log(`relay closed code=${String(event.code)} reason=${String(event.reason ?? '')}`)
-      this.scheduleReconnect(replaced)
+      this.disconnectSocket(socket, {
+        detail: `relay closed code=${String(event.code)}`,
+        replaced: event.code === 4001,
+        logReason: String(event.reason ?? ''),
+      })
     })
     socket.addEventListener('error', (event) => {
       if (this.socket !== socket) return
-      this.log(`relay socket error: ${String(event.error?.message ?? event.type)}`)
+      const detail = `relay socket error: ${String(event.error?.message ?? event.type)}`
+      this.log(detail)
+      this.lastError = detail
+      // Normally `close` follows immediately and clears this grace timer. If the
+      // runtime only reports `error` (e.g. a non-101 upgrade during a relay
+      // restart), take the connection down and reconnect instead of stopping.
+      if (this.errorGraceTimer !== undefined) return
+      this.errorGraceTimer = this.timers.setTimeout(() => {
+        this.errorGraceTimer = undefined
+        if (this.socket !== socket || this.stopping) return
+        this.log('relay socket error without close; reconnecting')
+        this.disconnectSocket(socket, { detail, closeSocket: true })
+      }, this.errorGraceMs)
+      this.errorGraceTimer?.unref?.()
     })
+  }
+
+  /**
+   * Detach one socket and enter the reconnect schedule. Idempotent: the first
+   * caller (close, error grace, connect timeout, heartbeat, protocol failure)
+   * wins; later events for the same socket are ignored.
+   * @param {WebSocket} socket Socket that failed.
+   * @param {{detail: string, replaced?: boolean, closeSocket?: boolean, closeCode?: number, closeReason?: string, logReason?: string}} options Failure facts.
+   * @returns {boolean} true when this call detached the socket.
+   */
+  disconnectSocket(socket, options) {
+    if (this.socket !== socket) return false
+    this.socket = undefined
+    this.phase = 'idle'
+    this.clearConnectionTimers()
+    if (this.stopping) {
+      this.setState('offline', options.detail)
+      return true
+    }
+    const replaced = options.replaced === true || this.replaced === true
+    this.replaced = replaced
+    this.setState('offline', options.detail)
+    this.log(options.logReason === undefined ? options.detail : `${options.detail} reason=${options.logReason}`)
+    if (options.closeSocket === true) {
+      try { socket.close(options.closeCode ?? 1000, options.closeReason ?? 'pclink reconnecting') } catch { /* already closed */ }
+    }
+    this.scheduleReconnect(replaced)
+    return true
   }
 
   get wsUrl() {
@@ -173,6 +229,7 @@ export class RelayLink {
 
   scheduleReconnect(replaced = false) {
     if (this.stopping) return
+    if (this.reconnectTimer !== undefined) return
     const stable = this.connectedAt !== undefined && this.timers.now() - this.connectedAt >= this.retryStableMs
     if (stable) this.attempt = 0
     this.connectedAt = undefined
@@ -196,6 +253,14 @@ export class RelayLink {
     if (this.stableTimer !== undefined) {
       this.timers.clearTimeout(this.stableTimer)
       this.stableTimer = undefined
+    }
+    if (this.connectTimer !== undefined) {
+      this.timers.clearTimeout(this.connectTimer)
+      this.connectTimer = undefined
+    }
+    if (this.errorGraceTimer !== undefined) {
+      this.timers.clearTimeout(this.errorGraceTimer)
+      this.errorGraceTimer = undefined
     }
   }
 
@@ -229,6 +294,7 @@ export class RelayLink {
         if (ready.machineId !== this.identity.machineId || ready.role !== 'pc') {
           throw pclinkError('auth_failed', 'relay.ready machineId/role mismatch')
         }
+        this.clearConnectionTimers()
         this.phase = 'ready'
         this.connectedAt = this.timers.now()
         this.attempt = 0
@@ -280,14 +346,14 @@ export class RelayLink {
   }
 
   failConnection(error) {
-    this.log(`relay protocol failure: ${String(error?.message ?? error)}`)
+    const detail = String(error?.message ?? 'protocol failure')
+    this.log(`relay protocol failure: ${detail}`)
     const socket = this.socket
-    this.socket = undefined
-    this.phase = 'idle'
-    this.clearConnectionTimers()
-    this.setState('offline', error?.message ?? 'protocol failure')
-    try { socket?.close(1008, 'pclink bad frame') } catch { /* already closed */ }
-    if (!this.stopping) this.scheduleReconnect()
+    if (socket === undefined) {
+      if (!this.stopping) this.scheduleReconnect()
+      return
+    }
+    this.disconnectSocket(socket, { detail, closeSocket: true, closeCode: 1008, closeReason: 'pclink bad frame' })
   }
 
   scheduleHeartbeat() {
@@ -302,12 +368,8 @@ export class RelayLink {
       if (this.outstandingPings.length >= this.maxUnansweredPings) {
         this.log('relay heartbeat timed out')
         const socket = this.socket
-        this.socket = undefined
-        this.phase = 'idle'
-        this.clearConnectionTimers()
-        this.setState('offline', 'heartbeat timeout')
-        try { socket?.close(1001, 'heartbeat timeout') } catch { /* already closed */ }
-        if (!this.stopping) this.scheduleReconnect()
+        if (socket === undefined) return
+        this.disconnectSocket(socket, { detail: 'heartbeat timeout', closeSocket: true, closeCode: 1001, closeReason: 'heartbeat timeout' })
         return
       }
       this.scheduleHeartbeat()

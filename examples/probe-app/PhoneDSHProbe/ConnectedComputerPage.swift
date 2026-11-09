@@ -84,10 +84,12 @@ struct ConnectedComputerPage: View {
         } header: {
             Text("电脑")
         } footer: {
-            if models.pcLink.isOnline {
+            if let warning = models.pcLink.versionWarning {
+                // Persistent, in range or not: an out-of-range PC is a warning,
+                // never a silent or blocked connection (§5.6/CCR-2).
+                Text(warning.message)
+            } else if models.pcLink.isOnline {
                 Text("这台手机连接的是电脑上的 DSH 工作区，会话、审批和文件都在电脑上。")
-            } else if models.pcLink.versionWarning != nil {
-                Text("版本未验证只提示，不阻止连接；个别端点可能不可用。")
             } else {
                 Text("电脑离线时停在「PC」分段，不会自动切回手机。")
             }
@@ -158,11 +160,12 @@ struct ConnectedComputerPage: View {
         return "离线"
     }
 
-    /// Exact version is only available out of range from the frozen client
-    /// status (CCR in the D2 change record). In range, state the tested range
-    /// instead of inventing the PC's build number.
+    /// Exact DSH version from the verified `peer.hello` (CCR-2). The tested
+    /// range only adds the "未验证" suffix; it never hides the actual build.
     private var dshVersionText: String {
-        if let version = models.pcLink.pcDSHVersion { return "\(version)（未验证）" }
-        return "验证范围内（\(PCLinkEndpoints.dshTestedRange)）"
+        if let version = models.pcLink.pcDSHVersion {
+            return models.pcLink.versionWarning == nil ? version : "\(version)（未验证）"
+        }
+        return "未获取（电脑离线）"
     }
 }

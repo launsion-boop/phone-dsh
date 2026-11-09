@@ -70,6 +70,12 @@ public struct PCLinkClientStatus: Equatable, Sendable {
     public var fingerprint: String?
     public var record: PCLinkPairingRecord?
     public var versionWarning: PCLinkVersionWarning?
+    /// Verified `peer.hello` display metadata from the PC, including the exact
+    /// DSH version inside and outside the tested range (CCR-2). Nil until the
+    /// first handshake or after the record is removed.
+    public var peerDshVersion: String?
+    public var peerAppName: String?
+    public var peerAppVersion: String?
     public var lastNotice: PCLinkNotice?
     public var lastError: PCLinkError?
     public var pairingPrompt: PCLinkPairingPrompt?
@@ -80,6 +86,9 @@ public struct PCLinkClientStatus: Equatable, Sendable {
                 fingerprint: String? = nil,
                 record: PCLinkPairingRecord? = nil,
                 versionWarning: PCLinkVersionWarning? = nil,
+                peerDshVersion: String? = nil,
+                peerAppName: String? = nil,
+                peerAppVersion: String? = nil,
                 lastNotice: PCLinkNotice? = nil,
                 lastError: PCLinkError? = nil,
                 pairingPrompt: PCLinkPairingPrompt? = nil,
@@ -89,6 +98,9 @@ public struct PCLinkClientStatus: Equatable, Sendable {
         self.fingerprint = fingerprint
         self.record = record
         self.versionWarning = versionWarning
+        self.peerDshVersion = peerDshVersion
+        self.peerAppName = peerAppName
+        self.peerAppVersion = peerAppVersion
         self.lastNotice = lastNotice
         self.lastError = lastError
         self.pairingPrompt = pairingPrompt
@@ -113,6 +125,15 @@ public struct PCLinkPairingPrompt: Equatable, Sendable {
 public struct PCLinkPairingResult: Equatable, Sendable {
     public var record: PCLinkPairingRecord
     public var prompt: PCLinkPairingPrompt
+}
+
+/// Client-driven pairing progress. `.completed` is emitted only after the PC's
+/// authenticated `pair.confirm` and the durable local record write, so the
+/// pairing page can leave the waiting state without polling (§4.4/4.6).
+public enum PCLinkPairingUpdate: Equatable, Sendable {
+    case awaitingApproval(PCLinkPairingPrompt)
+    case completed(PCLinkPairingRecord)
+    case failed(PCLinkError)
 }
 
 /// A verified signed `unpaired` reject (or an authenticated `session.close`
@@ -272,12 +293,16 @@ public actor PCLinkClient {
     private var staleRecord: PCLinkPairingRecord?
     private var state: PCLinkClientState = .offline(.notStarted)
     private var versionWarning: PCLinkVersionWarning?
+    private var peerDshVersion: String?
+    private var peerAppName: String?
+    private var peerAppVersion: String?
     private var lastNotice: PCLinkNotice?
     private var lastError: PCLinkError?
     private var pcUnpairedPrompt: PCLinkPCUnpairedPrompt?
 
     private var stateContinuations: [UUID: AsyncStream<PCLinkClientState>.Continuation] = [:]
     private var noticeContinuations: [UUID: AsyncStream<PCLinkNotice>.Continuation] = [:]
+    private var pairingContinuations: [UUID: AsyncStream<PCLinkPairingUpdate>.Continuation] = [:]
 
     private var connectionTask: Task<Void, Never>?
     private var userWantsConnection = false
@@ -323,6 +348,9 @@ public actor PCLinkClient {
                            fingerprint: identity?.fingerprint,
                            record: record,
                            versionWarning: versionWarning,
+                           peerDshVersion: peerDshVersion,
+                           peerAppName: peerAppName,
+                           peerAppVersion: peerAppVersion,
                            lastNotice: lastNotice,
                            lastError: lastError,
                            pairingPrompt: pairingContext?.prompt,
@@ -354,6 +382,24 @@ public actor PCLinkClient {
         }
     }
 
+    /// Pairing progress for the page's waiting state. The terminal `.completed`
+    /// carries the durable record; `.failed` is the same error the call throws.
+    public func pairingUpdates() -> AsyncStream<PCLinkPairingUpdate> {
+        AsyncStream(bufferingPolicy: .unbounded) { continuation in
+            let id = UUID()
+            pairingContinuations[id] = continuation
+            continuation.onTermination = { [weak self] _ in
+                Task { await self?.removePairingContinuation(id) }
+            }
+        }
+    }
+
+    private func emitPairingUpdate(_ update: PCLinkPairingUpdate) {
+        for continuation in pairingContinuations.values {
+            continuation.yield(update)
+        }
+    }
+
     private func effectiveState() -> PCLinkClientState {
         if state.isOnline, let versionWarning { return .versionWarning(versionWarning) }
         return state
@@ -380,6 +426,10 @@ public actor PCLinkClient {
 
     private func removeNoticeContinuation(_ id: UUID) {
         noticeContinuations[id] = nil
+    }
+
+    private func removePairingContinuation(_ id: UUID) {
+        pairingContinuations[id] = nil
     }
 
     // MARK: Start / stop
@@ -657,11 +707,25 @@ public actor PCLinkClient {
         versionWarning = hello.versionWarning
             ? PCLinkVersionWarning(dshVersion: hello.dshVersionText)
             : nil
+        applyPeerHello(hello)
         setState(versionWarning == nil ? .online : .versionWarning(versionWarning!))
         resumeSessionWaiters()
         if session.needsRekey {
             startRekeyIfNeeded()
         }
+    }
+
+    /// Store the verified display metadata from `peer.hello` (CCR-2).
+    private func applyPeerHello(_ hello: PCLinkPeerHello) {
+        peerDshVersion = hello.dshVersionText
+        peerAppName = hello.appName
+        peerAppVersion = hello.appVersion
+    }
+
+    private func clearPeerHello() {
+        peerDshVersion = nil
+        peerAppName = nil
+        peerAppVersion = nil
     }
 
     private func startRekeyIfNeeded() {
@@ -712,6 +776,7 @@ public actor PCLinkClient {
         versionWarning = hello.versionWarning
             ? PCLinkVersionWarning(dshVersion: hello.dshVersionText)
             : nil
+        applyPeerHello(hello)
         setState(versionWarning == nil ? .online : .versionWarning(versionWarning!))
         if let old {
             Task { [weak self] in
@@ -1775,6 +1840,7 @@ public actor PCLinkClient {
             context.expiresAt = prompt.expiresAt
             armPairingTimeout(context)
             setState(.pairing(.awaitingUser))
+            emitPairingUpdate(.awaitingApproval(prompt))
             return prompt
         } catch {
             let mapped = (error as? PCLinkError) ?? .unavailable("pairing failed: \(error)")
@@ -1867,7 +1933,10 @@ public actor PCLinkClient {
             await closePairingContext(context, error: nil)
             self.record = record
             staleRecord = nil
+            versionWarning = nil
+            clearPeerHello()
             setState(.pairing(.completed))
+            emitPairingUpdate(.completed(record))
             pcUnpairedPrompt = nil
             userWantsConnection = true
             stopped = false
@@ -2054,6 +2123,9 @@ public actor PCLinkClient {
         if pairingContext?.id == context.id {
             pairingContext = nil
         }
+        if let error, !context.completed {
+            emitPairingUpdate(.failed(error))
+        }
         if error != nil, !context.completed {
             setState(.unpaired(staleRecord == nil ? .noRecord : .staleRecord))
         } else if record == nil, !context.completed {
@@ -2083,6 +2155,7 @@ public actor PCLinkClient {
         self.record = nil
         pcUnpairedPrompt = nil
         versionWarning = nil
+        clearPeerHello()
         setState(.unpaired(.noRecord))
     }
 
@@ -2096,6 +2169,7 @@ public actor PCLinkClient {
         record = nil
         pcUnpairedPrompt = nil
         versionWarning = nil
+        clearPeerHello()
         setState(.unpaired(.noRecord))
         await teardownConnection(error: nil)
     }
@@ -2107,6 +2181,7 @@ public actor PCLinkClient {
         staleRecord = nil
         pcUnpairedPrompt = nil
         versionWarning = nil
+        clearPeerHello()
         setState(.unpaired(.noRecord))
     }
 

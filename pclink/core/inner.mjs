@@ -501,11 +501,19 @@ export function validateInnerMessage(value, options = {}) {
 
 /**
  * Encode one inner message as compact JSON text.
+ *
+ * The exact serialized form is validated before it can be sealed: JSON.stringify
+ * drops members whose value is `undefined`, so validating the in-memory object
+ * alone would still allow an illegal frame (for example `rpc.result{ok:true}`
+ * without `result`) to reach the wire (CCR-1).
  * @param {Record<string, unknown>} message Inner message.
  * @returns {string} JSON text.
  */
 export function encodeInnerMessage(message) {
-  return JSON.stringify(message)
+  const text = JSON.stringify(message)
+  if (typeof text !== 'string') throw pclinkError('bad_frame', 'inner message is not JSON encodable')
+  validateInnerMessage(parseStrictJsonObject(text))
+  return text
 }
 
 /**

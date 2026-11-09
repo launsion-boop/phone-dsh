@@ -103,7 +103,12 @@ final class PCLinkDebugAutomation {
                 return ["ok": false, "detail": "pairing did not reach approval: \(String(describing: flow.state))"]
             }
             await flow.confirm()
-            return result(for: flow.state)
+            let outcome = result(for: flow.state)
+            if outcome["ok"] as? Bool == true {
+                // Same automatic hand-off the pairing page performs.
+                models.select(.pc)
+            }
+            return outcome
 
         case "newSession":
             guard let chat = models.currentChat else { return ["ok": false, "detail": "no current model"] }
@@ -173,7 +178,13 @@ final class PCLinkDebugAutomation {
                 "harness": chat?.hasHarness ?? false,
                 "eventStreamRecovering": chat?.eventStreamRecovering ?? false,
                 "pendingPermission": chat?.pendingPermission?.tool ?? "",
+                "userFacingError": chat?.userFacingError ?? "",
                 "unpairedPrompt": models.pcLink.status.pcUnpairedPrompt?.code ?? "",
+                "paired": models.pcLink.record != nil,
+                "peerDshVersion": models.pcLink.pcDSHVersion ?? "",
+                "peerAppName": models.pcLink.pcAppName ?? "",
+                "peerAppVersion": models.pcLink.pcAppVersion ?? "",
+                "versionWarning": models.pcLink.versionWarning?.dshVersion ?? "",
             ]
 
         default:

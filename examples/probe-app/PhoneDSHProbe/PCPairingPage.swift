@@ -22,6 +22,7 @@ struct PCPairingPage: View {
     @State private var showManual = false
     @State private var cameraDenied = false
     @State private var localError: String?
+    @State private var autoEnteredWorkspace = false
 
     private var state: PCPairingPageState { flow?.state ?? .idle }
     private var fingerprint: String {
@@ -70,6 +71,13 @@ struct PCPairingPage: View {
         }
         .onChange(of: models.pcLink.status) { _, status in
             flow?.sync(clientStatus: status)
+        }
+        .onChange(of: flow?.state) { _, state in
+            // Pairing completion is driven by the client's pairing update
+            // stream after the authenticated pair.confirm. Enter the PC
+            // workspace automatically; the approval button remains the
+            // explicit consent / timeout-retry entry.
+            if case .paired = state { enterPCWorkspace() }
         }
         .sheet(isPresented: $showScanner) {
             NavigationStack {
@@ -264,7 +272,8 @@ struct PCPairingPage: View {
         } header: {
             Text("等待电脑批准")
         } footer: {
-            Text("配对码 120 秒内有效。电脑没有批准或指纹不符时，这次配对会作废，需要重新开始。")
+            Text("点一次即提交。电脑批准后会自动完成配对并进入 PC 工作区；超过时限或失败时，这里保留为重新提交的兜底入口。")
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -322,6 +331,18 @@ struct PCPairingPage: View {
         guard !code.isEmpty else { return }
         localError = nil
         Task { await flow?.begin(qrURI: code) }
+    }
+
+    /// Completion leaves the sheet and selects the PC segment; the record is
+    /// already durable when `.paired` appears.
+    private func enterPCWorkspace() {
+        guard !autoEnteredWorkspace else { return }
+        autoEnteredWorkspace = true
+        models.select(.pc)
+        Task {
+            try? await Task.sleep(for: .milliseconds(900))
+            dismiss()
+        }
     }
 
     private func startManual() {

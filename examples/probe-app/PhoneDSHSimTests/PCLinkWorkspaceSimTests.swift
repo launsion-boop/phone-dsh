@@ -30,15 +30,24 @@ private actor FakePCLinkClient: PCLinkClientProtocol {
     var confirmResult: Result<PCLinkPairingRecord, Error>
     private(set) var startCalls = 0
     private(set) var confirmCalls = 0
+    private let pairingUpdateStream: AsyncStream<PCLinkPairingUpdate>
+    private let pairingUpdateContinuation: AsyncStream<PCLinkPairingUpdate>.Continuation
+    private var confirmGate: CheckedContinuation<Void, Never>?
+    private var confirmIsGated = false
 
     init(state: PCLinkClientState = .offline(.notStarted),
          status: PCLinkClientStatus = PCLinkClientStatus(),
          startPairingResult: Result<PCPairingApproval, Error> = .failure(PCLinkError.unavailable("not scripted")),
-         confirmResult: Result<PCLinkPairingRecord, Error> = .failure(PCLinkError.unavailable("not scripted"))) {
+         confirmResult: Result<PCLinkPairingRecord, Error> = .failure(PCLinkError.unavailable("not scripted")),
+         gateConfirm: Bool = false) {
         self.state = state
         self.statusValue = status
         self.startPairingResult = startPairingResult
         self.confirmResult = confirmResult
+        let (stream, continuation) = AsyncStream.makeStream(of: PCLinkPairingUpdate.self)
+        self.pairingUpdateStream = stream
+        self.pairingUpdateContinuation = continuation
+        self.confirmIsGated = gateConfirm
     }
 
     nonisolated func makeRelayTransport() -> any DSHRemoteTransport { FakePCLinkTransport() }
@@ -59,6 +68,17 @@ private actor FakePCLinkClient: PCLinkClientProtocol {
     func noticeStream() async -> AsyncStream<PCLinkNotice> {
         AsyncStream { $0.finish() }
     }
+    func pairingUpdates() async -> AsyncStream<PCLinkPairingUpdate> {
+        pairingUpdateStream
+    }
+    func emitPairingUpdate(_ update: PCLinkPairingUpdate) {
+        pairingUpdateContinuation.yield(update)
+    }
+    func releaseConfirm() {
+        confirmIsGated = false
+        confirmGate?.resume()
+        confirmGate = nil
+    }
 
     func start() async throws { startCalls += 1 }
     func stop() async {}
@@ -73,6 +93,9 @@ private actor FakePCLinkClient: PCLinkClientProtocol {
     }
     func confirmPairingApproval(_ id: UUID) async throws -> PCLinkPairingRecord {
         confirmCalls += 1
+        if confirmIsGated {
+            await withCheckedContinuation { confirmGate = $0 }
+        }
         return try confirmResult.get()
     }
     func cancelPairing() async {}
@@ -368,6 +391,55 @@ final class PCLinkWorkspaceSimTests: XCTestCase {
         guard case .failed = rejectState else {
             return XCTFail("unpaired prompt must not mark the page paired")
         }
+    }
+
+    /// After the PC approves, the authenticated `pair.confirm` reaches the
+    /// client's pairing stream while the explicit confirmation call is still
+    /// pending; the page must move to paired without a second button press.
+    func testPairingCompletesFromClientUpdateStreamAfterPCConfirm() async {
+        let approval = makeApproval()
+        let record = makeRecord()
+        let client = FakePCLinkClient(startPairingResult: .success(approval),
+                                      confirmResult: .success(record),
+                                      gateConfirm: true)
+        let flow = PCPairingFlow(client: client)
+        await flow.begin(qrURI: "pclink://pair?v=1")
+        guard case .awaitingApproval = flow.state else {
+            return XCTFail("expected awaitingApproval")
+        }
+        let confirmTask = Task { await flow.confirm() }
+        let confirming = await waitForPairingState(flow) {
+            if case .confirming = $0 { return true }
+            return false
+        }
+        XCTAssertTrue(confirming, "the explicit confirmation should be pending")
+
+        await client.emitPairingUpdate(.completed(record))
+        let pairedFromStream = await waitForPairingState(flow) {
+            if case .paired = $0 { return true }
+            return false
+        }
+        XCTAssertTrue(pairedFromStream, "the client pairing stream must drive .paired")
+        let calls = await client.confirmCalls
+        XCTAssertEqual(calls, 1, "no second button press is needed")
+
+        await client.releaseConfirm()
+        await confirmTask.value
+        guard case .paired(let pairedRecord) = flow.state else {
+            return XCTFail("expected paired after the pending call returns")
+        }
+        XCTAssertEqual(pairedRecord.peerMachineId, record.peerMachineId)
+    }
+
+    private func waitForPairingState(_ flow: PCPairingFlow,
+                                     _ predicate: (PCPairingPageState) -> Bool,
+                                     timeout: TimeInterval = 2) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if predicate(flow.state) { return true }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        return false
     }
 
     func testLongOfflineAndNoticeCopy() {

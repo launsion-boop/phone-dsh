@@ -13,7 +13,7 @@ import {
   SEQ_MAX,
 } from '../core/aead.mjs'
 import { canonicalJson } from '../core/canonical.mjs'
-import { ChunkReassembler, encodeStreamValue, splitChunks } from '../core/chunking.mjs'
+import { ChunkReassembler, encodeStreamValue, encodeUnaryResult, splitChunks } from '../core/chunking.mjs'
 import {
   b64urlDecode,
   b64urlEncode,
@@ -42,6 +42,7 @@ import {
 } from '../core/pairing.mjs'
 import {
   decodeInnerMessage,
+  encodeInnerMessage,
   isForbiddenAdminEndpoint,
   missingRequiredCaps,
   normalizeFailure,
@@ -73,6 +74,18 @@ test('identities: labels derive the same machineIds and keys', () => {
   assert.equal(b64urlEncode(pc.publicKey), VECTORS.identities.pc.public_key)
   assert.equal(hexEncode(sha256(phone.publicKey)), VECTORS.identities.phone.sha256_hex)
   assert.equal(machineIdFromPublicKey(pc.publicKey), VECTORS.identities.pc.machine_id)
+})
+
+test('encoder self-checks the serialized rpc.result and refuses a missing result', () => {
+  const missing = { type: 'rpc.result', id: 'call-1', ok: true }
+  assert.throws(() => encodeInnerMessage(missing), error => error.code === 'bad_frame')
+  // JSON.stringify drops an undefined member, so the in-memory own property is
+  // not enough: the exact serialized form must be validated (CCR-1).
+  assert.throws(() => encodeInnerMessage({ ...missing, result: undefined }), error => error.code === 'bad_frame')
+  assert.throws(() => encodeUnaryResult(missing), error => error.code === 'bad_frame')
+  assert.throws(() => encodeUnaryResult({ ...missing, result: undefined }), error => error.code === 'bad_frame')
+  const encoded = encodeInnerMessage({ type: 'rpc.result', id: 'call-1', ok: true, result: null })
+  assert.deepEqual(parseStrictJson(encoded), { type: 'rpc.result', id: 'call-1', ok: true, result: null })
 })
 
 test('strict JSON rejects a raw NUL but preserves an escaped \\u0000 inside DSH data', () => {

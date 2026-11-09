@@ -32,6 +32,7 @@ import {
   missingRequiredCaps,
   normalizeFailure,
   reservedErrorReply,
+  truncateMessage,
   validateInnerMessage,
   validateSessionClose,
 } from '../core/inner.mjs'
@@ -551,7 +552,8 @@ export class SessionManager {
       frame = session.frameCrypto.seal(encodeInnerMessage(message))
     } catch (error) {
       this.log(`session seal failed sid=${session.sid}: ${error.message}`)
-      this.closeSession(session, error.code === 'session_expired' ? 'session_expired' : 'frame_too_large', error.message, { sendClose: false })
+      const code = error.code === 'session_expired' || error.code === 'frame_too_large' ? error.code : 'bad_frame'
+      this.closeSession(session, code, error.message, { sendClose: false })
       return false
     }
     const sent = this.link.send(frame)
@@ -574,7 +576,20 @@ export class SessionManager {
     try {
       encoded = encodeUnaryResult(resultFrame)
     } catch (error) {
-      encoded = { kind: 'result', frame: { type: 'rpc.result', id: resultFrame.id, ok: false, error: { code: 'frame_too_large', message: 'result exceeds 8 MiB' } } }
+      // The encoder validates the serialized frame. A result that still fails
+      // is never emitted: answer with a valid correlated failure instead.
+      this.log(`rpc.result refused by the encoder sid=${session.sid}: ${error.message}`)
+      const frameTooLarge = error.code === 'frame_too_large'
+      encoded = {
+        kind: 'result',
+        frame: {
+          type: 'rpc.result', id: resultFrame.id, ok: false,
+          error: {
+            code: frameTooLarge ? 'frame_too_large' : 'unavailable',
+            message: truncateMessage(frameTooLarge ? 'result exceeds 8 MiB' : `invalid rpc.result: ${error.message}`),
+          },
+        },
+      }
     }
     if (encoded.kind === 'result') {
       this.sendInner(session, encoded.frame)
@@ -790,7 +805,11 @@ export class SessionManager {
         if (body === undefined || body.type !== 'server-response' || body.result === undefined || typeof body.result !== 'object') {
           resultFrame = { type: 'rpc.result', id: message.id, ok: false, error: { code: 'unavailable', message: 'malformed in-process response' } }
         } else if (body.result.ok === true) {
-          resultFrame = { type: 'rpc.result', id: message.id, ok: true, result: body.result.value }
+          // `ok:true` always carries `result` (§6.1, inner-message.schema.json).
+          // DSH leaves `value` absent for endpoints without a return value
+          // (`$events/result`, `goals/get`, ...); the wire value is then null,
+          // never a missing member (CCR-1).
+          resultFrame = { type: 'rpc.result', id: message.id, ok: true, result: body.result.value ?? null }
         } else {
           resultFrame = { type: 'rpc.result', id: message.id, ok: false, error: normalizeFailure(body.result.error) }
         }

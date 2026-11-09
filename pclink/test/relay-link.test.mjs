@@ -50,6 +50,10 @@ class FakeWebSocket {
     this.emit('message', { data: JSON.stringify(frame) })
   }
 
+  fail(message = 'non-101 status code') {
+    this.emit('error', { type: 'error', error: new Error(message) })
+  }
+
   get sentFrames() {
     return this.sent.map(text => JSON.parse(text))
   }
@@ -130,6 +134,40 @@ test('relay heartbeat answers pings, counts unanswered pings and closes', () => 
   assert.notEqual(secondPing.nonce, firstPing.nonce)
   timers.advance(100)
   assert.equal(socket.closed.code, 1001)
+  link.stop()
+})
+
+test('a connection error without a close event still enters backoff and reconnects', () => {
+  FakeWebSocket.instances = []
+  const { link, identity, timers } = makeLink()
+  link.start()
+  const first = FakeWebSocket.instances[0]
+  // A failed non-101 upgrade can surface only `error` in some runtimes; the
+  // supervisor must not wait forever for a `close` (CCR-3).
+  first.fail('Received network error or non-101 status code.')
+  assert.equal(FakeWebSocket.instances.length, 1)
+  timers.advance(250)
+  assert.equal(link.ready, false)
+  timers.advance(500)
+  assert.equal(FakeWebSocket.instances.length, 2)
+  const second = FakeWebSocket.instances[1]
+  authenticate(link, second, identity)
+  assert.equal(link.ready, true)
+  assert.equal(FakeWebSocket.instances.length, 2, 'error+grace must schedule exactly one reconnect')
+  link.stop()
+})
+
+test('a connect attempt that never authenticates times out and reconnects', () => {
+  FakeWebSocket.instances = []
+  const { link, identity, timers } = makeLink()
+  link.start()
+  assert.equal(FakeWebSocket.instances.length, 1)
+  // No open, challenge or close: the bounded connect attempt still fails over.
+  timers.advance(15_000)
+  timers.advance(500)
+  assert.equal(FakeWebSocket.instances.length, 2)
+  authenticate(link, FakeWebSocket.instances[1], identity)
+  assert.equal(link.ready, true)
   link.stop()
 })
 

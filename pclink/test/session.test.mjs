@@ -188,6 +188,65 @@ test('rpc.call forwards through the owner shared fetch handler and returns the D
   assert.deepEqual(messages[0], { type: 'rpc.result', id: 'call-1', ok: true, result: { items: [{ sessionId: 's1' }] } })
 })
 
+test('ok:true always carries result; absent DSH values become null ($events/result, goals/get)', async () => {
+  const endpoints = []
+  const { manager, link, phones, pcIdentity } = makeSession({
+    fetchImpl: async request => {
+      const body = parseStrictJsonObject(await request.text())
+      endpoints.push(body.method)
+      // DSH omits `value` for endpoints without a return value.
+      return Response.json({ type: 'server-response', rpcId: body.rpcId, result: { ok: true } })
+    },
+  })
+  const result = await completeSession({ manager, link, phoneIdentity: phones[0], pcIdentity })
+  const read = pcReader(result.phoneCrypto, link, phones[0].machineId)
+  read()
+  phoneSend(result.phoneCrypto, manager, {
+    type: 'rpc.call', id: 'events-result', endpoint: '$events/result',
+    args: { clientId: 'client-1', eventId: 'event-1', outcome: { kind: 'result', value: 'allowed-once' } },
+  })
+  phoneSend(result.phoneCrypto, manager, { type: 'rpc.call', id: 'goals', endpoint: 'goals/get', args: {} })
+  const messages = await waitFor(() => {
+    const drained = read().filter(message => message.type === 'rpc.result')
+    return drained.length >= 2 ? drained : undefined
+  }, 'null results')
+  assert.deepEqual(endpoints, ['$events/result', 'goals/get'])
+  const byId = Object.fromEntries(messages.map(message => [message.id, message]))
+  for (const id of ['events-result', 'goals']) {
+    assert.equal(byId[id].ok, true)
+    assert.equal(Object.prototype.hasOwnProperty.call(byId[id], 'result'), true)
+    assert.equal(byId[id].result, null)
+  }
+})
+
+test('PC never emits an ok rpc.result without an own result member', async () => {
+  let call = 0
+  const { manager, link, phones, pcIdentity } = makeSession({
+    fetchImpl: async request => {
+      call += 1
+      const body = parseStrictJsonObject(await request.text())
+      const result = call === 1 ? { ok: true, value: { items: [] } }
+        : call === 2 ? { ok: true }
+          : { ok: true, value: null }
+      return Response.json({ type: 'server-response', rpcId: body.rpcId, result })
+    },
+  })
+  const result = await completeSession({ manager, link, phoneIdentity: phones[0], pcIdentity })
+  const read = pcReader(result.phoneCrypto, link, phones[0].machineId)
+  read()
+  phoneSend(result.phoneCrypto, manager, { type: 'rpc.call', id: 'value', endpoint: 'session/list', args: {} })
+  phoneSend(result.phoneCrypto, manager, { type: 'rpc.call', id: 'absent', endpoint: '$events/result', args: {} })
+  phoneSend(result.phoneCrypto, manager, { type: 'rpc.call', id: 'null', endpoint: 'goals/get', args: {} })
+  const messages = await waitFor(() => {
+    const drained = read().filter(message => message.type === 'rpc.result' && message.ok === true)
+    return drained.length >= 3 ? drained : undefined
+  }, 'three ok results')
+  assert.equal(messages.length, 3)
+  for (const message of messages) {
+    assert.equal(Object.prototype.hasOwnProperty.call(message, 'result'), true, `missing result on ${message.id}`)
+  }
+})
+
 test('duplicate in-flight rpc.call id is answered bad_frame and executed once', async () => {
   let release
   const gate = new Promise(resolve => { release = resolve })

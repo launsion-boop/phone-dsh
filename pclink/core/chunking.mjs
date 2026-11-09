@@ -10,7 +10,8 @@ import {
   utf8,
 } from './encoding.mjs'
 import { pclinkError } from './errors.mjs'
-import { parseStrictJson } from './json.mjs'
+import { validateRpcResult } from './inner.mjs'
+import { parseStrictJson, parseStrictJsonObject } from './json.mjs'
 
 /** 30-second timeout per reassembled value. */
 export const REASSEMBLY_TIMEOUT_MS = 30_000
@@ -67,9 +68,14 @@ export function encodeStreamValue(streamId, value, chunkBytes = CHUNK_BYTES) {
 export function encodeUnaryResult(resultFrame, chunkBytes = CHUNK_BYTES) {
   if (resultFrame.type !== 'rpc.result' || typeof resultFrame.id !== 'string') throw new Error('encodeUnaryResult expects an rpc.result')
   const json = JSON.stringify(resultFrame)
+  // Validate the serialized object: a member with an `undefined` value would be
+  // dropped by JSON.stringify, so `ok:true` without `result` must be refused
+  // here rather than reaching the wire or a chunk sequence (CCR-1).
+  const serialized = parseStrictJsonObject(json)
+  validateRpcResult(serialized)
   const bytes = utf8(json)
   if (bytes.length > MAX_VALUE_BYTES) throw pclinkError('frame_too_large', 'result exceeds 8 MiB')
-  if (bytes.length <= CHUNK_BYTES) return { kind: 'result', frame: resultFrame }
+  if (bytes.length <= CHUNK_BYTES) return { kind: 'result', frame: serialized }
   const frames = splitChunks(bytes, chunkBytes).map(chunk => ({
     type: 'rpc.result.chunk', id: resultFrame.id, part: chunk.part, last: chunk.last, data: chunk.data,
   }))

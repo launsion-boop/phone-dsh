@@ -13,7 +13,7 @@
   "source": {
     "file": "ConnectedComputerPage.swift",
     "path": "examples/probe-app/PhoneDSHProbe/ConnectedComputerPage.swift",
-    "lines": 168,
+    "lines": 171,
     "structLine": 10,
     "renderedFrom": [
       "body",
@@ -140,10 +140,10 @@
       "extraction": "syntax",
       "hasHeader": true,
       "footer": {
-        "text": "这台手机连接的是电脑上的 DSH 工作区，会话、审批和文件都在电脑上。",
-        "labelExpr": null,
-        "provenance": "ConnectedComputerPage.swift:88",
-        "anchor": "Text(\"这台手机连接的是电脑上的 DSH 工作区，会话、审批和文件都在电脑上。\")"
+        "text": null,
+        "labelExpr": "warning.message",
+        "provenance": "ConnectedComputerPage.swift:90",
+        "anchor": "Text(warning.message)"
       }
     },
     {
@@ -167,7 +167,7 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "ConnectedComputerPage.swift:99",
+          "provenance": "ConnectedComputerPage.swift:101",
           "anchor": "row(\"本机指纹\", models.pcLink.ownFingerprint)",
           "extraction": "syntax",
           "template": "row"
@@ -183,7 +183,7 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "ConnectedComputerPage.swift:100",
+          "provenance": "ConnectedComputerPage.swift:102",
           "anchor": "row(\"中继\", record.relayOrigin)",
           "extraction": "syntax",
           "template": "row"
@@ -199,25 +199,25 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "ConnectedComputerPage.swift:101",
+          "provenance": "ConnectedComputerPage.swift:103",
           "anchor": "row(\"配对时间\", record.pairedAt)",
           "extraction": "syntax",
           "template": "row"
         }
       ],
-      "provenance": "ConnectedComputerPage.swift:103",
+      "provenance": "ConnectedComputerPage.swift:105",
       "anchor": "Text(\"本机\")",
       "extraction": "syntax",
       "hasHeader": true,
       "footer": {
         "text": "电脑只显示手机名称并要求输入本机指纹批准；指纹不符的配对会被作废。",
         "labelExpr": null,
-        "provenance": "ConnectedComputerPage.swift:105",
+        "provenance": "ConnectedComputerPage.swift:107",
         "anchor": "Text(\"电脑只显示手机名称并要求输入本机指纹批准；指纹不符的配对会被作废。\")"
       }
     },
     {
-      "id": "section-110",
+      "id": "section-112",
       "title": null,
       "titleTemplate": null,
       "dynamicTitle": false,
@@ -237,7 +237,7 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "ConnectedComputerPage.swift:111",
+          "provenance": "ConnectedComputerPage.swift:113",
           "anchor": "Button(\"配对新电脑\") {",
           "extraction": "syntax"
         },
@@ -252,22 +252,22 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "ConnectedComputerPage.swift:115",
+          "provenance": "ConnectedComputerPage.swift:117",
           "anchor": "Button(\"解除配对\", role: .destructive) {",
           "extraction": "syntax"
         }
       ],
-      "provenance": "ConnectedComputerPage.swift:110",
+      "provenance": "ConnectedComputerPage.swift:112",
       "anchor": "Section {",
       "extraction": "syntax",
       "criterion": {
         "kind": "first-clickable-row",
         "label": "配对新电脑",
-        "provenance": "ConnectedComputerPage.swift:111"
+        "provenance": "ConnectedComputerPage.swift:113"
       }
     },
     {
-      "id": "section-123",
+      "id": "section-125",
       "title": null,
       "titleTemplate": null,
       "dynamicTitle": false,
@@ -287,7 +287,7 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "ConnectedComputerPage.swift:125",
+          "provenance": "ConnectedComputerPage.swift:127",
           "anchor": "Text(\"还没有连接电脑\")",
           "extraction": "syntax"
         },
@@ -302,7 +302,7 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "ConnectedComputerPage.swift:127",
+          "provenance": "ConnectedComputerPage.swift:129",
           "anchor": "Text(\"在电脑上运行 pclink pair 打开配对，然后用这台手机扫码或粘贴配对链接。\")",
           "extraction": "syntax"
         },
@@ -317,18 +317,18 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "ConnectedComputerPage.swift:131",
+          "provenance": "ConnectedComputerPage.swift:133",
           "anchor": "Button(\"连接电脑\") { showPairing = true }",
           "extraction": "syntax"
         }
       ],
-      "provenance": "ConnectedComputerPage.swift:123",
+      "provenance": "ConnectedComputerPage.swift:125",
       "anchor": "Section {",
       "extraction": "syntax",
       "criterion": {
         "kind": "first-clickable-row",
         "label": "连接电脑",
-        "provenance": "ConnectedComputerPage.swift:131"
+        "provenance": "ConnectedComputerPage.swift:133"
       }
     }
   ],
@@ -343,7 +343,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ConnectedComputerPage.swift:111",
+      "provenance": "ConnectedComputerPage.swift:113",
       "anchor": "Button(\"配对新电脑\") {",
       "extraction": "syntax",
       "labelAlternatives": [],
@@ -359,7 +359,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ConnectedComputerPage.swift:115",
+      "provenance": "ConnectedComputerPage.swift:117",
       "anchor": "Button(\"解除配对\", role: .destructive) {",
       "extraction": "syntax",
       "labelAlternatives": [],
@@ -375,7 +375,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ConnectedComputerPage.swift:131",
+      "provenance": "ConnectedComputerPage.swift:133",
       "anchor": "Button(\"连接电脑\") { showPairing = true }",
       "extraction": "syntax",
       "labelAlternatives": [],
@@ -533,13 +533,13 @@
         {
           "renders": "还没有连接电脑",
           "when": null,
-          "provenance": "ConnectedComputerPage.swift:125",
+          "provenance": "ConnectedComputerPage.swift:127",
           "anchor": "Text(\"还没有连接电脑\")"
         }
       ],
       "data": [
         {
-          "renders": "电脑 | 本机 | untitled section at 110 | untitled section at 123",
+          "renders": "电脑 | 本机 | untitled section at 112 | untitled section at 125",
           "when": null,
           "provenance": "ConnectedComputerPage.swift:10",
           "anchor": "struct ConnectedComputerPage: View {",
@@ -551,7 +551,7 @@
         {
           "renders": "—",
           "when": null,
-          "provenance": "ConnectedComputerPage.swift:146",
+          "provenance": "ConnectedComputerPage.swift:148",
           "anchor": "Text(value.isEmpty ? \"—\" : value)"
         }
       ],
