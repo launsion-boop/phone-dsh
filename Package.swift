@@ -69,6 +69,9 @@ let modules: [Module] = [
            hasTests: false),
     Module(name: "PhoneDSHShell", dependencies: ["PhoneDSHAgentCore"], testDependencies: ["PhoneDSHAgentCore"]),
     Module(name: "PhoneDSHBot", dependencies: ["PhoneDSHAgentCore"]),
+    // PCLink v1 phone end (P28, D stage): relay auth, E2E session, pairing and
+    // the RelayDSHTransport adapter over the frozen spec/pclink/v1 contract.
+    Module(name: "PhoneDSHPCLink", dependencies: ["PhoneDSHAgentCore"], testDependencies: ["PhoneDSHAgentCore"]),
     // The app-process facade: PhoneDSHHost and the channel DSH transport.
     Module(name: "PhoneDSH",
            dependencies: ["PhoneDSHWire", "PhoneDSHLog", "PhoneDSHLoopback", "PhoneDSHGateway",
