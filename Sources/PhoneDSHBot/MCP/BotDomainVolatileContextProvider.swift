@@ -3,11 +3,12 @@
 import Foundation
 
 public actor BotDomainVolatileContextProvider: BotVolatileContextProviding {
-    private let memory: BotMemory
+    private let memoryResolver: @Sendable (String) async throws -> BotMemory
     private let routines: RoutineMachine
     private let variantForSession: @Sendable (String, BotSessionKind) -> String
-    private let personaForSession: @Sendable (String, BotSessionKind) -> String
-    private var asyncPersonaForSession: (@Sendable (String, BotSessionKind) async throws -> String)?
+    private let personaForSession: @Sendable (String, String, BotSessionKind) -> String
+    private var asyncPersonaForSession:
+        (@Sendable (String, String, BotSessionKind) async throws -> String)?
     private let now: @Sendable () -> Int64
     private let language: String
 
@@ -15,27 +16,29 @@ public actor BotDomainVolatileContextProvider: BotVolatileContextProviding {
         memory: BotMemory,
         routines: RoutineMachine,
         variant: (@Sendable (String, BotSessionKind) -> String)? = nil,
-        persona: (@Sendable (String, BotSessionKind) -> String)? = nil,
+        persona: (@Sendable (String, String, BotSessionKind) -> String)? = nil,
+        memoryForBot: (@Sendable (String) async throws -> BotMemory)? = nil,
         now: @escaping @Sendable () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1_000) },
         language: String = "zh"
     ) {
-        self.memory = memory
+        memoryResolver = memoryForBot ?? { _ in memory }
         self.routines = routines
         variantForSession = Self.makeVariant(variant)
-        personaForSession = persona ?? { _, _ in "你的名字是大肥鱼。用户问起名字时如实回答。" }
+        personaForSession = persona ?? { _, _, _ in "你的名字是大肥鱼。用户问起名字时如实回答。" }
         asyncPersonaForSession = nil
         self.now = now
         self.language = language
     }
 
     public init(memory: BotMemory, routines: RoutineMachine,
-                personaAsync: @escaping @Sendable (String, BotSessionKind) async throws -> String,
+                personaAsync: @escaping @Sendable (String, String, BotSessionKind) async throws -> String,
+                memoryForBot: (@Sendable (String) async throws -> BotMemory)? = nil,
                 now: @escaping @Sendable () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1_000) },
                 language: String = "zh") {
-        self.memory = memory
+        memoryResolver = memoryForBot ?? { _ in memory }
         self.routines = routines
         variantForSession = Self.makeVariant(nil)
-        personaForSession = { _, _ in "" }
+        personaForSession = { _, _, _ in "" }
         asyncPersonaForSession = personaAsync
         self.now = now
         self.language = language
@@ -60,11 +63,15 @@ public actor BotDomainVolatileContextProvider: BotVolatileContextProviding {
         let variant = variantForSession(sessionId, kind).trimmingCharacters(in: .whitespacesAndNewlines)
         let persona: String
         if let asyncPersonaForSession {
-            persona = try await asyncPersonaForSession(sessionId, kind).trimmingCharacters(in: .whitespacesAndNewlines)
+            persona = try await asyncPersonaForSession(botId, sessionId, kind)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
         } else {
-            persona = personaForSession(sessionId, kind).trimmingCharacters(in: .whitespacesAndNewlines)
+            persona = personaForSession(botId, sessionId, kind)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
         }
-        let memoryText = try await memory.promptBlock(language: language == "en" ? .en : .zh)
+        let botMemory = try await memoryResolver(botId)
+        let memoryText = try await botMemory
+            .promptBlock(language: language == "en" ? .en : .zh)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let automation: String
         do {

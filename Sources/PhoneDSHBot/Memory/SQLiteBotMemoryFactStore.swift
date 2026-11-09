@@ -45,6 +45,9 @@ public actor SQLiteBotMemoryFactStore: BotMemoryFactStore {
     private static let forgottenEventPrefix = "evt-memory-forgotten-"
 
     private let eventLog: SQLiteDomainStore
+    /// Identity of the Bot this store belongs to. `nil` keeps the historical
+    /// on-disk shape (memory events written before per-Bot routing) and is
+    /// read as `"main"`; new production stores always pass the real bot id.
     private let botID: String?
     private let now: @Sendable () -> Int64
     private let replayPageSize = 500
@@ -64,6 +67,32 @@ public actor SQLiteBotMemoryFactStore: BotMemoryFactStore {
         try await replay().facts(scope: scope)
     }
 
+    /// The Bot whose agent-scope facts this store may read. Historical events
+    /// with no bot id belong to `"main"`; user-scope facts are shared by every
+    /// Bot and are never filtered.
+    private var effectiveBotID: String {
+        Self.normalizedBotID(botID)
+    }
+
+    private func belongsToThisBot(_ event: BotEvent, scope: BotMemoryScope) -> Bool {
+        if scope == .user { return true }
+        return Self.normalizedBotID(event.principal.botId) == effectiveBotID
+    }
+
+    private static func normalizedBotID(_ value: String?) -> String {
+        guard let value, !value.isEmpty else { return "main" }
+        return value
+    }
+
+    /// Only a non-main Bot contributes its identity to an event id. This keeps
+    /// every historical `"main"`/`nil` event id byte-identical (so old data
+    /// still replays) while two Bots can write the same fact id without
+    /// colliding on the shared SQLite event log.
+    private static func scopedBotID(_ value: String?) -> String? {
+        guard let value, !value.isEmpty, value != "main" else { return nil }
+        return value
+    }
+
     @discardableResult
     public func append(_ fact: BotMemoryFact) async throws -> BotMemoryFact {
         try await mutationMutex.withLock {
@@ -80,7 +109,9 @@ public actor SQLiteBotMemoryFactStore: BotMemoryFactStore {
             let event = try writtenEvent(
                 fact,
                 at: now(),
-                eventID: Self.writeEventID(factID: fact.factID, generation: state.generation(for: fact.factID))
+                eventID: Self.writeEventID(
+                    factID: fact.factID, botID: botID,
+                    generation: state.generation(for: fact.factID))
             )
             try await commit([event], duplicateFactID: fact.factID)
             return fact
@@ -153,7 +184,7 @@ public actor SQLiteBotMemoryFactStore: BotMemoryFactStore {
                     fact,
                     at: lastUsedMS,
                     eventID: Self.touchEventID(
-                        factID: fact.factID,
+                        factID: fact.factID, botID: botID,
                         generation: state.generation(for: fact.factID),
                         lastUsedMS: lastUsedMS
                     )
@@ -217,13 +248,12 @@ public actor SQLiteBotMemoryFactStore: BotMemoryFactStore {
                 guard let commitSeq = event.commitSeq else {
                     throw BotMemoryFactStoreError.corrupted("durable memory event has no commitSeq")
                 }
+                defer { cursor = commitSeq }
                 switch event.type {
                 case "memory.written":
                     let fact = try Self.decode(BotMemoryFact.self, from: event.data)
-                    guard Self.shouldApplyWritten(event, fact: fact, state: state) else {
-                        cursor = commitSeq
-                        continue
-                    }
+                    guard belongsToThisBot(event, scope: fact.scope),
+                          Self.shouldApplyWritten(event, fact: fact, state: state) else { continue }
                     if state.tombstones[fact.factID] == nil {
                         if let existing = state.live[fact.factID] {
                             guard Self.sameFactApartFromLastUsed(existing, fact) else {
@@ -241,15 +271,16 @@ public actor SQLiteBotMemoryFactStore: BotMemoryFactStore {
                     }
                 case "memory.forgotten":
                     let forgotten = try Self.decode(ForgottenData.self, from: event.data)
+                    guard belongsToThisBot(event, scope: forgotten.scope) else { continue }
                     let generation = state.generation(for: forgotten.factId)
                     if event.eventId.hasPrefix(Self.forgottenEventPrefix),
                        event.eventId != Self.forgottenEventID(
                            factID: forgotten.factId,
+                           botID: event.principal.botId,
                            scope: forgotten.scope,
                            reason: forgotten.reason,
                            generation: generation
                        ) {
-                        cursor = commitSeq
                         continue
                     }
                     if state.live[forgotten.factId]?.scope == forgotten.scope {
@@ -266,7 +297,6 @@ public actor SQLiteBotMemoryFactStore: BotMemoryFactStore {
                 default:
                     break
                 }
-                cursor = commitSeq
             }
             if events.count < replayPageSize { break }
         }
@@ -283,10 +313,11 @@ public actor SQLiteBotMemoryFactStore: BotMemoryFactStore {
         guard initial || touch else { return true }
         let generation = state.generation(for: fact.factID)
         if state.live[fact.factID] == nil {
-            return initial && event.eventId == writeEventID(factID: fact.factID, generation: generation)
+            return initial && event.eventId == writeEventID(
+                factID: fact.factID, botID: event.principal.botId, generation: generation)
         }
         return touch && event.eventId == touchEventID(
-            factID: fact.factID,
+            factID: fact.factID, botID: event.principal.botId,
             generation: generation,
             lastUsedMS: fact.lastUsedMS
         )
@@ -332,7 +363,7 @@ public actor SQLiteBotMemoryFactStore: BotMemoryFactStore {
         return try makeEvent(
             type: "memory.forgotten",
             eventID: Self.forgottenEventID(
-                factID: factID,
+                factID: factID, botID: botID,
                 scope: scope,
                 reason: reason,
                 generation: generation
@@ -365,21 +396,33 @@ public actor SQLiteBotMemoryFactStore: BotMemoryFactStore {
         )
     }
 
-    private static func writeEventID(factID: String, generation: Int) -> String {
-        stableEventID(writeEventPrefix, [factID, String(generation)])
+    private static func writeEventID(factID: String, botID: String?, generation: Int) -> String {
+        stableEventID(writeEventPrefix, idComponents(factID, botID: botID, [String(generation)]))
     }
 
-    private static func touchEventID(factID: String, generation: Int, lastUsedMS: Int64) -> String {
-        stableEventID(touchEventPrefix, [factID, String(generation), String(lastUsedMS)])
+    private static func touchEventID(factID: String, botID: String?,
+                                     generation: Int, lastUsedMS: Int64) -> String {
+        stableEventID(touchEventPrefix, idComponents(
+            factID, botID: botID, [String(generation), String(lastUsedMS)]))
     }
 
     private static func forgottenEventID(
         factID: String,
+        botID: String?,
         scope: BotMemoryScope,
         reason: ForgottenReason,
         generation: Int
     ) -> String {
-        stableEventID(forgottenEventPrefix, [factID, scope.rawValue, reason.rawValue, String(generation)])
+        stableEventID(forgottenEventPrefix, idComponents(
+            factID, botID: botID,
+            [scope.rawValue, reason.rawValue, String(generation)]))
+    }
+
+    private static func idComponents(_ factID: String, botID: String?, _ rest: [String]) -> [String] {
+        var components = [factID]
+        if let scoped = scopedBotID(botID) { components.append(scoped) }
+        components.append(contentsOf: rest)
+        return components
     }
 
     private static func stableEventID(_ prefix: String, _ components: [String]) -> String {
