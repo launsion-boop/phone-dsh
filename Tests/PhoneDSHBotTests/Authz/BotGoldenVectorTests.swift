@@ -63,7 +63,7 @@ final class BotGoldenVectorTests: XCTestCase {
     /// they never fall into `tool.unclassified`. The real authorization gate is
     /// PR59's per-connection grant; the Bot ask is an additional layer.
     func testBleNativeMcpEffectsMatchSharedGolden() throws {
-        let vector = try JSONDecoder().decode(ToolVector.self, from: golden("tool-effects"))
+        let vector = try JSONDecoder().decode(ToolVector.self, from: BotGoldenFixture.mergedData("tool-effects"))
         let entries = try XCTUnwrap(vector.nativeMcp)
         XCTAssertEqual(entries.map(\.name).sorted(), [
             "mcp__phone__ble_alert", "mcp__phone__ble_devices", "mcp__phone__ble_link_call",

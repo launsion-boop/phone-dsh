@@ -33,11 +33,11 @@ phoneDSH 从本期起支持多 Bot：名册沿用 dsh-bot 的 `agents-index.json
 
 `canvas`、`product`、`gift` 不在手机卡片词汇中。未知工具、未知 `cardType`、缺少渲染所需数据的卡片一律 fail-closed；工具返回失败，不生成半空卡片。
 
-`golden/tool-catalog.phone.json` 登记 phoneDSH 的团队工具增量（`SendToAgent`、`CreateTeammate`）：这两个名字不在上游 `tool-catalog.schema.json` 的 P0 enum 中，因此不改上游 `tool-catalog.json` 或其 schema。两者的描述由可见名册减去调用者自己与隐藏 Bot 动态生成 `Available bots: <name> (id: <id>[, main Bot])`。`golden/tool-effects.phone.json` 以同一 `tool-effects.schema.json` 冻结分类：`SendToAgent` 为 `external-send + auto`，`CreateTeammate` 为 `write + auto`；两者都不再向用户出审批卡，但由宿主审计。
+`golden/tool-catalog.phone.json` 登记 phoneDSH 的团队工具与 `FishAction` 增量：这些名字不在上游 `tool-catalog.schema.json` 的 P0 enum 中，因此不改上游 `tool-catalog.json` 或其 schema。团队工具描述由可见名册减去调用者自己与隐藏 Bot 动态生成 `Available bots: <name> (id: <id>[, main Bot])`。`golden/tool-effects.phone.json` 以同一 `tool-effects.schema.json` 冻结分类：`SendToAgent` 为 `external-send + auto`，`CreateTeammate` 为 `write + auto`，`FishAction` 为 `read + auto`（纯外观、由宿主审计）；前两者不再向用户出审批卡。
 
 `card-payload.schema.json` 的字段来自 dsh-bot `cardPayloads.cjs` 的白名单。`golden/card-payload.json` 是 `export-vectors.mjs` 的原样导出，不得手改；phoneDSH 对卡片负载的增量（宿主分配的 `optionID`、recommended 移到首位、负向 fixture）放在 `golden/card-payload.phone.json`，两个文件都由 `validate_vectors.py` 校验 schema/负向结果，并由 Swift `BotCardPayloadTests` 用真实 builder 对拍。重跑导出器后 `card-payload.json` 必须无 diff；`card-payload.phone.json` 不需要重新导出。链接只接受 HTTP/HTTPS；卡片数据必须自带，不能假设存在服务端 callback 补全。
 
-`golden/tool-effects.json` 的 `nativeMcp` 数组登记原生 MCP 的 BLE 工具分类（`ble_devices`、`ble_read`、`ble_alert`、`ble_link_tools`、`ble_link_call`、`ble_link_result`；经 Bot MCP 转发后模型看到 `mcp__phone__ble_*`）。读类为 `read + ask`，发送类为 `external-send + ask`；`resource` 取裁剪后的 `device_id`，没有则 `ble:*`，`ble_link_call` 还带 `name`。工具名来自 `spec/v1/native-mcp.md`「BLE tools」；設備須先在「設定 → 藍牙設備」中逐連接授權，Bot 的 ask 只是附加層。该数组是 phoneDSH 增量：重跑上游导出器只会覆盖上游批次，需把此数组合并回来。
+`golden/tool-effects.phone.json` 的 `nativeMcp` 数组登记原生 MCP 的 BLE 工具分类（`ble_devices`、`ble_read`、`ble_alert`、`ble_link_tools`、`ble_link_call`、`ble_link_result`；经 Bot MCP 转发后模型看到 `mcp__phone__ble_*`）。读类为 `read + ask`，发送类为 `external-send + ask`；`resource` 取裁剪后的 `device_id`，没有则 `ble:*`，`ble_link_call` 还带 `name`。工具名来自 `spec/v1/native-mcp.md`「BLE tools」；設備須先在「設定 → 藍牙設備」中逐連接授權，Bot 的 ask 只是附加層。该数组是 phoneDSH 增量，与团队工具增量同在 `.phone.json` 覆盖文件；上游 `tool-effects.json` 保持原样导出。
 
 ### 2.1 volatile 上下文快照（WP2 CCR）
 
@@ -77,13 +77,13 @@ routine、cron、run-attempt、安静时段、silent/held/interrupt、held inbox
 
 `HeldMessages.block` 的 `[agent]` 分支对 `fromAgentName`、`fromAgentId`、`title`、`text` 与 `msg id` 全部经 `escapedHeldField` 转义；agent-held 的回复仍是 held 数据与队友内容，不是用户授权，不能触发未经用户要求的动作。
 
-设备任务终态另有一条只读 held 通知：`device-task-result` 只告诉 Bot 哪台设备、任务目标摘要和最终结果，不授予工具，也不提供把回复发回设备的路径。它来自 [device task-delegation](../../device/v1/task-delegation.md) 的终态记录，在 journal 落盘后、向设备回报前入队；投递至多一次（at-most-once）：Bot 未运行或落盘与入队之间崩溃时该通知丢失，journal 不受影响，不按 journal 补投或回放。`held-inbox-item.schema.json` 的该分支与 `golden/held-inbox.json` 的 `deviceTaskResult` 是 phoneDSH 增量：重跑 `spec/tools/bot/export-vectors.mjs` 会覆盖 golden 例子（schema 不由导出器改写），必须像 `tool-effects.json` 的 `nativeMcp` 一样把例子合并回来。
+设备任务终态另有一条只读 held 通知：`device-task-result` 只告诉 Bot 哪台设备、任务目标摘要和最终结果，不授予工具，也不提供把回复发回设备的路径。它来自 [device task-delegation](../../device/v1/task-delegation.md) 的终态记录，在 journal 落盘后、向设备回报前入队；投递至多一次（at-most-once）：Bot 未运行或落盘与入队之间崩溃时该通知丢失，journal 不受影响，不按 journal 补投或回放。`held-inbox-item.schema.json` 的该分支与 `golden/held-inbox.phone.json` 的 `deviceTaskResult` 是 phoneDSH 增量：上游 `held-inbox.json` 保持原样导出，例子放在覆盖文件，由合并加载器交付给真实 inbox codec。
 
 主动提醒规则链只用于 interrupt。iOS 通知深链为 `phonedsh://bot/<botID>/row/<rowID>`。推送中继不在本轮，只保留 WakeSignalSource 接口。
 
 ## 5. 行与交互
 
-Row、RowBatch、UserAction 和 ActionResult 以对应 schema 为准。`body.type` 为 `text`、`widget`、`attachment`、`approval`、`automation`、`notice`、`deleted`；`widget.cardType` 为 `question`、`steps`、`task`、`document`、`progress`、`checklist`、`link`、`table`、`callout`、`info`、`payload`、`library`。attachment、approval、automation 和 notice 使用独立 body 类型，不伪装成 widget。
+Row、RowBatch、UserAction 和 ActionResult 以对应 schema 为准。`golden/row-protocol.phone.json` 是 P27 覆盖文件：它追加 `cardAnswer` 正例（只含 `cardID` + `optionID`）、两条拒绝 `text`/`customText` 的反例、用户消息附件向量与 projection 向量；上游 `row-protocol.json` 不保存这些用例。`body.type` 为 `text`、`widget`、`attachment`、`approval`、`automation`、`notice`、`deleted`；`widget.cardType` 为 `question`、`steps`、`task`、`document`、`progress`、`checklist`、`link`、`table`、`callout`、`info`、`payload`、`library`。attachment、approval、automation 和 notice 使用独立 body 类型，不伪装成 widget。
 
 - UI 只读行、只发用户动作；宿主盖 `owner_direct`，UI 不得自行设置信任级别。
 - `watch(after:)` 增量补齐，游标单调；墓碑重建不复活；nonce 幂等。
@@ -116,6 +116,18 @@ Row、RowBatch、UserAction 和 ActionResult 以对应 schema 为准。`body.typ
 从仓库根运行：
 
 ```bash
+# Verify the upstream batch without touching the worktree.
+node spec/tools/bot/export-vectors.mjs \
+  --checkout /tmp/phonedsh-bot-spec \
+  --sha bf4075b0a2e8092b04b726c59a7b085d5a37e6f6 \
+  --out /tmp/phonedsh-bot-export
+python3 spec/tools/bot/check_golden.py --root . \
+  --checkout /tmp/phonedsh-bot-spec \
+  --sha bf4075b0a2e8092b04b726c59a7b085d5a37e6f6
+
+# Regenerate the upstream files and export-manifest.json in place. The
+# exporter never writes `*.phone.json`; existing overlays are preserved and
+# hashed into the new manifest.
 node spec/tools/bot/export-vectors.mjs \
   --checkout /tmp/phonedsh-bot-spec \
   --sha bf4075b0a2e8092b04b726c59a7b085d5a37e6f6 \
@@ -123,4 +135,23 @@ node spec/tools/bot/export-vectors.mjs \
 python3 spec/bot/v1/tools/validate_vectors.py
 ```
 
-导出器只读 dsh-bot，临时 fixture 写系统临时目录。所有实现必须让真实 codec/状态机读取这些 golden；Python 校验器通过不能替代运行时 conformance。`golden/card-payload.json` 覆盖上游导出；`golden/card-payload.phone.json` 是 phoneDSH 增量（`optionID`、recommended 首位、负向 fixture），两者分工见 §2。`golden/tool-catalog.phone.json`、`golden/tool-effects.phone.json` 与 `golden/held-inbox.json` 的 `agentHeld` 同样是 phoneDSH 增量：重跑导出器不会生成它们，必须保留并由 Swift 测试驱动真实工具目录、效果分类器与 inbox codec。
+导出器只读 dsh-bot，临时 fixture 写系统临时目录。所有实现必须让真实 codec/状态机读取这些 golden；Python 校验器通过不能替代运行时 conformance。
+
+### 8.1 上游导出与 `.phone.json` 覆盖
+
+`spec/bot/v1/golden/` 中不带 `.phone.json` 后缀的文件都是 `export-vectors.mjs` 的原样导出，不得手改；重跑导出器必须 byte-identical。手机端增量只写在同名 `.phone.json`：
+
+- `card-payload.phone.json`：宿主分配的 `optionID`、recommended 移到首位、负向 fixture。
+- `held-inbox.phone.json`：`deviceTaskResult`（P07/P26）与 `agentHeld`（多 Bot held 回复）正例、非法 `device-task-result` 反例。
+- `row-protocol.phone.json`：`cardAnswer`、附件向量与 projection 向量。
+- `tool-catalog.phone.json`：团队工具与 `FishAction` 的目录增量。
+- `tool-effects.phone.json`：团队工具、`FishAction` 与原生 MCP BLE 工具的效果分类。
+
+覆盖文件的合并语义由 `spec/tools/bot/golden_overlay.py`、Swift `BotGoldenFixture` 与 `plugins/tests/bot-golden.ts` 一致实现：
+
+- 对象的 case 容器（如 `valid`）按键合并；同名键由覆盖文件替换。
+- 数组的 case 容器（如 `valid`、`invalid`、`invalidActions`、`nativeMcp`）按 identity 追加或替换：identity 依次取 `name`、`id`、`nonce`、`action.nonce`；无 identity 的条目只有在与上游条目完全相同时才去重。覆盖文件只能增加或按 identity 替换，不能删除上游用例。
+- `schemaVersion`、`vector`、`source`、`upstream`、`delta` 是覆盖文件的文档元数据，不参与合并；合并结果保留上游元数据。
+- 读取 golden 的 Swift/TS 测试必须使用合并加载器（`BotGoldenFixture.mergedObject`／`wp6Golden`／`readBotGoldenMerged`），不得只读上游文件。
+
+`export-manifest.json` 由导出器生成，`files` 列出全部 golden，`upstream` 是本轮导出器写出的文件，`phoneOverlays` 是全部 `.phone.json`，`sha256` 是每个文件精确字节的摘要。`spec/tools/bot/check_golden.py` 校验清单/摘要/覆盖文件的 append-only 语义；带 `--checkout` 时还会重新导出并逐字节比较上游文件。CI 的 `phone-spec` 阶段运行离线校验（没有私有 dsh-bot checkout 时不能声称已证明“上游 = 原样导出”）。
