@@ -7,7 +7,7 @@ change: PC-20261109-bot-grok-layout
 contracts: [P09, P27]
 status: implemented
 base: 832f34dcf1e63897e4736a477500815ef7bc582a
-contract_revision: PC-20261109-bot-grok-layout@1
+contract_revision: PC-20261109-bot-grok-layout@2
 version_decision: 复用 pdsh.ui.page-structure/1、既有 P27 BotRows/UserAction 與 tokens；不新增 schema 欄位、wire frame、事件或版本，同 App bundle 配對升級。
 ```
 
@@ -58,3 +58,28 @@ Protocol impact: P09; P27: none — Bot 頁只消費既有 BotRows/UserAction，
 - `cd examples/probe-app && xcodegen generate && xcodebuild … build` → NOT_RUN（容器無 Xcode／iOS SDK）。
 - `swift test --filter PhoneDSHBotTests` → NOT_RUN（容器無 Swift/Xcode 工具鏈）。
 - `bash scripts/ci/bot-ui/capture.sh --appearance light,dark` 與模擬器手測 → NOT_RUN（容器無 Xcode；截圖場景由 `fish-renderer` 寫入 capture.sh）。
+
+## 5. 第 2 輪本機驗收修復（r2，base `d2d56f64dbaef802c67b6ea7be35aa1bb4c6a62d`）
+
+第一輪集成交付在本機 `xcodebuild` 失敗並暴露三處 UI 回退；r2 只修正 iOS Bot 頁呈現，不改 P09 頁面契約、P27 BotRows/UserAction、wire、投影或 durable 資料。
+
+| 項 | r1 現狀 | r2 修正 |
+| --- | --- | --- |
+| 編譯 | `BotRuntimePresentation.swift` 把字典字面量賦給 `[BotJSONValue]`，`make(...)` 與 `var timed` 黏在同一行；`BotActivityLine.swift` 缺 `import PhoneDSHBot` | 改為 `[String: PhoneDSHBot.BotJSONValue]`、恢復換行、補 import |
+| 運行中發送 | 運行中輸入區只剩停止按鈕，steering 無入口，但「發送會併入當前回合…」提示仍在 | 單按鈕三態：空閒發送（無文字置灰）／運行中空輸入停止／運行中帶文字發送並 steering；保留 `bot.composer.send`、`bot.composer.stop` |
+| 發送按鈕位置 | HStack `.bottom`、按鈕無內距，36pt 按鈕貼 52pt 膠囊底邊 | 自訂 layout：單行上下各 8pt 垂直居中，多行貼底 8pt，右側內距 8；TextField 與按鈕中心對齊 |
+| 頭部活動 | 32pt 頭像動作位移約 1/13，肉眼看不到 | 膠囊內名字右側新增 14pt 活動小圖標：thinking/無正文 streaming 三點（1.2s，.35→1→.35，錯開 .2s）、tool-running 鉛筆（1.4s，.72↔1）、待審批紅色「!」、空閒隱藏；reduce motion 靜止 |
+| Tab 切換 | 四頁保持掛載，切到 DSH tab 後 Bot 魚仍每幀渲染 | Bot tab 頁套 `.environment(\.botFishPaused, selectedTab != .bot)`；渲染器契約為 `EnvironmentValues.botFishPaused`（fish-renderer 單元提供），true 時停幀並保留最後一幀 |
+
+`spec/ui/v1/pages/bot-chat.md` 已同步頭部活動小圖標與輸入膠囊三態/幾何；`bot-info.md` 不受影響。DSH 頁外觀、行為與 id 不變。
+
+Protocol impact: P09; P27: none — 只改 Bot 頁 UI 呈現與共享環境值，未改 BotRows、UserAction、投影、事件或 wire。
+
+### r2 驗收（容器內如實記錄）
+
+- `python3 spec/ui/v1/tools/ui_check.py --root .` → PASS（5 files、13 contrast pairs、6 deferred AA pairs、1 unmeasured token、0 failures；132 個 file:line provenance anchor 全部解析）。
+- `bash scripts/ci/check.sh --only phone-spec` → PASS。
+- `CI_PROTOCOL_BASE=d2d56f64dbaef802c67b6ea7be35aa1bb4c6a62d bash scripts/ci/check.sh --only phone-cross-tree` → PASS（8/8 invariants、registry byte-identical、89 schemas 0 breaking finding）。
+- `bash scripts/ci/check.sh --only phone-p0-conformance` → FAIL：page-structure 的 12 個 divergence 均為 baseline 既有（在 `d2d56f64d` 乾淨 worktree 以同一 `--baseline spec/ui/v1/pages/_baseline.json` 命令重現同樣 12 個）；本次改動的 chat/runtime-details/egress 等頁面沒有新增 stale line 或 divergence。其餘 37+115 個 checker tests 全 PASS。
+- `git diff --check` → PASS。
+- `xcodebuild`、`swift test`、`bot-ui` 截圖與模擬器手測 → NOT_RUN（容器無 Xcode/Swift/iOS SDK；由調用方本機執行）。
