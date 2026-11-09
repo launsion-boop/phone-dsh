@@ -422,12 +422,12 @@ struct BotProductionInfoDriver {
     }
 }
 
-/// Imports the composer's picked files into the Bot's DSH workspace through
-/// the Worker's `phone/import*` service — the same path the DSH page uses for
-/// a verbatim workspace file, because the Bot's file tools run in that
-/// workspace. The concrete transport and the Bot's live session id are
-/// injected, so a future per-Bot workspace root (or a library importer) is a
-/// wiring change, not a second path implementation here.
+/// Imports the composer's picked files into the Bot's own DSH workspace through
+/// the Worker's `phone/import*` service — the same path the DSH page uses for a
+/// verbatim workspace file, because the Bot's file tools run in that workspace.
+/// The concrete transport and the Bot's live session id are injected; the
+/// session cwd is the Bot root (`BotWorkspaceLayout`), not the shared DSH
+/// workspace.
 ///
 /// Limits are enforced before the upload: at most 10 files, each <= 25 MiB.
 /// A refused or failed file is reported by name and skipped; the successful
@@ -435,16 +435,16 @@ struct BotProductionInfoDriver {
 final class BotWorkspaceAttachmentImporter: BotAttachmentImporting, @unchecked Sendable {
     private let transport: any DSHRemoteTransport
     private let sessionID: @Sendable () async throws -> String
-    /// VFS directory the import service receives. It must already exist; this
-    /// round always uses the Bot session's workspace root.
-    private let workspaceDirectory: String
+    /// Bot data root the runtime also passes to `session/create`. The import
+    /// service scopes writes to the session cwd, so this must match.
+    private let botDataDirectory: String
 
     init(transport: any DSHRemoteTransport,
          sessionID: @escaping @Sendable () async throws -> String,
-         workspaceDirectory: String = "/dsh/workspace") {
+         botDataDirectory: String = BotDataRoot.path) {
         self.transport = transport
         self.sessionID = sessionID
-        self.workspaceDirectory = workspaceDirectory
+        self.botDataDirectory = botDataDirectory
     }
 
     func importFiles(botID: String, messageID: String, files: [URL]) async -> BotAttachmentImportResult {
@@ -492,9 +492,11 @@ final class BotWorkspaceAttachmentImporter: BotAttachmentImporting, @unchecked S
             return BotAttachmentImportResult(items: [], errors: errors)
         }
 
+        let botRoot = BotWorkspaceLayout.botRoot(
+            botId: botID, dataDirectory: botDataDirectory)
         let manifest = WebEngineDirectoryImportManifest(
             sessionID: session,
-            targetDirectory: workspaceDirectory,
+            targetDirectory: botRoot,
             entryName: "attachments-\(messageID)",
             directories: [],
             files: prepared.map { WebEngineDirectoryImportFile(path: $0.safeName, size: $0.data.count) },

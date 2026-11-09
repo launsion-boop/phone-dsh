@@ -31,9 +31,9 @@ Protocol impact: P27; P25: none — 未改 event envelope、dshbot-pin、export-
 | 行投影 | 用户行正文 → 先剥离提示块；`body.text` 为可见正文，`body.attachments` 为上述对象数组（camelCase 五字段），`body.content` 同步改写为可见文本；附件-only 行 `text=""` 仍为可渲染 bubble。 |
 | `kindFor` | 不存在于 Swift → 逐条镜像上游：MIME 前缀（`image/`、`audio/`、`video/`，PDF 精确 `application/pdf`）优先，扩展名回退（`png/jpe?g/gif/webp/heic`、`mp3/wav/m4a/aac/ogg`、`mp4/mov/webm/mkv`、`pdf`、`md/markdown`、`csv/xlsx?/numbers`、`json/jsonl/ya?ml`、`docx?/pages/rtf`、`zip/tar/gz/tgz/rar/7z`），否则 `file`。 |
 | `safeName` | 不存在于 Swift → 取 basename，非 `[\w.\- ()一-鿿]` 逐 UTF-16 单元替换 `_`，去前导点，截 120，空则 `file`。 |
-| 导入路径 | App 层 importer 通过 Worker directory-import service 写入 Bot session cwd 的 `imports/attachments-<messageID>/<safeName>`：`targetDirectory` 为 session workspace root，`entryName=attachments-<messageID>`，service 固定追加 `imports/`。`BotAttachment.path` 取 commit 返回的绝对 VFS path + `/` + safeName（典型 `/dsh/workspace/imports/attachments-att-xxx/周报.pdf`），不在库里拼路径常量。重名在导入前按 ` (n)` 去重；失败/超限的单个文件跳过并返回原因，不阻止消息发送。 |
+| 导入路径 | App 层 importer 通过 Worker directory-import service 写入 Bot session cwd 的 `imports/attachments-<messageID>/<safeName>`：`targetDirectory` 为 session workspace root，`entryName=attachments-<messageID>`，service 固定追加 `imports/`。`BotAttachment.path` 取 commit 返回的绝对 VFS path + `/` + safeName（第 3 轮典型 `/dsh/workspace/imports/attachments-att-xxx/周报.pdf`；第 4 轮起 cwd 为 `<botRoot>`，见 §6），不在库里拼路径常量。重名在导入前按 ` (n)` 去重；失败/超限的单个文件跳过并返回原因，不阻止消息发送。 |
 
-冻结的 Swift surface 与 plan.md 一致：`BotAttachment`、`BotAttachmentPolicy`（`maxCount`/`maxBytes`/`kind`/`safeName`）、`BotAttachmentPrompt.block/parse`、`BotAttachmentImportResult`、`BotAttachmentImporting`。库层不提供文件导入实现（本地 `workspaceRoot` 与 Worker VFS 不是同一命名空间）；只新增 `BotDSHRemoteRuntime.ensureMainSessionID() async throws -> String` 作为 session 创建/恢复的单一 seam。`bot-page` 的 app 层 `BotWorkspaceAttachmentImporter` 用 `PhoneDSHWorkspaceImportSink` + `WebEngineDirectoryImportManifest(sessionID:targetDirectory:entryName:)` 写入，`targetDirectory` 取该 session 的 workspace root（本轮 `/dsh/workspace`，下一轮 per-Bot root 只改 session/accessor，不改相对路径）。
+冻结的 Swift surface 与 plan.md 一致：`BotAttachment`、`BotAttachmentPolicy`（`maxCount`/`maxBytes`/`kind`/`safeName`）、`BotAttachmentPrompt.block/parse`、`BotAttachmentImportResult`、`BotAttachmentImporting`。库层不提供文件导入实现（本地 `workspaceRoot` 与 Worker VFS 不是同一命名空间）；只新增 `BotDSHRemoteRuntime.ensureMainSessionID() async throws -> String` 作为 session 创建/恢复的单一 seam。`bot-page` 的 app 层 `BotWorkspaceAttachmentImporter` 用 `PhoneDSHWorkspaceImportSink` + `WebEngineDirectoryImportManifest(sessionID:targetDirectory:entryName:)` 写入；第 4 轮起 `targetDirectory` 取 session cwd（`<botRoot>`，见 §6），相对布局不变。
 
 ## 3. 兼容性與發佈
 
@@ -48,9 +48,9 @@ Protocol impact: P27; P25: none — 未改 event envelope、dshbot-pin、export-
 
 ## 4. 分工與證據
 
-- 契约 owner/implementer：`attachments` 单元，独占本变更的 schema、`bot-attachments.json`、`row-protocol.json`、`row-projection.json`、`Sources/PhoneDSHBot/{Attachments,Rows,MCP}`、对应测试与本文档。
-- `profile` 单元代写 `spec/README.md` §3/§4 的 P27 登记与 `spec/bot/v1/export-manifest.json` 的 `bot-attachments.json` 条目；本单元不直接改这两份文件。
-- `bot-page` 单元消费 `BotUserAction.attachments` 与行 `body.attachments`，实现「+」选择器、chip、导入调用、用户行附件卡片；P09 页面契约归其维护。其 importer 通过 `BotDSHRemoteRuntime.ensureMainSessionID()` 取得 session id，`targetDirectory` 用该 session 的 workspace root，`entryName=attachments-<messageID>`，最终 path 取 commit 的绝对 `workspacePath` + `/` + safeName。
+- 契约 owner/implementer：`attachments` 单元，独占本变更的 schema、`bot-attachments.json`、`Sources/PhoneDSHBot/{Attachments,Rows,MCP}`、对应测试与本文档。手机端扩展用例归 `spec/bot/v1/golden/row-protocol.phone.json`；`row-protocol.json`/`row-projection.json` 由上游导出拥有、不再手写扩展。
+- `spec/README.md` §3/§4 的 P27 登记与 `spec/registry.json` 的 P27 triggers 由 `r3-fixes` 更新，本单元不改这两个文件；`spec/bot/v1/export-manifest.json` 的 `bot-attachments.json` 条目由 `profile` 代写，本单元不直接改。
+- `bot-page` 单元消费 `BotUserAction.attachments` 与行 `body.attachments`，实现「+」选择器、chip、导入调用、用户行附件卡片；P09 页面契约归其维护。其 importer 通过 `BotDSHRemoteRuntime.ensureMainSessionID()` 取得 session id，`targetDirectory` 用该 session 的 cwd（第 4 轮为 `<botRoot>`，见 §6），`entryName=attachments-<messageID>`，最终 path 取 commit 的绝对 `workspacePath` + `/` + safeName。
 - `fish-renderer`：none — 不消费附件。
 
 容器内命令与结果：
@@ -71,3 +71,24 @@ Protocol impact: P27; P25: none — 未改 event envelope、dshbot-pin、export-
 | --- | --- | --- | --- |
 | 1 | attachments 单元 | 初次冻结 P27 附件字段、提示块、导入路径与行元数据 | lead、`profile`、`bot-page` |
 | 2 | attachments 单元 | 按 lead 最终裁定移除库层 `BotAttachmentFileImporter`，改由 app 层 Worker import service 写入；补 `ensureMainSessionID()`；路径改为 `imports/attachments-<messageID>/<safeName>` | lead、`bot-page`、`profile` |
+| 3 | bot-root | 第 4 轮把 session cwd／importer 的 `targetDirectory` 改为 `<botRoot> = /dsh/workspace/.dshbot/agents/<botID>`；附件契约、五字段、上限与相对布局不变。实际落盘 `<botRoot>/imports/attachments-<messageID>/<safeName>`，不是 plan 字面的 `<botRoot>/attachments/<messageID>/<safeName>`（原因见 §6） | lead、`dsh-filter`、`bot-page`、`r3-fixes` |
+
+## 6. 第 4 轮：Bot 独立根目录下的附件（r4，base `ff79c6aa13e271cb0f71d12890a40f881699a6ce`）
+
+`BotWorkspaceAttachmentImporter` 不再把 `targetDirectory` 固定为 `/dsh/workspace`，而是：
+
+- `sessionID` 仍来自 `BotDSHRemoteRuntime.ensureMainSessionID()`；该 session 由 runtime 以 `cwd = <botRoot>` 创建（见 `PC-20261109-bot-root`）。
+- `targetDirectory = BotWorkspaceLayout.botRoot(botId:dataDirectory:)`，生产值由 App 传入 `BotSessionRegistry.botDataDirectory`；默认 `/dsh/workspace/.dshbot`。
+- `entryName = attachments-<messageID>` 不变，directory-import service 固定追加 `imports/`，最终 `absolutePath = <botRoot>/imports/attachments-<messageID>/<safeName>`，`BotAttachment.path` 取 commit 返回的绝对路径 + `/` + safeName。
+
+**与 plan 字面路径的差异及理由**：plan 写 `<botRoot>/attachments/<messageID>/`，但 Worker directory-import 契约把最终目录固定为 `<targetDirectory>/imports/<entryName>`，且 `entryName` 只能是单个 path segment；同时 `importBegin` 要求 `targetDirectory` 已经存在，而 `session/create` 只保证创建了 session cwd（`<botRoot>`）。现有 sink 无法在不改 import 契约、或不额外用 `phone/shellRun` 建目录的情况下生成 `attachments/<messageID>`。本轮选择保持第 3 轮已冻结的相对布局 `imports/attachments-<messageID>/`，只把根从 `/dsh/workspace` 换成 `<botRoot>`；没有改 Worker import 契约、没有放宽 target 校验、没有写 native materialized 副本。验收要求“附件文件落在 Bot 根目录”由此满足：所有附件都在 `<botRoot>` 下，DSH 工作区浏览看不到。
+
+兼容性：旧附件文件仍在 `/dsh/workspace/imports/attachments-*`，不删除也不回滚；新附件只写新根。旧会话归档后其附件仍留在旧路径，不影响新会话。`BotAttachment.path` 是绝对 VFS 路径，模型文件工具直接可读；没有新增 wire 字段或 schema 版本。
+
+r4 容器内证据：
+
+- `git diff --check` → PASS。
+- `python3 spec/bot/v1/tools/validate_vectors.py` → PASS（附件 schema/正反例未变）。
+- `bash scripts/ci/check.sh --only phone-spec` → PASS（90 files、0 error；235 tests OK）。
+- `CI_PROTOCOL_BASE=ff79c6aa13e271cb0f71d12890a40f881699a6ce bash scripts/ci/check.sh --only phone-cross-tree` → PASS（8/8 invariants、registry byte-identical、89 schemas 0 breaking finding）。
+- `swift test --filter PhoneDSHBotTests`、`xcodebuild`、模拟器附件导入手测 → NOT_RUN（容器无 Swift/Xcode；由调用方本机执行）。
