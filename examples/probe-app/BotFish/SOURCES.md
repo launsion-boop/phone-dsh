@@ -25,6 +25,13 @@
 - `examples/probe-app/PhoneDSHProbe/Bot/Fish/BotFishAssets.swift` 通过
   `Bundle.main.url(forResource:withExtension:subdirectory: "BotFish/base")`
   （表情 sprite 用 `"BotFish/expressive"`）加载；缺失时回退 `BotAvatar`。
-- `body.png` 是灰度图，运行时按固定蓝色 `#1680F3` 的 LUT 着色一次并进程内共享。
+- `body.png` 是灰度图，运行时按固定蓝色 `#1680F3` 的 LUT 着色；着色结果按
+  （颜色, 显示尺寸档位）缓存并进程内共享，多个头像实例不会逐帧重复着色。
+- 渲染器按 SwiftUI `displayScale` 把 416px 圆形裁切区栅格化到 `size × scale`
+  的复用位图/上下文，不再先画 512×512 再缩放；`BotFish/` 原始 512 源空间
+  坐标保持不变。
+- `BotFishView` 读取 `EnvironmentValues.botFishPaused`（默认 false）；为 true
+  时暂停时间线并保留最后一帧。Bot 页在非 Bot tab 上设置它。
 - 截图工程 `scripts/ci/bot-ui/capture.sh` 同样把本目录作为 folder 资源打包，
-  并额外生成全部状态的画廊截图（`gallery` fixture）。
+  生成全部状态的静态画廊（`gallery`）以及 thinking/working/speaking/alerting/
+  celebrate 的 3 帧动态连拍（`dynamic`，间隔约 150ms）。

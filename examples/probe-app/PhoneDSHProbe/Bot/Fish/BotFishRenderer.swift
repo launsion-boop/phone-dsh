@@ -16,94 +16,205 @@ final class BotFishRenderer {
     static let designInk = UIColor(red: 33.0 / 255.0, green: 25.0 / 255.0,
                                    blue: 45.0 / 255.0, alpha: 1)
 
-    static func rendererFormat() -> UIGraphicsImageRendererFormat {
-        let format = UIGraphicsImageRendererFormat.default()
-        format.scale = 1
-        format.opaque = false
-        return format
-    }
+    /// Upstream circle framing (`avatar.js`): the normal avatar shows the
+    /// 416px square at (48, 30) out of the 512px source canvas.
+    static let cropOrigin = CGPoint(x: 48, y: 30)
+    static let cropSide: CGFloat = 416
+
+    /// The 32pt header avatar is too small for the upstream motion amplitudes
+    /// to read. Boost translation/roll 2.2× at 40pt and below, keep the
+    /// upstream values from 64pt up, and clamp the boosted pose so the fish
+    /// stays inside the circular crop instead of exposing an empty disc edge.
+    private static let motionBoostSmallSize: CGFloat = 40
+    private static let motionBoostLargeSize: CGFloat = 64
+    private static let motionBoostFactor: Double = 2.2
+    private static let motionBoostMaxTranslation: Double = 20
+    private static let motionBoostMaxRoll: Double = 9
 
     private let assets: BotFishAssets?
     private let palette = BotFishPalette.blue
-    private let format = BotFishRenderer.rendererFormat()
+
+    private var pixelSide = 0
+    private var baseTransform = CGAffineTransform.identity
+    private var flatContext: CGContext?
+    private var stageContext: CGContext?
+    private var browContext: CGContext?
+    private var bodyLayer: UIImage?
 
     init() {
         assets = BotFishAssets.shared
     }
 
-    func render(_ p: BotFishParams, time: Double) -> UIImage? {
+    func render(_ params: BotFishParams, time: Double, size: CGFloat,
+                displayScale: CGFloat) -> UIImage? {
         guard let assets, !assets.eyeCels.isEmpty, !assets.mouthCels.isEmpty else { return nil }
-        let flat = renderFlat(assets: assets, p: p, time: time)
-        guard flat != nil else { return nil }
+        let scale = max(1, displayScale)
+        let target = max(1, Int(ceil(Double(max(1, size) * scale))))
+        guard ensureContexts(target), let flatContext else { return nil }
+        if bodyLayer == nil {
+            bodyLayer = assets.bodyLayer(palette: palette, pixelSide: CGFloat(target))
+        }
+        guard bodyLayer != nil else { return nil }
+
+        var p = params
+        let boost = Self.motionBoost(for: size)
+        p.motionScale = boost
+        if boost > 1 {
+            p.x = BotFishMath.clamp(p.x * boost,
+                                    -Self.motionBoostMaxTranslation, Self.motionBoostMaxTranslation)
+            p.y = BotFishMath.clamp(p.y * boost,
+                                    -Self.motionBoostMaxTranslation, Self.motionBoostMaxTranslation)
+            p.roll = BotFishMath.clamp(p.roll * boost,
+                                       -Self.motionBoostMaxRoll, Self.motionBoostMaxRoll)
+        }
+
         let headMotion = abs(p.headX) + abs(p.headY) + abs(p.hairSway) + abs(p.earFlutter)
-        guard headMotion >= 0.001 else { return flat }
-        return renderMotion(flat: flat!, p: p)
+        if headMotion >= 0.001, let stageContext {
+            guard renderFlat(into: stageContext, assets: assets, p: p, time: time,
+                             pixelSide: target) else { return nil }
+            guard let stage = stageContext.makeImage() else { return nil }
+            guard renderMotion(stage: stage, into: flatContext, p: p, pixelSide: target) else {
+                return nil
+            }
+        } else {
+            guard renderFlat(into: flatContext, assets: assets, p: p, time: time,
+                             pixelSide: target) else { return nil }
+        }
+        guard let image = flatContext.makeImage() else { return nil }
+        return UIImage(cgImage: image, scale: scale, orientation: .up)
     }
 
-    private func renderFlat(assets: BotFishAssets, p: BotFishParams, time: Double) -> UIImage? {
-        let side = BotFishRenderer.size
-        let renderer = UIGraphicsImageRenderer(size: CGSize(width: side, height: side), format: format)
-        return renderer.image { context in
-            let cg = context.cgContext
-            let alpha = CGFloat(BotFishMath.clamp(p.alpha, 0, 1))
+    private static func motionBoost(for size: CGFloat) -> Double {
+        if size <= motionBoostSmallSize { return motionBoostFactor }
+        if size >= motionBoostLargeSize { return 1 }
+        let t = Double((size - motionBoostSmallSize)
+            / (motionBoostLargeSize - motionBoostSmallSize))
+        return motionBoostFactor + (1 - motionBoostFactor) * t
+    }
+
+    private func ensureContexts(_ target: Int) -> Bool {
+        if pixelSide == target, flatContext != nil, stageContext != nil, browContext != nil {
+            return true
+        }
+        guard let flat = makeContext(target), let stage = makeContext(target),
+              let brow = makeContext(target) else {
+            pixelSide = 0
+            flatContext = nil
+            stageContext = nil
+            browContext = nil
+            bodyLayer = nil
+            return false
+        }
+        pixelSide = target
+        flatContext = flat
+        stageContext = stage
+        browContext = brow
+        bodyLayer = nil
+        // A UIKit-style top-left origin: draw in source space exactly as the
+        // previous UIGraphicsImageRenderer path did, but into a reused canvas.
+        baseTransform = CGAffineTransform(a: 1, b: 0, c: 0, d: -1,
+                                          tx: 0, ty: CGFloat(target))
+        return true
+    }
+
+    private func makeContext(_ target: Int) -> CGContext? {
+        let context = CGContext(data: nil, width: target, height: target,
+                                bitsPerComponent: 8, bytesPerRow: target * 4,
+                                space: CGColorSpaceCreateDeviceRGB(),
+                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        context?.interpolationQuality = .high
+        return context
+    }
+
+    private var fullPixelRect: CGRect {
+        CGRect(x: 0, y: 0, width: CGFloat(pixelSide), height: CGFloat(pixelSide))
+    }
+
+    private func renderFlat(into cg: CGContext, assets: BotFishAssets, p: BotFishParams,
+                            time: Double, pixelSide target: Int) -> Bool {
+        guard let body = bodyLayer else { return false }
+        // UIImage.draw(in:) uses UIKit's current context. Push the reusable
+        // bitmap for this paint and pop it before returning to the frame loop.
+        UIGraphicsPushContext(cg)
+        defer { UIGraphicsPopContext() }
+        let alpha = CGFloat(BotFishMath.clamp(p.alpha, 0, 1))
+        let pixelScale = CGFloat(target) / Self.cropSide
+        cg.setCTM(baseTransform)
+        cg.clear(fullPixelRect)
+        cg.saveGState()
+        // Source space stays 512px; the canvas is the 416px circle crop, so a
+        // 32pt avatar rasterises only the pixels it can actually display.
+        cg.scaleBy(x: pixelScale, y: pixelScale)
+        cg.translateBy(x: -Self.cropOrigin.x, y: -Self.cropOrigin.y)
+        cg.setAlpha(alpha)
+        cg.translateBy(x: 256 + CGFloat(p.x), y: 350 + CGFloat(p.y))
+        cg.rotate(by: CGFloat(p.roll * Double.pi / 180))
+        cg.scaleBy(x: CGFloat(p.sx * p.morphX), y: CGFloat(p.sy * p.morphY))
+        cg.translateBy(x: -256, y: -350)
+
+        let frame = CGRect(x: 0, y: 0, width: Self.size, height: Self.size)
+        body.draw(in: frame)
+        assets.fixed.draw(in: frame)
+
+        if p.blush > 0.01 {
             cg.saveGState()
-            cg.setAlpha(alpha)
-            cg.translateBy(x: 256 + CGFloat(p.x), y: 350 + CGFloat(p.y))
-            cg.rotate(by: CGFloat(p.roll * Double.pi / 180))
-            cg.scaleBy(x: CGFloat(p.sx * p.morphX), y: CGFloat(p.sy * p.morphY))
-            cg.translateBy(x: -256, y: -350)
-
-            let frame = CGRect(x: 0, y: 0, width: side, height: side)
-            assets.body.draw(in: frame)
-            assets.fixed.draw(in: frame)
-
-            if p.blush > 0.01 {
-                cg.saveGState()
-                cg.setAlpha(alpha * CGFloat(p.blush))
-                assets.blush.draw(in: frame)
-                cg.restoreGState()
-            }
-
-            paintEye(cg, assets: assets, side: -1, p: p, art: p.eyeArt, baseAlpha: Double(alpha))
-            paintEye(cg, assets: assets, side: 1, p: p, art: p.eyeArt, baseAlpha: Double(alpha))
-            if p.eyeArt == nil {
-                paintBrows(cg, assets: assets, p: p)
-            }
-            paintMouthCrossfade(cg, assets: assets, p: p, baseAlpha: Double(alpha))
-
-            if p.tears > 0.01 {
-                paintTears(cg, p: p, time: time, baseAlpha: Double(alpha))
-            }
-            paintFin(cg, side: -1, amount: p.finL, wave: p.finWave, fold: p.finFold,
-                     baseAlpha: Double(alpha))
-            paintFin(cg, side: 1, amount: p.finR, wave: -p.finWave, fold: p.finFold,
-                     baseAlpha: Double(alpha))
-            paintDecorations(cg, p: p, time: time, baseAlpha: Double(alpha))
+            cg.setAlpha(alpha * CGFloat(p.blush))
+            assets.blush.draw(in: frame)
             cg.restoreGState()
         }
+
+        paintEye(cg, assets: assets, side: -1, p: p, art: p.eyeArt, baseAlpha: Double(alpha))
+        paintEye(cg, assets: assets, side: 1, p: p, art: p.eyeArt, baseAlpha: Double(alpha))
+        if p.eyeArt == nil {
+            paintBrows(cg, assets: assets, p: p)
+        }
+        paintMouthCrossfade(cg, assets: assets, p: p, baseAlpha: Double(alpha))
+
+        if p.tears > 0.01 {
+            paintTears(cg, p: p, time: time, baseAlpha: Double(alpha))
+        }
+        paintFin(cg, side: -1, amount: p.finL, wave: p.finWave, fold: p.finFold,
+                 baseAlpha: Double(alpha))
+        paintFin(cg, side: 1, amount: p.finR, wave: -p.finWave, fold: p.finFold,
+                 baseAlpha: Double(alpha))
+        paintDecorations(cg, p: p, time: time, baseAlpha: Double(alpha))
+        cg.restoreGState()
+        return true
     }
 
-    private func renderMotion(flat: UIImage, p: BotFishParams) -> UIImage? {
-        guard let flatImage = flat.cgImage else { return flat }
-        let side = BotFishRenderer.size
-        let renderer = UIGraphicsImageRenderer(size: CGSize(width: side, height: side), format: format)
-        return renderer.image { context in
-            let cg = context.cgContext
-            cg.clear(CGRect(x: 0, y: 0, width: side, height: side))
-            for y in stride(from: 0, to: 512, by: 8) {
-                let v = BotFishMath.clamp((Double(y) - 365) / 65, 0, 1)
+    /// The upstream head-to-shoulder displacement. The 512px source is cut
+    /// into the same 8px slices, but each slice is scaled to the display pixel
+    /// height and drawn into the reused output context instead of first
+    /// rendering a 512×512 bitmap and scaling that.
+    private func renderMotion(stage: CGImage, into cg: CGContext, p: BotFishParams,
+                              pixelSide target: Int) -> Bool {
+        let pixelScale = CGFloat(target) / Self.cropSide
+        let sliceHeight = max(0.5, 8 * pixelScale)
+        cg.setCTM(baseTransform)
+        cg.setAlpha(1)
+        cg.clear(fullPixelRect)
+        var y = 0.0
+        while y < Double(Self.size) {
+            // The stage starts at source y=30 (the circle crop), not at zero.
+            let yPixel = (CGFloat(y) - Self.cropOrigin.y) * pixelScale
+            let top = max(0, yPixel)
+            let bottom = min(CGFloat(target), yPixel + sliceHeight)
+            if bottom > top {
+                let v = BotFishMath.clamp((y - 365) / 65, 0, 1)
                 let head = 1 - v * v * (3 - 2 * v)
-                let dx = p.headX * (4.5 + (350 - Double(y)) * 0.009) * head
-                    + p.hairSway * max(0, (Double(y) - 310) / 160)
+                let dx = p.headX * (4.5 + (350 - y) * 0.009) * head
+                    + p.hairSway * max(0, (y - 310) / 160)
                 let dy = p.headY * 2.8 * head
-                    + p.earFlutter * exp(-pow((Double(y) - 245) / 45, 2))
-                let sliceRect = CGRect(x: 0, y: CGFloat(y), width: side, height: 8)
-                guard let slice = flatImage.cropping(to: sliceRect) else { continue }
-                UIImage(cgImage: slice, scale: 1, orientation: .up)
-                    .draw(in: CGRect(x: CGFloat(dx), y: CGFloat(Double(y) + dy),
-                                     width: side, height: 8))
+                    + p.earFlutter * exp(-pow((y - 245) / 45, 2))
+                cg.saveGState()
+                cg.translateBy(x: CGFloat(dx) * pixelScale, y: CGFloat(dy) * pixelScale)
+                cg.clip(to: CGRect(x: 0, y: top, width: CGFloat(target), height: bottom - top))
+                cg.draw(stage, in: fullPixelRect)
+                cg.restoreGState()
             }
+            y += 8
         }
+        return true
     }
 
     // MARK: - Eyes
@@ -253,32 +364,44 @@ final class BotFishRenderer {
     // MARK: - Brows
 
     private func paintBrows(_ cg: CGContext, assets: BotFishAssets, p: BotFishParams) {
-        guard abs(p.browL) + abs(p.browR) + p.anger + p.sorrow >= 0.02 else { return }
-        let side = BotFishRenderer.size
-        let renderer = UIGraphicsImageRenderer(size: CGSize(width: side, height: side), format: format)
-        let brows = renderer.image { context in
-            let b = context.cgContext
+        guard abs(p.browL) + abs(p.browR) + p.anger + p.sorrow >= 0.02,
+              let b = browContext else { return }
+        UIGraphicsPushContext(b)
+        defer { UIGraphicsPopContext() }
+        let pixelScale = CGFloat(pixelSide) / BotFishRenderer.cropSide
+        b.setCTM(baseTransform)
+        b.clear(fullPixelRect)
+        b.saveGState()
+        b.scaleBy(x: pixelScale, y: pixelScale)
+        b.translateBy(x: -BotFishRenderer.cropOrigin.x, y: -BotFishRenderer.cropOrigin.y)
+        design(b)
+        b.setStrokeColor(UIColor(red: 52.0 / 255.0, green: 37.0 / 255.0,
+                                 blue: 58.0 / 255.0, alpha: 0.58).cgColor)
+        b.setLineWidth(2.7)
+        b.setLineCap(.round)
+        for (cx, value, sideSign) in [(399.0, p.browL, -1.0), (624.0, p.browR, 1.0)] {
             b.saveGState()
-            design(b)
-            b.setStrokeColor(UIColor(red: 52.0 / 255.0, green: 37.0 / 255.0,
-                                     blue: 58.0 / 255.0, alpha: 0.58).cgColor)
-            b.setLineWidth(2.7)
-            b.setLineCap(.round)
-            for (cx, value, sideSign) in [(399.0, p.browL, -1.0), (624.0, p.browR, 1.0)] {
-                b.saveGState()
-                b.translateBy(x: CGFloat(cx), y: CGFloat(527 - value * 8))
-                b.rotate(by: CGFloat(-sideSign * p.anger * 0.22 + sideSign * p.sorrow * 0.20))
-                b.move(to: CGPoint(x: -26, y: 0))
-                b.addQuadCurve(to: CGPoint(x: 26, y: 0), control: CGPoint(x: 0, y: -5))
-                b.strokePath()
-                b.restoreGState()
-            }
+            b.translateBy(x: CGFloat(cx), y: CGFloat(527 - value * 8))
+            b.rotate(by: CGFloat(-sideSign * p.anger * 0.22 + sideSign * p.sorrow * 0.20))
+            b.move(to: CGPoint(x: -26, y: 0))
+            b.addQuadCurve(to: CGPoint(x: 26, y: 0), control: CGPoint(x: 0, y: -5))
+            b.strokePath()
             b.restoreGState()
-            b.setBlendMode(.destinationIn)
-            assets.faceMask.draw(in: CGRect(x: 0, y: 0, width: side, height: side))
-            b.setBlendMode(.normal)
         }
-        brows.draw(in: CGRect(x: 0, y: 0, width: side, height: side))
+        b.restoreGState()
+        b.setBlendMode(.destinationIn)
+        b.saveGState()
+        b.scaleBy(x: pixelScale, y: pixelScale)
+        b.translateBy(x: -BotFishRenderer.cropOrigin.x, y: -BotFishRenderer.cropOrigin.y)
+        assets.faceMask.draw(in: CGRect(x: 0, y: 0, width: BotFishRenderer.size,
+                                        height: BotFishRenderer.size))
+        b.restoreGState()
+        b.setBlendMode(.normal)
+        guard let brows = b.makeImage() else { return }
+        cg.saveGState()
+        cg.setCTM(baseTransform)
+        cg.draw(brows, in: fullPixelRect)
+        cg.restoreGState()
     }
 
     // MARK: - Mouth
@@ -441,6 +564,10 @@ final class BotFishRenderer {
         let decoration = p.decoration
         guard !decoration.isEmpty else { return }
         let phase = p.phase
+        // Decorations are part of the avatar's readable motion. On the 32pt
+        // header they receive the same small-size boost as the pose, without
+        // moving their fixed anchors outside the circular canvas.
+        let motion = p.motionScale
         cg.saveGState()
         cg.setLineCap(.round)
         cg.setLineJoin(.round)
@@ -479,7 +606,7 @@ final class BotFishRenderer {
                                     blue: 152.0 / 255.0, alpha: 1).cgColor)
             cg.fillEllipse(in: CGRect(x: 413.5, y: 108.5, width: 5, height: 5))
         case "sleep":
-            let r = 10 + 3 * sin(phase * BotFishRenderer.tau)
+            let r = 10 + 3 * motion * sin(phase * BotFishRenderer.tau)
             cg.setStrokeColor(UIColor(red: 138.0 / 255.0, green: 172.0 / 255.0,
                                       blue: 192.0 / 255.0, alpha: 1).cgColor)
             cg.setFillColor(UIColor(red: 175.0 / 255.0, green: 214.0 / 255.0,
@@ -508,10 +635,10 @@ final class BotFishRenderer {
                 }
             }
         case "hearts":
-            heart(cg, x: 78, y: 140 - 8 * sin(phase * BotFishRenderer.tau), r: 10,
+            heart(cg, x: 78, y: 140 - 8 * motion * sin(phase * BotFishRenderer.tau), r: 10,
                   color: UIColor(red: 230.0 / 255.0, green: 109.0 / 255.0,
                                  blue: 159.0 / 255.0, alpha: 1), alpha: 0.75)
-            heart(cg, x: 420, y: 86 - 6 * sin(phase * BotFishRenderer.tau + 1), r: 12,
+            heart(cg, x: 420, y: 86 - 6 * motion * sin(phase * BotFishRenderer.tau + 1), r: 12,
                   color: UIColor(red: 230.0 / 255.0, green: 109.0 / 255.0,
                                  blue: 159.0 / 255.0, alpha: 1), alpha: 0.8)
             heart(cg, x: 448, y: 122, r: 6,
@@ -547,7 +674,8 @@ final class BotFishRenderer {
             ]
             for index in 0..<12 {
                 let x = 44.0 + Double((index * 83) % 420)
-                let y = 35.0 + Double((Int(phase * 125) + index * 31) % 154)
+                let travel = Int(phase * 125 * motion) + index * 31
+                let y = 35.0 + Double(travel % 154)
                 cg.saveGState()
                 cg.translateBy(x: x, y: y)
                 cg.rotate(by: CGFloat(Double(index) + phase * BotFishRenderer.tau))

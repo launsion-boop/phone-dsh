@@ -108,6 +108,9 @@ struct BotFishParams {
     var artMix = 1.0
     var eyeArtPrev: String?
     var mouthArtPrev: String?
+    /// Renderer-only amplification for the 32pt header avatar. The state
+    /// machine and the upstream 64pt+ values stay untouched.
+    var motionScale = 1.0
 }
 
 struct BotFishClip {

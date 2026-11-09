@@ -6,6 +6,7 @@ import SwiftUI
 struct PhoneDSHBotUICaptureApp: App {
     private let fixture: BotUIFixtureCase
     private let gallery: Bool
+    private let dynamic: Bool
     private let diagnostics: Bool
     private let appearance: String
 
@@ -14,6 +15,7 @@ struct PhoneDSHBotUICaptureApp: App {
         let fixtureName = Self.value(named: "-BotUIFixture", in: arguments)
             ?? BotUIFixtureCase.chat.rawValue
         gallery = fixtureName == "gallery"
+        dynamic = fixtureName == "dynamic"
         fixture = BotUIFixtureCase(rawValue: fixtureName) ?? .chat
         diagnostics = arguments.contains("-BotUIDiagnostics")
         appearance = Self.value(named: "-BotUIAppearance", in: arguments) ?? "light"
@@ -27,6 +29,12 @@ struct PhoneDSHBotUICaptureApp: App {
                     BotFishGalleryView()
                     #else
                     Text("gallery is only available in DEBUG")
+                    #endif
+                } else if dynamic {
+                    #if DEBUG
+                    BotFishDynamicGalleryView()
+                    #else
+                    Text("dynamic gallery is only available in DEBUG")
                     #endif
                 } else {
                     BotUIFixtureRootView(fixture: fixture, diagnostics: diagnostics)
