@@ -3,7 +3,7 @@
 ```yaml
 change: PC-20261108-tono-account-login
 contracts: [P05, P09, P18]
-status: frozen
+status: implemented
 breaking: false
 version_decision: No version change on any existing boundary. The gateway schema, /v1/http envelope, Worker variables, provider documents and error codes are unchanged. The session record is a new private secret item with its own version field (1).
 base: 1b4fa4cd
@@ -91,7 +91,41 @@ limited to one origin and two codes defined by the cloud contract.
 | Revision | Change |
 | --- | --- |
 | cases.json@sha256:c15931d7 | Frozen clause, constants, phone/code normalization, request encodings, response/outcome classes, record, clock, cloud-response and retry-flow cases. |
+| tono-account.md §4 wording (cases unchanged) | Implementer finding: Android's model API key already rides `Authorization: Bearer`, not `x-api-key`. The clause now says "the header that platform's API-key path uses"; no behaviour or fixture changed. |
 
-## 6. Verification
+## 6. Verification (macOS + galic, not a device)
 
-Filled in by the implementers and reviewer at the head of the change.
+Protocol impact: P05; P18; P09.
+
+- iOS `swift test --filter 'Tono|ModelProviderSettings|WebSearch|ModelGatewayTests'` → PASS
+  (PhoneDSHTests 118, PhoneDSHGatewayTests 57, 0 failures). Full
+  `swift test --filter 'PhoneDSHGatewayTests|PhoneDSHTests'` → PASS (476 + 155, 0 failures).
+  New: `TonoAccountCasesTests` (7), `TonoAccountSessionTests` (13), `TonoAccountCredentialPrecedenceTests` (6),
+  `TonoCloudResponsePolicyTests` (4: cases, constants, retry flows on the real `ModelGateway` against a
+  local upstream, other origins unchanged). Mutation check: disabling the 401 re-send makes the
+  retry-flow test fail (`expired-then-ok` 1 contact / 401), restored.
+- iOS app: `xcodebuild -scheme PhoneDSHProbe -destination 'generic/platform=iOS Simulator' build`
+  (empty placeholder Worker bundle, as `xcode-resolve.sh` does) → BUILD SUCCEEDED.
+- galic `./gradlew --no-daemon --continue :net:test :lib:testDebugUnitTest :app:testDebugUnitTest :app:assembleDebug`
+  → PASS: net 259, lib 1029, app 338 tests, 0 failures (7 skipped: the existing `SshLiveFixtureTest`
+  live fixture); debug APK assembled. New: `TonoAccountCasesTest` (9, incl. `retry_flows` on the real
+  `GatewaySession`), `TonoAccountSessionTest` (15), `LoopbackModelProxyTest.cloudOriginRetryFlowsMatchTheSharedCases`
+  (real sockets), `TonoAccountLaunchTest` (2). The Worker bundle on galic was copied, not rebuilt (no
+  Worker source changed).
+- `bash scripts/ci/check.sh --only phone-spec,phone-p0-conformance,phone-cross-tree` → PASS / FAIL / PASS.
+  The P0 failure is the one page-structure divergence also present at base `1b4fa4cd` (`files` 「完成」,
+  GAP-32(d)); `tono-account` and `settings` report 0 divergences.
+- `phone-hygiene` → FAIL, as at base: the scan bans the word `tonoai`, which PR #66's tests and
+  fixtures already contain. This change adds the two production origins (`TonoCloudResponsePolicy`,
+  `TonoAccountProtocol`) and test references. No allow-list entry was added; see §7.
+- `phone-android-structure` → FAIL, as at base (`readme-map: unregistered Sources modules: PhoneDSHBot`).
+- Not verified: the real account service (it sends real SMS) and cloud, a physical phone, process
+  death between rotation and the store write, model E2E (GAP-34).
+
+## 7. Open decisions
+
+- Hygiene: the cloud and account origins are product constants that the hygiene scan's banned
+  word list rejects. Either sanction them in `scripts/ci/hygiene-allow.txt` as public service hosts,
+  or move them to build-time configuration. Left for the repository owner.
+- iOS 「网页搜索」 still requires a pasted key to save a new independent base even when signed in;
+  the launch gate and router already accept the account for the cloud base.

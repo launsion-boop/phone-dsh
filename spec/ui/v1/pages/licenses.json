@@ -7,14 +7,14 @@
   "sectionNote": "one flat List of direct license catalog rows (LabeledContent name/licence entries, and NavigationLink rows that open a bundled licence text) with no Section headers; Android renders its host-reported platform catalog in one grouped card. Which components each platform ships is platform catalog content, so the rows and the full-text links are recorded but not compared here",
   "title": {
     "text": "开源许可",
-    "provenance": "SettingsPage.swift:627",
+    "provenance": "SettingsPage.swift:628",
     "anchor": ".navigationTitle(NativeText(\"开源许可\", \"Open-source licenses\"))"
   },
   "source": {
     "file": "SettingsPage.swift",
     "path": "examples/probe-app/PhoneDSHProbe/SettingsPage.swift",
-    "lines": 629,
-    "structLine": 612,
+    "lines": 630,
+    "structLine": 613,
     "renderedFrom": [
       "body"
     ],
@@ -27,7 +27,7 @@
   },
   "sections": [
     {
-      "id": "region-612",
+      "id": "region-613",
       "kind": "implicit",
       "title": null,
       "titleTemplate": null,
@@ -46,7 +46,7 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "SettingsPage.swift:615",
+          "provenance": "SettingsPage.swift:616",
           "anchor": "LabeledContent(\"SwiftTerm\", value: \"MIT\")",
           "extraction": "syntax"
         },
@@ -61,7 +61,7 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "SettingsPage.swift:616",
+          "provenance": "SettingsPage.swift:617",
           "anchor": "LabeledContent(\"Citadel / BigInt\", value: \"MIT\")",
           "extraction": "syntax"
         },
@@ -76,7 +76,7 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "SettingsPage.swift:617",
+          "provenance": "SettingsPage.swift:618",
           "anchor": "LabeledContent(\"swift-nio\", value: \"Apache 2.0\")",
           "extraction": "syntax"
         },
@@ -91,12 +91,12 @@
           "destination": "ScrollView",
           "writes": false,
           "condition": null,
-          "provenance": "SettingsPage.swift:618",
+          "provenance": "SettingsPage.swift:619",
           "anchor": "NavigationLink(\"SSH 组件许可全文\") {",
           "extraction": "syntax"
         }
       ],
-      "provenance": "SettingsPage.swift:612",
+      "provenance": "SettingsPage.swift:613",
       "anchor": "private struct LicensesPage: View {",
       "extraction": "manual",
       "criterion": {
@@ -114,9 +114,9 @@
       "empty": [],
       "data": [
         {
-          "renders": "untitled section at 612",
+          "renders": "untitled section at 613",
           "when": null,
-          "provenance": "SettingsPage.swift:612",
+          "provenance": "SettingsPage.swift:613",
           "anchor": "private struct LicensesPage: View {",
           "note": "structural default: the sections above, when no condition overrides them"
         }
@@ -152,72 +152,72 @@
         },
         {
           "title": "权限与隐私",
-          "provenance": "SettingsPage.swift:148"
+          "provenance": "SettingsPage.swift:149"
         },
         {
           "title": "对话",
-          "provenance": "SettingsPage.swift:166"
+          "provenance": "SettingsPage.swift:167"
         },
         {
           "title": "会话与文件",
-          "provenance": "SettingsPage.swift:193"
+          "provenance": "SettingsPage.swift:194"
         },
         {
           "title": "引擎",
-          "provenance": "SettingsPage.swift:203"
+          "provenance": "SettingsPage.swift:204"
         },
         {
           "title": "关于",
-          "provenance": "SettingsPage.swift:220"
+          "provenance": "SettingsPage.swift:221"
         }
       ],
       "provenance": "SettingsPage.swift:52"
     },
     {
       "name": "FontSizeSettingsPage",
-      "line": 425,
+      "line": 426,
       "private": true,
       "embedded": true,
       "sections": [],
-      "provenance": "SettingsPage.swift:425"
+      "provenance": "SettingsPage.swift:426"
     },
     {
       "name": "ConversationSettingsPage",
-      "line": 463,
+      "line": 464,
       "private": true,
       "embedded": true,
       "sections": [
         {
           "title": "工作步骤",
-          "provenance": "SettingsPage.swift:468"
+          "provenance": "SettingsPage.swift:469"
         },
         {
           "title": "发送与用量",
-          "provenance": "SettingsPage.swift:487"
+          "provenance": "SettingsPage.swift:488"
         }
       ],
-      "provenance": "SettingsPage.swift:463"
+      "provenance": "SettingsPage.swift:464"
     },
     {
       "name": "ArchivedSessionsPage",
-      "line": 512,
+      "line": 513,
       "private": true,
       "embedded": true,
       "sections": [],
-      "provenance": "SettingsPage.swift:512"
+      "provenance": "SettingsPage.swift:513"
     },
     {
       "name": "PermissionDefaultsPage",
-      "line": 574,
+      "line": 575,
       "private": true,
       "embedded": true,
       "sections": [
         {
           "title": "只影响之后新开的会话，当前会话保持不变。",
-          "provenance": "SettingsPage.swift:579"
+          "provenance": "SettingsPage.swift:580"
         }
       ],
-      "provenance": "SettingsPage.swift:574"
+      "provenance": "SettingsPage.swift:575"
     }
   ],
   "unreachable": [],

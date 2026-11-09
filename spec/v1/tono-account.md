@@ -141,7 +141,8 @@ While a session is signed in, the access token replaces the API key for exactly 
 existing routers would have given the API key **and** whose origin is the cloud origin (§1):
 
 - model-protocol paths of the selected model profile when its endpoint origin is the cloud origin
-  (header unchanged: `x-api-key`);
+  (header unchanged from that platform's API-key path: iOS `x-api-key`, Android
+  `Authorization: Bearer`; the cloud accepts either for models);
 - the independent Search/Fetch operations when the independent base's origin is the cloud origin
   (header unchanged: `Authorization: Bearer`).
 

@@ -537,6 +537,13 @@ public fun PdshNavHost(
                 onCheck = { onHostAction(PdshHostAction.AndroidAdbCheck(it)) },
                 onCancel = { onHostAction(PdshHostAction.AndroidAdbCancel) },
             )
+            PdshRoute.TonoAccount -> com.phonedsh.ui.page.TonoAccountPage(
+                facts = facts.tonoAccount,
+                onBack = onBack,
+                onRequestCode = { onHostAction(PdshHostAction.TonoAccountRequestCode(it)) },
+                onSignIn = { onHostAction(PdshHostAction.TonoAccountSignIn(it)) },
+                onSignOut = { onHostAction(PdshHostAction.TonoAccountSignOut) },
+            )
             is PdshRoute.McpEditor -> McpEditorRoute(route, facts, onBack, onHostAction)
             PdshRoute.Runtime -> RuntimeRoute(facts, onBack, onHostAction, backLevel)
             PdshRoute.Egress -> EgressRoute(facts, onBack)

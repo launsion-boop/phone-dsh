@@ -101,4 +101,11 @@ sealed interface GatewayCredential {
 fun interface GatewayCredentialProvider {
     @Throws(CredentialUnavailableException::class)
     fun resolve(scope: CredentialScope): GatewayCredential
+
+    /**
+     * The upstream rejected [credential] as expired (spec/v1/tono-account.md §5);
+     * the next [resolve] must refresh or return the same value. The default keeps
+     * every existing provider unchanged: a fixed key is never re-sent.
+     */
+    fun invalidate(credential: GatewayCredential, scope: CredentialScope) {}
 }

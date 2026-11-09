@@ -90,6 +90,7 @@ class PdshSettingsRouteTest {
                 SettingsDestination.SSH, // PdshRoute.Ssh
                 SettingsDestination.BLUETOOTH, // PdshRoute.Bluetooth
                 SettingsDestination.ANDROID_ADB, // PdshRoute.AndroidAdb
+                SettingsDestination.TONO_ACCOUNT, // PdshRoute.TonoAccount
                 SettingsDestination.WEB_SEARCH,
                 SettingsDestination.EGRESS,
                 SettingsDestination.PLUGIN_CONFIGURATION,

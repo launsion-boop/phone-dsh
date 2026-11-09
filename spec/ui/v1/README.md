@@ -76,6 +76,7 @@ README ≤ 345 行（PR22 新增类型/几何表，cap 319→345，规则变更�
 | ModelProviderSettingsPage | 模型服务、密钥、编解码 | 设置 › 模型服务；Chat 起手卡/启动失败横幅 | push；编辑子页 ModelProviderEditorPage | must |
 | SSHSettingsPage | 已保存 SSH 连接、凭据与服务器指纹 | 设置 › 权限与隐私 › SSH 主机 | push；编辑子页 SSHConnectionEditor；私钥保存到 Keychain | must |
 | AndroidADBSettingsPage | Android TCP/IP ADB 连接、保存、测试与停止 | 设置 › 权限与隐私 › Android ADB | push；保存立即生效，测试需 Android 调试授权 | must |
+| TonoAccountPage | Tono 账号短信登录、当前账号（尾号、需重新验证日期）与退出登录；不显示任何令牌（[tono-account.md](../../v1/tono-account.md) §3） | 设置 › 模型与智能体 › Tono 账号 | push；登录、续期与退出立即作用于之后的云端请求 | must |
 | SessionArtifactsPage | 本会话产物、未归属产物与预览 | 页头 `⋯` →「产物」 | sheet；预览子页 SessionArtifactPreviewPage | must |
 | SessionArtifactPreviewPage | 单个产物的内容预览 | SessionArtifactsPage 的行点击 | 内嵌 sheet，不单独成页 | must |
 | NativeDeviceConnectionPage | 已配对的真机连接与传输能力 | 页头设备按钮 →「设备连接」 | sheet；行打开 NativeDeviceSessionPage | must |

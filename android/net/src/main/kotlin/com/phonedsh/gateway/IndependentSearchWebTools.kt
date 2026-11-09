@@ -103,6 +103,12 @@ internal class IndependentSearchCredentialProvider(
         return GatewayCredential.Bearer(key)
     }
 
+    override fun invalidate(credential: GatewayCredential, scope: CredentialScope) {
+        if (!admits(scope)) return
+        val value = (credential as? GatewayCredential.Bearer)?.value ?: return
+        if (value.isNotEmpty()) keys.invalidate(value)
+    }
+
     private fun admits(scope: CredentialScope): Boolean =
         scope.scheme == "https" && scope.service == host && scope.port == null && scope.audience in paths
 
