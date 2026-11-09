@@ -162,10 +162,21 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
     /// `requestId` is the DSH prompt idempotency key. Callers replaying a
     /// persisted delivery (user action nonce, held inbox item, routine run)
     /// must pass the same value so the Worker does not open a second turn.
-    public func sendUserMessage(_ text: String, requestId: String? = nil) async throws -> BotRemoteTurnResult {
+    public func sendUserMessage(_ text: String, requestId: String? = nil,
+                                attachments: [BotAttachment] = []) async throws -> BotRemoteTurnResult {
+        guard attachments.count <= BotAttachmentPolicy.maxCount else {
+            throw BotMCPError.invalidRequest("too_many_attachments")
+        }
         let sessionId = try await ensureMainSession()
         let steer = canSteer(sessionId: sessionId)
-        var prompt = text
+        var body = text
+        let attachmentBlock = BotAttachmentPrompt.block(attachments)
+        if !attachmentBlock.isEmpty {
+            body = text.isEmpty
+                ? String(attachmentBlock.drop(while: { $0 == "\n" }))
+                : text + attachmentBlock
+        }
+        var prompt = body
         var stagedKey: String?
         var held = false
         var promptRequestId = requestId
@@ -173,7 +184,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
             let staged = try await wakeInbox.stage(now: now())
             stagedKey = staged.key
             if !staged.items.isEmpty {
-                prompt = HeldMessages.block(items: staged.items) + "\n\n" + text
+                prompt = HeldMessages.block(items: staged.items) + "\n\n" + body
                 held = true
                 // Held deliveries derive their id from the item ids, not from
                 // the random staged key, so a crash replay after `revert`
@@ -196,6 +207,14 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
             if let stagedKey { _ = try await wakeInbox?.revert(stagedKey) }
             throw error
         }
+    }
+
+    /// The single runtime seam the app-layer attachment importer uses. It
+    /// creates or recovers the durable main chat session before the first
+    /// message, so the importer can write through the Worker's workspace
+    /// import service without owning any session logic.
+    public func ensureMainSessionID() async throws -> String {
+        try await ensureMainSession()
     }
 
     public func sendHiddenInteraction(_ text: String, requestId: String? = nil) async throws -> BotRemoteTurnResult {

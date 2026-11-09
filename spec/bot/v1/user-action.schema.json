@@ -2,46 +2,340 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "BotUserAction v1",
   "type": "object",
-  "required": ["nonce", "botID", "kind"],
+  "required": [
+    "nonce",
+    "botID",
+    "kind"
+  ],
   "properties": {
-    "nonce": {"type": "string", "minLength": 1},
-    "botID": {"type": "string", "minLength": 1},
-    "kind": {"enum": ["chat", "cardAnswer", "cardDismiss", "approval", "stopTask"]},
-    "text": {"type": "string"},
-    "cardID": {"type": "string"},
-    "optionID": {"type": "string"},
-    "approvalID": {"type": "string"},
-    "decision": {"enum": ["allowOnce", "always", "deny"]},
-    "digest": {"type": "string"},
-    "threadID": {"type": "string"}
+    "nonce": {
+      "type": "string",
+      "minLength": 1
+    },
+    "botID": {
+      "type": "string",
+      "minLength": 1
+    },
+    "kind": {
+      "enum": [
+        "chat",
+        "cardAnswer",
+        "cardDismiss",
+        "approval",
+        "stopTask"
+      ]
+    },
+    "text": {
+      "type": "string"
+    },
+    "cardID": {
+      "type": "string"
+    },
+    "optionID": {
+      "type": "string"
+    },
+    "approvalID": {
+      "type": "string"
+    },
+    "decision": {
+      "enum": [
+        "allowOnce",
+        "always",
+        "deny"
+      ]
+    },
+    "digest": {
+      "type": "string"
+    },
+    "threadID": {
+      "type": "string"
+    },
+    "attachments": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "path",
+          "size",
+          "mimeType",
+          "kind"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "mimeType": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    }
   },
   "oneOf": [
     {
-      "required": ["text"],
-      "properties": {"kind": {"const": "chat"}}
-    },
-    {
-      "required": ["cardID", "optionID"],
+      "required": [
+        "nonce",
+        "botID",
+        "kind",
+        "text"
+      ],
       "properties": {
-        "nonce": {"type": "string", "minLength": 1},
-        "botID": {"type": "string", "minLength": 1},
-        "kind": {"const": "cardAnswer"},
-        "cardID": {"type": "string"},
-        "optionID": {"type": "string", "minLength": 1}
+        "nonce": {
+          "type": "string",
+          "minLength": 1
+        },
+        "botID": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "const": "chat"
+        },
+        "text": {
+          "type": "string"
+        },
+        "attachments": {
+          "type": "array",
+          "maxItems": 0,
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "path",
+              "size",
+              "mimeType",
+              "kind"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "size": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "mimeType": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false
+          }
+        }
       },
       "additionalProperties": false
     },
     {
-      "required": ["cardID"],
-      "properties": {"kind": {"const": "cardDismiss"}}
+      "required": [
+        "nonce",
+        "botID",
+        "kind",
+        "attachments"
+      ],
+      "properties": {
+        "nonce": {
+          "type": "string",
+          "minLength": 1
+        },
+        "botID": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "const": "chat"
+        },
+        "text": {
+          "type": "string"
+        },
+        "attachments": {
+          "type": "array",
+          "maxItems": 10,
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "path",
+              "size",
+              "mimeType",
+              "kind"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "size": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "mimeType": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false
+          },
+          "minItems": 1
+        }
+      },
+      "additionalProperties": false
     },
     {
-      "required": ["approvalID", "decision", "digest"],
-      "properties": {"kind": {"const": "approval"}}
+      "required": [
+        "nonce",
+        "botID",
+        "kind",
+        "cardID",
+        "optionID"
+      ],
+      "properties": {
+        "nonce": {
+          "type": "string",
+          "minLength": 1
+        },
+        "botID": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "const": "cardAnswer"
+        },
+        "cardID": {
+          "type": "string"
+        },
+        "optionID": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
     },
     {
-      "required": ["threadID"],
-      "properties": {"kind": {"const": "stopTask"}}
+      "required": [
+        "nonce",
+        "botID",
+        "kind",
+        "cardID"
+      ],
+      "properties": {
+        "nonce": {
+          "type": "string",
+          "minLength": 1
+        },
+        "botID": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "const": "cardDismiss"
+        },
+        "cardID": {
+          "type": "string"
+        },
+        "attachments": {
+          "type": "array",
+          "maxItems": 0
+        }
+      }
+    },
+    {
+      "required": [
+        "nonce",
+        "botID",
+        "kind",
+        "approvalID",
+        "decision",
+        "digest"
+      ],
+      "properties": {
+        "nonce": {
+          "type": "string",
+          "minLength": 1
+        },
+        "botID": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "const": "approval"
+        },
+        "approvalID": {
+          "type": "string"
+        },
+        "decision": {
+          "enum": [
+            "allowOnce",
+            "always",
+            "deny"
+          ]
+        },
+        "digest": {
+          "type": "string"
+        },
+        "attachments": {
+          "type": "array",
+          "maxItems": 0
+        }
+      }
+    },
+    {
+      "required": [
+        "nonce",
+        "botID",
+        "kind",
+        "threadID"
+      ],
+      "properties": {
+        "nonce": {
+          "type": "string",
+          "minLength": 1
+        },
+        "botID": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "const": "stopTask"
+        },
+        "threadID": {
+          "type": "string"
+        },
+        "attachments": {
+          "type": "array",
+          "maxItems": 0
+        }
+      }
     }
   ],
   "additionalProperties": false

@@ -41,19 +41,31 @@ final class RowProtocolGoldenTests: XCTestCase {
         XCTAssertNil(cardAnswer.text)
         try RowTestSupport.assertEncoded(cardAnswer, equals: cardAnswerObject)
 
+        for key in ["chatWithAttachments", "chatAttachmentOnly"] {
+            let expected = try RowTestSupport.object(valid[key], in: "row-protocol.valid.\(key)")
+            let action = try RowTestSupport.decode(BotUserAction.self, expected)
+            XCTAssertEqual(action.kind, .chat)
+            XCTAssertEqual(action.attachments?.count, key == "chatWithAttachments" ? 2 : 1)
+            try RowTestSupport.assertEncoded(action, equals: expected)
+        }
+
         let resultObject = try RowTestSupport.object(valid["result"], in: "row-protocol.valid.result")
         let result = try RowTestSupport.decode(BotActionResult.self, resultObject)
         try RowTestSupport.assertEncoded(result, equals: resultObject)
     }
 
-    func testCardAnswerGoldenNegativeVectorsUseRealDecoder() throws {
+    func testInvalidActionGoldenVectorsAreRejectedByTheRealDecoderOrValidator() throws {
         let fixture = try RowTestSupport.golden("row-protocol")
         let invalidActions = try RowTestSupport.array(fixture["invalidActions"], in: "row-protocol.invalidActions")
         for (index, vector) in invalidActions.enumerated() {
-            XCTAssertThrowsError(
-                try RowTestSupport.decode(BotUserAction.self, vector["action"]),
-                "invalidActions[\(index)] unexpectedly decoded"
-            )
+            do {
+                let action = try RowTestSupport.decode(BotUserAction.self, vector["action"])
+                XCTAssertNotNil(BotUserActionValidation.validate(action),
+                                "invalidActions[\(index)] decoded but was not rejected")
+            } catch {
+                // Decoder-level rejections (text/customText/attachments on a
+                // non-chat kind) are the other valid outcome.
+            }
         }
     }
 

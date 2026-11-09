@@ -378,4 +378,42 @@ final class BotDSHRemoteRuntimeTests: XCTestCase {
             XCTFail("unexpected error: \(error)")
         }
     }
+    func testChatPromptAppendsTheAttachmentBlockBeforeTheTurn() async throws {
+        let fixture = try makeBotMCPFixture()
+        defer { fixture.cleanup() }
+        let transport = BotScriptedRemoteTransport(scripts: [
+            "gb-main": [
+                [.turn(), .assistant("first"), .end()],
+                [.turn(2), .assistant("second"), .end(turn: 2)],
+            ],
+        ])
+        let remote = try await BotDSHRemoteRuntime(transport: transport, runtime: fixture.runtime)
+        let item = BotAttachment(name: "周报.pdf", path: "/dsh/workspace/imports/attachments-att-1/周报.pdf",
+                                 size: 2048, mimeType: "application/pdf", kind: "pdf")
+        _ = try await remote.sendUserMessage("看看", attachments: [item])
+        _ = try await remote.sendUserMessage("", attachments: [item])
+
+        let first = try XCTUnwrap(transport.promptHistory.first?.text)
+        XCTAssertTrue(first.hasPrefix("看看\n\n[dshbot-attachments]\n"))
+        XCTAssertTrue(first.contains("- {\"name\":\"周报.pdf\",\"path\":\"/dsh/workspace/imports/attachments-att-1/周报.pdf\",\"size\":2048,\"mimeType\":\"application/pdf\",\"kind\":\"pdf\"}"))
+        XCTAssertTrue(first.hasSuffix("\n[/dshbot-attachments]"))
+        let second = try XCTUnwrap(transport.promptHistory.last?.text)
+        XCTAssertTrue(second.hasPrefix("[dshbot-attachments]\n"),
+                      "an attachment-only prompt must not start with blank lines: \(second)")
+    }
+
+    func testEnsureMainSessionIDCreatesAndReusesTheMainSession() async throws {
+        let fixture = try makeBotMCPFixture()
+        defer { fixture.cleanup() }
+        let transport = BotScriptedRemoteTransport(scripts: ["gb-main": []])
+        let remote = try await BotDSHRemoteRuntime(transport: transport, runtime: fixture.runtime)
+        let first = try await remote.ensureMainSessionID()
+        let second = try await remote.ensureMainSessionID()
+        XCTAssertEqual(first, "gb-main")
+        XCTAssertEqual(second, first)
+        XCTAssertEqual(transport.createCount, 1)
+        let current = await remote.mainSessionId
+        XCTAssertEqual(current, first)
+    }
+
 }

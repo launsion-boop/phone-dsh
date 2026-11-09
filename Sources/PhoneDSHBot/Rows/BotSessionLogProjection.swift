@@ -207,8 +207,23 @@ public struct BotSessionLogProjector: Sendable {
                 guard role == "user", surfaceOp == "append", !rawText.isEmpty,
                       !isInjected(rawText), sourceKind == nil || sourceKind == "user" else { continue }
                 let visibleText = stripHeldMessages(rawText)
+                let parsed = BotAttachmentPrompt.parse(visibleText)
                 var fields = fieldsFrom(message)
-                fields["text"] = .string(visibleText)
+                fields["text"] = .string(parsed.text)
+                if visibleText.contains(BotAttachmentPrompt.openMarker) {
+                    // The user-visible row carries the metadata; the prompt
+                    // block never reaches the bubble. `content` is rewritten
+                    // too so a consumer that prefers it cannot show the block.
+                    if !parsed.attachments.isEmpty {
+                        fields["attachments"] = .array(parsed.attachments.compactMap { attachment in
+                            guard let data = try? JSONEncoder().encode(attachment) else { return nil }
+                            return try? JSONDecoder().decode(BotJSONValue.self, from: data)
+                        })
+                    }
+                    fields["content"] = .array([.object([
+                        "type": .string("text"), "text": .string(parsed.text)
+                    ])])
+                }
                 var draft = draft(id: rowID(sessionID, event.seq), event: event, kind: .message,
                                   role: "user", body: BotRowBody(type: .text, additionalProperties: fields),
                                   trust: BotRowProvenance.ownerDirect)
