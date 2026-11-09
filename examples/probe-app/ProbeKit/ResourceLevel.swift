@@ -72,7 +72,7 @@ public enum ResourceReason: String, CaseIterable, Codable, Hashable, Sendable {
         case .thermalFair: return "设备温度偏高"
         case .thermalSerious: return "温度过高"
         case .thermalCritical: return "温度极高"
-        case .lowBattery: return "电量低于 20% 且未充电"
+        case .lowBattery: return "电量低于 10% 且未充电"
         case .lowPowerMode: return "已开启低电量模式"
         }
     }
@@ -164,13 +164,13 @@ public struct ResourceThresholds: Equatable, Sendable {
     public var workspaceBudgetBytes: Int
     public var engineHeapBudgetBytes: Int
     public var vfsBudgetBytes: Int
-    /// `< 35 %` green, `35...70 %` yellow, `> 70 %` red.
+    /// `<= 60 %` green, `> 60 %` yellow, `> 85 %` red.
     public var workspaceYellowFraction: Double
     public var workspaceRedFraction: Double
-    /// `< 20 MB` green, `20...100 MB` yellow, `> 100 MB` red.
+    /// `<= 100 MB` green, `> 100 MB` yellow, `> 250 MB` red.
     public var turnWriteYellowBytes: Int
     public var turnWriteRedBytes: Int
-    /// `< 60 %` green, `60...80 %` yellow, `> 80 %` red.
+    /// `<= 75 %` green, `> 75 %` yellow, `> 90 %` red.
     public var heapYellowFraction: Double
     public var heapRedFraction: Double
     public var vfsYellowFraction: Double
@@ -181,15 +181,15 @@ public struct ResourceThresholds: Equatable, Sendable {
     public init(workspaceBudgetBytes: Int = 288 * 1024 * 1024,
                 engineHeapBudgetBytes: Int = 448 * 1024 * 1024,
                 vfsBudgetBytes: Int = 388 * 1024 * 1024,
-                workspaceYellowFraction: Double = 0.35,
-                workspaceRedFraction: Double = 0.70,
-                turnWriteYellowBytes: Int = 20 * 1024 * 1024,
-                turnWriteRedBytes: Int = 100 * 1024 * 1024,
-                heapYellowFraction: Double = 0.60,
-                heapRedFraction: Double = 0.80,
-                vfsYellowFraction: Double = 0.60,
-                vfsRedFraction: Double = 0.80,
-                batteryYellowFraction: Double = 0.20) {
+                workspaceYellowFraction: Double = 0.60,
+                workspaceRedFraction: Double = 0.85,
+                turnWriteYellowBytes: Int = 100 * 1024 * 1024,
+                turnWriteRedBytes: Int = 250 * 1024 * 1024,
+                heapYellowFraction: Double = 0.75,
+                heapRedFraction: Double = 0.90,
+                vfsYellowFraction: Double = 0.75,
+                vfsRedFraction: Double = 0.90,
+                batteryYellowFraction: Double = 0.10) {
         self.workspaceBudgetBytes = workspaceBudgetBytes
         self.engineHeapBudgetBytes = engineHeapBudgetBytes
         self.vfsBudgetBytes = vfsBudgetBytes
@@ -228,9 +228,11 @@ public struct ResourceClassification: Equatable, Sendable {
 public enum ResourceLevelClassifier {
     /// Grades `sample`; any metric at a higher band raises the whole result.
     ///
-    /// Boundary rules follow the published table: the lower band is inclusive
-    /// at its top (`35...70 %`, `20...100 MB`, `60...80 %`), and the red band
-    /// is strictly above its threshold.
+    /// Boundary rules follow the published table: green owns the threshold
+    /// itself (`<= 60 %`, `<= 100 MB`, `<= 75 %`, 0 kills, `nominal`/`fair`),
+    /// yellow starts strictly above it, and red is strictly above its own
+    /// threshold. `fair` is log-only and never changes the band: the host
+    /// contract owns the one-sub-agent cap it implies.
     public static func classify(_ sample: ResourceSample,
                                 thresholds: ResourceThresholds = .eightGB)
         -> ResourceClassification {
@@ -247,7 +249,7 @@ public enum ResourceLevelClassifier {
             let ratio = Double(bytes) / Double(thresholds.workspaceBudgetBytes)
             if ratio > thresholds.workspaceRedFraction {
                 raise(.workspacePressure, to: .red)
-            } else if ratio >= thresholds.workspaceYellowFraction {
+            } else if ratio > thresholds.workspaceYellowFraction {
                 raise(.workspacePressure, to: .yellow)
             }
         }
@@ -255,7 +257,7 @@ public enum ResourceLevelClassifier {
         if let added = sample.turnWorkspaceBytes, added > 0 {
             if added > thresholds.turnWriteRedBytes {
                 raise(.turnWritePressure, to: .red)
-            } else if added >= thresholds.turnWriteYellowBytes {
+            } else if added > thresholds.turnWriteYellowBytes {
                 raise(.turnWritePressure, to: .yellow)
             }
         }
@@ -265,7 +267,7 @@ public enum ResourceLevelClassifier {
             let ratio = Double(heap) / Double(thresholds.engineHeapBudgetBytes)
             if ratio > thresholds.heapRedFraction {
                 raise(.engineHeapPressure, to: .red)
-            } else if ratio >= thresholds.heapYellowFraction {
+            } else if ratio > thresholds.heapYellowFraction {
                 raise(.engineHeapPressure, to: .yellow)
             }
         }
@@ -274,24 +276,29 @@ public enum ResourceLevelClassifier {
             let ratio = Double(vfs) / Double(thresholds.vfsBudgetBytes)
             if ratio > thresholds.vfsRedFraction {
                 raise(.vfsPressure, to: .red)
-            } else if ratio >= thresholds.vfsYellowFraction {
+            } else if ratio > thresholds.vfsYellowFraction {
                 raise(.vfsPressure, to: .yellow)
             }
         }
 
-        if let kills = sample.webContentKills, kills >= 1 {
-            raise(.webContentTerminated, to: .red)
+        if let kills = sample.webContentKills {
+            if kills >= 2 {
+                raise(.webContentTerminated, to: .red)
+            } else if kills == 1 {
+                raise(.webContentTerminated, to: .yellow)
+            }
         }
 
         switch sample.thermal {
-        case .some(.fair):
-            raise(.thermalFair, to: .yellow)
+        case .some(.fair), .some(.nominal), .none:
+            // `fair` is recorded by the diagnostic line only; it does not move
+            // the App band. The host contract (spec/v1/budgets.md) is what caps
+            // a sub-agent to one when the device is merely warm.
+            break
         case .some(.serious):
-            raise(.thermalSerious, to: .red)
+            raise(.thermalSerious, to: .yellow)
         case .some(.critical):
             raise(.thermalCritical, to: .red)
-        case .some(.nominal), .none:
-            break
         }
 
         if let battery = sample.batteryLevel, sample.isCharging == false,

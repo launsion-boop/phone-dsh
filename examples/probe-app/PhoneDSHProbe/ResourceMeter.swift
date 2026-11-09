@@ -128,8 +128,8 @@ final class ResourceMeter {
         }
     }
 
-    /// A WebContent termination while a turn is open (counted for the red band
-    /// and the diagnostic line).
+    /// A WebContent termination while a turn is open (one is yellow, two or
+    /// more are red; also counted in the diagnostic line).
     func recordWebContentTermination() {
         guard isTurnActive else { return }
         webContentKills += 1
