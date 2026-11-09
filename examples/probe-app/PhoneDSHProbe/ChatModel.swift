@@ -25,6 +25,7 @@ import PhoneDSHShell
 import PhoneDSHADB
 import PhoneDSHBot
 import PhoneDSHBLE
+import PhoneDSHVenus
 
 // MARK: - Settings persistence
 
@@ -396,6 +397,13 @@ final class ChatModel {
     private(set) var availableAccessModes: [NativeAccessMode] = []
     private(set) var currentAccessMode: String?
     private(set) var accessModeError: String?
+    /// True while this session's permission catalog/projection is being read,
+    /// including the automatic retries; the composer shows a small spinner
+    /// instead of a page banner.
+    private(set) var accessModeLoading = false
+    /// Bumped by every refresh so an older retry loop stops as soon as a newer
+    /// refresh (or a session switch) starts.
+    private var accessModeRefreshGeneration = 0
     private(set) var inputTokens = 0
     private(set) var outputTokens = 0
     private(set) var modelRequests = 0
@@ -552,7 +560,7 @@ final class ChatModel {
     /// fixture.
     var botRuntime: BotRuntimeComposition? { botLaunch?.composition }
     private var phoneCapabilityBridge: PhoneCapabilityBridge?
-    private let keepAlive = SilentAudioKeepAlive()
+    private let keepAlive = SilentAudioKeepAlive.shared
     private var backgroundHeartbeat: Task<Void, Never>?
     /// Harness events handled so far; the background heartbeat logs the delta
     /// so the status log shows whether the Worker made progress while hidden.
@@ -645,12 +653,42 @@ final class ChatModel {
     /// Read the active Worker catalog and this Session's durable permission fold.
     /// Missing Remote support stays explicit instead of being replaced by a local default.
     func refreshAccessModes() async {
+        accessModeRefreshGeneration &+= 1
+        let generation = accessModeRefreshGeneration
         guard let sessionID else {
             availableAccessModes = []
             currentAccessMode = nil
+            accessModeLoading = false
             accessModeError = "本地引擎还没启动,启动之后才能看权限。"
             return
         }
+        accessModeLoading = true
+        accessModeError = nil
+        // A fresh session's permission fold can lag its open by a moment; read
+        // again on a short backoff instead of asking the user to tap retry.
+        let retryDelaysMs: [UInt64] = [0, 500, 1_000, 2_000, 4_000, 8_000]
+        for delay in retryDelaysMs {
+            if delay > 0 {
+                try? await Task.sleep(nanoseconds: delay * 1_000_000)
+            }
+            guard generation == accessModeRefreshGeneration, self.sessionID == sessionID else { return }
+            if await loadAccessModesOnce(sessionID: sessionID) {
+                guard generation == accessModeRefreshGeneration, self.sessionID == sessionID else { return }
+                accessModeLoading = false
+                accessModeError = nil
+                return
+            }
+        }
+        guard generation == accessModeRefreshGeneration, self.sessionID == sessionID else { return }
+        accessModeLoading = false
+        availableAccessModes = []
+        currentAccessMode = nil
+        accessModeError = "暂时读不到权限，打开菜单会自动再试。"
+    }
+
+    /// One read of the Worker catalog and the Session's permission fold.
+    /// Returns false when either call fails or the fold has no current value.
+    private func loadAccessModesOnce(sessionID: String) async -> Bool {
         do {
             let transport = try await transportForManagement()
             async let catalogCall = transport.call("permissionPresets/catalog", args: .object([:]))
@@ -658,7 +696,7 @@ final class ChatModel {
                 "request": .object(["sessionId": .string(sessionID)]),
             ]))
             let (catalog, projections) = try await (catalogCall, projectionCall)
-            guard self.sessionID == sessionID else { return }
+            guard self.sessionID == sessionID else { return false }
             projectionValues = projections["values"]
             availableAccessModes = (catalog["options"]?.arrayValue ?? []).compactMap { option in
                 guard let id = option["value"]?.stringValue,
@@ -667,17 +705,12 @@ final class ChatModel {
                                         description: option["description"]?.stringValue)
             }
             guard let current = projections["values"]?["permissions"]?["currentValue"]?.stringValue else {
-                currentAccessMode = nil
-                accessModeError = "没读到权限,再试一次。"
-                return
+                return false
             }
             currentAccessMode = current
-            accessModeError = nil
+            return true
         } catch {
-            guard self.sessionID == sessionID else { return }
-            availableAccessModes = []
-            currentAccessMode = nil
-            accessModeError = "没读到权限,再试一次。"
+            return false
         }
     }
 
@@ -1216,7 +1249,9 @@ final class ChatModel {
             credentialProvider: credentialProvider,
             egressAuthorizer: mcpPolicy,
             workerEnvironment: environment.merging(botLaunch?.workerEnvironment ?? [:]) { _, new in new },
-            nativeMCP: DeviceMCPServer.shared)
+            // iphone_agent_run (UI-Venus over the TonoLink board) in front of the BLE tools, so one
+            // native endpoint serves the phone task and Link tools such as light.set (native-mcp.md).
+            nativeMCP: IPhoneAgentMCPServer(fallback: DeviceMCPServer.shared, executor: IPhoneAgentHost.shared))
         configuration.officialDeepSeekWebCredentialProvider = searchPlan.officialDeepSeekWebCredentialProvider
         // One line states what the host actually enforces. The Worker's
         // published manifest can lag behind a rebuilt bundle; this is the
@@ -1822,7 +1857,7 @@ final class ChatModel {
         harness = nil; sessionID = nil
         transcriptReady = false
         pendingPermission = nil; pendingQuestion = nil
-        availableAccessModes = []; currentAccessMode = nil; accessModeError = nil
+        availableAccessModes = []; currentAccessMode = nil; accessModeError = nil; accessModeLoading = false
         await botLaunch?.composition.stop()
         if let composition = botLaunch?.composition {
             botRuntimeState = composition.state
@@ -1872,7 +1907,8 @@ final class ChatModel {
         lastCommandExecution = nil
         availableAccessModes = []
         currentAccessMode = nil
-        accessModeError = "正在读取新会话的权限状态。"
+        accessModeError = nil
+        accessModeLoading = true
     }
 
     // MARK: Scene phase (D14 park / resume)
@@ -2174,6 +2210,7 @@ final class ChatModel {
         availableAccessModes = []
         currentAccessMode = nil
         accessModeError = nil
+        accessModeLoading = false
         startedAt = nil
         turnRunning = false
         parked = false

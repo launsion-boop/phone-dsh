@@ -19,10 +19,20 @@ import ProbeKit
 
 @MainActor
 final class SilentAudioKeepAlive {
+    /// The app's single keep-alive (ios-audio-session.md §1). Callers name themselves; rendering
+    /// starts with the first owner and stops when the last one leaves.
+    static let shared = SilentAudioKeepAlive()
+    private var owners: Set<String> = []
     private let engine = AVAudioEngine()
     private let player = AVAudioPlayerNode()
     private var buffer: AVAudioPCMBuffer?
     private var interruptionObserver: NSObjectProtocol?
+    private var configurationObserver: NSObjectProtocol?
+    private var routeObserver: NSObjectProtocol?
+    private var watchdog: Task<Void, Never>?
+    /// Times rendering was restarted after the engine stopped on its own.
+    private(set) var restarts = 0
+    var isRendering: Bool { isActive && engine.isRunning && player.isPlaying }
     private var resetObserver: NSObjectProtocol?
     private(set) var isActive = false
     /// Diagnostics the owner appends to its status log.
@@ -41,8 +51,13 @@ final class SilentAudioKeepAlive {
 
     /// Activates the session and starts rendering silence. Registers the lease
     /// before activation so a failed start rolls it back. Idempotent.
-    func start() throws {
+    func start(owner: String = "chat") throws {
+        let added = owners.insert(owner).inserted
         guard !isActive else { return }
+        do { try startRendering() } catch { if added { owners.remove(owner) }; throw error }
+    }
+
+    private func startRendering() throws {
         PhoneAudioSessionLease.beginKeepAlive { [weak self] in
             self?.reclaimSilentRendering()
         }
@@ -133,8 +148,9 @@ final class SilentAudioKeepAlive {
 
     /// Stops rendering and releases the keep-alive claim. The lease deactivates
     /// only when no microphone owner remains. Idempotent.
-    func stop() {
-        guard isActive else { return }
+    func stop(owner: String = "chat") {
+        owners.remove(owner)
+        guard owners.isEmpty, isActive else { return }
         player.stop()
         engine.stop()
         isActive = false
@@ -180,13 +196,59 @@ final class SilentAudioKeepAlive {
                                            object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.restartAfterReset() }
         }
+        // The engine stops itself when the output route or hardware format changes, e.g. when
+        // screen mirroring to an AirPlay receiver starts or ends. Silence that is no longer
+        // rendered lets iOS suspend the app, so these and a 5 s watchdog restart rendering.
+        configurationObserver = center.addObserver(forName: .AVAudioEngineConfigurationChange,
+                                                   object: engine, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.resumeRendering(reason: "engine configuration changed") }
+        }
+        routeObserver = center.addObserver(forName: AVAudioSession.routeChangeNotification,
+                                           object: nil, queue: .main) { [weak self] note in
+            let reason = (note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt).map { "route change \($0)" } ?? "route change"
+            Task { @MainActor in self?.resumeRendering(reason: reason) }
+        }
+        watchdog = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(5))
+                guard let self, self.isActive else { return }
+                if !self.engine.isRunning || !self.player.isPlaying { self.resumeRendering(reason: "watchdog: engine stopped") }
+            }
+        }
+    }
+
+    /// Restarts the engine and the silent loop if either stopped. The keep-alive profile is
+    /// re-activated only while no microphone owner holds the session (ios-audio-session.md §2).
+    private func resumeRendering(reason: String) {
+        guard isActive, PhoneAudioSessionLease.isKeepAliveHeld, !engine.isRunning || !player.isPlaying else { return }
+        do {
+            if !PhoneAudioSessionLease.isMicrophoneHeld { try PhoneAudioSessionLease.activateKeepAliveSession() }
+            if !engine.isRunning {
+                // After a configuration change the player is disconnected from the new output format.
+                engine.connect(player, to: engine.mainMixerNode, format: buffer?.format)
+                engine.mainMixerNode.outputVolume = 1.0
+                try engine.start()
+            }
+            if let buffer { player.scheduleBuffer(buffer, at: nil, options: [.loops]) }
+            player.play()
+            restarts += 1
+            onEvent?("keep-alive audio restarted (\(reason))")
+        } catch {
+            onEvent?("keep-alive audio could not restart (\(reason)): \(error)")
+        }
     }
 
     private func unobserveSession() {
         if let interruptionObserver { NotificationCenter.default.removeObserver(interruptionObserver) }
         if let resetObserver { NotificationCenter.default.removeObserver(resetObserver) }
+        if let configurationObserver { NotificationCenter.default.removeObserver(configurationObserver) }
+        if let routeObserver { NotificationCenter.default.removeObserver(routeObserver) }
+        watchdog?.cancel()
         interruptionObserver = nil
         resetObserver = nil
+        configurationObserver = nil
+        routeObserver = nil
+        watchdog = nil
     }
 
     private func handleInterruption(_ note: Notification) {

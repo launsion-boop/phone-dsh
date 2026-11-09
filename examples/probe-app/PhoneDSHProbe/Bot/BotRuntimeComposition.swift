@@ -131,8 +131,16 @@ final class BotRuntimeComposition {
         let server = BotMCPHTTPServer(handler: handler)
         let url = try await server.start()
         let inbox = WakeInbox(store: SQLiteWakeInboxStore(domainStore: store, botId: botID))
-        let remote = try await BotDSHRemoteRuntime(transport: UnstartedBotTransport(), runtime: runtime,
-                                                   botId: botID, wakeInbox: inbox)
+        let remote = try await BotDSHRemoteRuntime(
+            transport: UnstartedBotTransport(), runtime: runtime,
+            botId: botID, wakeInbox: inbox,
+            botDataDirectory: BotSessionRegistry.botDataDirectory,
+            onSessionRegistered: { sessionID in
+                // The registry is UI-facing and MainActor-isolated. Registration
+                // is an observability hint for legacy ids; `gb-` filtering never
+                // waits for this hop.
+                Task { @MainActor in BotSessionRegistry.shared.register(sessionID) }
+            })
         let composition = await BotRuntimeComposition(
             environment: environment, runtime: runtime, handler: handler, server: server,
             remote: remote, wakeInbox: inbox, botID: botID)

@@ -15,16 +15,19 @@
 //   * which segments the manifest lists (every segment that holds at least one
 //     record — a mutation or an epoch-close record; a header-only segment is
 //     not content and is not listed);
-//   * whether an epoch is durable (it has a close record; the manifest's
-//     `last_durable_epoch` is a lower bound only);
-//   * whether a segment is droppable (its epoch is durable, every mutation in
-//     it is at or below the materialized watermark, it is not the current open
+//   * whether an epoch is durable (the manifest's `last_durable_epoch` plus
+//     its `segments[]` list; a retained close record is only the newest-close
+//     backstop, not a second requirement);
+//   * whether a segment is droppable (it is listed in the manifest, its epoch
+//     is at or below `last_durable_epoch`, every mutation in its own records is
+//     at or below the materialized watermark, it is not the current open
 //     segment and it is not the segment that carries the newest epoch close);
 //   * whether the manifest is internally well formed.
 //
 // Recovery and the live writer both call these functions; they cannot drift.
 
 import Foundation
+import PhoneDSHWire
 
 /// One segment's lifecycle facts. Built either from a scanned `WALSegmentFile`
 /// or from the live writer's in-memory segment state.
@@ -102,14 +105,15 @@ public enum WALSegmentLifecycle {
         }
     }
 
-    /// The epochs that completed a D18 close on disk. A close record is the
-    /// durable proof: `manifest.lastDurableEpoch` is a checkpoint value, never
-    /// a substitute for a close record when a retained segment is judged for
-    /// truncation. Epochs whose close segment was already truncated have no
-    /// retained segment left, so they need no entry here.
-    public static func durableEpochs(
-        of records: [WALSegmentLifecycleRecord]) -> Set<UInt64> {
-        Set(records.filter(\.hasEpochClose).map(\.epoch))
+    /// The §9 read-back half: every mutation in the segment's own verified
+    /// records is at or below `materialized_upto_mseq`. The manifest range is
+    /// not the proof; a stale manifest may record a shorter range than the
+    /// file, so the caller passes the records it just read back.
+    public static func everyMutationAtOrBelow(
+        _ records: [WALRecord], watermark: UInt64) -> Bool {
+        records.allSatisfy { record in
+            record.isEpochClose || record.mseq <= watermark
+        }
     }
 
     /// The segment carrying the newest epoch-close record: never droppable
@@ -122,17 +126,32 @@ public enum WALSegmentLifecycle {
         }
     }
 
-    /// Whether `record` can be truncated (wal.md §9): its epoch closed in the
-    /// D18 order, every mutation is at or below the strictly contiguous
-    /// materialized watermark, it is not the open segment and it is not the
-    /// segment carrying the newest epoch close.
-    public static func isDroppable(_ record: WALSegmentLifecycleRecord,
-                                   materializedUptoMseq: UInt64,
-                                   durableEpochs: Set<UInt64>,
-                                   newestEpochClose: WALSegmentLifecycleRecord?,
-                                   isCurrent: Bool) -> Bool {
+    /// Whether `record` can be truncated (wal.md §9, decided reading):
+    ///
+    ///   * it is listed in the durable manifest's `segments[]`;
+    ///   * its epoch is at or below the manifest's `last_durable_epoch`;
+    ///   * it is not the current open epoch/segment;
+    ///   * every mutation in its own records is at or below the strictly
+    ///     contiguous materialized watermark;
+    ///   * it is not the retained segment carrying the newest epoch close.
+    ///
+    /// The caller supplies `allMutationsAtOrBelowWatermark` after reading the
+    /// candidate's records back; the manifest's `last_mseq` is never the proof
+    /// of condition 4. A stale/unlisted segment is passed with
+    /// `listedFiles` not containing it and is therefore retained.
+    public static func isDroppable(
+        _ record: WALSegmentLifecycleRecord,
+        listedFiles: Set<String>,
+        lastDurableEpoch: UInt64,
+        materializedUptoMseq: UInt64,
+        newestEpochClose: WALSegmentLifecycleRecord?,
+        isCurrent: Bool,
+        allMutationsAtOrBelowWatermark: Bool
+    ) -> Bool {
         guard !isCurrent else { return false }
-        guard durableEpochs.contains(record.epoch) else { return false }
+        guard listedFiles.contains(record.file) else { return false }
+        guard record.epoch <= lastDurableEpoch else { return false }
+        guard allMutationsAtOrBelowWatermark else { return false }
         guard record.lastMutationMseq <= materializedUptoMseq else { return false }
         if let newestEpochClose,
            newestEpochClose.epoch == record.epoch,
@@ -140,22 +159,6 @@ public enum WALSegmentLifecycle {
             return false
         }
         return true
-    }
-
-    /// Droppable subset of a scan/live view, in `<epoch, segment>` order.
-    public static func droppableRecords(
-        _ records: [WALSegmentLifecycleRecord],
-        materializedUptoMseq: UInt64,
-        durableEpochs: Set<UInt64>,
-        currentFile: String? = nil) -> [WALSegmentLifecycleRecord] {
-        let newest = newestEpochClose(records)
-        return sorted(records).filter { record in
-            isDroppable(record,
-                        materializedUptoMseq: materializedUptoMseq,
-                        durableEpochs: durableEpochs,
-                        newestEpochClose: newest,
-                        isCurrent: currentFile == record.file)
-        }
     }
 
     /// Structural validation of a decoded manifest (wal.md §7). The manifest is

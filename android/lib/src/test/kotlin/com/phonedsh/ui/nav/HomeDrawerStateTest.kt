@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -18,8 +19,10 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.activity.OnBackPressedDispatcherOwner
 import androidx.activity.ComponentActivity
 import kotlinx.coroutines.CompletableDeferred
+import com.phonedsh.ui.UiStrings
 import com.phonedsh.ui.theme.PdshTheme
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Rule
 import org.junit.Test
@@ -45,8 +48,8 @@ class HomeDrawerStateTest {
             }
         }
         compose.onNodeWithTag(HomeDrawerTags.NEW_SESSION).assertIsDisplayed()
-        compose.onNodeWithTag(HomeDrawerTags.SCHEDULES).assertExists()
         compose.onNodeWithTag(HomeDrawerTags.SETTINGS).assertExists()
+        compose.onNodeWithText("定时任务").assertDoesNotExist()
         compose.onNodeWithTag(HomeDrawerTags.SCRIM).performSemanticsAction(SemanticsActions.OnClick)
         compose.runOnIdle { assertEquals(true, closed) }
     }
@@ -103,6 +106,35 @@ class HomeDrawerStateTest {
         compose.onNodeWithTag(HomeDrawerTags.SESSION_PREFIX + "s1").assertExists()
     }
 
+
+    @Test fun defaultFolderUsesPhoneWorkspaceWhenTheAppLanguageIsEnglish() {
+        val facts = HomeDrawerFacts(
+            folders = listOf(HomeDrawerFolder("daily", "日常", emptyList(), isDefault = true)),
+            languageId = "en",
+        )
+        compose.setContent {
+            PdshTheme(darkTheme = false) {
+                HomeDrawer(facts, onClose = {})
+            }
+        }
+        compose.onNodeWithTag(HomeDrawerTags.FOLDER_PREFIX + "daily")
+            .assertContentDescriptionEquals("Phone Workspace，0 个会话")
+    }
+
+    @Test fun blockedNewSessionShowsItsReasonBelowTheDisabledCapsule() {
+        val facts = HomeDrawerFacts(
+            newSessionBlockedReason = UiStrings.DRAWER_NEW_BLOCKED_TURN,
+        )
+        compose.setContent {
+            PdshTheme(darkTheme = false) {
+                HomeDrawer(facts, onClose = {}, onCreateSession = { true })
+            }
+        }
+        compose.onNodeWithTag(HomeDrawerTags.NEW_SESSION).assertIsNotEnabled()
+        compose.onNodeWithTag(HomeDrawerTags.NEW_SESSION_REASON).assertIsDisplayed()
+        compose.onNodeWithText(UiStrings.DRAWER_NEW_BLOCKED_TURN).assertIsDisplayed()
+    }
+
     @Test fun title日常DoesNotTurnACustomFolderIntoTheDefaultOrAbsorbLooseSessions() {
         val facts = HomeDrawerFacts(
             folders = listOf(
@@ -118,7 +150,7 @@ class HomeDrawerStateTest {
         compose.onNodeWithTag(HomeDrawerTags.FOLDER_PREFIX + "custom-daily")
             .assertContentDescriptionEquals("日常，0 个会话")
         compose.onNodeWithTag(HomeDrawerTags.FOLDER_PREFIX + "__unassigned__")
-            .assertContentDescriptionEquals("未分配，1 个会话")
+            .assertContentDescriptionEquals("${UiStrings.DRAWER_DEFAULT_FOLDER}，1 个会话")
         compose.onNodeWithTag(HomeDrawerTags.SESSION_PREFIX + "loose").assertIsDisplayed()
     }
 
@@ -211,32 +243,45 @@ class HomeDrawerStateTest {
         compose.onNodeWithText("已归档，可在 设置 › 已归档会话 里找回").assertDoesNotExist()
     }
 
-    @Test fun folderCreationUsesConfirmedHostMutationAndShowsFailedReceipt() {
-        var command: PdshUiHostCommand? = null
+    @Test fun folderManagementIsNotOfferedWhileGroupsStillShow() {
+        // DRAWER_FOLDERS_ENABLED = false (iOS HomeDrawer.foldersEnabled): no 文件夹
+        // title, no 新建文件夹, no empty-folder hint, no folder rename/delete; the
+        // session group itself and 在这里新建会话 remain.
+        assertFalse(DRAWER_FOLDERS_ENABLED)
+        compose.setContent {
+            PdshTheme {
+                HomeDrawer(
+                    facts = HomeDrawerFacts(
+                        folders = listOf(HomeDrawerFolder("folder-1", "Research", listOf(HomeDrawerSession("session-1", "One")))),
+                        unassignedSessions = emptyList(),
+                    ),
+                    onClose = {},
+                    onMutation = { request -> PdshActionReceipt((request as PdshUiHostCommand.SessionRename).requestId, null, null, PdshActionOutcome.FAILED) },
+                    onCreateSessionInFolder = { _ -> true },
+                )
+            }
+        }
+        compose.onNodeWithTag(HomeDrawerTags.CREATE_FOLDER).assertDoesNotExist()
+        compose.onNodeWithText("文件夹").assertDoesNotExist()
+        compose.onNodeWithTag(HomeDrawerTags.FOLDER_PREFIX + "folder-1").assertIsDisplayed()
+        compose.onNodeWithTag(HomeDrawerTags.FOLDER_PREFIX + "folder-1").performSemanticsAction(SemanticsActions.OnLongClick)
+        compose.onNodeWithText("在这里新建会话").assertIsDisplayed()
+        compose.onNodeWithText("重命名").assertDoesNotExist()
+        compose.onNodeWithText("删除文件夹").assertDoesNotExist()
+    }
+
+    @Test fun emptyDrawerShowsNoFolderCreationHint() {
         compose.setContent {
             PdshTheme {
                 HomeDrawer(
                     facts = HomeDrawerFacts(folders = emptyList(), unassignedSessions = emptyList()),
                     onClose = {},
-                    onMutation = { request ->
-                        command = request
-                        val id = (request as PdshUiHostCommand.WorkspaceFolderCreate).requestId
-                        PdshActionReceipt(id, null, null, PdshActionOutcome.FAILED)
-                    },
-                    onRetry = {},
+                    onMutation = { request -> PdshActionReceipt((request as PdshUiHostCommand.SessionRename).requestId, null, null, PdshActionOutcome.FAILED) },
                 )
             }
         }
-        compose.onNodeWithTag(HomeDrawerTags.CREATE_FOLDER).performSemanticsAction(SemanticsActions.OnClick)
-        compose.onNodeWithText("新建文件夹").performSemanticsAction(SemanticsActions.OnClick)
-        compose.onNodeWithTag(HomeDrawerTags.EDITOR).performTextInput("Research")
-        compose.onNodeWithText("创建").performSemanticsAction(SemanticsActions.OnClick)
-        compose.waitForIdle()
-        val create = command as? PdshUiHostCommand.WorkspaceFolderCreate
-        assertEquals("Research", create?.name)
-        assertNotNull(create?.requestId?.value)
-        compose.onNodeWithTag(HomeDrawerTags.FAILURE).assertIsDisplayed()
-        compose.onNodeWithTag(HomeDrawerTags.RETRY).assertIsDisplayed()
+        compose.onNodeWithText("还没有文件夹", substring = true).assertDoesNotExist()
+        compose.onNodeWithTag(HomeDrawerTags.CREATE_FOLDER).assertDoesNotExist()
     }
 
     @Test fun renameSessionIsRequestBoundAndDoesNotHideRowAfterFailedReceipt() {

@@ -121,6 +121,10 @@ enum LogTestSupport {
         try repoRoot().appendingPathComponent("spec/v1/golden/wal")
     }
 
+    static func goldenLifecycleDirectory() throws -> URL {
+        try goldenWALDirectory().appendingPathComponent("lifecycle")
+    }
+
     static func loadJSON(_ url: URL) throws -> [String: Any] {
         let data = try Data(contentsOf: url)
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {

@@ -322,5 +322,17 @@
     "evidence_level": "emulator-probe",
     "baseline": "examples/probe-app/PhoneDSHProbe/NativePluginInventoryPage.swift",
     "android_mechanism": "copy-forced: iPhone -> phone (the noun is a hardware fact)"
+  },
+  {
+    "id": "platform.tonolink-iphone-agent",
+    "capability": "device.phone-self-control",
+    "ios": "An iOS app cannot inject input into other apps or read their screen. Phone DSH therefore drives the iPhone through a TonoLink board: the board is a Bluetooth HID keyboard/mouse and an AirPlay receiver the phone mirrors to over USB (spec/device/v1/tonolink-board.md). The native MCP tool iphone_agent_run and its UI-Venus settings page exist only for this path; the board's firmware/relay page is DEBUG-only.",
+    "android": "The Android host already controls an Android phone through its own ADB tools on the same native MCP endpoint (android_* tools, spec/v1/native-mcp.md), so it needs no board, no iphone_agent_run and no UI-Venus/board settings pages.",
+    "divergence_class": "os-forced",
+    "rationale": "Same observable capability (the agent operates the phone's UI) through the mechanism each OS allows. Copying the iPhone board pages to Android would configure hardware and a tool the Android host does not serve.",
+    "spec_ref": "spec/device/v1/tonolink-board.md §1",
+    "evidence_level": "device-gate",
+    "baseline": "examples/probe-app/PhoneDSHProbe/VisionSettingsPage.swift",
+    "android_mechanism": "android_* ADB tools on the native MCP endpoint (spec/v1/native-mcp.md)"
   }
 ]

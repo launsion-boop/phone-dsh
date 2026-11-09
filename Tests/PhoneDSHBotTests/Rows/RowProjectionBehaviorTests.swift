@@ -165,4 +165,38 @@ final class RowProjectionBehaviorTests: XCTestCase {
         XCTAssertEqual(snapshot.rows.first?.body["status"], .string("answered"))
         XCTAssertEqual(snapshot.rows.first?.body["answeredOptionID"], .string("o1"))
     }
+    func testUserRowStripsAttachmentBlockAndCarriesMetadata() throws {
+        let items = [
+            BotAttachment(name: "周报.pdf", path: "/dsh/workspace/imports/attachments-att-1/周报.pdf",
+                          size: 2048, mimeType: "application/pdf", kind: "pdf"),
+            BotAttachment(name: "photo.jpg", path: "/dsh/workspace/imports/attachments-att-1/photo.jpg",
+                          size: 1234567, mimeType: "image/jpeg", kind: "image"),
+        ]
+        let prompt = "帮我看看这两个文件" + BotAttachmentPrompt.block(items)
+        let event = RowTestSupport.dshText(seq: 1, time: 1, role: "user", text: prompt)
+        let row = try XCTUnwrap(BotSessionLogProjector().project(
+            botID: "main", sessionID: "main", sessionEvents: [event], uiEvents: []).rows.first)
+        XCTAssertEqual(row.body["text"], .string("帮我看看这两个文件"))
+        let value = try XCTUnwrap(row.body["attachments"])
+        let decoded = try JSONDecoder().decode([BotAttachment].self, from: JSONEncoder().encode(value))
+        XCTAssertEqual(decoded, items)
+        XCTAssertEqual(row.body["content"]?.arrayValue?.first?["text"], .string("帮我看看这两个文件"))
+        let display = BotDisplayContract.project(row)
+        XCTAssertEqual(display.surface, "bubble")
+        XCTAssertTrue(display.renderable)
+    }
+
+    func testAttachmentOnlyUserRowRemainsRenderable() throws {
+        let item = BotAttachment(name: "photo.jpg", path: "/dsh/workspace/imports/attachments-att-2/photo.jpg",
+                                 size: 10, mimeType: "image/jpeg", kind: "image")
+        let event = RowTestSupport.dshText(seq: 1, time: 1, role: "user",
+                                           text: BotAttachmentPrompt.block([item]))
+        let row = try XCTUnwrap(BotSessionLogProjector().project(
+            botID: "main", sessionID: "main", sessionEvents: [event], uiEvents: []).rows.first)
+        XCTAssertEqual(row.body["text"], .string(""))
+        let display = BotDisplayContract.project(row)
+        XCTAssertEqual(display.surface, "bubble")
+        XCTAssertTrue(display.renderable)
+    }
+
 }

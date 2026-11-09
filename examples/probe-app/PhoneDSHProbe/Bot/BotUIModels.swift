@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import PhoneDSHBot
+import UniformTypeIdentifiers
 
 enum BotJSONValue: Codable, Equatable {
     case string(String)
@@ -173,6 +175,114 @@ struct BotUIRow: Codable, Equatable, Identifiable {
     }
 }
 
+/// One file attached to a user chat message. The durable row projection puts
+/// this metadata in `body.attachments`; the composer uses the same shape for
+/// the optimistic local row, so the transcript card does not wait for import.
+struct BotUIAttachment: Codable, Equatable, Hashable, Identifiable, Sendable {
+    var name: String
+    var path: String
+    var size: Int64
+    var mimeType: String
+    var kind: String
+
+    var id: String { path.isEmpty ? "\(name)#\(size)" : path }
+
+    init(name: String, path: String = "", size: Int64, mimeType: String = "", kind: String) {
+        self.name = name
+        self.path = path
+        self.size = size
+        self.mimeType = mimeType
+        self.kind = kind
+    }
+
+    init(_ attachment: BotAttachment) {
+        self.init(name: attachment.name, path: attachment.path, size: attachment.size,
+                  mimeType: attachment.mimeType, kind: attachment.kind)
+    }
+
+    var sizeLabel: String {
+        let value = max(0, size)
+        if value < 1024 { return "\(value) B" }
+        if value < 1024 * 1024 {
+            let kb = Double(value) / 1024
+            return String(format: kb < 10 ? "%.1f KB" : "%.0f KB", kb)
+        }
+        return String(format: "%.1f MB", Double(value) / (1024 * 1024))
+    }
+
+    /// A local file the user picked, described with the same policy the import
+    /// path uses. Returns nil when the file cannot be read or is empty.
+    static func local(url: URL, fallbackMIMEType: String? = nil) -> BotUIAttachment? {
+        let values = try? url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
+        guard values?.isRegularFile != false, let size = values?.fileSize, size > 0 else { return nil }
+        let name = url.lastPathComponent.isEmpty ? "file" : url.lastPathComponent
+        let mimeType = fallbackMIMEType
+            ?? UTType(filenameExtension: url.pathExtension)?.preferredMIMEType
+            ?? "application/octet-stream"
+        return BotUIAttachment(
+            name: name, path: "",
+            size: Int64(size), mimeType: mimeType,
+            kind: BotAttachmentPolicy.kind(name: name, mimeType: mimeType))
+    }
+
+    var jsonValue: BotJSONValue {
+        .object([
+            "name": .string(name),
+            "path": .string(path),
+            "size": .number(Double(size)),
+            "mimeType": .string(mimeType),
+            "kind": .string(kind),
+        ])
+    }
+
+    static func fixture(name: String, size: Int64, mimeType: String, kind: String,
+                        path: String = "") -> BotUIAttachment {
+        BotUIAttachment(name: name, path: path, size: size, mimeType: mimeType, kind: kind)
+    }
+
+    var iconName: String {
+        switch kind {
+        case "image": return "photo"
+        case "audio": return "waveform"
+        case "video": return "video"
+        case "pdf", "document": return "doc.text"
+        case "markdown", "table", "json": return "tablecells"
+        case "archive": return "archivebox"
+        default: return "paperclip"
+        }
+    }
+
+    var kindLabel: String {
+        switch kind {
+        case "image": return "图片"
+        case "audio": return "音频"
+        case "video": return "视频"
+        case "pdf": return "PDF"
+        case "document": return "文档"
+        case "markdown": return "Markdown"
+        case "table": return "表格"
+        case "json": return "JSON"
+        case "archive": return "压缩包"
+        default: return "文件"
+        }
+    }
+
+    static func parseList(_ value: BotJSONValue?) -> [BotUIAttachment] {
+        guard let items = value?.array else { return [] }
+        return items.prefix(BotAttachmentPolicy.maxCount).compactMap { item in
+            guard let object = item.object,
+                  let name = object.string("name", "fileName"), !name.isEmpty else { return nil }
+            return BotUIAttachment(
+                name: name,
+                path: object["path"]?.string ?? "",
+                size: Int64(max(0, object["size"]?.number ?? 0)),
+                mimeType: object["mimeType"]?.string ?? "",
+                kind: object["kind"]?.string
+                    ?? BotAttachmentPolicy.kind(name: name, mimeType: object["mimeType"]?.string ?? ""))
+        }
+    }
+}
+
 struct BotUIRowBatch: Codable, Equatable {
     var rows: [BotUIRow]
     var deletes: [String]
@@ -187,7 +297,7 @@ enum BotUIApprovalDecision: String, Codable {
 }
 
 enum BotUIUserAction: Codable, Equatable {
-    case chat(nonce: String, botID: String, text: String)
+    case chat(nonce: String, botID: String, text: String, attachments: [BotAttachment]?)
     case cardAnswer(nonce: String, botID: String, cardID: String, optionID: String)
     case cardDismiss(nonce: String, botID: String, cardID: String)
     case approval(nonce: String, botID: String, approvalID: String,
@@ -196,12 +306,12 @@ enum BotUIUserAction: Codable, Equatable {
 
     private enum Keys: String, CodingKey {
         case nonce, botID, kind, text, cardID, optionID
-        case approvalID, decision, digest, threadID
+        case approvalID, decision, digest, threadID, attachments
     }
 
     var nonce: String {
         switch self {
-        case .chat(let nonce, _, _), .cardAnswer(let nonce, _, _, _),
+        case .chat(let nonce, _, _, _), .cardAnswer(let nonce, _, _, _),
              .cardDismiss(let nonce, _, _), .approval(let nonce, _, _, _, _),
              .stopTask(let nonce, _, _): nonce
         }
@@ -209,7 +319,7 @@ enum BotUIUserAction: Codable, Equatable {
 
     var botID: String {
         switch self {
-        case .chat(_, let botID, _), .cardAnswer(_, let botID, _, _),
+        case .chat(_, let botID, _, _), .cardAnswer(_, let botID, _, _),
              .cardDismiss(_, let botID, _), .approval(_, let botID, _, _, _),
              .stopTask(_, let botID, _): botID
         }
@@ -229,7 +339,9 @@ enum BotUIUserAction: Codable, Equatable {
         }
         switch kind {
         case "chat":
-            self = .chat(nonce: nonce, botID: botID, text: try container.decode(String.self, forKey: .text))
+            self = .chat(nonce: nonce, botID: botID,
+                          text: try container.decodeIfPresent(String.self, forKey: .text) ?? "",
+                          attachments: try container.decodeIfPresent([BotAttachment].self, forKey: .attachments))
         case "cardAnswer":
             self = .cardAnswer(nonce: nonce, botID: botID,
                                cardID: try container.decode(String.self, forKey: .cardID),
@@ -254,11 +366,12 @@ enum BotUIUserAction: Codable, Equatable {
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: Keys.self)
         switch self {
-        case .chat(let nonce, let botID, let text):
+        case .chat(let nonce, let botID, let text, let attachments):
             try container.encode(nonce, forKey: .nonce)
             try container.encode(botID, forKey: .botID)
             try container.encode("chat", forKey: .kind)
             try container.encode(text, forKey: .text)
+            try container.encodeIfPresent(attachments, forKey: .attachments)
         case .cardAnswer(let nonce, let botID, let cardID, let optionID):
             try container.encode(nonce, forKey: .nonce)
             try container.encode(botID, forKey: .botID)
@@ -357,6 +470,9 @@ struct BotChatDriver {
     var turnProcesses: () async -> [Int: BotTurnProcess] = { [:] }
     /// Live frames of the running main-chat turn.
     var liveFrames: () async -> AsyncStream<BotLiveFrame> = { AsyncStream { $0.finish() } }
+    /// The durable presentation (fish state + current-turn activity) projected
+    /// by the runtime. Live frames refine it while a turn is running.
+    var presentation: () async throws -> BotRuntimePresentation = { BotRuntimePresentation() }
 }
 
 struct BotRuntimeContext: Equatable {
@@ -387,12 +503,23 @@ struct BotUIChoice: Equatable, Identifiable {
     var recommended: Bool
     var danger: Bool
 
+    /// Mirrors dsh-bot `WidgetCard.normaliseChoice`: a bare string is a choice,
+    /// and a choice without an id gets the stable `"<index>:<label>"` id, so a
+    /// next-steps card from the shared card-payload golden (labels only)
+    /// renders and answers exactly as on the desktop.
     static func parse(_ value: BotJSONValue, index: Int) -> BotUIChoice? {
+        if let raw = value.string {
+            let label = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !label.isEmpty else { return nil }
+            return BotUIChoice(id: "\(index):\(label)", label: label, value: label,
+                               description: nil, recommended: false, danger: false)
+        }
         guard let object = value.object,
               let rawLabel = object.string("label", "text", "title", "value"),
-              !rawLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              let id = object.string("id", "optionID"), !id.isEmpty else { return nil }
+              !rawLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         let label = rawLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let explicitID = object.string("id", "optionID") ?? ""
+        let id = explicitID.isEmpty ? "\(index):\(rawLabel)" : explicitID
         let style = object["style"]?.string?.lowercased() ?? "default"
         return BotUIChoice(id: id, label: label,
                            value: object["value"]?.string ?? label,
@@ -563,9 +690,13 @@ enum BotUIRendering {
     static func isRenderable(_ row: BotUIRow) -> Bool {
         if row.body.type == "deleted" { return false }
         if row.body.type == "text" {
+            let hasText = !(row.body["text"]?.string ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            let hasAttachments = row.role == "user"
+                && !BotUIAttachment.parseList(row.body["attachments"]).isEmpty
             return ["message", "sendMessage"].contains(row.kind)
                 && ["user", "assistant"].contains(row.role ?? "")
-                && !(row.body["text"]?.string ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && (hasText || hasAttachments)
         }
         return BotUICardContent.parse(row: row) != nil
     }

@@ -94,15 +94,22 @@ public struct WALScan: Equatable, Sendable {
     /// A newest segment whose header was torn (power loss during segment
     /// creation); it is excluded from `segments` and unlinked by truncation.
     public var tornHeaderURL: URL?
+    /// Length-0 segment files (`wal.md` §7.2): no header, no record, never
+    /// `WAL_CORRUPT`. They are classified by their own length before the
+    /// manifest placement rule; recovery drops an unlisted one only after the
+    /// shorter manifest is durable.
+    public var zeroLengthSegments: [WALSegmentName]
 
     public init(segments: [WALSegmentFile],
                 truncatedTornTail: Bool = false,
                 discardedBytes: Int = 0,
-                tornHeaderURL: URL? = nil) {
+                tornHeaderURL: URL? = nil,
+                zeroLengthSegments: [WALSegmentName] = []) {
         self.segments = segments
         self.truncatedTornTail = truncatedTornTail
         self.discardedBytes = discardedBytes
         self.tornHeaderURL = tornHeaderURL
+        self.zeroLengthSegments = zeroLengthSegments
     }
 
     /// File name of the torn-header segment, when there is one.
@@ -134,9 +141,12 @@ public struct WALScan: Equatable, Sendable {
         segments.filter(\.hasEpochClose).map(\.epoch).max() ?? 0
     }
 
-    /// Highest epoch number that has any segment on disk.
+    /// Highest epoch number that has any segment on disk, including a
+    /// zero-length file: its epoch number was allocated and must not be reused
+    /// (wal.md §1).
     public var highestEpoch: UInt64 {
-        segments.map(\.epoch).max() ?? 0
+        max(segments.map(\.epoch).max() ?? 0,
+            zeroLengthSegments.map(\.epoch).max() ?? 0)
     }
 
     /// The highest epoch-close record present; never droppable (wal.md §9).
@@ -158,11 +168,30 @@ public enum WALReader {
         let names = entries.compactMap(WALSegmentName.init(fileName:)).sorted()
         var segments: [WALSegmentFile] = []
         var tornHeaderURL: URL?
+        var zeroLengthSegments: [WALSegmentName] = []
+        var nonEmptyNames: [WALSegmentName] = []
+        for name in names {
+            let url = name.url(in: directory)
+            let size: Int
+            do {
+                size = try LogFile.size(url)
+            } catch {
+                throw LogError.corrupt("unreadable WAL segment \(name.fileName)")
+            }
+            // §7.2/§10 step 1: length 0 is classified by its own bytes, not as
+            // a torn header and not as `WAL_CORRUPT`. It must not make an
+            // earlier segment look non-newest for the D19 torn-tail rule.
+            if size == 0 {
+                zeroLengthSegments.append(name)
+            } else {
+                nonEmptyNames.append(name)
+            }
+        }
         var discarded = 0
         var sawTornTail = false
 
-        for (index, name) in names.enumerated() {
-            let isNewest = index == names.count - 1
+        for (index, name) in nonEmptyNames.enumerated() {
+            let isNewest = index == nonEmptyNames.count - 1
             let url = name.url(in: directory)
             let data: Data
             do {
@@ -190,7 +219,8 @@ public enum WALReader {
         let result = WALScan(segments: segments,
                              truncatedTornTail: sawTornTail,
                              discardedBytes: discarded,
-                             tornHeaderURL: tornHeaderURL)
+                             tornHeaderURL: tornHeaderURL,
+                             zeroLengthSegments: zeroLengthSegments)
         if truncateTornTail {
             return try WALReader.truncateTornTail(result)
         }

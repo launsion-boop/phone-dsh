@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 //
 // Spec: `spec/ui/v1/README.md` §1 (the 入口 column: 抽屉「工作文件夹」、
-// 抽屉「定时任务」、页头 `⋯`、设置首行/设置内、页头运行状态点、引擎就绪时的默认面),
+// 设置 › 定时任务、页头 `⋯`、设置首行/设置内、页头运行状态点、引擎就绪时的默认面),
 // §2 (`back-gesture` in §5: the stack pops one level per gesture) and §3.1 (a page
 // is a pure function of facts and local state; nothing here reads the engine for
 // a page).
@@ -1387,7 +1387,7 @@ internal fun HostShell(
                     }?.sortedByDescending { it.updatedAtMs }
                         ?.map { HomeDrawerSession(it.id, it.title.ifBlank { UiStrings.SESSION_TITLE_NEW }, running = it.id == chatUi.chatId && chatUi.running) },
                     activeSessionId = chatUi.chatId.takeIf(String::isNotBlank),
-                    scheduleCount = automationFacts.snapshot?.schedules?.size,
+                    languageId = preferences.language?.id,
                     engine = when {
                         chatScreenState.empty == com.phonedsh.ui.state.ChatEmpty.PROVIDER_SETUP -> HomeDrawerEngineState.CONFIGURATION_REQUIRED
                         state is EngineHostState.Running -> HomeDrawerEngineState.READY
@@ -1508,11 +1508,6 @@ internal fun HostShell(
                             HomeDrawerArchiveResult.Archived(request.requestId, request.sessionId)
                         } else HomeDrawerArchiveResult.Failed(request.requestId, request.sessionId, "归档未确认，原会话仍保留")
                         result
-                    },
-                    onOpenSchedules = {
-                        drawerOpen = false
-                        probeOpen = false
-                        nav = PdshNavState(listOf(PdshRoute.Chat, PdshRoute.Automation))
                     },
                     onOpenSettings = {
                         drawerOpen = false

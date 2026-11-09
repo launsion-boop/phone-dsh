@@ -119,7 +119,7 @@ class SessionPagesTest {
             workspaces = listOf(SessionWorkspace("daily", "workspace", listOf("daily-1"))),
         ))
         compose.setContent { PdshTheme { Drawer(state = state.value) } }
-        compose.onNodeWithText("日常").assertIsDisplayed()
+        compose.onNodeWithText(UiStrings.DRAWER_DEFAULT_FOLDER).assertIsDisplayed()
         compose.onNodeWithText("日常里的会话").assertIsDisplayed()
         compose.onNodeWithText("未归属的会话").assertIsDisplayed()
 

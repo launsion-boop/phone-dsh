@@ -10,6 +10,10 @@ Android continues to use the foreground-service policy in `whitelist.json`.
 owner of audio-session category and activation. The keep-alive, composer dictation
 and `PhoneMediaTools.record` acquire and release through it on the main actor.
 There is one keep-alive instance and at most one live microphone token.
+`SilentAudioKeepAlive.shared` is that instance: its callers (the chat turn and
+the DEBUG TonoLink relay) start and stop it under their own owner name, and it
+holds the lease's single keep-alive claim from the first owner until the last one
+stops.
 
 - `beginKeepAlive(reclaim:)` registers silent rendering before activation.
   `activateKeepAliveSession()` activates its compatible profile. A failed rendering
@@ -35,6 +39,12 @@ releases the session. Reacquiring the microphone while that profile remains owne
 must not reconfigure or reactivate it. Reclaim resumes silent rendering without
 forcing playback over an active microphone. Failed configuration restores the
 previous owner's profile where possible and never releases that owner.
+
+Silent rendering also resumes after an AVAudioEngine configuration change, an
+audio route change (for example screen mirroring to an AirPlay receiver starting
+or ending) or a 5 s watchdog finding the engine or player stopped. That resume
+re-activates the keep-alive profile only while no microphone owner holds the
+session; otherwise it restarts rendering without touching category or activation.
 
 OS interruptions, media-service reset, process termination and external category
 changes are not guaranteed to preserve capture. This revision does not promise

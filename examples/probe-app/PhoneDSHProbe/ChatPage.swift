@@ -279,40 +279,20 @@ struct ChatPage: View {
             .accessibilityHint("点按重命名会话")
             .padding(.horizontal, 16)
 
-            HStack(spacing: 0) {
-                Button {
-                    showDeviceConnections = true
-                } label: {
-                    Image(systemName: "dot.radiowaves.left.and.right")
-                        .font(.system(size: 19, weight: .medium))
-                        .frame(width: 46, height: HomeSpec.navButton)
-                        .overlay(alignment: .topTrailing) {
-                            // A device is online: a 6pt success dot on the icon.
-                            if deviceCoordinator.hasOnlineDevices {
-                                Circle()
-                                    .fill(HomeSpec.success)
-                                    .frame(width: 6, height: 6)
-                                    .offset(x: -10, y: 11)
-                            }
-                        }
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(deviceCoordinator.hasOnlineDevices ? "连接设备，有在线设备" : "连接设备")
-                .accessibilityIdentifier("chat.connect-device")
-                chatHeaderMenu
+            HeaderActionPill(hasOnlineDevices: deviceCoordinator.hasOnlineDevices,
+                             connectIdentifier: "chat.connect-device",
+                             menuIdentifier: nil,
+                             showsMenuActivityDot: headerActivityRunning,
+                             onConnect: { showDeviceConnections = true }) {
+                chatHeaderMenuItems
             }
-            .foregroundStyle(HomeSpec.primaryButton)
-            .frame(width: HomeSpec.navPillWidth, height: HomeSpec.navButton)
-            .background(HomeSpec.surface, in: Capsule())
-            .homeFloatingShadow()
         }
         .padding(.horizontal, HomeSpec.chromeInset)
         .padding(.top, HomeSpec.navTop)
         .frame(height: HomeSpec.navTop + HomeSpec.navButton)
     }
 
-    /// 副标题是会话所属的文件夹。每个会话都有文件夹:不在任何文件夹里的就算在默认的「日常」。
+    /// 副标题是会话所属的文件夹。每个会话都有文件夹:不在任何文件夹里的就算在默认的「手机工作区」。
     private var projectSubtitle: String {
         guard let id = model.currentSessionID,
               let workspace = management.workspaces.first(where: { $0.sessionIDs.contains(id) })
@@ -320,64 +300,49 @@ struct ChatPage: View {
         return DrawerTitles.workspaceTitle(workspace.title, index: 1)
     }
 
-    private var chatHeaderMenu: some View {
-        Menu {
-            if !subagentEntries.isEmpty {
-                Button("子智能体（\(subagentEntries.count)）", systemImage: "person.2") {
-                    showSubagentCatalog = true
-                }
+    @ViewBuilder
+    private var chatHeaderMenuItems: some View {
+        if !subagentEntries.isEmpty {
+            Button("子智能体（\(subagentEntries.count)）", systemImage: "person.2") {
+                showSubagentCatalog = true
             }
-            if !management.jobs.isEmpty {
-                Button("后台任务（\(management.jobs.count)）", systemImage: "list.bullet") {
-                    showJobList = true
-                }
+        }
+        if !management.jobs.isEmpty {
+            Button("后台任务（\(management.jobs.count)）", systemImage: "list.bullet") {
+                showJobList = true
             }
-            if !management.scheduleRecords.isEmpty {
-                Button("定时任务（\(management.scheduleRecords.count)）", systemImage: "calendar.badge.clock") {
-                    showScheduleList = true
-                }
+        }
+        if !management.scheduleRecords.isEmpty {
+            Button("定时任务（\(management.scheduleRecords.count)）", systemImage: "calendar.badge.clock") {
+                showScheduleList = true
             }
-            Button("产物", systemImage: "shippingbox") {
-                showArtifacts = true
+        }
+        Button("产物", systemImage: "shippingbox") {
+            showArtifacts = true
+        }
+        if model.currentSessionID != nil {
+            Button("工作区", systemImage: "folder") {
+                showWorkbench = true
             }
-            if model.currentSessionID != nil {
-                Button("工作区", systemImage: "folder") {
-                    showWorkbench = true
-                }
-            }
+        }
+        Divider()
+        ShareLink(item: historyExport,
+                  subject: Text("对话记录"),
+                  preview: SharePreview("对话记录")) {
+            Label("导出对话记录", systemImage: "square.and.arrow.up")
+        }
+        Button("运行状态", systemImage: "waveform.path.ecg") { showRuntimeDetails = true }
+        Button("插件与工具", systemImage: "puzzlepiece.extension") { showSessionSettings = true }
+        if let preset = model.agentPresetLabel {
             Divider()
-            ShareLink(item: historyExport,
-                      subject: Text("对话记录"),
-                      preview: SharePreview("对话记录")) {
-                Label("导出对话记录", systemImage: "square.and.arrow.up")
-            }
-            Button("运行状态", systemImage: "waveform.path.ecg") { showRuntimeDetails = true }
-            Button("插件与工具", systemImage: "puzzlepiece.extension") { showSessionSettings = true }
-            if let preset = model.agentPresetLabel {
-                Divider()
-                Text("Agent 预设：\(preset)")
-            }
-            Divider()
-            // Official `On next message` collapse timing, as a menu
-            // pair on the phone (no DSH settings page here).
-            Picker("折叠时机", selection: collapseTimingBinding) {
-                Text("完成时").tag(false)
-                Text("下一条消息").tag(true)
-            }
-        } label: {
-            ZStack(alignment: .topTrailing) {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 18, weight: .bold))
-                    .frame(width: 46, height: HomeSpec.navButton)
-                    .contentShape(Rectangle())
-                if headerActivityRunning {
-                    Circle()
-                        .fill(HomeSpec.textSecondary)
-                        .frame(width: 6, height: 6)
-                        .offset(x: -10, y: 11)
-                }
-            }
-            .accessibilityLabel("更多")
+            Text("Agent 预设：\(preset)")
+        }
+        Divider()
+        // Official `On next message` collapse timing, as a menu
+        // pair on the phone (no DSH settings page here).
+        Picker("折叠时机", selection: collapseTimingBinding) {
+            Text("完成时").tag(false)
+            Text("下一条消息").tag(true)
         }
     }
 
@@ -400,7 +365,6 @@ struct ChatPage: View {
             if model.failedItemID == nil, let error = model.userFacingError {
                 errorBanner(error)
             }
-            if let error = model.accessModeError { accessModeErrorBanner(error) }
             if let error = model.commandsError { commandErrorBanner(error) }
             resourceBanner
             cardsRegion
@@ -1091,18 +1055,6 @@ struct ChatPage: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
         .background(Color.red.opacity(0.06))
-    }
-
-    private func accessModeErrorBanner(_ message: String) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "lock.trianglebadge.exclamationmark").foregroundStyle(.orange)
-            Text(message).font(.footnote).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
-            Button("重试") { Task { await model.refreshAccessModes() } }
-                .font(.footnote.weight(.medium))
-                .frame(minHeight: 44)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 4)
     }
 
     private func commandErrorBanner(_ message: String) -> some View {
@@ -2413,14 +2365,36 @@ struct ChatPage: View {
         } label: {
             HStack(spacing: 2) {
                 NativeChatIcon(name: .shield, size: 20)
-                NativeChatIcon(name: .chevronDown, size: 10)
+                    .overlay(alignment: .topTrailing) {
+                        // Reads failed even after the automatic retries: a quiet
+                        // mark on the control instead of a page banner.
+                        if model.accessModeError != nil && !model.accessModeLoading {
+                            Circle()
+                                .fill(Color.orange)
+                                .frame(width: 6, height: 6)
+                                .offset(x: 2, y: -1)
+                        }
+                    }
+                if model.accessModeLoading {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .frame(width: 10, height: 10)
+                } else {
+                    NativeChatIcon(name: .chevronDown, size: 10)
+                }
             }
             .foregroundStyle(HomeSpec.iconMuted)
             .frame(height: HomeSpec.sendButton)
             .contentShape(Rectangle())
         }
+        // Opening the menu after a failed read starts the automatic read again.
+        .simultaneousGesture(TapGesture().onEnded {
+            if model.accessModeError != nil && !model.accessModeLoading {
+                Task { await model.refreshAccessModes() }
+            }
+        })
         .disabled(!model.canSend || model.turnRunning || model.pendingQuestion != nil || model.pendingPermission != nil || isSelectingAccessMode)
-        .accessibilityLabel("权限：\(accessModeTitle)")
+        .accessibilityLabel(model.accessModeLoading ? "权限：正在读取" : "权限：\(accessModeTitle)")
     }
     private var accessModeTitle: String {
         if let current = model.currentAccessMode,

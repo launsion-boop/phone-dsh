@@ -52,6 +52,27 @@ WAL_HEADER_CONSTANT_HEX = (
 WAL_HEADER_CONSTANT_CRC32C = 0x0B0F9536
 WAL_SEGMENT_RE = re.compile(r"^wal/[0-9]{8}\.[0-9]{6}\.xlwal$")
 WAL_VECTOR_FILES = ("segment-1.json", "segment-epoch-only.json")
+WAL_LIFECYCLE_DIR = "golden/wal/lifecycle"
+WAL_LIFECYCLE_VECTOR_FILES = (
+    "unclosed-epoch-below-watermark.json",
+    "unclosed-epoch-above-watermark.json",
+    "unlisted-stale-relisted.json",
+    "unlisted-adopted-tail.json",
+    "crash-tail-epoch-above-durable.json",
+)
+WAL_LIFECYCLE_SEGMENT_RE = re.compile(r"^wal/([0-9]{8})\.([0-9]{6})\.xlwal$")
+WAL_LIFECYCLE_EXPECTED_KEYS = {
+    "fast_path",
+    "verification_pass",
+    "has_unclosed_history",
+    "replay_records",
+    "materialized_upto_mseq",
+    "newest_close_segment",
+    "dropped_segments",
+    "retained_segments",
+    "relisted_segments",
+    "adopted_tail_segments",
+}
 WAL_REPLAY_SCHEMA_NAME = "wal-replay.schema.json"
 WAL_REPLAY_VECTOR_FILES = (
     "append-full-write-settles.json",
@@ -181,7 +202,11 @@ LINE_CAPS = {
     # new normative text, not prose, and deleting another rule to make room is
     # not an option. The cap moves 374 -> 412 (the 398 freeze plus the
     # conservative-settlement sentences and their manifest invariant).
-    "wal.md": 412,
+    # D16 amendment (2026-11-09, PC-20261109-wal-durable-epoch-truncation):
+    # §9's decided reading now states that a listed epoch at or below
+    # `last_durable_epoch` is durable without its own retained close record and
+    # is not "unclosed history" for §10. The cap moves 412 -> 416.
+    "wal.md": 416,
     # D16 amendment: `unsupported` was defined as "only an unadvertised argv[0]", but the
     # host also refuses request shapes it cannot honour (no stdin channel, protocol-level
     # refusal). The implementation and the spec disagreed; the spec was the narrower one.
@@ -1402,6 +1427,362 @@ def check_wal_vectors(spec_dir, rep, full):
             "golden/wal",
             "no epoch-only segment with first_mseq > durable_upto (D7)",
         )
+    return state
+
+
+# ---------------------------------------------------------------------------
+# WAL segment lifecycle vectors (wal.md §7.2, §9, §10): the manifest-based
+# droppable rule and the recovery fast path.
+# ---------------------------------------------------------------------------
+
+
+def _wal_lifecycle_parse_segment(file_hex, where):
+    """Decode one golden segment independently and verify every CRC."""
+
+    raw = _hex_bytes(file_hex, where + ".file_hex")
+    if not raw:
+        return {
+            "zero_length": True,
+            "first_mseq": 0,
+            "last_mseq": 0,
+            "has_epoch_close": False,
+            "mutations": [],
+            "close": None,
+        }
+    if len(raw) < WAL_HEADER_LEN:
+        raise SpecError(where + ": a non-empty segment is shorter than its 40-byte header")
+    if raw[:8] != WAL_MAGIC:
+        raise SpecError(where + ": segment magic is not XLWAL1")
+    fmt = struct.unpack(">H", raw[8:10])[0]
+    reserved = struct.unpack(">H", raw[10:12])[0]
+    first_mseq = struct.unpack(">Q", raw[12:20])[0]
+    boot = raw[20:36]
+    header_crc = struct.unpack(">I", raw[36:40])[0]
+    if fmt != WAL_FORMAT:
+        raise SpecError(where + ": segment format is not 1")
+    if reserved != 0:
+        raise SpecError(where + ": segment reserved is not 0")
+    if first_mseq < 1:
+        raise SpecError(where + ": segment first_mseq is below 1")
+    if len(boot) != 16:
+        raise SpecError(where + ": segment boot_id is not 16 bytes")
+    if crc32c(raw[:36]) != header_crc:
+        raise SpecError(where + ": segment header CRC32C does not match")
+
+    mutations = []
+    close = None
+    offset = WAL_HEADER_LEN
+    while offset < len(raw):
+        if offset + 8 > len(raw):
+            raise SpecError(where + ": truncated record header")
+        length = struct.unpack(">I", raw[offset:offset + 4])[0]
+        if length < 8 or offset + 8 + length > len(raw):
+            raise SpecError(where + ": record len does not fit the file")
+        payload = raw[offset + 8:offset + 8 + length]
+        stored_crc = struct.unpack(">I", raw[offset + 4:offset + 8])[0]
+        if crc32c(payload) != stored_crc:
+            raise SpecError(where + ": record CRC32C does not match")
+        mseq = struct.unpack(">Q", payload[:8])[0]
+        body = payload[8:]
+        if body and body[0] == WAL_EPOCH_CLOSE_OP:
+            if close is not None:
+                raise SpecError(where + ": more than one epoch-close record")
+            if len(body) != 17:
+                raise SpecError(where + ": epoch-close body is not 17 bytes")
+            wall_ms, durable = struct.unpack(">QQ", body[1:])
+            if mseq != durable:
+                raise SpecError(where + ": epoch-close mseq must equal durable_upto")
+            close = {"mseq": mseq, "wall_ms": wall_ms, "durable_upto": durable}
+        else:
+            if close is not None:
+                raise SpecError(where + ": a record follows the epoch-close record")
+            mutations.append(mseq)
+        offset += 8 + length
+    if mutations:
+        if mutations[0] != first_mseq:
+            raise SpecError(where + ": first mutation does not equal header.first_mseq")
+        for previous, current in zip(mutations, mutations[1:]):
+            if current != previous + 1:
+                raise SpecError(where + ": mutation mseq values are not consecutive")
+        if close is not None and close["durable_upto"] != mutations[-1]:
+            raise SpecError(where + ": close durable_upto is not the last mutation")
+    elif close is not None and first_mseq <= close["durable_upto"]:
+        raise SpecError(where + ": idle-close segment needs first_mseq > durable_upto")
+    return {
+        "zero_length": False,
+        "first_mseq": first_mseq,
+        "last_mseq": mutations[-1] if mutations else 0,
+        "has_epoch_close": close is not None,
+        "mutations": mutations,
+        "close": close,
+    }
+
+
+def _wal_lifecycle_manifest(doc, rel, schemas):
+    manifest = doc.get("manifest")
+    if not isinstance(manifest, dict):
+        raise SpecError(rel + ".manifest must be an object")
+    schema = schemas.get(MANIFEST_SCHEMA_NAME)
+    if schema is None:
+        raise SpecError("manifest schema is required by the lifecycle vectors")
+    validate_json(manifest, schema, rel + ".manifest")
+    watermark = _uint(
+        manifest["materialized_upto_mseq"], 64, rel + ".manifest.materialized_upto_mseq"
+    )
+    last_mseq = _uint(manifest["last_mseq"], 64, rel + ".manifest.last_mseq")
+    durable = _uint(
+        manifest["last_durable_epoch"], 64, rel + ".manifest.last_durable_epoch"
+    )
+    if watermark > last_mseq:
+        raise SpecError(rel + ".manifest: materialized_upto_mseq is above last_mseq")
+    entries = manifest["segments"]
+    if not isinstance(entries, list):
+        raise SpecError(rel + ".manifest.segments must be an array")
+    listed = {}
+    order = []
+    for index, entry in enumerate(entries):
+        where = "{}.manifest.segments[{}]".format(rel, index)
+        if not isinstance(entry, dict):
+            raise SpecError(where + " must be an object")
+        match = WAL_LIFECYCLE_SEGMENT_RE.fullmatch(entry.get("file", ""))
+        if match is None:
+            raise SpecError(where + ".file is not wal/<epoch>.<segment>.xlwal")
+        epoch = int(match.group(1))
+        number = int(match.group(2))
+        if _uint(entry["epoch"], 32, where + ".epoch") != epoch:
+            raise SpecError(where + ": epoch disagrees with the file name")
+        first = _uint(entry["first_mseq"], 64, where + ".first_mseq", minimum=1)
+        last = _uint(entry["last_mseq"], 64, where + ".last_mseq")
+        if last != 0 and last < first:
+            raise SpecError(where + ": first_mseq is above last_mseq")
+        key = (epoch, number)
+        if key in listed:
+            raise SpecError(where + ": duplicate segment")
+        listed[entry["file"]] = entry
+        order.append(key)
+    if order != sorted(order):
+        raise SpecError(rel + ".manifest.segments must be in <epoch,segment> order")
+    if listed:
+        highest = max(entry["last_mseq"] for entry in listed.values())
+        if last_mseq < highest:
+            raise SpecError(rel + ".manifest: last_mseq is below a listed segment range")
+    return manifest, watermark, last_mseq, durable, listed
+
+
+def check_wal_lifecycle_vector(spec_dir, path, rep, schemas, state):
+    rel = str(path.relative_to(spec_dir))
+    rep.add(rel)
+    try:
+        doc = load_json(path)
+        if not isinstance(doc, dict):
+            raise SpecError("lifecycle vector is not an object")
+        if set(doc) != {"id", "title", "manifest", "segments", "expected"}:
+            raise SpecError("members must be exactly id/title/manifest/segments/expected")
+        _string(doc["id"], rel + ".id")
+        _string(doc["title"], rel + ".title")
+        manifest, watermark, last_mseq, durable, listed = _wal_lifecycle_manifest(
+            doc, rel, schemas
+        )
+        raw_segments = doc["segments"]
+        if not isinstance(raw_segments, list) or not raw_segments:
+            raise SpecError(rel + ".segments must be a non-empty array")
+        facts = []
+        seen = set()
+        for index, raw in enumerate(raw_segments):
+            where = "{}.segments[{}]".format(rel, index)
+            if not isinstance(raw, dict):
+                raise SpecError(where + " must be an object")
+            if set(raw) != {"file", "file_hex", "first_mseq", "last_mseq", "has_epoch_close"}:
+                raise SpecError(
+                    where + " members must be exactly file/file_hex/first_mseq/last_mseq/has_epoch_close"
+                )
+            match = WAL_LIFECYCLE_SEGMENT_RE.fullmatch(raw["file"])
+            if match is None:
+                raise SpecError(where + ".file is not wal/<epoch>.<segment>.xlwal")
+            if raw["file"] in seen:
+                raise SpecError(where + ": duplicate segment file")
+            seen.add(raw["file"])
+            decoded = _wal_lifecycle_parse_segment(raw["file_hex"], where)
+            if _uint(raw["first_mseq"], 64, where + ".first_mseq") != decoded["first_mseq"]:
+                raise SpecError(where + ": first_mseq disagrees with the file")
+            if _uint(raw["last_mseq"], 64, where + ".last_mseq") != decoded["last_mseq"]:
+                raise SpecError(where + ": last_mseq disagrees with the file")
+            has_close = raw["has_epoch_close"]
+            if not isinstance(has_close, bool) or has_close != decoded["has_epoch_close"]:
+                raise SpecError(where + ": has_epoch_close disagrees with the file")
+            decoded["file"] = raw["file"]
+            decoded["epoch"] = int(match.group(1))
+            decoded["number"] = int(match.group(2))
+            facts.append(decoded)
+        missing = sorted(set(listed) - seen)
+        if missing:
+            raise SpecError(rel + ": a listed segment is absent from the vector: " + repr(missing))
+        for fact in facts:
+            entry = listed.get(fact["file"])
+            if entry is None:
+                continue
+            if fact["first_mseq"] != entry["first_mseq"]:
+                raise SpecError(rel + ": manifest first_mseq disagrees with " + fact["file"])
+            if fact["last_mseq"] != entry["last_mseq"]:
+                raise SpecError(rel + ": manifest last_mseq disagrees with " + fact["file"])
+
+        closed = [fact for fact in facts if fact["has_epoch_close"]]
+        newest = max(closed, key=lambda fact: (fact["epoch"], fact["number"])) if closed else None
+        newest_file = newest["file"] if newest is not None else None
+        all_mutations = sorted(
+            mseq
+            for fact in facts
+            if not fact["zero_length"]
+            for mseq in fact["mutations"]
+        )
+        tail_mutations = [mseq for mseq in all_mutations if mseq > watermark]
+        if tail_mutations:
+            if tail_mutations[0] != watermark + 1:
+                raise SpecError(rel + ": retained WAL tail does not start at the watermark + 1")
+            for previous, current in zip(tail_mutations, tail_mutations[1:]):
+                if current != previous + 1:
+                    raise SpecError(rel + ": retained WAL tail has a hole")
+        effective_tail = max([last_mseq, watermark] + all_mutations)
+        if effective_tail > watermark and (
+            not tail_mutations or tail_mutations[-1] != effective_tail
+        ):
+            raise SpecError(rel + ": retained mutations do not cover the effective tail")
+
+        has_unclosed = any(
+            not fact["zero_length"]
+            and (
+                fact["file"] not in listed
+                or fact["epoch"] > durable
+            )
+            for fact in facts
+        )
+        dropped = set()
+        for fact in facts:
+            if fact["zero_length"]:
+                if fact["file"] not in listed:
+                    dropped.add(fact["file"])
+                continue
+            if fact["file"] not in listed:
+                continue
+            if fact["epoch"] > durable:
+                continue
+            if any(mseq > watermark for mseq in fact["mutations"]):
+                continue
+            if newest_file is not None and fact["file"] == newest_file:
+                continue
+            dropped.add(fact["file"])
+        retained = [
+            fact["file"]
+            for fact in facts
+            if not fact["zero_length"] and fact["file"] not in dropped
+        ]
+        relisted = [name for name in retained if name not in listed]
+        adopted = [
+            name
+            for name in relisted
+            if any(
+                fact["file"] == name and any(mseq > watermark for mseq in fact["mutations"])
+                for fact in facts
+            )
+        ]
+        fast_path = not has_unclosed and not tail_mutations
+        computed = {
+            "fast_path": fast_path,
+            "verification_pass": not fast_path,
+            "has_unclosed_history": has_unclosed,
+            "replay_records": len(tail_mutations),
+            "materialized_upto_mseq": max([watermark] + all_mutations),
+            "newest_close_segment": newest_file,
+            "dropped_segments": sorted(dropped),
+            "retained_segments": sorted(retained),
+            "relisted_segments": sorted(relisted),
+            "adopted_tail_segments": sorted(adopted),
+        }
+
+        expected = doc["expected"]
+        if not isinstance(expected, dict):
+            raise SpecError(rel + ".expected must be an object")
+        if set(expected) != WAL_LIFECYCLE_EXPECTED_KEYS:
+            raise SpecError(
+                rel + ".expected members must be exactly " + repr(sorted(WAL_LIFECYCLE_EXPECTED_KEYS))
+            )
+        for key, value in expected.items():
+            if computed[key] != value:
+                raise SpecError(
+                    "{}.expected.{}: got {!r}, expected {!r}".format(
+                        rel, key, computed[key], value
+                    )
+                )
+
+        state["files"] += 1
+        state["fast_path"] += 1 if fast_path else 0
+        state["tail_replay"] += 1 if tail_mutations else 0
+        state["unclosed_dropped"] += 1 if (
+            fast_path
+            and any(
+                not fact["zero_length"]
+                and not fact["has_epoch_close"]
+                and fact["file"] in dropped
+                and fact["file"] in listed
+                for fact in facts
+            )
+        ) else 0
+        state["relisted"] += 1 if relisted else 0
+        state["adopted"] += 1 if adopted else 0
+        state["newest_close_kept"] += 1 if (
+            newest_file is not None and newest_file not in dropped
+        ) else 0
+    except SpecError as exc:
+        rep.fail(rel, str(exc))
+
+
+def check_wal_lifecycle_vectors(spec_dir, rep, schemas, full):
+    """Validate the §9/§10 lifecycle vectors and their coverage."""
+
+    directory = spec_dir / WAL_LIFECYCLE_DIR
+    state = {
+        "files": 0,
+        "fast_path": 0,
+        "tail_replay": 0,
+        "unclosed_dropped": 0,
+        "relisted": 0,
+        "adopted": 0,
+        "newest_close_kept": 0,
+    }
+    if not directory.is_dir():
+        if full:
+            rep.add(WAL_LIFECYCLE_DIR)
+            rep.fail(WAL_LIFECYCLE_DIR, "required by --full but missing")
+        return state
+    paths = sorted(directory.glob("*.json"))
+    names = {path.name for path in paths}
+    missing = [name for name in WAL_LIFECYCLE_VECTOR_FILES if name not in names]
+    for path in paths:
+        check_wal_lifecycle_vector(spec_dir, path, rep, schemas, state)
+    if state["files"] == 0:
+        if full:
+            rep.fail(WAL_LIFECYCLE_DIR, "no lifecycle vector")
+        return state
+    if missing:
+        rep.fail(
+            WAL_LIFECYCLE_DIR,
+            "required lifecycle vectors are missing: {}".format(missing),
+        )
+    if state["fast_path"] < 1:
+        rep.fail(WAL_LIFECYCLE_DIR, "no vector proves the unclosed-epoch fast path")
+    if state["tail_replay"] < 1:
+        rep.fail(WAL_LIFECYCLE_DIR, "no vector retains and replays a crash tail")
+    if state["unclosed_dropped"] < 1:
+        rep.fail(
+            WAL_LIFECYCLE_DIR,
+            "no vector drops a listed unclosed epoch at or below last_durable_epoch",
+        )
+    if state["relisted"] < 1:
+        rep.fail(WAL_LIFECYCLE_DIR, "no vector re-lists an unlisted stale segment")
+    if state["adopted"] < 1:
+        rep.fail(WAL_LIFECYCLE_DIR, "no vector adopts an unlisted tail segment")
+    if state["newest_close_kept"] < 1:
+        rep.fail(WAL_LIFECYCLE_DIR, "no vector keeps the newest epoch-close segment")
     return state
 
 
@@ -2993,6 +3374,7 @@ def check_spec(spec_dir, full):
             rep.fail("golden/README.md", "does not document the {} convention".format(token))
 
     check_wal_vectors(spec_dir, rep, full)
+    check_wal_lifecycle_vectors(spec_dir, rep, schemas, full)
     check_wal_replay_vectors(spec_dir, rep, schemas, full)
     check_manifest_schema(rep, schemas, texts, full)
     check_handoff_schemas(spec_dir, rep, schemas, texts, full)
