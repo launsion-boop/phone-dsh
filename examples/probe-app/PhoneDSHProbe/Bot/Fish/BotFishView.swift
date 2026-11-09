@@ -6,7 +6,8 @@
 //     BotFishView(state: BotFishLifecycle, size: CGFloat,
 //                 appearance: BotFishAppearance = .classic,
 //                 crowned: Bool = false,
-//                 still: Bool = false, allowsPoke: Bool = false)
+//                 still: Bool = false, allowsPoke: Bool = false,
+//                 reaction: BotFishReaction? = nil)
 
 import SwiftUI
 import UIKit
@@ -19,6 +20,10 @@ struct BotFishView: View {
     let crowned: Bool
     let still: Bool
     let allowsPoke: Bool
+    /// Agent-driven cosmetic overlay. The lifecycle `state` stays the base;
+    /// the renderer plays one action clip or a 4 s face expression and then
+    /// falls back to the lifecycle state.
+    let reaction: BotFishReaction?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
@@ -33,13 +38,15 @@ struct BotFishView: View {
     init(state: BotFishLifecycle, size: CGFloat,
          appearance: BotFishAppearance = .classic,
          crowned: Bool = false,
-         still: Bool = false, allowsPoke: Bool = false) {
+         still: Bool = false, allowsPoke: Bool = false,
+         reaction: BotFishReaction? = nil) {
         self.state = state
         self.size = size
         self.appearance = appearance
         self.crowned = crowned
         self.still = still
         self.allowsPoke = allowsPoke
+        self.reaction = reaction
     }
 
     private var side: CGFloat { max(1, size) }
@@ -53,7 +60,14 @@ struct BotFishView: View {
         // Always allow one frame so `still`, reduced-motion and static states
         // are painted before the schedule freezes.
         if !engine.hasRendered { return false }
-        if still || reduceMotion || scenePhase != .active { return true }
+        if still { return true }
+        if reduceMotion {
+            // The reaction overlay deliberately keeps the timeline alive until
+            // its TTL restores the lifecycle face. `step` still zeroes body
+            // displacement under reduce motion, so only the face/pose changes.
+            return !engine.isReactionActive
+        }
+        if scenePhase != .active { return true }
         _ = refreshToken
         return !engine.needsAnimation
     }
@@ -63,34 +77,40 @@ struct BotFishView: View {
             let image = engine.advance(at: timeline.date, state: state,
                                        still: still, reduced: reduceMotion,
                                        size: side, displayScale: displayScale,
-                                       appearance: appearance, crowned: crowned)
+                                       appearance: appearance, crowned: crowned,
+                                       reaction: reaction)
             layers(image)
         }
         // A paused `TimelineView` keeps its last content; changing identity on
         // a frozen input forces exactly one new frame (still / reduced motion /
         // a new lifecycle state, Bot appearance or crown setting while paused).
-        .id("\(state.rawValue)-\(appearance.color.rawValue)-\(appearance.hairstyle.rawValue)-\(crowned)-\(still)-\(reduceMotion)")
+        .id("\(state.rawValue)-\(appearance.color.rawValue)-\(appearance.hairstyle.rawValue)-\(crowned)-\(still)-\(reduceMotion)-\(reaction?.id ?? "")")
         .frame(width: side, height: side)
         .onAppear {
             isVisible = true
-            engine.configure(state: state, still: still, reduced: reduceMotion)
+            engine.configure(state: state, still: still, reduced: reduceMotion, reaction: reaction)
             engine.resetClock()
         }
         .onDisappear {
             isVisible = false
         }
         .onChange(of: state) { _, _ in
-            engine.configure(state: state, still: still, reduced: reduceMotion)
+            engine.configure(state: state, still: still, reduced: reduceMotion, reaction: reaction)
             engine.resetClock()
             refreshToken &+= 1
         }
         .onChange(of: still) { _, _ in
-            engine.configure(state: state, still: still, reduced: reduceMotion)
+            engine.configure(state: state, still: still, reduced: reduceMotion, reaction: reaction)
+            engine.resetClock()
+            refreshToken &+= 1
+        }
+        .onChange(of: reaction?.id) { _, _ in
+            engine.configure(state: state, still: still, reduced: reduceMotion, reaction: reaction)
             engine.resetClock()
             refreshToken &+= 1
         }
         .onChange(of: reduceMotion) { _, _ in
-            engine.configure(state: state, still: still, reduced: reduceMotion)
+            engine.configure(state: state, still: still, reduced: reduceMotion, reaction: reaction)
             engine.resetClock()
             refreshToken &+= 1
         }

@@ -52,5 +52,53 @@
       "mainCaller": "Available bots: Bee (id: bot-b); Xray (id: bot-x).",
       "teammateCaller": "Available bots: Alpha (id: bot-a, main Bot); Xray (id: bot-x)."
     }
+  },
+  "fish": {
+    "tools": [
+      "FishAction"
+    ],
+    "required": [
+      "action"
+    ],
+    "properties": [
+      "action"
+    ],
+    "actions": [
+      "waving",
+      "bowing",
+      "clapping",
+      "kiss",
+      "cheering",
+      "shy",
+      "smug",
+      "crying",
+      "sighing",
+      "shaking-head",
+      "stretching",
+      "yawning",
+      "high-five",
+      "nod",
+      "celebrate",
+      "dancing"
+    ],
+    "expressions": [
+      "happy",
+      "sad",
+      "surprised",
+      "confused",
+      "laughing",
+      "love",
+      "angry",
+      "wink"
+    ],
+    "descriptionContains": [
+      "at most once per reply",
+      "never use it as evidence that work is done",
+      "Do not use it when the user asks for a plain, serious answer"
+    ],
+    "resultContains": [
+      "已在介面播放",
+      "沒有改變任何工作狀態"
+    ]
   }
 }
