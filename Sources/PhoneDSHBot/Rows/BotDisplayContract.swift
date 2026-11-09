@@ -90,7 +90,11 @@ public enum BotDisplayContract {
             }
             let role = BotRowJSON.string(input, "role")
             let isUser = role == "user"
-            return projection("bubble", hasText(input, keys: ["text", "content"]),
+            // Attachment-only user messages have an empty bubble text but must
+            // still render the row (the attachments are shown as cards).
+            let hasBody = hasText(input, keys: ["text", "content"])
+                || BotRowJSON.hasItems(input, ["attachments"])
+            return projection("bubble", hasBody,
                               BotWireRecord(kind: isUser ? "message" : "send-message", type: "text", role: role))
         case "card", "attachment", "file", "info-row", "payload-row", "task-thread", "team-bot":
             return cardProjection(input, kind: kind, profile: profile)
