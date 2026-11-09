@@ -215,8 +215,8 @@ targets:
       # The native Daily Brief presentation model is UI-free and lets the suite
       # exercise add → refresh → persist → offline reload against ProbeKit.
       - path: PhoneDSHProbe/DailyBriefModel.swift
-      - path: PhoneDSHProbe/NativeConversationModels.swift
-      - path: PhoneDSHProbe/NativeTranscriptProjector.swift
+      # NativeConversationModels / NativeTranscriptProjector moved into
+      # ProbeKit/Transcript; the test targets import ProbeKit instead.
       - path: PhoneDSHProbe/NativeAskQuestionCard.swift
       - path: PhoneDSHProbe/NativeSubagentToolRows.swift
       - path: PhoneDSHProbe/NativeToolTitleTable.swift
@@ -315,8 +315,8 @@ targets:
       # production presentation source is compiled into this test module too.
       - path: PhoneDSHProbe/MCPSettingsModel.swift
       - path: PhoneDSHProbe/DailyBriefModel.swift
-      - path: PhoneDSHProbe/NativeConversationModels.swift
-      - path: PhoneDSHProbe/NativeTranscriptProjector.swift
+      # NativeConversationModels / NativeTranscriptProjector moved into
+      # ProbeKit/Transcript; the test targets import ProbeKit instead.
       - path: PhoneDSHProbe/NativeAskQuestionCard.swift
       - path: PhoneDSHProbe/NativeSubagentToolRows.swift
       - path: PhoneDSHProbe/NativeToolTitleTable.swift

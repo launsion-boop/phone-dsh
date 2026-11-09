@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+// PHONE-ONLY: DSH settings are edited on the phone backend in v1 (plan v2
+// §6.1), even while the drawer is showing a PC workspace.
 // Native DSH plugin, settings, and agent configuration backed by DSH Remote.
 
 import Foundation

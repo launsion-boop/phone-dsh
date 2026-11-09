@@ -9,8 +9,8 @@
   "source": {
     "file": "NativeDeviceSessionPage.swift",
     "path": "examples/probe-app/PhoneDSHProbe/NativeDeviceSessionPage.swift",
-    "lines": 442,
-    "structLine": 362,
+    "lines": 384,
+    "structLine": 304,
     "renderedFrom": [
       "body"
     ],
@@ -23,7 +23,7 @@
   },
   "sections": [
     {
-      "id": "single-region-362",
+      "id": "single-region-304",
       "kind": "single-region",
       "title": null,
       "titleTemplate": null,
@@ -43,12 +43,12 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "NativeDeviceSessionPage.swift:373",
+          "provenance": "NativeDeviceSessionPage.swift:315",
           "anchor": "Text(\"设备会话 · 只读监视\")",
           "extraction": "syntax"
         },
         {
-          "id": "text-375",
+          "id": "text-317",
           "label": null,
           "labelExpr": "model.mapping.sessionID.prefix(8)",
           "kind": "text",
@@ -58,12 +58,12 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "NativeDeviceSessionPage.swift:375",
+          "provenance": "NativeDeviceSessionPage.swift:317",
           "anchor": "Text(model.mapping.sessionID.prefix(8))",
           "extraction": "manual"
         },
         {
-          "id": "text-384",
+          "id": "text-326",
           "label": null,
           "labelExpr": "error",
           "kind": "text",
@@ -73,7 +73,7 @@
           "destination": null,
           "writes": false,
           "condition": "let error = model.errorMessage",
-          "provenance": "NativeDeviceSessionPage.swift:384",
+          "provenance": "NativeDeviceSessionPage.swift:326",
           "anchor": "Label(error, systemImage: \"exclamationmark.triangle.fill\")",
           "extraction": "manual"
         },
@@ -88,7 +88,7 @@
           "destination": null,
           "writes": true,
           "condition": "model.hasMore",
-          "provenance": "NativeDeviceSessionPage.swift:400",
+          "provenance": "NativeDeviceSessionPage.swift:342",
           "anchor": "Text(model.isLoadingEarlier ? \"正在读取…\" : \"读取更早消息\")",
           "extraction": "syntax"
         },
@@ -103,7 +103,7 @@
           "destination": null,
           "writes": false,
           "condition": "model.isLoading",
-          "provenance": "NativeDeviceSessionPage.swift:409",
+          "provenance": "NativeDeviceSessionPage.swift:351",
           "anchor": "ProgressView(\"正在读取设备会话…\")",
           "extraction": "syntax"
         },
@@ -118,12 +118,12 @@
           "destination": null,
           "writes": false,
           "condition": "model.errorMessage == nil",
-          "provenance": "NativeDeviceSessionPage.swift:413",
+          "provenance": "NativeDeviceSessionPage.swift:355",
           "anchor": "ContentUnavailableView(\"还没有交互记录\", systemImage: \"bubble.left.and.bubble.right\",",
           "extraction": "syntax"
         },
         {
-          "id": "custom-419",
+          "id": "custom-361",
           "label": null,
           "labelExpr": "DeviceReadOnlyRow",
           "kind": "custom",
@@ -133,14 +133,14 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "NativeDeviceSessionPage.swift:419",
+          "provenance": "NativeDeviceSessionPage.swift:361",
           "anchor": "DeviceReadOnlyRow(item: item)",
           "extraction": "manual",
           "template": "DeviceReadOnlyRow",
           "collection": "model.items"
         }
       ],
-      "provenance": "NativeDeviceSessionPage.swift:362",
+      "provenance": "NativeDeviceSessionPage.swift:304",
       "anchor": "struct NativeDeviceSessionPage: View {",
       "criterion": {
         "kind": "single-region"
@@ -160,7 +160,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "NativeDeviceSessionPage.swift:400",
+      "provenance": "NativeDeviceSessionPage.swift:342",
       "anchor": "Text(model.isLoadingEarlier ? \"正在读取…\" : \"读取更早消息\")",
       "extraction": "syntax"
     }
@@ -174,21 +174,21 @@
         {
           "renders": "还没有交互记录",
           "when": "model.errorMessage == nil",
-          "provenance": "NativeDeviceSessionPage.swift:413",
+          "provenance": "NativeDeviceSessionPage.swift:355",
           "anchor": "ContentUnavailableView(\"还没有交互记录\", systemImage: \"bubble.left.and.bubble.right\","
         },
         {
           "renders": "ContentUnavailableView",
           "when": "model.errorMessage == nil",
-          "provenance": "NativeDeviceSessionPage.swift:413",
+          "provenance": "NativeDeviceSessionPage.swift:355",
           "anchor": "ContentUnavailableView(\"还没有交互记录\", systemImage: \"bubble.left.and.bubble.right\","
         }
       ],
       "data": [
         {
-          "renders": "untitled section at 362",
+          "renders": "untitled section at 304",
           "when": null,
-          "provenance": "NativeDeviceSessionPage.swift:362",
+          "provenance": "NativeDeviceSessionPage.swift:304",
           "anchor": "struct NativeDeviceSessionPage: View {",
           "note": "structural default: the sections above, when no condition overrides them"
         }
@@ -199,25 +199,25 @@
         {
           "renders": "正在读取…",
           "when": "model.hasMore",
-          "provenance": "NativeDeviceSessionPage.swift:400",
+          "provenance": "NativeDeviceSessionPage.swift:342",
           "anchor": "Text(model.isLoadingEarlier ? \"正在读取…\" : \"读取更早消息\")"
         },
         {
           "renders": "正在读取设备会话…",
           "when": "model.isLoading",
-          "provenance": "NativeDeviceSessionPage.swift:409",
+          "provenance": "NativeDeviceSessionPage.swift:351",
           "anchor": "ProgressView(\"正在读取设备会话…\")"
         },
         {
           "renders": "ProgressView",
           "when": "model.isLoadingEarlier",
-          "provenance": "NativeDeviceSessionPage.swift:399",
+          "provenance": "NativeDeviceSessionPage.swift:341",
           "anchor": "if model.isLoadingEarlier { ProgressView().controlSize(.small) }"
         },
         {
           "renders": "ProgressView",
           "when": "model.isLoading",
-          "provenance": "NativeDeviceSessionPage.swift:409",
+          "provenance": "NativeDeviceSessionPage.swift:351",
           "anchor": "ProgressView(\"正在读取设备会话…\")"
         }
       ]

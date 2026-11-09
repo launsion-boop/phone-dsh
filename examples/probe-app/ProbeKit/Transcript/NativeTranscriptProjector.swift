@@ -4,8 +4,8 @@ import Foundation
 import PhoneDSHAgentCore
 
 // Durable DSH journal events to native presentation facts.
-enum NativeTranscriptProjector {
-    static func items(from records: [JSONValue], sessionID: String) -> [ChatItem] {
+public enum NativeTranscriptProjector {
+    public static func items(from records: [JSONValue], sessionID: String) -> [ChatItem] {
         var result: [ChatItem] = []
         var calls: [String: Int] = [:]
         for event in records {
@@ -159,7 +159,7 @@ enum NativeTranscriptProjector {
     /// A queue acknowledgement precedes its durable user/message. Keep those
     /// accepted inputs across a snapshot, without reviving older journal rows
     /// outside the snapshot's bounded page or deduplicating by message text.
-    static func restoring(_ history: [ChatItem], preservingInputsFrom current: [ChatItem],
+    public static func restoring(_ history: [ChatItem], preservingInputsFrom current: [ChatItem],
                           inputReceipts: [String: Int] = [:]) -> [ChatItem] {
         var represented = Set(history.compactMap(\.promptRequestID))
         let pending = current.filter { item in
@@ -174,7 +174,7 @@ enum NativeTranscriptProjector {
     /// A long interruption may move a missed receipt outside the visible tail
     /// page. Look backwards only for unresolved local inputs that the same
     /// snapshot's inbox does not still contain. Do not widen the visible page.
-    static func inputReceipts(for current: [ChatItem], historyPage: JSONValue, inbox: JSONValue?,
+    public static func inputReceipts(for current: [ChatItem], historyPage: JSONValue, inbox: JSONValue?,
                               loadEarlier: (Int) async throws -> JSONValue) async throws -> [String: Int] {
         var unresolved = Set(current.filter { $0.promptJournalSeq == nil }.compactMap(\.promptRequestID))
         for target in ["next-turn", "next-step"] {
@@ -208,7 +208,7 @@ enum NativeTranscriptProjector {
 
     /// The event stream can deliver the durable echo before the prompt RPC
     /// returns. Both paths update the same row by request identity.
-    static func acceptInput(_ input: ChatItem, in items: inout [ChatItem]) {
+    public static func acceptInput(_ input: ChatItem, in items: inout [ChatItem]) {
         let matches = items.indices.filter {
             items[$0].id == input.id || (input.promptRequestID != nil && items[$0].promptRequestID == input.promptRequestID)
         }
@@ -231,7 +231,7 @@ enum NativeTranscriptProjector {
         items[first] = accepted
     }
 
-    static func acknowledgeInput(_ event: HarnessEvent, sessionID: String, in items: inout [ChatItem]) {
+    public static func acknowledgeInput(_ event: HarnessEvent, sessionID: String, in items: inout [ChatItem]) {
         guard case .userMessage(_, let source) = event.kind, source == "user",
               let data = event.userMessageData,
               let requestID = data["source"]?["rpcId"]?.stringValue,
@@ -249,7 +249,7 @@ enum NativeTranscriptProjector {
         }
     }
 
-    static func changes(forTurn turn: Int, in items: [ChatItem]) -> NativeChangedFiles? {
+    public static func changes(forTurn turn: Int, in items: [ChatItem]) -> NativeChangedFiles? {
         var files: [NativeChangedFile] = []
         var positions: [String: Int] = [:]
         for item in items where item.turn == turn && item.kind == .toolCall && item.toolState == .ok {
@@ -289,7 +289,7 @@ enum NativeTranscriptProjector {
         return files.isEmpty ? nil : NativeChangedFiles(files: files)
     }
 
-    static func usage(forTurn turn: Int, in items: [ChatItem]) -> NativeTurnUsage? {
+    public static func usage(forTurn turn: Int, in items: [ChatItem]) -> NativeTurnUsage? {
         var total: NativeTurnUsage?
         var settledMessages = Set<String>()
         for item in items where item.turn == turn {
@@ -351,7 +351,7 @@ enum NativeTranscriptProjector {
     }
 }
 
-func nativeText(_ content: JSONValue?, includeImages: Bool = true) -> String {
+public func nativeText(_ content: JSONValue?, includeImages: Bool = true) -> String {
     (content?.arrayValue ?? []).compactMap { block in
         switch block["type"]?.stringValue {
         case "text": return block["text"]?.stringValue
@@ -361,12 +361,12 @@ func nativeText(_ content: JSONValue?, includeImages: Bool = true) -> String {
     }.joined()
 }
 
-func nativeJSON(_ value: JSONValue?) -> String {
+public func nativeJSON(_ value: JSONValue?) -> String {
     guard let value, let data = try? value.encoded() else { return "" }
     return String(data: data, encoding: .utf8) ?? ""
 }
 
-func nativePrettyJSON(_ value: JSONValue?) -> String {
+public func nativePrettyJSON(_ value: JSONValue?) -> String {
     guard let value, let data = try? value.encoded(),
           let object = try? JSONSerialization.jsonObject(with: data),
           let pretty = try? JSONSerialization.data(withJSONObject: object,

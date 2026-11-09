@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Native mobile adaptation of DSH's workspace/session sidebar.
 
+import ProbeKit
 import SwiftUI
 import UIKit
 

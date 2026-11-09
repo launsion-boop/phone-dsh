@@ -4,46 +4,46 @@ import Foundation
 import PhoneDSHAgentCore
 
 // Native projections of DSH's conversation, usage, and deliverable records.
-struct ChatItem: Identifiable, Equatable {
-    enum Kind: Equatable {
+public struct ChatItem: Identifiable, Equatable {
+    public enum Kind: Equatable {
         case user, context, assistant, reasoning, image, toolCall
         case toolResult(isError: Bool)
         case systemEvent, turnError, maxTokens, unknown, status
     }
 
-    let id: String
-    let kind: Kind
-    var title: String
-    var text: String
-    var streaming = false
-    var timestamp: Date?
-    var messageID: String?
+    public let id: String
+    public let kind: Kind
+    public var title: String
+    public var text: String
+    public var streaming = false
+    public var timestamp: Date?
+    public var messageID: String?
     /// DSH `source.rpcId` of a human prompt or steering submission.
-    var promptRequestID: String?
+    public var promptRequestID: String?
     /// Set only once that input appears in a durable `user/message` record.
-    var promptJournalSeq: Int?
-    var turn: Int?
-    var step: Int?
-    var callID: String?
-    var toolName: String?
-    var argumentsRaw: String?
-    var arguments: JSONValue?
-    var toolOutput: String?
-    var toolMetadata: JSONValue?
+    public var promptJournalSeq: Int?
+    public var turn: Int?
+    public var step: Int?
+    public var callID: String?
+    public var toolName: String?
+    public var argumentsRaw: String?
+    public var arguments: JSONValue?
+    public var toolOutput: String?
+    public var toolMetadata: JSONValue?
     /// DSH `tool/result.error.code` (e.g. `interrupted`, `AUTO_REVIEW_DENIED`).
     /// Kept beside `toolState` so realtime and replayed rows agree.
-    var toolErrorCode: String?
-    var toolState: NativeToolState?
+    public var toolErrorCode: String?
+    public var toolState: NativeToolState?
     /// DSH `user/message.source.kind` for injected/steering messages. nil for
     /// human prompts and ordinary transcript rows.
-    var sourceKind: String?
+    public var sourceKind: String?
     /// Optional one-line summary carried by a producer notice.
-    var sourceSummary: String?
-    var turnUsage: NativeTurnUsage?
-    var attachments: [NativeMessageAttachment] = []
-    var rawBlock: JSONValue?
+    public var sourceSummary: String?
+    public var turnUsage: NativeTurnUsage?
+    public var attachments: [NativeMessageAttachment] = []
+    public var rawBlock: JSONValue?
 
-    init(id: String = UUID().uuidString, kind: Kind, title: String, text: String, streaming: Bool = false) {
+    public init(id: String = UUID().uuidString, kind: Kind, title: String, text: String, streaming: Bool = false) {
         self.id = id
         self.kind = kind
         self.title = title
@@ -52,20 +52,20 @@ struct ChatItem: Identifiable, Equatable {
     }
 }
 
-enum NativeToolState: String, Equatable {
+public enum NativeToolState: String, Equatable {
     case preparing, running, ok, error, stopped
 }
 
-struct NativeTokenUsage: Equatable {
-    var uncachedInputTokens: Int
-    var outputTokens: Int
-    var cacheReadTokens: Int
-    var cacheWriteTokens: Int
+public struct NativeTokenUsage: Equatable {
+    public var uncachedInputTokens: Int
+    public var outputTokens: Int
+    public var cacheReadTokens: Int
+    public var cacheWriteTokens: Int
 
-    var billedInputTokens: Int { uncachedInputTokens + cacheReadTokens + cacheWriteTokens }
-    var totalTokens: Int { billedInputTokens + outputTokens }
+    public var billedInputTokens: Int { uncachedInputTokens + cacheReadTokens + cacheWriteTokens }
+    public var totalTokens: Int { billedInputTokens + outputTokens }
 
-    init?(value: JSONValue?) {
+    public init?(value: JSONValue?) {
         guard let value,
               let input = value["uncachedInputTokens"]?.intValue,
               let output = value["outputTokens"]?.intValue,
@@ -78,30 +78,30 @@ struct NativeTokenUsage: Equatable {
         cacheWriteTokens = cacheWrite
     }
 
-    init(uncachedInputTokens: Int, outputTokens: Int, cacheReadTokens: Int, cacheWriteTokens: Int) {
+    public init(uncachedInputTokens: Int, outputTokens: Int, cacheReadTokens: Int, cacheWriteTokens: Int) {
         self.uncachedInputTokens = uncachedInputTokens
         self.outputTokens = outputTokens
         self.cacheReadTokens = cacheReadTokens
         self.cacheWriteTokens = cacheWriteTokens
     }
 
-    var cacheHitPercent: Double? {
+    public var cacheHitPercent: Double? {
         guard billedInputTokens > 0 else { return nil }
         return Double(cacheReadTokens) * 100 / Double(billedInputTokens)
     }
 }
 
-struct NativeTurnUsage: Equatable {
-    var uncachedInputTokens = 0
-    var outputTokens = 0
-    var totalTokens = 0
-    var cacheReadTokens: Int?
-    var cacheWriteTokens: Int?
-    var reasoningTokens: Int?
+public struct NativeTurnUsage: Equatable {
+    public var uncachedInputTokens = 0
+    public var outputTokens = 0
+    public var totalTokens = 0
+    public var cacheReadTokens: Int?
+    public var cacheWriteTokens: Int?
+    public var reasoningTokens: Int?
 
-    init() {}
+    public init() {}
 
-    init?(value: JSONValue?) {
+    public init?(value: JSONValue?) {
         guard let value,
               let input = value["inputTokens"]?.intValue,
               let output = value["outputTokens"]?.intValue,
@@ -118,7 +118,7 @@ struct NativeTurnUsage: Equatable {
             ?? input + (cacheRead ?? 0) + (cacheWrite ?? 0) + output
     }
 
-    mutating func add(_ other: NativeTurnUsage) {
+    public mutating func add(_ other: NativeTurnUsage) {
         uncachedInputTokens += other.uncachedInputTokens
         outputTokens += other.outputTokens
         totalTokens += other.totalTokens
@@ -127,7 +127,7 @@ struct NativeTurnUsage: Equatable {
         reasoningTokens = other.reasoningTokens == nil ? nil : reasoningTokens.map { $0 + (other.reasoningTokens ?? 0) }
     }
 
-    var cacheHitPercent: Double? {
+    public var cacheHitPercent: Double? {
         guard let cacheReadTokens, totalTokens > outputTokens else { return nil }
         return Double(cacheReadTokens) * 100 / Double(totalTokens - outputTokens)
     }
@@ -135,25 +135,33 @@ struct NativeTurnUsage: Equatable {
 
 /// Official session projection `imageLimits`; the composer's pre-check uses the
 /// host values rather than assuming the deployment defaults.
-struct NativeImageLimits: Equatable, Sendable {
-    var maxImagesPerMessage: Int = 20
-    var maxImageBytes: Int = 20 * 1024 * 1024
-    var maxMessageImageBytes: Int = 200 * 1024 * 1024
+public struct NativeImageLimits: Equatable, Sendable {
+    public var maxImagesPerMessage: Int = 20
+    public var maxImageBytes: Int = 20 * 1024 * 1024
+    public var maxMessageImageBytes: Int = 200 * 1024 * 1024
 
-    static let fallback = NativeImageLimits()
+    public static let fallback = NativeImageLimits()
+
+    public init(maxImagesPerMessage: Int = 20,
+                maxImageBytes: Int = 20 * 1024 * 1024,
+                maxMessageImageBytes: Int = 200 * 1024 * 1024) {
+        self.maxImagesPerMessage = maxImagesPerMessage
+        self.maxImageBytes = maxImageBytes
+        self.maxMessageImageBytes = maxMessageImageBytes
+    }
 }
 
-struct NativeSessionStats: Equatable {
-    var turns: Int
-    var steps: Int
-    var llmMs: Double
-    var toolMs: Double
-    var ttftMs: Double
-    var ttftSteps: Int
-    var decodeMs: Double
-    var decodeTokens: Int
+public struct NativeSessionStats: Equatable {
+    public var turns: Int
+    public var steps: Int
+    public var llmMs: Double
+    public var toolMs: Double
+    public var ttftMs: Double
+    public var ttftSteps: Int
+    public var decodeMs: Double
+    public var decodeTokens: Int
 
-    init?(value: JSONValue?) {
+    public init?(value: JSONValue?) {
         guard let value,
               let turns = value["turns"]?.intValue,
               let steps = value["steps"]?.intValue,
@@ -173,37 +181,37 @@ struct NativeSessionStats: Equatable {
         self.decodeTokens = decodeTokens
     }
 
-    var tokensPerSecond: Double? {
+    public var tokensPerSecond: Double? {
         guard decodeMs > 0 else { return nil }
         return Double(decodeTokens) / (decodeMs / 1_000)
     }
 }
 
-struct NativeContextPressure: Equatable {
-    var pressureTokens: Int?
-    var projectedTokens: Int?
-    var contextWindow: Int
+public struct NativeContextPressure: Equatable {
+    public var pressureTokens: Int?
+    public var projectedTokens: Int?
+    public var contextWindow: Int
 
-    init?(value: JSONValue?) {
+    public init?(value: JSONValue?) {
         guard let value, let contextWindow = value["contextWindow"]?.intValue, contextWindow > 0 else { return nil }
         pressureTokens = value["pressureTokens"]?.intValue
         projectedTokens = value["projectedTokens"]?.intValue
         self.contextWindow = contextWindow
     }
 
-    var usedTokens: Int? { projectedTokens ?? pressureTokens }
-    var percent: Int? {
+    public var usedTokens: Int? { projectedTokens ?? pressureTokens }
+    public var percent: Int? {
         guard let usedTokens else { return nil }
         return min(100, max(0, Int((Double(usedTokens) * 100 / Double(contextWindow)).rounded())))
     }
 }
 
-struct NativeContextBreakdown: Equatable {
-    var systemTokens: Int
-    var toolsTokens: Int
-    var messageTokens: Int
+public struct NativeContextBreakdown: Equatable {
+    public var systemTokens: Int
+    public var toolsTokens: Int
+    public var messageTokens: Int
 
-    init?(value: JSONValue?) {
+    public init?(value: JSONValue?) {
         guard let value,
               let system = value["systemTokens"]?.intValue,
               let tools = value["toolsTokens"]?.intValue,
@@ -214,33 +222,59 @@ struct NativeContextBreakdown: Equatable {
     }
 }
 
-struct NativeMessageAttachment: Equatable {
-    enum Kind: Equatable {
+public struct NativeMessageAttachment: Equatable {
+    public enum Kind: Equatable {
         case image
         case file
         case other
     }
-    var kind: Kind
-    var name: String
-    var path: String?
-    var mimeType: String?
-    var payload: JSONValue
+    public var kind: Kind
+    public var name: String
+    public var path: String?
+    public var mimeType: String?
+    public var payload: JSONValue
+
+    public init(kind: Kind, name: String, path: String? = nil,
+                mimeType: String? = nil, payload: JSONValue) {
+        self.kind = kind
+        self.name = name
+        self.path = path
+        self.mimeType = mimeType
+        self.payload = payload
+    }
 }
 
-struct NativeChangedFile: Equatable, Identifiable {
-    var path: String
-    var display: String
-    var added: Int
-    var deleted: Int
-    var binary = false
-    var oversized = false
-    var oldText: String?
-    var newText: String
-    var id: String { path }
+public struct NativeChangedFile: Equatable, Identifiable {
+    public var path: String
+    public var display: String
+    public var added: Int
+    public var deleted: Int
+    public var binary = false
+    public var oversized = false
+    public var oldText: String?
+    public var newText: String
+    public var id: String { path }
+
+    public init(path: String, display: String, added: Int, deleted: Int,
+                binary: Bool = false, oversized: Bool = false,
+                oldText: String? = nil, newText: String) {
+        self.path = path
+        self.display = display
+        self.added = added
+        self.deleted = deleted
+        self.binary = binary
+        self.oversized = oversized
+        self.oldText = oldText
+        self.newText = newText
+    }
 }
 
-struct NativeChangedFiles: Equatable {
-    var files: [NativeChangedFile]
-    var added: Int { files.reduce(0) { $0 + $1.added } }
-    var deleted: Int { files.reduce(0) { $0 + $1.deleted } }
+public struct NativeChangedFiles: Equatable {
+    public var files: [NativeChangedFile]
+    public var added: Int { files.reduce(0) { $0 + $1.added } }
+    public var deleted: Int { files.reduce(0) { $0 + $1.deleted } }
+
+    public init(files: [NativeChangedFile]) {
+        self.files = files
+    }
 }
