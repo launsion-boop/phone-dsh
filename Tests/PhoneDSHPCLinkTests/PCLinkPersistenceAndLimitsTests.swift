@@ -223,4 +223,35 @@ final class PCLinkSessionLimitsTests: XCTestCase {
         XCTAssertThrowsError(try PCLinkValidation.name("My\nPC"))
         XCTAssertThrowsError(try PCLinkValidation.name(String(repeating: "汉", count: 33)))
     }
+
+    // MARK: - §3.1 origin scheme / ws derivation
+
+    func testOriginOnlyAllowsHTTPSOrLoopbackHTTP() throws {
+        XCTAssertNoThrow(try PCLinkValidation.origin("https://relay.example"))
+        XCTAssertNoThrow(try PCLinkValidation.origin("http://127.0.0.1:3240"))
+        XCTAssertNoThrow(try PCLinkValidation.origin("http://localhost:3240"))
+        XCTAssertThrowsError(try PCLinkValidation.origin("http://relay.example")) { error in
+            XCTAssertEqual((error as? PCLinkError)?.code, "bad_frame")
+        }
+        XCTAssertThrowsError(try PCLinkValidation.origin("http://192.168.1.10:3240"))
+        XCTAssertThrowsError(try PCLinkValidation.origin("http://[::1]:3240"))
+    }
+
+    func testQRAndManualOriginsDeriveWSSURLs() throws {
+        let pc = try TestSupport.identity("pclink-v1/test/identity/pc")
+        let secret = try PCLinkRandom.bytes(16)
+        let uri = try PCLinkQRCode.makeURI(relayOrigin: "https://relay.example",
+                                           pcMachineId: pc.machineId,
+                                           pcPublicKey: pc.publicKey,
+                                           secret: secret, pcName: "My PC")
+        let qr = try PCLinkQRCode.parse(uri)
+        XCTAssertEqual(try qr.websocketURL.absoluteString, "wss://relay.example/")
+        let manualSecret = try PCLinkRandom.bytes(10)
+        let manual = try PCLinkManualCode.parse(PCLinkManualCode.display(manualSecret),
+                                                relayOrigin: "https://relay.example")
+        XCTAssertEqual(try manual.websocketURL.absoluteString, "wss://relay.example/")
+        let loopback = try PCLinkManualCode.parse(PCLinkManualCode.display(manualSecret),
+                                                  relayOrigin: "http://127.0.0.1:3240")
+        XCTAssertEqual(try loopback.websocketURL.absoluteString, "ws://127.0.0.1:3240/")
+    }
 }

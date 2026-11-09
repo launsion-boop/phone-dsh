@@ -32,6 +32,9 @@ public protocol PCLinkClientProtocol: Sendable {
     func start() async throws
     func stop() async
     func connectAndWait() async throws
+    /// App foreground return: reconnect a suspended relay socket and let the
+    /// PC pump resynchronize. Implementations may no-op when terminal.
+    func foregroundResumed() async
 
     func startPairing(qrURI: String) async throws -> PCPairingApproval
     func startManualPairing(code: String, relayOrigin: String,
@@ -43,6 +46,14 @@ public protocol PCLinkClientProtocol: Sendable {
     func acknowledgePCUnpair() async throws
     func removeLocalRecord() async throws
     func clearLastError() async
+}
+
+extension PCLinkClientProtocol {
+    /// Safe default for test doubles; the real client overrides this with a
+    /// forced reconnect in `PCLinkClient.foregroundResumed()`.
+    public func foregroundResumed() async {
+        try? await start()
+    }
 }
 
 extension PCLinkClient: PCLinkClientProtocol {
@@ -424,11 +435,28 @@ public enum PCLinkWorkspaceText {
         case .peerOffline: return "电脑离线。"
         case .replaced: return "这台电脑的连接被同一身份的新连接替换了。"
         case .authenticationFailed: return "连接没有被电脑接受，请重新配对。"
-        case .versionUnsupported: return "这台电脑的 PCLink 版本或能力不受支持。"
+        case .versionUnsupported: return "这台电脑的 PCLink 版本或能力不受支持，请升级后再连接。"
         case .unpairedPrompt: return PCLinkPCUnpairedPrompt.text
         case .protocolError(let message): return "连接协议出错：\(message)"
         case .storage(let message): return "读取配对记录失败：\(message)"
         }
+    }
+
+    /// Render the §2.1 RFC 3339 `pairedAt` as a localized date-time, never the
+    /// ISO string. The timestamp is UTC metadata; display uses the user's
+    /// locale/time zone (e.g. `2026年11月10日 03:13` for zh_CN).
+    public static func pairedAtDisplay(_ raw: String,
+                                       locale: Locale = .current,
+                                       timeZone: TimeZone = .current) -> String {
+        let parser = ISO8601DateFormatter()
+        parser.formatOptions = [.withInternetDateTime]
+        guard let date = parser.date(from: raw) else { return raw }
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.timeZone = timeZone
+        formatter.dateStyle = .long
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
     }
 }
 

@@ -137,10 +137,10 @@ public enum WorkspaceStorageMigration {
         }
 
         // 2. drafts [sessionID: draft] → [phone|sessionID: draft].
-        if let legacy = defaults.dictionary(forKey: WorkspaceStorageKeys.legacyDrafts) as? [String: String],
-           !legacy.isEmpty {
+        let legacyDrafts = WorkspaceStorage.legacyDraftsMap(defaults: defaults)
+        if !legacyDrafts.isEmpty {
             var scoped = defaults.dictionary(forKey: WorkspaceStorageKeys.drafts) as? [String: String] ?? [:]
-            for (sessionID, draft) in legacy.sorted(by: { $0.key < $1.key }) {
+            for (sessionID, draft) in legacyDrafts.sorted(by: { $0.key < $1.key }) {
                 guard !sessionID.isEmpty else { continue }
                 let key = SessionStorageKey(backend: .phone, sessionID: sessionID).encoded
                 if scoped[key] == nil {
@@ -207,7 +207,10 @@ public enum WorkspaceStorageMigration {
                 }
                 let destination = scopedDirectory.appendingPathComponent(source.lastPathComponent)
                 guard !fileManager.fileExists(atPath: destination.path) else { continue }
-                if (try? fileManager.copyItem(at: source, to: destination)) != nil {
+                // Data.write(.atomic) writes a sibling temp file and renames
+                // it, so a crash never leaves a partial snapshot behind.
+                if let data = try? Data(contentsOf: source),
+                   (try? data.write(to: destination, options: .atomic)) != nil {
                     report.snapshots += 1
                 }
             }
@@ -226,6 +229,29 @@ public enum WorkspaceStorageMigration {
 /// instead of open-coding `UserDefaults` keys, so the scope prefix is applied
 /// exactly once.
 public enum WorkspaceStorage {
+    /// The legacy `chat.drafts.v1` value was written by `@AppStorage` as a JSON
+    /// **string**. A dictionary is accepted as a compatibility fallback for
+    /// early builds, but the string form is authoritative.
+    static func legacyDraftsMap(defaults: UserDefaults) -> [String: String] {
+        if let raw = defaults.string(forKey: WorkspaceStorageKeys.legacyDrafts),
+           let data = raw.data(using: .utf8),
+           let decoded = try? JSONDecoder().decode([String: String].self, from: data) {
+            return decoded
+        }
+        if let legacy = defaults.dictionary(forKey: WorkspaceStorageKeys.legacyDrafts)
+            as? [String: String] {
+            return legacy
+        }
+        return [:]
+    }
+
+    /// Legacy bare keys are a pre-migration fallback only. Once the one-time
+    /// marker is set, a value the new code deliberately cleared must not be
+    /// resurrected from the old key.
+    static func legacyFallbackAllowed(defaults: UserDefaults) -> Bool {
+        !defaults.bool(forKey: WorkspaceStorageKeys.scopeMigrationMarker)
+    }
+
     // MARK: Current session
 
     public static func currentSessionID(for backend: BackendID,
@@ -238,6 +264,7 @@ public enum WorkspaceStorage {
         // (or when the marker was cleared). PC never reads the bare key: it is
         // the phone's session and could collide.
         if backend == .phone,
+           legacyFallbackAllowed(defaults: defaults),
            let legacy = defaults.string(forKey: WorkspaceStorageKeys.legacyCurrentSession),
            !legacy.isEmpty {
             return legacy
@@ -269,9 +296,9 @@ public enum WorkspaceStorage {
         let scoped = draftsMap(defaults: defaults)
         if let value = scoped[key] { return value }
         // Pre-migration previews/tests: the legacy map is only the phone's.
-        if backend == .phone,
-           let legacy = defaults.dictionary(forKey: WorkspaceStorageKeys.legacyDrafts) as? [String: String] {
-            return legacy[sessionID ?? "new"]
+        if backend == .phone, legacyFallbackAllowed(defaults: defaults) {
+            let legacy = legacyDraftsMap(defaults: defaults)
+            if let value = legacy[sessionID ?? "new"] { return value }
         }
         return nil
     }
@@ -309,6 +336,7 @@ public enum WorkspaceStorage {
             result[String(key.dropFirst(scopePrefix.count))] = value
         }
         if result.isEmpty, backend == .phone,
+           legacyFallbackAllowed(defaults: defaults),
            let legacy = defaults.dictionary(forKey: WorkspaceStorageKeys.legacyTitleHints) as? [String: String] {
             return legacy
         }
@@ -344,7 +372,7 @@ public enum WorkspaceStorage {
             guard encoded.hasPrefix(scopePrefix) else { return nil }
             return String(encoded.dropFirst(scopePrefix.count))
         }
-        if scoped.isEmpty, backend == .phone {
+        if scoped.isEmpty, backend == .phone, legacyFallbackAllowed(defaults: defaults) {
             return Set(defaults.stringArray(forKey: WorkspaceStorageKeys.legacyCollapsedWorkspaces) ?? [])
         }
         return Set(scoped)
@@ -362,12 +390,55 @@ public enum WorkspaceStorage {
 
     // MARK: Transcript snapshots
 
+    /// The DSH sessionId charset. A PC-issued id is concatenated into a file
+    /// name, so `/`, `..` and every other path metacharacter is rejected before
+    /// the write (§P18).
+    public static func isValidSessionID(_ sessionID: String) -> Bool {
+        let bytes = Array(sessionID.utf8)
+        guard (1...128).contains(bytes.count), sessionID != ".", sessionID != ".." else {
+            return false
+        }
+        return bytes.allSatisfy { byte in
+            (byte >= 0x41 && byte <= 0x5A) || (byte >= 0x61 && byte <= 0x7A)
+                || (byte >= 0x30 && byte <= 0x39) || byte == 0x2E || byte == 0x5F
+                || byte == 0x3A || byte == 0x2D
+        }
+    }
+
+    /// Removes the local data owned by one backend when the user confirms the
+    /// pairing record deletion: scoped drafts and transcript snapshots. The
+    /// legacy/unscoped phone data and every other backend's scope are untouched.
+    public static func removeLocalData(for backend: BackendID,
+                                       defaults: UserDefaults = .standard,
+                                       documentsDirectory: URL? = nil,
+                                       fileManager: FileManager = .default) {
+        let prefix = backend.storageScope + "|"
+        var drafts = draftsMap(defaults: defaults)
+        drafts = drafts.filter { !$0.key.hasPrefix(prefix) }
+        defaults.set(drafts, forKey: WorkspaceStorageKeys.drafts)
+        if let documents = documentsDirectory ?? defaultDocumentsDirectory(fileManager) {
+            let directory = transcriptsDirectoryURL(for: backend,
+                                                    documentsDirectory: documents)
+            try? fileManager.removeItem(at: directory)
+        }
+    }
+
+    private static func defaultDocumentsDirectory(_ fileManager: FileManager) -> URL? {
+        fileManager.urls(for: .documentDirectory, in: .userDomainMask).first
+    }
+
+    private static func transcriptsDirectoryURL(for backend: BackendID,
+                                                documentsDirectory: URL) -> URL {
+        documentsDirectory
+            .appendingPathComponent("transcript-snapshots", isDirectory: true)
+            .appendingPathComponent(backend.storageScope, isDirectory: true)
+    }
+
     public static func transcriptsDirectory(for backend: BackendID,
                                             documentsDirectory: URL,
                                             fileManager: FileManager = .default) -> URL {
-        let directory = documentsDirectory
-            .appendingPathComponent("transcript-snapshots", isDirectory: true)
-            .appendingPathComponent(backend.storageScope, isDirectory: true)
+        let directory = transcriptsDirectoryURL(for: backend,
+                                                documentsDirectory: documentsDirectory)
         try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory
     }
@@ -375,7 +446,8 @@ public enum WorkspaceStorage {
     public static func transcriptSnapshotURL(for backend: BackendID,
                                              sessionID: String,
                                              documentsDirectory: URL? = nil,
-                                             fileManager: FileManager = .default) -> URL {
+                                             fileManager: FileManager = .default) -> URL? {
+        guard isValidSessionID(sessionID) else { return nil }
         let documents = documentsDirectory
             ?? fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
         return transcriptsDirectory(for: backend,
@@ -390,7 +462,7 @@ public enum WorkspaceStorage {
                                                    sessionID: String,
                                                    documentsDirectory: URL? = nil,
                                                    fileManager: FileManager = .default) -> URL? {
-        guard backend == .phone else { return nil }
+        guard backend == .phone, isValidSessionID(sessionID) else { return nil }
         let documents = documentsDirectory
             ?? fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
         return documents

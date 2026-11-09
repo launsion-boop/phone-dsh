@@ -135,11 +135,29 @@ public struct PCLinkRelayOffline: Equatable, Sendable {
     public var sid: String?
 }
 
+/// Relay-error correlation fields (§3.7: the relay echoes `id`/`streamId`/`sid`
+/// only when the dropped source frame carried them). The client must not turn
+/// a correlated drop into an ambiguous session loss.
+public struct PCLinkRelayErrorContext: Equatable, Sendable {
+    public var id: String?
+    public var streamId: String?
+    public var sid: String?
+    public var retryAfterMs: Int?
+
+    public init(id: String? = nil, streamId: String? = nil, sid: String? = nil,
+                retryAfterMs: Int? = nil) {
+        self.id = id
+        self.streamId = streamId
+        self.sid = sid
+        self.retryAfterMs = retryAfterMs
+    }
+}
+
 public enum PCLinkRelayEvent: Sendable {
     case ready(machineId: String, role: String)
     case frame(PCLinkJSON)
     case offline(PCLinkRelayOffline)
-    case error(PCLinkError)
+    case error(PCLinkError, context: PCLinkRelayErrorContext?)
     case closed(code: UInt16?, reason: String?, error: PCLinkError?)
 }
 
@@ -189,13 +207,25 @@ public actor PCLinkRelayClient {
     private var receiveTask: Task<Void, Never>?
     private var heartbeatTask: Task<Void, Never>?
     private var state: State = .idle
+    private var challenged = false
+    private var challengeNonce: Data?
+    private var readyReceived = false
     private var challengeContinuation: CheckedContinuation<Data, Error>?
     private var readyContinuation: CheckedContinuation<Void, Error>?
     private var challengeTimeoutTask: Task<Void, Never>?
     private var readyTimeoutTask: Task<Void, Never>?
     private var outstandingPing: Data?
-    private var challenged = false
     private var finished = false
+
+    // One socket, one writer. `sendObject` only enqueues; the writer drains the
+    // FIFO, so no two `socket.send` calls can overlap and reorder (§3.1/§5.4).
+    private struct QueuedSend {
+        let text: String
+        let continuation: CheckedContinuation<Void, Error>
+    }
+    private var sendQueue: [QueuedSend] = []
+    private var sendSignal: AsyncStream<Void>.Continuation?
+    private var sendWriter: Task<Void, Never>? = nil
 
     public init(configuration: Configuration, factory: any PCLinkWebSocketFactory) {
         self.configuration = configuration
@@ -227,6 +257,7 @@ public actor PCLinkRelayClient {
             throw mapped
         }
         receiveTask = Task { await self.receiveLoop() }
+        startSendWriter()
         do {
             let nonce = try await awaitChallenge()
             let transcript = PCLinkCrypto.relayAuthTranscript(origin: configuration.origin, nonce: nonce)
@@ -328,8 +359,14 @@ public actor PCLinkRelayClient {
             }
             challenged = true
             challengeTimeoutTask?.cancel()
-            challengeContinuation?.resume(returning: nonce)
-            challengeContinuation = nil
+            if let continuation = challengeContinuation {
+                challengeContinuation = nil
+                continuation.resume(returning: nonce)
+            } else {
+                // The challenge can arrive before `awaitChallenge` installs its
+                // waiter (same race as relay.ready below). Cache it.
+                challengeNonce = nonce
+            }
             return false
 
         case "relay.ready":
@@ -343,8 +380,14 @@ public actor PCLinkRelayClient {
                 throw PCLinkError.authFailed("relay.ready machineId/role mismatch")
             }
             readyTimeoutTask?.cancel()
-            readyContinuation?.resume()
-            readyContinuation = nil
+            if let continuation = readyContinuation {
+                readyContinuation = nil
+                continuation.resume()
+            } else {
+                // `relay.ready` may arrive while `connect` is still signing and
+                // sending `peer.auth`; cache it so `awaitReady` cannot miss it.
+                readyReceived = true
+            }
             return false
 
         case "relay.ping":
@@ -379,20 +422,42 @@ public actor PCLinkRelayClient {
             let message = object["message"]?.stringValue ?? ""
             try PCLinkValidation.displayText(message, field: "relay.error message",
                                              maximumBytes: 2048)
+            if let id = object["id"] {
+                guard let text = id.stringValue, PCLinkValidation.correlationId(text) else {
+                    throw PCLinkError.badFrame("relay.error id")
+                }
+            }
+            if let streamId = object["streamId"] {
+                guard let text = streamId.stringValue, PCLinkValidation.correlationId(text) else {
+                    throw PCLinkError.badFrame("relay.error streamId")
+                }
+            }
+            if let sid = object["sid"] {
+                guard let text = sid.stringValue, PCLinkValidation.sessionId(text) else {
+                    throw PCLinkError.badFrame("relay.error sid")
+                }
+            }
             var mapped: PCLinkError
+            var retryAfterMs: Int?
             if code == "rate_limited" {
-                let retryAfterMs = object["retryAfterMs"]?.intValue
-                if let retryAfterMs, retryAfterMs < 0 || retryAfterMs > 86_400_000 {
+                let value = object["retryAfterMs"]?.intValue
+                if let value, value < 0 || value > 86_400_000 {
                     throw PCLinkError.badFrame("relay.error retryAfterMs out of range")
                 }
-                mapped = .rateLimited(retryAfterMs: retryAfterMs.map(Int.init))
+                retryAfterMs = value.map(Int.init)
+                mapped = .rateLimited(retryAfterMs: retryAfterMs)
             } else {
                 mapped = PCLinkError.code(code, message: message)
             }
+            let context = PCLinkRelayErrorContext(
+                id: object["id"]?.stringValue,
+                streamId: object["streamId"]?.stringValue,
+                sid: object["sid"]?.stringValue,
+                retryAfterMs: retryAfterMs)
             // A PCLink error frame is delivered before the relay's close. The
             // upper layer decides whether to reconnect; the client only
             // finishes the stream once the socket actually closes.
-            eventContinuation.yield(.error(mapped))
+            eventContinuation.yield(.error(mapped, context: context))
             if ["auth_failed", "replaced", "bad_frame", "frame_too_large"].contains(code) {
                 await connectionEnded(code: closeCode(for: mapped), reason: code, error: mapped)
                 return true
@@ -515,7 +580,11 @@ public actor PCLinkRelayClient {
     // MARK: Waiters / teardown
 
     private func awaitChallenge() async throws -> Data {
-        try await withCheckedThrowingContinuation { continuation in
+        if let challengeNonce {
+            self.challengeNonce = nil
+            return challengeNonce
+        }
+        return try await withCheckedThrowingContinuation { continuation in
             challengeContinuation = continuation
             challengeTimeoutTask = Task {
                 do {
@@ -527,6 +596,7 @@ public actor PCLinkRelayClient {
     }
 
     private func awaitReady() async throws {
+        if readyReceived { return }
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             readyContinuation = continuation
             readyTimeoutTask = Task {
@@ -568,6 +638,11 @@ public actor PCLinkRelayClient {
         heartbeatTask?.cancel()
         challengeTimeoutTask?.cancel()
         readyTimeoutTask?.cancel()
+        sendSignal?.finish()
+        sendSignal = nil
+        sendWriter?.cancel()
+        sendWriter = nil
+        failQueuedSends(error ?? PCLinkError.unavailable("relay connection closed"))
         if let continuation = challengeContinuation {
             challengeContinuation = nil
             continuation.resume(throwing: error ?? PCLinkError.unavailable("relay connection closed"))
@@ -592,6 +667,46 @@ public actor PCLinkRelayClient {
         await shutdown(code: code, reason: reason, error: error)
     }
 
+    // MARK: Single socket writer
+
+    private func startSendWriter() {
+        guard sendWriter == nil else { return }
+        let (stream, continuation) = AsyncStream.makeStream(of: Void.self)
+        sendSignal = continuation
+        sendWriter = Task { [weak self] in
+            for await _ in stream {
+                await self?.drainSendQueue()
+            }
+        }
+    }
+
+    private func drainSendQueue() async {
+        while !sendQueue.isEmpty {
+            let item = sendQueue.removeFirst()
+            guard let socket else {
+                item.continuation.resume(throwing: PCLinkError.peerOffline)
+                continue
+            }
+            do {
+                try await socket.send(text: item.text)
+                item.continuation.resume()
+            } catch let error as PCLinkError {
+                item.continuation.resume(throwing: error)
+            } catch {
+                item.continuation.resume(
+                    throwing: PCLinkError.unavailable("relay send failed: \(error)"))
+            }
+        }
+    }
+
+    private func failQueuedSends(_ error: PCLinkError) {
+        let queued = sendQueue
+        sendQueue.removeAll()
+        for item in queued {
+            item.continuation.resume(throwing: error)
+        }
+    }
+
     private func sendObject(_ object: PCLinkJSON, allowBeforeReady: Bool) async throws {
         guard allowBeforeReady || state == .ready else { throw PCLinkError.peerOffline }
         let data: Data
@@ -606,13 +721,10 @@ public actor PCLinkRelayClient {
         guard let text = String(data: data, encoding: .utf8) else {
             throw PCLinkError.badFrame("relay frame is not UTF-8")
         }
-        guard let socket else { throw PCLinkError.peerOffline }
-        do {
-            try await socket.send(text: text)
-        } catch let error as PCLinkError {
-            throw error
-        } catch {
-            throw PCLinkError.unavailable("relay send failed: \(error)")
+        guard sendWriter != nil, socket != nil else { throw PCLinkError.peerOffline }
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            sendQueue.append(QueuedSend(text: text, continuation: continuation))
+            sendSignal?.yield()
         }
     }
 }

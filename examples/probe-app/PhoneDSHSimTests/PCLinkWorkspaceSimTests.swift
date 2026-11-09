@@ -83,6 +83,7 @@ private actor FakePCLinkClient: PCLinkClientProtocol {
     func start() async throws { startCalls += 1 }
     func stop() async {}
     func connectAndWait() async throws {}
+    func foregroundResumed() async { startCalls += 1 }
 
     func startPairing(qrURI: String) async throws -> PCPairingApproval {
         try startPairingResult.get()
@@ -226,7 +227,8 @@ final class PCLinkWorkspaceSimTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: documents) }
 
         defaults.set("legacy-session", forKey: WorkspaceStorageKeys.legacyCurrentSession)
-        defaults.set(["legacy-session": "old draft", "new": "new draft"],
+        // Real `@AppStorage` format: one JSON string, not a dictionary.
+        defaults.set(#"{"legacy-session":"old draft","new":"new draft"}"#,
                      forKey: WorkspaceStorageKeys.legacyDrafts)
         defaults.set(["legacy-session": "旧标题"],
                      forKey: WorkspaceStorageKeys.legacyTitleHints)
@@ -451,5 +453,165 @@ final class PCLinkWorkspaceSimTests: XCTestCase {
         XCTAssertTrue(PCLinkNotice.warning.contains("撤销全部配对"))
         XCTAssertEqual(PCLinkPairingPrompt.fullOwnerWarning,
                        "此手机将能完整操作这台电脑上的 DSH：对话、在电脑上执行 Shell 和读写文件、处理审批、修改设置和插件。")
+    }
+
+    // Real `@AppStorage` stores the legacy drafts map as a JSON string. A
+    // dictionary is accepted only as a compatibility fallback.
+    func testLegacyDraftJSONStringAndDictionaryCompatibility() {
+        let store = TestDefaults()
+        defer { store.remove() }
+        let defaults = store.defaults
+        defaults.set(#"{"session-a":"\u8349\u7a3f","new":"draft-new"}"#,
+                     forKey: WorkspaceStorageKeys.legacyDrafts)
+        XCTAssertEqual(WorkspaceStorage.draft(for: .phone, sessionID: "session-a",
+                                              defaults: defaults), "草稿")
+        XCTAssertEqual(WorkspaceStorage.draft(for: .phone, sessionID: nil,
+                                              defaults: defaults), "draft-new")
+
+        let second = TestDefaults()
+        defer { second.remove() }
+        second.defaults.set(["session-b": "old"], forKey: WorkspaceStorageKeys.legacyDrafts)
+        XCTAssertEqual(WorkspaceStorage.draft(for: .phone, sessionID: "session-b",
+                                              defaults: second.defaults), "old")
+    }
+
+    // After the migration marker is set, clearing the scoped value must not
+    // resurrect the legacy bare value.
+    func testClearedDraftAndCollapsedSetDoNotReviveAfterMigration() throws {
+        let store = TestDefaults()
+        defer { store.remove() }
+        let defaults = store.defaults
+        let documents = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pclink-d2-revive-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: documents, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: documents) }
+        defaults.set(#"{"legacy-session":"old draft"}"#, forKey: WorkspaceStorageKeys.legacyDrafts)
+        defaults.set(["ws-1"], forKey: WorkspaceStorageKeys.legacyCollapsedWorkspaces)
+        _ = WorkspaceStorageMigration.runIfNeeded(defaults: defaults,
+                                                  documentsDirectory: documents)
+        XCTAssertEqual(WorkspaceStorage.draft(for: .phone, sessionID: "legacy-session",
+                                              defaults: defaults), "old draft")
+        XCTAssertEqual(WorkspaceStorage.collapsedWorkspaceIDs(for: .phone, defaults: defaults),
+                       ["ws-1"])
+
+        WorkspaceStorage.setDraft("", for: .phone, sessionID: "legacy-session", defaults: defaults)
+        WorkspaceStorage.setCollapsedWorkspaceIDs([], for: .phone, defaults: defaults)
+        XCTAssertNil(WorkspaceStorage.draft(for: .phone, sessionID: "legacy-session",
+                                            defaults: defaults),
+                     "a cleared draft must not come back from chat.drafts.v1")
+        XCTAssertEqual(WorkspaceStorage.collapsedWorkspaceIDs(for: .phone, defaults: defaults),
+                       [], "a cleared collapsed set must not come back from the legacy key")
+    }
+
+    // A PC-issued sessionId is concatenated into a file name; traversal and
+    // separators must be rejected before any write.
+    func testSessionIDPathValidationRejectsTraversal() {
+        let pc = BackendID.pc(machineId: "pc-machine")
+        let documents = FileManager.default.temporaryDirectory
+        XCTAssertNil(WorkspaceStorage.transcriptSnapshotURL(for: pc, sessionID: "../evil",
+                                                            documentsDirectory: documents))
+        XCTAssertNil(WorkspaceStorage.transcriptSnapshotURL(for: pc, sessionID: "a/b",
+                                                            documentsDirectory: documents))
+        XCTAssertNil(WorkspaceStorage.transcriptSnapshotURL(for: pc, sessionID: "..",
+                                                            documentsDirectory: documents))
+        XCTAssertNil(WorkspaceStorage.transcriptSnapshotURL(for: pc, sessionID: "a\\b",
+                                                            documentsDirectory: documents))
+        let valid = WorkspaceStorage.transcriptSnapshotURL(for: pc,
+                                                           sessionID: "session-1_2.3:4",
+                                                           documentsDirectory: documents)
+        XCTAssertNotNil(valid)
+        XCTAssertTrue(valid?.path.hasSuffix("/pc:pc-machine/session-1_2.3:4.json") == true)
+        XCTAssertFalse(WorkspaceStorage.isValidSessionID("../evil"))
+        XCTAssertTrue(WorkspaceStorage.isValidSessionID("session-1"))
+        XCTAssertNil(WorkspaceStorage.legacyTranscriptSnapshotURL(for: .phone,
+                                                                  sessionID: "../evil",
+                                                                  documentsDirectory: documents))
+    }
+
+    // Unpair deletes only the removed PC's scoped drafts and snapshots.
+    func testUnpairCleanupRemovesOnlyScopedDraftsAndSnapshots() throws {
+        let store = TestDefaults()
+        defer { store.remove() }
+        let defaults = store.defaults
+        let documents = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pclink-d2-unpair-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: documents, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: documents) }
+        let pc = BackendID.pc(machineId: "pc-machine")
+        WorkspaceStorage.setDraft("pc draft", for: pc, sessionID: "s-1", defaults: defaults)
+        WorkspaceStorage.setDraft("phone draft", for: .phone, sessionID: "s-1", defaults: defaults)
+        let pcDir = WorkspaceStorage.transcriptsDirectory(for: pc,
+                                                          documentsDirectory: documents)
+        let phoneDir = WorkspaceStorage.transcriptsDirectory(for: .phone,
+                                                             documentsDirectory: documents)
+        try Data("pc".utf8).write(to: pcDir.appendingPathComponent("s-1.json"))
+        try Data("phone".utf8).write(to: phoneDir.appendingPathComponent("s-1.json"))
+
+        WorkspaceStorage.removeLocalData(for: pc, defaults: defaults,
+                                         documentsDirectory: documents)
+        XCTAssertNil(WorkspaceStorage.draft(for: pc, sessionID: "s-1", defaults: defaults))
+        XCTAssertEqual(WorkspaceStorage.draft(for: .phone, sessionID: "s-1", defaults: defaults),
+                       "phone draft")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: pcDir.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: phoneDir.appendingPathComponent("s-1.json").path))
+    }
+
+    func testPairedAtIsLocalizedNotISO() {
+        let value = PCLinkWorkspaceText.pairedAtDisplay(
+            "2026-11-10T03:13:00Z",
+            locale: Locale(identifier: "zh_CN"),
+            timeZone: TimeZone(identifier: "UTC")!)
+        XCTAssertEqual(value, "2026年11月10日 03:13")
+        XCTAssertFalse(value.contains("T"))
+        XCTAssertFalse(value.hasSuffix("Z"))
+    }
+
+    func testVersionUnsupportedCopyTellsTheUserToUpgrade() {
+        let copy = PCLinkWorkspaceText.offlineReason(.versionUnsupported)
+        XCTAssertTrue(copy.contains("升级"))
+    }
+
+    // Foreground return must reach the PC client, not only ChatModel.shared.
+    func testForegroundWakesPCClient() async {
+        let record = makeRecord()
+        let fake = FakePCLinkClient(state: .offline(.peerOffline),
+                                    status: PCLinkClientStatus(state: .offline(.peerOffline),
+                                                               record: record))
+        let workspace = PCLinkWorkspace(client: fake)
+        await workspace.startAtLaunch()
+        await workspace.scenePhaseChanged(true)
+        let afterActive = await fake.startCalls
+        XCTAssertEqual(afterActive, 2, "startAtLaunch + the foreground wake")
+        await workspace.scenePhaseChanged(false)
+        let afterBackground = await fake.startCalls
+        XCTAssertEqual(afterBackground, 2, "background does not start a second connection")
+    }
+
+    // The placeholder is an http(s) origin; a DEBUG loopback value is
+    // normalized to http and PCLinkValidation derives the ws URL (§3.1).
+    func testRelayPlaceholderOriginAndLoopbackNormalization() throws {
+        XCTAssertEqual(PCLinkRelayConfiguration.placeholderOrigin,
+                       "https://relay.example.invalid")
+        XCTAssertTrue(PCLinkRelayConfiguration.placeholderOrigin.hasPrefix("https://"))
+        XCTAssertEqual(PCLinkRelayConfiguration.normalizedLoopbackOrigin("http://127.0.0.1:3240"),
+                       "http://127.0.0.1:3240")
+        XCTAssertEqual(PCLinkRelayConfiguration.normalizedLoopbackOrigin("ws://127.0.0.1:3240"),
+                       "http://127.0.0.1:3240")
+        XCTAssertEqual(PCLinkRelayConfiguration.normalizedLoopbackOrigin("http://localhost:3240"),
+                       "http://localhost:3240")
+        XCTAssertNil(PCLinkRelayConfiguration.normalizedLoopbackOrigin("http://relay.example"))
+        XCTAssertNil(PCLinkRelayConfiguration.normalizedLoopbackOrigin("wss://relay.example"))
+        let ws = try PCLinkValidation.websocketURL(for: "http://127.0.0.1:3240")
+        XCTAssertEqual(ws.absoluteString, "ws://127.0.0.1:3240/")
+        let wss = try PCLinkValidation.websocketURL(for: "https://relay.example")
+        XCTAssertEqual(wss.absoluteString, "wss://relay.example/")
+    }
+
+    // PDSH_DEBUG_DRAWER is a DEBUG-only default; the production branch returns
+    // false without reading the environment.
+    func testDebugDrawerDefaultIsEnvironmentGated() {
+        XCTAssertTrue(NativeDebugDefaults.drawerOpen(environment: ["PDSH_DEBUG_DRAWER": "1"]))
+        XCTAssertFalse(NativeDebugDefaults.drawerOpen(environment: ["PDSH_DEBUG_DRAWER": "0"]))
+        XCTAssertFalse(NativeDebugDefaults.drawerOpen(environment: [:]))
     }
 }

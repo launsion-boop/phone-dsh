@@ -119,6 +119,11 @@ public enum PCLinkValidation {
         guard value.hasPrefix("\(scheme)://") else {
             throw PCLinkError.badFrame("origin is not in scheme://host form")
         }
+        // §3.1: production is wss/https. A plain `http` origin is only the
+        // explicit loopback test carrier; anything else is not dialable.
+        if scheme == "http", host != "127.0.0.1", host != "localhost" {
+            throw PCLinkError.badFrame("http origin is only allowed for loopback tests")
+        }
         let authority = String(value.dropFirst(scheme.count + 3))
         guard authority == host || authority.hasPrefix(host + ":") else {
             throw PCLinkError.badFrame("origin authority is malformed")

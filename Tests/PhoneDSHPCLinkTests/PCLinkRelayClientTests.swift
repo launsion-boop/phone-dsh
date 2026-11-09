@@ -11,6 +11,9 @@ private actor ScriptedRelay {
         case timeoutHeartbeats
         case answerPing
         case wrongOrigin
+        /// Sends relay.ready immediately after the challenge, before the
+        /// client can install its `awaitReady` continuation.
+        case readyBeforeAuth
     }
 
     let phone: PCLinkIdentity
@@ -33,6 +36,13 @@ private actor ScriptedRelay {
             "nonce": .string(PCLinkBase64URL.encode(nonce)),
             "relay": .string(origin),
         ]))
+        if behavior == .readyBeforeAuth {
+            // The client must cache a ready that lands before awaitReady.
+            await send(socket, .object([
+                "v": .int(1), "type": .string("relay.ready"),
+                "machineId": .string(phone.machineId), "role": .string("phone"),
+            ]))
+        }
         while true {
             guard let message = try? await socket.receive() else { return }
             guard case .text(let text) = message else { continue }
@@ -41,10 +51,12 @@ private actor ScriptedRelay {
             case "peer.auth":
                 guard behavior != .wrongOrigin else { continue }
                 authReceived = true
-                await send(socket, .object([
-                    "v": .int(1), "type": .string("relay.ready"),
-                    "machineId": .string(phone.machineId), "role": .string("phone"),
-                ]))
+                if behavior != .readyBeforeAuth {
+                    await send(socket, .object([
+                        "v": .int(1), "type": .string("relay.ready"),
+                        "machineId": .string(phone.machineId), "role": .string("phone"),
+                    ]))
+                }
                 if behavior == .answerPing {
                     await send(socket, .object([
                         "v": .int(1), "type": .string("relay.ping"),
@@ -160,6 +172,30 @@ final class PCLinkRelayClientTests: XCTestCase {
         }
         let authReceived = await network.relay?.authReceived ?? false
         XCTAssertFalse(authReceived)
+        await client.close()
+    }
+
+    /// relay.ready can be handled by the receive loop before `awaitReady`
+    /// installs its continuation; it must be cached, not dropped.
+    func testReadyArrivingBeforeWaiterIsCached() async throws {
+        let (client, network) = try makeClient(behavior: .readyBeforeAuth)
+        let events = client.events
+        let ready = expectation(description: "ready event")
+        let consumer = Task {
+            for await event in events {
+                if case .ready = event {
+                    ready.fulfill()
+                    return
+                }
+            }
+        }
+        try await client.connect()
+        await fulfillment(of: [ready], timeout: 2)
+        let state = await client.currentState
+        XCTAssertEqual(state, .ready)
+        let authReceived = await network.relay?.authReceived ?? false
+        XCTAssertTrue(authReceived, "peer.auth is still sent after the cached ready")
+        consumer.cancel()
         await client.close()
     }
 }

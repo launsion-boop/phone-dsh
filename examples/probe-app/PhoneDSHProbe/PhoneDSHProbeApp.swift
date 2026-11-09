@@ -62,6 +62,12 @@ struct PhoneDSHProbeApp: App {
                             newPhase,
                             chat: { phase in
                                 await ChatModel.shared.scenePhaseChanged(phase)
+                                // The PC backend is a separate ChatModel; the
+                                // foreground must also wake PCLinkClient and
+                                // refill the follow stream.
+                                if phase == .active {
+                                    await workspaceModels.scenePhaseChanged(true)
+                                }
                             },
                             backgroundMatrix: { phase in
                                 await model.scenePhaseChanged(phase)

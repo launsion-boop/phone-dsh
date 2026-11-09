@@ -346,6 +346,9 @@ public final class PCLinkE2ESession {
     public private(set) var peerHelloReceived = false
     public private(set) var needsRekey = false
     public private(set) var establishedAt: Date?
+    /// Session-scoped stream-id counter (§6.2: unique per session, never
+    /// reused). The caller's local mux ids are not the wire ids.
+    private var nextOutboundStreamOrdinal: UInt64 = 0
 
     public convenience init(identity: PCLinkIdentity, peer: PCLinkPairingRecord,
                             thresholds: PCLinkSessionThresholds = .v1) throws {
@@ -396,6 +399,14 @@ public final class PCLinkE2ESession {
 
     public var initFrame: PCLinkJSON {
         handshakeFrame(body: initBody)
+    }
+
+    /// Allocates the next wire `streamId` for this session. PCLinkClient maps
+    /// each mux-local id (`events`, `follow`, ...) onto one of these before it
+    /// puts it on the wire; a session never reuses one (§6.2).
+    public func allocateWireStreamID() -> String {
+        nextOutboundStreamOrdinal += 1
+        return "stream-\(nextOutboundStreamOrdinal)"
     }
 
     public func handshakeFrame(body: PCLinkJSON) -> PCLinkJSON {
@@ -570,8 +581,16 @@ public final class PCLinkE2ESession {
         guard let keys else { throw PCLinkError.badFrame("keys are not installed") }
         let nonce = PCLinkCrypto.aeadNonce(seq: UInt64(seq64))
         let aad = PCLinkCrypto.aad(sid: sid, seq: UInt64(seq64), from: from, to: to)
-        let plaintext = try PCLinkCrypto.aeadOpen(ciphertext: body, key: keys.pcToPhone,
+        let plaintext: Data
+        do {
+            plaintext = try PCLinkCrypto.aeadOpen(ciphertext: body, key: keys.pcToPhone,
                                                   nonce: nonce, aad: aad)
+        } catch {
+            // §5.4: any change to v/type/sid/seq/from/to fails decryption and
+            // is `auth_failed`, not a syntax `bad_frame`. Seq-order violations
+            // were classified above (replay/bad_frame).
+            throw PCLinkError.authFailed("AEAD tag verification failed")
+        }
         let inner = try PCLinkJSONParser.parseObject(plaintext)
         lastReceivedSeq = seq64
         receivedFrames += 1
