@@ -139,7 +139,6 @@ import androidx.compose.ui.unit.dp
 import com.phonedsh.ui.SessionsMetrics
 import com.phonedsh.ui.ShellFilesMetrics
 import com.phonedsh.ui.UiStrings
-import com.phonedsh.ui.surface.SETTINGS_CLOSE_GLYPH
 import com.phonedsh.ui.surface.SettingsLargeTitle
 import com.phonedsh.ui.surface.SettingsNavAction
 import com.phonedsh.ui.surface.SettingsNavBar
@@ -1062,19 +1061,14 @@ public fun NativeAutomationPage(
     when (visibleRoute) {
         AutomationRoute.CATALOG -> AutomationFrame(
             largeTitle = UiStrings.AUTOMATION_TITLE,
-            // iOS `.topBarLeading` holds 刷新 beside the sheet's ✕; the bar slot
-            // takes both, in that order (`NativeAutomationPage.swift:78-81`).
+            // PR #60 moved the bar to iOS's sheet shape (`NativeAutomationPage.swift:68-82`):
+            // `.topBarLeading` holds 刷新 and 新建, and `.confirmationAction` holds 完成,
+            // which is the sheet's only close (the ✕ glyph is gone on both ends).
             leading = {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(LocalUiTokens.current.spacing.iconText),
                 ) {
-                    SettingsNavAction(
-                        text = SETTINGS_CLOSE_GLYPH,
-                        onClick = onBack,
-                        tag = UiPageTags.AUTOMATION_BACK,
-                        description = UiStrings.BACK,
-                    )
                     if (onRefresh != null) {
                         SettingsNavAction(
                             text = UiStrings.AUTOMATION_REFRESH,
@@ -1082,21 +1076,22 @@ public fun NativeAutomationPage(
                             tag = UiPageTags.AUTOMATION_REFRESH,
                         )
                     }
+                    // L75: iOS draws 新建 as an unconditional toolbar item; a host that
+                    // cannot create one leaves the verb disabled in the baseline's place
+                    // instead of hiding it behind `if (cb != null)`.
+                    AutomationBarAction(
+                        label = UiStrings.AUTOMATION_NEW_SHORT,
+                        onClick = { onNewSchedule?.invoke() },
+                        tag = UiPageTags.AUTOMATION_NEW,
+                        enabled = onNewSchedule != null && !state.currentSessionID.isNullOrBlank(),
+                    )
                 }
             },
-            // L75: iOS draws 新建 as an unconditional toolbar item
-            // (`NativeAutomationPage.swift:83`). Before this it was a `trailing`
-            // slot only when the host passed `onNewSchedule`; `page_structure_check`
-            // now reports that shape as `conditional-action`, because a label behind
-            // `if (cb != null)` is a control that may never render. A host that cannot
-            // create one leaves the verb disabled instead, in the place the baseline
-            // puts it.
             trailing = {
-                AutomationBarAction(
-                    label = UiStrings.AUTOMATION_NEW_SHORT,
-                    onClick = { onNewSchedule?.invoke() },
-                    tag = UiPageTags.AUTOMATION_NEW,
-                    enabled = onNewSchedule != null && !state.currentSessionID.isNullOrBlank(),
+                SettingsNavAction(
+                    text = UiStrings.SETTINGS_DONE,
+                    onClick = onBack,
+                    tag = UiPageTags.AUTOMATION_BACK,
                 )
             },
             rootTag = UiPageTags.AUTOMATION_ROOT,

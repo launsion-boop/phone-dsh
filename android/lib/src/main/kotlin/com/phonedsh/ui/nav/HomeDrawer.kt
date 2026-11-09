@@ -114,7 +114,6 @@ public fun HomeDrawer(
     onCreateSessionInFolder: (suspend (String) -> Boolean)? = null,
     onRetry: (() -> Unit)? = null,
     onOpenSession: ((String) -> Unit)? = null,
-    onOpenSettings: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     state: HomeDrawerUiState = rememberHomeDrawerUiState(),
 ) {
@@ -295,7 +294,10 @@ public fun HomeDrawer(
                 Modifier.weight(1f).fillMaxWidth()
                     .verticalScroll(state.scrollState)
                     .testTag(HomeDrawerTags.SCROLL)
-                    .padding(top = HomeMetrics.NAV_TOP_PT.dp, bottom = 24.dp),
+                    // PR #60 removed the pinned 设置 bar (`HomeDrawer.swift:45`): settings
+                    // is the 我的 tab now, so the list itself clears the home indicator.
+                    .padding(top = HomeMetrics.NAV_TOP_PT.dp,
+                        bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp),
             ) {
                 Column(Modifier.padding(horizontal = SessionsMetrics.rowInset)) {
                     EntryRow("新会话", PdshIcon.NEW_CHAT,
@@ -397,9 +399,6 @@ public fun HomeDrawer(
                     }
                 }
             }
-            SettingsBar(facts.engine, tokens.colors.page, onOpenSettings ?: onNavigate?.let { navigate -> { navigate(PdshRoute.Settings) } }, tokens.colors.textPrimary,
-                tokens.colors.textSecondary, tokens.colors.textPlaceholder,
-                Modifier.fillMaxWidth().testTag(HomeDrawerTags.SETTINGS))
         }
         Box(Modifier.weight(1f).fillMaxHeight().background(Color.Black.copy(alpha = SessionsMetrics.DRAWER_SCRIM_ALPHA))
             .clickable(role = Role.Button, onClick = ::dismissDrawer)
@@ -412,7 +411,7 @@ public fun HomeDrawer(
                 delay(2200)
                 if (isOpen && !dismissedLocally && epoch == operationEpoch) toast = false
             }
-            Text("已归档，可在 设置 › 已归档会话 里找回", Modifier.align(Alignment.TopCenter)
+            Text("已归档，可在 我的 › 已归档会话 里找回", Modifier.align(Alignment.TopCenter)
                 .padding(top = 16.dp).background(tokens.colors.surface, CircleShape).padding(horizontal = 12.dp, vertical = 6.dp),
                 style = type.caption.copy(color = tokens.colors.textSecondary))
         }
@@ -468,7 +467,6 @@ public object HomeDrawerTags {
     public const val NEW_SESSION = "home.drawer.new-session"
     public const val SCHEDULES = "home.drawer.schedules"
     public const val CREATE_FOLDER = "home.drawer.create-folder"
-    public const val SETTINGS = "home.drawer.settings"
     public const val EDITOR = "home.drawer.editor"
     public const val SCROLL = "home.drawer.scroll"
     public const val ARCHIVE_PENDING_PREFIX = "home.drawer.archive.pending."
@@ -580,27 +578,6 @@ private fun FolderGroup(id: String, title: String, sessions: List<HomeDrawerSess
                     style = type.caption.copy(color = tokens.colors.danger))
             }
         }
-    }
-}
-
-@Composable
-private fun SettingsBar(engine: HomeDrawerEngineState, page: Color, onOpen: (() -> Unit)?, primary: Color, secondary: Color, muted: Color, modifier: Modifier) {
-    val bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    val footerBottom = maxOf(bottomInset, 12.dp) + 4.dp
-    Row(modifier.background(page).clickable(enabled = onOpen != null, role = Role.Button) { onOpen?.invoke() }
-        .semantics { contentDescription = "设置，${engine.label}"; if (onOpen == null) stateDescription = "不可用" }
-        .padding(horizontal = HomeMetrics.CHROME_INSET_PT.dp).padding(top = 12.dp, bottom = footerBottom), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(36.dp).background(LocalUiTokens.current.colors.surface, CircleShape), contentAlignment = Alignment.Center) {
-            PdshIconView(PdshIcon.GEAR, 18.dp, primary, null)
-        }
-        Spacer(Modifier.width(12.dp)); Text("设置", style = LocalUiType.current.body.copy(color = primary, fontWeight = FontWeight.SemiBold))
-        Spacer(Modifier.weight(1f)); Box(Modifier.size(7.dp).background(when (engine) {
-            HomeDrawerEngineState.READY, HomeDrawerEngineState.RUNNING -> LocalUiTokens.current.colors.homeSuccess
-            HomeDrawerEngineState.CONFIGURATION_REQUIRED -> LocalUiTokens.current.colors.pageWarning
-            else -> muted
-        }, CircleShape))
-        Spacer(Modifier.width(6.dp)); Text(engine.label, style = LocalUiType.current.listItem.copy(color = secondary, lineHeight = TextUnit.Unspecified), maxLines = 1)
-        Spacer(Modifier.width(8.dp)); PdshIconView(PdshIcon.CHEVRON_RIGHT, 12.dp, muted, null)
     }
 }
 

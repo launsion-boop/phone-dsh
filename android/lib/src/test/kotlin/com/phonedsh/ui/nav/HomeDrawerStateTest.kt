@@ -46,7 +46,6 @@ class HomeDrawerStateTest {
         }
         compose.onNodeWithTag(HomeDrawerTags.NEW_SESSION).assertIsDisplayed()
         compose.onNodeWithTag(HomeDrawerTags.SCHEDULES).assertExists()
-        compose.onNodeWithTag(HomeDrawerTags.SETTINGS).assertExists()
         compose.onNodeWithTag(HomeDrawerTags.SCRIM).performSemanticsAction(SemanticsActions.OnClick)
         compose.runOnIdle { assertEquals(true, closed) }
     }
@@ -139,7 +138,7 @@ class HomeDrawerStateTest {
         compose.onNodeWithTag(HomeDrawerTags.SESSION_PREFIX + "s1").performSemanticsAction(SemanticsActions.OnLongClick)
         compose.onNodeWithText("归档").performSemanticsAction(SemanticsActions.OnClick)
         compose.runOnIdle { assertEquals("s1", archived) }
-        compose.onNodeWithText("已归档，可在 设置 › 已归档会话 里找回").assertExists()
+        compose.onNodeWithText("已归档，可在 我的 › 已归档会话 里找回").assertExists()
     }
 
     @Test fun archiveWaitsForCorrelatedHostResultAndFailureCanRetry() {
@@ -167,18 +166,18 @@ class HomeDrawerStateTest {
         compose.onNodeWithText("归档").performSemanticsAction(SemanticsActions.OnClick)
         compose.waitForIdle()
         compose.onNodeWithTag(HomeDrawerTags.ARCHIVE_PENDING_PREFIX + "s1").assertExists()
-        compose.onNodeWithText("已归档，可在 设置 › 已归档会话 里找回").assertDoesNotExist()
+        compose.onNodeWithText("已归档，可在 我的 › 已归档会话 里找回").assertDoesNotExist()
 
         val request = requireNotNull(firstRequest)
         firstResult.complete(HomeDrawerArchiveResult.Failed(request.requestId, request.sessionId, "保存未完成"))
         compose.waitForIdle()
         compose.onNodeWithTag(HomeDrawerTags.ARCHIVE_FAILURE_PREFIX + "s1").assertExists()
-        compose.onNodeWithText("已归档，可在 设置 › 已归档会话 里找回").assertDoesNotExist()
+        compose.onNodeWithText("已归档，可在 我的 › 已归档会话 里找回").assertDoesNotExist()
         compose.onNodeWithTag(HomeDrawerTags.SESSION_PREFIX + "s1").assertExists()
 
         compose.onNodeWithTag(HomeDrawerTags.SESSION_PREFIX + "s1").performSemanticsAction(SemanticsActions.OnLongClick)
         compose.onNodeWithText("归档").performSemanticsAction(SemanticsActions.OnClick)
-        compose.onNodeWithText("已归档，可在 设置 › 已归档会话 里找回").assertExists()
+        compose.onNodeWithText("已归档，可在 我的 › 已归档会话 里找回").assertExists()
         compose.runOnIdle { assertEquals(2, calls) }
     }
 
@@ -208,7 +207,7 @@ class HomeDrawerStateTest {
         val archiveRequest = requireNotNull(request)
         response.complete(HomeDrawerArchiveResult.Archived(archiveRequest.requestId, archiveRequest.sessionId))
         compose.waitForIdle()
-        compose.onNodeWithText("已归档，可在 设置 › 已归档会话 里找回").assertDoesNotExist()
+        compose.onNodeWithText("已归档，可在 我的 › 已归档会话 里找回").assertDoesNotExist()
     }
 
     @Test fun folderCreationUsesConfirmedHostMutationAndShowsFailedReceipt() {

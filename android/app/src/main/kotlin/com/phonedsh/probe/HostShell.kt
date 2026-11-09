@@ -40,6 +40,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -96,6 +99,9 @@ import com.phonedsh.ui.nav.HomeDrawerArchiveRequest
 import com.phonedsh.ui.nav.rememberHomeDrawerUiState
 import com.phonedsh.ui.nav.PdshNavState
 import com.phonedsh.ui.nav.PdshRoute
+import com.phonedsh.ui.nav.HomeTabBar
+import com.phonedsh.ui.nav.selectHomeTab
+import com.phonedsh.ui.nav.selectedHomeTab
 import com.phonedsh.ui.nav.confirms
 import com.phonedsh.ui.page.FactState
 import com.phonedsh.ui.page.AgentPresetActions
@@ -321,7 +327,7 @@ internal fun HostShell(
     var shellRun by remember { mutableStateOf(ShellRun()) }
     var speechNotice by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(nav.current) {
-        if (nav.current == PdshRoute.Settings) {
+        if (nav.current == PdshRoute.Settings || nav.current == PdshRoute.SettingsMore) {
             engine.refreshDefaultPermissionTier()?.let { notice = "新会话默认权限读取失败：$it" }
         }
         if (nav.current == PdshRoute.Configuration) {
@@ -916,7 +922,20 @@ internal fun HostShell(
                     ),
             ) {
                 if (note != null) HostNoteBar(text = note)
-                Box(Modifier.weight(1f)) {
+                // PR #60's bottom menu (`NativeShell.tabPages`): it belongs to the
+                // first-level pages only, and leaves while the keyboard is up so the
+                // composer rides the keyboard. The drawer is drawn over it below.
+                val homeTab = if (probeOpen) null else nav.selectedHomeTab()
+                @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+                val imeVisible = WindowInsets.isImeVisible
+                val showTabBar = homeTab != null && !imeVisible
+                Box(
+                    Modifier
+                        .weight(1f)
+                        // The bar paints the navigation-bar inset itself, so the page
+                        // above it must not pad for it a second time.
+                        .then(if (showTabBar) Modifier.consumeWindowInsets(WindowInsets.navigationBars) else Modifier),
+                ) {
                     PdshNavHost(
                         nav = nav,
                         facts = shownFacts,
@@ -1357,6 +1376,15 @@ internal fun HostShell(
                         artifacts = artifactFacts,
                     )
                 }
+                if (showTabBar && homeTab != null) {
+                    HomeTabBar(
+                        selection = homeTab,
+                        onSelect = { tab ->
+                            drawerOpen = false
+                            nav = nav.selectHomeTab(tab)
+                        },
+                    )
+                }
             }
             if (note != null && statusBarTop > 0.dp) {
                 // The consumed status-bar strip: the same ink as the note bar, so
@@ -1513,11 +1541,6 @@ internal fun HostShell(
                         drawerOpen = false
                         probeOpen = false
                         nav = PdshNavState(listOf(PdshRoute.Chat, PdshRoute.Automation))
-                    },
-                    onOpenSettings = {
-                        drawerOpen = false
-                        probeOpen = false
-                        nav = PdshNavState(listOf(PdshRoute.Chat, PdshRoute.Settings))
                     },
                 )
             }
@@ -1840,6 +1863,10 @@ private fun hostRouteNote(route: PdshRoute): String? = when (route) {
     -> null
 
     PdshRoute.Home, PdshRoute.Settings, PdshRoute.Runtime, PdshRoute.WebSurface -> null
+
+    // PR #60's 我的 / 设置 / 发现: the settings pages print their own read states as
+    // the sheet does, and 发现 is a fixed list of entries into pages that do.
+    PdshRoute.MeTab, PdshRoute.SettingsMore, PdshRoute.Discover -> null
 }
 
 /** The person-facing name of one settings write the host cannot persist. */

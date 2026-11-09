@@ -302,6 +302,9 @@ public object UiPageTags {
     public const val SETTINGS_ROW_TOGGLE: String = "pdsh.settings.row.toggle"
     public const val SETTINGS_ROW_OPTION_PREFIX: String = "pdsh.settings.row.option."
     public const val SETTINGS_DONE: String = "pdsh.settings.done"
+
+    /** The pushed 设置 page's back (`SettingsPageMode.MORE`). */
+    public const val SETTINGS_MORE_BACK: String = "pdsh.settings.more.back"
     public const val PERMISSION_DEFAULTS_LIST: String = "pdsh.permissions.list"
     public const val PERMISSION_DEFAULTS_NOTE: String = "pdsh.permissions.note"
     public const val PERMISSION_DEFAULTS_OPTION_PREFIX: String = "pdsh.permissions.option."

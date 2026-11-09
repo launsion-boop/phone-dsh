@@ -104,7 +104,7 @@ class UiStringsPr22Test {
             "DRAWER_DELETE_FOLDER_DETAIL" to "里面的会话会留着，只是不再放在这个文件夹里。",
             "DRAWER_EMPTY_FOLDERS" to "还没有文件夹。点右上角的 + 新建一个，会话和文件都能放进去。",
             "DRAWER_SESSION_ARCHIVE" to "归档",
-            "DRAWER_ARCHIVED_TOAST" to "已归档，可在 设置 › 已归档会话 里找回",
+            "DRAWER_ARCHIVED_TOAST" to "已归档，可在 我的 › 已归档会话 里找回",
             "DRAWER_COLLAPSED" to "已收起",
             "DRAWER_ENGINE_STARTING" to "引擎启动中",
             "DRAWER_ENGINE_STOPPED" to "引擎未启动",
