@@ -361,36 +361,6 @@
         "kind": "event",
         "type": "notice"
       }
-    },
-    {
-      "input": {
-        "kind": "message",
-        "role": "user",
-        "text": "",
-        "attachments": [
-          {
-            "name": "周报.pdf",
-            "path": "/dsh/workspace/imports/attachments-att-1/周报.pdf",
-            "size": 2048,
-            "mimeType": "application/pdf",
-            "kind": "pdf"
-          },
-          {
-            "name": "photo.jpg",
-            "path": "/dsh/workspace/imports/attachments-att-1/photo.jpg",
-            "size": 1234567,
-            "mimeType": "image/jpeg",
-            "kind": "image"
-          }
-        ]
-      },
-      "surface": "bubble",
-      "renderable": true,
-      "wire": {
-        "kind": "message",
-        "type": "text",
-        "role": "user"
-      }
     }
   ],
   "invalid": [
