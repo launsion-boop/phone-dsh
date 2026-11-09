@@ -15,10 +15,13 @@ struct HomeDrawer: View {
     var bottomInset: CGFloat = 0
     var isPersistent = false
 
-    @State private var management = DSHManagementModel.shared
-    @State private var chat = ChatModel.shared
-    @State private var collapsedFolderIDs = Set(UserDefaults.standard.stringArray(
-        forKey: "phone-dsh.sidebar.collapsed-workspaces") ?? [])
+    @Environment(\.workspaceModels) private var models
+    /// The drawer, ChatPage and SessionsPage read the selected backend's pair;
+    /// the phone singleton is only the fallback for the unpaired PC empty state.
+    private var chat: ChatModel { models.currentChat ?? models.phoneChat }
+    private var management: DSHManagementModel { models.currentManagement ?? models.phoneManagement }
+    @State private var collapsedFolderIDs: Set<String> = []
+    @State private var showPairing = false
 
     @State private var showNewFolder = false
     @State private var newFolderName = ""
@@ -32,17 +35,26 @@ struct HomeDrawer: View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
+                    // D2: 手机 | PC sits above the 新会话 pill. The selection is
+                    // persisted (P18) and never changes because the PC is down.
+                    PCDrawerSegment()
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 10)
                     entriesCard
-                    if let message = management.error ?? chat.userFacingError {
-                        errorRow(message)
-                    }
-                    if Self.foldersEnabled {
-                        folderSectionHeader
-                            .padding(.top, 16)
+                    if showsPCState {
+                        PCDrawerStateView(onPair: { showPairing = true })
                     } else {
-                        Color.clear.frame(height: 16)
+                        if let message = management.error ?? chat.userFacingError {
+                            errorRow(message)
+                        }
+                        if Self.foldersEnabled {
+                            folderSectionHeader
+                                .padding(.top, 16)
+                        } else {
+                            Color.clear.frame(height: 16)
+                        }
+                        folders
                     }
-                    folders
                 }
                 .padding(.top, topInset + HomeSpec.navTop)
                 .padding(.bottom, bottomInset + 24)
@@ -64,7 +76,18 @@ struct HomeDrawer: View {
                     .allowsHitTesting(false)
             }
         }
-        .task { await management.refresh() }
+        .task(id: backendTaskID) {
+            collapsedFolderIDs = WorkspaceStorage.collapsedWorkspaceIDs(for: currentBackendID)
+            // The unpaired/offline PC segment has no list to read; never call
+            // the phone management under a PC header.
+            if !showsPCState { await management.refresh() }
+        }
+        .sheet(isPresented: $showPairing) {
+            NavigationStack { PCPairingPage() }
+        }
+        .onChange(of: models.pcLink.isOnline) { _, online in
+            if online, !showsPCState { Task { await management.refresh() } }
+        }
         .alert("新建文件夹", isPresented: $showNewFolder) {
             TextField("文件夹名称", text: $newFolderName)
                 .textInputAutocapitalization(.never).autocorrectionDisabled()
@@ -114,6 +137,17 @@ struct HomeDrawer: View {
         }
     }
 
+    private var currentBackendID: BackendID { models.currentBackendID ?? .phone }
+
+    private var showsPCState: Bool {
+        guard !models.isPhoneSelected else { return false }
+        return models.drawerPhase != .ready
+    }
+
+    private var backendTaskID: String {
+        models.currentBackendID?.storageScope ?? "pc:unpaired"
+    }
+
     // MARK: - New session
 
     /// The drawer's one filled control: a full-width white capsule with the
@@ -154,6 +188,13 @@ struct HomeDrawer: View {
 
     /// Why 新会话 is unavailable, in a few words; nil when it can be pressed.
     private var newSessionBlocked: String? {
+        if !models.isPhoneSelected {
+            switch models.drawerPhase {
+            case .pair: return "连接电脑后可新建会话"
+            case .offline: return "电脑离线，无法新建会话"
+            case .ready, .phone: break
+            }
+        }
         if !chat.isStarted { return NativeText("引擎未启动", "Engine not started") }
         if chat.busy || chat.turnRunning || chat.keepingAlive {
             return NativeText("本轮结束后可用", "Available after this turn")
@@ -233,6 +274,13 @@ struct HomeDrawer: View {
     private var folders: some View {
         let loose = defaultFolder == nil ? pinnedFirst(management.ungroupedSessions) : []
         VStack(alignment: .leading, spacing: 4) {
+            if !models.isPhoneSelected, orderedFolders.isEmpty, management.activeSessions.isEmpty {
+                Text("还没有 PC 会话。点上面的「新会话」在电脑上新建一个。")
+                    .font(.system(size: 14))
+                    .foregroundStyle(HomeSpec.textPlaceholder)
+                    .padding(.horizontal, HomeSpec.contentInset)
+                    .padding(.top, 8)
+            }
             if Self.foldersEnabled && orderedFolders.isEmpty && loose.isEmpty {
                 Text("还没有文件夹。点右上角的 + 新建一个，会话和文件都能放进去。")
                     .font(.system(size: 14))
@@ -285,7 +333,8 @@ struct HomeDrawer: View {
     /// The default folder before the host has registered one: same shape,
     /// same name, no folder menu.
     private func looseHeader(count: Int) -> some View {
-        groupHeader(id: Self.looseGroupID, icon: "folder", title: DrawerTitles.defaultFolderName, count: count)
+        let title = models.isPhoneSelected ? DrawerTitles.defaultFolderName : models.pcWorkspaceTitle
+        return groupHeader(id: Self.looseGroupID, icon: "folder", title: title, count: count)
     }
 
     private func groupHeader(id: String, icon: String, title: String, count: Int) -> some View {
@@ -365,6 +414,9 @@ struct HomeDrawer: View {
     private static let looseGroupID = "__loose__"
 
     private func folderTitle(_ folder: ManagedWorkspace) -> String {
+        if !models.isPhoneSelected, management.isDefaultWorkspace(folder) {
+            return models.pcWorkspaceTitle
+        }
         let index = (orderedFolders.firstIndex(where: { $0.id == folder.id }) ?? 0) + 1
         return DrawerTitles.workspaceTitle(folder.title, index: index)
     }
@@ -388,8 +440,7 @@ struct HomeDrawer: View {
     private func toggle(_ id: String) {
         if collapsedFolderIDs.contains(id) { collapsedFolderIDs.remove(id) }
         else { collapsedFolderIDs.insert(id) }
-        UserDefaults.standard.set(Array(collapsedFolderIDs).sorted(),
-                                  forKey: "phone-dsh.sidebar.collapsed-workspaces")
+        WorkspaceStorage.setCollapsedWorkspaceIDs(collapsedFolderIDs, for: currentBackendID)
     }
 
     private func open(_ session: ManagedSession) {
@@ -435,5 +486,47 @@ private struct HomeDrawerRowStyle: ButtonStyle {
                 RoundedRectangle(cornerRadius: radius, style: .continuous)
                     .fill(HomeSpec.userBubble.opacity(configuration.isPressed ? 0.7 : 0)))
             .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
+// MARK: - 手机 | PC segment (P09/P18)
+
+/// 手机 | PC. The selected side persists through P18
+/// (`phone-dsh.drawer.backend`); selecting PC while unpaired opens the pairing
+/// entry but never changes the selection back.
+struct PCDrawerSegment: View {
+    @Environment(\.workspaceModels) private var models
+
+    private var selection: DrawerBackendSetting { models.selected }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            segmentButton(.phone, title: NativeText("手机", "Phone"))
+            segmentButton(.pc, title: "PC")
+        }
+        .padding(2)
+        .background(HomeSpec.userBubble, in: Capsule())
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("工作区")
+    }
+
+    private func segmentButton(_ value: DrawerBackendSetting, title: String) -> some View {
+        let selected = selection == value
+        return Button {
+            models.select(value)
+        } label: {
+            Text(title)
+                .font(.system(size: 15, weight: selected ? .semibold : .regular))
+                .foregroundStyle(selected ? HomeSpec.textPrimary : HomeSpec.textSecondary)
+                .frame(maxWidth: .infinity)
+                .frame(height: 34)
+                .background(selected ? HomeSpec.surface : Color.clear, in: Capsule())
+                .overlay(Capsule().strokeBorder(
+                    selected ? HomeSpec.borderList : Color.clear, lineWidth: 0.5))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(selected ? [.isSelected, .isButton] : .isButton)
     }
 }

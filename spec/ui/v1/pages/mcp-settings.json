@@ -13,7 +13,7 @@
   "source": {
     "file": "MCPSettingsPage.swift",
     "path": "examples/probe-app/PhoneDSHProbe/MCPSettingsPage.swift",
-    "lines": 337,
+    "lines": 338,
     "structLine": 20,
     "renderedFrom": [
       "body",
@@ -438,20 +438,20 @@
   "subpages": [
     {
       "name": "MCPEditorPage",
-      "line": 204,
+      "line": 205,
       "private": true,
       "embedded": false,
       "sections": [
         {
           "title": "服务器",
-          "provenance": "MCPSettingsPage.swift:235"
+          "provenance": "MCPSettingsPage.swift:236"
         },
         {
           "title": "认证头与设备密钥",
-          "provenance": "MCPSettingsPage.swift:251"
+          "provenance": "MCPSettingsPage.swift:252"
         }
       ],
-      "provenance": "MCPSettingsPage.swift:204"
+      "provenance": "MCPSettingsPage.swift:205"
     }
   ],
   "unreachable": [],

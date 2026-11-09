@@ -327,14 +327,36 @@ struct WorkspaceFile: Identifiable, Hashable {
 
 // MARK: - Model
 
+/// PC runtime handed to a non-phone `ChatModel`: the PCLink client, its DSH
+/// Remote backpack and a live connection projection. The phone instance never
+/// has one.
+struct PCWorkspaceRuntime {
+    let backendID: BackendID
+    let backend: PCWorkspaceBackend
+    let client: any PCLinkClientProtocol
+    let connection: @MainActor () -> PCWorkspaceConnection
+}
+
 /// Owns the host, the harness session and the transcript. One instance per app
-/// launch; the page observes it.
+/// launch per backend; the page observes the instance the drawer selected.
 @MainActor
 @Observable
 final class ChatModel {
-    /// The phone backend's instance (`BackendID.phone`). D2 adds a factory for
-    /// other backends; this singleton stays the phone one.
+    /// The phone backend's instance (`BackendID.phone`). D2 adds
+    /// `ChatModel(pcRuntime:)` instances registered by `WorkspaceModels`; this
+    /// singleton stays the phone one.
     static let shared = ChatModel()
+
+    /// Non-nil for the PC backend (PCLink D2). The phone path keeps the host.
+    @ObservationIgnored private var pcRuntime: PCWorkspaceRuntime?
+
+    init() {}
+
+    /// PC workspace instance (PCLink D2). It never owns a `PhoneDSHHost` or the
+    /// phone Bot runtime; transport/harness resolve through `pcRuntime.backend`.
+    init(pcRuntime: PCWorkspaceRuntime) {
+        self.pcRuntime = pcRuntime
+    }
 
     /// 参数只取一层标量,拼成 [键:字符串];嵌套结构换成 JSON 文本,够卡上用。
     static func flattenedArguments(_ value: JSONValue) -> [String: String] {
@@ -349,7 +371,6 @@ final class ChatModel {
         }
         return result
     }
-    private static let currentSessionDefaultsKey = "chat.dsh.currentSessionID"
     private static let retryableRequestIDsDefaultsKey = "chat.dsh.retryableRequestIDs"
 
     /// Visible one-point anchor the Chat page embeds; WebKit needs the page in
@@ -519,7 +540,18 @@ final class ChatModel {
     private(set) var previewPath: String?
     private(set) var previewText: String?
 
-    var isStarted: Bool { host != nil }
+    var isStarted: Bool {
+        if let pcRuntime { return pcRuntime.connection().isOnline }
+        return host != nil
+    }
+
+    /// `BackendID` this model serves. The phone singleton is always `.phone`.
+    var backendID: BackendID { pcRuntime?.backendID ?? .phone }
+
+    var capabilities: BackendCapabilities { workspaceBackend.capabilities }
+
+    /// Live PC connection for the offline banner and send-disable path.
+    var pcConnection: PCWorkspaceConnection? { pcRuntime?.connection() }
     /// True between the background park and the foreground resume (D14).
     private(set) var parked = false
     /// True while the app is in the background and the silent audio session
@@ -574,13 +606,21 @@ final class ChatModel {
     private var autoRecoveryAttempted = false
     private var foregroundResumeRequested = false
     private var backgroundParkRequested = false
-    var canSend: Bool { harness != nil && sessionID != nil && transcriptReady && !eventStreamRecovering && !busy && !parked && !hostLifecycleTransition }
-    var canStartBySending: Bool {
-        ChatEngineLifecycle.canStartBySending(hostIsStopped: host == nil,
-                                              busy: busy,
-                                              parked: parked,
-                                              hostLifecycleTransition: hostLifecycleTransition)
+    var hasHarness: Bool { harness != nil }
+    var canSend: Bool {
+        harness != nil && sessionID != nil && transcriptReady && !eventStreamRecovering
+            && !busy && !parked && !hostLifecycleTransition && pcOnline
     }
+    var canStartBySending: Bool {
+        // A PC workspace only sends into an already-open session; it has no
+        // local host to boot on the first keystroke.
+        if pcRuntime != nil { return false }
+        return ChatEngineLifecycle.canStartBySending(hostIsStopped: host == nil,
+                                                     busy: busy,
+                                                     parked: parked,
+                                                     hostLifecycleTransition: hostLifecycleTransition)
+    }
+    private var pcOnline: Bool { pcRuntime.map { $0.connection().isOnline } ?? true }
     private(set) var modelProviderIssue: String? = "请先配置模型服务和 API Key"
 
     func refreshModelProviderReadiness() {
@@ -611,7 +651,10 @@ final class ChatModel {
         if transcriptReady { return "就绪" }
         return "未连接"
     }
-    var canSteer: Bool { harness != nil && sessionID != nil && transcriptReady && !eventStreamRecovering && turnRunning && !busy && !parked && !hostLifecycleTransition }
+    var canSteer: Bool {
+        harness != nil && sessionID != nil && transcriptReady && !eventStreamRecovering
+            && turnRunning && !busy && !parked && !hostLifecycleTransition && pcOnline
+    }
     private var pumpTask: Task<Void, Never>?
     private var hostEventTask: Task<Void, Never>?
     private var lastSeq: UInt64?
@@ -952,7 +995,10 @@ final class ChatModel {
             })
     }()
 
-    var workspaceBackend: any WorkspaceBackend { phoneBackend }
+    var workspaceBackend: any WorkspaceBackend {
+        if let pcRuntime { return pcRuntime.backend }
+        return phoneBackend
+    }
 
     /// Returns the current backend's DSH RPC transport for session-management
     /// surfaces. Today the backend is always the phone host.
@@ -1070,9 +1116,36 @@ final class ChatModel {
         }
     }
 
+    /// PC startup: no host to boot. Restore the last PC transcript from its
+    /// scoped snapshot and re-open the remembered session once the relay
+    /// connection is online. A PC that is offline keeps the page on the PC
+    /// segment; it never falls back to the phone backend.
+    private func startPCModel() async {
+        guard let pcRuntime else { return }
+        guard pcRuntime.connection().isOnline else {
+            statusLine = "电脑离线"
+            return
+        }
+        guard !busy, sessionID == nil else { return }
+        try? await pcRuntime.client.start()
+        restoreCachedTranscriptIfAvailable()
+        // Resume the last PC session only if one is remembered; an empty PC
+        // workspace waits for the drawer's 新会话 rather than silently
+        // creating a session on the computer.
+        guard let persisted = WorkspaceStorage.currentSessionID(for: pcRuntime.backendID) else {
+            statusLine = "已连接电脑"
+            return
+        }
+        await openManagedSession(id: persisted)
+    }
+
     /// Boots the host and adopts the persisted session. Launching and sending
     /// may acknowledge one persisted `Failed` controller per process.
     func start(autoRecover: Bool = false) async {
+        if pcRuntime != nil {
+            await startPCModel()
+            return
+        }
         guard host == nil, !busy else { return }
         if engineNeedsReset, failedHost != nil {
             await restartEngine()
@@ -1376,18 +1449,18 @@ final class ChatModel {
         do {
             let harness = try await newHost.harness()
             self.harness = harness
-            let persistedSessionID = UserDefaults.standard.string(forKey: Self.currentSessionDefaultsKey)
+            let persistedSessionID = WorkspaceStorage.currentSessionID(for: .phone)
             let requestedSessionID = persistedSessionID.flatMap {
                 DeviceSessionCoordinator.shared.isDeviceSession($0) ? nil : $0
             }
             if persistedSessionID != nil && requestedSessionID == nil {
-                UserDefaults.standard.removeObject(forKey: Self.currentSessionDefaultsKey)
+                WorkspaceStorage.setCurrentSessionID(nil, for: .phone)
             }
             let session = try await harness.openSession(HarnessSessionRequest(
                 sessionID: requestedSessionID, workspace: "/dsh/workspace"))
             resetSessionLedgers()
             self.sessionID = session.id
-            UserDefaults.standard.set(session.id, forKey: Self.currentSessionDefaultsKey)
+            WorkspaceStorage.setCurrentSessionID(session.id, for: .phone)
             lastSeq = nil
             let transport = try await newHost.makeTransport()
             if let selectedProfile {
@@ -1473,11 +1546,15 @@ final class ChatModel {
 
     @discardableResult
     private func openManagedSession(id: String?, preset: String? = nil) async -> Bool {
-        if let id, DeviceSessionCoordinator.shared.isDeviceSession(id) {
+        if pcRuntime == nil, let id, DeviceSessionCoordinator.shared.isDeviceSession(id) {
             reportError("设备会话只能以只读监视方式打开")
             return false
         }
-        guard self.host != nil else { reportError("Start the host before opening a session"); return false }
+        guard isStarted else {
+            if pcRuntime != nil { reportError("电脑离线，无法打开会话") }
+            else { reportError("Start the host before opening a session") }
+            return false
+        }
         guard !busy else { return false }
         guard !hostLifecycleTransition else {
             reportError("Wait for the host to finish pausing or resuming before switching sessions")
@@ -1492,16 +1569,19 @@ final class ChatModel {
         do {
             let harness = try await workspaceBackend.harness()
             let session = try await harness.openSession(HarnessSessionRequest(
-                sessionID: id, preset: preset, workspace: "/dsh/workspace"))
+                sessionID: id, preset: preset,
+                workspace: pcRuntime == nil ? "/dsh/workspace" : nil))
             let transport = try await transportForManagement()
-            if let profile = try? PhoneModelProviderSettings.shared.load().selected {
+            if pcRuntime == nil,
+               let profile = try? PhoneModelProviderSettings.shared.load().selected {
                 try? await selectProviderModel(profile, sessionID: session.id, transport: transport)
             }
             let history = try await loadSessionHistory(sessionID: session.id, transport: transport)
             pumpTask?.cancel()
             resetSessionLedgers()
+            self.harness = harness
             self.sessionID = session.id
-            UserDefaults.standard.set(session.id, forKey: Self.currentSessionDefaultsKey)
+            WorkspaceStorage.setCurrentSessionID(session.id, for: backendID)
             lastSeq = history.after
             items = history.items
             turnStartTimes = history.turnFacts.starts
@@ -1572,6 +1652,21 @@ final class ChatModel {
     }
 
     func stop() async {
+        if pcRuntime != nil {
+            guard !busy else { return }
+            busy = true
+            defer { busy = false }
+            pumpTask?.cancel(); pumpTask = nil
+            eventStreamRecovering = false
+            if let harness, let sessionID { await harness.closeSession(sessionID) }
+            harness = nil; sessionID = nil
+            transcriptReady = false
+            pendingPermission = nil; pendingQuestion = nil
+            availableAccessModes = []; currentAccessMode = nil; accessModeError = nil; accessModeLoading = false
+            turnRunning = false
+            statusLine = "电脑会话已关闭"
+            return
+        }
         guard let host else {
             await botLaunch?.composition.stop()
             if let composition = botLaunch?.composition {
@@ -1658,6 +1753,12 @@ final class ChatModel {
     /// A running turn with background keep-alive holds a silent playback
     /// session and leaves the host running. An idle host still parks.
     func scenePhaseChanged(_ phase: ScenePhase) async {
+        // PC lifecycle is connection-only: nothing to park or keep alive. On
+        // foreground return, nudge the relay client's reconnect loop.
+        if let pcRuntime {
+            if phase == .active { try? await pcRuntime.client.start() }
+            return
+        }
         guard let host else { return }
         switch phase {
         case .background:
@@ -2034,8 +2135,9 @@ final class ChatModel {
         guard canSend, let harness, let sessionID else { return false }
         busy = true
         defer { busy = false }
-        let (fingerprint, requestID) = Self.retryableRequest(operation: "prompt", text: prompt,
-                                                            attachments: attachments)
+        let (fingerprint, requestID) = Self.retryableRequest(
+            operation: "prompt", text: prompt, attachments: attachments,
+            scope: backendID.storageScope, sessionID: sessionID)
         let dispatchStart = ProcessInfo.processInfo.systemUptime
         Self.persistStatus("latency client-observed phase=prompt-rpc-start request=\(requestID)")
         do {
@@ -2044,7 +2146,7 @@ final class ChatModel {
             Self.completeRetryableRequest(fingerprint: fingerprint, requestID: requestID)
             // The drawer needs a readable row before DSH publishes its own
             // title projection.
-            SessionTitleHints.remember(prompt, for: sessionID)
+            SessionTitleHints.remember(prompt, for: sessionID, backend: backendID)
             let attachmentLabel = attachments.map { "[\($0.name)]" }.joined(separator: " ")
             let visiblePrompt = [prompt, attachmentLabel].filter { !$0.isEmpty }.joined(separator: "\n")
             var input = ChatItem(id: itemID ?? "\(sessionID):prompt:\(requestID)",
@@ -2070,8 +2172,9 @@ final class ChatModel {
         guard !guidance.isEmpty, canSteer, let harness, let sessionID else { return false }
         busy = true
         defer { busy = false }
-        let (fingerprint, requestID) = Self.retryableRequest(operation: "steer", text: guidance,
-                                                            attachments: [])
+        let (fingerprint, requestID) = Self.retryableRequest(
+            operation: "steer", text: guidance, attachments: [],
+            scope: backendID.storageScope, sessionID: sessionID)
         do {
             try await harness.send(.steer(text: guidance, requestID: requestID), to: sessionID)
             Self.completeRetryableRequest(fingerprint: fingerprint, requestID: requestID)
@@ -2900,12 +3003,8 @@ final class ChatModel {
         var text: String
     }
 
-    private static func snapshotURL(for sessionID: String) -> URL {
-        let documents = FileManager.default.urls(for: .documentDirectory,
-                                                 in: .userDomainMask)[0]
-        return documents
-            .appendingPathComponent("transcript-snapshots", isDirectory: true)
-            .appendingPathComponent("\(sessionID).json")
+    private func snapshotURL(for sessionID: String) -> URL {
+        WorkspaceStorage.transcriptSnapshotURL(for: backendID, sessionID: sessionID)
     }
 
     private static func snapshotKindName(_ kind: ChatItem.Kind) -> String {
@@ -2947,8 +3046,14 @@ final class ChatModel {
     /// Renders the last session's settled items before the host is ready.
     private func restoreCachedTranscriptIfAvailable() {
         guard items.isEmpty,
-              let sessionID = UserDefaults.standard.string(forKey: Self.currentSessionDefaultsKey),
-              let data = try? Data(contentsOf: Self.snapshotURL(for: sessionID)),
+              let sessionID = WorkspaceStorage.currentSessionID(for: backendID) else { return }
+        var data: Data?
+        for url in [snapshotURL(for: sessionID),
+                    WorkspaceStorage.legacyTranscriptSnapshotURL(for: backendID, sessionID: sessionID)]
+            .compactMap({ $0 }) {
+            if let stored = try? Data(contentsOf: url) { data = stored; break }
+        }
+        guard let data,
               let cached = try? JSONDecoder().decode([CachedTranscriptItem].self, from: data),
               !cached.isEmpty else { return }
         items = cached.compactMap { item in
@@ -2972,7 +3077,7 @@ final class ChatModel {
                                  text: item.text)
         }
         guard let data = try? JSONEncoder().encode(cached) else { return }
-        let url = Self.snapshotURL(for: sessionID)
+        let url = snapshotURL(for: sessionID)
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
                                                  withIntermediateDirectories: true)
         try? data.write(to: url, options: .atomic)
@@ -3244,13 +3349,17 @@ final class ChatModel {
     /// and opaque request ID are persisted; prompt and attachment contents are
     /// never written to defaults by this retry path.
     private static func retryableRequest(operation: String, text: String,
-                                         attachments: [HarnessAttachment]) -> (String, String) {
+                                         attachments: [HarnessAttachment],
+                                         scope: String, sessionID: String) -> (String, String) {
         var material = Data()
         func append(_ bytes: Data) {
             var length = UInt64(bytes.count).bigEndian
             withUnsafeBytes(of: &length) { material.append(contentsOf: $0) }
             material.append(bytes)
         }
+        // D2: the same text on the phone and the PC must not reuse a requestId.
+        append(Data(scope.utf8))
+        append(Data(sessionID.utf8))
         append(Data(operation.utf8))
         append(Data(text.utf8))
         for attachment in attachments {
@@ -3305,6 +3414,14 @@ final class ChatModel {
     // MARK: Workspace files
 
     func refreshFiles() {
+        // PC artifacts stay on the computer in v1; no local page origin or
+        // workspace mirror exists for them.
+        guard capabilities.localFilePreview else {
+            files = []
+            previewPath = nil
+            previewText = nil
+            return
+        }
         let root = materializedWorkspace.standardizedFileURL.resolvingSymlinksInPath()
         let rootPrefix = root.path + "/"
         var found: [WorkspaceFile] = []
@@ -3328,6 +3445,11 @@ final class ChatModel {
     }
 
     func preview(_ file: WorkspaceFile) {
+        guard capabilities.localFilePreview else {
+            previewPath = file.relativePath
+            previewText = nil
+            return
+        }
         let url = materializedWorkspace.appendingPathComponent(file.relativePath)
         previewPath = file.relativePath
         guard let data = try? Data(contentsOf: url) else { previewText = "(unreadable)"; return }

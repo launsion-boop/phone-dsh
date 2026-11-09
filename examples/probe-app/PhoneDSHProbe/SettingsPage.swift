@@ -58,6 +58,7 @@ struct SettingsPage: View {
     @StateObject private var phonePermissions = PhonePermissionRequester.shared
     @State private var chat = ChatModel.shared
     @State private var management = DSHManagementModel.shared
+    @Environment(\.workspaceModels) private var workspaceModels
     /// Deep entry (`SettingsPage(initialTab:)`) pushes that page on appear.
     @State private var deepLink: NativeSettingsTab?
 
@@ -322,11 +323,18 @@ struct SettingsPage: View {
             archivedLink
         }
         Section {
+            link(NativeText("已连接的电脑", "Connected computer"), icon: "desktopcomputer",
+                 value: connectedComputerValue) { ConnectedComputerPage() }
             link(NativeText("设置", "Settings"), icon: "gearshape") {
                 SettingsPage(mode: .more, onOpenSession: onOpenSession)
             }
             aboutLink
         }
+    }
+
+    private var connectedComputerValue: String {
+        guard let record = workspaceModels.pcLink.record else { return NativeText("未配对", "Not paired") }
+        return workspaceModels.pcLink.isOnline ? record.peerName : NativeText("离线", "Offline")
     }
 
     private var engineLabel: String {

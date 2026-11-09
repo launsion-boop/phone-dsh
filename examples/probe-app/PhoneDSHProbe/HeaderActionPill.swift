@@ -9,6 +9,9 @@ import SwiftUI
 /// menu contents; the visual values stay exactly the same.
 struct HeaderActionPill<MenuContent: View>: View {
     var hasOnlineDevices: Bool
+    /// False on a PC workspace: the paired computer owns the sessions, and
+    /// phone device connections stay a phone-only affordance (D2).
+    var showsConnect: Bool = true
     var connectIdentifier: String?
     var menuIdentifier: String?
     var showsMenuActivityDot: Bool
@@ -17,9 +20,10 @@ struct HeaderActionPill<MenuContent: View>: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            Button {
-                onConnect()
-            } label: {
+            if showsConnect {
+                Button {
+                    onConnect()
+                } label: {
                 Image(systemName: "dot.radiowaves.left.and.right")
                     .font(.system(size: 19, weight: .medium))
                     .frame(width: 46, height: HomeSpec.navButton)
@@ -34,9 +38,10 @@ struct HeaderActionPill<MenuContent: View>: View {
                     }
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel(hasOnlineDevices ? "连接设备，有在线设备" : "连接设备")
-            .modifier(HeaderOptionalAccessibilityIdentifier(identifier: connectIdentifier))
+                .buttonStyle(.plain)
+                .accessibilityLabel(hasOnlineDevices ? "连接设备，有在线设备" : "连接设备")
+                .modifier(HeaderOptionalAccessibilityIdentifier(identifier: connectIdentifier))
+            }
             menuButton
         }
         .foregroundStyle(HomeSpec.primaryButton)

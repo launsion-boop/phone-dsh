@@ -10,8 +10,8 @@
   "source": {
     "file": "HomeDrawer.swift",
     "path": "examples/probe-app/PhoneDSHProbe/HomeDrawer.swift",
-    "lines": 428,
-    "structLine": 12,
+    "lines": 532,
+    "structLine": 15,
     "renderedFrom": [
       "body",
       "entriesCard",
@@ -47,10 +47,40 @@
       "writes": true,
       "destination": null,
       "condition": "newSessionBlocked == nil",
-      "provenance": "HomeDrawer.swift:131",
+      "provenance": "HomeDrawer.swift:165",
       "anchor": "Text(NativeText(\"新会话\", \"New Session\"))",
       "extraction": "manual",
       "note": "full-width white capsule; the disabled reason is rendered below it"
+    },
+    {
+      "id": "backend-phone",
+      "label": "手机",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "models.selectBackend(.phone)",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "HomeDrawer.swift:504",
+      "anchor": "segmentButton(.phone, title: NativeText(\"手机\", \"Phone\"))",
+      "extraction": "manual",
+      "note": "D2 segment above 新会话; selected state persisted in phone-dsh.drawer.backend (P18)"
+    },
+    {
+      "id": "backend-pc",
+      "label": "PC",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "models.selectBackend(.pc)",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "HomeDrawer.swift:505",
+      "anchor": "segmentButton(.pc, title: \"PC\")",
+      "extraction": "manual",
+      "note": "D2 segment above 新会话; selects the paired PC workspace without auto-falling back when offline"
     },
     {
       "id": "重试",
@@ -62,7 +92,7 @@
       "writes": true,
       "destination": null,
       "condition": "management.error != nil || chat.userFacingError != nil",
-      "provenance": "HomeDrawer.swift:171",
+      "provenance": "HomeDrawer.swift:212",
       "anchor": "Button(\"重试\") {",
       "extraction": "manual"
     },
@@ -77,7 +107,7 @@
       "destination": null,
       "condition": "HomeDrawer.foldersEnabled (false: folder management is not offered yet)",
       "presents": "alert-75",
-      "provenance": "HomeDrawer.swift:205",
+      "provenance": "HomeDrawer.swift:246",
       "anchor": ".accessibilityLabel(\"新建文件夹\")",
       "extraction": "manual",
       "note": "the + control has no visible text; its accessible name is the only label"
@@ -92,7 +122,7 @@
       "writes": true,
       "destination": null,
       "condition": "the folder is a real workspace (not the loose default group)",
-      "provenance": "HomeDrawer.swift:272",
+      "provenance": "HomeDrawer.swift:320",
       "anchor": "Button(\"在这里新建会话\", systemImage: \"square.and.pencil\") {",
       "extraction": "manual"
     },
@@ -106,7 +136,7 @@
       "writes": true,
       "destination": null,
       "condition": "HomeDrawer.foldersEnabled (false: folder management is not offered yet); the folder is a real workspace (not the loose default group)",
-      "provenance": "HomeDrawer.swift:276",
+      "provenance": "HomeDrawer.swift:324",
       "anchor": "Button(\"重命名\", systemImage: \"pencil\") {",
       "extraction": "manual"
     },
@@ -121,7 +151,7 @@
       "destination": null,
       "condition": "HomeDrawer.foldersEnabled (false: folder management is not offered yet); the folder is a real workspace (not the loose default group)",
       "presents": "alert-111",
-      "provenance": "HomeDrawer.swift:280",
+      "provenance": "HomeDrawer.swift:328",
       "anchor": "Button(\"删除文件夹\", systemImage: \"trash\", role: .destructive) { deleteFolder = folder }",
       "extraction": "manual"
     },
@@ -135,7 +165,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "HomeDrawer.swift:319",
+      "provenance": "HomeDrawer.swift:368",
       "anchor": ".accessibilityLabel(\"\\(title)，\\(count) 个会话\")",
       "extraction": "manual",
       "note": "the group header has no visible text of its own beyond the folder name and count, both data; its accessible name is the label"
@@ -150,7 +180,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "HomeDrawer.swift:325",
+      "provenance": "HomeDrawer.swift:374",
       "anchor": "return Button { open(session) } label: {",
       "extraction": "manual",
       "note": "the row's visible name is the session title, i.e. data, so the contract keeps the expression"
@@ -166,7 +196,7 @@
       "destination": null,
       "condition": null,
       "presents": "alert-87",
-      "provenance": "HomeDrawer.swift:354",
+      "provenance": "HomeDrawer.swift:403",
       "anchor": "Button(\"编辑名称\", systemImage: \"pencil\") {",
       "extraction": "manual"
     },
@@ -180,7 +210,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "HomeDrawer.swift:358",
+      "provenance": "HomeDrawer.swift:407",
       "anchor": "Button(\"归档\", systemImage: \"archivebox\") { archive(session) }",
       "extraction": "manual"
     },
@@ -195,7 +225,7 @@
       "destination": null,
       "condition": "HomeDrawer.foldersEnabled (false: folder management is not offered yet)",
       "presents": "alert-75",
-      "provenance": "HomeDrawer.swift:71",
+      "provenance": "HomeDrawer.swift:94",
       "anchor": "Button(\"取消\", role: .cancel) { newFolderName = \"\" }",
       "extraction": "manual"
     },
@@ -210,7 +240,7 @@
       "destination": null,
       "condition": "HomeDrawer.foldersEnabled (false: folder management is not offered yet)",
       "presents": "alert-75",
-      "provenance": "HomeDrawer.swift:72",
+      "provenance": "HomeDrawer.swift:95",
       "anchor": "Button(\"创建\") {",
       "extraction": "manual"
     },
@@ -225,7 +255,7 @@
       "destination": null,
       "condition": null,
       "presents": "alert-87",
-      "provenance": "HomeDrawer.swift:83",
+      "provenance": "HomeDrawer.swift:106",
       "anchor": "Button(\"取消\", role: .cancel) { renameSession = nil }",
       "extraction": "manual"
     },
@@ -240,7 +270,7 @@
       "destination": null,
       "condition": null,
       "presents": "alert-87",
-      "provenance": "HomeDrawer.swift:84",
+      "provenance": "HomeDrawer.swift:119",
       "anchor": "Button(\"保存\") {",
       "extraction": "manual"
     },
@@ -255,7 +285,7 @@
       "destination": null,
       "condition": "HomeDrawer.foldersEnabled (false: folder management is not offered yet)",
       "presents": "alert-99",
-      "provenance": "HomeDrawer.swift:95",
+      "provenance": "HomeDrawer.swift:118",
       "anchor": "Button(\"取消\", role: .cancel) { renameFolder = nil }",
       "extraction": "manual"
     },
@@ -270,7 +300,7 @@
       "destination": null,
       "condition": "HomeDrawer.foldersEnabled (false: folder management is not offered yet)",
       "presents": "alert-99",
-      "provenance": "HomeDrawer.swift:96",
+      "provenance": "HomeDrawer.swift:119",
       "anchor": "Button(\"保存\") {",
       "extraction": "manual"
     },
@@ -285,7 +315,7 @@
       "destination": null,
       "condition": "HomeDrawer.foldersEnabled (false: folder management is not offered yet)",
       "presents": "alert-111",
-      "provenance": "HomeDrawer.swift:108",
+      "provenance": "HomeDrawer.swift:131",
       "anchor": "Button(\"取消\", role: .cancel) { deleteFolder = nil }",
       "extraction": "manual"
     },
@@ -300,7 +330,7 @@
       "destination": null,
       "condition": "HomeDrawer.foldersEnabled (false: folder management is not offered yet)",
       "presents": "alert-111",
-      "provenance": "HomeDrawer.swift:109",
+      "provenance": "HomeDrawer.swift:132",
       "anchor": "Button(\"删除\", role: .destructive) {",
       "extraction": "manual"
     }
@@ -318,7 +348,7 @@
         64,
         75
       ],
-      "provenance": "HomeDrawer.swift:68",
+      "provenance": "HomeDrawer.swift:91",
       "anchor": ".alert(\"新建文件夹\", isPresented: $showNewFolder) {",
       "triggered": true
     },
@@ -334,7 +364,7 @@
         76,
         87
       ],
-      "provenance": "HomeDrawer.swift:80",
+      "provenance": "HomeDrawer.swift:103",
       "anchor": ".alert(\"编辑名称\", isPresented: Binding(",
       "triggered": true
     },
@@ -350,7 +380,7 @@
         88,
         99
       ],
-      "provenance": "HomeDrawer.swift:92",
+      "provenance": "HomeDrawer.swift:115",
       "anchor": ".alert(\"重命名文件夹\", isPresented: Binding(",
       "triggered": true
     },
@@ -366,8 +396,24 @@
         100,
         110
       ],
-      "provenance": "HomeDrawer.swift:104",
+      "provenance": "HomeDrawer.swift:127",
       "anchor": ".alert(deleteFolder.map { \"删除「\\(folderTitle($0))」？\" } ?? \"\",",
+      "triggered": true
+    },
+    {
+      "id": "sheet-配对",
+      "kind": "sheet",
+      "title": "连接电脑",
+      "destination": "PCPairingPage",
+      "triggerBindings": [
+        "showPairing"
+      ],
+      "span": [
+        0,
+        0
+      ],
+      "provenance": "HomeDrawer.swift:85",
+      "anchor": ".sheet(isPresented: $showPairing) {",
       "triggered": true
     }
   ],
@@ -385,8 +431,14 @@
         {
           "renders": "还没有会话",
           "when": "a folder is expanded and has no sessions",
-          "provenance": "HomeDrawer.swift:254",
+          "provenance": "HomeDrawer.swift:290",
           "anchor": "Text(\"还没有会话\")"
+        },
+        {
+          "renders": "还没有 PC 会话",
+          "when": "models.backend == .pc && online && management.sessions is empty",
+          "provenance": "HomeDrawer.swift:126",
+          "anchor": "Text(\"还没有 PC 会话\")"
         }
       ],
       "data": [
@@ -419,7 +471,7 @@
       "unknown"
     ],
     "coverage": {
-      "empty": 2,
+      "empty": 3,
       "data": 1,
       "failure": 1,
       "unknown": 0,

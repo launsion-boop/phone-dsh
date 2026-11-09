@@ -13,7 +13,7 @@
   "source": {
     "file": "NativeAgentPresetsPage.swift",
     "path": "examples/probe-app/PhoneDSHProbe/NativeAgentPresetsPage.swift",
-    "lines": 219,
+    "lines": 220,
     "structLine": 111,
     "renderedFrom": [
       "body"
@@ -389,7 +389,7 @@
       "anchor": "Button(NativeText(\"查看配置\", \"View configuration\")) {",
       "extraction": "syntax",
       "labelAlternatives": [],
-      "presents": "sheet-198"
+      "presents": "sheet-199"
     },
     {
       "id": "使用预设",
@@ -422,7 +422,7 @@
       "labelAlternatives": []
     },
     {
-      "id": "gesture-196",
+      "id": "gesture-197",
       "label": null,
       "labelExpr": null,
       "kind": "gesture",
@@ -431,7 +431,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "NativeAgentPresetsPage.swift:196",
+      "provenance": "NativeAgentPresetsPage.swift:197",
       "anchor": ".refreshable { await model.refresh() }",
       "extraction": "syntax"
     },
@@ -445,14 +445,14 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "NativeAgentPresetsPage.swift:212",
+      "provenance": "NativeAgentPresetsPage.swift:213",
       "anchor": "Button(NativeText(\"完成\", \"Done\")) { showYAML = false }",
       "extraction": "syntax"
     }
   ],
   "presentations": [
     {
-      "id": "sheet-198",
+      "id": "sheet-199",
       "kind": "sheet",
       "title": null,
       "destination": "NavigationStack",
@@ -460,10 +460,10 @@
         "showYAML"
       ],
       "span": [
-        198,
-        217
+        199,
+        218
       ],
-      "provenance": "NativeAgentPresetsPage.swift:198",
+      "provenance": "NativeAgentPresetsPage.swift:199",
       "anchor": ".sheet(isPresented: $showYAML) {",
       "triggered": true
     }
