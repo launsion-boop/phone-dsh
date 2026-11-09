@@ -81,6 +81,9 @@ struct BotChatPage: View {
                         .foregroundStyle(HomeSpec.textPrimary)
                         .lineLimit(1)
                         .truncationMode(.tail)
+                    if let style = headerActivityStyle {
+                        BotHeaderActivityIcon(style: style)
+                    }
                 }
                 .padding(.leading, 6)
                 .padding(.trailing, 14)
@@ -119,6 +122,19 @@ struct BotChatPage: View {
         .frame(height: HomeSpec.navTop + HomeSpec.navButton)
         .background(HomeSpec.page)
         .accessibilityElement(children: .contain)
+    }
+
+    /// Pending approval outranks the running status; a running turn with no
+    /// body yet shows the three-dot mark, a tool step shows the pencil.
+    private var headerActivityStyle: BotHeaderActivityIcon.Style? {
+        if model.pendingApprovalCount > 0 { return .alert }
+        guard let activity = model.activity else { return nil }
+        switch activity.status {
+        case .thinking, .streaming:
+            return .dots
+        case .toolRunning:
+            return .pencil
+        }
     }
 
     @ViewBuilder
@@ -307,7 +323,7 @@ struct BotChatPage: View {
             // text field on the leading side, and exactly one 36pt round
             // send/stop button on the trailing side. No microphone, no voice
             // mode, no attachment button.
-            HStack(alignment: .bottom, spacing: 8) {
+            BotComposerLayout {
                 TextField("向 \(model.context.botName) 提问", text: $draft, axis: .vertical)
                     .font(.system(size: HomeSpec.bodySize))
                     .textFieldStyle(.plain)
@@ -316,25 +332,8 @@ struct BotChatPage: View {
                     .padding(.vertical, 14)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier("bot.composer.input")
-                    .onSubmit { send() }
-                if model.runningTurnID != nil {
-                    Button { model.stop() } label: {
-                        BotComposerGlyph(systemImage: "stop.fill")
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("停止当前回合")
-                    .accessibilityIdentifier("bot.composer.stop")
-                } else {
-                    Button(action: send) {
-                        BotComposerGlyph(systemImage: "arrow.up", enabled: canSend)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!canSend)
-                    .accessibilityLabel("发送消息")
-                    .accessibilityIdentifier("bot.composer.send")
-                }
+                composerActionButton
             }
-            .padding(.horizontal, 16)
             .frame(minHeight: 52)
             .background(HomeSpec.surface, in: Capsule())
             .overlay(Capsule().strokeBorder(HomeSpec.borderList, lineWidth: 0.5))
@@ -378,6 +377,29 @@ struct BotChatPage: View {
         }
     }
 
+    /// Exactly one round button with three states: send (idle, disabled when
+    /// empty), stop (running with an empty draft), send-and-steer (running
+    /// with text). The send id is stable so the capture tests can drive it.
+    @ViewBuilder
+    private var composerActionButton: some View {
+        if model.runningTurnID != nil && !canSend {
+            Button { model.stop() } label: {
+                BotComposerGlyph(systemImage: "stop.fill")
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("停止当前回合")
+            .accessibilityIdentifier("bot.composer.stop")
+        } else {
+            Button(action: send) {
+                BotComposerGlyph(systemImage: "arrow.up", enabled: canSend)
+            }
+            .buttonStyle(.plain)
+            .disabled(!canSend)
+            .accessibilityLabel(model.runningTurnID != nil ? "发送并 steering" : "发送消息")
+            .accessibilityIdentifier("bot.composer.send")
+        }
+    }
+
     private var canSend: Bool {
         !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
@@ -399,6 +421,41 @@ struct BotChatPage: View {
             if let anchor { proxy.scrollTo(anchor, anchor: .top) }
             preservingHistoryPosition = false
         }
+    }
+}
+
+/// Single-line capsule: the text field and the 36pt button share a center, so
+/// the first text baseline and the button center line up. Once the field grows
+/// past the 52pt capsule the button sticks to the bottom 8pt instead.
+private struct BotComposerLayout: Layout {
+    typealias Cache = Void
+
+    func makeCache(subviews: Subviews) -> Void {}
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Void) -> CGSize {
+        guard subviews.count == 2 else { return .zero }
+        let width = proposal.width ?? 0
+        let inputWidth = max(0, width - 16 - 8 - HomeSpec.sendButton - 8)
+        let input = subviews[0].sizeThatFits(ProposedViewSize(width: inputWidth, height: nil))
+        return CGSize(width: width, height: max(52, input.height))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize,
+                       subviews: Subviews, cache: inout Void) {
+        guard subviews.count == 2 else { return }
+        let inputWidth = max(0, bounds.width - 16 - 8 - HomeSpec.sendButton - 8)
+        let input = subviews[0].sizeThatFits(ProposedViewSize(width: inputWidth, height: nil))
+        let singleLine = input.height <= 52
+        let buttonY = singleLine
+            ? bounds.minY + (bounds.height - HomeSpec.sendButton) / 2
+            : bounds.maxY - HomeSpec.sendButton - 8
+        subviews[0].place(
+            at: CGPoint(x: bounds.minX + 16,
+                        y: bounds.minY + max(0, (bounds.height - input.height) / 2)),
+            proposal: ProposedViewSize(width: inputWidth, height: input.height))
+        subviews[1].place(
+            at: CGPoint(x: bounds.maxX - 8 - HomeSpec.sendButton, y: buttonY),
+            proposal: ProposedViewSize(width: HomeSpec.sendButton, height: HomeSpec.sendButton))
     }
 }
 

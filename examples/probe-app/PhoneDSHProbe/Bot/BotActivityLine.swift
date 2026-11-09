@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 import SwiftUI
+import PhoneDSHBot
 
 /// The one live-status line above the Bot composer: a 20pt fish in its real
 /// state, then one secondary line that sweeps a soft highlight and fades /

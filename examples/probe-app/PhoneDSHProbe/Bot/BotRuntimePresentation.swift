@@ -54,7 +54,8 @@ enum BotRuntimePresentationFactory {
 
     static func make(botID: String, sessionID: String,
                      sessionEvents: [BotDSHSessionEvent], uiEvents: [BotEvent],
-                     now: Int64 = Int64(Date().timeIntervalSince1970 * 1_000)) -> BotRuntimePresentation {        var timed: [TimedEvent] = []
+                     now: Int64 = Int64(Date().timeIntervalSince1970 * 1_000)) -> BotRuntimePresentation {
+        var timed: [TimedEvent] = []
         for (index, event) in sessionEvents.enumerated() {
             let type: String?
             switch event.type {
@@ -98,7 +99,7 @@ enum BotRuntimePresentationFactory {
                      now: Int64 = Int64(Date().timeIntervalSince1970 * 1_000)) -> BotRuntimePresentation {
         let sessionEvents: [BotDSHSessionEvent] = events.enumerated().compactMap { index, event in
             guard let type = event["type"]?.stringValue else { return nil }
-            var data: [PhoneDSHBot.BotJSONValue] = [:]
+            var data: [String: PhoneDSHBot.BotJSONValue] = [:]
             if case .object(let object)? = event["data"] { data = object }
             let time = Int64((event["time"]?.numberValue ?? 0).rounded())
             return BotDSHSessionEvent(type: type,
