@@ -298,12 +298,12 @@
           "writes": false,
           "condition": "!(device.state == \"未连接\")",
           "provenance": "BluetoothDevicesPage.swift:83",
-          "anchor": "Button(\"断开连接\", role: .destructive) { store.disconnect(device.id) }",
+          "anchor": "Button(\"断开连接\", role: .destructive) { store.forgetAndDisconnect(device.id) }",
           "extraction": "syntax"
         },
         {
-          "id": "每次建立新连接后-请重新授权读取或提醒控制",
-          "label": "每次建立新连接后，请重新授权读取或提醒控制。",
+          "id": "你连接的设备默认允许-agent-使用全部能力-关闭某个开关即撤销并记住-断开连接后不再自动重连",
+          "label": "你连接的设备默认允许 Agent 使用全部能力；关闭某个开关即撤销并记住，断开连接后不再自动重连。",
           "labelExpr": null,
           "kind": "text",
           "value": null,
@@ -313,7 +313,7 @@
           "writes": false,
           "condition": "!(device.state == \"未连接\")",
           "provenance": "BluetoothDevicesPage.swift:85",
-          "anchor": "Text(\"每次建立新连接后，请重新授权读取或提醒控制。\")",
+          "anchor": "Text(\"你连接的设备默认允许 Agent 使用全部能力；关闭某个开关即撤销并记住，断开连接后不再自动重连。\")",
           "extraction": "syntax"
         },
         {
@@ -573,12 +573,12 @@
       "labelExpr": null,
       "kind": "button",
       "trigger": "tap",
-      "semantic": "{ store.disconnect(device.id)",
+      "semantic": "{ store.forgetAndDisconnect(device.id)",
       "writes": false,
       "destination": null,
       "condition": null,
       "provenance": "BluetoothDevicesPage.swift:83",
-      "anchor": "Button(\"断开连接\", role: .destructive) { store.disconnect(device.id) }",
+      "anchor": "Button(\"断开连接\", role: .destructive) { store.forgetAndDisconnect(device.id) }",
       "extraction": "syntax",
       "labelAlternatives": []
     },

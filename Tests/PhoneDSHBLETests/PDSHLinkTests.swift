@@ -144,11 +144,34 @@ final class PDSHLinkTests: XCTestCase {
         if case .object(let fields) = result { XCTAssertEqual(fields["status"], .string("outcome_unknown")) } else { XCTFail("missing result") }
         XCTAssertEqual(fake.commits, 1)
     }
+    @MainActor func testRefusedCommitOrUploadIsNotExecutedButConflictStaysUnknown() async throws {
+        // A refused COMMIT was never admitted, so nothing ran (ble-link.md); a conflict (5) may mean
+        // the request was committed before, so it is not reported as not executed.
+        for (status, notExecuted) in [(UInt8(15), true), (6, true), (14, true), (5, false)] {
+            let fake = FakeTransport(); fake.commitStatus = status
+            let client = PDSHLinkClient(transport: fake)
+            _ = try await client.handshake()
+            do {
+                _ = try await client.invoke(requestID: fake.id, name: "light.set", arguments: .object(["on": .bool(false)]), idempotencyKey: "k\(status)")
+                XCTFail("status \(status) accepted")
+            } catch let refused as LinkNotExecuted {
+                XCTAssertTrue(notExecuted, "status \(status)"); XCTAssertEqual(refused.status, status); XCTAssertEqual(refused.stage, "commit")
+            } catch { XCTAssertFalse(notExecuted, "status \(status): \(error)") }
+            XCTAssertEqual(fake.commits, 1)
+        }
+        let fake = FakeTransport(); fake.uploadStatus = 6
+        let client = PDSHLinkClient(transport: fake)
+        _ = try await client.handshake()
+        do { _ = try await client.invoke(requestID: fake.id, name: "light.get", arguments: .object([:]), idempotencyKey: "u"); XCTFail("upload accepted") }
+        catch let refused as LinkNotExecuted { XCTAssertEqual(refused.stage, "upload"); XCTAssertEqual(refused.statusName, "BUSY") }
+        XCTAssertEqual(fake.commits, 0)
+    }
 }
 @MainActor private final class FakeTransport: PDSHLinkTransport {
     let id = UUID()
     var total = 0, uploads = 0, commits = 0, queries = 0
     var upload = Data(), dropCommit = false, missing = false, legacy = false
+    var commitStatus: UInt8 = 0, uploadStatus: UInt8 = 0
     var result: JSONValue { .object(["request_id": .string(id.uuidString.lowercased()), "status": .string("completed"), "result": .object(["body": .string(String(repeating: "r", count: 1200))])]) }
     func exchange(opcode: UInt8, body: Data) async throws -> Data {
         let bytes = [UInt8](body)
@@ -159,10 +182,14 @@ final class PDSHLinkTests: XCTestCase {
             return ack
         case 0x54:
             total = Int(bytes.u16(16)); let offset = Int(bytes.u16(18)); XCTAssertEqual(offset, upload.count)
-            upload.append(body.dropFirst(24)); uploads += 1
+            uploads += 1
+            if uploadStatus != 0 { return Data([uploadStatus]) }
+            upload.append(body.dropFirst(24))
             var ack = Data([0]); ack.put(UInt16(upload.count)); return ack
         case 0x55:
-            commits += 1; if dropCommit { throw BLEFailure("connection lost") }; return Data([0, 1])
+            commits += 1; if dropCommit { throw BLEFailure("connection lost") }
+            if commitStatus != 0 { return Data([commitStatus]) }
+            return Data([0, 1])
         case 0x56:
             queries += 1
             if missing { return Data([0, 0, 0, 0, 0, 0]) }

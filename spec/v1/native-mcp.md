@@ -93,7 +93,7 @@ unless requested.
 
 ## BLE tools (implemented on iOS)
 
-The existing authenticated native MCP endpoint may additionally expose `ble_devices`, `ble_read`, `ble_alert`, `ble_link_tools`, `ble_link_call` and `ble_link_result`. These are additive tool names; older servers do not advertise them. Device scans, connection and per-tool grants require user action. The Link call and result semantics, bounded frames, per-connection grants and side-effect journal rules are defined by [BLE Link](../device/v1/ble-link.md). An Immediate Alert write has no execution acknowledgement and is reported as submitted, never applied. Uncertain effects must not be automatically replayed. Android tools remain available on the same endpoint.
+The existing authenticated native MCP endpoint may additionally expose `ble_devices`, `ble_read`, `ble_alert`, `ble_link_tools`, `ble_link_call` and `ble_link_result`. These are additive tool names; older servers do not advertise them. Device scans and connection require user action; per-tool grants follow [BLE Link](../device/v1/ble-link.md) rule 6 (the iOS app trusts a board the user connected: its tools are allowed until the user revokes one). The Link call and result semantics, bounded frames, per-connection grants and side-effect journal rules are defined by [BLE Link](../device/v1/ble-link.md). An Immediate Alert write has no execution acknowledgement and is reported as submitted, never applied. Uncertain effects must not be automatically replayed. Android tools remain available on the same endpoint.
 
 Status: implemented by the iOS host (`Sources/PhoneDSHBLE/DeviceMCPServer.swift`), verified by
 `golden/native-mcp/ble-devices.json`, `BLEDeviceMCPTests` and `DeviceMCPNativeRegressionTests`; the

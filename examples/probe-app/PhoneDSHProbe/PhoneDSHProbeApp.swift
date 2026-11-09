@@ -67,6 +67,9 @@ struct PhoneDSHProbeApp: App {
                     BLEDeviceStore.shared.setDeviceTaskDiscoveryEnabled(true)
                     #endif
                     model.refreshLockdown()
+                    // The user's own boards: connected once means trusted, and they reconnect by themselves.
+                    BLEDeviceStore.shared.trustConnectedDevices = true
+                    BLEDeviceStore.shared.reconnectRemembered()
                     await ChatModel.shared.start()
                 }
                 #if DEBUG
