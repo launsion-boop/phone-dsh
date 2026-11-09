@@ -31,7 +31,7 @@ final class BotProductionHub: ObservableObject {
         for _ in 0..<40 {
             if let composition = chat.botRuntime {
                 do {
-                    try await install(composition: composition)
+                    try await install(composition: composition, chat: chat)
                 } catch {
                     self.error = "Bot 运行时读取失败：\(error.localizedDescription)"
                 }
@@ -55,7 +55,7 @@ final class BotProductionHub: ObservableObject {
         await connect(chat: chat)
     }
 
-    private func install(composition: BotRuntimeComposition) async throws {
+    private func install(composition: BotRuntimeComposition, chat: ChatModel) async throws {
         let environment = composition.environment
         let context = try await environment.context()
         let legacyName = try? await environment.legacyName()

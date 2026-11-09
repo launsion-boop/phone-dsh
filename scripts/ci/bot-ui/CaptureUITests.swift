@@ -34,6 +34,23 @@ final class BotCaptureUITests: XCTestCase {
         XCTAssertEqual(count, expected, "action log: \(actionLog)", file: file, line: line)
     }
 
+    /// Scrolls a lazy `List` until `element` exists and is tappable. The info
+    /// page shows 外观 above 数据, so 数据 rows start below the fold on the
+    /// capture device; reaching them by scrolling is part of the interaction,
+    /// not a relaxed assertion.
+    private func scrollTo(_ element: XCUIElement, maxSwipes: Int = 6) {
+        for _ in 0..<maxSwipes {
+            if element.exists && element.isHittable { break }
+            app.swipeUp()
+        }
+        XCTAssertTrue(element.waitForExistence(timeout: 3))
+    }
+
+    private func scrollToAndTap(_ element: XCUIElement, maxSwipes: Int = 6) {
+        scrollTo(element, maxSwipes: maxSwipes)
+        element.tap()
+    }
+
     func testQuestionAnswerLocksAndHasNoCustomInput() throws {
         launch("question")
         let option = app.buttons["bot.choice.option.library"]
@@ -89,7 +106,7 @@ final class BotCaptureUITests: XCTestCase {
         assertCount("chat", 2)
         app.buttons["bot.composer.stop"].tap()
         usleep(200_000)
-        assertCount("stop:fixture-chat-turn", 1)
+        assertCount("stop:fixture-turn", 1)
         XCTAssertFalse(app.buttons["bot.composer.stop"].exists)
     }
 
@@ -151,10 +168,11 @@ final class BotCaptureUITests: XCTestCase {
 
     func testInfoEmptyAndFailureAreDistinct() throws {
         launch("infoEmpty")
-        app.buttons["bot.info.memory"].tap()
+        scrollToAndTap(app.buttons["bot.info.memory"])
         XCTAssertTrue(app.staticTexts["还没有已保存的记忆。"].waitForExistence(timeout: 2))
 
         launch("infoError")
+        scrollTo(app.buttons["bot.info.memory"])
         XCTAssertTrue(app.staticTexts["读取失败"].waitForExistence(timeout: 3))
         app.buttons["bot.info.memory"].tap()
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "这不代表没有记忆")).firstMatch.waitForExistence(timeout: 2))

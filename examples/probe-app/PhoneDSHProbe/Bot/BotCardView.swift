@@ -180,7 +180,9 @@ private struct BotTaskCardView: View {
                             Spacer(minLength: 0)
                         }
                         .botCardMeta()
-                        .frame(minHeight: 32)
+                        // Keep the dense 13pt visual while meeting the 44pt
+                        // minimum touch target from bot-chat.md §2.
+                        .frame(minHeight: 44)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(BotCardRowButtonStyle())

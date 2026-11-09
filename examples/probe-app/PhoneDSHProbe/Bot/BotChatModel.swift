@@ -133,7 +133,7 @@ final class BotChatModel: ObservableObject {
     /// values the page and the fish renderer read.
     func attach(profileCenter: BotProfileCenter?) {
         profileCancellables.removeAll()
-        guard let center else { return }
+        guard let center = profileCenter else { return }
         appearance = center.appearance
         botName = center.displayName
         center.$appearance

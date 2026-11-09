@@ -22,6 +22,7 @@
     "model-purpose-policy.json",
     "row-projection.json",
     "row-protocol.json",
+    "row-protocol.phone.json",
     "tool-catalog.json",
     "tool-effects.json",
     "volatile-context.json",
