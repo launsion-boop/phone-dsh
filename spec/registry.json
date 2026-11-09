@@ -487,12 +487,15 @@
       "authority": [
         "spec/v1/gateway-security.md",
         "spec/v1/schema/gateway-vector.schema.json",
-        "spec/v1/golden/gateway"
+        "spec/v1/golden/gateway",
+        "spec/v1/tono-account.md",
+        "spec/v1/golden/tono-account"
       ],
       "ends": {
         "Swift": [
           "Sources/PhoneDSHGateway",
-          "Sources/PhoneDSHLoopback/{HTTPTransport,StreamingForward}.swift"
+          "Sources/PhoneDSHLoopback/{HTTPTransport,StreamingForward}.swift",
+          "Sources/PhoneDSH/TonoAccount"
         ],
         "TypeScript": [
           "plugins/llm-bridge",
@@ -516,6 +519,15 @@
         },
         {
           "glob": "spec/v1/gateway-independent-search.md"
+        },
+        {
+          "glob": "spec/v1/tono-account.md"
+        },
+        {
+          "glob": "spec/v1/golden/tono-account/**"
+        },
+        {
+          "glob": "Sources/PhoneDSH/TonoAccount/**"
         },
         {
           "glob": "spec/v1/schema/gateway-vector.schema.json"
@@ -568,13 +580,15 @@
       ],
       "evidence": [
         "android/net/src/test/kotlin/com/phonedsh/gateway/GatewayVectorConformanceTest.kt",
-        "Tests/PhoneDSHGatewayTests"
+        "Tests/PhoneDSHGatewayTests",
+        "Tests/PhoneDSHGatewayTests/TonoCloudResponsePolicyTests.swift",
+        "android/net/src/test/kotlin/com/phonedsh/account/TonoAccountCasesTest.kt"
       ],
       "source": {
-        "authority": "[v1/gateway-security.md](v1/gateway-security.md)、[native MCP](v1/native-mcp.md)、[official DeepSeek web tools](v1/gateway-official-web.md)、[independent Search/Fetch](v1/gateway-independent-search.md)、[gateway schema](v1/schema/gateway-vector.schema.json)、[golden/gateway](v1/golden/gateway)",
+        "authority": "[v1/gateway-security.md](v1/gateway-security.md)、[native MCP](v1/native-mcp.md)、[official DeepSeek web tools](v1/gateway-official-web.md)、[independent Search/Fetch](v1/gateway-independent-search.md)、[tono-account user credential](v1/tono-account.md)、[golden/tono-account](v1/golden/tono-account)、[gateway schema](v1/schema/gateway-vector.schema.json)、[golden/gateway](v1/golden/gateway)",
         "ends": "Swift [PhoneDSHGateway](../Sources/PhoneDSHGateway/)、Loopback HTTP（`HTTPTransport`、`StreamingForward`、`NativeMCP` 等；ChannelServer／WebSocket 屬 P01）；TS `plugins/llm-bridge`、`plugins/phone-mcp/src/{manager,schema}.ts`；Kotlin [android/net](../android/net/src/main/) ；HarmonyOS partial `harmony/entry/src/main/ets/host/HostHttpProxy.ets`, `harmony/entry/src/main/ets/host/HostModelAlias.ets`, `harmony/host-rust/src/http.rs`",
         "evidence": "Native MCP 有 Swift `PhoneDSHADBTests`；gateway vectors 只有 Kotlin `GatewayVectorConformanceTest` 讀取；Swift `Tests/PhoneDSHGatewayTests` 不讀",
-        "triggers": "`spec/v1/{gateway-security,native-mcp}.md`、`spec/v1/gateway-official-web.md`、`spec/v1/gateway-independent-search.md`、`spec/v1/schema/gateway-vector.schema.json`、`spec/v1/golden/{gateway,native-mcp}/**`、`spec/v1/tools/{native_mcp_check,test_native_mcp_check}.py`、`Sources/PhoneDSHGateway/**`、`Sources/PhoneDSHLoopback/{HTTPTransport,HTTPEgressFailure,StreamingForward,Loopback,Support,NativeMCP}.swift`、`Sources/PhoneDSHAgentCore/{Credentials,HTTPSupport,ProviderError}.swift`、`Sources/PhoneDSHADB/**`、`Sources/PhoneDSHBLE/DeviceMCPServer.swift`、`plugins/llm-bridge/src/**`、`plugins/phone-mcp/src/{manager,schema,protocol}.ts`、`plugins/worker-entry/src/model-route.ts`、`android/net/src/main/**` 、`harmony/entry/src/main/ets/host/HostHttpProxy.ets`、`harmony/entry/src/main/ets/host/HostModelAlias.ets`、`harmony/host-rust/src/http.rs`"
+        "triggers": "`spec/v1/{gateway-security,native-mcp}.md`、`spec/v1/gateway-official-web.md`、`spec/v1/gateway-independent-search.md`、`spec/v1/tono-account.md`、`spec/v1/golden/tono-account/**`、`Sources/PhoneDSH/TonoAccount/**`、`spec/v1/schema/gateway-vector.schema.json`、`spec/v1/golden/{gateway,native-mcp}/**`、`spec/v1/tools/{native_mcp_check,test_native_mcp_check}.py`、`Sources/PhoneDSHGateway/**`、`Sources/PhoneDSHLoopback/{HTTPTransport,HTTPEgressFailure,StreamingForward,Loopback,Support,NativeMCP}.swift`、`Sources/PhoneDSHAgentCore/{Credentials,HTTPSupport,ProviderError}.swift`、`Sources/PhoneDSHADB/**`、`Sources/PhoneDSHBLE/DeviceMCPServer.swift`、`plugins/llm-bridge/src/**`、`plugins/phone-mcp/src/{manager,schema,protocol}.ts`、`plugins/worker-entry/src/model-route.ts`、`android/net/src/main/**` 、`harmony/entry/src/main/ets/host/HostHttpProxy.ets`、`harmony/entry/src/main/ets/host/HostModelAlias.ets`、`harmony/host-rust/src/http.rs`"
       }
     },
     {
@@ -1263,18 +1277,23 @@
         "plugins/phone-mcp/src/schema.ts",
         "plugins/phone-model-config/src/model-config.ts",
         "harmony/entry/src/main/ets/host/HostPersistence.ets",
-        "spec/device/v1/legacy-identity-preferences.md"
+        "spec/device/v1/legacy-identity-preferences.md",
+        "spec/v1/tono-account.md"
       ],
       "ends": {
         "Swift": [
           "Sources/PhoneDSHLog/MaterializedInvariant.swift",
           "Sources/PhoneDSHScenario/ScenarioBudgets.swift",
           "Sources/PhoneDSH/Phone*Settings.swift",
+          "Sources/PhoneDSH/TonoAccount",
           "Sources/PhoneDSHBLE/BLEIdentity.swift"
         ],
         "HarmonyOS": [
           "harmony/entry/src/main/ets/host/HostPersistence.ets",
           "harmony/entry/src/main/ets/model/ProviderProfiles.ets"
+        ],
+        "Kotlin": [
+          "android/net/src/main/kotlin/com/phonedsh/account"
         ]
       },
       "triggers": [
@@ -1319,19 +1338,30 @@
         },
         {
           "glob": "harmony/entry/src/main/ets/model/ProviderProfiles.ets"
+        },
+        {
+          "glob": "spec/v1/tono-account.md"
+        },
+        {
+          "glob": "Sources/PhoneDSH/TonoAccount/**"
+        },
+        {
+          "glob": "android/net/src/main/kotlin/com/phonedsh/account/**"
         }
       ],
       "status": [
         "partial"
       ],
       "evidence": [
+        "Tests/PhoneDSHTests/TonoAccountSessionTests.swift",
+        "android/net/src/test/kotlin/com/phonedsh/account/TonoAccountSessionTest.kt",
         "Tests/PhoneDSHBLETests/BLEIdentityTests.swift"
       ],
       "source": {
-        "authority": "[legacy identity preferences](device/v1/legacy-identity-preferences.md)；`/dsh/home/capabilities.json`：`plugins/worker-entry/src/capabilities.ts`；`mcp.json`：`plugins/phone-mcp/src/schema.ts`（`MCP_CONFIG_VERSION`）；`PDSH_MODEL_PROVIDER_JSON`：`plugins/phone-model-config/src/model-config.ts` ；Harmony 私有设置 [HostPersistence.ets](../harmony/entry/src/main/ets/host/HostPersistence.ets)",
+        "authority": "[legacy identity preferences](device/v1/legacy-identity-preferences.md)；`/dsh/home/capabilities.json`：`plugins/worker-entry/src/capabilities.ts`；`mcp.json`：`plugins/phone-mcp/src/schema.ts`（`MCP_CONFIG_VERSION`）；`PDSH_MODEL_PROVIDER_JSON`：`plugins/phone-model-config/src/model-config.ts` ；Harmony 私有设置 [HostPersistence.ets](../harmony/entry/src/main/ets/host/HostPersistence.ets)；tono-account 会话记录：[v1/tono-account.md](v1/tono-account.md) §3",
         "ends": "Swift `MaterializedInvariant.swift`、`ScenarioBudgets.swift`、`Sources/PhoneDSH/Phone*Settings.swift`；未查得 Kotlin 讀寫這三種設定的對應端 ；HarmonyOS partial `harmony/entry/src/main/ets/host/HostPersistence.ets`, `harmony/entry/src/main/ets/model/ProviderProfiles.ets`",
         "evidence": "讀寫兩端、舊資料、降級一起評估；UserDefaults key 名也是協議",
-        "triggers": "`plugins/worker-entry/src/capabilities.ts`、`plugins/shell-ext/src/contract.ts`、`plugins/phone-mcp/src/schema.ts`、`plugins/phone-model-config/src/model-config.ts`、`Sources/PhoneDSH/Phone*Settings.swift`、`Sources/PhoneDSH{SSH,ADB}/**`、`Sources/PhoneDSHBLE/LinkToolJournal.swift`、`Sources/PhoneDSHBLE/BLEIdentity.swift`、`spec/device/v1/legacy-identity-preferences.md`、`Sources/PhoneDSHDeviceTasks/DeviceTaskJournal.swift`、`Sources/PhoneDSHLog/MaterializedInvariant.swift`、`Sources/PhoneDSHScenario/ScenarioBudgets.swift` 、`harmony/entry/src/main/ets/host/HostPersistence.ets`、`harmony/entry/src/main/ets/model/ProviderProfiles.ets`"
+        "triggers": "`plugins/worker-entry/src/capabilities.ts`、`plugins/shell-ext/src/contract.ts`、`plugins/phone-mcp/src/schema.ts`、`plugins/phone-model-config/src/model-config.ts`、`Sources/PhoneDSH/Phone*Settings.swift`、`Sources/PhoneDSH{SSH,ADB}/**`、`Sources/PhoneDSHBLE/LinkToolJournal.swift`、`Sources/PhoneDSHBLE/BLEIdentity.swift`、`spec/device/v1/legacy-identity-preferences.md`、`Sources/PhoneDSHDeviceTasks/DeviceTaskJournal.swift`、`Sources/PhoneDSHLog/MaterializedInvariant.swift`、`Sources/PhoneDSHScenario/ScenarioBudgets.swift` 、`harmony/entry/src/main/ets/host/HostPersistence.ets`、`harmony/entry/src/main/ets/model/ProviderProfiles.ets`、`spec/v1/tono-account.md`、`Sources/PhoneDSH/TonoAccount/**`、`android/net/src/main/kotlin/com/phonedsh/account/**`"
       }
     },
     {
