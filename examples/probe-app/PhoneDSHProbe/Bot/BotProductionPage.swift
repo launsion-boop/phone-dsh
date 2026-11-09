@@ -11,95 +11,203 @@ private struct BotInfoRequest: Identifiable {
 }
 
 // Production entry for the Bot conversation. ChatModel owns the single
-// BotRuntimeComposition (row service, info service, driver); this page only
-// presents them. A missing runtime is a visible error, never a fixture.
+// BotRuntimeComposition (shared MCP runtime, HTTP server and outbox); this hub
+// owns the selected-Bot page models and their per-Bot caches.
 
 @MainActor
-final class BotProductionHub: ObservableObject {
-    @Published private(set) var chatModel: BotChatModel?
-    @Published private(set) var infoModel: BotInfoModel?
-    @Published private(set) var profileCenter: BotProfileCenter?
-    @Published private(set) var error: String?
+@Observable
+final class BotProductionHub {
+    private(set) var roster: BotRosterModel?
+    private(set) var composition: BotRuntimeComposition?
+    private(set) var chatModels: [String: BotChatModel] = [:]
+    private(set) var infoModels: [String: BotInfoModel] = [:]
+    private(set) var profileCenters: [String: BotProfileCenter] = [:]
+    private(set) var selectedID: String?
+    var error: String?
+    private(set) var connecting = false
+    private var selectionWatch: Task<Void, Never>?
+    private var currentChat: ChatModel?
+    private var pendingDeepLink: URL?
 
-    private var connecting = false
+    var selectedBotID: String? { roster?.selectedBotID ?? selectedID }
+    var chatModel: BotChatModel? { selectedID.flatMap { chatModels[$0] } }
+    var infoModel: BotInfoModel? { selectedID.flatMap { infoModels[$0] } }
+    var selectedIsMainBot: Bool { roster?.selectedIsMainBot ?? false }
+    var entries: [BotRosterEntry] { roster?.entries ?? [] }
+    var visibleEntries: [BotRosterEntry] { roster?.visibleEntries ?? [] }
+    var mainBotID: String? { roster?.mainBotID }
+
+    func appearance(for botID: String) -> BotFishAppearance? {
+        roster?.appearance(for: botID)
+    }
 
     func connect(chat: ChatModel) async {
-        guard chatModel == nil, !connecting else { return }
+        guard composition == nil, !connecting else { return }
         connecting = true
         defer { connecting = false }
         error = nil
+        currentChat = chat
         for _ in 0..<40 {
             if let composition = chat.botRuntime {
-                do {
-                    try await install(composition: composition, chat: chat)
-                } catch {
-                    self.error = "Bot 运行时读取失败：\(error.localizedDescription)"
+                let roster = composition.rosterModel
+                self.composition = composition
+                self.roster = roster
+                composition.onBotDeleted = { [weak self] botID in
+                    self?.dropCaches(botID)
                 }
+                let initial = roster.selectedBotID
+                if let initial {
+                    do { try await select(initial) }
+                    catch { self.error = "Bot 运行时读取失败：\(error.localizedDescription)" }
+                }
+                startSelectionWatch()
                 return
             }
-            if !chat.isStarted {
-                await chat.start()
-            }
+            if !chat.isStarted { await chat.start() }
             try? await Task.sleep(nanoseconds: 250_000_000)
         }
         error = "Bot 运行时还没有准备好。请先启动引擎，然后重试。"
     }
 
     func retry(chat: ChatModel) async {
-        chatModel = nil
-        infoModel = nil
-        profileCenter = nil
+        stopSelectionWatch()
+        composition = nil
+        roster = nil
+        selectedID = nil
+        chatModels.removeAll()
+        infoModels.removeAll()
+        profileCenters.removeAll()
         error = nil
         connecting = false
         await chat.retryBotRuntime()
         await connect(chat: chat)
     }
 
-    private func install(composition: BotRuntimeComposition, chat: ChatModel) async throws {
-        let environment = composition.environment
-        let context = try await environment.context()
-        let legacyName = try? await environment.legacyName()
-        let profile = BotProfileCenter(
-            botID: environment.botID,
-            store: BotProfileStore(directory: Self.profileDirectory()),
-            legacyName: legacyName,
-            fallbackName: context.botName)
-        await profile.bootstrap()
-        try await composition.rows.start()
-        let driver = await composition.rows.chatDriver()
-        let model = BotChatModel(
-            context: BotRuntimeContext(botID: environment.botID, botName: context.botName),
-            driver: driver, profileCenter: profile)
-        if let initial = try? await driver.watch(0) {
-            model.apply(initial)
+    func select(_ botID: String) async throws {
+        guard let composition, let roster else { throw BotRuntimeError.unavailable }
+        guard roster.bots.contains(where: { $0.id == botID }) else {
+            throw BotTeamHostError.botNotFound(botID)
         }
+        if chatModels[botID] == nil {
+            try await installModels(botID: botID, composition: composition)
+        }
+        try await composition.select(botID)
+        selectedID = botID
+        error = nil
+    }
+
+    /// A link names a Bot explicitly. A legacy `main` link resolves through
+    /// the current main pointer; a link to a live Bot switches the page first.
+    func handleDeepLink(_ url: URL) -> Bool {
+        guard let roster, let link = BotDeepLink(url: url),
+              let target = BotMainPointerRouting.deepLinkBotID(link.botID, in: roster.roster) else {
+            return false
+        }
+        if target == selectedID, let model = chatModels[target] {
+            return model.openDeepLink(url)
+        }
+        pendingDeepLink = url
+        Task {
+            do { try await select(target) }
+            catch { self.error = "深链切换 Bot 失败：\(error.localizedDescription)" }
+            if let pending = pendingDeepLink {
+                pendingDeepLink = nil
+                _ = chatModels[target]?.openDeepLink(pending)
+            }
+        }
+        return true
+    }
+
+    func deleteBot(_ botID: String) async throws {
+        guard let composition else { throw BotRuntimeError.unavailable }
+        try await composition.deleteBot(botID)
+        dropCaches(botID)
+        if let next = composition.rosterModel.selectedBotID {
+            do { try await select(next) }
+            catch { self.error = "切换到剩余 Bot 失败：\(error.localizedDescription)" }
+        }
+    }
+
+    private func installModels(botID: String,
+                               composition: BotRuntimeComposition) async throws {
+        let roster = composition.rosterModel
+        let profile = roster.profile(for: botID)
+        let center = profileCenters[botID] ?? BotProfileCenter(
+            botID: botID, store: composition.profileStore,
+            legacyName: nil,
+            fallbackName: profile?.name ?? "大肥鱼")
+        await center.loadProfile()
+        let unit = try await composition.ensureUnit(for: botID)
+        try await unit.rows.start()
+        let driver = await unit.rows.chatDriver()
+        let context = try await unit.environment.context()
+        let model = BotChatModel(
+            context: BotRuntimeContext(botID: botID, botName: context.botName),
+            driver: driver, profileCenter: center)
+        if let initial = try? await driver.watch(0) { model.apply(initial) }
         await model.refreshPresentation()
-        if let transport = try? await chat.transportForManagement() {
-            let remote = composition.remote
+        if let chat = currentChat, let transport = try? await chat.transportForManagement() {
+            let remote = unit.remote
             model.attachmentImporter = BotWorkspaceAttachmentImporter(
                 transport: transport,
                 sessionID: { try await remote.ensureMainSessionID() })
         }
-        let info = await composition.info.infoDriver()
-        profileCenter = profile
-        chatModel = model
-        infoModel = BotInfoModel(driver: info, profileCenter: profile)
+        let infoDriver = await unit.info.infoDriver()
+        let info = BotInfoModel(driver: infoDriver, profileCenter: center)
+        if let profile {
+            model.setMainBot(profile.id == roster.mainBotID)
+            info.setMainBot(profile.id == roster.mainBotID)
+        }
+        profileCenters[botID] = center
+        chatModels[botID] = model
+        infoModels[botID] = info
+        roster.setRuntimeState(
+            BotRosterRuntimeState(fishState: model.fishState, activity: model.activity,
+                                  isRunning: model.runningTurnID != nil,
+                                  pendingApprovalCount: model.pendingApprovalCount,
+                                  runtimeState: composition.state),
+            for: botID)
     }
 
-    /// `Application Support/PhoneDSHBot` holds `agents-index.json` and
-    /// `runtime-settings.json`, next to the rest of the app's Bot data.
-    static func profileDirectory() -> URL {
-        let base = (try? FileManager.default.url(for: .applicationSupportDirectory,
-                                                 in: .userDomainMask,
-                                                 appropriateFor: nil, create: true))
-            ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-        return base.appendingPathComponent("PhoneDSHBot", isDirectory: true)
+    private func startSelectionWatch() {
+        guard selectionWatch == nil else { return }
+        selectionWatch = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                guard let self, let roster = self.roster else { return }
+                if let selected = roster.selectedBotID, selected != self.selectedID {
+                    if self.chatModels[selected] == nil {
+                        do { try await self.select(selected) }
+                        catch { self.error = "切换 Bot 失败：\(error.localizedDescription)" }
+                    } else {
+                        self.selectedID = selected
+                    }
+                }
+            }
+        }
     }
+
+    private func stopSelectionWatch() {
+        selectionWatch?.cancel()
+        selectionWatch = nil
+    }
+
+    private func dropCaches(_ botID: String) {
+        chatModels.removeValue(forKey: botID)
+        infoModels.removeValue(forKey: botID)
+        profileCenters.removeValue(forKey: botID)
+        if selectedID == botID { selectedID = nil }
+    }
+}
+
+enum BotRuntimeError: Error, LocalizedError {
+    case unavailable
+    var errorDescription: String? { "Bot 运行时还没有准备好。" }
 }
 
 struct BotProductionPage: View {
     @State private var chat = ChatModel.shared
-    @StateObject private var hub = BotProductionHub()
+    @State private var hub = BotProductionHub()
     @State private var infoRequest: BotInfoRequest?
     @State private var showDeviceConnections = false
     @State private var deviceCoordinator = DeviceSessionCoordinator.shared
@@ -110,11 +218,21 @@ struct BotProductionPage: View {
                 VStack(spacing: 0) {
                     runtimeBanner
                     BotChatPage(model: model,
+                                isMainBot: hub.selectedIsMainBot,
                                 onOpenInfo: { presentInfo(nil) },
                                 onOpenInfoSection: { presentInfo($0) },
+                                onSelectBot: { botID in
+                                    Task {
+                                        do { try await hub.select(botID) }
+                                        catch { report(error) }
+                                    }
+                                },
+                                peerAppearance: { hub.appearance(for: $0) },
                                 hasOnlineDevices: deviceCoordinator.hasOnlineDevices,
-                                onConnectDevice: { showDeviceConnections = true })
+                                onConnectDevice: { showDeviceConnections = true },
+                                handleExternalDeepLink: { hub.handleDeepLink($0) })
                 }
+                .id(model.context.botID)
                 .task { await model.watchLoop() }
                 .task { await model.liveLoop() }
                 .sheet(isPresented: $showDeviceConnections) {
@@ -136,8 +254,10 @@ struct BotProductionPage: View {
         }
         .background(HomeSpec.page)
         .sheet(item: $infoRequest) { request in
-            if let info = hub.infoModel {
-                BotInfoPage(model: info, initialSection: request.section)
+            if let info = hub.infoModel, let botID = hub.selectedBotID {
+                BotInfoPage(model: info, isMainBot: hub.selectedIsMainBot,
+                            initialSection: request.section,
+                            onDelete: { try await hub.deleteBot(botID) })
                     .homeSheetChrome()
             }
         }
@@ -148,6 +268,10 @@ struct BotProductionPage: View {
 
     private func presentInfo(_ section: BotInfoSection?) {
         infoRequest = BotInfoRequest(section: section)
+    }
+
+    private func report(_ error: Error) {
+        hub.error = error.localizedDescription
     }
 
     @ViewBuilder

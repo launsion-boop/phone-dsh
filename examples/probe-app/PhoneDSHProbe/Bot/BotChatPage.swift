@@ -14,6 +14,10 @@ struct BotChatPage: View {
     var hasOnlineDevices: Bool
     var onConnectDevice: () -> Void
     var externalDocumentAction: ((BotUIRow) -> Void)?
+    let isMainBot: Bool
+    let onSelectBot: (String) -> Void
+    let peerAppearance: (String) -> BotFishAppearance?
+    let handleExternalDeepLink: (URL) -> Bool
 
     @State private var draft = ""
     @State private var sourceRow: BotUIRow?
@@ -30,11 +34,15 @@ struct BotChatPage: View {
     @State private var showFiles = false
     @FocusState private var composerFocused: Bool
 
-    init(model: BotChatModel, cardActions: BotCardActions = BotCardActions(),
+    init(model: BotChatModel, isMainBot: Bool = false,
+         cardActions: BotCardActions = BotCardActions(),
          onOpenInfo: @escaping () -> Void = {},
          onOpenInfoSection: @escaping (BotInfoSection) -> Void = { _ in },
+         onSelectBot: @escaping (String) -> Void = { _ in },
+         peerAppearance: @escaping (String) -> BotFishAppearance? = { _ in nil },
          hasOnlineDevices: Bool = false,
          onConnectDevice: @escaping () -> Void = {},
+         handleExternalDeepLink: @escaping (URL) -> Bool = { _ in false },
          openDocument: ((BotUIRow) -> Void)? = nil,
          initialAttachments: [BotDraftAttachment] = [],
          initialAttachmentNotice: String? = nil) {
@@ -45,6 +53,10 @@ struct BotChatPage: View {
         self.hasOnlineDevices = hasOnlineDevices
         self.onConnectDevice = onConnectDevice
         self.externalDocumentAction = openDocument
+        self.isMainBot = isMainBot
+        self.onSelectBot = onSelectBot
+        self.peerAppearance = peerAppearance
+        self.handleExternalDeepLink = handleExternalDeepLink
         _pendingAttachments = State(initialValue: initialAttachments)
         _attachmentNotice = State(initialValue: initialAttachmentNotice)
     }
@@ -70,7 +82,11 @@ struct BotChatPage: View {
         } message: {
             Text(model.deepLinkError ?? "")
         }
-        .onOpenURL { _ = model.openDeepLink($0) }
+        .onOpenURL { url in
+            if !model.openDeepLink(url), handleExternalDeepLink(url) {
+                model.deepLinkError = nil
+            }
+        }
         .onAppear { model.noteInteraction() }
         .onChange(of: draft) { _, _ in model.noteInteraction() }
         .photosPicker(isPresented: $showPhotos, selection: $photoItems,
@@ -99,7 +115,8 @@ struct BotChatPage: View {
                 onOpenInfo()
             } label: {
                 HStack(spacing: 8) {
-                    BotFishView(state: model.fishState, size: 32, appearance: model.appearance)
+                    BotFishView(state: model.fishState, size: 32, appearance: model.appearance,
+                                crowned: isMainBot)
                     Text(model.botName)
                         .font(.system(size: 17, weight: .semibold))
                         .foregroundStyle(HomeSpec.textPrimary)
@@ -220,8 +237,7 @@ struct BotChatPage: View {
                                 }
                                 .id("process-\(turn)")
                             }
-                            BotTranscriptRow(row: row, model: model, actions: resolvedCardActions,
-                                             sourceRow: $sourceRow)
+                            transcriptRow(row)
                                 .id(row.id)
                         }
                         if let live = model.live {
@@ -272,7 +288,8 @@ struct BotChatPage: View {
 
     private var emptyState: some View {
         VStack(spacing: 12) {
-            BotFishView(state: model.fishState, size: 96, appearance: model.appearance, allowsPoke: true)
+            BotFishView(state: model.fishState, size: 96, appearance: model.appearance,
+                        crowned: isMainBot, allowsPoke: true)
             Text("嗨，我是 \(model.botName)")
                 .botFont(size: 15, lineHeight: 22, weight: .semibold, style: .body)
                 .foregroundStyle(HomeSpec.textPrimary)
@@ -619,6 +636,12 @@ struct BotChatPage: View {
         composerFocused = true
     }
 
+    private func transcriptRow(_ row: BotUIRow) -> some View {
+        BotTranscriptRow(row: row, model: model, actions: resolvedCardActions,
+                         sourceRow: $sourceRow, onSelectBot: onSelectBot,
+                         peerAppearance: peerAppearance)
+    }
+
     private func loadHistory(proxy: ScrollViewProxy) {
         guard !model.loadingHistory else { return }
         let anchor = model.visibleRows.first?.id
@@ -701,10 +724,18 @@ private struct BotTranscriptRow: View {
     @ObservedObject var model: BotChatModel
     let actions: BotCardActions
     @Binding var sourceRow: BotUIRow?
+    let onSelectBot: (String) -> Void
+    let peerAppearance: (String) -> BotFishAppearance?
 
     var body: some View {
         Group {
-            if row.body.type == "text" {
+            if let comm = BotAgentCommRendering.presentation(for: row) {
+                BotAgentCommRow(presentation: comm,
+                                appearance: comm.peerID.flatMap(peerAppearance),
+                                onSelectBot: onSelectBot)
+                    .padding(.horizontal, HomeSpec.contentInset)
+                    .padding(.vertical, HomeSpec.blockGap / 2)
+            } else if row.body.type == "text" {
                 BotTextRow(row: row)
             } else if let card = BotUICardContent.parse(row: row) {
                 BotCardView(row: row, card: card, model: model, actions: actions)
@@ -716,6 +747,68 @@ private struct BotTranscriptRow: View {
             Button("复制") { UIPasteboard.general.string = BotUIRendering.copyText(row) }
             Button("查看来源") { sourceRow = row }
         }
+    }
+}
+
+/// The minimal agent-comm line. Outbound/reply/inbound rows from
+/// `agent.comm` collapse into one readable sentence plus a small peer avatar;
+/// tapping the peer switches to that Bot. Full visuals are the sidebar wave.
+private struct BotAgentCommRow: View {
+    let presentation: BotAgentCommPresentation
+    let appearance: BotFishAppearance?
+    let onSelectBot: (String) -> Void
+
+    private var icon: String {
+        switch presentation.tone {
+        case .outbound: return "arrow.up.right"
+        case .inbound: return "arrow.down.left"
+        case .incoming: return "tray.and.arrow.down"
+        case .reply: return "arrowshape.turn.up.left"
+        case .failed: return "exclamationmark.triangle"
+        }
+    }
+
+    private var tint: Color {
+        presentation.tone == .failed ? BotUIPalette.danger : HomeSpec.textSecondary
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            if let appearance {
+                BotFishView(state: .idle, size: 28, appearance: appearance, still: true)
+            } else {
+                Image(systemName: "person.2")
+                    .font(.system(size: 12))
+                    .foregroundStyle(tint)
+                    .frame(width: 28, height: 28)
+                    .background(HomeSpec.userBubble, in: Circle())
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 5) {
+                    Image(systemName: icon)
+                        .font(.system(size: 11, weight: .medium))
+                    Text(presentation.text)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(HomeSpec.textPrimary)
+                        .lineLimit(1)
+                }
+                if let detail = presentation.detail {
+                    Text(detail)
+                        .font(.system(size: 13))
+                        .foregroundStyle(tint)
+                        .lineLimit(2)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if let id = presentation.peerID { onSelectBot(id) }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel([presentation.text, presentation.detail ?? ""].joined(separator: "，"))
+        .accessibilityIdentifier("bot.agent-comm.row")
     }
 }
 

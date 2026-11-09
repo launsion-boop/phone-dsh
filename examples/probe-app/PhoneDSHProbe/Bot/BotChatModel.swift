@@ -81,6 +81,9 @@ final class BotChatModel: ObservableObject {
     /// The profile name is authoritative once the profile index exists; before
     /// that it is the runtime context name (the last `renamed` event).
     @Published private(set) var botName: String
+    /// Mirrors the roster's main-Bot pointer for the crown on the header and
+    /// the empty state.
+    @Published private(set) var isMainBot = false
     /// Importing is an app-layer dependency: the fixture model leaves it nil and
     /// the production hub injects the real workspace importer.
     var attachmentImporter: (any BotAttachmentImporting)?
@@ -115,7 +118,7 @@ final class BotChatModel: ObservableObject {
     private var watching = false
     private var profileCancellables: Set<AnyCancellable> = []
 
-    init(rows: [BotUIRow] = [], context: BotRuntimeContext = BotRuntimeContext(),
+    init(rows: [BotUIRow] = [], context: BotRuntimeContext,
          driver: BotChatDriver? = nil, fixtureHistory: [BotUIRow] = [],
          fixtureActions: Bool = false, profileCenter: BotProfileCenter? = nil) {
         self.rows = rows.sorted { $0.seq < $1.seq }
@@ -127,6 +130,11 @@ final class BotChatModel: ObservableObject {
         self.hasMoreHistory = driver != nil || !fixtureHistory.isEmpty
         self.botName = context.botName
         attach(profileCenter: profileCenter)
+    }
+
+    func setMainBot(_ isMain: Bool) {
+        guard isMainBot != isMain else { return }
+        isMainBot = isMain
     }
 
     /// Mirrors the profile center's name and appearance into the published

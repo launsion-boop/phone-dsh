@@ -53,9 +53,12 @@ struct BotProductionContext: Equatable, Sendable {
 
 struct BotProductionRuntimeContext: Sendable {
     let botID: String
+    /// The profile name of this Bot. It is the fallback after the last
+    /// `renamed` system event, so a new Bot is not shown as the legacy name.
+    let fallbackName: String
 
     func current(domain: SQLiteDomainStore) async throws -> BotProductionContext {
-        let name = try await legacyName(domain: domain) ?? "大肥鱼"
+        let name = try await legacyName(domain: domain) ?? fallbackName
         return BotProductionContext(botID: botID, botName: name)
     }
 
@@ -100,14 +103,15 @@ actor BotProductionEnvironment {
          routineMachine: RoutineMachine, memory: BotMemory,
          planner: (any BotUserActionPlanning)? = nil,
          turnStopping: (any BotProductionTurnStopping)? = nil,
-         sessionLogURL: URL? = nil) {
+         sessionLogURL: URL? = nil,
+         fallbackName: String = "大肥鱼") {
         self.botID = botID
         self.sessionID = sessionID
         self.sessionLogURL = sessionLogURL
         self.domain = domain
         self.routineMachine = routineMachine
         self.memory = memory
-        self.runtimeContext = BotProductionRuntimeContext(botID: botID)
+        self.runtimeContext = BotProductionRuntimeContext(botID: botID, fallbackName: fallbackName)
         self.planner = planner ?? BotProductionUnavailablePlanner()
         self.turnStopping = turnStopping
     }
@@ -376,11 +380,17 @@ actor BotProductionInfoService {
         }
     }
 
+    /// Erases only this Bot's agent scope. The shared user scope is a separate
+    /// explicit action (`eraseSharedMemories`) so one Bot can never wipe the
+    /// facts every Bot shares.
     func eraseMemories() async throws {
-        let facts = try await environment.memory.facts(scope: nil)
-        for fact in facts {
-            _ = try await environment.memory.erase(factID: fact.factID)
-        }
+        _ = try await environment.memory.eraseAll(scope: .agent)
+    }
+
+    /// Erases the shared user scope for every Bot. Only called from the
+    /// information page's separate, doubly-confirmed shared-memory entry.
+    func eraseSharedMemories() async throws {
+        _ = try await environment.memory.eraseAll(scope: .user)
     }
 
     func setRoutineEnabled(_ routineID: String, enabled: Bool) async throws {

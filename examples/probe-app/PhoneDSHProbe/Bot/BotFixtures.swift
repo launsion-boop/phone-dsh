@@ -9,7 +9,7 @@ import SwiftUI
 enum BotUIFixtureCase: String, CaseIterable, Identifiable {
     case chat, question, steps, task, attachment, document, progress, checklist, link
     case approval, automation, error, denial, overflow, failClosed
-    case empty, runningThinking, runningTool
+    case empty, runningThinking, runningTool, agentComm
     case composerAttachments, infoAppearance
     case info, infoEmpty, infoError, infoLong
 
@@ -19,6 +19,12 @@ enum BotUIFixtureCase: String, CaseIterable, Identifiable {
         .question, .steps, .task, .attachment, .document, .progress,
         .checklist, .link, .approval, .automation, .error, .denial,
     ]
+}
+
+extension BotRuntimeContext {
+    /// Fixture rows carry the historical record id `main`; it is a concrete id
+    /// here, never a production routing default.
+    static let fixture = BotRuntimeContext(botID: "main", botName: "大肥鱼")
 }
 
 enum BotUIFixtures {
@@ -177,6 +183,35 @@ enum BotUIFixtures {
         case .runningThinking, .runningTool:
             return [BotUIRow.text(id: "\(fixture.rawValue)-user", seq: 1, role: "user",
                                   text: "帮我检查一下构建结果。")]
+        case .agentComm:
+            let outbound = BotUIRow.fixture(
+                id: "comm-outbound", seq: 2, kind: "sendMessage", role: "assistant",
+                body: BotUIBody(type: "text", values: [
+                    "text": "请把发布材料整理成一页。",
+                    "agentComm": .object([
+                        "direction": .string("outbound"),
+                        "targetId": .string("agent-peer"),
+                        "targetName": .string("小海"),
+                        "message": .string("请把发布材料整理成一页。"),
+                        "delivery": .string("now"),
+                    ]),
+                ]))
+            let inbound = BotUIRow.fixture(
+                id: "comm-inbound", seq: 3, kind: "message", role: "user",
+                body: BotUIBody(type: "text", values: [
+                    "text": "已整理好，附件在发布目录。",
+                    "agentComm": .object([
+                        "direction": .string("inbound"),
+                        "fromAgentId": .string("agent-peer"),
+                        "fromAgentName": .string("小海"),
+                        "replyText": .string("已整理好，附件在发布目录。"),
+                    ]),
+                ]))
+            return [
+                BotUIRow.text(id: "comm-user", seq: 1, role: "user",
+                              text: "让小海帮忙整理发布材料。"),
+                outbound, inbound,
+            ]
         case .chat:
             return [
                 BotUIRow.text(id: "chat-user", seq: 1, role: "user", text: "继续整理发布材料，有审批时先告诉我。"),
@@ -274,6 +309,7 @@ struct BotUIFixtureRootView: View {
         self.diagnostics = diagnostics
         let chat = BotChatModel(
             rows: BotUIFixtures.rows(for: fixture),
+            context: .fixture,
             fixtureHistory: fixture == .failClosed || fixture == .empty
                 ? [] : [BotUIRow.text(id: "older-fixture", seq: 0, role: "assistant", text: "更早的历史消息")],
             fixtureActions: true
@@ -307,7 +343,9 @@ struct BotUIFixtureRootView: View {
                 BotInfoPage(model: infoModel)
             default:
                 VStack(spacing: 0) {
-                    BotChatPage(model: chatModel, cardActions: cardActions,
+                    BotChatPage(model: chatModel,
+                                isMainBot: fixture == .chat || fixture == .empty,
+                                cardActions: cardActions,
                                 onOpenInfo: {
                                     infoSection = nil
                                     showInfo = true
@@ -316,6 +354,7 @@ struct BotUIFixtureRootView: View {
                                     infoSection = section
                                     showInfo = true
                                 },
+                                peerAppearance: { _ in .classic },
                                 initialAttachments: fixture == .composerAttachments
                                     ? BotUIFixtures.composerAttachments : [],
                                 initialAttachmentNotice: fixture == .composerAttachments
@@ -368,7 +407,7 @@ enum BotUIFixtureChecks {
         try checkRowProtocol(at: rowProtocolURL)
         passed.append("shared-row-protocol-decoding")
 
-        let model = BotChatModel(rows: BotUIFixtures.rows(for: .progress), fixtureActions: true)
+        let model = BotChatModel(rows: BotUIFixtures.rows(for: .progress), context: .fixture, fixtureActions: true)
         var updated = BotUIFixtures.rows(for: .progress)[1]
         updated.id = "progress-updated"
         updated.seq = 3
@@ -387,7 +426,7 @@ enum BotUIFixtureChecks {
                     "late stream survived cancellation")
         passed.append("stop-drops-late-output")
 
-        let streamModel = BotChatModel(fixtureActions: true)
+        let streamModel = BotChatModel(context: .fixture, fixtureActions: true)
         streamModel.beginTurn(turnID: "rate-check")
         for index in 0..<20 {
             streamModel.receiveStream(turnID: "rate-check", text: "delta-\(index)")
@@ -399,16 +438,137 @@ enum BotUIFixtureChecks {
         streamModel.stop()
         passed.append("stream-max-10hz-latest-wins")
 
-        let deepLinkModel = BotChatModel(rows: BotUIFixtures.rows(for: .question), fixtureActions: true)
+        let deepLinkModel = BotChatModel(rows: BotUIFixtures.rows(for: .question), context: .fixture, fixtureActions: true)
         let good = URL(string: "phonedsh://bot/main/row/card-question")!
         let bad = URL(string: "phonedsh://bot/main/row/missing")!
         try require(deepLinkModel.openDeepLink(good) && !deepLinkModel.openDeepLink(bad),
                     "deep link did not resolve exactly")
         passed.append("deep-link-exact-row")
 
-        let hidden = BotChatModel(rows: BotUIFixtures.rows(for: .failClosed), fixtureActions: true)
+        let hidden = BotChatModel(rows: BotUIFixtures.rows(for: .failClosed), context: .fixture, fixtureActions: true)
         try require(hidden.visibleRows.isEmpty, "P1/unknown/incomplete row rendered")
         passed.append("fail-closed-P1-unknown-incomplete")
+
+        // Main-Bot pointer routing: every legacy `main` default is gone.
+        let pointerRoster = BotRoster(bots: [
+            BotProfile(id: "main", name: "旧主 Bot"),
+            BotProfile(id: "agent-b", name: "新主 Bot"),
+        ], mainBotID: "agent-b")
+        try require(BotMainPointerRouting.restoredSelection("main", in: pointerRoster) == "main",
+                    "an existing record id must win over the pointer")
+        try require(BotMainPointerRouting.restoredSelection("missing", in: pointerRoster) == "agent-b",
+                    "dangling selection did not fall back to the main pointer")
+        try require(BotMainPointerRouting.deviceTaskRecipient(in: pointerRoster) == "agent-b",
+                    "device task result did not route to the main pointer")
+        try require(BotMainPointerRouting.defaultRoutineBotID(in: pointerRoster) == "agent-b",
+                    "default routine ownership did not use the main pointer")
+        let noLegacyMainRoster = BotRoster(bots: [
+            BotProfile(id: "agent-a", name: "A"),
+            BotProfile(id: "agent-b", name: "B"),
+        ], mainBotID: "agent-b")
+        try require(BotMainPointerRouting.deepLinkBotID("main", in: noLegacyMainRoster) == "agent-b",
+                    "legacy main deep link did not resolve through the pointer")
+        try require(BotMainPointerRouting.deepLinkBotID("agent-b", in: pointerRoster) == "agent-b",
+                    "existing deep link Bot did not resolve")
+        passed.append("main-pointer-routing")
+
+        // Unread: the selected Bot never bumps itself; the peer does.
+        let outboundRecord = BotTeamAgentCommRecord(
+            rowID: "agent-outbound-x", botID: "main", direction: .outbound,
+            role: "assistant", text: "hi",
+            toAgent: BotAgentRef(id: "agent-b", name: "B"),
+            threadID: "thread-x", requestID: "call-x")
+        try require(BotUnreadRules.recipient(for: outboundRecord) == "agent-b",
+                    "outbound unread recipient is not the target")
+        try require(BotUnreadRules.shouldIncrement(recipient: "agent-b", selectedBotID: "main"),
+                    "non-selected target did not get an unread bump")
+        try require(!BotUnreadRules.shouldIncrement(recipient: "agent-b", selectedBotID: "agent-b"),
+                    "selected target received an unread bump")
+        let inboundRecord = BotTeamAgentCommRecord(
+            rowID: "t1u", botID: "main", direction: .inbound, role: "user", text: "reply",
+            fromAgent: BotAgentRef(id: "agent-b", name: "B"),
+            threadID: "thread-x", requestID: "call-x")
+        try require(BotUnreadRules.recipient(for: inboundRecord) == "main",
+                    "inbound unread recipient is not the sender")
+        try require(BotUnreadRules.shouldIncrementForDelivery(to: "agent-b", selectedBotID: "main"),
+                    "non-selected routine/device delivery did not bump unread")
+        try require(!BotUnreadRules.shouldIncrementForDelivery(to: "main", selectedBotID: "main"),
+                    "selected routine/device delivery bumped unread")
+        passed.append("unread-rules")
+
+        // Team delivery now / busy / queued routing.
+        try require(BotTeamDeliveryPolicy.decide(delivery: "now", targetBusy: false) == .openVisibleTurn,
+                    "idle now delivery did not open a visible turn")
+        try require(BotTeamDeliveryPolicy.decide(delivery: "now", targetBusy: true) == .queueHeldAndWakeAfterBusy,
+                    "busy now delivery did not queue and wake")
+        try require(BotTeamDeliveryPolicy.decide(delivery: "queued", targetBusy: true) == .queueHeldOnly,
+                    "queued delivery woke the target")
+        try require(BotTeamDeliveryPolicy.decide(delivery: "queued", targetBusy: false) == .queueHeldOnly,
+                    "queued delivery opened a turn")
+        passed.append("team-delivery-now-busy-queued")
+
+        // Delete cascade order and rollback: the profile record is last, and a
+        // failure rolls back executed steps in reverse without deleting it.
+        var deletionLog: [String] = []
+        var rollbackLog: [String] = []
+        let deletionPlan = BotDeletionPlan(steps: [
+            BotDeletionStep(name: "abort-turns") {
+                deletionLog.append("abort-turns")
+            } rollback: {
+                rollbackLog.append("abort-turns")
+            },
+            BotDeletionStep(name: "revoke-auth") {
+                deletionLog.append("revoke-auth")
+            } rollback: {
+                rollbackLog.append("revoke-auth")
+            },
+            BotDeletionStep(name: "erase-memory") {
+                deletionLog.append("erase-memory")
+                throw BotUIFixtureCheckError.failed("memory unavailable")
+            },
+            BotDeletionStep(name: "delete-profile") { deletionLog.append("delete-profile") },
+        ])
+        do {
+            _ = try await deletionPlan.run()
+            try require(false, "failing delete plan reported success")
+        } catch let failure as BotDeletionFailure {
+            try require(failure.step == "erase-memory", "delete failure named the wrong step")
+            try require(failure.executed == ["abort-turns", "revoke-auth"],
+                        "delete failure executed list is wrong: \(failure.executed)")
+        }
+        try require(deletionLog == ["abort-turns", "revoke-auth", "erase-memory"],
+                    "delete cascade reached the profile record after a failure: \(deletionLog)")
+        try require(rollbackLog == ["revoke-auth", "abort-turns"],
+                    "delete rollback did not run in reverse: \(rollbackLog)")
+        var successfulLog: [String] = []
+        let successfulPlan = BotDeletionPlan(steps: BotDeletionPlan.orderedStepNames.map { name in
+            BotDeletionStep(name: name) { successfulLog.append(name) }
+        })
+        let completed = try await successfulPlan.run()
+        try require(completed == BotDeletionPlan.orderedStepNames,
+                    "delete cascade order differs from the contract")
+        try require(successfulLog.last == "teardown-caches",
+                    "caches were not torn down after the profile record")
+        passed.append("delete-cascade-order-rollback")
+
+        // Agent-comm row minimal rendering and peer switching metadata.
+        let commRow = BotUIRow.fixture(
+            id: "agent-outbound-render", seq: 2, kind: "sendMessage", role: "assistant",
+            body: BotUIBody(type: "text", values: [
+                "text": "帮我看一下这个",
+                "agentComm": .object([
+                    "direction": .string("outbound"),
+                    "targetId": .string("agent-b"),
+                    "targetName": .string("B"),
+                    "message": .string("帮我看一下这个"),
+                ]),
+            ]))
+        let presentation = BotAgentCommRendering.presentation(for: commRow)
+        try require(presentation?.text == "已传消息给 B", "agent-comm row text is wrong")
+        try require(presentation?.peerID == "agent-b", "agent-comm row lost the peer id")
+        try require(BotAgentCommRendering.summaryText(count: 3, peerName: "B").contains("3"),
+                    "agent-comm summary lost the message count")
+        passed.append("agent-comm-row-minimal-render")
 
         let attachmentOnly = BotUIRow.fixture(
             id: "attachment-only", kind: "sendMessage", role: "user",
