@@ -101,6 +101,31 @@ public actor BotMCPRuntime {
         return memory
     }
 
+    /// Erases every agent-scope fact owned by `botID` and drops its cached
+    /// memory authority. This is the deletion-cascade hook for the Bot roster:
+    /// the shared user scope and every other Bot's agent facts are untouched.
+    /// Tombstones are durable, so a later replay cannot resurrect the facts.
+    ///
+    /// - Returns: the erased count and ids. `count` is the remaining agent-scope
+    ///   fact count observed at the end of the erase.
+    @discardableResult
+    public func deleteBotMemory(for botID: String) async throws -> BotMemoryEraseScopeResult {
+        let result = try await memory(for: botID).eraseAll(scope: .agent)
+        _ = forgetMemory(for: botID)
+        return result
+    }
+
+    /// Drops the cached `BotMemory` authority for `botID` without touching
+    /// durable memory. A later ``memory(for:)`` builds a fresh authority from
+    /// the event log. Use ``deleteBotMemory(for:)`` when the Bot is deleted.
+    ///
+    /// The `memory` compatibility view is not invalidated; it keeps pointing at
+    /// the authority it was created with.
+    @discardableResult
+    public func forgetMemory(for botID: String) -> Bool {
+        memories.removeValue(forKey: botID) != nil
+    }
+
     /// Routes Task/AwaitTask/StopSubagent for one Bot. Detaching the `"main"`
     /// executor falls back to the unimplemented executor; another Bot never
     /// borrows it.
@@ -489,10 +514,21 @@ public actor BotMCPRuntime {
         let memory = memory(for: call.principal.botId)
         let limit = try optionalInt(args["limit"]) ?? 40
         guard (1...50).contains(limit) else { throw BotMCPError.invalidRequest("RecallMemory limit must be 1…50") }
-        let scope = string(args["scope"]) ?? "all"
-        guard ["agent", "user", "all"].contains(scope) else { throw BotMCPError.invalidRequest("invalid memory scope") }
-        var hits = try await memory.recall(string(args["query"]) ?? "", limit: limit)
-        if scope != "all" { hits = hits.filter { $0.scope.rawValue == scope } }
+        let requestedScope = string(args["scope"]) ?? "all"
+        guard ["agent", "user", "all"].contains(requestedScope) else {
+            throw BotMCPError.invalidRequest("invalid memory scope")
+        }
+        // An explicit scope searches only that store with the full limit, as
+        // upstream dshAgent.cjs does. Filtering the merged top-N afterwards
+        // could return fewer hits than that scope actually has.
+        let recallScope: BotMemoryScope?
+        switch requestedScope {
+        case "agent": recallScope = .agent
+        case "user": recallScope = .user
+        default: recallScope = nil
+        }
+        let hits = try await memory.recall(
+            string(args["query"]) ?? "", limit: limit, scope: recallScope)
         return .success(.object([
             "ok": .bool(true), "facts": .array(try hits.map { try encode($0) }), "count": .number(Double(hits.count)),
         ]))
