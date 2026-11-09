@@ -9,6 +9,7 @@ import PhoneDSHBot
 struct BotActivityLine: View {
     let activity: BotActivity
     let fishState: BotFishLifecycle
+    var appearance: BotFishAppearance = .classic
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var index = 0
@@ -29,7 +30,7 @@ struct BotActivityLine: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            BotFishView(state: fishState, size: 20)
+            BotFishView(state: fishState, size: 20, appearance: appearance)
                 .accessibilityHidden(true)
             BotActivityShimmerText(text: text)
         }
