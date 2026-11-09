@@ -273,8 +273,8 @@ start_app && tap "打开抽屉" && tap "文件"
 expect "files page" "手机工作区"
 expect_any "files page" "还没有文件" "等待引擎连接…"
 
-say "entry: 抽屉「定时任务」 → NativeAutomationPage"
-start_app && tap "打开抽屉" && tap "定时任务"
+say "entry: 设置 › 定时任务 → NativeAutomationPage"
+start_app && open_settings && tap "定时任务"
 expect "automation page" "定时任务"
 expect "automation page" "定时任务状态未知"
 
