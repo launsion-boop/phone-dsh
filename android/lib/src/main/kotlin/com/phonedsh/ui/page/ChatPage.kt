@@ -52,6 +52,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -253,8 +254,6 @@ public fun ChatPage(
     onOpenSessions: () -> Unit,
     modifier: Modifier = Modifier,
     title: String = "",
-    /** Host-resolved session folder; null means the default folder. */
-    folderSubtitle: String? = null,
     onGoalPause: (() -> Unit)? = null,
     onGoalResume: (() -> Unit)? = null,
     onGoalClear: (() -> Unit)? = null,
@@ -395,7 +394,6 @@ public fun ChatPage(
     ) {
         ChatHeader(
             title = headerTitle,
-            folderSubtitle = folderSubtitle ?: UiStrings.DRAWER_DEFAULT_FOLDER,
             onOpenSessions = onOpenSessions,
             onStartRename = { renaming = true },
             onOpenRunStatus = onOpenRunStatus,
@@ -662,7 +660,6 @@ private fun RenameSessionOverlay(
 @Composable
 private fun ChatHeader(
     title: String,
-    folderSubtitle: String,
     onOpenSessions: () -> Unit,
     onStartRename: () -> Unit,
     onOpenRunStatus: () -> Unit,
@@ -704,9 +701,9 @@ private fun ChatHeader(
                 .testTag(UiPageTags.CHAT_HEADER_DRAWER),
         )
         Column(
-            modifier = Modifier.weight(1f).padding(horizontal = HomeMetrics.chromeInset)
+            modifier = Modifier.weight(1f).fillMaxHeight().padding(horizontal = HomeMetrics.chromeInset)
                 .clickable(enabled = title.isNotEmpty(), role = Role.Button) { onStartRename() }
-                .semantics { contentDescription = "$title, $folderSubtitle" }
+                .semantics { contentDescription = title }
                 .testTag(UiPageTags.CHAT_HEADER_TITLE),
             verticalArrangement = Arrangement.Center,
         ) {
@@ -716,15 +713,6 @@ private fun ChatHeader(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(ChatMetrics.HOME_HEADER_FOLDER_GAP_PT.dp)) {
-                PdshIconView(icon = PdshIcon.FOLDER, size = ChatMetrics.HOME_HEADER_FOLDER_ICON_PT.dp, tint = tokens.colors.textSubtle, contentDescription = null)
-                BasicText(
-                    text = folderSubtitle,
-                    style = type.navSubtitle.copy(color = tokens.colors.textSubtle),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
         }
         Row(
             modifier = Modifier.size(width = HomeMetrics.navPillWidth, height = HomeMetrics.navButton)
@@ -3796,7 +3784,6 @@ internal object ChatPageTokens {
         UiTokenNames.COLORS_TEXT_PLACEHOLDER,
         UiTokenNames.COLORS_TEXT_PRIMARY,
         UiTokenNames.COLORS_TEXT_SECONDARY,
-        UiTokenNames.COLORS_TEXT_SUBTLE,
         UiTokenNames.COLORS_WARNING,
         UiTokenNames.GEOMETRY_BANNER_GAP,
         UiTokenNames.GEOMETRY_BANNER_INSET_H,

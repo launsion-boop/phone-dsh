@@ -217,7 +217,7 @@ Parity is asserted on **two different object graphs**，混用两者就是端口
 | `colors.textPrimary` | `#1A1A1A` | `#F2F2F2` | 主文字 |
 | `colors.textSecondary` | `#555555` | `#B8B8BD` | 过程行/次要文字 |
 | `colors.textTertiary` | `#717171` | `#9C9CA2` | 列表卡步骤行 |
-| `colors.textSubtle` | `#7D7D7D` | `#8E8E93` | 导航副标题 |
+| `colors.textSubtle` | `#7D7D7D` | `#8E8E93` | 导航/页面副标题 |
 | `colors.textPlaceholder` | `#888888` | `#7C7C82` | 时间戳/占位值 |
 | `colors.inputPlaceholder` | `#8B8B8B` | `#7C7C82` | 输入占位 |
 | `colors.iconMuted` | `#A9A9A9` | `#6C6C70` | 禁用图标 |
@@ -275,7 +275,7 @@ PR22 home 也没有 Tab 栏，按未测处理。
 
 | 配对 | 类 | 实测（light / dark） | owner | reviewBy | 为什么低于 AA |
 |---|---|---|---|---|---|
-| `textSubtle/page` | 文本 | **3.84** / 5.83 | iOS UI owner | 2027-03-31 | 导航副标题 14.5pt，PR22 原值 |
+| `textSubtle/page` | 文本 | **3.84** / 5.83 | iOS UI owner | 2027-03-31 | 页面/抽屉辅助文字 14.5pt，PR22 原值 |
 | `textPlaceholder/surface` | 文本 | **3.54** / **4.10** | iOS UI owner | 2027-03-31 | 时间戳/占位值，两种外观都低于 4.5 |
 | `inputPlaceholder/surface` | 文本 | **3.41** / **4.10** | iOS UI owner | 2027-03-31 | composer 占位文字，PR22 原值 |
 | `iconMuted/userBubble` | 非文本 | **1.92** / **2.67** | iOS UI owner | 2027-03-31 | 禁用发送图标，未达 3.0 |
