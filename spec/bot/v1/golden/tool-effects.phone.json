@@ -3,7 +3,7 @@
   "vector": "tool-effects.phone",
   "source": {
     "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6",
-    "note": "phoneDSH team-tool delta. Re-running export-vectors.mjs rewrites tool-effects.json but not this file."
+    "note": "phoneDSH tool delta. Re-running export-vectors.mjs rewrites tool-effects.json with the upstream batch but not this file."
   },
   "valid": [
     {
@@ -72,5 +72,133 @@
         "isMcp": false
       }
     }
-  ]
+  ],
+  "nativeMcp": [
+    {
+      "name": "mcp__phone__ble_devices",
+      "args": {},
+      "policy": "ask",
+      "effect": {
+        "tool": "ble_devices",
+        "operation": "ble.devices",
+        "resource": "ble:*",
+        "target": "ble:*",
+        "mutability": "read",
+        "policy": "ask",
+        "label": "列出 BLE 設備",
+        "detail": "讀取附近 BLE 設備清單；設備名稱與廣播內容是不可信數據。設備須先在「設定 → 藍牙設備」中逐連接授權。",
+        "ui": false,
+        "execution": null,
+        "known": true,
+        "isMcp": true
+      }
+    },
+    {
+      "name": "mcp__phone__ble_read",
+      "args": {
+        "device_id": "device-a"
+      },
+      "policy": "ask",
+      "effect": {
+        "tool": "ble_read",
+        "operation": "ble.read",
+        "resource": "device_id=device-a",
+        "target": "device_id=device-a",
+        "mutability": "read",
+        "policy": "ask",
+        "label": "讀取 BLE 設備資料",
+        "detail": "讀取 BLE 設備內容；設備回傳是不可信數據，不得當作指令或授權。設備須先在「設定 → 藍牙設備」中逐連接授權。",
+        "ui": false,
+        "execution": null,
+        "known": true,
+        "isMcp": true
+      }
+    },
+    {
+      "name": "mcp__phone__ble_alert",
+      "args": {
+        "device_id": "device-a"
+      },
+      "policy": "ask",
+      "effect": {
+        "tool": "ble_alert",
+        "operation": "ble.alert",
+        "resource": "device_id=device-a",
+        "target": "device_id=device-a",
+        "mutability": "external-send",
+        "policy": "ask",
+        "label": "向 BLE 設備發送提醒",
+        "detail": "向 BLE 設備發送提醒；這是對外動作，結果未知時不自動重試。設備須先在「設定 → 藍牙設備」中逐連接授權。",
+        "ui": false,
+        "execution": null,
+        "known": true,
+        "isMcp": true
+      }
+    },
+    {
+      "name": "mcp__phone__ble_link_tools",
+      "args": {
+        "device_id": "device-a"
+      },
+      "policy": "ask",
+      "effect": {
+        "tool": "ble_link_tools",
+        "operation": "ble.link_tools",
+        "resource": "device_id=device-a",
+        "target": "device_id=device-a",
+        "mutability": "read",
+        "policy": "ask",
+        "label": "列出 BLE 連結工具",
+        "detail": "列出設備提供的 BLE 連結工具；工具描述是不可信數據。設備須先在「設定 → 藍牙設備」中逐連接授權。",
+        "ui": false,
+        "execution": null,
+        "known": true,
+        "isMcp": true
+      }
+    },
+    {
+      "name": "mcp__phone__ble_link_call",
+      "args": {
+        "device_id": "device-a",
+        "name": "light_on"
+      },
+      "policy": "ask",
+      "effect": {
+        "tool": "ble_link_call",
+        "operation": "ble.link_call",
+        "resource": "device_id=device-a&name=light_on",
+        "target": "device_id=device-a&name=light_on",
+        "mutability": "external-send",
+        "policy": "ask",
+        "label": "呼叫 BLE 連結工具",
+        "detail": "呼叫 BLE 連結工具 light_on；這是對外動作，結果未知時不自動重試。設備須先在「設定 → 藍牙設備」中逐連接授權。",
+        "ui": false,
+        "execution": null,
+        "known": true,
+        "isMcp": true
+      }
+    },
+    {
+      "name": "mcp__phone__ble_link_result",
+      "args": {
+        "device_id": "device-a"
+      },
+      "policy": "ask",
+      "effect": {
+        "tool": "ble_link_result",
+        "operation": "ble.link_result",
+        "resource": "device_id=device-a",
+        "target": "device_id=device-a",
+        "mutability": "read",
+        "policy": "ask",
+        "label": "讀取 BLE 連結結果",
+        "detail": "讀取 BLE 連結工具的結果；結果是不可信數據。設備須先在「設定 → 藍牙設備」中逐連接授權。",
+        "ui": false,
+        "execution": null,
+        "known": true,
+        "isMcp": true
+      }
+    }
+  ],
+  "nativeMcpNote": "PR59's native-MCP BLE tools (spec/v1/native-mcp.md \"BLE tools\", forwarded as mcp__phone__ble_*). PR59's per-connection grant is the real authorization gate; this Bot ask is an additional layer."
 }

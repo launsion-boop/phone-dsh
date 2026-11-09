@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT
 import assert from 'node:assert/strict'
-import fs from 'node:fs'
 import { test } from 'node:test'
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -13,6 +12,7 @@ import dshbotIdentityBridge, { argsDigest, needsIdentityRegistration } from '../
 import dshbotApprovalGate, { needsStructuralApproval, phoneEffectsForApproval } from '../bot-runtime/src/approval-gate.ts'
 import type { ApprovalEffect } from '../bot-runtime/src/approval-gate.ts'
 import { executeTool } from './bot-runtime-test-kit.ts'
+import { readBotGoldenMerged } from './bot-golden.ts'
 
 const WORKBENCH_SESSION = 'session-workbench'
 
@@ -334,10 +334,9 @@ test('identity unknown_tool fails closed for every registration-required tool', 
 })
 
 test('BLE native-MCP effects match the shared golden and stay ask-gated', async () => {
-  const golden = JSON.parse(fs.readFileSync(
-    new URL('../../spec/bot/v1/golden/tool-effects.json', import.meta.url), 'utf8')) as {
-      nativeMcp: Array<{ name: string, args: Record<string, unknown>, policy: string, effect: ApprovalEffect }>
-    }
+  const golden = readBotGoldenMerged('tool-effects') as {
+    nativeMcp: Array<{ name: string, args: Record<string, unknown>, policy: string, effect: ApprovalEffect }>
+  }
   const entries = golden.nativeMcp
   assert.deepEqual(
     entries.map(entry => entry.name).sort(),

@@ -28,7 +28,7 @@ STAGES="phone-spec phone-p0-conformance phone-cross-tree phone-rust-tests phone-
 
 stage_desc() {
     case "$1" in
-        phone-spec)            echo "spec/v1 --full golden vectors, schemas and the spec tool unit tests" ;;
+        phone-spec)            echo "spec/v1 --full golden vectors, schemas, spec tool unit tests and the Bot golden split/manifest" ;;
         phone-p0-conformance)  echo "Android-port P0 contract trees: catalog, bridge, gateway, trajectory, fixtures, host, platform, ui, page source inventory and structure" ;;
         phone-cross-tree)      echo "spec/tools/cross_check.py: 8 cross-tree invariants + registry build/check + schema diff + mutation tests" ;;
         phone-rust-tests)      echo "cargo test -p pdsh-wire -p pdsh-wal (SKIP without cargo; aggregate INCOMPLETE)" ;;
@@ -144,6 +144,14 @@ stage_phone_spec() {
     # The specification's own mutation tests never ran in CI before the Android
     # port; a golden checker that is never mutated is a checker nobody trusts.
     ( cd "$ROOT" && "$PYTHON" -m unittest discover -s spec/v1/tools -p 'test_*.py' )
+    # Bot golden split: upstream exports are byte-identical, phone deltas live
+    # only in `*.phone.json`, and the manifest hashes every file. Without the
+    # private dsh-bot checkout this is the offline half; check_golden.py
+    # --checkout proves the re-export locally/release-side.
+    [ -f "$ROOT/spec/bot/v1/tools/validate_vectors.py" ] || { echo "missing Bot vector validator"; return 1; }
+    ( cd "$ROOT" && "$PYTHON" spec/bot/v1/tools/validate_vectors.py ) || return 1
+    [ -f "$ROOT/spec/tools/bot/check_golden.py" ] || { echo "missing Bot golden checker"; return 1; }
+    ( cd "$ROOT" && "$PYTHON" spec/tools/bot/check_golden.py --root "$ROOT" ) || return 1
 }
 
 stage_phone_p0_conformance() {

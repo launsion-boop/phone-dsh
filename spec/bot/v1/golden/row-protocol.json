@@ -66,39 +66,8 @@
     "result": {
       "status": "accepted",
       "eventID": "evt-2"
-    },
-    "cardAnswer": {
-      "nonce": "nonce-card-answer",
-      "botID": "main",
-      "kind": "cardAnswer",
-      "cardID": "card-1",
-      "optionID": "o1"
     }
   },
-  "invalidActions": [
-    {
-      "action": {
-        "nonce": "nonce-card-answer-text",
-        "botID": "main",
-        "kind": "cardAnswer",
-        "cardID": "card-1",
-        "optionID": "o1",
-        "text": "自由回答只能走普通 chat"
-      },
-      "reason": "card_answer_text_forbidden"
-    },
-    {
-      "action": {
-        "nonce": "nonce-card-answer-custom",
-        "botID": "main",
-        "kind": "cardAnswer",
-        "cardID": "card-1",
-        "optionID": "o1",
-        "customText": "已删除的 target 字段"
-      },
-      "reason": "card_answer_custom_text_forbidden"
-    }
-  ],
   "invalid": [
     {
       "nonce": "nonce-1",
