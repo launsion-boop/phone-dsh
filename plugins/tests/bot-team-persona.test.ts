@@ -16,6 +16,11 @@ test('both personas expose the team tools and describe the multi-Bot boundary', 
     assert.ok(result.persona.includes('delivery'))
     assert.match(result.persona, /main Bot|主 Bot/)
     assert.match(result.persona, /Team sharing|Team 共享/)
+    assert.match(result.persona, /<teammates>/)
+    assert.match(result.persona, /agent-comm/)
+    assert.match(result.persona, /permission error|权限错误/)
+    assert.match(result.persona, /queued/)
+    assert.match(result.persona, /now/)
     assert.doesNotMatch(result.persona, /no computer-use, cloud-agent, team, cross-machine/i)
     assert.doesNotMatch(result.persona, /没有电脑操作、云端代理、团队、跨机器/)
   }
