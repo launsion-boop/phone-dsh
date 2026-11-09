@@ -307,7 +307,8 @@ final class BotFishEngine {
 
     func advance(at date: Date, state: BotFishLifecycle, still: Bool, reduced: Bool,
                  size: CGFloat, displayScale: CGFloat,
-                 appearance: BotFishAppearance = .classic) -> UIImage? {
+                 appearance: BotFishAppearance = .classic,
+                 crowned: Bool = false) -> UIImage? {
         configure(state: state, still: still, reduced: reduced)
         let timestamp = date.timeIntervalSinceReferenceDate
         let delta = lastTimestamp.map { min(100, max(0, (timestamp - $0) * 1000)) } ?? 0
@@ -315,7 +316,7 @@ final class BotFishEngine {
         let params = machine.step(delta)
         currentImage = renderer.render(params, time: machine.time,
                                        size: size, displayScale: displayScale,
-                                       appearance: appearance)
+                                       appearance: appearance, crowned: crowned)
         hasRendered = true
         return currentImage
     }

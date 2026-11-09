@@ -5,6 +5,7 @@
 //
 //     BotFishView(state: BotFishLifecycle, size: CGFloat,
 //                 appearance: BotFishAppearance = .classic,
+//                 crowned: Bool = false,
 //                 still: Bool = false, allowsPoke: Bool = false)
 
 import SwiftUI
@@ -15,6 +16,7 @@ struct BotFishView: View {
     let state: BotFishLifecycle
     let size: CGFloat
     let appearance: BotFishAppearance
+    let crowned: Bool
     let still: Bool
     let allowsPoke: Bool
 
@@ -30,10 +32,12 @@ struct BotFishView: View {
 
     init(state: BotFishLifecycle, size: CGFloat,
          appearance: BotFishAppearance = .classic,
+         crowned: Bool = false,
          still: Bool = false, allowsPoke: Bool = false) {
         self.state = state
         self.size = size
         self.appearance = appearance
+        self.crowned = crowned
         self.still = still
         self.allowsPoke = allowsPoke
     }
@@ -59,13 +63,13 @@ struct BotFishView: View {
             let image = engine.advance(at: timeline.date, state: state,
                                        still: still, reduced: reduceMotion,
                                        size: side, displayScale: displayScale,
-                                       appearance: appearance)
+                                       appearance: appearance, crowned: crowned)
             layers(image)
         }
         // A paused `TimelineView` keeps its last content; changing identity on
         // a frozen input forces exactly one new frame (still / reduced motion /
-        // a new lifecycle state or Bot appearance while paused).
-        .id("\(state.rawValue)-\(appearance.color.rawValue)-\(appearance.hairstyle.rawValue)-\(still)-\(reduceMotion)")
+        // a new lifecycle state, Bot appearance or crown setting while paused).
+        .id("\(state.rawValue)-\(appearance.color.rawValue)-\(appearance.hairstyle.rawValue)-\(crowned)-\(still)-\(reduceMotion)")
         .frame(width: side, height: side)
         .onAppear {
             isVisible = true
@@ -121,7 +125,8 @@ struct BotFishView: View {
         if let image {
             Canvas { context, canvasSize in
                 // The renderer already rasterises only the 416px circle crop
-                // at this view's display scale, so the canvas draws 1:1.
+                // (448px when crowned) at this view's display scale, so the
+                // canvas draws 1:1.
                 context.clip(to: Path(ellipseIn: CGRect(origin: .zero, size: canvasSize)))
                 context.draw(Image(uiImage: image),
                              in: CGRect(origin: .zero, size: canvasSize))

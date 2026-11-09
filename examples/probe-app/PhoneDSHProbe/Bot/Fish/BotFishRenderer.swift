@@ -18,9 +18,24 @@ final class BotFishRenderer {
                                    blue: 45.0 / 255.0, alpha: 1)
 
     /// Upstream circle framing (`avatar.js`): the normal avatar shows the
-    /// 416px square at (48, 30) out of the 512px source canvas.
+    /// 416px square at (48, 30) out of the 512px source canvas. A crowned
+    /// avatar widens the crop to 448px at (32, 10) so the crown keeps its top
+    /// clearance instead of being clipped by the normal circle.
     static let cropOrigin = CGPoint(x: 48, y: 30)
     static let cropSide: CGFloat = 416
+    static let crownedCropOrigin = CGPoint(x: 32, y: 10)
+    static let crownedCropSide: CGFloat = 448
+
+    private struct Crop {
+        let origin: CGPoint
+        let side: CGFloat
+    }
+
+    private static func crop(crowned: Bool) -> Crop {
+        crowned
+            ? Crop(origin: crownedCropOrigin, side: crownedCropSide)
+            : Crop(origin: cropOrigin, side: cropSide)
+    }
 
     /// The 32pt header avatar is too small for the upstream motion amplitudes
     /// to read. Boost translation/roll 2.2× at 40pt and below, keep the
@@ -33,6 +48,7 @@ final class BotFishRenderer {
     private static let motionBoostMaxRoll: Double = 9
 
     private let assets: BotFishAssets?
+    private let crownStyle: BotFishCrownStyle
     private var palette = BotFishPalette.blue
 
     private var pixelSide = 0
@@ -44,31 +60,37 @@ final class BotFishRenderer {
     private var hairLayers: BotFishHairLayers?
     private var renderedColor: BotFishColor?
     private var renderedHairstyle: BotFishHairstyle?
+    private var renderedCrowned: Bool?
 
-    init() {
+    init(crownStyle: BotFishCrownStyle = .gold) {
+        self.crownStyle = crownStyle
         assets = BotFishAssets.shared
     }
 
     func render(_ params: BotFishParams, time: Double, size: CGFloat,
                 displayScale: CGFloat,
-                appearance: BotFishAppearance = .classic) -> UIImage? {
+                appearance: BotFishAppearance = .classic,
+                crowned: Bool = false) -> UIImage? {
         guard let assets, !assets.eyeCels.isEmpty, !assets.mouthCels.isEmpty else { return nil }
         let scale = max(1, displayScale)
         let target = max(1, Int(ceil(Double(max(1, size) * scale))))
         guard ensureContexts(target), let flatContext else { return nil }
         if bodyLayer == nil || renderedColor != appearance.color
-            || renderedHairstyle != appearance.hairstyle {
+            || renderedHairstyle != appearance.hairstyle
+            || renderedCrowned != crowned {
             let nextPalette = BotFishPalette(color: appearance.color)
-            guard let layers = assets.layers(for: appearance.hairstyle),
+            guard let layers = assets.layers(for: appearance.hairstyle, crowned: crowned),
                   let body = assets.bodyLayer(hairstyle: appearance.hairstyle,
                                               palette: nextPalette,
-                                              pixelSide: CGFloat(target))
+                                              pixelSide: CGFloat(target),
+                                              crowned: crowned)
             else { return nil }
             palette = nextPalette
             hairLayers = layers
             bodyLayer = body
             renderedColor = appearance.color
             renderedHairstyle = appearance.hairstyle
+            renderedCrowned = crowned
         }
         guard bodyLayer != nil else { return nil }
 
@@ -84,17 +106,21 @@ final class BotFishRenderer {
                                        -Self.motionBoostMaxRoll, Self.motionBoostMaxRoll)
         }
 
+        let crop = Self.crop(crowned: crowned)
         let headMotion = abs(p.headX) + abs(p.headY) + abs(p.hairSway) + abs(p.earFlutter)
         if headMotion >= 0.001, let stageContext {
             guard renderFlat(into: stageContext, assets: assets, p: p, time: time,
-                             pixelSide: target) else { return nil }
+                             pixelSide: target, crop: crop, crowned: crowned,
+                             displaySize: size) else { return nil }
             guard let stage = stageContext.makeImage() else { return nil }
-            guard renderMotion(stage: stage, into: flatContext, p: p, pixelSide: target) else {
+            guard renderMotion(stage: stage, into: flatContext, p: p, pixelSide: target,
+                               crop: crop) else {
                 return nil
             }
         } else {
             guard renderFlat(into: flatContext, assets: assets, p: p, time: time,
-                             pixelSide: target) else { return nil }
+                             pixelSide: target, crop: crop, crowned: crowned,
+                             displaySize: size) else { return nil }
         }
         guard let image = flatContext.makeImage() else { return nil }
         return UIImage(cgImage: image, scale: scale, orientation: .up)
@@ -185,17 +211,19 @@ final class BotFishRenderer {
     }
 
     private func renderFlat(into cg: CGContext, assets: BotFishAssets, p: BotFishParams,
-                            time: Double, pixelSide target: Int) -> Bool {
+                            time: Double, pixelSide target: Int, crop: Crop,
+                            crowned: Bool, displaySize: CGFloat) -> Bool {
         guard let body = bodyLayer, let hairLayers else { return false }
         let alpha = CGFloat(BotFishMath.clamp(p.alpha, 0, 1))
-        let pixelScale = CGFloat(target) / Self.cropSide
+        let pixelScale = CGFloat(target) / crop.side
         resetCTM(cg)
         cg.clear(fullPixelRect)
         cg.saveGState()
-        // Source space stays 512px; the canvas is the 416px circle crop, so a
-        // 32pt avatar rasterises only the pixels it can actually display.
+        // Source space stays 512px; the canvas is the 416px (or 448px when
+        // crowned) circle crop, so a 32pt avatar rasterises only the pixels it
+        // can actually display.
         cg.scaleBy(x: pixelScale, y: pixelScale)
-        cg.translateBy(x: -Self.cropOrigin.x, y: -Self.cropOrigin.y)
+        cg.translateBy(x: -crop.origin.x, y: -crop.origin.y)
         cg.setAlpha(alpha)
         cg.translateBy(x: 256 + CGFloat(p.x), y: 350 + CGFloat(p.y))
         cg.rotate(by: CGFloat(p.roll * Double.pi / 180))
@@ -218,7 +246,7 @@ final class BotFishRenderer {
         // Brows are composited at base transform after the transformed pass so
         // `resetCTM` never has to pop a nested save (which would restore the
         // source-space transform instead of the base snapshot).
-        let brows = p.eyeArt == nil ? browImage(p: p) : nil
+        let brows = p.eyeArt == nil ? browImage(p: p, crop: crop) : nil
         paintMouthCrossfade(cg, assets: assets, p: p, baseAlpha: Double(alpha))
 
         if p.tears > 0.01 {
@@ -229,6 +257,12 @@ final class BotFishRenderer {
         paintFin(cg, side: 1, amount: p.finR, wave: -p.finWave, fold: p.finFold,
                  baseAlpha: Double(alpha))
         paintDecorations(cg, p: p, time: time, baseAlpha: Double(alpha))
+        // Upstream paints the crown at the end of the flat layer, inside the
+        // body transform and above the decorations. `renderMotion` then slices
+        // this composite, so the crown follows head translation and sway.
+        if crowned {
+            paintCrown(cg, assets: assets, displaySize: displaySize)
+        }
         cg.restoreGState()
         if let brows {
             cg.saveGState()
@@ -244,17 +278,18 @@ final class BotFishRenderer {
     /// height and drawn into the reused output context instead of first
     /// rendering a 512×512 bitmap and scaling that.
     private func renderMotion(stage: CGImage, into cg: CGContext, p: BotFishParams,
-                              pixelSide target: Int) -> Bool {
-        let pixelScale = CGFloat(target) / Self.cropSide
+                              pixelSide target: Int, crop: Crop) -> Bool {
+        let pixelScale = CGFloat(target) / crop.side
         resetCTM(cg)
         cg.setAlpha(1)
         cg.clear(fullPixelRect)
         var y = 0.0
         while y < Double(Self.size) {
             let nextY = min(Double(Self.size), y + 8)
-            // The stage starts at source y=30 (the circle crop), not at zero.
-            let yPixel = (CGFloat(y) - Self.cropOrigin.y) * pixelScale
-            let nextPixel = (CGFloat(nextY) - Self.cropOrigin.y) * pixelScale
+            // The stage starts at the selected crop top (30 for the normal
+            // circle, 10 when the crown needs the extra headroom).
+            let yPixel = (CGFloat(y) - crop.origin.y) * pixelScale
+            let nextPixel = (CGFloat(nextY) - crop.origin.y) * pixelScale
             // Snap both edges of every slice to whole output pixels. Adjacent
             // slices round the same shared boundary the same way, so the clips
             // tile exactly: no fractional clip edge leaves an antialiased
@@ -433,16 +468,16 @@ final class BotFishRenderer {
     /// in base (target-pixel) space. `renderFlat` composites it after dropping
     /// the source-space transform so a nested save never sits above the base
     /// snapshot that `resetCTM` restores.
-    private func browImage(p: BotFishParams) -> CGImage? {
+    private func browImage(p: BotFishParams, crop: Crop) -> CGImage? {
         guard abs(p.browL) + abs(p.browR) + p.anger + p.sorrow >= 0.02,
               let b = browContext, let hairLayers else { return nil }
-        let pixelScale = CGFloat(pixelSide) / BotFishRenderer.cropSide
+        let pixelScale = CGFloat(pixelSide) / crop.side
         resetCTM(b)
         b.setAlpha(1)
         b.clear(fullPixelRect)
         b.saveGState()
         b.scaleBy(x: pixelScale, y: pixelScale)
-        b.translateBy(x: -BotFishRenderer.cropOrigin.x, y: -BotFishRenderer.cropOrigin.y)
+        b.translateBy(x: -crop.origin.x, y: -crop.origin.y)
         design(b)
         b.setStrokeColor(UIColor(red: 52.0 / 255.0, green: 37.0 / 255.0,
                                  blue: 58.0 / 255.0, alpha: 0.58).cgColor)
@@ -463,7 +498,7 @@ final class BotFishRenderer {
         b.setBlendMode(.destinationIn)
         b.saveGState()
         b.scaleBy(x: pixelScale, y: pixelScale)
-        b.translateBy(x: -BotFishRenderer.cropOrigin.x, y: -BotFishRenderer.cropOrigin.y)
+        b.translateBy(x: -crop.origin.x, y: -crop.origin.y)
         drawUpright(hairLayers.faceMask,
                     in: CGRect(x: 0, y: 0, width: BotFishRenderer.size,
                                height: BotFishRenderer.size),
@@ -787,6 +822,34 @@ final class BotFishRenderer {
             break
         }
         cg.setAlpha(CGFloat(baseAlpha))
+        cg.restoreGState()
+    }
+
+    // MARK: - Crown
+
+    /// Upstream `paint.js` crown pass. The display size picks the same
+    /// box/baseline buckets as the web renderer (≤40pt: 250/138, ≤64pt:
+    /// 244/134, otherwise 240/132). `drawUpright` is mandatory here: the
+    /// bitmap context is flipped, and `UIImage.draw(in:)` would reset the
+    /// context alpha/shadow state.
+    private func paintCrown(_ cg: CGContext, assets: BotFishAssets, displaySize: CGFloat) {
+        guard let crown = assets.crown(for: crownStyle) else { return }
+        let small = displaySize <= 40
+        let medium = displaySize <= 64
+        let box: CGFloat = small ? 250 : (medium ? 244 : 240)
+        let baseline: CGFloat = small ? 138 : (medium ? 134 : 132)
+        cg.saveGState()
+        cg.translateBy(x: 256, y: baseline)
+        // The bitmap context is flipped to a top-left origin, so Core Graphics'
+        // offset is in that flipped user space. Upstream's canvas +1y shadow
+        // is -1 here; +1 would cast the shadow above the crown.
+        cg.setShadow(offset: CGSize(width: 0, height: -1), blur: 2,
+                     color: UIColor(red: 27.0 / 255.0, green: 31.0 / 255.0,
+                                    blue: 55.0 / 255.0, alpha: 0.24).cgColor)
+        drawUpright(crown,
+                    in: CGRect(x: -box / 2, y: -box * 404 / 512,
+                               width: box, height: box),
+                    on: cg)
         cg.restoreGState()
     }
 
