@@ -76,6 +76,14 @@ final class BotChatModel: ObservableObject {
     @Published private(set) var actionLog: [String] = []
     @Published var runtimeNotice: String?
     @Published var deepLinkError: String?
+    /// The current Bot's profile appearance, mirrored from `BotProfileCenter`.
+    @Published private(set) var appearance: BotFishAppearance = .classic
+    /// The profile name is authoritative once the profile index exists; before
+    /// that it is the runtime context name (the last `renamed` event).
+    @Published private(set) var botName: String
+    /// Importing is an app-layer dependency: the fixture model leaves it nil and
+    /// the production hub injects the real workspace importer.
+    var attachmentImporter: (any BotAttachmentImporting)?
     @Published var scrollRequestID: String?
     @Published private(set) var loadingHistory = false
     @Published private(set) var hasMoreHistory = false
@@ -105,10 +113,11 @@ final class BotChatModel: ObservableObject {
     private let historyPageSize = 50
     private var watchCursor = 0
     private var watching = false
+    private var profileCancellables: Set<AnyCancellable> = []
 
     init(rows: [BotUIRow] = [], context: BotRuntimeContext = BotRuntimeContext(),
          driver: BotChatDriver? = nil, fixtureHistory: [BotUIRow] = [],
-         fixtureActions: Bool = false) {
+         fixtureActions: Bool = false, profileCenter: BotProfileCenter? = nil) {
         self.rows = rows.sorted { $0.seq < $1.seq }
         self.context = context
         self.driver = driver
@@ -116,6 +125,27 @@ final class BotChatModel: ObservableObject {
         self.fixtureHistory = fixtureHistory
         self.fixtureHistoryCursor = fixtureHistory.first?.id
         self.hasMoreHistory = driver != nil || !fixtureHistory.isEmpty
+        self.botName = context.botName
+        attach(profileCenter: profileCenter)
+    }
+
+    /// Mirrors the profile center's name and appearance into the published
+    /// values the page and the fish renderer read.
+    func attach(profileCenter: BotProfileCenter?) {
+        profileCancellables.removeAll()
+        guard let center else { return }
+        appearance = center.appearance
+        botName = center.displayName
+        center.$appearance
+            .sink { [weak self] value in
+                Task { @MainActor [weak self] in self?.appearance = value }
+            }
+            .store(in: &profileCancellables)
+        center.$displayName
+            .sink { [weak self] value in
+                Task { @MainActor [weak self] in self?.botName = value }
+            }
+            .store(in: &profileCancellables)
     }
 
     var visibleRows: [BotUIRow] {
@@ -222,21 +252,69 @@ final class BotChatModel: ObservableObject {
 
     func isActionPending(_ key: String) -> Bool { actionStates[key] == .pending }
 
-    func send(text: String) {
+    func send(text: String, files: [URL] = []) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty || !files.isEmpty else { return }
         noteInteraction()
         let nonce = UUID().uuidString
-        let action = BotUIUserAction.chat(nonce: nonce, botID: context.botID, text: trimmed)
         let localID = "local-\(nonce)"
-        let local = BotUIRow.text(id: localID, botID: context.botID,
-                                  seq: (rows.map(\.seq).max() ?? 0) + 1,
-                                  role: "user", text: trimmed, eventID: "local:\(nonce)")
+        let messageID = "att-\(Int(Date().timeIntervalSince1970 * 1_000))-\(nonce.prefix(8).lowercased())"
+        let drafted = files.compactMap { BotUIAttachment.local(url: $0) }
+        var values: [String: BotJSONValue] = ["text": .string(trimmed)]
+        if !drafted.isEmpty {
+            values["attachments"] = .array(drafted.map(\.jsonValue))
+        }
+        var local = BotUIRow.fixture(id: localID, botID: context.botID,
+                                     seq: (rows.map(\.seq).max() ?? 0) + 1,
+                                     kind: "sendMessage", role: "user",
+                                     body: BotUIBody(type: "text", values: values),
+                                     eventID: "local:\(nonce)")
+        local.provenance.trust = "owner_direct"
         rows.append(local)
+        if files.isEmpty, driver == nil, fixtureActions, runningTurnID == nil {
+            beginTurn(turnID: "fixture-turn")
+        }
+        Task {
+            await importAndSend(text: trimmed, files: files, messageID: messageID,
+                                nonce: nonce, localID: localID)
+        }
+    }
+
+    /// Imports the picked files into this Bot's DSH workspace, then sends one
+    /// `chat` action with the readable paths. A failed file is skipped with a
+    /// notice; it never blocks the other files or the text.
+    private func importAndSend(text: String, files: [URL], messageID: String,
+                               nonce: String, localID: String) async {
+        var imported: [BotAttachment] = []
+        var notices: [String] = []
+        if !files.isEmpty {
+            if let attachmentImporter {
+                let result = await attachmentImporter.importFiles(
+                    botID: context.botID, messageID: messageID, files: files)
+                imported = result.items
+                notices = result.errors.map { "附件「\($0.name)」未附加：\($0.reason)" }
+            } else {
+                notices = files.map {
+                    "附件「\($0.lastPathComponent)」未附加：附件导入未连接"
+                }
+            }
+        }
+        if !notices.isEmpty { runtimeNotice = notices.joined(separator: "\n") }
+        if !imported.isEmpty, let index = rows.firstIndex(where: { $0.id == localID }) {
+            rows[index].body.values["attachments"] = .array(imported.map { BotUIAttachment($0).jsonValue })
+        } else if let index = rows.firstIndex(where: { $0.id == localID }) {
+            rows[index].body.values.removeValue(forKey: "attachments")
+        }
+        guard !text.isEmpty || !imported.isEmpty else {
+            rows.removeAll { $0.id == localID }
+            return
+        }
         if driver == nil && fixtureActions && runningTurnID == nil {
             beginTurn(turnID: "fixture-turn")
         }
-        Task { await perform(action, key: "chat:\(localID)", localRowID: localID) }
+        let action = BotUIUserAction.chat(nonce: nonce, botID: context.botID, text: text,
+                                          attachments: imported.isEmpty ? nil : imported)
+        await perform(action, key: "chat:\(localID)", localRowID: localID)
     }
 
     func answer(row: BotUIRow, optionID: String) {

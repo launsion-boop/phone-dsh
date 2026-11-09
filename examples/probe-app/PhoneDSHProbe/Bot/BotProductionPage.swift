@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT
 
+import Foundation
+import PhoneDSHBot
 import ProbeKit
 import SwiftUI
 
@@ -16,6 +18,7 @@ private struct BotInfoRequest: Identifiable {
 final class BotProductionHub: ObservableObject {
     @Published private(set) var chatModel: BotChatModel?
     @Published private(set) var infoModel: BotInfoModel?
+    @Published private(set) var profileCenter: BotProfileCenter?
     @Published private(set) var error: String?
 
     private var connecting = false
@@ -45,6 +48,7 @@ final class BotProductionHub: ObservableObject {
     func retry(chat: ChatModel) async {
         chatModel = nil
         infoModel = nil
+        profileCenter = nil
         error = nil
         connecting = false
         await chat.retryBotRuntime()
@@ -54,18 +58,42 @@ final class BotProductionHub: ObservableObject {
     private func install(composition: BotRuntimeComposition) async throws {
         let environment = composition.environment
         let context = try await environment.context()
+        let legacyName = try? await environment.legacyName()
+        let profile = BotProfileCenter(
+            botID: environment.botID,
+            store: BotProfileStore(directory: Self.profileDirectory()),
+            legacyName: legacyName,
+            fallbackName: context.botName)
+        await profile.bootstrap()
         try await composition.rows.start()
         let driver = await composition.rows.chatDriver()
         let model = BotChatModel(
             context: BotRuntimeContext(botID: environment.botID, botName: context.botName),
-            driver: driver)
+            driver: driver, profileCenter: profile)
         if let initial = try? await driver.watch(0) {
             model.apply(initial)
         }
         await model.refreshPresentation()
+        if let transport = try? await chat.transportForManagement() {
+            let remote = composition.remote
+            model.attachmentImporter = BotWorkspaceAttachmentImporter(
+                transport: transport,
+                sessionID: { try await remote.ensureMainSessionID() })
+        }
         let info = await composition.info.infoDriver()
+        profileCenter = profile
         chatModel = model
-        infoModel = BotInfoModel(driver: info)
+        infoModel = BotInfoModel(driver: info, profileCenter: profile)
+    }
+
+    /// `Application Support/PhoneDSHBot` holds `agents-index.json` and
+    /// `runtime-settings.json`, next to the rest of the app's Bot data.
+    static func profileDirectory() -> URL {
+        let base = (try? FileManager.default.url(for: .applicationSupportDirectory,
+                                                 in: .userDomainMask,
+                                                 appropriateFor: nil, create: true))
+            ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        return base.appendingPathComponent("PhoneDSHBot", isDirectory: true)
     }
 }
 

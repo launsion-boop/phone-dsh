@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import PhoneDSH
 import PhoneDSHAgentCore
 import PhoneDSHBot
+import PhoneDSHEngine
+import UniformTypeIdentifiers
 #if canImport(ProbeKit)
 import ProbeKit
 #endif
@@ -52,7 +55,14 @@ struct BotProductionRuntimeContext: Sendable {
     let botID: String
 
     func current(domain: SQLiteDomainStore) async throws -> BotProductionContext {
-        var name = "大肥鱼"
+        let name = try await legacyName(domain: domain) ?? "大肥鱼"
+        return BotProductionContext(botID: botID, botName: name)
+    }
+
+    /// The name from the last `renamed` system event, or nil when the Bot was
+    /// never renamed. Bootstrap uses this to decide `name_explicit`.
+    func legacyName(domain: SQLiteDomainStore) async throws -> String? {
+        var name: String?
         for event in try await BotProductionEventReader.all(domain: domain) {
             guard event.type == "ui.system_event", event.principal.botId == botID,
                   botProductionString(event.data["event"]) == "renamed",
@@ -60,7 +70,7 @@ struct BotProductionRuntimeContext: Sendable {
                     .trimmingCharacters(in: .whitespacesAndNewlines), !candidate.isEmpty else { continue }
             name = candidate
         }
-        return BotProductionContext(botID: botID, botName: name)
+        return name
     }
 }
 
@@ -113,6 +123,10 @@ actor BotProductionEnvironment {
 
     func context() async throws -> BotProductionContext {
         try await runtimeContext.current(domain: domain)
+    }
+
+    func legacyName() async throws -> String? {
+        try await runtimeContext.legacyName(domain: domain)
     }
 
     func currentPlanner() -> any BotUserActionPlanning { planner }
@@ -405,5 +419,130 @@ struct BotProductionInfoDriver {
 
     static func production(environment: BotProductionEnvironment) -> BotProductionInfoDriver {
         production(service: BotProductionInfoService(environment: environment))
+    }
+}
+
+/// Imports the composer's picked files into the Bot's DSH workspace through
+/// the Worker's `phone/import*` service — the same path the DSH page uses for
+/// a verbatim workspace file, because the Bot's file tools run in that
+/// workspace. The concrete transport and the Bot's live session id are
+/// injected, so a future per-Bot workspace root (or a library importer) is a
+/// wiring change, not a second path implementation here.
+///
+/// Limits are enforced before the upload: at most 10 files, each <= 25 MiB.
+/// A refused or failed file is reported by name and skipped; the successful
+/// subset and the text still send.
+final class BotWorkspaceAttachmentImporter: BotAttachmentImporting, @unchecked Sendable {
+    private let transport: any DSHRemoteTransport
+    private let sessionID: @Sendable () async throws -> String
+    /// VFS directory the import service receives. It must already exist; this
+    /// round always uses the Bot session's workspace root.
+    private let workspaceDirectory: String
+
+    init(transport: any DSHRemoteTransport,
+         sessionID: @escaping @Sendable () async throws -> String,
+         workspaceDirectory: String = "/dsh/workspace") {
+        self.transport = transport
+        self.sessionID = sessionID
+        self.workspaceDirectory = workspaceDirectory
+    }
+
+    func importFiles(botID: String, messageID: String, files: [URL]) async -> BotAttachmentImportResult {
+        guard !files.isEmpty else { return BotAttachmentImportResult(items: [], errors: []) }
+
+        var errors: [(name: String, reason: String)] = []
+        let accepted = Array(files.prefix(BotAttachmentPolicy.maxCount))
+        for extra in files.dropFirst(BotAttachmentPolicy.maxCount) {
+            errors.append((name: extra.lastPathComponent,
+                           reason: "每条消息最多 \(BotAttachmentPolicy.maxCount) 个附件。"))
+        }
+
+        var prepared: [(safeName: String, data: Data, mimeType: String)] = []
+        var usedNames: Set<String> = []
+        for url in accepted {
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            let name = url.lastPathComponent.isEmpty ? "file" : url.lastPathComponent
+            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+            guard size > 0 else {
+                errors.append((name: name, reason: "文件为空或无法读取。"))
+                continue
+            }
+            guard Int64(size) <= BotAttachmentPolicy.maxBytes else {
+                errors.append((name: name, reason: "文件超过 25 MiB。"))
+                continue
+            }
+            guard let data = try? Data(contentsOf: url, options: .mappedIfSafe), !data.isEmpty else {
+                errors.append((name: name, reason: "文件为空或无法读取。"))
+                continue
+            }
+            let safeName = Self.uniqueName(BotAttachmentPolicy.safeName(name), used: &usedNames)
+            let mimeType = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType
+                ?? "application/octet-stream"
+            prepared.append((safeName, data, mimeType))
+        }
+
+        guard !prepared.isEmpty else { return BotAttachmentImportResult(items: [], errors: errors) }
+        let session: String
+        do {
+            session = try await sessionID()
+        } catch {
+            let reason = "Bot 会话尚未就绪：\(error.localizedDescription)"
+            errors.append(contentsOf: prepared.map { (name: $0.safeName, reason: reason) })
+            return BotAttachmentImportResult(items: [], errors: errors)
+        }
+
+        let manifest = WebEngineDirectoryImportManifest(
+            sessionID: session,
+            targetDirectory: workspaceDirectory,
+            entryName: "attachments-\(messageID)",
+            directories: [],
+            files: prepared.map { WebEngineDirectoryImportFile(path: $0.safeName, size: $0.data.count) },
+            totalBytes: prepared.reduce(0) { $0 + $1.data.count })
+        let sink = PhoneDSHWorkspaceImportSink(transport: transport)
+        var importID: String?
+        do {
+            let started = try await sink.begin(manifest)
+            importID = started
+            let chunk = 1024 * 1024
+            for file in prepared {
+                var offset = 0
+                while offset < file.data.count {
+                    let end = min(offset + chunk, file.data.count)
+                    try await sink.write(importID: started, path: file.safeName,
+                                         offset: offset, data: file.data.subdata(in: offset..<end))
+                    offset = end
+                }
+            }
+            let result = try await sink.commit(importID: started)
+            let items = prepared.map { file in
+                BotAttachment(
+                    name: file.safeName,
+                    path: "\(result.absolutePath)/\(file.safeName)",
+                    size: Int64(file.data.count),
+                    mimeType: file.mimeType,
+                    kind: BotAttachmentPolicy.kind(name: file.safeName, mimeType: file.mimeType))
+            }
+            return BotAttachmentImportResult(items: items, errors: errors)
+        } catch {
+            if let importID { await sink.abort(importID: importID) }
+            errors.append(contentsOf: prepared.map {
+                (name: $0.safeName, reason: "写入工作区失败：\(error.localizedDescription)")
+            })
+            return BotAttachmentImportResult(items: [], errors: errors)
+        }
+    }
+
+    private static func uniqueName(_ name: String, used: inout Set<String>) -> String {
+        var candidate = name
+        var index = 1
+        let ext = (name as NSString).pathExtension
+        let base = (name as NSString).deletingPathExtension
+        while used.contains(candidate) {
+            candidate = ext.isEmpty ? "\(base) (\(index))" : "\(base) (\(index)).\(ext)"
+            index += 1
+        }
+        used.insert(candidate)
+        return candidate
     }
 }

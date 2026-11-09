@@ -119,8 +119,9 @@ private extension BotJSONValue {
 extension BotUserAction {
     init(_ action: BotUIUserAction) {
         switch action {
-        case .chat(let nonce, let botID, let text):
-            self.init(nonce: nonce, botID: botID, kind: .chat, text: text)
+        case .chat(let nonce, let botID, let text, let attachments):
+            self.init(nonce: nonce, botID: botID, kind: .chat, text: text,
+                      attachments: attachments)
         case .cardAnswer(let nonce, let botID, let cardID, let optionID):
             self.init(nonce: nonce, botID: botID, kind: .cardAnswer,
                       cardID: cardID, optionID: optionID)

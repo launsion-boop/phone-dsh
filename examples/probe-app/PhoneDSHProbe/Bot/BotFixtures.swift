@@ -3,12 +3,14 @@
 #if DEBUG
 import Foundation
 import PhoneDSHAgentCore
+import PhoneDSHBot
 import SwiftUI
 
 enum BotUIFixtureCase: String, CaseIterable, Identifiable {
     case chat, question, steps, task, attachment, document, progress, checklist, link
     case approval, automation, error, denial, overflow, failClosed
     case empty, runningThinking, runningTool
+    case composerAttachments, infoAppearance
     case info, infoEmpty, infoError, infoLong
 
     var id: String { rawValue }
@@ -180,10 +182,46 @@ enum BotUIFixtures {
                 BotUIRow.text(id: "chat-user", seq: 1, role: "user", text: "继续整理发布材料，有审批时先告诉我。"),
                 BotUIRow.text(id: "chat-assistant", seq: 2, role: "assistant", text: "好的。我会保留当前对话，发送的新消息会 steering 到正在运行的回合。"),
             ]
-        case .info, .infoEmpty, .infoError, .infoLong:
+        case .composerAttachments:
+            var user = BotUIRow.fixture(
+                id: "attachments-user", seq: 1, kind: "sendMessage", role: "user",
+                body: BotUIBody(type: "text", values: [
+                    "text": "帮我看看这两个文件，顺便整理成一页摘要。",
+                    "attachments": .array([
+                        BotUIAttachment.fixture(name: "周报.pdf", size: 2048,
+                                                mimeType: "application/pdf", kind: "pdf").jsonValue,
+                        BotUIAttachment.fixture(name: "photo.jpg", size: 1_234_567,
+                                                mimeType: "image/jpeg", kind: "image").jsonValue,
+                    ]),
+                ]))
+            user.provenance.trust = "owner_direct"
+            return [
+                user,
+                BotUIRow.text(id: "attachments-assistant", seq: 2, role: "assistant",
+                              text: "收到。我会先读 PDF，再看图片，然后把要点整理成一页摘要。"),
+            ]
+        case .infoAppearance, .info, .infoEmpty, .infoError, .infoLong:
             return []
         }
         return [intro, cardRow("card-\(fixture.rawValue)", body: body)]
+    }
+
+    static var composerAttachments: [BotDraftAttachment] {
+        [
+            .fixture(name: "设计稿.png", size: 842_000, mimeType: "image/png", kind: "image"),
+            .fixture(name: "验收记录.pdf", size: 12_400, mimeType: "application/pdf", kind: "pdf"),
+            .fixture(name: "release-notes.md", size: 3_100, mimeType: "text/markdown", kind: "markdown"),
+        ]
+    }
+
+    static func appearance(for fixture: BotUIFixtureCase) -> BotFishAppearance {
+        guard fixture == .infoAppearance else { return .classic }
+        var value = BotFishAppearance.classic
+        value.color = .purple
+        value.hairstyle = .twinTail
+        value.autoColor = false
+        value.autoHairstyle = false
+        return value
     }
 
     static func infoSnapshot(for fixture: BotUIFixtureCase = .info) -> BotInfoSnapshot {
@@ -257,14 +295,15 @@ struct BotUIFixtureRootView: View {
         _infoModel = StateObject(wrappedValue: BotInfoModel(
             snapshot: fixture == .infoEmpty ? BotInfoSnapshot(botName: "大肥鱼", memories: [], routines: [], approvals: [])
                 : BotUIFixtures.infoSnapshot(for: fixture),
-            fixtureError: fixture == .infoError ? "fixture.read_failed" : nil
+            fixtureError: fixture == .infoError ? "fixture.read_failed" : nil,
+            appearance: BotUIFixtures.appearance(for: fixture)
         ))
     }
 
     var body: some View {
         Group {
             switch fixture {
-            case .info, .infoEmpty, .infoError, .infoLong:
+            case .infoAppearance, .info, .infoEmpty, .infoError, .infoLong:
                 BotInfoPage(model: infoModel)
             default:
                 VStack(spacing: 0) {
@@ -276,7 +315,11 @@ struct BotUIFixtureRootView: View {
                                 onOpenInfoSection: { section in
                                     infoSection = section
                                     showInfo = true
-                                })
+                                },
+                                initialAttachments: fixture == .composerAttachments
+                                    ? BotUIFixtures.composerAttachments : [],
+                                initialAttachmentNotice: fixture == .composerAttachments
+                                    ? "附件「录屏.mov」未附加：文件超过 25 MiB（48.2 MB）。" : nil)
                     if diagnostics {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("actions=\(chatModel.actionLog.joined(separator: ","));host=\(hostActions.joined(separator: ","))")
@@ -366,6 +409,21 @@ enum BotUIFixtureChecks {
         let hidden = BotChatModel(rows: BotUIFixtures.rows(for: .failClosed), fixtureActions: true)
         try require(hidden.visibleRows.isEmpty, "P1/unknown/incomplete row rendered")
         passed.append("fail-closed-P1-unknown-incomplete")
+
+        let attachmentOnly = BotUIRow.fixture(
+            id: "attachment-only", kind: "sendMessage", role: "user",
+            body: BotUIBody(type: "text", values: [
+                "text": "",
+                "attachments": .array([
+                    BotUIAttachment.fixture(name: "a.pdf", size: 2048,
+                                            mimeType: "application/pdf", kind: "pdf").jsonValue,
+                ]),
+            ]))
+        try require(BotUIRendering.isRenderable(attachmentOnly),
+                    "attachment-only user row was hidden")
+        try require(BotUIAttachment.parseList(attachmentOnly.body["attachments"]).count == 1,
+                    "attachment metadata did not decode")
+        passed.append("user-row-attachment-only")
 
         let incomplete: [(String, BotUIBody)] = [
             ("question", BotUIFixtures.widget("question", [:])),
