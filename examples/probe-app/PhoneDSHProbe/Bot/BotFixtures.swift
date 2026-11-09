@@ -2,11 +2,13 @@
 
 #if DEBUG
 import Foundation
+import PhoneDSHAgentCore
 import SwiftUI
 
 enum BotUIFixtureCase: String, CaseIterable, Identifiable {
     case chat, question, steps, task, attachment, document, progress, checklist, link
     case approval, automation, error, denial, overflow, failClosed
+    case empty, runningThinking, runningTool
     case info, infoEmpty, infoError, infoLong
 
     var id: String { rawValue }
@@ -26,6 +28,20 @@ enum BotUIFixtures {
 
     static func cardRow(_ id: String, body: BotUIBody, seq: Int = 2) -> BotUIRow {
         BotUIRow.fixture(id: id, seq: seq, body: body)
+    }
+
+    /// One DSH session event shaped exactly like the live frames the runtime
+    /// forwards, so the fixture drives the same presentation factory.
+    static func liveEvent(_ type: String, turn: Int, seq: Int,
+                          data: [String: JSONValue] = [:]) -> JSONValue {
+        var values: [String: JSONValue] = ["turn": .number(Double(turn))]
+        for (key, value) in data { values[key] = value }
+        return .object([
+            "type": .string(type),
+            "seq": .number(Double(seq)),
+            "time": .number(Date().timeIntervalSince1970 * 1_000),
+            "data": .object(values),
+        ])
     }
 
     static func rows(for fixture: BotUIFixtureCase) -> [BotUIRow] {
@@ -154,13 +170,15 @@ enum BotUIFixtures {
                 cardRow("unknown", body: widget("unknown", ["title": "不应显示"]), seq: 7),
                 cardRow("empty-progress", body: widget("progress", ["state": "running"]), seq: 8),
             ]
+        case .empty:
+            return []
+        case .runningThinking, .runningTool:
+            return [BotUIRow.text(id: "\(fixture.rawValue)-user", seq: 1, role: "user",
+                                  text: "帮我检查一下构建结果。")]
         case .chat:
             return [
                 BotUIRow.text(id: "chat-user", seq: 1, role: "user", text: "继续整理发布材料，有审批时先告诉我。"),
                 BotUIRow.text(id: "chat-assistant", seq: 2, role: "assistant", text: "好的。我会保留当前对话，发送的新消息会 steering 到正在运行的回合。"),
-                cardRow("chat-progress", body: rows(for: .progress)[1].body, seq: 3),
-                cardRow("chat-question", body: rows(for: .question)[1].body, seq: 4),
-                cardRow("chat-approval", body: rows(for: .approval)[1].body, seq: 5),
             ]
         case .info, .infoEmpty, .infoError, .infoLong:
             return []
@@ -210,6 +228,7 @@ struct BotUIFixtureRootView: View {
     @StateObject private var chatModel: BotChatModel
     @StateObject private var infoModel: BotInfoModel
     @State private var showInfo = false
+    @State private var infoSection: BotInfoSection?
     @State private var hostActions: [String] = []
 
     init(fixture: BotUIFixtureCase, diagnostics: Bool = false) {
@@ -217,10 +236,23 @@ struct BotUIFixtureRootView: View {
         self.diagnostics = diagnostics
         let chat = BotChatModel(
             rows: BotUIFixtures.rows(for: fixture),
-            fixtureHistory: fixture == .failClosed ? [] : [BotUIRow.text(id: "older-fixture", seq: 0, role: "assistant", text: "更早的历史消息")],
+            fixtureHistory: fixture == .failClosed || fixture == .empty
+                ? [] : [BotUIRow.text(id: "older-fixture", seq: 0, role: "assistant", text: "更早的历史消息")],
             fixtureActions: true
         )
-        if fixture == .chat { chat.beginTurn(turnID: "fixture-chat-turn") }
+        switch fixture {
+        case .runningThinking:
+            chat.receive(.event(BotUIFixtures.liveEvent("turn/start", turn: 1, seq: 1)))
+        case .runningTool:
+            chat.receive(.event(BotUIFixtures.liveEvent("turn/start", turn: 1, seq: 1)))
+            chat.receive(.event(BotUIFixtures.liveEvent("tool/call", turn: 1, seq: 2, data: [
+                "callId": .string("fixture-call"),
+                "name": .string("bash"),
+                "arguments": .string("{\"command\":\"xcodebuild build\",\"description\":\"运行构建\"}"),
+            ])))
+        default:
+            break
+        }
         _chatModel = StateObject(wrappedValue: chat)
         _infoModel = StateObject(wrappedValue: BotInfoModel(
             snapshot: fixture == .infoEmpty ? BotInfoSnapshot(botName: "大肥鱼", memories: [], routines: [], approvals: [])
@@ -236,7 +268,15 @@ struct BotUIFixtureRootView: View {
                 BotInfoPage(model: infoModel)
             default:
                 VStack(spacing: 0) {
-                    BotChatPage(model: chatModel, cardActions: cardActions, onOpenInfo: { showInfo = true })
+                    BotChatPage(model: chatModel, cardActions: cardActions,
+                                onOpenInfo: {
+                                    infoSection = nil
+                                    showInfo = true
+                                },
+                                onOpenInfoSection: { section in
+                                    infoSection = section
+                                    showInfo = true
+                                })
                     if diagnostics {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("actions=\(chatModel.actionLog.joined(separator: ","));host=\(hostActions.joined(separator: ","))")
@@ -245,6 +285,8 @@ struct BotUIFixtureRootView: View {
                                 .accessibilityIdentifier("bot.fixture.runtime")
                             Text("visible=\(chatModel.visibleRows.count);attention=\(chatModel.needsAttentionCount)")
                                 .accessibilityIdentifier("bot.fixture.visible")
+                            Text("fish=\(chatModel.fishState.rawValue);activity=\(chatModel.activity?.status.rawValue ?? "none");detail=\(chatModel.activity?.detail ?? "")")
+                                .accessibilityIdentifier("bot.fixture.presentation")
                         }
                         .font(.system(size: 10, design: .monospaced))
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -252,7 +294,10 @@ struct BotUIFixtureRootView: View {
                         .background(HomeSpec.surface)
                     }
                 }
-                .sheet(isPresented: $showInfo) { BotInfoPage(model: infoModel) }
+                .sheet(isPresented: $showInfo) {
+                    BotInfoPage(model: infoModel, initialSection: infoSection)
+                        .id(infoSection)
+                }
             }
         }
     }
