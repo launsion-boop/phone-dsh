@@ -16,6 +16,12 @@ struct BotCardView: View {
     let actions: BotCardActions
 
     var body: some View {
+        BotContentWidth {
+            cardContent
+        }
+    }
+
+    @ViewBuilder private var cardContent: some View {
         switch card.kind {
         case .question, .steps:
             BotChoiceCardView(row: row, card: card, model: model)
@@ -224,7 +230,7 @@ private struct BotAttachmentCardView: View {
     private var icon: String { BotCardFileIcon.name(for: name, mime: row.body["mimeType"]?.string) }
 
     var body: some View {
-        BotCardSurface(padding: 12) {
+        BotCardSurface {
             HStack(spacing: 12) {
                 BotCardTile(systemImage: icon)
                 VStack(alignment: .leading, spacing: 2) {
@@ -237,7 +243,6 @@ private struct BotAttachmentCardView: View {
                             .lineLimit(1)
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
                 if let path {
                     Button("打开") { actions.openPath(path) }
                         .buttonStyle(BotCardButtonStyle(kind: .plain))
