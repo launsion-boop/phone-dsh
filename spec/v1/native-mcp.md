@@ -122,5 +122,9 @@ interrupted run is `outcome_unknown` and is never replayed. One task runs at a t
 `initialize` appends the tool's usage note to `instructions`; `serverInfo` is unchanged.
 LED and other board tools stay on `ble_link_call` (BLE Link profile).
 
+With the Bot runtime the Bot listener forwards `iphone_agent_run` like every other native
+tool, to the same server instance (`PhoneNativeMCP.server`), so both paths share one receipt
+store and one in-flight guard.
+
 Status: implemented by `Sources/PhoneDSHVenus/IPhoneAgentMCPServer.swift`, verified by
 `IPhoneAgentMCPTests`; the Android host does not serve it.
