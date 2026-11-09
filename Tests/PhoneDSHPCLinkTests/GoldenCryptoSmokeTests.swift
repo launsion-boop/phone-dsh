@@ -11,7 +11,7 @@ final class GoldenCryptoSmokeTests: XCTestCase {
         let v = try TestSupport.vectors()
         XCTAssertEqual(v["format"]?.stringValue, "pclink-v1-vectors")
         XCTAssertEqual(v["format_version"]?.intValue, 3)
-        XCTAssertEqual(v["revision"]?.stringValue, "pclink-v1.2")
+        XCTAssertEqual(v["revision"]?.stringValue, "pclink-v1.3")
         XCTAssertEqual(v["suite"]?.stringValue, PCLinkCrypto.suite)
 
         for name in ["phone", "pc"] {

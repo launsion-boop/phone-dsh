@@ -377,7 +377,8 @@ public actor PCLinkRelayClient {
                 throw PCLinkError.badFrame("unknown PCLink code \(code)")
             }
             let message = object["message"]?.stringValue ?? ""
-            if message.utf8.count > 2048 { throw PCLinkError.badFrame("relay.error message too long") }
+            try PCLinkValidation.displayText(message, field: "relay.error message",
+                                             maximumBytes: 2048)
             var mapped: PCLinkError
             if code == "rate_limited" {
                 let retryAfterMs = object["retryAfterMs"]?.intValue

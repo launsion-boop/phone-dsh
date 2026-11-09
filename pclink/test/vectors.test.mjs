@@ -62,7 +62,7 @@ const pc = testIdentity(VECTORS.labels.pcIdentity)
 
 test('golden format and labels', () => {
   assert.equal(VECTORS.format, 'pclink-v1-vectors')
-  assert.equal(VECTORS.revision, 'pclink-v1.2')
+  assert.equal(VECTORS.revision, 'pclink-v1.3')
   assert.equal(VECTORS.suite, 'pclink-x25519-ed25519-chacha20poly1305-1')
 })
 
@@ -143,14 +143,77 @@ test('NUL boundary: PCLink-owned name/message fields still reject U+0000', () =>
   assert.doesNotThrow(() => validateInnerMessage({ type: 'rpc.result', id: 'call-1', ok: false, error: normalized }))
 })
 
-test('canonical JSON: scalar key order and literal slash/non-ASCII', () => {
-  const scalar = VECTORS.canonical_json.scalar_order
-  assert.equal(canonicalJson(scalar.object), scalar.canonical)
-  assert.equal(hexEncode(sha256(Buffer.from(scalar.canonical, 'utf8'))), scalar.sha256_hex)
-  const slash = VECTORS.canonical_json.slash_and_nonascii
-  assert.equal(canonicalJson(slash.object), slash.canonical)
-  assert.equal(hexEncode(sha256(Buffer.from(slash.canonical, 'utf8'))), slash.sha256_hex)
+test('golden json_boundary: escaped \\u0000 in DSH values is accepted and preserved', () => {
+  const boundary = VECTORS.json_boundary
+  assert.equal(boundary.accepted.length, 6)
+  for (const row of boundary.accepted) {
+    // `decodeInnerMessage` is the real wire decoder (strict JSON + closed shapes).
+    const decoded = decodeInnerMessage(row.wire)
+    for (const path of row.nul_paths ?? []) {
+      const reference = valueAtPath(JSON.parse(row.wire), path)
+      const actual = valueAtPath(decoded, path)
+      assert.equal(actual, reference, row.case)
+      assert.equal(typeof actual, 'string', row.case)
+      assert.ok(actual.includes('\u0000'), row.case)
+    }
+    for (const path of row.chunk_data_nul_paths ?? []) {
+      // The decoded chunk value is the DSH passthrough; drive the real
+      // reassembler and compare with a plain JSON decoder.
+      const reassembler = new ChunkReassembler()
+      const completed = reassembler.push(decoded)
+      assert.equal(completed.complete, true, row.case)
+      assert.equal(completed.kind, decoded.type === 'rpc.result.chunk' ? 'result' : 'stream', row.case)
+      const reference = JSON.parse(b64urlDecode(decoded.data).toString('utf8'))
+      const actual = valueAtPath(completed.value, path)
+      assert.equal(actual, valueAtPath(reference, path), row.case)
+      assert.equal(typeof actual, 'string', row.case)
+      assert.ok(actual.includes('\u0000'), row.case)
+    }
+  }
 })
+
+test('golden json_boundary: wire and PCLink field NUL rows are rejected', () => {
+  const rejected = VECTORS.json_boundary.rejected
+  assert.equal(rejected.length, 8)
+  for (const row of rejected) {
+    const bytes = row.wire_hex !== undefined
+      ? Buffer.from(row.wire_hex, 'hex')
+      : Buffer.from(row.wire, 'utf8')
+    if (row.failure === 'wire') {
+      assert.throws(() => parseStrictJsonObject(bytes), error => error.code === 'bad_frame', row.case)
+      continue
+    }
+    // Escaped U+0000 is legal wire JSON; the PCLink-owned field rule rejects it.
+    const frame = parseStrictJsonObject(bytes)
+    if (typeof frame.type === 'string' && frame.type.startsWith('relay.')) {
+      assert.throws(() => parseRelayFrame(row.wire), error => error.code === 'bad_frame', row.case)
+    } else {
+      assert.throws(() => validateInnerMessage(frame), error => error.code === 'bad_frame', row.case)
+    }
+  }
+})
+
+test('canonical JSON: scalar key order, literal slash/non-ASCII and lowercase \\u0000', () => {
+  for (const name of ['scalar_order', 'slash_and_nonascii', 'nul_escape']) {
+    const entry = VECTORS.canonical_json[name]
+    assert.ok(entry, name)
+    assert.equal(canonicalJson(entry.object), entry.canonical, name)
+    assert.equal(hexEncode(sha256(Buffer.from(entry.canonical, 'utf8'))), entry.sha256_hex, name)
+  }
+  const nul = VECTORS.canonical_json.nul_escape
+  assert.ok(nul.object['a\u0000b'] === 'key', 'nul_escape key survives parsing')
+  assert.equal(nul.object.note, 'a\u0000b')
+  assert.ok(nul.canonical.includes('\\u0000'), 'canonical text uses the six-character lowercase escape')
+})
+
+function valueAtPath(root, path) {
+  let current = root
+  for (const component of path) {
+    if (current === null || typeof current !== 'object') return undefined
+    current = current[component]
+  }
+  return current
+}
 
 test('relay auth: transcript and both signatures', () => {
   const nonce = b64urlDecode(VECTORS.relay_auth.nonce, { length: 32 })

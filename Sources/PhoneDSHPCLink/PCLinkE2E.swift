@@ -266,7 +266,7 @@ public struct PCLinkPeerHello: Equatable, Sendable {
 
     public static func make(role: String, caps: [String], dshVersion: String, dshCommit: String?,
                             appName: String, appVersion: String, name: String) throws -> PCLinkPeerHello {
-        var dsh: [String: PCLinkJSON] = ["version": .string(dshVersion)]
+        var dsh: PCLinkJSONObject = ["version": .string(dshVersion)]
         if let dshCommit { dsh["commit"] = .string(dshCommit) }
         let json: PCLinkJSON = .object([
             "v": .int(1),
@@ -281,7 +281,7 @@ public struct PCLinkPeerHello: Equatable, Sendable {
     }
 
     public var json: PCLinkJSON {
-        var dsh: [String: PCLinkJSON] = ["version": .string(dshVersionText)]
+        var dsh: PCLinkJSONObject = ["version": .string(dshVersionText)]
         if let dshCommit { dsh["commit"] = .string(dshCommit) }
         return .object([
             "v": .int(1),
@@ -597,6 +597,12 @@ public final class PCLinkE2ESession {
             return .unauthenticated(code: "bad_frame", message: "malformed session.reject")
         }
         let message = object["message"]?.stringValue ?? ""
+        // `code`/`message` are PCLink-owned fields (§2.3); a decoded U+0000 is
+        // not a DSH passthrough value and makes the reject malformed.
+        if code.unicodeScalars.contains(where: { $0.value == 0 })
+            || message.unicodeScalars.contains(where: { $0.value == 0 }) {
+            return .unauthenticated(code: "bad_frame", message: "malformed session.reject")
+        }
         guard let sigText = object["sig"]?.stringValue,
               let signature = try? PCLinkBase64URL.decode(sigText, expectedBytes: 64) else {
             return .unauthenticated(code: code, message: message)
@@ -620,7 +626,7 @@ public final class PCLinkE2ESession {
     }
 
     public func closeFrame(code: String, message: String? = nil) throws -> PCLinkJSON {
-        var object: [String: PCLinkJSON] = ["type": .string("session.close"), "code": .string(code)]
+        var object: PCLinkJSONObject = ["type": .string("session.close"), "code": .string(code)]
         if let message { object["message"] = .string(message) }
         return try seal(.object(object))
     }

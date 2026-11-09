@@ -140,9 +140,11 @@ public enum PCLinkWire {
             throw PCLinkError.badFrame("relay.error code")
         }
         if let message = object["message"] {
-            guard let text = message.stringValue, text.utf8.count <= 2048 else {
+            guard let text = message.stringValue else {
                 throw PCLinkError.badFrame("relay.error message")
             }
+            try PCLinkValidation.displayText(text, field: "relay.error message",
+                                             maximumBytes: 2048)
         }
         if let retry = object["retryAfterMs"] {
             guard let number = retry.intValue, (0...86_400_000).contains(number) else {
@@ -281,9 +283,11 @@ public enum PCLinkWire {
                 throw PCLinkError.badFrame("session.reject code")
             }
             if let message = bodyObject["message"] {
-                guard let text = message.stringValue, text.utf8.count <= 512 else {
+                guard let text = message.stringValue else {
                     throw PCLinkError.badFrame("session.reject message")
                 }
+                try PCLinkValidation.displayText(text, field: "session.reject message",
+                                                 maximumBytes: 512)
             }
             if let sig = bodyObject["sig"] {
                 guard let text = sig.stringValue else { throw PCLinkError.badFrame("session.reject sig") }
@@ -391,9 +395,11 @@ public enum PCLinkWire {
                 throw PCLinkError.badFrame("session.close code")
             }
             if let message = object["message"] {
-                guard let text = message.stringValue, text.utf8.count <= 512 else {
+                guard let text = message.stringValue else {
                     throw PCLinkError.badFrame("session.close message")
                 }
+                try PCLinkValidation.displayText(text, field: "session.close message",
+                                                 maximumBytes: 512)
             }
         case "pclink.notice":
             let object = try value.closedObject(required: ["type", "kind", "name", "fingerprint", "at"])
@@ -422,9 +428,11 @@ public enum PCLinkWire {
                     }
                 }
                 if let message = object["message"] {
-                    guard let text = message.stringValue, text.utf8.count <= 512 else {
+                    guard let text = message.stringValue else {
                         throw PCLinkError.badFrame("reserved message")
                     }
+                    try PCLinkValidation.displayText(text, field: "reserved message",
+                                                     maximumBytes: 512)
                 }
             } else {
                 throw PCLinkError.badFrame("unknown inner type")
@@ -439,16 +447,17 @@ public enum PCLinkWire {
                          options: .regularExpression) != nil else {
             throw PCLinkError.badFrame("rpc error code")
         }
-        guard let message = object["message"]?.stringValue,
-              (1...2048).contains(message.utf8.count) else {
+        guard let message = object["message"]?.stringValue else {
             throw PCLinkError.badFrame("rpc error message")
         }
+        try PCLinkValidation.displayText(message, field: "rpc error message",
+                                         minimumBytes: 1, maximumBytes: 2048)
         if let details = object["details"], details.objectValue == nil {
             throw PCLinkError.badFrame("rpc error details")
         }
     }
 
-    private static func validateChunkFields(_ object: [String: PCLinkJSON]) throws {
+    private static func validateChunkFields(_ object: PCLinkJSONObject) throws {
         guard let part = object["part"]?.intValue, (0...65_535).contains(part) else {
             throw PCLinkError.badFrame("chunk part")
         }

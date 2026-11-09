@@ -3,17 +3,104 @@
 //
 // The PCLink v1 contract (§2.3) requires a closed JSON decoder: one UTF-8
 // object, no BOM, no leading/trailing bytes, no duplicate member names at any
-// depth, no NUL, no unpaired surrogates, no NaN/Infinity and no non-object
-// root for wire frames. Foundation's JSONDecoder accepts duplicate keys and
-// JSONEncoder escapes `/`, which is not the canonical form used by the pairing
-// MACs, so this module carries its own parser/encoder.
+// depth, no literal NUL byte, no unpaired surrogates, no NaN/Infinity and no
+// non-object root for wire frames. A legal escaped `\u0000` (and `\u0001`-
+// `\u001f`) inside a string is JSON data and is preserved; only PCLink-owned
+// fields reject the decoded U+0000 under their own field rule. Foundation's
+// JSONDecoder accepts duplicate keys and JSONEncoder escapes `/`, which is not
+// the canonical form used by the pairing MACs, so this module carries its own
+// parser/encoder.
 
 import Foundation
 import PhoneDSHAgentCore
 
+/// One PCLink JSON object. Keys keep their decoded Unicode scalar sequence so
+/// duplicate detection is by scalar sequence (not Swift `String` canonical
+/// equivalence, which would treat `"é"` and `"e\u{301}"` as the same member).
+public struct PCLinkJSONObject: Equatable, Sendable, ExpressibleByDictionaryLiteral {
+    /// A member name compared as its decoded Unicode scalar sequence.
+    public struct MemberKey: Hashable, Comparable, Sendable {
+        public let scalars: [Unicode.Scalar]
+
+        public init(_ string: String) {
+            self.scalars = Array(string.unicodeScalars)
+        }
+
+        public var string: String {
+            String(String.UnicodeScalarView(scalars))
+        }
+
+        public static func == (lhs: MemberKey, rhs: MemberKey) -> Bool {
+            lhs.scalars == rhs.scalars
+        }
+
+        public func hash(into hasher: inout Hasher) {
+            hasher.combine(scalars.count)
+            for scalar in scalars { hasher.combine(scalar.value) }
+        }
+
+        /// Ascending Unicode scalar order (the canonical JSON key order).
+        public static func < (lhs: MemberKey, rhs: MemberKey) -> Bool {
+            let count = min(lhs.scalars.count, rhs.scalars.count)
+            for index in 0..<count where lhs.scalars[index] != rhs.scalars[index] {
+                return lhs.scalars[index].value < rhs.scalars[index].value
+            }
+            return lhs.scalars.count < rhs.scalars.count
+        }
+    }
+
+    private var storage: [MemberKey: PCLinkJSON] = [:]
+
+    public init() {}
+
+    public init(_ dictionary: [String: PCLinkJSON]) {
+        for (key, value) in dictionary { storage[MemberKey(key)] = value }
+    }
+
+    public init(dictionaryLiteral elements: (String, PCLinkJSON)...) {
+        for (key, value) in elements { storage[MemberKey(key)] = value }
+    }
+
+    public var count: Int { storage.count }
+    public var isEmpty: Bool { storage.isEmpty }
+
+    /// Member names in their exact decoded scalar spelling.
+    public var keys: [MemberKey] { Array(storage.keys) }
+
+    public subscript(key: String) -> PCLinkJSON? {
+        get { storage[MemberKey(key)] }
+        set {
+            if let newValue { storage[MemberKey(key)] = newValue }
+            else { storage.removeValue(forKey: MemberKey(key)) }
+        }
+    }
+
+    public subscript(key: MemberKey) -> PCLinkJSON? {
+        get { storage[key] }
+        set {
+            if let newValue { storage[key] = newValue }
+            else { storage.removeValue(forKey: key) }
+        }
+    }
+
+    public mutating func removeValue(forKey key: String) -> PCLinkJSON? {
+        storage.removeValue(forKey: MemberKey(key))
+    }
+
+    /// Converts to a Foundation dictionary. Canonically-equivalent but
+    /// scalar-distinct names cannot be represented by Swift `Dictionary`
+    /// together; PCLink's own objects never rely on that, and the canonical
+    /// encoder works from `keys`/`MemberKey` instead.
+    public var dictionary: [String: PCLinkJSON] {
+        var result: [String: PCLinkJSON] = [:]
+        for key in storage.keys { result[key.string] = storage[key] }
+        return result
+    }
+}
+
 /// One PCLink JSON value. Integers keep their exact spelling so `seq`,
 /// `part`, `v` and canonical pairing objects are not round-tripped through
-/// `Double`.
+/// `Double`; object member names keep their scalar sequence (§2.3).
 public enum PCLinkJSON: Equatable, Sendable {
     case null
     case bool(Bool)
@@ -21,9 +108,9 @@ public enum PCLinkJSON: Equatable, Sendable {
     case double(Double)
     case string(String)
     case array([PCLinkJSON])
-    case object([String: PCLinkJSON])
+    case object(PCLinkJSONObject)
 
-    public var objectValue: [String: PCLinkJSON]? {
+    public var objectValue: PCLinkJSONObject? {
         if case .object(let value) = self { return value }
         return nil
     }
@@ -57,7 +144,7 @@ public enum PCLinkJSON: Equatable, Sendable {
     public subscript(key: String) -> PCLinkJSON? {
         get { objectValue?[key] }
         set {
-            var object = objectValue ?? [:]
+            var object = objectValue ?? PCLinkJSONObject()
             object[key] = newValue
             self = .object(object)
         }
@@ -89,7 +176,9 @@ public enum PCLinkJSON: Equatable, Sendable {
         case .array(let array):
             self = .array(array.map(PCLinkJSON.init))
         case .object(let object):
-            self = .object(object.mapValues(PCLinkJSON.init))
+            var result = PCLinkJSONObject()
+            for (key, value) in object { result[key] = PCLinkJSON(value) }
+            self = .object(result)
         }
     }
 
@@ -104,7 +193,7 @@ public enum PCLinkJSON: Equatable, Sendable {
         case .double(let value): return .number(value)
         case .string(let value): return .string(value)
         case .array(let value): return .array(value.map(\.jsonValue))
-        case .object(let value): return .object(value.mapValues(\.jsonValue))
+        case .object(let value): return .object(value.dictionary.mapValues(\.jsonValue))
         }
     }
 }
@@ -256,7 +345,8 @@ public enum PCLinkJSONParser {
 
         mutating func parseObject(depth: Int) throws -> PCLinkJSON {
             offset += 1 // {
-            var object: [String: PCLinkJSON] = [:]
+            var object = PCLinkJSONObject()
+            var names = Set<PCLinkJSONObject.MemberKey>()
             skipWhitespace()
             if offset < bytes.count, bytes[offset] == UInt8(ascii: "}") {
                 offset += 1
@@ -267,8 +357,14 @@ public enum PCLinkJSONParser {
                 guard offset < bytes.count, bytes[offset] == UInt8(ascii: "\"") else {
                     throw PCLinkJSONError.unexpectedCharacter(offset)
                 }
-                let key = try parseString()
-                if object[key] != nil { throw PCLinkJSONError.duplicateMember(key) }
+                let key = PCLinkJSONObject.MemberKey(try parseString())
+                // Duplicate members are compared as decoded Unicode scalar
+                // sequences ("a" and "\u0061" are the same member); a Swift
+                // String comparison would additionally collapse canonically
+                // equivalent but distinct names and be stricter than §2.3.
+                if !names.insert(key).inserted {
+                    throw PCLinkJSONError.duplicateMember(key.string)
+                }
                 skipWhitespace()
                 guard offset < bytes.count, bytes[offset] == UInt8(ascii: ":") else {
                     throw PCLinkJSONError.unexpectedCharacter(offset)
@@ -347,18 +443,19 @@ public enum PCLinkJSONParser {
                     case UInt8(ascii: "r"): scalars.append("\r")
                     case UInt8(ascii: "t"): scalars.append("\t")
                     case UInt8(ascii: "u"):
-                        let scalar = try parseUnicodeEscape()
-                        guard scalar.value != 0 else {
-                            throw PCLinkJSONError.unexpectedCharacter(offset)
-                        }
-                        scalars.append(scalar)
+                        // A legal JSON escape is data. `\u0000` (and
+                        // `\u0001`-`\u001f`) decode to a carried value; only
+                        // PCLink-owned fields reject U+0000 in a validator.
+                        scalars.append(try parseUnicodeEscape())
                     default:
                         throw PCLinkJSONError.invalidEscape
                     }
                     continue
                 }
-                if byte < 0x20 || byte == 0x7F {
-                    // NUL and unescaped C0/C1 controls are rejected.
+                if byte < 0x20 {
+                    // A literal C0 control byte inside a string is invalid
+                    // JSON. U+007F and the C1 range are not C0 and may appear
+                    // literally (a DSH serializer may emit them unescaped).
                     throw PCLinkJSONError.unexpectedCharacter(offset)
                 }
                 if byte < 0x80 {
@@ -528,12 +625,10 @@ public enum PCLinkJSONEncoder {
             output.append(UInt8(ascii: "]"))
         case .object(let object):
             output.append(UInt8(ascii: "{"))
-            let keys = object.keys.sorted { lhs, rhs in
-                lhs.utf8.lexicographicallyPrecedes(rhs.utf8)
-            }
+            let keys = object.keys.sorted()
             for (index, key) in keys.enumerated() {
                 if index > 0 { output.append(UInt8(ascii: ",")) }
-                try appendString(key, to: &output)
+                try appendString(key.string, to: &output)
                 output.append(UInt8(ascii: ":"))
                 try append(object[key]!, to: &output, canonical: canonical, depth: depth + 1)
             }
@@ -571,10 +666,10 @@ public enum PCLinkJSONEncoder {
 public extension PCLinkJSON {
     /// Requires an object whose members are exactly `required` plus the
     /// optional set. Unknown members are `bad_frame` (§2.3).
-    func closedObject(required: Set<String>, optional: Set<String> = []) throws -> [String: PCLinkJSON] {
+    func closedObject(required: Set<String>, optional: Set<String> = []) throws -> PCLinkJSONObject {
         guard let object = objectValue else { throw PCLinkError.badFrame("expected a JSON object") }
-        for key in object.keys where !required.contains(key) && !optional.contains(key) {
-            throw PCLinkError.badFrame("unknown member \(key)")
+        for key in object.keys where !required.contains(key.string) && !optional.contains(key.string) {
+            throw PCLinkError.badFrame("unknown member \(key.string)")
         }
         for key in required where object[key] == nil {
             throw PCLinkError.badFrame("missing member \(key)")

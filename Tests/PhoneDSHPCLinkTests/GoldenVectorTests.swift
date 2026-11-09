@@ -141,15 +141,23 @@ final class GoldenVectorTests: XCTestCase {
 
     func testCanonicalJSONSection() throws {
         let v = try TestSupport.vectors()
-        for name in ["scalar_order", "slash_and_nonascii"] {
+        // scalar_order pins Unicode-scalar key order; slash_and_nonascii pins
+        // literal `/` and non-ASCII; nul_escape pins the lowercase `\u0000`
+        // escape in both a key and a value.
+        for name in ["scalar_order", "slash_and_nonascii", "nul_escape"] {
             let entry = try XCTUnwrap(v["canonical_json"]?[name])
             let object = try XCTUnwrap(entry["object"])
             let canonical = try PCLinkJSONEncoder.canonicalString(object)
-            XCTAssertEqual(canonical, entry["canonical"]?.stringValue, name)
+            let expected = try XCTUnwrap(entry["canonical"]?.stringValue)
+            XCTAssertEqual(Array(canonical.utf8), Array(expected.utf8), name)
             XCTAssertEqual(PCLinkHex.encode(PCLinkCrypto.sha256(Data(canonical.utf8))),
                            entry["sha256_hex"]?.stringValue, name)
             XCTAssertEqual(try PCLinkJSONParser.parse(canonical), object, name)
         }
+        let nulEscape = try XCTUnwrap(v["canonical_json"]?["nul_escape"])
+        let canonical = try XCTUnwrap(nulEscape["canonical"]?.stringValue)
+        XCTAssertTrue(canonical.contains("\\u0000"), "canonical U+0000 uses the six-character escape")
+        XCTAssertEqual(try PCLinkJSONParser.parseObject(canonical)["a\u{0}b"]?.stringValue, "key")
 
         let invalid = try XCTUnwrap(v["invalid"]?.arrayValue)
         for row in invalid where row["kind"]?.stringValue == "canonical" {

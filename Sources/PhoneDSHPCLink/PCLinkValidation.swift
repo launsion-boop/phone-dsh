@@ -29,6 +29,22 @@ public enum PCLinkValidation {
         }
     }
 
+    // MARK: - Display text / error messages
+
+    /// PCLink-owned display text (`message` in relay/rpc/session errors and
+    /// closes) keeps its byte cap and rejects a decoded U+0000. It is not a
+    /// DSH passthrough value (§2.3).
+    public static func displayText(_ value: String, field: String,
+                                   minimumBytes: Int = 0, maximumBytes: Int) throws {
+        let bytes = value.utf8.count
+        guard bytes >= minimumBytes, bytes <= maximumBytes else {
+            throw PCLinkError.badFrame("\(field) byte length")
+        }
+        if value.unicodeScalars.contains(where: { $0.value == 0 }) {
+            throw PCLinkError.badFrame("\(field) contains U+0000")
+        }
+    }
+
     // MARK: - Machine ids / fingerprints
 
     public static func machineId(_ value: String) -> Bool {

@@ -1088,8 +1088,12 @@ public actor PCLinkClient {
             return
         }
         let message = object["message"]?.stringValue ?? ""
-        if message.utf8.count > 512 {
-            handleSessionError(.badFrame("session.close message too long"))
+        do {
+            // PCLink display text, not a DSH passthrough value (§2.3).
+            try PCLinkValidation.displayText(message, field: "session.close message",
+                                             maximumBytes: 512)
+        } catch {
+            handleSessionError(.badFrame("session.close message invalid"))
             return
         }
         let closeCodes: Set<String> = ["unavailable", "unpaired", "auth_failed", "replaced",
@@ -1127,7 +1131,7 @@ public actor PCLinkClient {
         guard let type = inner["type"]?.stringValue,
               let dot = type.firstIndex(of: ".") else { return }
         let prefix = String(type[..<dot])
-        var reply: [String: PCLinkJSON] = [
+        var reply: PCLinkJSONObject = [
             "type": .string("\(prefix)."),
             "code": .string("unavailable"),
             "message": .string("reserved namespace is unavailable"),
@@ -1233,8 +1237,15 @@ public actor PCLinkClient {
                 failPendingCall(id, error: .badFrame("rpc.result error shape"))
                 return
             }
-            if message.utf8.count > 2048 {
-                failPendingCall(id, error: .badFrame("rpc.result error message too long"))
+            guard !code.unicodeScalars.contains(where: { $0.value == 0 }) else {
+                failPendingCall(id, error: .badFrame("rpc.result error code contains U+0000"))
+                return
+            }
+            do {
+                try PCLinkValidation.displayText(message, field: "rpc.result.error.message",
+                                                 minimumBytes: 1, maximumBytes: 2048)
+            } catch {
+                failPendingCall(id, error: .badFrame("rpc.result error message invalid"))
                 return
             }
             guard let pending = pendingCalls.removeValue(forKey: id) else { return }
@@ -1295,11 +1306,14 @@ public actor PCLinkClient {
         let frame: PCLinkJSON = .object([
             "type": .string("error"),
             "streamId": .string(streamId),
-            "error": .object([
-                "code": .string(error.code),
-                "message": .string(error.message),
-                "details": error.details ?? .null,
-            ].filter { $0.value != .null }),
+            "error": .object({
+                var errorObject: PCLinkJSONObject = [
+                    "code": .string(error.code),
+                    "message": .string(error.message),
+                ]
+                if let details = error.details { errorObject["details"] = details }
+                return errorObject
+            }()),
         ])
         mux.continuation.yield(frame)
     }
@@ -1384,10 +1398,25 @@ public actor PCLinkClient {
                 emitStreamError(muxID: muxID, streamId: streamId, error: PCLinkRPCError(code: "bad_frame", message: "rpc.stream.error shape"))
                 return
             }
+            guard !code.unicodeScalars.contains(where: { $0.value == 0 }) else {
+                emitStreamError(muxID: muxID, streamId: streamId,
+                                error: PCLinkRPCError(code: "bad_frame",
+                                                      message: "rpc.stream.error code contains U+0000"))
+                return
+            }
+            do {
+                try PCLinkValidation.displayText(message, field: "rpc.stream.error.message",
+                                                 minimumBytes: 1, maximumBytes: 2048)
+            } catch {
+                emitStreamError(muxID: muxID, streamId: streamId,
+                                error: PCLinkRPCError(code: "bad_frame",
+                                                      message: "rpc.stream.error message invalid"))
+                return
+            }
             mux.streams.removeValue(forKey: streamId)
             streamChunks.removeValue(forKey: streamId)
             muxes[muxID] = mux
-            var errorOut: [String: PCLinkJSON] = ["code": .string(code), "message": .string(message)]
+            var errorOut: PCLinkJSONObject = ["code": .string(code), "message": .string(message)]
             if let details = errorObject["details"] { errorOut["details"] = details }
             mux.continuation.yield(.object([
                 "type": .string("error"),

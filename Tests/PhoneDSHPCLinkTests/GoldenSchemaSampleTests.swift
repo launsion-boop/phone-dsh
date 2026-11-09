@@ -41,29 +41,44 @@ final class GoldenSchemaSampleTests: XCTestCase {
     func testValidSamples() throws {
         let samples = try XCTUnwrap(try TestSupport.schemaSamples()["valid"]?.arrayValue)
         var seen = 0
+        var names = Set<String>()
         for sample in samples {
             let schema = try XCTUnwrap(sample["schema"]?.stringValue)
             if schema.hasPrefix("admin") { continue }
             seen += 1
             let name = try XCTUnwrap(sample["name"]?.stringValue)
+            names.insert(name)
             XCTAssertNoThrow(try validate(try XCTUnwrap(sample["value"]), schema: schema),
                              "\(schema)/\(name)")
+            if name == "rpc-call-carried-nul" {
+                XCTAssertEqual(sample["value"]?["args"]?["note"]?.stringValue, "a\u{0}b", name)
+            }
+            if name == "stream-item-carried-nul" {
+                XCTAssertEqual(sample["value"]?["value"]?["text"]?.stringValue, "a\u{0}b", name)
+            }
         }
         XCTAssertGreaterThanOrEqual(seen, 24)
+        // v1.3 added the two carried-NUL valid samples; consume them explicitly.
+        XCTAssertTrue(names.contains("rpc-call-carried-nul"))
+        XCTAssertTrue(names.contains("stream-item-carried-nul"))
     }
 
     func testInvalidSamples() throws {
         let samples = try XCTUnwrap(try TestSupport.schemaSamples()["invalid"]?.arrayValue)
         var seen = 0
+        var names = Set<String>()
         for sample in samples {
             let schema = try XCTUnwrap(sample["schema"]?.stringValue)
             if schema.hasPrefix("admin") { continue }
             seen += 1
             let name = try XCTUnwrap(sample["name"]?.stringValue)
+            names.insert(name)
             XCTAssertThrowsError(try validate(try XCTUnwrap(sample["value"]), schema: schema),
                                  "\(schema)/\(name): \(sample["reason"]?.stringValue ?? "")")
         }
         XCTAssertGreaterThanOrEqual(seen, 26)
+        // v1.3 added the invalid `pclink.notice.name` U+0000 sample.
+        XCTAssertTrue(names.contains("notice-name-nul"))
     }
 
     func testActualEndpointsFileMatchesEmbeddedInventory() throws {

@@ -252,7 +252,7 @@ public enum PCLinkPairingMessage: Equatable, Sendable {
 
     public static func makeHello(machineId: String, publicKey: Data, name: String,
                                  relayOrigin: String, nonce: Data, pairKey: Data) throws -> PCLinkPairHello {
-        var object: [String: PCLinkJSON] = [
+        var object: PCLinkJSONObject = [
             "v": .int(1), "type": .string("pair.hello"), "role": .string("pc"),
             "machineId": .string(machineId),
             "publicKey": .string(PCLinkBase64URL.encode(publicKey)),
@@ -269,7 +269,7 @@ public enum PCLinkPairingMessage: Equatable, Sendable {
     public static func makeAuth(machineId: String, publicKey: Data, name: String,
                                 relayOrigin: String, nonce: Data, peerNonce: Data,
                                 pairKey: Data) throws -> PCLinkPairAuth {
-        var object: [String: PCLinkJSON] = [
+        var object: PCLinkJSONObject = [
             "v": .int(1), "type": .string("pair.auth"), "role": .string("phone"),
             "machineId": .string(machineId),
             "publicKey": .string(PCLinkBase64URL.encode(publicKey)),
@@ -286,7 +286,7 @@ public enum PCLinkPairingMessage: Equatable, Sendable {
 
     public static func makeConfirm(helloNonce: Data, authNonce: Data, transcriptHash: Data,
                                    pairKey: Data) throws -> PCLinkPairConfirm {
-        var object: [String: PCLinkJSON] = [
+        var object: PCLinkJSONObject = [
             "v": .int(1), "type": .string("pair.confirm"), "role": .string("pc"),
             "nonce": .string(PCLinkBase64URL.encode(helloNonce)),
             "peerNonce": .string(PCLinkBase64URL.encode(authNonce)),
@@ -300,7 +300,7 @@ public enum PCLinkPairingMessage: Equatable, Sendable {
 
     public static func makeFinal(authNonce: Data, helloNonce: Data, transcriptHash: Data,
                                  pairKey: Data) throws -> PCLinkPairFinal {
-        var object: [String: PCLinkJSON] = [
+        var object: PCLinkJSONObject = [
             "v": .int(1), "type": .string("pair.final"), "role": .string("phone"),
             "nonce": .string(PCLinkBase64URL.encode(authNonce)),
             "peerNonce": .string(PCLinkBase64URL.encode(helloNonce)),

@@ -172,7 +172,10 @@ export function parseStrictJson(input, options = {}) {
       throw pclinkError('frame_too_large', 'JSON text exceeds its limit')
     }
     try {
-      text = new TextDecoder('utf-8', { fatal: true }).decode(input)
+      // `ignoreBOM` keeps a leading U+FEFF in the decoded text so the
+      // byte-order-mark check below rejects it; the default TextDecoder would
+      // silently strip it and accept the frame.
+      text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(input)
     } catch {
       throw pclinkError('bad_frame', 'invalid UTF-8')
     }
