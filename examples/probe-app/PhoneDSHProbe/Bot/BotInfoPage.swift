@@ -266,7 +266,6 @@ struct BotInfoPage: View {
                 Section {
                     VStack(spacing: 12) {
                         BotFishView(state: .idle, size: 80, appearance: model.appearance, still: true)
-                            .shadow(color: .black.opacity(0.08), radius: 10, y: 4)
                         Text(model.botName)
                             .font(.system(size: 22, weight: .bold))
                             .foregroundStyle(HomeSpec.textPrimary)
@@ -577,7 +576,6 @@ private struct BotAppearanceEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             BotFishView(state: .idle, size: 112, appearance: model.appearance, allowsPoke: true)
-                .shadow(color: .black.opacity(0.08), radius: 10, y: 4)
                 .frame(maxWidth: .infinity)
                 .accessibilityLabel("外观预览，\(model.appearance.color.displayName)，\(model.appearance.hairstyle.displayName)")
 

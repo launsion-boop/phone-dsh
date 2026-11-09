@@ -273,7 +273,6 @@ struct BotChatPage: View {
     private var emptyState: some View {
         VStack(spacing: 12) {
             BotFishView(state: model.fishState, size: 96, appearance: model.appearance, allowsPoke: true)
-                .shadow(color: .black.opacity(0.08), radius: 10, y: 4)
             Text("嗨，我是 \(model.botName)")
                 .botFont(size: 15, lineHeight: 22, weight: .semibold, style: .body)
                 .foregroundStyle(HomeSpec.textPrimary)
@@ -297,6 +296,7 @@ struct BotChatPage: View {
         VStack(spacing: 8) {
             if model.showsActivityLine, let activity = model.activity {
                 BotActivityLine(activity: activity, fishState: model.fishState, appearance: model.appearance)
+                    .transition(.opacity.combined(with: .offset(y: 6)))
             }
             if model.pendingApprovalCount > 0 {
                 Button {
@@ -396,6 +396,7 @@ struct BotChatPage: View {
                     .padding(.horizontal, 4)
             }
         }
+        .animation(.easeInOut(duration: 0.25), value: model.showsActivityLine && model.activity != nil)
         .padding(.horizontal, HomeSpec.chromeInset)
         .padding(.top, 8)
         .padding(.bottom, 8)

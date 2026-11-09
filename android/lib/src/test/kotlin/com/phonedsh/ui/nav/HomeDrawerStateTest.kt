@@ -22,6 +22,7 @@ import kotlinx.coroutines.CompletableDeferred
 import com.phonedsh.ui.UiStrings
 import com.phonedsh.ui.theme.PdshTheme
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Rule
 import org.junit.Test
@@ -242,32 +243,45 @@ class HomeDrawerStateTest {
         compose.onNodeWithText("已归档，可在 设置 › 已归档会话 里找回").assertDoesNotExist()
     }
 
-    @Test fun folderCreationUsesConfirmedHostMutationAndShowsFailedReceipt() {
-        var command: PdshUiHostCommand? = null
+    @Test fun folderManagementIsNotOfferedWhileGroupsStillShow() {
+        // DRAWER_FOLDERS_ENABLED = false (iOS HomeDrawer.foldersEnabled): no 文件夹
+        // title, no 新建文件夹, no empty-folder hint, no folder rename/delete; the
+        // session group itself and 在这里新建会话 remain.
+        assertFalse(DRAWER_FOLDERS_ENABLED)
+        compose.setContent {
+            PdshTheme {
+                HomeDrawer(
+                    facts = HomeDrawerFacts(
+                        folders = listOf(HomeDrawerFolder("folder-1", "Research", listOf(HomeDrawerSession("session-1", "One")))),
+                        unassignedSessions = emptyList(),
+                    ),
+                    onClose = {},
+                    onMutation = { request -> PdshActionReceipt((request as PdshUiHostCommand.SessionRename).requestId, null, null, PdshActionOutcome.FAILED) },
+                    onCreateSessionInFolder = { _ -> true },
+                )
+            }
+        }
+        compose.onNodeWithTag(HomeDrawerTags.CREATE_FOLDER).assertDoesNotExist()
+        compose.onNodeWithText("文件夹").assertDoesNotExist()
+        compose.onNodeWithTag(HomeDrawerTags.FOLDER_PREFIX + "folder-1").assertIsDisplayed()
+        compose.onNodeWithTag(HomeDrawerTags.FOLDER_PREFIX + "folder-1").performSemanticsAction(SemanticsActions.OnLongClick)
+        compose.onNodeWithText("在这里新建会话").assertIsDisplayed()
+        compose.onNodeWithText("重命名").assertDoesNotExist()
+        compose.onNodeWithText("删除文件夹").assertDoesNotExist()
+    }
+
+    @Test fun emptyDrawerShowsNoFolderCreationHint() {
         compose.setContent {
             PdshTheme {
                 HomeDrawer(
                     facts = HomeDrawerFacts(folders = emptyList(), unassignedSessions = emptyList()),
                     onClose = {},
-                    onMutation = { request ->
-                        command = request
-                        val id = (request as PdshUiHostCommand.WorkspaceFolderCreate).requestId
-                        PdshActionReceipt(id, null, null, PdshActionOutcome.FAILED)
-                    },
-                    onRetry = {},
+                    onMutation = { request -> PdshActionReceipt((request as PdshUiHostCommand.SessionRename).requestId, null, null, PdshActionOutcome.FAILED) },
                 )
             }
         }
-        compose.onNodeWithTag(HomeDrawerTags.CREATE_FOLDER).performSemanticsAction(SemanticsActions.OnClick)
-        compose.onNodeWithText("新建文件夹").performSemanticsAction(SemanticsActions.OnClick)
-        compose.onNodeWithTag(HomeDrawerTags.EDITOR).performTextInput("Research")
-        compose.onNodeWithText("创建").performSemanticsAction(SemanticsActions.OnClick)
-        compose.waitForIdle()
-        val create = command as? PdshUiHostCommand.WorkspaceFolderCreate
-        assertEquals("Research", create?.name)
-        assertNotNull(create?.requestId?.value)
-        compose.onNodeWithTag(HomeDrawerTags.FAILURE).assertIsDisplayed()
-        compose.onNodeWithTag(HomeDrawerTags.RETRY).assertIsDisplayed()
+        compose.onNodeWithText("还没有文件夹", substring = true).assertDoesNotExist()
+        compose.onNodeWithTag(HomeDrawerTags.CREATE_FOLDER).assertDoesNotExist()
     }
 
     @Test fun renameSessionIsRequestBoundAndDoesNotHideRowAfterFailedReceipt() {

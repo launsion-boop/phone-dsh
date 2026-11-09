@@ -126,17 +126,15 @@ struct BotFishView: View {
                 context.draw(Image(uiImage: image),
                              in: CGRect(origin: .zero, size: canvasSize))
             }
-            .background(Color.white)
+            // No white disc or hairline: like the upstream circle avatar, the
+            // fish sits directly on whatever surface hosts it.
             .clipShape(Circle())
-            .overlay(Circle().strokeBorder(HomeSpec.borderList, lineWidth: 0.5))
         } else {
             Image("BotAvatar")
                 .resizable()
                 .scaledToFill()
                 .frame(width: side, height: side)
-                .background(Color.white)
                 .clipShape(Circle())
-                .overlay(Circle().strokeBorder(HomeSpec.borderList, lineWidth: 0.5))
         }
     }
 }

@@ -36,8 +36,12 @@ struct HomeDrawer: View {
                     if let message = management.error ?? chat.userFacingError {
                         errorRow(message)
                     }
-                    folderSectionHeader
-                        .padding(.top, 16)
+                    if Self.foldersEnabled {
+                        folderSectionHeader
+                            .padding(.top, 16)
+                    } else {
+                        Color.clear.frame(height: 16)
+                    }
                     folders
                 }
                 .padding(.top, topInset + HomeSpec.navTop)
@@ -179,6 +183,11 @@ struct HomeDrawer: View {
 
     // MARK: - Folders
 
+    /// Folder management (the 文件夹 title, 新建文件夹, the empty-folder hint) is
+    /// not offered yet. Session groups such as 手机工作区 still show; flip this
+    /// to re-open folder creation.
+    static let foldersEnabled = false
+
     private var folderSectionHeader: some View {
         HStack(spacing: 0) {
             Text("文件夹")
@@ -224,7 +233,7 @@ struct HomeDrawer: View {
     private var folders: some View {
         let loose = defaultFolder == nil ? pinnedFirst(management.ungroupedSessions) : []
         VStack(alignment: .leading, spacing: 4) {
-            if orderedFolders.isEmpty && loose.isEmpty {
+            if Self.foldersEnabled && orderedFolders.isEmpty && loose.isEmpty {
                 Text("还没有文件夹。点右上角的 + 新建一个，会话和文件都能放进去。")
                     .font(.system(size: 14))
                     .foregroundStyle(HomeSpec.textPlaceholder)
@@ -263,11 +272,13 @@ struct HomeDrawer: View {
                 Button("在这里新建会话", systemImage: "square.and.pencil") {
                     Task { if await management.createSession(workspaceID: folder.id) != nil { close() } }
                 }
-                Button("重命名", systemImage: "pencil") {
-                    renameText = folderTitle(folder)
-                    renameFolder = folder
+                if Self.foldersEnabled {
+                    Button("重命名", systemImage: "pencil") {
+                        renameText = folderTitle(folder)
+                        renameFolder = folder
+                    }
+                    Button("删除文件夹", systemImage: "trash", role: .destructive) { deleteFolder = folder }
                 }
-                Button("删除文件夹", systemImage: "trash", role: .destructive) { deleteFolder = folder }
             }
     }
 

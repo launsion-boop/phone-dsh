@@ -52,7 +52,7 @@ question/steps 选项为整行可点并支持 recommended，提交时只使用�
 ## 4. 最新基线的表现与接线
 
 - Bot 色彩：用户气泡和推荐卡表面使用真实 Bot 色彩，但必须满足 phoneDSH 深浅色与对比度 token；不能把桌面任意色值直接用于正文或背景。推荐色不能掩盖文字层级或失败语义。
-- 活动行：composer 上方、左对齐只保留一条运行指示（id `bot.activity.line`），左侧 20pt 实时大肥鱼，右侧 13/18 次要色单行省略文字，带从左到右的柔和高光。只在回合运行中且 `activity != nil` 时显示，回复正文开始流式输出后隐藏，回合结束隐藏；整行不拦截触摸。有工具详情时显示详情（模型写的 description/summary/label 截 80 字，否则「工具标签 · 目标」截 42 字），否则按 thinking / tool-running / streaming 每 2.4s 轮换文案，状态或详情变化时从第一句重新开始。文字变化使用 opacity 0→1、y 2→0、scale .985→1，0.22s `timingCurve(0.2,0.7,0.2,1)`；reduce motion 时无动画。状态来自当前 turn 的实时事件与 `BotRuntimePresentationFactory`/`BotFishDirector`，不另写映射，也不生成消息行。
+- 活动行：composer 上方、左对齐只保留一条运行指示（id `bot.activity.line`），左侧 28pt 实时大肥鱼（除状态动画外另有 1.1s 往返的轻微上下浮动与 0.98–1.04 呼吸缩放），右侧 14/20 次要色单行省略文字，带从左到右的柔和高光，文字不变时在 55%–100% 不透明度之间 1.2s 往返呼吸。只在回合运行中且 `activity != nil` 时显示，回复正文开始流式输出后隐藏，回合结束隐藏；整行不拦截触摸。有工具详情时显示详情（模型写的 description/summary/label 截 80 字，否则「工具标签 · 目标」截 42 字），否则按 thinking / tool-running / streaming 每 2.4s 轮换文案，状态或详情变化时从第一句重新开始。文字变化时旧文字淡出上移、新文字淡入（y 4→0），0.35s easeInOut；整行出现/消失淡入淡出 0.25s；reduce motion 时以上动画全部关闭。状态来自当前 turn 的实时事件与 `BotRuntimePresentationFactory`/`BotFishDirector`，不另写映射，也不生成消息行。
 - 输入区：Grok 式白色胶囊，最小高 52、圆角 26、细描边 + 浮动阴影；左右内边距各 8，左侧 36pt 圆形「+」、中间输入框、右侧 36pt 圆形发送/停止，三者在单行时垂直居中，多行增长时「+」与按钮贴底 8pt。占位「向 {name} 提问」，多行增长上限约 5 行。右侧按钮按状态切换但发送 id 不变：
   - 空闲且有文字 → 黑底白色 `arrow.up` 发送（id `bot.composer.send`）；空闲无文字 → 同一位置置灰禁用；
   - 运行中且输入为空 → 停止（id `bot.composer.stop`）；
@@ -61,7 +61,7 @@ question/steps 选项为整行可点并支持 recommended，提交时只使用�
 - 附件：胶囊左侧 36pt「+」（id `bot.composer.attach`）打开「照片」（`PhotosPicker`，多选）与「文件」（`fileImporter`，`.data`，多选）。选中后在胶囊上方显示横向 chip（类型图标 + 文件名 + 大小/类型 + 移除 ×，id `bot.composer.attachment.<index>`）；每条最多 10 个、单个 ≤ 25 MiB，超限当场提示且不加入。有附件时无文字也可发送；运行中（steering）同样可带附件。发送时先经 `BotAttachmentImporting` 写入该 Bot 的 DSH 工作区，失败的逐个提示「附件「名」未附加：原因」，不阻止其余附件和文字。用户行在正文下方显示附件卡片（名字、大小、类型），复用同一紧凑卡片语言。审批横幅、runtimeNotice、steering 提示保持原功能并与胶囊样式协调。
 - 简洁回复：persona 与 runtime context 必须保留最新简洁回复预算和明确 next-step 文案，不允许为了显示卡片强凑选项；卡片是否提供由 Agent 根据真实下一步价值决定。
 - 头像状态：`turn_started → thinking`、`model.delta → speaking/thinking`、工具调用 → working、审批/Watchdog → alerting、成功 → celebrate、失败/拒绝 → sad、turn_end → idle 的优先级、one-shot TTL 和去重沿最新 FishDirector。待审批时 UI 覆盖为 alerting；空闲 60s 进入 sleeping，用户任何输入、发送或点按页面唤醒。状态只来自当前 Bot 的真实事件，不能由 UI 自报或虚构。
-- 头像资产采用 `BotFish/` 的分层 PNG（body 为灰度，按当前 Bot 资料的颜色 LUT 着色；发型取 `BotFish/base` 或 `BotFish/hair/<style>` 图层）与 `expressive/{eyes,mouths}.png` 3×4 表情 sprite；36/60/120pt 使用同一 anchor。所有头像由 `BotProfileStore` 的 `BotFishAppearance`（颜色 + 发型）渲染，默认 `blue/long`；没有资料时回退 `.classic`。P0 生命周期所需 idle/thinking/streaming/working/sleeping/alerting/listening/speaking/happy/sad 必须有资源；其他状态按实际事件接入。设置页等静态位置使用 `still: true` 冻结在 650ms 姿态。
+- 头像资产采用 `BotFish/` 的分层 PNG（body 为灰度，按当前 Bot 资料的颜色 LUT 着色；发型取 `BotFish/base` 或 `BotFish/hair/<style>` 图层）与 `expressive/{eyes,mouths}.png` 3×4 表情 sprite；36/60/120pt 使用同一 anchor。所有头像由 `BotProfileStore` 的 `BotFishAppearance`（颜色 + 发型）渲染，默认 `blue/long`；没有资料时回退 `.classic`。P0 生命周期所需 idle/thinking/streaming/working/sleeping/alerting/listening/speaking/happy/sad 必须有资源；其他状态按实际事件接入。设置页等静态位置使用 `still: true` 冻结在 650ms 姿态。头像只做圆形裁切，不加白色底盘、描边或投影，直接叠在宿主表面上。
 
 ## 5. 验收
 
@@ -74,7 +74,7 @@ question/steps 选项为整行可点并支持 recommended，提交时只使用�
 | 居中 Bot 胶囊 | 32pt `BotFishView` + 17pt semibold 名字 + 14pt 活动小图标（三点 / 铅笔 / 红色「!」；空闲隐藏），44pt 高白色 Capsule；右上 6pt 提示圆点 | `bot.info.open` |
 | 右侧共享胶囊 | 与 DSH 页同一 `HeaderActionPill`：连接设备（在线 6pt 圆点）+「…」菜单 | `bot.connect-device`、`bot.header.menu` |
 | 空状态 | 96pt 动态大肥鱼，标题 15/22 semibold，正文 13/18，间距 12，可用高度居中 | `bot.chat.empty` |
-| 工作状态行 | 20pt 动态大肥鱼 + 13/18 单行文字 + shimmer，输入框上方左对齐 | `bot.activity.line` |
+| 工作状态行 | 28pt 浮动大肥鱼 + 14/20 单行文字（切换淡入淡出、静止时呼吸）+ shimmer，输入框上方左对齐 | `bot.activity.line` |
 | 输入胶囊 | 最小高 52、r26、白色、细描边、浮动阴影；左/右 8，左侧「+」、右侧单按钮三态（空闲发送·置灰 / 运行中空输入停止 / 运行中带文字发送并入当前回合），单行居中、多行贴底 8pt | `bot.composer.input`、`bot.composer.attach`、`bot.composer.send`、`bot.composer.stop` |
 | 附件 chip / 用户行附件卡片 | 胶囊上方横向 chip（图标 + 名 + 大小/类型 + ×），最多 10 个；用户行气泡内附件卡片（图标 + 名 + 大小/类型） | `bot.composer.attachment.<index>`、`bot.composer.attachment.notice`、`bot.message.attachment` |
 

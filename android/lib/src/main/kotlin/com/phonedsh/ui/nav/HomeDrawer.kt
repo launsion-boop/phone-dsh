@@ -346,7 +346,7 @@ public fun HomeDrawer(
                     }
                 }
                 Spacer(Modifier.height(16.dp))
-                Row(Modifier.fillMaxWidth().height(36.dp).padding(start = HomeMetrics.CONTENT_INSET_PT.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (DRAWER_FOLDERS_ENABLED) Row(Modifier.fillMaxWidth().height(36.dp).padding(start = HomeMetrics.CONTENT_INSET_PT.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("文件夹", style = type.secondary.copy(color = tokens.colors.textSecondary))
                     Spacer(Modifier.weight(1f))
                     Box {
@@ -379,7 +379,7 @@ public fun HomeDrawer(
                     val folders = facts.folders
                     if (folders == null) {
                         Text("文件夹列表未知", Modifier.padding(horizontal = HomeMetrics.CONTENT_INSET_PT.dp, vertical = 8.dp), style = type.secondary.copy(color = tokens.colors.textSecondary))
-                    } else if (folders.isEmpty() && facts.unassignedSessions.isNullOrEmpty()) {
+                    } else if (DRAWER_FOLDERS_ENABLED && folders.isEmpty() && facts.unassignedSessions.isNullOrEmpty()) {
                         Text("还没有文件夹。点右上角的 + 新建一个，文件夹用于整理会话；文件仍使用工作区。", Modifier.padding(horizontal = HomeMetrics.CONTENT_INSET_PT.dp, vertical = 8.dp), style = type.secondary.copy(color = tokens.colors.textSubtle))
                     }
                     val defaultFolder = folders?.firstOrNull { it.isDefault }
@@ -421,8 +421,8 @@ public fun HomeDrawer(
                         FolderGroup(folder.id, folderTitle, sessions, state,
                             onOpenSession, canRenameSession = onMutation != null, onArchiveSession, pendingArchiveIds,
                             archiveFailureById, ::archiveSession,
-                            canRenameFolder = onMutation != null,
-                            canDeleteFolder = onMutation != null && !folder.isDefault,
+                            canRenameFolder = DRAWER_FOLDERS_ENABLED && onMutation != null,
+                            canDeleteFolder = DRAWER_FOLDERS_ENABLED && onMutation != null && !folder.isDefault,
                             onNewSessionInFolder = onCreateSessionInFolder?.let { { folderId -> createSessionInFolder(folderId) } },
                             emptyMessage = "还没有会话",
                             onRequestRename = { id, name -> targetId = id; draft = name; dialog = "rename-folder" },
@@ -497,6 +497,13 @@ public fun HomeDrawer(
     }
 }
 
+/**
+ * Folder management (the 文件夹 title, 新建文件夹, the empty-folder hint, folder
+ * rename/delete) is not offered yet, matching iOS `HomeDrawer.foldersEnabled`.
+ * Session groups such as 手机工作区 still show.
+ */
+internal const val DRAWER_FOLDERS_ENABLED: Boolean = false
+
 public object HomeDrawerTags {
     public const val PANEL = "home.drawer.panel"
     public const val SCRIM = "home.drawer.scrim"
@@ -551,10 +558,12 @@ private fun FolderGroup(id: String, title: String, sessions: List<HomeDrawerSess
             properties = PopupProperties(focusable = true, clippingEnabled = true)) {
             DropdownMenuItem(text = { Text("在这里新建会话") }, enabled = onNewSessionInFolder != null,
                 onClick = { folderMenu = false; onNewSessionInFolder?.invoke(id) })
-            DropdownMenuItem(text = { Text("重命名") }, enabled = canRenameFolder,
-                onClick = { folderMenu = false; onRequestRename(id, title) })
-            DropdownMenuItem(text = { Text("删除文件夹") }, enabled = canDeleteFolder,
-                onClick = { folderMenu = false; onRequestDelete(id) })
+            if (DRAWER_FOLDERS_ENABLED) {
+                DropdownMenuItem(text = { Text("重命名") }, enabled = canRenameFolder,
+                    onClick = { folderMenu = false; onRequestRename(id, title) })
+                DropdownMenuItem(text = { Text("删除文件夹") }, enabled = canDeleteFolder,
+                    onClick = { folderMenu = false; onRequestDelete(id) })
+            }
         }
     }
     if (expanded) {
