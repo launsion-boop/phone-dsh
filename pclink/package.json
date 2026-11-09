@@ -1,0 +1,38 @@
+{
+  "name": "dsh-pclink",
+  "version": "0.1.0",
+  "private": true,
+  "description": "PCLink v1 PC plugin, CLI and shared Node core",
+  "type": "module",
+  "main": "./plugin/index.js",
+  "bin": {
+    "pclink": "./cli/bin.mjs"
+  },
+  "exports": {
+    ".": "./plugin/index.js",
+    "./core": "./core/index.mjs",
+    "./plugin": "./plugin/index.js",
+    "./cli": "./cli/index.mjs"
+  },
+  "files": [
+    "core/**",
+    "plugin/**",
+    "cli/**",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./plugin/cordis.patch.yml",
+      "listedByDefault": false
+    }
+  },
+  "engines": {
+    "node": ">=22",
+    "dsh": ">=0.2.2-rc.1 <0.3.0"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "test:integration": "node --test test/integration.test.mjs",
+    "test:unit": "node --test test/vectors.test.mjs test/schema-samples.test.mjs test/plugin.test.mjs test/session.test.mjs test/relay-link.test.mjs test/cli.test.mjs"
+  }
+}
