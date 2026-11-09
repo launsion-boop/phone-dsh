@@ -185,8 +185,28 @@ public actor BotApprovalCoordinator {
     /// cancelled decision and the UI gets one notice per session.
     @discardableResult
     public func cancelAll(reason: String = "worker_restarted") async -> Int {
-        let requests = pending
-        pending.removeAll()
+        await cancelAll(
+            matching: { _ in true }, reason: reason,
+            noticeText: "The app restarted and cancelled the pending approval.")
+    }
+
+    /// Cancels only the pending cards owned by one Bot. The Bot deletion
+    /// cascade calls this instead of scanning durable events and resolving
+    /// each card. The semantics match the global ``cancelAll(reason:)``:
+    /// waiters receive a denied/unavailable outcome and one durable
+    /// `approval.decided` plus one `ui.notice` event is written per card.
+    @discardableResult
+    public func cancelAll(botID: String, reason: String = "bot_deleted") async -> Int {
+        await cancelAll(
+            matching: { $0.principal.botId == botID }, reason: reason,
+            noticeText: "This Bot was deleted and its pending approval was cancelled.")
+    }
+
+    private func cancelAll(matching include: (Pending) -> Bool,
+                           reason: String, noticeText: String) async -> Int {
+        let requests = pending.filter { include($0.value) }
+        guard !requests.isEmpty else { return 0 }
+        for id in requests.keys { pending.removeValue(forKey: id) }
         for (id, request) in requests {
             request.timeout?.cancel()
             let data = BotJSONValue.object([
@@ -203,7 +223,7 @@ public actor BotApprovalCoordinator {
                     "kind": .string("approval_cancelled"),
                     "approvalID": .string(id),
                     "reason": .string(reason),
-                    "text": .string("The app restarted and cancelled the pending approval."),
+                    "text": .string(noticeText),
                 ]),
                 eventId: "notice:\(id)")
             request.continuation.resume(returning: BotApprovalOutcome(

@@ -7,7 +7,7 @@ import Foundation
 /// The implementation only depends on `BotTeamHost`; the App composition in
 /// `bm-app` supplies the roster, per-Bot turn delivery, held inbox and row
 /// persistence.
-public actor BotTeamTools: BotTeamToolHandling {
+public actor BotTeamTools: BotTeamToolHandling, BotTeamToolCatalogProviding {
     public static let sendToAgentName = "SendToAgent"
     public static let createTeammateName = "CreateTeammate"
     public static let maximumHops = 2
@@ -32,6 +32,14 @@ public actor BotTeamTools: BotTeamToolHandling {
 
     public nonisolated func handles(_ toolName: String) -> Bool {
         toolName == Self.sendToAgentName || toolName == Self.createTeammateName
+    }
+
+    /// Roster-aware catalog for one identified caller. The runtime installs
+    /// this automatically in `registerTeamTools`, so the App composition does
+    /// not need to wire a separate catalog provider.
+    public func toolDefinitions(callerBotID: String?) async -> [BotMCPToolDefinition]? {
+        guard let roster = try? await host.roster() else { return nil }
+        return BotToolCatalog.allDefinitions(roster: roster, callerBotID: callerBotID)
     }
 
     public func execute(name: String, arguments: BotJSONValue,
