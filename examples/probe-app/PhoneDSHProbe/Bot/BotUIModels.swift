@@ -357,6 +357,9 @@ struct BotChatDriver {
     var turnProcesses: () async -> [Int: BotTurnProcess] = { [:] }
     /// Live frames of the running main-chat turn.
     var liveFrames: () async -> AsyncStream<BotLiveFrame> = { AsyncStream { $0.finish() } }
+    /// The durable presentation (fish state + current-turn activity) projected
+    /// by the runtime. Live frames refine it while a turn is running.
+    var presentation: () async throws -> BotRuntimePresentation = { BotRuntimePresentation() }
 }
 
 struct BotRuntimeContext: Equatable {

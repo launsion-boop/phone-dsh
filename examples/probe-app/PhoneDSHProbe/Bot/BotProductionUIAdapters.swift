@@ -45,6 +45,9 @@ extension BotProductionRowService {
                     }
                     continuation.onTermination = { _ in task.cancel() }
                 }
+            },
+            presentation: { [self] in
+                try await self.presentation()
             })
     }
 }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import PhoneDSHAgentCore
 import PhoneDSHBot
 
 extension PhoneDSHBot.BotJSONValue {
@@ -26,7 +27,7 @@ extension PhoneDSHBot.BotJSONValue {
 }
 
 struct BotActivity: Equatable, Sendable {
-    enum Status: String, Sendable {
+    enum Status: String, Equatable, Sendable {
         case thinking
         case toolRunning = "tool-running"
         case streaming
@@ -53,8 +54,7 @@ enum BotRuntimePresentationFactory {
 
     static func make(botID: String, sessionID: String,
                      sessionEvents: [BotDSHSessionEvent], uiEvents: [BotEvent],
-                     now: Int64 = Int64(Date().timeIntervalSince1970 * 1_000)) -> BotRuntimePresentation {
-        var timed: [TimedEvent] = []
+                     now: Int64 = Int64(Date().timeIntervalSince1970 * 1_000)) -> BotRuntimePresentation {        var timed: [TimedEvent] = []
         for (index, event) in sessionEvents.enumerated() {
             let type: String?
             switch event.type {
@@ -89,6 +89,25 @@ enum BotRuntimePresentationFactory {
         let running = currentTurn(sessionID: sessionID, events: sessionEvents)
         return BotRuntimePresentation(fishState: director.current, runningTurnID: running?.id,
                                       activity: activity(turn: running, events: sessionEvents))
+    }
+
+    /// The same projection from the live turn frames the page already holds.
+    /// Live events carry the DSH session event shape (`type`/`seq`/`time`/
+    /// `data`), so they go through the one factory instead of a second table.
+    static func live(botID: String, events: [JSONValue],
+                     now: Int64 = Int64(Date().timeIntervalSince1970 * 1_000)) -> BotRuntimePresentation {
+        let sessionEvents: [BotDSHSessionEvent] = events.enumerated().compactMap { index, event in
+            guard let type = event["type"]?.stringValue else { return nil }
+            var data: [PhoneDSHBot.BotJSONValue] = [:]
+            if case .object(let object)? = event["data"] { data = object }
+            let time = Int64((event["time"]?.numberValue ?? 0).rounded())
+            return BotDSHSessionEvent(type: type,
+                                      seq: event["seq"]?.intValue ?? index,
+                                      time: max(0, time),
+                                      data: data)
+        }
+        return make(botID: botID, sessionID: "live", sessionEvents: sessionEvents,
+                    uiEvents: [], now: now)
     }
 
     private static func currentTurn(sessionID: String, events: [BotDSHSessionEvent]) -> (id: String, seq: Int)? {

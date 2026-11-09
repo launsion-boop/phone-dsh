@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: MIT
 
+import ProbeKit
 import SwiftUI
+
+private struct BotInfoRequest: Identifiable {
+    let id = UUID()
+    let section: BotInfoSection?
+}
 
 // Production entry for the Bot conversation. ChatModel owns the single
 // BotRuntimeComposition (row service, info service, driver); this page only
@@ -56,6 +62,7 @@ final class BotProductionHub: ObservableObject {
         if let initial = try? await driver.watch(0) {
             model.apply(initial)
         }
+        await model.refreshPresentation()
         let info = await composition.info.infoDriver()
         chatModel = model
         infoModel = BotInfoModel(driver: info)
@@ -65,17 +72,26 @@ final class BotProductionHub: ObservableObject {
 struct BotProductionPage: View {
     @State private var chat = ChatModel.shared
     @StateObject private var hub = BotProductionHub()
-    @State private var showInfo = false
+    @State private var infoRequest: BotInfoRequest?
+    @State private var showDeviceConnections = false
+    @State private var deviceCoordinator = DeviceSessionCoordinator.shared
 
     var body: some View {
         Group {
             if let model = hub.chatModel {
                 VStack(spacing: 0) {
                     runtimeBanner
-                    BotChatPage(model: model, onOpenInfo: { showInfo = true })
+                    BotChatPage(model: model,
+                                onOpenInfo: { presentInfo(nil) },
+                                onOpenInfoSection: { presentInfo($0) },
+                                hasOnlineDevices: deviceCoordinator.hasOnlineDevices,
+                                onConnectDevice: { showDeviceConnections = true })
                 }
                 .task { await model.watchLoop() }
                 .task { await model.liveLoop() }
+                .sheet(isPresented: $showDeviceConnections) {
+                    NavigationStack { NativeDeviceConnectionPage() }.homeSheetChrome()
+                }
             } else if let error = hub.error {
                 unavailable(error)
             } else {
@@ -91,15 +107,19 @@ struct BotProductionPage: View {
             }
         }
         .background(HomeSpec.page)
-        .sheet(isPresented: $showInfo) {
+        .sheet(item: $infoRequest) { request in
             if let info = hub.infoModel {
-                BotInfoPage(model: info)
+                BotInfoPage(model: info, initialSection: request.section)
                     .homeSheetChrome()
             }
         }
         .task {
             if hub.chatModel == nil { await hub.connect(chat: chat) }
         }
+    }
+
+    private func presentInfo(_ section: BotInfoSection?) {
+        infoRequest = BotInfoRequest(section: section)
     }
 
     @ViewBuilder

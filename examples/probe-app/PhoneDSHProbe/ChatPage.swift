@@ -241,33 +241,13 @@ struct ChatPage: View {
             .accessibilityHint("点按重命名会话")
             .padding(.horizontal, 16)
 
-            HStack(spacing: 0) {
-                Button {
-                    showDeviceConnections = true
-                } label: {
-                    Image(systemName: "dot.radiowaves.left.and.right")
-                        .font(.system(size: 19, weight: .medium))
-                        .frame(width: 46, height: HomeSpec.navButton)
-                        .overlay(alignment: .topTrailing) {
-                            // A device is online: a 6pt success dot on the icon.
-                            if deviceCoordinator.hasOnlineDevices {
-                                Circle()
-                                    .fill(HomeSpec.success)
-                                    .frame(width: 6, height: 6)
-                                    .offset(x: -10, y: 11)
-                            }
-                        }
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(deviceCoordinator.hasOnlineDevices ? "连接设备，有在线设备" : "连接设备")
-                .accessibilityIdentifier("chat.connect-device")
-                chatHeaderMenu
+            HeaderActionPill(hasOnlineDevices: deviceCoordinator.hasOnlineDevices,
+                             connectIdentifier: "chat.connect-device",
+                             menuIdentifier: nil,
+                             showsMenuActivityDot: headerActivityRunning,
+                             onConnect: { showDeviceConnections = true }) {
+                chatHeaderMenuItems
             }
-            .foregroundStyle(HomeSpec.primaryButton)
-            .frame(width: HomeSpec.navPillWidth, height: HomeSpec.navButton)
-            .background(HomeSpec.surface, in: Capsule())
-            .homeFloatingShadow()
         }
         .padding(.horizontal, HomeSpec.chromeInset)
         .padding(.top, HomeSpec.navTop)
@@ -282,64 +262,49 @@ struct ChatPage: View {
         return DrawerTitles.workspaceTitle(workspace.title, index: 1)
     }
 
-    private var chatHeaderMenu: some View {
-        Menu {
-            if !subagentEntries.isEmpty {
-                Button("子智能体（\(subagentEntries.count)）", systemImage: "person.2") {
-                    showSubagentCatalog = true
-                }
+    @ViewBuilder
+    private var chatHeaderMenuItems: some View {
+        if !subagentEntries.isEmpty {
+            Button("子智能体（\(subagentEntries.count)）", systemImage: "person.2") {
+                showSubagentCatalog = true
             }
-            if !management.jobs.isEmpty {
-                Button("后台任务（\(management.jobs.count)）", systemImage: "list.bullet") {
-                    showJobList = true
-                }
+        }
+        if !management.jobs.isEmpty {
+            Button("后台任务（\(management.jobs.count)）", systemImage: "list.bullet") {
+                showJobList = true
             }
-            if !management.scheduleRecords.isEmpty {
-                Button("定时任务（\(management.scheduleRecords.count)）", systemImage: "calendar.badge.clock") {
-                    showScheduleList = true
-                }
+        }
+        if !management.scheduleRecords.isEmpty {
+            Button("定时任务（\(management.scheduleRecords.count)）", systemImage: "calendar.badge.clock") {
+                showScheduleList = true
             }
-            Button("产物", systemImage: "shippingbox") {
-                showArtifacts = true
+        }
+        Button("产物", systemImage: "shippingbox") {
+            showArtifacts = true
+        }
+        if model.currentSessionID != nil {
+            Button("工作区", systemImage: "folder") {
+                showWorkbench = true
             }
-            if model.currentSessionID != nil {
-                Button("工作区", systemImage: "folder") {
-                    showWorkbench = true
-                }
-            }
+        }
+        Divider()
+        ShareLink(item: historyExport,
+                  subject: Text("对话记录"),
+                  preview: SharePreview("对话记录")) {
+            Label("导出对话记录", systemImage: "square.and.arrow.up")
+        }
+        Button("运行状态", systemImage: "waveform.path.ecg") { showRuntimeDetails = true }
+        Button("插件与工具", systemImage: "puzzlepiece.extension") { showSessionSettings = true }
+        if let preset = model.agentPresetLabel {
             Divider()
-            ShareLink(item: historyExport,
-                      subject: Text("对话记录"),
-                      preview: SharePreview("对话记录")) {
-                Label("导出对话记录", systemImage: "square.and.arrow.up")
-            }
-            Button("运行状态", systemImage: "waveform.path.ecg") { showRuntimeDetails = true }
-            Button("插件与工具", systemImage: "puzzlepiece.extension") { showSessionSettings = true }
-            if let preset = model.agentPresetLabel {
-                Divider()
-                Text("Agent 预设：\(preset)")
-            }
-            Divider()
-            // Official `On next message` collapse timing, as a menu
-            // pair on the phone (no DSH settings page here).
-            Picker("折叠时机", selection: collapseTimingBinding) {
-                Text("完成时").tag(false)
-                Text("下一条消息").tag(true)
-            }
-        } label: {
-            ZStack(alignment: .topTrailing) {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 18, weight: .bold))
-                    .frame(width: 46, height: HomeSpec.navButton)
-                    .contentShape(Rectangle())
-                if headerActivityRunning {
-                    Circle()
-                        .fill(HomeSpec.textSecondary)
-                        .frame(width: 6, height: 6)
-                        .offset(x: -10, y: 11)
-                }
-            }
-            .accessibilityLabel("更多")
+            Text("Agent 预设：\(preset)")
+        }
+        Divider()
+        // Official `On next message` collapse timing, as a menu
+        // pair on the phone (no DSH settings page here).
+        Picker("折叠时机", selection: collapseTimingBinding) {
+            Text("完成时").tag(false)
+            Text("下一条消息").tag(true)
         }
     }
 

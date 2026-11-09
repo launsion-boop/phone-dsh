@@ -163,11 +163,24 @@ final class BotInfoModel: ObservableObject {
     }
 }
 
+/// The three data destinations also reachable from the Bot page's “…” menu.
+enum BotInfoSection: Hashable {
+    case memory
+    case routines
+    case approvals
+}
+
 /// Bot 信息: the avatar and name on top, the name editor, then the Bot's own
 /// data (memory, routines, approvals). Same grouped-list chrome as 我的.
 struct BotInfoPage: View {
     @ObservedObject var model: BotInfoModel
     @Environment(\.dismiss) private var dismiss
+    @State private var path: [BotInfoSection]
+
+    init(model: BotInfoModel, initialSection: BotInfoSection? = nil) {
+        self.model = model
+        _path = State(initialValue: initialSection.map { [$0] } ?? [])
+    }
 
     private var nameChanged: Bool {
         let draft = model.draftName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -175,11 +188,11 @@ struct BotInfoPage: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             List {
                 Section {
                     VStack(spacing: 12) {
-                        BotStaticAvatar(size: 80)
+                        BotFishView(state: .idle, size: 80, still: true)
                             .shadow(color: .black.opacity(0.08), radius: 10, y: 4)
                         Text(model.botName)
                             .font(.system(size: 22, weight: .bold))
@@ -212,23 +225,17 @@ struct BotInfoPage: View {
                 }
 
                 Section("数据") {
-                    NavigationLink {
-                        BotMemoryPage(model: model)
-                    } label: {
+                    NavigationLink(value: BotInfoSection.memory) {
                         BotInfoEntryLabel(title: "记忆", systemImage: "brain", state: model.memoryState,
                                           count: model.memories.count)
                     }
                     .accessibilityIdentifier("bot.info.memory")
-                    NavigationLink {
-                        BotRoutinesPage(model: model)
-                    } label: {
+                    NavigationLink(value: BotInfoSection.routines) {
                         BotInfoEntryLabel(title: "例行任务", systemImage: "repeat", state: model.routinesState,
                                           count: model.routines.count)
                     }
                     .accessibilityIdentifier("bot.info.routines")
-                    NavigationLink {
-                        BotApprovalHistoryPage(model: model)
-                    } label: {
+                    NavigationLink(value: BotInfoSection.approvals) {
                         BotInfoEntryLabel(title: "审批记录", systemImage: "checkmark.shield", state: model.approvalsState,
                                           count: model.approvals.count)
                     }
@@ -239,13 +246,20 @@ struct BotInfoPage: View {
                     Section {
                         Label(error, systemImage: "exclamationmark.triangle")
                             .font(.system(size: 14))
-                            .foregroundStyle(ChatPage.danger)
+                            .foregroundStyle(BotUIPalette.danger)
                     }
                 }
             }
             .homeGroupedList()
             .navigationTitle("Bot 信息")
             .navigationBarTitleDisplayMode(.inline)
+            .navigationDestination(for: BotInfoSection.self) { section in
+                switch section {
+                case .memory: BotMemoryPage(model: model)
+                case .routines: BotRoutinesPage(model: model)
+                case .approvals: BotApprovalHistoryPage(model: model)
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
@@ -292,7 +306,7 @@ private struct BotInfoEntryLabel: View {
             case .failed:
                 Text("读取失败")
                     .font(.system(size: 15))
-                    .foregroundStyle(ChatPage.danger)
+                    .foregroundStyle(BotUIPalette.danger)
             }
         }
         .frame(minHeight: 32)
