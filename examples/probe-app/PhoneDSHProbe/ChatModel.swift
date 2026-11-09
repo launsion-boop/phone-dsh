@@ -382,7 +382,12 @@ final class ChatModel {
     /// Exact MCP admission/credential policy for this host. The native MCP
     /// editor and the Web bridge update the same object in place.
     private(set) var mcpAccessPolicy = MCPEgressPolicy()
-    private(set) var items: [ChatItem] = []
+    private(set) var items: [ChatItem] = [] {
+        didSet { itemsRevision &+= 1 }
+    }
+    /// Monotonic transcript revision. The timeline cache keys on this instead
+    /// of re-filtering/grouping `items` in every view body.
+    private(set) var itemsRevision = 0
     private(set) var transcriptHasMore = false
     private(set) var transcriptError: String?
     private(set) var trajectoryEntries: [NativeTrajectoryEntry] = []
@@ -460,11 +465,8 @@ final class ChatModel {
     /// Closed-Turn control state. `nil` for the open Turn (official renders no
     /// control row while running).
     func turnProcessState(for turn: Int) -> NativeTurnProcessState? {
-        guard let reason = turnEndReasons[turn] else { return nil }
-        let elapsed = turnStartTimes[turn].flatMap { start in
-            turnEndTimes[turn].map { max(0, $0.timeIntervalSince(start)) }
-        }
-        return NativeTurnProcessState.resolve(endReasonKind: reason, elapsed: elapsed)
+        NativeTurnStateResolver.resolve(turn: turn, endReasons: turnEndReasons,
+                                        startTimes: turnStartTimes, endTimes: turnEndTimes)
     }
 
     /// Official `todos` projection → the dock's view model. Unknown statuses are
@@ -2552,6 +2554,7 @@ final class ChatModel {
             pendingPermission = nil
             for index in items.indices where items[index].toolState == .running {
                 items[index].toolState = .stopped
+                items[index].bumpRenderRevision()
             }
         }
         syncIdleTimer()
@@ -2587,6 +2590,7 @@ final class ChatModel {
             if let index = items.indices.last, items[index].kind == .reasoning,
                items[index].streaming {
                 items[index].text += text
+                items[index].bumpRenderRevision()
             } else {
                 finishStreamingReasoning()
                 var item = ChatItem(id: eventItemID(event), kind: .reasoning,
@@ -2602,6 +2606,7 @@ final class ChatModel {
             finishStreamingReasoning()
             if let index = items.indices.last, items[index].kind == .assistant, items[index].streaming {
                 items[index].text += text
+                items[index].bumpRenderRevision()
             } else {
                 var item = ChatItem(id: eventItemID(event), kind: .assistant,
                                     title: "Assistant", text: text, streaming: true)
@@ -2617,6 +2622,7 @@ final class ChatModel {
             if let index = items.indices.last, items[index].kind == .assistant, items[index].streaming {
                 if !text.isEmpty { items[index].text = text }
                 items[index].streaming = false
+                items[index].bumpRenderRevision()
             } else if !text.isEmpty {
                 var item = ChatItem(id: eventItemID(event), kind: .assistant, title: "Assistant", text: text)
                 item.timestamp = event.time
@@ -2676,6 +2682,7 @@ final class ChatModel {
                 items[index].toolMetadata = event.toolResultMeta
                 items[index].toolErrorCode = event.toolResultErrorCode
                 items[index].toolState = state
+                items[index].bumpRenderRevision()
             } else {
                 var item = ChatItem(id: eventItemID(event), kind: .toolResult(isError: isError),
                                     title: isError ? "Tool error" : "Tool result", text: detail)
@@ -2727,11 +2734,13 @@ final class ChatModel {
             if case .failed = reason {
                 for index in items.indices where items[index].turn == Int(turnID) && items[index].toolState == .running {
                     items[index].toolState = .stopped
+                    items[index].bumpRenderRevision()
                 }
             }
             if case .cancelled = reason {
                 for index in items.indices where items[index].turn == Int(turnID) && items[index].toolState == .running {
                     items[index].toolState = .stopped
+                    items[index].bumpRenderRevision()
                 }
             }
             scheduleNativeMetricsRefresh()
@@ -2796,12 +2805,14 @@ final class ChatModel {
     private func finishStreamingAssistant() {
         if let index = items.indices.last, items[index].kind == .assistant, items[index].streaming {
             items[index].streaming = false
+            items[index].bumpRenderRevision()
         }
     }
 
     private func finishStreamingReasoning() {
         for index in items.indices where items[index].kind == .reasoning && items[index].streaming {
             items[index].streaming = false
+            items[index].bumpRenderRevision()
         }
     }
 

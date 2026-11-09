@@ -70,8 +70,7 @@ struct NativeThinkingRow: View {
     @State private var preferences = NativeChatPreferences.shared
 
     private var summary: String {
-        let raw = item.streaming ? Self.streamingSummary(item.text) : (item.text.components(separatedBy: "\n").first ?? "")
-        return raw.replacingOccurrences(of: "**", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+        NativeRowSummaryCache.shared.thinkingSummary(for: item)
     }
 
     static func streamingSummary(_ text: String) -> String {
@@ -88,7 +87,8 @@ struct NativeThinkingRow: View {
     var body: some View {
         NativeDisclosureRow(icon: .think, title: "思考", summary: summary,
                             running: item.streaming, expanded: $expanded) {
-            NativeMarkdownBody(markdown: item.text.isEmpty ? "…" : item.text, variant: .compact)
+            NativeMarkdownBody(markdown: item.text.isEmpty ? "…" : item.text, variant: .compact,
+                               cacheItemID: item.id, cacheRevision: item.renderRevision)
                 .padding(.leading, 22)
                 .padding(.vertical, 4)
         }

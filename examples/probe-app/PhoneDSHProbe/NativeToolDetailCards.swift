@@ -7,7 +7,14 @@ struct NativeToolCallRow: View {
     let item: ChatItem
     var onOpenFile: (String) -> Void
     @State private var expanded = false
-    private var model: NativeToolCallModel { NativeToolCallModel(item: item) }
+    /// Built once per row construction, not on every `model` access.
+    private let model: NativeToolCallModel
+
+    init(item: ChatItem, onOpenFile: @escaping (String) -> Void) {
+        self.item = item
+        self.onOpenFile = onOpenFile
+        self.model = NativeToolCallModel(item: item)
+    }
 
     var body: some View {
         Group {
