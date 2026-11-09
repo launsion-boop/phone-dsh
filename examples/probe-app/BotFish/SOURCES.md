@@ -35,3 +35,9 @@
 - 截图工程 `scripts/ci/bot-ui/capture.sh` 同样把本目录作为 folder 资源打包，
   生成全部状态的静态画廊（`gallery`）以及 thinking/working/speaking/alerting/
   celebrate 的 3 帧动态连拍（`dynamic`，间隔约 150ms）。
+
+## 发型图层（第 3 轮追加）
+
+- `hair/{twin-tail,bob,side-braid}/{body,fixed,face-mask}.png`：原样复制自上游
+  `src/renderer/public/assets/fish/base/hair-v3/<style>/`（同一固定提交 bf4075b）。
+  `long` 继续使用 `base/` 下的同名图层；眼睛、虹膜、腮红、表情 sprite 所有发型共用。
