@@ -118,6 +118,50 @@ with exit 129 and a `fatal:` line naming the option (for example
 `config --global`). A request for a format the program cannot render is an
 error, never the default format printed as if the request had succeeded.
 
+## Shallow and single-branch clones
+
+`clone`, `fetch` and `pull` implement git's smart-HTTP v0 shallow
+negotiation; the server must advertise the `shallow` capability (otherwise the
+command fails and says so).
+
+- `clone --depth <n>` / `--depth=<n>` sends `deepen <n>`, consumes the
+  `shallow <oid>` / `unshallow <oid>` lines before the pack, and writes
+  `.git/shallow`. As in git, `--depth` implies `--single-branch`.
+- `--single-branch` (combined with `-b/--branch`) wants only the target
+  branch, written with
+  `remote.origin.fetch = +refs/heads/<branch>:refs/remotes/origin/<branch>`.
+  Without `-b` the remote HEAD symref chooses the branch. Reachable tags still
+  follow through `include-tag`, exactly like git.
+- `--no-tags` skips tag wants and writes `remote.origin.tagOpt = --no-tags`.
+- `fetch --depth <n>` deepens an existing shallow clone. Without `--depth`, a
+  shallow repository sends its current boundaries as `shallow <oid>` lines so
+  the server can compute the correct incremental pack; both forms update
+  `.git/shallow` from the response.
+- Every command that walks parents reads the boundary centrally through
+  `readCommit`: `log`, `rev-list`, `show`, merge/`pull` fast-forward checks,
+  `push` ancestry and `collectObjects` treat a shallow commit as a root instead
+  of requesting a missing parent. `--pretty=raw` still prints the recorded
+  parent lines, and `%P` grafts them away, matching git.
+- `--no-single-branch`, `--shallow-since`, `--shallow-exclude`, `--filter`
+  (partial clone), `--bare` and `--mirror` are still rejected with a message
+  that names `--depth <n>` where it applies. Protocol v2, dumb HTTP and file
+  remotes remain unsupported.
+
+## Pack memory
+
+- One pass over each DEFLATE stream: `compress.ts` wraps `fflate`'s streaming
+  `Unzlib` and reports `{ data, consumed }`, so the pack reader no longer
+  binary-searches the remaining pack (about 26 full inflations per object on a
+  64 MiB pack) and no longer doubles a read window on failure.
+- `parsePack` returns metadata only, `{ offset, end, type, oid, crc }` per
+  object. Delta bases live in an offset-keyed LRU capped at **32 MiB**; a miss
+  re-inflates the base by offset. A `ref-delta` whose base lives in the
+  repository still goes through `readExternal`, which is the incremental-fetch
+  path. Object ids and CRCs are computed once, in `parsePack`, and reused by
+  `importPack`.
+- Stored packs are read from the file in 64 KiB slices (never the whole pack),
+  so peak retention is the 32 MiB cache plus the one object being resolved.
+
 ## Reflog
 
 `commit`, `branch`, `switch` and `checkout` append the records the system git
@@ -212,9 +256,11 @@ One npm package: `fflate` 0.8.3 (MIT, <https://github.com/101arrowz/fflate>),
 the pure-JavaScript zlib codec. Git stores every loose object and pack member
 as a zlib-wrapped DEFLATE stream, and the DSH Worker's `node:zlib` proxy has no
 deflate/inflate/crc32 (a browser has no `node:zlib` at all), so the codec is
-`git/compress.ts` over `fflate`'s synchronous API; the pack-index CRC-32 is
-implemented there too. The dependency is exact-pinned in
-`wasi-toolbox/package.json` and recorded in `plugins/THIRD_PARTY.md`.
+`git/compress.ts` over `fflate`'s API; the pack-index CRC-32 and the zlib
+Adler-32 check are implemented there too. Pack reads use the streaming
+`Unzlib` class to learn the exact consumed input length in one pass; the exact
+0.8.3 pin also guards the decoder state that measurement reads. The dependency
+is recorded in `plugins/THIRD_PARTY.md`.
 Everything else is `node:` builtins (`node:crypto` for SHA-1,
 `node:fs/promises`, `node:path`).
 
@@ -239,7 +285,7 @@ file here imports `node:zlib` again. The adapter boundaries stay `GitFs` and
 | `http.ts` | the host `/v1/http` transport and its allow-list errors |
 | `repo.ts` | discovery, config, refs, revision syntax, tree walking |
 | `objects.ts` / `pack.ts` | loose objects, pack index/reader/writer, delta application |
-| `compress.ts` | zlib codec (`fflate`, browser entry) and the table-based pack CRC-32 |
+| `compress.ts` | zlib codec (`fflate`, browser entry), one-pass `{ data, consumed }` inflater, Adler-32 and table-based pack CRC-32 |
 | `gindex.ts` | the `DIRC` index, v2 read/write, v3 read |
 | `tree.ts` | tree building from the index, tree diffs and rename detection |
 | `ignore.ts` | `.gitignore` semantics for `check-ignore`, `status`, `add` |
@@ -284,8 +330,10 @@ file here imports `node:zlib` again. The adapter boundaries stay `GitFs` and
   is consumed by at most one deletion, and a pathspec restricts both snapshots
   before rename pairing, so selecting only one side of a rename produces that
   side's deletion or addition, as git does.
-- `clone` supports smart HTTP v0 without `--depth`, `--filter`, `--bare` or
-  protocol v2; a received pack is stored whole with a freshly built index.
+- Smart-HTTP v0 only: protocol v2, dumb HTTP, file remotes, `--bare`,
+  `--mirror`, partial clones (`--filter`), `--shallow-since`/`--shallow-exclude`
+  and `--unshallow` are not implemented. A received pack is stored whole with a
+  freshly built index that the system git can read.
 - No hooks, `.gitattributes` filters, autocrlf, commit signing, replace
   objects, sparse checkout or multi-pack-index.
 - Nothing in this package has run on an iPhone. iOS/WebKit behaviour is
@@ -323,6 +371,16 @@ modules, so no assertions live in a second place.
 The golden suites skip with a message when the system `git` is absent; every
 fixture is generated by that git (never by the implementation under test) with
 an isolated `HOME`, `GIT_CONFIG_NOSYSTEM=1` and fixed author/committer dates.
+`tests/pack-inflate.test.ts` keeps the old binary-search inflater and the old
+content-retaining parser as oracles and compares them with the one-pass
+implementation on real `git gc --aggressive`, ref-delta, ofs-delta and thin
+packs (large, empty and binary objects included).
+`tests/pack-performance.test.ts` builds a 3000-object pack and asserts the new
+`parsePack` is at least 3× faster than the old one while its retained cache
+never exceeds 32 MiB (measured: ~14× faster on the build host).
+`tests/remote.test.ts` drives shallow and single-branch clone/fetch/pull/push
+through the local smart-HTTP fixture and validates the result with the system
+git's `fsck` and `rev-parse --is-shallow-repository`.
 `tests/wiring.test.ts` covers the production route: the default
 `createWorkerCommands()` table runs `bash -c "git …"`, a direct
 `ctx.subprocess.spawn(['git', ...])` reaches the same implementation instead of
