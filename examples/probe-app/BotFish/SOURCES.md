@@ -17,3 +17,14 @@
 
 其他发型、皇冠、预渲染表情与动画帧未复制。本目录需在 `project.yml` 中以
 `type: folder` 资源方式打包，保留子目录结构，避免与 `PhoneDSHProbe/` 下同名文件冲突。
+
+## 原生打包与加载
+
+- `examples/probe-app/project.yml` 以 `type: folder` / `buildPhase: resources`
+  打包本目录，App 内路径保持 `BotFish/...`。
+- `examples/probe-app/PhoneDSHProbe/Bot/Fish/BotFishAssets.swift` 通过
+  `Bundle.main.url(forResource:withExtension:subdirectory: "BotFish/base")`
+  （表情 sprite 用 `"BotFish/expressive"`）加载；缺失时回退 `BotAvatar`。
+- `body.png` 是灰度图，运行时按固定蓝色 `#1680F3` 的 LUT 着色一次并进程内共享。
+- 截图工程 `scripts/ci/bot-ui/capture.sh` 同样把本目录作为 folder 资源打包，
+  并额外生成全部状态的画廊截图（`gallery` fixture）。
