@@ -46,3 +46,10 @@
 - `hair/{twin-tail,bob,side-braid}/{body,fixed,face-mask}.png`：原样复制自上游
   `src/renderer/public/assets/fish/base/hair-v3/<style>/`（同一固定提交 bf4075b）。
   `long` 继续使用 `base/` 下的同名图层；眼睛、虹膜、腮红、表情 sprite 所有发型共用。
+
+## 主 Bot 皇冠图层（多 Bot，追加）
+
+- `crowned/long/{body,fixed,face-mask}.png`：原样复制自上游 `base/crowned/long/`。
+- `crowned/{twin-tail,bob,side-braid}/{body,fixed,face-mask}.png`：原样复制自上游 `base/crowned-v3/<style>/`。
+- `overlays/crown.png`、`overlays/crown-crystal.png`：原样复制自上游 `overlays/`。
+同一固定提交 bf4075b。与上游一致，主 Bot（`primary`）使用 crowned 图层并叠加皇冠，眼睛、虹膜、腮红与表情 sprite 仍共用 `base/` / `expressive/`。
