@@ -104,3 +104,23 @@ identical to an endpoint without BLE tools. The BLE tools are listed after the A
 reports `serverInfo` `{"name":"phone-dsh-devices","version":"1.1.0"}` with the same protocol versions and
 capabilities; clients must not key behaviour on `serverInfo`. Device tasks and identity proof are not
 exposed here (see [task delegation](../device/v1/task-delegation.md), `target`).
+
+## iPhone agent tool (implemented on iOS)
+
+The same endpoint may additionally list `iphone_agent_run`, after the BLE tools. It is
+additive; older servers do not advertise it. Input is `{"task": string}` (1–8192 UTF-8
+bytes, no other keys). It runs one UI-Venus task on this iPhone through a TonoLink
+board ([tonolink-board.md](../device/v1/tonolink-board.md)) and returns the model's
+answer, `finished`, the executed steps and seconds as JSON text. `isError` is true with
+`status` `invalid_arguments`, `journal_key_required`, `idempotency_conflict`, `busy`,
+`outcome_unknown`, `timeout_outcome_unknown` or `cancelled_outcome_unknown`, always with `automatic_retry: false`.
+
+The call requires the existing idempotency key (`X-PDSH-Idempotency-Key`). A receipt keyed
+by its SHA-256 is written before the phone is touched; a repeat of a finished key returns
+the stored result, a different task under the same key is `idempotency_conflict`, and an
+interrupted run is `outcome_unknown` and is never replayed. One task runs at a time.
+`initialize` appends the tool's usage note to `instructions`; `serverInfo` is unchanged.
+LED and other board tools stay on `ble_link_call` (BLE Link profile).
+
+Status: implemented by `Sources/PhoneDSHVenus/IPhoneAgentMCPServer.swift`, verified by
+`IPhoneAgentMCPTests`; the Android host does not serve it.

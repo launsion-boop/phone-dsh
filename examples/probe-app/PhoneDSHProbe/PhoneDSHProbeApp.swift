@@ -13,8 +13,9 @@
 import ProbeKit
 import SwiftUI
 import PhoneDSH
-#if PDSH_ENABLE_DEVICE_TASKS
 import PhoneDSHBLE
+#if DEBUG
+import PhoneDSHVenus
 #endif
 
 @main
@@ -26,6 +27,7 @@ struct PhoneDSHProbeApp: App {
     init() {
         #if DEBUG
         Self.seedProviderFromEnvironment()
+        Self.seedVisionFromFile()
         #endif
     }
 
@@ -67,6 +69,12 @@ struct PhoneDSHProbeApp: App {
                     model.refreshLockdown()
                     await ChatModel.shared.start()
                 }
+                #if DEBUG
+                .task { await Self.bleAutoconnect() }
+                .task {
+                    if let mode = ProcessInfo.processInfo.environment["PDSH_TONOLINK_USB_OTA"] { await TonoLinkUSBOTADiagnostics.run(mode) }
+                }
+                #endif
         }
     }
 }
@@ -92,6 +100,38 @@ extension PhoneDSHProbeApp {
                 "provider seed: \(profile.id), model=\(profile.model), key=\(String(describing: status))")
         } catch {
             ChatModel.appendDiagnostic("provider seed failed: \(error)")
+        }
+    }
+}
+
+extension PhoneDSHProbeApp {
+    /// Seeds UI-Venus settings from Library/Caches/vision-bootstrap.json (`PDSH_VISION_IMPORT=1`) so a
+    /// key never has to be typed into the UI on a test phone. The file is deleted after reading.
+    static func seedVisionFromFile() {
+        guard ProcessInfo.processInfo.environment["PDSH_VISION_IMPORT"] == "1" else { return }
+        let file = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("vision-bootstrap.json")
+        defer { try? FileManager.default.removeItem(at: file) }
+        struct Import: Decodable { let baseURL: String; let model: String; let key: String }
+        do {
+            let value = try JSONDecoder().decode(Import.self, from: Data(contentsOf: file))
+            try VenusSettings.shared.save(VenusConfiguration(baseURL: value.baseURL, model: value.model), key: value.key)
+        } catch { /* Never log credential material. Settings supports correction. */ }
+    }
+
+    /// `PDSH_BLE_AUTOCONNECT=<name substring>` scans in-app and connects the first match through the
+    /// ordinary BLE device store (Link tools such as light.set, and the board's HID bond).
+    @MainActor static func bleAutoconnect() async {
+        guard let want = ProcessInfo.processInfo.environment["PDSH_BLE_AUTOCONNECT"], !want.isEmpty else { return }
+        let store = BLEDeviceStore.shared
+        for _ in 0..<6 {
+            store.scan()
+            for _ in 0..<30 {
+                try? await Task.sleep(for: .milliseconds(500))
+                if let device = store.devices.first(where: { $0.name.localizedCaseInsensitiveContains(want) }) {
+                    if device.state == "未连接" { store.connect(device.id) }
+                    return
+                }
+            }
         }
     }
 }
