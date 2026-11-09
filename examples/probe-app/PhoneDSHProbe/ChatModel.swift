@@ -563,6 +563,12 @@ final class ChatModel {
     private var transcriptThroughSeq: Int?
     private var transcriptBeforeSeq: Int?
     private var hostLifecycleTransition = false
+    /// One automatic session re-open after a recovery left the open session
+    /// without its DSH history. At most one task exists; a park, a manual
+    /// switch or a session change abandons it through `sessionReloadToken`.
+    private var sessionReloadTask: Task<Void, Never>?
+    private var sessionReloadToken = 0
+    private(set) var isReloadingSession = false
     // Planned-restart policy (see RestartPolicy): one sample per minute,
     // executed only at a tool-call boundary.
     private var restartPolicyTask: Task<Void, Never>?
@@ -576,7 +582,7 @@ final class ChatModel {
     private var autoRecoveryAttempted = false
     private var foregroundResumeRequested = false
     private var backgroundParkRequested = false
-    var canSend: Bool { harness != nil && sessionID != nil && transcriptReady && !eventStreamRecovering && !busy && !parked && !hostLifecycleTransition }
+    var canSend: Bool { harness != nil && sessionID != nil && transcriptReady && !eventStreamRecovering && !busy && !parked && !hostLifecycleTransition && !isReloadingSession }
     var canStartBySending: Bool {
         ChatEngineLifecycle.canStartBySending(hostIsStopped: host == nil,
                                               busy: busy,
@@ -606,6 +612,7 @@ final class ChatModel {
         if eventStreamRecovering { return "重新同步中" }
         if parked { return "已暂停" }
         if host == nil { return "已停止" }
+        if isReloadingSession { return "重新加载中" }
         if userFacingError != nil || hostState.lowercased().contains("fail") { return "失败" }
         if busy || hostLifecycleTransition { return "处理中" }
         if pendingQuestion != nil || pendingPermission != nil { return "等待回复" }
@@ -613,7 +620,7 @@ final class ChatModel {
         if transcriptReady { return "就绪" }
         return "未连接"
     }
-    var canSteer: Bool { harness != nil && sessionID != nil && transcriptReady && !eventStreamRecovering && turnRunning && !busy && !parked && !hostLifecycleTransition }
+    var canSteer: Bool { harness != nil && sessionID != nil && transcriptReady && !eventStreamRecovering && turnRunning && !busy && !parked && !hostLifecycleTransition && !isReloadingSession }
     private var pumpTask: Task<Void, Never>?
     private var hostEventTask: Task<Void, Never>?
     private var lastSeq: UInt64?
@@ -1396,6 +1403,13 @@ final class ChatModel {
                 reportError("Session opened, but its DSH history could not be loaded: \(error)")
                 transcriptReady = false
                 refreshFiles()
+                // A park during this load is the evidence case: the host will
+                // resume, but nothing else re-opens the session. Retry only
+                // while the App is in front and the lifecycle is idle; the
+                // resume/Worker-restart triggers cover the other cases.
+                scheduleSessionReload(reason: "history load failed after adoption",
+                                      delay: ChatSessionReload.retryDelay,
+                                      requireForeground: true)
                 return
             }
             transcriptReady = true
@@ -1455,6 +1469,9 @@ final class ChatModel {
 
     @discardableResult
     private func openManagedSession(id: String?, preset: String? = nil) async -> Bool {
+        // A person asking for another session supersedes any automatic reload;
+        // the pending reload must not land after this switch.
+        cancelSessionReload()
         if let id, DeviceSessionCoordinator.shared.isDeviceSession(id) {
             reportError("设备会话只能以只读监视方式打开")
             return false
@@ -1479,44 +1496,252 @@ final class ChatModel {
                 harness = try await host.harness()
                 self.harness = harness
             }
-            let session = try await harness.openSession(HarnessSessionRequest(
-                sessionID: id, preset: preset, workspace: "/dsh/workspace"))
-            let transport = try await transportForManagement()
-            if let profile = try? PhoneModelProviderSettings.shared.load().selected {
-                try? await selectProviderModel(profile, sessionID: session.id, transport: transport)
-            }
-            let history = try await loadSessionHistory(sessionID: session.id, transport: transport)
-            pumpTask?.cancel()
-            resetSessionLedgers()
-            self.sessionID = session.id
-            UserDefaults.standard.set(session.id, forKey: Self.currentSessionDefaultsKey)
-            lastSeq = history.after
-            items = history.items
-            turnStartTimes = history.turnFacts.starts
-            turnEndReasons = history.turnFacts.endReasons
-            turnEndTimes = history.turnFacts.ends
-            isShowingCachedTranscript = false
-            persistTranscriptSnapshot()
-            transcriptHasMore = history.hasMore
-            transcriptBeforeSeq = history.beforeSeq
-            transcriptThroughSeq = history.throughSeq
-            transcriptReady = true
-            pendingPermission = nil
-            pendingQuestion = nil
-            turnRunning = history.turnRunning
-            startPump(harness: harness, sessionID: session.id, after: history.after)
-            Task { await self.refreshAccessModes() }
-            Task { await self.refreshNativeMetrics() }
-            Task { await self.refreshTrajectory() }
-            Task { await self.loadCommands() }
-            statusLine = "Session \(session.id.prefix(8)) open — type a task"
-            clearError()
-            appendStatus("Session \(id == nil ? "created" : "resumed"): \(session.id)")
+            let applied = try await openAndActivateSession(
+                id: id, preset: preset, harness: harness, isStillWanted: { true })
+            guard applied else { return false }
+            appendStatus("Session \(id == nil ? "created" : "resumed"): \(sessionID ?? "")")
             return true
+        } catch is CancellationError {
+            return false
         } catch {
             reportError("Could not \(id == nil ? "create" : "resume") session: \(error)")
             return false
         }
+    }
+
+    /// Shared body of a user session switch and the automatic reload: opens
+    /// `id`, re-applies the provider model, loads the durable history and only
+    /// then replaces the visible transcript and starts the pump. Keeping the
+    /// history behind the current `items` is what lets a reload leave the
+    /// cached transcript on screen instead of blanking it first.
+    ///
+    /// `isStillWanted` is checked after every await, so a park or a session
+    /// change abandons the work without mutating the page or reporting an error.
+    @discardableResult
+    private func openAndActivateSession(id: String?,
+                                        preset: String?,
+                                        expectedSessionID: String? = nil,
+                                        harness: any AgentHarness,
+                                        isStillWanted: () -> Bool) async throws -> Bool {
+        try Task.checkCancellation()
+        guard isStillWanted() else { return false }
+        let session = try await harness.openSession(HarnessSessionRequest(
+            sessionID: id, preset: preset, workspace: "/dsh/workspace"))
+        try Task.checkCancellation()
+        guard isStillWanted() else { return false }
+        if let expectedSessionID,
+           ChatSessionReload.shouldAbandonReload(initiatingSessionID: expectedSessionID,
+                                                 currentSessionID: session.id) {
+            return false
+        }
+        let transport = try await transportForManagement()
+        try Task.checkCancellation()
+        guard isStillWanted() else { return false }
+        if let profile = try? PhoneModelProviderSettings.shared.load().selected {
+            do {
+                // Selecting the model is retried here: after a Worker restart
+                // the first choice can fail (error 12), and this is the path
+                // that re-runs it once the engine is back.
+                try await selectProviderModel(profile, sessionID: session.id, transport: transport)
+            } catch {
+                appendStatus("The provider model could not be selected for this session: \(error.localizedDescription)")
+            }
+        }
+        try Task.checkCancellation()
+        guard isStillWanted() else { return false }
+        let history = try await loadSessionHistory(sessionID: session.id, transport: transport)
+        try Task.checkCancellation()
+        guard isStillWanted() else { return false }
+        pumpTask?.cancel()
+        resetSessionLedgers()
+        self.sessionID = session.id
+        UserDefaults.standard.set(session.id, forKey: Self.currentSessionDefaultsKey)
+        lastSeq = history.after
+        items = history.items
+        turnStartTimes = history.turnFacts.starts
+        turnEndReasons = history.turnFacts.endReasons
+        turnEndTimes = history.turnFacts.ends
+        isShowingCachedTranscript = false
+        persistTranscriptSnapshot()
+        transcriptHasMore = history.hasMore
+        transcriptBeforeSeq = history.beforeSeq
+        transcriptThroughSeq = history.throughSeq
+        transcriptReady = true
+        pendingPermission = nil
+        pendingQuestion = nil
+        turnRunning = history.turnRunning
+        startPump(harness: harness, sessionID: session.id, after: history.after)
+        Task { await self.refreshAccessModes() }
+        Task { await self.refreshNativeMetrics() }
+        Task { await self.refreshTrajectory() }
+        Task { await self.loadCommands() }
+        statusLine = "Session \(session.id.prefix(8)) open — type a task"
+        clearError()
+        return true
+    }
+
+    // MARK: Automatic session reload after a recovery
+
+    /// Starts the single automatic re-open for a session that is open but has
+    /// no transcript. Ignored when one is already scheduled or when the
+    /// lifecycle is not idle. `requireForeground` is the adoption-failure rule:
+    /// a retry is only queued while the person has the App in front.
+    private func scheduleSessionReload(reason: String,
+                                       delay: TimeInterval = 0,
+                                       requireForeground: Bool = false) {
+        guard sessionReloadTask == nil,
+              let expectedSessionID = sessionID,
+              ChatSessionReload.needsReloadAfterResume(
+                  sessionID: expectedSessionID,
+                  transcriptReady: transcriptReady,
+                  parked: parked,
+                  hostLifecycleTransition: hostLifecycleTransition)
+        else { return }
+        if requireForeground, UIApplication.shared.applicationState != .active { return }
+        sessionReloadToken &+= 1
+        let token = sessionReloadToken
+        isReloadingSession = true
+        appendStatus("Scheduling session reload (\(reason)); transcriptReady=false")
+        sessionReloadTask = Task { @MainActor [weak self] in
+            await self?.runSessionReload(reason: reason,
+                                         expectedSessionID: expectedSessionID,
+                                         token: token,
+                                         delay: delay)
+        }
+    }
+
+    /// Runs the automatic reload and its bounded retries. Every failure keeps
+    /// the current error on screen; success is the normal open state.
+    private func runSessionReload(reason: String,
+                                  expectedSessionID: String,
+                                  token: Int,
+                                  delay: TimeInterval) async {
+        defer { finishSessionReload(token: token) }
+        var retriesUsed = 0
+        var wait = delay
+        while true {
+            if wait > 0 {
+                do { try await Task.sleep(for: .seconds(wait)) } catch { return }
+            }
+            wait = 0
+            guard await waitForSessionReloadSlot(token: token,
+                                                 expectedSessionID: expectedSessionID)
+            else { return }
+            do {
+                try await performSessionReload(expectedSessionID: expectedSessionID,
+                                               token: token,
+                                               reason: reason)
+                return
+            } catch is CancellationError {
+                return
+            } catch {
+                guard isReloadCurrent(token: token, expectedSessionID: expectedSessionID) else {
+                    return
+                }
+                appendStatus("Session reload failed: \(error)")
+                if let existing = userFacingError {
+                    // Keep the failure that stranded the session; the person
+                    // still needs that text if the retries do not recover it.
+                    statusLine = existing
+                } else {
+                    reportError("Could not reload the session: \(error)")
+                }
+                guard ChatSessionReload.canRetryAfterFailure(
+                    retriesUsed: retriesUsed,
+                    appIsActive: UIApplication.shared.applicationState == .active,
+                    sessionID: sessionID,
+                    transcriptReady: transcriptReady,
+                    parked: parked,
+                    hostLifecycleTransition: hostLifecycleTransition)
+                else { return }
+                retriesUsed += 1
+                wait = ChatSessionReload.retryDelay
+                appendStatus("Session reload retry \(retriesUsed)/\(ChatSessionReload.maximumAutomaticRetries) in \(wait) s")
+            }
+        }
+    }
+
+    /// Re-opens the session captured by the trigger through the same path as a
+    /// manual switch. The cached transcript stays on screen until the durable
+    /// history has loaded.
+    private func performSessionReload(expectedSessionID: String,
+                                      token: Int,
+                                      reason: String) async throws {
+        guard isReloadCurrent(token: token, expectedSessionID: expectedSessionID) else {
+            throw CancellationError()
+        }
+        let harness: any AgentHarness
+        if let existing = self.harness {
+            harness = existing
+        } else if let host {
+            harness = try await host.harness()
+            self.harness = harness
+        } else {
+            throw CancellationError()
+        }
+        guard isReloadCurrent(token: token, expectedSessionID: expectedSessionID) else {
+            throw CancellationError()
+        }
+        // Keep whatever `restoreCachedTranscriptIfAvailable` painted.
+        restoreCachedTranscriptIfAvailable()
+        statusLine = "正在重新加載會話…"
+        appendStatus("Reloading session \(expectedSessionID.prefix(8)) (\(reason))…")
+        let applied = try await openAndActivateSession(
+            id: expectedSessionID,
+            preset: nil,
+            expectedSessionID: expectedSessionID,
+            harness: harness,
+            isStillWanted: { [weak self] in
+                self?.isReloadCurrent(token: token,
+                                      expectedSessionID: expectedSessionID) ?? false
+            })
+        guard applied else { throw CancellationError() }
+        appendStatus("Session \(expectedSessionID.prefix(8)) reloaded; history and event pump restored")
+    }
+
+    /// Waits briefly for another start/switch to release `busy`; the reload
+    /// never runs on top of one. Re-evaluates the captured session each tick.
+    private func waitForSessionReloadSlot(token: Int,
+                                          expectedSessionID: String) async -> Bool {
+        let deadline = Date().addingTimeInterval(5)
+        while busy, Date() < deadline {
+            guard isReloadCurrent(token: token, expectedSessionID: expectedSessionID) else {
+                return false
+            }
+            do { try await Task.sleep(for: .milliseconds(100)) } catch { return false }
+        }
+        return !busy && isReloadCurrent(token: token, expectedSessionID: expectedSessionID)
+    }
+
+    /// The captured session is still the current one and is still missing its
+    /// transcript. A park or session change makes this false.
+    private func isReloadCurrent(token: Int, expectedSessionID: String) -> Bool {
+        sessionReloadToken == token
+            && isReloadingSession
+            && !Task.isCancelled
+            && host != nil
+            && !ChatSessionReload.shouldAbandonReload(initiatingSessionID: expectedSessionID,
+                                                      currentSessionID: sessionID)
+            && ChatSessionReload.needsReloadAfterResume(sessionID: sessionID,
+                                                        transcriptReady: transcriptReady,
+                                                        parked: parked,
+                                                        hostLifecycleTransition: hostLifecycleTransition)
+    }
+
+    private func finishSessionReload(token: Int) {
+        guard sessionReloadToken == token else { return }
+        sessionReloadTask = nil
+        isReloadingSession = false
+    }
+
+    /// Cancels a scheduled or running reload. The token bump makes any await
+    /// already inside `openAndActivateSession` stop before it can touch state.
+    private func cancelSessionReload() {
+        guard sessionReloadTask != nil || isReloadingSession else { return }
+        sessionReloadToken &+= 1
+        sessionReloadTask?.cancel()
+        sessionReloadTask = nil
+        isReloadingSession = false
     }
 
     /// Applies a saved model-service change to the running host.
@@ -1546,6 +1771,7 @@ final class ChatModel {
     /// 归档的正好是当前打开的那个会话:把它从页面上摘掉,回到空屏,
     /// 不让用户停在一个已经不在列表里的对话上。不关宿主、不动别的会话。
     func detachArchivedSession() async {
+        cancelSessionReload()
         pumpTask?.cancel(); pumpTask = nil
         eventStreamRecovering = false
         if let harness, let sessionID { await harness.closeSession(sessionID) }
@@ -1561,6 +1787,7 @@ final class ChatModel {
 
     func stop() async {
         cancelBackoffRetry()
+        cancelSessionReload()
         guard let host else {
             await botLaunch?.composition.stop()
             if let composition = botLaunch?.composition {
@@ -1699,6 +1926,9 @@ final class ChatModel {
     }
 
     private func parkHost(_ host: PhoneDSHHost) async {
+        // A park interrupts a reload cleanly; the resume trigger queues a new
+        // one. The token bump stops a reload already awaiting the host.
+        cancelSessionReload()
         guard !hostLifecycleTransition else { return }
         hostLifecycleTransition = true
         // Every early return, thrown error or lost continuation must release
@@ -1750,9 +1980,11 @@ final class ChatModel {
             watchdog.cancel()
             hostLifecycleTransition = false
         }
+        var didResume = false
         do {
             try await host.resume()
             parked = false
+            didResume = true
             appendStatus("Host resumed; the session continues from the WAL")
             refreshFiles()
             await reconcileTurnStateAfterResume()
@@ -1764,7 +1996,14 @@ final class ChatModel {
         backgroundParkRequested = false
         // Release before the queued follow-up so it passes its own guard.
         hostLifecycleTransition = false
-        if shouldPark && !parked { await parkHost(host) }
+        if shouldPark && !parked {
+            await parkHost(host)
+        } else if didResume {
+            // The history load may have died while the host was parking; the
+            // resume is now the point where that session can be re-opened.
+            scheduleSessionReload(reason: "host resumed without a transcript",
+                                  requireForeground: true)
+        }
     }
 
     /// Releases a latched host transition after a bound the host's own
@@ -1887,6 +2126,11 @@ final class ChatModel {
                     self.restartPolicySawTermination = false
                     self.startedAt = Date()
                     self.appendStatus("Worker restarted; the session resumes from the WAL")
+                    // A restart during the first history load leaves the
+                    // session open without a transcript; re-open after the
+                    // Worker has settled. A completed adoption is a no-op.
+                    self.scheduleSessionReload(reason: "Worker restarted without a transcript",
+                                               delay: ChatSessionReload.retryDelay)
                 default:
                     break
                 }
@@ -1897,6 +2141,7 @@ final class ChatModel {
     private func hostDidFail(_ failed: PhoneDSHHost) {
         guard host === failed else { return }
         cancelBackoffRetry()
+        cancelSessionReload()
         pumpTask?.cancel(); pumpTask = nil
         eventStreamRecovering = false
         hostEventTask?.cancel(); hostEventTask = nil
