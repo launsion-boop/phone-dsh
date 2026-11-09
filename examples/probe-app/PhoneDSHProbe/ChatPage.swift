@@ -254,7 +254,7 @@ struct ChatPage: View {
         .frame(height: HomeSpec.navTop + HomeSpec.navButton)
     }
 
-    /// 副标题是会话所属的文件夹。每个会话都有文件夹:不在任何文件夹里的就算在默认的「日常」。
+    /// 副标题是会话所属的文件夹。每个会话都有文件夹:不在任何文件夹里的就算在默认的「手机工作区」。
     private var projectSubtitle: String {
         guard let id = model.currentSessionID,
               let workspace = management.workspaces.first(where: { $0.sessionIDs.contains(id) })
@@ -325,7 +325,6 @@ struct ChatPage: View {
             if model.failedItemID == nil, let error = model.userFacingError {
                 errorBanner(error)
             }
-            if let error = model.accessModeError { accessModeErrorBanner(error) }
             if let error = model.commandsError { commandErrorBanner(error) }
             cardsRegion
             transcript
@@ -1037,18 +1036,6 @@ struct ChatPage: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
         .background(Color.red.opacity(0.06))
-    }
-
-    private func accessModeErrorBanner(_ message: String) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "lock.trianglebadge.exclamationmark").foregroundStyle(.orange)
-            Text(message).font(.footnote).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
-            Button("重试") { Task { await model.refreshAccessModes() } }
-                .font(.footnote.weight(.medium))
-                .frame(minHeight: 44)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 4)
     }
 
     private func commandErrorBanner(_ message: String) -> some View {
@@ -2309,14 +2296,36 @@ struct ChatPage: View {
         } label: {
             HStack(spacing: 2) {
                 NativeChatIcon(name: .shield, size: 20)
-                NativeChatIcon(name: .chevronDown, size: 10)
+                    .overlay(alignment: .topTrailing) {
+                        // Reads failed even after the automatic retries: a quiet
+                        // mark on the control instead of a page banner.
+                        if model.accessModeError != nil && !model.accessModeLoading {
+                            Circle()
+                                .fill(Color.orange)
+                                .frame(width: 6, height: 6)
+                                .offset(x: 2, y: -1)
+                        }
+                    }
+                if model.accessModeLoading {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .frame(width: 10, height: 10)
+                } else {
+                    NativeChatIcon(name: .chevronDown, size: 10)
+                }
             }
             .foregroundStyle(HomeSpec.iconMuted)
             .frame(height: HomeSpec.sendButton)
             .contentShape(Rectangle())
         }
+        // Opening the menu after a failed read starts the automatic read again.
+        .simultaneousGesture(TapGesture().onEnded {
+            if model.accessModeError != nil && !model.accessModeLoading {
+                Task { await model.refreshAccessModes() }
+            }
+        })
         .disabled(!model.canSend || model.turnRunning || model.pendingQuestion != nil || model.pendingPermission != nil || isSelectingAccessMode)
-        .accessibilityLabel("权限：\(accessModeTitle)")
+        .accessibilityLabel(model.accessModeLoading ? "权限：正在读取" : "权限：\(accessModeTitle)")
     }
     private var accessModeTitle: String {
         if let current = model.currentAccessMode,

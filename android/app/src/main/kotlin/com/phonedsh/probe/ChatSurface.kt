@@ -320,6 +320,7 @@ internal fun chatScreenState(
         commands = ui.sessionSnapshot.commands,
         workerSessionID = ui.workerSessionId,
         accessModeError = ui.sessionSnapshot.accessError,
+        accessModeLoading = ui.sessionSnapshot.accessLoading,
         commandsError = ui.sessionSnapshot.commandsError,
         files = files.take(CHAT_MENTION_FILE_LIMIT),
         sessionTitles = sessionTitles.take(CHAT_MENTION_SESSION_LIMIT),
