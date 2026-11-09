@@ -1,0 +1,262 @@
+{
+  "version": 2,
+  "source": "built-in Image Gen",
+  "grid": [
+    3,
+    4
+  ],
+  "cell": [
+    256,
+    128
+  ],
+  "eyes": [
+    "laughing",
+    "focused",
+    "surprised",
+    "sad",
+    "love",
+    "confused",
+    "angry",
+    "sleepy",
+    "wink",
+    "excited",
+    "deadpan",
+    "shy"
+  ],
+  "mouths": [
+    "smile",
+    "smile-open",
+    "laugh",
+    "shocked",
+    "pout",
+    "sad",
+    "smug",
+    "small-o",
+    "vowel-a",
+    "vowel-e",
+    "kiss",
+    "yawn"
+  ],
+  "alpha": "preserved; no chroma key or white-background replacement",
+  "retarget": "crop each grid cell to alpha bounds, retain aspect ratio and align eye centers/mouth baseline",
+  "eyesEntries": [
+    {
+      "name": "laughing",
+      "rect": [
+        0,
+        0,
+        256,
+        128
+      ]
+    },
+    {
+      "name": "focused",
+      "rect": [
+        256,
+        0,
+        256,
+        128
+      ]
+    },
+    {
+      "name": "surprised",
+      "rect": [
+        512,
+        0,
+        256,
+        128
+      ]
+    },
+    {
+      "name": "sad",
+      "rect": [
+        0,
+        128,
+        256,
+        128
+      ]
+    },
+    {
+      "name": "love",
+      "rect": [
+        256,
+        128,
+        256,
+        128
+      ]
+    },
+    {
+      "name": "confused",
+      "rect": [
+        512,
+        128,
+        256,
+        128
+      ]
+    },
+    {
+      "name": "angry",
+      "rect": [
+        0,
+        256,
+        256,
+        128
+      ]
+    },
+    {
+      "name": "sleepy",
+      "rect": [
+        256,
+        256,
+        256,
+        128
+      ]
+    },
+    {
+      "name": "wink",
+      "rect": [
+        512,
+        256,
+        256,
+        128
+      ]
+    },
+    {
+      "name": "excited",
+      "rect": [
+        0,
+        384,
+        256,
+        128
+      ]
+    },
+    {
+      "name": "deadpan",
+      "rect": [
+        256,
+        384,
+        256,
+        128
+      ]
+    },
+    {
+      "name": "shy",
+      "rect": [
+        512,
+        384,
+        256,
+        128
+      ]
+    }
+  ],
+  "mouthsEntries": [
+    {
+      "name": "smile",
+      "rect": [
+        0,
+        0,
+        256,
+        128
+      ]
+    },
+    {
+      "name": "smile-open",
+      "rect": [
+        256,
+        0,
+        256,
+        128
+      ]
+    },
+    {
+      "name": "laugh",
+      "rect": [
+        512,
+        0,
+        256,
+        128
+      ]
+    },
+    {
+      "name": "shocked",
+      "rect": [
+        0,
+        128,
+        256,
+        128
+      ]
+    },
+    {
+      "name": "pout",
+      "rect": [
+        256,
+        128,
+        256,
+        128
+      ]
+    },
+    {
+      "name": "sad",
+      "rect": [
+        512,
+        128,
+        256,
+        128
+      ]
+    },
+    {
+      "name": "smug",
+      "rect": [
+        0,
+        256,
+        256,
+        128
+      ]
+    },
+    {
+      "name": "small-o",
+      "rect": [
+        256,
+        256,
+        256,
+        128
+      ]
+    },
+    {
+      "name": "vowel-a",
+      "rect": [
+        512,
+        256,
+        256,
+        128
+      ]
+    },
+    {
+      "name": "vowel-e",
+      "rect": [
+        0,
+        384,
+        256,
+        128
+      ]
+    },
+    {
+      "name": "kiss",
+      "rect": [
+        256,
+        384,
+        256,
+        128
+      ]
+    },
+    {
+      "name": "yawn",
+      "rect": [
+        512,
+        384,
+        256,
+        128
+      ]
+    }
+  ]
+}
