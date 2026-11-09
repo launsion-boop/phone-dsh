@@ -4,6 +4,7 @@
 // shared with the Bot page:
 //
 //     BotFishView(state: BotFishLifecycle, size: CGFloat,
+//                 appearance: BotFishAppearance = .classic,
 //                 still: Bool = false, allowsPoke: Bool = false)
 
 import SwiftUI
@@ -13,6 +14,7 @@ import PhoneDSHBot
 struct BotFishView: View {
     let state: BotFishLifecycle
     let size: CGFloat
+    let appearance: BotFishAppearance
     let still: Bool
     let allowsPoke: Bool
 
@@ -26,9 +28,12 @@ struct BotFishView: View {
     @State private var refreshToken = 0
     @State private var isVisible = false
 
-    init(state: BotFishLifecycle, size: CGFloat, still: Bool = false, allowsPoke: Bool = false) {
+    init(state: BotFishLifecycle, size: CGFloat,
+         appearance: BotFishAppearance = .classic,
+         still: Bool = false, allowsPoke: Bool = false) {
         self.state = state
         self.size = size
+        self.appearance = appearance
         self.still = still
         self.allowsPoke = allowsPoke
     }
@@ -53,13 +58,14 @@ struct BotFishView: View {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: paused)) { timeline in
             let image = engine.advance(at: timeline.date, state: state,
                                        still: still, reduced: reduceMotion,
-                                       size: side, displayScale: displayScale)
+                                       size: side, displayScale: displayScale,
+                                       appearance: appearance)
             layers(image)
         }
         // A paused `TimelineView` keeps its last content; changing identity on
         // a frozen input forces exactly one new frame (still / reduced motion /
-        // a new lifecycle state while paused).
-        .id("\(state.rawValue)-\(still)-\(reduceMotion)")
+        // a new lifecycle state or Bot appearance while paused).
+        .id("\(state.rawValue)-\(appearance.color.rawValue)-\(appearance.hairstyle.rawValue)-\(still)-\(reduceMotion)")
         .frame(width: side, height: side)
         .onAppear {
             isVisible = true
