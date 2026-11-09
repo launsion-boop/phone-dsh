@@ -11,6 +11,12 @@ public enum BotToolCatalog {
     public static let p1TargetNames = ["show_table", "show_callout", "show_info", "show_payload", "show_library"]
     public static let volatileContextName = "BotVolatileContext"
     public static let cardToolNames = Set(p0Names.prefix(7))
+    /// Team tools are routed through `BotTeamToolHandling` rather than the
+    /// catalog dispatch switch. They are advertised separately so the
+    /// upstream P0 golden stays untouched.
+    public static let teamToolNames = ["SendToAgent", "CreateTeammate"]
+    public static let sendToAgentName = "SendToAgent"
+    public static let createTeammateName = "CreateTeammate"
 
     public static let definitions: [BotMCPToolDefinition] = [
         tool("ask_user", "Show a question card with 2-4 concrete suggested replies. The host assigns each option a stable optionID. Put a clearly best option first, mark at most one option recommended:true (or style:primary), and never recommend a danger option. A successful card ends the turn.", schema([
@@ -101,6 +107,67 @@ public enum BotToolCatalog {
         ], required: ["message"])),
     ]
 
+    /// Team tools without a roster line. `allDefinitions(roster:callerBotID:)`
+    /// rebuilds both descriptions with the live sendable roster.
+    public static let baseTeamDefinitions: [BotMCPToolDefinition] = [
+        teamTool(sendToAgentName,
+                 sendToAgentDescription,
+                 schema([
+                     "agent_id": string(), "message": string(),
+                     "priority": bool(), "delivery": enumString(["now", "queued"]),
+                     "title": string(),
+                     "target_id": string(), "bot_name": string(),
+                     "agentId": string(), "text": string(),
+                 ], required: ["agent_id", "message"])),
+        teamTool(createTeammateName,
+                 createTeammateDescription,
+                 schema([
+                     "name": string(), "description": string(),
+                     "color": enumString(BotFishColor.allCases.map(\.rawValue)),
+                     "hairstyle": enumString(BotFishHairstyle.allCases.map(\.rawValue)),
+                     "section_id": string(),
+                 ], required: ["name"], additionalProperties: false)),
+    ]
+
+    /// Both descriptions contain the sendable roster, excluding the caller and
+    /// every Bot the user hid. A hidden Bot is still reachable by id/name; it
+    /// is only absent from the model-facing list, like the upstream roster
+    /// injection with the phone privacy fix applied.
+    public static func teamDefinitions(roster: BotRoster,
+                                        callerBotID: String?) -> [BotMCPToolDefinition] {
+        let line = availableBotsLine(roster: roster, callerBotID: callerBotID)
+        return [
+            teamTool(sendToAgentName, sendToAgentDescription + "\n" + line,
+                     baseTeamDefinitions[0].inputSchema),
+            teamTool(createTeammateName, createTeammateDescription + "\n" + line,
+                     baseTeamDefinitions[1].inputSchema),
+        ]
+    }
+
+    public static func allDefinitions(roster: BotRoster,
+                                      callerBotID: String?) -> [BotMCPToolDefinition] {
+        definitions + [volatileContextDefinition]
+            + teamDefinitions(roster: roster, callerBotID: callerBotID)
+    }
+
+    /// `name (id: <id>[, main Bot])` entries for the sendable roster.
+    public static func availableBotEntries(roster: BotRoster,
+                                           callerBotID: String?) -> [String] {
+        roster.visibleBots.compactMap { bot in
+            guard bot.id != callerBotID else { return nil }
+            if bot.id == roster.mainBotID {
+                return "\(bot.name) (id: \(bot.id), main Bot)"
+            }
+            return "\(bot.name) (id: \(bot.id))"
+        }
+    }
+
+    public static func availableBotsLine(roster: BotRoster,
+                                         callerBotID: String?) -> String {
+        let entries = availableBotEntries(roster: roster, callerBotID: callerBotID)
+        return "Available bots: \(entries.isEmpty ? "(none)" : entries.joined(separator: "; "))."
+    }
+
     public static let volatileContextDefinition = BotMCPToolDefinition(
         name: volatileContextName,
         description: "Return only the caller session's current Bot variant, persona, memory and automation snapshot.",
@@ -114,11 +181,35 @@ public enum BotToolCatalog {
         ]))
 
     public static var allDefinitions: [BotMCPToolDefinition] {
-        definitions + [volatileContextDefinition]
+        definitions + [volatileContextDefinition] + baseTeamDefinitions
     }
 
     public static func isRegistered(_ name: String) -> Bool {
         name == volatileContextName || p0Names.contains(name)
+    }
+
+    public static func isTeamTool(_ name: String) -> Bool {
+        teamToolNames.contains(name)
+    }
+
+    private static let sendToAgentDescription =
+        "Send an asynchronous message to another bot in the roster. The target "
+        + "receives it as a normal new turn and answers in its own transcript; "
+        + "its reply later arrives here as an inbound agent-comm row on the same "
+        + "thread. You must pass priority or delivery: priority true / delivery "
+        + "\"now\" wakes the target now; priority false / delivery \"queued\" holds "
+        + "the message for their next turn and does not wake them. Never send to "
+        + "yourself and do not poll for the reply."
+
+    private static let createTeammateDescription =
+        "Create a teammate Bot in this DSH Bot roster. Only the main Bot may call "
+        + "this tool; any other Bot receives a permission error. The new Bot gets "
+        + "its own transcript and memory. `section_id` is accepted and ignored "
+        + "(sidebar sections are not rendered)."
+
+    private static func teamTool(_ name: String, _ description: String,
+                                 _ inputSchema: BotJSONValue) -> BotMCPToolDefinition {
+        BotMCPToolDefinition(name: name, description: description, inputSchema: inputSchema)
     }
 
     private static func tool(_ name: String, _ description: String, _ inputSchema: BotJSONValue) -> BotMCPToolDefinition {

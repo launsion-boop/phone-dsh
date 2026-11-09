@@ -551,3 +551,37 @@ test('native phone tools and unrelated built-ins neither register nor ask for ap
     await ctx.fiber.dispose()
   }
 })
+
+test('team tools are auto-audited and never ask for another approval card', async () => {
+  assert.equal(phoneEffectsForApproval('mcp__phone__SendToAgent', {
+    agent_id: 'bot-b', message: 'hello', priority: true,
+  }).length, 0)
+  assert.equal(phoneEffectsForApproval('mcp__phone__CreateTeammate', {
+    name: 'Builder',
+  }).length, 0)
+  assert.equal(needsStructuralApproval('mcp__phone__SendToAgent'), true)
+  assert.equal(needsStructuralApproval('mcp__phone__CreateTeammate'), true)
+
+  const ctx = await mount()
+  let approvals = 0
+  try {
+    registerProbe(ctx, 'mcp__phone__SendToAgent')
+    registerProbe(ctx, 'mcp__phone__CreateTeammate')
+    await ctx.plugin(dshbotApprovalGate, {
+      request: async () => { approvals += 1; return { ok: true, allowed: true } },
+    })
+    for (const [name, args] of [
+      ['mcp__phone__SendToAgent', { agent_id: 'bot-b', message: 'hello', priority: true }],
+      ['mcp__phone__CreateTeammate', { name: 'Builder' }],
+    ] as const) {
+      const result = await executeTool(ctx, {
+        callId: ToolCallId(`team-${name}`), name, arguments: args,
+        signal: new AbortController().signal, agent: agent(),
+      })
+      assert.equal(result.isError, false, `${name} must execute without approval`)
+    }
+    assert.equal(approvals, 0)
+  } finally {
+    await ctx.fiber.dispose()
+  }
+})

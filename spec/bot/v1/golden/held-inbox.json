@@ -72,6 +72,18 @@
       "state": "pending",
       "taskId": "task-1",
       "status": "completed"
+    },
+    "agentHeld": {
+      "id": "held-agent-1",
+      "kind": "agent-held",
+      "fromAgentId": "agent-b",
+      "fromAgentName": "研究员",
+      "title": "温度调查",
+      "text": "请查一下厨房温度",
+      "requestId": "req-agent-1",
+      "threadId": "agent-outbound-abc@5:agent-comm",
+      "createdAt": 1760000001000,
+      "state": "pending"
     }
   },
   "invalid": [

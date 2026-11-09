@@ -9,6 +9,7 @@ export const PHONE_P0_TOOLS = Object.freeze([
   'ask_user', 'show_next_steps', 'show_attachment', 'show_document', 'show_progress',
   'show_checklist', 'show_link', 'UpdateMemory', 'RecallMemory', 'Task', 'AwaitTask',
   'StopSubagent', 'UpdateRoutine', 'ListRoutines', 'RequestApproval', 'SendToUser',
+  'SendToAgent', 'CreateTeammate',
 ])
 export const PHONE_P1_TARGET_TOOLS = Object.freeze(['show_table', 'show_callout', 'show_info', 'show_payload', 'show_library'])
 export const PHONE_NATIVE_TOOLS = Object.freeze([

@@ -13,7 +13,16 @@
 - Bot 事件写 SQLite，不使用 JSONL 作为权威存储。`commitSeq` 由 SQLite 在同一事务中分配，单调且无缺口；`eventId` 去重。P03 journal 是另一序号域，不得混用。
 - effects outbox 至少一次投递，包含 lease、去重、dead-letter 和 needs-reconciliation。接受、持久化和外部副作用完成是不同事实。
 - SQLite schema v2 增加 `bot_user_action_nonces(bot_id, nonce, event_id, created_commit_seq)`，主键为 `(bot_id, nonce)`，`event_id` 唯一并引用同库动作事件。v1 打开时原地迁移，已有事件和 effects 不变；v2 拒绝更未来版本。回滚到只支持 v1 的 App 会明确拒绝该库，不删除或静默降级。
-- 第一版不做回退引擎、回滚、import、多 Bot、Team、Box、CloudAgent、GenerateImage 或 macOS 本机工具。
+- 第一版不做回退引擎、回滚、import、Team 共享/发布/克隆、团队记忆/审核队列、Bot 模板导入导出、`CreateAgent` 云端工具、Box、CloudAgent、GenerateImage 或 macOS 本机工具。多 Bot 名册、逐 Bot 会话/记忆/held inbox 与 `SendToAgent`/`CreateTeammate` 见 §1.1；sidebar section 接受但忽略。
+
+### 1.1 多 Bot 与 Team 边界
+
+phoneDSH 从本期起支持多 Bot：名册沿用 dsh-bot 的 `agents-index.json`（`schemaVersion: 3`）和 `runtime-settings.json` 的 `mainAgentId`；每个 Bot 有独立的 DSH 会话、记忆、例行任务、授权、held inbox 与未读计数。首个 Bot 成为主 Bot；主 Bot 是指针，不是记录字段。删除主 Bot 时指针移到剩余第一个 Bot；隐藏的 Bot 仍留在名册，但不进入模型可见的工具描述。
+
+- `SendToAgent`：`agent_id` 必填（接受 id 或名字；兼容别名 `target_id`/`bot_name`/`agentId`），`message` 必填（别名 `text`），可选 `title`。必须提供 `priority: Bool` 或 `delivery: "now"|"queued"` 之一；两者冲突、缺失或非法都 fail-closed，缺失时返回上游原句 `SendToAgent requires priority (true = wake now, false = hold for their next turn).`。发送者只能取已登记 principal 的 `botId`；目标必须存在，禁止发给自己；入站深度 + 1 超过 2 跳拒绝，目标已在线程链路中也按环路拒绝。`queued` 只写目标 held inbox（`kind: agent-held`），不唤醒目标；`now` 在目标空闲时开启可见回合，目标忙时排在当前回合之后（不打断）。目标回合最后一段 assistant 文本在 300 秒内返回，作为发送方的 `inbound` 行；phoneDSH 有意再把它作为一条 `agent-held` 回复写回发送方 held inbox，在发送方下一回合进入上下文，且不唤醒发送方。`requestId` 取调用 id，重复调用返回同一 `threadId`，不重复投递。
+- `CreateTeammate`：只有当前主 Bot 可调用；其他 Bot 得到 `permission_denied`。`name` 去空格后 1–60 字符，`description` 截 300，`color` 为 15 色枚举，`hairstyle` 为 4 发型枚举，`section_id` 接受但忽略。
+- 行：发送方 `outbound`/`inbound`、目标 `incoming`/`reply` 都使用上游 `toAgent`/`fromAgent`/`agentComm{direction,…}` 与 `threadId = <rowID>@<seq>:agent-comm`；发送方交换按 `summarizeCommRows` 汇总为 `single`/`fanout`/`thread`。
+- 不在本期范围：Team 共享/发布/克隆、团队记忆/审核队列、Bot 模板导入导出、`CreateAgent` 云端工具、sidebar section 渲染，以及 macOS 本机工具。
 
 ## 2. 工具面
 
@@ -23,6 +32,8 @@
 - `p1`：`show_table`、`show_callout`、`show_info`、`show_payload`、`show_library`。本修订只冻结 schema 和 payload，标为 `target`；第一版不得注册到 App MCP，也不得写进 persona。
 
 `canvas`、`product`、`gift` 不在手机卡片词汇中。未知工具、未知 `cardType`、缺少渲染所需数据的卡片一律 fail-closed；工具返回失败，不生成半空卡片。
+
+`golden/tool-catalog.phone.json` 登记 phoneDSH 的团队工具增量（`SendToAgent`、`CreateTeammate`）：这两个名字不在上游 `tool-catalog.schema.json` 的 P0 enum 中，因此不改上游 `tool-catalog.json` 或其 schema。两者的描述由可见名册减去调用者自己与隐藏 Bot 动态生成 `Available bots: <name> (id: <id>[, main Bot])`。`golden/tool-effects.phone.json` 以同一 `tool-effects.schema.json` 冻结分类：`SendToAgent` 为 `external-send + auto`，`CreateTeammate` 为 `write + auto`；两者都不再向用户出审批卡，但由宿主审计。
 
 `card-payload.schema.json` 的字段来自 dsh-bot `cardPayloads.cjs` 的白名单。`golden/card-payload.json` 是 `export-vectors.mjs` 的原样导出，不得手改；phoneDSH 对卡片负载的增量（宿主分配的 `optionID`、recommended 移到首位、负向 fixture）放在 `golden/card-payload.phone.json`，两个文件都由 `validate_vectors.py` 校验 schema/负向结果，并由 Swift `BotCardPayloadTests` 用真实 builder 对拍。重跑导出器后 `card-payload.json` 必须无 diff；`card-payload.phone.json` 不需要重新导出。链接只接受 HTTP/HTTPS；卡片数据必须自带，不能假设存在服务端 callback 补全。
 
@@ -63,6 +74,8 @@ facts 是 SQLite 唯一权威。写入归一为单行；注入块逐字对齐；
 ## 4. 唤醒与主动提醒
 
 routine、cron、run-attempt、安静时段、silent/held/interrupt、held inbox、隐藏唤醒和 `<automation_status>` 与上游一致。安静时段延后而不是丢弃；urgent 必须有理由；WebContent 不可用时常驻宿主排队，恢复后依次运行且错过的只补一次。
+
+`HeldMessages.block` 的 `[agent]` 分支对 `fromAgentName`、`fromAgentId`、`title`、`text` 与 `msg id` 全部经 `escapedHeldField` 转义；agent-held 的回复仍是 held 数据与队友内容，不是用户授权，不能触发未经用户要求的动作。
 
 设备任务终态另有一条只读 held 通知：`device-task-result` 只告诉 Bot 哪台设备、任务目标摘要和最终结果，不授予工具，也不提供把回复发回设备的路径。它来自 [device task-delegation](../../device/v1/task-delegation.md) 的终态记录，在 journal 落盘后、向设备回报前入队；投递至多一次（at-most-once）：Bot 未运行或落盘与入队之间崩溃时该通知丢失，journal 不受影响，不按 journal 补投或回放。`held-inbox-item.schema.json` 的该分支与 `golden/held-inbox.json` 的 `deviceTaskResult` 是 phoneDSH 增量：重跑 `spec/tools/bot/export-vectors.mjs` 会覆盖 golden 例子（schema 不由导出器改写），必须像 `tool-effects.json` 的 `nativeMcp` 一样把例子合并回来。
 
@@ -110,4 +123,4 @@ node spec/tools/bot/export-vectors.mjs \
 python3 spec/bot/v1/tools/validate_vectors.py
 ```
 
-导出器只读 dsh-bot，临时 fixture 写系统临时目录。所有实现必须让真实 codec/状态机读取这些 golden；Python 校验器通过不能替代运行时 conformance。`golden/card-payload.json` 覆盖上游导出；`golden/card-payload.phone.json` 是 phoneDSH 增量（`optionID`、recommended 首位、负向 fixture），两者分工见 §2。
+导出器只读 dsh-bot，临时 fixture 写系统临时目录。所有实现必须让真实 codec/状态机读取这些 golden；Python 校验器通过不能替代运行时 conformance。`golden/card-payload.json` 覆盖上游导出；`golden/card-payload.phone.json` 是 phoneDSH 增量（`optionID`、recommended 首位、负向 fixture），两者分工见 §2。`golden/tool-catalog.phone.json`、`golden/tool-effects.phone.json` 与 `golden/held-inbox.json` 的 `agentHeld` 同样是 phoneDSH 增量：重跑导出器不会生成它们，必须保留并由 Swift 测试驱动真实工具目录、效果分类器与 inbox codec。

@@ -59,7 +59,9 @@ final class BotMCPHTTPTests: XCTestCase {
             "jsonrpc": .string("2.0"), "id": .number(2), "method": .string("tools/list"),
         ]), token: server.token)
         let tools = try XCTUnwrap(listed["result"]?["tools"]?.arrayValue)
-        XCTAssertEqual(tools.count, 17)
+        XCTAssertEqual(tools.count, 19)
+        XCTAssertTrue(tools.contains { $0["name"]?.stringValue == "SendToAgent" })
+        XCTAssertTrue(tools.contains { $0["name"]?.stringValue == "CreateTeammate" })
         XCTAssertFalse(tools.contains { $0["name"]?.stringValue == "show_table" })
         XCTAssertTrue(tools.contains { $0["name"]?.stringValue == "BotVolatileContext" })
 
