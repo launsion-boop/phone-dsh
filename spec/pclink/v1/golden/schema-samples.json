@@ -299,6 +299,30 @@
       }
     },
     {
+      "schema": "inner-message.schema.json",
+      "name": "rpc-call-carried-nul",
+      "value": {
+        "type": "rpc.call",
+        "id": "call-nul",
+        "endpoint": "session/list",
+        "args": {
+          "_request": {},
+          "note": "a\u0000b"
+        }
+      }
+    },
+    {
+      "schema": "inner-message.schema.json",
+      "name": "stream-item-carried-nul",
+      "value": {
+        "type": "rpc.stream.item",
+        "streamId": "stream-nul",
+        "value": {
+          "text": "a\u0000b"
+        }
+      }
+    },
+    {
       "schema": "endpoints.schema.json",
       "name": "inventory",
       "value": {
@@ -831,6 +855,18 @@
         "at": "2026-11-09T00:00:05Z"
       },
       "reason": "notice fingerprint is canonical lowercase xxxx-xxxx-xxxx"
+    },
+    {
+      "schema": "inner-message.schema.json",
+      "name": "notice-name-nul",
+      "value": {
+        "type": "pclink.notice",
+        "kind": "paired",
+        "name": "a\u0000b",
+        "fingerprint": "7gdx-eack-pmfr",
+        "at": "2026-11-09T00:00:05Z"
+      },
+      "reason": "name contains U+0000 (C0)"
     },
     {
       "schema": "phone-pairing-record.schema.json",

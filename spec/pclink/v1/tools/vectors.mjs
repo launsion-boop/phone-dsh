@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: MIT
 //
-// PCLink v1.2 shared vectors.  `--write` derives the golden document from fixed,
+// PCLink v1.3 shared vectors.  `--write` derives the golden document from fixed,
 // public test labels.  `--check` re-derives every value with an independent
 // minimal implementation (it does not call the generator helpers, and it owns
 // its own domain/suite/alphabet/PKCS#8 constants) and rejects every invalid
@@ -28,7 +28,7 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const DEFAULT_ROOT = resolve(HERE, '..')
 const GOLDEN = 'golden/pclink-v1-vectors.json'
 const SUITE = 'pclink-x25519-ed25519-chacha20poly1305-1'
-const REVISION = 'pclink-v1.2'
+const REVISION = 'pclink-v1.3'
 const DOMAIN = {
   relayAuth: 'pclink-v1/relay-auth',
   pair: 'pclink-v1/pair',
@@ -69,6 +69,14 @@ const PCLINK_CODES = new Set([
   'replaced', 'session_expired', 'replay', 'bad_frame', 'frame_too_large',
   'rate_limited', 'version_unsupported', 'rendezvous_expired',
   'rendezvous_exhausted', 'rekey', 'forbidden',
+])
+const DSH_PASSTHROUGH_FIELDS = new Set([
+  'rpc.call.args',
+  'rpc.stream.open.payload.args',
+  'rpc.result.result',
+  'rpc.stream.item.value',
+  'rpc.result.chunk.data(decoded)',
+  'rpc.stream.chunk.data(decoded)',
 ])
 
 // ---------------------------------------------------------------------------
@@ -707,10 +715,152 @@ function generate() {
     slash_and_nonascii: {
       object: { path: 'a/b', name: 'café', note: 'line\nbreak' },
     },
+    nul_escape: {
+      object: { 'a\u0000b': 'key', note: 'a\u0000b' },
+    },
   }
   for (const entry of Object.values(canonical)) {
     entry.canonical = canonicalJson(entry.object)
     entry.sha256_hex = hex(sha256(utf8(entry.canonical)))
+  }
+
+  // §2.3: the strict JSON rules apply to wire bytes.  A legal \u0000 escape
+  // inside a carried DSH value is data; a literal 0x00 byte, BOM, duplicate
+  // member, lone surrogate or non-object root is bad_frame.  PCLink-owned
+  // fields keep their own field rules, so a name/machineId containing U+0000
+  // is still rejected.
+  const jsonBoundary = {
+    rule: '§2.3: strict JSON applies to wire bytes; a legal JSON escape \\u0000 in a carried DSH value is accepted and preserved, while a literal 0x00 byte, BOM, duplicate member, lone surrogate and non-object root are rejected; PCLink-owned fields keep their own field rules',
+    passthrough: [
+      'rpc.call.args',
+      'rpc.stream.open.payload.args',
+      'rpc.result.result',
+      'rpc.stream.item.value',
+      'rpc.result.chunk.data(decoded)',
+      'rpc.stream.chunk.data(decoded)',
+    ],
+    accepted: [
+      {
+        case: 'carried-escaped-nul-rpc-args',
+        passthrough: 'rpc.call.args',
+        wire: JSON.stringify({
+          type: 'rpc.call', id: 'call-nul', endpoint: 'session/list',
+          args: { _request: {}, note: 'a\u0000b' },
+        }),
+        nul_paths: [['args', 'note']],
+        expected: 'accept',
+      },
+      {
+        case: 'carried-escaped-nul-stream-open-args',
+        passthrough: 'rpc.stream.open.payload.args',
+        wire: JSON.stringify({
+          type: 'rpc.stream.open', streamId: 'stream-nul', endpoint: 'session/follow',
+          payload: { args: { request: { note: 'a\u0000b' } } },
+        }),
+        nul_paths: [['payload', 'args', 'request', 'note']],
+        expected: 'accept',
+      },
+      {
+        case: 'carried-escaped-nul-rpc-result',
+        passthrough: 'rpc.result.result',
+        wire: JSON.stringify({
+          type: 'rpc.result', id: 'call-nul', ok: true,
+          result: { text: 'a\u0000b', nested: ['c\u0000d'] },
+        }),
+        nul_paths: [['result', 'text'], ['result', 'nested', 0]],
+        expected: 'accept',
+      },
+      {
+        case: 'carried-escaped-nul-stream-item',
+        passthrough: 'rpc.stream.item.value',
+        wire: JSON.stringify({
+          type: 'rpc.stream.item', streamId: 'stream-nul',
+          value: { text: 'a\u0000b' },
+        }),
+        nul_paths: [['value', 'text']],
+        expected: 'accept',
+      },
+      {
+        case: 'carried-escaped-nul-stream-chunk',
+        passthrough: 'rpc.stream.chunk.data(decoded)',
+        wire: JSON.stringify({
+          type: 'rpc.stream.chunk', streamId: 'stream-nul', part: 0, last: true,
+          data: b64u(utf8(JSON.stringify({ text: 'a\u0000b' }))),
+        }),
+        chunk_data_nul_paths: [['text']],
+        expected: 'accept',
+      },
+      {
+        case: 'carried-escaped-nul-result-chunk',
+        passthrough: 'rpc.result.chunk.data(decoded)',
+        wire: JSON.stringify({
+          type: 'rpc.result.chunk', id: 'call-nul', part: 0, last: true,
+          data: b64u(utf8(JSON.stringify({ text: 'a\u0000b' }))),
+        }),
+        chunk_data_nul_paths: [['text']],
+        expected: 'accept',
+      },
+    ],
+    rejected: [
+      {
+        case: 'wire-literal-nul',
+        failure: 'wire',
+        wire_hex: hex(Buffer.from(
+          '{"type":"rpc.call","id":"call-nul","endpoint":"session/list","args":{"note":"a\u0000b"}}',
+          'utf8',
+        )),
+        expected: 'bad_frame',
+      },
+      {
+        case: 'wire-bom',
+        failure: 'wire',
+        wire_hex: hex(Buffer.from('\ufeff{"v":1}', 'utf8')),
+        expected: 'bad_frame',
+      },
+      {
+        case: 'wire-duplicate-key',
+        failure: 'wire',
+        wire: '{"type":"rpc.call","id":"call-nul","endpoint":"session/list","args":{"note":"a","note":"b"}}',
+        expected: 'bad_frame',
+      },
+      {
+        case: 'wire-nested-duplicate-key',
+        failure: 'wire',
+        wire: '{"type":"rpc.call","id":"call-nul","endpoint":"session/list","args":{"note":{"a":1,"a":2}}}',
+        expected: 'bad_frame',
+      },
+      {
+        case: 'wire-lone-surrogate',
+        failure: 'wire',
+        wire: '{"type":"rpc.call","id":"call-nul","endpoint":"session/list","args":{"note":"\\ud800"}}',
+        expected: 'bad_frame',
+      },
+      {
+        case: 'wire-non-object-root',
+        failure: 'wire',
+        wire: '[]',
+        expected: 'bad_frame',
+      },
+      {
+        case: 'pclink-name-escaped-nul',
+        failure: 'field',
+        field_rule: 'name',
+        field_path: ['name'],
+        wire: JSON.stringify({
+          type: 'pclink.notice', kind: 'paired', name: 'a\u0000b',
+          fingerprint: '7gdx-eack-pmfr', at: '2026-11-09T00:00:05Z',
+        }),
+        expected: 'bad_frame',
+      },
+      {
+        case: 'pclink-to-escaped-nul',
+        failure: 'field',
+        field_rule: 'machineId',
+        field_path: ['to'],
+        wire: JSON.stringify({ v: 1, type: 'relay.offline', to: 'a\u0000b' }),
+        expected: 'bad_frame',
+      },
+    ],
   }
 
   const adminToken = sha256(utf8('pclink-v1/test/admin/token'))
@@ -1116,6 +1266,7 @@ function generate() {
     frames,
     chunking,
     canonical_json: canonical,
+    json_boundary: jsonBoundary,
     admin_proof: {
       test_only: true,
       token: b64u(adminToken),
@@ -1355,6 +1506,247 @@ function checkerCanonicalJson(value) {
   }
   throw new CheckError(`cannot canonicalise ${typeof value}`)
 }
+// Independent strict JSON reader for the §2.3 wire boundary.  It is
+// deliberately not JSON.parse: duplicate members and lone surrogates have to
+// be detectable, and a legal escaped \u0000 must be allowed (while a literal
+// 0x00 byte is not).
+function checkerParseWireJson(text, requireObject = true) {
+  if (typeof text !== 'string') throw new CheckError('wire JSON is not text')
+  if (text.length === 0) throw new CheckError('empty wire JSON')
+  if (text.charCodeAt(0) === 0xfeff) throw new CheckError('BOM is not allowed')
+  if (text.includes('\u0000')) throw new CheckError('literal NUL is not allowed')
+
+  let index = 0
+  const length = text.length
+  const fail = message => { throw new CheckError(`${message} at offset ${index}`) }
+  const skipWhitespace = () => {
+    while (index < length) {
+      const code = text.charCodeAt(index)
+      if (code === 0x20 || code === 0x09 || code === 0x0a || code === 0x0d) index += 1
+      else break
+    }
+  }
+  const parseString = () => {
+    if (text.charCodeAt(index) !== 0x22) fail('expected string')
+    index += 1
+    let out = ''
+    while (index < length) {
+      const code = text.charCodeAt(index)
+      if (code === 0x22) {
+        index += 1
+        return out
+      }
+      if (code === 0x5c) {
+        index += 1
+        if (index >= length) fail('unterminated escape')
+        const escape = text.charCodeAt(index)
+        index += 1
+        switch (escape) {
+          case 0x22: out += '"'; break
+          case 0x5c: out += '\\'; break
+          case 0x2f: out += '/'; break
+          case 0x62: out += '\b'; break
+          case 0x66: out += '\f'; break
+          case 0x6e: out += '\n'; break
+          case 0x72: out += '\r'; break
+          case 0x74: out += '\t'; break
+          case 0x75: {
+            if (index + 4 > length) fail('short unicode escape')
+            const hexText = text.slice(index, index + 4)
+            if (!/^[0-9A-Fa-f]{4}$/.test(hexText)) fail('bad unicode escape')
+            const unit = Number.parseInt(hexText, 16)
+            index += 4
+            if (unit >= 0xd800 && unit <= 0xdbff) {
+              if (index + 6 > length || text.charCodeAt(index) !== 0x5c || text.charCodeAt(index + 1) !== 0x75) {
+                fail('unpaired high surrogate')
+              }
+              const lowText = text.slice(index + 2, index + 6)
+              if (!/^[0-9A-Fa-f]{4}$/.test(lowText)) fail('bad low surrogate escape')
+              const low = Number.parseInt(lowText, 16)
+              if (low < 0xdc00 || low > 0xdfff) fail('unpaired high surrogate')
+              index += 6
+              out += String.fromCodePoint(0x10000 + ((unit - 0xd800) << 10) + (low - 0xdc00))
+            } else if (unit >= 0xdc00 && unit <= 0xdfff) {
+              fail('unpaired low surrogate')
+            } else {
+              out += String.fromCharCode(unit)
+            }
+            break
+          }
+          default:
+            fail('unknown escape')
+        }
+        continue
+      }
+      if (code < 0x20) fail('raw control character in string')
+      if (code >= 0xd800 && code <= 0xdbff) {
+        if (index + 1 >= length) fail('unpaired high surrogate')
+        const low = text.charCodeAt(index + 1)
+        if (low < 0xdc00 || low > 0xdfff) fail('unpaired high surrogate')
+        out += text.slice(index, index + 2)
+        index += 2
+        continue
+      }
+      if (code >= 0xdc00 && code <= 0xdfff) fail('unpaired low surrogate')
+      out += text[index]
+      index += 1
+    }
+    fail('unterminated string')
+  }
+  const parseNumber = () => {
+    const match = /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?/.exec(text.slice(index))
+    if (match === null) fail('bad number')
+    index += match[0].length
+    const value = Number(match[0])
+    if (!Number.isFinite(value)) fail('number is not finite')
+    return value
+  }
+  const parseArray = depth => {
+    index += 1
+    const result = []
+    skipWhitespace()
+    if (text.charCodeAt(index) === 0x5d) {
+      index += 1
+      return result
+    }
+    for (;;) {
+      result.push(parseValue(depth + 1))
+      skipWhitespace()
+      const separator = text.charCodeAt(index)
+      if (separator === 0x5d) {
+        index += 1
+        return result
+      }
+      if (separator !== 0x2c) fail('expected , or ]')
+      index += 1
+    }
+  }
+  const parseObject = depth => {
+    index += 1
+    const result = Object.create(null)
+    const names = new Set()
+    skipWhitespace()
+    if (text.charCodeAt(index) === 0x7d) {
+      index += 1
+      return result
+    }
+    for (;;) {
+      skipWhitespace()
+      if (text.charCodeAt(index) !== 0x22) fail('expected member name')
+      const name = parseString()
+      if (names.has(name)) fail(`duplicate member ${JSON.stringify(name)}`)
+      names.add(name)
+      skipWhitespace()
+      if (text.charCodeAt(index) !== 0x3a) fail('expected :')
+      index += 1
+      result[name] = parseValue(depth + 1)
+      skipWhitespace()
+      const separator = text.charCodeAt(index)
+      if (separator === 0x7d) {
+        index += 1
+        return result
+      }
+      if (separator !== 0x2c) fail('expected , or }')
+      index += 1
+    }
+  }
+  const parseValue = depth => {
+    if (depth > 256) fail('nesting too deep')
+    skipWhitespace()
+    if (index >= length) fail('unexpected end')
+    const character = text[index]
+    if (character === '{') return parseObject(depth)
+    if (character === '[') return parseArray(depth)
+    if (character === '"') return parseString()
+    if (text.startsWith('true', index)) {
+      index += 4
+      return true
+    }
+    if (text.startsWith('false', index)) {
+      index += 5
+      return false
+    }
+    if (text.startsWith('null', index)) {
+      index += 4
+      return null
+    }
+    if (character === '-' || (character >= '0' && character <= '9')) return parseNumber()
+    fail('unexpected token')
+  }
+
+  const value = parseValue(0)
+  skipWhitespace()
+  if (index !== length) fail('trailing bytes')
+  if (requireObject && (value === null || typeof value !== 'object' || Array.isArray(value))) {
+    throw new CheckError('root must be a JSON object')
+  }
+  return value
+}
+function checkerWirePath(value, path) {
+  let current = value
+  for (const key of path) {
+    if (Array.isArray(current) && Number.isInteger(key)) {
+      current = current[key]
+    } else if (current !== null && typeof current === 'object'
+      && Object.prototype.hasOwnProperty.call(current, key)) {
+      current = current[key]
+    } else {
+      throw new CheckError(`wire path ${JSON.stringify(path)} is missing`)
+    }
+  }
+  return current
+}
+function checkerRequireNul(value, path) {
+  const target = checkerWirePath(value, path)
+  if (typeof target !== 'string' || !target.includes('\u0000')) {
+    throw new CheckError(`decoded U+0000 was not preserved at ${JSON.stringify(path)}`)
+  }
+}
+function checkerPclinkOwnField(rule, value) {
+  if (rule === 'name') return checkerName(value)
+  if (rule === 'machineId') {
+    if (typeof value !== 'string' || !/^[a-z2-7]{26}$/.test(value)) throw new CheckError('bad machineId')
+    return value
+  }
+  throw new CheckError(`unknown PCLink field rule ${rule}`)
+}
+function checkJsonBoundary(row) {
+  const text = row.wire_hex === undefined
+    ? row.wire
+    : Buffer.from(row.wire_hex, 'hex').toString('utf8')
+  if (row.expected === 'accept') {
+    const value = checkerParseWireJson(text, true)
+    if (!DSH_PASSTHROUGH_FIELDS.has(row.passthrough)) {
+      throw new CheckError(`${row.case}: unknown DSH passthrough ${JSON.stringify(row.passthrough)}`)
+    }
+    for (const path of row.nul_paths ?? []) checkerRequireNul(value, path)
+    for (const path of row.chunk_data_nul_paths ?? []) {
+      if (typeof value.data !== 'string') throw new CheckError(`${row.case}: chunk data is not a string`)
+      const decodedText = checkerB64uDecode(value.data).toString('utf8')
+      const decoded = checkerParseWireJson(decodedText, false)
+      checkerRequireNul(decoded, path)
+    }
+    return
+  }
+  if (row.expected !== 'bad_frame') throw new CheckError(`${row.case}: unknown expected verdict`)
+  if (row.failure === 'field') {
+    const value = checkerParseWireJson(text, true)
+    const target = checkerWirePath(value, row.field_path)
+    try {
+      checkerPclinkOwnField(row.field_rule, target)
+    } catch {
+      return
+    }
+    throw new CheckError(`${row.case}: PCLink-owned field accepted U+0000`)
+  }
+  try {
+    checkerParseWireJson(text, true)
+  } catch {
+    return
+  }
+  throw new CheckError(`${row.case}: wire JSON accepted`)
+}
+
 function checkerCrockfordDecode(input) {
   if (typeof input !== 'string') throw new CheckError('manual code is not a string')
   const normalized = input.toUpperCase()
@@ -1711,7 +2103,10 @@ function checkerSidCache(entries, limit) {
 }
 
 function checkVectors(doc) {
-  const counts = { sections: 0, frames: 0, invalid: 0, crypto: 0, model: 0 }
+  const counts = {
+    sections: 0, frames: 0, invalid: 0, crypto: 0, model: 0,
+    jsonAccepted: 0, jsonRejected: 0,
+  }
   assertCheck(doc && doc.format === 'pclink-v1-vectors', 'format')
   assertCheck(doc.format_version === 3, 'format_version')
   assertCheck(doc.revision === REVISION, 'revision')
@@ -1832,6 +2227,37 @@ function checkVectors(doc) {
     const canonical = checkerCanonicalJson(entry.object)
     assertCheck(canonical === entry.canonical, `canonical ${name}: text`)
     assertCheck(checkerHex(checkerSha256(checkerUtf8(canonical))) === entry.sha256_hex, `canonical ${name}: sha256`)
+  }
+  counts.sections += 1
+
+  // §2.3 JSON wire/carried boundary.
+  const boundary = doc.json_boundary
+  assertCheck(boundary !== null && typeof boundary === 'object', 'json_boundary: section')
+  assertCheck(Array.isArray(boundary.passthrough), 'json_boundary: passthrough list')
+  assertCheck(Array.isArray(boundary.accepted) && boundary.accepted.length >= 6, 'json_boundary: accepted rows')
+  assertCheck(Array.isArray(boundary.rejected) && boundary.rejected.length >= 8, 'json_boundary: rejected rows')
+  const boundaryCases = new Set()
+  for (const row of boundary.accepted) {
+    checkJsonBoundary(row)
+    boundaryCases.add(row.case)
+    counts.jsonAccepted += 1
+  }
+  for (const row of boundary.rejected) {
+    checkJsonBoundary(row)
+    boundaryCases.add(row.case)
+    counts.jsonRejected += 1
+  }
+  for (const required of [
+    'carried-escaped-nul-rpc-args',
+    'carried-escaped-nul-stream-open-args',
+    'carried-escaped-nul-rpc-result',
+    'carried-escaped-nul-stream-item',
+    'carried-escaped-nul-stream-chunk',
+    'carried-escaped-nul-result-chunk',
+    'wire-literal-nul',
+    'pclink-name-escaped-nul',
+  ]) {
+    assertCheck(boundaryCases.has(required), `json_boundary: missing ${required}`)
   }
   counts.sections += 1
 
@@ -2294,7 +2720,7 @@ function main(argv) {
     }
     const doc = JSON.parse(readFileSync(path, 'utf8'))
     const counts = checkVectors(doc)
-    console.log(`PASS PCLink vectors: ${counts.sections} sections, ${counts.frames} AEAD frames, ${counts.crypto} crypto negative rows rejected, ${counts.model} state-machine model samples rejected (状态机模型样例，非密码证据)`)
+    console.log(`PASS PCLink vectors: ${counts.sections} sections, ${counts.frames} AEAD frames, ${counts.crypto} crypto negative rows rejected, ${counts.model} state-machine model samples rejected (状态机模型样例，非密码证据), ${counts.jsonAccepted} JSON-boundary accepts (escaped U+0000 preserved), ${counts.jsonRejected} JSON-boundary rejects (literal NUL/BOM/duplicate/lone surrogate/non-object root/PCLink field U+0000)`)
     return 0
   } catch (error) {
     console.error(`FAIL PCLink vectors: ${error instanceof Error ? error.message : String(error)}`)

@@ -1,10 +1,11 @@
 # PCLink v1 (P28)
 
-Status: `target` — frozen contract; no PCLink end is implemented. Revision label
-`pclink-v1.2` (the revised freeze after the second review round of `pclink-v1.1`;
-see the change record's revision log). The change record is
+Status: `target` — frozen contract; the B relay is implemented in this branch,
+but P28 stays `target` until the C/D ends and the runtime evidence exist.
+Revision label `pclink-v1.3` (the CCR revision after `pclink-v1.2`; see the
+change record's revision log). The change record is
 [PC-20261109-pclink-v1](../../../docs/protocol-changes/PC-20261109-pclink-v1.md);
-its `contract_revision` is `spec/pclink/v1/README.md@pclink-v1.2`.
+its `contract_revision` is `spec/pclink/v1/README.md@pclink-v1.3`.
 
 PCLink is the pair of a relay plane and an end-to-end plane between one iPhone
 and one PC running `dsh web` through a PC plugin. It is **not** the DSH Remote
@@ -108,8 +109,8 @@ the two plaintext transcript hashes. That construction is not safe:
   40-bit code as the only confidentiality of the rendezvous.
 
 `pclink-v1.1` removed the SAS entirely (no SAS field, user-confirmed value or
-fixture) and raised the manual secret to **80 bits**; `pclink-v1.2` keeps that
-removal: 16 Crockford base32 characters,
+fixture) and raised the manual secret to **80 bits**; `pclink-v1.2`/`pclink-v1.3`
+keep that removal: 16 Crockford base32 characters,
 displayed as `XXXX-XXXX-XXXX-XXXX` and entered with `-`, spaces and letter case
 ignored (`I`/`L`→`1`, `O`→`0`; `U` and every other non-alphabet character are
 rejected). At 80 bits, deriving the rendezvous or testing a pairing MAC by
@@ -192,7 +193,9 @@ is handled by revoking all pairings and running `rotate-identity` (§4.6,
   points, not bytes; an implementation MUST additionally enforce the byte
   limit on the UTF-8 encoding (`Buffer.byteLength`/`String.utf8.count`) and
   MUST reject a non-NFC value rather than silently normalize it. The schema
-  patterns below are a coarse guard; the byte/NFC/`Cf` rule is normative.
+  patterns below are a coarse guard; the byte/NFC/`Cf` rule is normative. This
+  rule applies to PCLink's own name/display fields, not to DSH passthrough
+  values (§2.3).
 
 ### 2.2 Machine identity
 
@@ -241,13 +244,53 @@ rewrite them.
 ### 2.3 JSON
 
 Every relay frame and every decrypted inner message is exactly one UTF-8 JSON
-object, no byte-order mark, no leading/trailing bytes. It MUST reject duplicate
-member names at any depth (compared as decoded Unicode scalar sequences), NUL,
-unpaired surrogates, `NaN`/`Infinity`, and non-object roots. Unknown members,
-unknown `type` values and unknown error codes are rejected as `bad_frame`
-(unknown DSH error codes are the exception in §9.3). A reserved namespace
-`task.*` or `call.*` is answered with the matching `task.*.error` /
-`call.*.error` with `code:"unavailable"`; that is the only unknown-type rule.
+object, no byte-order mark, no leading/trailing bytes. These rules apply to the
+**wire text**; they are not a character filter on the JSON values a DSH endpoint
+may legitimately produce:
+
+- The root is exactly one JSON object, never an array, string, number, boolean
+  or `null`.
+- No UTF-8 BOM and no literal `0x00` byte anywhere in the frame. Outside a
+  string only JSON whitespace (`0x20`, `0x09`, `0x0A`, `0x0D`) is allowed; a
+  raw C0 control byte inside a string is invalid JSON. A literal NUL, BOM,
+  leading/trailing bytes or malformed UTF-8 is `bad_frame`.
+- Duplicate member names at any depth are rejected, compared as decoded Unicode
+  scalar sequences (`"a"` and `"\u0061"` are the same member). `NaN`,
+  `Infinity`, non-finite numbers, unpaired surrogates and non-object roots are
+  rejected as `bad_frame`.
+- A legal JSON escape `\u0000` inside a string is **not** a wire error. It
+  decodes to `U+0000`, which is carried as DSH data. The same applies to
+  `\u0001`–`\u001f` when a DSH value contains a control character. Uppercase or
+  lowercase hex is legal JSON on the wire; canonical JSON always uses lowercase
+  (`\u0000`), see below.
+- Unknown members of a **PCLink object** (not keys inside a DSH passthrough
+  value), unknown `type` values and unknown PCLink error codes are rejected as
+  `bad_frame` (unknown DSH error codes are the exception in §9.3). A reserved
+  namespace `task.*` or `call.*` is answered with the matching
+  `task.*.error` / `call.*.error` with `code:"unavailable"`; that is the only
+  unknown-type rule.
+
+**PCLink-owned fields versus DSH passthrough values.** The boundary is
+normative:
+
+| Value kind | Members | Rule |
+| --- | --- | --- |
+| PCLink-defined string | `name`/`peerName`, `app.name`, `machineId`, `role`, `code`, `id`, `streamId`, `endpoint`, `suite`, `caps[]`, `at`, `fingerprint`, relay origins, QR/pairing fields | the member's own schema/field rule. The name rule (1–64 UTF-8 bytes, NFC, no C0/C1/`Cf`) rejects `U+0000`; pattern/enum fields reject it as a non-match. |
+| PCLink display text | `message` in `relay.error`, `rpc.result.error`, `rpc.stream.error`, `session.reject`, `session.close` and reserved `*.error` | the field's own UTF-8/byte-cap rule. It is display metadata, not a DSH passthrough; a decoded `U+0000` here is outside the escaped-`U+0000` guarantee and MUST NOT be used as a channel for DSH output. |
+| DSH passthrough | `rpc.call.args`, `rpc.stream.open.payload.args`, `rpc.result.result`, `rpc.stream.item.value`, the JSON value reassembled from `rpc.result.chunk.data`/`rpc.stream.chunk.data`, and event payloads nested inside those values | carried as DSH produced it: **no character filtering, no NUL stripping, no re-encoding or Unicode normalization**. A decoded `U+0000` is preserved. |
+
+A receiver MUST NOT close a session merely because a decoded string in a
+passthrough value contains `U+0000`. It MAY reject a `U+0000` in a PCLink-owned
+field when that field's own rule rejects it; the name and pattern/enum rules
+above do. The optional `error.details` object is part of the error object, not
+one of the guaranteed passthrough values; it is not a channel for a DSH
+`result`/`value`, and its nested content follows the error rule. An
+implementation MAY additionally reject a decoded `U+0000` in a PCLink display
+`message` under its own display-safety rule; that local rejection MUST NOT be
+extended to a passthrough value. This boundary exists because pinned DSH
+0.2.2-rc.1 model/tool output can legally contain a JSON `\u0000` escape in a
+tool result; rejecting that escape as `bad_frame` would break the DSH call or
+stream carrying it.
 
 `canonical_json(x)` used by pairing MACs is UTF-8, with these exact rules:
 
@@ -259,14 +302,21 @@ unknown `type` values and unknown error codes are rejected as `bad_frame`
   the vectors include a key pair that distinguishes the two orders.
 - No insignificant whitespace; arrays stay in order; `true`/`false`/`null`
   and numbers are exactly their JSON spellings.
-- `"` and `\` are escaped. `U+0000`–`U+001F` use the short forms
-  `\b \t \n \f \r` where defined, otherwise lowercase `\u00xx`. Every other
-  code point, including non-ASCII text and `/`, is emitted as literal UTF-8
-  (no `\/`, no `\uXXXX` for non-ASCII). A lone surrogate is invalid.
+- `"` and `\` are escaped. `U+0000` has no short form and is always the
+  lowercase six-character escape `\u0000`. `U+0001`–`U+001F` use the short forms
+  `\b \t \n \f \r` where defined, otherwise lowercase `\u00xx`; `U+007F` is
+  emitted literally (it is not a C0 control). Every other code point, including
+  non-ASCII text and `/`, is emitted as literal UTF-8 (no `\/`, no `\uXXXX` for
+  non-ASCII). A lone surrogate is invalid.
 - **Swift:** `JSONEncoder` escapes `/` as `\/` by default. Swift
   implementations MUST use `.withoutEscapingSlashes` (or a custom encoder) and
   a scalar-order key sort; a `JSONEncoder` default output is not canonical and
   will fail the pairing MAC.
+
+For example, `canonical_json({"a<U+0000>b":"key","note":"a<U+0000>b"})` is the
+text `{"a\u0000b":"key","note":"a\u0000b"}` (where each `\u0000` is six ASCII
+characters), and `golden/pclink-v1-vectors.json` records that text and its
+SHA-256 under `canonical_json.nul_escape`.
 
 Message bodies on the wire do not have to be canonical unless a clause says so;
 the golden vectors use the exact bytes shown.
@@ -299,7 +349,12 @@ Each connection is a single ordered sequence of text frames. The relay MUST
 reject binary frames (`bad_frame`, close 1003), a frame that is not one JSON
 object, and any frame whose UTF-8 length exceeds 16 MiB. The relay MUST NOT
 inspect or decrypt `e2e.body`; it forwards the outer object by `to` after
-overwriting `from` with the authenticated machineId (§3.3).
+overwriting `from` with the authenticated machineId (§3.3). Relay-plane frames
+and `e2e.handshake` carry only PCLink-owned fields; they contain no DSH
+passthrough value. A relay MAY therefore keep rejecting every decoded `U+0000`
+(and the literal byte) in outer JSON; the §2.3 escaped-`\u0000` allowance
+applies only to the AEAD inner values and does not change the outer frame
+grammar.
 
 The first frame from the relay is `relay.challenge`; the first frame from the
 client is `peer.auth`; the relay then sends `relay.ready`. No other client frame
@@ -906,7 +961,9 @@ Before keys exist, the bootstrap messages travel in a distinct outer carrier:
 `e2e.handshake` has no `seq`, no AEAD and no AAD. It is relay-visible; it MUST
 NOT contain identity private keys, secrets or application data. `body` is a JSON
 object. Only the phone initiates; the PC answers. A PC that sends `session.init`
-or a phone that sends `session.resp` is `bad_frame`.
+or a phone that sends `session.resp` is `bad_frame`. The carrier contains only
+PCLink fields and has no DSH passthrough member; the §2.3 escaped-`\u0000`
+allowance applies to the AEAD inner messages, not to this plaintext carrier.
 
 The phone chooses a fresh 16-byte `sid` for every handshake. The PC accepts at
 most 10 handshake attempts per peer per minute and at most 64 pending
@@ -1236,7 +1293,12 @@ hide them. The range is checked on `install` and on every `peer.hello`.
 
 All inner messages are AEAD plaintexts. They are closed objects; the schema is
 `schema/inner-message.schema.json`. The first message each way is `peer.hello`.
-The message types are:
+Inner JSON follows §2.3: a decoded `U+0000` under `rpc.call.args`,
+`rpc.stream.open.payload.args`, `rpc.result.result`,
+`rpc.stream.item.value` or reassembled chunk data is DSH data and MUST be
+preserved; PCLink-owned fields in the same object (`type`,
+`id`, `streamId`, `endpoint`, `code`, `message`, `name`, ...) keep their own
+field rules. The message types are:
 
 | Type | Direction | Purpose |
 | --- | --- | --- |
@@ -1287,9 +1349,12 @@ reuse while in flight is a request-level `bad_frame` (answer the duplicate with
 not execute it). `endpoint`
 is the DSH `<ns>/<method>` string (the `$` namespace is allowed, e.g.
 `$events/result`); it is not a URL or path. `args` is the exact DSH `args`
-object, maximum 8 MiB of UTF-8 JSON. The PC plugin does **not** rewrite args and
-does **not** consult a general allowlist. There is exactly one forbidden
-endpoint prefix: a `rpc.call` or `rpc.stream.open` whose `endpoint` starts with
+object, maximum 8 MiB of UTF-8 JSON. It is a §2.3 DSH passthrough value: a
+decoded `U+0000` from a legal `\u0000` escape is data and MUST be forwarded to
+DSH unchanged; do not apply the name/control-character rule to `args`. The PC
+plugin does **not** rewrite args and does **not** consult a general allowlist.
+There is exactly one forbidden endpoint prefix: a `rpc.call` or
+`rpc.stream.open` whose `endpoint` starts with
 `pclink.admin/` is answered with
 `rpc.result{ok:false,error:{code:"forbidden",message:"remote pclink.admin calls are forbidden"}}`
 or
@@ -1319,9 +1384,12 @@ Peer's shared fetch handler, and answers:
  "error":{"code":"session/not-found","message":"...","details":{...}}}
 ```
 
-`result` and `error` are mutually exclusive; `ok` decides which is present. The
-error object is always exactly `{code,message,details?}` with a required
-`message`; `rpc.stream.error` uses the same
+`result` and `error` are mutually exclusive; `ok` decides which is present.
+`result` is a §2.3 DSH passthrough value: a decoded `U+0000` in it is preserved
+and never used to reject the frame. `error` is the PCLink error object, not a
+DSH payload channel; its `message` is display text (§2.3). The error object is
+always exactly `{code,message,details?}` with a required `message`;
+`rpc.stream.error` uses the same
 `{"type":"rpc.stream.error","streamId":"...","error":{code,message,details?}}`
 shape and never a top-level `code`. A DSH error code is passed through
 unchanged (the DSH code namespace, e.g. `gateway/arguments-invalid`,
@@ -1379,8 +1447,10 @@ split into `rpc.stream.chunk{streamId,part,last,data}` frames, where `part`
 starts at 0 and increases by 1, `last` is true exactly on the final chunk, and
 `data` is the `b64url` of a contiguous byte range of that same JSON encoding.
 The receiver concatenates in part order, UTF-8 decodes exactly once and parses
-exactly one JSON value; it MUST NOT deliver a partial value. The reassembled
-plaintext MUST be ≤ 8 MiB; a larger value ends that stream with
+exactly one JSON value; it MUST NOT deliver a partial value. The decoded value
+is a §2.3 DSH passthrough: parse it without character filtering and preserve a
+decoded `U+0000`. The reassembled plaintext MUST be ≤ 8 MiB; a larger value ends
+that stream with
 `rpc.stream.error{error:{code:"frame_too_large",message:"value exceeds 8 MiB"}}`.
 A chunk `data` SHOULD be ≤ 1 MiB
 raw bytes (the maximum chunk length is 1,500,000 `b64url` characters) so a
@@ -1660,7 +1730,7 @@ PCLink code allowed in those two error objects (there is no DSH
 | `replaced` | relay | a newer connection for this machineId replaced this one | no immediate reconnect; wait ≥30 s with jitter; user may act |
 | `session_expired` | PC, relay | sid closed/expired, phone relay idle, PC 15-minute E2E idle, or 2^20-frame/2 GiB hard cap | establish a new sid; retry per endpoint class |
 | `replay` | PC, phone | `seq` not increasing, reused sid, replayed/cross-session handshake | close the session; do not retry the same frame; security event |
-| `bad_frame` | any | malformed JSON, unknown member/type/**PCLink code**, wrong direction, duplicate id in flight | close the affected session/connection; do not retry blindly |
+| `bad_frame` | any | malformed wire JSON, unknown member of a PCLink object/type/**PCLink code**, wrong direction, duplicate id in flight | close the affected session/connection; do not retry blindly |
 | `frame_too_large` | relay, PC, phone | >16 MiB outer frame or >8 MiB plaintext value; oversized handshake/args | terminate that stream/call; UI shows the limit; no retry of the same payload |
 | `rate_limited` | relay, PC | connection/pair/daily/handshake limit | wait `retryAfterMs`; read/idempotent may retry; unsafe is `unknown_outcome` only if it was sent |
 | `version_unsupported` | PC, phone | no PCLink/suite caps intersection, bad suite, unknown record mode | stop; show upgrade/re-pair; no retry |
@@ -1681,7 +1751,9 @@ namespace: it is passed through/displayed as `unavailable` with the original
 message preserved and does not close the PCLink session. `forbidden` is a
 PCLink code produced by the plugin, not a relay/close code; it is not an alias
 for `unavailable` or `bad_frame` (it names a deliberate remote-admin
-prohibition).
+prohibition). The `message` member of an error or close is PCLink display text,
+not a DSH passthrough (§2.3); it keeps its byte cap and MUST NOT be used to
+smuggle a DSH result/value that belongs in `result`, `value` or chunk data.
 
 ### 9.2 Relay authentication vs direct `DSHWebTransport`
 
@@ -1746,11 +1818,12 @@ does not prompt for a DSH cookie.
 
 ## 11. Compatibility and versioning
 
-PCLink v1 is the first PCLink version; `pclink-v1.2` is the revised freeze
-before any implementation. There is no old PCLink implementation or persisted
-PCLink data to interoperate with; the pair records, `pairs.log`, identity files
-and admin token are new. The unfrozen `pclink-v1` draft is superseded (no
-implementation or persisted data exists); a `pclink-v1` draft record without
+PCLink v1 is the first PCLink version; `pclink-v1.3` is the current revised
+freeze before any implementation is accepted as conformant. There is no old
+PCLink implementation or persisted PCLink data to interoperate with; the pair
+records, `pairs.log`, identity files and admin token are new. The unfrozen
+`pclink-v1` draft is superseded (no implementation or persisted data exists); a
+`pclink-v1` draft record without
 `approvedAt`/`approvedVia`/`pairs.log` is unapproved and unusable, so a draft
 store must re-pair rather than be silently adopted. Future versions MUST use a
 new protocol version/capability and an explicit change record; a v1 receiver
@@ -1784,7 +1857,13 @@ this record.
   signed PC reject plus real reject-signature negatives (valid for init A,
   invalid for init B's `th1`; code-swapped), AEAD frames
   (AAD/nonce/ciphertext), canonical JSON (code-point key order, `/` literal,
-  non-ASCII), chunking/interleaving, pairing QR, the 80-bit/16-character manual
+  non-ASCII, lowercase `\u0000` for `U+0000`), chunking/interleaving, the
+  `json_boundary` rows (legal escaped `U+0000` in `rpc.call.args`,
+  `rpc.stream.open.payload.args`, `rpc.result.result`,
+  `rpc.stream.item.value` and decoded chunk data is accepted and preserved; a
+  literal `0x00`, BOM, duplicate member, lone surrogate, non-object root and a
+  PCLink `name`/machineId containing `U+0000` are rejected), pairing QR, the
+  80-bit/16-character manual
   code and Crockford normalization, the complete keyC manual-mode
   hello/auth/confirm/final MAC set with mutation/wrong-key negatives,
   origin-bound rendezvous (including a different-origin value), pairing
@@ -1792,7 +1871,9 @@ this record.
   tolerance and the wrong-phone-fingerprint negative, the paired-notice shape,
   audit entries, and invalid rows. `tools/vectors.mjs --write` regenerates it
   from fixed public labels; `--check` independently re-implements machineId,
-  canonical JSON, HKDF, origin-bound rendezvous, pair MAC, AEAD nonce/AAD/open,
+  strict wire JSON (literal-NUL/BOM/duplicate/lone-surrogate/non-object-root
+  rejection plus escaped-`U+0000` acceptance), canonical JSON, HKDF,
+  origin-bound rendezvous, pair MAC, AEAD nonce/AAD/open,
   chunk split/reassembly, QR parse, Crockford decode and fingerprint
   normalization. The checker owns its own domain/suite/alphabet/PKCS#8
   constants, does not call the generator's helpers, and counts crypto negatives
@@ -1808,10 +1889,15 @@ this record.
   record schemas (`pairing-record.schema.json` requires
   `approvedAt`/`approvedVia`; `phone-pairing-record.schema.json` forbids them).
   `golden/schema-samples.json` carries at least one valid and one invalid
-  sample per schema; `tools/check_samples.py` validates them with the
-  repository's existing JSON-Schema subset validator, additionally enforces
-  the name UTF-8/NFC/C0/C1/`Cf` rule, and validates `endpoints.json` (unique
-  names, stream=read, phone namespace, source files exist).
+  sample per schema, including valid RPC-args and stream-item samples with a
+  decoded `U+0000` and an invalid `pclink.notice.name` containing `U+0000`;
+  `tools/check_samples.py` validates them with the repository's existing
+  JSON-Schema subset validator, additionally enforces the name
+  UTF-8/NFC/C0/C1/`Cf` rule, validates `endpoints.json` (unique names,
+  stream=read, phone namespace, source files exist), and independently
+  re-checks the `json_boundary` rows (raw NUL/BOM/duplicate/lone surrogate/
+  non-object root rejection, escaped-`U+0000` preservation, and the PCLink
+  field rule).
 - `endpoints.json` is the normative endpoint inventory and retry classification.
   Unknown endpoints are `unsafe` for retry but not blocked; `pclink.admin/` is
   the one forbidden remote endpoint prefix (the `/api/pclink.admin/*` handler's
@@ -1932,6 +2018,13 @@ follows AGENTS.md §3.3 and the change record's revision log.
     the verified name is shown. The phone that has been offline for a long time
     shows the manual-unpair hint after an identity change, because it cannot
     detect the new PC identity.
+16. The §2.3 strict JSON rule applies to wire bytes, not to decoded DSH values.
+    A literal `0x00`, BOM, duplicate member, lone surrogate and non-object root
+    are rejected; a legal `\u0000` escape in a DSH passthrough value is
+    accepted and preserved. PCLink-owned fields keep their own rules, and the
+    relay/`e2e.handshake` outer carriers contain no DSH passthrough value, so a
+    relay may keep rejecting every NUL in outer frames. This is the adopted C
+    implementer CCR (`pclink-v1.3`); no handshake or AEAD byte changes.
 
 ## 14. Fixture and file map
 
@@ -1940,7 +2033,7 @@ follows AGENTS.md §3.3 and the change record's revision log.
 | `README.md` | this normative contract |
 | `endpoints.json` | normative `workspace/1` inventory and retry classes |
 | `schema/*.schema.json` | closed relay/inner/handshake/pairing/admin shapes (including `admin-challenge.schema.json` and `admin-status.schema.json`) |
-| `golden/pclink-v1-vectors.json` | shared crypto and pairing vectors (valid + invalid), `pclink-v1.2` |
+| `golden/pclink-v1-vectors.json` | shared crypto, pairing and JSON wire-boundary vectors (valid + invalid), `pclink-v1.3` |
 | `golden/schema-samples.json` | valid/invalid sample per schema |
 | `tools/vectors.mjs` | Node 24 generator + independent checker (no npm dependencies) |
-| `tools/check_samples.py` | existing-validator schema/inventory checker plus the name byte/NFC/`Cf` rule |
+| `tools/check_samples.py` | existing-validator schema/inventory checker plus the name byte/NFC/`Cf` rule and the `json_boundary` wire/field rows |

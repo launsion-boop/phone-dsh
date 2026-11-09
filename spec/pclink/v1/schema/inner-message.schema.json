@@ -466,5 +466,5 @@
       }
     }
   ],
-  "$comment": "String maxLength counts code points; the normative name limit is 1-64 UTF-8 bytes, NFC, no C0/C1/Cf."
+  "$comment": "String maxLength counts code points; the normative name limit is 1-64 UTF-8 bytes, NFC, no C0/C1/Cf. DSH passthrough values (rpc.call.args, rpc.stream.open.payload.args, rpc.result.result, rpc.stream.item.value, and the decoded rpc.result.chunk.data/rpc.stream.chunk.data) are unconstrained JSON values: a decoded U+0000 from a legal JSON \\u0000 escape is data and MUST NOT be filtered or rejected as a framing error (README §2.3)."
 }

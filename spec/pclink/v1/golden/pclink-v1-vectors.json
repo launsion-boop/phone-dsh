@@ -1,7 +1,7 @@
 {
   "format": "pclink-v1-vectors",
   "format_version": 3,
-  "revision": "pclink-v1.2",
+  "revision": "pclink-v1.3",
   "suite": "pclink-x25519-ed25519-chacha20poly1305-1",
   "test_key_rule": "sha256(utf8(label)) is the raw private key; these are public test labels, never production keys",
   "labels": {
@@ -471,7 +471,163 @@
       },
       "canonical": "{\"name\":\"café\",\"note\":\"line\\nbreak\",\"path\":\"a/b\"}",
       "sha256_hex": "d45985180c0cc143858d8421ff5cb3cee8fd2e5a5e5d267b43c7967ca49d8ba9"
+    },
+    "nul_escape": {
+      "object": {
+        "a\u0000b": "key",
+        "note": "a\u0000b"
+      },
+      "canonical": "{\"a\\u0000b\":\"key\",\"note\":\"a\\u0000b\"}",
+      "sha256_hex": "03a4adefc5bcbf210dcc186b9993c0121ceea4f4be53f8838b3f2490971c2896"
     }
+  },
+  "json_boundary": {
+    "rule": "§2.3: strict JSON applies to wire bytes; a legal JSON escape \\u0000 in a carried DSH value is accepted and preserved, while a literal 0x00 byte, BOM, duplicate member, lone surrogate and non-object root are rejected; PCLink-owned fields keep their own field rules",
+    "passthrough": [
+      "rpc.call.args",
+      "rpc.stream.open.payload.args",
+      "rpc.result.result",
+      "rpc.stream.item.value",
+      "rpc.result.chunk.data(decoded)",
+      "rpc.stream.chunk.data(decoded)"
+    ],
+    "accepted": [
+      {
+        "case": "carried-escaped-nul-rpc-args",
+        "passthrough": "rpc.call.args",
+        "wire": "{\"type\":\"rpc.call\",\"id\":\"call-nul\",\"endpoint\":\"session/list\",\"args\":{\"_request\":{},\"note\":\"a\\u0000b\"}}",
+        "nul_paths": [
+          [
+            "args",
+            "note"
+          ]
+        ],
+        "expected": "accept"
+      },
+      {
+        "case": "carried-escaped-nul-stream-open-args",
+        "passthrough": "rpc.stream.open.payload.args",
+        "wire": "{\"type\":\"rpc.stream.open\",\"streamId\":\"stream-nul\",\"endpoint\":\"session/follow\",\"payload\":{\"args\":{\"request\":{\"note\":\"a\\u0000b\"}}}}",
+        "nul_paths": [
+          [
+            "payload",
+            "args",
+            "request",
+            "note"
+          ]
+        ],
+        "expected": "accept"
+      },
+      {
+        "case": "carried-escaped-nul-rpc-result",
+        "passthrough": "rpc.result.result",
+        "wire": "{\"type\":\"rpc.result\",\"id\":\"call-nul\",\"ok\":true,\"result\":{\"text\":\"a\\u0000b\",\"nested\":[\"c\\u0000d\"]}}",
+        "nul_paths": [
+          [
+            "result",
+            "text"
+          ],
+          [
+            "result",
+            "nested",
+            0
+          ]
+        ],
+        "expected": "accept"
+      },
+      {
+        "case": "carried-escaped-nul-stream-item",
+        "passthrough": "rpc.stream.item.value",
+        "wire": "{\"type\":\"rpc.stream.item\",\"streamId\":\"stream-nul\",\"value\":{\"text\":\"a\\u0000b\"}}",
+        "nul_paths": [
+          [
+            "value",
+            "text"
+          ]
+        ],
+        "expected": "accept"
+      },
+      {
+        "case": "carried-escaped-nul-stream-chunk",
+        "passthrough": "rpc.stream.chunk.data(decoded)",
+        "wire": "{\"type\":\"rpc.stream.chunk\",\"streamId\":\"stream-nul\",\"part\":0,\"last\":true,\"data\":\"eyJ0ZXh0IjoiYVx1MDAwMGIifQ\"}",
+        "chunk_data_nul_paths": [
+          [
+            "text"
+          ]
+        ],
+        "expected": "accept"
+      },
+      {
+        "case": "carried-escaped-nul-result-chunk",
+        "passthrough": "rpc.result.chunk.data(decoded)",
+        "wire": "{\"type\":\"rpc.result.chunk\",\"id\":\"call-nul\",\"part\":0,\"last\":true,\"data\":\"eyJ0ZXh0IjoiYVx1MDAwMGIifQ\"}",
+        "chunk_data_nul_paths": [
+          [
+            "text"
+          ]
+        ],
+        "expected": "accept"
+      }
+    ],
+    "rejected": [
+      {
+        "case": "wire-literal-nul",
+        "failure": "wire",
+        "wire_hex": "7b2274797065223a227270632e63616c6c222c226964223a2263616c6c2d6e756c222c22656e64706f696e74223a2273657373696f6e2f6c697374222c2261726773223a7b226e6f7465223a22610062227d7d",
+        "expected": "bad_frame"
+      },
+      {
+        "case": "wire-bom",
+        "failure": "wire",
+        "wire_hex": "efbbbf7b2276223a317d",
+        "expected": "bad_frame"
+      },
+      {
+        "case": "wire-duplicate-key",
+        "failure": "wire",
+        "wire": "{\"type\":\"rpc.call\",\"id\":\"call-nul\",\"endpoint\":\"session/list\",\"args\":{\"note\":\"a\",\"note\":\"b\"}}",
+        "expected": "bad_frame"
+      },
+      {
+        "case": "wire-nested-duplicate-key",
+        "failure": "wire",
+        "wire": "{\"type\":\"rpc.call\",\"id\":\"call-nul\",\"endpoint\":\"session/list\",\"args\":{\"note\":{\"a\":1,\"a\":2}}}",
+        "expected": "bad_frame"
+      },
+      {
+        "case": "wire-lone-surrogate",
+        "failure": "wire",
+        "wire": "{\"type\":\"rpc.call\",\"id\":\"call-nul\",\"endpoint\":\"session/list\",\"args\":{\"note\":\"\\ud800\"}}",
+        "expected": "bad_frame"
+      },
+      {
+        "case": "wire-non-object-root",
+        "failure": "wire",
+        "wire": "[]",
+        "expected": "bad_frame"
+      },
+      {
+        "case": "pclink-name-escaped-nul",
+        "failure": "field",
+        "field_rule": "name",
+        "field_path": [
+          "name"
+        ],
+        "wire": "{\"type\":\"pclink.notice\",\"kind\":\"paired\",\"name\":\"a\\u0000b\",\"fingerprint\":\"7gdx-eack-pmfr\",\"at\":\"2026-11-09T00:00:05Z\"}",
+        "expected": "bad_frame"
+      },
+      {
+        "case": "pclink-to-escaped-nul",
+        "failure": "field",
+        "field_rule": "machineId",
+        "field_path": [
+          "to"
+        ],
+        "wire": "{\"v\":1,\"type\":\"relay.offline\",\"to\":\"a\\u0000b\"}",
+        "expected": "bad_frame"
+      }
+    ]
   },
   "admin_proof": {
     "test_only": true,
