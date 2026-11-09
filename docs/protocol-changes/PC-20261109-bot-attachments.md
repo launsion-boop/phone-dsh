@@ -48,8 +48,8 @@ Protocol impact: P27; P25: none — 未改 event envelope、dshbot-pin、export-
 
 ## 4. 分工與證據
 
-- 契约 owner/implementer：`attachments` 单元，独占本变更的 schema、`bot-attachments.json`、`row-protocol.json`、`row-projection.json`、`Sources/PhoneDSHBot/{Attachments,Rows,MCP}`、对应测试与本文档。
-- `profile` 单元代写 `spec/README.md` §3/§4 的 P27 登记与 `spec/bot/v1/export-manifest.json` 的 `bot-attachments.json` 条目；本单元不直接改这两份文件。
+- 契约 owner/implementer：`attachments` 单元，独占本变更的 schema、`bot-attachments.json`、`Sources/PhoneDSHBot/{Attachments,Rows,MCP}`、对应测试与本文档。手机端扩展用例归 `spec/bot/v1/golden/row-protocol.phone.json`；`row-protocol.json`/`row-projection.json` 由上游导出拥有、不再手写扩展。
+- `spec/README.md` §3/§4 的 P27 登记与 `spec/registry.json` 的 P27 triggers 由 `r3-fixes` 更新，本单元不改这两个文件；`spec/bot/v1/export-manifest.json` 的 `bot-attachments.json` 条目由 `profile` 代写，本单元不直接改。
 - `bot-page` 单元消费 `BotUserAction.attachments` 与行 `body.attachments`，实现「+」选择器、chip、导入调用、用户行附件卡片；P09 页面契约归其维护。其 importer 通过 `BotDSHRemoteRuntime.ensureMainSessionID()` 取得 session id，`targetDirectory` 用该 session 的 cwd（第 4 轮为 `<botRoot>`，见 §6），`entryName=attachments-<messageID>`，最终 path 取 commit 的绝对 `workspacePath` + `/` + safeName。
 - `fish-renderer`：none — 不消费附件。
 
