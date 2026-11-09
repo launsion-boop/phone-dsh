@@ -39,8 +39,38 @@ public protocol BotMemoryFactStore: Actor {
         scope: BotMemoryScope,
         tombstone: BotMemoryTombstone?
     ) async throws -> BotMemoryRemoval
+    /// Erases every live fact in `scope` with text-free tombstones. An agent
+    /// scope is this store's Bot only; a user scope is the shared user store.
+    @discardableResult
+    func eraseAll(scope: BotMemoryScope) async throws -> BotMemoryRemoval
     func touch(factIDs: [String], lastUsedMS: Int64) async throws
     func tombstone(factID: String, scope: BotMemoryScope) async throws -> BotMemoryTombstone?
+}
+
+public extension BotMemoryFactStore {
+    /// Generic fallback for stores that do not provide a batched erase. It
+    /// tombstones one fact at a time; `SQLiteBotMemoryFactStore` overrides it
+    /// with a single durable batch.
+    @discardableResult
+    func eraseAll(scope: BotMemoryScope) async throws -> BotMemoryRemoval {
+        let targets = try await facts(scope: scope)
+        guard !targets.isEmpty else {
+            return BotMemoryRemoval(removed: [], count: 0)
+        }
+        let at = Int64(Date().timeIntervalSince1970 * 1_000)
+        var removed: [BotMemoryFact] = []
+        var remaining = targets.count
+        for fact in targets {
+            let removal = try await remove(
+                factIDs: [fact.factID],
+                scope: scope,
+                tombstone: BotMemoryTombstone(factID: fact.factID, erasedAtMS: at)
+            )
+            removed.append(contentsOf: removal.removed)
+            remaining = removal.count
+        }
+        return BotMemoryRemoval(removed: removed, count: remaining)
+    }
 }
 
 public enum BotMemoryFactStoreError: Error, Sendable, Equatable {

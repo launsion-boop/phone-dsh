@@ -44,14 +44,25 @@ public actor SQLiteBotMemoryFactStore: BotMemoryFactStore {
     private static let touchEventPrefix = "evt-memory-touch-"
     private static let forgottenEventPrefix = "evt-memory-forgotten-"
 
+    private static let replayPageSize = 500
+    private static let maximumSkippedEventIDs = 256
+
     private let eventLog: SQLiteDomainStore
+    private let replayFeed: BotMemoryReplayFeed
     /// Identity of the Bot this store belongs to. `nil` keeps the historical
     /// on-disk shape (memory events written before per-Bot routing) and is
     /// read as `"main"`; new production stores always pass the real bot id.
     private let botID: String?
     private let now: @Sendable () -> Int64
-    private let replayPageSize = 500
     private let mutationMutex = BotMemoryAsyncMutex()
+
+    /// Incremental replay state. Events are applied exactly once per store and
+    /// never re-read from commit 0 after the first synchronization.
+    private var state = ReplayState()
+    private var processedEventIndex = 0
+    private var processedMemoryEventCount = 0
+    private var lastProcessedCommitSeq = 0
+    private var skippedEventIDs: [String] = []
 
     public init(
         eventLog: SQLiteDomainStore,
@@ -61,6 +72,25 @@ public actor SQLiteBotMemoryFactStore: BotMemoryFactStore {
         self.eventLog = eventLog
         self.botID = botID
         self.now = now
+        self.replayFeed = BotMemoryReplayFeedRegistry.shared.feed(
+            for: eventLog, pageSize: Self.replayPageSize)
+    }
+
+    /// Read-only view of how much replay each authority has paid for. The feed
+    /// counters are shared per durable log; the processed count and skipped ids
+    /// belong to this store.
+    public var replayDiagnostics: BotMemoryReplayDiagnostics {
+        get async {
+            let feed = await replayFeed.diagnostics()
+            return BotMemoryReplayDiagnostics(
+                fullReplayCount: feed.fullReplayCount,
+                incrementalReplayCount: feed.incrementalReplayCount,
+                scannedEventCount: feed.scannedEventCount,
+                processedMemoryEventCount: processedMemoryEventCount,
+                skippedEventIDs: skippedEventIDs,
+                lastProcessedCommitSeq: lastProcessedCommitSeq
+            )
+        }
     }
 
     public func facts(scope: BotMemoryScope? = nil) async throws -> [BotMemoryFact] {
@@ -169,6 +199,37 @@ public actor SQLiteBotMemoryFactStore: BotMemoryFactStore {
         }
     }
 
+    /// Erases every live fact in `scope` with text-free tombstones. For an
+    /// agent scope this store only sees its own Bot's facts; for user scope the
+    /// shared user facts are erased and the change is visible to every Bot.
+    @discardableResult
+    public func eraseAll(scope: BotMemoryScope) async throws -> BotMemoryRemoval {
+        try await mutationMutex.withLock {
+            let current = try await replay()
+            let targets = current.facts(scope: scope)
+            guard !targets.isEmpty else {
+                return BotMemoryRemoval(removed: [], count: 0)
+            }
+            let at = now()
+            var events: [BotEvent] = []
+            events.reserveCapacity(targets.count)
+            for fact in targets {
+                events.append(try forgottenEvent(
+                    factID: fact.factID,
+                    scope: scope,
+                    reason: .erase,
+                    at: at,
+                    textDigest: Self.digest(fact.text),
+                    fact: fact,
+                    generation: current.generation(for: fact.factID)
+                ))
+            }
+            try await commit(events)
+            let remaining = try await replay().facts(scope: scope).count
+            return BotMemoryRemoval(removed: targets, count: remaining)
+        }
+    }
+
     public func touch(factIDs: [String], lastUsedMS: Int64) async throws {
         try await mutationMutex.withLock {
             let state = try await replay()
@@ -238,69 +299,94 @@ public actor SQLiteBotMemoryFactStore: BotMemoryFactStore {
         return true
     }
 
+    /// Pulls only events committed since the last call and applies them in
+    /// order. Decode failures are isolated to their event: they are recorded in
+    /// `skippedEventIDs` and the remaining facts stay available.
     private func replay() async throws -> ReplayState {
-        var state = ReplayState()
-        var cursor = 0
-        while true {
-            let events = try await eventLog.events(after: cursor, limit: replayPageSize)
-            if events.isEmpty { break }
-            for event in events {
-                guard let commitSeq = event.commitSeq else {
-                    throw BotMemoryFactStoreError.corrupted("durable memory event has no commitSeq")
-                }
-                defer { cursor = commitSeq }
-                switch event.type {
-                case "memory.written":
-                    let fact = try Self.decode(BotMemoryFact.self, from: event.data)
-                    guard belongsToThisBot(event, scope: fact.scope),
-                          Self.shouldApplyWritten(event, fact: fact, state: state) else { continue }
-                    if state.tombstones[fact.factID] == nil {
-                        if let existing = state.live[fact.factID] {
-                            guard Self.sameFactApartFromLastUsed(existing, fact) else {
-                                throw BotMemoryFactStoreError.corrupted(
-                                    "conflicting memory.written payloads for fact \(fact.factID)"
-                                )
-                            }
-                            var merged = fact
-                            merged.lastUsedMS = max(existing.lastUsedMS, fact.lastUsedMS)
-                            state.live[fact.factID] = merged
-                        } else {
-                            state.order.append(fact.factID)
-                            state.live[fact.factID] = fact
-                        }
-                    }
-                case "memory.forgotten":
-                    let forgotten = try Self.decode(ForgottenData.self, from: event.data)
-                    guard belongsToThisBot(event, scope: forgotten.scope) else { continue }
-                    let generation = state.generation(for: forgotten.factId)
-                    if event.eventId.hasPrefix(Self.forgottenEventPrefix),
-                       event.eventId != Self.forgottenEventID(
-                           factID: forgotten.factId,
-                           botID: event.principal.botId,
-                           scope: forgotten.scope,
-                           reason: forgotten.reason,
-                           generation: generation
-                       ) {
-                        continue
-                    }
-                    if state.live[forgotten.factId]?.scope == forgotten.scope {
-                        state.live.removeValue(forKey: forgotten.factId)
-                        state.order.removeAll { $0 == forgotten.factId }
-                    }
-                    if forgotten.reason == .erase {
-                        state.tombstones[forgotten.factId] = TombstoneEntry(
-                            scope: forgotten.scope,
-                            tombstone: BotMemoryTombstone(factID: forgotten.factId, erasedAtMS: forgotten.at)
+        let events = try await replayFeed.memoryEvents(
+            from: processedEventIndex, eventLog: eventLog)
+        guard !events.isEmpty else { return state }
+        var index = processedEventIndex
+        for event in events {
+            guard let commitSeq = event.commitSeq else {
+                processedEventIndex = index
+                throw BotMemoryFactStoreError.corrupted("durable memory event has no commitSeq")
+            }
+            do {
+                try apply(event)
+            } catch is DecodingError {
+                recordSkipped(event)
+            } catch {
+                // Leave the failing event unprocessed so a structural
+                // corruption keeps failing closed instead of being skipped.
+                processedEventIndex = index
+                throw error
+            }
+            index += 1
+            processedMemoryEventCount += 1
+            lastProcessedCommitSeq = commitSeq
+        }
+        processedEventIndex = index
+        return state
+    }
+
+    private func apply(_ event: BotEvent) throws {
+        switch event.type {
+        case "memory.written":
+            let fact = try Self.decode(BotMemoryFact.self, from: event.data)
+            guard belongsToThisBot(event, scope: fact.scope),
+                  Self.shouldApplyWritten(event, fact: fact, state: state) else { return }
+            if state.tombstones[fact.factID] == nil {
+                if let existing = state.live[fact.factID] {
+                    guard Self.sameFactApartFromLastUsed(existing, fact) else {
+                        throw BotMemoryFactStoreError.corrupted(
+                            "conflicting memory.written payloads for fact \(fact.factID)"
                         )
                     }
-                    state.generations[forgotten.factId] = generation + 1
-                default:
-                    break
+                    var merged = fact
+                    merged.lastUsedMS = max(existing.lastUsedMS, fact.lastUsedMS)
+                    state.live[fact.factID] = merged
+                } else {
+                    state.order.append(fact.factID)
+                    state.live[fact.factID] = fact
                 }
             }
-            if events.count < replayPageSize { break }
+        case "memory.forgotten":
+            let forgotten = try Self.decode(ForgottenData.self, from: event.data)
+            guard belongsToThisBot(event, scope: forgotten.scope) else { return }
+            let generation = state.generation(for: forgotten.factId)
+            if event.eventId.hasPrefix(Self.forgottenEventPrefix),
+               event.eventId != Self.forgottenEventID(
+                   factID: forgotten.factId,
+                   botID: event.principal.botId,
+                   scope: forgotten.scope,
+                   reason: forgotten.reason,
+                   generation: generation
+               ) {
+                return
+            }
+            if state.live[forgotten.factId]?.scope == forgotten.scope {
+                state.live.removeValue(forKey: forgotten.factId)
+                state.order.removeAll { $0 == forgotten.factId }
+            }
+            if forgotten.reason == .erase {
+                state.tombstones[forgotten.factId] = TombstoneEntry(
+                    scope: forgotten.scope,
+                    tombstone: BotMemoryTombstone(factID: forgotten.factId, erasedAtMS: forgotten.at)
+                )
+            }
+            state.generations[forgotten.factId] = generation + 1
+        default:
+            break
         }
-        return state
+    }
+
+    private func recordSkipped(_ event: BotEvent) {
+        guard !skippedEventIDs.contains(event.eventId) else { return }
+        skippedEventIDs.append(event.eventId)
+        if skippedEventIDs.count > Self.maximumSkippedEventIDs {
+            skippedEventIDs.removeFirst(skippedEventIDs.count - Self.maximumSkippedEventIDs)
+        }
     }
 
     private static func shouldApplyWritten(

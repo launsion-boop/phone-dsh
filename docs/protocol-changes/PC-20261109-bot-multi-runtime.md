@@ -84,3 +84,62 @@ Protocol impact: P26 — per-bot memory scope and runtime multiplexing; P25: non
 | iOS app build | `HOME=/tmp/bm-runtime-home XDG_CACHE_HOME=/tmp/bm-runtime-home/.cache CFFIXED_USER_HOME=/tmp/bm-runtime-home xcodebuild -scheme PhoneDSHProbe -destination 'generic/platform=iOS Simulator' -derivedDataPath /tmp/bm-runtime-dd build CODE_SIGNING_ALLOWED=NO OTHER_SWIFT_FLAGS='$(inherited) -disable-sandbox'` | PASS（`** BUILD SUCCEEDED **`；只有既有 dependency-scan warnings） |
 
 Not verified: 真機、模型 E2E、多 Bot app 組裝（第 2 波）、實際 `SendToAgent`／`CreateTeammate` 工具與插件 prompt、桌面 dsh-bot 端。`swift test` 的 PASS 不升級為 device 或 Wire 證據；原樣 command 的 FAIL 是工作樹沙箱環境，不是編譯或測試斷言失敗。
+
+## 7. 第 2 波 `bm-memory` 修訂：recall scope、增量回放與按作用域擦除
+
+- **Revision:** `bot-multi-memory-v2`（基於 `bot-multi-runtime-v1`；仍然只改 Swift `Sources/PhoneDSHBot/{Memory,MCP}` 的執行規則與 additive API）。
+- **Base / head:** `466d9e672`（`bm/memory`，含 `feat/bot-multi` 的 per-Bot scope）/ 本單元 candidate（hash 見交接訊息，未 commit）。
+- **Protocol impact:** P26 — memory recall scope and per-bot erase semantics; P25: none — events unchanged.
+
+### 7.1 RecallMemory 的 scope 契約
+
+| 呼叫 | Before → After | 依據 |
+| --- | --- | --- |
+| `RecallMemory` 指定 `scope: "agent"` / `"user"` | 先合併兩個 store 取 top-N、再按 scope 過濾，指定 scope 可能少於 `limit` → 只查指定 store，用完整 `limit` | 上游 `src/main/dshAgent.cjs:2314-2322` |
+| `RecallMemory` 未指定 scope（或 `"all"`） | 合併 agent+user 排序取 top-N；若 top-N 全屬同一 scope 而另一 scope 有命中，保留最後一格給缺少的 scope | 不變；上游 `src/main/memory.cjs:1509-1537` |
+| `BotMemory.recall` | 新增 `scope: BotMemoryScope? = nil` 參數；`nil` 保持合併，非 nil 只查該 store 並觸碰該 store 的命中 | additive Swift API |
+
+### 7.2 增量回放與壞事件隔離
+
+- **共用 feed：** 同一個 `SQLiteDomainStore`（同一個開啟中的 durable log）的所有 `SQLiteBotMemoryFactStore` 共用一個 process-wide `BotMemoryReplayFeed`；feed 只做一次從 commit 0 開始的全量掃描，記錄 cursor（已處理 commitSeq）與 memory 事件的 append-only 歷史。之後每次 `facts()`／`recall()`／`injection()` 只拉 `commitSeq > cursor` 的增量。
+- **每個 authority 一次：** 每個 `SQLiteBotMemoryFactStore` 保留自己的 history index 與 replay state；agent 事實仍按 `principal.botId` 隔離，user 事實仍由所有 Bot 共享。第二個 authority、以及之後才建立的 authority，都從共用 feed 的歷史套用事件，不重新查 SQLite；因此 SQLite 只全量回放一次，每個事件在每個 store 只套用一次。
+- **寫入可見性：** 任何 `append`／`remove`／`eraseAll`／`touch` commit 後，下一次讀取會同步新 commit 的增量，因此同一 authority 與其他 authority（含已暖機的 `memory(for:)`）都不會讀到舊值。
+- **重開：** 新的 `SQLiteDomainStore` 是新 feed，會做一次新的全量回放；回放結果與關閉前一致。
+- **壞事件：** 單條 `memory.written`／`memory.forgotten` 的 payload 解碼失敗（`DecodingError`）會被跳過並記入 `skippedEventIDs`；其他事件照常套用，不再讓整個 Bot 的記憶不可用。結構性損壞（缺 `commitSeq`、同一 fact id 的互相矛盾 payload）仍 fail closed，與原行為一致。
+- **診斷 API：** `SQLiteBotMemoryFactStore.replayDiagnostics`（async read-only property）回傳 `BotMemoryReplayDiagnostics`：`fullReplayCount`（共用 feed 從 0 掃描次數）、`incrementalReplayCount`、`scannedEventCount`、`processedMemoryEventCount`、`skippedEventIDs`、`lastProcessedCommitSeq`。
+
+### 7.3 按作用域擦除與刪除 Bot
+
+| API | 作用範圍 | 語義 |
+| --- | --- | --- |
+| `BotMemory.eraseAll(scope: .agent)` | 只影響當前 `BotMemory` 所屬 Bot 的 agent scope | 對每個 live agent fact 寫入 text-free `memory.forgotten(reason: "erase")` tombstone；不改 user scope、其他 Bot、也不會讓被擦除 id 復活 |
+| `BotMemory.eraseAll(scope: .user)` | 影響共享 user scope（所有 Bot 下一次讀取都會看到） | 同上；當前 Bot 的 agent facts 不受影響 |
+| `BotMCPRuntime.deleteBotMemory(for: botID)` | 只影響 `botID` 的 agent scope | 先 `eraseAll(scope: .agent)`，再 `forgetMemory(for:)` 移除 `memory(for:)` 快取；供 bm-app 刪除 Bot 級聯呼叫 |
+| `BotMCPRuntime.forgetMemory(for: botID)` | 只清快取 | 不動 durable facts；回傳是否真的移除了快取。之後 `memory(for:)` 會從事件重新建立 |
+
+`BotMemoryEraseScopeResult` 回傳 `ok`、`scope`、`botID`、`removed`/`removedFacts`、`factIDs`、剩餘 `count`。`botID` 是執行擦除的 authority；`scope: .user` 的影響範圍仍是所有 Bot（文件註解已寫明）。`BotMemoryFactStore` 新增 `eraseAll(scope:)` 需求，並提供逐條 tombstone 的預設實作；`SQLiteBotMemoryFactStore` 覆寫為單一 durable batch。
+
+### 7.4 相容性
+
+| Producer → Consumer | 結果 |
+| --- | --- |
+| old data → new | 事件 envelope、`memory.written`／`memory.forgotten` 欄位與 event id 規則均不變；舊資料照舊回放。壞事件現在被跳過而不是阻塞全部記憶，這是可觀察的錯誤處理改善，不是格式變更。 |
+| new → old | 不新增事件型別、schema 欄位或版本；舊 reader 仍能解碼 `memory.written` 與 `memory.forgotten(reason: "erase")`。`eraseAll` 只是對同一格式寫入多條 tombstone。 |
+| new → new | 同一 durable log 的多個 Bot store 共用一次 SQLite 全量掃描；agent 隔離、user 共享與 event id 代次規則不變。重開或新 process 各自重新全量回放一次。 |
+| rollback | 不需要 migration；已寫入的 erase tombstone 由舊 reader 按 `reason: "erase"` 處理。沒有新的 durable 序號或 side effect。 |
+
+### 7.5 實測記錄（本工作樹）
+
+| 檢查 | 命令 | 結果 |
+| --- | --- | --- |
+| Bot library build（原樣） | `swift build --target PhoneDSHBot` | FAIL（環境）：SwiftPM manifest 的巢狀 `sandbox-exec` 被工作樹沙箱拒絕（`sandbox_apply: Operation not permitted`） |
+| Bot library build（工作樹沙箱關閉） | `swift build --disable-sandbox --target PhoneDSHBot` | PASS |
+| Bot tests（原樣） | `swift test --filter PhoneDSHBotTests` | PASS，325 tests，0 failures（含本單新增 8 tests；既有測試未刪除、未跳過、未放寬） |
+| Bot tests（工作樹沙箱關閉） | `swift test --disable-sandbox --filter PhoneDSHBotTests` | PASS，325 tests，0 failures |
+| 效能（新測試） | `swift test --disable-sandbox --filter BotMemoryIncrementalReplayTests` | PASS；5 Bots × 400 + 25 user = 2,025 memory events；250 次 `facts()` + 250 次 `recall()` 約 2.6–10.7 秒（單獨執行 2.6–2.9 秒；全套並行負載下 4.2–10.7 秒，測試上限 60 秒只在防止意外的每呼叫全量回放）；所有 store 的 `fullReplayCount == 1`，`processedMemoryEventCount == 2025` 不隨讀取次數成長，寫入一條新事實後只增量 +1 |
+| Xcode project | `cd examples/probe-app && xcodegen generate` | PASS |
+| iOS app build（原樣） | `xcodebuild -scheme PhoneDSHProbe -destination 'generic/platform=iOS Simulator' -derivedDataPath /tmp/bm-memory-dd build CODE_SIGNING_ALLOWED=NO` | FAIL（環境）：package manifest cache 寫入 `~/Library` 被檔案沙箱拒絕 |
+| iOS app build（工作樹沙箱關閉＋既有 package cache） | `HOME=/tmp/bm-memory-home XDG_CACHE_HOME=/tmp/bm-memory-home/.cache CFFIXED_USER_HOME=/tmp/bm-memory-home xcodebuild -scheme PhoneDSHProbe -destination 'generic/platform=iOS Simulator' -derivedDataPath /tmp/bm-memory-dd -clonedSourcePackagesDirPath /tmp/bm-runtime-dd/SourcePackages -onlyUsePackageVersionsFromResolvedFile -skipPackageUpdates build CODE_SIGNING_ALLOWED=NO OTHER_SWIFT_FLAGS='$(inherited) -disable-sandbox'` | PASS（`** BUILD SUCCEEDED **`；只有既有 dependency-scan warnings） |
+
+- **Not verified:** 真機、模型 E2E、bm-app 的刪除級聯與設置頁接線（後續單元）、桌面 dsh-bot 端。`swift test` 不升級為 device 或 Wire 證據。
+- **Remaining risks:**（1）共用 feed 保留 memory 事件歷史以支撐晚建立的 authority；目前不做壓縮，長期執行時記憶體隨 memory 事件數成長，若日後需要可加 snapshot/trim，但不改本次協議語義。（2）rollback 到不含 `eraseAll` 的舊 build 時，App 無法主動整批擦除；已寫入的 tombstone 仍由舊 reader 正確處理。（3）`forgetMemory(for: "main")` 不會移動 `memory` 相容 view，App 應在刪除主 Bot 前先完成 pointer 切換；本單不改 app。
