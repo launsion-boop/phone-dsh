@@ -1,0 +1,182 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://phonedsh.dev/spec/bot/v1/bot-profile.schema.json",
+  "title": "BotProfileVector v1",
+  "description": "Conformance vector for the dsh-bot Bot profile record (agents-index.json schema 3), the colour/hairstyle order, the null/auto normalizer and the FNV-1a seed. The golden is exported from dsh-bot bf4075b and must not be edited by hand. $defs documents the on-disk record, index and runtime-settings shapes the PhoneDSHBot BotProfileStore reads and writes; those documents keep unknown fields.",
+  "type": "object",
+  "required": [
+    "source",
+    "recordSchemaVersion",
+    "colors",
+    "colorOrderMain",
+    "hairstyles",
+    "normalizeFishColor",
+    "normalizeFishHairstyle",
+    "seed"
+  ],
+  "properties": {
+    "source": {
+      "type": "object",
+      "required": ["repo", "commit", "files"],
+      "properties": {
+        "repo": {"type": "string", "minLength": 1},
+        "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "files": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1}
+        }
+      },
+      "additionalProperties": false
+    },
+    "recordSchemaVersion": {"const": 3},
+    "colors": {
+      "type": "array",
+      "minItems": 15,
+      "maxItems": 15,
+      "items": {
+        "type": "object",
+        "required": ["id", "hex"],
+        "properties": {
+          "id": {
+            "enum": [
+              "white", "brown", "red", "orange", "amber", "green", "teal", "blue",
+              "purple", "magenta", "gray", "black", "silver", "peach", "sky"
+            ]
+          },
+          "hex": {"type": "string", "pattern": "^#[0-9A-F]{6}$"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "colorOrderMain": {
+      "type": "array",
+      "minItems": 15,
+      "maxItems": 15,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "white", "brown", "red", "orange", "amber", "green", "teal", "blue",
+          "purple", "magenta", "gray", "black", "silver", "peach", "sky"
+        ]
+      }
+    },
+    "hairstyles": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "uniqueItems": true,
+      "items": {"enum": ["long", "twin-tail", "bob", "side-braid"]}
+    },
+    "normalizeFishColor": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["input", "output"],
+        "properties": {
+          "input": {"type": ["string", "null"]},
+          "output": {
+            "type": ["string", "null"],
+            "enum": [
+              null, "white", "brown", "red", "orange", "amber", "green", "teal",
+              "blue", "purple", "magenta", "gray", "black", "silver", "peach", "sky"
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "normalizeFishHairstyle": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["input", "output"],
+        "properties": {
+          "input": {"type": ["string", "null"]},
+          "output": {
+            "type": ["string", "null"],
+            "enum": [null, "long", "twin-tail", "bob", "side-braid"]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "seed": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["seed", "color", "hex", "hairstyle"],
+        "properties": {
+          "seed": {"type": "string"},
+          "color": {
+            "enum": [
+              "white", "brown", "red", "orange", "amber", "green", "teal", "blue",
+              "purple", "magenta", "gray", "black", "silver", "peach", "sky"
+            ]
+          },
+          "hex": {"type": "string", "pattern": "^#[0-9A-F]{6}$"},
+          "hairstyle": {"enum": ["long", "twin-tail", "bob", "side-braid"]}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "profileRecord": {
+      "type": "object",
+      "description": "One dsh-bot agents-index.json record (record schema 3). Unknown fields are preserved by the store.",
+      "required": [
+        "schema", "id", "name", "fish_color", "fish_hairstyle",
+        "name_explicit", "created_at", "updated_at"
+      ],
+      "properties": {
+        "schema": {"const": 3},
+        "id": {"type": "string", "minLength": 1},
+        "name": {"type": "string"},
+        "fish_color": {
+          "type": ["string", "null"],
+          "enum": [
+            null, "white", "brown", "red", "orange", "amber", "green", "teal",
+            "blue", "purple", "magenta", "gray", "black", "silver", "peach", "sky"
+          ]
+        },
+        "fish_hairstyle": {
+          "type": ["string", "null"],
+          "enum": [null, "long", "twin-tail", "bob", "side-braid"]
+        },
+        "name_explicit": {"type": "boolean"},
+        "created_at": {"type": "integer", "minimum": 0},
+        "updated_at": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": true
+    },
+    "agentsIndex": {
+      "type": "object",
+      "description": "directory/agents-index.json; schemaVersion is 3 for new files, an existing value is preserved.",
+      "required": ["schemaVersion", "agents"],
+      "properties": {
+        "schemaVersion": {"type": "integer", "minimum": 1},
+        "agents": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/profileRecord"}
+        }
+      },
+      "additionalProperties": true
+    },
+    "runtimeSettings": {
+      "type": "object",
+      "description": "directory/runtime-settings.json; the main Bot is a pointer, not a record field.",
+      "required": ["version", "mainAgentId", "updatedAt"],
+      "properties": {
+        "version": {"const": 1},
+        "mainAgentId": {"type": ["string", "null"]},
+        "updatedAt": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": true
+    }
+  }
+}

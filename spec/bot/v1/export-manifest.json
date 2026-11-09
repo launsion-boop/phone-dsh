@@ -6,6 +6,8 @@
   "generator": "spec/tools/bot/export-vectors.mjs",
   "files": [
     "approval-patterns.json",
+    "bot-attachments.json",
+    "bot-profile.json",
     "card-payload.json",
     "context-lint.json",
     "context-profiles.json",

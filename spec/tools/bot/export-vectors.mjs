@@ -52,6 +52,8 @@ const { RAW_TOOLS } = loadExports('src/main/mcp/dshbotServer.cjs', ['RAW_TOOLS']
 const { heldMessagesBlock } = loadExports('src/main/dshAgent.cjs', ['heldMessagesBlock']);
 const { CONTEXT_PROFILES, contextConfigYaml } = loadExports('src/main/prompt/assemble.cjs', ['CONTEXT_PROFILES', 'contextConfigYaml']);
 const display = await import(pathToFileURL(path.join(checkout, 'src/renderer/lib/displayContract.js')).href);
+const fishModel = await import(pathToFileURL(path.join(checkout, 'src/renderer/lib/fish/model.js')).href);
+const agentModel = requireCJS('src/main/agents/model.cjs');
 const { wireRecordFor } = requireCJS('src/main/transcriptWire.cjs');
 const cardPayloads = requireCJS('src/main/cardPayloads.cjs');
 const ledgerModule = requireCJS('src/main/ledger.cjs');
@@ -351,6 +353,76 @@ fishStep('lifecycle', { time: 8200, lifecycle: 'idle' });
 vector('fish-director', { initial: { lifecycle: 'idle', now: 0 }, steps: fishSteps }, [
   { event: { type: 'unknown.event', time: 1, data: {} }, expected: 'ignored_without_state_change' },
 ]);
+
+// Bot profile: desktop record schema, colour/hairstyle order, normalizer and
+// the FNV-1a seed. The Swift `BotProfile` implementation reads this same file;
+// do not hand-edit the exported JSON.
+for (const name of ['normalizeFishColor', 'normalizeFishHairstyle']) {
+  if (typeof agentModel[name] !== 'function') {
+    throw new Error(`dsh-bot agents/model.cjs must export ${name}`);
+  }
+}
+if (!Array.isArray(fishModel.COLORS) || fishModel.COLORS.length !== 15) {
+  throw new Error('dsh-bot fish/model.js must export the 15 COLORS');
+}
+if (!Array.isArray(fishModel.HAIRSTYLES) || fishModel.HAIRSTYLES.length !== 4) {
+  throw new Error('dsh-bot fish/model.js must export the 4 HAIRSTYLES');
+}
+if (typeof fishModel.appearanceFromSeed !== 'function') {
+  throw new Error('dsh-bot fish/model.js must export appearanceFromSeed');
+}
+const declaredRecordSchemaVersion = agentModel.RECORD_SCHEMA_VERSION
+  ?? agentModel.AGENT_SCHEMA_VERSION ?? agentModel.SCHEMA_VERSION ?? agentModel.recordSchemaVersion;
+const recordSchemaVersion = 3;
+if (declaredRecordSchemaVersion !== undefined && Number(declaredRecordSchemaVersion) !== recordSchemaVersion) {
+  throw new Error(`unexpected dsh-bot record schema: ${declaredRecordSchemaVersion}`);
+}
+const botColors = fishModel.COLORS.map((color) => ({ id: color.id, hex: color.hex }));
+const botHairstyles = fishModel.HAIRSTYLES.map((style) => style.id);
+const colorByHex = new Map(botColors.map((color) => [color.hex.toUpperCase(), color.id]));
+const botProfileSeedInputs = [
+  'main', 'agent-123', 'agent-0123456789abcdef', 'Bot', 'fish',
+  '大肥鱼', 'DS 大肥魚', '🐟bot', 'a', 'agent-ffffffffffffffff',
+];
+const botProfileSeeds = botProfileSeedInputs.map((seed) => {
+  const appearance = fishModel.appearanceFromSeed(seed);
+  const colorId = colorByHex.get(String(appearance.color).toUpperCase())
+    ?? botColors.map((color) => color.id).find((id) => id === appearance.color);
+  const color = botColors.find((entry) => entry.id === colorId);
+  if (!color) throw new Error(`seed ${JSON.stringify(seed)} returned an unknown colour: ${appearance.color}`);
+  return { seed, color: color.id, hex: color.hex, hairstyle: appearance.hairstyle };
+});
+const normalizeBotColor = (value) => {
+  const result = agentModel.normalizeFishColor(value);
+  return result === undefined || result === '' ? null : result;
+};
+const normalizeBotHairstyle = (value) => {
+  const result = agentModel.normalizeFishHairstyle(value);
+  return result === undefined || result === '' ? null : result;
+};
+writeJSON('golden/bot-profile.json', {
+  source: {
+    repo: 'launsion-boop/dsh-bot',
+    commit: actualSHA,
+    files: [
+      'src/main/agents/model.cjs',
+      'src/renderer/lib/fish/model.js',
+      'src/renderer/lib/characterEngine.js',
+    ],
+  },
+  recordSchemaVersion,
+  colors: botColors,
+  colorOrderMain: botColors.map((color) => color.id),
+  hairstyles: botHairstyles,
+  normalizeFishColor: [
+    'blue', 'BLUE', 'Blue', ' blue', 'auto', '', null, 'violet', 'grey', 'purple', 'teal', 'sky', 'unknown',
+  ].map((input) => ({ input, output: normalizeBotColor(input) })),
+  normalizeFishHairstyle: [
+    'long', 'LONG', 'twin-tail', 'Twin-Tail', 'bob', 'side-braid', 'side_braid',
+    'auto', '', null, 'curly',
+  ].map((input) => ({ input, output: normalizeBotHairstyle(input) })),
+  seed: botProfileSeeds,
+});
 
 const rowInputs = [
   { kind: 'message', role: 'user', text: '你好' },
