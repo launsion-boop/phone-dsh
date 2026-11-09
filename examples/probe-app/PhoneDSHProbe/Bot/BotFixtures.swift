@@ -710,6 +710,11 @@ enum BotUIFixtureCheckError: Error, CustomStringConvertible {
 @MainActor
 enum BotUIFixtureChecks {
     static func run(cardPayloadURL: URL, rowProtocolURL: URL) async throws -> [String] {
+        // Let the first fixture render before the timing-sensitive stream
+        // check. A cold simulator launch spends its first moments loading the
+        // layered avatar, which used to leave too little of the coalescer's
+        // delivery window for its task to run.
+        try await Task.sleep(nanoseconds: 300_000_000)
         var passed: [String] = []
         try checkGoldenCards(at: cardPayloadURL)
         passed.append("shared-card-payload-decoding")
@@ -740,12 +745,49 @@ enum BotUIFixtureChecks {
         for index in 0..<20 {
             streamModel.receiveStream(turnID: "rate-check", text: "delta-\(index)")
         }
-        try await Task.sleep(nanoseconds: 350_000_000)
+        try await Task.sleep(nanoseconds: 800_000_000)
         let deliveries = streamModel.actionLog.filter { $0 == "stream" }.count
-        try require((1...4).contains(deliveries), "stream delivered \(deliveries) frames in 350ms")
+        try require((1...8).contains(deliveries), "stream delivered \(deliveries) frames in 800ms")
         try require(streamModel.streamingText == "delta-19", "stream did not retain latest text")
         streamModel.stop()
         passed.append("stream-max-10hz-latest-wins")
+
+        // Bot page visibility: the watch loop reads once on start and once on
+        // resume, but does not poll while the page is hidden. This drives the
+        // real BotChatModel loop, not a copy of its predicate.
+        let watchCounter = BotWatchCounter()
+        let pauseModel = BotChatModel(
+            context: .fixture,
+            driver: BotChatDriver(
+                history: { _, _ in BotUIHistoryPage(rows: [], nextCursor: nil, hasMore: false) },
+                watch: { cursor in
+                    await watchCounter.increment()
+                    return BotUIRowBatch(rows: [], deletes: [], cursor: cursor, reset: false)
+                },
+                perform: { _ in .rejected(reason: "fixture") },
+                stopCurrentTurn: { _ in }))
+        var watchTask = Task { await pauseModel.watchLoop() }
+        try await Task.sleep(nanoseconds: 300_000_000)
+        let visibleReads = await watchCounter.value
+        try require(visibleReads >= 1, "watch loop did not read on start")
+        pauseModel.setPageActive(false)
+        try await Task.sleep(nanoseconds: 1_200_000_000)
+        let pausedReads = await watchCounter.value
+        pauseModel.setPageActive(false)
+        try await Task.sleep(nanoseconds: 900_000_000)
+        let stillPausedReads = await watchCounter.value
+        try require(stillPausedReads == pausedReads,
+                    "watch loop polled while the Bot page was hidden")
+        watchTask.cancel()
+        pauseModel.setPageActive(true)
+        watchTask = Task { await pauseModel.watchLoop() }
+        try await Task.sleep(nanoseconds: 300_000_000)
+        let resumedReads = await watchCounter.value
+        try require(resumedReads > pausedReads,
+                    "watch loop did not catch up immediately on resume")
+        watchTask.cancel()
+        pauseModel.setPageActive(false)
+        passed.append("bot-page-polling-pauses-and-resumes")
 
         let deepLinkModel = BotChatModel(rows: BotUIFixtures.rows(for: .question), context: .fixture, fixtureActions: true)
         let good = URL(string: "phonedsh://bot/main/row/card-question")!
@@ -1046,6 +1088,14 @@ enum BotUIFixtureChecks {
     private static func require(_ condition: @autoclosure () -> Bool, _ message: String) throws {
         if !condition() { throw BotUIFixtureCheckError.failed(message) }
     }
+}
+
+/// Counts real watch-loop iterations for the visibility pause check without
+/// sharing mutable state across the driver's async closure.
+private actor BotWatchCounter {
+    private(set) var value = 0
+
+    func increment() { value += 1 }
 }
 
 #Preview("Question") { BotUIFixtureRootView(fixture: .question) }

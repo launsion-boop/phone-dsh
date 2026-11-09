@@ -94,7 +94,12 @@ struct BotAppearancePicker: View {
                 .fill(Self.swatch(color))
                 .frame(width: 24, height: 24)
                 .overlay {
-                    Circle().strokeBorder(HomeSpec.borderList, lineWidth: 0.5)
+                    // Unselected swatches get a 1pt adaptive hairline: the black
+                    // swatch almost disappears on the dark page without it.
+                    // The selected state keeps its existing outer 2pt ring.
+                    Circle().strokeBorder(
+                        selected ? HomeSpec.borderList : Color.primary.opacity(0.3),
+                        lineWidth: selected ? 0.5 : 1)
                 }
                 .frame(width: 44, height: 44)
                 .overlay {

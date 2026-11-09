@@ -190,7 +190,12 @@ fi
 
 APP="$DERIVED/Build/Products/Debug-iphonesimulator/PhoneDSHBotUICapture.app"
 [ -d "$APP" ] || { echo "capture app missing at expected build output" >&2; exit 1; }
+# Reinstall from a clean data container so the first launch always writes a
+# fresh conformance JSON, then wait for that file below instead of accepting a
+# previous run's result.
+xcrun simctl uninstall "$DEVICE_ID" dev.phone-dsh.bot-ui.capture >/dev/null 2>&1 || true
 xcrun simctl install "$DEVICE_ID" "$APP"
+CONTAINER=$(xcrun simctl get_app_container "$DEVICE_ID" dev.phone-dsh.bot-ui.capture data)
 
 # Keep the capture list in step with `BotUIFixtureCase` without a second
 # hardcoded copy: bot-page owns the enum and may add fixture ids. `gallery`,
@@ -249,7 +254,10 @@ for APPEARANCE in $APPEARANCE_LIST; do
             sleep 2
         fi
         if [ "$CHECKED" = 0 ]; then
-            CONTAINER=$(xcrun simctl get_app_container "$DEVICE_ID" dev.phone-dsh.bot-ui.capture data)
+            for _ in $(seq 1 75); do
+                [ -s "$CONTAINER/Documents/bot-ui-checks.json" ] && break
+                sleep 0.2
+            done
             python3 - "$CONTAINER/Documents/bot-ui-checks.json" <<'PY'
 import json
 import sys
