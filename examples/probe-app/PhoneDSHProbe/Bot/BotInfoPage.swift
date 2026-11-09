@@ -729,93 +729,11 @@ private struct BotApprovalHistoryPage: View {
 private struct BotAppearanceEditor: View {
     @ObservedObject var model: BotInfoModel
 
-    private let columns = [GridItem(.adaptive(minimum: 44, maximum: 44), spacing: 2, alignment: .leading)]
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            BotFishView(state: .idle, size: 112, appearance: model.appearance,
-                        crowned: model.isMainBot, allowsPoke: true)
-                .frame(maxWidth: .infinity)
-                .accessibilityLabel("外观预览，\(model.appearance.color.displayName)，\(model.appearance.hairstyle.displayName)")
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("发型")
-                    .font(.system(size: 13))
-                    .foregroundStyle(HomeSpec.textSecondary)
-                HStack(spacing: 6) {
-                    ForEach(BotFishHairstyle.allCases, id: \.self) { hairstyle in
-                        hairstyleButton(hairstyle)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("颜色")
-                    .font(.system(size: 13))
-                    .foregroundStyle(HomeSpec.textSecondary)
-                LazyVGrid(columns: columns, alignment: .leading, spacing: 2) {
-                    ForEach(BotFishColor.allCases, id: \.self) { color in
-                        colorButton(color)
-                    }
-                }
-            }
-        }
-        .padding(.vertical, 4)
-        .accessibilityElement(children: .contain)
-    }
-
-    private func hairstyleButton(_ hairstyle: BotFishHairstyle) -> some View {
-        let selected = model.appearance.hairstyle == hairstyle
-        return Button {
-            Task { await model.select(hairstyle: hairstyle) }
-        } label: {
-            BotFishView(state: .idle, size: 40, appearance: model.appearance(for: hairstyle),
-                        crowned: model.isMainBot, still: true)
-                .frame(width: 44, height: 44)
-                .background(selected ? HomeSpec.userBubble : Color.clear, in: Circle())
-                .overlay {
-                    Circle()
-                        .strokeBorder(HomeSpec.primaryButton, lineWidth: selected ? 2 : 0)
-                }
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(hairstyle.displayName)
-        .accessibilityAddTraits(selected ? AccessibilityTraits.isSelected : AccessibilityTraits())
-        .accessibilityIdentifier("bot.info.appearance.hair.\(hairstyle.rawValue)")
-    }
-
-    private func colorButton(_ color: BotFishColor) -> some View {
-        let selected = model.appearance.color == color
-        return Button {
-            Task { await model.select(color: color) }
-        } label: {
-            Circle()
-                .fill(Self.swatch(color))
-                .frame(width: 24, height: 24)
-                .overlay {
-                    Circle().strokeBorder(HomeSpec.borderList, lineWidth: 0.5)
-                }
-                .frame(width: 44, height: 44)
-                .overlay {
-                    Circle()
-                        .strokeBorder(HomeSpec.primaryButton, lineWidth: selected ? 2 : 0)
-                        .frame(width: 32, height: 32)
-                }
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(color.displayName)
-        .accessibilityAddTraits(selected ? AccessibilityTraits.isSelected : AccessibilityTraits())
-        .accessibilityIdentifier("bot.info.appearance.color.\(color.rawValue)")
-    }
-
-    private static func swatch(_ color: BotFishColor) -> Color {
-        let hex = color.hex.hasPrefix("#") ? String(color.hex.dropFirst()) : color.hex
-        guard hex.count == 6, let value = UInt64(hex, radix: 16) else { return .gray }
-        return Color(red: Double((value >> 16) & 0xFF) / 255,
-                     green: Double((value >> 8) & 0xFF) / 255,
-                     blue: Double(value & 0xFF) / 255)
+        BotAppearancePicker(
+            appearance: model.appearance,
+            isMainBot: model.isMainBot,
+            onSelectColor: { color in Task { await model.select(color: color) } },
+            onSelectHairstyle: { hairstyle in Task { await model.select(hairstyle: hairstyle) } })
     }
 }

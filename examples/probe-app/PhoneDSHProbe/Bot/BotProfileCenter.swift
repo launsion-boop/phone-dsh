@@ -23,6 +23,7 @@ final class BotProfileCenter: ObservableObject {
     private let store: BotProfileStore?
     private let legacyName: String?
     private(set) var bootstrapped = false
+    private var rosterObservation: Task<Void, Never>?
 
     init(botID: String, store: BotProfileStore? = nil,
          legacyName: String? = nil, fallbackName: String = "大肥鱼",
@@ -43,9 +44,31 @@ final class BotProfileCenter: ObservableObject {
                 apply(profile)
             }
             bootstrapped = true
+            observeRoster(store: store)
         } catch {
             errorMessage = "Bot 资料读取失败：\(error.localizedDescription)"
         }
+    }
+
+    /// Renames, appearance edits and 设为主 Bot all write the same roster. A
+    /// cached page must see those writes without being rebuilt, so the center
+    /// follows the store's public roster stream and applies only its record.
+    private func observeRoster(store: BotProfileStore) {
+        guard rosterObservation == nil else { return }
+        rosterObservation = Task { @MainActor [weak self, store] in
+            let updates = await store.rosterUpdates()
+            for await roster in updates {
+                guard !Task.isCancelled else { return }
+                guard let self else { return }
+                if let profile = roster.bots.first(where: { $0.id == self.botID }) {
+                    self.apply(profile)
+                }
+            }
+        }
+    }
+
+    deinit {
+        rosterObservation?.cancel()
     }
 
     /// Backward-compatible alias for the page bootstrap path. The first record

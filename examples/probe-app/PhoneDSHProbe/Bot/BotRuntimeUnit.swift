@@ -36,8 +36,7 @@ final class BotRuntimeUnit {
 
     private(set) var started = false
     private var liveSubscription: BotLiveFrameSubscription?
-    private var liveEvents: [JSONValue] = []
-    private var livePresentation: BotRuntimePresentation?
+    private var liveFish: BotLiveFishProjection
     private var liveRunning = false
     private var liveGeneration = 0
 
@@ -57,6 +56,7 @@ final class BotRuntimeUnit {
         self.rows = rows
         self.info = info
         self.routineActivity = routineActivity
+        self.liveFish = BotLiveFishProjection(botID: botID)
     }
 
     static func make(runtime: BotMCPRuntime, handler: BotMCPHandler,
@@ -127,7 +127,7 @@ final class BotRuntimeUnit {
         await stopLiveObservation()
         started = false
         liveRunning = false
-        livePresentation = nil
+        liveFish = BotLiveFishProjection(botID: botID)
         await remote.attachTransport(UnstartedBotTransport())
     }
 
@@ -154,16 +154,27 @@ final class BotRuntimeUnit {
     /// cached `BotChatModel` supplies the richer detail when its page is open.
     func statusSnapshot(pendingApprovalCount: Int,
                         runtimeState: BotRuntimeState) async -> BotRosterRuntimeState {
-        let live = livePresentation
+        let now = BotLiveFishProjection.now
+        let live = liveFish.presentation(now: now)
         let remoteBusy = await remote.isMainTurnBusy()
         let routineRunning = await routineActivity.isRunning()
         let running = liveRunning || remoteBusy || routineRunning
-        let fish = running ? (live?.fishState ?? .working) : .idle
+        let fish: BotFishLifecycle
+        if pendingApprovalCount > 0 {
+            fish = .alerting
+        } else if running {
+            fish = live.fishState == .idle ? .working : live.fishState
+        } else if liveFish.isIdleSleeping(now: now) {
+            fish = .sleeping
+        } else {
+            fish = live.fishState
+        }
         return BotRosterRuntimeState(
             fishState: fish,
-            activity: live?.activity,
+            activity: running ? live.activity : nil,
             isRunning: running,
             pendingApprovalCount: pendingApprovalCount,
+            reaction: live.reaction,
             runtimeState: runtimeState)
     }
 
@@ -173,7 +184,7 @@ final class BotRuntimeUnit {
         guard liveSubscription == nil else { return }
         liveGeneration += 1
         let generation = liveGeneration
-        liveEvents = []
+        liveFish = BotLiveFishProjection(botID: botID)
         let subscription = await remote.subscribeLiveFrames { [weak self] frame in
             guard let self else { return }
             Task { @MainActor [weak self] in
@@ -192,29 +203,29 @@ final class BotRuntimeUnit {
     }
 
     private func receive(_ frame: BotLiveTurnFrame) {
+        let now = BotLiveFishProjection.now
         switch frame.kind {
         case .streamStart:
-            if liveEvents.isEmpty { liveRunning = true }
+            if !liveRunning { liveRunning = true }
         case .textDelta:
             break
         case .event(let event):
             let type = event["type"]?.stringValue ?? ""
             guard let data = try? JSONEncoder().encode(event),
                   let value = try? JSONValue.parse(data) else { return }
-            if type == "turn/start" {
-                liveEvents = [value]
-                liveRunning = true
-            } else {
-                if type == "turn/end" { liveRunning = false }
-                liveEvents.append(value)
-            }
-            livePresentation = BotRuntimePresentationFactory.live(
-                botID: botID, events: liveEvents)
-            if type == "turn/end" {
-                // `statusSnapshot` already reports `isRunning == false`; the
-                // final durable projection replaces this once rows rebuild.
-                livePresentation = nil
-            }
+            if type == "turn/start" { liveRunning = true }
+            if type == "turn/end" { liveRunning = false }
+            liveFish.receive(.event(value), now: now)
         }
+        if case .streamStart = frame.kind {
+            liveFish.receive(.streamStart, now: now)
+        } else if case .textDelta(let text) = frame.kind {
+            liveFish.receive(.textDelta(text), now: now)
+        }
+    }
+
+    /// A page touch resets the same 60 s sidebar clock.
+    func noteInteraction() {
+        liveFish.noteInteraction()
     }
 }

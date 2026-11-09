@@ -11,6 +11,7 @@ struct BotActivityLine: View {
     let activity: BotActivity
     let fishState: BotFishLifecycle
     var appearance: BotFishAppearance = .classic
+    var reaction: BotFishReaction?
 
     static let fishSize: CGFloat = 28
 
@@ -33,7 +34,7 @@ struct BotActivityLine: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            BotActivityFloatingFish(state: fishState, appearance: appearance)
+            BotActivityFloatingFish(state: fishState, appearance: appearance, reaction: reaction)
                 .accessibilityHidden(true)
             BotActivityShimmerText(text: text)
         }
@@ -76,12 +77,14 @@ struct BotActivityLine: View {
 private struct BotActivityFloatingFish: View {
     let state: BotFishLifecycle
     let appearance: BotFishAppearance
+    let reaction: BotFishReaction?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var up = false
 
     var body: some View {
-        BotFishView(state: state, size: BotActivityLine.fishSize, appearance: appearance)
+        BotFishView(state: state, size: BotActivityLine.fishSize,
+                    appearance: appearance, reaction: reaction)
             .offset(y: reduceMotion ? 0 : (up ? -2 : 1))
             .scaleEffect(reduceMotion ? 1 : (up ? 1.04 : 0.98))
             .onAppear { start() }
