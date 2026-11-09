@@ -27,18 +27,40 @@ public protocol DeviceTaskRunner: Sendable {
     func cancel(sessionID: String) async
 }
 
+/// The durable terminal result of one device task. It is delivered after the
+/// journal write succeeds, independently of whether the device report succeeds.
+public struct DeviceTaskSettlement: Sendable, Equatable {
+    public let deviceID: String
+    public let taskID: String
+    public let idempotencyKey: String
+    public let goal: String
+    public let outcome: DeviceTaskOutcome
+
+    public init(deviceID: String, taskID: String, idempotencyKey: String,
+                goal: String, outcome: DeviceTaskOutcome) {
+        self.deviceID = deviceID
+        self.taskID = taskID
+        self.idempotencyKey = idempotencyKey
+        self.goal = goal
+        self.outcome = outcome
+    }
+}
+
 /// Serializes every operation for a device and persists intent before effects.
 public actor DeviceTaskExecutor {
     private let journal: DeviceTaskJournal
     private let runner: any DeviceTaskRunner
     private let clock: @Sendable () -> Date
+    private let onSettled: (@Sendable (DeviceTaskSettlement) -> Void)?
     private var activeDevices = Set<String>()
 
     public init(directory: URL, runner: any DeviceTaskRunner,
-                clock: @escaping @Sendable () -> Date = { Date() }) throws {
+                clock: @escaping @Sendable () -> Date = { Date() },
+                onSettled: (@Sendable (DeviceTaskSettlement) -> Void)? = nil) throws {
         self.journal = try DeviceTaskJournal(directory: directory)
         self.runner = runner
         self.clock = clock
+        self.onSettled = onSettled
     }
 
     public func process(deviceID: String, task: DeviceTask, authorized: Bool,
@@ -129,6 +151,16 @@ public actor DeviceTaskExecutor {
         record.phase = .terminal
         record.outcome = bounded
         try journal.save(record)
+        // The settlement is observable only after the terminal journal record
+        // is durable and before the device report. A failed report must not
+        // hide the result from the Bot, and this branch is the only place a
+        // new terminal record is announced. Retried terminal deliveries take
+        // the report-only path in `process`.
+        onSettled?(DeviceTaskSettlement(deviceID: record.deviceID,
+                                        taskID: record.task.id,
+                                        idempotencyKey: record.task.idempotencyKey,
+                                        goal: record.task.body.text,
+                                        outcome: bounded))
         try Task.checkCancellation()
         try await report(record: record, outcome: bounded, inbox: inbox)
     }

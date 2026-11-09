@@ -4,6 +4,7 @@ import Foundation
 import PhoneDSH
 import PhoneDSHAgentCore
 import PhoneDSHBot
+import PhoneDSHDeviceTasks
 #if canImport(PhoneDSHADB) && canImport(PhoneDSHLoopback)
 import PhoneDSHADB
 import PhoneDSHLoopback
@@ -82,6 +83,12 @@ final class BotRuntimeComposition {
     private var tickTask: Task<Void, Never>?
     private var recoveryTask: Task<Void, Never>?
     private var started = false
+    /// True only while this composition owns the DeviceTaskManager settlement
+    /// callback. Delivery is at-most-once: the terminal journal write and the
+    /// held-inbox enqueue are separate steps, so a crash in between or a stopped
+    /// Bot loses this notice. The journal itself is unaffected and is never
+    /// replayed to synthesize a missing notice.
+    private var deliversDeviceTaskResults = false
 
     /// The Worker never carries the real Bot bearer. The host egress route
     /// (`MCPEgressPolicy.grantBotRuntimeEndpoint`) injects it after stripping
@@ -243,6 +250,7 @@ final class BotRuntimeComposition {
             await outbox.start()
             await scheduler.start()
             startTick()
+            installDeviceTaskResultDelivery()
             state = .ready
         } catch {
             state = .failed("Bot 连接失败：\(error.localizedDescription)")
@@ -288,6 +296,10 @@ final class BotRuntimeComposition {
     }
 
     private func detachBinding() async {
+        // Stop accepting device settlements before the rest of the binding is
+        // torn down. A result persisted now is lost to the Bot (at-most-once)
+        // rather than delivered by a composition that no longer runs.
+        removeDeviceTaskResultDelivery()
         await scheduler.stop()
         await outbox.stop()
         tickTask?.cancel()
@@ -299,6 +311,55 @@ final class BotRuntimeComposition {
         observedHost = nil
         await remote.attachTransport(UnstartedBotTransport())
         started = false
+    }
+
+    /// Owns the one callback that turns a durable device task terminal record
+    /// into a read-only held item. The callback is synchronous on the manager's
+    /// actor; enqueueing is asynchronous and its failure is logged, never
+    /// propagated into the task journal or the device report.
+    private func installDeviceTaskResultDelivery() {
+        guard !deliversDeviceTaskResults else { return }
+        deliversDeviceTaskResults = true
+        DeviceTaskManager.shared.installTaskSettlementHandler(owner: self) { [weak self] settlement, displayName in
+            guard let self, self.deliversDeviceTaskResults else { return }
+            self.enqueueDeviceTaskResult(settlement, displayName: displayName)
+        }
+    }
+
+    private func removeDeviceTaskResultDelivery() {
+        deliversDeviceTaskResults = false
+        DeviceTaskManager.shared.removeTaskSettlementHandler(owner: self)
+    }
+
+    private func enqueueDeviceTaskResult(_ settlement: DeviceTaskSettlement, displayName: String) {
+        let status: DeviceTaskResultNotice.Status
+        let result: String
+        switch settlement.outcome {
+        case .completed(let output, _):
+            status = .completed
+            result = output
+        case .failed(let kind, let message):
+            status = DeviceTaskResultNotice.Status(rawValue: kind.rawValue) ?? .failed
+            result = message
+        }
+        let notice = DeviceTaskResultNotice(
+            deviceID: settlement.deviceID,
+            deviceDisplayName: displayName,
+            taskID: settlement.taskID,
+            idempotencyKey: settlement.idempotencyKey,
+            goal: settlement.goal,
+            status: status,
+            result: result,
+            createdAt: Int64((Date().timeIntervalSince1970 * 1000).rounded()))
+        do {
+            let item = try notice.wakeInboxItem()
+            Task { [wakeInbox] in
+                do { _ = try await wakeInbox.enqueue(item) }
+                catch { print("[BotRuntimeComposition] device task result enqueue failed: \(error)") }
+            }
+        } catch {
+            print("[BotRuntimeComposition] device task result notice invalid: \(error)")
+        }
     }
 
     private func observeHost(_ host: PhoneDSHHost) {

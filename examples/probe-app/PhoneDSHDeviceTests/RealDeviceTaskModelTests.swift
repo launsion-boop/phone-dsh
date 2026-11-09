@@ -452,6 +452,66 @@ extension RealDeviceTaskModelTests {
         XCTAssertTrue(manager.isActive(key), "late old monitor revoked the new generation")
         await manager.stop(key)
     }
+
+    /// The manager maps the LAN server name to the settlement and clears the
+    /// mapping with the grant lifecycle. The executor observer itself is
+    /// covered by PhoneDSHDeviceTasksTests; this host test covers the App-side
+    /// name lookup and the owner-scoped callback install/remove.
+    func testSettlementDisplayNameAndOwnerScopedCallback() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let executor = try DeviceTaskExecutor(directory: directory, runner: GrantTestRunner())
+        let intake = DeviceTaskIntake(executor: executor)
+        let runner = DeviceDSHRunner(transport: GrantTestTransport())
+        let suite = "DeviceTaskManagerSettlement." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = PhoneMCPAccessSettings(defaults: defaults, secretStore: TaskTestSecrets())
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [GrantTestURLProtocol.self]
+        let session = URLSession(configuration: config)
+        defer { session.invalidateAndCancel() }
+        let manager = DeviceTaskManager(settings: settings, makeLANInbox: { url, auth in
+            try LANDeviceTaskInbox(mcpURL: url, authorization: auth, session: session)
+        }, isLANConnected: { _ in true })
+        manager.testEngine = (intake, runner)
+        let url = "https://fixture.example/mcp"
+        let grant = try settings.grant(serverName: "fixture", url: url,
+                                       headers: ["Authorization"], values: ["Authorization": "Bearer test"])
+        let row = PhoneDSHProbe.MCPServerSummary(serverName: "fixture", url: url, enabled: true,
+                          toolCallTimeoutMs: 10_000, headers: [], status: "connected", error: nil, tools: [], grant: grant)
+        let key = DeviceTaskManager.lanKey("fixture")
+        await manager.startLAN(row)
+        XCTAssertTrue(manager.isActive(key))
+        let deviceID = try LANDeviceTaskInbox(mcpURL: try XCTUnwrap(URL(string: url)),
+                                              authorization: "Bearer test", session: session).deviceID
+        let settlement = DeviceTaskSettlement(
+            deviceID: deviceID, taskID: "task-1", idempotencyKey: "key-1", goal: "goal",
+            outcome: .completed(output: "Answer", truncated: false))
+        let owner = NSObject()
+        var observed: (DeviceTaskSettlement, String)?
+        manager.installTaskSettlementHandler(owner: owner) { value, name in
+            observed = (value, name)
+        }
+        manager.testDeliverSettlement(settlement)
+        XCTAssertEqual(observed?.0, settlement)
+        XCTAssertEqual(observed?.1, "fixture")
+
+        manager.removeTaskSettlementHandler(owner: NSObject())
+        observed = nil
+        manager.testDeliverSettlement(settlement)
+        XCTAssertEqual(observed?.1, "fixture", "a foreign owner must not remove the handler")
+
+        await manager.stop(key)
+        observed = nil
+        manager.testDeliverSettlement(settlement)
+        XCTAssertEqual(observed?.1, deviceID, "the display name must be cleared with the grant")
+
+        manager.removeTaskSettlementHandler(owner: owner)
+        observed = nil
+        manager.testDeliverSettlement(settlement)
+        XCTAssertNil(observed, "the owner-scoped removal must stop delivery")
+    }
 }
 
 #endif
