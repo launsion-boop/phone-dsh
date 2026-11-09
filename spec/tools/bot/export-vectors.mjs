@@ -54,6 +54,7 @@ const { CONTEXT_PROFILES, contextConfigYaml } = loadExports('src/main/prompt/ass
 const display = await import(pathToFileURL(path.join(checkout, 'src/renderer/lib/displayContract.js')).href);
 const fishModel = await import(pathToFileURL(path.join(checkout, 'src/renderer/lib/fish/model.js')).href);
 const agentModel = requireCJS('src/main/agents/model.cjs');
+const { AgentRecords } = requireCJS('src/main/agents/store.cjs');
 const { wireRecordFor } = requireCJS('src/main/transcriptWire.cjs');
 const cardPayloads = requireCJS('src/main/cardPayloads.cjs');
 const ledgerModule = requireCJS('src/main/ledger.cjs');
@@ -400,6 +401,76 @@ const normalizeBotHairstyle = (value) => {
   const result = agentModel.normalizeFishHairstyle(value);
   return result === undefined || result === '' ? null : result;
 };
+
+// Roster rules exported from the real AgentRecords. The fixture root lives in
+// the system temporary directory; only ids and rule outcomes reach the golden.
+function rosterFixture(ids, mainAgentId) {
+  const root = fs.mkdtempSync(path.join(temporaryRoot, 'roster-'));
+  const agents = ids.map((id, index) => ({
+    schema: 3,
+    id,
+    name: `Bot ${id}`,
+    description: '',
+    fish_color: 'blue',
+    fish_hairstyle: 'long',
+    name_explicit: true,
+    pinned: false,
+    hidden_by_user: false,
+    unread_count: 0,
+    last_message_at: null,
+    created_at: 1760000000000 + index,
+    updated_at: 1760000000000 + index,
+  }));
+  fs.writeFileSync(path.join(root, 'agents-index.json'),
+    `${JSON.stringify({ schemaVersion: 3, agents })}\n`);
+  fs.writeFileSync(path.join(root, 'runtime-settings.json'),
+    `${JSON.stringify({ version: 1, mainAgentId, updatedAt: 1760000000000 })}\n`);
+  return new AgentRecords({ root });
+}
+const rosterMainPointerInputs = [
+  { name: 'empty_pointer_uses_first_bot', records: ['agent-a', 'agent-b'], mainAgentId: null },
+  { name: 'dangling_pointer_uses_first_bot', records: ['agent-a', 'agent-b'], mainAgentId: 'agent-gone' },
+  { name: 'valid_pointer_is_kept', records: ['agent-a', 'agent-b'], mainAgentId: 'agent-b' },
+  { name: 'empty_roster_has_no_main', records: [], mainAgentId: null },
+];
+const mainPointerRepair = rosterMainPointerInputs.map((entry) => ({
+  ...entry,
+  expectedMainAgentId: rosterFixture(entry.records, entry.mainAgentId).mainAgentId(),
+}));
+const rosterDeleteInputs = [
+  { name: 'deleting_main_moves_pointer_to_first_remaining', records: ['agent-a', 'agent-b', 'agent-c'], mainAgentId: 'agent-b', deleteId: 'agent-b' },
+  { name: 'deleting_non_main_keeps_pointer', records: ['agent-a', 'agent-b', 'agent-c'], mainAgentId: 'agent-c', deleteId: 'agent-b' },
+  { name: 'deleting_last_main_uses_first_remaining', records: ['agent-a', 'agent-b'], mainAgentId: 'agent-b', deleteId: 'agent-b' },
+];
+const deleteMainMigration = rosterDeleteInputs.map((entry) => {
+  const store = rosterFixture(entry.records, entry.mainAgentId);
+  store.deleteAgent(entry.deleteId);
+  return {
+    ...entry,
+    expectedRemaining: store.listRecords().map((record) => record.id),
+    expectedMainAgentId: store.mainAgentId(),
+  };
+});
+const rosterPatchInputs = [
+  {
+    name: 'identity_and_pointer_are_dropped',
+    input: {
+      id: 'agent-injected', primary: true, mainAgentId: 'agent-injected',
+      name: '  换名  ', description: '新的描述', fish_color: 'BLUE', hidden_by_user: true,
+    },
+  },
+  {
+    name: 'pointer_only_patch_is_empty',
+    input: { id: 'agent-injected', primary: false, mainAgentId: 'agent-injected' },
+  },
+];
+const normalizePatch = rosterPatchInputs.map((entry) => ({
+  name: entry.name,
+  input: entry.input,
+  expected: agentModel.normalizePatch(entry.input),
+  droppedKeys: ['id', 'primary', 'mainAgentId'],
+}));
+
 writeJSON('golden/bot-profile.json', {
   source: {
     repo: 'launsion-boop/dsh-bot',
@@ -408,6 +479,7 @@ writeJSON('golden/bot-profile.json', {
       'src/main/agents/model.cjs',
       'src/renderer/lib/fish/model.js',
       'src/renderer/lib/characterEngine.js',
+      'src/main/agents/store.cjs',
     ],
   },
   recordSchemaVersion,
@@ -422,6 +494,11 @@ writeJSON('golden/bot-profile.json', {
     'auto', '', null, 'curly',
   ].map((input) => ({ input, output: normalizeBotHairstyle(input) })),
   seed: botProfileSeeds,
+  rosterRules: {
+    mainPointerRepair,
+    deleteMainMigration,
+    normalizePatch,
+  },
 });
 
 const rowInputs = [
