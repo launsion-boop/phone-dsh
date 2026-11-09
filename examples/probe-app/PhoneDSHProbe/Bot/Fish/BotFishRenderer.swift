@@ -6,6 +6,7 @@
 // be compared line-by-line with the reference.
 
 import Foundation
+import PhoneDSHBot
 import UIKit
 
 final class BotFishRenderer {
@@ -32,7 +33,7 @@ final class BotFishRenderer {
     private static let motionBoostMaxRoll: Double = 9
 
     private let assets: BotFishAssets?
-    private let palette = BotFishPalette.blue
+    private var palette = BotFishPalette.blue
 
     private var pixelSide = 0
     private var baseTransform = CGAffineTransform.identity
@@ -40,19 +41,34 @@ final class BotFishRenderer {
     private var stageContext: CGContext?
     private var browContext: CGContext?
     private var bodyLayer: UIImage?
+    private var hairLayers: BotFishHairLayers?
+    private var renderedColor: BotFishColor?
+    private var renderedHairstyle: BotFishHairstyle?
 
     init() {
         assets = BotFishAssets.shared
     }
 
     func render(_ params: BotFishParams, time: Double, size: CGFloat,
-                displayScale: CGFloat) -> UIImage? {
+                displayScale: CGFloat,
+                appearance: BotFishAppearance = .classic) -> UIImage? {
         guard let assets, !assets.eyeCels.isEmpty, !assets.mouthCels.isEmpty else { return nil }
         let scale = max(1, displayScale)
         let target = max(1, Int(ceil(Double(max(1, size) * scale))))
         guard ensureContexts(target), let flatContext else { return nil }
-        if bodyLayer == nil {
-            bodyLayer = assets.bodyLayer(palette: palette, pixelSide: CGFloat(target))
+        if bodyLayer == nil || renderedColor != appearance.color
+            || renderedHairstyle != appearance.hairstyle {
+            let nextPalette = BotFishPalette(color: appearance.color)
+            guard let layers = assets.layers(for: appearance.hairstyle),
+                  let body = assets.bodyLayer(hairstyle: appearance.hairstyle,
+                                              palette: nextPalette,
+                                              pixelSide: CGFloat(target))
+            else { return nil }
+            palette = nextPalette
+            hairLayers = layers
+            bodyLayer = body
+            renderedColor = appearance.color
+            renderedHairstyle = appearance.hairstyle
         }
         guard bodyLayer != nil else { return nil }
 
@@ -114,6 +130,13 @@ final class BotFishRenderer {
         // previous UIGraphicsImageRenderer path did, but into a reused canvas.
         baseTransform = CGAffineTransform(a: 1, b: 0, c: 0, d: -1,
                                           tx: 0, ty: CGFloat(target))
+        // Turn the identity CTM into the base transform, then keep that state
+        // at the bottom of the stack. `resetCTM` restores this snapshot before
+        // every paint instead of relying on an unavailable setCTM.
+        for context in [flat, stage, brow] {
+            context.concatenate(baseTransform)
+            context.saveGState()
+        }
         return true
     }
 
@@ -130,16 +153,25 @@ final class BotFishRenderer {
         CGRect(x: 0, y: 0, width: CGFloat(pixelSide), height: CGFloat(pixelSide))
     }
 
+    /// `CGContext` exposes no public `setCTM`. Each reusable context is
+    /// created at `baseTransform` and pushed once; a reset pops back to that
+    /// snapshot and immediately re-pushes it so the next draw starts from the
+    /// base transform again.
+    private func resetCTM(_ cg: CGContext) {
+        cg.restoreGState()
+        cg.saveGState()
+    }
+
     private func renderFlat(into cg: CGContext, assets: BotFishAssets, p: BotFishParams,
                             time: Double, pixelSide target: Int) -> Bool {
-        guard let body = bodyLayer else { return false }
+        guard let body = bodyLayer, let hairLayers else { return false }
         // UIImage.draw(in:) uses UIKit's current context. Push the reusable
         // bitmap for this paint and pop it before returning to the frame loop.
         UIGraphicsPushContext(cg)
         defer { UIGraphicsPopContext() }
         let alpha = CGFloat(BotFishMath.clamp(p.alpha, 0, 1))
         let pixelScale = CGFloat(target) / Self.cropSide
-        cg.setCTM(baseTransform)
+        resetCTM(cg)
         cg.clear(fullPixelRect)
         cg.saveGState()
         // Source space stays 512px; the canvas is the 416px circle crop, so a
@@ -154,7 +186,7 @@ final class BotFishRenderer {
 
         let frame = CGRect(x: 0, y: 0, width: Self.size, height: Self.size)
         body.draw(in: frame)
-        assets.fixed.draw(in: frame)
+        hairLayers.fixed.draw(in: frame)
 
         if p.blush > 0.01 {
             cg.saveGState()
@@ -165,9 +197,10 @@ final class BotFishRenderer {
 
         paintEye(cg, assets: assets, side: -1, p: p, art: p.eyeArt, baseAlpha: Double(alpha))
         paintEye(cg, assets: assets, side: 1, p: p, art: p.eyeArt, baseAlpha: Double(alpha))
-        if p.eyeArt == nil {
-            paintBrows(cg, assets: assets, p: p)
-        }
+        // Brows are composited at base transform after the transformed pass so
+        // `resetCTM` never has to pop a nested save (which would restore the
+        // source-space transform instead of the base snapshot).
+        let brows = p.eyeArt == nil ? browImage(p: p) : nil
         paintMouthCrossfade(cg, assets: assets, p: p, baseAlpha: Double(alpha))
 
         if p.tears > 0.01 {
@@ -179,6 +212,12 @@ final class BotFishRenderer {
                  baseAlpha: Double(alpha))
         paintDecorations(cg, p: p, time: time, baseAlpha: Double(alpha))
         cg.restoreGState()
+        if let brows {
+            cg.saveGState()
+            cg.setAlpha(alpha)
+            cg.draw(brows, in: fullPixelRect)
+            cg.restoreGState()
+        }
         return true
     }
 
@@ -190,7 +229,7 @@ final class BotFishRenderer {
                               pixelSide target: Int) -> Bool {
         let pixelScale = CGFloat(target) / Self.cropSide
         let sliceHeight = max(0.5, 8 * pixelScale)
-        cg.setCTM(baseTransform)
+        resetCTM(cg)
         cg.setAlpha(1)
         cg.clear(fullPixelRect)
         var y = 0.0
@@ -363,13 +402,18 @@ final class BotFishRenderer {
 
     // MARK: - Brows
 
-    private func paintBrows(_ cg: CGContext, assets: BotFishAssets, p: BotFishParams) {
+    /// Renders the brow layer into the reusable scratch context and returns it
+    /// in base (target-pixel) space. `renderFlat` composites it after dropping
+    /// the source-space transform so a nested save never sits above the base
+    /// snapshot that `resetCTM` restores.
+    private func browImage(p: BotFishParams) -> CGImage? {
         guard abs(p.browL) + abs(p.browR) + p.anger + p.sorrow >= 0.02,
-              let b = browContext else { return }
+              let b = browContext, let hairLayers else { return nil }
         UIGraphicsPushContext(b)
         defer { UIGraphicsPopContext() }
         let pixelScale = CGFloat(pixelSide) / BotFishRenderer.cropSide
-        b.setCTM(baseTransform)
+        resetCTM(b)
+        b.setAlpha(1)
         b.clear(fullPixelRect)
         b.saveGState()
         b.scaleBy(x: pixelScale, y: pixelScale)
@@ -393,15 +437,11 @@ final class BotFishRenderer {
         b.saveGState()
         b.scaleBy(x: pixelScale, y: pixelScale)
         b.translateBy(x: -BotFishRenderer.cropOrigin.x, y: -BotFishRenderer.cropOrigin.y)
-        assets.faceMask.draw(in: CGRect(x: 0, y: 0, width: BotFishRenderer.size,
-                                        height: BotFishRenderer.size))
+        hairLayers.faceMask.draw(in: CGRect(x: 0, y: 0, width: BotFishRenderer.size,
+                                            height: BotFishRenderer.size))
         b.restoreGState()
         b.setBlendMode(.normal)
-        guard let brows = b.makeImage() else { return }
-        cg.saveGState()
-        cg.setCTM(baseTransform)
-        cg.draw(brows, in: fullPixelRect)
-        cg.restoreGState()
+        return b.makeImage()
     }
 
     // MARK: - Mouth

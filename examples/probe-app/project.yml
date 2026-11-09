@@ -62,9 +62,9 @@ targets:
         type: folder
         buildPhase: resources
       # Layered 大肥鱼 source art (bot avatar renderer). Copied as a folder so
-      # the renderer can load "BotFish/base/body.png" and
-      # "BotFish/expressive/eyes.png" from the app bundle without colliding
-      # with names from PhoneDSHProbe/.
+      # the renderer can load "BotFish/base/body.png", the per-hairstyle
+      # "BotFish/hair/<style>/..." layers and "BotFish/expressive/eyes.png"
+      # from the app bundle without colliding with names from PhoneDSHProbe/.
       - path: BotFish
         type: folder
         buildPhase: resources

@@ -174,8 +174,9 @@ APP="$DERIVED/Build/Products/Debug-iphonesimulator/PhoneDSHBotUICapture.app"
 xcrun simctl install "$DEVICE_ID" "$APP"
 
 # Keep the capture list in step with `BotUIFixtureCase` without a second
-# hardcoded copy: bot-page owns the enum and may add fixture ids. `gallery`
-# and the animated `dynamic` burst page are capture-only and appended here.
+# hardcoded copy: bot-page owns the enum and may add fixture ids. `gallery`,
+# the animated `dynamic` burst page and the 15×4 `appearanceGrid` page are
+# capture-only and appended here.
 CASES=$(python3 - "$ROOT/examples/probe-app/PhoneDSHProbe/Bot/BotFixtures.swift" <<'PY'
 import sys
 
@@ -203,7 +204,7 @@ for line in lines[start + 1:]:
         break
 if not cases:
     raise SystemExit("no BotUIFixtureCase cases parsed from " + path)
-print(" ".join(cases + ["gallery", "dynamic"]))
+print(" ".join(cases + ["gallery", "dynamic", "appearanceGrid"]))
 PY
 )
 APPEARANCE_LIST=$(echo "$APPEARANCES" | tr ',' ' ')
@@ -219,6 +220,10 @@ for APPEARANCE in $APPEARANCE_LIST; do
             -BotUIRowGolden "$ROOT/spec/bot/v1/golden/row-protocol.json" >/dev/null
         if [ "$CASE" = "gallery" ]; then
             sleep 4
+        elif [ "$CASE" = "appearanceGrid" ]; then
+            # 60 tinted 40pt stills share the process tint cache; give the
+            # first appearance pass time to rasterise before the screenshot.
+            sleep 5
         elif [ "$CASE" = "dynamic" ]; then
             sleep 2
         else
@@ -293,6 +298,13 @@ result = {
         "states": ["thinking", "working", "speaking", "alerting", "celebrate"],
         "intervalMs": 150,
         "captures": bursts,
+    },
+    "appearanceGrid": {
+        "case": "appearanceGrid",
+        "colors": 15,
+        "hairstyles": 4,
+        "tilePt": 40,
+        "layout": "grouped by hairstyle, five tiles per row",
     },
 }
 with open(os.path.join(out, "manifest.json"), "w", encoding="utf-8") as handle:

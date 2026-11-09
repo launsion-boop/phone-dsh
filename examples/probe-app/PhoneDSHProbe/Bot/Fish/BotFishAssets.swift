@@ -1,12 +1,23 @@
 // SPDX-License-Identifier: MIT
 
-// Shared, lazily loaded 大肥鱼 layers. The grayscale `body.png` is tinted
-// through the upstream LUT once per (colour, display-size bucket) and cached
-// for the whole process: every `BotFishView` instance paints from the same
-// decoded layers without allocating or re-tinting a 512×512 bitmap per frame.
+// Shared, lazily loaded 大肥鱼 layers. The per-hairstyle grayscale `body.png`
+// is tinted through the upstream LUT once per (hairstyle, colour, display-size
+// bucket) and cached for the whole process: every `BotFishView` instance paints
+// from the same decoded layers without allocating or re-tinting a 512×512
+// bitmap per frame.
 
 import Foundation
+import PhoneDSHBot
 import UIKit
+
+/// The three per-hairstyle layers. `long` uses the classic `BotFish/base`
+/// folder; the other styles use `BotFish/hair/<style>`. Eyes, iris, blush and
+/// the expressive sprites are shared across every hairstyle.
+struct BotFishHairLayers {
+    let lumaBody: UIImage
+    let fixed: UIImage
+    let faceMask: UIImage
+}
 
 struct BotFishPalette {
     let id: String
@@ -17,6 +28,12 @@ struct BotFishPalette {
 
     /// The fixed classic fish colour, `#1680F3`.
     static let blue = BotFishPalette(id: "blue", hex: 0x1680F3)
+
+    init(color: BotFishColor) {
+        let raw = color.hex.hasPrefix("#") ? String(color.hex.dropFirst()) : color.hex
+        let value = UInt32(raw, radix: 16) ?? 0x1680F3
+        self.init(id: color.rawValue, hex: value)
+    }
 
     private init(id: String, hex: UInt32) {
         self.id = id
@@ -71,9 +88,6 @@ struct BotFishPalette {
 }
 
 final class BotFishAssets {
-    private let lumaBody: UIImage
-    let fixed: UIImage
-    let faceMask: UIImage
     let eyesOpen: UIImage
     let eyesWhite: UIImage
     let irisLeft: UIImage
@@ -94,15 +108,13 @@ final class BotFishAssets {
     private static let sizeBuckets = [32, 48, 64, 96, 128, 192, 256, 384, 512, 768, 1024, 1536, 2048]
     private var tintedBodies: [String: UIImage] = [:]
     private let tintedBodyLock = NSLock()
+    private var hairstyleLayers: [String: BotFishHairLayers] = [:]
+    private let hairstyleLock = NSLock()
 
     static let shared: BotFishAssets? = load()
 
-    private init(lumaBody: UIImage, fixed: UIImage, faceMask: UIImage, eyesOpen: UIImage,
-                 eyesWhite: UIImage, irisLeft: UIImage, irisRight: UIImage, blush: UIImage,
-                 expressiveEyes: UIImage, expressiveMouths: UIImage) {
-        self.lumaBody = lumaBody
-        self.fixed = fixed
-        self.faceMask = faceMask
+    private init(eyesOpen: UIImage, eyesWhite: UIImage, irisLeft: UIImage, irisRight: UIImage,
+                 blush: UIImage, expressiveEyes: UIImage, expressiveMouths: UIImage) {
         self.eyesOpen = eyesOpen
         self.eyesWhite = eyesWhite
         self.irisLeft = irisLeft
@@ -116,10 +128,7 @@ final class BotFishAssets {
     }
 
     private static func load() -> BotFishAssets? {
-        guard let luma = image("body", folder: "base"),
-              let fixed = image("fixed", folder: "base"),
-              let faceMask = image("face-mask", folder: "base"),
-              let eyesOpen = image("eyes-open", folder: "base"),
+        guard let eyesOpen = image("eyes-open", folder: "base"),
               let eyesWhite = image("eyes-white", folder: "base"),
               let irisLeft = image("iris-left", folder: "base"),
               let irisRight = image("iris-right", folder: "base"),
@@ -127,10 +136,27 @@ final class BotFishAssets {
               let expressiveEyes = image("eyes", folder: "expressive"),
               let expressiveMouths = image("mouths", folder: "expressive")
         else { return nil }
-        return BotFishAssets(lumaBody: luma, fixed: fixed, faceMask: faceMask,
-                             eyesOpen: eyesOpen, eyesWhite: eyesWhite,
+        return BotFishAssets(eyesOpen: eyesOpen, eyesWhite: eyesWhite,
                              irisLeft: irisLeft, irisRight: irisRight, blush: blush,
                              expressiveEyes: expressiveEyes, expressiveMouths: expressiveMouths)
+    }
+
+    /// Loads (and caches) the body/fixed/face-mask trio for one hairstyle.
+    /// `long` is the classic `BotFish/base` set; the rest live under
+    /// `BotFish/hair/<style>`, matching the upstream `HAIRSTYLES[].path`.
+    func layers(for hairstyle: BotFishHairstyle) -> BotFishHairLayers? {
+        let key = hairstyle.rawValue
+        hairstyleLock.lock()
+        defer { hairstyleLock.unlock() }
+        if let cached = hairstyleLayers[key] { return cached }
+        let folder = hairstyle == .long ? "base" : "hair/\(key)"
+        guard let luma = Self.image("body", folder: folder),
+              let fixed = Self.image("fixed", folder: folder),
+              let faceMask = Self.image("face-mask", folder: folder)
+        else { return nil }
+        let layers = BotFishHairLayers(lumaBody: luma, fixed: fixed, faceMask: faceMask)
+        hairstyleLayers[key] = layers
+        return layers
     }
 
     private static func image(_ name: String, folder: String) -> UIImage? {
@@ -172,15 +198,19 @@ final class BotFishAssets {
 
     /// Returns the LUT-tinted body at the nearest display-size bucket. The
     /// returned bitmap is in the 512px source space, so callers keep the
-    /// upstream coordinates and only the colour/size rasterisation is shared.
-    func bodyLayer(palette: BotFishPalette, pixelSide: CGFloat) -> UIImage? {
+    /// upstream coordinates and only the (hairstyle, colour, size)
+    /// rasterisation is shared process-wide.
+    func bodyLayer(hairstyle: BotFishHairstyle, palette: BotFishPalette,
+                   pixelSide: CGFloat) -> UIImage? {
+        guard let layers = layers(for: hairstyle) else { return nil }
         let fullSourceSide = max(1, pixelSide * BotFishRenderer.size / BotFishRenderer.cropSide)
         let bucket = Self.sizeBucket(for: fullSourceSide)
-        let key = "\(palette.id)@\(bucket)"
+        let key = "\(hairstyle.rawValue):\(palette.id)@\(bucket)"
         tintedBodyLock.lock()
         defer { tintedBodyLock.unlock() }
         if let cached = tintedBodies[key] { return cached }
-        guard let image = Self.tintBody(lumaBody, palette: palette, width: bucket, height: bucket) else {
+        guard let image = Self.tintBody(layers.lumaBody, palette: palette,
+                                        width: bucket, height: bucket) else {
             return nil
         }
         tintedBodies[key] = image

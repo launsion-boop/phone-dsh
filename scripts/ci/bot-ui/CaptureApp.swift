@@ -7,6 +7,7 @@ struct PhoneDSHBotUICaptureApp: App {
     private let fixture: BotUIFixtureCase
     private let gallery: Bool
     private let dynamic: Bool
+    private let appearanceGallery: Bool
     private let diagnostics: Bool
     private let appearance: String
 
@@ -16,6 +17,7 @@ struct PhoneDSHBotUICaptureApp: App {
             ?? BotUIFixtureCase.chat.rawValue
         gallery = fixtureName == "gallery"
         dynamic = fixtureName == "dynamic"
+        appearanceGallery = fixtureName == "appearanceGrid"
         fixture = BotUIFixtureCase(rawValue: fixtureName) ?? .chat
         diagnostics = arguments.contains("-BotUIDiagnostics")
         appearance = Self.value(named: "-BotUIAppearance", in: arguments) ?? "light"
@@ -35,6 +37,12 @@ struct PhoneDSHBotUICaptureApp: App {
                     BotFishDynamicGalleryView()
                     #else
                     Text("dynamic gallery is only available in DEBUG")
+                    #endif
+                } else if appearanceGallery {
+                    #if DEBUG
+                    BotFishAppearanceGalleryView()
+                    #else
+                    Text("appearance gallery is only available in DEBUG")
                     #endif
                 } else {
                     BotUIFixtureRootView(fixture: fixture, diagnostics: diagnostics)

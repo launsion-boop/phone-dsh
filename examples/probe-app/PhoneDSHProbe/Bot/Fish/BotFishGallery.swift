@@ -79,4 +79,63 @@ struct BotFishDynamicGalleryView: View {
     }
 }
 
+/// The 15 colours × 4 hairstyles appearance grid used by the capture flow.
+/// Every tile is a 40pt idle still so the caller can compare each combination
+/// one-by-one against the desktop DSH bot. Tiles are grouped by hairstyle and
+/// laid out five per row; the whole grid fits one phone screen in portrait.
+struct BotFishAppearanceGalleryView: View {
+    static let hairstyles: [BotFishHairstyle] = BotFishHairstyle.allCases
+    static let colors: [BotFishColor] = BotFishColor.allCases
+
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 6), count: 5)
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(Self.hairstyles, id: \.rawValue) { hairstyle in
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 6) {
+                            Text(hairstyle.displayName)
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(HomeSpec.textPrimary)
+                            Text(hairstyle.rawValue)
+                                .font(.system(size: 10))
+                                .foregroundStyle(HomeSpec.textSecondary)
+                        }
+                        LazyVGrid(columns: columns, spacing: 4) {
+                            ForEach(Self.colors, id: \.rawValue) { color in
+                                VStack(spacing: 1) {
+                                    BotFishView(state: .idle, size: 40,
+                                                appearance: Self.appearance(color: color,
+                                                                            hairstyle: hairstyle),
+                                                still: true)
+                                    Text(color.rawValue)
+                                        .font(.system(size: 8))
+                                        .foregroundStyle(HomeSpec.textSecondary)
+                                        .lineLimit(1)
+                                }
+                                .accessibilityElement(children: .ignore)
+                                .accessibilityLabel("\(hairstyle.displayName) \(color.displayName)")
+                                .accessibilityIdentifier("bot.fish.appearance.\(hairstyle.rawValue).\(color.rawValue)")
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+        }
+        .background(HomeSpec.page)
+        .accessibilityIdentifier("bot.fish.appearance")
+    }
+
+    /// Builds each tile through the additive public initialiser that the
+    /// profile contract exposes for the appearance editor and gallery.
+    private static func appearance(color: BotFishColor,
+                                   hairstyle: BotFishHairstyle) -> BotFishAppearance {
+        BotFishAppearance(color: color, hairstyle: hairstyle,
+                          autoColor: false, autoHairstyle: false)
+    }
+}
+
 #endif
