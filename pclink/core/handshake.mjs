@@ -8,6 +8,7 @@ import {
   hmacSha256,
   randomBytes,
   sha256,
+  timingSafeEqualBytes,
 } from './encoding.mjs'
 import { pclinkError, isSessionRejectCode } from './errors.mjs'
 import { ed25519Sign, ed25519Verify, generateEphemeralX25519, x25519Dh } from './identity.mjs'
@@ -330,7 +331,7 @@ export class HandshakeInitiator {
       throw pclinkError('auth_failed', 'PC response signature invalid')
     }
     const expectedConfirm = confirmPcValue(keys.confirmPc, th2)
-    if (!b64urlDecode(resp.confirm, { length: 32 }).equals(expectedConfirm)) {
+    if (!timingSafeEqualBytes(b64urlDecode(resp.confirm, { length: 32 }), expectedConfirm)) {
       throw pclinkError('auth_failed', 'PC key confirmation invalid')
     }
     const th3 = sha256(confirmTranscript(th2, this.identity.machineId, this.pcMachineId, this.sid))
@@ -427,7 +428,7 @@ export class HandshakeResponder {
     if (!ed25519Verify(this.phonePublicKey, confirmTranscript(this.th2, this.phoneMachineId, this.identity.machineId, confirm.sid), signature)) {
       throw pclinkError('auth_failed', 'phone confirmation signature invalid')
     }
-    if (!b64urlDecode(confirm.confirm, { length: 32 }).equals(confirmPhoneValue(this.keys.confirmPhone, th3))) {
+    if (!timingSafeEqualBytes(b64urlDecode(confirm.confirm, { length: 32 }), confirmPhoneValue(this.keys.confirmPhone, th3))) {
       throw pclinkError('auth_failed', 'phone key confirmation invalid')
     }
     this.th3 = th3

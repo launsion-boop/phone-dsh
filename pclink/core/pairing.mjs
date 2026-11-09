@@ -13,6 +13,7 @@ import {
   machineIdFromPublicKey,
   randomBytes,
   sha256,
+  timingSafeEqualBytes,
   validateName,
 } from './encoding.mjs'
 import { canonicalBytes, canonicalJson } from './canonical.mjs'
@@ -233,7 +234,7 @@ export function verifyPairHello(value, options) {
   pairingRelay(value.relay, options.relay)
   nonce(value.nonce, 'pair.hello.nonce')
   const expectedMac = pairMac(options.pairKey, PAIR_DOMAINS.hello, value)
-  if (!macValue(value.mac, 'pair.hello.mac').equals(expectedMac)) throw pclinkError('auth_failed', 'pair.hello MAC invalid')
+  if (!timingSafeEqualBytes(macValue(value.mac, 'pair.hello.mac'), expectedMac)) throw pclinkError('auth_failed', 'pair.hello MAC invalid')
   if (machineIdFromPublicKey(pcPublicKey) !== pcMachineId) throw pclinkError('auth_failed', 'pair.hello machineId/key mismatch')
   if (options.pinnedPublicKey !== undefined && !pcPublicKey.equals(Buffer.from(options.pinnedPublicKey))) {
     throw pclinkError('auth_failed', 'pair.hello public key does not match the QR pin')
@@ -281,7 +282,7 @@ export function verifyPairAuth(value, options) {
   nonce(value.peerNonce, 'pair.auth.peerNonce')
   if (value.peerNonce !== b64urlEncode(options.peerNonce)) throw pclinkError('auth_failed', 'pair.auth peerNonce mismatch')
   const expectedMac = pairMac(options.pairKey, PAIR_DOMAINS.auth, value)
-  if (!macValue(value.mac, 'pair.auth.mac').equals(expectedMac)) throw pclinkError('auth_failed', 'pair.auth MAC invalid')
+  if (!timingSafeEqualBytes(macValue(value.mac, 'pair.auth.mac'), expectedMac)) throw pclinkError('auth_failed', 'pair.auth MAC invalid')
   if (machineIdFromPublicKey(phonePublicKey) !== phoneMachineId) throw pclinkError('auth_failed', 'pair.auth machineId/key mismatch')
   return { auth: value, publicKey: phonePublicKey, machineId: phoneMachineId }
 }
@@ -344,9 +345,9 @@ export function verifyPairConfirm(value, options) {
   } catch (error) {
     throw pclinkError('bad_frame', `pair.confirm.transcriptHash: ${error.message}`)
   }
-  if (!transcriptHash.equals(Buffer.from(options.transcriptHash))) throw pclinkError('auth_failed', 'pair.confirm transcript hash mismatch')
+  if (!timingSafeEqualBytes(transcriptHash, Buffer.from(options.transcriptHash))) throw pclinkError('auth_failed', 'pair.confirm transcript hash mismatch')
   const expectedMac = pairMac(options.pairKey, PAIR_DOMAINS.confirm, value)
-  if (!macValue(value.mac, 'pair.confirm.mac').equals(expectedMac)) throw pclinkError('auth_failed', 'pair.confirm MAC invalid')
+  if (!timingSafeEqualBytes(macValue(value.mac, 'pair.confirm.mac'), expectedMac)) throw pclinkError('auth_failed', 'pair.confirm MAC invalid')
   return value
 }
 
@@ -387,9 +388,9 @@ export function verifyPairFinal(value, options) {
   } catch (error) {
     throw pclinkError('bad_frame', `pair.final.transcriptHash: ${error.message}`)
   }
-  if (!transcriptHash.equals(Buffer.from(options.transcriptHash))) throw pclinkError('auth_failed', 'pair.final transcript hash mismatch')
+  if (!timingSafeEqualBytes(transcriptHash, Buffer.from(options.transcriptHash))) throw pclinkError('auth_failed', 'pair.final transcript hash mismatch')
   const expectedMac = pairMac(options.pairKey, PAIR_DOMAINS.final, value)
-  if (!macValue(value.mac, 'pair.final.mac').equals(expectedMac)) throw pclinkError('auth_failed', 'pair.final MAC invalid')
+  if (!timingSafeEqualBytes(macValue(value.mac, 'pair.final.mac'), expectedMac)) throw pclinkError('auth_failed', 'pair.final MAC invalid')
   return value
 }
 

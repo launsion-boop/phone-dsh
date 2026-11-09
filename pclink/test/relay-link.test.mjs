@@ -2,7 +2,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { b64urlDecode, b64urlEncode, randomBytes } from '../core/encoding.mjs'
-import { verifyRelayAuth } from '../core/relay.mjs'
+import { validateRelayOrigin, verifyRelayAuth } from '../core/relay.mjs'
 import { generateIdentity } from '../core/identity.mjs'
 import { RelayLink } from '../plugin/relay-link.mjs'
 import { FakeTimers } from './helpers.mjs'
@@ -117,7 +117,7 @@ test('relay link pins the dialed origin and refuses a mismatched challenge', () 
   link.stop()
 })
 
-test('relay heartbeat answers pings, counts unanswered pings and closes', () => {
+test('relay heartbeat tolerates two unanswered pings before closing', () => {
   FakeWebSocket.instances = []
   const { link, identity, timers } = makeLink({ heartbeatBaseMs: 100 })
   link.start()
@@ -128,13 +128,48 @@ test('relay heartbeat answers pings, counts unanswered pings and closes', () => 
   timers.advance(100)
   const firstPing = socket.sentFrames.filter(frame => frame.type === 'relay.ping').at(-1)
   assert.ok(firstPing)
-  socket.message({ v: 1, type: 'relay.pong', nonce: firstPing.nonce })
+  // Ping 1 is unanswered; the first unanswered ping alone must not close.
   timers.advance(100)
   const secondPing = socket.sentFrames.filter(frame => frame.type === 'relay.ping').at(-1)
   assert.notEqual(secondPing.nonce, firstPing.nonce)
+  assert.equal(socket.closed, undefined, 'two unanswered pings mean the second one must still get its full interval')
+  // The second ping is answered; the first remains unanswered.
+  socket.message({ v: 1, type: 'relay.pong', nonce: secondPing.nonce })
+  timers.advance(100)
+  const thirdPing = socket.sentFrames.filter(frame => frame.type === 'relay.ping').at(-1)
+  assert.notEqual(thirdPing.nonce, secondPing.nonce)
+  assert.equal(socket.closed, undefined)
+  // Now two consecutive pings (1 and 3) are unanswered: close on the next tick.
   timers.advance(100)
   assert.equal(socket.closed.code, 1001)
   link.stop()
+})
+
+test('relay.allow is deferred until relay.ready', () => {
+  FakeWebSocket.instances = []
+  const { link, identity } = makeLink()
+  link.start()
+  const socket = FakeWebSocket.instances[0]
+  socket.open()
+  // A pairing change / status refresh can land before authentication.
+  assert.equal(link.sendAllowlist(), false)
+  socket.message({ v: 1, type: 'relay.challenge', nonce: b64urlEncode(randomBytes(32)), relay: 'https://relay.example' })
+  assert.equal(link.sendAllowlist(), false)
+  assert.equal(socket.sentFrames.filter(frame => frame.type === 'relay.allow').length, 0)
+  socket.message({ v: 1, type: 'relay.ready', machineId: identity.machineId, role: 'pc' })
+  const allows = socket.sentFrames.filter(frame => frame.type === 'relay.allow')
+  assert.equal(allows.length, 1)
+  assert.deepEqual(allows[0].peers, ['gewra3lzquaxpctdtkvzv2drdp'])
+  link.stop()
+})
+
+test('relay origins reject cleartext outside loopback (§3.1)', () => {
+  assert.equal(validateRelayOrigin('https://relay.example'), 'https://relay.example')
+  assert.equal(validateRelayOrigin('http://127.0.0.1:3210'), 'http://127.0.0.1:3210')
+  assert.equal(validateRelayOrigin('http://localhost:3210'), 'http://localhost:3210')
+  for (const origin of ['http://relay.example', 'http://192.168.1.2:8080', 'http://relay.example:80']) {
+    assert.throws(() => validateRelayOrigin(origin), error => error.code === 'bad_frame', origin)
+  }
 })
 
 test('a connection error without a close event still enters backoff and reconnects', () => {

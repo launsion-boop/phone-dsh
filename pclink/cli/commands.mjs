@@ -109,6 +109,9 @@ export function renderQrCode(uri, output) {
  * @returns {Promise<object>} final status body.
  */
 export async function runPair(options) {
+  // §8.3: without a TTY the pairing can never be approved. Fail before opening
+  // a slot so the relay/phone cannot join a pairing this process must cancel.
+  if (!options.stdinIsTTY) throw pclinkError('unavailable', 'approval requires a TTY; pairing was not started')
   const mode = options.mode ?? 'qr'
   const pollMs = options.pollMs ?? 250
   const timeoutMs = options.timeoutMs ?? 300_000

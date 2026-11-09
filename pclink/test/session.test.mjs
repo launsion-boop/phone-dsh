@@ -10,10 +10,10 @@ import { decideRejectHandling, verifySessionReject } from '../core/handshake.mjs
 import { isForbiddenAdminEndpoint, isReservedErrorType } from '../core/inner.mjs'
 import { ChunkReassembler } from '../core/chunking.mjs'
 import { classifyBytes, classifySequence } from '../core/aead.mjs'
-import { SessionManager } from '../plugin/session-manager.mjs'
+import { SessionManager, UNKNOWN_RATE_ENTRIES } from '../plugin/session-manager.mjs'
 import { PairingManager, APPROVAL_TTL_MS, PAIR_SLOT_TTL_MS } from '../plugin/pairing-manager.mjs'
 import { AdminPlane } from '../plugin/admin-plane.mjs'
-import { runAsPclinkRemote } from '../plugin/remote-context.mjs'
+import { isPclinkRemoteRequest, runAsPclinkRemote } from '../plugin/remote-context.mjs'
 import { parseStrictJsonObject } from '../core/json.mjs'
 import {
   completeHandshake,
@@ -96,6 +96,30 @@ function pcReader(phoneCrypto, link, phoneMachineId) {
 
 function flush() {
   return new Promise(resolve => setTimeout(resolve, 0))
+}
+
+/** Deterministic valid machineId for an arbitrary integer (RFC 4648 base32). */
+function machineIdFor(index) {
+  const alphabet = 'abcdefghijklmnopqrstuvwxyz234567'
+  let value = BigInt(index + 1)
+  let text = ''
+  for (let position = 0; position < 26; position += 1) {
+    text = alphabet[Number(value % 32n)] + text
+    value /= 32n
+  }
+  return text
+}
+
+/** Syntactically valid session.init body for an unknown peer (no crypto needed). */
+function unknownInitBody(sidB64) {
+  return {
+    v: 1,
+    type: 'session.init',
+    sid: sidB64,
+    suite: 'pclink-x25519-ed25519-chacha20poly1305-1',
+    eph: b64urlEncode(Buffer.alloc(32, 1)),
+    nonce: b64urlEncode(Buffer.alloc(32, 2)),
+  }
 }
 
 async function waitFor(predicate, label, timeoutMs = 2_000) {
@@ -567,20 +591,43 @@ test('unknown-peer rejects are bounded at five per from per minute', async () =>
   assert.equal(link.frames('e2e.handshake').length, 5)
 })
 
-test('malformed init is silently dropped; a wrong-direction resp gets unsigned bad_frame', async () => {
+test('unknown-from rate windows expire and are capped by an LRU', () => {
+  const { manager, timers } = makeSession({ noRecord: true })
+  const sid = b64urlEncode(Buffer.alloc(16, 7))
+  for (let index = 0; index < UNKNOWN_RATE_ENTRIES + 8; index += 1) {
+    const from = machineIdFor(index)
+    manager.handleHandshake({ v: 1, type: 'e2e.handshake', sid, from, to: manager.machineId, body: unknownInitBody(sid) })
+  }
+  // The map is bounded and the oldest entries are evicted, not retained forever.
+  assert.equal(manager.unknownByFrom.size, UNKNOWN_RATE_ENTRIES)
+  assert.equal(manager.unknownByFrom.has(machineIdFor(0)), false)
+  assert.equal(manager.unknownByFrom.has(machineIdFor(UNKNOWN_RATE_ENTRIES + 7)), true)
+  // Entries older than the 60 s window are purged on the next unknown init.
+  timers.advance(61_000)
+  const fresh = machineIdFor(10_000)
+  manager.handleHandshake({ v: 1, type: 'e2e.handshake', sid, from: fresh, to: manager.machineId, body: unknownInitBody(sid) })
+  assert.equal(manager.unknownByFrom.size, 1)
+  assert.equal(manager.unknownByFrom.has(fresh), true)
+})
+
+test('malformed init is silently dropped and a wrong-direction body is rate-limited', async () => {
   const { manager, link, phone } = makeSession({ noRecord: true })
   manager.handleHandshake({
     v: 1, type: 'e2e.handshake', sid: b64urlEncode(Buffer.alloc(16)), from: phone.machineId, to: manager.machineId,
     body: { v: 1, type: 'session.init' },
   })
   assert.equal(link.frames('e2e.handshake').length, 0)
-  manager.handleHandshake({
-    v: 1, type: 'e2e.handshake', sid: b64urlEncode(Buffer.alloc(16, 1)), from: phone.machineId, to: manager.machineId,
-    body: { v: 1, type: 'session.resp', sid: b64urlEncode(Buffer.alloc(16, 1)), eph: b64urlEncode(Buffer.alloc(32, 2)), nonce: b64urlEncode(Buffer.alloc(32, 3)), sig: b64urlEncode(Buffer.alloc(64, 4)), confirm: b64urlEncode(Buffer.alloc(32, 5)) },
-  })
-  const reject = link.frames('e2e.handshake').at(-1)
-  assert.equal(reject.body.code, 'bad_frame')
-  assert.equal(reject.body.sig, undefined)
+  // A phone must never send session.resp. The unsigned bad_frame answer shares
+  // the unknown-peer window instead of reflecting unlimited frames.
+  for (let index = 0; index < 10; index += 1) {
+    manager.handleHandshake({
+      v: 1, type: 'e2e.handshake', sid: b64urlEncode(Buffer.alloc(16, index + 1)), from: phone.machineId, to: manager.machineId,
+      body: { v: 1, type: 'session.resp', sid: b64urlEncode(Buffer.alloc(16, index + 1)) },
+    })
+  }
+  assert.equal(link.frames('e2e.handshake').length, 5)
+  assert.equal(manager.pending.size, 0)
+  assert.equal(manager.sessions.size, 0)
 })
 
 test('a reused sid gets a signed replay reject', async () => {
@@ -632,6 +679,30 @@ test('a cross-sid confirm gets a signed replay reject', async () => {
   assert.equal(manager.pending.size, 0)
 })
 
+test('a cross-sid confirm from another peer does not drop the pending handshake', async () => {
+  const { manager, link, phones, pcIdentity } = makeSession({ secondPhone: true })
+  const { HandshakeInitiator } = await import('../core/handshake.mjs')
+  const initiator = new HandshakeInitiator({ identity: phones[0], pcMachineId: pcIdentity.machineId, pcPublicKey: pcIdentity.publicKey })
+  manager.handleHandshake({ v: 1, type: 'e2e.handshake', sid: initiator.sid, from: phones[0].machineId, to: pcIdentity.machineId, body: initiator.buildInit() })
+  const resp = link.frames('e2e.handshake').at(-1)
+  const confirm = initiator.acceptResp(resp.body)
+  const sentBefore = link.sent.length
+  // The body names phone 0's pending sid, but the outer sid and `from` come
+  // from another paired phone. It must not be allowed to abort that handshake.
+  manager.handleHandshake({
+    v: 1, type: 'e2e.handshake', sid: b64urlEncode(Buffer.alloc(16, 9)), from: phones[1].machineId, to: pcIdentity.machineId,
+    body: confirm,
+  })
+  assert.equal(manager.pending.size, 1)
+  assert.equal(manager.pendingHandshake(initiator.sid) !== undefined, true)
+  assert.equal(link.sent.length, sentBefore)
+  // The original phone can still finish the handshake.
+  manager.handleHandshake({
+    v: 1, type: 'e2e.handshake', sid: initiator.sid, from: phones[0].machineId, to: pcIdentity.machineId, body: confirm,
+  })
+  assert.equal(manager.sessions.size, 1)
+})
+
 test('unpair aborts an in-progress handshake and closes established sessions', async () => {
   const pending = makeSession()
   const { HandshakeInitiator } = await import('../core/handshake.mjs')
@@ -649,6 +720,20 @@ test('unpair aborts an in-progress handshake and closes established sessions', a
   assert.equal(established.manager.sessions.size, 0)
   const close = read().find(message => message.type === 'session.close')
   assert.equal(close.code, 'unpaired')
+})
+
+test('wireStream.open runs inside the PCLink remote scope', async () => {
+  const observed = []
+  const { manager, link, phones, pcIdentity } = makeSession({
+    openImpl: async () => {
+      observed.push(isPclinkRemoteRequest())
+      return fakeIterable([{ ok: true }]).iterable
+    },
+  })
+  const result = await completeSession({ manager, link, phoneIdentity: phones[0], pcIdentity })
+  phoneSend(result.phoneCrypto, manager, { type: 'rpc.stream.open', streamId: 'remote-scope', endpoint: 'session/events', payload: { args: {} } })
+  await waitFor(() => observed.length > 0, 'stream open')
+  assert.deepEqual(observed, [true])
 })
 
 test('15-minute E2E idle closes with session_expired and status goes offline', async () => {
