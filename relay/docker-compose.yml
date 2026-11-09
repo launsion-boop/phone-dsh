@@ -1,0 +1,44 @@
+# SPDX-License-Identifier: MIT
+services:
+  relay:
+    build: .
+    image: ghcr.io/launsion-boop/phone-dsh-relay:${PCLINK_RELAY_TAG:-latest}
+    ports:
+      - "8080:8080"
+    environment:
+      PCLINK_PUBLIC_ORIGIN: ${PCLINK_PUBLIC_ORIGIN:?PCLINK_PUBLIC_ORIGIN is required, e.g. https://relay.example}
+      PCLINK_MAX_CONNECTIONS_PER_IP: ${PCLINK_MAX_CONNECTIONS_PER_IP:-20}
+      PCLINK_PAIR_RATE_BYTES_PER_SEC: ${PCLINK_PAIR_RATE_BYTES_PER_SEC:-1048576}
+      PCLINK_PAIR_BURST_BYTES: ${PCLINK_PAIR_BURST_BYTES:-4194304}
+      PCLINK_MAX_FRAME_BYTES: ${PCLINK_MAX_FRAME_BYTES:-16777216}
+      PCLINK_DAILY_BYTES_PER_MACHINE: ${PCLINK_DAILY_BYTES_PER_MACHINE:-2147483648}
+      PCLINK_PAIR_JOINS_PER_IP_PER_MINUTE: ${PCLINK_PAIR_JOINS_PER_IP_PER_MINUTE:-5}
+      PCLINK_PAIR_ATTEMPTS_PER_RENDEZVOUS: ${PCLINK_PAIR_ATTEMPTS_PER_RENDEZVOUS:-10}
+      PCLINK_PAIR_RENDEZVOUS_TTL_SECONDS: ${PCLINK_PAIR_RENDEZVOUS_TTL_SECONDS:-300}
+      PCLINK_MAX_PAIR_SLOTS_PER_CONNECTION: ${PCLINK_MAX_PAIR_SLOTS_PER_CONNECTION:-2}
+      PCLINK_HANDSHAKE_FRAMES_PER_SOURCE_PER_MINUTE: ${PCLINK_HANDSHAKE_FRAMES_PER_SOURCE_PER_MINUTE:-30}
+      PCLINK_HANDSHAKE_FRAMES_PER_TARGET_PER_MINUTE: ${PCLINK_HANDSHAKE_FRAMES_PER_TARGET_PER_MINUTE:-300}
+      PCLINK_AUTH_TIMEOUT_MS: ${PCLINK_AUTH_TIMEOUT_MS:-10000}
+      PCLINK_PHONE_IDLE_MS: ${PCLINK_PHONE_IDLE_MS:-600000}
+      PCLINK_HEARTBEAT_MIN_MS: ${PCLINK_HEARTBEAT_MIN_MS:-20000}
+      PCLINK_HEARTBEAT_MAX_MS: ${PCLINK_HEARTBEAT_MAX_MS:-30000}
+      PCLINK_TRUSTED_PROXIES: ${PCLINK_TRUSTED_PROXIES:-}
+    read_only: true
+    user: "node"
+    init: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    stop_grace_period: 10s
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8080/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
