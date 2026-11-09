@@ -61,6 +61,13 @@ targets:
       - path: Web3DLib
         type: folder
         buildPhase: resources
+      # Layered 大肥鱼 source art (bot avatar renderer). Copied as a folder so
+      # the renderer can load "BotFish/base/body.png" and
+      # "BotFish/expressive/eyes.png" from the app bundle without colliding
+      # with names from PhoneDSHProbe/.
+      - path: BotFish
+        type: folder
+        buildPhase: resources
     dependencies:
       - target: ProbeKit
       # SwiftPM products are not re-exported: every module the app imports

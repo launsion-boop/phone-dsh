@@ -5,22 +5,35 @@ import SwiftUI
 @main
 struct PhoneDSHBotUICaptureApp: App {
     private let fixture: BotUIFixtureCase
+    private let gallery: Bool
     private let diagnostics: Bool
     private let appearance: String
 
     init() {
         let arguments = ProcessInfo.processInfo.arguments
-        fixture = Self.value(named: "-BotUIFixture", in: arguments)
-            .flatMap(BotUIFixtureCase.init(rawValue:)) ?? .chat
+        let fixtureName = Self.value(named: "-BotUIFixture", in: arguments)
+            ?? BotUIFixtureCase.chat.rawValue
+        gallery = fixtureName == "gallery"
+        fixture = BotUIFixtureCase(rawValue: fixtureName) ?? .chat
         diagnostics = arguments.contains("-BotUIDiagnostics")
         appearance = Self.value(named: "-BotUIAppearance", in: arguments) ?? "light"
     }
 
     var body: some Scene {
         WindowGroup {
-            BotUIFixtureRootView(fixture: fixture, diagnostics: diagnostics)
-                .preferredColorScheme(appearance == "dark" ? .dark : .light)
-                .task { await runConformanceChecks() }
+            Group {
+                if gallery {
+                    #if DEBUG
+                    BotFishGalleryView()
+                    #else
+                    Text("gallery is only available in DEBUG")
+                    #endif
+                } else {
+                    BotUIFixtureRootView(fixture: fixture, diagnostics: diagnostics)
+                }
+            }
+            .preferredColorScheme(appearance == "dark" ? .dark : .light)
+            .task { await runConformanceChecks() }
         }
     }
 

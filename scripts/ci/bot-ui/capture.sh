@@ -57,14 +57,21 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 mkdir -p "$WORK/Sources" "$WORK/UITests" "$OUT"
-ln -s "$ROOT/examples/probe-app/PhoneDSHProbe/Bot" "$WORK/Sources/Bot"
-for file in NativeParityTokens.swift HomeSpec.swift NativeChatPreferences.swift; do
-    ln -s "$ROOT/examples/probe-app/PhoneDSHProbe/$file" "$WORK/Sources/$file"
+cp -R "$ROOT/examples/probe-app/PhoneDSHProbe/Bot" "$WORK/Sources/Bot"
+cp -R "$ROOT/examples/probe-app/BotFish" "$WORK/BotFish"
+REL_ROOT=$(python3 -c 'import os, sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))' "$ROOT" "$WORK")
+# Root-level presentation files referenced by the Bot page. HeaderActionPill
+# is created by the bot-page unit; copy it when present so the capture project
+# keeps building after that shared component lands.
+for file in NativeParityTokens.swift HomeSpec.swift NativeChatPreferences.swift HeaderActionPill.swift; do
+    if [ -f "$ROOT/examples/probe-app/PhoneDSHProbe/$file" ]; then
+        cp "$ROOT/examples/probe-app/PhoneDSHProbe/$file" "$WORK/Sources/$file"
+    fi
 done
-ln -s "$ROOT/scripts/ci/bot-ui/CaptureApp.swift" "$WORK/Sources/CaptureApp.swift"
-ln -s "$ROOT/scripts/ci/bot-ui/CaptureUITests.swift" "$WORK/UITests/CaptureUITests.swift"
+cp "$ROOT/scripts/ci/bot-ui/CaptureApp.swift" "$WORK/Sources/CaptureApp.swift"
+cp "$ROOT/scripts/ci/bot-ui/CaptureUITests.swift" "$WORK/UITests/CaptureUITests.swift"
 
-cat >"$WORK/project.yml" <<'YAML'
+cat >"$WORK/project.yml" <<YAML
 # SPDX-License-Identifier: MIT
 name: PhoneDSHBotUICapture
 options:
@@ -80,12 +87,34 @@ settings:
     CODE_SIGNING_ALLOWED: NO
     GENERATE_INFOPLIST_FILE: YES
     INFOPLIST_KEY_UILaunchScreen_Generation: YES
+packages:
+  PhoneDSH:
+    path: $REL_ROOT
 targets:
   PhoneDSHBotUICapture:
     type: application
     platform: iOS
     sources:
       - path: Sources
+        excludes:
+          # Production wiring needs ProbeKit/ADB/BLE targets that the capture
+          # app does not embed; the fixture UI only needs the presentation and
+          # chat layers below.
+          - "Bot/BotProductionPage.swift"
+          - "Bot/BotProductionServices.swift"
+          - "Bot/BotProductionUIAdapters.swift"
+          - "Bot/BotRuntimeComposition.swift"
+          - "Bot/BotRuntimeEffects.swift"
+      # Layered 大肥鱼 art, copied with the same "BotFish/..." layout as the
+      # probe app so BotFishAssets loads it unchanged.
+      - path: BotFish
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - package: PhoneDSH
+        product: PhoneDSHAgentCore
+      - package: PhoneDSH
+        product: PhoneDSHBot
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.phone-dsh.bot-ui.capture
@@ -143,7 +172,39 @@ APP="$DERIVED/Build/Products/Debug-iphonesimulator/PhoneDSHBotUICapture.app"
 [ -d "$APP" ] || { echo "capture app missing at expected build output" >&2; exit 1; }
 xcrun simctl install "$DEVICE_ID" "$APP"
 
-CASES="chat question steps task attachment document progress checklist link approval automation error denial overflow failClosed info infoEmpty infoError infoLong"
+# Keep the capture list in step with `BotUIFixtureCase` without a second
+# hardcoded copy: bot-page owns the enum and may add fixture ids. `gallery`
+# is capture-only and is appended here.
+CASES=$(python3 - "$ROOT/examples/probe-app/PhoneDSHProbe/Bot/BotFixtures.swift" <<'PY'
+import sys
+
+path = sys.argv[1]
+lines = open(path, encoding="utf-8").read().splitlines()
+start = next((i for i, line in enumerate(lines) if "enum BotUIFixtureCase" in line), None)
+if start is None:
+    raise SystemExit("BotUIFixtureCase not found in " + path)
+cases = []
+for line in lines[start + 1:]:
+    text = line.strip()
+    if not text or text.startswith("//"):
+        continue
+    if text.startswith("case "):
+        for item in text[5:].split(","):
+            item = item.strip()
+            if not item:
+                continue
+            if "=" in item:
+                item = item.split("=", 1)[1].strip().strip('"')
+            if item:
+                cases.append(item)
+        continue
+    if text.startswith("}") or text.startswith("var ") or text.startswith("static "):
+        break
+if not cases:
+    raise SystemExit("no BotUIFixtureCase cases parsed from " + path)
+print(" ".join(cases + ["gallery"]))
+PY
+)
 APPEARANCE_LIST=$(echo "$APPEARANCES" | tr ',' ' ')
 CHECKED=0
 for APPEARANCE in $APPEARANCE_LIST; do
@@ -155,7 +216,11 @@ for APPEARANCE in $APPEARANCE_LIST; do
             -BotUIFixture "$CASE" -BotUIAppearance "$APPEARANCE" \
             -BotUICardGolden "$ROOT/spec/bot/v1/golden/card-payload.json" \
             -BotUIRowGolden "$ROOT/spec/bot/v1/golden/row-protocol.json" >/dev/null
-        sleep 2
+        if [ "$CASE" = "gallery" ]; then
+            sleep 4
+        else
+            sleep 2
+        fi
         if [ "$CHECKED" = 0 ]; then
             CONTAINER=$(xcrun simctl get_app_container "$DEVICE_ID" dev.phone-dsh.bot-ui.capture data)
             python3 - "$CONTAINER/Documents/bot-ui-checks.json" <<'PY'
@@ -175,12 +240,12 @@ PY
     done
 done
 
-python3 - "$OUT" "$APPEARANCES" "$DEVICE_ID" <<'PY'
+python3 - "$OUT" "$APPEARANCES" "$DEVICE_ID" "$CASES" <<'PY'
 import json
 import os
 import sys
-out, appearances, device = sys.argv[1:]
-cases = "chat question steps task attachment document progress checklist link approval automation error denial overflow failClosed info infoEmpty infoError infoLong".split()
+out, appearances, device, case_list = sys.argv[1:]
+cases = case_list.split()
 shots = []
 for appearance in appearances.split(","):
     for case in cases:
