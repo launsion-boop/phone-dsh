@@ -1042,7 +1042,8 @@ public actor ModelGateway {
         upstream.cachePolicy = .reloadIgnoringLocalCacheData
         for (name, value) in request.headers {
             let lowercased = name.lowercased()
-            if Self.droppedRequestHeaders.contains(lowercased) || lowercased.hasPrefix("x-pdsh-") {
+            if Self.droppedRequestHeaders.contains(lowercased)
+                || (lowercased.hasPrefix("x-pdsh-") && !Self.keepsJournalKey(lowercased, for: url)) {
                 continue
             }
             // A host-managed header's Worker value is a non-secret placeholder.
@@ -1067,6 +1068,14 @@ public actor ModelGateway {
     public static let hostManagedHeaderPlaceholder = "phone-host-injects-mcp-key"
 
     /// Headers that must not be copied from the worker's proxy request.
+    /// The tool-journal key reaches the app's own loopback tool endpoints (the Bot MCP
+    /// listener forwards native tools); every other `x-pdsh-*` header, and the key for any
+    /// non-loopback upstream, is dropped (gateway-security.md §3).
+    static func keepsJournalKey(_ lowercasedName: String, for url: URL) -> Bool {
+        guard lowercasedName == "x-pdsh-idempotency-key", let host = url.host?.lowercased() else { return false }
+        return host == "127.0.0.1" || host == "::1" || host == "[::1]" || host == "localhost"
+    }
+
     private static let droppedRequestHeaders: Set<String> = [
         "authorization", "proxy-authorization", "host", "connection",
         "content-length", "transfer-encoding", "accept-encoding", "expect",
