@@ -45,6 +45,13 @@ public enum ChatResumeRecovery {
     public static let queuedPromptHint = "恢复完成后自动发送"
     public static let manualRestartText = "引擎恢复失败，请点击「重新启动引擎」重试"
 
+    /// One line for the compact tips pill. The queued-action hint stays on the
+    /// same line instead of forming a second banner row.
+    public static func recoveryTip(message: String, hint: String?) -> String {
+        guard let hint, hint.isEmpty == false else { return message }
+        return "\(message) · \(hint)"
+    }
+
     /// True while the App must hold queued actions instead of refusing them.
     public static func isRecovering(parked: Bool,
                                     hostLifecycleTransition: Bool,

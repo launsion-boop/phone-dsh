@@ -585,6 +585,13 @@ final class ChatModel {
     private var resumeAutoRebuildsUsed = 0
     private var resumeSlowNotice = false
     private var resumeSlowTask: Task<Void, Never>?
+    /// The in-flight resume's wall-clock backstop. It is cancelled when the
+    /// App leaves the foreground because the host cancels the resume itself;
+    /// a frozen timer must not fire later and rebuild a healthy boot.
+    private var resumeWatchdogTask: Task<Void, Never>?
+    /// Scene phase as last delivered to the App. Used to decide whether a
+    /// cancelled resume should immediately re-arm or wait for the next active.
+    private var appIsActive = true
     private var recoveryFlushTask: Task<Void, Never>?
     /// What the person asked for while the engine was recovering. These are
     /// applied after the resume/rebuild succeeds instead of being refused.
@@ -2022,9 +2029,25 @@ final class ChatModel {
     /// A running turn with background keep-alive holds a silent playback
     /// session and leaves the host running. An idle host still parks.
     func scenePhaseChanged(_ phase: ScenePhase) async {
+        appIsActive = phase == .active
         // Leaving the foreground drops a pending D24 retry; the person will
         // start the engine explicitly when they come back.
-        if phase == .background { cancelBackoffRetry() }
+        if let host, phase == .active || phase == .background {
+            // The App's real scene phase is the authority for resume
+            // cancellation; the host's own platform observer only keeps the
+            // background-boot gate truthful. `.inactive` is a transient
+            // interruption (call/dialog/app switcher), so it must not cancel
+            // a resume that is about to become active again.
+            await host.setForeground(phase == .active)
+        }
+        if phase == .background {
+            cancelBackoffRetry()
+            // The host cancels the in-flight resume and releases its gate.
+            // This timer would otherwise fire while the App is frozen and
+            // rebuild an engine that is already back in a clean state.
+            resumeWatchdogTask?.cancel()
+            resumeWatchdogTask = nil
+        }
         guard let host else { return }
         switch phase {
         case .background:
@@ -2130,8 +2153,10 @@ final class ChatModel {
         // last resort behind them; when it fires it starts the same automatic
         // rebuild instead of merely releasing the flag.
         let watchdog = resumeWatchdog(host: host)
+        resumeWatchdogTask = watchdog
         var didResume = false
         var rebuildNeeded = false
+        var resumeWasCancelled = false
         do {
             try await host.resume()
             parked = false
@@ -2140,21 +2165,33 @@ final class ChatModel {
             refreshFiles()
             await reconcileTurnStateAfterResume()
         } catch {
-            appendStatus("Host resume failed: \(NativeLogRedaction.error(error))")
-            if !engineRebuildInProgress {
-                switch ChatResumeRecovery.decision(
-                    afterResumeFailure: resumeAutoRebuildsUsed) {
-                case .rebuildEngine:
-                    resumeAutoRebuildsUsed += 1
-                    resumeSlowNotice = true
-                    rebuildNeeded = true
-                case .offerManualRestart:
-                    reportEngineRecoveryFailure()
+            if Self.isResumeCancelled(error) {
+                // The App went to the background. The host released its gate
+                // and tore down the half-booted page; stay parked so the next
+                // active phase starts a fresh resume instead of rebuilding.
+                resumeWasCancelled = true
+                parked = true
+                resumeSlowNotice = false
+                appendStatus("App left the foreground; the resume was cancelled and will restart on return")
+            } else {
+                appendStatus("Host resume failed: \(NativeLogRedaction.error(error))")
+                if !engineRebuildInProgress {
+                    switch ChatResumeRecovery.decision(
+                        afterResumeFailure: resumeAutoRebuildsUsed) {
+                    case .rebuildEngine:
+                        resumeAutoRebuildsUsed += 1
+                        resumeSlowNotice = true
+                        rebuildNeeded = true
+                    case .offerManualRestart:
+                        reportEngineRecoveryFailure()
+                    }
                 }
             }
         }
         watchdog.cancel()
+        resumeWatchdogTask = nil
         let shouldPark = backgroundParkRequested
+        let shouldRetry = resumeWasCancelled && foregroundResumeRequested && appIsActive
         foregroundResumeRequested = false
         backgroundParkRequested = false
         // Release before the queued follow-up so it passes its own guard.
@@ -2166,6 +2203,8 @@ final class ChatModel {
         }
         if shouldPark && !parked && !engineRebuildInProgress {
             await parkHost(host)
+        } else if shouldRetry {
+            await resumeHost(host)
         } else if didResume {
             // The history load may have died while the host was parking; the
             // resume is now the point where that session can be re-opened.
@@ -2178,6 +2217,13 @@ final class ChatModel {
     /// The old 300 s watchdog only cleared `hostLifecycleTransition`, which left
     /// an unusable App. This one starts the one automatic rebuild when the
     /// host's own resume bounds failed to return.
+    private static func isResumeCancelled(_ error: Error) -> Bool {
+        if let error = error as? PhoneDSHError, case .resumeCancelled = error {
+            return true
+        }
+        return false
+    }
+
     private func resumeWatchdog(host: PhoneDSHHost) -> Task<Void, Never> {
         let seconds = max(1, Int(ceil(hostResumeWatchdogTimeout)))
         return Task { @MainActor [weak self] in

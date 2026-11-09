@@ -140,6 +140,31 @@ const VFS_FLUSH_TIMING_SAMPLES = 64
 export const SLOW_VFS_FLUSH_MILLISECONDS = 1_000
 /** Console lines buffered while the channel is still connecting. */
 const CONSOLE_BUFFER_LINES = 256
+
+/**
+ * Emit one Worker boot phase through the existing console forwarder.
+ *
+ * Before HELLO the forwarder buffers these lines, so `active_ms` is measured in
+ * the Worker (a frozen process does not advance `performance.now`) while the
+ * host still receives them over the existing CONSOLE frame after HELLO. No new
+ * frame type or boot field is introduced.
+ * @param phase - fixed phase token.
+ */
+function logBootPhase(phase: string): void {
+  let active = 0
+  try {
+    if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
+      active = performance.now()
+    }
+  } catch {
+    active = 0
+  }
+  try {
+    console.info(`pdsh-boot-phase scope=worker phase=${phase} active_ms=${String(Math.max(0, Math.round(active)))}`)
+  } catch {
+    // Observability must never fail the boot.
+  }
+}
 /** Longest console line forwarded in one CONSOLE frame. */
 const CONSOLE_LINE_LIMIT = 32 * 1024
 
@@ -417,6 +442,7 @@ export async function startPhoneWorker(options: PhoneWorkerOptions): Promise<Pho
   try {
     return await startPhoneWorkerInternal(options)
   } catch (error) {
+    logBootPhase('failed')
     if (typeof error === 'object' && error !== null && reportedPageErrors.has(error)) throw error
     const failure = bootFailureError(
       error,
@@ -474,6 +500,7 @@ async function startPhoneWorkerInternal(options: PhoneWorkerOptions): Promise<Ph
 
   const disposers: (() => void)[] = []
   const consoleForwarder = installConsoleForwarding(channel)
+  logBootPhase('entry-start')
   disposers.push(installChannelGlobals(channel))
   // The pinned runtime's `node:fs` bridge stores the UTF-8 encoding of any
   // string write and ignores Node's declared string encodings (upstream
@@ -498,6 +525,7 @@ async function startPhoneWorkerInternal(options: PhoneWorkerOptions): Promise<Ph
   let jqWiring: JqToolboxWiring | undefined
   try {
     await channel.connect()
+    logBootPhase('channel-connected')
     consoleForwarder.flush()
     // Design §4.3: the Agent-facing `ubuntu` command exists only when the host
     // answered this probe. The answer goes through `globalThis` because the
@@ -507,6 +535,7 @@ async function startPhoneWorkerInternal(options: PhoneWorkerOptions): Promise<Ph
     // A failed probe is not a boot failure: the command simply stays
     // unregistered and the shell answers `ubuntu: command not found` / 127.
     const ubuntu = await probeUbuntuHost(channel)
+    logBootPhase('ubuntu-probe')
     setUbuntuCapability(ubuntu)
     disposers.push(() => setUbuntuCapability(undefined))
 
@@ -527,6 +556,7 @@ async function startPhoneWorkerInternal(options: PhoneWorkerOptions): Promise<Ph
     for (const pending of pendingPageFrames.splice(0)) host.handleMessage(pending)
     await host.start()
     hostStarted = true
+    logBootPhase('host-started')
     // P27: arm the model-route refusal **after** the tree booted. `llm-bridge`
     // may replace `globalThis.fetch` with its own transport while the plugins
     // activate (`plugins/llm-bridge/src/index.ts`), and a guard installed before
@@ -707,6 +737,7 @@ async function startPhoneWorkerInternal(options: PhoneWorkerOptions): Promise<Ph
     }))
     disposers.push(installResyncHandler(vfs, channel, normalized.limits))
     consoleForwarder.flush()
+    logBootPhase('ready')
     pagePost({ t: 'pdsh-ready' })
 
     let stopped = false

@@ -71,6 +71,34 @@ public actor PhoneDSHHost: PhoneDSHHosting {
     /// process-lifetime only; a cold process needs the injected secure store.
     private let reclaimTokenStore: any HandoffReclaimTokenStore
     private let bootID: String
+    /// Per-Worker-process boot id. channel.md D6 defines `boot_id` per Worker
+    /// process, not per host; a resume/rebuild that reused the host id made a
+    /// suspended old Worker indistinguishable from its replacement. Each boot
+    /// now generates a fresh value and retires every earlier one.
+    private var workerBootID = PhoneDSHBootID.make()
+    /// Every Worker boot id this host has already stopped. A late HELLO or a
+    /// reconnect from one of these incarnations is refused by the channel
+    /// barrier instead of stealing the replacement's connection.
+    private var retiredWorkerBootIDs: Set<String> = []
+    /// Foreground-only elapsed time for boot/resume diagnostics and budgets.
+    private let foregroundClock = PhoneDSHForegroundClock()
+    /// Page/Worker phase console lines for `boot-timings.log`.
+    private let bootPhaseRecorder = PhoneDSHBootPhaseRecorder()
+    /// The in-flight resume's cancellation token. `setForeground(false)` fires
+    /// it; the resume unwinds, releases the exclusive gate and leaves the
+    /// controller in `Recovering` for the next foreground attempt.
+    private var activeResumeCancellation: PhoneDSHResumeCancellation?
+    /// The engine created for the in-flight resume. `setForeground(false)`
+    /// shuts it down directly; the boot call then returns and the resume catch
+    /// can release the gate without a task-group race over the WebSocket.
+    private var activeResumeEngine: (any WebEngineControlling)?
+    /// Foreground-clock value when the current resume started. Resume phase
+    /// numbers subtract it so a background interval is not reported as work.
+    private var activeResumeActiveStart: Double = 0
+    /// True when the last resume was cancelled by a background transition. The
+    /// controller stays `Recovering`; the next resume continues that boot
+    /// instead of requiring a `Parked` edge D14 does not define.
+    private var resumeInterrupted = false
     private let sessionEpoch: UInt64 = 1
     /// Turn-inactivity counters shared by every supervised harness this host
     /// hands out (G2-FIX-12). It holds no session or credential state.
@@ -546,16 +574,29 @@ public actor PhoneDSHHost: PhoneDSHHosting {
             try await resumeFromFailedBoot(runtime)
             return
         }
-        guard controller == .parked else {
+        // A cancelled resume leaves the controller in `Recovering`. D14 has no
+        // `Recovering -> Parked` edge, and there is no reason to invent one:
+        // the next foreground call continues the same boot from the same
+        // controller state. Every other non-parked state is still refused.
+        let continuesInterruptedBoot = controller == .recovering
+            && state == .stopped && resumeInterrupted
+        guard controller == .parked || continuesInterruptedBoot else {
             throw PhoneDSHError.invalidState("resume requires a parked controller")
         }
+        resumeInterrupted = false
         setState(.starting)
         let timing = PhoneDSHResumeTiming()
         activeResumeTiming = timing
         activeResumePhase = nil
         activeResumeNote = nil
+        activeResumeActiveStart = foregroundClock.activeMilliseconds()
+        let cancellation = PhoneDSHResumeCancellation()
+        activeResumeCancellation = cancellation
         var outcome = "failed"
         defer {
+            if activeResumeCancellation === cancellation {
+                activeResumeCancellation = nil
+            }
             // `markResumePhase` updates `activeResumeTiming`, not the local
             // initial value; read it back for the line.
             let finalTiming = activeResumeTiming ?? timing
@@ -565,20 +606,50 @@ public actor PhoneDSHHost: PhoneDSHHosting {
             activeResumeTiming = nil
             activeResumePhase = nil
             activeResumeNote = nil
+            activeResumeEngine = nil
         }
         do {
             beginResumePhase("preflight")
-            _ = try await runtime.machine.handle(.scenePhase(.active))
+            try cancellation.throwIfCancelled()
+            if continuesInterruptedBoot == false {
+                _ = try await runtime.machine.handle(.scenePhase(.active))
+            }
             try await bootRuntime(runtime, resume: ResumeBootPlan(
                 bootReadyTimeout: configuration.resumeBootReadyTimeout,
                 helloTimeout: configuration.resumeHelloTimeout,
-                visibilityTimeout: configuration.resumeVisibilityTimeout))
+                visibilityTimeout: configuration.resumeVisibilityTimeout),
+                cancellation: cancellation)
             outcome = "ok"
         } catch {
+            if cancellation.isCancelled || Self.isResumeCancelled(error) {
+                outcome = "cancelled"
+                resumeInterrupted = true
+                // Release the half-booted page and close its channel before
+                // the next foreground attempt. The controller stays in
+                // `Recovering`; the App's next resume continues it.
+                activeResumeEngine = nil
+                await runtime.coordinator.prepareForReboot()
+                if let engine = self.runtime?.engine {
+                    await shutdownEngineBestEffort(engine)
+                    if var services = self.runtime {
+                        services.engine = nil
+                        self.runtime = services
+                    }
+                }
+                setState(.stopped)
+                throw PhoneDSHError.resumeCancelled
+            }
             if Self.isResumeTimeout(error) { outcome = "timeout" }
             await failClassifying(error, context: "resume")
             throw error
         }
+    }
+
+    private static func isResumeCancelled(_ error: Error) -> Bool {
+        if let error = error as? PhoneDSHError, case .resumeCancelled = error {
+            return true
+        }
+        return false
     }
 
     /// The resume-only budgets. A cold start deliberately keeps the App's
@@ -598,7 +669,11 @@ public actor PhoneDSHHost: PhoneDSHHosting {
         if let milliseconds {
             timing.mark(name, milliseconds: milliseconds)
         } else {
-            timing.mark(name)
+            // Foreground-only: a background interval between two phases is
+            // not resume work. The line still carries the wall timestamp.
+            let active = max(0, foregroundClock.activeMilliseconds()
+                - activeResumeActiveStart)
+            timing.mark(name, milliseconds: active)
         }
         activeResumeTiming = timing
     }
@@ -643,12 +718,16 @@ public actor PhoneDSHHost: PhoneDSHHosting {
     /// the occlusion signal, and the page must still boot there.
     private func waitForResumeVisibility(
         _ engine: any WebEngineControlling,
-        timeout: TimeInterval
+        timeout: TimeInterval,
+        cancellation: PhoneDSHResumeCancellation? = nil
     ) async -> (waitedMilliseconds: Double, timedOut: Bool) {
         let clock = resumeVisibilityClock
         let startedAt = clock.now()
         let deadline = startedAt.addingTimeInterval(max(0, timeout))
         while true {
+            if cancellation?.isCancelled == true {
+                return (max(0, clock.now().timeIntervalSince(startedAt) * 1_000), true)
+            }
             let beforeRefresh = clock.now()
             let remaining = deadline.timeIntervalSince(beforeRefresh)
             if remaining <= 0 {
@@ -678,6 +757,9 @@ public actor PhoneDSHHost: PhoneDSHHosting {
             }
             await clock.sleep(min(max(0.01, clock.pollInterval),
                                   remainingAfterRefresh))
+            if cancellation?.isCancelled == true {
+                return (max(0, clock.now().timeIntervalSince(startedAt) * 1_000), true)
+            }
         }
     }
 
@@ -1568,7 +1650,11 @@ public actor PhoneDSHHost: PhoneDSHHosting {
     ///   expect an interrupted step to stay open until the run reconciles it.
     private func bootRuntime(_ runtime: RuntimeServices,
                              reconcileOrphans: Bool = false,
-                             resume: ResumeBootPlan? = nil) async throws {
+                             resume: ResumeBootPlan? = nil,
+                             cancellation: PhoneDSHResumeCancellation? = nil) async throws {
+        bootPhaseRecorder.begin(bootID: bootID,
+                                workspaceRoot: configuration.workspaceRoot)
+        try cancellation?.throwIfCancelled()
         // `userReset()` and `resume()` reuse a live runtime, so the pre-start
         // guard in `beginStart()` alone is not enough: a persisted unresolved
         // CAS intent must also keep this path closed. A definite-rejection
@@ -1582,7 +1668,14 @@ public actor PhoneDSHHost: PhoneDSHHosting {
         // a child journal left open by the parked/failed Worker has no
         // resident Activation in it.
         beginWorkerIncarnation()
+        beginWorkerBootID()
         await runtime.coordinator.prepareForReboot()
+        await runtime.coordinator.beginWorkerBoot(
+            expectedBootID: workerBootID,
+            retiring: retiredWorkerBootIDs,
+            sessionEpoch: sessionEpoch,
+            fence: await runtime.authority.wireFence())
+        try cancellation?.throwIfCancelled()
         if resume != nil { beginResumePhase("overlay") }
         // The overlay path is stable for this boot id; rewriting it picks up
         // every mutation that the parked or failed Worker acknowledged.
@@ -1593,7 +1686,6 @@ public actor PhoneDSHHost: PhoneDSHHosting {
         if resume != nil { markResumePhase("loopback") }
         var engineConfiguration = makeEngineConfiguration(
             endpoint: endpoint, fence: await runtime.authority.wireFence())
-        engineConfiguration.bootID = bootID
         if let resume {
             // The resume budget reaches the engine, so even a page that never
             // reports boot-ready is bounded inside WebEngine itself. The cold
@@ -1618,6 +1710,7 @@ public actor PhoneDSHHost: PhoneDSHHosting {
             services.engineConfiguration = engineConfiguration
             self.runtime = services
         }
+        if resume != nil { activeResumeEngine = engine }
         startEngineObserver(engine)
         if resume == nil {
             try checkEngine(engine)
@@ -1628,7 +1721,9 @@ public actor PhoneDSHHost: PhoneDSHHosting {
         if let resume {
             beginResumePhase("visible")
             let visibility = await waitForResumeVisibility(
-                engine, timeout: resume.visibilityTimeout)
+                engine, timeout: resume.visibilityTimeout,
+                cancellation: cancellation)
+            try cancellation?.throwIfCancelled()
             markResumePhase("visible", milliseconds: visibility.waitedMilliseconds)
             if visibility.timedOut {
                 activeResumeNote = "visible-timeout"
@@ -1648,21 +1743,30 @@ public actor PhoneDSHHost: PhoneDSHHosting {
             beginResumePhase("navigation")
         }
         let engineBootStartedAt = Date()
+        let engineBootActiveStart = max(
+            0, foregroundClock.activeMilliseconds() - activeResumeActiveStart)
         do {
             try await bootWorkerForResume(engine, engineConfiguration,
-                                          timeout: resume?.bootReadyTimeout)
+                                          timeout: resume?.bootReadyTimeout,
+                                          cancellation: cancellation)
         } catch {
             recordEngineBootPhases(engine, startedAt: engineBootStartedAt,
+                                   activeBase: engineBootActiveStart,
                                    success: false)
             throw error
         }
         recordEngineBootPhases(engine, startedAt: engineBootStartedAt,
+                               activeBase: engineBootActiveStart,
                                success: true)
         if resume != nil { beginResumePhase("hello") }
         let helloTimeout = resume?.helloTimeout ?? configuration.helloTimeout
-        let hello = try await runtime.coordinator.waitForHello(timeout: helloTimeout)
+        let hello = try await waitForWorkerHello(
+            runtime, timeout: helloTimeout, cancellation: cancellation)
         if resume != nil { markResumePhase("hello") }
+        try cancellation?.throwIfCancelled()
         try await verifyLease(hello, runtime: runtime)
+        await runtime.coordinator.finishWorkerBoot()
+        activeResumeEngine = nil
         // D13: never open admission over a step this host gave up on. The
         // replacement-Worker paths already reconcile before `sendOpenFrames`;
         // the boot path needs the same guarantee, otherwise a retry after a
@@ -1691,8 +1795,10 @@ public actor PhoneDSHHost: PhoneDSHHosting {
     private func bootWorkerForResume(
         _ engine: any WebEngineControlling,
         _ configuration: WebEngineConfiguration,
-        timeout: TimeInterval?
+        timeout: TimeInterval?,
+        cancellation: PhoneDSHResumeCancellation? = nil
     ) async throws {
+        try cancellation?.throwIfCancelled()
         guard let timeout else {
             try await engine.bootWorker(configuration)
             return
@@ -1701,10 +1807,14 @@ public actor PhoneDSHHost: PhoneDSHHosting {
         let result = await phoneDSHResultWithinDeadline(hardDeadline) {
             try await engine.bootWorker(configuration)
         }
+        if cancellation?.isCancelled == true {
+            throw PhoneDSHError.resumeCancelled
+        }
         switch result {
         case .success?:
             return
         case .failure(let error)?:
+            if cancellation?.isCancelled == true { throw PhoneDSHError.resumeCancelled }
             throw error
         case nil:
             throw PhoneDSHError.startTimedOut(
@@ -1712,14 +1822,31 @@ public actor PhoneDSHHost: PhoneDSHHosting {
         }
     }
 
+    /// Waits for the replacement Worker's HELLO. A background transition clears
+    /// the coordinator's waiter from ``setForeground(_:)`` and the nil result
+    /// becomes ``PhoneDSHError/resumeCancelled``.
+    private func waitForWorkerHello(
+        _ runtime: RuntimeServices,
+        timeout: TimeInterval,
+        cancellation: PhoneDSHResumeCancellation?
+    ) async throws -> PhoneDSHHelloResult {
+        let result = try await runtime.coordinator.waitForHello(
+            after: 0, expecting: workerBootID, timeout: timeout)
+        if cancellation?.isCancelled == true {
+            throw PhoneDSHError.resumeCancelled
+        }
+        return result
+    }
+
     /// Adds the engine's navigation/boot-ready marks to the resume line.
     /// Engine durations are relative to `bootWorker`; the recorder wants
     /// milliseconds since the resume started.
     private func recordEngineBootPhases(_ engine: any WebEngineControlling,
                                         startedAt: Date,
+                                        activeBase: Double,
                                         success: Bool) {
         guard activeResumeTiming != nil else { return }
-        let base = activeResumeTiming?.elapsedMilliseconds(at: startedAt) ?? 0
+        let base = activeBase
         guard let reporting = engine as? any WebEngineBootPhaseTimingReporting else {
             if success { markResumePhase("boot-ready") }
             return
@@ -3226,6 +3353,16 @@ public actor PhoneDSHHost: PhoneDSHHosting {
         descendantDrainAttemptedRoots.removeAll()
     }
 
+    /// Starts one Worker process identity. D6's `boot_id` is per Worker boot;
+    /// the old value is retired so a suspended Worker's late HELLO or reconnect
+    /// can never be mistaken for the replacement.
+    @discardableResult
+    private func beginWorkerBootID() -> String {
+        retiredWorkerBootIDs.insert(workerBootID)
+        workerBootID = PhoneDSHBootID.make()
+        return workerBootID
+    }
+
     /// Starts one park/stop drain window. The early pre-graceful route attempt
     /// and the abort verification pass share this ledger so a successful early
     /// attempt is not reclassified as "never attempted" after the escalation
@@ -3238,26 +3375,28 @@ public actor PhoneDSHHost: PhoneDSHHosting {
         // Boot-phase timing (one line per boot in Documents/boot-timings.log).
         // The engine has several serial phases (WAL replay, journal restore,
         // overlay, loopback, WebContent spawn, Worker boot, HELLO); measuring
-        // them is the only way to tell which one dominates a slow start.
-        let bootClock = CFAbsoluteTimeGetCurrent()
+        // them is the only way to tell which one dominates a slow start. The
+        // phase numbers use foreground-only time: a boot frozen in the
+        // background must not report that wall-clock interval as its own work.
+        // Both clocks are recorded: `wall=` keeps timestamp reconciliation.
+        let bootWallStart = CFAbsoluteTimeGetCurrent()
+        let bootActiveStart = foregroundClock.activeMilliseconds()
+        bootPhaseRecorder.begin(bootID: bootID,
+                                workspaceRoot: configuration.workspaceRoot)
         var bootPhases: [(String, Double)] = []
         func bootMark(_ phase: String) {
-            let elapsed = (CFAbsoluteTimeGetCurrent() - bootClock) * 1000
-            bootPhases.append((phase, elapsed))
-            NSLog("phone-dsh boot: %@ at %.0f ms", phase, elapsed)
+            let active = max(0, foregroundClock.activeMilliseconds() - bootActiveStart)
+            bootPhases.append((phase, active))
+            NSLog("phone-dsh boot: %@ at %.0f ms (foreground)", phase, active)
         }
         func writeBootTimings(_ outcome: String) {
+            let wall = max(0, (CFAbsoluteTimeGetCurrent() - bootWallStart) * 1_000)
             let line = "boot \(ISO8601DateFormatter().string(from: Date())) \(outcome) "
-                + bootPhases.map { "\($0.0)=\(Int($0.1))ms" }.joined(separator: " ") + "\n"
+                + bootPhases.map { "\($0.0)=\(Int($0.1))ms" }.joined(separator: " ")
+                + " wall=\(Int(wall.rounded()))ms\n"
             let url = configuration.workspaceRoot.deletingLastPathComponent()
                 .appendingPathComponent("boot-timings.log")
-            if let handle = try? FileHandle(forWritingTo: url) {
-                defer { try? handle.close() }
-                _ = try? handle.seekToEnd()
-                try? handle.write(contentsOf: Data(line.utf8))
-            } else {
-                try? Data(line.utf8).write(to: url)
-            }
+            PhoneDSHBootPhaseRecorder.append(line, to: url)
         }
         var bootOutcome = "failed"
         defer { writeBootTimings(bootOutcome) }
@@ -3271,6 +3410,7 @@ public actor PhoneDSHHost: PhoneDSHHosting {
         // this instant belong to an earlier boot/crash, even when a cold resume
         // reuses the same root session id.
         beginWorkerIncarnation()
+        beginWorkerBootID()
         // A fresh host incarnation supersedes a WebContent termination observed
         // before it; the deferred recovery must not fire into this boot.
         pendingRecovery = false
@@ -3439,9 +3579,8 @@ public actor PhoneDSHHost: PhoneDSHHosting {
                                         overlayURL: overlayURL)
             let endpoint = try await loopback.start()
             bootMark("loopback")
-            var engineConfiguration = makeEngineConfiguration(
+            let engineConfiguration = makeEngineConfiguration(
                 endpoint: endpoint, fence: await authority.wireFence())
-            engineConfiguration.bootID = bootID
             // Install the services before the engine factory runs so that a
             // factory failure still stops the just-started listener.
             self.runtime = RuntimeServices(
@@ -3468,14 +3607,31 @@ public actor PhoneDSHHost: PhoneDSHHosting {
             }
             startEngineObserver(engine)
             try checkEngine(engine)
+            await coordinator.beginWorkerBoot(
+                expectedBootID: workerBootID,
+                retiring: retiredWorkerBootIDs,
+                sessionEpoch: sessionEpoch,
+                fence: await authority.wireFence())
             try await engine.bootWorker(engineConfiguration)
+            if let timings = (engine as? any WebEngineBootPhaseTimingReporting)?
+                .bootPhaseTimings() {
+                if let navigation = timings.navigationMilliseconds {
+                    bootPhases.append(("engine-navigation", navigation))
+                }
+                if let ready = timings.bootReadyMilliseconds {
+                    bootPhases.append(("engine-ready", ready))
+                }
+            }
             bootMark("worker-boot")
-            let hello = try await coordinator.waitForHello(timeout: configuration.helloTimeout)
+            let hello = try await coordinator.waitForHello(
+                after: 0, expecting: workerBootID,
+                timeout: configuration.helloTimeout)
             bootMark("hello")
             guard let services = self.runtime else {
                 throw PhoneDSHError.invalidState("the host services were released during start")
             }
             try await verifyLease(hello, runtime: services)
+            await coordinator.finishWorkerBoot()
             try await sendOpenFrames(hello.connection, runtime: services)
             setState(.running)
             bootMark("running")
@@ -3695,7 +3851,10 @@ public actor PhoneDSHHost: PhoneDSHHosting {
                                               delegate: ledgerHandler,
                                               coordinator: coordinator,
                                               stepMachine: stepMachine,
-                                              eventBus: eventBus)
+                                              eventBus: eventBus,
+                                              bootPhaseRecorder: { [bootPhaseRecorder = self.bootPhaseRecorder] phase in
+                                                  bootPhaseRecorder.record(phase)
+                                              })
             })
     }
 
@@ -3704,7 +3863,10 @@ public actor PhoneDSHHost: PhoneDSHHosting {
         var engineConfiguration = configuration.engine
         engineConfiguration.origin = endpoint.baseURL
         engineConfiguration.token = endpoint.token
-        engineConfiguration.bootID = bootID
+        // D6: the page/Worker `boot_id` names this Worker process, not the
+        // host incarnation. The host id stays in `ChannelHostState.bootID`
+        // and in the overlay path.
+        engineConfiguration.bootID = workerBootID
         engineConfiguration.sessionEpoch = sessionEpoch
         // The loopback serves the bundle's static directory under `/static/*`
         // (`/` redirects to the same file by name). `PhoneDSHConfiguration`
@@ -4174,6 +4336,9 @@ public actor PhoneDSHHost: PhoneDSHHosting {
     private func handle(engineEvent event: WebEngineEvent) async {
         switch event {
         case .consoleLine(let line):
+            if let phase = PhoneDSHBootPhase.parse(line.text) {
+                bootPhaseRecorder.record(phase)
+            }
             eventBus.send(.console(ConsolePayload(level: line.level.channelLevel,
                                                   text: line.text)))
         case .terminated(let count):
@@ -4220,11 +4385,11 @@ public actor PhoneDSHHost: PhoneDSHHosting {
         let observer = PhoneDSHProcessLifecycle()
         #if canImport(UIKit) && os(iOS)
         observer.start { [weak self] phase in
-            Task { await self?.setForeground(phase == .active) }
+            Task { await self?.applyPlatformForeground(phase == .active) }
         }
         #else
         observer.start(emitCurrentPhase: false) { [weak self] phase in
-            Task { await self?.setForeground(phase == .active) }
+            Task { await self?.applyPlatformForeground(phase == .active) }
         }
         #endif
         processLifecycle = observer
@@ -4240,8 +4405,39 @@ public actor PhoneDSHHost: PhoneDSHHosting {
     /// so an App that never reports the phase keeps the old behaviour
     /// (`isForeground` defaults to `true`).
     public func setForeground(_ foreground: Bool) async {
+        await applyForeground(foreground, cancelResume: true)
+    }
+
+    /// Platform lifecycle observation keeps the recovery gate truthful without
+    /// cancelling a resume. On macOS an XCTest process is hidden/backgrounded by
+    /// the window server even though no App scene transition happened, and a
+    /// test must be able to drive the App phase explicitly. The App's own scene
+    /// phase reaches ``setForeground(_:)`` through its scene observer.
+    private func applyPlatformForeground(_ foreground: Bool) async {
+        await applyForeground(foreground, cancelResume: false)
+    }
+
+    private func applyForeground(_ foreground: Bool,
+                                 cancelResume: Bool) async {
         isForeground = foreground
-        guard foreground, pendingRecovery else { return }
+        foregroundClock.setForeground(foreground)
+        if !foreground {
+            if cancelResume, let cancellation = activeResumeCancellation {
+                // Leaving the foreground cancels an in-flight resume. Shut the
+                // page down directly instead of racing a task group over the
+                // WebSocket: the boot call returns with a superseded-navigation
+                // error, and the resume catch releases the exclusive gate.
+                cancellation.cancel()
+                if let engine = activeResumeEngine {
+                    await shutdownEngineBestEffort(engine)
+                }
+                if let coordinator = runtime?.coordinator {
+                    await coordinator.prepareForReboot()
+                }
+            }
+            return
+        }
+        guard pendingRecovery else { return }
         await consumePendingRecovery()
     }
 

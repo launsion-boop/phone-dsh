@@ -521,6 +521,10 @@ public enum PhoneDSHError: Error, Equatable, Sendable {
     case invalidBundle(String)
     /// The Worker did not send HELLO before the deadline.
     case startTimedOut(String)
+    /// The App left the foreground while a resume was in flight. The gate is
+    /// released and the runtime stays at the resumed controller state; the
+    /// next foreground resume continues from there.
+    case resumeCancelled
     /// A configuration value is unusable; the host refuses to start.
     case invalidConfiguration(String)
     /// The fence/lease presented by the Worker is not the host's authority.
@@ -553,6 +557,8 @@ extension PhoneDSHError: CustomStringConvertible {
             return "the Worker bundle is unusable: \(detail)"
         case .startTimedOut(let detail):
             return "the Worker did not become ready in time: \(detail)"
+        case .resumeCancelled:
+            return "the resume was cancelled because the App left the foreground"
         case .invalidConfiguration(let detail):
             return "invalid PhoneDSHConfiguration: \(detail)"
         case .leaseRejected(let detail):

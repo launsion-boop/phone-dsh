@@ -91,5 +91,10 @@ final class ChatResumeRecoveryTests: XCTestCase {
             fromConsoleText: "some ordinary page console line"))
         XCTAssertEqual(ChatResumeRecovery.queuedSessionHint, "恢复完成后自动切换")
         XCTAssertEqual(ChatResumeRecovery.queuedPromptHint, "恢复完成后自动发送")
+        XCTAssertEqual(
+            ChatResumeRecovery.recoveryTip(message: "引擎恢复中…",
+                                           hint: "恢复完成后自动切换"),
+            "引擎恢复中… · 恢复完成后自动切换",
+            "the tips pill is one line, never a second banner row")
     }
 }

@@ -280,6 +280,8 @@ private extension HostFault {
 
     static func classify(phone error: PhoneDSHError) -> HostFault? {
         switch error {
+        case .resumeCancelled:
+            return nil
         case .startTimedOut, .engineNotAttached, .notStarted, .invalidState,
              .channelUnavailable, .invalidResponse:
             // HELLO timeout, a WebView that is not attached yet, a call-order

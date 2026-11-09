@@ -1008,6 +1008,7 @@ final class MockEngine: WebEngineControlling, WebEngineRestartRequesting,
     /// it (or the test ends), so the resume timeout is exercised end to end.
     private var bootHangsValue = false
     private var bootHangsAfterNavigationValue = false
+    private var bootAbortContinuation: CheckedContinuation<Void, Never>?
     /// A visibility refresh that never returns, like a UI-actor hop that a
     /// synchronously blocked main thread can never service.
     private var refreshHangsValue = false
@@ -1209,7 +1210,7 @@ final class MockEngine: WebEngineControlling, WebEngineRestartRequesting,
         lock.unlock()
         if let error { throw error }
         if hangs && !hangsAfterNavigation {
-            try await Task.sleep(nanoseconds: 60_000_000_000)
+            await waitForBootAbort()
             throw CancellationError()
         }
         if hangsAfterNavigation {
@@ -1218,7 +1219,7 @@ final class MockEngine: WebEngineControlling, WebEngineRestartRequesting,
                 navigationMilliseconds: 5,
                 reachedPhase: "boot-ready")
             lock.unlock()
-            try await Task.sleep(nanoseconds: 60_000_000_000)
+            await waitForBootAbort()
             throw CancellationError()
         }
         if delay > 0 {
@@ -1265,10 +1266,24 @@ final class MockEngine: WebEngineControlling, WebEngineRestartRequesting,
         shutdownCountValue += 1
         let error = shutdownError
         let hook = shutdownHookValue
+        let abort = bootAbortContinuation
+        bootAbortContinuation = nil
         lock.unlock()
+        abort?.resume()
         hook?()
         if let error { throw error }
         await worker.disconnect()
+    }
+
+    /// Suspends a hanging test boot until ``shutdownWorker`` aborts it. The
+    /// real engine's shutdown cancels navigation; this keeps the scripted
+    /// engine's cancellation cost at zero instead of a fixed 60 s sleep.
+    private func waitForBootAbort() async {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            bootAbortContinuation = continuation
+            lock.unlock()
+        }
     }
 
     /// Mirrors ``WebEngine``: a completed restart publishes one
