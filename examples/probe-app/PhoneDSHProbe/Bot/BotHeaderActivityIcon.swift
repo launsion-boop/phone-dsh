@@ -21,6 +21,7 @@ struct BotHeaderActivityIcon: View {
     let style: Style
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.botPageActive) private var pageActive
 
     private let side: CGFloat = 14
 
@@ -32,7 +33,7 @@ struct BotHeaderActivityIcon: View {
                     .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(NativeParityTokens.error)
             case .dots:
-                if reduceMotion {
+                if reduceMotion || !pageActive {
                     dots(at: 0, animated: false)
                 } else {
                     TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
@@ -40,7 +41,7 @@ struct BotHeaderActivityIcon: View {
                     }
                 }
             case .pencil:
-                if reduceMotion {
+                if reduceMotion || !pageActive {
                     pencil(opacity: 1)
                 } else {
                     TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in

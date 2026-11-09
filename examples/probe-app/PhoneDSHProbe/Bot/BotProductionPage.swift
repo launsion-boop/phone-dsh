@@ -33,6 +33,10 @@ final class BotProductionHub {
     private var selectionWatch: Task<Void, Never>?
     private var currentChat: ChatModel?
     private var pendingDeepLink: URL?
+    /// Mirrors the Bot page's tab/scene visibility. The 500ms selection watch
+    /// is UI-only polling; it stops while the page is hidden and resyncs
+    /// immediately when the page becomes visible.
+    private var pageActive = true
 
     var selectedBotID: String? { roster?.selectedBotID ?? selectedID }
     var chatModel: BotChatModel? { selectedID.flatMap { chatModels[$0] } }
@@ -76,6 +80,7 @@ final class BotProductionHub {
 
     func retry(chat: ChatModel) async {
         stopSelectionWatch()
+        for model in chatModels.values { model.setPageActive(false) }
         composition = nil
         roster = nil
         selectedID = nil
@@ -92,6 +97,9 @@ final class BotProductionHub {
         guard let composition, let roster else { throw BotRuntimeError.unavailable }
         guard roster.bots.contains(where: { $0.id == botID }) else {
             throw BotTeamHostError.botNotFound(botID)
+        }
+        if let previous = selectedID, previous != botID {
+            chatModels[previous]?.setPageActive(false)
         }
         if chatModels[botID] == nil {
             try await installModels(botID: botID, composition: composition)
@@ -198,19 +206,13 @@ final class BotProductionHub {
     }
 
     private func startSelectionWatch() {
-        guard selectionWatch == nil else { return }
+        guard selectionWatch == nil, pageActive, roster != nil else { return }
         selectionWatch = Task { [weak self] in
             while !Task.isCancelled {
+                guard let self else { return }
+                await self.syncSelection()
+                guard !Task.isCancelled else { return }
                 try? await Task.sleep(nanoseconds: 500_000_000)
-                guard let self, let roster = self.roster else { return }
-                if let selected = roster.selectedBotID, selected != self.selectedID {
-                    if self.chatModels[selected] == nil {
-                        do { try await self.select(selected) }
-                        catch { self.error = "切换 Bot 失败：\(error.localizedDescription)" }
-                    } else {
-                        self.selectedID = selected
-                    }
-                }
             }
         }
     }
@@ -220,7 +222,33 @@ final class BotProductionHub {
         selectionWatch = nil
     }
 
+    /// The page's visibility change. Pausing stops the only hub-owned polling
+    /// loop; resuming starts it with an immediate read so a selection made
+    /// while hidden is applied before the first frame.
+    func setPageActive(_ active: Bool) {
+        guard pageActive != active else { return }
+        pageActive = active
+        if active {
+            if roster != nil { startSelectionWatch() }
+        } else {
+            stopSelectionWatch()
+        }
+    }
+
+    private func syncSelection() async {
+        guard let roster else { return }
+        if let selected = roster.selectedBotID, selected != selectedID {
+            if chatModels[selected] == nil {
+                do { try await select(selected) }
+                catch { self.error = "切换 Bot 失败：\(error.localizedDescription)" }
+            } else {
+                selectedID = selected
+            }
+        }
+    }
+
     private func dropCaches(_ botID: String) {
+        chatModels[botID]?.setPageActive(false)
         chatModels.removeValue(forKey: botID)
         infoModels.removeValue(forKey: botID)
         profileCenters.removeValue(forKey: botID)
@@ -237,6 +265,7 @@ struct BotProductionPage: View {
     var openDrawer: () -> Void
     @State private var chat = ChatModel.shared
     @State private var hub = BotProductionHub.shared
+    @Environment(\.botPageActive) private var botPageActive
 
     init(openDrawer: @escaping () -> Void = {}) {
         self.openDrawer = openDrawer
@@ -269,8 +298,24 @@ struct BotProductionPage: View {
                                 handleExternalDeepLink: { hub.handleDeepLink($0) })
                 }
                 .id(model.context.botID)
-                .task { await model.watchLoop() }
-                .task { await model.liveLoop() }
+                .onAppear { model.setPageActive(botPageActive) }
+                .onDisappear { model.setPageActive(false) }
+                .task(id: "watch:\(model.context.botID):\(botPageActive)") {
+                    guard botPageActive else {
+                        model.setPageActive(false)
+                        return
+                    }
+                    model.setPageActive(true)
+                    await model.watchLoop()
+                }
+                .task(id: "live:\(model.context.botID):\(botPageActive)") {
+                    guard botPageActive else {
+                        model.setPageActive(false)
+                        return
+                    }
+                    model.setPageActive(true)
+                    await model.liveLoop()
+                }
                 .sheet(isPresented: $showDeviceConnections) {
                     NavigationStack { NativeDeviceConnectionPage() }.homeSheetChrome()
                 }
@@ -299,6 +344,18 @@ struct BotProductionPage: View {
         }
         .task {
             if hub.chatModel == nil { await hub.connect(chat: chat) }
+        }
+        .onAppear {
+            hub.setPageActive(botPageActive)
+            hub.chatModel?.setPageActive(botPageActive)
+        }
+        .onDisappear {
+            hub.setPageActive(false)
+            hub.chatModel?.setPageActive(false)
+        }
+        .onChange(of: botPageActive) { _, active in
+            hub.setPageActive(active)
+            hub.chatModel?.setPageActive(active)
         }
     }
 

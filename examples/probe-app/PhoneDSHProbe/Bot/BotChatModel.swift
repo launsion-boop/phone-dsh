@@ -16,9 +16,13 @@ private final class BotStreamCoalescer {
         task = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 100_000_000)
-                guard !Task.isCancelled else { return }
-                self?.flush(deliver: deliver)
+                guard !Task.isCancelled, let self else { return }
+                // No pending text means the turn's final frame already
+                // consumed it (or none arrived); the 100ms loop must not keep
+                // waking the main thread between turns.
+                guard self.flush(deliver: deliver) else { break }
             }
+            self?.task = nil
         }
     }
 
@@ -35,10 +39,15 @@ private final class BotStreamCoalescer {
         pending = nil
     }
 
-    private func flush(deliver: @escaping (String) -> Void) {
-        guard let pending else { return }
+    private func flush(deliver: @escaping (String) -> Void) -> Bool {
+        guard let pending else { return false }
         self.pending = nil
         deliver(pending.text)
+        return true
+    }
+
+    deinit {
+        task?.cancel()
     }
 }
 
@@ -106,6 +115,13 @@ final class BotChatModel: ObservableObject {
     private var liveFish: BotLiveFishProjection
     private var fishExpiryTask: Task<Void, Never>?
     private var sleepTask: Task<Void, Never>?
+    /// UI polling is allowed only while the Bot page is selected and the scene
+    /// is active. The page owns the watch/live tasks; this flag makes a
+    /// lingering task harmless and lets pause drop transient UI state.
+    private var pageActive = true
+    /// Invalidates an older watch task that has not observed cancellation yet
+    /// when the page becomes visible again.
+    private var watchGeneration = 0
 
     let context: BotRuntimeContext
     private let driver: BotChatDriver?
@@ -120,7 +136,6 @@ final class BotChatModel: ObservableObject {
     private var historyCursor: String?
     private let historyPageSize = 50
     private var watchCursor = 0
-    private var watching = false
     private var profileCancellables: Set<AnyCancellable> = []
 
     init(rows: [BotUIRow] = [], context: BotRuntimeContext,
@@ -417,6 +432,10 @@ final class BotChatModel: ObservableObject {
         } else if let turn = runningTurnID, !cancelledTurnIDs.contains(turn) {
             runningTurnID = nil
             streamingText = nil
+            // A final frame can be lost across a background pause. The durable
+            // projection is authoritative once no turn is running, so stop a
+            // coalescer that is still waiting for its next pending delta.
+            stream.cancel()
         }
         scheduleIdleSleep()
     }
@@ -506,11 +525,14 @@ final class BotChatModel: ObservableObject {
 
     /// Polls the production row projection until the view's `.task` is
     /// cancelled. Fixture models have no driver and simply do not run it.
+    ///
+    /// The first iteration runs immediately, so becoming visible again reads
+    /// the durable rows and presentation once before the normal 0.8s cadence.
     func watchLoop() async {
-        guard let driver, !watching else { return }
-        watching = true
-        defer { watching = false }
-        while !Task.isCancelled {
+        guard let driver else { return }
+        watchGeneration &+= 1
+        let generation = watchGeneration
+        while !Task.isCancelled, pageActive, generation == watchGeneration {
             do {
                 let batch = try await driver.watch(watchCursor)
                 apply(batch)
@@ -525,16 +547,42 @@ final class BotChatModel: ObservableObject {
                 liveFish.noteError("Bot 实时更新失败：\(error.localizedDescription)")
                 refreshLiveFishPresentation()
             }
+            guard !Task.isCancelled, pageActive, generation == watchGeneration else { return }
             try? await Task.sleep(nanoseconds: 800_000_000)
         }
     }
 
     /// Follows the running turn's live frames until the view's `.task` ends.
+    /// Hiding the page cancels the stream; becoming visible starts a fresh
+    /// subscription after the durable catch-up.
     func liveLoop() async {
         guard let driver else { return }
         for await frame in await driver.liveFrames() {
+            guard pageActive, !Task.isCancelled else { return }
             receive(frame)
         }
+    }
+
+    /// Called by `BotProductionPage` when the Bot tab/scene pause changes.
+    /// Hiding cancels every UI-only timer and drops the transient live turn so
+    /// the first visible read replaces it with the durable projection.
+    func setPageActive(_ active: Bool) {
+        guard pageActive != active else { return }
+        pageActive = active
+        guard !active else { return }
+        stream.cancel()
+        deltaFlush?.cancel()
+        deltaFlush = nil
+        fishExpiryTask?.cancel()
+        fishExpiryTask = nil
+        sleepTask?.cancel()
+        sleepTask = nil
+        pendingDelta = ""
+        streamingText = nil
+        live = nil
+        livePresentation = nil
+        reaction = nil
+        liveFish = BotLiveFishProjection(botID: context.botID)
     }
 
     func receive(_ frame: BotLiveFrame) {

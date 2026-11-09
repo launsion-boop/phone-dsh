@@ -542,7 +542,6 @@ final class ChatModel {
     private var phoneCapabilityBridge: PhoneCapabilityBridge?
     private let keepAlive = SilentAudioKeepAlive()
     private var backgroundHeartbeat: Task<Void, Never>?
-    private var botTurnPoll: Task<Void, Never>?
     /// Harness events handled so far; the background heartbeat logs the delta
     /// so the status log shows whether the Worker made progress while hidden.
     private var eventsHandled = 0
@@ -1015,30 +1014,30 @@ final class ChatModel {
         }
     }
 
-    /// Polls the roster's live running flag once a second. The Bot page and the
-    /// DSH page live in one process, so the silent audio session must not stop
-    /// while any Bot is still working.
+    /// Observes the roster's live running flag. The Bot page and the DSH page
+    /// live in one process, so the silent audio session must not stop while
+    /// any Bot is still working. This is event-driven: the composition tick
+    /// only calls back when `anyBotRunning` actually changes, so an idle Bot
+    /// roster never wakes ChatModel on a timer.
     private func startBotTurnPolling() {
-        guard botTurnPoll == nil else { return }
-        botTurnPoll = Task { [weak self] in
-            while !Task.isCancelled {
-                guard let self else { return }
-                let running = self.botRuntime?.rosterModel.anyBotRunning ?? false
-                if running != self.botTurnsRunning {
-                    self.botTurnsRunning = running
-                    self.syncIdleTimer()
-                    if !running, !self.turnRunning, self.keepingAlive {
-                        await self.finishBackgroundKeepAlive()
-                    }
-                }
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
-            }
+        guard let roster = botRuntime?.rosterModel else { return }
+        roster.onAnyBotRunningChange = { [weak self] running in
+            Task { @MainActor [weak self] in self?.applyBotTurnsRunning(running) }
+        }
+        applyBotTurnsRunning(roster.anyBotRunning)
+    }
+
+    private func applyBotTurnsRunning(_ running: Bool) {
+        guard running != botTurnsRunning else { return }
+        botTurnsRunning = running
+        syncIdleTimer()
+        if !running, !turnRunning, keepingAlive {
+            Task { await self.finishBackgroundKeepAlive() }
         }
     }
 
     private func stopBotTurnPolling() {
-        botTurnPoll?.cancel()
-        botTurnPoll = nil
+        botRuntime?.rosterModel.onAnyBotRunningChange = nil
         botTurnsRunning = false
     }
 

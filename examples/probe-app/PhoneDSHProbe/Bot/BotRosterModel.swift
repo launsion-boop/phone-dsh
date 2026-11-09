@@ -61,6 +61,10 @@ final class BotRosterModel {
     /// The reason the last delete attempt was refused (for example the last
     /// Bot in the roster). The info page surfaces this verbatim.
     var deletionError: String?
+    /// Called when `anyBotRunning` changes. `ChatModel` uses this instead of
+    /// polling once a second; no other view reads it.
+    @ObservationIgnored
+    var onAnyBotRunningChange: ((Bool) -> Void)?
 
     private let store: BotProfileStore
     private let selectionStore: BotSelectionStore
@@ -231,7 +235,10 @@ final class BotRosterModel {
 
     func setRuntimeState(_ state: BotRosterRuntimeState, for botID: String) {
         guard roster.bots.contains(where: { $0.id == botID }) else { return }
+        let wasRunning = anyBotRunning
         if runtimeStates[botID] != state { runtimeStates[botID] = state }
+        let isRunning = anyBotRunning
+        if wasRunning != isRunning { onAnyBotRunningChange?(isRunning) }
     }
 
     func runtimeState(for botID: String) -> BotRosterRuntimeState {
@@ -254,6 +261,7 @@ final class BotRosterModel {
     }
 
     private func apply(_ snapshot: BotRoster) {
+        let wasRunning = anyBotRunning
         let previousSelection = selectedBotID
         roster = snapshot
         let stillExists = selectedBotID.map { id in snapshot.bots.contains { $0.id == id } } ?? false
@@ -272,5 +280,7 @@ final class BotRosterModel {
         }
         let ids = Set(snapshot.bots.map(\.id))
         runtimeStates = runtimeStates.filter { ids.contains($0.key) }
+        let isRunning = anyBotRunning
+        if wasRunning != isRunning { onAnyBotRunningChange?(isRunning) }
     }
 }

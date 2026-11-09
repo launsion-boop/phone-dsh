@@ -101,6 +101,9 @@ struct NativeShell: View {
     @State private var sidebarCollapsed = false
     @State private var dragOffset: CGFloat = 0
     @State private var preferences = NativeChatPreferences.shared
+    /// Shared app state. The Bot page's scene/tab pause is derived from it here;
+    /// the app's only scene-phase observer updates it.
+    @Environment(AppModel.self) private var appModel
     private let drawerWidth: CGFloat = 320
     #if DEBUG
     @State private var preview = PreviewScreen.requested
@@ -217,7 +220,11 @@ struct NativeShell: View {
                             openDrawer()
                         }
                     })
-                    .environment(\.botFishPaused, selectedTab != .bot)
+                    // One pause entry for every host-driven condition: the Bot
+                    // tab is off-screen or the app is not active. The Bot page
+                    // and the 大肥鱼 avatar read the same value.
+                    .environment(\.botPageActive, botPageActive)
+                    .environment(\.botFishPaused, !botPageActive)
                     .toolbar(.hidden, for: .navigationBar)
                     .modifier(tabRoot(.bot))
                 }
@@ -283,6 +290,17 @@ struct NativeShell: View {
         .simultaneousGesture(modalDrawerVisible ? closeDrag : nil)
         .allowsHitTesting(sidebarVisible || modalDrawerVisible)
         .accessibilityHidden(!sidebarVisible && !modalDrawerVisible)
+        // The Bot drawer is part of the Bot page; its avatar rows use the
+        // same off-screen/background pause as the page.
+        .environment(\.botPageActive, botPageActive)
+        .environment(\.botFishPaused, !botPageActive)
+    }
+
+    /// The one value behind the Bot page's pause: the tab is selected and the
+    /// scene is active. `AppModel.isSceneActive` is updated by the app entry's
+    /// single scene-phase observer, never by a view.
+    private var botPageActive: Bool {
+        selectedTab == .bot && appModel.isSceneActive
     }
 
     /// The phone drawer's x: 0 open, following a leftward drag, fully off
