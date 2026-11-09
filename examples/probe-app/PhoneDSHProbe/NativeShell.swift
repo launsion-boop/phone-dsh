@@ -273,13 +273,20 @@ struct NativeShell: View {
                         .allowsHitTesting(!models.isPhoneSelected)
                         .accessibilityHidden(models.isPhoneSelected)
                     } else if !models.isPhoneSelected {
-                        PCWorkspaceChatPlaceholder(openDrawer: {
-                            if usesSidebar {
-                                withAnimation(.easeInOut(duration: 0.22)) { sidebarCollapsed.toggle() }
-                            } else {
-                                openDrawer()
-                            }
-                        }, drawerExpanded: sidebarVisible)
+                        // Same container as ChatPage above: the shell ignores
+                        // the safe area for the drawer, and NavigationStack is
+                        // what re-establishes it for the header. Without this
+                        // the placeholder header sits under the status bar.
+                        NavigationStack {
+                            PCWorkspaceChatPlaceholder(openDrawer: {
+                                if usesSidebar {
+                                    withAnimation(.easeInOut(duration: 0.22)) { sidebarCollapsed.toggle() }
+                                } else {
+                                    openDrawer()
+                                }
+                            }, drawerExpanded: sidebarVisible)
+                            .toolbar(.hidden, for: .navigationBar)
+                        }
                     }
                 }
             }
