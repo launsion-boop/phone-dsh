@@ -159,6 +159,10 @@ struct SettingsPage: View {
             link(NativeText("Android ADB", "Android ADB"), icon: "iphone.gen3") {
                 AndroidADBSettingsPage()
             }
+            link(NativeText("视觉模型", "Vision models"), icon: "eye") { VisionSettingsPage() }
+            #if DEBUG
+            link(NativeText("板子固件（USB）", "Board firmware (USB)"), icon: "cable.connector") { TonoLinkUSBOTAPage() }
+            #endif
         }
     }
 

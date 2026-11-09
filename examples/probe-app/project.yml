@@ -104,6 +104,8 @@ targets:
         product: PhoneDSHBLE
       - package: PhoneDSH
         product: PhoneDSHDeviceTasks
+      - package: PhoneDSH
+        product: PhoneDSHVenus
       - package: SwiftMarkdown
         product: Markdown
       - package: SwiftMath

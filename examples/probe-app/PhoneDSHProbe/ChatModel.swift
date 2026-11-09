@@ -25,6 +25,7 @@ import PhoneDSHShell
 import PhoneDSHADB
 import PhoneDSHBot
 import PhoneDSHBLE
+import PhoneDSHVenus
 
 // MARK: - Settings persistence
 
@@ -537,7 +538,7 @@ final class ChatModel {
     /// fixture.
     var botRuntime: BotRuntimeComposition? { botLaunch?.composition }
     private var phoneCapabilityBridge: PhoneCapabilityBridge?
-    private let keepAlive = SilentAudioKeepAlive()
+    private let keepAlive = SilentAudioKeepAlive.shared
     private var backgroundHeartbeat: Task<Void, Never>?
     /// Harness events handled so far; the background heartbeat logs the delta
     /// so the status log shows whether the Worker made progress while hidden.
@@ -1160,7 +1161,9 @@ final class ChatModel {
             credentialProvider: credentialProvider,
             egressAuthorizer: mcpPolicy,
             workerEnvironment: environment.merging(botLaunch?.workerEnvironment ?? [:]) { _, new in new },
-            nativeMCP: DeviceMCPServer.shared)
+            // iphone_agent_run (UI-Venus over the TonoLink board) in front of the BLE tools, so one
+            // native endpoint serves the phone task and Link tools such as light.set (native-mcp.md).
+            nativeMCP: IPhoneAgentMCPServer(fallback: DeviceMCPServer.shared, executor: IPhoneAgentHost.shared))
         configuration.officialDeepSeekWebCredentialProvider = searchPlan.officialDeepSeekWebCredentialProvider
         // One line states what the host actually enforces. The Worker's
         // published manifest can lag behind a rebuilt bundle; this is the
