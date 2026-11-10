@@ -53,6 +53,13 @@ class PdshSettingsRouteTest {
         assertNull(PdshSettingsRows.targetOf(SettingsDestination.DEV_TOOLS))
     }
 
+    /** PR #60's 我的 tab: its two new rows open the schedule sheet and the 设置 page. */
+    @Test
+    fun `the me tab rows route to the schedules sheet and the more page`() {
+        assertEquals(PdshRoute.Automation, PdshSettingsRows.targetOf(SettingsDestination.SCHEDULES))
+        assertEquals(PdshRoute.SettingsMore, PdshSettingsRows.targetOf(SettingsDestination.MORE_SETTINGS))
+    }
+
     /**
      * L55: the two Android-only entries. 版本 → 关于 and the appendix's 开发者工具 row
      * are the only ways to reach the seven pages whose iOS baseline has no entry, so
@@ -90,6 +97,8 @@ class PdshSettingsRouteTest {
                 SettingsDestination.RUNTIME_DETAILS, // PdshRoute.Runtime
                 SettingsDestination.EXPORT_DIAGNOSTICS, // PdshRoute.Export
                 SettingsDestination.SHORTCUTS, // PdshRoute.Shortcuts
+                SettingsDestination.SCHEDULES, // 我的 › 定时任务 → PdshRoute.Automation
+                SettingsDestination.MORE_SETTINGS, // 我的 › 设置 → PdshRoute.SettingsMore
                 // PERMISSION_DEFAULTS, LICENSES, ABOUT and DEV_TOOLS are the four
                 // the settings sheet draws itself (a local page swap, no route).
                 SettingsDestination.LICENSES,

@@ -253,7 +253,22 @@ public enum class SettingsDestination {
 
     /** 开发者工具: the Android-only index of the pages iOS left without an entry. */
     DEV_TOOLS,
+
+    /** 我的 › 定时任务: the schedule catalog sheet (`SettingsPage.swift:309`). */
+    SCHEDULES,
+
+    /** 我的 › 设置: every option the 我的 tab leaves out (`SettingsPage.swift:321`). */
+    MORE_SETTINGS,
 }
+
+/**
+ * Where a [SettingsPage] sits (`SettingsPageMode`, `SettingsPage.swift:41-46`).
+ *
+ * [SHEET] is the full list presented with 完成; [TAB] is the 我的 tab (profile plus
+ * the few entries people use); [MORE] is the 设置 page the tab pushes (everything
+ * the tab leaves out).
+ */
+public enum class SettingsPageMode { SHEET, TAB, MORE }
 
 /** One entry of a menu row's menu. */
 @Immutable
@@ -483,6 +498,8 @@ public data class SettingsScreenState(
     public val defaultPermissionReadOnlyReason: String? = null,
     public val defaultPermissionStartupLocked: Boolean = false,
     public val busyEnterMode: BusyEnterMode? = null,
+    /** 我的 › 定时任务's count (`management.scheduleRecords.count`); `null` = not read. */
+    public val scheduleCount: Int? = null,
 ) {
     /** One row by id. */
     public fun row(id: String): SettingsRowView? =
@@ -1138,6 +1155,8 @@ public fun SettingsPage(
     backLevel: com.phonedsh.ui.nav.PdshBackLevel? = null,
     /** Retained by the settings host while an external settings child is open. */
     indexListState: androidx.compose.foundation.lazy.LazyListState = androidx.compose.foundation.lazy.rememberLazyListState(),
+    /** Which of the baseline's three placements this is ([SettingsPageMode]). */
+    mode: SettingsPageMode = SettingsPageMode.SHEET,
 ) {
     // The old tab enum is retained as the deep-link vocabulary used by the host.
     // A non-General incoming tab is still rendered as the requested pushed page.
@@ -1183,9 +1202,18 @@ public fun SettingsPage(
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)),
     ) {
         SettingsNavBar(
-            title = if (page == SettingsIndexPage.ROOT) UiStrings.settingsNativeText(
+            // `navigationTitle(title)`: 我的 for the tab, 设置 for the sheet and the
+            // pushed page (`SettingsPage.swift:124-129`).
+            title = if (page != SettingsIndexPage.ROOT) page.title(state.preferences.language?.id)
+            else if (mode == SettingsPageMode.TAB) UiStrings.settingsNativeText(
+                state.preferences.language?.id, "我的", "Me",
+            ) else UiStrings.settingsNativeText(
                 state.preferences.language?.id, UiStrings.SETTINGS, UiStrings.SETTINGS_EN,
-            ) else page.title(state.preferences.language?.id),
+            ),
+            // The pushed 设置 page (`.more`) is a NavigationStack push, so its root
+            // has the stack's back; the tab root and the sheet root have none.
+            onBack = if (page == SettingsIndexPage.ROOT && mode == SettingsPageMode.MORE) onBack else null,
+            backTag = UiPageTags.SETTINGS_MORE_BACK,
             leading = if (page == SettingsIndexPage.ROOT) null else {
                 {
                     com.phonedsh.ui.icon.PdshIconView(
@@ -1200,17 +1228,21 @@ public fun SettingsPage(
                     )
                 }
             },
-            trailing = {
-                SettingsBarAction(
-                label = UiStrings.settingsNativeText(state.preferences.language?.id, UiStrings.SETTINGS_DONE, UiStrings.SETTINGS_DONE_EN),
-                    onClick = onBack,
-                    modifier = Modifier.testTag(UiPageTags.SETTINGS_DONE),
-                )
-            },
+            // 完成 belongs to the sheet only (`if mode == .sheet`, `SettingsPage.swift:103`).
+            trailing = if (mode == SettingsPageMode.SHEET) {
+                {
+                    SettingsBarAction(
+                        label = UiStrings.settingsNativeText(state.preferences.language?.id, UiStrings.SETTINGS_DONE, UiStrings.SETTINGS_DONE_EN),
+                        onClick = onBack,
+                        modifier = Modifier.testTag(UiPageTags.SETTINGS_DONE),
+                    )
+                }
+            } else null,
         )
         when (page) {
             SettingsIndexPage.ROOT -> SettingsIndexList(
                 state = state,
+                mode = mode,
                 listState = indexListState,
                 language = language,
                 appearance = appearance,
@@ -1285,6 +1317,7 @@ private enum class SettingsIndexPage(val titleZh: String, val titleEn: String) {
 @Composable
 private fun SettingsIndexList(
     state: SettingsScreenState,
+    mode: SettingsPageMode,
     listState: androidx.compose.foundation.lazy.LazyListState,
     language: String,
     appearance: String,
@@ -1313,9 +1346,47 @@ private fun SettingsIndexList(
         PermissionTier.FULL_ACCESS -> native(UiStrings.PERMISSION_TIER_FULL_ACCESS, "Full access")
         null -> native(UiStrings.SETTINGS_PERMISSION_UNSET, "Not set")
     }
+    val engineLabel = state.engineLifecycle?.statusLabel ?: state.engineLifecycle?.status?.settingsLabel() ?: UiStrings.UNKNOWN
+    // One list for the three placements, filtered by [mode] below: the 我的 tab's
+    // groups come first (`profileSection` + `tabSections`, `SettingsPage.swift:256-325`),
+    // then the six titled groups the sheet and the pushed 设置 page share.
     val sections = listOf(
+        // Who is running: the app, the engine state and the model in use; tapping
+        // opens 运行状态 (`profileSection`, `:258-289`).
+        SettingsIndexSection("me.profile", "", listOf(
+            SettingsIndexEntry("me.profile", "Phone DSH", com.phonedsh.ui.icon.PdshIcon.INFO,
+                subtitle = listOfNotNull(engineLabel, state.modelProviderName).joinToString(" · "),
+                callback = { onNavigate(SettingsDestination.RUNTIME_DETAILS) }),
+        ), modes = TAB_ONLY),
+        // A failed engine surfaces its restart on the tab too (`:295-301`).
+        SettingsIndexSection("me.restart", "", if (state.engineLifecycle?.needsReset == true) listOf(
+            SettingsIndexEntry("me.engineRestart", native("重新启动引擎", UiStrings.SETTINGS_ROW_RESTART_EN), com.phonedsh.ui.icon.PdshIcon.REFRESH,
+                value = if (onRestartEngine == null) UiStrings.UNAVAILABLE else null,
+                enabled = onRestartEngine != null, callback = onRestartEngine),
+        ) else emptyList(), footer = native(UiStrings.SETTINGS_ENGINE_RESET_FOOTER, UiStrings.SETTINGS_ENGINE_RESET_FOOTER_EN), modes = TAB_ONLY),
+        // Models, schedules and devices (`:302-314`).
+        SettingsIndexSection("me.common", "", listOf(
+            SettingsIndexEntry("me.modelProvider", native("模型服务", UiStrings.MODEL_PROVIDER_TITLE_EN), com.phonedsh.ui.icon.PdshIcon.CPU, providerValue, callback = { onNavigate(SettingsDestination.MODEL_PROVIDER) }),
+            SettingsIndexEntry("me.schedules", native("定时任务", "Scheduled tasks"), com.phonedsh.ui.icon.PdshIcon.LIST,
+                value = state.scheduleCount?.takeIf { it > 0 }?.toString(),
+                callback = { onNavigate(SettingsDestination.SCHEDULES) }),
+            SettingsIndexEntry("me.devices", native("设备连接", "Devices"), com.phonedsh.ui.icon.PdshIcon.NETWORK,
+                value = native("蓝牙", "Bluetooth"), callback = { onNavigate(SettingsDestination.BLUETOOTH) }),
+        ), modes = TAB_ONLY),
+        // Phone permissions and the archive (`:315-318`).
+        SettingsIndexSection("me.phone", "", listOf(
+            SettingsIndexEntry("me.phonePermissions", native("手机权限", UiStrings.PHONE_PERMISSIONS_TITLE_EN), com.phonedsh.ui.icon.PdshIcon.HAND, permissionSummary,
+                enabled = onOpenPhonePermissions != null, callback = onOpenPhonePermissions),
+            SettingsIndexEntry("me.archivedSessions", native(UiStrings.SETTINGS_ROW_ARCHIVED_SESSIONS, UiStrings.SETTINGS_ROW_ARCHIVED_SESSIONS_EN), com.phonedsh.ui.icon.PdshIcon.ARCHIVE, archivedValue,
+                enabled = onOpenArchivedSessions != null, callback = onOpenArchivedSessions),
+        ), modes = TAB_ONLY),
+        // 设置 (every other option) and 关于 (`:319-324`).
+        SettingsIndexSection("me.more", "", listOf(
+            SettingsIndexEntry("me.settings", native(UiStrings.SETTINGS, UiStrings.SETTINGS_EN), com.phonedsh.ui.icon.PdshIcon.GEAR, callback = { onNavigate(SettingsDestination.MORE_SETTINGS) }),
+            SettingsIndexEntry("me.about", native("关于 Phone DSH", "About Phone DSH"), com.phonedsh.ui.icon.PdshIcon.INFO, callback = { onNavigate(SettingsDestination.ABOUT) }),
+        ), modes = TAB_ONLY),
         SettingsIndexSection("modelsAgents", native(UiStrings.SETTINGS_SECTION_MODELS_AGENTS, UiStrings.SETTINGS_SECTION_MODELS_AGENTS_EN), listOf(
-            SettingsIndexEntry("modelProvider", native("模型服务", UiStrings.MODEL_PROVIDER_TITLE_EN), com.phonedsh.ui.icon.PdshIcon.CPU, providerValue, callback = { onNavigate(SettingsDestination.MODEL_PROVIDER) }),
+            SettingsIndexEntry("modelProvider", native("模型服务", UiStrings.MODEL_PROVIDER_TITLE_EN), com.phonedsh.ui.icon.PdshIcon.CPU, providerValue, callback = { onNavigate(SettingsDestination.MODEL_PROVIDER) }, modes = SHEET_ONLY),
             SettingsIndexEntry("agentPresets", native("Agent 预设", "Agent presets"), com.phonedsh.ui.icon.PdshIcon.PEOPLE,
                 value = if (onOpenAgentPresets == null) UiStrings.UNAVAILABLE else null,
                 enabled = onOpenAgentPresets != null, callback = onOpenAgentPresets),
@@ -1327,7 +1398,7 @@ private fun SettingsIndexList(
             SettingsIndexEntry("permissionDefaults", native("新会话默认权限", UiStrings.PERMISSION_DEFAULTS_TITLE_EN), com.phonedsh.ui.icon.PdshIcon.LOCK_SHIELD,
                 tierTitle(state.defaultPermissionTier), callback = { onNavigate(SettingsDestination.PERMISSION_DEFAULTS) }),
             SettingsIndexEntry("phonePermissions", native("手机权限", UiStrings.PHONE_PERMISSIONS_TITLE_EN), com.phonedsh.ui.icon.PdshIcon.HAND, permissionSummary,
-                enabled = onOpenPhonePermissions != null, callback = onOpenPhonePermissions),
+                enabled = onOpenPhonePermissions != null, callback = onOpenPhonePermissions, modes = SHEET_ONLY),
             SettingsIndexEntry("network", native("网络访问", UiStrings.SETTINGS_ROW_NETWORK_EN), com.phonedsh.ui.icon.PdshIcon.NETWORK, callback = { onNavigate(SettingsDestination.EGRESS) }),
             SettingsIndexEntry("mcp", native("MCP 与局域网设备", "MCP and LAN devices"), com.phonedsh.ui.icon.PdshIcon.DATABASE, callback = { onNavigate(SettingsDestination.MCP) }),
             SettingsIndexEntry("ssh", native("SSH 主机", "SSH hosts"), com.phonedsh.ui.icon.PdshIcon.TERMINAL, callback = { onNavigate(SettingsDestination.SSH) }),
@@ -1349,7 +1420,7 @@ private fun SettingsIndexList(
             SettingsIndexEntry("folders", native("文件夹", "Folders"), com.phonedsh.ui.icon.PdshIcon.FOLDER, folderValue,
                 enabled = onOpenFolders != null, callback = onOpenFolders),
             SettingsIndexEntry("archivedSessions", native(UiStrings.SETTINGS_ROW_ARCHIVED_SESSIONS, UiStrings.SETTINGS_ROW_ARCHIVED_SESSIONS_EN), com.phonedsh.ui.icon.PdshIcon.ARCHIVE, archivedValue,
-                enabled = onOpenArchivedSessions != null, callback = onOpenArchivedSessions),
+                enabled = onOpenArchivedSessions != null, callback = onOpenArchivedSessions, modes = SHEET_ONLY),
         )),
         SettingsIndexSection("engine", native("引擎", UiStrings.SETTINGS_ROW_ENGINE_EN), buildList {
             add(SettingsIndexEntry("engineStatus", native("引擎状态", UiStrings.SETTINGS_ROW_ENGINE_EN), com.phonedsh.ui.icon.PdshIcon.BOLT,
@@ -1362,7 +1433,7 @@ private fun SettingsIndexList(
             add(SettingsIndexEntry("runtimeDetails", native("运行状态", UiStrings.SETTINGS_ROW_RUNTIME_EN), com.phonedsh.ui.icon.PdshIcon.WAVEFORM, callback = { onNavigate(SettingsDestination.RUNTIME_DETAILS) }))
         }, footer = if (state.engineLifecycle?.needsReset == true) native(UiStrings.SETTINGS_ENGINE_RESET_FOOTER, UiStrings.SETTINGS_ENGINE_RESET_FOOTER_EN) else null),
         SettingsIndexSection("about", native("关于", "About"), listOf(
-            SettingsIndexEntry("about", native("关于 Phone DSH", "About Phone DSH"), com.phonedsh.ui.icon.PdshIcon.INFO, callback = { onNavigate(SettingsDestination.ABOUT) }),
+            SettingsIndexEntry("about", native("关于 Phone DSH", "About Phone DSH"), com.phonedsh.ui.icon.PdshIcon.INFO, callback = { onNavigate(SettingsDestination.ABOUT) }, modes = SHEET_ONLY),
             SettingsIndexEntry("version", native("版本", "Version"), com.phonedsh.ui.icon.PdshIcon.NUMBER, state.versionName ?: UiStrings.UNKNOWN),
             SettingsIndexEntry("licenses", native(UiStrings.ABOUT_LICENSES, "Open-source licenses"), com.phonedsh.ui.icon.PdshIcon.DOCUMENT, callback = { onOpenLocalPage(SettingsIndexPage.LICENSES) }),
         )),
@@ -1371,7 +1442,7 @@ private fun SettingsIndexList(
             onNavigate = onNavigate,
             onToggleBackgroundKeepAlive = onToggleBackgroundKeepAlive,
         ),
-    )
+    ).visibleIn(mode)
     androidx.compose.foundation.lazy.LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize().navigationBarsPadding().testTag(SETTINGS_INDEX_LIST_TAG),
@@ -1379,9 +1450,10 @@ private fun SettingsIndexList(
         verticalArrangement = Arrangement.spacedBy(SettingsCardGap),
     ) {
         sections.forEach { section ->
-            item(key = section.title) {
+            item(key = section.id) {
                 Column {
-                    com.phonedsh.ui.surface.SettingsSectionLabel(section.title, tag = UiPageTags.SETTINGS_INDEX_GROUP_PREFIX + section.id)
+                    // The 我的 tab's groups are untitled `Section { … }`s.
+                    if (section.title.isNotBlank()) com.phonedsh.ui.surface.SettingsSectionLabel(section.title, tag = UiPageTags.SETTINGS_INDEX_GROUP_PREFIX + section.id)
                     SettingsGroupCard {
                         section.entries.forEachIndexed { index, entry ->
                             SettingsIndexRow(entry, dividerBelow = index != section.entries.lastIndex)
@@ -1454,7 +1526,28 @@ private fun platformFactEntry(
     enabled = false,
 )
 
-private data class SettingsIndexSection(val id: String, val title: String, val entries: List<SettingsIndexEntry>, val footer: String? = null)
+private data class SettingsIndexSection(
+    val id: String,
+    val title: String,
+    val entries: List<SettingsIndexEntry>,
+    val footer: String? = null,
+    /** The placements that draw this group; the six titled groups are the sheet's and 设置's. */
+    val modes: Set<SettingsPageMode> = LIST_MODES,
+)
+
+private val TAB_ONLY: Set<SettingsPageMode> = setOf(SettingsPageMode.TAB)
+private val SHEET_ONLY: Set<SettingsPageMode> = setOf(SettingsPageMode.SHEET)
+private val LIST_MODES: Set<SettingsPageMode> = setOf(SettingsPageMode.SHEET, SettingsPageMode.MORE)
+
+/**
+ * The groups and rows one placement draws (`switch mode`, `SettingsPage.swift:79-98`):
+ * `.more` drops 模型服务, 手机权限, 已归档会话 and 关于 Phone DSH, which the 我的 tab
+ * already shows; a group left without rows is not drawn.
+ */
+private fun List<SettingsIndexSection>.visibleIn(mode: SettingsPageMode): List<SettingsIndexSection> =
+    filter { mode in it.modes }
+        .map { section -> section.copy(entries = section.entries.filter { it.modes == null || mode in it.modes }) }
+        .filter { it.entries.isNotEmpty() }
 private data class SettingsIndexEntry(
     val id: String,
     val title: String,
@@ -1469,6 +1562,11 @@ private data class SettingsIndexEntry(
     val subtitle: String? = null,
     val toggleChecked: Boolean? = null,
     val onToggle: ((Boolean) -> Unit)? = null,
+    /**
+     * The placements that draw this row (`includesProviders`, `includesPhone`, …);
+     * `null` draws it wherever its group is drawn.
+     */
+    val modes: Set<SettingsPageMode>? = null,
 ) {
     companion object {
         fun menu(id: String, title: String, icon: com.phonedsh.ui.icon.PdshIcon, value: String,
