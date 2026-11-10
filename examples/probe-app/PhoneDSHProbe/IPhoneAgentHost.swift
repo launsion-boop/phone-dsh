@@ -287,7 +287,7 @@ final class NativeMCPDebugRecorder: NativeMCPServing, @unchecked Sendable {
         case ("POST", "/debug/voice/say"):
             let text = String(decoding: request.body, as: UTF8.self)
             guard let credential = await TonoLinkVoiceHost.shared.credential() else { return .error(409, "no cloud credential") }
-            do { try await TonoLinkVoiceHost.shared.speak(text, credential: credential) } catch { return .error(502, error.localizedDescription) }
+            do { try await TonoLinkVoiceHost.shared.speakAloud(text, credential: credential) } catch { return .error(502, error.localizedDescription) }
             return .json(200, ["ok": true])
         case ("POST", "/debug/voice/opus"):
             // Body: `[len u16 LE][Opus 20 ms]…`; `?chat=1` also sends the text to the chat and speaks the reply.

@@ -120,7 +120,9 @@ import ProbeKit
         audio = continuation
         lastTurn = ["id": Int(id), "wake": Int(wake), "source": source, "at": ISO8601DateFormatter().string(from: Date())]
         turn = Task { [weak self] in
+            let speaker = self?.acquireSpeaker()
             await self?.runTurn(id: id, audio: stream)
+            if let speaker { PhoneAudioSessionLease.releaseSpeakerOutput(speaker) }
             self?.turnEnded(id)
         }
     }
@@ -234,6 +236,20 @@ import ProbeKit
 
     // MARK: - Speech
 
+    /// The phone's speech must come out of the phone: while the screen mirrors to the board,
+    /// the output is AirPlay and the board drops AirPlay audio (xiaozhi-link USB_AIRPLAY_LESSONS).
+    private func acquireSpeaker() -> PhoneAudioSessionLease.SpeakerToken? {
+        let before = PhoneAudioSessionLease.outputPorts
+        do {
+            let token = try PhoneAudioSessionLease.acquireSpeakerOutput()
+            note("output", ["before": before, "after": PhoneAudioSessionLease.outputPorts])
+            return token
+        } catch {
+            note("output_error", "\(before) \(error.localizedDescription)")
+            return nil
+        }
+    }
+
     /// Fetches 我在 once so the first wake answers without waiting for TTS.
     private func prefetchHere() async {
         guard hereAudio == nil, let credential = await credential() else { return }
@@ -254,6 +270,12 @@ import ProbeKit
     }
 
     /// Reads `text` aloud, chunk by chunk, playing each as it streams (cloud-voice.md §3).
+    func speakAloud(_ text: String, credential: String) async throws {
+        let speaker = acquireSpeaker()
+        defer { if let speaker { PhoneAudioSessionLease.releaseSpeakerOutput(speaker) } }
+        try await speak(text, credential: credential)
+    }
+
     func speak(_ text: String, credential: String) async throws {
         for chunk in CloudVoiceSpeech.chunks(CloudVoiceSpeech.speakable(text)) {
             try Task.checkCancellation()
@@ -348,6 +370,9 @@ import ProbeKit
     private var scheduled = 0
     private var generation = 0
     private var drained: [CheckedContinuation<Void, Never>] = []
+    /// Audio scheduled since the last drain, so a wait cannot outlive it if the engine is stopped
+    /// by a route or category change (completion handlers are then not guaranteed).
+    private var pendingSeconds: Double = 0
 
     func play(_ pcm: Data) throws {
         let samples = pcm.count / 2
@@ -365,6 +390,7 @@ import ProbeKit
         }
         if !engine.isRunning { try engine.start() }
         scheduled += 1
+        pendingSeconds += Double(samples) / 16_000
         let mine = generation
         node.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
             Task { @MainActor in self?.finished(generation: mine) }
@@ -374,7 +400,16 @@ import ProbeKit
 
     func waitUntilDrained() async {
         if scheduled == 0 { return }
+        let limit = pendingSeconds + 2
+        let mine = generation
+        let guardTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(limit))
+            guard !Task.isCancelled, let self, self.generation == mine else { return }
+            self.scheduled = 0
+            self.release()
+        }
         await withCheckedContinuation { drained.append($0) }
+        guardTask.cancel()
     }
 
     func stop() {
@@ -391,6 +426,7 @@ import ProbeKit
     }
 
     private func release() {
+        pendingSeconds = 0
         let waiters = drained; drained = []
         waiters.forEach { $0.resume() }
     }

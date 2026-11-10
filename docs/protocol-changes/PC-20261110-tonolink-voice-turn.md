@@ -59,4 +59,5 @@ Self-check：没有第二种 envelope、别名或错误码；板子与云端线�
 | revision | 由谁 | 原因 | 通知 |
 | --- | --- | --- | --- |
 | 1 | Claude | 初版 | iOS；固件与云端不变 |
+| 3 | Claude | 真机：屏幕镜像到板子时输出是 AirPlay，板子丢弃 AirPlay 音频，「我在」和回复都听不到（xiaozhi-link USB_AIRPLAY_LESSONS 同样结论）。`PhoneAudioSessionLease` 增加 speaker-output claim：用同一个可混音 playAndRecord profile，仅当输出为 AirPlay 时强制手机扬声器（xiaozhi `activateSpeechSession` 同法）；ios-audio-session.md 更新。真人：`ev wake n=14` → output AirPlay→Speaker → 识别「打开电池。」→ 回复朗读，用户确认听到。租约测试新增 4 例，因本机只有 iOS 18 模拟器、App 需 iOS 27 SDK 运行库，NOT_RUN。 | iOS |
 | 2 | Claude | 真机：手机网络慢时 ASR 连接本身就用完 5 s，`started` 截止误判。改为连接 10 s、`start` 写出后 5 s 等 `started`（云端自己的 5 s）；加 USB 可读的语音日志（DEBUG）。真人「你好小智」整轮通过：连接 179 ms、started 412 ms、570 帧 0 丢包、识别出话、聊天回复并朗读。 | iOS |
