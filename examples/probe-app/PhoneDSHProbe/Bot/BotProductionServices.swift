@@ -184,7 +184,7 @@ enum BotSessionLogLocator {
 
     static func events(sessionID: String) throws -> [BotDSHSessionEvent] {
         guard let url = latestFile(sessionID: sessionID) else { return [] }
-        return try BotDSHSessionEvent.parseJSONL(Data(contentsOf: url))
+        return BotDSHSessionEvent.parseJSONL(try Data(contentsOf: url)).events
     }
 }
 
@@ -209,6 +209,8 @@ actor BotProductionRowService {
     private var processes: [Int: BotTurnProcess] = [:]
     private var processSource: Data?
     private var liveGeneration = 0
+    /// Read-only evidence of session-log records the last `rebuild()` skipped.
+    private(set) var sessionLogDiagnostics = BotDSHSessionLogDiagnostics.empty
 
     init(environment: BotProductionEnvironment, history: BotRowHistory = BotRowHistory(),
          remote: BotDSHRemoteRuntime? = nil) {
@@ -236,7 +238,9 @@ actor BotProductionRowService {
         let sessionID = await environment.sessionID
         let logURL = environment.sessionLogURL ?? BotSessionLogLocator.latestFile(sessionID: sessionID)
         let logData = try logURL.map { try Data(contentsOf: $0) }
-        let sessionEvents = try logData.map { try BotDSHSessionEvent.parseJSONL($0) } ?? []
+        let parsed = logData.map { BotDSHSessionEvent.parseJSONL($0) }
+        let sessionEvents = parsed?.events ?? []
+        sessionLogDiagnostics = parsed?.diagnostics ?? .empty
         updateProcesses(from: logData)
         let uiEvents = try await BotProductionEventReader.all(domain: environment.domain)
         let heldRequestNonces = await remote?.heldChatActionNonces(sessionID: sessionID) ?? [:]
