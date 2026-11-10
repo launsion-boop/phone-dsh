@@ -6,7 +6,7 @@ Run DeepSeek Harness, unmodified, on your phone.
 
 **[Download for iPhone on the App Store](https://apps.apple.com/app/phone-dsh/id6828310755)**
 
-[简体中文](README.md) · [Android](#android-version) · [Architecture](docs/architecture.md) · [Protocol baseline & collaboration](spec/README.md) · [Protocol spec](spec/v1/README.md)
+[简体中文](README.md) · [Bot features](#bot-features) · [Android](#android-version) · [Architecture](docs/architecture.md) · [Protocol baseline & collaboration](spec/README.md) · [Protocol spec](spec/v1/README.md)
 
 <p align="center">
   <img src="docs/assets/screenshot-bot-chat.png" width="260" alt="The main Bot chat on iPhone with the message composer at the bottom">
@@ -16,6 +16,16 @@ Run DeepSeek Harness, unmodified, on your phone.
 > The mascot is fan artwork of the DeepSeek assistant character, used as project branding. It is not an official DeepSeek asset, it is not covered by the MIT licence (see [NOTICE](NOTICE)), and this project is not affiliated with DeepSeek.
 
 > **Unofficial project.** Phone DSH is not a DeepSeek product and has no affiliation, sponsorship or endorsement from DeepSeek. It depends on the official DeepSeek Harness and installs it through the official plugin contract.
+
+## Bot features
+
+After you configure a model provider on your iPhone, open the **Bot** tab to chat with the default assistant, 大肥鱼.
+
+- **Chat and tasks.** Attach files and use cards in the conversation to answer questions, follow task progress, and receive results.
+- **Multiple Bots.** Create and switch between Bots in the sidebar. Each Bot has its own name, appearance, conversation, and routines. Bots can leave messages for each other.
+- **Tool approvals.** Approve or deny tool requests in the conversation. Open the Bot info page to review past decisions.
+- **Memory.** Ask a Bot to save preferences and facts. On the Bot info page, you can view or delete that Bot's memories and clear memories shared by all Bots.
+- **Routines.** Ask a Bot in chat to run a task on a schedule. You can pause or resume routines on the Bot info page. Regular runs wait until quiet hours end, and results can wait until the next conversation.
 
 ## What this project is for
 

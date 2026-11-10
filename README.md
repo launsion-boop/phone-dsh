@@ -6,7 +6,7 @@
 
 **[在 App Store 下载 iPhone 版](https://apps.apple.com/app/phone-dsh/id6828310755)**
 
-[English](README.en.md) · [Android 版本](#android-版本) · [架构说明](docs/architecture.md) · [协议基线与协作](spec/README.md) · [协议规范](spec/v1/README.md)
+[English](README.en.md) · [Bot 功能](#bot-功能) · [Android 版本](#android-版本) · [架构说明](docs/architecture.md) · [协议基线与协作](spec/README.md) · [协议规范](spec/v1/README.md)
 
 <p align="center">
   <img src="docs/assets/screenshot-bot-chat.png" width="260" alt="iPhone 上的大肥鱼 Bot 对话页，底部有消息输入框">
@@ -16,6 +16,16 @@
 > 吉祥物是 DeepSeek 助手的同人创作，作为项目形象使用；它不是 DeepSeek 官方素材，也不在 MIT 许可范围内（见 [NOTICE](NOTICE)），本项目与 DeepSeek 官方无隶属关系。
 
 > **非官方项目。** Phone DSH 不是 DeepSeek 官方产品，与 DeepSeek 没有隶属、赞助或背书关系；它只是把官方 DeepSeek Harness 作为依赖，按官方插件契约装进手机运行时。
+
+## Bot 功能
+
+在 iPhone 上配置模型服务后，打开 **Bot** 标签页，和默认助手「大肥鱼」开始对话。
+
+- **对话与任务。** 把文件作为附件交给 Bot，通过对话中的卡片回答问题、查看任务进度和接收结果。
+- **多 Bot 协作。** 从侧栏创建和切换 Bot，分别设置名称和外观。每个 Bot 都有自己的对话和例行任务，也可以给其他 Bot 留消息。
+- **工具审批。** 在对话里查看工具操作的审批请求，选择允许或拒绝。在 **Bot 信息** 中可回看审批记录。
+- **记忆。** Bot 可以记住你让它保存的偏好和事实。在 **Bot 信息** 中可查看或删除当前 Bot 的记忆，也可管理所有 Bot 共享的记忆。
+- **例行任务。** 在对话里请 Bot 定期执行任务，在 **Bot 信息** 中暂停或恢复。普通任务会在静默时段结束后执行，结果可以留到下次对话再看。
 
 ## 项目定位
 
