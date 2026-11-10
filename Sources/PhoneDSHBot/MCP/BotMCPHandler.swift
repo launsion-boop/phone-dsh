@@ -85,6 +85,13 @@ public actor BotMCPHandler {
                                                        headers: headers) {
                     return forwarded
                 }
+                // Neither a Bot/team tool nor a native forwarder recognized the
+                // name: keep the existing `unknown_tool` failure result. Native
+                // tools with an attached forwarder are unaffected.
+                if let encoded = try? encode(BotMCPCallResult.failure(
+                    "unknown_tool", "Unknown tool: \(bareName)")) {
+                    return result(id, encoded)
+                }
                 return rpcError(id, code: -32602, message: "unknown tool: \(bareName)")
             }
             let call = await runtime.execute(
@@ -110,6 +117,13 @@ public actor BotMCPHandler {
               case .string(let name)? = object["name"] else {
             return .object(["ok": .bool(false), "error": .string("invalid identity registration")])
         }
+        // The body `sessionId` is never identity evidence. A missing, empty,
+        // unknown, revoked, expired or mismatched token is one `unauthorized`
+        // answer and registers nothing.
+        guard case .string(let sessionToken)? = object["sessionToken"],
+              !sessionToken.isEmpty else {
+            return .object(["ok": .bool(false), "error": .string("unauthorized")])
+        }
         let arguments = object["arguments"] ?? .object([:])
         do {
             if object["arguments"] != nil, let suppliedDigest = object["argsDigest"]?.stringValue {
@@ -120,12 +134,13 @@ public actor BotMCPHandler {
             }
             let registration = try await runtime.registerIdentity(
                 runtimeId: runtimeId, sessionId: session, callId: call, name: name,
-                arguments: arguments, argsDigest: object["argsDigest"]?.stringValue)
+                arguments: arguments, argsDigest: object["argsDigest"]?.stringValue,
+                sessionToken: sessionToken)
             return .object(["ok": .bool(true), "id": .string(registration.id)])
         } catch let error as BotMCPError {
             return .object(["ok": .bool(false), "error": .string(Self.registrationError(error))])
         } catch BotGatewayError.unknownSession {
-            return .object(["ok": .bool(false), "error": .string("unknown_session")])
+            return .object(["ok": .bool(false), "error": .string("unauthorized")])
         } catch {
             return .object(["ok": .bool(false), "error": .string("identity registration refused")])
         }

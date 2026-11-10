@@ -252,8 +252,14 @@ export default function dshbotIdentityBridge(ctx: Context, config: IdentityBridg
     try {
       if (!sessionId) throw new Error('[identity-bridge] tool execution has no session identity')
       if (!callId) throw new Error('[identity-bridge] tool execution has no callId')
+      // The host-issued session token is the only identity evidence for this
+      // registration. Before the App claims the session (or after a Worker
+      // restart until the next claim) there is no token: omit the field, do
+      // not fabricate one, and let the host reject the registration closed.
+      const sessionToken = ownedSessions.tokenFor(sessionId)
       const registration = await send({
         runtimeId, sessionId, callId, name: exec.name, arguments: args, argsDigest: digest,
+        ...(sessionToken === undefined ? {} : { sessionToken }),
       }, { timeoutMs, signal: exec.signal })
       if (registration.ok !== true || typeof registration.id !== 'string' || registration.id === '') {
         // Fail closed. Every tool that reaches this point needs App identity

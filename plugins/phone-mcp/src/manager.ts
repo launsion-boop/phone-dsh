@@ -176,6 +176,25 @@ function mcpEgressHeader(env: NodeJS.ProcessEnv): Record<string, string> {
   return token === '' ? {} : { 'X-PDSH-MCP-Egress': token }
 }
 
+/**
+ * Second line of defense behind the schema's host-reserved-name rule: even if
+ * a previous or hand-written config slipped through, never send a header whose
+ * resolved value is a current host credential. The trusted `X-PDSH-MCP-Egress`
+ * header is added after this scrub, so a user row can neither copy nor
+ * override it.
+ */
+function scrubHostCredentialHeaders(headers: Record<string, string>, env: NodeJS.ProcessEnv): void {
+  const forbidden = new Set<string>()
+  for (const name of ['PDSH_MCP_EGRESS_TOKEN', 'PDSH_CHANNEL_TOKEN', 'PDSH_DSH_LAUNCH_TOKEN']) {
+    const value = env[name]
+    if (typeof value === 'string' && value !== '') forbidden.add(value)
+  }
+  if (forbidden.size === 0) return
+  for (const [name, value] of Object.entries(headers)) {
+    if (forbidden.has(value)) delete headers[name]
+  }
+}
+
 function sanitizeLogValue(value: unknown, secrets: readonly string[]): unknown {
   if (typeof value === 'string') return redact(value, secrets)
   if (value instanceof Error) {
@@ -546,6 +565,7 @@ export class PhoneMcpManager {
   private async mount(config: McpServerConfig): Promise<Mount> {
     this.assertUsable()
     const headers = resolveHeaders(config, this.env)
+    scrubHostCredentialHeaders(headers, this.env)
     // The host injects the real upstream credential only after validating this
     // per-run header. It is added after the user/env map so a user row cannot
     // override the trusted value; the empty case omits it (fail closed).

@@ -156,3 +156,4 @@ bash scripts/ci/check.sh --only phone-license
 | revision | 由谁 | 原因 | 通知了哪些端 |
 | --- | --- | --- | --- |
 | mcp-egress-capability-v1 | s0-wpf0 coordinator / contract owner | 首次冻结 A/B/C；第一步实测用户连接器注入为「会」，因此 A 覆盖全部精确 route；新增 phone-only 向量与 P05/P16 条款 | WPF1（Swift 宿主＋plugins）、WPF2（Swift Bot＋plugins）、reviewer-integrator |
+| mcp-egress-capability-v1 (WPF2 vector addendum) | s0-wpf2 implementer / contract owner for this revision | 补齐 `egress.valid` 缺少的 `/identity/cancel` 有效用例（原文件只覆盖四条 Bot 路由中的三条，与 §5 不一致）；同步 `export-manifest.json` 的 sha256；未改写任何既有条款 | WPF1 / WPF2（共享向量） |

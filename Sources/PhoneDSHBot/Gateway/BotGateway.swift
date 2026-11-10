@@ -45,14 +45,56 @@ public actor BotGateway {
                                              maximumEntries: maximumAttributions)
     }
 
+    /// Issues a session principal together with the registry token that proves
+    /// it. A re-sign revokes the previous token for the session first. The
+    /// token is returned to the App so `phone/botClaimSession` can hand it to
+    /// the Worker; it must not be persisted, logged or written to an event.
     @discardableResult
-    public func issueSession(botId: String, sessionId: String, kind: BotSessionKind,
-                             capabilities: [String] = [], ttlMilliseconds: Int64? = nil) async throws -> BotGatewayPrincipal {
+    public func issueSessionToken(botId: String, sessionId: String, kind: BotSessionKind,
+                                  capabilities: [String] = [], ttlMilliseconds: Int64? = nil) async throws -> BotIssuedToken {
         let ttl = ttlMilliseconds ?? (kind == .chat ? Self.chatTTLMilliseconds : Self.ephemeralTTLMilliseconds)
         let issued = try await tokens.issueSession(botId: botId, sessionId: sessionId, kind: kind,
                                                    capabilities: capabilities, ttlMilliseconds: ttl)
         await discardStaleAttributions(sessionId: issued.principal.sessionId)
-        return issued.principal
+        return issued
+    }
+
+    @discardableResult
+    public func issueSession(botId: String, sessionId: String, kind: BotSessionKind,
+                             capabilities: [String] = [], ttlMilliseconds: Int64? = nil) async throws -> BotGatewayPrincipal {
+        try await issueSessionToken(botId: botId, sessionId: sessionId, kind: kind,
+                                    capabilities: capabilities, ttlMilliseconds: ttlMilliseconds).principal
+    }
+
+    /// Registers a call by resolving the caller-supplied session token. This is
+    /// the only registration path the HTTP identity route uses: the body
+    /// `sessionId` never authenticates on its own. The token-resolved principal
+    /// must still be the current incarnation both before and after the
+    /// registration so a rotation/revoke racing this call fails closed.
+    @discardableResult
+    public func registerToolCall(sessionToken: String, sessionId: String, callId: String,
+                                 name: String, arguments: BotJSONValue = .object([:]), argsDigest: String? = nil,
+                                 runtimeId: String, expiresAt: Int64? = nil,
+                                 ttlMilliseconds: Int64? = nil) async throws -> BotAttribution {
+        guard !sessionToken.isEmpty, !sessionId.isEmpty,
+              let principal = await tokens.lookup(sessionToken),
+              principal.sessionId == sessionId,
+              let current = await tokens.lookupSession(sessionId),
+              current.incarnation == principal.incarnation else {
+            throw BotGatewayError.unknownSession
+        }
+        let registration = try await attribution.register(
+            sessionId: sessionId, incarnation: principal.incarnation, callId: callId,
+            name: Self.bareToolName(name), arguments: arguments, argsDigest: argsDigest,
+            runtimeId: runtimeId, expiresAt: expiresAt, ttlMilliseconds: ttlMilliseconds)
+        guard let settled = await tokens.lookup(sessionToken),
+              settled.incarnation == principal.incarnation,
+              let currentAgain = await tokens.lookupSession(sessionId),
+              currentAgain.incarnation == principal.incarnation else {
+            _ = await attribution.cancel(id: registration.id)
+            throw BotGatewayError.unknownSession
+        }
+        return registration
     }
 
     @discardableResult

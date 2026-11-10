@@ -23,6 +23,18 @@ export const SERVER_NAME_PATTERN = /^[A-Za-z0-9_-]{1,32}$/
 /** POSIX-style environment variable name. Values never persist. */
 export const ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/
 
+/**
+ * Prefix owned by the App/Worker host. Every host-issued internal credential
+ * and Worker budget is delivered under a `PDSH_` name, so an environment
+ * reference in `headersFromEnv` may not name one unless the header is marked
+ * host-managed (the App sends only a placeholder and never reads the value).
+ */
+export const HOST_RESERVED_ENV_PREFIX = 'PDSH_'
+
+export function isHostReservedEnvName(envName: string): boolean {
+  return envName.startsWith(HOST_RESERVED_ENV_PREFIX)
+}
+
 /** RFC 9110 field-name token. */
 export const HEADER_NAME_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/
 
@@ -108,6 +120,27 @@ export function validateServerInput(input: unknown): McpServerConfig {
     throw new McpError('MCP_URL_INVALID', 'url must not embed credentials; configure headersFromEnv instead')
   }
 
+  // Host-managed rows never read their environment reference: the Worker
+  // sends a non-secret placeholder and the native gateway injects the stored
+  // device header. Parse that set first so the environment-name rule can tell
+  // an App-managed placeholder header (never read) from a real reference to a
+  // host credential.
+  const rawHostManaged = input.hostManagedHeaders ?? []
+  if (!Array.isArray(rawHostManaged)) {
+    throw new McpError('MCP_SCHEMA_INVALID', 'hostManagedHeaders must be an array of header names')
+  }
+  const hostManagedHeaders: string[] = []
+  const seenHostManaged = new Set<string>()
+  for (const rawHeader of rawHostManaged) {
+    if (typeof rawHeader !== 'string' || !HEADER_NAME_PATTERN.test(rawHeader)) {
+      throw new McpError('MCP_HEADER_INVALID', `hostManagedHeaders has an invalid HTTP header name: ${String(rawHeader)}`)
+    }
+    const normalizedHeader = rawHeader.toLowerCase()
+    if (seenHostManaged.has(normalizedHeader)) continue
+    seenHostManaged.add(normalizedHeader)
+    hostManagedHeaders.push(rawHeader)
+  }
+
   const rawHeaders = input.headersFromEnv ?? {}
   if (!isRecord(rawHeaders)) throw new McpError('MCP_SCHEMA_INVALID', 'headersFromEnv must be an object')
   const headersFromEnv: Record<string, string> = {}
@@ -124,26 +157,25 @@ export function validateServerInput(input: unknown): McpServerConfig {
     if (typeof envName !== 'string' || !ENV_NAME_PATTERN.test(envName)) {
       throw new McpError('MCP_ENV_NAME_INVALID', `headersFromEnv.${header} must name an environment variable ([A-Za-z_][A-Za-z0-9_]*)`)
     }
+    // Every host-issued credential (channel/launch token, MCP egress token,
+    // Bot bearer placeholder, budgets, provider projection) lives in a
+    // `PDSH_` environment variable. A model-writable mcp.json row must never
+    // turn one of those into an upstream request header. The only allowance is
+    // an App-managed placeholder header, whose value is never read from the
+    // environment at all.
+    if (isHostReservedEnvName(envName) && !seenHostManaged.has(normalizedHeader)) {
+      throw new McpError(
+        'MCP_ENV_NAME_INVALID',
+        `headersFromEnv.${header} must not reference the host-reserved environment variable ${envName}`,
+      )
+    }
     headersFromEnv[header] = envName
   }
-
-  const rawHostManaged = input.hostManagedHeaders ?? []
-  if (!Array.isArray(rawHostManaged)) {
-    throw new McpError('MCP_SCHEMA_INVALID', 'hostManagedHeaders must be an array of header names')
-  }
-  const hostManagedHeaders: string[] = []
-  const seenHostManaged = new Set<string>()
-  for (const rawHeader of rawHostManaged) {
-    if (typeof rawHeader !== 'string' || !HEADER_NAME_PATTERN.test(rawHeader)) {
-      throw new McpError('MCP_HEADER_INVALID', `hostManagedHeaders has an invalid HTTP header name: ${String(rawHeader)}`)
-    }
+  for (const rawHeader of hostManagedHeaders) {
     const normalizedHeader = rawHeader.toLowerCase()
-    if (seenHostManaged.has(normalizedHeader)) continue
     if (!Object.keys(headersFromEnv).some(header => header.toLowerCase() === normalizedHeader)) {
       throw new McpError('MCP_HEADER_INVALID', `hostManagedHeaders includes ${rawHeader} but headersFromEnv does not`)
     }
-    seenHostManaged.add(normalizedHeader)
-    hostManagedHeaders.push(rawHeader)
   }
 
   const enabled = input.enabled ?? true

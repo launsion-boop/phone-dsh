@@ -699,7 +699,10 @@ final class BotMCPEgressCredentialInjectionTests: XCTestCase {
                     GatewayRequest(method: "POST", url: url)), testCase.name)
             }
         }
-        XCTAssertEqual(validCount, 9)
+        let expectedValidCount = vector.valid.filter { $0.suite == "egress" }.count
+        XCTAssertEqual(validCount, expectedValidCount)
+        XCTAssertGreaterThanOrEqual(expectedValidCount, 10,
+                                    "the frozen vector must retain its egress cases")
 
         var invalidCount = 0
         for testCase in vector.invalid where testCase.suite == "egress" {
@@ -719,7 +722,10 @@ final class BotMCPEgressCredentialInjectionTests: XCTestCase {
                            #"{"error":{"code":"mcp_egress_forbidden","message":"the MCP egress credential is missing or invalid"}}"#,
                            testCase.name)
         }
-        XCTAssertEqual(invalidCount, 10)
+        let expectedInvalidCount = vector.invalid.filter { $0.suite == "egress" }.count
+        XCTAssertEqual(invalidCount, expectedInvalidCount)
+        XCTAssertGreaterThanOrEqual(expectedInvalidCount, 10,
+                                    "the frozen vector must retain its egress cases")
         XCTAssertEqual(counting.credentialCalls, 0,
                        "no invalid vector may resolve a credential")
     }

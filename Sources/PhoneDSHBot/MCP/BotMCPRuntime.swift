@@ -229,6 +229,15 @@ public actor BotMCPRuntime {
         try await gateway.issueSession(botId: botId, sessionId: sessionId, kind: kind)
     }
 
+    /// Issues the principal and returns its registry token. The Bot host's
+    /// session claim path uses this variant so it can hand the same token to
+    /// the Worker; the token stays in host/Worker memory only.
+    @discardableResult
+    public func issueSessionToken(botId: String, sessionId: String,
+                                  kind: BotSessionKind) async throws -> BotIssuedToken {
+        try await gateway.issueSessionToken(botId: botId, sessionId: sessionId, kind: kind)
+    }
+
     public func currentTurnID(sessionId: String) -> String? { turnIDs[sessionId] }
 
     public func beginTurn(sessionId: String, hidden: Bool, held: Bool = false,
@@ -291,6 +300,50 @@ public actor BotMCPRuntime {
         registrations[key] = attribution
         registrationArguments[key] = arguments
         return attribution
+    }
+
+    /// Identity registration for the HTTP `/identity/register` route. The
+    /// caller-supplied `sessionToken` resolves the principal; the body
+    /// `sessionId` is only a consistency check. Missing, unknown, revoked,
+    /// expired or mismatched credentials throw ``BotMCPError/unauthorized`` and
+    /// register nothing.
+    public func registerIdentity(runtimeId: String, sessionId: String, callId: String,
+                                 name: String, arguments: BotJSONValue,
+                                 argsDigest: String? = nil,
+                                 sessionToken: String) async throws -> BotAttribution {
+        _ = pruneExpiredRegistrationsSync()
+        guard !sessionToken.isEmpty,
+              let principal = await gateway.tokens.lookup(sessionToken),
+              principal.sessionId == sessionId else {
+            throw BotMCPError.unauthorized
+        }
+        let bareName = bareToolName(name)
+        guard BotToolCatalog.isRegistered(bareName)
+                || ["bash", "write", "edit", "phone"].contains(bareName)
+                || BotDeviceToolProvider.tools.contains(bareName)
+                || handlesTeamTool(bareName) else {
+            throw BotMCPError.unknownTool(name)
+        }
+        let scope = scopedRuntimeID(runtimeId)
+        let key = key(scope, sessionId, callId)
+        let digest = try (argsDigest ?? BotArgumentsDigest.string(for: arguments))
+        if let existing = registrations[key] {
+            if existing.sessionId == sessionId, existing.name == bareName,
+               existing.argsDigest == digest, principal.incarnation == existing.incarnation {
+                registrationArguments[key] = arguments
+                return existing
+            }
+        }
+        do {
+            let attribution = try await gateway.registerToolCall(
+                sessionToken: sessionToken, sessionId: sessionId, callId: callId,
+                name: bareName, arguments: arguments, argsDigest: argsDigest, runtimeId: scope)
+            registrations[key] = attribution
+            registrationArguments[key] = arguments
+            return attribution
+        } catch BotGatewayError.unknownSession {
+            throw BotMCPError.unauthorized
+        }
     }
 
     @discardableResult
@@ -433,6 +486,15 @@ public actor BotMCPRuntime {
         guard let call = await gateway.resolveToolCall(
             runtimeId: scope, name: bareName, arguments: arguments) else {
             return .failure("unattributed", "The tool call could not be attributed to an active session")
+        }
+        // The per-caller catalog is not a display filter: `tools/call` must use
+        // the same catalog `tools/list` returns for this principal before any
+        // effect or handler runs. `CreateTeammate`'s main-Bot check below stays
+        // a second, independent check.
+        let callerCatalog = await toolDefinitions(callerBotID: call.principal.botId)
+        guard callerCatalog.contains(where: { $0.name == bareName }) else {
+            return .failure("permission_denied",
+                            "The tool is not available to the caller's catalog")
         }
         let registrationKey = key(scope, call.sessionId, call.callId)
         registrations.removeValue(forKey: registrationKey)
