@@ -6,7 +6,10 @@ Offline mode (used by CI) checks that
   * ``export-manifest.json`` lists exactly the golden JSON files,
   * every file digest matches the manifest,
   * the manifest partitions files into ``upstream`` and ``*.phone.json``,
-  * every overlay names its upstream file and only adds/replaces cases.
+  * every overlay names its upstream file and only adds/replaces cases, or
+    declares ``upstream: []`` for one of the small, explicit phone-only
+    vectors (currently ``turn-origin.phone.json``) that have no dsh-bot
+    counterpart.
 
 With ``--checkout`` it also runs the real exporter into a temporary directory
 and requires every upstream golden file to be byte-identical to the export.
@@ -45,6 +48,9 @@ except ImportError:  # `python3 -m spec.tools.bot.check_golden`
     )
 
 PINNED_SHA = "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6"
+# A phone-only vector has no upstream dsh-bot export to extend. Keep this list
+# explicit: a new standalone golden needs review, not just a suffix.
+PHONE_ONLY_VECTORS = frozenset({"turn-origin.phone.json"})
 
 
 def fail(message: str) -> None:
@@ -111,15 +117,27 @@ def check_layout(root: Path) -> dict:
             declared_names = [declared]
         elif isinstance(declared, dict):
             declared_names = list(declared.values())
+        elif isinstance(declared, list) and all(isinstance(item, str) for item in declared):
+            declared_names = declared
         else:
-            fail(f"{name}: upstream must be a string, an object or absent")
-        if not all(isinstance(item, str) and item in upstream for item in declared_names):
-            fail(f"{name}: upstream must name listed upstream golden files")
+            fail(f"{name}: upstream must be a string, an object, an array or absent")
         if overlay.get("vector") != name[:-5]:
             fail(f"{name}: vector must be {name[:-5]!r}")
         if overlay.get("source", {}).get("checkout") != source["checkout"]:
             fail(f"{name}: source.checkout must match the export manifest")
         base_name = name[:-len(".phone.json")] + ".json"
+        if declared_names == []:
+            if name not in PHONE_ONLY_VECTORS:
+                fail(f"{name}: phone-only vectors must be registered in PHONE_ONLY_VECTORS")
+            if base_name in upstream:
+                fail(f"{name}: phone-only vector shadows upstream {base_name}")
+            if not isinstance(overlay.get("delta"), list) or not overlay["delta"]:
+                fail(f"{name}: phone-only vector needs a non-empty delta")
+            if not overlay.get("valid") and not overlay.get("invalid"):
+                fail(f"{name}: phone-only vector needs valid or invalid cases")
+            continue
+        if not all(isinstance(item, str) and item in upstream for item in declared_names):
+            fail(f"{name}: upstream must name listed upstream golden files")
         if base_name not in upstream:
             fail(f"{name}: no upstream {base_name}")
         upstream_fixture = load_json(golden / base_name)

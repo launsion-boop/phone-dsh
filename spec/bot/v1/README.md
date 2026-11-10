@@ -81,11 +81,45 @@ routine、cron、run-attempt、安静时段、silent/held/interrupt、held inbox
 
 主动提醒规则链只用于 interrupt。iOS 通知深链为 `phonedsh://bot/<botID>/row/<rowID>`。推送中继不在本轮，只保留 WakeSignalSource 接口。
 
+### 4.1 回合来源（turn origin）
+
+回合是否隐藏、是否带 held 块、记忆写入算谁说的，只由 DSH `user/message` 事件里的 `data.source.rpcId` 前缀决定，不由消息文本决定。判定在 offset 0 做 ASCII 大小写敏感匹配；前缀后必须至少有一个非空白字符，否则按「其他或缺失」处理。`source.kind` 仍由 DSH 提供，本表只规定 phoneDSH 的隐藏、held 块剥离、气泡投影和记忆来源。权威向量是 `golden/turn-origin.phone.json`，冻结记录见 [PC-20261110-bot-turn-origin](../../../docs/protocol-changes/PC-20261110-bot-turn-origin.md)。
+
+| `rpcId` 前缀 | 含义 | 隐藏 | 带 held 块 | 记忆来源 |
+| --- | --- | --- | --- | --- |
+| `user-action:`、`bot-` | 用户消息 | 否 | 否 | `user-turn` |
+| `held:` | 用户消息，开头拼了 held 块 | 否 | 是 | `agent-message`（沿用现有的降级规则） |
+| `agent:`（新增） | 其他 Bot 的即时消息 | 否 | 否 | `agent-message` |
+| `routine:` | routine 唤醒 | 是 | 否 | `routine` |
+| `task-turn:` | Task 子会话的回合 | 是 | 否 | `task` |
+| `task-settled:`、`task-interrupted:` | 子代理结束唤醒父对话 | 是 | 否 | `hidden-wake` |
+| 其他或缺失 | 未知 | 否（按可见处理，不静默隐藏） | 否 | `agent-message`（按最低信任处理） |
+
+向量里的 `origin` 固定为 `user`、`held`、`agent`、`routine`、`task`、`task-wake`、`unknown` 之一；`hidden` 当且仅当 `origin` 为 `routine`／`task`／`task-wake`，`held` 当且仅当 `origin` 为 `held`，`memorySource` 取表最后一列。实现和测试的前缀表只能来自 `golden/turn-origin.phone.json`，不得在代码里复制一份不同的前缀表。
+
+- 未知或缺失前缀：`hidden=false`、不剥 held 块、记忆来源 `agent-message`（最低信任）；不能写 `scope:"user"` 或 `tier:"profile"`，沿用 `memory-source-boundary` 拒绝。不得为了「看起来像隐藏回合」而按前缀的相似写法（不同大小写、前缀在中间、只有前缀）静默隐藏。
+- `agent:` 是 phoneDSH 新增的 requestId 前缀，不是上游 `source.kind`；WP4 起 Bot 间即时消息使用 `agent:<发送方 callId>`，不再复用 `sendUserMessage` 的可见用户回合路径。
+- `bot-` 仍是宿主默认的可见 chat requestId（`bot-<uuid>`）。`sendHiddenInteraction` 目前没有生产调用方；任何隐藏回合必须使用表中的隐藏前缀，不能依赖调用参数或消息文本。
+- 旧 session log：宿主发起的 routine、Task 和子代理唤醒回合本来带上述前缀，重放时仍隐藏；旧的 Bot 间即时消息 requestId 是发送方工具调用的裸 `callId`，按「未知」处理（可见、`agent-message`），这正是 WP4 要修的兼容差异。
+
+宿主拼进 prompt 的任何非宿主文本一律按既有的 `HeldMessages.escapedHeldField` 规则转义后再放入：`\` → `\\`，换行／回车／制表 → `\n`／`\r`／`\t`，`<`／`>`／`&` → `\u003c`／`\u003e`／`\u0026`，U+2028／U+2029 和其他控制／格式字符 → `\uXXXX`。外部文本不得闭合 `</held_agent_messages>`、伪造 `- [agent]` 行或让 held 块变成多行。适用位置（WP4 起）：
+
+- `HeldMessages.block` 的 `[routine]` 分支：routine 名称（`title`）与正文；
+- `[subagent]` 分支：task id、status 与结果正文；
+- `[card-dismissed]` 分支：标题与正文；
+- `[device-task]` 分支：设备／标题、task id、status 与正文；
+- `[agent]` 分支：发送方名字、id、title、正文与 msg id（当前已转义，保持）；
+- 子代理唤醒 prompt：`task-settled` 的标题、状态、task id 与最多 1,200 字结果摘录；`task-interrupted` 的标题与 task id；
+- 以后新增的宿主结构化块／前缀默认同样转义。
+
+普通用户消息正文和其他 Bot 的即时消息正文是消息内容，不是宿主拼进结构化框架的字段，不按本规则改写。该规则只约束宿主插入的 held 块、隐藏唤醒 prompt 和同类结构字段。
+
 ## 5. 行与交互
 
 Row、RowBatch、UserAction 和 ActionResult 以对应 schema 为准。`golden/row-protocol.phone.json` 是 P27 覆盖文件：它追加 `cardAnswer` 正例（只含 `cardID` + `optionID`）、两条拒绝 `text`/`customText` 的反例、用户消息附件向量与 projection 向量；上游 `row-protocol.json` 不保存这些用例。`body.type` 为 `text`、`widget`、`attachment`、`approval`、`automation`、`notice`、`deleted`；`widget.cardType` 为 `question`、`steps`、`task`、`document`、`progress`、`checklist`、`link`、`table`、`callout`、`info`、`payload`、`library`。attachment、approval、automation 和 notice 使用独立 body 类型，不伪装成 widget。
 
 - UI 只读行、只发用户动作；宿主盖 `owner_direct`，UI 不得自行设置信任级别。
+- 回合是否隐藏、是否剥 held 块、`agent:` 是否投影为用户气泡，按 §4.1 的 `source.rpcId` 判定，不读消息文本；`isInjected` 按 `source.kind`，文本前缀只在 `source` 缺失的旧记录上兜底。
 - `watch(after:)` 增量补齐，游标单调；墓碑重建不复活；nonce 幂等。
 - durable 用户动作采用 plan→commit，不允许先执行再记录 nonce。`BotUserActionPlanning.plan(_:trust:)` 只验证并返回 `commit(BotUserActionPlan)`、`stale` 或 `rejected`；plan 包含一个 durable 事件和零至多个 effects，不得提前产生任何外部副作用。`SQLiteDomainStore.performAndRecord(action:plan:)` 在一个 `BEGIN IMMEDIATE` 事务内提交事件、effects/outbox 和 nonce；commit 前崩溃全部回滚，commit 后重放返回原 eventID 的 duplicate。stale/rejected 不消耗 nonce。
 - `BotUserActionDispatcher` 负责持久 nonce 预查和相同 `(botID,nonce)` 的进程内 Task 合并，生产提交只能走上述事务。旧的 `handler.perform→nonceStore.record` 不得用于生产，不能通过内存 nonce 或调换记录顺序伪装 crash-safe。外部 DSH、文件、网络和审批 continuation 不属于 SQLite 事务，仍使用 outbox 至少一次、inbox 去重与对账，不宣称 exactly-once。
@@ -146,6 +180,7 @@ python3 spec/bot/v1/tools/validate_vectors.py
 - `row-protocol.phone.json`：`cardAnswer`、附件向量与 projection 向量。
 - `tool-catalog.phone.json`：团队工具与 `FishAction` 的目录增量。
 - `tool-effects.phone.json`：团队工具、`FishAction` 与原生 MCP BLE 工具的效果分类。
+- `turn-origin.phone.json`：回合来源的有效／无效 `rpcId` 向量；它没有同名上游文件，用 `"upstream": []` 声明为手机专属向量，`check_golden.py` 对显式注册的手机专属文件跳过 append-only 合并，`validate_vectors.py` 逐条校验解析结果并做 mutation 自检。
 
 覆盖文件的合并语义由 `spec/tools/bot/golden_overlay.py`、Swift `BotGoldenFixture` 与 `plugins/tests/bot-golden.ts` 一致实现：
 
