@@ -582,6 +582,71 @@ final class RelayDSHTransportTests: XCTestCase {
         _ = try await fixture.transport.call("session/list",
                                              args: .object(["_request": .object([:])]))
     }
+    /// §10 / PC-20261110-pclink-foreground-resume-presence: leaving `online` on
+    /// a foreground return must be presented as `connecting`, not `offline`.
+    /// The state stream is the surface the drawer renders, so the regression is
+    /// asserted on it. A re-dial that genuinely fails may still become offline
+    /// afterwards; only the transition out of `online` is frozen here.
+    func testForegroundResumedPresentsConnectingOnTheWayOut() async throws {
+        let fixture = try await PCLinkTestFixture.make()
+        let online = await waitOnline(fixture.client)
+        XCTAssertTrue(online)
+        let collector = PCLinkStateCollector()
+        let stream = await fixture.client.stateStream()
+        let pump = Task { for await state in stream { await collector.append(state) } }
+        await fixture.client.foregroundResumed()
+        let onlineAgain = await waitOnline(fixture.client)
+        XCTAssertTrue(onlineAgain, "the foreground wake must re-handshake")
+        pump.cancel()
+        let states = await collector.states
+        let firstOnline = states.firstIndex { $0.isOnline }
+        XCTAssertNotNil(firstOnline, "the stream must start from the connected state, got \(states)")
+        if let firstOnline, states.indices.contains(firstOnline + 1) {
+            guard case .connecting = states[firstOnline + 1] else {
+                XCTFail("leaving online on a resume must present connecting, got \(states)")
+                return
+            }
+        }
+    }
+
+    /// §10: a user resume does not inherit the failure streak, and a backoff
+    /// wait already in flight is cut short. The fake network fails two dials,
+    /// which lands the loop in its longest wait (3 s here); the resume must
+    /// reconnect well inside that.
+    func testForegroundResumeDoesNotInheritFailureBackoff() async throws {
+        let delays: [TimeInterval] = [0.01, 0.05, 3]
+        let fixture = try await PCLinkTestFixture.make { config in
+            config.reconnectPolicy = PCLinkReconnectPolicy(delays: delays)
+        }
+        let online = await waitOnline(fixture.client)
+        XCTAssertTrue(online)
+        fixture.network.failNextDials(2)
+        // Drop the live socket the way a background suspension does: the resume
+        // is the only intent in play.
+        await fixture.client.foregroundResumed()
+        let backOffline = await waitOffline(fixture.client, timeout: 3)
+        XCTAssertTrue(backOffline, "the two refused dials must leave the client offline")
+        let started = Date()
+        await fixture.client.foregroundResumed()
+        let onlineAgain = await waitOnline(fixture.client, timeout: 2)
+        let elapsed = Date().timeIntervalSince(started)
+        XCTAssertTrue(onlineAgain, "the resume must reconnect")
+        XCTAssertLessThan(elapsed, 1.0,
+                          "a user resume must cut the in-flight backoff (3 s here); took \(elapsed)s")
+        XCTAssertEqual(fixture.network.dialCount, 4,
+                       "one initial dial, two refused, one after the resume")
+    }
+
+    private func waitOffline(_ client: PCLinkClient,
+                             timeout: TimeInterval = 3) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if case .offline = await client.currentState() { return true }
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+        return false
+    }
+
     private func waitOnline(_ client: PCLinkClient,
                             timeout: TimeInterval = 3) async -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
@@ -590,5 +655,15 @@ final class RelayDSHTransportTests: XCTestCase {
             try? await Task.sleep(nanoseconds: 20_000_000)
         }
         return false
+    }
+}
+
+/// Collects every state the client emits so a test can assert a state was never
+/// presented (the drawer renders from this stream).
+actor PCLinkStateCollector {
+    private(set) var states: [PCLinkClientState] = []
+
+    func append(_ state: PCLinkClientState) {
+        if states.last != state { states.append(state) }
     }
 }

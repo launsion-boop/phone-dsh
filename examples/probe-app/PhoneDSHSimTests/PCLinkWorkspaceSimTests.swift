@@ -209,6 +209,13 @@ final class PCLinkWorkspaceSimTests: XCTestCase {
                                                 connection: .online), .ready)
         XCTAssertEqual(PCLinkDrawerPolicy.phase(selected: .phone, hasRecord: true,
                                                 connection: .offline(.peerOffline)), .phone)
+        // A resume in flight is not an offline PC (§10,
+        // PC-20261110-pclink-foreground-resume-presence): the drawer keeps the
+        // connecting state instead of the offline card and copy.
+        XCTAssertEqual(PCLinkDrawerPolicy.phase(selected: .pc, hasRecord: true,
+                                                connection: .connecting), .connecting)
+        XCTAssertNotEqual(PCLinkDrawerPolicy.phase(selected: .pc, hasRecord: true,
+                                                   connection: .connecting), .offline)
         XCTAssertEqual(WorkspaceStorageKeys.currentSession(for: pc),
                        "chat.dsh.currentSession.pc:pc-machine")
         XCTAssertEqual(SessionStorageKey(backend: pc, sessionID: "abc").encoded,

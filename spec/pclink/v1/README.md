@@ -1930,7 +1930,20 @@ does not prompt for a DSH cookie.
 - Reconnect backoff (phone and PC): attempts at 0.5 s, 1 s, 2 s, 4 s, 8 s, 16 s,
   30 s, then 30 s; each delay has ±20 % jitter; reset after 60 s of successful
   connection. The backoff is not a substitute for authentication; every new
-  relay connection runs `relay.challenge`/`peer.auth` again.
+  relay connection runs `relay.challenge`/`peer.auth` again. A phone-initiated
+  resume (the phone returns to the foreground and replaces a possibly suspended
+  socket, or the user retries from the connection screen) is not a failed
+  attempt: the next delay is at most the second step (1 s ±20 %) instead of
+  inheriting the failure streak, and a backoff wait already in flight when the
+  resume arrives is cut short. The 60 s reset rule keeps applying to failures,
+  and the cap never skips authentication or shortens the `replaced` minimum
+  wait of 30 s (§9.1).
+- `connecting` and `offline` are distinct phone states (v1.6 clarification,
+  PC-20261110-pclink-foreground-resume-presence). `connecting` means the phone
+  is dialing or handshaking, including the bounded resume above; `offline`
+  means one dial already failed, or the connection dropped without a
+  phone-initiated resume. While `connecting`, the phone MUST NOT present
+  `电脑离线`; it presents its connecting copy instead.
 - Every relay reconnect requires a new end-to-end handshake with a new `sid`,
   new ephemeral X25519 keys and a new `th2` salt; old keys are discarded. The
   relay restart loses allowlists/rendezvous/daily counters; the PC reconnects,
@@ -1949,7 +1962,10 @@ does not prompt for a DSH cookie.
   arguments, `unsafe` becomes `unknown_outcome`.
 - The phone never falls back from the PC backend to the phone backend because
   the PC is offline; it shows "电脑离线" and a retry. The user chooses the
-  backend explicitly (P18 key ruling in the change record).
+  backend explicitly (P18 key ruling in the change record). The offline copy is
+  required once a dial has failed or the connection dropped without a
+  phone-initiated resume; during the bounded resume above the phone shows its
+  connecting copy instead.
 - **Long offline / changed PC identity (review Low-2).** When the phone has
   been unable to reach its paired PC for a long period (10 minutes of failed
   reconnect attempts, or whenever the user opens the connection screen while

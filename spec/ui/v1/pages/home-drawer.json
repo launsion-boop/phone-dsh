@@ -66,7 +66,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "HomeDrawer.swift:697",
+      "provenance": "HomeDrawer.swift:698",
       "anchor": "segmentButton(.phone, title: NativeText(\"手机\", \"Phone\"))",
       "extraction": "manual",
       "note": "D2 segment below 新会话 (pclink-pacing moved it down from above); selected state persisted in phone-dsh.drawer.backend (P18)"
@@ -81,7 +81,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "HomeDrawer.swift:698",
+      "provenance": "HomeDrawer.swift:699",
       "anchor": "segmentButton(.pc, title: \"PC\")",
       "extraction": "manual",
       "note": "D2 segment below 新会话 (pclink-pacing moved it down from above); selects the paired PC workspace without auto-falling back when offline"
@@ -96,7 +96,7 @@
       "writes": true,
       "destination": null,
       "condition": "chat.isSwitchingSession == false && (management.error != nil || chat.userFacingError != nil)",
-      "provenance": "HomeDrawer.swift:267",
+      "provenance": "HomeDrawer.swift:268",
       "anchor": "Button(\"重试\") {",
       "extraction": "manual"
     },
@@ -111,7 +111,7 @@
       "destination": null,
       "condition": "HomeDrawer.foldersEnabled (false: folder management is not offered yet)",
       "presents": "alert-75",
-      "provenance": "HomeDrawer.swift:301",
+      "provenance": "HomeDrawer.swift:302",
       "anchor": ".accessibilityLabel(\"新建文件夹\")",
       "extraction": "manual",
       "note": "the + control has no visible text; its accessible name is the only label"
@@ -126,7 +126,7 @@
       "writes": true,
       "destination": null,
       "condition": "the folder is a real workspace (not the loose default group)",
-      "provenance": "HomeDrawer.swift:440",
+      "provenance": "HomeDrawer.swift:441",
       "anchor": "Button(\"在这里新建会话\", systemImage: \"square.and.pencil\") {",
       "extraction": "manual"
     },
@@ -140,7 +140,7 @@
       "writes": true,
       "destination": null,
       "condition": "HomeDrawer.foldersEnabled (false: folder management is not offered yet); the folder is a real workspace (not the loose default group)",
-      "provenance": "HomeDrawer.swift:444",
+      "provenance": "HomeDrawer.swift:445",
       "anchor": "Button(\"重命名\", systemImage: \"pencil\") {",
       "extraction": "manual"
     },
@@ -155,7 +155,7 @@
       "destination": null,
       "condition": "HomeDrawer.foldersEnabled (false: folder management is not offered yet); the folder is a real workspace (not the loose default group)",
       "presents": "alert-111",
-      "provenance": "HomeDrawer.swift:448",
+      "provenance": "HomeDrawer.swift:449",
       "anchor": "Button(\"删除文件夹\", systemImage: \"trash\", role: .destructive) { deleteFolder = folder }",
       "extraction": "manual"
     },
@@ -169,7 +169,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "HomeDrawer.swift:497",
+      "provenance": "HomeDrawer.swift:498",
       "anchor": ".accessibilityLabel(\"\\(title)，\\(count) 个会话\")",
       "extraction": "manual",
       "note": "the group header has no visible text of its own beyond the folder name and count, both data; its accessible name is the label"
@@ -184,7 +184,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "HomeDrawer.swift:505",
+      "provenance": "HomeDrawer.swift:506",
       "anchor": "return Button { open(session) } label: {",
       "extraction": "manual",
       "note": "the row's visible name is the session title, i.e. data, so the contract keeps the expression"
@@ -200,7 +200,7 @@
       "destination": null,
       "condition": null,
       "presents": "alert-87",
-      "provenance": "HomeDrawer.swift:540",
+      "provenance": "HomeDrawer.swift:541",
       "anchor": "Button(\"编辑名称\", systemImage: \"pencil\") {",
       "extraction": "manual"
     },
@@ -214,7 +214,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "HomeDrawer.swift:544",
+      "provenance": "HomeDrawer.swift:545",
       "anchor": "Button(\"归档\", systemImage: \"archivebox\") { archive(session) }",
       "extraction": "manual"
     },
@@ -429,19 +429,19 @@
         {
           "renders": "还没有文件夹。点右上角的 + 新建一个，会话和文件都能放进去。",
           "when": "Self.foldersEnabled && orderedFolders.isEmpty && loose.isEmpty",
-          "provenance": "HomeDrawer.swift:403",
+          "provenance": "HomeDrawer.swift:404",
           "anchor": "Text(\"还没有文件夹。点右上角的 + 新建一个，会话和文件都能放进去。\")"
         },
         {
           "renders": "还没有会话",
           "when": "a folder is expanded and has no sessions",
-          "provenance": "HomeDrawer.swift:420",
+          "provenance": "HomeDrawer.swift:421",
           "anchor": "Text(\"还没有会话\")"
         },
         {
           "renders": "还没有 PC 会话",
           "when": "!models.isPhoneSelected && management.isLoading == false && management.error == nil && management.activeSessions.isEmpty (PCDrawerListState.empty)",
-          "provenance": "HomeDrawer.swift:393",
+          "provenance": "HomeDrawer.swift:394",
           "anchor": "Text(\"还没有 PC 会话。点上面的「新会话」在电脑上新建一个。\")"
         }
       ],
@@ -449,7 +449,7 @@
         {
           "renders": "one collapsible group per folder/workspace, then one row per session",
           "when": "orderedFolders/loose is not empty",
-          "provenance": "HomeDrawer.swift:415",
+          "provenance": "HomeDrawer.swift:416",
           "anchor": "ForEach(orderedFolders) { folder in"
         }
       ],
@@ -457,7 +457,7 @@
         {
           "renders": "the host message + 重试",
           "when": "chat.isSwitchingSession == false && (management.error ?? chat.userFacingError) != nil",
-          "provenance": "HomeDrawer.swift:267",
+          "provenance": "HomeDrawer.swift:268",
           "anchor": "Button(\"重试\") {"
         }
       ],
@@ -466,13 +466,13 @@
         {
           "renders": "ProgressView (a running session)",
           "when": "session.running",
-          "provenance": "HomeDrawer.swift:369",
+          "provenance": "HomeDrawer.swift:370",
           "anchor": "ProgressView()"
         },
         {
           "renders": "正在读取 PC 会话…",
           "when": "PCDrawerListState.loading (PC selected, management.isLoading)",
-          "provenance": "HomeDrawer.swift:370",
+          "provenance": "HomeDrawer.swift:371",
           "anchor": "Text(NativeText(\"正在读取 PC 会话…\", \"Loading PC sessions…\"))"
         }
       ]

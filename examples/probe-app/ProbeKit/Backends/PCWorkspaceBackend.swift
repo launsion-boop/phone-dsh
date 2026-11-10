@@ -485,6 +485,11 @@ public enum PCLinkWorkspaceText {
         "电脑新配对了一台设备：\(name) \(fingerprint)"
     }
 
+    /// Shown while the phone is dialing or handshaking, including the bounded
+    /// resume after a foreground return. It never claims the PC is offline
+    /// (§10, PC-20261110-pclink-foreground-resume-presence).
+    public static let resumeConnecting = "这台电脑刚才在后台，正在重新连上。"
+
     public static func offlineReason(_ reason: PCLinkOfflineReason) -> String {
         switch reason {
         case .notStarted: return "还没有连接电脑。"
@@ -522,9 +527,17 @@ public enum PCLinkWorkspaceText {
 /// What the drawer/list region shows for the selected segment. It is a pure
 /// function so the offline rule is testable without UI: a selected `.pc` never
 /// turns into `.phone` because the connection dropped (plan v2 §6.1).
+///
+/// `.connecting` is separate from `.offline` since
+/// PC-20261110-pclink-foreground-resume-presence: the phone re-dials on every
+/// foreground return, and that bounded resume must never be presented as
+/// "电脑离线" (§10).
 public enum PCDrawerPhase: Equatable, Sendable {
     case phone
     case pair
+    /// Dialing or handshaking, including the bounded resume after a foreground
+    /// return. The PC is not known to be offline.
+    case connecting
     case offline
     case ready
 }
@@ -535,7 +548,11 @@ public enum PCLinkDrawerPolicy {
                              connection: PCWorkspaceConnection) -> PCDrawerPhase {
         guard selected == .pc else { return .phone }
         guard hasRecord else { return .pair }
-        return connection.isOnline ? .ready : .offline
+        switch connection {
+        case .online, .versionWarning: return .ready
+        case .connecting: return .connecting
+        case .unpaired, .offline: return .offline
+        }
     }
 }
 

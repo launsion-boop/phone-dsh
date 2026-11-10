@@ -1348,7 +1348,11 @@ final class ChatModel {
     private func startPCModel() async {
         guard let pcRuntime else { return }
         guard pcRuntime.connection().isOnline else {
-            statusLine = "电脑离线"
+            if case .connecting = pcRuntime.connection() {
+                statusLine = "正在连接电脑…"
+            } else {
+                statusLine = "电脑离线"
+            }
             return
         }
         guard !busy, sessionID == nil else { return }
