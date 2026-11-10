@@ -133,3 +133,21 @@ Not verified: 没有运行 Swift、plugins、模拟器或真实模型；WP4 的�
 | revision | 由谁 | 原因（含收到的 CONTRACT CHANGE REQUEST） | 通知了哪些端 |
 | --- | --- | --- | --- |
 | `turn-origin-v1` | Coordinator `s0-wp0` | 首次冻结回合来源表、正反向量与嵌入文本规则；处理「phone-only `.phone.json` 没有上游」的登记冲突（只在 `check_golden.py` 显式允许 `turn-origin.phone.json`）。 | Swift 宿主、Worker 插件、App Bot 目录、spec/CI owner；WP4 实现方 |
+| `turn-origin-v2` | Contract owner `s0-wp4b` | 补登 WP4 发现的宿主卡片点选前缀 `card-answer:<nonce>`；该前缀自基线起已由 `BotRemoteActionPlanner` 作为 `session/prompt` requestId 发出，但 v1 冻结表遗漏。同时把 `card-dismissed:<cardID>` 明确为 held 项 id，不参与回合来源判定。 | Swift 宿主、Worker 插件、spec/CI owner；WP4 实现方 |
+
+## 10. 修订 `turn-origin-v2`（卡片点选补遗）
+
+- **修订原因.** WP4 实现消费方时核对 `session/prompt` 的 `requestId`，发现 `Sources/PhoneDSHBot/Rows/BotRemoteActionPlanner.swift` 的卡片点选回合使用 `card-answer:<nonce>`（选项值作为普通 chat 消息，宿主盖 `owner_direct`）。v1 表没有这个前缀，按「其他或缺失」解析为 `unknown`：回合仍可见、无 held 块，但记忆来源降为 `agent-message`，于是同一回合内模型写 `scope:"user"`／`tier:"profile"` 会被 `memory-source-boundary` 拒绝。卡片点选是真实用户动作，应当按 `user-turn` 处理。v1 实现下这是**过严**（把用户回合降成最低信任），不是过松；没有放宽任何信任边界。
+- **契约 delta.** §4.1 的「用户消息」行加入 `card-answer:`，与 `user-action:`、`bot-` 同列：`origin=user`、`hidden=false`、`held=false`、`memorySource=user-turn`。`golden/turn-origin.phone.json` 增加一个有效用例和五个边界无效用例（只有前缀、无冒号、大小写不同、`card-answered:` 形近前缀、`card-dismissed:` held 项 id）；无效用例仍解析为 `unknown`（可见、无 held、`agent-message`）。`validate_vectors.py` 的参考前缀表、有效前缀覆盖和 mutation 自检同步。没有新增 schema、wire 字段、`source.kind` 取值、版本号或数据库迁移。
+- **兼容性.**
+
+  | Producer → Consumer | 行为 |
+  | --- | --- |
+  | old producer → new consumer | 宿主自基线起已经发 `card-answer:<nonce>`；v2 读者把它解析为用户回合（可见、`user-turn`）。旧 `card-dismissed:`、`device-task:`、`reply:`、`routine:<deliveryKey>`、`now:` 等字符串只作为 held inbox 项 id 或 effects key，不进入 `session/prompt`；旧 session log 中即使出现也仍按 `unknown` 处理。 |
+  | new producer → old consumer | v2 没有改生产格式，仍是 `card-answer:<nonce>`；旧读者按未知处理：可见、`agent-message`、拒绝共享写入。不会解析失败，也不会比 v1 更宽松。 |
+  | new → new | Swift 与 Worker 前缀表都从同一 `turn-origin.phone.json` 读取用例；卡片点选回合可写 `scope:"user"`／`tier:"profile"`，来源记录为 `user-turn`。 |
+  | persisted old data → new／rollback | 持久化形状不变，没有迁移。回滚到 v1 读者时，卡片点选回合退回「可见、`agent-message`」的过严行为；旧事实和事件不受影响。 |
+
+- **Protocol impact.** P26、P27；P25: none — `event-envelope.schema.json`、`dshbot-pin.json` 和事件 envelope 未改；只有离线手机专属向量及其校验器更新。Worker bundle 需重建后才包含新的 `turn-origin.ts`。
+- **`requestId` 全仓核对.** 逐条检查 `sendUserMessage(`、`runTurn(`、`sendPrompt(`、`sendAgentMessage(`、`sendHiddenInteraction(` 与 `requestId:` 调用点（含 `examples/probe-app/PhoneDSHProbe/Bot/**`）。`session/prompt` 的宿主前缀只有表中已有的 `user-action:`、`bot-`、`held:`、`agent:`、`routine:`、`task-turn:`、`task-settled:`、`task-interrupted:` 和本次补登的 `card-answer:`；其余 `card-dismissed:`、`device-task:`、`reply:`、`now:`、`routine:<deliveryKey>` 是 held inbox/effects 的幂等键，`DSHRemoteHarness` 的 requestId 属于非 Bot 工作台路径，均不进入 Bot 回合来源判定。没有发现第二个漏登前缀。
+- **实测（本次修订）.** `python3 spec/bot/v1/tools/validate_vectors.py` → PASS（turn-origin 9 valid / 32 invalid，10 mutation checks）；`python3 spec/tools/bot/check_golden.py --root .` → PASS（29 files / 22 upstream / 7 overlays）。Swift、Worker 与 CI 的运行结果见交接报告；本单没有运行真实模型或真机。

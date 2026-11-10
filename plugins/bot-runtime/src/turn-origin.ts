@@ -34,6 +34,7 @@ export interface TurnOrigin {
 
 const PREFIXES: readonly (readonly [string, TurnOriginKind])[] = [
   ['user-action:', 'user'],
+  ['card-answer:', 'user'],
   ['bot-', 'user'],
   ['held:', 'held'],
   ['agent:', 'agent'],

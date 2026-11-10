@@ -34,6 +34,7 @@ PHONE_ONLY_VECTORS = frozenset({TURN_ORIGIN_VECTOR, MCP_EGRESS_VECTOR})
 # more trust than `agent-message`.
 TURN_ORIGIN_PREFIXES = (
     ("user-action:", ("user", False, False, "user-turn")),
+    ("card-answer:", ("user", False, False, "user-turn")),
     ("bot-", ("user", False, False, "user-turn")),
     ("held:", ("held", False, True, "agent-message")),
     ("agent:", ("agent", False, False, "agent-message")),
@@ -256,10 +257,23 @@ def validate_turn_origin_fixture(fixture):
         raise AssertionError(f"turn-origin mutation {label!r} unexpectedly passed")
 
     routine_index = next(i for i, case in enumerate(valid) if case["rpcId"].startswith("routine:"))
+    card_answer_index = next(i for i, case in enumerate(valid)
+                             if case["rpcId"].startswith("card-answer:"))
+    card_dismissed_index = next(i for i, case in enumerate(invalid)
+                                if case["rpcId"].startswith("card-dismissed:"))
     expect_failure("routine-memory-source",
                    lambda value: value["valid"][routine_index].update(memorySource="agent-message"))
     expect_failure("routine-hidden",
                    lambda value: value["valid"][routine_index].update(hidden=False))
+    expect_failure("card-answer-memory-source",
+                   lambda value: value["valid"][card_answer_index].update(memorySource="agent-message"))
+    expect_failure("card-answer-prefix-coverage",
+                   lambda value: value.__setitem__(
+                       "valid", [case for case in value["valid"]
+                                 if not case["rpcId"].startswith("card-answer:")]))
+    expect_failure("card-dismissed-known",
+                   lambda value: value["invalid"][card_dismissed_index].update(
+                       origin="user", memorySource="user-turn"))
     expect_failure("unknown-hidden",
                    lambda value: value["invalid"][0].update(hidden=True))
     expect_failure("valid-missing-rpc-id",

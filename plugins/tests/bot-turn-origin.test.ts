@@ -20,9 +20,9 @@ const golden = readBotGolden('turn-origin.phone') as {
   readonly invalid: readonly OriginCase[]
 }
 
-test('all 35 turn-origin golden vectors drive the real TypeScript resolver', () => {
-  assert.equal(golden.valid.length, 8)
-  assert.equal(golden.invalid.length, 27)
+test('all 41 turn-origin golden vectors drive the real TypeScript resolver', () => {
+  assert.equal(golden.valid.length, 9)
+  assert.equal(golden.invalid.length, 32)
   for (const [section, cases] of [['valid', golden.valid], ['invalid', golden.invalid]] as const) {
     for (const vector of cases) {
       const origin = resolveTurnOrigin(vector.rpcId)
@@ -46,6 +46,10 @@ test('message source resolution never consults text', () => {
   )
   assert.equal(turnOriginOfMessage({ source: { kind: 'user', rpcId: 'routine:r1' } }).hidden, true)
   assert.equal(turnOriginOfMessage({ source: { kind: 'user', rpcId: 'agent:c1' } }).hidden, false)
+  assert.equal(turnOriginOfMessage({ source: { kind: 'user', rpcId: 'card-answer:n1' } }).memorySource,
+    'user-turn')
+  assert.equal(turnOriginOfMessage({ source: { kind: 'user', rpcId: 'card-dismissed:card-1' } }).kind,
+    'unknown')
   assert.equal(turnOriginOfMessage({ source: { kind: 'runtime-context' } }).hidden, false)
   assert.equal(resolveTurnOrigin(marker).kind, 'unknown')
   assert.equal(resolveTurnOrigin(undefined).hidden, false)

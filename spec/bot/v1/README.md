@@ -85,11 +85,11 @@ routine、cron、run-attempt、安静时段、silent/held/interrupt、held inbox
 
 ### 4.1 回合来源（turn origin）
 
-回合是否隐藏、是否带 held 块、记忆写入算谁说的，只由 DSH `user/message` 事件里的 `data.source.rpcId` 前缀决定，不由消息文本决定。判定在 offset 0 做 ASCII 大小写敏感匹配；前缀后必须至少有一个非空白字符，否则按「其他或缺失」处理。`source.kind` 仍由 DSH 提供，本表只规定 phoneDSH 的隐藏、held 块剥离、气泡投影和记忆来源。权威向量是 `golden/turn-origin.phone.json`，冻结记录见 [PC-20261110-bot-turn-origin](../../../docs/protocol-changes/PC-20261110-bot-turn-origin.md)。
+回合是否隐藏、是否带 held 块、记忆写入算谁说的，只由 DSH `user/message` 事件里的 `data.source.rpcId` 前缀决定，不由消息文本决定。判定在 offset 0 做 ASCII 大小写敏感匹配；前缀后必须至少有一个非空白字符，否则按「其他或缺失」处理。`source.kind` 仍由 DSH 提供，本表只规定 phoneDSH 的隐藏、held 块剥离、气泡投影和记忆来源。用户输入与页面动作（`user-action:`）以及卡片点选（`card-answer:`）都属于真实用户回合。权威向量是 `golden/turn-origin.phone.json`，冻结记录见 [PC-20261110-bot-turn-origin](../../../docs/protocol-changes/PC-20261110-bot-turn-origin.md)。
 
 | `rpcId` 前缀 | 含义 | 隐藏 | 带 held 块 | 记忆来源 |
 | --- | --- | --- | --- | --- |
-| `user-action:`、`bot-` | 用户消息 | 否 | 否 | `user-turn` |
+| `user-action:`、`card-answer:`、`bot-` | 用户消息 | 否 | 否 | `user-turn` |
 | `held:` | 用户消息，开头拼了 held 块 | 否 | 是 | `agent-message`（沿用现有的降级规则） |
 | `agent:`（新增） | 其他 Bot 的即时消息 | 否 | 否 | `agent-message` |
 | `routine:` | routine 唤醒 | 是 | 否 | `routine` |
@@ -101,6 +101,7 @@ routine、cron、run-attempt、安静时段、silent/held/interrupt、held inbox
 
 - 未知或缺失前缀：`hidden=false`、不剥 held 块、记忆来源 `agent-message`（最低信任）；不能写 `scope:"user"` 或 `tier:"profile"`，沿用 `memory-source-boundary` 拒绝。不得为了「看起来像隐藏回合」而按前缀的相似写法（不同大小写、前缀在中间、只有前缀）静默隐藏。
 - `agent:` 是 phoneDSH 新增的 requestId 前缀，不是上游 `source.kind`；WP4 起 Bot 间即时消息使用 `agent:<发送方 callId>`，不再复用 `sendUserMessage` 的可见用户回合路径。
+- `card-answer:` 是宿主为卡片点选生成的 `session/prompt` requestId（`card-answer:<nonce>`）：宿主盖 `owner_direct`，选项值作为普通 chat 消息发出，因此与 `user-action:` 同属真实用户回合。它是回合前缀，不是 held 项 id；`card-dismissed:<cardID>` 是 held inbox 项的 id，不进入 `session/prompt` 的 `requestId`，按「其他或缺失」处理。
 - `bot-` 仍是宿主默认的可见 chat requestId（`bot-<uuid>`）。`sendHiddenInteraction` 目前没有生产调用方；任何隐藏回合必须使用表中的隐藏前缀，不能依赖调用参数或消息文本。
 - 旧 session log：宿主发起的 routine、Task 和子代理唤醒回合本来带上述前缀，重放时仍隐藏；旧的 Bot 间即时消息 requestId 是发送方工具调用的裸 `callId`，按「未知」处理（可见、`agent-message`），这正是 WP4 要修的兼容差异。
 

@@ -97,7 +97,7 @@ public actor BotRemoteActionPlanner: BotUserActionPlanning {
                 return .stale(reason: "unknown_option")
             }
             let result = try await remote.sendUserMessage(
-                option.value, requestId: "card-answer:\(action.nonce)")
+                option.value, requestId: BotTurnOrigin.cardAnswerRequestId(nonce: action.nonce))
             guard result.status == "completed" else {
                 return .rejected(reason: result.error ?? "turn_not_completed")
             }

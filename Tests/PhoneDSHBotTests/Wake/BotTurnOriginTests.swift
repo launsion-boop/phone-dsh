@@ -8,9 +8,9 @@ final class BotTurnOriginTests: XCTestCase {
         let fixture = try BotGoldenFixture.rawObject("turn-origin.phone")
         let valid = try RowTestSupport.array(fixture["valid"], in: "turn-origin.phone.valid")
         let invalid = try RowTestSupport.array(fixture["invalid"], in: "turn-origin.phone.invalid")
-        XCTAssertEqual(valid.count, 8)
-        XCTAssertEqual(invalid.count, 27)
-        XCTAssertEqual(valid.count + invalid.count, 35)
+        XCTAssertEqual(valid.count, 9)
+        XCTAssertEqual(invalid.count, 32)
+        XCTAssertEqual(valid.count + invalid.count, 41)
 
         for (section, cases) in [("valid", valid), ("invalid", invalid)] {
             for vector in cases {
@@ -38,6 +38,10 @@ final class BotTurnOriginTests: XCTestCase {
 
     func testFactoriesMintRequestIdsThatResolveToTheDeclaredOrigin() {
         XCTAssertEqual(BotTurnOrigin(rpcId: BotTurnOrigin.userActionRequestId(nonce: "n1")).kind, .user)
+        XCTAssertEqual(BotTurnOrigin(rpcId: BotTurnOrigin.cardAnswerRequestId(nonce: "n1")).kind, .user)
+        XCTAssertEqual(BotTurnOrigin(rpcId: BotTurnOrigin.cardAnswerRequestId(nonce: "n1")).memorySource,
+                       .userTurn)
+        XCTAssertEqual(BotTurnOrigin(rpcId: "card-dismissed:card-1").kind, .unknown)
         XCTAssertEqual(BotTurnOrigin(rpcId: BotTurnOrigin.visibleRequestId()).kind, .user)
         XCTAssertEqual(BotTurnOrigin(rpcId: BotTurnOrigin.heldRequestId(digest: "d1")).kind, .held)
         XCTAssertEqual(BotTurnOrigin(rpcId: BotTurnOrigin.agentRequestId(callId: "call_1")).kind, .agent)
