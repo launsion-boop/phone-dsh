@@ -632,10 +632,10 @@ public data class SessionArtifactsScreenState(
  * @param state the pure screen state ([SessionArtifactsScreenState.from]).
  * @param onOpen ask the host to open the artifact's file.
  * @param onRetry retry a failed read.
- * @param onDone close the sheet (the baseline's 完成; the page is presented as a sheet).
+ * @param onDone leave the list (its back control; the baseline pushes the page).
  * @param onDismissOpenFailure dismiss the 无法打开产物 alert (`:108`).
  * @param onClosePreview leave the preview and return to the list; `null` keeps the
- *   preview without a back control (the list's 完成 is then the only exit).
+ *   preview without a back control.
  * @param onShare the host's share action for the open preview, returning false when
  *   the platform refused (no app can receive the file, or the provider would not
  *   serve it). `null` keeps the page's own chooser, which is a real
@@ -667,7 +667,9 @@ public fun SessionArtifactsPage(
         // (`navigationTitle(preview.artifact.name)`, `:308`); the list keeps the
         // page title.
         title = preview?.artifact?.name ?: UiStrings.ARTIFACTS_TITLE,
-        onBack = if (preview != null) onClosePreview else null,
+        // PR #60 removed the list's 完成 (`SessionArtifactsPage.swift:89`): the page is
+        // pushed, so the list leaves by its back control like any pushed page.
+        onBack = if (preview != null) onClosePreview else onDone,
         rootTag = UiPageTags.ARTIFACTS_ROOT,
         modifier = modifier,
         actions = {
@@ -677,12 +679,6 @@ public fun SessionArtifactsPage(
                     preview = preview,
                     onShare = onShare,
                     onRefused = { shareFailed = true },
-                )
-            } else {
-                SessionTextAction(
-                    label = UiStrings.DEVICE_DONE,
-                    onClick = onDone,
-                    tone = SessionActionTone.ACCENT,
                 )
             }
         },

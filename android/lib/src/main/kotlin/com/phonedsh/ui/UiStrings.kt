@@ -2375,7 +2375,7 @@ public object UiStrings {
     public const val DRAWER_DELETE_FOLDER_DETAIL: String = "里面的会话会留着，只是不再放在这个文件夹里。"
     public const val DRAWER_EMPTY_FOLDERS: String = "还没有文件夹。点右上角的 + 新建一个，会话和文件都能放进去。"
     public const val DRAWER_SESSION_ARCHIVE: String = "归档"
-    public const val DRAWER_ARCHIVED_TOAST: String = "已归档，可在 设置 › 已归档会话 里找回"
+    public const val DRAWER_ARCHIVED_TOAST: String = "已归档，可在 我的 › 已归档会话 里找回"
     public const val DRAWER_COLLAPSED: String = "已收起"
     public const val DRAWER_ENGINE_STARTING: String = "引擎启动中"
     public const val DRAWER_ENGINE_STOPPED: String = "引擎未启动"

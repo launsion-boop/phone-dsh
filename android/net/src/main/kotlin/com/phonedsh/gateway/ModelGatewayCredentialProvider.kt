@@ -50,6 +50,13 @@ fun interface ModelKeySource {
      */
     @Throws(CredentialUnavailableException::class)
     fun readKey(): String?
+
+    /**
+     * The upstream rejected [value] as expired. A refreshable source (the
+     * tono-account session, spec/v1/tono-account.md §4) drops it so the next
+     * [readKey] refreshes; a stored key ignores it.
+     */
+    fun invalidate(value: String) {}
 }
 
 /**
@@ -291,6 +298,12 @@ class ModelGatewayCredentialProvider(
             return GatewayCredential.None
         }
         throw CredentialUnavailableException(HOST_NOT_ON_LIST)
+    }
+
+    override fun invalidate(credential: GatewayCredential, scope: CredentialScope) {
+        if (!endpoint.admits(scope)) return
+        val value = (credential as? GatewayCredential.Bearer)?.value ?: return
+        if (value.isNotEmpty()) keys.invalidate(value)
     }
 
     /** Never prints the key, the store or the full base URL. */

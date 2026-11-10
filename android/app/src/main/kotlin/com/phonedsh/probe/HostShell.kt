@@ -40,6 +40,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -96,6 +99,9 @@ import com.phonedsh.ui.nav.HomeDrawerArchiveRequest
 import com.phonedsh.ui.nav.rememberHomeDrawerUiState
 import com.phonedsh.ui.nav.PdshNavState
 import com.phonedsh.ui.nav.PdshRoute
+import com.phonedsh.ui.nav.HomeTabBar
+import com.phonedsh.ui.nav.selectHomeTab
+import com.phonedsh.ui.nav.selectedHomeTab
 import com.phonedsh.ui.nav.confirms
 import com.phonedsh.ui.page.FactState
 import com.phonedsh.ui.page.AgentPresetActions
@@ -230,6 +236,9 @@ internal fun HostShell(
     // Android ADB: the process-owned native android_* tool host (native-mcp.md).
     val androidAdb = remember { AndroidAdbHost.get(context) }
     val androidAdbFacts by androidAdb.facts.collectAsState()
+    // Tono 账号: the process-owned cloud account session (tono-account.md).
+    val tonoAccount = remember { TonoAccountHost.get(context) }
+    val tonoAccountFacts by tonoAccount.facts.collectAsState()
     // 局域网设备 on the MCP page: the user-started mDNS browse (lan-mcp.md).
     val lanDiscovery = remember { AndroidLanDiscovery.get(context) }
     val lanFacts by lanDiscovery.facts.collectAsState()
@@ -321,7 +330,7 @@ internal fun HostShell(
     var shellRun by remember { mutableStateOf(ShellRun()) }
     var speechNotice by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(nav.current) {
-        if (nav.current == PdshRoute.Settings) {
+        if (nav.current == PdshRoute.Settings || nav.current == PdshRoute.SettingsMore) {
             engine.refreshDefaultPermissionTier()?.let { notice = "新会话默认权限读取失败：$it" }
         }
         if (nav.current == PdshRoute.Configuration) {
@@ -802,7 +811,7 @@ internal fun HostShell(
     // platform really carries this app's back gesture through the invoker. It is
     // measured by the back callback (one gesture moves it), so it is applied here
     // rather than inside the remembered walk.
-    val shownFacts = PredictiveBack.measured(facts).copy(bluetooth = bluetoothFacts, ssh = sshFacts, androidAdb = androidAdbFacts, lan = lanFacts)
+    val shownFacts = PredictiveBack.measured(facts).copy(bluetooth = bluetoothFacts, ssh = sshFacts, androidAdb = androidAdbFacts, tonoAccount = tonoAccountFacts, lan = lanFacts)
     LaunchedEffect(chatUi.commandExecution?.id) {
         if (chatUi.commandExecution != null) nav = nav.push(PdshRoute.CommandResult)
     }
@@ -916,7 +925,20 @@ internal fun HostShell(
                     ),
             ) {
                 if (note != null) HostNoteBar(text = note)
-                Box(Modifier.weight(1f)) {
+                // PR #60's bottom menu (`NativeShell.tabPages`): it belongs to the
+                // first-level pages only, and leaves while the keyboard is up so the
+                // composer rides the keyboard. The drawer is drawn over it below.
+                val homeTab = if (probeOpen) null else nav.selectedHomeTab()
+                @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+                val imeVisible = WindowInsets.isImeVisible
+                val showTabBar = homeTab != null && !imeVisible
+                Box(
+                    Modifier
+                        .weight(1f)
+                        // The bar paints the navigation-bar inset itself, so the page
+                        // above it must not pad for it a second time.
+                        .then(if (showTabBar) Modifier.consumeWindowInsets(WindowInsets.navigationBars) else Modifier),
+                ) {
                     PdshNavHost(
                         nav = nav,
                         facts = shownFacts,
@@ -948,6 +970,9 @@ internal fun HostShell(
                             } else if (action.wire.startsWith("androidAdb.")) {
                                 // The page owns its 连接状态 line; no host note.
                                 androidAdb.handle(action)
+                            } else if (action.wire.startsWith("tonoAccount.")) {
+                                // The page owns its status line; no host note.
+                                tonoAccount.handle(action)
                             } else if (action is PdshHostAction.LanScan) {
                                 // The page owns its status line; no host note.
                                 lanDiscovery.handle(action)
@@ -1354,6 +1379,15 @@ internal fun HostShell(
                         artifacts = artifactFacts,
                     )
                 }
+                if (showTabBar && homeTab != null) {
+                    HomeTabBar(
+                        selection = homeTab,
+                        onSelect = { tab ->
+                            drawerOpen = false
+                            nav = nav.selectHomeTab(tab)
+                        },
+                    )
+                }
             }
             if (note != null && statusBarTop > 0.dp) {
                 // The consumed status-bar strip: the same ink as the note bar, so
@@ -1515,11 +1549,6 @@ internal fun HostShell(
                             HomeDrawerArchiveResult.Archived(request.requestId, request.sessionId)
                         } else HomeDrawerArchiveResult.Failed(request.requestId, request.sessionId, "归档未确认，原会话仍保留")
                         result
-                    },
-                    onOpenSettings = {
-                        drawerOpen = false
-                        probeOpen = false
-                        nav = PdshNavState(listOf(PdshRoute.Chat, PdshRoute.Settings))
                     },
                 )
             }
@@ -1709,6 +1738,9 @@ private fun actionLabel(action: PdshHostAction): String = when (action) {
     is PdshHostAction.AndroidAdbSave -> "保存 Android ADB"
     is PdshHostAction.AndroidAdbCheck -> "测试 Android ADB 连接"
     PdshHostAction.AndroidAdbCancel -> "停止当前 Android 操作"
+    is PdshHostAction.TonoAccountRequestCode -> "获取 Tono 验证码"
+    is PdshHostAction.TonoAccountSignIn -> "登录 Tono 账号"
+    PdshHostAction.TonoAccountSignOut -> "退出 Tono 账号"
     is PdshHostAction.SaveMcpServer -> "保存 MCP 服务器"
     PdshHostAction.StopRuntime -> "停止本地引擎"
     PdshHostAction.RestartRuntime -> "启动本地引擎"
@@ -1759,6 +1791,7 @@ private fun hostRouteNote(route: PdshRoute): String? = when (route) {
     PdshRoute.Bluetooth -> null
     PdshRoute.Ssh, is PdshRoute.SshEditor -> null
     PdshRoute.AndroidAdb -> null
+    PdshRoute.TonoAccount -> null
 
     PdshRoute.Configuration -> null
     PdshRoute.Automation -> null
@@ -1842,6 +1875,10 @@ private fun hostRouteNote(route: PdshRoute): String? = when (route) {
     -> null
 
     PdshRoute.Home, PdshRoute.Settings, PdshRoute.Runtime, PdshRoute.WebSurface -> null
+
+    // PR #60's 我的 / 设置 / 发现: the settings pages print their own read states as
+    // the sheet does, and 发现 is a fixed list of entries into pages that do.
+    PdshRoute.MeTab, PdshRoute.SettingsMore, PdshRoute.Discover -> null
 }
 
 /** The person-facing name of one settings write the host cannot persist. */

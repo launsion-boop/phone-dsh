@@ -40,6 +40,19 @@ internal sealed interface WebSearchLaunchPlan {
             independentKey: () -> ApiKeyState,
             proxyRequested: Boolean,
             official: () -> OfficialWebSearchLaunch?,
+        ): WebSearchLaunchPlan = resolve(settings, independentKey, proxyRequested, { false }, official)
+
+        /**
+         * As above, plus [accountCovers]: true when a signed-in tono account stands in
+         * for the key at this canonical base (`spec/v1/tono-account.md` §4, the cloud
+         * origin only).
+         */
+        fun resolve(
+            settings: WebSearchSettingsRead,
+            independentKey: () -> ApiKeyState,
+            proxyRequested: Boolean,
+            accountCovers: (String) -> Boolean,
+            official: () -> OfficialWebSearchLaunch?,
         ): WebSearchLaunchPlan {
             val stored = when (settings) {
                 WebSearchSettingsRead.Absent -> null
@@ -52,6 +65,7 @@ internal sealed interface WebSearchLaunchPlan {
             if (!proxyRequested) return Off(NO_HOST_EDGE)
             val base = stored.baseUrl.takeIf { IndependentSearchWebTools.canonicalBase(it) == it }
                 ?: return Off(NO_ADDRESS)
+            if (accountCovers(base)) return Independent(base)
             return when (independentKey()) {
                 is ApiKeyState.Valid -> Independent(base)
                 ApiKeyState.Absent -> Off(NO_KEY)

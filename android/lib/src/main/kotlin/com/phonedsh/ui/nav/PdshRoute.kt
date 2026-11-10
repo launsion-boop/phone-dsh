@@ -100,6 +100,25 @@ public sealed interface PdshRoute {
         override val presentation: PdshPresentation = PdshPresentation.SHEET
     }
 
+    /**
+     * 我的: the bottom menu's settings tab (`SettingsPage(isTab: true)`,
+     * `NativeShell.swift:234-239`). A first-level page like [Chat]: no back, and the
+     * bottom menu stays under it.
+     */
+    public data object MeTab : PdshRoute {
+        override val presentation: PdshPresentation = PdshPresentation.FULLSCREEN
+    }
+
+    /** 我的 › 设置: everything the tab leaves out (`SettingsPage(mode: .more)`); push. */
+    public data object SettingsMore : PdshRoute {
+        override val presentation: PdshPresentation = PdshPresentation.PUSH
+    }
+
+    /** 发现: the bottom menu's connectors tab (`ConnectorsPage`); first-level like [MeTab]. */
+    public data object Discover : PdshRoute {
+        override val presentation: PdshPresentation = PdshPresentation.FULLSCREEN
+    }
+
     /** 设置首行; §1: sheet. */
     public data object ModelProvider : PdshRoute {
         override val presentation: PdshPresentation = PdshPresentation.SHEET
@@ -136,6 +155,11 @@ public sealed interface PdshRoute {
 
     /** 设置行「Android ADB」; §1: push. The android_* tools' saved target (native-mcp.md). */
     public data object AndroidAdb : PdshRoute {
+        override val presentation: PdshPresentation = PdshPresentation.PUSH
+    }
+
+    /** 设置行「Tono 账号」; §1: push. SMS sign-in for the cloud service (tono-account.md). */
+    public data object TonoAccount : PdshRoute {
         override val presentation: PdshPresentation = PdshPresentation.PUSH
     }
 
@@ -465,12 +489,15 @@ public object PdshSettingsRows {
         SettingsDestination.SSH -> PdshRoute.Ssh
         SettingsDestination.BLUETOOTH -> PdshRoute.Bluetooth
         SettingsDestination.ANDROID_ADB -> PdshRoute.AndroidAdb
+        SettingsDestination.TONO_ACCOUNT -> PdshRoute.TonoAccount
         SettingsDestination.EGRESS -> PdshRoute.Egress
         SettingsDestination.PLUGIN_CONFIGURATION -> PdshRoute.Configuration
         SettingsDestination.COMMAND -> PdshRoute.Tools
         SettingsDestination.RUNTIME_DETAILS -> PdshRoute.Runtime
         SettingsDestination.EXPORT_DIAGNOSTICS -> PdshRoute.Export
         SettingsDestination.SHORTCUTS -> PdshRoute.Shortcuts
+        SettingsDestination.SCHEDULES -> PdshRoute.Automation
+        SettingsDestination.MORE_SETTINGS -> PdshRoute.SettingsMore
         SettingsDestination.PERMISSION_DEFAULTS,
         SettingsDestination.LICENSES,
         SettingsDestination.ABOUT,

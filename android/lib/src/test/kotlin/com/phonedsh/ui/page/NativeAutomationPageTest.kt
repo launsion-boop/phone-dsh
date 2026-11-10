@@ -257,7 +257,7 @@ class NativeAutomationPageTest {
         ).assertIsDisplayed()
     }
 
-    /** The bar of the iOS page: ✕, 刷新 leading and 新建 trailing, plus the large title. */
+    /** The bar of the iOS page: 刷新 and 新建 leading, 完成 trailing, plus the large title. */
     @Test
     fun `the catalog draws the iOS bar and the large title`() {
         val state = AutomationScreenState.from(
@@ -279,6 +279,7 @@ class NativeAutomationPageTest {
         compose.onNodeWithTag(UiPageTags.AUTOMATION_NEW).performClick()
         assertEquals(1, created)
         compose.onNodeWithTag(UiPageTags.AUTOMATION_BACK).assertIsDisplayed()
+        compose.onNodeWithText(UiStrings.SETTINGS_DONE).assertIsDisplayed()
     }
 
     @Test

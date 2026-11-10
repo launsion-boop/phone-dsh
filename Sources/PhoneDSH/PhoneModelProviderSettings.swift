@@ -434,6 +434,10 @@ public struct ModelProviderCredentialProvider: CredentialProvider, Sendable {
     private let credentialRef: String
     private let secrets: any ModelProviderSecretStore
     private let anonymousHosts: Set<String>
+    /// spec/v1/tono-account.md §4: set only when the configured endpoint is
+    /// the cloud origin. While it reports a session, its access token replaces
+    /// the stored key on the same header; signed out, the key path is unchanged.
+    private let accountTokens: (any TonoAccessTokenSource)?
     /// True only for the deprecated initializer shape without a parsed model
     /// endpoint. Production always supplies `modelEndpoint`, so its provider
     /// has no host-only fallback that could re-open the MCP path leak.
@@ -448,7 +452,10 @@ public struct ModelProviderCredentialProvider: CredentialProvider, Sendable {
                 credentialRef: String,
                 secretStore: any ModelProviderSecretStore,
                 egressAllowHosts: Set<String>,
-                modelEndpoint: URL? = nil) {
+                modelEndpoint: URL? = nil,
+                accountTokens: (any TonoAccessTokenSource)? = nil) {
+        self.accountTokens = modelEndpoint.map(TonoCloudResponsePolicy.production.applies(to:)) == true
+            ? accountTokens : nil
         self.modelOrigin = modelEndpoint.flatMap(ModelProviderEndpointOrigin.init)
         self.modelHost = self.modelOrigin?.host
             ?? ModelProviderCredentialProvider.bareHost(modelHost)
@@ -467,7 +474,7 @@ public struct ModelProviderCredentialProvider: CredentialProvider, Sendable {
             // initializer. A provider built from a configured endpoint must
             // never release the model key without a proven path and origin.
             if scope.audience == nil, scope.scheme == nil, scope.port == nil {
-                return allowsLegacyHostOnlyLookup ? try modelCredential() : Credential.none
+                return allowsLegacyHostOnlyLookup ? try await modelCredential() : Credential.none
             }
             let originMatches = modelOrigin?.matches(scope) ?? true
             guard let audience = scope.audience,
@@ -478,7 +485,7 @@ public struct ModelProviderCredentialProvider: CredentialProvider, Sendable {
                 // turn a same-host MCP/other path into a model-key request.
                 return Credential.none
             }
-            return try modelCredential()
+            return try await modelCredential()
         }
         if anonymousHosts.contains(where: { Self.entryAdmits($0, host: host) }) {
             return Credential.none
@@ -486,9 +493,25 @@ public struct ModelProviderCredentialProvider: CredentialProvider, Sendable {
         throw ProviderError.unauthorized("host \(scope.service) is not on the configured allow-list")
     }
 
-    public func invalidate(_ credential: Credential, for scope: CredentialScope) async {}
+    public func invalidate(_ credential: Credential, for scope: CredentialScope) async {
+        guard let accountTokens, !credential.value.isEmpty,
+              Self.bareHost(scope.service) == modelHost else { return }
+        // The source ignores any value that is not its current access token,
+        // so an API key or an older token never triggers a refresh.
+        await accountTokens.invalidate(accessToken: credential.value)
+    }
 
-    private func modelCredential() throws -> Credential {
+    private func modelCredential() async throws -> Credential {
+        if let accountTokens {
+            let token: String?
+            do {
+                token = try await accountTokens.accessToken()
+            } catch {
+                // Signed in but no token: fail closed, never the shared key.
+                throw ProviderError.unauthorized("the tono account session has no usable access token")
+            }
+            if let token { return Credential(kind: .apiKey(header: "x-api-key"), value: token) }
+        }
         guard let key = try secrets.secret(for: credentialRef), !key.isEmpty else {
             throw ProviderError.unauthorized("no model API key is configured on this phone")
         }
@@ -538,7 +561,7 @@ public final class PhoneModelProviderSettings {
     /// and Keychain credential instead of a second secret or endpoint.
     public static let searchBaseURLEnvironmentKey = "DEEPSEEK_SEARCH_BASE_URL"
     /// Process-wide store used by the app; tests construct their own.
-    public static let shared = PhoneModelProviderSettings()
+    public static let shared = PhoneModelProviderSettings(accountTokens: TonoAccountSession.shared)
 
     /// Accounts that are no longer referenced by the committed document. A
     /// crash between the document write and the Keychain delete leaves an
@@ -561,13 +584,17 @@ public final class PhoneModelProviderSettings {
     private let defaults: UserDefaults
     private let secrets: any ModelProviderSecretStore
     private let environment: [String: String]
+    /// spec/v1/tono-account.md §4. `nil` keeps the API-key-only behaviour.
+    public let accountTokens: (any TonoAccessTokenSource)?
 
     public init(defaults: UserDefaults = .standard,
                 secretStore: any ModelProviderSecretStore = KeychainModelProviderSecretStore(),
-                environment: [String: String] = ProcessInfo.processInfo.environment) {
+                environment: [String: String] = ProcessInfo.processInfo.environment,
+                accountTokens: (any TonoAccessTokenSource)? = nil) {
         self.defaults = defaults
         self.secrets = secretStore
         self.environment = environment
+        self.accountTokens = accountTokens
     }
 
     /// Read and validate the stored document.
@@ -843,7 +870,8 @@ public final class PhoneModelProviderSettings {
                                                credentialRef: profile.credentialRef,
                                                secretStore: secrets,
                                                egressAllowHosts: egressAllowHosts,
-                                               modelEndpoint: endpoint)
+                                               modelEndpoint: endpoint,
+                                               accountTokens: accountTokens)
     }
 
     public static let officialDeepSeekWebBaseURL = "https://api.deepseek.com/v1/tools"
