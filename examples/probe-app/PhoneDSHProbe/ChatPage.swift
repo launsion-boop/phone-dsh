@@ -374,6 +374,9 @@ struct ChatPage: View {
             // A failure that belongs to one message is rendered under it; every
             // other failure (send refused, session open, stream error) needed a
             // surface too — it used to be invisible on this page.
+            if let recovery = model.recoveryBannerText {
+                recoveryBanner(recovery)
+            }
             if model.failedItemID == nil, let error = model.userFacingError {
                 errorBanner(error)
             }
@@ -697,6 +700,13 @@ struct ChatPage: View {
             // top of the transcript.
             nearBottom = true
             userScrolledAway = false
+            // A new session can be shorter than the previous one. Keeping the
+            // old content height made `scrollToTail` believe the transcript
+            // still overflowed and scroll the LazyVStack before the new rows
+            // laid out, leaving the page blank until a manual drag. Drop the
+            // measurements so the first height callback owns the initial jump.
+            scrollTrace.contentHeight = 0
+            scrollTrace.tailOffsetY = 0
             pendingInitialScroll = true
             Task { await management.refresh() }
         }
@@ -1044,6 +1054,33 @@ struct ChatPage: View {
         }
     }
 
+    /// One compact tips pill at the top of the chat. The previous recovery UI
+    /// stacked a spinner row, a banner and a separate queued hint, so the top
+    /// of the page shifted and its baseline never lined up. The hint is part of
+    /// the same line now; the progress mark and text share one baseline.
+    private func recoveryBanner(_ message: String) -> some View {
+        HStack(spacing: 7) {
+            ProgressView()
+                .controlSize(.mini)
+                .tint(HomeSpec.textSecondary)
+            Text(ChatResumeRecovery.recoveryTip(
+                message: message,
+                hint: model.recoveryQueuedHint))
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(HomeSpec.textSecondary)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(HomeSpec.userBubble, in: Capsule())
+        .overlay(Capsule().strokeBorder(HomeSpec.borderList, lineWidth: 0.5))
+        .padding(.horizontal, HomeSpec.contentInset)
+        .padding(.top, 6)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("chat.recovery-tip")
+    }
+
     private func errorBanner(_ message: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             Text(message)
@@ -1311,6 +1348,14 @@ struct ChatPage: View {
                     nearBottom = true
                     scrollToTail(proxy, viewportHeight: viewport.size.height)
                 }
+                .onChange(of: model.isShowingCachedTranscript) { _, showing in
+                    // The cached transcript and the engine transcript have
+                    // different heights; the replacement must anchor again.
+                    guard showing == false, !visibleItems.isEmpty else { return }
+                    pendingInitialScroll = true
+                    scrollTrace.contentHeight = 0
+                    scrollTrace.tailOffsetY = 0
+                }
                 .onChange(of: scrollToLatestTrigger) { _, _ in
                     nearBottom = true
                     userScrolledAway = false
@@ -1372,8 +1417,10 @@ struct ChatPage: View {
     /// overshoots into empty space (the blank page). The last row is a real,
     /// laid-out frame; the lazy tail anchor can be scrolled past its estimate.
     private func scrollToTail(_ proxy: ScrollViewProxy, viewportHeight: CGFloat) {
-        guard scrollTrace.contentHeight.isFinite, viewportHeight.isFinite,
-              scrollTrace.contentHeight > viewportHeight + 1 else { return }
+        guard ChatTranscriptTailPolicy.shouldScrollToTail(
+            contentHeight: scrollTrace.contentHeight,
+            viewportHeight: viewportHeight,
+            hasRows: !timelineRows.isEmpty) else { return }
         // The last row may be a folded tool-run group, not the last message;
         // scroll to the row that is actually last.
         if let last = timelineRows.last?.scrollTargetID {
@@ -1409,6 +1456,23 @@ struct ChatPage: View {
         pendingInitialScroll = false
         nearBottom = true
         scrollToTail(proxy, viewportHeight: viewportHeight)
+        // Lazy rows can report their estimated height first. A second pass
+        // after that layout settles lands on the real last row instead of a
+        // blank band below the content.
+        scheduleInitialTailSettle(proxy, viewportHeight: viewportHeight)
+    }
+
+    /// One deferred second scroll after the initial height report. It is
+    /// cancelled by the next follow scroll, so ordinary streaming keeps the
+    /// single debounced path.
+    private func scheduleInitialTailSettle(_ proxy: ScrollViewProxy,
+                                           viewportHeight: CGFloat) {
+        tailScrollTask?.cancel()
+        tailScrollTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(40))
+            guard !Task.isCancelled, followsTail else { return }
+            scrollToTail(proxy, viewportHeight: viewportHeight)
+        }
     }
 
     /// Publishes only real near/follow transitions. The geometry callback runs
@@ -1439,6 +1503,12 @@ struct ChatPage: View {
         }
     }
 
+    /// Whole points for the scroll trace. `Int(_:)` traps on NaN or infinity, which a geometry value
+    /// can be before layout settles; the trace must never crash a streaming turn.
+    static func traceValue(_ value: CGFloat) -> String {
+        value.isFinite && abs(value) < 1e12 ? String(Int(value.rounded())) : String(describing: value)
+    }
+
     /// Follow the tail after the next layout pass.
     ///
     /// Sending a message appends a row and, in the same update, this view asks
@@ -1465,8 +1535,8 @@ struct ChatPage: View {
                     return Int(value.rounded())
                 }
                 ChatModel.appendDiagnostic(
-                    "scroll tail content=\(integer(scrollTrace.contentHeight)) viewport=\(integer(viewportHeight)) "
-                    + "tail=\(integer(scrollTrace.tailOffsetY)) near=\(nearBottom) away=\(userScrolledAway)")
+                    "scroll tail content=\(Self.traceValue(scrollTrace.contentHeight)) viewport=\(Self.traceValue(viewportHeight)) "
+                    + "tail=\(Self.traceValue(scrollTrace.tailOffsetY)) near=\(nearBottom) away=\(userScrolledAway)")
             }
             model.flushStreamingText()
             scrollToTail(proxy, viewportHeight: viewportHeight)
@@ -2658,6 +2728,10 @@ struct ChatPage: View {
 
     private var composerEnabled: Bool {
         guard model.pendingQuestion == nil, model.pendingPermission == nil, !isSelectingAccessMode else { return false }
+        // During a resume/rebuild the send is queued and delivered afterwards;
+        // the composer must not refuse the person mid-recovery, even if the
+        // stale pre-park turn flag is still set until the resume reconciles it.
+        if model.isHostRecovering { return model.canQueuePromptDuringRecovery }
         if model.turnRunning { return busyEnterMode == "steer" ? model.canSteer : model.canSend }
         return model.canSend || model.canStartBySending
     }

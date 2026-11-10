@@ -6,6 +6,15 @@ import PhoneDSHAgentCore
 
 @MainActor @Observable public final class BLEDeviceStore: NSObject, @preconcurrency CBCentralManagerDelegate, @preconcurrency CBPeripheralDelegate {
     public static let shared = BLEDeviceStore()
+    /// When true (the app sets it), a board the user connected is trusted: its Link tools and
+    /// standard read/alert are allowed by default and only the user's revocations are stored
+    /// (BLEDeviceTrustMemory). Off by default so the library keeps explicit per-connection grants.
+    @ObservationIgnored public var trustConnectedDevices = false
+    @ObservationIgnored public var trustMemory = BLEDeviceTrustMemory()
+    /// Boards to reconnect when they show up (remembered boards after launch).
+    @ObservationIgnored private var autoConnectIDs = Set<UUID>()
+    /// Known boards that bypass the 100-entry discovery cap.
+    @ObservationIgnored private var priorityIDs = Set<UUID>()
     static func isReservedTaskTool(_ name: String) -> Bool { name.hasPrefix("pdsh.task.") || name.hasPrefix("pdsh.identity.") }
     public struct Device: Identifiable {
         public let id: UUID
@@ -338,6 +347,7 @@ import PhoneDSHAgentCore
         #else
         central?.scanForPeripherals(withServices: nil, options: [CBCentralManagerScanOptionAllowDuplicatesKey: false])
         #endif
+        surfaceKnownPeripherals()
         publishScanning(true, intent)
         guard scanIntent === intent else { return }
         guard poweredOn else { observeManagerUnavailable(); return }
@@ -397,7 +407,13 @@ import PhoneDSHAgentCore
         }
     }
     private func recordDiscovery(_ id: UUID, physical: AnyObject, name: String, rssi: Int) {
-        guard peripherals[id] != nil || devices.contains(where: { $0.id == id }) || devices.count < 100 else { return }
+        guard peripherals[id] != nil || devices.contains(where: { $0.id == id }) || devices.count < 100 || priorityIDs.contains(id) else { return }
+        defer {
+            if autoConnectIDs.contains(id), owner(id).phase == .idle {
+                autoConnectIDs.remove(id)
+                Task { @MainActor [weak self] in self?.connect(id) }
+            }
+        }
         #if DEBUG
         if let testAdapter, let peer = physical as? NSObject { testAdapter.validPeers[id] = peer }
         else if let peripheral = physical as? CBPeripheral { peripherals[id] = peripheral }
@@ -408,7 +424,7 @@ import PhoneDSHAgentCore
             update(id) { $0.rssi = rssi; $0.name = name }
         } else {
             withMutation(keyPath: \.devices) {
-                guard !_devices.contains(where: { $0.id == id }), _devices.count < 100 else { return }
+                guard !_devices.contains(where: { $0.id == id }), _devices.count < 100 || priorityIDs.contains(id) else { return }
                 _devices.append(Device(id: id, name: name, rssi: rssi))
             }
         }
@@ -419,6 +435,38 @@ import PhoneDSHAgentCore
         let name = advertisedName.flatMap { $0.isEmpty ? nil : $0 } ?? peripheral.name ?? "未命名 BLE 设备"
         recordDiscovery(peripheral.identifier, physical: peripheral, name: name, rssi: RSSI.intValue)
     }
+    /// A board already connected to iOS (for example over HID) is not reported by a scan, and a
+    /// remembered board may not advertise; list both like discovered devices.
+    private func surfaceKnownPeripherals() {
+        #if DEBUG
+        if testAdapter != nil { return }
+        #endif
+        guard let central else { return }
+        let connected = central.retrieveConnectedPeripherals(withServices: [CBUUID(string: PDSHLink.service)])
+        let remembered = trustConnectedDevices ? central.retrievePeripherals(withIdentifiers: trustMemory.rememberedBoards()) : []
+        var seen = Set<UUID>()
+        for peripheral in connected + remembered where seen.insert(peripheral.identifier).inserted {
+            priorityIDs.insert(peripheral.identifier)
+            recordDiscovery(peripheral.identifier, physical: peripheral, name: peripheral.name ?? "PDSH 设备", rssi: 0)
+        }
+    }
+
+    /// Reconnects the boards the user connected before (nothing when there are none, so a first
+    /// launch never triggers the Bluetooth permission prompt).
+    public func reconnectRemembered() {
+        let boards = trustMemory.rememberedBoards()
+        guard trustConnectedDevices, !boards.isEmpty else { return }
+        autoConnectIDs.formUnion(boards)
+        scan()
+    }
+
+    /// The user's own "disconnect": stop reconnecting this board, then disconnect it.
+    public func forgetAndDisconnect(_ id: UUID) {
+        trustMemory.forgetBoard(id)
+        autoConnectIDs.remove(id)
+        disconnect(id)
+    }
+
     public func connect(_ id: UUID) {
         guard poweredOn, devices.contains(where: { $0.id == id }) else { return }
         let old = owner(id)
@@ -500,7 +548,14 @@ import PhoneDSHAgentCore
         close(id, current: current, outcome: .disconnected, quarantine: current.phase == .connecting)
     }
     public func grant(_ id: UUID, read: Bool? = nil, alert: Bool? = nil) {
+        grant(id, read: read, alert: alert, recordDecision: true)
+    }
+    private func grant(_ id: UUID, read: Bool?, alert: Bool?, recordDecision: Bool) {
         guard devices.contains(where: { $0.id == id }) else { return }
+        if recordDecision, trustConnectedDevices {
+            if let read { trustMemory.setRevoked("@read", !read, for: id.uuidString) }
+            if let alert { trustMemory.setRevoked("@alert", !alert, for: id.uuidString) }
+        }
         let current = owner(id)
         if let pending, pending.device == id, pending.owner === current {
             close(id, current: current, outcome: .permission, quarantine: current.phase == .connecting)
@@ -784,6 +839,25 @@ import PhoneDSHAgentCore
         guard let current = acceptDelegatePeer(id, physical: peripheral) else { return }
         disconnectCallback(id, current: current)
         scheduleDisconnectBoundary(id, current: current)
+        scheduleRememberedReconnect(id)
+    }
+
+    /// A remembered board that dropped (rebooted, out of range) is reconnected after the
+    /// disconnect callback has completely returned (never inside it, ble-link.md), through the
+    /// ordinary connect path. A board the user disconnected is no longer remembered.
+    private func scheduleRememberedReconnect(_ id: UUID) {
+        guard trustConnectedDevices, trustMemory.rememberedBoards().contains(id) else { return }
+        Task { @MainActor [weak self] in
+            for _ in 0..<20 {
+                try? await Task.sleep(for: .seconds(3))
+                guard let self, self.poweredOn, self.trustMemory.rememberedBoards().contains(id) else { return }
+                if self.owner(id).phase == .idle {
+                    if let peripheral = self.peripherals[id], peripheral.state == .disconnected { self.connect(id) }
+                    else { self.autoConnectIDs.insert(id); self.scan() }
+                }
+                if self.owner(id).phase != .idle { return }
+            }
+        }
     }
 
     private func connected(_ id: UUID, peripheral: CBPeripheral?) {
@@ -1046,6 +1120,13 @@ import PhoneDSHAgentCore
             guard self.discoveryCurrent(id, current, ledger), ledger.revision === revision else { return }
             self.characteristics[id] = selected.mapValues { $0.object }
             $0.profiles = result
+        }
+        if trustConnectedDevices, !result.isEmpty {
+            // Same path as the user's switch, so grant ordering rules still apply.
+            let revoked = trustMemory.revoked(for: id.uuidString)
+            Task { @MainActor [weak self] in
+                self?.grant(id, read: !revoked.contains("@read"), alert: !revoked.contains("@alert"), recordDecision: false)
+            }
         }
     }
     private func installDiscoveredLink(_ id: UUID, current: Owner, ledger: DiscoveryLedger,
@@ -2036,6 +2117,11 @@ import PhoneDSHAgentCore
         installIdentityClient(id, current: current, client: client, isCurrent: isCurrent) {
             $0.linkIdentity = deviceID.lowercased(); $0.linkTools = names.filter { !Self.isReservedTaskTool($0) }
             $0.linkToolDescriptors = ordinaryTools; $0.linkState += " · PDSH Tools v1"
+            if self.trustConnectedDevices {
+                // Connecting is the trust decision: every advertised tool except the user's revocations.
+                $0.grantedTools = Set($0.linkTools).subtracting(self.trustMemory.revoked(for: deviceID))
+                self.trustMemory.rememberBoard(id, name: $0.name)
+            }
         }
     }
     public func grantLinkTool(_ id: UUID, name: String, enabled: Bool) {
@@ -2050,7 +2136,14 @@ import PhoneDSHAgentCore
         }
         // These are host control-plane operations, never model device skills.
         guard !Self.isReservedTaskTool(name) else { return }
-        update(id) { guard self.owners[id] === current, current.phase == .connected else { return }; if enabled && $0.linkTools.contains(name) { $0.grantedTools.insert(name) } else { $0.grantedTools.remove(name) } }
+        update(id) {
+            guard self.owners[id] === current, current.phase == .connected else { return }
+            let allowed = enabled && $0.linkTools.contains(name)
+            if allowed { $0.grantedTools.insert(name) } else { $0.grantedTools.remove(name) }
+            if self.trustConnectedDevices, !$0.linkIdentity.isEmpty {
+                self.trustMemory.setRevoked(name, !allowed, for: $0.linkIdentity)
+            }
+        }
     }
 
     private struct IdentityContext {

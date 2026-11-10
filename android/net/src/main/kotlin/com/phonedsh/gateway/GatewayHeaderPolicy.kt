@@ -32,8 +32,14 @@ object GatewayRequestHeaders {
         "authorization", "proxy-authorization", "x-pdsh-upstream-authorization",
     )
 
-    fun isDropped(name: String): Boolean =
-        name in DROPPED || name.startsWith("x-pdsh-")
+    /** The tool-journal key; it alone survives, and only to a loopback target (§3). */
+    const val JOURNAL_KEY = "x-pdsh-idempotency-key"
+
+    fun isLoopbackHost(host: String?): Boolean =
+        host != null && host.lowercase().trim('[', ']') in setOf("127.0.0.1", "::1", "localhost")
+
+    fun isDropped(name: String, targetHost: String? = null): Boolean =
+        name in DROPPED || (name.startsWith("x-pdsh-") && !(name == JOURNAL_KEY && isLoopbackHost(targetHost)))
 }
 
 /** What one request-header pass produced. */
@@ -48,12 +54,13 @@ data class SanitizedRequestHeaders(
 )
 
 interface RequestHeaderSanitizer {
-    fun sanitize(callerHeaders: Map<String, String>): SanitizedRequestHeaders
+    /** [targetHost] is the upstream host; only a loopback target keeps the journal key. */
+    fun sanitize(callerHeaders: Map<String, String>, targetHost: String? = null): SanitizedRequestHeaders
 }
 
 /** The real rule: denylist by name, placeholder by value, credential last. */
 class DenylistRequestHeaderSanitizer : RequestHeaderSanitizer {
-    override fun sanitize(callerHeaders: Map<String, String>): SanitizedRequestHeaders {
+    override fun sanitize(callerHeaders: Map<String, String>, targetHost: String?): SanitizedRequestHeaders {
         val outbound = LinkedHashMap<String, String>()
         val stripped = ArrayList<String>()
         var placeholderSeen = false
@@ -62,7 +69,7 @@ class DenylistRequestHeaderSanitizer : RequestHeaderSanitizer {
             val name = rawName.lowercase()
             val isWorkerCredential = name in GatewayRequestHeaders.WORKER_CREDENTIAL_HEADERS
             if (isWorkerCredential) workerCredentialsDropped = 1
-            if (GatewayRequestHeaders.isDropped(name)) {
+            if (GatewayRequestHeaders.isDropped(name, targetHost)) {
                 stripped.add(name)
                 continue
             }

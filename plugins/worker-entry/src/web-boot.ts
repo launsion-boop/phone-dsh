@@ -464,6 +464,32 @@ export function showBootFailure(reason: unknown): void {
 }
 
 /**
+ * Emit one page boot phase through the existing console bridge.
+ *
+ * The native observability bridge already forwards console lines; adding a
+ * channel frame or a boot-status field would be a protocol change. The line is
+ * intentionally short, bounded (fixed phase tokens) and carries no URL, token
+ * or environment value.
+ * @param phase - fixed phase token.
+ */
+function logBootPhase(phase: string): void {
+  if (typeof console === 'undefined') return
+  let active = 0
+  try {
+    if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
+      active = performance.now()
+    }
+  } catch {
+    active = 0
+  }
+  try {
+    console.info(`pdsh-boot-phase scope=page phase=${phase} active_ms=${String(Math.max(0, Math.round(active)))}`)
+  } catch {
+    // Observability must never fail the boot.
+  }
+}
+
+/**
  * Spawn the phone Worker, complete the tunnel handshake and release the page.
  *
  * Order is the boot protocol: install the readiness deferred before the first
@@ -485,6 +511,7 @@ export function showBootFailure(reason: unknown): void {
  * @throws a new Error carrying only the redacted failure detail.
  */
 export async function connectWebWorker(options: WebBootOptions = {}): Promise<void> {
+  logBootPhase('page-start')
   // Apply the native page preference before the first await: the client entry
   // constructs `InstallController` only after this boot resolves, so the
   // official dismissal key is in place before the banner decides to render.
@@ -536,6 +563,7 @@ export async function connectWebWorker(options: WebBootOptions = {}): Promise<vo
     })()
     const worker = options.worker
       ?? new Worker(new URL('../worker-entry.js', import.meta.url), { type: 'module' })
+    logBootPhase('worker-spawned')
     // Install the filter before WorkerTunnel: it sees every frame first, lets
     // the tunnel's response/stream types through, and stops everything else.
     // It must stay attached after boot succeeds: the Worker posts {t:'pdsh-ready'}
@@ -594,6 +622,7 @@ export async function connectWebWorker(options: WebBootOptions = {}): Promise<vo
     }
     const boot = async (): Promise<void> => {
       const payload = await tunnel.bootPayload()
+      logBootPhase('boot-payload')
       assertBootActive()
       installTunnelTransport(tunnel)
       if (options.applyInjections === undefined) {
@@ -601,14 +630,17 @@ export async function connectWebWorker(options: WebBootOptions = {}): Promise<vo
       } else {
         await options.applyInjections(payload.injections, loadBootBundle)
       }
+      logBootPhase('injections-applied')
       // Native boot completion and the page gate must describe the same state:
       // publish the signal only after every injection row applied.
       assertBootActive()
       announceNativeBootReady()
+      logBootPhase('ready')
       ready.resolve()
     }
     await Promise.race([boot(), workerFailure.promise, deadline])
   } catch (reason) {
+    logBootPhase('failed')
     // A failed boot must also stop any injection still awaiting a bundle.
     abortBoot(reason)
     const failure = bootFailureError(reason, secrets)

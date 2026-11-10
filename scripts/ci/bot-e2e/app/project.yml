@@ -46,6 +46,7 @@ targets:
       - path: ../../../../Tests/PhoneDSHBotTests/MCP/BotMCPTestSupport.swift
       - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotProductionServices.swift
       - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotRuntimeComposition.swift
+      - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotMCPListenerSupervisor.swift
       - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotRuntimeUnit.swift
       - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotRuntimeState.swift
       - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotProfileStorage.swift

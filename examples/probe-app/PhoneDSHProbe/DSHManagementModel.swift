@@ -92,7 +92,16 @@ final class DSHManagementModel {
 
     private let chatProvider: @MainActor () -> ChatModel
 
-    init(chat: @escaping @MainActor () -> ChatModel = { ChatModel.shared }) {
+    /// The phone singleton restores the latest phone snapshot before its first
+    /// paint. A per-backend instance (D2 PC) is created through `init(chat:)`
+    /// and starts empty: the snapshot cache is phone state today (see the P18
+    /// note on `cachedSnapshotKey`).
+    private init() {
+        self.chatProvider = { ChatModel.shared }
+        restoreCachedSnapshot()
+    }
+
+    init(chat: @escaping @MainActor () -> ChatModel) {
         self.chatProvider = chat
     }
 
@@ -140,6 +149,15 @@ final class DSHManagementModel {
     private var transport: (any DSHRemoteTransport)?
     private var workspaceMux: (any DSHMuxConnection)?
     private var workspaceTask: Task<Void, Never>?
+    /// Last successful `session/list` projection, restored on launch and after
+    /// a park so the drawer and the chat title never wait for the engine.
+    ///
+    /// P18 follow-up (reported, not changed here): this key is not yet
+    /// backend-scoped. It is phone state and a PC `DSHManagementModel` must not
+    /// read or write it until it moves under `WorkspaceStorageKeys` with a
+    /// `(BackendID)` suffix. It is a session-list cache, so the scope is the
+    /// backend, not `(BackendID, sessionID)`.
+    private static let cachedSnapshotKey = "dsh.management.sessionSnapshot.v1"
 
     var activeSessions: [ManagedSession] { sessions.filter { !archivedIDs.contains($0.id) } }
     var archivedSessions: [ManagedSession] { sessions.filter { archivedIDs.contains($0.id) } }
@@ -226,8 +244,16 @@ final class DSHManagementModel {
         #endif
         guard !isLoading else { return }
         guard chat.isStarted else {
-            sessions = []
-            archivedIDs = []
+            // The engine is booting/rebuilding: keep the last phone snapshot
+            // visible (the title row and drawer render from it) instead of
+            // blanking. A PC backend has no local Worker to wait for and its
+            // list must never be filled from the phone's cache.
+            if backendID == .phone {
+                restoreCachedSnapshot()
+            } else {
+                sessions = []
+                archivedIDs = []
+            }
             error = nil
             return
         }
@@ -271,10 +297,64 @@ final class DSHManagementModel {
                !workspaces.contains(where: { $0.id == stored }) {
                 WorkspaceStorage.setLastWorkspaceID(nil, for: backendID)
             }
+            // The phone snapshot cache is not backend-scoped yet (P18 report
+            // item); only the phone backend may read or write it.
+            if backendID == .phone {
+                persistCachedSnapshot()
+            }
             error = nil
         } catch {
+            // A failed refresh is not a reason to erase the usable snapshot;
+            // the next successful engine answer replaces it.
+            if backendID == .phone, sessions.isEmpty { restoreCachedSnapshot() }
             self.error = error.localizedDescription
         }
+    }
+
+    /// Restores the last successful session/list projection. Safe to call
+    /// repeatedly; an empty or corrupt snapshot leaves the live values alone.
+    private func restoreCachedSnapshot() {
+        guard let data = UserDefaults.standard.data(forKey: Self.cachedSnapshotKey),
+              let snapshot = ChatSessionSnapshot.decode(data),
+              snapshot.isEmpty == false else { return }
+        sessions = snapshot.sessions.map { row in
+            ManagedSession(
+                id: row.id, title: row.title,
+                updatedAt: Date(timeIntervalSince1970: row.updatedAtMilliseconds / 1_000),
+                running: row.running, blank: row.blank, cwd: row.cwd,
+                parentSessionID: row.parentSessionID,
+                searchSnippet: row.searchSnippet)
+        }
+        workspaces = snapshot.workspaces.map { row in
+            ManagedWorkspace(id: row.id, title: row.title, path: row.path,
+                             sessionIDs: row.sessionIDs)
+        }
+        workspaceOrder = snapshot.workspaceOrder
+        pinnedSessionIDs = snapshot.pinnedSessionIDs
+        archivedIDs = Set(snapshot.archivedIDs)
+    }
+
+    /// Persists the last engine projection only after a successful refresh, so
+    /// a failed call never overwrites good cache with a partial list.
+    private func persistCachedSnapshot() {
+        let snapshot = ChatSessionSnapshot(
+            sessions: sessions.map { row in
+                ChatSessionSnapshot.Session(
+                    id: row.id, title: row.title,
+                    updatedAtMilliseconds: row.updatedAt.timeIntervalSince1970 * 1_000,
+                    running: row.running, blank: row.blank, cwd: row.cwd,
+                    parentSessionID: row.parentSessionID,
+                    searchSnippet: row.searchSnippet)
+            },
+            workspaces: workspaces.map { row in
+                ChatSessionSnapshot.Workspace(id: row.id, title: row.title,
+                                              path: row.path, sessionIDs: row.sessionIDs)
+            },
+            workspaceOrder: workspaceOrder,
+            pinnedSessionIDs: pinnedSessionIDs,
+            archivedIDs: Array(archivedIDs))
+        guard snapshot.isEmpty == false, let data = snapshot.encoded() else { return }
+        UserDefaults.standard.set(data, forKey: Self.cachedSnapshotKey)
     }
 
     func createSession(workspaceID: String? = nil) async -> String? {

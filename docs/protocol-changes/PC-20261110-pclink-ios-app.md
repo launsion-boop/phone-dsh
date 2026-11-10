@@ -611,6 +611,117 @@ Protocol impact: P09; P16; P25; P26; P27; P18: none — #84's new Bot selection/
 
 理由：P09 是頁面契約重生成與 `NativeShell`／`ChatModel` 合併；P16 是 #84 的 `plugins/profile/phone.worker.cordis.patch.yml` `phone-bot` preset；P25／P26／P27 是 #84 的 Bot golden／row／tool surface；P18／P28 經 §4.14.2 檢查後不改契約。
 
+
+### 4.15 合入 main ee7fead7d（#80 resume-reliability、#81 link-key-grants，merge-only）
+
+本輪在 `feat/pclink`（HEAD `ff9fa8996`，已含 #82／#83／#84）上合入 `origin/main` `ee7fead7d`（#80 `fix/resume-reliability` + #81 `fix/link-key-grants`）；merge base 為 `31c0cab730`。兩邊功能都保留：main 的恢復可靠性／Gateway journal key／受信任板子語義，加上 PCLink 的每後端模型（`WorkspaceModels`、`pcRuntime`、`pcOnline`、`startPCModel`、P18 scoped keys）。**只改工作樹，沒有執行寫 `.git` 的 git 命令。**
+
+#### 4.15.1 衝突處置（9 個檔案）
+
+| 檔案 | 兩邊改動 | 合併方式 |
+| --- | --- | --- |
+| `ChatModel.swift` hunk 1 | HEAD：`canSteer` 加 `pcOnline`；#80：新增 `isHostRecovering`／`recoveryBannerText`／`recoveryQueuedHint`／`canQueuePromptDuringRecovery` | 保留 #80 全部恢復屬性；`canSteer` 取並集並保留 `pcOnline`；`canQueuePromptDuringRecovery` 加 `pcRuntime == nil`；`send` 的恢復期入隊也加 `pcRuntime == nil`（PC 沒有本地 Worker 可等）。 |
+| `ChatModel.swift` hunk 2 | HEAD：PC `guard isStarted`／「电脑离线」；本地「Start the host before opening a session」；#80：恢復期排隊切換 + `guard host != nil` | 依參考解 `1746ab5f5` 按後端分支：PC 只檢查 relay 在線，完全不進入 recovery queue／D24 backoff；手機走 #80 的 `shouldQueueSessionSwitch` 排隊與 `引擎还没启动，请稍后重试`。`cancelSessionReload()`、device-session 判斷等自動合併內容全保留。 |
+| `ChatModel.swift` hunk 3 | HEAD：PC scenePhase 只做 `PCLinkClient.foregroundResumed()` 後 return；#80：`appIsActive = phase == .active` | 先更新 `appIsActive`，再 PC early-return；#80 的 `host.setForeground`、resume watchdog、自動重建、Bot listener heal 仍只對本地 Host 執行。背景 keep-alive 判斷保留 HEAD 的 `(turnRunning \|\| botTurnsRunning)`（#84 多 Bot 語義）。 |
+| `ChatModel.swift` 自動合併修正 | HEAD 已刪 `currentSessionDefaultsKey`；#80 `rebuildEngine` 仍裸寫該鍵 | 依參考解改為 `WorkspaceStorage.setCurrentSessionID(desiredSessionID, for: .phone)`，並同步 P18 註釋。`#81` 的 `PhoneNativeMCP.server`／`nativeMCP:` 三處自動合併內容保留。 |
+| `ChatPage.swift` | HEAD：PC 空態 `pcEmptyTimeline`、general 滾動幾何保護；#80：`ChatTranscriptTailPolicy.shouldScrollToTail`、recovery banner、快取 transcript 換頁重錨、`scheduleInitialTailSettle`；#81：`Self.traceValue` | `scrollToTail` 採 #80 純策略；scroll trace 採 #81 的 `traceValue`（同時保留 #80 幾何保護語義）；PC 空態／overlay 保留。`recoveryBanner` PC 恆為 nil，不新增 PC 路徑。 |
+| `DSHManagementModel.swift` | HEAD：per-backend `chat`、P18 工作區校驗、離線清空 sessions/archivedIDs；#80：`ChatModel.shared.isStarted` + snapshot cache | 用 per-backend `chat.isStarted`；離線時手機 `restoreCachedSnapshot()`，PC 清空列表；成功刷新先做 P18 校驗，再僅手機 `persistCachedSnapshot()`；失敗時僅手機 restore。消除 `private init()` 與 default `init(chat:)` 的歧義：手機 singleton 用 `private init()`（`chatProvider = { ChatModel.shared }` + restore），PC 用無預設參數的 `init(chat:)`，不碰 snapshot。 |
+| `PhoneDSHProbeApp.swift` | HEAD：`WorkspaceModels.startAtLaunch()`／DEBUG `PCLinkDebugAutomation`／只在手機段啟動 `ChatModel.shared`；#81：`trustConnectedDevices = true`、`reconnectRemembered()` + 無條件 `ChatModel.shared.start()` | 保留 PCLink 啟動接線與「僅手機段啟動手機引擎」，同時加入 #81 的受信任板子接線；`scenePhase` 兩條路徑（`ChatModel.shared.scenePhaseChanged` + `workspaceModels.scenePhaseChanged(true)`）維持 HEAD。 |
+| `examples/probe-app/project.yml` | HEAD：SimTests/DeviceTests 加 `PCLinkWorkspace.swift`、App/ProbeKit/SimTests link `PhoneDSHPCLink`；#80：兩個測試 target 加 `Bot/BotMCPListenerSupervisor.swift`、link `PhoneDSHBot` | 兩個 source 都保留，兩個 target 同時包含；`PhoneDSHBot`／`PhoneDSHPCLink` 依賴自動合併後兩邊都在。 |
+| `spec/ui/v1/pages/_spec-required.json` | HEAD provenance `3847/3814/262`；#80 `3835/3802/253` | 採 HEAD 結構，按合併後 `ChatPage.swift` 實際行更新為提交回答 `3921`、QuestionCard `3888`、打開會話列表 `262`。 |
+| `spec/ui/v1/pages/chat.json`、`runtime-details.json` | 兩邊各自重生成（PCLink 空態／#80 recovery UI） | 不手拼：解完 Swift 後整體跑 `extract_ios_pages.py --root .`，兩邊新增節點都進入契約。 |
+| `spec/ui/v1/tokens.json` | 兩邊都只是行號搬移（值不變） | 以 #80+#81 的 provenance 為底，按 `ChatPage.swift` 合併後實際行做機械刷新（含 sites 與註記），其他檔案逐檔以合併後工作樹行號校正；`ui_check.py` PASS。 |
+
+#### 4.15.2 #80 對 PC 後端的影響結論
+
+**結論：合併後 #80 的前台恢復／自動重建／會話自動重載／Bot listener 重建／resume 預算都不會對 PC 後端觸發；相關入口均有 PC 分支或 `host` 存在性門控。**
+
+1. `scenePhaseChanged`：先更新 `appIsActive`，PC 在任何 `host.setForeground`／watchdog／自動重建／Bot listener heal 之前 early-return，只呼叫 `PCLinkClient.foregroundResumed()`；`appIsActive` 如實更新但 PC 不讀它。
+2. `send`／`canQueuePromptDuringRecovery`／`openManagedSession`：PC 不進恢復隊列、不排隊切換會話；`openManagedSession` 的 PC 分支只檢查 relay 在線，繞過 D24 backoff。
+3. `start`／`stop`／`restartEngine`：PC 在 `start()` 頂部走 `startPCModel()`，在 `stop()` 頂部走 PC 會話關閉分支；無 failed host 時 `restartEngine()` 回落到 `start()` 仍是 PC 分支。
+4. `parkHost`／`resumeHost`／`resumeWatchdog`／`rebuildEngineAfterResumeFailure`／`rebuildEngineForMCPListenerChange`／`rebuildEngine`／`discardRuntimeForEngineRebuild`：全部要求 `host`，PC 沒有 `PhoneDSHHost`。
+5. `DSHManagementModel.refresh`：改用 per-backend `chat.isStarted`；#80 snapshot cache 只在 `backendID == .phone` 讀寫／恢復，PC 離線仍清空列表。
+6. `ChatPage`：#80 recovery banner／queued hint 由 `isHostRecovering`／`recoveryBannerText` 驅動，PC 恆 false/nil；PCLink 的 `pcEmptyTimeline` 保留。`ChatTranscriptTailPolicy` 是通用滾動策略，不依賴本地 Worker。
+7. #80 的 Gateway／Loopback／Bot MCP／WebEngine 改動只在手機本地 Host 鏈路；PC 走 `PCWorkspaceBackend` + relay transport，不經過這些本地 loopback/gateway 實例。#81 的 `PhoneNativeMCP` 是手機端 native MCP 單例，PC 不引用。
+
+#### 4.15.3 #81 自動合併檔案複核
+
+#81 的 37 個檔案中，除 `ChatPage.swift`（`traceValue`）與 `PhoneDSHProbeApp.swift`（受信任板子接線）已在 §4.15.1 合併外，其餘均由 git 自動合併且無衝突標記。本輪逐項核對語義：
+
+- `Sources/PhoneDSHBLE/BLEDeviceStore.swift`、`BLEDeviceTrustMemory.swift`、`DeviceMCPServer.swift`、`PDSHLink.swift`、`TonoLinkPhoneHands.swift`：`trustConnectedDevices` 預設仍為 false（庫保持舊行為，App 才開啟）；記住板子／斷線重連／撤銷記憶只在 App 開啟 flag 後生效。
+- `Sources/PhoneDSHGateway/ModelGateway.swift`：`x-pdsh-idempotency-key` 僅對 loopback 上游保留；非 loopback 與其他 `x-pdsh-*` 照舊刪除；`gw-hop-004` golden 由 `phone-spec` 覆蓋。
+- `examples/probe-app/PhoneDSHProbe/IPhoneAgentHost.swift`、`Bot/BotRuntimeComposition.swift`、`ChatModel.swift`：`PhoneNativeMCP.server` 同時服務 Worker 直連與 Bot listener forwarder，仍是同一個 receipt store／in-flight guard；`PhoneNativeMCP` 只在手機 Host 路徑使用。
+- `examples/probe-app/PhoneDSHProbe/BluetoothDevicesPage.swift`：斷開改 `forgetAndDisconnect`、文案更新；頁面契約由提取器重生。
+- Android `:net` 與參考固件（`GatewayHeaderPolicy.kt`、`GatewaySession.kt`、`firmware/...`）為另一端的對等改動；本輪未編譯／未跑 Android Gradle 或 IDF，不能視為本輪 runtime 證據。
+- `examples/probe-app/PhoneDSHDeviceUITests/TonoLinkLEDDeviceUITests.swift` 是 device-only UI test（需真機＋板子）；本輪未執行，不把它算作 simulator 證據。
+
+#### 4.15.4 P18 已知缺口（本輪只記錄，不改契約）
+
+- **`dsh.management.sessionSnapshot.v1` 是裸全域 UserDefaults 鍵，且只給手機用。** 它是 #80 新增的 `session/list` 列表快照，不是「按會話」狀態；正確 scope 應是 `(BackendID)`，不是 `(BackendID, sessionID)`。目前讀寫／恢復全部限制在 `backendID == .phone`，PC 不讀不寫，所以不產生跨後端污染；但鍵本身尚未 backend-scoped。**後續項**：遷到 `WorkspaceStorageKeys` 下的 `(BackendID)` scope，再讓 PC 使用自己的快照。
+- **目前會話指標**：#80 `rebuildEngine` 的裸 `currentSessionDefaultsKey` 已改為 `WorkspaceStorage.setCurrentSessionID(..., for: .phone)`；`start()` 收養 persisted session 也已用 `.phone` scope。該狀態按 BackendID 區分即可，不需要 sessionID 維度。
+- 恢復隊列／session reload token／resume watchdog／boot id 都是 `ChatModel` 實例或 Host 進程內臨時狀態，不落盤、不按會話持久化；PC 不進這些路徑，無需 P18 鍵。
+- 本輪未改 `spec/README.md`／`registry.json`；`phone-cross-tree` 的 registry rebuild/check 顯示 28 contracts、486 refs、byte-identical。
+
+#### 4.15.5 GAP-35 與 page-structure 實測
+
+合併後 `extract_ios_pages.py` 產出 46 pages、179 sections、531 rows、377 actions；`--check` PASS。`ui_check.py` PASS（5 files、13 contrast pairs、6 deferred AA pairs、1 unmeasured token、0 unmeasured surface items、50 geometry tokens）。`page_structure_check --baseline` 仍 **FAIL（7 new divergences）**：GAP-32(d) 1 條 + GAP-35 6 條，與 feat/pclink 上相同；本輪未加 whitelist、未改 `_baseline.json`，Android 對等仍由 android-parity owner 關閉。
+
+#### 4.15.6 命令 → 結果（本輪實跑）
+
+環境：Xcode 26.5（17F42）、模擬器 `620D518D-D125-4154-B1B7-32A65327482B`；xcodebuild 用 `/tmp/pclink-mm4-dd`、`CFFIXED_USER_HOME=/tmp/pclink-mm4-home`、`CODE_SIGNING_ALLOWED=NO`、`-disableAutomaticPackageResolution`，SourcePackages 由上一輪已解析副本複製。只執行 `simctl spawn … xctest`，未安裝／卸載／清除 App 資料。
+
+| 命令 | 結果 | 證據 |
+| --- | --- | --- |
+| `swift build --disable-sandbox` | **PASS** `Build complete! (7.76s)` | `/tmp/mm4-swift-build.log` |
+| `swift test --disable-sandbox --filter "PhoneDSHPCLinkTests"` | **PASS** 70 tests, 1 skipped, 0 failures | `/tmp/mm4-swift-test-pclink.log` |
+| `swift test --disable-sandbox --filter '<#80 9 類 + #81 2 類>'` | **PASS** 162 tests, 0 failures（#80 9 類 96 tests；#81 `ModelGatewayTests\|PDSHLinkTests` 另跑 66 tests 0 failures） | `/tmp/mm4-swift-test-80-81.log`、`/tmp/mm4-swift-test-81.log` |
+| `cd examples/probe-app && xcodegen generate` | **PASS**，生成 `PhoneDSHProbe.xcodeproj` | `/tmp/mm4-xcodegen.log` |
+| ADAPTED `xcodebuild -scheme PhoneDSHProbe … build` | **PASS** `** BUILD SUCCEEDED **` | `/tmp/mm4-xcodebuild-build.log` |
+| ADAPTED `xcodebuild -scheme PhoneDSHSim … build-for-testing` | **PASS** `** TEST BUILD SUCCEEDED **` | `/tmp/mm4-xcodebuild-tests.log` |
+| `simctl spawn … xctest -XCTest '<24 個 PCLink/main 類 + #80 的 4 類>'` | **PASS** 189 tests, 0 failures；28 類（24 + `BotMCPListenerSupervisorTests`、`ChatResumeRecoveryTests`、`ChatSessionSnapshotTests`、`ChatTranscriptTailPolicyTests`） | `/tmp/mm4-simtests-required.log` |
+| `cd relay && npm test` | **PASS** 65 tests, 0 fail | `/tmp/mm4-relay-test.log` |
+| `cd pclink && PCLINK_SKIP_MODEL=1 npm test` | **PASS** 131 tests, 130 pass, 1 skipped, 0 fail | `/tmp/mm4-pclink-test.log` |
+| `CI_PROTOCOL_BASE=$(git merge-base HEAD origin/main)`（`31c0cab730`）`PDSH_NODE=/tmp/node24/bin/node bash scripts/ci/check.sh --only phone-spec,phone-cross-tree,phone-p0-conformance,phone-modules` | `phone-spec` **PASS**（16s，含 PCLink 19 schemas／32 valid／33 invalid／57 endpoints、31 gateway vectors）；`phone-cross-tree` **PASS**（16s，8/8 invariants、registry 28 contracts/486 refs byte-identical、108 schemas 0 breaking）；`phone-modules` **PASS**；`phone-p0-conformance` **FAIL**（17s，唯一原因為上述 7 條 page-structure）；`CI GATE: FAIL` | `/tmp/mm4-ci.log` |
+| `python3 spec/ui/v1/tools/extract_ios_pages.py --root .` | **PASS** 46 pages, 179 sections, 531 rows, 377 actions | 終端 |
+| `python3 spec/ui/v1/tools/extract_ios_pages.py --root . --check` | **PASS** `contracts up to date` | 終端 |
+| `python3 spec/ui/v1/tools/ui_check.py --root .` | **PASS** `ok (5 files, 13 contrast pairs, 6 deferred AA pairs, 1 unmeasured tokens, 0 unmeasured surface items, 50 geometry tokens)` | 終端 |
+| `python3 spec/ui/v1/tools/page_structure_check.py --root . --baseline spec/ui/v1/pages/_baseline.json` | **FAIL (7)**：GAP-32(d) 1 + GAP-35 6（既有差異，未新增／未放寬） | `/tmp/mm4-ci.log` |
+| `git show HEAD:Package.resolved > Package.resolved` | 已還原；`git status` 無 `Package.resolved` 變更 | 終端 |
+| 全倉衝突標記掃描 | **PASS**，0 處 `<<<<<<<`／`=======`／`>>>>>>>` | 終端 |
+
+**額外觀察（不在任務指定清單）**：把 `BluetoothDevicesPageTests` 一併加入 simulator 執行時，2 tests／4 failures（`ble-device-read-battery-*` 找不到）；同一 worktree 在合併前的 `idle-keepalive` 分支以相同命令也得到相同失敗（13:27），屬環境／既有測試問題，不是本次衝突解決新增的回歸。任務指定的 28 類不含此類，故不計入上方 PASS 數字。
+
+#### 4.15.7 未驗證 / 剩餘風險
+
+1. **未跑 Android Gradle／IDF 固件**：#81 的 Android `:net` 與參考固件改動在本輪只做源碼合併與衝突標記／SwiftPM 編譯檢查，沒有跨端 runtime 證據。
+2. **真機未驗**：iOS 真機安裝、Keychain／相機、BLE 受信任板子、TonoLink LED device UI test、公網 WSS、真實 relay＋真 DSH 三端 E2E 均未在本輪重跑。
+3. **Workers**：`examples/probe-app/Bundle/worker` 為 gitignored 構建輸入，本輪沿用既已構建資產；未把 Worker 重新打包進提交。
+4. **已知 GAP-35 7 條**：page-structure 仍 FAIL，需 android-parity／ui-contract owner 關閉；本輪未改 `_baseline.json`／白名單。
+5. **P18 snapshot key 缺口**：見 §4.15.4，屬後續項，未在本輪擴大到 PC。
+6. `BluetoothDevicesPageTests` 的既有失敗見 §4.15.6 額外觀察，不影響指定清單結果。
+
+#### 4.15.8 建議的合併提交信息
+
+```text
+Merge origin/main (ee7fead7d, #80 resume-reliability + #81 link-key-grants) into feat/pclink
+
+Keeps #80's foreground resume/recovery and Bot MCP listener healing, and #81's
+journal-key/trusted-board/link-receipt fixes for the phone host, while the PC
+backend keeps the PCLink per-backend model: no local recovery queue, no phone
+snapshot cache, and scenePhase only drives PCLinkClient.foregroundResumed().
+
+Protocol impact: P05; P07; P09; P18; P26; P27; P24: none — Package.resolved
+restored to HEAD; P28: none — no spec/pclink/**, relay/pclink/** or
+Sources/PhoneDSHPCLink change; P12: none — no Package.swift/FFI/JNI change;
+P06: none — #80's boot-id/foreground clock are Host-internal lifecycle, host
+events unchanged; P16: none — worker-entry only has boot-fetch diagnostics
+counters, no URL/PDSH_* contract change; P14/P15: none — PC still uses the
+PCLink relay transport; P01/P02/P04/P10/P11/P13/P17: none — merge only, no
+wire/WAL/bridge/plugin protocol change. P18 known gap: #80's
+dsh.management.sessionSnapshot.v1 is still a bare global key and phone-only;
+follow-up must scope it to (BackendID).
+```
+
 ## 5. 修訂紀錄
 
 | revision | 由誰 | 原因（含收到的 CONTRACT CHANGE REQUEST） | 通知了哪些端 |
@@ -623,3 +734,4 @@ Protocol impact: P09; P16; P25; P26; P27; P18: none — #84's new Bot selection/
 | `pclink-merge-main-r1` | merge-main implementer（iOS/App） | 合入 `da10d7466`：解決 14 個衝突；保留 #75/#76/#77/#78/#79 與 D2 每後端/P18；main 的裸 current-session 鍵改回 scoped；perf helpers 移入 `ProbeKit/Perf`；頁面契約重生成、`tokens` 語義採 main 並機械刷新 provenance；PCLink v1.3 與 P09/P18 契約值不變 | P09/P18 owner；P28 D/App owner；android-parity（頁面 provenance 與 17 處已登記差異） |
 | `pclink-merge-main2-r1` | merge-main2 implementer（iOS/App） | 合入 `a3e41f853`（#69、#70）：解決 8 個衝突；P18/P05 兩端條目並存；GAP-33 採關閉記錄、GAP-35 保留 PCLink 6 條並實測 1+6=7、main 的 tono-account 條目保持 GAP-34（與 origin/main 一致）；registry 由生成器重建；頁面契約由提取器重生成；#70 tono 賬號按 §4.13.3 檢查（app 級持久化，不按 P18 scope） | P09/P18/P05 owner；P28 D/App owner；android-parity（GAP-35 6 條） |
 | `pclink-merge-main3-r1` | merge-main3 implementer（iOS/App） | 合入 `31c0cab73`（#84 bot-multi）：解決 7 個衝突；#84 的多 Bot 實例／會話／持久狀態與 PCLink 每後端模型並存；Bot 固定手機；PC session list 不套 Bot registry，Bot workspace/session 排除仍生效；GAP-35 仍 1+6=7、tono-account 保持 GAP-34；registry 與頁面契約由生成器重建 | P09/P16/P25/P26/P27 owner；P28 D/App owner；android-parity（GAP-35 6 條） |
+| `pclink-merge-main4-r1` | merge-main4 implementer（iOS/App） | 合入 `ee7fead7d`（#80 resume-reliability、#81 link-key-grants）：解決 9 個衝突；#80 的恢復可靠性／Bot MCP listener heal 只作用於手機 Host，PC 仍走 PCLink 每後端模型；#81 的 journal key／受信任板子／Link 回執與頁面契約重生並存；snapshot 裸鍵留作 P18 已知缺口；GAP-35 仍 1+6=7；`Package.resolved` 還原 | P05/P07/P09/P18/P26/P27 owner；P28 D/App owner；android-parity（GAP-35 6 條） |

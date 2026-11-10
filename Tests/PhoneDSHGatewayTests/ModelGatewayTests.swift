@@ -131,6 +131,32 @@ final class ModelGatewayTests: XCTestCase {
                        "the dropped Worker credential is reported, not silent")
     }
 
+    func testJournalKeyReachesOnlyLoopbackToolEndpoints() async throws {
+        // gateway-security.md §3, gw-hop-004: the app's own loopback tool endpoint (the Bot MCP
+        // listener) needs the tool-journal key; every other x-pdsh-* header is still removed.
+        let server = try MockUpstreamServer { _ in
+            .full(status: 200, headers: ["content-type": "application/json"], body: Data("{}".utf8))
+        }
+        _ = try await server.start()
+        addTeardownBlock { server.stop() }
+        let (gateway, _, _) = try makeGateway(server: server)
+        let request = makeRequest(port: server.port, headers: [
+            "x-pdsh-idempotency-key": "xl1-journal-key",
+            "x-pdsh-proxy-trace": "abc",
+            "content-type": "application/json",
+        ])
+        let response = try await collectGatewayResponse(gateway.handle(request))
+        XCTAssertEqual(response.status, 200)
+        let observed = try XCTUnwrap(server.requests.first)
+        XCTAssertEqual(observed.headers["x-pdsh-idempotency-key"], "xl1-journal-key")
+        XCTAssertNil(observed.headers["x-pdsh-proxy-trace"])
+
+        XCTAssertTrue(ModelGateway.keepsJournalKey("x-pdsh-idempotency-key", for: URL(string: "http://127.0.0.1:51819/mcp")!))
+        XCTAssertTrue(ModelGateway.keepsJournalKey("x-pdsh-idempotency-key", for: URL(string: "http://[::1]:9/mcp")!))
+        XCTAssertFalse(ModelGateway.keepsJournalKey("x-pdsh-idempotency-key", for: URL(string: "https://api.example.invalid/v1")!))
+        XCTAssertFalse(ModelGateway.keepsJournalKey("x-pdsh-proxy-trace", for: URL(string: "http://127.0.0.1:9/")!))
+    }
+
     func testWorkerCookieDoesNotReachUpstreamWithoutHostCookieCredential() async throws {
         let server = try MockUpstreamServer { _ in
             .full(status: 200, headers: [:], body: Data("ok".utf8))

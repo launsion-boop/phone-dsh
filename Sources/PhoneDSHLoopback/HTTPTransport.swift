@@ -483,8 +483,12 @@ struct HTTPResponseWriter {
 
     /// - Parameter headRequest: the request method was HEAD, so the response
     ///   carries the headers of the GET variant but no body.
+    /// - Returns: the status actually written. Request diagnostics need the
+    ///   status of streamed egress responses, which is only known after the
+    ///   first chunk arrives.
+    @discardableResult
     func write(_ reply: LoopbackReply, keepAlive: Bool,
-               headRequest: Bool = false) async throws {
+               headRequest: Bool = false) async throws -> Int {
         switch reply {
         case .full(let status, var headers, let body):
             headers = sanitized(headers)
@@ -493,6 +497,7 @@ struct HTTPResponseWriter {
             headers["Connection"] = keepAlive ? "keep-alive" : "close"
             try await channel.send(head(status: status, headers: headers))
             if !headRequest && !body.isEmpty { try await channel.send(body) }
+            return status
 
         case .file(let url, let contentType, var headers):
             let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
@@ -503,7 +508,7 @@ struct HTTPResponseWriter {
             headers["Cache-Control"] = "no-store"
             headers["Connection"] = keepAlive ? "keep-alive" : "close"
             try await channel.send(head(status: 200, headers: headers))
-            guard !headRequest else { return }
+            guard !headRequest else { return 200 }
             guard let handle = try? FileHandle(forReadingFrom: url) else {
                 throw HTTPTransportError.ioError("cannot read the requested file")
             }
@@ -513,6 +518,7 @@ struct HTTPResponseWriter {
                 if chunk.isEmpty { break }
                 try await channel.send(chunk)
             }
+            return 200
 
         case .egress(let stream, let target):
             var iterator = stream.makeAsyncIterator()
@@ -520,13 +526,11 @@ struct HTTPResponseWriter {
             do {
                 first = try await iterator.next()
             } catch {
-                try await writeEgressFailure(HTTPEgressFailure(error: error, target: target),
-                                            target: target, keepAlive: keepAlive)
-                return
+                return try await writeEgressFailure(HTTPEgressFailure(error: error, target: target),
+                                                   target: target, keepAlive: keepAlive)
             }
             guard let first, let status = first.status else {
-                try await writeEgressFailure(.noResponse, target: target, keepAlive: keepAlive)
-                return
+                return try await writeEgressFailure(.noResponse, target: target, keepAlive: keepAlive)
             }
             let bodyless = Self.isBodyless(status) || headRequest
             var headers = sanitized(first.headers)
@@ -555,7 +559,7 @@ struct HTTPResponseWriter {
             // A 204/205/304 cannot carry a body, and a HEAD response must not
             // either. Returning here also keeps the terminating `0` chunk off a
             // null-body status, which is what WebKit rejects.
-            guard !bodyless else { return }
+            guard !bodyless else { return status }
             if !first.body.isEmpty { try await sendChunk(first.body) }
             if !first.isFinal {
                 do {
@@ -576,6 +580,7 @@ struct HTTPResponseWriter {
                 }
             }
             try await channel.send(Data("0\r\n\r\n".utf8))
+            return status
 
         case .upgrade(var headers):
             headers = sanitized(headers)
@@ -583,6 +588,7 @@ struct HTTPResponseWriter {
             headers["Connection"] = "Upgrade"
             headers["Upgrade"] = "websocket"
             try await channel.send(head(status: 101, headers: headers))
+            return 101
         }
     }
 
@@ -601,7 +607,7 @@ struct HTTPResponseWriter {
     /// `xl_error` body all come from ``HTTPEgressFailure``.
     private func writeEgressFailure(_ failure: HTTPEgressFailure,
                                     target: String?,
-                                    keepAlive: Bool) async throws {
+                                    keepAlive: Bool) async throws -> Int {
         let mapped = failure.attachingHost(HTTPEgressFailure.host(fromTarget: target))
         LoopbackEgressDiagnostics.record(mapped, target: target)
         var headers: [String: String] = [
@@ -610,10 +616,10 @@ struct HTTPResponseWriter {
         // spec/exec-bridge-v1 §6: a proxy-side failure also carries the code
         // in this header so clients that only inspect headers can classify it.
         headers["X-PDSH-Proxy-Error"] = mapped.code
-        try await write(.full(status: mapped.status,
-                              headers: headers,
-                              body: mapped.encodedBody()),
-                        keepAlive: keepAlive)
+        return try await write(.full(status: mapped.status,
+                                     headers: headers,
+                                     body: mapped.encodedBody()),
+                               keepAlive: keepAlive)
     }
 
     private func head(status: Int, headers: [String: String]) -> Data {

@@ -82,6 +82,9 @@ struct PhoneDSHProbeApp: App {
                     BLEDeviceStore.shared.setDeviceTaskDiscoveryEnabled(true)
                     #endif
                     model.refreshLockdown()
+                    // The user's own boards: connected once means trusted, and they reconnect by themselves.
+                    BLEDeviceStore.shared.trustConnectedDevices = true
+                    BLEDeviceStore.shared.reconnectRemembered()
                     await workspaceModels.startAtLaunch()
                     #if DEBUG
                     PCLinkDebugAutomation.shared.start(models: workspaceModels)

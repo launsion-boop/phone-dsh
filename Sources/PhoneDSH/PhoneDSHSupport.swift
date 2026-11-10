@@ -191,6 +191,18 @@ extension PhoneDSHConfiguration {
             throw PhoneDSHError.invalidConfiguration(
                 "turnInactivityTimeout must be a positive finite number of seconds")
         }
+        // The resume budgets bound the foreground-return path; a NaN or a
+        // non-positive value would make the wait arbitrary instead of bounded.
+        guard resumeBootReadyTimeout.isFinite, resumeBootReadyTimeout > 0,
+              resumeHelloTimeout.isFinite, resumeHelloTimeout > 0 else {
+            throw PhoneDSHError.invalidConfiguration(
+                "resumeBootReadyTimeout and resumeHelloTimeout must be positive "
+                    + "finite numbers of seconds")
+        }
+        guard resumeVisibilityTimeout.isFinite, resumeVisibilityTimeout >= 0 else {
+            throw PhoneDSHError.invalidConfiguration(
+                "resumeVisibilityTimeout must be a non-negative finite number of seconds")
+        }
         // A configured remote path must be usable before any local state is
         // opened. A cleartext endpoint, or one whose URL could carry a
         // credential/query into the authority intent, would make the client

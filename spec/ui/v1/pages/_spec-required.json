@@ -7,10 +7,10 @@
       "label": "提交回答",
       "kind": "button",
       "writes": true,
-      "provenance": "ChatPage.swift:3847",
+      "provenance": "ChatPage.swift:3921",
       "anchor": "Button(\"提交回答\", systemImage: \"arrow.up\") { submitAnswers() }",
       "baselineReachable": true,
-      "reason": "`QuestionCard` is a sibling view struct (ChatPage.swift:3814), outside the page struct the extractor walks; the card is rendered in ChatPage's pending-answer slot and Android implements the submit button."
+      "reason": "`QuestionCard` is a sibling view struct (ChatPage.swift:3888), outside the page struct the extractor walks; the card is rendered in ChatPage's pending-answer slot and Android implements the submit button."
     },
     {
       "page": "chat",

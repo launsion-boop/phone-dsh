@@ -3,6 +3,18 @@ import Foundation
 import PhoneDSHAgentCore
 import PDSHLinkWire
 
+/// The board refused a Link mutation before running it (upload, or a non-conflict COMMIT status).
+public struct LinkNotExecuted: Error, Equatable, Sendable {
+    public let status: UInt8
+    public let stage: String
+    public var statusName: String {
+        switch status {
+        case 2: "BAD_LEN"; case 6: "BUSY"; case 9: "CANCELLED"; case 11: "INTERNAL"; case 13: "NOT_READY"
+        case 14: "UNSUPPORTED"; case 15: "STORE_FULL"; default: "status \(status)"
+        }
+    }
+}
+
 public enum PDSHLink {
     public static let service = "6e400100-7f1b-4c5a-9a1e-786c696e6b00"
     public static let rx = "6e400101-7f1b-4c5a-9a1e-786c696e6b00"
@@ -102,11 +114,20 @@ public enum PDSHLink {
             var packet = requestID.linkBytes; packet.put(UInt16(bytes.count)); packet.put(UInt16(offset)); packet.put(ttlMS)
             packet.append(bytes[offset..<min(offset + 481, bytes.count)])
             let reply = [UInt8](try await transport.exchange(opcode: 0x54, body: packet))
-            guard reply.count == 3, reply[0] == 0, reply.u16(1) == min(offset + 481, bytes.count) else { throw BLEFailure("Link upload rejected") }
+            guard reply.count == 3, reply[0] == 0, reply.u16(1) == min(offset + 481, bytes.count) else {
+                // Before COMMIT nothing may run (ble-link.md): a rejected upload executed nothing.
+                if let status = reply.first, status != 0 { throw LinkNotExecuted(status: status, stage: "upload") }
+                throw BLEFailure("Link upload rejected")
+            }
         }
         // No automatic commit retry. Once submitted, only read-only result queries are safe.
         let reply = [UInt8](try await transport.exchange(opcode: 0x55, body: requestID.linkBytes))
-        guard reply.count >= 2, reply[0] == 0 else { throw BLEFailure("Link commit rejected; query request_id before any new action") }
+        guard reply.count >= 2, reply[0] == 0 else {
+            // A refused COMMIT was not admitted, so it ran nothing; except a conflict (5), which can
+            // mean this request was committed before and may have run.
+            if let status = reply.first, status != 0, status != 5 { throw LinkNotExecuted(status: status, stage: "commit") }
+            throw BLEFailure("Link commit rejected; query request_id before any new action")
+        }
         while ContinuousClock.now < deadline {
             if let result = try await query(requestID: requestID) { return result }
             try await Task.sleep(for: .milliseconds(150))
