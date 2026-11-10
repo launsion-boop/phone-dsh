@@ -63,6 +63,7 @@ struct SettingsPage: View {
     @State private var deepLink: NativeSettingsTab?
 
     @State private var showSchedules = false
+    @State private var account: TonoAccountState = .signedOut(notice: nil)
 
     init(initialTab: NativeSettingsTab = .general, isTab: Bool = false,
          onOpenSession: @escaping () -> Void = {}) {
@@ -119,6 +120,9 @@ struct SettingsPage: View {
             await configuration.refresh()
             await phonePermissions.refresh()
             await management.refresh()
+        }
+        .task {
+            for await value in await TonoAccountSession.shared.states() { account = value }
         }
     }
 
@@ -243,6 +247,19 @@ struct SettingsPage: View {
         }
     }
 
+    /// The account comes first on 我的: signed out its value reads 未登录 · 点此登录, signed in the
+    /// phone tail; the page it opens signs in and out (spec/v1/tono-account.md §3).
+    private var accountLink: some View {
+        link(NativeText("Tono 账号", "Tono account"), icon: "person.crop.circle", value: accountValue) {
+            TonoAccountPage()
+        }
+    }
+
+    private var accountValue: String {
+        guard case .signedIn(let summary) = account else { return NativeText("未登录 · 点此登录", "Signed out · Sign in") }
+        return summary.phoneHint.map { NativeText("尾号 \($0)", "…\($0)") } ?? NativeText("已登录", "Signed in")
+    }
+
     private var aboutLink: some View {
         link(NativeText("关于 Phone DSH", "About Phone DSH"), icon: "info.circle") { SettingsAboutPage() }
     }
@@ -309,6 +326,9 @@ struct SettingsPage: View {
             } footer: {
                 restartEngineFooter
             }
+        }
+        Section {
+            accountLink
         }
         Section {
             link(NativeText("模型服务", "Model providers"), icon: "cpu") { ModelProviderSettingsPage() }

@@ -503,6 +503,8 @@ public data class SettingsScreenState(
     public val busyEnterMode: BusyEnterMode? = null,
     /** 我的 › 定时任务's count (`management.scheduleRecords.count`); `null` = not read. */
     public val scheduleCount: Int? = null,
+    /** 我的 › Tono 账号's facts (`SettingsPage.swift` `accountLink`); `null` = no session wired. */
+    public val tonoAccount: TonoAccountFacts? = null,
 ) {
     /** One row by id. */
     public fun row(id: String): SettingsRowView? =
@@ -1367,6 +1369,15 @@ private fun SettingsIndexList(
                 value = if (onRestartEngine == null) UiStrings.UNAVAILABLE else null,
                 enabled = onRestartEngine != null, callback = onRestartEngine),
         ) else emptyList(), footer = native(UiStrings.SETTINGS_ENGINE_RESET_FOOTER, UiStrings.SETTINGS_ENGINE_RESET_FOOTER_EN), modes = TAB_ONLY),
+        // The account first: 未登录 · 点此登录 or the phone tail (`accountLink`).
+        SettingsIndexSection("me.account", "", listOf(
+            SettingsIndexEntry("me.tonoAccount", native("Tono 账号", "Tono account"), com.phonedsh.ui.icon.PdshIcon.PEOPLE,
+                value = state.tonoAccount?.takeIf { it.available }?.let { account ->
+                    if (!account.signedIn) native("未登录 · 点此登录", "Signed out · Sign in")
+                    else account.phoneHint?.let { native("尾号 $it", "…$it") } ?: native("已登录", "Signed in")
+                },
+                callback = { onNavigate(SettingsDestination.TONO_ACCOUNT) }),
+        ), modes = TAB_ONLY),
         // Models, schedules and devices (`:302-314`).
         SettingsIndexSection("me.common", "", listOf(
             SettingsIndexEntry("me.modelProvider", native("模型服务", UiStrings.MODEL_PROVIDER_TITLE_EN), com.phonedsh.ui.icon.PdshIcon.CPU, providerValue, callback = { onNavigate(SettingsDestination.MODEL_PROVIDER) }),

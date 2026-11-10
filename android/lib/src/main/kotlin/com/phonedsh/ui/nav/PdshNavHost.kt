@@ -1526,7 +1526,7 @@ private fun SettingsRoute(
     } else {
         SettingsPage(
             state = SettingsScreenState.from(settings)
-                .copy(scheduleCount = facts.automation.snapshot?.schedules?.size),
+                .copy(scheduleCount = facts.automation.snapshot?.schedules?.size, tonoAccount = facts.tonoAccount),
             mode = mode,
             backLevel = backLevel,
             licenseEntries = facts.licenses?.map { license ->
