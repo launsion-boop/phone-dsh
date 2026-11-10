@@ -156,6 +156,8 @@
         file: !!js process.env.PDSH_LIFECYCLE_FILE
 
     # The app's own MCP server (phone tools) on loopback, streamable HTTP + bearer.
+    # X-PDSH-MCP-Egress carries this host run's trusted-client credential; an
+    # absent/empty value omits the header so the host fails the request closed.
     - id: mcp-phone
       name: '@deepseek-ai/dsh-mcp-client'
       disabled: !!js "!process.env.PDSH_PHONE_MCP_URL"
@@ -163,6 +165,5 @@
         serverName: phone
         transport: streamable-http
         url: !!js "process.env.PDSH_PHONE_MCP_URL ?? 'http://127.0.0.1:1/mcp'"
-        headers:
-          Authorization: !!js "`Bearer ${process.env.PDSH_PHONE_MCP_TOKEN ?? ''}`"
+        headers: !!js "({ Authorization: `Bearer ${process.env.PDSH_PHONE_MCP_TOKEN ?? ''}`, ...(process.env.PDSH_MCP_EGRESS_TOKEN ? { 'X-PDSH-MCP-Egress': process.env.PDSH_MCP_EGRESS_TOKEN } : {}) })"
         failOnStartupError: false

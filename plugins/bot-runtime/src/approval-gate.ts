@@ -215,12 +215,16 @@ function sensitiveRead(exec: { name: string; arguments?: unknown }): boolean {
 
 export async function postApproval(url: string, token: string, payload: Record<string, unknown>, signal?: AbortSignal): Promise<ApprovalOutcome> {
   if (!url || !token) return { ok: false, message: 'approval gate is not configured' }
+  // One host-issued egress credential per host run. Absent/empty omits the
+  // header, so the host rejects the request and no approval is granted.
+  const egressToken = String(process.env.PDSH_MCP_EGRESS_TOKEN ?? '')
+  const egress: Record<string, string> = egressToken === '' ? {} : { 'X-PDSH-MCP-Egress': egressToken }
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(new Error('approval timed out')), 330_000)
   try {
     const response = await fetch(url, {
       method: 'POST',
-      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', ...egress },
       body: JSON.stringify(payload),
       signal: signal === undefined ? controller.signal : AbortSignal.any([controller.signal, signal]),
     })

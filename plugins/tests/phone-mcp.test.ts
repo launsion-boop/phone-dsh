@@ -10,7 +10,7 @@ import assert from 'node:assert/strict'
 import { randomBytes } from 'node:crypto'
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { after, before, test } from 'node:test'
 import { Context } from '@deepseek-ai/cordis'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
@@ -196,6 +196,56 @@ test('phone-mcp: concurrent upserts commit one complete registry and stay remova
     )
   } finally {
     await mounted.context.fiber.dispose()
+  }
+})
+
+test('phone-mcp: every mount carries the host egress credential only when configured', { timeout: 30_000 }, async () => {
+  const temporaryFile = join(mkdtempSync(join(tmpdir(), 'pdsh-phone-mcp-egress-')), 'mcp.json')
+  const start = fixture.requests.length
+  const mounted = await mountPlugin(temporaryFile, {
+    [ENV_NAME]: `Bearer ${fixture.token}`,
+    PDSH_MCP_EGRESS_TOKEN: 'phone-mcp-fixture-egress',
+  })
+  try {
+    const added = await mounted.remote.mcpUpsert({
+      serverName: 'egress',
+      url: fixture.url,
+      headersFromEnv: { Authorization: ENV_NAME },
+      enabled: true,
+      toolCallTimeoutMs: 5_000,
+    })
+    assert.equal(added.status, 'connected')
+    const observed = fixture.requests.slice(start)
+    assert.ok(observed.length > 0, 'the mount must speak to the fixture')
+    assert.equal(observed.every(request => request.headers['x-pdsh-mcp-egress'] === 'phone-mcp-fixture-egress'),
+      true, 'the trusted phone-mcp mount must add the egress header')
+  } finally {
+    await mounted.context.fiber.dispose()
+    rmSync(dirname(temporaryFile), { recursive: true, force: true })
+  }
+
+  const missingDirectory = mkdtempSync(join(tmpdir(), 'pdsh-phone-mcp-egress-empty-'))
+  const missingStart = fixture.requests.length
+  const missing = await mountPlugin(join(missingDirectory, 'mcp.json'), {
+    [ENV_NAME]: `Bearer ${fixture.token}`,
+    PDSH_MCP_EGRESS_TOKEN: '',
+  })
+  try {
+    const added = await missing.remote.mcpUpsert({
+      serverName: 'no-egress',
+      url: fixture.url,
+      headersFromEnv: { Authorization: ENV_NAME },
+      enabled: true,
+      toolCallTimeoutMs: 5_000,
+    })
+    assert.equal(added.status, 'connected')
+    const observed = fixture.requests.slice(missingStart)
+    assert.ok(observed.length > 0, 'the mount must speak to the fixture')
+    assert.equal(observed.every(request => request.headers['x-pdsh-mcp-egress'] === undefined),
+      true, 'an empty environment value must omit the header (host fails closed)')
+  } finally {
+    await missing.context.fiber.dispose()
+    rmSync(missingDirectory, { recursive: true, force: true })
   }
 })
 

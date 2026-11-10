@@ -254,7 +254,7 @@ public struct HTTPEgressFailure: Error, Equatable, Sendable {
     /// for a connect timeout and 502 for every other proxy-side failure.
     public static func status(forCode code: String) -> Int {
         switch code {
-        case "host_not_allowed", "forbidden":
+        case "host_not_allowed", "forbidden", "mcp_egress_forbidden":
             return 403
         case "invalid_request", "bad_request":
             return 400
@@ -291,6 +291,17 @@ public struct HTTPEgressFailure: Error, Equatable, Sendable {
     /// clients, plus the ENG-04 `xl_error` classification envelope:
     /// `{"xl_error":{"code","host","detail"}}`.
     public func encodedBody() -> Data {
+        // spec/bot/v1/mcp-endpoint.md §1.1 freezes this exact body: the
+        // caller learns it lacked the egress capability, never a value, a
+        // target or a second error envelope.
+        if code == "mcp_egress_forbidden" {
+            return CanonicalJSONValue.object([
+                "error": .object([
+                    "code": .string("mcp_egress_forbidden"),
+                    "message": .string("the MCP egress credential is missing or invalid"),
+                ]),
+            ]).encoded()
+        }
         var error: [String: CanonicalJSONValue] = [
             "code": .string(code),
             "message": .string(message),
@@ -414,6 +425,10 @@ enum LoopbackEgressDiagnostics {
     private static let lock = NSLock()
 
     static func record(_ failure: HTTPEgressFailure, target: String?) {
+        // spec/bot/v1/mcp-endpoint.md §1.1: a missing/incorrect egress
+        // credential produces no log entry at all. The rejection is not an
+        // upstream or transport fact, and the target may itself be sensitive.
+        guard failure.code != "mcp_egress_forbidden" else { return }
         let line = failure.diagnosticLine(target: target) + "\n"
         guard let data = line.data(using: .utf8) else { return }
         lock.lock()

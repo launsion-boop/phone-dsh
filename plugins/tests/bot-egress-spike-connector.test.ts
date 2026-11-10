@@ -11,10 +11,10 @@
  * Worker side: the shape produced by the real shim can name and reach such a
  * user connector route through the documented `/v1/http` host fixture.
  *
- * The host fixture mirrors the pre-fix production seam (exact path admission
- * plus stored-header injection). WPF1 owns the egress-credential gate and will
- * update this fixture to require `X-PDSH-MCP-Egress`; this file intentionally
- * does not claim that gate exists.
+ * The host fixture mirrors the post-WPF1 production seam: an exact connector
+ * route also requires `X-PDSH-MCP-Egress` before the stored connector header is
+ * injected. The real curl shim never has that credential, so it is refused; a
+ * trusted-client-shaped request shows the injected path still works.
  */
 import assert from 'node:assert/strict'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
@@ -28,6 +28,7 @@ import { VfsFileSystem } from '../shell-ext/src/index.ts'
 import { runCurl } from '../shell-ext/src/curl.ts'
 
 const CHANNEL_TOKEN = 'wpf0-fixture-channel-token'
+const EGRESS_TOKEN = 'wpf0-fixture-egress-token'
 const CONNECTOR_TOKEN = 'wpf0-fixture-connector-token'
 const BODY = '{"jsonrpc":"2.0","id":"wpf0-connector","method":"tools/list"}'
 
@@ -37,6 +38,7 @@ interface HostSeen {
   readonly authorization: string | undefined
   readonly target: string
   readonly body: string
+  readonly egress: string | undefined
 }
 
 interface ConnectorSeen {
@@ -44,6 +46,7 @@ interface ConnectorSeen {
   readonly url: string
   readonly authorization: string | undefined
   readonly body: string
+  readonly egress: string | undefined
 }
 
 function readBody(request: IncomingMessage): Promise<string> {
@@ -103,7 +106,7 @@ function scratchRoot(): { root: string; cleanup(): void } {
   return { root: directory, cleanup: () => rmSync(directory, { recursive: true, force: true }) }
 }
 
-test('the real curl shim can target a user connector exact route over /v1/http', async () => {
+test('a user connector exact route requires the trusted-client egress credential over /v1/http', async () => {
   const connectorSeen: ConnectorSeen[] = []
   const connector: Server = createServer((request, response) => {
     void (async () => {
@@ -113,6 +116,9 @@ test('the real curl shim can target a user connector exact route over /v1/http',
         url: request.url ?? '/',
         authorization: request.headers.authorization,
         body,
+        egress: request.headers['x-pdsh-mcp-egress'] === undefined
+          ? undefined
+          : String(request.headers['x-pdsh-mcp-egress']),
       })
       reply(response, 200, '{"jsonrpc":"2.0","id":"wpf0-connector","result":{"tools":[]}}')
     })()
@@ -131,6 +137,9 @@ test('the real curl shim can target a user connector exact route over /v1/http',
         authorization: request.headers.authorization,
         target,
         body,
+        egress: request.headers['x-pdsh-mcp-egress'] === undefined
+          ? undefined
+          : String(request.headers['x-pdsh-mcp-egress']),
       })
       if (request.method !== 'POST' || (request.url ?? '/') !== '/v1/http') {
         reply(response, 404, '{"error":"not_found"}')
@@ -157,12 +166,19 @@ test('the real curl shim can target a user connector exact route over /v1/http',
         reply(response, 403, '{"error":"forbidden"}')
         return
       }
+      // WPF1 host gate: an authorized exact MCP route also requires the
+      // per-run egress credential before the stored connector header is
+      // injected. A model-written curl has no such header and must be refused.
+      if (request.headers['x-pdsh-mcp-egress'] !== EGRESS_TOKEN) {
+        reply(response, 403, '{"error":{"code":"mcp_egress_forbidden",'
+          + '"message":"the MCP egress credential is missing or invalid"}}')
+        return
+      }
       const upstream = await fetch(parsed, {
         method,
         headers: {
-          // Pre-fix fixture: the host stores and injects the connector header
-          // for this exact route. WPF1 adds the egress-credential gate before
-          // this injection; that rejection is covered by the Swift test.
+          // The host injects the stored connector header only after the gate
+          // admitted this exact route.
           authorization: `Bearer ${CONNECTOR_TOKEN}`,
           'content-type': 'application/json',
         },
@@ -180,10 +196,9 @@ test('the real curl shim can target a user connector exact route over /v1/http',
       { cwd: '/dsh/workspace', fs: new VfsFileSystem({ root: scratch.root }) },
       { origin: hostOrigin, token: CHANNEL_TOKEN })
 
-    assert.equal(result.exitCode, 0, result.stderr)
-    assert.match(result.stdout, /"tools":\[\]/u)
-
-    // Worker -> host: the real shim's documented /v1/http request shape.
+    // The model-written shim never carries the trusted-client credential, so
+    // the host refuses it before the user connector credential is injected.
+    assert.equal(result.exitCode, 22, result.stderr)
     assert.equal(hostSeen.length, 1)
     assert.equal(hostSeen[0]!.method, 'POST')
     assert.equal(hostSeen[0]!.url, '/v1/http')
@@ -192,13 +207,34 @@ test('the real curl shim can target a user connector exact route over /v1/http',
     assert.equal(hostSeen[0]!.authorization, `Bearer ${CHANNEL_TOKEN}`,
       'the channel bearer authenticates the loopback hop')
     assert.equal(hostSeen[0]!.body, BODY)
+    assert.equal(hostSeen[0]!.egress, undefined,
+      'the curl shim must not synthesize the egress credential')
+    assert.equal(connectorSeen.length, 0,
+      'a rejected request must not reach the user connector')
 
-    // Host -> connector: the fixture proves the exact route is reachable; the
-    // real stored-header injection is asserted by the Swift test.
+    // A trusted Worker MCP client (the production mcp-phone/profile path)
+    // sends the header; the same fixture then injects the connector header,
+    // and the hop header is stripped before the connector request.
+    const trusted = await fetch(`${hostOrigin}/v1/http`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${CHANNEL_TOKEN}`,
+        'x-pdsh-target-url': target,
+        'x-pdsh-target-method': 'POST',
+        'x-pdsh-mcp-egress': EGRESS_TOKEN,
+        'content-type': 'application/json',
+      },
+      body: BODY,
+    })
+    assert.equal(trusted.status, 200, await trusted.text())
     assert.equal(connectorSeen.length, 1)
     assert.equal(connectorSeen[0]!.method, 'POST')
     assert.equal(connectorSeen[0]!.url, '/mcp?session=wpf0-fixture')
     assert.equal(connectorSeen[0]!.body, BODY)
+    assert.equal(connectorSeen[0]!.authorization, `Bearer ${CONNECTOR_TOKEN}`,
+      'the host injects the stored connector credential for the trusted route')
+    assert.equal(connectorSeen[0]!.egress, undefined,
+      'the egress credential must never reach the user connector')
   } finally {
     scratch.cleanup()
     await Promise.all([close(host), close(connector)])

@@ -103,6 +103,11 @@ export function createCallerCatalogRequest(
   const fetchImpl = config.fetch ?? fetch
   return async (sessionId, options) => {
     if (!url || !token || !sessionId) return undefined
+    // The host-issued per-run egress credential. Missing/empty omits the
+    // header so the host fails this catalog read closed instead of treating
+    // the request as a trusted MCP client.
+    const egressToken = String(process.env.PDSH_MCP_EGRESS_TOKEN ?? '')
+    const egress: Record<string, string> = egressToken === '' ? {} : { 'X-PDSH-MCP-Egress': egressToken }
     const controller = new AbortController()
     const timer = setTimeout(
       () => controller.abort(new Error('caller catalog request timed out')),
@@ -118,6 +123,7 @@ export function createCallerCatalogRequest(
           'content-type': 'application/json',
           accept: 'application/json',
           [CALLER_SESSION_HEADER]: sessionId,
+          ...egress,
         },
         body: JSON.stringify({
           jsonrpc: '2.0',
