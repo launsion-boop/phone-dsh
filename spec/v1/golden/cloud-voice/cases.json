@@ -1,0 +1,73 @@
+{
+  "contract": "pdsh.cloud-voice/1",
+  "note": "cloud-voice.md. Synthetic values only; tests use local fakes and never contact pdsh.tonoai.cn. Producer contract: TonoTeam/phone-dsh-cloud@64a3d2098ca2 contracts/{asr-protocol.md,asr-messages.schema.json,openapi.yaml}.",
+  "constants": {
+    "asr_url": "wss://pdsh.tonoai.cn/v1/asr/stream",
+    "asr_subprotocol": "pdsh-asr.v1",
+    "tts_url": "https://pdsh.tonoai.cn/v1/tts/speech",
+    "tts_voice": "zh-female-vv",
+    "tts_sample_rate": 16000,
+    "tts_input_max_scalars": 1000,
+    "pre_start_queue_max": 100,
+    "started_timeout_ms": 5000,
+    "finish_timeout_default_ms": 15000,
+    "finish_grace_ms": 5000
+  },
+  "start": {
+    "turn_id": 7,
+    "message": {"type": "start", "mode": "interactive", "language": "zh",
+                "format": {"codec": "opus", "sample_rate": 16000, "channels": 1, "frame_ms": 20},
+                "single_utterance": true, "hotwords": ["小智", "托诺"], "client_ref": "tonolink-7"}
+  },
+  "credentials": [
+    {"name": "signed in uses the token", "signed_in": true, "token": "tok-a", "profile_base_url": "https://pdsh.tonoai.cn/v1/llm/anthropic", "profile_key": "pdsk_x", "expect": "tok-a"},
+    {"name": "signed in, token fails, never the key", "signed_in": true, "token": null, "token_error": true, "profile_base_url": "https://pdsh.tonoai.cn/v1/llm/anthropic", "profile_key": "pdsk_x", "expect": null},
+    {"name": "signed out uses the cloud profile key", "signed_in": false, "profile_base_url": "https://pdsh.tonoai.cn/v1/llm/anthropic", "profile_key": "pdsk_x", "expect": "pdsk_x"},
+    {"name": "signed out, explicit 443", "signed_in": false, "profile_base_url": "https://pdsh.tonoai.cn:443/v1/llm/openai", "profile_key": "pdsk_y", "expect": "pdsk_y"},
+    {"name": "signed out, other origin", "signed_in": false, "profile_base_url": "https://api.deepseek.com/anthropic", "profile_key": "sk-z", "expect": null},
+    {"name": "signed out, http", "signed_in": false, "profile_base_url": "http://pdsh.tonoai.cn/v1/llm/anthropic", "profile_key": "pdsk_x", "expect": null},
+    {"name": "signed out, other port", "signed_in": false, "profile_base_url": "https://pdsh.tonoai.cn:8443/v1/llm/anthropic", "profile_key": "pdsk_x", "expect": null},
+    {"name": "signed out, look-alike host", "signed_in": false, "profile_base_url": "https://pdsh.tonoai.cn.example.com/v1", "profile_key": "pdsk_x", "expect": null},
+    {"name": "signed out, no key", "signed_in": false, "profile_base_url": "https://pdsh.tonoai.cn/v1/llm/anthropic", "profile_key": null, "expect": null}
+  ],
+  "server_messages": [
+    {"json": {"type": "started", "session_id": "s1", "mode": "interactive", "price_version": "p1", "limits": {"max_duration_ms": 600000, "max_idle_ms": 10000, "finish_timeout_ms": 15000, "max_buffer_ms": 2000}}, "expect": {"kind": "started", "finish_timeout_ms": 15000}},
+    {"json": {"type": "started", "session_id": "s1", "mode": "interactive", "price_version": "p1", "limits": {}}, "expect": {"kind": "started", "finish_timeout_ms": 15000}},
+    {"json": {"type": "partial", "segment_id": 1, "text": "打开", "start_ms": 0}, "expect": {"kind": "partial", "text": "打开"}},
+    {"json": {"type": "final", "segment_id": 1, "text": "打开电池", "start_ms": 0, "end_ms": 900, "speaker": null}, "expect": {"kind": "final", "segment_id": 1, "text": "打开电池"}},
+    {"json": {"type": "completed", "session_id": "s1", "final": true, "revision": 0, "speakers": null, "usage": {"audio_ms": 1200, "billable_ms": 1200}, "price_version": "p1", "end_reason": "single_utterance"}, "expect": {"kind": "completed", "end_reason": "single_utterance"}},
+    {"json": {"type": "completed", "session_id": "s1", "final": true, "revision": 0, "speakers": null, "usage": {"audio_ms": 5000, "billable_ms": 5000}, "price_version": "p1", "end_reason": "no_speech"}, "expect": {"kind": "completed", "end_reason": "no_speech"}},
+    {"json": {"type": "cancelled", "session_id": "s1", "usage": {"audio_ms": 0, "billable_ms": 0}}, "expect": {"kind": "cancelled"}},
+    {"json": {"type": "error", "code": "quota_exceeded", "message": "busy", "retryable": true, "transcript_state": "none"}, "expect": {"kind": "error", "code": "quota_exceeded"}},
+    {"json": {"type": "revision", "revision": 1, "updates": [{"segment_id": 1, "speaker_label": "A"}]}, "expect": {"kind": "ignored"}},
+    {"json": {"type": "future_hint", "x": 1}, "expect": {"kind": "ignored"}},
+    {"json": {"type": "final", "segment_id": 1, "start_ms": 0, "end_ms": 900}, "expect": {"kind": "invalid"}},
+    {"json": {"type": "final", "segment_id": "1", "text": "x", "start_ms": 0, "end_ms": 1}, "expect": {"kind": "invalid"}},
+    {"json": {"type": "completed", "session_id": "s1", "final": true}, "expect": {"kind": "invalid"}},
+    {"json": {"type": "error", "message": "no code"}, "expect": {"kind": "invalid"}},
+    {"json": {"no_type": true}, "expect": {"kind": "invalid"}},
+    {"raw": "not json", "expect": {"kind": "invalid"}}
+  ],
+  "transcripts": [
+    {"messages": ["final:2:电量", "final:1:看看", "completed:single_utterance"], "expect": "看看电量"},
+    {"messages": ["partial:打开", "final:1:打开电池", "completed:single_utterance"], "expect": "打开电池"},
+    {"messages": ["completed:no_speech"], "expect": null},
+    {"messages": ["final:1:  ", "completed:finish"], "expect": null},
+    {"messages": ["final:1:打开", "error:upstream_unavailable"], "expect": null},
+    {"messages": ["final:1:打开", "cancelled"], "expect": null},
+    {"messages": ["final:1:打开", "close"], "expect": null}
+  ],
+  "speakable": [
+    {"input": "**灯已关掉**，执行成功。", "expect": "灯已关掉，执行成功。"},
+    {"input": "结果：\n```\n{\"on\":false}\n```\n好了", "expect": "结果： 好了"},
+    {"input": "## 电量\n- 当前 `52%`\n- 正在充电", "expect": "电量 当前 52% 正在充电"},
+    {"input": "见 [设置](https://example.com/a)。", "expect": "见 设置。"},
+    {"input": "   ", "expect": ""}
+  ],
+  "chunks": [
+    {"input_repeat": {"unit": "一二三四五六七八九。", "count": 250}, "max": 1000, "expect_lengths": [1000, 1000, 500]},
+    {"input_repeat": {"unit": "一二三四五六七八九十", "count": 150}, "max": 1000, "expect_lengths": [1000, 500]},
+    {"input": "你好。我在。", "max": 4, "expect": ["你好。", "我在。"]},
+    {"input": "短句", "max": 1000, "expect": ["短句"]}
+  ]
+}

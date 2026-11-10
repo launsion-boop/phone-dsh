@@ -153,6 +153,8 @@ including when the token cannot be obtained: a `transient` refresh failure fails
 routes while signed in (iOS and Android launch the independent search with the cloud base even
 without a stored search key). Signed out (never signed in, signed out, or ended) the existing API
 key path applies unchanged. Only one credential header is sent (no `credential_conflict`).
+Cloud speech (ASR/TTS for the TonoLink voice turn) follows the same precedence; its
+signed-out fallback is defined in [cloud-voice.md](cloud-voice.md) §1.
 
 ## 5. Upstream answers from the cloud origin (P05)
 

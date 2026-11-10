@@ -10,8 +10,9 @@ Android continues to use the foreground-service policy in `whitelist.json`.
 owner of audio-session category and activation. The keep-alive, composer dictation
 and `PhoneMediaTools.record` acquire and release through it on the main actor.
 There is one keep-alive instance and at most one live microphone token.
-`SilentAudioKeepAlive.shared` is that instance: its callers (the chat turn and
-the DEBUG TonoLink relay) start and stop it under their own owner name, and it
+`SilentAudioKeepAlive.shared` is that instance: its callers (the chat turn,
+the DEBUG TonoLink relay and the TonoLink voice turn while a board with a wake
+word is connected) start and stop it under their own owner name, and it
 holds the lease's single keep-alive claim from the first owner until the last one
 stops.
 
@@ -45,6 +46,10 @@ audio route change (for example screen mirroring to an AirPlay receiver starting
 or ending) or a 5 s watchdog finding the engine or player stopped. That resume
 re-activates the keep-alive profile only while no microphone owner holds the
 session; otherwise it restarts rendering without touching category or activation.
+
+The TonoLink voice turn plays cloud TTS (16 kHz PCM) through its own
+AVAudioEngine while it holds a keep-alive claim; it never sets the category or
+activates the session, and it never records (the board's microphone does).
 
 OS interruptions, media-service reset, process termination and external category
 changes are not guaranteed to preserve capture. This revision does not promise

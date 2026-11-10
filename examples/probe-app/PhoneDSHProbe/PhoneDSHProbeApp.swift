@@ -85,6 +85,8 @@ struct PhoneDSHProbeApp: App {
                     // The user's own boards: connected once means trusted, and they reconnect by themselves.
                     BLEDeviceStore.shared.trustConnectedDevices = true
                     BLEDeviceStore.shared.reconnectRemembered()
+                    // The board's wake word 你好小智 starts a voice turn (tonolink-board.md §4.1).
+                    TonoLinkVoiceHost.shared.start()
                     await workspaceModels.startAtLaunch()
                     #if DEBUG
                     PCLinkDebugAutomation.shared.start(models: workspaceModels)
