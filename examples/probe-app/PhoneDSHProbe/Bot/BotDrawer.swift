@@ -40,7 +40,9 @@ enum BotAddValidation {
     }
 
     /// Matches `BotProfileStore.validateName`: UTF-16 units, like dsh-bot's
-    /// record limit, not grapheme clusters.
+    /// record limit, not grapheme clusters. The dialogs never render this
+    /// text; it only decides whether 创建 can submit and backs the model-layer
+    /// conformance check.
     static func problem(for name: String) -> String? {
         let value = trimmed(name)
         if value.isEmpty { return "名称不能为空。" }
@@ -48,6 +50,23 @@ enum BotAddValidation {
             return "名称最多 \(maxNameLength) 个字符，当前 \(value.utf16.count) 个。"
         }
         return nil
+    }
+
+    /// Caps editable text at the record limit without splitting a grapheme
+    /// cluster (emoji sequences, combining marks). The name dialogs call this
+    /// from `onChange` and for their initial values, so typing and paste both
+    /// pass through the same cap and the field cannot keep a too-long value.
+    static func capped(_ name: String) -> String {
+        guard name.utf16.count > maxNameLength else { return name }
+        var result = ""
+        var units = 0
+        for character in name {
+            let width = character.utf16.count
+            guard units + width <= maxNameLength else { break }
+            result.append(character)
+            units += width
+        }
+        return result
     }
 }
 
@@ -211,10 +230,12 @@ struct BotDrawer: View {
         }
         .alert("给 Bot 改名", isPresented: renameBinding) {
             TextField("名称", text: $renameText)
+                .onChange(of: renameText) { _, new in
+                    let capped = BotAddValidation.capped(new)
+                    if capped != new { renameText = capped }
+                }
             Button("取消", role: .cancel) { renameEntry = nil }
             Button("保存") { performRename() }
-        } message: {
-            Text("去空格后不能为空，最多 \(BotAddValidation.maxNameLength) 个字符。")
         }
         .alert(deleteEntry.map { "删除「\($0.name)」？" } ?? "",
                isPresented: deleteBinding) {
@@ -320,7 +341,7 @@ struct BotDrawer: View {
     }
 
     private func beginRename(_ entry: BotRosterEntry) {
-        renameText = entry.name
+        renameText = BotAddValidation.capped(entry.name)
         renameEntry = entry
     }
 
@@ -526,10 +547,12 @@ struct BotManageList: View {
             }
             .alert("给 Bot 改名", isPresented: renameBinding) {
                 TextField("名称", text: $renameText)
+                    .onChange(of: renameText) { _, new in
+                        let capped = BotAddValidation.capped(new)
+                        if capped != new { renameText = capped }
+                    }
                 Button("取消", role: .cancel) { renameEntry = nil }
                 Button("保存") { performRename() }
-            } message: {
-                Text("去空格后不能为空，最多 \(BotAddValidation.maxNameLength) 个字符。")
             }
             .alert(deleteEntry.map { "删除「\($0.name)」？" } ?? "",
                    isPresented: deleteBinding) {
@@ -576,7 +599,7 @@ struct BotManageList: View {
             Menu {
                 BotRowMenuContent(entry: entry, isLastBot: lastBot,
                                   onRename: {
-                                      renameText = entry.name
+                                      renameText = BotAddValidation.capped(entry.name)
                                       renameEntry = entry
                                   },
                                   onAppearance: { openAppearance(entry) },
@@ -641,10 +664,10 @@ struct BotManageList: View {
 }
 
 /// The add-Bot dialog: name plus the same hairstyle/colour picker as the info
-/// page. Only a trimmed name <= 60 UTF-16 units enables 创建.
+/// page. The field caps itself at 60 UTF-16 units while typing; a trimmed
+/// non-empty name enables 创建. No validation text is rendered below it.
 struct BotAddDialog: View {
     var actions: BotDrawerActions
-    var initialName = ""
     @Environment(\.dismiss) private var dismiss
 
     @State private var name: String
@@ -655,8 +678,7 @@ struct BotAddDialog: View {
 
     init(actions: BotDrawerActions, initialName: String = "") {
         self.actions = actions
-        self.initialName = initialName
-        _name = State(initialValue: initialName)
+        _name = State(initialValue: BotAddValidation.capped(initialName))
     }
 
     private var validationProblem: String? {
@@ -681,6 +703,10 @@ struct BotAddDialog: View {
                             .font(.system(size: 13))
                             .foregroundStyle(HomeSpec.textSecondary)
                         TextField("给这个 Bot 取个名字", text: $name)
+                            .onChange(of: name) { _, new in
+                                let capped = BotAddValidation.capped(new)
+                                if capped != new { name = capped }
+                            }
                             .font(.system(size: HomeSpec.bodySize))
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
@@ -708,16 +734,6 @@ struct BotAddDialog: View {
                                     .padding(.trailing, 2)
                                 }
                             }
-                        if let validationProblem {
-                            Text(validationProblem)
-                                .font(.system(size: 12.5))
-                                .foregroundStyle(BotUIPalette.danger)
-                                .accessibilityIdentifier("bot.add.name.hint")
-                        } else {
-                            Text("去空格后最多 \(BotAddValidation.maxNameLength) 个字符。")
-                                .font(.system(size: 12.5))
-                                .foregroundStyle(HomeSpec.textTertiary)
-                        }
                     }
 
                     BotAppearancePicker(

@@ -22,14 +22,14 @@
 
 ## 3. 添加 Bot 对话框
 
-- 只保留名字 + 发型 + 颜色：名字为空白或去空格后超过 60 个 UTF-16 单元时禁用「创建」并显示原因（id `bot.add.name.hint`）；名字非空时输入框右侧有清除按钮（id `bot.add.name.clear`）；默认 `long` + `blue`。
+- 只保留名字 + 发型 + 颜色：名字输入在 binding setter 中即按字素簇安全截断到最多 60 个 UTF-16 单元（输入与粘贴同一路径，绝不切坏 emoji/组合字符），因此不会出现超长态；输入框下方不显示任何校验或字数提示，也不留空白占位（不存在的 `bot.add.name.hint` 不再渲染）。去空格后为空时禁用「创建」；名字非空时输入框右侧有清除按钮（id `bot.add.name.clear`）；默认 `long` + `blue`。
 - 104pt 实时预览随发型/颜色即时更新；发型和颜色直接复用信息页的 `BotAppearancePicker`（4 个 40pt 发型静帧 + 15 个 24pt 色点，44pt 命中区）。
-- 「创建」调用 `create(name:description:color:hairstyle:)`；成功后选中新 Bot 并关闭抽屉；失败在对话框内显示错误，不关闭。UI 的 60 单元谓词与 profile store 的 `validateName` 都必须拒绝超长名字（fixture 的 create 路径同样经过 store）。id：`bot.add.name`、`bot.add.name.clear`、`bot.add.create`、`bot.add.cancel`、`bot.add.error`。
+- 「创建」调用 `create(name:description:color:hairstyle:)`；成功后选中新 Bot 并关闭抽屉；失败在对话框内显示错误，不关闭。UI 的 60 单元截断只限制可编辑文本；模型层 `BotRosterModel.create` / `BotProfileStore.validateName` 仍拒绝空白和超过 60 个 UTF-16 单元的名字（fixture 的 create 路径直接验证该拒绝）。id：`bot.add.name`、`bot.add.name.clear`、`bot.add.create`、`bot.add.cancel`、`bot.add.error`。
 
 ## 4. 管理 Bot
 
 - 行内长按 context menu 和「管理 Bot」列表共用同一组动作：改名、外观、设为主 Bot（已是主 Bot 时隐藏）、隐藏/取消隐藏、删除 Bot。
-- 改名只接受去空格后的非空 ≤ 60 个 UTF-16 单元；外观打开该 Bot 的 `BotInfoPage` 外观区（同一个 picker、同一个 profile 写入）；设为主 Bot 走 `setMain`；隐藏/取消隐藏走 `setHidden`，隐藏后从抽屉消失但仍在管理列表。
+- 改名对话框与添加对话框使用同一规则：输入框在输入/粘贴时按字素簇安全截断到 60 个 UTF-16 单元，不显示规则或字数提示；去空格后为空时保存走既有错误面。模型层仍只接受去空格后的非空 ≤ 60 个 UTF-16 单元。外观打开该 Bot 的 `BotInfoPage` 外观区（同一个 picker、同一个 profile 写入）；设为主 Bot 走 `setMain`；隐藏/取消隐藏走 `setHidden`，隐藏后从抽屉消失但仍在管理列表。
 - 管理列表是唯一显示隐藏 Bot 的地方，行上有「主 Bot」皇冠和「已隐藏」标签；id `bot.manage.row.<botID>`，每行菜单 id `bot.manage.menu.<botID>`。
 - 删除必须二次确认，文案说明会中止回合、拒绝待审批、撤销授权、归档 DSH 会话，并删除该 Bot 的记忆、例行任务和待处理消息；生产宿主调用 `BotProductionHub.deleteBot(_:)`，走完整级联。最后一个 Bot 不显示可用的删除动作，而是显示「这是最后一个 Bot，不能删除。」
 
@@ -41,5 +41,5 @@
 
 ## 6. 验收
 
-- `scripts/ci/bot-ui/capture.sh` 的 `drawer` / `drawerAdd` / `drawerManage` / `reactionLive` fixture 在 light/dark 下截图；另有 capture-only `reactionHeader` 证明抽屉关闭时头部同样消费 `reaction:`。交互测试覆盖打开抽屉 → 点第二个 Bot → 抽屉关闭且头部切换、添加 Bot 流程、左滑关闭。
+- `scripts/ci/bot-ui/capture.sh` 的 `drawer` / `drawerAdd` / `drawerManage` / `reactionLive` fixture 在 light/dark 下截图；`drawerAdd` 是空的普通填写态（不再展示错误或提示）。另有 capture-only `reactionHeader` 证明抽屉关闭时头部同样消费 `reaction:`。交互测试覆盖打开抽屉 → 点第二个 Bot → 抽屉关闭且头部切换、添加 Bot（空名禁用且无提示 → 输入 61 单元截断为 60 → 清空后创建并切换头部）、左滑关闭。
 - 宽屏常驻侧栏、窄屏滑出抽屉、遮罩点击关闭、减少动态效果、长名字和 99+ 未读都要在模拟器核对；模拟器结果不写成真机结果。
