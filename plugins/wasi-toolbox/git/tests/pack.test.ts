@@ -57,6 +57,8 @@ test('buildPack / buildPackIndex round-trip through the reader', async () => {
     assert.equal(parsed.packSha, pack.id)
     assert.equal(parsed.objects.length, 3)
     assert.deepEqual(parsed.objects.map(object => object.type), [3, 2, 1])
+    // parsePack is metadata-only now, but it must still name every object.
+    assert.deepEqual(parsed.objects.map(object => object.oid), pack.ids)
     // The written index is accepted by the system git's own tooling when the
     // pack layout is exercised end to end in the golden suite.
     const indexBytes = readFileSync(join(packDir, `pack-${pack.id}.idx`))

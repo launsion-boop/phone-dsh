@@ -92,6 +92,25 @@ final class WALReaderTests: XCTestCase {
         }
     }
 
+    func testZeroLengthSegmentAfterTheTornTailDoesNotHideIt() throws {
+        let root = LogTestSupport.root(for: self)
+        let directory = LogTestSupport.walDirectory(root)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let header = try WALSegmentHeader(firstMseq: 1, bootID: LogTestSupport.bootID())
+        let torn = directory.appendingPathComponent("00000001.000000.xlwal")
+        var bytes = [UInt8](header.encoded())
+        bytes.append(contentsOf: [0x00, 0x00, 0x00, 0x40, 0xFF, 0xEE])
+        try Data(bytes).write(to: torn)
+        let empty = directory.appendingPathComponent("00000002.000000.xlwal")
+        try Data().write(to: empty)
+
+        let scan = try WALReader.scan(directory: directory, truncateTornTail: true)
+        XCTAssertTrue(scan.truncatedTornTail)
+        XCTAssertEqual(scan.zeroLengthSegments.map(\.fileName), ["00000002.000000.xlwal"])
+        XCTAssertEqual(try LogFile.size(torn), WALSegmentHeader.byteCount,
+                       "the last non-empty segment is still the D19 torn-tail candidate")
+    }
+
     func testTornHeaderOfNewestSegmentIsDiscardedByTruncation() throws {
         let root = LogTestSupport.root(for: self)
         let directory = LogTestSupport.walDirectory(root)

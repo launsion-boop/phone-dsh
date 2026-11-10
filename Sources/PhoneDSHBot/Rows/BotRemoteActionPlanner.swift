@@ -59,11 +59,16 @@ public actor BotRemoteActionPlanner: BotUserActionPlanning {
         }
         switch action.kind {
         case .chat:
-            guard let text = action.text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else {
+            let attachments = action.attachments ?? []
+            guard attachments.count <= BotAttachmentPolicy.maxCount else {
+                return .rejected(reason: "too_many_attachments")
+            }
+            let text = action.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !text.isEmpty || !attachments.isEmpty else {
                 return .rejected(reason: "missing_text")
             }
             return try await complete(action, result: remote.sendUserMessage(
-                text, requestId: "user-action:\(action.nonce)"))
+                text, requestId: "user-action:\(action.nonce)", attachments: attachments))
         case .cardAnswer:
             guard action.text == nil else {
                 return .rejected(reason: "unexpected_card_answer_field")

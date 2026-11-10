@@ -50,6 +50,8 @@ import {
   CAPABILITIES_JSON_PATH,
   CURL_NO_HOST_ROUTE_REASON,
   DEFAULT_BASH_DEVIATIONS,
+  MOBILE_RESOURCE_HEADING,
+  MOBILE_RESOURCE_MAX_BYTES,
   PHONE_V1_LIMITS,
   TASK_EXECUTION_GUIDANCE,
   RESPONSE_GUIDANCE,
@@ -464,6 +466,8 @@ test('the production manifest fits its byte budget with SSH/SCP/ADB, advice and 
   assert.ok(bytes <= AGENTS_MD_MAX_BYTES, `AGENTS.md is ${String(bytes)} B; the budget is ${String(AGENTS_MD_MAX_BYTES)} B`)
   assert.doesNotMatch(manifest.markdown, /shortened to fit/u, 'the budget fallback keeps the whole document')
   assert.ok(manifest.markdown.includes(TASK_EXECUTION_GUIDANCE))
+  assert.ok(manifest.markdown.includes(MOBILE_RESOURCE_HEADING),
+    'the phone-resource practice survives on the production surface')
   // Under the 8 KiB budget the production surface fits the full bounded command
   // list, so the compact summary is the over-budget fallback rather than the
   // normal shape. Both spellings keep the exact lists in the JSON document; the
@@ -513,6 +517,52 @@ test('the production manifest fits its byte budget with SSH/SCP/ADB, advice and 
   assert.ok(manifest.markdown.includes('Missing: pip/ensurepip (the image is stdlib-only; no package installs);'))
   assert.ok(manifest.markdown.includes('`subprocess` is a shim: `Popen` runs another `python3`'))
   assert.ok(manifest.markdown.includes('`EPOCHSECONDS` and `EPOCHREALTIME` are unset'))
+})
+
+test('the fixed phone-resource practice section stays under 600 B and follows the tier budget', () => {
+  const eightGiB = buildCapabilityManifest(manifestInput())
+  assert.ok(eightGiB.markdown.includes(MOBILE_RESOURCE_HEADING))
+  const start = eightGiB.markdown.indexOf(MOBILE_RESOURCE_HEADING)
+  const end = eightGiB.markdown.indexOf('\n## ', start + 1)
+  assert.ok(start >= 0 && end > start, 'the section is a whole Markdown section')
+  const section = eightGiB.markdown.slice(start, end)
+  assert.ok(
+    Buffer.byteLength(section, 'utf8') <= MOBILE_RESOURCE_MAX_BYTES,
+    `the phone-resource section is ${String(Buffer.byteLength(section, 'utf8'))} B; the budget is ${String(MOBILE_RESOURCE_MAX_BYTES)} B`,
+  )
+  // The practice list is fixed and every requested rule is present.
+  for (const needle of [
+    'git clone --depth 1 --single-branch',
+    '不在手机上安装依赖、不跑构建',
+    '`.git`',
+    '`node_modules`',
+    '大文件按片读取',
+    '只处理任务需要的那部分目录',
+  ]) {
+    assert.ok(section.includes(needle), `the phone-resource section states ${needle}`)
+  }
+  // The workspace budget is read from `limits`, never hard-coded.
+  assert.equal(PHONE_V1_LIMITS.vfsWorkspaceBytes, 288 * 1024 * 1024)
+  assert.ok(section.includes('288 MiB'))
+  const sixGiB = buildCapabilityManifest(manifestInput({
+    limits: { vfsWorkspaceBytes: 120 * 1024 * 1024 },
+  }))
+  const sixStart = sixGiB.markdown.indexOf(MOBILE_RESOURCE_HEADING)
+  const sixEnd = sixGiB.markdown.indexOf('\n## ', sixStart + 1)
+  const sixSection = sixGiB.markdown.slice(sixStart, sixEnd)
+  assert.ok(sixSection.includes('120 MiB'))
+  assert.ok(!sixSection.includes('288 MiB'))
+  assert.ok(Buffer.byteLength(sixSection, 'utf8') <= MOBILE_RESOURCE_MAX_BYTES)
+  // Stable output order: Limits -> phone practice -> Network, and the same
+  // input renders byte-identical Markdown (the boot idempotency contract).
+  assert.ok(sixGiB.markdown.indexOf('## Limits') < sixStart)
+  assert.ok(sixStart < sixGiB.markdown.indexOf('## Network'))
+  const again = buildCapabilityManifest(manifestInput({
+    limits: { vfsWorkspaceBytes: 120 * 1024 * 1024 },
+  }))
+  assert.equal(again.markdown, sixGiB.markdown)
+  assert.equal(again.markdownSha256, sixGiB.markdownSha256)
+  assert.ok(Buffer.byteLength(again.markdown, 'utf8') <= AGENTS_MD_MAX_BYTES)
 })
 
 test('a refusal outside the writable roots is final: no escalation advice survives in the instructions', () => {

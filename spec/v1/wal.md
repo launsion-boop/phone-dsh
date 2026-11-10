@@ -371,7 +371,11 @@ worker has the bytes.
 - "its epoch is durable (closed in the D18 order, `F_FULLFSYNC`ed, listed)" is proven by
   `last_durable_epoch` plus `segments[]` in the manifest — §7 calls `last_durable_epoch` the one
   marker D18 step 5 writes. Keeping the newest close record readable is a backstop, not a second
-  requirement.
+  requirement. A listed segment whose epoch is at or below `last_durable_epoch` is therefore
+  durable even when it has no close record of its own (or that record is no longer retained), and
+  it is droppable when every other condition of this section holds. It is not "unclosed history"
+  for §10's recovery fast path; only an epoch above `last_durable_epoch`, or a retained unlisted
+  segment that holds records, is.
 - For a path the epoch removed, there is no file to fsync: fsync its **parent directory**, the same
   rule D18 step 1 uses for removes.
 - The close record itself is **not** charged against the limit before it is written. Refusing to close

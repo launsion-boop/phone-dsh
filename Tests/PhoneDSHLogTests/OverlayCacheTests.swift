@@ -26,6 +26,21 @@ final class OverlayCacheTests: XCTestCase {
         VfsMutationBody(op: .write, mode: 0o644, path: path, data: Data(text.utf8))
     }
 
+    func testOverlayTarsAreExcludedFromBackup() async throws {
+        let (log, root) = try makeLog()
+        defer { try? FileManager.default.removeItem(at: root) }
+        _ = try await log.recover()
+        _ = try await log.append(write("/dsh/workspace/a.txt", "first"))
+
+        let bootURL = try await log.overlay(bootID: bootA)
+        let cacheURL = root.appendingPathComponent("overlay-cache.tar")
+        for url in [bootURL, cacheURL] {
+            let values = try url.resourceValues(forKeys: [.isExcludedFromBackupKey])
+            XCTAssertEqual(values.isExcludedFromBackup, true,
+                           "\(url.lastPathComponent) is derived and must not be backed up")
+        }
+    }
+
     func testOverlayIsReusedWhileTheMaterializedWatermarkIsUnchanged() async throws {
         let (log, root) = try makeLog()
         defer { try? FileManager.default.removeItem(at: root) }

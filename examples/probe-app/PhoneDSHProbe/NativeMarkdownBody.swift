@@ -8,56 +8,57 @@ struct NativeMarkdownBody: View {
     let markdown: String
     let streaming: Bool
     let variant: NativeMarkdownVariant
-    let workspaceFiles: [WorkspaceFile]
+    let fileIndex: WorkspaceFileIndex
     let onOpenFile: ((String) -> Void)?
-
-    @State private var blocks: [NativeMarkdownBlock]
+    /// Transcript item identity for the parse cache. Empty means the caller is
+    /// a preview/standalone surface and the cache falls back to a content hash.
+    let cacheItemID: String
+    let cacheRevision: Int
 
     init(markdown: String, streaming: Bool = false, variant: NativeMarkdownVariant = .body,
-         workspaceFiles: [WorkspaceFile] = [], onOpenFile: ((String) -> Void)? = nil) {
+         fileIndex: WorkspaceFileIndex = .empty, onOpenFile: ((String) -> Void)? = nil,
+         cacheItemID: String = "", cacheRevision: Int = 0) {
         self.markdown = markdown
         self.streaming = streaming
         self.variant = variant
-        self.workspaceFiles = workspaceFiles
+        self.fileIndex = fileIndex
         self.onOpenFile = onOpenFile
-        _blocks = State(initialValue: NativeMarkdownParser.parse(markdown, streaming: streaming))
+        self.cacheItemID = cacheItemID
+        self.cacheRevision = cacheRevision
     }
 
     var body: some View {
+        let blocks = NativeMarkdownParseCache.shared.blocks(
+            for: markdown, itemID: cacheItemID,
+            revision: cacheRevision, streaming: streaming)
         VStack(alignment: .leading, spacing: variant == .compact ? 4 : NativeChatTheme.messageParagraphSpacing) {
             ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
                 NativeMarkdownBlockView(block: block, variant: variant,
-                                        workspaceFiles: workspaceFiles, onOpenFile: onOpenFile)
+                                        fileIndex: fileIndex, onOpenFile: onOpenFile)
             }
         }
         .lineSpacing(variant == .compact ? 0 : NativeChatTheme.messageLineSpacing)
         .frame(maxWidth: .infinity, alignment: .leading)
         .textSelection(.enabled)
-        .onChange(of: markdown) { _, value in
-            blocks = NativeMarkdownParser.parse(value, streaming: streaming)
-        }
-        .onChange(of: streaming) { _, value in
-            blocks = NativeMarkdownParser.parse(markdown, streaming: value)
-        }
     }
 }
 
 private struct NativeMarkdownBlockView: View {
     let block: NativeMarkdownBlock
     let variant: NativeMarkdownVariant
-    let workspaceFiles: [WorkspaceFile]
+    let fileIndex: WorkspaceFileIndex
     let onOpenFile: ((String) -> Void)?
 
     var body: some View {
         switch block {
         case .heading(let level, let content):
             NativeMarkdownInlineText(content: content, variant: variant, headingLevel: level,
-                                     workspaceFiles: workspaceFiles, onOpenFile: onOpenFile)
+                                     fileIndex: fileIndex, onOpenFile: onOpenFile)
                 .font(headingFont(level))
                 .accessibilityAddTraits(.isHeader)
         case .paragraph(let content):
             NativeMarkdownInlineText(content: content, variant: variant,
-                                     workspaceFiles: workspaceFiles, onOpenFile: onOpenFile)
+                                     fileIndex: fileIndex, onOpenFile: onOpenFile)
                 .font(variant == .compact ? NativeChatTheme.secondaryFont() : NativeChatTheme.messageBodyFont())
                 .foregroundStyle(variant == .compact ? NativeChatTheme.tertiary : NativeChatTheme.primary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -79,7 +80,7 @@ private struct NativeMarkdownBlockView: View {
                         VStack(alignment: .leading, spacing: variant == .compact ? 2 : NativeChatTheme.messageListSpacing) {
                             ForEach(Array(item.blocks.enumerated()), id: \.offset) { _, child in
                                 NativeMarkdownBlockView(block: child, variant: variant,
-                                                        workspaceFiles: workspaceFiles, onOpenFile: onOpenFile)
+                                                        fileIndex: fileIndex, onOpenFile: onOpenFile)
                             }
                         }
                     }
@@ -90,7 +91,7 @@ private struct NativeMarkdownBlockView: View {
             VStack(alignment: .leading, spacing: variant == .compact ? 4 : 12) {
                 ForEach(Array(children.enumerated()), id: \.offset) { _, child in
                     NativeMarkdownBlockView(block: child, variant: variant,
-                                            workspaceFiles: workspaceFiles, onOpenFile: onOpenFile)
+                                            fileIndex: fileIndex, onOpenFile: onOpenFile)
                 }
             }
             .padding(.leading, variant == .compact ? 8 : 14)
@@ -102,7 +103,7 @@ private struct NativeMarkdownBlockView: View {
                          language: language)
         case .table(let header, let rows, let alignments):
             NativeMarkdownTable(header: header, rows: rows, alignments: alignments, variant: variant,
-                                workspaceFiles: workspaceFiles, onOpenFile: onOpenFile)
+                                fileIndex: fileIndex, onOpenFile: onOpenFile)
         case .image(let source, let alt, let title):
             NativeMarkdownImage(source: source, alt: alt, title: title)
         case .math(let latex):
@@ -134,7 +135,7 @@ struct NativeMarkdownTable: View {
     let rows: [[[NativeMarkdownInline]]]
     let alignments: [NativeMarkdownTableAlignment?]
     let variant: NativeMarkdownVariant
-    let workspaceFiles: [WorkspaceFile]
+    let fileIndex: WorkspaceFileIndex
     let onOpenFile: ((String) -> Void)?
 
     private var columnCount: Int {
@@ -151,10 +152,10 @@ struct NativeMarkdownTable: View {
     private var grid: some View {
         VStack(alignment: .leading, spacing: 0) {
             NativeMarkdownTableRow(cells: header, header: true, variant: variant, alignments: alignments,
-                                   workspaceFiles: workspaceFiles, onOpenFile: onOpenFile)
+                                   fileIndex: fileIndex, onOpenFile: onOpenFile)
             ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
                 NativeMarkdownTableRow(cells: row, header: false, variant: variant, alignments: alignments,
-                                       workspaceFiles: workspaceFiles, onOpenFile: onOpenFile)
+                                       fileIndex: fileIndex, onOpenFile: onOpenFile)
             }
         }
         .accessibilityElement(children: .contain)
@@ -172,7 +173,7 @@ struct NativeMarkdownTable: View {
                                 .foregroundStyle(NativeChatTheme.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                             NativeMarkdownInlineText(content: row[safe: index] ?? [], variant: variant,
-                                                     workspaceFiles: workspaceFiles, onOpenFile: onOpenFile)
+                                                     fileIndex: fileIndex, onOpenFile: onOpenFile)
                                 .font(variant == .compact
                                       ? NativeChatTheme.secondaryFont() : NativeChatTheme.messageBodyFont())
                                 .foregroundStyle(NativeChatTheme.primary)
@@ -203,14 +204,14 @@ private struct NativeMarkdownTableRow: View {
     let header: Bool
     let variant: NativeMarkdownVariant
     let alignments: [NativeMarkdownTableAlignment?]
-    let workspaceFiles: [WorkspaceFile]
+    let fileIndex: WorkspaceFileIndex
     let onOpenFile: ((String) -> Void)?
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
             ForEach(Array(cells.enumerated()), id: \.offset) { index, cell in
                 NativeMarkdownInlineText(content: cell, variant: variant,
-                                         workspaceFiles: workspaceFiles, onOpenFile: onOpenFile)
+                                         fileIndex: fileIndex, onOpenFile: onOpenFile)
                     .font(variant == .compact
                           ? NativeChatTheme.secondaryFont().weight(header ? .semibold : .regular)
                           : NativeChatTheme.messageBodyFont().weight(header ? .semibold : .regular))
@@ -245,10 +246,60 @@ private struct NativeMarkdownInlineText: View {
     let content: [NativeMarkdownInline]
     let variant: NativeMarkdownVariant
     var headingLevel: Int?
-    let workspaceFiles: [WorkspaceFile]
+    let fileIndex: WorkspaceFileIndex
     let onOpenFile: ((String) -> Void)?
+    @Environment(\.displayScale) private var displayScale
+    @Environment(\.colorScheme) private var colorScheme
 
-    var body: some View { text(content) }
+    var body: some View {
+        if Self.needsRenderCache(content) {
+            cachedText(for: renderCacheKey)
+        } else {
+            text(content)
+        }
+    }
+
+    /// Only the inline forms that build an AttributedString or a math image are
+    /// worth caching; plain/strong/emphasis paragraphs are cheap `Text` additions.
+    private static func needsRenderCache(_ inline: [NativeMarkdownInline]) -> Bool {
+        for part in inline {
+            switch part {
+            case .code, .link, .math:
+                return true
+            case .strong(let children), .emphasis(let children), .delete(let children):
+                if needsRenderCache(children) { return true }
+            default:
+                break
+            }
+        }
+        return false
+    }
+
+    /// The key carries every input that changes the built Text: the inline
+    /// AST, the workspace index revision (a code span's link target), the
+    /// theme/colour scheme, the resolved font sizes and preference revision,
+    /// plus display scale (math images are rasterized per scale).
+    private var renderCacheKey: NativeInlineTextKey {
+        let preferences = NativeChatPreferences.shared
+        return NativeInlineTextKey(
+            content: content,
+            compact: variant == .compact,
+            fileIndexRevision: fileIndex.revision,
+            preferencesRevision: preferences.revision,
+            codeFontSize: preferences.fontSize(for: .code),
+            textFontSize: preferences.fontSize(for: .text),
+            displayScale: displayScale,
+            colorScheme: colorScheme == .dark ? 2 : (colorScheme == .light ? 1 : 0))
+    }
+
+    private func cachedText(for key: NativeInlineTextKey) -> Text {
+        let cache = NativeInlineTextCache.shared.cache
+        if let cached = cache.value(forKey: key) { return cached }
+        let rendered = text(content)
+        cache.insert(rendered, forKey: key,
+                     cost: 256 + Self.plainText(content).utf8.count * 8)
+        return rendered
+    }
 
     private func text(_ inline: [NativeMarkdownInline]) -> Text {
         inline.reduce(Text("")) { result, part in result + render(part) }
@@ -283,11 +334,17 @@ private struct NativeMarkdownInlineText: View {
         case .image(_, let alt):
             return Text(alt).italic().foregroundColor(NativeChatTheme.tertiary)
         case .math(let latex):
-            var renderer = MathImage(latex: latex, fontSize: variant == .compact ? 13 : CGFloat(NativeChatPreferences.shared.fontSize(for: .text)),
-                                     textColor: UIColor(NativeChatTheme.primary), labelMode: .text, textAlignment: .left)
-            let (error, image, layout) = renderer.asImage()
-            guard error == nil, let image else { return Text(latex) }
-            return Text(Image(uiImage: image)).baselineOffset(-(layout?.descent ?? 0))
+            let result = NativeMathImageCache.shared.result(
+                latex: latex,
+                fontSize: variant == .compact ? 13 : CGFloat(NativeChatPreferences.shared.fontSize(for: .text)),
+                displayScale: displayScale,
+                colorScheme: colorScheme)
+            switch result {
+            case .success(let image, _, let descent):
+                return Text(Image(uiImage: image)).baselineOffset(-descent)
+            case .failure:
+                return Text(latex)
+            }
         case .footnote(let identifier):
             return Text("[\(identifier)]").font(.system(size: 9)).baselineOffset(6)
         case .html(let value): return Text(value)
@@ -307,10 +364,31 @@ private struct NativeMarkdownInlineText: View {
     }
 
     private func nativeFileMention(_ value: String) -> URL? {
-        let matches = workspaceFiles.filter { $0.relativePath == value || $0.relativePath.split(separator: "/").last.map(String.init) == value }
-        guard matches.count == 1 else { return nil }
-        return nativeMarkdownURL(matches[0].relativePath)
+        guard let path = fileIndex.mention(for: value) else { return nil }
+        return nativeMarkdownURL(path)
     }
+}
+
+private struct NativeInlineTextKey: Hashable {
+    let content: [NativeMarkdownInline]
+    let compact: Bool
+    let fileIndexRevision: Int
+    let preferencesRevision: Int
+    let codeFontSize: Int
+    let textFontSize: Int
+    let displayScale: CGFloat
+    let colorScheme: Int
+}
+
+private final class NativeInlineTextCache {
+    static let shared = NativeInlineTextCache()
+    static let countLimit = 512
+    static let totalCostLimit = 4 * 1024 * 1024
+
+    let cache = NativeBoundedCache<NativeInlineTextKey, Text>(
+        name: "NativeInlineTextCache",
+        countLimit: NativeInlineTextCache.countLimit,
+        totalCostLimit: NativeInlineTextCache.totalCostLimit)
 }
 
 private func nativeMarkdownURL(_ destination: String) -> URL? {

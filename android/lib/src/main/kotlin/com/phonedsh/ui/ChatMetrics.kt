@@ -92,10 +92,6 @@ public object ChatMetrics {
     /** PR22 has no header hairline: the nav row floats on the page. Source: `ChatPage.swift:384` (`.background(HomeSpec.page)`). Confidence: exact. */
     public const val HEADER_DIVIDER_PT: Float = 0f
 
-    /** Folder glyph-to-label gap. Source: `ChatPage.swift:221`. Confidence: exact. */
-    public const val HOME_HEADER_FOLDER_GAP_PT: Int = 6
-    /** Folder glyph in the HomeSpec session subtitle. Source: `ChatPage.swift:223-224`. Confidence: exact. */
-    public const val HOME_HEADER_FOLDER_ICON_PT: Int = 13
     /** More SF Symbol size and weight are represented by the bold registry vector. Source: `ChatPage.swift:329`. Confidence: exact. */
     public const val CHAT_HEADER_MORE_ICON_PT: Int = 18
     /** Vertical text gap in system-event message rows. Source: `NativeMessageRows.swift:113`. Confidence: exact. */
@@ -397,6 +393,10 @@ public object ChatMetrics {
     public const val ACCESS_MODE_SHIELD_GLYPH_PT: Int = 20
     /** Access-mode disclosure glyph. Source: `ChatPage.swift:2210-2218`. Confidence: exact. */
     public const val ACCESS_MODE_CHEVRON_GLYPH_PT: Int = 10
+    /** Access-mode failure mark after automatic retries. Source: `ChatPage.swift` accessModeMenu label. Confidence: exact. */
+    public const val ACCESS_MODE_ALERT_DOT_PT: Int = 6
+    /** Access-mode retry spinner stroke (iOS `ProgressView().controlSize(.mini)`). Source: `ChatPage.swift` accessModeMenu label. Confidence: approximated. */
+    public const val ACCESS_MODE_SPINNER_STROKE_PT: Float = 1.5f
     /** Model name/effort gap. Source: `ChatPage.swift:2354`. Confidence: exact. */
     public const val MODEL_EFFORT_GAP_PT: Int = 6
     /** Model-menu disclosure glyph. Source: `ChatPage.swift:2363`. Confidence: exact. */

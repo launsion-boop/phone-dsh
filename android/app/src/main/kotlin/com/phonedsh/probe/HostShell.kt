@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 //
 // Spec: `spec/ui/v1/README.md` §1 (the 入口 column: 抽屉「工作文件夹」、
-// 抽屉「定时任务」、页头 `⋯`、设置首行/设置内、页头运行状态点、引擎就绪时的默认面),
+// 设置 › 定时任务、页头 `⋯`、设置首行/设置内、页头运行状态点、引擎就绪时的默认面),
 // §2 (`back-gesture` in §5: the stack pops one level per gesture) and §3.1 (a page
 // is a pure function of facts and local state; nothing here reads the engine for
 // a page).
@@ -1321,9 +1321,6 @@ internal fun HostShell(
                         // callbacks are the App's own commands, not handoffs.
                         chat = chatScreenState,
                         chatTitle = chatUi.title,
-                        chatFolderSubtitle = drawerRecords?.firstOrNull { it.id == chatUi.chatId }?.let { record ->
-                            workspaceGroupTitle(record, drawerFolders.orEmpty())
-                        },
                         timelineRetryAvailability = com.phonedsh.ui.nav.PdshActionAvailability.Unavailable(
                             com.phonedsh.ui.nav.PdshUnavailableReason.NOT_IMPLEMENTED,
                         ),
@@ -1415,13 +1412,23 @@ internal fun HostShell(
                     }?.sortedByDescending { it.updatedAtMs }
                         ?.map { HomeDrawerSession(it.id, it.title.ifBlank { UiStrings.SESSION_TITLE_NEW }, running = it.id == chatUi.chatId && chatUi.running) },
                     activeSessionId = chatUi.chatId.takeIf(String::isNotBlank),
-                    scheduleCount = automationFacts.snapshot?.schedules?.size,
+                    languageId = preferences.language?.id,
                     engine = when {
                         chatScreenState.empty == com.phonedsh.ui.state.ChatEmpty.PROVIDER_SETUP -> HomeDrawerEngineState.CONFIGURATION_REQUIRED
                         state is EngineHostState.Running -> HomeDrawerEngineState.READY
                         state == EngineHostState.Starting -> HomeDrawerEngineState.STARTING
                         state == EngineHostState.Stopped -> if (providerConfigured) HomeDrawerEngineState.STOPPED else HomeDrawerEngineState.CONFIGURATION_REQUIRED
                         else -> HomeDrawerEngineState.UNKNOWN
+                    },
+                    // A session switch is not a reason: Android closes the
+                    // drawer as soon as the tap starts, and chatUi.running is
+                    // the real turn fact. Only a stopped engine or a genuinely
+                    // running turn supplies the line; the drawer keeps a fixed
+                    // height for it either way.
+                    newSessionBlockedReason = when {
+                        state !is EngineHostState.Running -> UiStrings.SESSIONS_NEW_BLOCKED_ENGINE
+                        chatUi.running -> UiStrings.DRAWER_NEW_BLOCKED_TURN
+                        else -> null
                     },
                     failure = drawerSnapshotFailure,
                 )
@@ -1536,11 +1543,6 @@ internal fun HostShell(
                             HomeDrawerArchiveResult.Archived(request.requestId, request.sessionId)
                         } else HomeDrawerArchiveResult.Failed(request.requestId, request.sessionId, "归档未确认，原会话仍保留")
                         result
-                    },
-                    onOpenSchedules = {
-                        drawerOpen = false
-                        probeOpen = false
-                        nav = PdshNavState(listOf(PdshRoute.Chat, PdshRoute.Automation))
                     },
                 )
             }

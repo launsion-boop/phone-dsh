@@ -127,14 +127,18 @@ class SessionPagesStateTest {
             zone = zone,
         )
         assertEquals(listOf("w2", "w1"), state.workspaces.map { it.id })
-        // PR22 SessionsPage.swift:41-55 names the default folder 日常 and
-        // numbers repeated defaults by their position. Ordering stays unchanged.
-        assertEquals(listOf("日常", "日常 2"), state.workspaces.map { it.title })
-        // A folder's rows follow the host's membership list, not the session list.
+        // The built-in phone workspace owns loose sessions; repeated default
+        // names are numbered by position. Ordering stays unchanged.
+        assertEquals(listOf("手机工作区", "手机工作区 2"), state.workspaces.map { it.title })
+        // Loose sessions join the first default-named folder in display order
+        // (w2 here), the same rule as iOS HomeDrawer.defaultFolder.
+        assertEquals(listOf("s3"), state.workspaces[0].sessions.map { it.id })
+        assertEquals(1L, state.workspaces[0].sessionCount)
+        assertFalse(state.workspaces[0].empty)
+        // A folder's rows follow the host's membership list.
         assertEquals(listOf("s2", "s1"), state.workspaces[1].sessions.map { it.id })
         assertEquals(2L, state.workspaces[1].sessionCount)
-        assertEquals(listOf("s3"), state.rows.map { it.id })
-        assertTrue(state.workspaces[0].empty)
+        assertEquals(emptyList<String>(), state.rows.map { it.id })
     }
 
     @Test
@@ -277,12 +281,14 @@ class SessionPagesStateTest {
 
     @Test
     fun `default and path-like workspace names follow the baseline`() {
-        assertEquals("日常", workspaceTitle("workspace", 1))
-        assertEquals("日常 2", workspaceTitle("工作文件夹", 2))
+        assertEquals(UiStrings.DRAWER_DEFAULT_FOLDER, workspaceTitle("workspace", 1))
+        assertEquals(UiStrings.DRAWER_DEFAULT_FOLDER_INDEXED.format(2), workspaceTitle("工作文件夹", 2))
         assertEquals("项目A", workspaceTitle("/dsh/workspace/项目A", 1))
         assertEquals("b", workspaceTitle("a/b/", 1))
         assertEquals(UiStrings.SESSIONS_WORKSPACE_UNNAMED, workspaceTitle("/", 1))
         assertEquals(UiStrings.SESSIONS_WORKSPACE_UNNAMED, workspaceTitle("~", 1))
+        assertEquals("Phone Workspace", workspaceTitle("default-workspace", 1, "en"))
+        assertEquals("Phone Workspace 2", workspaceTitle("workspace", 2, "en"))
     }
 
     @Test

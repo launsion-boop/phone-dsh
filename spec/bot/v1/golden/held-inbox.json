@@ -58,6 +58,20 @@
     },
     "committed": {
       "removed": 1
+    },
+    "deviceTaskResult": {
+      "id": "device-task-result-443716d6b62e747de90b8ee72498833b947f63a972784863e3aa93bb61563435",
+      "kind": "device-task-result",
+      "title": "厨房传感器",
+      "text": "Goal: 检查厨房温度\nResult: 当前 23°C，处于目标区间。",
+      "requestId": "device-task:443716d6b62e747de90b8ee72498833b947f63a972784863e3aa93bb61563435",
+      "createdAt": 1760000003000,
+      "fromAgentId": null,
+      "fromAgentName": "",
+      "threadId": null,
+      "state": "pending",
+      "taskId": "task-1",
+      "status": "completed"
     }
   },
   "invalid": [
@@ -72,6 +86,18 @@
       "state": "staged",
       "stagedKey": "",
       "reason": "missing_staged_key"
+    },
+    {
+      "id": "device-task-result-invalid",
+      "kind": "device-task-result",
+      "title": "厨房传感器",
+      "text": "Goal: 检查厨房温度\nResult: 当前 23°C，处于目标区间。",
+      "requestId": "device-task:invalid",
+      "createdAt": 1760000003000,
+      "state": "pending",
+      "taskId": "task-1",
+      "status": "timeout",
+      "reason": "invalid_status"
     }
   ]
 }

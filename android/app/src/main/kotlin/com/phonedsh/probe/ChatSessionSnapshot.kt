@@ -15,6 +15,8 @@ internal data class ChatSessionSnapshot(
     val currentAccessMode: AccessModeOption? = null,
     val commands: List<ComposerCommand> = emptyList(),
     val accessError: String? = null,
+    /** True while the permission read is being retried automatically. */
+    val accessLoading: Boolean = false,
     val commandsError: String? = null,
     val modelRoutes: List<ChatModelRoute> = emptyList(),
     val currentModel: String? = null,

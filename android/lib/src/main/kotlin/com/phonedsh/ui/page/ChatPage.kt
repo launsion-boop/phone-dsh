@@ -52,6 +52,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -253,8 +254,6 @@ public fun ChatPage(
     onOpenSessions: () -> Unit,
     modifier: Modifier = Modifier,
     title: String = "",
-    /** Host-resolved session folder; null means the default folder. */
-    folderSubtitle: String? = null,
     onGoalPause: (() -> Unit)? = null,
     onGoalResume: (() -> Unit)? = null,
     onGoalClear: (() -> Unit)? = null,
@@ -395,7 +394,6 @@ public fun ChatPage(
     ) {
         ChatHeader(
             title = headerTitle,
-            folderSubtitle = folderSubtitle ?: UiStrings.DRAWER_DEFAULT_FOLDER,
             onOpenSessions = onOpenSessions,
             onStartRename = { renaming = true },
             onOpenRunStatus = onOpenRunStatus,
@@ -437,15 +435,8 @@ public fun ChatPage(
                 onDismiss = { state.banners.firstOrNull()?.let { onDismissBanner(it.id) } },
             )
         }
-        if (state.accessModeError != null) {
-            NoticeBanner(
-                glyph = LOCK_GLYPH,
-                message = state.accessModeError,
-                retryLabel = UiStrings.RETRY,
-                onRetry = onRetryAccessModes,
-                tag = UiPageTags.CHAT_BANNER_ACCESS_MODE,
-            )
-        }
+        // The access-mode read retries itself (ProbeEngineViewModel); its state
+        // lives on the composer control and in its menu, never as a page banner.
         if (state.commandsError != null) {
             NoticeBanner(
                 glyph = COMMAND_GLYPH,
@@ -504,6 +495,7 @@ public fun ChatPage(
                 onAddImages = onAddImages,
                 onAddFiles = onAddFiles,
                 onSelectAccessMode = onSelectAccessMode,
+                onRetryAccessModes = onRetryAccessModes,
                 onSelectModel = onSelectModel,
                 onPickCommand = onPickCommand,
                 onExecuteCommand = onExecuteCommand,
@@ -668,7 +660,6 @@ private fun RenameSessionOverlay(
 @Composable
 private fun ChatHeader(
     title: String,
-    folderSubtitle: String,
     onOpenSessions: () -> Unit,
     onStartRename: () -> Unit,
     onOpenRunStatus: () -> Unit,
@@ -710,9 +701,9 @@ private fun ChatHeader(
                 .testTag(UiPageTags.CHAT_HEADER_DRAWER),
         )
         Column(
-            modifier = Modifier.weight(1f).padding(horizontal = HomeMetrics.chromeInset)
+            modifier = Modifier.weight(1f).fillMaxHeight().padding(horizontal = HomeMetrics.chromeInset)
                 .clickable(enabled = title.isNotEmpty(), role = Role.Button) { onStartRename() }
-                .semantics { contentDescription = "$title, $folderSubtitle" }
+                .semantics { contentDescription = title }
                 .testTag(UiPageTags.CHAT_HEADER_TITLE),
             verticalArrangement = Arrangement.Center,
         ) {
@@ -722,15 +713,6 @@ private fun ChatHeader(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(ChatMetrics.HOME_HEADER_FOLDER_GAP_PT.dp)) {
-                PdshIconView(icon = PdshIcon.FOLDER, size = ChatMetrics.HOME_HEADER_FOLDER_ICON_PT.dp, tint = tokens.colors.textSubtle, contentDescription = null)
-                BasicText(
-                    text = folderSubtitle,
-                    style = type.navSubtitle.copy(color = tokens.colors.textSubtle),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
         }
         Row(
             modifier = Modifier.size(width = HomeMetrics.navPillWidth, height = HomeMetrics.navButton)
@@ -2361,6 +2343,7 @@ private fun ComposerDock(
     onAddImages: () -> Unit,
     onAddFiles: () -> Unit,
     onSelectAccessMode: (String) -> Unit,
+    onRetryAccessModes: () -> Unit = {},
     onSelectModel: (String, String?) -> Unit,
     onPickCommand: (String) -> Unit,
     onExecuteCommand: ((String) -> Unit)?,
@@ -2630,6 +2613,7 @@ private fun ComposerDock(
                         onAddImages = onAddImages,
                         onAddFiles = onAddFiles,
                         onSelectAccessMode = onSelectAccessMode,
+                        onRetryAccessModes = onRetryAccessModes,
                         onSelectModel = onSelectModel,
                     )
                 },
@@ -3419,6 +3403,7 @@ private fun ComposerControls(
     onAddImages: () -> Unit,
     onAddFiles: () -> Unit,
     onSelectAccessMode: (String) -> Unit,
+    onRetryAccessModes: () -> Unit = {},
     onSelectModel: (String, String?) -> Unit,
 ) {
     val tokens = LocalUiTokens.current
@@ -3468,7 +3453,12 @@ private fun ComposerControls(
             }
         }
         },
-        access = { AccessModeMenuButton(state = state, available = availability.selectAccessMode, onSelect = onSelectAccessMode) },
+        access = {
+            AccessModeMenuButton(
+                state = state, available = availability.selectAccessMode,
+                onSelect = onSelectAccessMode, onRetry = onRetryAccessModes,
+            )
+        },
         model = { ModelMenuButton(state = state, available = availability.selectModel, onSelect = onSelectModel) },
     )
 }
@@ -3479,6 +3469,7 @@ private fun AccessModeMenuButton(
     state: ChatScreenState,
     available: Boolean,
     onSelect: (String) -> Unit,
+    onRetry: () -> Unit = {},
 ) {
     val tokens = LocalUiTokens.current
     val type = LocalUiType.current
@@ -3490,22 +3481,46 @@ private fun AccessModeMenuButton(
             modifier = Modifier
                 .defaultMinSize(minWidth = ChatMetrics.COMPOSER_CONTROL_MIN_WIDTH_PT.dp)
                 .height(ChatMetrics.COMPOSER_CONTROL_ROW_HEIGHT_PT.dp)
-                .clickable(enabled = menu.enabled && available, role = Role.Button) { open = true }
+                .clickable(enabled = menu.enabled && available, role = Role.Button) {
+                    // Opening the menu after a failed read starts the read again.
+                    if (menu.error != null && !menu.loading) onRetry()
+                    open = true
+                }
                 .semantics { contentDescription = UiStrings.ACCESS_MODE_LABEL.format(menu.label) }
                 .testTag(UiPageTags.COMPOSER_ACCESS_MODE),
             verticalAlignment = Alignment.CenterVertically,
             // Native ChatPage.swift composerControls uses a 2pt shield/chevron gap.
             horizontalArrangement = Arrangement.spacedBy(ChatMetrics.ACCESS_MODE_ICON_GAP_PT.dp),
         ) {
-            PdshIconView(PdshIcon.LOCK_SHIELD, ChatMetrics.ACCESS_MODE_SHIELD_GLYPH_PT.dp, tokens.colors.iconMuted, null)
-            PdshIconView(PdshIcon.CHEVRON_DOWN, ChatMetrics.ACCESS_MODE_CHEVRON_GLYPH_PT.dp, tokens.colors.iconMuted, null)
+            Box {
+                PdshIconView(PdshIcon.LOCK_SHIELD, ChatMetrics.ACCESS_MODE_SHIELD_GLYPH_PT.dp, tokens.colors.iconMuted, null)
+                if (menu.error != null && !menu.loading) {
+                    // Reads failed even after the automatic retries: a quiet mark
+                    // on the control (iOS orange dot), not a page banner.
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .size(ChatMetrics.ACCESS_MODE_ALERT_DOT_PT.dp)
+                            .background(tokens.colors.warning, androidx.compose.foundation.shape.CircleShape),
+                    )
+                }
+            }
+            if (menu.loading) {
+                androidx.compose.material3.CircularProgressIndicator(
+                    modifier = Modifier.size(ChatMetrics.ACCESS_MODE_CHEVRON_GLYPH_PT.dp),
+                    color = tokens.colors.iconMuted,
+                    strokeWidth = ChatMetrics.ACCESS_MODE_SPINNER_STROKE_PT.dp,
+                )
+            } else {
+                PdshIconView(PdshIcon.CHEVRON_DOWN, ChatMetrics.ACCESS_MODE_CHEVRON_GLYPH_PT.dp, tokens.colors.iconMuted, null)
+            }
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             val error = menu.error
             if (error != null) {
                 // iOS `Section("暂不可用") { Text(error) }`: a group title and the
-                // read failure's own words. The retry is the page banner's
-                // (`accessModeErrorBanner`), so the menu does not repeat it.
+                // read failure's own words. There is no page banner; opening this
+                // menu already started another read.
                 ChatMenuSectionLabel(text = UiStrings.ACCESS_MODE_UNAVAILABLE)
                 BasicText(
                     text = error,
@@ -3769,7 +3784,6 @@ internal object ChatPageTokens {
         UiTokenNames.COLORS_TEXT_PLACEHOLDER,
         UiTokenNames.COLORS_TEXT_PRIMARY,
         UiTokenNames.COLORS_TEXT_SECONDARY,
-        UiTokenNames.COLORS_TEXT_SUBTLE,
         UiTokenNames.COLORS_WARNING,
         UiTokenNames.GEOMETRY_BANNER_GAP,
         UiTokenNames.GEOMETRY_BANNER_INSET_H,

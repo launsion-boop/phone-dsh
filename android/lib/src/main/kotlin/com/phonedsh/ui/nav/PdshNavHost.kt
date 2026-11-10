@@ -402,7 +402,6 @@ public fun PdshNavHost(
     // keeps the library's honest empty conversation for a host that has no chat.
     chat: ChatScreenState? = null,
     chatTitle: String? = null,
-    chatFolderSubtitle: String? = null,
     timelineRetryAvailability: PdshActionAvailability<() -> Unit> =
         PdshActionAvailability.Unavailable(PdshUnavailableReason.NOT_IMPLEMENTED),
     permissionApproveAvailability: PdshActionAvailability<(PendingAnswer) -> Unit> =
@@ -458,7 +457,6 @@ public fun PdshNavHost(
                 onSpeakText = onSpeakText,
                 state = chat,
                 title = chatTitle,
-                folderSubtitle = chatFolderSubtitle,
                 onOpenSubagentSession = onOpenSubagentSession,
                 onLoadEarlierTranscript = onLoadEarlierChatTranscript,
                 collapseTiming = facts.settings.preferences.collapseTiming,
@@ -668,7 +666,6 @@ private fun ChatRoute(
     onSpeakText: ((String) -> Unit)?,
     state: ChatScreenState?,
     title: String?,
-    folderSubtitle: String?,
     onOpenSubagentSession: (suspend (ChatSubagentEntry) -> String?)?,
     onLoadEarlierTranscript: (() -> Unit)?,
     collapseTiming: com.phonedsh.ui.page.CollapseTiming?,
@@ -879,7 +876,6 @@ private fun ChatRoute(
         onRetry = onSend,
         onOpenSessions = { if (onOpenDrawer != null) onOpenDrawer() else onNavigate(PdshRoute.Sessions) },
         title = title ?: UiStrings.SESSION_TITLE_NEW,
-        folderSubtitle = folderSubtitle,
         collapseTiming = collapseTiming,
         onSetCollapseTiming = onSetCollapseTiming,
         // The page-head menu's 后台任务（N）/定时任务（N） rows exist only while the
@@ -2177,6 +2173,7 @@ private fun SessionsRoute(facts: PdshNavFacts, onBack: () -> Unit) {
             },
             archivedSessions = null,
             newSessionBlock = null,
+            languageId = facts.settings.preferences.language?.id,
         ),
         onSelect = {},
         onQueryChange = { query -> local = local.copy(query = query) },

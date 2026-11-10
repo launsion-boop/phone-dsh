@@ -8,12 +8,13 @@
  * remains the only egress rule. The protocol code is deliberately small:
  * `info/refs` discovery, one `git-upload-pack` request for fetch/clone, one
  * `git-receive-pack` request for push, and the pack reader/writer from
- * `pack.ts`. Shallow and partial clones, protocol v2 and dumb HTTP are not
+ * `pack.ts`. `--depth`/`--single-branch`/`--no-tags` shallow negotiation is
+ * implemented for v0; partial clones, protocol v2 and dumb HTTP are not
  * implemented and fail with a message stating that limitation.
  * @module @phone-dsh/dsh-wasi-toolbox/git/remote
  */
 import { posix } from 'node:path'
-import { inflate } from './compress.ts'
+import { inflateWithConsumed } from './compress.ts'
 import { fatal } from './errors.ts'
 import { compareStrings, concatBytes, decodeText, encodeText, isErrno } from './fs.ts'
 import type { GitFs } from './fs.ts'
@@ -23,7 +24,7 @@ import { applyDelta, buildPack, buildPackIndex, crc32Of, sha1Hex, toHex } from '
 import type { PackWriteEntry } from './pack.ts'
 import {
   discoverRepository, flattenTree, headOid, headRef, listRefs, parseTree, readCommit, requireWorkTree,
-  resolveRef, resolveRevision, writeRef,
+  resolveRef, resolveRevision, writeRef, writeShallow,
 } from './repo.ts'
 import type { Repository } from './repo.ts'
 import { parseMode } from './tree.ts'
@@ -136,7 +137,13 @@ export async function discoverRefs(
       }
     }
     const match = /^([0-9a-f]{40}) (.+)$/.exec(head)
-    if (match !== null) refs.push({ oid: match[1] as string, name: match[2] as string })
+    if (match === null) continue
+    // v0 advertises a peeled annotated tag as `<peeled-oid> refs/tags/x^{}`.
+    // It is a lookup result, not a ref: writing it would create a file whose
+    // name (`^{}`) fsck rejects.
+    const name = match[2] as string
+    if (name.endsWith('^{}')) continue
+    refs.push({ oid: match[1] as string, name })
   }
   return { refs, capabilities, symrefs }
 }
@@ -145,6 +152,29 @@ export async function discoverRefs(
 export interface FetchResult {
   readonly pack: Uint8Array | undefined
   readonly serverMessage: string
+  /** New shallow boundary commits the server announced. */
+  readonly shallow: readonly string[]
+  /** Commits that are no longer shallow (a deepen reached past them). */
+  readonly unshallow: readonly string[]
+}
+
+/** Shallow-negotiation options of one upload-pack request. */
+export interface FetchOptions {
+  /** `deepen <n>` depth; undefined for a normal fetch. */
+  readonly depth?: number | undefined
+  /** Existing `.git/shallow` entries, sent as `shallow <oid>` lines. */
+  readonly shallow?: readonly string[]
+  /** Request `include-tag` so reachable annotated tags ride along. */
+  readonly includeTag?: boolean
+}
+
+/** Fail before changing anything when shallow negotiation is unavailable. */
+function requireShallowCapability(advertisement: RemoteAdvertisement, url: string): void {
+  if (advertisement.capabilities.includes('shallow')) return
+  throw fatal(
+    `the remote at ${redactUrl(url)} does not advertise the 'shallow' capability, so shallow clone/fetch `
+    + 'cannot be negotiated with it. Nothing was changed.',
+  )
 }
 
 /** Run one `git-upload-pack` negotiation and return the pack bytes. */
@@ -154,18 +184,26 @@ export async function fetchPack(
   wants: readonly string[],
   haves: readonly string[],
   advertisement: RemoteAdvertisement,
+  options: FetchOptions = {},
 ): Promise<FetchResult> {
-  if (wants.length === 0) return { pack: undefined, serverMessage: '' }
+  if (wants.length === 0) return { pack: undefined, serverMessage: '', shallow: [], unshallow: [] }
   const supported = new Set(advertisement.capabilities)
+  const shallows = options.shallow ?? []
+  const needsShallow = options.depth !== undefined || shallows.length > 0
+  if (needsShallow) requireShallowCapability(advertisement, url)
   const caps: string[] = ['ofs-delta']
+  if (options.includeTag !== false && supported.has('include-tag')) caps.push('include-tag')
   if (supported.has('side-band-64k')) caps.push('side-band-64k')
   else if (supported.has('side-band')) caps.push('side-band')
   if (supported.has('multi_ack_detailed')) caps.push('multi_ack_detailed')
   else if (supported.has('multi_ack')) caps.push('multi_ack')
+  if (needsShallow) caps.push('shallow')
   const chunks: Uint8Array[] = []
   wants.forEach((oid, index) => {
     chunks.push(pktLine(`want ${oid}${index === 0 ? ` ${caps.join(' ')}` : ''}\n`))
   })
+  for (const oid of shallows) chunks.push(pktLine(`shallow ${oid}\n`))
+  if (options.depth !== undefined) chunks.push(pktLine(`deepen ${options.depth}\n`))
   chunks.push(PKT_FLUSH)
   for (const oid of haves.slice(0, 256)) chunks.push(pktLine(`have ${oid}\n`))
   chunks.push(pktLine('done\n'))
@@ -183,22 +221,35 @@ export async function fetchPack(
   return parsePackResponse(result.body, caps.includes('side-band-64k') || caps.includes('side-band'))
 }
 
-/** Extract the pack out of an upload-pack response (side-band or raw). */
+/** Extract the pack and shallow updates out of an upload-pack response. */
 export function parsePackResponse(body: Uint8Array, sideBand: boolean): FetchResult {
+  const shallow: string[] = []
+  const unshallow: string[] = []
+  const noteShallow = (payload: Uint8Array): boolean => {
+    const line = decodeText(payload)
+    const match = /^(un)?shallow ([0-9a-f]{40})$/.exec(line.trim())
+    if (match === null) return false
+    if (match[1] === 'un') unshallow.push(match[2] as string)
+    else shallow.push(match[2] as string)
+    return true
+  }
   if (!sideBand) {
-    // Raw pack starts after the ACK/NAK pkt-lines.
-    const { rawStart } = parsePktLines(body)
+    // The response starts with pkt-lines (shallow/deepen announcements, ACK or
+    // NAK); the raw pack follows the last one.
+    const { pkts, rawStart } = parsePktLines(body)
+    for (const pkt of pkts) if (pkt.kind === 'line') noteShallow(pkt.payload)
     const pack = body.subarray(rawStart)
     if (pack.byteLength >= 4 && decodeText(pack.subarray(0, 4)) === 'PACK') {
-      return { pack, serverMessage: '' }
+      return { pack, serverMessage: '', shallow, unshallow }
     }
-    return { pack: undefined, serverMessage: decodeText(body).slice(0, 500) }
+    return { pack: undefined, serverMessage: decodeText(body).slice(0, 500), shallow, unshallow }
   }
   const packChunks: Uint8Array[] = []
   let serverMessage = ''
   const { pkts } = parsePktLines(body)
   for (const pkt of pkts) {
     if (pkt.kind !== 'line' || pkt.payload.byteLength === 0) continue
+    if (noteShallow(pkt.payload)) continue
     const band = pkt.payload[0] as number
     const data = pkt.payload.subarray(1)
     if (band === 1) packChunks.push(data)
@@ -206,48 +257,138 @@ export function parsePackResponse(body: Uint8Array, sideBand: boolean): FetchRes
     else if (band === 3) throw fatal(`remote rejected the fetch: ${decodeText(data).trim()}`)
   }
   const pack = packChunks.length === 0 ? undefined : concatBytes(...packChunks)
-  return { pack, serverMessage }
+  return { pack, serverMessage, shallow, unshallow }
 }
 
-/** Find the end of one deflate stream inside a pack by binary search. */
+/**
+ * Inflate one pack member after its header, decoding the DEFLATE stream once.
+ *
+ * The stream's own byte count replaces the old binary search over the pack
+ * remainder: a 64 MiB pack used about log2(64 MiB) ≈ 26 full inflations per
+ * object just to locate each stream's end.
+ */
 function inflateObject(pack: Uint8Array, start: number, expectedSize: number): { data: Uint8Array; length: number } {
-  let low = 1
-  let high = pack.byteLength - start
-  let best: { data: Uint8Array; length: number } | undefined
-  while (low <= high) {
-    const middle = (low + high) >> 1
-    try {
-      const data = inflate(pack.subarray(start, start + middle))
-      if (data.byteLength === expectedSize) {
-        best = { data, length: middle }
-        high = middle - 1
-      } else {
-        low = middle + 1
-      }
-    } catch {
-      low = middle + 1
-    }
+  if (start >= pack.byteLength) throw fatal('received pack contains a truncated or malformed object')
+  let inflated: { data: Uint8Array; consumed: number }
+  try {
+    inflated = inflateWithConsumed(pack.subarray(start))
+  } catch {
+    throw fatal('received pack contains a truncated or malformed object')
   }
-  if (best === undefined) throw fatal('received pack contains a truncated or malformed object')
-  return best
+  if (inflated.data.byteLength !== expectedSize) {
+    throw fatal('received pack contains a truncated or malformed object')
+  }
+  return { data: inflated.data, length: inflated.consumed }
 }
 
-interface ParsedPackObject {
+/** One parsed pack object: metadata only, never the decompressed content. */
+export interface ParsedPackObject {
   readonly offset: number
   readonly end: number
   readonly type: number
+  readonly oid: string
+  readonly crc: number
+}
+
+/** Byte budget of the delta-base cache (LRU, keyed by pack offset). */
+export const PACK_DELTA_CACHE_BYTES = 32 * 1024 * 1024
+
+/** Cache statistics a test (or a profile) can assert against. */
+export interface ParsePackStats {
+  readonly cacheLimitBytes: number
+  readonly peakCacheBytes: number
+  readonly cacheHits: number
+  readonly cacheMisses: number
+}
+
+interface CachedObject {
+  readonly type: number
   readonly data: Uint8Array
+}
+
+/** Offset-keyed LRU holding resolved delta bases, bounded by bytes. */
+class DeltaBaseCache {
+  private readonly entries = new Map<number, CachedObject>()
+  private bytes = 0
+  private peak = 0
+  private hits = 0
+  private misses = 0
+  private readonly limitBytes: number
+
+  constructor(limitBytes: number) {
+    this.limitBytes = limitBytes
+  }
+
+  get(offset: number): CachedObject | undefined {
+    const entry = this.entries.get(offset)
+    if (entry === undefined) {
+      this.misses += 1
+      return undefined
+    }
+    this.hits += 1
+    this.entries.delete(offset)
+    this.entries.set(offset, entry)
+    return entry
+  }
+
+  set(offset: number, entry: CachedObject): void {
+    if (entry.data.byteLength > this.limitBytes) return
+    const previous = this.entries.get(offset)
+    if (previous !== undefined) {
+      this.bytes -= previous.data.byteLength
+      this.entries.delete(offset)
+    }
+    while (this.bytes + entry.data.byteLength > this.limitBytes) {
+      const oldest = this.entries.keys().next()
+      if (oldest.done === true) break
+      const victim = this.entries.get(oldest.value as number) as CachedObject
+      this.entries.delete(oldest.value as number)
+      this.bytes -= victim.data.byteLength
+    }
+    this.entries.set(offset, entry)
+    this.bytes += entry.data.byteLength
+    if (this.bytes > this.peak) this.peak = this.bytes
+  }
+
+  stats(): ParsePackStats {
+    return {
+      cacheLimitBytes: this.limitBytes,
+      peakCacheBytes: this.peak,
+      cacheHits: this.hits,
+      cacheMisses: this.misses,
+    }
+  }
 }
 
 const TYPE_TEXT: Readonly<Record<number, 'commit' | 'tree' | 'blob' | 'tag'>> = {
   1: 'commit', 2: 'tree', 3: 'blob', 4: 'tag',
 }
 
-/** Parse one pack into objects, resolving delta chains. */
+/** Reverse of {@link TYPE_TEXT} for an externally supplied base object. */
+const TYPE_NUMBER: Readonly<Record<string, number>> = {
+  commit: 1, tree: 2, blob: 3, tag: 4,
+}
+
+interface ResolvedPackObject {
+  readonly type: number
+  readonly data: Uint8Array
+  readonly end: number
+}
+
+/**
+ * Parse one pack into metadata, resolving delta chains with a bounded cache.
+ *
+ * Each object's content is inflated once (deltas included), its SHA-1 and
+ * CRC-32 are computed once, and the bytes are then handed to an LRU of at most
+ * {@link PACK_DELTA_CACHE_BYTES}; only `{ offset, end, type, oid, crc }` stays
+ * for every object. A later delta whose base was evicted re-inflates that base
+ * by offset instead of keeping the whole repository in memory.
+ */
 export async function parsePack(
   pack: Uint8Array,
   readExternal: (oid: string) => Promise<{ type: string; data: Uint8Array } | undefined>,
-): Promise<{ objects: ParsedPackObject[]; packSha: string }> {
+  cacheLimitBytes: number = PACK_DELTA_CACHE_BYTES,
+): Promise<{ objects: ParsedPackObject[]; packSha: string; stats: ParsePackStats }> {
   if (pack.byteLength < 32 || decodeText(pack.subarray(0, 4)) !== 'PACK') throw fatal('received object is not a pack file')
   const version = readUint32(pack, 4)
   if (version !== 2 && version !== 3) throw fatal(`unsupported pack version ${version}`)
@@ -256,73 +397,104 @@ export async function parsePack(
   const trailer = toHex(pack.subarray(pack.byteLength - 20))
   if (packSha !== trailer) throw fatal('received pack checksum mismatch')
   const objects: ParsedPackObject[] = []
-  const byOffset = new Map<number, ParsedPackObject>()
-  const byOid = new Map<string, { type: string; data: Uint8Array }>()
+  const byOid = new Map<string, number>()
+  // The limit is a parameter so tests can force eviction on a small real pack;
+  // production and the importer always use the 32 MiB default.
+  const cache = new DeltaBaseCache(cacheLimitBytes)
+  const contentEnd = pack.byteLength - 20
+
+  const need = (position: number): void => {
+    if (position >= contentEnd) throw fatal('received pack contains a truncated or malformed object')
+  }
+
+  async function resolveData(target: number): Promise<{ type: number; data: Uint8Array }> {
+    const cached = cache.get(target)
+    if (cached !== undefined) return cached
+    const resolved = await readPackObjectAt(target)
+    cache.set(target, { type: resolved.type, data: resolved.data })
+    return resolved
+  }
+
+  async function readPackObjectAt(target: number): Promise<ResolvedPackObject> {
+    if (target < 12 || target >= contentEnd) throw fatal('received pack contains a truncated or malformed object')
+    let position = target
+    need(position)
+    let byte = pack[position++] as number
+    const type = (byte >> 4) & 0x07
+    let size = byte & 0x0f
+    let shift = 4
+    while ((byte & 0x80) !== 0) {
+      need(position)
+      byte = pack[position++] as number
+      size += (byte & 0x7f) * 2 ** shift
+      shift += 7
+    }
+    if (type === 6) {
+      need(position)
+      let distance = (pack[position++] as number) & 0x7f
+      let current = pack[position - 1] as number
+      while ((current & 0x80) !== 0) {
+        need(position)
+        current = pack[position++] as number
+        distance = (distance + 1) * 128 + (current & 0x7f)
+      }
+      const baseOffset = target - distance
+      if (distance <= 0 || baseOffset < 12 || baseOffset >= target) {
+        throw fatal('received pack contains a truncated or malformed object')
+      }
+      // The base precedes the delta, but its data may already have been
+      // evicted; re-inflating it by offset is cheaper than holding everything.
+      const base = await resolveData(baseOffset)
+      const { data, length } = inflateObject(pack, position, size)
+      return { type: base.type, data: applyDelta(base.data, data), end: position + length }
+    }
+    if (type === 7) {
+      if (position + 20 > contentEnd) throw fatal('received pack contains a truncated or malformed object')
+      const baseOid = toHex(pack.subarray(position, position + 20))
+      position += 20
+      let baseType: number
+      let baseData: Uint8Array
+      const baseOffset = byOid.get(baseOid)
+      if (baseOffset !== undefined) {
+        const base = await resolveData(baseOffset)
+        baseType = base.type
+        baseData = base.data
+      } else {
+        const external = await readExternal(baseOid)
+        if (external === undefined) throw fatal(`received pack needs a base object ${baseOid} the repository does not have`)
+        baseType = TYPE_NUMBER[external.type] ?? 3
+        baseData = external.data
+      }
+      const { data, length } = inflateObject(pack, position, size)
+      return { type: baseType, data: applyDelta(baseData, data), end: position + length }
+    }
+    if (TYPE_TEXT[type] === undefined) throw fatal(`received pack has unsupported object type ${type}`)
+    const { data, length } = inflateObject(pack, position, size)
+    return { type, data, end: position + length }
+  }
+
   let offset = 12
   for (let index = 0; index < count; index += 1) {
-    const parsed = await readPackObjectAt(pack, offset, byOffset, byOid, readExternal)
-    objects.push(parsed)
-    byOffset.set(offset, parsed)
-    const type = TYPE_TEXT[parsed.type]
-    if (type === undefined) throw fatal(`received pack has unsupported object type ${parsed.type}`)
-    byOid.set(sha1Hex(encodeText(`${type} ${parsed.data.byteLength}\0`), parsed.data), { type, data: parsed.data })
-    offset = parsed.end
-  }
-  return { objects, packSha }
-}
-
-async function readPackObjectAt(
-  pack: Uint8Array,
-  offset: number,
-  byOffset: Map<number, ParsedPackObject>,
-  byOid: Map<string, { type: string; data: Uint8Array }>,
-  readExternal: (oid: string) => Promise<{ type: string; data: Uint8Array } | undefined>,
-): Promise<ParsedPackObject> {
-  let position = offset
-  let byte = pack[position++] as number
-  const type = (byte >> 4) & 0x07
-  let size = byte & 0x0f
-  let shift = 4
-  while ((byte & 0x80) !== 0) {
-    byte = pack[position++] as number
-    size += (byte & 0x7f) * 2 ** shift
-    shift += 7
-  }
-  if (type === 6) {
-    let distance = (pack[position++] as number) & 0x7f
-    let current = pack[position - 1] as number
-    while ((current & 0x80) !== 0) {
-      current = pack[position++] as number
-      distance = (distance + 1) * 128 + (current & 0x7f)
+    const resolved = await readPackObjectAt(offset)
+    if (resolved.end <= offset || resolved.end > contentEnd) {
+      throw fatal('received pack contains a truncated or malformed object')
     }
-    const baseOffset = offset - distance
-    let base = byOffset.get(baseOffset)
-    if (base === undefined) {
-      // The base should be earlier in the pack; parse it on demand.
-      base = await readPackObjectAt(pack, baseOffset, byOffset, byOid, readExternal)
-      byOffset.set(baseOffset, base)
-    }
-    const { data, length } = inflateObject(pack, position, size)
-    return { offset, end: position + length, type: base.type, data: applyDelta(base.data, data) }
-  }
-  if (type === 7) {
-    const baseOid = toHex(pack.subarray(position, position + 20))
-    position += 20
-    const byOidEntry = byOid.get(baseOid)
-    let base: { type: string; data: Uint8Array } | undefined = byOidEntry
-    if (base === undefined) base = await readExternal(baseOid)
-    if (base === undefined) throw fatal(`received pack needs a base object ${baseOid} the repository does not have`)
-    const { data, length } = inflateObject(pack, position, size)
-    const typeNumber = Object.entries(TYPE_TEXT).find(([, name]) => name === base?.type)?.[0]
-    return {
+    const type = TYPE_TEXT[resolved.type]
+    if (type === undefined) throw fatal(`received pack has unsupported object type ${resolved.type}`)
+    const oid = sha1Hex(encodeText(`${type} ${resolved.data.byteLength}\0`), resolved.data)
+    const meta: ParsedPackObject = {
       offset,
-      end: position + length,
-      type: typeNumber === undefined ? 3 : Number(typeNumber),
-      data: applyDelta(base.data, data),
+      end: resolved.end,
+      type: resolved.type,
+      oid,
+      crc: crc32Of(pack.subarray(offset, resolved.end)),
     }
+    objects.push(meta)
+    byOid.set(oid, offset)
+    cache.set(offset, { type: resolved.type, data: resolved.data })
+    offset = resolved.end
   }
-  const { data, length } = inflateObject(pack, position, size)
-  return { offset, end: position + length, type, data }
+  return { objects, packSha, stats: cache.stats() }
 }
 
 function readUint32(buffer: Uint8Array, offset: number): number {
@@ -339,16 +511,13 @@ export async function importPack(repository: Repository, pack: Uint8Array): Prom
       return undefined
     }
   })
-  const records = parsed.objects.map((object, index) => {
-    const type = TYPE_TEXT[object.type] as 'commit' | 'tree' | 'blob' | 'tag'
-    const oid = sha1Hex(encodeText(`${type} ${object.data.byteLength}\0`), object.data)
-    void index
-    return {
-      oid,
-      offset: object.offset,
-      crc: crc32Of(pack.subarray(object.offset, object.end)),
-    }
-  })
+  // parsePack computed the object id and CRC while it had the bytes; never
+  // decompress or hash a second time here.
+  const records = parsed.objects.map(object => ({
+    oid: object.oid,
+    offset: object.offset,
+    crc: object.crc,
+  }))
   const index = buildPackIndex(records, parsed.packSha)
   const objectDirectory = repository.odb.directories.primary
   const packDirectory = `${objectDirectory}/pack`
@@ -409,69 +578,161 @@ async function remoteUrl(repository: Repository, name: string | undefined): Prom
   return { name: remote, url }
 }
 
-/** `git clone`. */
-export async function clone(context: CommandContext): Promise<number> {
+/** Parse git's positive `--depth` value. */
+function parseDepth(value: string): number {
+  if (!/^\d+$/.test(value)) throw fatal(`depth ${value} is not a positive number`)
+  const depth = Number(value)
+  if (!Number.isSafeInteger(depth) || depth <= 0) throw fatal(`depth ${value} is not a positive number`)
+  return depth
+}
+
+/** Options that change which refs a shallow or single-branch clone produces. */
+interface CloneOptions {
+  readonly quiet: boolean
+  readonly branch: string | undefined
+  readonly depth: number | undefined
+  readonly singleBranch: boolean
+  readonly noTags: boolean
+}
+
+/** Parse `git clone` options, failing loud on the ones that are not modelled. */
+function cloneOptions(args: readonly string[]): CloneOptions {
   let quiet = false
   let branch: string | undefined
-  const rest: string[] = []
-  for (let index = 0; index < context.args.length; index += 1) {
-    const arg = context.args[index] as string
-    // `--single-branch`, `--no-tags` and `-o/--origin` change which refs or
-    // which remote name the clone produces. They reach the generic
-    // unsupported-option error below instead of being dropped as no-ops; in
-    // particular a bare `-o` must not swallow its name and clone from it as if
-    // it were the URL.
+  let depth: number | undefined
+  let singleBranch = false
+  let noTags = false
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] as string
     if (arg === '-q' || arg === '--quiet') quiet = true
     else if (arg === '-b' || arg === '--branch') {
-      branch = context.args[index + 1]
+      const value = args[index + 1]
+      if (value === undefined) throw fatal(`option '${arg}' requires a value`, 129)
+      branch = value
       index += 1
     } else if (arg.startsWith('--branch=')) branch = arg.slice('--branch='.length)
-    else if (arg === '--depth' || arg === '--shallow-since' || arg === '--shallow-exclude' || arg === '--filter' || arg === '--bare' || arg === '--mirror') {
+    else if (arg === '--depth') {
+      const value = args[index + 1]
+      if (value === undefined) throw fatal("option '--depth' requires a value", 129)
+      depth = parseDepth(value)
+      index += 1
+    } else if (arg.startsWith('--depth=')) depth = parseDepth(arg.slice('--depth='.length))
+    else if (arg === '--single-branch') singleBranch = true
+    else if (arg === '--no-tags') noTags = true
+    else if (arg === '--no-single-branch') {
       throw fatal(
-        `git clone ${arg} is not supported inside the Worker. Shallow, partial and bare clones need host-side git; `
-        + 'the Worker git only provides full smart-HTTP clones.',
+        'git clone --no-single-branch is not supported inside the Worker: --depth implies --single-branch. '
+        + 'Clone without --depth to copy every branch; nothing was changed.',
       )
-    } else if (arg.startsWith('-')) throw fatal(`unsupported clone option '${arg}'`, 129)
-    else rest.push(arg)
+    } else if (arg === '--shallow-since' || arg.startsWith('--shallow-since=') || arg === '--shallow-exclude' || arg.startsWith('--shallow-exclude=')) {
+      throw fatal(
+        `git clone ${arg.split('=')[0]} is not supported inside the Worker; only --depth <n> is available for a shallow clone. `
+        + 'Nothing was changed.',
+      )
+    } else if (arg === '--filter' || arg.startsWith('--filter=')) {
+      throw fatal(
+        'git clone --filter (partial clone) is not supported inside the Worker; use --depth <n> to limit history instead. '
+        + 'Nothing was changed.',
+      )
+    } else if (arg === '--bare' || arg === '--mirror') {
+      throw fatal(
+        `git clone ${arg} is not supported inside the Worker; the Worker git only provides non-bare smart-HTTP clones `
+        + 'with a work tree. Nothing was changed.',
+      )
+    } else if (arg.startsWith('-')) {
+      // `-o/--origin`, `--no-checkout`, ... each change which refs, names or
+      // work-tree state the clone produces; none may be dropped as a no-op.
+      throw fatal(`unsupported clone option '${arg}'`, 129)
+    }
   }
-  const source = rest[0]
+  return { quiet, branch, depth, singleBranch, noTags }
+}
+
+/** `git clone`. */
+export async function clone(context: CommandContext): Promise<number> {
+  const options = cloneOptions(context.args)
+  // Consumed option values (`-b <name>`, `--depth <n>`) are not positional
+  // arguments, so the URL and target are collected by the same grammar.
+  const positional = clonePositionals(context.args)
+  const source = positional[0]
   if (source === undefined) throw fatal('clone: missing repository URL', 129)
   if (!/^https?:\/\//i.test(source)) {
     throw fatal(`clone from ${source} is not supported: the Worker git only speaks http(s) smart HTTP`)
   }
-  const target = rest[1] ?? posix.basename(source.replace(/\/+$/, '').replace(/\.git$/, ''))
+  const target = positional[1] ?? posix.basename(source.replace(/\/+$/, '').replace(/\.git$/, ''))
   const directory = context.absolute(target)
   if (await context.fs.exists(`${directory}/.git`)) throw fatal(`destination path '${target}' already exists and is not an empty directory`)
-  if (!quiet) context.output.stderr(`Cloning into '${target}'...\n`)
+  if (!options.quiet) context.output.stderr(`Cloning into '${target}'...\n`)
   const transport = transportFor(context)
   const advertisement = await discoverRefs(transport, source, 'git-upload-pack')
+  // Check before the skeleton is written so a server without the capability
+  // leaves no half-cloned directory behind.
+  if (options.depth !== undefined) requireShallowCapability(advertisement, source)
   const remoteHeadRef = advertisement.symrefs.get('HEAD')
   const remoteHeadName = remoteHeadRef === undefined ? undefined : remoteHeadRef.replace(/^refs\/heads\//, '')
-  if (branch !== undefined && !advertisement.refs.some(ref => ref.name === `refs/heads/${branch}`)) {
-    throw fatal(`remote branch ${branch} not found in ${redactUrl(source)}`)
+  const heads = advertisement.refs.filter(ref => ref.name.startsWith('refs/heads/'))
+  const tags = advertisement.refs.filter(ref => ref.name.startsWith('refs/tags/'))
+  if (options.branch !== undefined && !heads.some(ref => ref.name === `refs/heads/${options.branch}`)) {
+    throw fatal(`remote branch ${options.branch} not found in ${redactUrl(source)}`)
   }
-  const localBranch = branch ?? remoteHeadName
+  // git's `--depth` implies `--single-branch`; the Worker supports that
+  // implication and rejects `--no-single-branch` explicitly above.
+  const singleBranch = options.singleBranch || options.depth !== undefined
+  let localBranch = options.branch ?? remoteHeadName
+  if (singleBranch && localBranch === undefined) {
+    localBranch = heads[0]?.name.replace(/^refs\/heads\//, '')
+  }
+  if (singleBranch && (localBranch === undefined || !heads.some(ref => ref.name === `refs/heads/${localBranch}`))) {
+    throw fatal(`remote at ${redactUrl(source)} has no branch to clone with --single-branch`)
+  }
+  const fetchRefspec = singleBranch
+    ? `+refs/heads/${localBranch}:refs/remotes/origin/${localBranch}`
+    : '+refs/heads/*:refs/remotes/origin/*'
   await createRepositorySkeleton(context.fs, directory, localBranch ?? 'master')
   await appendConfig(context.fs, `${directory}/.git`, [
     `[remote "origin"]`,
     `\turl = ${source}`,
-    `\tfetch = +refs/heads/*:refs/remotes/origin/*`,
+    `\tfetch = ${fetchRefspec}`,
+    ...options.noTags ? ['\ttagOpt = --no-tags'] : [],
     ...localBranch === undefined ? [] : [`[branch "${localBranch}"]`, `\tremote = origin`, `\tmerge = refs/heads/${localBranch}`],
     '',
   ].join('\n'))
-  const wants = advertisement.refs
-    .filter(ref => ref.name.startsWith('refs/heads/') || ref.name.startsWith('refs/tags/'))
-    .map(ref => ref.oid)
-  const fetched = await fetchPack(transport, source, [...new Set(wants)], [], advertisement)
+  const wants: string[] = []
+  if (singleBranch) {
+    const tip = heads.find(ref => ref.name === `refs/heads/${localBranch}`)
+    if (tip !== undefined) wants.push(tip.oid)
+  } else {
+    wants.push(...heads.map(ref => ref.oid))
+    if (!options.noTags) wants.push(...tags.map(ref => ref.oid))
+  }
+  const fetched = await fetchPack(transport, source, [...new Set(wants)], [], advertisement, {
+    depth: options.depth,
+    includeTag: !options.noTags,
+  })
   if (fetched.pack === undefined) throw fatal('the remote sent no objects for this clone')
+  const shallow = new Set(fetched.shallow)
+  for (const oid of fetched.unshallow) shallow.delete(oid)
+  // Write the boundary before discovery/checkout so every traversal of the
+  // new repository already treats these commits as roots.
+  await writeShallow(context.fs, `${directory}/.git`, shallow)
   const repository = await discoverRepository(context.fs, directory, context.env)
   if (repository === undefined) throw fatal('clone created no repository')
   await importPack(repository, fetched.pack)
   for (const ref of advertisement.refs) {
     if (ref.name.startsWith('refs/heads/')) {
       const name = ref.name.slice('refs/heads/'.length)
-      await writeRef(repository, name === localBranch ? `refs/heads/${name}` : `refs/remotes/origin/${name}`, ref.oid)
+      if (singleBranch && name !== localBranch) continue
+      if (name === localBranch) await writeRef(repository, `refs/heads/${name}`, ref.oid)
+      // A full clone keeps other branches only as remote-tracking refs; a
+      // single-branch clone records its one branch both ways, like git.
+      if (name !== localBranch || singleBranch) {
+        await writeRef(repository, `refs/remotes/origin/${name}`, ref.oid)
+      }
     } else if (ref.name.startsWith('refs/tags/')) {
+      // A single-branch clone only gets tags that `include-tag` (or an explicit
+      // want) brought into the pack, exactly like git's auto-following.
+      if (options.noTags) continue
+      if (!(await repository.odb.has(ref.oid))) continue
       await writeRef(repository, ref.name, ref.oid)
     }
   }
@@ -487,8 +748,23 @@ export async function clone(context: CommandContext): Promise<number> {
   }
   if (checkoutBranch !== undefined) await writeRef(repository, 'HEAD', `ref: refs/heads/${checkoutBranch}\n`)
   if (checkoutOid !== undefined) await materializeTree(repository, checkoutOid, context)
-  if (!quiet) context.output.stderr('done.\n')
+  if (!options.quiet) context.output.stderr('done.\n')
   return 0
+}
+
+/** Positional clone arguments, skipping values consumed by `--depth`/`--branch`. */
+function clonePositionals(args: readonly string[]): string[] {
+  const rest: string[] = []
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] as string
+    if (arg === '-b' || arg === '--branch' || arg === '--depth') {
+      index += 1
+      continue
+    }
+    if (arg.startsWith('-')) continue
+    rest.push(arg)
+  }
+  return rest
 }
 
 /** Write one commit's tree into the work tree and index (clone checkout). */
@@ -509,15 +785,36 @@ async function materializeTree(repository: Repository, commitOid: string, contex
 /** `git fetch`. */
 export async function fetch(context: CommandContext): Promise<number> {
   let quiet = false
+  let depth: number | undefined
   const rest: string[] = []
-  for (const arg of context.args) {
+  for (let index = 0; index < context.args.length; index += 1) {
+    const arg = context.args[index] as string
     // `--prune`, `--tags` and `--all` each change the result (deleting stale
-    // remote-tracking refs, writing tags, fetching every remote). They are not
-    // implemented, so they reach the unsupported-option error below instead of
-    // fetching only the default remote and reporting success.
+    // remote-tracking refs, writing every tag, fetching all remotes). They are
+    // not implemented, so they reach the unsupported-option error below
+    // instead of fetching only the default refspec and reporting success.
     if (arg === '-q' || arg === '--quiet') quiet = true
-    else if (arg === '--depth' || arg.startsWith('--depth=')) {
-      throw fatal('git fetch --depth is not supported inside the Worker; the Worker git only fetches full history. Nothing was changed.')
+    else if (arg === '--depth') {
+      const value = context.args[index + 1]
+      if (value === undefined) throw fatal("option '--depth' requires a value", 129)
+      depth = parseDepth(value)
+      index += 1
+    } else if (arg.startsWith('--depth=')) depth = parseDepth(arg.slice('--depth='.length))
+    else if (arg === '--unshallow') {
+      throw fatal(
+        'git fetch --unshallow is not supported inside the Worker; deepen the history with '
+        + '--depth <n> or clone again without --depth. Nothing was changed.',
+      )
+    } else if (arg === '--shallow-since' || arg.startsWith('--shallow-since=') || arg === '--shallow-exclude' || arg.startsWith('--shallow-exclude=')) {
+      throw fatal(
+        `git fetch ${arg.split('=')[0]} is not supported inside the Worker; use --depth <n> to deepen shallow history. `
+        + 'Nothing was changed.',
+      )
+    } else if (arg === '--filter' || arg.startsWith('--filter=')) {
+      throw fatal(
+        'git fetch --filter (partial clone) is not supported inside the Worker; use --depth <n> instead. '
+        + 'Nothing was changed.',
+      )
     } else if (arg.startsWith('-')) throw fatal(`unsupported fetch option '${arg}'`, 129)
     else rest.push(arg)
   }
@@ -525,13 +822,26 @@ export async function fetch(context: CommandContext): Promise<number> {
   const { name, url } = await remoteUrl(repository, rest[0])
   const transport = transportFor(context)
   const advertisement = await discoverRefs(transport, url, 'git-upload-pack')
-  const wants = advertisement.refs
-    .filter(ref => ref.name.startsWith('refs/heads/') || ref.name.startsWith('refs/tags/'))
-    .map(ref => ref.oid)
-  const local = await localTips(repository)
-  const fetched = await fetchPack(transport, url, [...new Set(wants)], [...local], advertisement)
-  if (fetched.pack !== undefined) await importPack(repository, fetched.pack)
   const refspecs = fetchRefspecs(repository, name)
+  const heads = advertisement.refs.filter(ref => ref.name.startsWith('refs/heads/')
+    && refspecs.some(spec => mapRefspec(spec, ref.name) !== undefined))
+  const wants = [...new Set(heads.map(ref => ref.oid))]
+  const tagOpt = repository.config.get(`remote.${name}.tagopt`)
+  const local = await localTips(repository)
+  const fetched = await fetchPack(transport, url, wants, [...local], advertisement, {
+    depth,
+    // In a shallow repository git sends its existing boundaries so the server
+    // computes a pack that connects to the objects the client already has.
+    shallow: [...repository.shallow],
+    includeTag: tagOpt !== '--no-tags',
+  })
+  if (fetched.pack !== undefined) await importPack(repository, fetched.pack)
+  if (fetched.shallow.length > 0 || fetched.unshallow.length > 0) {
+    const next = new Set(repository.shallow)
+    for (const oid of fetched.shallow) next.add(oid)
+    for (const oid of fetched.unshallow) next.delete(oid)
+    await writeShallow(repository.fs, repository.commonDir, next)
+  }
   const updated: string[] = []
   for (const ref of advertisement.refs) {
     if (!ref.name.startsWith('refs/heads/')) continue
@@ -542,6 +852,18 @@ export async function fetch(context: CommandContext): Promise<number> {
       if (old === ref.oid) continue
       await writeRef(repository, destination, ref.oid)
       updated.push(`${old === undefined ? '0000000' : old.slice(0, 7)}..${ref.oid.slice(0, 7)}\t${ref.name.replace(/^refs\/heads\//, '')} -> ${destination.replace(/^refs\/remotes\//, '')}`)
+    }
+  }
+  // Tag auto-following: `include-tag` put reachable annotated tags into the
+  // pack, and a lightweight tag is present when its commit is. This writes only
+  // tags whose object the repository now has, so a single-branch fetch cannot
+  // create a ref to an object it never downloaded.
+  if (tagOpt !== '--no-tags') {
+    for (const ref of advertisement.refs) {
+      if (!ref.name.startsWith('refs/tags/')) continue
+      if (!(await repository.odb.has(ref.oid))) continue
+      const old = await resolveRef(repository, ref.name)
+      if (old !== ref.oid) await writeRef(repository, ref.name, ref.oid)
     }
   }
   const fetchHead = advertisement.refs.map(ref => `${ref.oid}\t\t${ref.name} of ${url}`).join('\n')

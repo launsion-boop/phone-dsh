@@ -78,12 +78,12 @@ import PhoneDSHAgentCore
         guard ProcessInfo.processInfo.environment["PDSH_TEST_BLE_PROTOTYPE"] == "1" else { throw XCTSkip("controlled BLE prototype fixture not supplied") }
         let fixture = PrototypeBLECentral(); defer { fixture.stop() }
         for _ in 0..<600 {
-            if fixture.channel?.tx.isNotifying == true && fixture.channel?.audio.isNotifying == true { break }
+            if fixture.channel?.tx?.isNotifying == true && fixture.channel?.audio?.isNotifying == true { break }
             if let error = fixture.error { throw BLEFailure(error) }
             try await Task.sleep(for: .milliseconds(100))
         }
         let channel = try XCTUnwrap(fixture.channel, "paired test fixture not found")
-        XCTAssertTrue(channel.tx.isNotifying && channel.audio.isNotifying, "fixture not subscribed")
+        XCTAssertTrue(channel.tx?.isNotifying == true && channel.audio?.isNotifying == true, "fixture not subscribed")
         let client = PDSHLinkClient(transport: channel, allowTaskProfile: true)
         _ = try await client.handshake()
         let listed = try await client.invoke(requestID: UUID(), name: "tools/list", arguments: .object([:]), idempotencyKey: UUID().uuidString.lowercased())

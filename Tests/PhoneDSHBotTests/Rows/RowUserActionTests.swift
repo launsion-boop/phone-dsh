@@ -91,6 +91,49 @@ final class RowUserActionTests: XCTestCase {
         try await store.close()
     }
 
+
+    func testChatWithoutTextButWithAttachmentsIsAccepted() async throws {
+        let store = try makeStore()
+        let planner = RowActionPlannerDouble()
+        let action = BotUserAction(
+            nonce: "attachment-only", botID: "main", kind: .chat, text: "",
+            attachments: [attachment("周报.pdf")])
+        await planner.setEventID("evt-attachment-only", for: action.nonce)
+        let result = try await BotUserActionDispatcher(store: store, planner: planner).dispatch(action)
+        XCTAssertEqual(result, .accepted(eventID: "evt-attachment-only"))
+        try await store.close()
+    }
+
+    func testTooManyAttachmentsAreRejectedBeforePlanning() async throws {
+        let store = try makeStore()
+        let planner = RowActionPlannerDouble()
+        let action = BotUserAction(
+            nonce: "too-many", botID: "main", kind: .chat, text: "",
+            attachments: (0..<11).map { attachment("file-\($0).txt") })
+        let result = try await BotUserActionDispatcher(store: store, planner: planner).dispatch(action)
+        XCTAssertEqual(result, .rejected(reason: "too_many_attachments"))
+        let forwarded = await planner.actions
+        XCTAssertTrue(forwarded.isEmpty)
+        try await store.close()
+    }
+
+    func testAttachmentsAreLimitedToChatActions() throws {
+        let data = try JSONSerialization.data(withJSONObject: [
+            "nonce": "card-attachments", "botID": "main", "kind": "cardAnswer",
+            "cardID": "card-1", "optionID": "o1",
+            "attachments": [[
+                "name": "a.txt", "path": "/dsh/workspace/a.txt", "size": 1,
+                "mimeType": "text/plain", "kind": "file",
+            ]],
+        ])
+        XCTAssertThrowsError(try JSONDecoder().decode(BotUserAction.self, from: data))
+    }
+
+    private func attachment(_ name: String) -> BotAttachment {
+        BotAttachment(name: name, path: "/dsh/workspace/imports/attachments-att-1/\(name)",
+                      size: 128, mimeType: "text/plain", kind: "file")
+    }
+
     private func makeStore() throws -> SQLiteDomainStore {
         try SQLiteDomainStore(fileURL: directory.appendingPathComponent("domain.sqlite"), now: { 1_000 })
     }

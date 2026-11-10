@@ -2360,8 +2360,13 @@ public object UiStrings {
     public const val HOME_EXPORT_SUBJECT: String = "对话记录"
 
     // Home drawer (PR22 `HomeDrawer.swift`)
-    public const val DRAWER_DEFAULT_FOLDER: String = "日常"
-    public const val DRAWER_DEFAULT_FOLDER_INDEXED: String = "日常 %d"
+    public const val DRAWER_DEFAULT_FOLDER: String = "手机工作区"
+    public const val DRAWER_DEFAULT_FOLDER_EN: String = "Phone Workspace"
+    public const val DRAWER_DEFAULT_FOLDER_INDEXED: String = "手机工作区 %d"
+    public const val DRAWER_DEFAULT_FOLDER_INDEXED_EN: String = "Phone Workspace %d"
+    public const val DRAWER_NEW_SESSION_EN: String = "New Session"
+    public const val DRAWER_NEW_BLOCKED_ENGINE_EN: String = "Engine not started"
+    public const val DRAWER_NEW_BLOCKED_TURN_EN: String = "Available after this turn"
     public const val DRAWER_CREATE_DETAIL: String = "会在工作区里新建同名文件夹，之后的会话和文件都可以放进去。"
     public const val DRAWER_EDIT_NAME: String = "编辑名称"
     public const val DRAWER_RENAME_FOLDER: String = "重命名文件夹"
