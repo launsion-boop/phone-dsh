@@ -1302,9 +1302,6 @@ internal fun HostShell(
                         // callbacks are the App's own commands, not handoffs.
                         chat = chatScreenState,
                         chatTitle = chatUi.title,
-                        chatFolderSubtitle = drawerRecords?.firstOrNull { it.id == chatUi.chatId }?.let { record ->
-                            workspaceGroupTitle(record, drawerFolders.orEmpty())
-                        },
                         timelineRetryAvailability = com.phonedsh.ui.nav.PdshActionAvailability.Unavailable(
                             com.phonedsh.ui.nav.PdshUnavailableReason.NOT_IMPLEMENTED,
                         ),
