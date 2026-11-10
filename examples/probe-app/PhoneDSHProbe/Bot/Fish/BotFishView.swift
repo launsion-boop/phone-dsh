@@ -5,7 +5,9 @@
 //
 //     BotFishView(state: BotFishLifecycle, size: CGFloat,
 //                 appearance: BotFishAppearance = .classic,
-//                 still: Bool = false, allowsPoke: Bool = false)
+//                 crowned: Bool = false,
+//                 still: Bool = false, allowsPoke: Bool = false,
+//                 reaction: BotFishReaction? = nil)
 
 import Combine
 import SwiftUI
@@ -16,8 +18,15 @@ struct BotFishView: View {
     let state: BotFishLifecycle
     let size: CGFloat
     let appearance: BotFishAppearance
+    /// Main-Bot crown. It changes the cached static base and the circle crop
+    /// (448px at (32, 10)), so the whole view repaints once when it flips.
+    let crowned: Bool
     let still: Bool
     let allowsPoke: Bool
+    /// Agent-driven cosmetic overlay. The lifecycle `state` stays the base;
+    /// the renderer plays one action clip or a 4 s face expression and then
+    /// falls back to the lifecycle state.
+    let reaction: BotFishReaction?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.displayScale) private var displayScale
@@ -31,12 +40,16 @@ struct BotFishView: View {
 
     init(state: BotFishLifecycle, size: CGFloat,
          appearance: BotFishAppearance = .classic,
-         still: Bool = false, allowsPoke: Bool = false) {
+         crowned: Bool = false,
+         still: Bool = false, allowsPoke: Bool = false,
+         reaction: BotFishReaction? = nil) {
         self.state = state
         self.size = size
         self.appearance = appearance
+        self.crowned = crowned
         self.still = still
         self.allowsPoke = allowsPoke
+        self.reaction = reaction
     }
 
     private var side: CGFloat { max(1, size) }
@@ -62,12 +75,13 @@ struct BotFishView: View {
         size <= BotFishRenderer.motionBoostSmallSize ? 1.0 / 15.0 : 1.0 / 20.0
     }
 
-    /// Re-evaluated after a pause-condition, lifecycle or appearance change so
-    /// a frozen avatar paints the new state exactly once.
+    /// Re-evaluated after a pause-condition, lifecycle, appearance, crown or
+    /// reaction change so a frozen avatar paints the new state exactly once.
     private var pauseTaskID: String {
         "\(hardPaused)-\(state.rawValue)-\(appearance.color.rawValue)"
-            + "-\(appearance.hairstyle.rawValue)-\(still)-\(reduceMotion)"
+            + "-\(appearance.hairstyle.rawValue)-\(crowned)-\(still)-\(reduceMotion)"
             + "-\(displayScale)-\(lowPowerMode)-\(isVisible)"
+            + "-\(reaction?.id ?? "")"
     }
 
     var body: some View {
@@ -79,7 +93,8 @@ struct BotFishView: View {
                     frameLayers(engine.advance(at: timeline.date, state: state,
                                                still: still, reduced: reduceMotion,
                                                size: side, displayScale: displayScale,
-                                               appearance: appearance))
+                                               appearance: appearance, crowned: crowned,
+                                               reaction: reaction))
                 }
             }
         }
@@ -125,9 +140,10 @@ struct BotFishView: View {
                     .frame(width: side, height: side)
             }
             // The renderer's pose pivot is source (256, 350) inside the
-            // (48, 30, 416, 416) crop: (0.5, 320/416) in view points.
-            .scaleEffect(x: frame.pose.scaleX, y: frame.pose.scaleY, anchor: Self.pivot)
-            .rotationEffect(.degrees(frame.pose.roll), anchor: Self.pivot)
+            // (48, 30, 416, 416) normal crop or the (32, 10, 448, 448) crowned
+            // crop: (0.5, 320/416) or (0.5, 340/448) in view points.
+            .scaleEffect(x: frame.pose.scaleX, y: frame.pose.scaleY, anchor: pivot)
+            .rotationEffect(.degrees(frame.pose.roll), anchor: pivot)
             .offset(x: frame.pose.offsetX, y: frame.pose.offsetY)
             .compositingGroup()
             .opacity(frame.alpha)
@@ -139,8 +155,11 @@ struct BotFishView: View {
         }
     }
 
-    private static let pivot = UnitPoint(x: 0.5,
-                                         y: 320.0 / BotFishRenderer.cropSide)
+    private var pivot: UnitPoint {
+        UnitPoint(x: 0.5,
+                  y: (crowned ? 340.0 : 320.0)
+                    / (crowned ? BotFishRenderer.crownedCropSide : BotFishRenderer.cropSide))
+    }
 
     @MainActor
     private func syncPauseState() async {
@@ -157,7 +176,8 @@ struct BotFishView: View {
         // a state change while backgrounded) and keep it.
         let frame = engine.advance(at: Date(), state: state, still: still,
                                    reduced: reduceMotion, size: side,
-                                   displayScale: displayScale, appearance: appearance)
+                                   displayScale: displayScale, appearance: appearance,
+                                   crowned: crowned, reaction: reaction)
         frozenFrame = frame ?? engine.currentFrame
     }
 }

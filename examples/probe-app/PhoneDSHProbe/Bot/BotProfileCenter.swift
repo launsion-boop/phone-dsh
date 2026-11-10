@@ -23,8 +23,9 @@ final class BotProfileCenter: ObservableObject {
     private let store: BotProfileStore?
     private let legacyName: String?
     private(set) var bootstrapped = false
+    private var rosterObservation: Task<Void, Never>?
 
-    init(botID: String = "main", store: BotProfileStore? = nil,
+    init(botID: String, store: BotProfileStore? = nil,
          legacyName: String? = nil, fallbackName: String = "大肥鱼",
          appearance initialAppearance: BotFishAppearance = .classic) {
         self.botID = botID
@@ -34,18 +35,46 @@ final class BotProfileCenter: ObservableObject {
         self.appearance = initialAppearance
     }
 
-    /// Creates the one "main" record on first launch: name from the last
-    /// `renamed` event (else 大肥鱼), explicit blue/long so the existing fish
-    /// keeps its look. An existing index is returned unchanged.
-    func bootstrap() async {
+    /// Loads this Bot's record. The composition root bootstraps the first
+    /// record separately; this method never creates a second `main` record.
+    func loadProfile() async {
         guard let store, !bootstrapped else { return }
         do {
-            let created = try await store.bootstrapMainIfNeeded(legacyName: legacyName)
-            apply(created)
+            if let profile = try await store.profile(id: botID) {
+                apply(profile)
+            }
             bootstrapped = true
+            observeRoster(store: store)
         } catch {
             errorMessage = "Bot 资料读取失败：\(error.localizedDescription)"
         }
+    }
+
+    /// Renames, appearance edits and 设为主 Bot all write the same roster. A
+    /// cached page must see those writes without being rebuilt, so the center
+    /// follows the store's public roster stream and applies only its record.
+    private func observeRoster(store: BotProfileStore) {
+        guard rosterObservation == nil else { return }
+        rosterObservation = Task { @MainActor [weak self, store] in
+            let updates = await store.rosterUpdates()
+            for await roster in updates {
+                guard !Task.isCancelled else { return }
+                guard let self else { return }
+                if let profile = roster.bots.first(where: { $0.id == self.botID }) {
+                    self.apply(profile)
+                }
+            }
+        }
+    }
+
+    deinit {
+        rosterObservation?.cancel()
+    }
+
+    /// Backward-compatible alias for the page bootstrap path. The first record
+    /// is created by the composition root; an existing record is loaded.
+    func bootstrap() async {
+        await loadProfile()
     }
 
     /// Applies an appearance choice immediately, then persists only the fields

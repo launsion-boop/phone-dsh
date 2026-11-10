@@ -87,6 +87,22 @@ final class BotFishStateMachine {
     private var artStart: Double = -.infinity
     private var last: BotFishParams?
 
+    /// Agent-driven one-shot overlay. The lifecycle `state` stays authoritative
+    /// underneath; this value only masks it until its TTL expires. Actions
+    /// sample a full clip; expressions overlay the face on the lifecycle body.
+    private var reaction: BotFishReaction?
+    private var reactionLifecycle: BotFishLifecycle?
+    private var reactionStart: Double = -.infinity
+
+    var activeReaction: BotFishReaction? {
+        guard let reaction, reactionLifecycle != nil,
+              time >= reactionStart,
+              time - reactionStart < Double(reaction.durationMs) else { return nil }
+        return reaction
+    }
+
+    var hasActiveReaction: Bool { activeReaction != nil }
+
     init(state: BotFishLifecycle = .idle, reduced: Bool = false, isStatic: Bool = false,
          random: @escaping () -> Double = { Double.random(in: 0..<1) }) {
         self.state = state == .poke ? .idle : state
@@ -135,9 +151,71 @@ final class BotFishStateMachine {
     }
 
     func poke() {
+        if reaction?.kind == .action { clearReaction() }
         pokeStart = time
         blinkStart = -.infinity
         lookOverride = nil
+    }
+
+    /// Starts (or restarts) one Agent-driven reaction at the machine's current
+    /// clock. The same reaction id is filtered by `BotFishEngine.configure`;
+    /// this method always restarts if called directly.
+    @discardableResult
+    func playReaction(_ value: BotFishReaction) -> Bool {
+        guard let lifecycle = value.lifecycle else { return false }
+        artFrom = last.map { (eye: $0.eyeArt, mouth: $0.mouthArt) }
+        artStart = time
+        reaction = value
+        reactionLifecycle = lifecycle
+        reactionStart = time
+        if value.kind == .action {
+            pokeStart = -.infinity
+            blinkStart = -.infinity
+            lookOverride = nil
+        }
+        return true
+    }
+
+    func clearReaction() {
+        guard reaction != nil else { return }
+        artFrom = last.map { (eye: $0.eyeArt, mouth: $0.mouthArt) }
+        artStart = time
+        reaction = nil
+        reactionLifecycle = nil
+        reactionStart = -.infinity
+    }
+
+    private func expireReactionIfNeeded() {
+        guard let reaction, time - reactionStart >= Double(reaction.durationMs) else { return }
+        artFrom = last.map { (eye: $0.eyeArt, mouth: $0.mouthArt) }
+        artStart = time
+        self.reaction = nil
+        reactionLifecycle = nil
+        reactionStart = -.infinity
+    }
+
+    /// Static/reduced-motion sampling phase per action. A uniform 25% leaves
+    /// shaking-head and clapping at their neutral crossing, so the gallery
+    /// would label a blank pose as the gesture. These beats match the key
+    /// frames in upstream `expressive.js`.
+    private static let staticActionPhase: [String: Double] = [
+        "waving": 0.25, "bowing": 0.50, "clapping": 0.125, "kiss": 0.50,
+        "cheering": 0.25, "shy": 0.50, "smug": 0.50, "crying": 0.50,
+        "sighing": 0.60, "shaking-head": 0.125, "stretching": 0.50,
+        "yawning": 0.50, "high-five": 0.50, "nod": 0.25,
+        "celebrate": 0.25, "dancing": 0.25,
+    ]
+
+    private func reactionSampleTime(_ reaction: BotFishReaction, expression: Bool) -> Double {
+        if isStatic || reduced {
+            // A still/gallery frame must show the gesture's recognisable beat,
+            // not its neutral first frame; expressions match upstream's 650 ms
+            // frozen sample.
+            if expression { return 650 }
+            let phase = Self.staticActionPhase[reaction.name] ?? 0.25
+            return max(1, Double(reaction.durationMs) * phase)
+        }
+        return max(0, time - reactionStart)
     }
 
     private func blink() {
@@ -159,8 +237,8 @@ final class BotFishStateMachine {
             elapsed += dt
         }
 
-        if state == .idle, time - idleEntered >= 3000, time >= nextIdleAt,
-           playing, !reduced, !isStatic {
+        if state == .idle, reaction == nil, time - idleEntered >= 3000,
+           time >= nextIdleAt, playing, !reduced, !isStatic {
             if random() < 0.6 {
                 blink()
             } else {
@@ -172,11 +250,40 @@ final class BotFishStateMachine {
             armIdle()
         }
 
+        expireReactionIfNeeded()
         let pokeAge = time - pokeStart
         let poking = pokeAge >= 0 && pokeAge < 420
         let stateTime = (reduced || isStatic) ? 650 : elapsed
-        var p = BotFishModel.sample(state: poking ? .poke : state,
-                                    time: poking ? pokeAge : stateTime)
+        let active = activeReaction
+        let action = active?.kind == .action ? active : nil
+        let expression = active?.kind == .expression ? active : nil
+        let sampledState: BotFishLifecycle
+        let sampledTime: Double
+        if poking {
+            sampledState = .poke
+            sampledTime = pokeAge
+        } else if let action, let actionLifecycle = reactionLifecycle {
+            sampledState = actionLifecycle
+            sampledTime = reactionSampleTime(action, expression: false)
+        } else {
+            sampledState = state
+            sampledTime = stateTime
+        }
+        var p = BotFishModel.sample(state: sampledState, time: sampledTime)
+        if !poking, let expression, let expressionLifecycle = reactionLifecycle {
+            // Upstream expressive.js: an expression only changes the face and
+            // art, never the body pose or displacement.
+            let face = BotFishModel.sample(
+                state: expressionLifecycle,
+                time: reactionSampleTime(expression, expression: true))
+            for key in BotFishFaceKey.allCases {
+                p.setFaceValue(key, face.faceValue(key))
+            }
+            p.eyeArt = face.eyeArt
+            p.mouthArt = face.mouthArt
+            p.puff = face.puff
+            if expressionLifecycle == .love { p.decoration = "hearts" }
+        }
 
         for key in BotFishFaceKey.allCases {
             let target = p.faceValue(key)
@@ -255,6 +362,7 @@ final class BotFishStateMachine {
     }
 
     var needsAnimation: Bool {
+        if reaction != nil { return true }
         let clip = BotFishClip.forState(state)
         let continuous = playing && !reduced && !isStatic && !clip.isStatic
             && (clip.period != nil || elapsed < (clip.duration ?? 0))
@@ -294,6 +402,7 @@ final class BotFishEngine {
     private var lastTimestamp: TimeInterval?
     private var configuredState: BotFishLifecycle?
     private(set) var currentFrame: BotFishFrame?
+    private var configuredReactionID: String?
 
     /// 0.25 output pixel, matching the renderer's pose quantisation. Scale is
     /// quantised so the edge of the crop moves by the same threshold; roll
@@ -308,7 +417,8 @@ final class BotFishEngine {
 
     var needsAnimation: Bool { machine.needsAnimation }
 
-    func configure(state: BotFishLifecycle, still: Bool, reduced: Bool) {
+    func configure(state: BotFishLifecycle, still: Bool, reduced: Bool,
+                   reaction: BotFishReaction? = nil) {
         // `.poke` is a transient: the machine keeps its lifecycle state, so
         // compare against the last requested value instead of machine.state.
         if configuredState != state {
@@ -318,12 +428,24 @@ final class BotFishEngine {
         if machine.isStatic != still || machine.reduced != reduced {
             machine.updateFlags(isStatic: still, reduced: reduced)
         }
+        // Dedupe by reaction id: SwiftUI can re-render or rebuild the view for
+        // unrelated inputs, but one Agent call must play exactly once.
+        if configuredReactionID != reaction?.id {
+            configuredReactionID = reaction?.id
+            if let reaction {
+                _ = machine.playReaction(reaction)
+            } else {
+                machine.clearReaction()
+            }
+        }
     }
 
     func advance(at date: Date, state: BotFishLifecycle, still: Bool, reduced: Bool,
                  size: CGFloat, displayScale: CGFloat,
-                 appearance: BotFishAppearance = .classic) -> BotFishFrame? {
-        configure(state: state, still: still, reduced: reduced)
+                 appearance: BotFishAppearance = .classic,
+                 crowned: Bool = false,
+                 reaction: BotFishReaction? = nil) -> BotFishFrame? {
+        configure(state: state, still: still, reduced: reduced, reaction: reaction)
         let timestamp = date.timeIntervalSinceReferenceDate
         let delta = lastTimestamp.map { min(100, max(0, (timestamp - $0) * 1000)) } ?? 0
         lastTimestamp = timestamp
@@ -348,12 +470,13 @@ final class BotFishEngine {
         let target = BotFishRenderer.pixelSide(size: size, displayScale: displayScale)
         guard let prepared = renderer.prepare(params, time: machine.time, size: size,
                                               displayScale: displayScale,
-                                              appearance: appearance) else {
+                                              appearance: appearance,
+                                              crowned: crowned) else {
             return currentFrame
         }
         let baseID = ObjectIdentifier(prepared.base)
         let faceID = ObjectIdentifier(prepared.face)
-        let pose = Self.pose(params, size: size, pixelSide: target)
+        let pose = Self.pose(params, size: size, pixelSide: target, crowned: crowned)
         let alpha = Self.quantisedAlpha(params.alpha)
         if var frame = currentFrame {
             var changed = false
@@ -394,9 +517,10 @@ final class BotFishEngine {
     }
 
     private static func pose(_ p: BotFishParams, size: CGFloat,
-                             pixelSide: Int) -> BotFishPose {
+                             pixelSide: Int, crowned: Bool) -> BotFishPose {
         let target = CGFloat(max(1, pixelSide))
-        let pixelScale = target / BotFishRenderer.cropSide
+        let cropSide = crowned ? BotFishRenderer.crownedCropSide : BotFishRenderer.cropSide
+        let pixelScale = target / cropSide
         let pointsPerPixel = max(1, size) / target
         func offset(_ value: Double) -> CGFloat {
             let pixels = CGFloat(value) * pixelScale

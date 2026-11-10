@@ -237,10 +237,14 @@ final class BotProfileStoreTests: XCTestCase {
         XCTAssertEqual(number(settings["updatedAt"]), 11)
 
         try await store.setMainBotID(nil)
-        let cleared = try await store.mainBotID()
-        XCTAssertNil(cleared)
+        // The pointer can be cleared on disk, but the next read repairs a
+        // nil/dangling pointer to the first Bot in insertion order.
         let clearedSettings = try readObject(settingsURL(directory))
         XCTAssertTrue(clearedSettings["mainAgentId"] is NSNull)
+        let repaired = try await store.mainBotID()
+        XCTAssertEqual(repaired, "main")
+        let repairedSettings = try readObject(settingsURL(directory))
+        XCTAssertEqual(repairedSettings["mainAgentId"] as? String, "main")
     }
 
     func testCorruptIndexIsBackedUpAndRecoveredWithoutOverwriting() async throws {
@@ -271,20 +275,22 @@ final class BotProfileStoreTests: XCTestCase {
     func testCorruptSettingsIsBackedUpAndRecovered() async throws {
         let directory = try ProfileTestSupport.temporaryDirectory("corrupt-settings")
         defer { try? FileManager.default.removeItem(at: directory) }
+        let store = store(at: directory, clock: TestClock(9))
+        let bootstrapped = try await store.bootstrapMainIfNeeded(legacyName: nil)
+
         let original = "[]"
         try Data(original.utf8).write(to: settingsURL(directory))
-        let store = store(at: directory, clock: TestClock(9))
 
-        let missingMain = try await store.mainBotID()
-        XCTAssertNil(missingMain)
+        let repairedMain = try await store.mainBotID()
+        XCTAssertEqual(repairedMain, bootstrapped.id)
         let names = try FileManager.default.contentsOfDirectory(atPath: directory.path)
         let backup = try XCTUnwrap(names.first { $0.hasPrefix("runtime-settings.json.corrupt-9") })
         let backedUp = try String(contentsOf: directory.appendingPathComponent(backup), encoding: .utf8)
         XCTAssertEqual(backedUp, original)
 
-        try await store.setMainBotID("main")
+        try await store.setMainBotID(bootstrapped.id)
         let recoveredMain = try await store.mainBotID()
-        XCTAssertEqual(recoveredMain, "main")
+        XCTAssertEqual(recoveredMain, bootstrapped.id)
     }
 
     func testBootstrapRepairsMissingMainPointerWithoutChangingProfile() async throws {
@@ -293,8 +299,8 @@ final class BotProfileStoreTests: XCTestCase {
         let store = store(at: directory, clock: TestClock(42))
         let first = try await store.bootstrapMainIfNeeded(legacyName: nil)
         try FileManager.default.removeItem(at: settingsURL(directory))
-        let missing = try await store.mainBotID()
-        XCTAssertNil(missing)
+        let repaired = try await store.mainBotID()
+        XCTAssertEqual(repaired, first.id, "a missing pointer repairs to the first Bot")
 
         let second = try await store.bootstrapMainIfNeeded(legacyName: "ignored")
         XCTAssertEqual(second.id, first.id)

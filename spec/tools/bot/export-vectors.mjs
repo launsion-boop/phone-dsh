@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import vm from 'node:vm';
+import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
@@ -50,10 +51,13 @@ function loadExports(relative, names) {
 }
 const { RAW_TOOLS } = loadExports('src/main/mcp/dshbotServer.cjs', ['RAW_TOOLS']);
 const { heldMessagesBlock } = loadExports('src/main/dshAgent.cjs', ['heldMessagesBlock']);
+const { parseAttachmentBlock } = loadExports('src/main/dshTranscript.cjs', ['parseAttachmentBlock']);
+const attachments = requireCJS('src/main/attachments.cjs');
 const { CONTEXT_PROFILES, contextConfigYaml } = loadExports('src/main/prompt/assemble.cjs', ['CONTEXT_PROFILES', 'contextConfigYaml']);
 const display = await import(pathToFileURL(path.join(checkout, 'src/renderer/lib/displayContract.js')).href);
 const fishModel = await import(pathToFileURL(path.join(checkout, 'src/renderer/lib/fish/model.js')).href);
 const agentModel = requireCJS('src/main/agents/model.cjs');
+const { AgentRecords } = requireCJS('src/main/agents/store.cjs');
 const { wireRecordFor } = requireCJS('src/main/transcriptWire.cjs');
 const cardPayloads = requireCJS('src/main/cardPayloads.cjs');
 const ledgerModule = requireCJS('src/main/ledger.cjs');
@@ -62,14 +66,70 @@ const watchdog = requireCJS('src/main/watchdog/checks.cjs');
 const watchdogConfig = requireCJS('src/main/watchdog/config.cjs');
 const contextLint = requireCJS('src/main/eval/contextLint.cjs');
 
+const exportedGolden = new Set();
 function writeJSON(relative, value) {
   const filename = path.join(output, relative);
   fs.mkdirSync(path.dirname(filename), { recursive: true });
   fs.writeFileSync(filename, `${JSON.stringify(value, null, 2)}\n`);
+  if (relative.startsWith('golden/')) exportedGolden.add(path.basename(relative));
 }
 function vector(name, valid, invalid = []) {
   writeJSON(`golden/${name}.json`, { schemaVersion: 1, vector: name, source, valid, invalid });
 }
+
+// P27 user-message attachments. The upstream parser and prompt builder are the
+// only authority; the vector records their real output so Swift can byte-match
+// the block without copying a second prompt string. Like every other upstream
+// batch, re-running this script must leave the file unchanged.
+const attachmentItems = [
+  {
+    name: '周报.pdf',
+    path: '/data/agents/main/attachments/m1/周报.pdf',
+    size: 2048,
+    mimeType: 'application/pdf',
+    kind: attachments.kindFor('周报.pdf', 'application/pdf'),
+  },
+  {
+    name: 'photo.jpg',
+    path: '/data/agents/main/attachments/m1/photo.jpg',
+    size: 1234567,
+    mimeType: 'image/jpeg',
+    kind: attachments.kindFor('photo.jpg', 'image/jpeg'),
+  },
+];
+const attachmentText = '帮我看看这两个文件';
+const attachmentBlock = attachments.attachmentPromptBlock(attachmentItems);
+const attachmentPrompt = attachmentText + attachmentBlock;
+const attachmentParseInputs = [
+  attachmentPrompt,
+  'no attachments here',
+  attachmentBlock.replace(/^\n\n/, ''),
+  `前缀\n\n${attachmentBlock.replace(/^\n\n/, '')}\n后缀`,
+];
+writeJSON('golden/bot-attachments.json', {
+  source: {
+    repo: 'launsion-boop/dsh-bot',
+    commit: actualSHA,
+    files: ['src/main/attachments.cjs', 'src/main/dshTranscript.cjs'],
+  },
+  limits: {
+    maxAttachments: attachments.MAX_ATTACHMENTS,
+    maxBytes: attachments.MAX_ATTACHMENT_BYTES,
+  },
+  promptBlock: { items: attachmentItems, text: attachmentText, prompt: attachmentPrompt },
+  emptyBlock: attachments.attachmentPromptBlock([]),
+  parse: attachmentParseInputs.map((input) => ({ input, output: parseAttachmentBlock(input) })),
+  kindFor: [
+    ['a.png', 'image/png'],
+    ['b.HEIC', ''],
+    ['c.mp3', ''],
+    ['d.mov', ''],
+    ['e.pdf', ''],
+    ['f.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+    ['g.txt', 'text/plain'],
+    ['h', ''],
+  ].map(([name, mimeType]) => ({ name, mimeType, kind: attachments.kindFor(name, mimeType) })),
+});
 const P0_TOOL_NAMES = [
   'ask_user', 'show_next_steps', 'show_attachment', 'show_document', 'show_progress',
   'show_checklist', 'show_link', 'UpdateMemory', 'RecallMemory', 'Task', 'AwaitTask',
@@ -400,6 +460,76 @@ const normalizeBotHairstyle = (value) => {
   const result = agentModel.normalizeFishHairstyle(value);
   return result === undefined || result === '' ? null : result;
 };
+
+// Roster rules exported from the real AgentRecords. The fixture root lives in
+// the system temporary directory; only ids and rule outcomes reach the golden.
+function rosterFixture(ids, mainAgentId) {
+  const root = fs.mkdtempSync(path.join(temporaryRoot, 'roster-'));
+  const agents = ids.map((id, index) => ({
+    schema: 3,
+    id,
+    name: `Bot ${id}`,
+    description: '',
+    fish_color: 'blue',
+    fish_hairstyle: 'long',
+    name_explicit: true,
+    pinned: false,
+    hidden_by_user: false,
+    unread_count: 0,
+    last_message_at: null,
+    created_at: 1760000000000 + index,
+    updated_at: 1760000000000 + index,
+  }));
+  fs.writeFileSync(path.join(root, 'agents-index.json'),
+    `${JSON.stringify({ schemaVersion: 3, agents })}\n`);
+  fs.writeFileSync(path.join(root, 'runtime-settings.json'),
+    `${JSON.stringify({ version: 1, mainAgentId, updatedAt: 1760000000000 })}\n`);
+  return new AgentRecords({ root });
+}
+const rosterMainPointerInputs = [
+  { name: 'empty_pointer_uses_first_bot', records: ['agent-a', 'agent-b'], mainAgentId: null },
+  { name: 'dangling_pointer_uses_first_bot', records: ['agent-a', 'agent-b'], mainAgentId: 'agent-gone' },
+  { name: 'valid_pointer_is_kept', records: ['agent-a', 'agent-b'], mainAgentId: 'agent-b' },
+  { name: 'empty_roster_has_no_main', records: [], mainAgentId: null },
+];
+const mainPointerRepair = rosterMainPointerInputs.map((entry) => ({
+  ...entry,
+  expectedMainAgentId: rosterFixture(entry.records, entry.mainAgentId).mainAgentId(),
+}));
+const rosterDeleteInputs = [
+  { name: 'deleting_main_moves_pointer_to_first_remaining', records: ['agent-a', 'agent-b', 'agent-c'], mainAgentId: 'agent-b', deleteId: 'agent-b' },
+  { name: 'deleting_non_main_keeps_pointer', records: ['agent-a', 'agent-b', 'agent-c'], mainAgentId: 'agent-c', deleteId: 'agent-b' },
+  { name: 'deleting_last_main_uses_first_remaining', records: ['agent-a', 'agent-b'], mainAgentId: 'agent-b', deleteId: 'agent-b' },
+];
+const deleteMainMigration = rosterDeleteInputs.map((entry) => {
+  const store = rosterFixture(entry.records, entry.mainAgentId);
+  store.deleteAgent(entry.deleteId);
+  return {
+    ...entry,
+    expectedRemaining: store.listRecords().map((record) => record.id),
+    expectedMainAgentId: store.mainAgentId(),
+  };
+});
+const rosterPatchInputs = [
+  {
+    name: 'identity_and_pointer_are_dropped',
+    input: {
+      id: 'agent-injected', primary: true, mainAgentId: 'agent-injected',
+      name: '  换名  ', description: '新的描述', fish_color: 'BLUE', hidden_by_user: true,
+    },
+  },
+  {
+    name: 'pointer_only_patch_is_empty',
+    input: { id: 'agent-injected', primary: false, mainAgentId: 'agent-injected' },
+  },
+];
+const normalizePatch = rosterPatchInputs.map((entry) => ({
+  name: entry.name,
+  input: entry.input,
+  expected: agentModel.normalizePatch(entry.input),
+  droppedKeys: ['id', 'primary', 'mainAgentId'],
+}));
+
 writeJSON('golden/bot-profile.json', {
   source: {
     repo: 'launsion-boop/dsh-bot',
@@ -408,6 +538,7 @@ writeJSON('golden/bot-profile.json', {
       'src/main/agents/model.cjs',
       'src/renderer/lib/fish/model.js',
       'src/renderer/lib/characterEngine.js',
+      'src/main/agents/store.cjs',
     ],
   },
   recordSchemaVersion,
@@ -422,6 +553,11 @@ writeJSON('golden/bot-profile.json', {
     'auto', '', null, 'curly',
   ].map((input) => ({ input, output: normalizeBotHairstyle(input) })),
   seed: botProfileSeeds,
+  rosterRules: {
+    mainPointerRepair,
+    deleteMainMigration,
+    normalizePatch,
+  },
 });
 
 const rowInputs = [
@@ -477,10 +613,24 @@ writeJSON('dshbot-pin.json', {
     routineDelivery: '28437f5d975230766f3f40463fa090d643f63e7c',
   },
 });
+const goldenDirectory = path.join(output, 'golden');
+const files = fs.readdirSync(goldenDirectory).filter((name) => name.endsWith('.json')).sort();
+const phoneOverlays = files.filter((name) => name.endsWith('.phone.json'));
+const upstream = [...exportedGolden].filter((name) => files.includes(name)).sort();
+const manual = files.filter((name) => !upstream.includes(name) && !phoneOverlays.includes(name));
+if (manual.length > 0) {
+  throw new Error(`golden file(s) are neither exported nor *.phone.json overlays: ${manual.join(', ')}`);
+}
+const sha256 = Object.fromEntries(files.map((name) => [
+  name, crypto.createHash('sha256').update(fs.readFileSync(path.join(goldenDirectory, name))).digest('hex'),
+]));
 writeJSON('export-manifest.json', {
   schemaVersion: 1,
   source,
   generator: 'spec/tools/bot/export-vectors.mjs',
-  files: fs.readdirSync(path.join(output, 'golden')).sort(),
+  files,
+  upstream,
+  phoneOverlays,
+  sha256,
 });
 console.log(`Exported Bot vectors from ${actualSHA} to ${output}`);

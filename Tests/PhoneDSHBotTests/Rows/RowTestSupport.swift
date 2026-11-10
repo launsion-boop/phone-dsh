@@ -23,12 +23,7 @@ enum RowTestSupport {
     }
 
     static func golden(_ name: String) throws -> [String: Any] {
-        let url = try repositoryRoot().appendingPathComponent("spec/bot/v1/golden/\(name).json")
-        let object = try JSONSerialization.jsonObject(with: Data(contentsOf: url))
-        guard let dictionary = object as? [String: Any] else {
-            throw FixtureError(description: "\(name).json is not an object")
-        }
-        return dictionary
+        try BotGoldenFixture.mergedObject(name)
     }
 
     static func object(_ value: Any?, in fixture: String) throws -> [String: Any] {

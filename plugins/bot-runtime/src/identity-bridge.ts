@@ -6,6 +6,8 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { botOwnedSessions } from './bot-sessions.ts'
 import { canonicalStringify } from './canonical-json.ts'
 import { BOT_VOLATILE_CONTEXT_TOOL } from './volatile-mcp.ts'
+import { callerCatalogUrl, installCallerCatalog } from './caller-catalog.ts'
+import type { CallerCatalogConfig } from './caller-catalog.ts'
 
 export const PHONE_TOOL_PREFIX = 'mcp__phone__'
 export const NATIVE_PHONE_TOOL_PREFIX = 'mcp__phone__android_'
@@ -40,6 +42,12 @@ export interface IdentityBridgeConfig {
   readonly lifetimeMs?: number
   readonly request?: (payload: Record<string, unknown>, options: { timeoutMs: number; signal?: AbortSignal }) => Promise<IdentityRegistration>
   readonly cancel?: (id: string, options: { timeoutMs: number; signal?: AbortSignal }) => Promise<void>
+  /**
+   * Per-caller `tools/list` catalog. The App's MCP client sees one global tool
+   * list per Worker, so the Worker fetches the identified session's catalog
+   * itself and applies it to that Bot's scoped tool surface.
+   */
+  readonly catalog?: CallerCatalogConfig
 }
 
 export function argsDigest(value: unknown): string {
@@ -289,6 +297,13 @@ export default function dshbotIdentityBridge(ctx: Context, config: IdentityBridg
     } finally {
       await cleanup(key)
     }
+  })
+
+  installCallerCatalog(ctx, {
+    ...config.catalog,
+    ownedSessions,
+    url: config.catalog?.url ?? callerCatalogUrl(bridgeUrl),
+    token: config.catalog?.token ?? bridgeToken,
   })
 }
 

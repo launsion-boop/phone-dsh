@@ -177,4 +177,101 @@ final class BotCaptureUITests: XCTestCase {
         app.buttons["bot.info.memory"].tap()
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "这不代表没有记忆")).firstMatch.waitForExistence(timeout: 2))
     }
+
+    // MARK: - Bot drawer
+
+    private func drawerRow(_ name: String) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", name)).firstMatch
+    }
+
+    /// The SwiftUI panel is exposed as a ScrollView, not an Other element, so
+    /// match the identifier across element types.
+    private func drawerPanel() -> XCUIElement {
+        app.descendants(matching: .any).matching(identifier: "bot.drawer.panel").firstMatch
+    }
+
+    /// A closed drawer keeps its elements in the tree, offset offscreen. The
+    /// real closed condition is therefore "not hittable" (and, when it still
+    /// exists, a frame wholly left of the screen), never "does not exist".
+    private func assertDrawerClosed(_ element: XCUIElement, timeout: TimeInterval = 2,
+                                    file: StaticString = #filePath, line: UInt = #line) {
+        let closed = waitUntil(timeout: timeout) {
+            !element.exists || !element.isHittable || element.frame.maxX <= 0.01
+        }
+        XCTAssertTrue(closed, "drawer element is still open: \(element)", file: file, line: line)
+    }
+
+    private func waitUntil(timeout: TimeInterval, _ condition: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        return condition()
+    }
+
+    func testBotDrawerOpenSelectAndClose() throws {
+        launch("drawer")
+        let panel = drawerPanel()
+        XCTAssertTrue(panel.waitForExistence(timeout: 4))
+        panel.swipeLeft()
+        assertDrawerClosed(drawerRow("大肥鱼"))
+        assertDrawerClosed(panel)
+
+        let open = app.buttons["bot.drawer.open"]
+        XCTAssertTrue(open.waitForExistence(timeout: 2))
+        open.tap()
+        let second = drawerRow("小海")
+        XCTAssertTrue(second.waitForExistence(timeout: 2))
+        second.tap()
+        assertDrawerClosed(second)
+        assertDrawerClosed(panel)
+        XCTAssertTrue(app.staticTexts["小海"].waitForExistence(timeout: 2))
+    }
+
+    func testBotAddValidatesAndCreates() throws {
+        launch("drawerAdd")
+        let field = app.textFields["bot.add.name"]
+        XCTAssertTrue(field.waitForExistence(timeout: 3))
+        let create = app.buttons["bot.add.create"]
+        XCTAssertFalse(create.isEnabled)
+        XCTAssertTrue(app.staticTexts["bot.add.name.hint"].exists)
+
+        // The dialog opens with a 61-character draft. Clear through the
+        // field's own control; a blind delete burst depends on where the tap
+        // put the caret and can leave a different, still-valid name.
+        let clear = app.buttons["bot.add.name.clear"]
+        XCTAssertTrue(clear.waitForExistence(timeout: 2))
+        clear.tap()
+        XCTAssertTrue(app.staticTexts["名称不能为空。"].waitForExistence(timeout: 2))
+        XCTAssertFalse(create.isEnabled)
+
+        // A valid name enables 创建.
+        field.tap()
+        field.typeText("小舟")
+        XCTAssertTrue(waitUntil(timeout: 2) { create.isEnabled })
+
+        // Appending past the limit must disable it again. The fixture's
+        // create path must reject the same value too.
+        field.typeText(String(repeating: "长", count: 61))
+        XCTAssertTrue(app.staticTexts["名称最多 60 个字符，当前 63 个。"].waitForExistence(timeout: 2))
+        XCTAssertTrue(waitUntil(timeout: 2) { !create.isEnabled })
+
+        XCTAssertTrue(clear.waitForExistence(timeout: 2))
+        clear.tap()
+        field.tap()
+        field.typeText("小舟")
+        XCTAssertTrue(waitUntil(timeout: 2) { create.isEnabled })
+        create.tap()
+
+        XCTAssertTrue(app.staticTexts["小舟"].waitForExistence(timeout: 4))
+        XCTAssertFalse(app.buttons["bot.drawer.add"].waitForExistence(timeout: 1))
+    }
+
+    func testBotManageShowsHiddenBot() throws {
+        launch("drawerManage")
+        let hidden = app.staticTexts["夜航"]
+        XCTAssertTrue(hidden.waitForExistence(timeout: 4))
+        XCTAssertTrue(app.staticTexts["已隐藏"].exists)
+    }
 }

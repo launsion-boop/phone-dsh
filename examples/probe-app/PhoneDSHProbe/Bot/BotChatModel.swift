@@ -16,9 +16,13 @@ private final class BotStreamCoalescer {
         task = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 100_000_000)
-                guard !Task.isCancelled else { return }
-                self?.flush(deliver: deliver)
+                guard !Task.isCancelled, let self else { return }
+                // No pending text means the turn's final frame already
+                // consumed it (or none arrived); the 100ms loop must not keep
+                // waking the main thread between turns.
+                guard self.flush(deliver: deliver) else { break }
             }
+            self?.task = nil
         }
     }
 
@@ -35,10 +39,15 @@ private final class BotStreamCoalescer {
         pending = nil
     }
 
-    private func flush(deliver: @escaping (String) -> Void) {
-        guard let pending else { return }
+    private func flush(deliver: @escaping (String) -> Void) -> Bool {
+        guard let pending else { return false }
         self.pending = nil
         deliver(pending.text)
+        return true
+    }
+
+    deinit {
+        task?.cancel()
     }
 }
 
@@ -68,6 +77,8 @@ final class BotChatModel: ObservableObject {
     /// The same projection rebuilt from the live turn frames, which are the
     /// authority while a turn is running.
     @Published private(set) var livePresentation: BotRuntimePresentation?
+    /// Agent-driven one-shot FishAction for every avatar of this Bot.
+    @Published private(set) var reaction: BotFishReaction?
     /// Sixty seconds without a turn or a touch: the fish sleeps until the
     /// next interaction. Approvals and running turns always win over this.
     @Published private(set) var idleSleeping = false
@@ -81,9 +92,15 @@ final class BotChatModel: ObservableObject {
     /// The profile name is authoritative once the profile index exists; before
     /// that it is the runtime context name (the last `renamed` event).
     @Published private(set) var botName: String
+    /// Mirrors the roster's main-Bot pointer for the crown on the header and
+    /// the empty state.
+    @Published private(set) var isMainBot = false
     /// Importing is an app-layer dependency: the fixture model leaves it nil and
     /// the production hub injects the real workspace importer.
     var attachmentImporter: (any BotAttachmentImporting)?
+    /// Lets the production hub reset the per-Bot idle clock in the runtime
+    /// unit when this page sees a touch, so the sidebar and the page agree.
+    var onInteraction: (() -> Void)?
     @Published var scrollRequestID: String?
     @Published private(set) var loadingHistory = false
     @Published private(set) var hasMoreHistory = false
@@ -94,10 +111,17 @@ final class BotChatModel: ObservableObject {
     @Published private(set) var turnProcesses: [Int: BotTurnProcess] = [:]
     private var pendingDelta = ""
     private var deltaFlush: Task<Void, Never>?
-    /// Live session events of the open turn, in arrival order, for the one
-    /// runtime-presentation factory. Cleared on `turn/start`.
-    private var livePresentationEvents: [JSONValue] = []
+    /// Live frames of the open turn, replayed through the one director mapper.
+    private var liveFish: BotLiveFishProjection
+    private var fishExpiryTask: Task<Void, Never>?
     private var sleepTask: Task<Void, Never>?
+    /// UI polling is allowed only while the Bot page is selected and the scene
+    /// is active. The page owns the watch/live tasks; this flag makes a
+    /// lingering task harmless and lets pause drop transient UI state.
+    private var pageActive = true
+    /// Invalidates an older watch task that has not observed cancellation yet
+    /// when the page becomes visible again.
+    private var watchGeneration = 0
 
     let context: BotRuntimeContext
     private let driver: BotChatDriver?
@@ -112,10 +136,9 @@ final class BotChatModel: ObservableObject {
     private var historyCursor: String?
     private let historyPageSize = 50
     private var watchCursor = 0
-    private var watching = false
     private var profileCancellables: Set<AnyCancellable> = []
 
-    init(rows: [BotUIRow] = [], context: BotRuntimeContext = BotRuntimeContext(),
+    init(rows: [BotUIRow] = [], context: BotRuntimeContext,
          driver: BotChatDriver? = nil, fixtureHistory: [BotUIRow] = [],
          fixtureActions: Bool = false, profileCenter: BotProfileCenter? = nil) {
         self.rows = rows.sorted { $0.seq < $1.seq }
@@ -126,7 +149,13 @@ final class BotChatModel: ObservableObject {
         self.fixtureHistoryCursor = fixtureHistory.first?.id
         self.hasMoreHistory = driver != nil || !fixtureHistory.isEmpty
         self.botName = context.botName
+        self.liveFish = BotLiveFishProjection(botID: context.botID)
         attach(profileCenter: profileCenter)
+    }
+
+    func setMainBot(_ isMain: Bool) {
+        guard isMainBot != isMain else { return }
+        isMainBot = isMain
     }
 
     /// Mirrors the profile center's name and appearance into the published
@@ -208,7 +237,12 @@ final class BotChatModel: ObservableObject {
     var fishState: BotFishLifecycle {
         if pendingApprovalCount > 0 { return .alerting }
         if idleSleeping, runningTurnID == nil, live == nil { return .sleeping }
-        if live != nil, let state = livePresentation?.fishState { return state }
+        if let presentation = livePresentation {
+            if live != nil { return presentation.fishState }
+            if let shot = presentation.oneShot, shot.endsAt > BotLiveFishProjection.now {
+                return shot.state
+            }
+        }
         return runtimePresentation.fishState
     }
 
@@ -372,6 +406,7 @@ final class BotChatModel: ObservableObject {
     /// 60-second sleep clock.
     func noteInteraction() {
         if idleSleeping { idleSleeping = false }
+        onInteraction?()
         guard runningTurnID == nil, live == nil else {
             sleepTask?.cancel()
             sleepTask = nil
@@ -390,12 +425,17 @@ final class BotChatModel: ObservableObject {
 
     private func applyDurablePresentation(_ presentation: BotRuntimePresentation) {
         runtimePresentation = presentation
+        if live == nil { reaction = presentation.reaction }
         guard live == nil else { return }
         if let turn = presentation.runningTurnID {
             if runningTurnID == nil, !cancelledTurnIDs.contains(turn) { runningTurnID = turn }
         } else if let turn = runningTurnID, !cancelledTurnIDs.contains(turn) {
             runningTurnID = nil
             streamingText = nil
+            // A final frame can be lost across a background pause. The durable
+            // projection is authoritative once no turn is running, so stop a
+            // coalescer that is still waiting for its next pending delta.
+            stream.cancel()
         }
         scheduleIdleSleep()
     }
@@ -485,11 +525,14 @@ final class BotChatModel: ObservableObject {
 
     /// Polls the production row projection until the view's `.task` is
     /// cancelled. Fixture models have no driver and simply do not run it.
+    ///
+    /// The first iteration runs immediately, so becoming visible again reads
+    /// the durable rows and presentation once before the normal 0.8s cadence.
     func watchLoop() async {
-        guard let driver, !watching else { return }
-        watching = true
-        defer { watching = false }
-        while !Task.isCancelled {
+        guard let driver else { return }
+        watchGeneration &+= 1
+        let generation = watchGeneration
+        while !Task.isCancelled, pageActive, generation == watchGeneration {
             do {
                 let batch = try await driver.watch(watchCursor)
                 apply(batch)
@@ -501,20 +544,49 @@ final class BotChatModel: ObservableObject {
                 }
             } catch {
                 runtimeNotice = "Bot 实时更新失败：\(error.localizedDescription)"
+                liveFish.noteError("Bot 实时更新失败：\(error.localizedDescription)")
+                refreshLiveFishPresentation()
             }
+            guard !Task.isCancelled, pageActive, generation == watchGeneration else { return }
             try? await Task.sleep(nanoseconds: 800_000_000)
         }
     }
 
     /// Follows the running turn's live frames until the view's `.task` ends.
+    /// Hiding the page cancels the stream; becoming visible starts a fresh
+    /// subscription after the durable catch-up.
     func liveLoop() async {
         guard let driver else { return }
         for await frame in await driver.liveFrames() {
+            guard pageActive, !Task.isCancelled else { return }
             receive(frame)
         }
     }
 
+    /// Called by `BotProductionPage` when the Bot tab/scene pause changes.
+    /// Hiding cancels every UI-only timer and drops the transient live turn so
+    /// the first visible read replaces it with the durable projection.
+    func setPageActive(_ active: Bool) {
+        guard pageActive != active else { return }
+        pageActive = active
+        guard !active else { return }
+        stream.cancel()
+        deltaFlush?.cancel()
+        deltaFlush = nil
+        fishExpiryTask?.cancel()
+        fishExpiryTask = nil
+        sleepTask?.cancel()
+        sleepTask = nil
+        pendingDelta = ""
+        streamingText = nil
+        live = nil
+        livePresentation = nil
+        reaction = nil
+        liveFish = BotLiveFishProjection(botID: context.botID)
+    }
+
     func receive(_ frame: BotLiveFrame) {
+        liveFish.receive(frame)
         switch frame {
         case .streamStart:
             pendingDelta = ""
@@ -537,26 +609,48 @@ final class BotChatModel: ObservableObject {
                 deltaFlush?.cancel()
                 deltaFlush = nil
                 live = BotLiveTurn()
-                livePresentationEvents = [event]
                 sleepTask?.cancel()
                 sleepTask = nil
                 idleSleeping = false
             } else {
                 flushDelta()
-                livePresentationEvents.append(event)
             }
             var turn = live ?? BotLiveTurn()
             turn.apply(event: event)
             live = turn
-            livePresentation = BotRuntimePresentationFactory.live(botID: context.botID,
-                                                                  events: livePresentationEvents)
             if type == "turn/start" {
-                runningTurnID = livePresentation?.runningTurnID
+                runningTurnID = liveFish.presentation().runningTurnID
                 streamingText = nil
             } else if type == "turn/end" {
                 runningTurnID = nil
                 scheduleIdleSleep(reset: true)
             }
+        }
+        refreshLiveFishPresentation()
+    }
+
+    private func refreshLiveFishPresentation() {
+        let presentation = liveFish.presentation()
+        livePresentation = presentation
+        reaction = presentation.reaction
+        scheduleFishExpiry(presentation)
+    }
+
+    /// The renderer owns the reaction TTL, but the lifecycle fallback is a
+    /// model value: wake once the one-shot ends so an error turn returns to
+    /// idle even when no further frame arrives.
+    private func scheduleFishExpiry(_ presentation: BotRuntimePresentation) {
+        fishExpiryTask?.cancel()
+        fishExpiryTask = nil
+        let now = BotLiveFishProjection.now
+        var deadlines: [Int64] = []
+        if let shot = presentation.oneShot, shot.endsAt > now { deadlines.append(shot.endsAt) }
+        if let reaction = presentation.reaction, reaction.endsAt > now { deadlines.append(reaction.endsAt) }
+        guard let next = deadlines.min() else { return }
+        fishExpiryTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(max(0, next - now)) * 1_000_000)
+            guard !Task.isCancelled, let self else { return }
+            self.refreshLiveFishPresentation()
         }
     }
 

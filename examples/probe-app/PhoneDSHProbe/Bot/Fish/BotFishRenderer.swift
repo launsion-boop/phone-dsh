@@ -6,8 +6,11 @@
 // line-by-line with the reference.
 //
 // Performance model (PR #75 follow-up):
-//  * The static body/fixed/blush/eye/sprite layers are scaled to the exact
-//    display pixel size once, process-wide, and blitted 1:1 afterwards.
+//  * The static body/fixed/crown/blush/eye/sprite layers are scaled to the
+//    exact display pixel size once, process-wide, and blitted 1:1 afterwards.
+//  * The main-Bot crown is part of the cached static base keyed by
+//    (hairstyle, colour, crowned, size); it costs one blit per crown change,
+//    never a per-frame rasterisation.
 //  * The whole-fish translate/rotate/scale pose is *not* rasterised here; the
 //    SwiftUI view applies it on the GPU. The renderer only rebuilds the face
 //    layer when a quantised facial parameter actually changed, and the two
@@ -91,9 +94,26 @@ final class BotFishRenderer {
                                    blue: 45.0 / 255.0, alpha: 1)
 
     /// Upstream circle framing (`avatar.js`): the normal avatar shows the
-    /// 416px square at (48, 30) out of the 512px source canvas.
+    /// 416px square at (48, 30) out of the 512px source canvas. A crowned
+    /// avatar widens the crop to 448px at (32, 10) so the crown keeps its top
+    /// clearance instead of being clipped by the normal circle.
     static let cropOrigin = CGPoint(x: 48, y: 30)
     static let cropSide: CGFloat = 416
+    static let crownedCropOrigin = CGPoint(x: 32, y: 10)
+    static let crownedCropSide: CGFloat = 448
+
+    private struct Crop: Equatable {
+        let origin: CGPoint
+        let side: CGFloat
+
+        static func forCrowned(_ crowned: Bool) -> Crop {
+            crowned
+                ? Crop(origin: BotFishRenderer.crownedCropOrigin,
+                       side: BotFishRenderer.crownedCropSide)
+                : Crop(origin: cropOrigin,
+                       side: cropSide)
+        }
+    }
 
     /// The 32pt header avatar is too small for the upstream motion amplitudes
     /// to read. Boost translation/roll 2.2× at 40pt and below, keep the
@@ -115,8 +135,15 @@ final class BotFishRenderer {
     private static let headSliceQuantum = 0.1
 
     private let assets: BotFishAssets?
+    private let crownStyle: BotFishCrownStyle
     private var palette = BotFishPalette.blue
     private var hairstyle: BotFishHairstyle = .long
+    private var crop = Crop.forCrowned(false)
+    /// The crown is drawn once into the cached base; the current crop is part
+    /// of the base cache key so a 448px crowned layer is never blitted into a
+    /// 416px normal frame.
+    private var crowned = false
+    private var cropTag: String { crowned ? "crown" : "plain" }
 
     private var pixelSide = 0
     private var baseTransform = CGAffineTransform.identity
@@ -142,7 +169,8 @@ final class BotFishRenderer {
     private var slicedBase: CGImage?
     private var slicedFace: CGImage?
 
-    init() {
+    init(crownStyle: BotFishCrownStyle = .gold) {
+        self.crownStyle = crownStyle
         assets = BotFishAssets.shared
     }
 
@@ -174,16 +202,19 @@ final class BotFishRenderer {
 
     func prepare(_ params: BotFishParams, time: Double, size: CGFloat,
                  displayScale: CGFloat,
-                 appearance: BotFishAppearance = .classic) -> BotFishPreparedFrame? {
+                 appearance: BotFishAppearance = .classic,
+                 crowned: Bool = false) -> BotFishPreparedFrame? {
         guard let assets, !assets.eyeCels.isEmpty, !assets.mouthCels.isEmpty else {
             return nil
         }
         let target = Self.pixelSide(size: size, displayScale: displayScale)
-        guard prepareContexts(target) else { return nil }
+        let nextCrop = Crop.forCrowned(crowned)
+        guard prepareContexts(target, crop: nextCrop, crowned: crowned) else { return nil }
 
-        let key = "\(appearance.hairstyle.rawValue):\(appearance.color.rawValue)@\(target)"
+        let key = Self.baseKey(appearance: appearance, crowned: crowned, target: target)
         if appearanceKey != key {
-            guard buildBase(appearance: appearance, assets: assets, target: target) else {
+            guard buildBase(appearance: appearance, assets: assets, target: target,
+                            displaySize: size, crowned: crowned) else {
                 return nil
             }
             appearanceKey = key
@@ -227,8 +258,20 @@ final class BotFishRenderer {
         return BotFishPreparedFrame(base: baseImage, face: faceImage)
     }
 
-    private func prepareContexts(_ target: Int) -> Bool {
-        if pixelSide == target, faceContext != nil { return true }
+    private static func baseKey(appearance: BotFishAppearance, crowned: Bool,
+                                target: Int) -> String {
+        "\(appearance.hairstyle.rawValue):\(appearance.color.rawValue)"
+            + ":\(crowned ? "crowned" : "plain")@\(target)"
+    }
+
+    private func prepareContexts(_ target: Int, crop nextCrop: Crop,
+                                 crowned nextCrowned: Bool) -> Bool {
+        if pixelSide == target, crop == nextCrop, crowned == nextCrowned,
+           faceContext != nil {
+            return true
+        }
+        crop = nextCrop
+        crowned = nextCrowned
         faceContext = nil
         browContext = nil
         slicedBaseContext = nil
@@ -286,8 +329,11 @@ final class BotFishRenderer {
     }
 
     private var pixelScale: CGFloat {
-        CGFloat(pixelSide) / BotFishRenderer.cropSide
+        CGFloat(pixelSide) / crop.side
     }
+
+    private var cropOrigin: CGPoint { crop.origin }
+    private var cropSide: CGFloat { crop.side }
 
     /// `CGContext` exposes no public `setCTM`. Each reusable context is
     /// created at `baseTransform` and pushed once; a reset pops back to that
@@ -320,21 +366,24 @@ final class BotFishRenderer {
     // MARK: - Static layers
 
     private func buildBase(appearance: BotFishAppearance, assets: BotFishAssets,
-                           target: Int) -> Bool {
-        guard let layers = assets.layers(for: appearance.hairstyle),
+                           target: Int, displaySize: CGFloat, crowned: Bool) -> Bool {
+        guard let layers = assets.layers(for: appearance.hairstyle, crowned: crowned),
               let context = makeContext(target)
         else { return false }
         let nextPalette = BotFishPalette(color: appearance.color)
         guard let body = assets.bodyLayer(hairstyle: appearance.hairstyle,
                                           palette: nextPalette,
-                                          pixelSide: CGFloat(target)),
+                                          pixelSide: CGFloat(target),
+                                          crowned: crowned),
               let bodyLayer = BotFishImageCache.shared.croppedLayer(
-                  body, key: "body:\(appearance.hairstyle.rawValue):\(nextPalette.id)@\(target)",
-                  pixelSide: target),
+                  body,
+                  key: "body:\(appearance.hairstyle.rawValue):\(cropTag):\(nextPalette.id)@\(target)",
+                  pixelSide: target, cropOrigin: cropOrigin, cropSide: cropSide),
               let fixedSource = layers.fixed.cgImage,
               let fixedLayer = BotFishImageCache.shared.croppedLayer(
-                  fixedSource, key: "fixed:\(appearance.hairstyle.rawValue)@\(target)",
-                  pixelSide: target)
+                  fixedSource,
+                  key: "fixed:\(appearance.hairstyle.rawValue):\(cropTag)@\(target)",
+                  pixelSide: target, cropOrigin: cropOrigin, cropSide: cropSide)
         else { return false }
         palette = nextPalette
         hairstyle = appearance.hairstyle
@@ -342,6 +391,17 @@ final class BotFishRenderer {
         context.clear(fullPixelRect)
         drawUpright(bodyLayer, in: fullPixelRect, on: context)
         drawUpright(fixedLayer, in: fullPixelRect, on: context)
+        if crowned {
+            // Upstream paints the crown at the end of the flat static layer.
+            // It is baked into the base (the head slices below keep it on the
+            // head) and keyed by `crownTag`, so it is not redrawn per frame.
+            context.saveGState()
+            context.translateBy(x: -cropOrigin.x * pixelScale,
+                                y: -cropOrigin.y * pixelScale)
+            context.scaleBy(x: pixelScale, y: pixelScale)
+            paintCrown(context, assets: assets, displaySize: displaySize)
+            context.restoreGState()
+        }
         baseImage = context.makeImage()
         return baseImage != nil
     }
@@ -349,7 +409,8 @@ final class BotFishRenderer {
     private func croppedAsset(_ image: UIImage, key: String) -> CGImage? {
         guard let source = image.cgImage else { return nil }
         return BotFishImageCache.shared.croppedLayer(
-            source, key: "\(key)@\(pixelSide)", pixelSide: pixelSide)
+            source, key: "\(key):\(cropTag)@\(pixelSide)", pixelSide: pixelSide,
+            cropOrigin: cropOrigin, cropSide: cropSide)
     }
 
     // MARK: - Face layer
@@ -449,9 +510,9 @@ final class BotFishRenderer {
                 let sourceY = 297.0 + (art == "laughing" ? 8 : 0)
                 let sidePixels = max(1, Int((102 * pixelScale).rounded()))
                 let image = eyeCelImage(cel, sidePixels: sidePixels, assets: assets)
-                let offsetX = (sourceX + p.gazeX * 2 - Double(BotFishRenderer.cropOrigin.x))
+                let offsetX = (sourceX + p.gazeX * 2 - Double(cropOrigin.x))
                     * Double(pixelScale)
-                let offsetY = (sourceY + p.gazeY * 1.2 - Double(BotFishRenderer.cropOrigin.y))
+                let offsetY = (sourceY + p.gazeY * 1.2 - Double(cropOrigin.y))
                     * Double(pixelScale)
                 cg.saveGState()
                 cg.translateBy(x: CGFloat(offsetX), y: CGFloat(offsetY))
@@ -531,8 +592,8 @@ final class BotFishRenderer {
         cg.scaleBy(x: 1 / designToPixel, y: 1 / designToPixel)
         let crop = eyeCropRect(side: side)
         let eyeImageOrigin = CGPoint(
-            x: (crop.minX - BotFishRenderer.cropOrigin.x) * pixelScale,
-            y: (crop.minY - BotFishRenderer.cropOrigin.y) * pixelScale)
+            x: (crop.minX - cropOrigin.x) * pixelScale,
+            y: (crop.minY - cropOrigin.y) * pixelScale)
         // Both the upstream clip and the eye texture translate together, so
         // keeping the (cropped) texture at a fixed offset from the
         // gaze-translated eye centre is equivalent and keeps the cache small.
@@ -612,7 +673,7 @@ final class BotFishRenderer {
         let height = max(1, Int((rect.height * pixelScale).rounded()))
         return BotFishImageCache.shared.croppedPart(
             source, sourceRect: rect,
-            key: "\(key):\(side < 0 ? "l" : "r")@\(pixelSide)",
+            key: "\(key):\(side < 0 ? "l" : "r"):\(cropTag)@\(pixelSide)",
             width: width, height: height)
     }
 
@@ -621,7 +682,7 @@ final class BotFishRenderer {
         guard index < assets.eyeCels.count,
               let source = assets.eyeCels[index].cgImage else { return nil }
         return BotFishImageCache.shared.scaledSheet(
-            source, key: "eye-cel:\(index)@\(pixelSide):\(sidePixels)",
+            source, key: "eye-cel:\(index):\(cropTag)@\(pixelSide):\(sidePixels)",
             width: sidePixels, height: sidePixels)
     }
 
@@ -669,8 +730,8 @@ final class BotFishRenderer {
         resetCTM(b)
         b.clear(fullPixelRect)
         b.saveGState()
-        b.translateBy(x: (BotFishRenderer.pad - BotFishRenderer.cropOrigin.x) * pixelScale,
-                      y: (BotFishRenderer.pad - BotFishRenderer.cropOrigin.y) * pixelScale)
+        b.translateBy(x: (BotFishRenderer.pad - cropOrigin.x) * pixelScale,
+                      y: (BotFishRenderer.pad - cropOrigin.y) * pixelScale)
         b.scaleBy(x: BotFishRenderer.scale * pixelScale,
                   y: BotFishRenderer.scale * pixelScale)
         b.setStrokeColor(UIColor(red: 52.0 / 255.0, green: 37.0 / 255.0,
@@ -688,7 +749,7 @@ final class BotFishRenderer {
         }
         b.restoreGState()
         guard let mask = BotFishImageCache.shared.croppedLayer(
-            maskSource, key: "face-mask:\(hairstyle.rawValue)@\(pixelSide)",
+            maskSource, key: "face-mask:\(hairstyle.rawValue):\(cropTag)@\(pixelSide)",
             pixelSide: pixelSide) else { return nil }
         b.setBlendMode(.destinationIn)
         drawUpright(mask, in: fullPixelRect, on: b)
@@ -723,8 +784,8 @@ final class BotFishRenderer {
             let bucket = Int((p.mouthWidth / 0.02).rounded())
             if let image = mouthCelImage(index, bucket: bucket,
                                          width: width, height: height, assets: assets) {
-                let x = (256 - w / 2 - Double(BotFishRenderer.cropOrigin.x)) * Double(pixelScale)
-                let y = (335 - w / 4 - Double(BotFishRenderer.cropOrigin.y)) * Double(pixelScale)
+                let x = (256 - w / 2 - Double(cropOrigin.x)) * Double(pixelScale)
+                let y = (335 - w / 4 - Double(cropOrigin.y)) * Double(pixelScale)
                 drawUpright(image, in: CGRect(x: x, y: y,
                                               width: CGFloat(width),
                                               height: CGFloat(height)), on: cg)
@@ -739,7 +800,7 @@ final class BotFishRenderer {
         guard index < assets.mouthCels.count,
               let source = assets.mouthCels[index].cgImage else { return nil }
         return BotFishImageCache.shared.scaledSheet(
-            source, key: "mouth-cel:\(index):\(bucket)@\(pixelSide):\(width)x\(height)",
+            source, key: "mouth-cel:\(index):\(bucket):\(cropTag)@\(pixelSide):\(width)x\(height)",
             width: width, height: height)
     }
 
@@ -1024,6 +1085,34 @@ final class BotFishRenderer {
         }
     }
 
+    // MARK: - Crown
+
+    /// Upstream `paint.js` crown pass. The display size picks the same
+    /// box/baseline buckets as the web renderer (≤40pt: 250/138, ≤64pt:
+    /// 244/134, otherwise 240/132). `drawUpright` is mandatory here: the
+    /// bitmap context is flipped, and `UIImage.draw(in:)` would reset the
+    /// context alpha/shadow state.
+    private func paintCrown(_ cg: CGContext, assets: BotFishAssets, displaySize: CGFloat) {
+        guard let crown = assets.crown(for: crownStyle) else { return }
+        let small = displaySize <= 40
+        let medium = displaySize <= 64
+        let box: CGFloat = small ? 250 : (medium ? 244 : 240)
+        let baseline: CGFloat = small ? 138 : (medium ? 134 : 132)
+        cg.saveGState()
+        cg.translateBy(x: 256, y: baseline)
+        // The bitmap context is flipped to a top-left origin, so Core Graphics'
+        // offset is in that flipped user space. Upstream's canvas +1y shadow
+        // is -1 here; +1 would cast the shadow above the crown.
+        cg.setShadow(offset: CGSize(width: 0, height: -1), blur: 2,
+                     color: UIColor(red: 27.0 / 255.0, green: 31.0 / 255.0,
+                                    blue: 55.0 / 255.0, alpha: 0.24).cgColor)
+        drawUpright(crown,
+                    in: CGRect(x: -box / 2, y: -box * 404 / 512,
+                               width: box, height: box),
+                    on: cg)
+        cg.restoreGState()
+    }
+
     private func drawZ(_ cg: CGContext, x: Double, y: Double, size: Double, color: UIColor) {
         cg.saveGState()
         cg.setStrokeColor(color.cgColor)
@@ -1071,9 +1160,10 @@ final class BotFishRenderer {
         var y = 0.0
         while y < Double(Self.size) {
             let nextY = min(Double(Self.size), y + 8)
-            // The canvas starts at source y=30 (the circle crop).
-            let yPixel = (CGFloat(y) - Self.cropOrigin.y) * scale
-            let nextPixel = (CGFloat(nextY) - Self.cropOrigin.y) * scale
+            // The canvas starts at the current circle-crop top (30 normally,
+            // 10 when the crown needs the extra headroom).
+            let yPixel = (CGFloat(y) - cropOrigin.y) * scale
+            let nextPixel = (CGFloat(nextY) - cropOrigin.y) * scale
             // Snap both edges of every slice to whole output pixels so
             // adjacent slices share the same boundary: no antialiased hairline
             // and no double-composited translucent edge.
@@ -1103,15 +1193,15 @@ final class BotFishRenderer {
 
     private func designPoint(_ x: Double, _ y: Double) -> CGPoint {
         CGPoint(x: (BotFishRenderer.pad + BotFishRenderer.scale * CGFloat(x)
-                    - BotFishRenderer.cropOrigin.x) * pixelScale,
+                    - cropOrigin.x) * pixelScale,
                 y: (BotFishRenderer.pad + BotFishRenderer.scale * CGFloat(y)
-                    - BotFishRenderer.cropOrigin.y) * pixelScale)
+                    - cropOrigin.y) * pixelScale)
     }
 
     private func withDesignSpace(_ cg: CGContext, _ body: () -> Void) {
         cg.saveGState()
-        cg.translateBy(x: (BotFishRenderer.pad - BotFishRenderer.cropOrigin.x) * pixelScale,
-                       y: (BotFishRenderer.pad - BotFishRenderer.cropOrigin.y) * pixelScale)
+        cg.translateBy(x: (BotFishRenderer.pad - cropOrigin.x) * pixelScale,
+                       y: (BotFishRenderer.pad - cropOrigin.y) * pixelScale)
         cg.scaleBy(x: BotFishRenderer.scale * pixelScale,
                    y: BotFishRenderer.scale * pixelScale)
         body()
@@ -1120,8 +1210,8 @@ final class BotFishRenderer {
 
     private func withSourceSpace(_ cg: CGContext, _ body: () -> Void) {
         cg.saveGState()
-        cg.translateBy(x: -BotFishRenderer.cropOrigin.x * pixelScale,
-                       y: -BotFishRenderer.cropOrigin.y * pixelScale)
+        cg.translateBy(x: -cropOrigin.x * pixelScale,
+                       y: -cropOrigin.y * pixelScale)
         cg.scaleBy(x: pixelScale, y: pixelScale)
         body()
         cg.restoreGState()
