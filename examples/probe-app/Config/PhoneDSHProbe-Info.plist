@@ -59,10 +59,13 @@
 	     while a turn is running in the background so the agent is not
 	     suspended mid-task (see BackgroundKeepAlive.swift). `location` is used
 	     only after explicit geofence confirmation and Always authorization;
-	     no region monitoring starts at App launch. -->
+	     no region monitoring starts at App launch. `bluetooth-central`: the
+	     TonoLink board's wake word (ev wake) wakes the app in the background
+	     over its restorable ctrl link (TonoLinkVoiceHost.swift). -->
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>
+		<string>bluetooth-central</string>
 		<string>processing</string>
 		<string>location</string>
 	</array>

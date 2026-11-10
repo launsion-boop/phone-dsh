@@ -38,27 +38,60 @@ import ProbeKit
         supervisor = Task { [weak self] in await self?.supervise() }
     }
 
+    /// One long-lived, restorable link to the user's board (callmate's recipe): iOS keeps a
+    /// parked connect while the app is suspended and wakes it for the board's `ev wake`.
     private func supervise() async {
+        let board = BLEDeviceTrustMemory().rememberedBoards().first
+        let link = TonoLinkCtrlBLE(nameHint: "PhoneAgent", peripheralID: board, restoreIdentifier: Self.restoreIdentifier)
+        link.onAudio = { [weak self] data in self?.receiveAudio(data) }
+        link.onLine = { [weak self] line in self?.receive(line) }
+        link.onReady = { [weak self] in self?.linkReady(link) }
+        ctrl = link
+        var beat = 0
         while !Task.isCancelled {
-            if ctrl?.isConnected != true {
-                ctrl = nil
+            if !link.isConnected {
+                if let token = armedSpeaker { PhoneAudioSessionLease.releaseSpeakerOutput(token); armedSpeaker = nil }
                 setKeepAlive(false)
-                let link = TonoLinkCtrlBLE(nameHint: "PhoneAgent")
-                link.onAudio = { [weak self] data in self?.receiveAudio(data) }
-                link.onLine = { [weak self] line in self?.receive(line) }
-                do {
-                    try await link.connect(timeout: .seconds(20))
-                    ctrl = link
-                    state = "等待「你好小智」（\(link.peripheralName ?? "board")）"
-                    log("connected \(link.peripheralName ?? "?") audio=\(link.isAudioSubscribed)")
-                    setKeepAlive(true)
-                    await prefetchHere()
-                } catch {
+                do { try await link.connect(timeout: .seconds(20)) }
+                catch {
                     state = "没有连上板子：\(error.localizedDescription)"
-                    log("connect failed: \(error.localizedDescription)")
+                    log("connect failed: \(error.localizedDescription) parked=\(link.peripheralID != nil)")
                 }
             }
-            try? await Task.sleep(for: .seconds(ctrl?.isConnected == true ? 3 : 10))
+            armSpeakerIfForeground()
+            beat += 1
+            if beat % 20 == 1 {
+                log("alive app=\(UIApplication.shared.applicationState.rawValue) connected=\(link.isConnected) "
+                    + "keepalive=\(SilentAudioKeepAlive.shared.isRendering) remaining=\(Int(min(UIApplication.shared.backgroundTimeRemaining, 99_999)))")
+            }
+            try? await Task.sleep(for: .seconds(link.isConnected ? 3 : 10))
+        }
+    }
+
+    static let restoreIdentifier = "dev.phone-dsh.tonolink-voice"
+
+    /// True while the board's link is up: a wake may arrive, so the chat host stays alive in the background.
+    var isArmed: Bool { ctrl?.isConnected == true }
+
+    /// Taken while the app is in the foreground and kept while armed: iOS refuses to switch a
+    /// background app to the playAndRecord profile ('!int'), so a background turn must find it set.
+    private var armedSpeaker: PhoneAudioSessionLease.SpeakerToken?
+
+    private func linkReady(_ link: TonoLinkCtrlBLE) {
+        state = "等待「你好小智」（\(link.peripheralName ?? "board")）"
+        log("connected \(link.peripheralName ?? "?") app=\(UIApplication.shared.applicationState.rawValue)")
+        setKeepAlive(true)
+        armSpeakerIfForeground()
+        Task { await prefetchHere() }
+    }
+
+    func armSpeakerIfForeground() {
+        guard armedSpeaker == nil, ctrl?.isConnected == true, UIApplication.shared.applicationState == .active else { return }
+        do {
+            armedSpeaker = try PhoneAudioSessionLease.acquireSpeakerOutput()
+            log("speaker armed outputs=\(PhoneAudioSessionLease.outputPorts)")
+        } catch {
+            log("speaker arm failed: \(error.localizedDescription)")
         }
     }
 
@@ -119,6 +152,12 @@ import ProbeKit
         let (stream, continuation) = AsyncStream<Data>.makeStream(bufferingPolicy: .bufferingNewest(700))
         audio = continuation
         lastTurn = ["id": Int(id), "wake": Int(wake), "source": source, "at": ISO8601DateFormatter().string(from: Date())]
+        if backgroundTask == .invalid {
+            backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "tonolink-voice-turn") { [weak self] in
+                self?.log("background time expired")
+                self?.endBackgroundTask()
+            }
+        }
         turn = Task { [weak self] in
             let speaker = self?.acquireSpeaker()
             await self?.runTurn(id: id, audio: stream)
@@ -149,6 +188,15 @@ import ProbeKit
         turn = nil
         asr = nil
         endAudio()
+        endBackgroundTask()
+    }
+
+    private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
+
+    private func endBackgroundTask() {
+        guard backgroundTask != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(backgroundTask)
+        backgroundTask = .invalid
     }
 
     private func runTurn(id: UInt32, audio: AsyncStream<Data>) async {
@@ -220,7 +268,11 @@ import ProbeKit
         let chat = ChatModel.shared
         guard await chat.send(text) else { note("error", "当前对话没有接受这条消息"); return }
         var waited = 0
-        while !chat.turnRunning && waited < 50 { try? await Task.sleep(for: .milliseconds(100)); waited += 1 }
+        while !chat.turnRunning && waited < 300 {   // up to 30 s: the engine may be resuming
+            try? await Task.sleep(for: .milliseconds(100)); waited += 1
+            if Task.isCancelled { return }
+        }
+        guard chat.turnRunning else { note("error", "聊天没有开始运行（引擎暂停或忙）"); return }
         while chat.turnRunning {
             if Task.isCancelled { return }
             try? await Task.sleep(for: .milliseconds(300))

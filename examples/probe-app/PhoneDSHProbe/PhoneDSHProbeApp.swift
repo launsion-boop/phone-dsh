@@ -29,6 +29,9 @@ struct PhoneDSHProbeApp: App {
         // P18/D2: copy legacy bare-sessionID stores into the phone scope once.
         // The old keys stay readable so a rollback still finds the pre-D2 data.
         WorkspaceStorageMigration.runIfNeeded()
+        // The board's wake word 你好小智 starts a voice turn (tonolink-board.md §4.1). Started here,
+        // not in a scene task, so a background relaunch by Bluetooth state restoration listens too.
+        Task { @MainActor in TonoLinkVoiceHost.shared.start() }
         #if DEBUG
         if let raw = ProcessInfo.processInfo.environment["PDSH_APPEARANCE"],
            let value = NativeAppearance(rawValue: raw) {
@@ -85,8 +88,6 @@ struct PhoneDSHProbeApp: App {
                     // The user's own boards: connected once means trusted, and they reconnect by themselves.
                     BLEDeviceStore.shared.trustConnectedDevices = true
                     BLEDeviceStore.shared.reconnectRemembered()
-                    // The board's wake word 你好小智 starts a voice turn (tonolink-board.md §4.1).
-                    TonoLinkVoiceHost.shared.start()
                     await workspaceModels.startAtLaunch()
                     #if DEBUG
                     PCLinkDebugAutomation.shared.start(models: workspaceModels)

@@ -10,7 +10,7 @@ base: 6f4bed1f
 contract_revision: spec/device/v1/tonolink-board.md §4.1 + golden/tonolink-voice.json; spec/v1/cloud-voice.md + golden/cloud-voice/cases.json; spec/platform/ios-audio-session.md §1–§2 @ this PR head
 ```
 
-Protocol impact: P05; P07; P08; P09: none — no page, row or copy changes, the voice turn has no UI in this revision; P18: none — no new UserDefaults or Keychain key, the tono-account edit only points to the voice credential rule; P27: none — the app files touched add the voice host and its DEBUG routes, PC Link is unchanged
+Protocol impact: P05; P07; P08; P09: none — no page, row or copy changes, the voice turn has no UI in this revision; P16: none — ChatModel.swift changes only the background park condition, no PDSH_* variable or Worker launch input; P18: none — no new UserDefaults or Keychain key, the tono-account edit only points to the voice credential rule; P27: none — the app files touched add the voice host and its DEBUG routes, PC Link is unchanged
 
 P05 — new consumer `Sources/PhoneDSH/CloudVoice/**` of the cloud ASR (WebSocket) and TTS (HTTP), with the credential rule of tono-account.md §4/§5. P07 — the board voice turn on the ctrl GATT service, consumer `Sources/PhoneDSHBLE/TonoLinkVoice.swift` and the app's `TonoLinkVoiceHost.swift`, plus four DEBUG relay routes. P08 — the voice turn is a third keep-alive owner and plays TTS through its own AVAudioEngine without touching the session category.
 
@@ -59,5 +59,6 @@ Self-check：没有第二种 envelope、别名或错误码；板子与云端线�
 | revision | 由谁 | 原因 | 通知 |
 | --- | --- | --- | --- |
 | 1 | Claude | 初版 | iOS；固件与云端不变 |
+| 4 | Claude | 后台：App 不声明 `bluetooth-central`，后台收不到板子事件；空闲 host 进后台即 park，语音消息排队到回前台；后台切 playAndRecord 被拒（'!int'）。参照 callmate：声明 `bluetooth-central`；语音的 ctrl 连接改为长连接（restore identifier `dev.phone-dsh.tonolink-voice`、`willRestoreState`、断线／超时后挂起 `connect()`），在 App `init` 启动；每轮 background task；板子已连接时空闲 host 走既有 keep-alive 不 park（`chat.background.keepalive` 开时）；speaker claim 在前台连上即取得并保持。whitelist 加 `platform.tonolink-voice-background-wake`。真人后台（app=2）：`ev wake n=21` → 输出 Speaker → 识别「卧槽，你看我。」→ 聊天回复并朗读，9.1 s。锁屏未单独记录。 | iOS |
 | 3 | Claude | 真机：屏幕镜像到板子时输出是 AirPlay，板子丢弃 AirPlay 音频，「我在」和回复都听不到（xiaozhi-link USB_AIRPLAY_LESSONS 同样结论）。`PhoneAudioSessionLease` 增加 speaker-output claim：用同一个可混音 playAndRecord profile，仅当输出为 AirPlay 时强制手机扬声器（xiaozhi `activateSpeechSession` 同法）；ios-audio-session.md 更新。真人：`ev wake n=14` → output AirPlay→Speaker → 识别「打开电池。」→ 回复朗读，用户确认听到。租约测试新增 4 例，因本机只有 iOS 18 模拟器、App 需 iOS 27 SDK 运行库，NOT_RUN。 | iOS |
 | 2 | Claude | 真机：手机网络慢时 ASR 连接本身就用完 5 s，`started` 截止误判。改为连接 10 s、`start` 写出后 5 s 等 `started`（云端自己的 5 s）；加 USB 可读的语音日志（DEBUG）。真人「你好小智」整轮通过：连接 179 ms、started 412 ms、570 帧 0 丢包、识别出话、聊天回复并朗读。 | iOS |

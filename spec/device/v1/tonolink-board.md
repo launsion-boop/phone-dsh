@@ -89,7 +89,10 @@ forwarded unchanged and in order to the cloud ASR ([cloud-voice.md](../../v1/clo
 the 4-byte header never leaves the phone. A `seq` gap is counted, not filled. The turn's
 audio ends at the last-flag packet or `ev listen_end`, whichever comes first. A wake while
 a turn is recording, recognising or speaking stops that turn (its ASR is cancelled, its
-playback stopped) and starts a new one. The firmware is unchanged by this registration.
+playback stopped) and starts a new one. The phone keeps this link while in the background: a
+restorable CoreBluetooth central with a parked reconnect, so `ev wake` wakes a suspended app
+(`spec/platform/whitelist.json` `platform.tonolink-voice-background-wake`). The firmware is unchanged by
+this registration.
 
 ## 5. DEBUG relay (developer builds only)
 
