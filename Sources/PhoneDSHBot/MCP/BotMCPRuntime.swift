@@ -38,6 +38,7 @@ public actor BotMCPRuntime {
     private var suppressingTextSessions: Set<String> = []
     private var hiddenTextSessions: Set<String> = []
     private var heldMessageSessions: Set<String> = []
+    private var turnOrigins: [String: BotTurnOrigin] = [:]
     private var turnIDs: [String: String] = [:]
 
     public init(
@@ -228,13 +229,24 @@ public actor BotMCPRuntime {
         try await gateway.issueSession(botId: botId, sessionId: sessionId, kind: kind)
     }
 
+    /// Issues the principal and returns its registry token. The Bot host's
+    /// session claim path uses this variant so it can hand the same token to
+    /// the Worker; the token stays in host/Worker memory only.
+    @discardableResult
+    public func issueSessionToken(botId: String, sessionId: String,
+                                  kind: BotSessionKind) async throws -> BotIssuedToken {
+        try await gateway.issueSessionToken(botId: botId, sessionId: sessionId, kind: kind)
+    }
+
     public func currentTurnID(sessionId: String) -> String? { turnIDs[sessionId] }
 
-    public func beginTurn(sessionId: String, hidden: Bool, held: Bool = false) {
+    public func beginTurn(sessionId: String, hidden: Bool, held: Bool = false,
+                          origin: BotTurnOrigin? = nil) {
         suppressingTextSessions.remove(sessionId)
         turnIDs.removeValue(forKey: sessionId)
         if hidden { hiddenTextSessions.insert(sessionId) } else { hiddenTextSessions.remove(sessionId) }
         if held { heldMessageSessions.insert(sessionId) } else { heldMessageSessions.remove(sessionId) }
+        if let origin { turnOrigins[sessionId] = origin } else { turnOrigins.removeValue(forKey: sessionId) }
     }
 
     public func updateTurn(sessionId: String, turnId: String) {
@@ -244,6 +256,7 @@ public actor BotMCPRuntime {
     public func endTurn(sessionId: String) {
         hiddenTextSessions.remove(sessionId)
         heldMessageSessions.remove(sessionId)
+        turnOrigins.removeValue(forKey: sessionId)
         turnIDs.removeValue(forKey: sessionId)
     }
 
@@ -287,6 +300,50 @@ public actor BotMCPRuntime {
         registrations[key] = attribution
         registrationArguments[key] = arguments
         return attribution
+    }
+
+    /// Identity registration for the HTTP `/identity/register` route. The
+    /// caller-supplied `sessionToken` resolves the principal; the body
+    /// `sessionId` is only a consistency check. Missing, unknown, revoked,
+    /// expired or mismatched credentials throw ``BotMCPError/unauthorized`` and
+    /// register nothing.
+    public func registerIdentity(runtimeId: String, sessionId: String, callId: String,
+                                 name: String, arguments: BotJSONValue,
+                                 argsDigest: String? = nil,
+                                 sessionToken: String) async throws -> BotAttribution {
+        _ = pruneExpiredRegistrationsSync()
+        guard !sessionToken.isEmpty,
+              let principal = await gateway.tokens.lookup(sessionToken),
+              principal.sessionId == sessionId else {
+            throw BotMCPError.unauthorized
+        }
+        let bareName = bareToolName(name)
+        guard BotToolCatalog.isRegistered(bareName)
+                || ["bash", "write", "edit", "phone"].contains(bareName)
+                || BotDeviceToolProvider.tools.contains(bareName)
+                || handlesTeamTool(bareName) else {
+            throw BotMCPError.unknownTool(name)
+        }
+        let scope = scopedRuntimeID(runtimeId)
+        let key = key(scope, sessionId, callId)
+        let digest = try (argsDigest ?? BotArgumentsDigest.string(for: arguments))
+        if let existing = registrations[key] {
+            if existing.sessionId == sessionId, existing.name == bareName,
+               existing.argsDigest == digest, principal.incarnation == existing.incarnation {
+                registrationArguments[key] = arguments
+                return existing
+            }
+        }
+        do {
+            let attribution = try await gateway.registerToolCall(
+                sessionToken: sessionToken, sessionId: sessionId, callId: callId,
+                name: bareName, arguments: arguments, argsDigest: argsDigest, runtimeId: scope)
+            registrations[key] = attribution
+            registrationArguments[key] = arguments
+            return attribution
+        } catch BotGatewayError.unknownSession {
+            throw BotMCPError.unauthorized
+        }
     }
 
     @discardableResult
@@ -430,6 +487,15 @@ public actor BotMCPRuntime {
             runtimeId: scope, name: bareName, arguments: arguments) else {
             return .failure("unattributed", "The tool call could not be attributed to an active session")
         }
+        // The per-caller catalog is not a display filter: `tools/call` must use
+        // the same catalog `tools/list` returns for this principal before any
+        // effect or handler runs. `CreateTeammate`'s main-Bot check below stays
+        // a second, independent check.
+        let callerCatalog = await toolDefinitions(callerBotID: call.principal.botId)
+        guard callerCatalog.contains(where: { $0.name == bareName }) else {
+            return .failure("permission_denied",
+                            "The tool is not available to the caller's catalog")
+        }
         let registrationKey = key(scope, call.sessionId, call.callId)
         registrations.removeValue(forKey: registrationKey)
         registrationArguments.removeValue(forKey: registrationKey)
@@ -508,6 +574,18 @@ public actor BotMCPRuntime {
         }
     }
 
+    /// Turn origin decides the memory trust. A turn without a registered
+    /// origin is `unknown` and keeps the lowest trust (`agent-message`); the
+    /// session kind is not a fallback. For a registered origin, `join` can only
+    /// downgrade from `userTurn`, so a stale origin can never upgrade the
+    /// session-derived source.
+    private func memorySourceKind(for call: BotResolvedToolCall) -> BotMemorySourceKind {
+        guard let origin = turnOrigins[call.sessionId] else { return .agentMessage }
+        var state = BotMemorySourceState(kind: memorySource(call))
+        state.join(origin.memorySource)
+        return state.kind
+    }
+
     private func updateMemory(_ arguments: BotJSONValue, call: BotResolvedToolCall) async throws -> BotMCPCallResult {
         guard case .object(let args) = arguments else { throw BotMCPError.invalidRequest("arguments must be an object") }
         let memory = memory(for: call.principal.botId)
@@ -522,9 +600,7 @@ public actor BotMCPRuntime {
             let request = BotMemoryWriteRequest(
                 text: text, tier: tier, scope: scope, key: string(args["key"]),
                 source: BotMemorySource(
-                    kind: hiddenTextSessions.contains(call.sessionId)
-                        ? .hiddenWake
-                        : heldMessageSessions.contains(call.sessionId) ? .agentMessage : memorySource(call),
+                    kind: memorySourceKind(for: call),
                     sessionID: call.principal.sessionId, turnID: turnIDs[call.sessionId],
                     role: call.principal.kind.rawValue))
             let result = try await memory.write(

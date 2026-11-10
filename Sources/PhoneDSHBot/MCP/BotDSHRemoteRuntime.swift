@@ -89,6 +89,16 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
         var wakeDelivered: Bool
     }
 
+    private struct SessionCredential {
+        let token: String
+        let principal: BotGatewayPrincipal
+        /// The Worker generation that acknowledged the claim. A Worker restart
+        /// invalidates the Worker's in-memory token map, so the App must claim
+        /// again before the session's next turn.
+        var claimGeneration: UInt64
+        var claimAcknowledged: Bool
+    }
+
     private struct TurnCoordinator {
         let sessionId: String
         let attemptId: String
@@ -116,7 +126,11 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
     private let ledger: BotLLMLedger
     private let watchdog: BotWatchdogMonitor
     private let wakeInbox: WakeInbox?
-    private var sessions: [String: BotGatewayPrincipal] = [:]
+    private var sessions: [String: SessionCredential] = [:]
+    /// Bumped whenever the Worker is replaced. Every session credential is
+    /// re-claimed before its next turn, using its current token when that
+    /// incarnation still resolves and a freshly issued one otherwise.
+    private var claimGeneration: UInt64 = 0
     private var coordinators: [String: TurnCoordinator] = [:]
     private var queuedTurns: [String: QueuedTurn] = [:]
     private var recentHeldChatActions: [(requestId: String, nonce: String)] = []
@@ -160,6 +174,10 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
 
     public func attachTransport(_ newTransport: any DSHRemoteTransport) async {
         transport = newTransport
+        // The previous Worker's in-memory session credentials are gone. Keep
+        // the host-side tokens (the BotTokenRegistry incarnation is still the
+        // current one) but require a fresh issue+claim before the next turn.
+        claimGeneration &+= 1
         guard mainSessionId != nil else { return }
         for (sessionId, coordinator) in coordinators {
             do {
@@ -174,7 +192,6 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
         }
         for queued in queuedTurns.values { queued.work.cancel() }
         queuedTurns.removeAll()
-        sessions.removeAll()
         mainSessionId = nil
     }
 
@@ -197,20 +214,17 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
         }
         var prompt = body
         var stagedKey: String?
-        var held = false
-        var promptRequestId = requestId
+        var promptRequestId = requestId ?? BotTurnOrigin.visibleRequestId()
         if !steer, let wakeInbox {
             let staged = try await wakeInbox.stage(now: now())
             stagedKey = staged.key
             if !staged.items.isEmpty {
                 prompt = HeldMessages.block(items: staged.items) + "\n\n" + body
-                held = true
                 // Held deliveries derive their id from the item ids, not from
                 // the random staged key, so a crash replay after `revert`
                 // reuses the same id for the same items.
-                promptRequestId = Self.deliveryRequestId(prefix: "held", items: staged.items)
-                if let promptRequestId, let requestId, requestId.hasPrefix("user-action:") {
-                    let nonce = String(requestId.dropFirst("user-action:".count))
+                promptRequestId = Self.deliveryRequestId(items: staged.items)
+                if let nonce = BotTurnOrigin.userActionNonce(from: requestId) {
                     recentHeldChatActions.removeAll { $0.requestId == promptRequestId }
                     recentHeldChatActions.append((promptRequestId, nonce))
                     if recentHeldChatActions.count > 64 { recentHeldChatActions.removeFirst() }
@@ -219,13 +233,26 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
         }
         do {
             let result = try await runTurn(sessionId: sessionId, kind: .chat, prompt: prompt,
-                                           hidden: false, held: held, requestId: promptRequestId)
+                                           requestId: promptRequestId)
             if let stagedKey { _ = try await wakeInbox?.commit(stagedKey) }
             return result
         } catch {
             if let stagedKey { _ = try await wakeInbox?.revert(stagedKey) }
             throw error
         }
+    }
+
+    /// The one delivery seam for another Bot's immediate message. It is not a
+    /// user turn: the request id carries the frozen `agent:` origin, pending
+    /// held items are not folded into it, and it never steers into a turn of a
+    /// different origin.
+    public func sendAgentMessage(_ text: String, requestId: String) async throws -> BotRemoteTurnResult {
+        guard BotTurnOrigin(rpcId: requestId).kind == .agent else {
+            throw BotMCPError.invalidRequest("agent delivery requires an agent: request id")
+        }
+        let sessionId = try await ensureMainSession()
+        return try await runTurn(sessionId: sessionId, kind: .chat, prompt: text,
+                                 requestId: requestId, allowSteer: false)
     }
 
     /// The single runtime seam the app-layer attachment importer uses. It
@@ -236,10 +263,16 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
         try await ensureMainSession()
     }
 
+    /// Hidden work must carry a hidden `rpcId` prefix; the parameter alone no
+    /// longer decides whether the turn is hidden. There is currently no
+    /// production caller.
     public func sendHiddenInteraction(_ text: String, requestId: String? = nil) async throws -> BotRemoteTurnResult {
+        guard let requestId, BotTurnOrigin(rpcId: requestId).hidden else {
+            throw BotMCPError.invalidRequest("hidden interaction requires a hidden request id prefix")
+        }
         let sessionId = try await ensureMainSession()
         return try await runTurn(sessionId: sessionId, kind: .chat, prompt: text,
-                                 hidden: true, requestId: requestId)
+                                 requestId: requestId)
     }
 
     /// Subscribes one additional observer to live frames of visible main-chat
@@ -346,8 +379,8 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
                     "scheduledFor": .number(Double(request.startedAt)),
                 ]), eventId: "started:\(request.runId)")
             let result = try await runTurn(
-                sessionId: sessionId, kind: .routine, prompt: request.wake.text, hidden: true,
-                requestId: "routine:\(request.runId)")
+                sessionId: sessionId, kind: .routine, prompt: request.wake.text,
+                requestId: BotTurnOrigin.routineRequestId(runId: request.runId))
             let reply = RoutineWakeBuilder.normalizeReply(result.text)
             _ = try await runtime.eventWriter.append(
                 type: "routine.run_finished", principal: principal,
@@ -476,7 +509,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
         do {
             let turn = try await runTurn(
                 sessionId: state.record.sessionId, kind: .task,
-                prompt: state.prompt, hidden: true, requestId: "task-turn:\(taskId)")
+                prompt: state.prompt, requestId: BotTurnOrigin.taskTurnRequestId(taskId: taskId))
             guard let current = taskStates[taskId], current.generation == generation,
                   current.record.status == "running" else {
                 return taskStates[taskId]?.record ?? state.record
@@ -498,10 +531,14 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
                 eventId: "settled:\(taskId)")
             if state.asynchronous, state.parentKind == .chat,
                taskStates[taskId]?.generation == generation {
-                let prompt = "[SAND_HIDDEN_PROMPT][subagent]\n\(state.title) | \(record.status) | \(taskId)\n\(String(turn.text.prefix(1_200)))"
+                let title = HeldMessages.escapedHeldField(state.title)
+                let status = HeldMessages.escapedHeldField(record.status)
+                let escapedTaskID = HeldMessages.escapedHeldField(taskId)
+                let excerpt = HeldMessages.escapedHeldField(String(turn.text.prefix(1_200)))
+                let prompt = "[SAND_HIDDEN_PROMPT][subagent]\n\(title) | \(status) | \(escapedTaskID)\n\(excerpt)"
                 _ = try await runTurn(
-                    sessionId: state.ownerSessionId, kind: .chat, prompt: prompt, hidden: true,
-                    requestId: "task-settled:\(taskId)")
+                    sessionId: state.ownerSessionId, kind: .chat, prompt: prompt,
+                    requestId: BotTurnOrigin.taskSettledRequestId(taskId: taskId))
             }
             return record
         } catch {
@@ -545,6 +582,9 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
     /// chat task. Terminal records survive too, so a restart never turns an
     /// existing task id into `unauthorized`.
     public func workerRestarted() async {
+        // The replaced Worker lost every in-memory session credential. Keep the
+        // host-side issue/principal pair and re-claim it before the next turn.
+        claimGeneration &+= 1
         let live = taskStates.filter { $0.value.live }
         for (taskId, state) in live {
             state.work?.cancel()
@@ -580,13 +620,15 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
                 interruptedTaskWakes.removeAll { $0 == taskId }
                 continue
             }
+            let title = HeldMessages.escapedHeldField(state.title)
+            let escapedTaskID = HeldMessages.escapedHeldField(taskId)
             let prompt = "[SAND_HIDDEN_PROMPT][subagent]\n"
-                + "\(state.title) | interrupted | \(taskId)\n"
+                + "\(title) | interrupted | \(escapedTaskID)\n"
                 + "The Worker restarted and interrupted this task; its result is incomplete."
             do {
                 let result = try await runTurn(
-                    sessionId: state.ownerSessionId, kind: .chat, prompt: prompt, hidden: true,
-                    requestId: "task-interrupted:\(taskId)")
+                    sessionId: state.ownerSessionId, kind: .chat, prompt: prompt,
+                    requestId: BotTurnOrigin.taskInterruptedRequestId(taskId: taskId))
                 guard result.status == "completed" else { continue }
                 taskStates[taskId]?.wakeDelivered = true
                 try? await persistTask(taskId: taskId, type: "task.updated",
@@ -610,7 +652,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
             timeoutMs: state.timeoutMs, status: state.record.status,
             result: state.record.result, partial: state.record.partial,
             error: state.record.error, createdAt: now(), wakeDelivered: state.wakeDelivered)
-        let principal = sessions[state.ownerSessionId] ?? BotGatewayPrincipal(
+        let principal = sessions[state.ownerSessionId]?.principal ?? BotGatewayPrincipal(
             botId: state.ownerBotId, sessionId: state.ownerSessionId,
             kind: state.parentKind, expiresAt: Int64.max,
             incarnation: state.ownerIncarnation)
@@ -705,10 +747,10 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
         data["task_id"] == nil ? nil : data
     }
 
-    private static func deliveryRequestId(prefix: String, items: [WakeInboxItem]) -> String {
+    private static func deliveryRequestId(items: [WakeInboxItem]) -> String {
         let digest = (try? BotArgumentsDigest.string(for: .array(items.map { .string($0.id) })))
             ?? items.map(\.id).joined(separator: ",")
-        return "\(prefix):\(digest)"
+        return BotTurnOrigin.heldRequestId(digest: digest)
     }
 
     private func jsonValue<T: Encodable>(_ value: T) throws -> BotJSONValue {
@@ -783,9 +825,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
                 recoveredCwd = await remoteSessionCwd(recovered.sessionId)
             }
             if recoveredCwd == root, await validateRemoteSession(recovered.sessionId, attempts: 100) {
-                try await claimOwnedSession(recovered.sessionId)
-                let principal = try await runtime.issueSession(botId: botId, sessionId: recovered.sessionId, kind: .chat)
-                sessions[recovered.sessionId] = principal
+                let principal = try await issueAndClaimSession(recovered.sessionId, kind: .chat)
                 try await recordRuntimeStarted(recovered.sessionId, principal: principal, cwd: root)
                 return recovered.sessionId
             }
@@ -976,9 +1016,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
         guard let sessionId = created["sessionId"]?.stringValue, !sessionId.isEmpty else {
             throw BotMCPError.unavailable("session/create returned no sessionId")
         }
-        try await claimOwnedSession(sessionId)
-        let principal = try await runtime.issueSession(botId: botId, sessionId: sessionId, kind: kind)
-        sessions[sessionId] = principal
+        _ = try await issueAndClaimSession(sessionId, kind: kind)
         return sessionId
     }
 
@@ -990,39 +1028,74 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
         return "gb-\(kind.rawValue)-\(UUID().uuidString.lowercased())"
     }
 
-    /// A Bot session must be owned before its first turn. New `gb-` sessions
-    /// are already deterministically owned by the Worker namespace; legacy or
-    /// recovered ids need this RPC. A Worker that predates the claim method is
-    /// tolerated only for `gb-` ids; everything else fails closed.
-    private func claimOwnedSession(_ sessionId: String) async throws {
+    /// Issues the registry token for a session first, then hands exactly that
+    /// token to `phone/botClaimSession`; the reverse order would leave the
+    /// Worker without a credential for the first turn. A Worker that predates
+    /// the claim method is tolerated only for `gb-` ids, and the missing token
+    /// then fails identity registration closed.
+    private func issueAndClaimSession(_ sessionId: String, kind: BotSessionKind) async throws -> BotGatewayPrincipal {
+        let issued = try await runtime.issueSessionToken(
+            botId: botId, sessionId: sessionId, kind: kind)
+        let acknowledged = try await claimOwnedSession(sessionId, sessionToken: issued.token)
+        sessions[sessionId] = SessionCredential(
+            token: issued.token, principal: issued.principal,
+            claimGeneration: claimGeneration, claimAcknowledged: acknowledged)
+        return issued.principal
+    }
+
+    /// Claims one Bot session for the current Worker generation. Returns
+    /// whether the Worker acknowledged the claim; an unacknowledged `gb-` claim
+    /// is retried before the next turn rather than treated as authenticated.
+    private func claimOwnedSession(_ sessionId: String, sessionToken: String) async throws -> Bool {
         // The App-side registry mirrors every id this runtime creates,
         // recovers or claims so the DSH pages can hide legacy non-`gb-` ids.
         onSessionRegistered?(sessionId)
+        var fields: [String: BotJSONValue] = ["sessionId": .string(sessionId)]
+        if !sessionToken.isEmpty { fields["sessionToken"] = .string(sessionToken) }
         let response: BotJSONValue
         do {
             response = try await transport.call("phone/botClaimSession", args: .object([
-                "request": .object(["sessionId": .string(sessionId)]),
+                "request": .object(fields),
             ]))
         } catch {
-            if sessionId.hasPrefix("gb-") { return }
+            if sessionId.hasPrefix("gb-") { return false }
             throw error
         }
         guard response["ok"]?.boolValue == true else {
             // An unacknowledged claim can never make a legacy id safe.
-            if sessionId.hasPrefix("gb-") { return }
+            if sessionId.hasPrefix("gb-") { return false }
             throw BotMCPError.unavailable("Bot session ownership was not acknowledged for \(sessionId)")
         }
+        return true
     }
 
     private func ensureSession(sessionId: String, kind: BotSessionKind) async throws -> BotGatewayPrincipal {
-        if let existing = sessions[sessionId] { return existing }
-        guard await validateRemoteSession(sessionId) else {
-            throw BotMCPError.unavailable("session/page could not resume \(sessionId)")
+        if let existing = sessions[sessionId] {
+            if existing.claimGeneration == claimGeneration, existing.claimAcknowledged {
+                return existing.principal
+            }
+            // A replaced Worker lost its in-memory map but the host may still
+            // hold the current incarnation. Re-claim that exact token instead
+            // of rotating for availability; a re-sign/rotate/revoke in the
+            // meantime no longer resolves and falls through to a fresh issue.
+            if let current = await runtime.gateway.tokens.lookup(existing.token),
+               current.sessionId == sessionId,
+               let live = await runtime.gateway.tokens.lookupSession(sessionId),
+               live.incarnation == current.incarnation {
+                let acknowledged = try await claimOwnedSession(
+                    sessionId, sessionToken: existing.token)
+                sessions[sessionId] = SessionCredential(
+                    token: existing.token, principal: current,
+                    claimGeneration: claimGeneration, claimAcknowledged: acknowledged)
+                return current
+            }
+        } else {
+            guard await validateRemoteSession(sessionId) else {
+                throw BotMCPError.unavailable("session/page could not resume \(sessionId)")
+            }
         }
-        try await claimOwnedSession(sessionId)
-        let principal = try await runtime.issueSession(botId: botId, sessionId: sessionId, kind: kind)
-        sessions[sessionId] = principal
-        return principal
+        // New session or no current incarnation: issue first, then claim.
+        return try await issueAndClaimSession(sessionId, kind: kind)
     }
 
     private func canSteer(sessionId: String) -> Bool {
@@ -1081,11 +1154,13 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
     }
 
     private func runTurn(sessionId: String, kind: BotSessionKind,
-                         prompt: String, hidden: Bool, held: Bool = false,
-                         requestId: String? = nil) async throws -> BotRemoteTurnResult {
+                         prompt: String, requestId: String,
+                         allowSteer: Bool = true) async throws -> BotRemoteTurnResult {
         _ = try await ensureSession(sessionId: sessionId, kind: kind)
-        let requestId = requestId ?? "bot-\(UUID().uuidString.lowercased())"
-        if canSteer(sessionId: sessionId), kind == .chat, !hidden,
+        let origin = BotTurnOrigin(rpcId: requestId)
+        let hidden = origin.hidden
+        let held = origin.held
+        if allowSteer, canSteer(sessionId: sessionId), kind == .chat, !hidden,
            let active = coordinators[sessionId] {
             try await sendPrompt(sessionId: sessionId, prompt: prompt, mode: "steer", requestId: requestId)
             return try await active.work.value
@@ -1103,22 +1178,23 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
                 }
                 return try await startCoordinatedTurn(
                     sessionId: sessionId, kind: kind, prompt: prompt, hidden: hidden, held: held,
-                    attemptId: attemptId, requestId: requestId)
+                    attemptId: attemptId, requestId: requestId, origin: origin)
             }
             queuedTurns[sessionId] = QueuedTurn(attemptId: attemptId, work: work, cancelled: false)
             return try await work.value
         }
         return try await startCoordinatedTurn(
             sessionId: sessionId, kind: kind, prompt: prompt, hidden: hidden, held: held,
-            attemptId: UUID().uuidString.lowercased(), requestId: requestId)
+            attemptId: UUID().uuidString.lowercased(), requestId: requestId, origin: origin)
     }
 
     private func startCoordinatedTurn(sessionId: String, kind: BotSessionKind,
                                       prompt: String, hidden: Bool, held: Bool,
-                                      attemptId: String, requestId: String) async throws -> BotRemoteTurnResult {
+                                      attemptId: String, requestId: String,
+                                      origin: BotTurnOrigin) async throws -> BotRemoteTurnResult {
         let work = Task { try await self.performCoordinatedTurn(
             sessionId: sessionId, kind: kind, prompt: prompt, hidden: hidden, held: held,
-            attemptId: attemptId, requestId: requestId) }
+            attemptId: attemptId, requestId: requestId, origin: origin) }
         coordinators[sessionId] = TurnCoordinator(
             sessionId: sessionId, attemptId: attemptId, kind: kind, hidden: hidden,
             work: work, cancelRequested: false, promptAccepted: false)
@@ -1127,8 +1203,9 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
 
     private func performCoordinatedTurn(sessionId: String, kind: BotSessionKind,
                                         prompt: String, hidden: Bool, held: Bool,
-                                        attemptId: String, requestId: String) async throws -> BotRemoteTurnResult {
-        await runtime.beginTurn(sessionId: sessionId, hidden: hidden, held: held)
+                                        attemptId: String, requestId: String,
+                                        origin: BotTurnOrigin) async throws -> BotRemoteTurnResult {
+        await runtime.beginTurn(sessionId: sessionId, hidden: hidden, held: held, origin: origin)
         var mux: (any DSHMuxConnection)?
         do {
             let opened = try await transport.openMux()

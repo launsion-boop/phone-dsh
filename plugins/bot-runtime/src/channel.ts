@@ -55,6 +55,12 @@ export interface BotStreamRequest {
 
 export interface BotClaimSessionRequest {
   readonly sessionId: string
+  /**
+   * The host-issued session token. Additive and optional on the wire; the App
+   * sends the same `dshg_` value it keeps for the principal. It exists only in
+   * Worker plugin memory and must never be echoed, logged or persisted.
+   */
+  readonly sessionToken?: string
 }
 
 export class BotStreamHub {
@@ -137,7 +143,13 @@ export class BotRuntimeRemote extends TypertRemoteService {
   botClaimSession(request: BotClaimSessionRequest): { ok: boolean; sessionId: string } {
     const sessionId = String(request?.sessionId ?? '')
     if (!sessionId) return { ok: false, sessionId }
-    botOwnedSessions(this.ctx).add(sessionId)
+    const rawToken = request?.sessionToken
+    const sessionToken = typeof rawToken === 'string' ? rawToken : undefined
+    // The claim is a Worker-local ownership registration, not an
+    // authentication boundary. It stores the token the App will later present
+    // at `/identity/register`; a missing token stores nothing and leaves the
+    // session to fail identity registration closed.
+    botOwnedSessions(this.ctx).add(sessionId, sessionToken)
     return { ok: true, sessionId }
   }
 }

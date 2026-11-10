@@ -79,6 +79,14 @@ public enum PhoneDSHWorkerEnvironment {
     public static let channelURL = "PDSH_CHANNEL_URL"
     /// Per-start bearer the Worker presents on the ordered channel.
     public static let channelToken = "PDSH_CHANNEL_TOKEN"
+    /// Per-start secret that proves a Worker request on `/v1/http` comes from
+    /// one of the trusted MCP clients, not from model-written code. The Worker
+    /// sends it as `X-PDSH-MCP-Egress`; the host compares it in constant time
+    /// before resolving or injecting an MCP credential and strips the header
+    /// before the upstream request. It is not persisted, logged or exposed to
+    /// model-writable subprocesses (the DSH subprocess scrub drops names that
+    /// contain `TOKEN`).
+    public static let mcpEgressToken = "PDSH_MCP_EGRESS_TOKEN"
     /// Loopback origin that carries the model gateway at `/v1/http`
     /// (`llm-bridge` derives its proxy route from this value).
     public static let gatewayURL = "PDSH_CHANNEL_ORIGIN"

@@ -46,7 +46,12 @@ enum BotTurnProcessProjector {
             guard let turn = data["turn"]?.intValue ?? current else { continue }
             switch type {
             case "user/message":
-                if userText(data).hasPrefix("[SAND_HIDDEN_PROMPT]") { hidden.insert(turn) }
+                // Hidden turns carry a host-minted hidden rpcId; the message
+                // text never decides visibility.
+                let source = data["source"] ?? data["message"]?["source"]
+                if BotTurnOrigin(rpcId: source?["rpcId"]?.stringValue).hidden {
+                    hidden.insert(turn)
+                }
             case "tool/call", "tool/result":
                 grouped[turn, default: []].append(record)
             case "turn/end":
@@ -80,14 +85,6 @@ enum BotTurnProcessProjector {
         if bare == "ask_user" || bare == "show_next_steps" { return false }
         if bare.split(separator: ".").last == "RequestApproval" { return false }
         return BotDisplayContract.isToolCallVisible(named: bare)
-    }
-
-    private static func userText(_ data: JSONValue) -> String {
-        let content = data["content"] ?? data["message"]?["content"]
-        if let text = content?.stringValue { return text }
-        return (content?.arrayValue ?? []).compactMap { block in
-            block["type"]?.stringValue == "text" ? block["text"]?.stringValue : nil
-        }.joined()
     }
 }
 

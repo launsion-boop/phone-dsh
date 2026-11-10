@@ -24,6 +24,9 @@ final class BotMemoryIsolationTests: XCTestCase {
         let runtime = BotMCPRuntime(store: domain, now: { 1_000 })
         _ = try await runtime.issueSession(botId: "main", sessionId: "gb-main", kind: .chat)
         _ = try await runtime.issueSession(botId: "bot-b", sessionId: "gb-bot-b", kind: .chat)
+        await runtime.beginTurn(
+            sessionId: "gb-main", hidden: false,
+            origin: BotTurnOrigin(rpcId: BotTurnOrigin.userActionRequestId(nonce: "isolation-user")))
 
         let mainAgent = try await registerAndExecute(
             runtime, name: "UpdateMemory",

@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT
 import assert from 'node:assert/strict'
+import { createServer } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { test } from 'node:test'
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -9,7 +11,7 @@ import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
 import { BotRuntimeRemote, BotStreamHub } from '../bot-runtime/src/channel.ts'
 import dshbotIdentityBridge, { argsDigest, needsIdentityRegistration } from '../bot-runtime/src/identity-bridge.ts'
-import dshbotApprovalGate, { needsStructuralApproval, phoneEffectsForApproval } from '../bot-runtime/src/approval-gate.ts'
+import dshbotApprovalGate, { needsStructuralApproval, phoneEffectsForApproval, postApproval } from '../bot-runtime/src/approval-gate.ts'
 import type { ApprovalEffect } from '../bot-runtime/src/approval-gate.ts'
 import { executeTool } from './bot-runtime-test-kit.ts'
 import { readBotGoldenMerged } from './bot-golden.ts'
@@ -176,10 +178,11 @@ test('botClaimSession owns a legacy session id without the gb- namespace', async
   try {
     await ctx.plugin(channelCtx => { new BotRuntimeRemote(channelCtx, hub) })
     const remote = ctx.get('botRuntimeRemote') as {
-      botClaimSession(request: { sessionId: string }): { ok: boolean; sessionId: string }
+      botClaimSession(request: { sessionId: string; sessionToken?: string }): { ok: boolean; sessionId: string }
     }
-    assert.deepEqual(remote.botClaimSession({ sessionId: 'session-legacy' }),
-      { ok: true, sessionId: 'session-legacy' })
+    assert.deepEqual(remote.botClaimSession({
+      sessionId: 'session-legacy', sessionToken: 'dshg_fixture_legacy',
+    }), { ok: true, sessionId: 'session-legacy' })
     ctx.tools.register(defineTool({
       name: 'bash', description: 'probe', parameters: {},
       output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
@@ -203,10 +206,114 @@ test('botClaimSession owns a legacy session id without the gb- namespace', async
     assert.equal(result.isError, false)
     assert.equal(executed, 1)
     assert.equal(registrations.length, 1)
+    assert.equal(registrations[0]!.sessionToken, 'dshg_fixture_legacy')
     assert.equal(approvals, 1)
   } finally {
     hub.close()
     await ctx.fiber.dispose()
+  }
+})
+
+test('a claim without a token stores no credential and registration omits the field', async () => {
+  const ctx = await mount()
+  const hub = new BotStreamHub()
+  const registrations: Record<string, unknown>[] = []
+  try {
+    await ctx.plugin(channelCtx => { new BotRuntimeRemote(channelCtx, hub) })
+    const remote = ctx.get('botRuntimeRemote') as {
+      botClaimSession(request: { sessionId: string; sessionToken?: string }): { ok: boolean; sessionId: string }
+    }
+    assert.deepEqual(remote.botClaimSession({ sessionId: 'session-legacy' }),
+      { ok: true, sessionId: 'session-legacy' })
+    registerProbe(ctx)
+    await ctx.plugin(dshbotIdentityBridge, {
+      request: async payload => {
+        registrations.push(payload)
+        return { ok: false, error: 'unauthorized' }
+      },
+      cancel: async () => {},
+    })
+    for (const sessionId of ['session-legacy', 'gb-never-claimed']) {
+      const result = await executeTool(ctx, {
+        callId: ToolCallId(`claimed-without-token-${sessionId}`), name: 'mcp__phone__ListRoutines',
+        arguments: {}, signal: new AbortController().signal, agent: agent(sessionId),
+      })
+      assert.equal(result.isError, true, 'the host must reject a registration without a token')
+    }
+    assert.equal(registrations.length, 2)
+    for (const registration of registrations) {
+      assert.equal('sessionToken' in registration, false,
+        'the bridge must not fabricate a token')
+    }
+  } finally {
+    hub.close()
+    await ctx.fiber.dispose()
+  }
+})
+
+test('a new Worker generation loses the credential until the App claims again', async () => {
+  const first = await mount()
+  let restored = ''
+  try {
+    const registrations: Record<string, unknown>[] = []
+    const remote = new BotRuntimeRemote(first, new BotStreamHub())
+    assert.deepEqual(remote.botClaimSession({
+      sessionId: 'gb-main', sessionToken: 'dshg_fixture_generation_1',
+    }), { ok: true, sessionId: 'gb-main' })
+    registerProbe(first)
+    await first.plugin(dshbotIdentityBridge, {
+      request: async payload => {
+        registrations.push(payload)
+        return { ok: true, id: 'generation-registration' }
+      },
+      cancel: async () => {},
+    })
+    const before = await executeTool(first, {
+      callId: ToolCallId('generation-before'), name: 'mcp__phone__ListRoutines',
+      arguments: {}, signal: new AbortController().signal, agent: agent('gb-main'),
+    })
+    assert.equal(before.isError, false)
+    assert.equal(registrations[0]!.sessionToken, 'dshg_fixture_generation_1')
+
+    // The replaced Worker gets a brand-new in-memory map: the old claim is
+    // gone, so the same session has no credential and the next registration
+    // omits the field (the host rejects it until the App claims again).
+    const second = await mount()
+    try {
+      await second.plugin(channelCtx => { new BotRuntimeRemote(channelCtx, new BotStreamHub()) })
+      const remote2 = second.get('botRuntimeRemote') as {
+        botClaimSession(request: { sessionId: string; sessionToken?: string }): { ok: boolean; sessionId: string }
+      }
+      registerProbe(second)
+      await second.plugin(dshbotIdentityBridge, {
+        request: async payload => {
+          restored = String(payload.sessionToken ?? '')
+          return payload.sessionToken === undefined
+            ? { ok: false, error: 'unauthorized' }
+            : { ok: true, id: 'reclaimed-registration' }
+        },
+        cancel: async () => {},
+      })
+      const lost = await executeTool(second, {
+        callId: ToolCallId('generation-lost'), name: 'mcp__phone__ListRoutines',
+        arguments: {}, signal: new AbortController().signal, agent: agent('gb-main'),
+      })
+      assert.equal(lost.isError, true, 'a lost Worker credential must fail closed')
+      assert.equal(restored, '')
+      assert.deepEqual(remote2.botClaimSession({
+        sessionId: 'gb-main', sessionToken: 'dshg_fixture_generation_2',
+      }), { ok: true, sessionId: 'gb-main' })
+      const resumed = await executeTool(second, {
+        callId: ToolCallId('generation-reclaimed'), name: 'mcp__phone__ListRoutines',
+        arguments: {}, signal: new AbortController().signal, agent: agent('gb-main'),
+      })
+      assert.equal(resumed.isError, false)
+      assert.equal(restored, 'dshg_fixture_generation_2')
+    } finally {
+      await second.fiber.dispose()
+    }
+  } finally {
+    await first.fiber.dispose()
   }
 })
 
@@ -605,5 +712,82 @@ test('FishAction is cosmetic, auto-policy and never asks for an approval card', 
     assert.equal(approvals, 0)
   } finally {
     await ctx.fiber.dispose()
+  }
+})
+
+test('identity, cancel and approval requests carry the host egress credential', async () => {
+  const seen: { path: string; headers: Record<string, string | string[] | undefined> }[] = []
+  const server = createServer((request, response) => {
+    seen.push({ path: request.url ?? '/', headers: request.headers })
+    response.writeHead(200, { 'content-type': 'application/json' })
+    response.end(request.url === '/identity/register'
+      ? '{"ok":true,"id":"egress-registration"}'
+      : '{"ok":true,"allowed":true}')
+  })
+  const origin = await new Promise<string>((accept, refuse) => {
+    server.once('error', refuse)
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address() as AddressInfo
+      accept(`http://127.0.0.1:${String(address.port)}`)
+    })
+  })
+  const previous = {
+    PDSH_PHONE_MCP_URL: process.env.PDSH_PHONE_MCP_URL,
+    PDSH_PHONE_MCP_TOKEN: process.env.PDSH_PHONE_MCP_TOKEN,
+    PDSH_MCP_EGRESS_TOKEN: process.env.PDSH_MCP_EGRESS_TOKEN,
+  }
+  process.env.PDSH_PHONE_MCP_URL = `${origin}/mcp`
+  process.env.PDSH_PHONE_MCP_TOKEN = 'bot-bearer-placeholder'
+  process.env.PDSH_MCP_EGRESS_TOKEN = 'identity-egress-fixture'
+  const ctx = await mount()
+  try {
+    registerProbe(ctx, 'bash')
+    // No request/cancel override: the production fetch path must add the
+    // header on register, cancel and the shared postApproval transport.
+    await ctx.plugin(dshbotIdentityBridge)
+    await ctx.plugin(dshbotApprovalGate)
+    const result = await executeTool(ctx, {
+      callId: ToolCallId('egress-bash'),
+      name: 'bash', arguments: { command: 'rm -rf /tmp/wpf1-egress' },
+      signal: new AbortController().signal, agent: agent(),
+    })
+    assert.equal(result.isError, false)
+    for (const path of ['/identity/register', '/approval', '/identity/cancel']) {
+      const entry = seen.find(candidate => candidate.path === path)
+      assert.ok(entry, `${path} must be called: ${JSON.stringify(seen.map(item => item.path))}`)
+      assert.equal(entry.headers['x-pdsh-mcp-egress'], 'identity-egress-fixture',
+        `${path} must carry the trusted-client egress credential`)
+    }
+  } finally {
+    await ctx.fiber.dispose()
+    server.close()
+    for (const [name, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[name]
+      else process.env[name] = value
+    }
+  }
+})
+
+test('the shared approval transport omits the egress header when the value is empty', async () => {
+  const previous = process.env.PDSH_MCP_EGRESS_TOKEN
+  const headers: Headers[] = []
+  const originalFetch = globalThis.fetch
+  process.env.PDSH_MCP_EGRESS_TOKEN = ''
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    headers.push(new Headers(init?.headers))
+    return new Response('{"ok":true,"allowed":true}', {
+      status: 200, headers: { 'content-type': 'application/json' },
+    })
+  }) as typeof fetch
+  try {
+    const outcome = await postApproval('http://127.0.0.1:9/approval', 'bearer', {})
+    assert.equal(outcome.ok, true)
+    assert.equal(headers[0]?.get('x-pdsh-mcp-egress'), null,
+      'an empty environment value must omit the header (host fails closed)')
+    assert.equal(headers[0]?.get('authorization'), 'Bearer bearer')
+  } finally {
+    globalThis.fetch = originalFetch
+    if (previous === undefined) delete process.env.PDSH_MCP_EGRESS_TOKEN
+    else process.env.PDSH_MCP_EGRESS_TOKEN = previous
   }
 })

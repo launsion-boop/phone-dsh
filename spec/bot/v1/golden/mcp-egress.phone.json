@@ -1,0 +1,695 @@
+{
+  "schemaVersion": 1,
+  "license": "MIT",
+  "vector": "mcp-egress.phone",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6",
+    "note": "phoneDSH-only contract vector; no dsh-bot upstream file exists. The source.checkout records the pinned upstream batch this contract sits beside, not the origin of these cases."
+  },
+  "upstream": [],
+  "delta": [
+    "P05/P16/P26: exact MCP routes require X-PDSH-MCP-Egress equal to the host-generated PDSH_MCP_EGRESS_TOKEN; missing, empty, wrong, placeholder and case-shifted values are rejected before credential injection or upstream contact (PC-20261110-bot-mcp-egress-capability).",
+    "P26: /identity/register uses the host-issued session credential, not the caller-supplied sessionId; tokens are resolved through the BotTokenRegistry model (revoked and expired tokens are absent) and the principal sessionId must match.",
+    "P26: after tools/call attribution, the bare tool must be in the same per-caller catalog tools/list returns; only CreateTeammate is hidden from non-main callers, and unknown names stay unknown_tool."
+  ],
+  "egressToken": "wpf0-fixture-egress-token",
+  "egressRoutes": [
+    {
+      "kind": "bot",
+      "url": "http://127.0.0.1:8787/mcp"
+    },
+    {
+      "kind": "bot",
+      "url": "http://127.0.0.1:8787/identity/register"
+    },
+    {
+      "kind": "bot",
+      "url": "http://127.0.0.1:8787/identity/cancel"
+    },
+    {
+      "kind": "bot",
+      "url": "http://127.0.0.1:8787/approval"
+    },
+    {
+      "kind": "user",
+      "url": "https://connector.example.test/mcp"
+    }
+  ],
+  "valid": [
+    {
+      "suite": "egress",
+      "name": "bot-mcp-correct-token",
+      "target": "http://127.0.0.1:8787/mcp",
+      "headers": {
+        "x-pdsh-mcp-egress": "wpf0-fixture-egress-token"
+      },
+      "expect": {
+        "admitted": true
+      },
+      "boundary": "correct",
+      "reason": "the Bot /mcp route with the host-generated value is admitted"
+    },
+    {
+      "suite": "egress",
+      "name": "bot-identity-register-correct-token",
+      "target": "http://127.0.0.1:8787/identity/register",
+      "headers": {
+        "x-pdsh-mcp-egress": "wpf0-fixture-egress-token"
+      },
+      "expect": {
+        "admitted": true
+      },
+      "boundary": "correct",
+      "reason": "identity registration is one of the four gated Bot routes"
+    },
+    {
+      "suite": "egress",
+      "name": "bot-approval-correct-token",
+      "target": "http://127.0.0.1:8787/approval",
+      "headers": {
+        "x-pdsh-mcp-egress": "wpf0-fixture-egress-token"
+      },
+      "expect": {
+        "admitted": true
+      },
+      "boundary": "correct",
+      "reason": "approval is one of the four gated Bot routes"
+    },
+    {
+      "suite": "egress",
+      "name": "bot-identity-cancel-correct-token",
+      "target": "http://127.0.0.1:8787/identity/cancel",
+      "headers": {
+        "x-pdsh-mcp-egress": "wpf0-fixture-egress-token"
+      },
+      "expect": {
+        "admitted": true
+      },
+      "boundary": "correct",
+      "reason": "identity cancellation is one of the four gated Bot routes"
+    },
+    {
+      "suite": "egress",
+      "name": "user-connector-correct-token",
+      "target": "https://connector.example.test/mcp",
+      "headers": {
+        "x-pdsh-mcp-egress": "wpf0-fixture-egress-token"
+      },
+      "expect": {
+        "admitted": true
+      },
+      "boundary": "correct",
+      "reason": "user connector routes use the same exact-route predicate and the same injection path"
+    },
+    {
+      "suite": "egress",
+      "name": "user-connector-query-correct-token",
+      "target": "https://connector.example.test/mcp?session=wpf0",
+      "headers": {
+        "x-pdsh-mcp-egress": "wpf0-fixture-egress-token"
+      },
+      "expect": {
+        "admitted": true
+      },
+      "boundary": "query",
+      "reason": "the query is outside the exact credential scope but the route still matches"
+    },
+    {
+      "suite": "egress",
+      "name": "header-name-is-case-insensitive",
+      "target": "http://127.0.0.1:8787/mcp",
+      "headers": {
+        "X-PDSH-MCP-EGRESS": "wpf0-fixture-egress-token"
+      },
+      "expect": {
+        "admitted": true
+      },
+      "boundary": "header-name-case",
+      "reason": "HTTP header names are case-insensitive"
+    },
+    {
+      "suite": "egress",
+      "name": "non-mcp-route-without-token",
+      "target": "https://api.example.test/v1/messages",
+      "headers": {},
+      "expect": {
+        "admitted": true
+      },
+      "boundary": "non-mcp",
+      "reason": "a target outside every exact MCP route is not gated by this credential"
+    },
+    {
+      "suite": "egress",
+      "name": "non-mcp-lookalike-host-with-wrong-token",
+      "target": "http://127.0.0.1:8788/mcp",
+      "headers": {
+        "x-pdsh-mcp-egress": "wpf0-fixture-wrong-token"
+      },
+      "expect": {
+        "admitted": true
+      },
+      "boundary": "route-scope",
+      "reason": "a different port on the same path is not an exact route, so the token is irrelevant"
+    },
+    {
+      "suite": "egress",
+      "name": "sibling-path-without-token",
+      "target": "https://connector.example.test/mcp/tools",
+      "headers": {},
+      "expect": {
+        "admitted": true
+      },
+      "boundary": "route-scope",
+      "reason": "the exact grant covers /mcp, not a sibling path"
+    },
+    {
+      "suite": "identity",
+      "name": "main-chat-correct-credential",
+      "registry": [
+        {
+          "token": "dshg_wpf0_fixture_main",
+          "sessionId": "gb-main"
+        }
+      ],
+      "request": {
+        "sessionId": "gb-main",
+        "sessionToken": "dshg_wpf0_fixture_main"
+      },
+      "expect": {
+        "ok": true
+      },
+      "boundary": "correct",
+      "reason": "the host resolves the current principal from the token and the session matches"
+    },
+    {
+      "suite": "identity",
+      "name": "task-session-correct-credential",
+      "registry": [
+        {
+          "token": "dshg_wpf0_fixture_task",
+          "sessionId": "gb-task-1"
+        }
+      ],
+      "request": {
+        "sessionId": "gb-task-1",
+        "sessionToken": "dshg_wpf0_fixture_task"
+      },
+      "expect": {
+        "ok": true
+      },
+      "boundary": "correct",
+      "reason": "a legitimate Task session registers its own identity"
+    },
+    {
+      "suite": "identity",
+      "name": "rotated-current-credential",
+      "registry": [
+        {
+          "token": "dshg_wpf0_fixture_main_old",
+          "sessionId": "gb-main",
+          "revoked": true
+        },
+        {
+          "token": "dshg_wpf0_fixture_main_new",
+          "sessionId": "gb-main"
+        }
+      ],
+      "request": {
+        "sessionId": "gb-main",
+        "sessionToken": "dshg_wpf0_fixture_main_new"
+      },
+      "expect": {
+        "ok": true
+      },
+      "boundary": "rotated",
+      "reason": "a re-sign or rotate revokes the old token and the current claim uses the new value"
+    },
+    {
+      "suite": "tools-call",
+      "name": "non-main-send-to-agent",
+      "callerBotId": "bot-b",
+      "mainBotId": "bot-a",
+      "tool": "SendToAgent",
+      "expect": {
+        "ok": true
+      },
+      "boundary": "correct",
+      "reason": "SendToAgent is in every caller's catalog"
+    },
+    {
+      "suite": "tools-call",
+      "name": "main-create-teammate",
+      "callerBotId": "bot-a",
+      "mainBotId": "bot-a",
+      "tool": "CreateTeammate",
+      "expect": {
+        "ok": true
+      },
+      "boundary": "correct",
+      "reason": "the main Bot's catalog contains CreateTeammate and the main-Bot check also passes"
+    },
+    {
+      "suite": "tools-call",
+      "name": "non-main-update-memory",
+      "callerBotId": "bot-b",
+      "mainBotId": "bot-a",
+      "tool": "UpdateMemory",
+      "expect": {
+        "ok": true
+      },
+      "boundary": "correct",
+      "reason": "the P0 catalog is available to every caller"
+    },
+    {
+      "suite": "tools-call",
+      "name": "main-fish-action",
+      "callerBotId": "bot-a",
+      "mainBotId": "bot-a",
+      "tool": "FishAction",
+      "expect": {
+        "ok": true
+      },
+      "boundary": "correct",
+      "reason": "FishAction is a catalog tool with auto policy"
+    }
+  ],
+  "invalid": [
+    {
+      "suite": "egress",
+      "name": "bot-mcp-missing-token",
+      "target": "http://127.0.0.1:8787/mcp",
+      "headers": {},
+      "expect": {
+        "admitted": false,
+        "status": 403,
+        "error": "mcp_egress_forbidden"
+      },
+      "boundary": "missing",
+      "reason": "the gated Bot route has no egress credential"
+    },
+    {
+      "suite": "egress",
+      "name": "bot-mcp-query-missing-token",
+      "target": "http://127.0.0.1:8787/mcp?x=1",
+      "headers": {},
+      "expect": {
+        "admitted": false,
+        "status": 403,
+        "error": "mcp_egress_forbidden"
+      },
+      "boundary": "query",
+      "reason": "a query does not remove the route from the gate"
+    },
+    {
+      "suite": "egress",
+      "name": "bot-mcp-wrong-token",
+      "target": "http://127.0.0.1:8787/mcp",
+      "headers": {
+        "x-pdsh-mcp-egress": "wpf0-fixture-wrong-token"
+      },
+      "expect": {
+        "admitted": false,
+        "status": 403,
+        "error": "mcp_egress_forbidden"
+      },
+      "boundary": "wrong",
+      "reason": "a different value is not the host-generated credential"
+    },
+    {
+      "suite": "egress",
+      "name": "user-connector-wrong-token",
+      "target": "https://connector.example.test/mcp",
+      "headers": {
+        "x-pdsh-mcp-egress": "wpf0-fixture-wrong-token"
+      },
+      "expect": {
+        "admitted": false,
+        "status": 403,
+        "error": "mcp_egress_forbidden"
+      },
+      "boundary": "wrong",
+      "reason": "user connector routes use the same gate"
+    },
+    {
+      "suite": "egress",
+      "name": "bot-mcp-bot-token-placeholder",
+      "target": "http://127.0.0.1:8787/mcp",
+      "headers": {
+        "x-pdsh-mcp-egress": "phone-host-injects-bot-mcp-token"
+      },
+      "expect": {
+        "admitted": false,
+        "status": 403,
+        "error": "mcp_egress_forbidden"
+      },
+      "boundary": "placeholder",
+      "reason": "the PDSH_PHONE_MCP_TOKEN placeholder is never an egress credential"
+    },
+    {
+      "suite": "egress",
+      "name": "user-connector-host-managed-placeholder",
+      "target": "https://connector.example.test/mcp",
+      "headers": {
+        "x-pdsh-mcp-egress": "phone-host-injects-mcp-key"
+      },
+      "expect": {
+        "admitted": false,
+        "status": 403,
+        "error": "mcp_egress_forbidden"
+      },
+      "boundary": "placeholder",
+      "reason": "the user MCP host-managed placeholder is never an egress credential"
+    },
+    {
+      "suite": "egress",
+      "name": "bot-mcp-value-case-shift",
+      "target": "http://127.0.0.1:8787/mcp",
+      "headers": {
+        "x-pdsh-mcp-egress": "WPF0-FIXTURE-EGRESS-TOKEN"
+      },
+      "expect": {
+        "admitted": false,
+        "status": 403,
+        "error": "mcp_egress_forbidden"
+      },
+      "boundary": "case",
+      "reason": "the value comparison is byte-exact and case-sensitive"
+    },
+    {
+      "suite": "egress",
+      "name": "bot-mcp-empty-token",
+      "target": "http://127.0.0.1:8787/mcp",
+      "headers": {
+        "x-pdsh-mcp-egress": ""
+      },
+      "expect": {
+        "admitted": false,
+        "status": 403,
+        "error": "mcp_egress_forbidden"
+      },
+      "boundary": "empty",
+      "reason": "an empty header value is a missing credential"
+    },
+    {
+      "suite": "egress",
+      "name": "bot-mcp-trailing-space-token",
+      "target": "http://127.0.0.1:8787/mcp",
+      "headers": {
+        "x-pdsh-mcp-egress": "wpf0-fixture-egress-token "
+      },
+      "expect": {
+        "admitted": false,
+        "status": 403,
+        "error": "mcp_egress_forbidden"
+      },
+      "boundary": "whitespace",
+      "reason": "the value is not trimmed and trailing whitespace changes it"
+    },
+    {
+      "suite": "egress",
+      "name": "bot-mcp-bearer-prefixed-token",
+      "target": "http://127.0.0.1:8787/mcp",
+      "headers": {
+        "x-pdsh-mcp-egress": "Bearer wpf0-fixture-egress-token"
+      },
+      "expect": {
+        "admitted": false,
+        "status": 403,
+        "error": "mcp_egress_forbidden"
+      },
+      "boundary": "wrong",
+      "reason": "the egress header carries the raw value, not an Authorization scheme"
+    },
+    {
+      "suite": "identity",
+      "name": "missing-credential",
+      "registry": [
+        {
+          "token": "dshg_wpf0_fixture_main",
+          "sessionId": "gb-main"
+        }
+      ],
+      "request": {
+        "sessionId": "gb-main"
+      },
+      "expect": {
+        "ok": false,
+        "error": "unauthorized"
+      },
+      "boundary": "missing",
+      "reason": "no credential is rejected before any registration"
+    },
+    {
+      "suite": "identity",
+      "name": "empty-credential",
+      "registry": [
+        {
+          "token": "dshg_wpf0_fixture_main",
+          "sessionId": "gb-main"
+        }
+      ],
+      "request": {
+        "sessionId": "gb-main",
+        "sessionToken": ""
+      },
+      "expect": {
+        "ok": false,
+        "error": "unauthorized"
+      },
+      "boundary": "empty",
+      "reason": "an empty credential is not a valid principal proof"
+    },
+    {
+      "suite": "identity",
+      "name": "foreign-session-credential",
+      "registry": [
+        {
+          "token": "dshg_wpf0_fixture_task",
+          "sessionId": "gb-task-1"
+        }
+      ],
+      "request": {
+        "sessionId": "gb-main",
+        "sessionToken": "dshg_wpf0_fixture_task"
+      },
+      "expect": {
+        "ok": false,
+        "error": "unauthorized"
+      },
+      "boundary": "foreign",
+      "reason": "a token for another session cannot register gb-main"
+    },
+    {
+      "suite": "identity",
+      "name": "mismatched-session-field",
+      "registry": [
+        {
+          "token": "dshg_wpf0_fixture_main",
+          "sessionId": "gb-main"
+        }
+      ],
+      "request": {
+        "sessionId": "gb-task-1",
+        "sessionToken": "dshg_wpf0_fixture_main"
+      },
+      "expect": {
+        "ok": false,
+        "error": "unauthorized"
+      },
+      "boundary": "mismatch",
+      "reason": "the token principal and the body sessionId disagree"
+    },
+    {
+      "suite": "identity",
+      "name": "revoked-credential",
+      "registry": [
+        {
+          "token": "dshg_wpf0_fixture_main",
+          "sessionId": "gb-main",
+          "revoked": true
+        }
+      ],
+      "request": {
+        "sessionId": "gb-main",
+        "sessionToken": "dshg_wpf0_fixture_main"
+      },
+      "expect": {
+        "ok": false,
+        "error": "unauthorized"
+      },
+      "boundary": "revoked",
+      "reason": "a revoked token no longer resolves a principal"
+    },
+    {
+      "suite": "identity",
+      "name": "expired-credential",
+      "registry": [
+        {
+          "token": "dshg_wpf0_fixture_main",
+          "sessionId": "gb-main",
+          "expired": true
+        }
+      ],
+      "request": {
+        "sessionId": "gb-main",
+        "sessionToken": "dshg_wpf0_fixture_main"
+      },
+      "expect": {
+        "ok": false,
+        "error": "unauthorized"
+      },
+      "boundary": "expired",
+      "reason": "an expired token no longer resolves a principal"
+    },
+    {
+      "suite": "identity",
+      "name": "unknown-credential",
+      "registry": [
+        {
+          "token": "dshg_wpf0_fixture_main",
+          "sessionId": "gb-main"
+        }
+      ],
+      "request": {
+        "sessionId": "gb-main",
+        "sessionToken": "dshg_wpf0_fixture_fabricated"
+      },
+      "expect": {
+        "ok": false,
+        "error": "unauthorized"
+      },
+      "boundary": "unknown",
+      "reason": "an invented token is not in the registry"
+    },
+    {
+      "suite": "identity",
+      "name": "phone-mcp-placeholder-credential",
+      "registry": [
+        {
+          "token": "dshg_wpf0_fixture_main",
+          "sessionId": "gb-main"
+        }
+      ],
+      "request": {
+        "sessionId": "gb-main",
+        "sessionToken": "phone-host-injects-bot-mcp-token"
+      },
+      "expect": {
+        "ok": false,
+        "error": "unauthorized"
+      },
+      "boundary": "placeholder",
+      "reason": "the non-secret Worker placeholder is never a session credential"
+    },
+    {
+      "suite": "identity",
+      "name": "case-shifted-credential",
+      "registry": [
+        {
+          "token": "dshg_wpf0_fixture_main",
+          "sessionId": "gb-main"
+        }
+      ],
+      "request": {
+        "sessionId": "gb-main",
+        "sessionToken": "DSHG_WPF0_FIXTURE_MAIN"
+      },
+      "expect": {
+        "ok": false,
+        "error": "unauthorized"
+      },
+      "boundary": "case",
+      "reason": "token comparison is byte-exact and case-sensitive"
+    },
+    {
+      "suite": "identity",
+      "name": "rotated-old-credential",
+      "registry": [
+        {
+          "token": "dshg_wpf0_fixture_main_old",
+          "sessionId": "gb-main",
+          "revoked": true
+        },
+        {
+          "token": "dshg_wpf0_fixture_main_new",
+          "sessionId": "gb-main"
+        }
+      ],
+      "request": {
+        "sessionId": "gb-main",
+        "sessionToken": "dshg_wpf0_fixture_main_old"
+      },
+      "expect": {
+        "ok": false,
+        "error": "unauthorized"
+      },
+      "boundary": "rotated",
+      "reason": "the rotated-away token is revoked"
+    },
+    {
+      "suite": "tools-call",
+      "name": "non-main-create-teammate",
+      "callerBotId": "bot-b",
+      "mainBotId": "bot-a",
+      "tool": "CreateTeammate",
+      "expect": {
+        "ok": false,
+        "error": "permission_denied"
+      },
+      "boundary": "hidden-team-tool",
+      "reason": "CreateTeammate is absent from a non-main caller's tools/list"
+    },
+    {
+      "suite": "tools-call",
+      "name": "non-main-create-teammate-server-prefix",
+      "callerBotId": "bot-b",
+      "mainBotId": "bot-a",
+      "tool": "mcp__phone__CreateTeammate",
+      "expect": {
+        "ok": false,
+        "error": "permission_denied"
+      },
+      "boundary": "prefix-strip",
+      "reason": "the MCP server prefix is stripped before the same catalog check"
+    },
+    {
+      "suite": "tools-call",
+      "name": "unknown-tool",
+      "callerBotId": "bot-a",
+      "mainBotId": "bot-a",
+      "tool": "Teleport",
+      "expect": {
+        "ok": false,
+        "error": "unknown_tool"
+      },
+      "boundary": "unknown",
+      "reason": "an unknown name is rejected before attribution or the catalog check"
+    },
+    {
+      "suite": "tools-call",
+      "name": "case-shifted-tool",
+      "callerBotId": "bot-b",
+      "mainBotId": "bot-a",
+      "tool": "createteammate",
+      "expect": {
+        "ok": false,
+        "error": "unknown_tool"
+      },
+      "boundary": "case",
+      "reason": "tool names are case-sensitive, so this is not the hidden tool"
+    },
+    {
+      "suite": "tools-call",
+      "name": "empty-tool",
+      "callerBotId": "bot-b",
+      "mainBotId": "bot-a",
+      "tool": "",
+      "expect": {
+        "ok": false,
+        "error": "unknown_tool"
+      },
+      "boundary": "empty",
+      "reason": "an empty tool name is unknown"
+    }
+  ]
+}

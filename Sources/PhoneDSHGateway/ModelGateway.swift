@@ -187,6 +187,11 @@ public struct GatewayRequest: Equatable, Sendable {
     /// Host → Worker: marks a response served from the response log because of
     /// ``resumeFromHeader``.
     public static let resumedHeader = "x-pdsh-resumed"
+    /// Worker → host: the trusted MCP client's per-start egress credential
+    /// (`PDSH_MCP_EGRESS_TOKEN`). The host requires it on every exact MCP route
+    /// before resolving a credential, and the existing `x-pdsh-*` strip keeps
+    /// it out of the upstream request (spec/bot/v1/mcp-endpoint.md §1.1).
+    public static let mcpEgressHeader = "x-pdsh-mcp-egress"
 
     public var method: String
     public var url: URL
@@ -199,6 +204,24 @@ public struct GatewayRequest: Equatable, Sendable {
         self.headers = headers
         self.body = body
     }
+}
+
+/// Host-side gate over the exact MCP routes of one `EgressHostAuthorizing`
+/// instance.
+///
+/// The same object decides both which URLs are exact MCP routes (the predicate
+/// that authorises credential injection) and whether a request carries the
+/// current host-run `PDSH_MCP_EGRESS_TOKEN`. Keeping one owner prevents a gate
+/// that protects only some of the routes the credential router serves
+/// (spec/bot/v1/mcp-endpoint.md §1.1).
+public protocol MCPEgressGating: EgressHostAuthorizing {
+    /// Installs the host-run credential. The value lives in host memory only.
+    func setMCPEgressToken(_ token: String)
+
+    /// Returns `true` when `url` is outside every exact MCP route, or when the
+    /// request header value matches the installed credential. Missing/empty
+    /// values never match.
+    func admitsMCPEgress(to url: URL, headers: [String: String]) -> Bool
 }
 
 /// One downstream response chunk. The first chunk carries `status` and the
@@ -238,6 +261,11 @@ public enum ModelGatewayError: Error, Equatable, Sendable {
     /// plain tool egress never uses this case because it forwards the upstream
     /// response unchanged.
     case upstreamStatus(status: Int, host: String)
+    /// The target is an exact MCP route but the request did not carry the
+    /// current `PDSH_MCP_EGRESS_TOKEN`. Answered before any credential is
+    /// resolved or injected, before a socket is opened and before a
+    /// response-log entry is written (spec/bot/v1/mcp-endpoint.md §1.1).
+    case mcpEgressForbidden
 }
 
 extension ModelGatewayError: LocalizedError {
@@ -257,6 +285,8 @@ extension ModelGatewayError: LocalizedError {
             return "upstream transport failed: \(reason) (\(domain) \(code))"
         case .upstreamStatus(let status, let host):
             return "upstream \(host) answered HTTP \(status)"
+        case .mcpEgressForbidden:
+            return "the MCP egress credential is missing or invalid"
         }
     }
 }
@@ -281,6 +311,8 @@ extension ModelGatewayError {
             return "transport_failure"
         case .upstreamStatus:
             return "upstream_status"
+        case .mcpEgressForbidden:
+            return "mcp_egress_forbidden"
         }
     }
 
@@ -289,7 +321,7 @@ extension ModelGatewayError {
     /// disallowed origin, 502 for a proxy-side failure.
     public var proxyStatusCode: Int {
         switch self {
-        case .hostNotAllowed:
+        case .hostNotAllowed, .mcpEgressForbidden:
             return 403
         case .invalidRequest:
             return 400
@@ -312,6 +344,8 @@ extension ModelGatewayError {
             return "upstream"
         case .shuttingDown:
             return "shutting_down"
+        case .mcpEgressForbidden:
+            return "mcp_egress_forbidden"
         }
     }
 }
@@ -339,6 +373,7 @@ extension ModelGatewayError: CustomNSError {
         case .shuttingDown: return 5
         case .transportFailure: return 6
         case .upstreamStatus: return 7
+        case .mcpEgressForbidden: return 8
         }
     }
 
@@ -467,6 +502,10 @@ public actor ModelGateway {
     ///     (committed/replayed/resumed). It receives only the response key,
     ///     status, body size and disposition, never the body or credentials.
     ///   - clock: Retry/backoff clock.
+    ///   - egressAuthorizer: Exact-URL MCP grant. An implementation that also
+    ///     conforms to ``MCPEgressGating`` supplies the host-run egress
+    ///     credential and gates every exact route it admits.
+    ///   - officialDeepSeekWebCredentialProvider: Optional official web route.
     ///   - cloudResponsePolicy: The origins whose 401 `credential_expired` /
     ///     503 `identity_unavailable` answers are re-sent
     ///     (spec/v1/tono-account.md §5). Production keeps the default.
@@ -621,6 +660,20 @@ public actor ModelGateway {
         metricsStore.snapshot(connectionReused: coordinator.lastConnectionReuse)
     }
 
+    // MARK: - MCP egress gate
+
+    /// Whether one request may proceed past the MCP egress gate.
+    ///
+    /// The exact-route predicate is the same `EgressHostAuthorizing` instance
+    /// that decides credential injection, so a gate limited to the four Bot
+    /// paths cannot drift from the routes the credential router serves. The
+    /// header value is byte-exact and compared in length-independent constant
+    /// time (spec/bot/v1/mcp-endpoint.md §1.1).
+    nonisolated func mcpEgressAdmitted(_ request: GatewayRequest) -> Bool {
+        guard let gate = egressAuthorizer as? any MCPEgressGating else { return true }
+        return gate.admitsMCPEgress(to: request.url, headers: request.headers)
+    }
+
     // MARK: - Pump
 
     private nonisolated func perform(_ request: GatewayRequest,
@@ -640,6 +693,13 @@ public actor ModelGateway {
         }
         guard coordinator.isAllowed(url) else {
             downstream.finish(throwing: ModelGatewayError.hostNotAllowed(url.host ?? ""))
+            return
+        }
+        // Before the response log, the resume path and any credential
+        // resolution: an exact MCP route without the current host credential
+        // is refused with no side effect at all.
+        guard mcpEgressAdmitted(request) else {
+            downstream.finish(throwing: ModelGatewayError.mcpEgressForbidden)
             return
         }
         guard !coordinator.isShutDown else {

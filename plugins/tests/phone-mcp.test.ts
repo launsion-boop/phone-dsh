@@ -10,7 +10,7 @@ import assert from 'node:assert/strict'
 import { randomBytes } from 'node:crypto'
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { after, before, test } from 'node:test'
 import { Context } from '@deepseek-ai/cordis'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
@@ -199,6 +199,56 @@ test('phone-mcp: concurrent upserts commit one complete registry and stay remova
   }
 })
 
+test('phone-mcp: every mount carries the host egress credential only when configured', { timeout: 30_000 }, async () => {
+  const temporaryFile = join(mkdtempSync(join(tmpdir(), 'pdsh-phone-mcp-egress-')), 'mcp.json')
+  const start = fixture.requests.length
+  const mounted = await mountPlugin(temporaryFile, {
+    [ENV_NAME]: `Bearer ${fixture.token}`,
+    PDSH_MCP_EGRESS_TOKEN: 'phone-mcp-fixture-egress',
+  })
+  try {
+    const added = await mounted.remote.mcpUpsert({
+      serverName: 'egress',
+      url: fixture.url,
+      headersFromEnv: { Authorization: ENV_NAME },
+      enabled: true,
+      toolCallTimeoutMs: 5_000,
+    })
+    assert.equal(added.status, 'connected')
+    const observed = fixture.requests.slice(start)
+    assert.ok(observed.length > 0, 'the mount must speak to the fixture')
+    assert.equal(observed.every(request => request.headers['x-pdsh-mcp-egress'] === 'phone-mcp-fixture-egress'),
+      true, 'the trusted phone-mcp mount must add the egress header')
+  } finally {
+    await mounted.context.fiber.dispose()
+    rmSync(dirname(temporaryFile), { recursive: true, force: true })
+  }
+
+  const missingDirectory = mkdtempSync(join(tmpdir(), 'pdsh-phone-mcp-egress-empty-'))
+  const missingStart = fixture.requests.length
+  const missing = await mountPlugin(join(missingDirectory, 'mcp.json'), {
+    [ENV_NAME]: `Bearer ${fixture.token}`,
+    PDSH_MCP_EGRESS_TOKEN: '',
+  })
+  try {
+    const added = await missing.remote.mcpUpsert({
+      serverName: 'no-egress',
+      url: fixture.url,
+      headersFromEnv: { Authorization: ENV_NAME },
+      enabled: true,
+      toolCallTimeoutMs: 5_000,
+    })
+    assert.equal(added.status, 'connected')
+    const observed = fixture.requests.slice(missingStart)
+    assert.ok(observed.length > 0, 'the mount must speak to the fixture')
+    assert.equal(observed.every(request => request.headers['x-pdsh-mcp-egress'] === undefined),
+      true, 'an empty environment value must omit the header (host fails closed)')
+  } finally {
+    await missing.context.fiber.dispose()
+    rmSync(missingDirectory, { recursive: true, force: true })
+  }
+})
+
 test('phone-mcp: a failed file commit unmounts the newly connected server', { timeout: 30_000 }, async () => {
   const blocker = join(temporary, 'blocked')
   writeFileSync(blocker, 'not a directory')
@@ -277,6 +327,96 @@ test('phone-mcp: invalid URL, duplicate serverName, and missing env are refused 
   assert.equal(readFileSync(file, 'utf8').includes('missing-env'), false)
   assert.equal(readFileSync(file, 'utf8').includes(fixture.token), false)
   assert.equal(before, false)
+})
+
+test('phone-mcp: host-reserved environment references are refused by the schema', { timeout: 30_000 }, async () => {
+  const reserved = [
+    'PDSH_CHANNEL_TOKEN',
+    'PDSH_DSH_LAUNCH_TOKEN',
+    'PDSH_MCP_EGRESS_TOKEN',
+    'PDSH_PHONE_MCP_TOKEN',
+    'PDSH_PHONE_MCP_URL',
+    'PDSH_MODEL_PROVIDER_JSON',
+  ]
+  for (const [index, envName] of reserved.entries()) {
+    await assert.rejects(
+      service.mcpUpsert({
+        serverName: `reserved-${index}`,
+        url: fixture.url,
+        headersFromEnv: { Authorization: envName },
+      }),
+      (error: unknown) => {
+        assert.equal((error as { code?: string }).code, 'MCP_ENV_NAME_INVALID', envName)
+        return true
+      },
+    )
+  }
+  // A model could also try the reserved name under an App-managed placeholder
+  // header. That is allowed only because the Worker never reads it.
+  assert.throws(
+    () => validateServerInput({
+      serverName: 'reserved-unmanaged',
+      url: fixture.url,
+      headersFromEnv: { Authorization: 'PDSH_MCP_HEADER_1' },
+    }),
+    (error: unknown) => (error as { code?: string }).code === 'MCP_ENV_NAME_INVALID',
+  )
+  const managed = validateServerInput({
+    serverName: 'managed-placeholder',
+    url: fixture.url,
+    headersFromEnv: { Authorization: 'PDSH_MCP_HEADER_1' },
+    hostManagedHeaders: ['Authorization'],
+  })
+  assert.deepEqual(resolveHeaders(managed, {}), { Authorization: HOST_MANAGED_HEADER_VALUE })
+  assert.deepEqual(snapshot().servers, [], 'a refused row must not be persisted')
+})
+
+test('phone-mcp: a resolved value equal to a host credential is not sent upstream', { timeout: 30_000 }, async () => {
+  const anonymous = await startMcpFixture({ allowAnonymous: true })
+  const target = join(temporary, 'credential-scrub', 'mcp.json')
+  mkdirSync(join(temporary, 'credential-scrub'), { recursive: true })
+  const channelCredential = 'host-channel-fixture-credential'
+  const egressCredential = 'host-egress-fixture-credential'
+  const mounted = await mountPlugin(target, {
+    MCP_HEADER_TEST_CHANNEL: channelCredential,
+    MCP_HEADER_TEST_EGRESS: egressCredential,
+    PDSH_CHANNEL_TOKEN: channelCredential,
+    PDSH_DSH_LAUNCH_TOKEN: channelCredential,
+    PDSH_MCP_EGRESS_TOKEN: egressCredential,
+  })
+  try {
+    const added = await mounted.remote.mcpUpsert({
+      serverName: 'credential-scrub',
+      url: anonymous.url,
+      headersFromEnv: {
+        Authorization: 'MCP_HEADER_TEST_CHANNEL',
+        'X-Test-Egress': 'MCP_HEADER_TEST_EGRESS',
+      },
+      enabled: true,
+      toolCallTimeoutMs: 5_000,
+    })
+    assert.equal(added.status, 'connected')
+    assert.ok(anonymous.requests.length > 0)
+    for (const request of anonymous.requests) {
+      assert.equal(request.headers.authorization, undefined,
+        'the channel token must never become an upstream header')
+      assert.equal(request.headers['x-test-egress'], undefined,
+        'the egress credential must never become a user header')
+      const values = Object.values(request.headers)
+        .flatMap(value => Array.isArray(value) ? value : [value])
+        .filter((value): value is string => typeof value === 'string')
+      assert.equal(values.includes(channelCredential), false)
+      assert.equal(values.includes(egressCredential), true,
+        'the trusted-client egress header is the one allowed use')
+      assert.equal(request.headers['x-pdsh-mcp-egress'], egressCredential)
+    }
+    const persisted = readFileSync(target, 'utf8')
+    assert.equal(persisted.includes(channelCredential), false)
+    assert.equal(persisted.includes(egressCredential), false)
+  } finally {
+    await mounted.context.fiber.dispose()
+    await anonymous.close()
+  }
 })
 
 test('phone-mcp: host-managed headers carry only a placeholder and never the device value', { timeout: 30_000 }, async () => {

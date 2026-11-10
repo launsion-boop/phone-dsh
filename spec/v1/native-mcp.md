@@ -128,3 +128,7 @@ store and one in-flight guard.
 
 Status: implemented by `Sources/PhoneDSHVenus/IPhoneAgentMCPServer.swift`, verified by
 `IPhoneAgentMCPTests`; the Android host does not serve it.
+
+## MCP egress capability (phoneDSH App/Worker)
+
+The `/mcp/native` route above bypasses `/v1/http`; it is not gated by the MCP egress token. Every other exact MCP route (the four Bot paths and each user-configured connector in `PhoneMCPAccessSettings`) travels through `/v1/http` and requires `X-PDSH-MCP-Egress` equal to the host-generated `PDSH_MCP_EGRESS_TOKEN` before the host resolves or injects a credential. Missing, empty, wrong, placeholder and case-shifted values answer HTTP 403 with `X-PDSH-Proxy-Error: mcp_egress_forbidden` and body `{"error":{"code":"mcp_egress_forbidden","message":"the MCP egress credential is missing or invalid"}}`; no credential is resolved, no upstream request is made and nothing is logged. The header is stripped before the upstream request. The host keeps the raw value in memory only; the Worker receives it through `?env=` for its trusted MCP clients, and model-written subprocesses cannot read it because names containing `TOKEN` are scrubbed. Owning endpoint clauses: [bot/v1/mcp-endpoint.md](../bot/v1/mcp-endpoint.md) §1.1; phone-only vectors: [mcp-egress.phone.json](../bot/v1/golden/mcp-egress.phone.json). Android and HarmonyOS have no Bot runtime and do not implement this extension (`not started`).

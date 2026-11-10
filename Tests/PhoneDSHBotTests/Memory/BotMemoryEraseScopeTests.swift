@@ -132,6 +132,9 @@ final class BotMemoryEraseScopeTests: XCTestCase {
         }
         let mainFactID = try await write("gb-main", "agent", "main private")
         let botFactID = try await write("gb-bot-b", "agent", "bot private")
+        await fixture.runtime.beginTurn(
+            sessionId: "gb-main", hidden: false,
+            origin: BotTurnOrigin(rpcId: BotTurnOrigin.userActionRequestId(nonce: "erase-user")))
         _ = try await write("gb-main", "user", "shared user")
 
         let cachedBot = await fixture.runtime.memory(for: "bot-b")

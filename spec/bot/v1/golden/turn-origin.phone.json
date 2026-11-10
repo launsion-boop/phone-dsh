@@ -1,0 +1,411 @@
+{
+  "schemaVersion": 1,
+  "license": "MIT",
+  "vector": "turn-origin.phone",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6",
+    "note": "phoneDSH-only contract vector; no dsh-bot upstream file exists. The source.checkout records the pinned upstream batch this contract sits beside, not the origin of these cases."
+  },
+  "upstream": [],
+  "delta": [
+    "source.rpcId prefix -> turn origin, hidden, held block and memory source (P26/P27, PC-20261110-bot-turn-origin)",
+    "valid: every row of the turn-origin table plus both task-wake prefixes",
+    "card-answer:<nonce> is a card-tap user turn (visible, no held block, user-turn); card-dismissed:<cardID> is a held inbox item id and stays unknown",
+    "invalid: empty, prefix-only, case-shifted, embedded, whitespace-only payload, missing/null, card-answer lookalikes, card-dismissed held item ids and legacy bare tool call ids must resolve to unknown (visible, agent-message)"
+  ],
+  "valid": [
+    {
+      "name": "user-action-nonce",
+      "rpcId": "user-action:4f8c2a1d9e0b",
+      "origin": "user",
+      "hidden": false,
+      "held": false,
+      "memorySource": "user-turn"
+    },
+    {
+      "name": "card-answer-nonce",
+      "rpcId": "card-answer:6d1f0c9a7b3e",
+      "origin": "user",
+      "hidden": false,
+      "held": false,
+      "memorySource": "user-turn"
+    },
+    {
+      "name": "bot-default-visible",
+      "rpcId": "bot-2b7e151628aed2a6abf7158809cf4f3c",
+      "origin": "user",
+      "hidden": false,
+      "held": false,
+      "memorySource": "user-turn"
+    },
+    {
+      "name": "held-delivery",
+      "rpcId": "held:9f2c41b0d3e8a756",
+      "origin": "held",
+      "hidden": false,
+      "held": true,
+      "memorySource": "agent-message"
+    },
+    {
+      "name": "agent-comm",
+      "rpcId": "agent:call_01J8Z9K3Q4W5X6Y7Z8A9B0C1D2",
+      "origin": "agent",
+      "hidden": false,
+      "held": false,
+      "memorySource": "agent-message"
+    },
+    {
+      "name": "routine-run",
+      "rpcId": "routine:run-20261110-01",
+      "origin": "routine",
+      "hidden": true,
+      "held": false,
+      "memorySource": "routine"
+    },
+    {
+      "name": "task-turn",
+      "rpcId": "task-turn:task-7f3c2a1b",
+      "origin": "task",
+      "hidden": true,
+      "held": false,
+      "memorySource": "task"
+    },
+    {
+      "name": "task-settled",
+      "rpcId": "task-settled:task-7f3c2a1b",
+      "origin": "task-wake",
+      "hidden": true,
+      "held": false,
+      "memorySource": "hidden-wake"
+    },
+    {
+      "name": "task-interrupted",
+      "rpcId": "task-interrupted:task-7f3c2a1b",
+      "origin": "task-wake",
+      "hidden": true,
+      "held": false,
+      "memorySource": "hidden-wake"
+    }
+  ],
+  "invalid": [
+    {
+      "name": "empty",
+      "rpcId": "",
+      "boundary": "empty",
+      "origin": "unknown",
+      "hidden": false,
+      "held": false,
+      "memorySource": "agent-message",
+      "reason": "empty request ids carry no origin"
+    },
+    {
+      "name": "prefix-only-user-action",
+      "rpcId": "user-action:",
+      "boundary": "prefix-only",
+      "origin": "unknown",
+      "hidden": false,
+      "held": false,
+      "memorySource": "agent-message",
+      "reason": "a bare prefix has no payload and is not a host-constructed request id"
+    },
+    {
+      "name": "prefix-only-card-answer",
+      "rpcId": "card-answer:",
+      "boundary": "prefix-only",
+      "origin": "unknown",
+      "hidden": false,
+      "held": false,
+      "memorySource": "agent-message",
+      "reason": "a bare card-answer prefix has no nonce and is not a host-constructed request id"
+    },
+    {
+      "name": "card-answer-no-colon",
+      "rpcId": "card-answer",
+      "boundary": "unknown",
+      "origin": "unknown",
+      "hidden": false,
+      "held": false,
+      "memorySource": "agent-message",
+      "reason": "the colon is part of the card-answer: prefix"
+    },
+    {
+      "name": "uppercase-card-answer",
+      "rpcId": "Card-Answer:x",
+      "boundary": "case",
+      "origin": "unknown",
+      "hidden": false,
+      "held": false,
+      "memorySource": "agent-message",
+      "reason": "prefix matching is ASCII case-sensitive"
+    },
+    {
+      "name": "card-answered-lookalike",
+      "rpcId": "card-answered:x",
+      "boundary": "unknown",
+      "origin": "unknown",
+      "hidden": false,
+      "held": false,
+      "memorySource": "agent-message",
+      "reason": "card-answered: is not the card-answer: delimiter"
+    },
+    {
+      "name": "card-dismissed-held-item",
+      "rpcId": "card-dismissed:card-1",
+      "boundary": "unknown",
+      "origin": "unknown",
+      "hidden": false,
+      "held": false,
+      "memorySource": "agent-message",
+      "reason": "card-dismissed:<cardID> is a held inbox item id, not a session/prompt request id"
+    },
+    {
+      "name": "prefix-only-bot",
+      "rpcId": "bot-",
+      "boundary": "prefix-only",
+      "origin": "unknown",
+      "hidden": false,
+      "held": false,
+      "memorySource": "agent-message",
+      "reason": "the default visible id always appends a UUID"
+    },
+    {
+      "name": "prefix-only-held",
+      "rpcId": "held:",
+      "boundary": "prefix-only",
+      "origin": "unknown",
+      "hidden": false,
+      "held": false,
+      "memorySource": "agent-message",
+      "reason": "held delivery ids always append the item digest"
+    },
+    {
+      "name": "prefix-only-agent",
+      "rpcId": "agent:",
+      "boundary": "prefix-only",
+      "origin": "unknown",
+      "hidden": false,
+      "held": false,
+      "memorySource": "agent-message",
+      "reason": "agent delivery ids always append the sender tool call id"
+    },
+    {
+      "name": "prefix-only-routine",
+      "rpcId": "routine:",
+      "boundary": "prefix-only",
+      "origin": "unknown",
+      "hidden": false,
+      "held": false,
+      "memorySource": "agent-message",
+      "reason": "routine ids always append the run id"
+    },
+    {
+      "name": "prefix-only-task-turn",
+      "rpcId": "task-turn:",
+      "boundary": "prefix-only",
+      "origin": "unknown",
+      "hidden": false,
+      "held": false,
+      "memorySource": "agent-message",
+      "reason": "task ids always append the task id"
+    },
+    {
+      "name": "prefix-only-task-settled",
+      "rpcId": "task-settled:",
+      "boundary": "prefix-only",
+      "origin": "unknown",
+      "hidden": false,
+      "held": false,
+      "memorySource": "agent-message",
+      "reason": "task wake ids always append the task id"
+    },
+    {
+      "name": "prefix-only-task-interrupted",
+      "rpcId": "task-interrupted:",
+      "boundary": "prefix-only",
+      "origin": "unknown",
+      "hidden": false,
+      "held": false,
+      "memorySource": "agent-message",
+      "reason": "task wake ids always append the task id"
+    },
+    {
+      "name": "uppercase-user-action",
+      "rpcId": "USER-ACTION:4f8c2a1d9e0b",
+      "boundary": "case",
+      "origin": "unknown",
+      "hidden": false,
+      "held": false,
+      "memorySource": "agent-message",
+      "reason": "prefix matching is ASCII case-sensitive"
+    },
+    {
+      "name": "mixed-case-routine",
+      "rpcId": "Routine:run-20261110-01",
+      "boundary": "case",
+      "origin": "unknown",
+      "hidden": false,
+      "held": false,
+      "memorySource": "agent-message",
+      "reason": "a case-shifted hidden prefix must not hide the turn"
+    },
+    {
+      "name": "uppercase-task-turn",
+      "rpcId": "TASK-TURN:task-7f3c2a1b",
+      "boundary": "case",
+      "origin": "unknown",
+      "hidden": false,
+      "held": false,
+      "memorySource": "agent-message",
+      "reason": "a case-shifted hidden prefix must not hide the turn"
+    },
+    {
+      "name": "user-action-in-middle",
+      "rpcId": "prefix user-action:4f8c2a1d9e0b",
+      "boundary": "embedded",
+      "origin": "unknown",
+      "hidden": false,
+      "held": false,
+      "memorySource": "agent-message",
+      "reason": "the prefix is only recognised at offset 0"
+    },
+    {
+      "name": "held-in-middle",
+      "rpcId": "preamble held:9f2c41b0d3e8a756",
+      "boundary": "embedded",
+      "origin": "unknown",
+      "hidden": false,
+      "held": false,
+      "memorySource": "agent-message",
+      "reason": "a held marker in the middle is ordinary text"
+    },
+    {
+      "name": "agent-after-newline",
+      "rpcId": "\nagent:call_01J8Z9K3Q4W5X6Y7Z8A9B0C1D2",
+      "boundary": "embedded",
+      "origin": "unknown",
+      "hidden": false,
+      "held": false,
+      "memorySource": "agent-message",
+      "reason": "a leading newline means the id does not start with the prefix"
+    },
+    {
+      "name": "routine-after-space",
+      "rpcId": " routine:run-20261110-01",
+      "boundary": "embedded",
+      "origin": "unknown",
+      "hidden": false,
+      "held": false,
+      "memorySource": "agent-message",
+      "reason": "leading whitespace is not trimmed before matching"
+    },
+    {
+      "name": "legacy-bot-call-id",
+      "rpcId": "call_01J8Z9K3Q4W5X6Y7Z8A9B0C1D2",
+      "boundary": "legacy-call-id",
+      "origin": "unknown",
+      "hidden": false,
+      "held": false,
+      "memorySource": "agent-message",
+      "reason": "pre-WP4 bot-to-bot messages used the sender tool call id without a prefix"
+    },
+    {
+      "name": "legacy-tool-use-id",
+      "rpcId": "toolu_01A2B3C4D5E6F7G8H9J0",
+      "boundary": "legacy-call-id",
+      "origin": "unknown",
+      "hidden": false,
+      "held": false,
+      "memorySource": "agent-message",
+      "reason": "bare tool-call-shaped ids are unknown, never hidden"
+    },
+    {
+      "name": "agent-dash-not-colon",
+      "rpcId": "agent-comm:42",
+      "boundary": "unknown",
+      "origin": "unknown",
+      "hidden": false,
+      "held": false,
+      "memorySource": "agent-message",
+      "reason": "agent- is not the agent: delimiter"
+    },
+    {
+      "name": "user-action-no-colon",
+      "rpcId": "user-action4f8c2a1d9e0b",
+      "boundary": "unknown",
+      "origin": "unknown",
+      "hidden": false,
+      "held": false,
+      "memorySource": "agent-message",
+      "reason": "the colon is part of the prefix"
+    },
+    {
+      "name": "task-settledness",
+      "rpcId": "task-settledness:task-7f3c2a1b",
+      "boundary": "unknown",
+      "origin": "unknown",
+      "hidden": false,
+      "held": false,
+      "memorySource": "agent-message",
+      "reason": "only the exact task-settled: prefix is a hidden wake"
+    },
+    {
+      "name": "bot-underscore",
+      "rpcId": "bot_2b7e151628aed2a6abf7158809cf4f3c",
+      "boundary": "unknown",
+      "origin": "unknown",
+      "hidden": false,
+      "held": false,
+      "memorySource": "agent-message",
+      "reason": "bot_ is not the bot- prefix"
+    },
+    {
+      "name": "fullwidth-routine",
+      "rpcId": "ｒoutine:run-20261110-01",
+      "boundary": "unknown",
+      "origin": "unknown",
+      "hidden": false,
+      "held": false,
+      "memorySource": "agent-message",
+      "reason": "fullwidth lookalikes are not the ASCII prefix"
+    },
+    {
+      "name": "routine-whitespace-only",
+      "rpcId": "routine:   ",
+      "boundary": "whitespace",
+      "origin": "unknown",
+      "hidden": false,
+      "held": false,
+      "memorySource": "agent-message",
+      "reason": "a whitespace-only payload is not a run id"
+    },
+    {
+      "name": "agent-newline-only",
+      "rpcId": "agent:\n\t",
+      "boundary": "whitespace",
+      "origin": "unknown",
+      "hidden": false,
+      "held": false,
+      "memorySource": "agent-message",
+      "reason": "a whitespace-only payload is not a call id"
+    },
+    {
+      "name": "missing-rpc-id",
+      "boundary": "missing",
+      "origin": "unknown",
+      "hidden": false,
+      "held": false,
+      "memorySource": "agent-message",
+      "reason": "an absent source.rpcId is unknown"
+    },
+    {
+      "name": "null-rpc-id",
+      "rpcId": null,
+      "boundary": "missing",
+      "origin": "unknown",
+      "hidden": false,
+      "held": false,
+      "memorySource": "agent-message",
+      "reason": "a null source.rpcId is unknown"
+    }
+  ]
+}

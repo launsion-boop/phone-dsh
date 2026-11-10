@@ -22,8 +22,6 @@ export interface AssemblePromptOptions {
   readonly promptPath?: string
   readonly lang?: 'zh' | 'en'
   readonly workspace?: string
-  readonly model?: string
-  readonly provider?: string
   readonly platform?: string
   readonly variant?: string | null
   readonly variantText?: string
@@ -46,8 +44,6 @@ export function assemblePrompt(options: AssemblePromptOptions = {}) {
     insert: options.variantText ? { variant: options.variantText } : {},
     values: {
       workspace: options.workspace ?? '/dsh/workspace',
-      model: options.model ?? 'deepseek-flash',
-      provider: options.provider ?? 'deepseek-official',
     },
   })
   const exposure = checkToolExposure(mounted.text, mounted.mounted, {

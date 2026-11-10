@@ -10,7 +10,8 @@ final class RowHistoryTests: XCTestCase {
         let turnStart = BotDSHSessionEvent(type: "turn/start", seq: 3, time: 3_000,
                                            data: ["turn": .number(2)])
         let hidden = RowTestSupport.dshText(seq: 4, time: 4_000, role: "user",
-                                            text: "[SAND_HIDDEN_PROMPT] wake", turn: 2)
+                                            text: "[SAND_HIDDEN_PROMPT] wake", turn: 2,
+                                            sourceKind: "user", rpcId: "routine:run-row-history")
         let hiddenAssistant = RowTestSupport.dshText(seq: 5, time: 5_000, role: "assistant",
                                                      text: "隐藏散文", turn: 2)
         let progress1 = RowTestSupport.progress(id: "evt-progress-1", commitSeq: 1, time: 6_000, percent: 50)
@@ -126,7 +127,7 @@ final class RowHistoryTests: XCTestCase {
 
     func testProjectionPreservesActionNonceOnlyInMemory() throws {
         let line = #"{"type":"user/message","seq":26,"time":42,"surfaceOp":"append","data":{"role":"user","content":[{"type":"text","text":"测试"}],"source":{"kind":"user","rpcId":"user-action:nonce-26"}}}"#
-        let events = try BotDSHSessionEvent.parseJSONL(Data(line.utf8))
+        let events = BotDSHSessionEvent.parseJSONL(Data(line.utf8)).events
         let rows = BotSessionLogProjector().project(
             botID: "main", sessionID: "gb-main", sessionEvents: events, uiEvents: []).rows
         let row = try XCTUnwrap(rows.first)
@@ -141,15 +142,84 @@ final class RowHistoryTests: XCTestCase {
         let line = try JSONEncoder().encode(events[0])
         let header = Data(#"{"type":"session","version":4,"id":"main","createdAt":40,"cwd":"/dsh/workspace","isSeeded":false,"delegationDepth":0}"#.utf8)
         let newline = Data([0x0A])
-        let decoded = try BotDSHSessionEvent.parseJSONL(header + newline + line + newline)
-        XCTAssertEqual(decoded, events)
-        XCTAssertEqual(try BotDSHSessionEvent.parseJSONL(line + newline), events)
-        XCTAssertThrowsError(try BotDSHSessionEvent.parseJSONL(line + newline + header))
+        let decoded = BotDSHSessionEvent.parseJSONL(header + newline + line + newline)
+        XCTAssertEqual(decoded.events, events)
+        XCTAssertEqual(decoded.diagnostics, .empty)
+        XCTAssertEqual(BotDSHSessionEvent.parseJSONL(line + newline).events, events)
+        // The header is only skipped as the first record; later it is a
+        // malformed event and is reported instead of failing the whole log.
+        let misplacedHeader = BotDSHSessionEvent.parseJSONL(line + newline + header)
+        XCTAssertEqual(misplacedHeader.events, events)
+        XCTAssertEqual(misplacedHeader.diagnostics.skippedRecordCount, 1)
         let missingSequence = Data(#"{"type":"user/message","time":42,"data":{}}"#.utf8)
-        XCTAssertThrowsError(try BotDSHSessionEvent.parseJSONL(header + newline + missingSequence))
+        let skipped = BotDSHSessionEvent.parseJSONL(header + newline + missingSequence)
+        XCTAssertTrue(skipped.events.isEmpty)
+        XCTAssertEqual(skipped.diagnostics.skippedRecordCount, 1)
+        XCTAssertEqual(skipped.diagnostics.skipped.first?.lineNumber, 2)
+        XCTAssertNil(skipped.diagnostics.skipped.first?.seq)
         let snapshot = BotSessionLogProjector().project(botID: "main", sessionID: "main",
-                                                        sessionEvents: decoded, uiEvents: [])
+                                                        sessionEvents: decoded.events, uiEvents: [])
         XCTAssertEqual(snapshot.rows.map(\.id), ["e-main-7"])
+    }
+
+    func testReplacementSurfaceOpObjectParsesAndRebuildsRows() async throws {
+        // The real post-restart system-prompt replacement uses the canonical
+        // v4 object form. Before the decoder accepted it, this single record
+        // made `parseJSONL` throw and the whole history rebuild fail.
+        let header = Data(#"{"type":"session","version":4,"id":"gb-main","createdAt":40,"cwd":"/dsh/workspace","isSeeded":false,"delegationDepth":0}"#.utf8)
+        let records = [
+            #"{"type":"system/message","seq":8,"time":41,"surfaceOp":"append","data":{"message":{"role":"system","content":[{"type":"text","text":"旧提示"}]}}}"#,
+            #"{"type":"system/message","seq":9,"time":42,"surfaceOp":{"op":"replace","startSeq":8,"endSeq":8},"data":{"message":{"role":"system","content":[{"type":"text","text":"新提示"}]}}}"#,
+            #"{"type":"user/message","seq":10,"time":43,"surfaceOp":"append","data":{"role":"user","content":[{"type":"text","text":"重启后仍要显示"}],"source":{"kind":"user","rpcId":"user-action:nonce-10"}}}"#,
+            #"{"type":"assistant/message","seq":11,"time":44,"surfaceOp":"append","data":{"message":{"role":"assistant","content":[{"type":"text","text":"已恢复"}]}}}"#,
+        ]
+        let log = ([header] + records.map { Data($0.utf8) })
+            .reduce(into: Data()) { data, record in
+                data.append(record)
+                data.append(0x0A)
+            }
+        let parsed = BotDSHSessionEvent.parseJSONL(log)
+        XCTAssertEqual(parsed.diagnostics, .empty)
+        XCTAssertEqual(parsed.events.count, 4)
+        let replacement = parsed.events[1]
+        XCTAssertEqual(replacement.surfaceOp, .replace(startSeq: 8, endSeq: 8))
+        XCTAssertEqual(replacement.surfaceOp?.op, "replace")
+        XCTAssertEqual(replacement.surfaceOp?.range, 8...8)
+
+        let history = BotRowHistory()
+        let batch = try await history.rebuild(
+            botID: "main", sessionID: "gb-main", sessionEvents: parsed.events, uiEvents: [])
+        XCTAssertEqual(batch.rows.map(\.id), ["e-gb-main-10", "e-gb-main-11"])
+        XCTAssertEqual(batch.rows.compactMap { $0.body["text"]?.stringValue },
+                       ["重启后仍要显示", "已恢复"])
+    }
+
+    func testDamagedRecordIsSkippedWithDiagnosticsAndRebuildContinues() async throws {
+        let header = Data(#"{"type":"session","version":4,"id":"gb-main","createdAt":40,"isSeeded":false,"delegationDepth":0}"#.utf8)
+        let records = [
+            Data(#"{"type":"user/message","seq":2,"time":2,"surfaceOp":"append","data":{"role":"user","content":[{"type":"text","text":"第一条"}]}}"#.utf8),
+            Data(#"{"type":"assistant/message","seq":3,"time":3,"data":{"message":{"role":"assistant","content":[{"type":"text","text":"坏"}"#.utf8),
+            Data(#"{"type":"user/message","seq":7,"time":7}"#.utf8),
+            Data(#"{"type":"assistant/message","seq":4,"time":4,"surfaceOp":"append","data":{"message":{"role":"assistant","content":[{"type":"text","text":"第三条"}]}}}"#.utf8),
+        ]
+        let newline = Data([0x0A])
+        let log = ([header] + records).reduce(into: Data()) { data, record in
+            data.append(record)
+            data.append(newline)
+        }
+        let parsed = BotDSHSessionEvent.parseJSONL(log)
+        XCTAssertEqual(parsed.events.map(\.seq), [2, 4])
+        XCTAssertEqual(parsed.diagnostics.skippedRecordCount, 2)
+        XCTAssertEqual(parsed.diagnostics.skipped.map(\.lineNumber), [3, 4])
+        // The broken JSON line has no readable seq; the semantically invalid
+        // record still exposes seq 7 for diagnostics.
+        XCTAssertEqual(parsed.diagnostics.skippedSeqs, [7])
+
+        let history = BotRowHistory()
+        let batch = try await history.rebuild(
+            botID: "main", sessionID: "gb-main", sessionEvents: parsed.events, uiEvents: [])
+        XCTAssertEqual(batch.rows.map(\.id), ["e-gb-main-2", "e-gb-main-4"])
+        XCTAssertEqual(batch.rows.compactMap { $0.body["text"]?.stringValue }, ["第一条", "第三条"])
     }
 }
 
