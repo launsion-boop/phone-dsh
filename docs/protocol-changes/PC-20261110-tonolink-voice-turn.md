@@ -59,6 +59,7 @@ Self-check：没有第二种 envelope、别名或错误码；板子与云端线�
 | revision | 由谁 | 原因 | 通知 |
 | --- | --- | --- | --- |
 | 1 | Claude | 初版 | iOS；固件与云端不变 |
+| 5 | Claude | 后台第二轮：一轮在后台结束后 `finishBackgroundKeepAlive` 照旧 park 空闲 host，下一条语音排队到回前台。板子已连接时改为保持 host。真人后台：`ev wake n=23` → 识别「打开设置 APP。」→ 聊天在后台运行并完成、回复朗读；结束后 host 保持（"keeping the host up"）。另发现（不属本变更）：`iphone_agent_run` 超过 60 s 时，Worker／gateway 的 60 s 空闲超时先到，工具实际已成功却被报超时。 | iOS |
 | 4 | Claude | 后台：App 不声明 `bluetooth-central`，后台收不到板子事件；空闲 host 进后台即 park，语音消息排队到回前台；后台切 playAndRecord 被拒（'!int'）。参照 callmate：声明 `bluetooth-central`；语音的 ctrl 连接改为长连接（restore identifier `dev.phone-dsh.tonolink-voice`、`willRestoreState`、断线／超时后挂起 `connect()`），在 App `init` 启动；每轮 background task；板子已连接时空闲 host 走既有 keep-alive 不 park（`chat.background.keepalive` 开时）；speaker claim 在前台连上即取得并保持。whitelist 加 `platform.tonolink-voice-background-wake`。真人后台（app=2）：`ev wake n=21` → 输出 Speaker → 识别「卧槽，你看我。」→ 聊天回复并朗读，9.1 s。锁屏未单独记录。 | iOS |
 | 3 | Claude | 真机：屏幕镜像到板子时输出是 AirPlay，板子丢弃 AirPlay 音频，「我在」和回复都听不到（xiaozhi-link USB_AIRPLAY_LESSONS 同样结论）。`PhoneAudioSessionLease` 增加 speaker-output claim：用同一个可混音 playAndRecord profile，仅当输出为 AirPlay 时强制手机扬声器（xiaozhi `activateSpeechSession` 同法）；ios-audio-session.md 更新。真人：`ev wake n=14` → output AirPlay→Speaker → 识别「打开电池。」→ 回复朗读，用户确认听到。租约测试新增 4 例，因本机只有 iOS 18 模拟器、App 需 iOS 27 SDK 运行库，NOT_RUN。 | iOS |
 | 2 | Claude | 真机：手机网络慢时 ASR 连接本身就用完 5 s，`started` 截止误判。改为连接 10 s、`start` 写出后 5 s 等 `started`（云端自己的 5 s）；加 USB 可读的语音日志（DEBUG）。真人「你好小智」整轮通过：连接 179 ms、started 412 ms、570 帧 0 丢包、识别出话、聊天回复并朗读。 | iOS |
