@@ -14,7 +14,7 @@
 - 用户消息可带附件：输入框左侧「+」选择照片或文件，生成 chip；发送时先写入该 Bot 的 DSH 工作区，用户行在正文气泡内显示附件卡片（名字、大小、类型）。附件是消息内容的一部分，不是新会话或新页面。
 - 运行中 composer 可用，消息走 steering；用户消息优先于 Task 并发。停止就地取消当前回合，丢弃迟到输出。
 - 后台 routine/Task 只投影卡片，不暴露过程 session。隐藏回合不显示用户行和模型散文。
-- 有待审批时 composer 上方固定提示。长按消息提供复制、查看来源；桌面 hover 不搬到手机。
+- 待审批不在 composer 上方重复提示；审批操作只在消息流里的审批卡片内完成，头部 alerting 与侧边栏「N 项待审批」状态保留。长按消息提供复制、查看来源；桌面 hover 不搬到手机。
 - 现有 DSH 多 session 工作台保持独立，不重构成 Bot 主对话。
 
 ## 2. 手机尺寸换算
@@ -58,7 +58,7 @@ question/steps 选项为整行可点并支持 recommended，提交时只使用�
   - 运行中且输入为空 → 停止（id `bot.composer.stop`）；
   - 运行中且有文字 → 发送，文字并入当前回合（id `bot.composer.send`，accessibilityLabel「发送并 steering」）；不会排队。
   TextField 文本与按钮中心对齐；多行 TextField 的回车只换行，不直接发送。**没有麦克风、语音模式或语音入口。**
-- 附件：胶囊左侧 36pt「+」（id `bot.composer.attach`）打开「照片」（`PhotosPicker`，多选）与「文件」（`fileImporter`，`.data`，多选）。选中后在胶囊上方显示横向 chip（类型图标 + 文件名 + 大小/类型 + 移除 ×，id `bot.composer.attachment.<index>`）；每条最多 10 个、单个 ≤ 25 MiB，超限当场提示且不加入。有附件时无文字也可发送；运行中（steering）同样可带附件。发送时先经 `BotAttachmentImporting` 写入该 Bot 的 DSH 工作区，失败的逐个提示「附件「名」未附加：原因」，不阻止其余附件和文字。用户行在正文下方显示附件卡片（名字、大小、类型），复用同一紧凑卡片语言。审批横幅、runtimeNotice、steering 提示保持原功能并与胶囊样式协调。
+- 附件：胶囊左侧 36pt「+」（id `bot.composer.attach`）打开「照片」（`PhotosPicker`，多选）与「文件」（`fileImporter`，`.data`，多选）。选中后在胶囊上方显示横向 chip（类型图标 + 文件名 + 大小/类型 + 移除 ×，id `bot.composer.attachment.<index>`）；每条最多 10 个、单个 ≤ 25 MiB，超限当场提示且不加入。有附件时无文字也可发送；运行中（steering）同样可带附件。发送时先经 `BotAttachmentImporting` 写入该 Bot 的 DSH 工作区，失败的逐个提示「附件「名」未附加：原因」，不阻止其余附件和文字。用户行在正文下方显示附件卡片（名字、大小、类型），复用同一紧凑卡片语言。runtimeNotice、steering 提示保持原功能并与胶囊样式协调。
 - 简洁回复：persona 与 runtime context 必须保留最新简洁回复预算和明确 next-step 文案，不允许为了显示卡片强凑选项；卡片是否提供由 Agent 根据真实下一步价值决定。
 - 头像状态：`turn_started → thinking`、`model.delta → speaking/thinking`、工具调用 → working、审批/Watchdog → alerting、成功 → celebrate、失败/拒绝 → sad、turn_end → idle 的优先级、one-shot TTL 和去重沿最新 FishDirector。待审批时 UI 覆盖为 alerting；空闲 60s 进入 sleeping，用户任何输入、发送或点按页面唤醒。状态只来自当前 Bot 的真实事件，不能由 UI 自报或虚构。
 - 头像资产采用 `BotFish/` 的分层 PNG（body 为灰度，按当前 Bot 资料的颜色 LUT 着色；发型取 `BotFish/base` 或 `BotFish/hair/<style>` 图层）与 `expressive/{eyes,mouths}.png` 3×4 表情 sprite；36/60/120pt 使用同一 anchor。所有头像由 `BotProfileStore` 的 `BotFishAppearance`（颜色 + 发型）渲染，默认 `blue/long`；没有资料时回退 `.classic`。P0 生命周期所需 idle/thinking/streaming/working/sleeping/alerting/listening/speaking/happy/sad 必须有资源；其他状态按实际事件接入。设置页等静态位置使用 `still: true` 冻结在 650ms 姿态。头像只做圆形裁切，不加白色底盘、描边或投影，直接叠在宿主表面上。
