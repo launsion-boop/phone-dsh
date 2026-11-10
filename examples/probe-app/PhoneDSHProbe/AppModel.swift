@@ -58,6 +58,10 @@ final class AppModel {
     private(set) var probeStatusText = "No probe has run in this launch"
     /// Latest Lockdown Mode observation.
     private(set) var lockdown: DeviceReportLockdown
+    /// Whether the scene is active. Updated only by the app entry's single
+    /// scene-phase observer, through `scenePhaseChanged(_:)`; it lets views
+    /// pause app-owned animation without observing `scenePhase` themselves.
+    private(set) var isSceneActive = true
     /// A monotonic counter that invalidates the Export preview.
     private(set) var reportRevision: Int = 0
 
@@ -138,10 +142,12 @@ final class AppModel {
         lockdown = store.lockdown
     }
 
-    /// Forwards a scene-phase change to the background-matrix runner.
+    /// Forwards a scene-phase change to the background-matrix runner and
+    /// records whether the scene is active for app-owned animation.
     /// Chat keep-alive, park and resume are delivered from PhoneDSHProbeApp
     /// on the same phase change.
     func scenePhaseChanged(_ phase: ScenePhase) async {
+        isSceneActive = phase == .active
         if phase == .active { refreshLockdown() }
         await background.scenePhaseChanged(phase)
     }

@@ -795,13 +795,14 @@ private struct BotUserAttachmentCard: View {
 }
 
 /// The Bot's own words: the DSH markdown body inside a white bubble on the
-/// leading side (top-leading corner square, hairline edge), up to 86% wide.
+/// leading side (top-leading corner square, hairline edge), capped at the same
+/// 86% content width every Bot card uses.
 private struct BotAnswerBubbleContent: View {
     let text: String
     let streaming: Bool
 
     var body: some View {
-        BotAdaptiveBubbleLayout(ratio: 0.86, trailing: false) {
+        BotContentWidth {
             NativeMarkdownBody(markdown: text, streaming: streaming, workspaceFiles: [], onOpenFile: { _ in })
                 .font(NativeChatTheme.bodyFont())
                 .lineSpacing(NativeChatTheme.bodyLineSpacing)
@@ -860,28 +861,6 @@ private struct BotLiveTurnView: View {
                     .accessibilityIdentifier("bot.streaming.text")
             }
         }
-    }
-}
-
-private struct BotAdaptiveBubbleLayout: Layout {
-    typealias Cache = CGSize
-
-    let ratio: CGFloat
-    let trailing: Bool
-
-    func makeCache(subviews: Subviews) -> CGSize { .zero }
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout CGSize) -> CGSize {
-        guard let child = subviews.first, let width = proposal.width else { return .zero }
-        cache = child.sizeThatFits(ProposedViewSize(width: width * ratio, height: proposal.height))
-        return CGSize(width: width, height: cache.height)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout CGSize) {
-        guard let child = subviews.first else { return }
-        let x = trailing ? bounds.maxX - cache.width : bounds.minX
-        child.place(at: CGPoint(x: x, y: bounds.minY),
-                    proposal: ProposedViewSize(width: cache.width, height: cache.height))
     }
 }
 
