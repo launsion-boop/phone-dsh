@@ -11,7 +11,7 @@
 import Foundation
 import PhoneDSHAgentCore
 
-public struct ManagedSession: Identifiable, Hashable {
+public struct ManagedSession: Identifiable, Hashable, Sendable {
     public let id: String
     public var title: String
     public var updatedAt: Date
@@ -35,7 +35,7 @@ public struct ManagedSession: Identifiable, Hashable {
     }
 }
 
-public struct ManagedWorkspace: Identifiable, Hashable {
+public struct ManagedWorkspace: Identifiable, Hashable, Sendable {
     public let id: String
     public var title: String
     public var path: String

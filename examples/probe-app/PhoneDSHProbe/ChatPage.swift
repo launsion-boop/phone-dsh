@@ -618,7 +618,7 @@ struct ChatPage: View {
             guard model.backendID != .phone else { return }
             if started {
                 Task { await model.start() }
-                Task { await management.refresh() }
+                management.refreshSoon()
             }
         }
         .onAppear { onChatAppear() }
@@ -702,7 +702,7 @@ struct ChatPage: View {
         // 预览:输入框里先放好那段超长文本,验行高和滚动。
         if let previewDraft, draft.isEmpty { draft = previewDraft }
         #endif
-        if model.isStarted { Task { await management.refresh() } }
+        if model.isStarted { management.refreshSoon() }
         // The native surface owns the one host now, so a cold launch
         // starts it directly instead of waiting for a tap. `autoRecover`
         // lets a persisted `Failed` controller (D14) be acknowledged once
@@ -795,7 +795,7 @@ struct ChatPage: View {
         scrollTrace.contentHeight = 0
         scrollTrace.tailOffsetY = 0
         pendingInitialScroll = true
-        Task { await management.refresh() }
+        management.refreshSoon()
 
     }
 
