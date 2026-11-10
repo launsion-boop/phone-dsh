@@ -38,6 +38,7 @@ public actor BotMCPRuntime {
     private var suppressingTextSessions: Set<String> = []
     private var hiddenTextSessions: Set<String> = []
     private var heldMessageSessions: Set<String> = []
+    private var turnOrigins: [String: BotTurnOrigin] = [:]
     private var turnIDs: [String: String] = [:]
 
     public init(
@@ -230,11 +231,13 @@ public actor BotMCPRuntime {
 
     public func currentTurnID(sessionId: String) -> String? { turnIDs[sessionId] }
 
-    public func beginTurn(sessionId: String, hidden: Bool, held: Bool = false) {
+    public func beginTurn(sessionId: String, hidden: Bool, held: Bool = false,
+                          origin: BotTurnOrigin? = nil) {
         suppressingTextSessions.remove(sessionId)
         turnIDs.removeValue(forKey: sessionId)
         if hidden { hiddenTextSessions.insert(sessionId) } else { hiddenTextSessions.remove(sessionId) }
         if held { heldMessageSessions.insert(sessionId) } else { heldMessageSessions.remove(sessionId) }
+        if let origin { turnOrigins[sessionId] = origin } else { turnOrigins.removeValue(forKey: sessionId) }
     }
 
     public func updateTurn(sessionId: String, turnId: String) {
@@ -244,6 +247,7 @@ public actor BotMCPRuntime {
     public func endTurn(sessionId: String) {
         hiddenTextSessions.remove(sessionId)
         heldMessageSessions.remove(sessionId)
+        turnOrigins.removeValue(forKey: sessionId)
         turnIDs.removeValue(forKey: sessionId)
     }
 
@@ -508,6 +512,22 @@ public actor BotMCPRuntime {
         }
     }
 
+    /// Turn origin decides the memory trust; the session kind is only the
+    /// fallback for a caller that began a turn without one. `join` can only
+    /// downgrade from `userTurn`, so a stale origin can never upgrade the
+    /// session-derived source.
+    private func memorySourceKind(for call: BotResolvedToolCall) -> BotMemorySourceKind {
+        let mapped = memorySource(call)
+        if let origin = turnOrigins[call.sessionId] {
+            var state = BotMemorySourceState(kind: mapped)
+            state.join(origin.memorySource)
+            return state.kind
+        }
+        if hiddenTextSessions.contains(call.sessionId) { return .hiddenWake }
+        if heldMessageSessions.contains(call.sessionId) { return .agentMessage }
+        return mapped
+    }
+
     private func updateMemory(_ arguments: BotJSONValue, call: BotResolvedToolCall) async throws -> BotMCPCallResult {
         guard case .object(let args) = arguments else { throw BotMCPError.invalidRequest("arguments must be an object") }
         let memory = memory(for: call.principal.botId)
@@ -522,9 +542,7 @@ public actor BotMCPRuntime {
             let request = BotMemoryWriteRequest(
                 text: text, tier: tier, scope: scope, key: string(args["key"]),
                 source: BotMemorySource(
-                    kind: hiddenTextSessions.contains(call.sessionId)
-                        ? .hiddenWake
-                        : heldMessageSessions.contains(call.sessionId) ? .agentMessage : memorySource(call),
+                    kind: memorySourceKind(for: call),
                     sessionID: call.principal.sessionId, turnID: turnIDs[call.sessionId],
                     role: call.principal.kind.rawValue))
             let result = try await memory.write(

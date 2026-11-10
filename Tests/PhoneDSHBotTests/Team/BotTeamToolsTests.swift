@@ -212,15 +212,43 @@ final class BotTeamToolsTests: XCTestCase {
         XCTAssertEqual(item.fromAgentName, "Alpha")
         XCTAssertEqual(item.title, "FYI")
         XCTAssertEqual(item.text, "hold this")
-        XCTAssertEqual(item.requestId, "queued-call")
+        XCTAssertEqual(item.requestId, "agent:queued-call")
         XCTAssertNotNil(item.threadId)
         XCTAssertEqual(item.state, .pending)
 
         let records = await host.records
         XCTAssertEqual(records.map(\.direction), [.outbound])
         XCTAssertEqual(records[0].status, "held")
+        XCTAssertEqual(records[0].requestID, "agent:queued-call")
         XCTAssertEqual(records[0].toAgent?.id, "bot-b")
         XCTAssertEqual(records[0].hop, 1)
+    }
+
+    func testLegacyBareCallIDOutboundRowStillDeduplicates() async throws {
+        let host = FakeBotTeamHost()
+        // Pre-WP4 rows stored the sender tool call id without the `agent:`
+        // prefix. The same call replayed by new code must not write a second
+        // outbound row or redeliver the message.
+        try await host.recordAgentComm(BotTeamAgentCommRecord(
+            rowID: "legacy-outbound", botID: "bot-a", direction: .outbound,
+            role: "assistant", text: "old message",
+            toAgent: BotAgentRef(id: "bot-b", name: "Bee"),
+            threadID: "legacy-thread", requestID: "legacy-call",
+            delivery: "now", hop: 1))
+        let tools = makeTools(host)
+        let result = await execute(tools, [
+            "agent_id": .string("bot-b"), "message": .string("old message"),
+            "priority": .bool(true),
+        ], callID: "legacy-call")
+        XCTAssertNotEqual(result.isError, true, botTeamResultText(result))
+        XCTAssertEqual(result.structuredContent?["duplicated"], .bool(true))
+        XCTAssertEqual(result.structuredContent?["threadId"], .string("legacy-thread"))
+        XCTAssertEqual(result.structuredContent?["requestId"], .string("agent:legacy-call"))
+        let delivered = await host.delivered
+        XCTAssertTrue(delivered.isEmpty)
+        let records = await host.records
+        XCTAssertEqual(records.count, 1)
+        XCTAssertEqual(records[0].requestID, "legacy-call")
     }
 
     func testNowDeliveryProducesBothRowsAndTheSenderReplyHeldItem() async throws {
@@ -262,9 +290,11 @@ final class BotTeamToolsTests: XCTestCase {
         XCTAssertEqual(held[0].item.fromAgentName, "Bee")
         XCTAssertEqual(held[0].item.text, "the answer")
         XCTAssertEqual(held[0].item.title, "回复：Question")
-        XCTAssertEqual(held[0].item.requestId, "reply:now-call")
+        XCTAssertEqual(held[0].item.requestId, "reply:agent:now-call")
         XCTAssertEqual(held[0].item.threadId, records[0].threadID)
         XCTAssertEqual(held[0].item.state, .pending)
+        XCTAssertEqual(records[0].requestID, "agent:now-call")
+        XCTAssertEqual(records[1].requestID, "agent:now-call")
         XCTAssertEqual(result.structuredContent?["threadId"]?.stringValue, records[0].threadID)
     }
 

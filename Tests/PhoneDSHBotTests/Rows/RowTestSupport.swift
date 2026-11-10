@@ -64,7 +64,8 @@ enum RowTestSupport {
     }
 
     static func dshText(seq: Int, time: Int64, role: String, text: String, turn: Int? = nil,
-                        surfaceOp: String? = "append") -> BotDSHSessionEvent {
+                        surfaceOp: String? = "append", sourceKind: String? = nil,
+                        rpcId: String? = nil) -> BotDSHSessionEvent {
         var data: [String: BotJSONValue] = [
             "role": .string(role),
             "message": .object([
@@ -74,6 +75,12 @@ enum RowTestSupport {
         ]
         if let surfaceOp { data["surfaceOp"] = .string(surfaceOp) }
         if let turn { data["turn"] = .number(Double(turn)) }
+        if sourceKind != nil || rpcId != nil {
+            var source: [String: BotJSONValue] = [:]
+            if let sourceKind { source["kind"] = .string(sourceKind) }
+            if let rpcId { source["rpcId"] = .string(rpcId) }
+            data["source"] = .object(source)
+        }
         return BotDSHSessionEvent(type: role == "user" ? "user/message" : "assistant/message",
                                   seq: seq, time: time, data: data)
     }

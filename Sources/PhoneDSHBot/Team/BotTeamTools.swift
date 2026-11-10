@@ -114,9 +114,18 @@ public actor BotTeamTools: BotTeamToolHandling, BotTeamToolCatalogProviding {
                     + "Stop and answer the sender directly.")
         }
 
-        let requestID = context.callId
-        if let existingThread = await host.existingAgentCommThread(
-            botID: principal.botId, requestID: requestID) {
+        let callID = context.callId
+        let requestID = BotTurnOrigin.agentRequestId(callId: callID)
+        // Compatibility: pre-WP4 outbound agent.comm rows stored the bare
+        // sender call id as their requestId. A replay of that same tool call
+        // must find the old row and not write a second outbound row.
+        var existingThread = await host.existingAgentCommThread(
+            botID: principal.botId, requestID: requestID)
+        if existingThread == nil {
+            existingThread = await host.existingAgentCommThread(
+                botID: principal.botId, requestID: callID)
+        }
+        if let existingThread {
             return sendToAgentSuccess(
                 target: target, threadID: existingThread, requestID: requestID,
                 delivery: delivery, duplicated: true, heldID: nil)

@@ -331,9 +331,16 @@ public enum HeldMessages {
             switch item.kind {
             case "routine-result":
                 let at = RoutineScheduleMath.formatMinute(item.ranAt ?? item.createdAt, timezone: timezone) ?? "—"
-                lines.append("- [routine] \(item.title ?? item.routineId ?? item.id) · \(at) · msg \(item.id): \(item.text)")
+                // Routine titles and saved result text are non-host text;
+                // escape them before placing them in the single-line block.
+                let title = escapedHeldField(item.title ?? item.routineId ?? item.id)
+                let text = escapedHeldField(item.text)
+                lines.append("- [routine] \(title) · \(at) · msg \(item.id): \(text)")
             case "subagent-result":
-                lines.append("- [subagent] task \(item.taskId ?? item.id) · \(item.status ?? "unknown"): \(item.text)")
+                let taskID = escapedHeldField(item.taskId ?? item.id)
+                let status = escapedHeldField(item.status ?? "unknown")
+                let text = escapedHeldField(item.text)
+                lines.append("- [subagent] task \(taskID) · \(status): \(text)")
             case "card-dismissed":
                 let title = escapedHeldField(item.title ?? item.id)
                 let text = escapedHeldField(item.text)

@@ -197,20 +197,17 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
         }
         var prompt = body
         var stagedKey: String?
-        var held = false
-        var promptRequestId = requestId
+        var promptRequestId = requestId ?? BotTurnOrigin.visibleRequestId()
         if !steer, let wakeInbox {
             let staged = try await wakeInbox.stage(now: now())
             stagedKey = staged.key
             if !staged.items.isEmpty {
                 prompt = HeldMessages.block(items: staged.items) + "\n\n" + body
-                held = true
                 // Held deliveries derive their id from the item ids, not from
                 // the random staged key, so a crash replay after `revert`
                 // reuses the same id for the same items.
-                promptRequestId = Self.deliveryRequestId(prefix: "held", items: staged.items)
-                if let promptRequestId, let requestId, requestId.hasPrefix("user-action:") {
-                    let nonce = String(requestId.dropFirst("user-action:".count))
+                promptRequestId = Self.deliveryRequestId(items: staged.items)
+                if let nonce = BotTurnOrigin.userActionNonce(from: requestId) {
                     recentHeldChatActions.removeAll { $0.requestId == promptRequestId }
                     recentHeldChatActions.append((promptRequestId, nonce))
                     if recentHeldChatActions.count > 64 { recentHeldChatActions.removeFirst() }
@@ -219,13 +216,26 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
         }
         do {
             let result = try await runTurn(sessionId: sessionId, kind: .chat, prompt: prompt,
-                                           hidden: false, held: held, requestId: promptRequestId)
+                                           requestId: promptRequestId)
             if let stagedKey { _ = try await wakeInbox?.commit(stagedKey) }
             return result
         } catch {
             if let stagedKey { _ = try await wakeInbox?.revert(stagedKey) }
             throw error
         }
+    }
+
+    /// The one delivery seam for another Bot's immediate message. It is not a
+    /// user turn: the request id carries the frozen `agent:` origin, pending
+    /// held items are not folded into it, and it never steers into a turn of a
+    /// different origin.
+    public func sendAgentMessage(_ text: String, requestId: String) async throws -> BotRemoteTurnResult {
+        guard BotTurnOrigin(rpcId: requestId).kind == .agent else {
+            throw BotMCPError.invalidRequest("agent delivery requires an agent: request id")
+        }
+        let sessionId = try await ensureMainSession()
+        return try await runTurn(sessionId: sessionId, kind: .chat, prompt: text,
+                                 requestId: requestId, allowSteer: false)
     }
 
     /// The single runtime seam the app-layer attachment importer uses. It
@@ -236,10 +246,16 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
         try await ensureMainSession()
     }
 
+    /// Hidden work must carry a hidden `rpcId` prefix; the parameter alone no
+    /// longer decides whether the turn is hidden. There is currently no
+    /// production caller.
     public func sendHiddenInteraction(_ text: String, requestId: String? = nil) async throws -> BotRemoteTurnResult {
+        guard let requestId, BotTurnOrigin(rpcId: requestId).hidden else {
+            throw BotMCPError.invalidRequest("hidden interaction requires a hidden request id prefix")
+        }
         let sessionId = try await ensureMainSession()
         return try await runTurn(sessionId: sessionId, kind: .chat, prompt: text,
-                                 hidden: true, requestId: requestId)
+                                 requestId: requestId)
     }
 
     /// Subscribes one additional observer to live frames of visible main-chat
@@ -346,8 +362,8 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
                     "scheduledFor": .number(Double(request.startedAt)),
                 ]), eventId: "started:\(request.runId)")
             let result = try await runTurn(
-                sessionId: sessionId, kind: .routine, prompt: request.wake.text, hidden: true,
-                requestId: "routine:\(request.runId)")
+                sessionId: sessionId, kind: .routine, prompt: request.wake.text,
+                requestId: BotTurnOrigin.routineRequestId(runId: request.runId))
             let reply = RoutineWakeBuilder.normalizeReply(result.text)
             _ = try await runtime.eventWriter.append(
                 type: "routine.run_finished", principal: principal,
@@ -476,7 +492,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
         do {
             let turn = try await runTurn(
                 sessionId: state.record.sessionId, kind: .task,
-                prompt: state.prompt, hidden: true, requestId: "task-turn:\(taskId)")
+                prompt: state.prompt, requestId: BotTurnOrigin.taskTurnRequestId(taskId: taskId))
             guard let current = taskStates[taskId], current.generation == generation,
                   current.record.status == "running" else {
                 return taskStates[taskId]?.record ?? state.record
@@ -498,10 +514,14 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
                 eventId: "settled:\(taskId)")
             if state.asynchronous, state.parentKind == .chat,
                taskStates[taskId]?.generation == generation {
-                let prompt = "[SAND_HIDDEN_PROMPT][subagent]\n\(state.title) | \(record.status) | \(taskId)\n\(String(turn.text.prefix(1_200)))"
+                let title = HeldMessages.escapedHeldField(state.title)
+                let status = HeldMessages.escapedHeldField(record.status)
+                let escapedTaskID = HeldMessages.escapedHeldField(taskId)
+                let excerpt = HeldMessages.escapedHeldField(String(turn.text.prefix(1_200)))
+                let prompt = "[SAND_HIDDEN_PROMPT][subagent]\n\(title) | \(status) | \(escapedTaskID)\n\(excerpt)"
                 _ = try await runTurn(
-                    sessionId: state.ownerSessionId, kind: .chat, prompt: prompt, hidden: true,
-                    requestId: "task-settled:\(taskId)")
+                    sessionId: state.ownerSessionId, kind: .chat, prompt: prompt,
+                    requestId: BotTurnOrigin.taskSettledRequestId(taskId: taskId))
             }
             return record
         } catch {
@@ -580,13 +600,15 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
                 interruptedTaskWakes.removeAll { $0 == taskId }
                 continue
             }
+            let title = HeldMessages.escapedHeldField(state.title)
+            let escapedTaskID = HeldMessages.escapedHeldField(taskId)
             let prompt = "[SAND_HIDDEN_PROMPT][subagent]\n"
-                + "\(state.title) | interrupted | \(taskId)\n"
+                + "\(title) | interrupted | \(escapedTaskID)\n"
                 + "The Worker restarted and interrupted this task; its result is incomplete."
             do {
                 let result = try await runTurn(
-                    sessionId: state.ownerSessionId, kind: .chat, prompt: prompt, hidden: true,
-                    requestId: "task-interrupted:\(taskId)")
+                    sessionId: state.ownerSessionId, kind: .chat, prompt: prompt,
+                    requestId: BotTurnOrigin.taskInterruptedRequestId(taskId: taskId))
                 guard result.status == "completed" else { continue }
                 taskStates[taskId]?.wakeDelivered = true
                 try? await persistTask(taskId: taskId, type: "task.updated",
@@ -705,10 +727,10 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
         data["task_id"] == nil ? nil : data
     }
 
-    private static func deliveryRequestId(prefix: String, items: [WakeInboxItem]) -> String {
+    private static func deliveryRequestId(items: [WakeInboxItem]) -> String {
         let digest = (try? BotArgumentsDigest.string(for: .array(items.map { .string($0.id) })))
             ?? items.map(\.id).joined(separator: ",")
-        return "\(prefix):\(digest)"
+        return BotTurnOrigin.heldRequestId(digest: digest)
     }
 
     private func jsonValue<T: Encodable>(_ value: T) throws -> BotJSONValue {
@@ -1061,11 +1083,13 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
     }
 
     private func runTurn(sessionId: String, kind: BotSessionKind,
-                         prompt: String, hidden: Bool, held: Bool = false,
-                         requestId: String? = nil) async throws -> BotRemoteTurnResult {
+                         prompt: String, requestId: String,
+                         allowSteer: Bool = true) async throws -> BotRemoteTurnResult {
         _ = try await ensureSession(sessionId: sessionId, kind: kind)
-        let requestId = requestId ?? "bot-\(UUID().uuidString.lowercased())"
-        if canSteer(sessionId: sessionId), kind == .chat, !hidden,
+        let origin = BotTurnOrigin(rpcId: requestId)
+        let hidden = origin.hidden
+        let held = origin.held
+        if allowSteer, canSteer(sessionId: sessionId), kind == .chat, !hidden,
            let active = coordinators[sessionId] {
             try await sendPrompt(sessionId: sessionId, prompt: prompt, mode: "steer", requestId: requestId)
             return try await active.work.value
@@ -1083,22 +1107,23 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
                 }
                 return try await startCoordinatedTurn(
                     sessionId: sessionId, kind: kind, prompt: prompt, hidden: hidden, held: held,
-                    attemptId: attemptId, requestId: requestId)
+                    attemptId: attemptId, requestId: requestId, origin: origin)
             }
             queuedTurns[sessionId] = QueuedTurn(attemptId: attemptId, work: work, cancelled: false)
             return try await work.value
         }
         return try await startCoordinatedTurn(
             sessionId: sessionId, kind: kind, prompt: prompt, hidden: hidden, held: held,
-            attemptId: UUID().uuidString.lowercased(), requestId: requestId)
+            attemptId: UUID().uuidString.lowercased(), requestId: requestId, origin: origin)
     }
 
     private func startCoordinatedTurn(sessionId: String, kind: BotSessionKind,
                                       prompt: String, hidden: Bool, held: Bool,
-                                      attemptId: String, requestId: String) async throws -> BotRemoteTurnResult {
+                                      attemptId: String, requestId: String,
+                                      origin: BotTurnOrigin) async throws -> BotRemoteTurnResult {
         let work = Task { try await self.performCoordinatedTurn(
             sessionId: sessionId, kind: kind, prompt: prompt, hidden: hidden, held: held,
-            attemptId: attemptId, requestId: requestId) }
+            attemptId: attemptId, requestId: requestId, origin: origin) }
         coordinators[sessionId] = TurnCoordinator(
             sessionId: sessionId, attemptId: attemptId, kind: kind, hidden: hidden,
             work: work, cancelRequested: false, promptAccepted: false)
@@ -1107,8 +1132,9 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
 
     private func performCoordinatedTurn(sessionId: String, kind: BotSessionKind,
                                         prompt: String, hidden: Bool, held: Bool,
-                                        attemptId: String, requestId: String) async throws -> BotRemoteTurnResult {
-        await runtime.beginTurn(sessionId: sessionId, hidden: hidden, held: held)
+                                        attemptId: String, requestId: String,
+                                        origin: BotTurnOrigin) async throws -> BotRemoteTurnResult {
+        await runtime.beginTurn(sessionId: sessionId, hidden: hidden, held: held, origin: origin)
         var mux: (any DSHMuxConnection)?
         do {
             let opened = try await transport.openMux()

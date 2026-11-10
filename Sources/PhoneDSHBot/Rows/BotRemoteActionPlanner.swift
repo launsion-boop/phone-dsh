@@ -68,7 +68,8 @@ public actor BotRemoteActionPlanner: BotUserActionPlanning {
                 return .rejected(reason: "missing_text")
             }
             return try await complete(action, result: remote.sendUserMessage(
-                text, requestId: "user-action:\(action.nonce)", attachments: attachments))
+                text, requestId: BotTurnOrigin.userActionRequestId(nonce: action.nonce),
+                attachments: attachments))
         case .cardAnswer:
             guard action.text == nil else {
                 return .rejected(reason: "unexpected_card_answer_field")

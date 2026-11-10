@@ -3,9 +3,12 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
 import { botHiddenSessions } from './runtime-registry.ts'
+import { turnOriginOfMessage } from './turn-origin.ts'
 
-export function isHiddenPromptMessage(message: UserMessage): boolean {
-  return message.content.some(block => block.type === 'text' && block.text.startsWith('[SAND_HIDDEN_PROMPT]'))
+/// A turn is hidden only when its host-minted `source.rpcId` prefix says so.
+/// Message text (including the historical hidden marker) is never consulted.
+export function isHiddenTurnMessage(message: UserMessage): boolean {
+  return turnOriginOfMessage(message).hidden
 }
 
 export function steerInsertedMessage(
@@ -15,7 +18,7 @@ export function steerInsertedMessage(
   hiddenSessions: ReadonlySet<string> = new Set(),
 ): boolean {
   const sessionId = String(agent.id || agent.session?.id || '')
-  if (hiddenSessions.has(sessionId) || isHiddenPromptMessage(message)) return false
+  if (hiddenSessions.has(sessionId) || isHiddenTurnMessage(message)) return false
   if (agent.status !== 'running' || rerouting.has(message)) return false
   if (!agent.inbox.nextTurn.some(pending => pending.id === message.id)) return false
   let removed = false

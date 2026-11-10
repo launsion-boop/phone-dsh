@@ -3,6 +3,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { BotStreamFrame, BotStreamHub } from './channel.ts'
 import { botHiddenSessions, botStreamHub } from './runtime-registry.ts'
+import { turnOriginOfMessage } from './turn-origin.ts'
 
 export const MAX_STREAM_ATTEMPTS = 512
 
@@ -30,8 +31,8 @@ export interface StreamForwardConfig {
   readonly hub?: BotStreamHub
 }
 
-function hiddenText(message: { content?: readonly { type: string; text?: string }[] }): boolean {
-  return (message.content ?? []).some(block => block.type === 'text' && block.text?.startsWith('[SAND_HIDDEN_PROMPT]'))
+function isHiddenMessage(message: { readonly source?: unknown }): boolean {
+  return turnOriginOfMessage(message).hidden
 }
 
 export default function dshbotStreamForward(ctx: Context, config: StreamForwardConfig = {}): void {
@@ -49,7 +50,7 @@ export default function dshbotStreamForward(ctx: Context, config: StreamForwardC
 
   ctx.on('agent/inbox/inserted', ({ agent, message }) => {
     const sessionId = String(agent.id || agent.session?.id || '')
-    if (sessionId && hiddenText(message)) hidden.add(sessionId)
+    if (sessionId && isHiddenMessage(message)) hidden.add(sessionId)
   })
 
   ctx.on('tools/post-execute', async (exec: ToolExecution, _result: unknown, next: () => Promise<any>) => {
