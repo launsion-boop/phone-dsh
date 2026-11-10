@@ -51,10 +51,12 @@ Self-check：没有第二种 envelope、别名或错误码；板子与云端线�
   - 板子控制台 `wake`（模拟）→ 手机收到 `ev wake n=0` → 预取的「我在」0.75 s 播完、ASR 同时就绪 → `listen` → 板子 286 帧、0 缺号、0 丢包，全部转发 → `ev listen_end reason=vad` → 云端无可识别语音，本轮静默结束。
   - `POST /debug/voice/opus`（macOS `say` 合成「打开电池，看看现在的电量」→ libopus 16 kHz 20 ms，207 包）→ 云端 ASR「打开电池看看现在的电量。」
   - `POST /debug/voice/opus?chat=1`（「把板子上的灯打开」）→ 聊天 → `ble_link_call light.set {"on":true}` → `completed`、`ws2812` → 回复「灯已打开」朗读（代码块不读），9.3 s。
-- 未验证：真人对板子说「你好小智」（需要现场的人）；后台／锁屏下的整轮；「打开电池查看电量」整轮（需要屏幕镜像开着，`iphone_agent_run` 才看得到屏幕）；固件 Kconfig 帮助文字仍写「listen 未移植」，但代码与本次实测表明已移植（属固件仓库文档，未改）。
+- 真人：对板子说「你好小智」→ `ev wake n=10` → 我在 → ASR 连接 179 ms、started 412 ms → 570 帧 0 缺号 0 丢包 → 识别「连接网络，提供语音服务，已连接。」→ 聊天回复并朗读（rev 2）。
+- 未验证：后台／锁屏下的整轮；「打开电池查看电量」整轮（需要屏幕镜像开着，`iphone_agent_run` 才看得到屏幕）；固件 Kconfig 帮助文字仍写「listen 未移植」，但代码与本次实测表明已移植（属固件仓库文档，未改）。
 
 ## 5. 修订纪录
 
 | revision | 由谁 | 原因 | 通知 |
 | --- | --- | --- | --- |
 | 1 | Claude | 初版 | iOS；固件与云端不变 |
+| 2 | Claude | 真机：手机网络慢时 ASR 连接本身就用完 5 s，`started` 截止误判。改为连接 10 s、`start` 写出后 5 s 等 `started`（云端自己的 5 s）；加 USB 可读的语音日志（DEBUG）。真人「你好小智」整轮通过：连接 179 ms、started 412 ms、570 帧 0 丢包、识别出话、聊天回复并朗读。 | iOS |

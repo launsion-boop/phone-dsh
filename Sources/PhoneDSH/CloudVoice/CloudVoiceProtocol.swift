@@ -13,6 +13,7 @@ public enum CloudVoice {
     public static let ttsSampleRate = 16_000
     public static let ttsInputMaxScalars = 1000
     public static let preStartQueueMax = 100
+    public static let connectTimeoutMs = 10_000
     public static let startedTimeoutMs = 5000
     public static let finishTimeoutDefaultMs = 15_000
     public static let finishGraceMs = 5000

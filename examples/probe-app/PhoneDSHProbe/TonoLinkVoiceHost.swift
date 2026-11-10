@@ -5,6 +5,7 @@
 // the reply is spoken. The board's microphone does all recording; the phone only plays.
 
 import AVFoundation
+import UIKit
 import Foundation
 import PhoneDSH
 import PhoneDSHBLE
@@ -49,10 +50,12 @@ import ProbeKit
                     try await link.connect(timeout: .seconds(20))
                     ctrl = link
                     state = "等待「你好小智」（\(link.peripheralName ?? "board")）"
+                    log("connected \(link.peripheralName ?? "?") audio=\(link.isAudioSubscribed)")
                     setKeepAlive(true)
                     await prefetchHere()
                 } catch {
                     state = "没有连上板子：\(error.localizedDescription)"
+                    log("connect failed: \(error.localizedDescription)")
                 }
             }
             try? await Task.sleep(for: .seconds(ctrl?.isConnected == true ? 3 : 10))
@@ -73,7 +76,9 @@ import ProbeKit
     // MARK: - Board events
 
     private func receive(_ line: TonoLinkCtrlLine) {
-        guard case .other(let text) = line, let event = TonoLinkVoiceEvent.parse(text) else { return }
+        guard case .other(let text) = line else { return }
+        if text.hasPrefix("ev ") { log("line \(text) app=\(UIApplication.shared.applicationState.rawValue)") }
+        guard let event = TonoLinkVoiceEvent.parse(text) else { return }
         switch event {
         case .wake(let n, _):
             beginTurn(wake: n, source: n == 0 ? "board (simulated)" : "board")
@@ -120,7 +125,22 @@ import ProbeKit
         }
     }
 
-    private func note(_ key: String, _ value: Any) { lastTurn[key] = value }
+    private func note(_ key: String, _ value: Any) {
+        lastTurn[key] = value
+        log("turn \(turnID) \(key)=\(value)")
+    }
+
+    /// One line per event in `Documents/tonolink-voice.log` (DEBUG), readable over USB without Wi-Fi.
+    func log(_ line: String) {
+        #if DEBUG
+        guard let folder = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+        let file = folder.appendingPathComponent("tonolink-voice.log")
+        let stamp = ISO8601DateFormatter().string(from: Date())
+        let data = Data("\(stamp) \(line)\n".utf8)
+        if let handle = try? FileHandle(forWritingTo: file) { handle.seekToEndOfFile(); handle.write(data); try? handle.close() }
+        else { try? data.write(to: file) }
+        #endif
+    }
 
     private func turnEnded(_ id: UInt32) {
         guard id == turnID else { return }
@@ -150,7 +170,10 @@ import ProbeKit
             asr = session
             await session.open()
         }
-        guard await session.ready(), !Task.isCancelled else {
+        let up = await session.ready()
+        note("asr_connect", ["connect_ms": await session.connectMs ?? -1, "started_ms": await session.startedMs ?? -1,
+                             "handshake": await session.handshakeStatus ?? 0])
+        guard up, !Task.isCancelled else {
             let why = await session.outcome()
             note("error", "语音识别没有连上（\(why)）")
             return

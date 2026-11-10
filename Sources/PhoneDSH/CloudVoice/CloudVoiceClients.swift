@@ -28,13 +28,30 @@ public actor CloudASRSession {
         self.turnID = turnID
     }
 
-    /// Connects, sends `start` and starts reading; `started` must arrive within 5 s.
+    /// Milliseconds from `open()` until `start` was written (the connection was up), and until `started`.
+    public private(set) var connectMs: Int?
+    public private(set) var startedMs: Int?
+    private var openedAt = Date()
+
+    /// Connects (at most 10 s), sends `start` and starts reading; `started` must then arrive within 5 s (§2).
     public func open() {
+        openedAt = Date()
         task.resume()
-        task.send(.string(String(decoding: CloudVoice.startMessage(turnID: turnID), as: UTF8.self))) { _ in }
-        arm(after: CloudVoice.startedTimeoutMs, reason: "no started within 5 s")
+        task.send(.string(String(decoding: CloudVoice.startMessage(turnID: turnID), as: UTF8.self))) { [weak self] error in
+            guard error == nil, let self else { return }
+            Task { await self.startWritten() }
+        }
+        arm(after: CloudVoice.connectTimeoutMs, reason: "no connection within 10 s")
         Task { await self.receiveLoop() }
     }
+
+    private func startWritten() {
+        connectMs = elapsedMs()
+        guard !started, transcript.outcome == .pending else { return }
+        arm(after: CloudVoice.startedTimeoutMs, reason: "no started within 5 s of start")
+    }
+
+    private func elapsedMs() -> Int { Int(Date().timeIntervalSince(openedAt) * 1000) }
 
     /// Queues one Opus body; sent at once after `started`, in arrival order.
     public func send(_ opus: Data) {
@@ -111,6 +128,7 @@ public actor CloudASRSession {
             let decoded = CloudASRMessage.decode(text)
             if case .started(let timeout) = decoded, !started {
                 started = true
+                startedMs = elapsedMs()
                 finishTimeoutMs = timeout
                 deadline?.cancel()
                 queued.forEach(write); queued = []

@@ -9,6 +9,7 @@
     "tts_sample_rate": 16000,
     "tts_input_max_scalars": 1000,
     "pre_start_queue_max": 100,
+    "connect_timeout_ms": 10000,
     "started_timeout_ms": 5000,
     "finish_timeout_default_ms": 15000,
     "finish_grace_ms": 5000

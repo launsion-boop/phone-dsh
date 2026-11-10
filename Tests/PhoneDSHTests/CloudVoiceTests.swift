@@ -29,6 +29,7 @@ final class CloudVoiceTests: XCTestCase {
         XCTAssertEqual(c["tts_sample_rate"] as? Int, CloudVoice.ttsSampleRate)
         XCTAssertEqual(c["tts_input_max_scalars"] as? Int, CloudVoice.ttsInputMaxScalars)
         XCTAssertEqual(c["pre_start_queue_max"] as? Int, CloudVoice.preStartQueueMax)
+        XCTAssertEqual(c["connect_timeout_ms"] as? Int, CloudVoice.connectTimeoutMs)
         XCTAssertEqual(c["started_timeout_ms"] as? Int, CloudVoice.startedTimeoutMs)
         XCTAssertEqual(c["finish_timeout_default_ms"] as? Int, CloudVoice.finishTimeoutDefaultMs)
         XCTAssertEqual(c["finish_grace_ms"] as? Int, CloudVoice.finishGraceMs)

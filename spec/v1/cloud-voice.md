@@ -37,7 +37,8 @@ the newly resolved value differs. Every other status is reported as the turn's f
   (2 s); one more fails the turn with `cancel`.
 - When the board's audio ends (§4.1) the client sends `{"type":"finish"}` unless a terminal message
   already arrived. A user cancel or a new wake sends `{"type":"cancel"}`.
-- Deadlines: `started` within 5 s of `start`; a terminal within `started.limits.finish_timeout_ms`
+- Deadlines: the connection (TLS and upgrade) within 10 s; `started` within 5 s of `start` being
+  written on the open connection (the cloud's own 5 s, not counting a slow network); a terminal within `started.limits.finish_timeout_ms`
   (15 000 if absent) + 5 000 ms of `finish`. A missed deadline cancels and fails the turn.
 - Results: `partial` is display-only and never executed. The text of the turn is the `final` texts in
   `segment_id` order, joined without separator, **only** after `completed`. `completed` with
