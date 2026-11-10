@@ -554,9 +554,9 @@ public actor ModelGateway {
     public func prewarm() {
         guard !isShutdown else { return }
         prewarmTasks.removeAll { $0.state == .completed || $0.state == .canceling }
-        guard let session = coordinator.session() else { return }
         for rule in hostRules {
             guard let url = rule.prewarmURL() else { continue }
+            guard let session = coordinator.session(for: url) else { continue }
             var request = URLRequest(url: url)
             request.httpMethod = "HEAD"
             request.timeoutInterval = min(configuration.upstreamRequestTimeout, 15)
@@ -593,6 +593,11 @@ public actor ModelGateway {
     /// request made after this call would use.
     nonisolated func currentSessionForTesting() -> URLSession? {
         coordinator.session()
+    }
+
+    /// Internal observation point for the loopback fast-fail regression.
+    nonisolated func currentLocalSessionForTesting() -> URLSession? {
+        coordinator.localSession()
     }
 
     /// Cancels in-flight work and invalidates the one URLSession. Idempotent.

@@ -161,18 +161,25 @@ final class GatewayUpstreamDiagnosticsTests: XCTestCase {
             allowedHosts: [],
             sessionInvalidator: { invalidated.append($0) })
         let old = coordinator.makeSession(timeout: 1)
+        let oldLocal = try XCTUnwrap(coordinator.localSession())
         let replacement = try XCTUnwrap(coordinator.replaceSession(timeout: 2))
+        let replacementLocal = try XCTUnwrap(coordinator.localSession())
         XCTAssertFalse(old === replacement)
+        XCTAssertFalse(oldLocal === replacementLocal)
         XCTAssertTrue(coordinator.session() === replacement)
         XCTAssertFalse(coordinator.isShutDown)
-        XCTAssertEqual(invalidated.sessions.count, 1)
-        XCTAssertTrue(invalidated.sessions.first === old)
+        // The external and loopback pools are independent: both stale pools
+        // are invalidated so neither survives a resume.
+        XCTAssertEqual(invalidated.sessions.count, 2)
+        XCTAssertTrue(invalidated.sessions.contains { $0 === old })
+        XCTAssertTrue(invalidated.sessions.contains { $0 === oldLocal })
         coordinator.invalidate()
         XCTAssertTrue(coordinator.isShutDown)
         XCTAssertNil(coordinator.replaceSession(timeout: 2),
                      "a shut-down gateway must not install another session")
-        XCTAssertEqual(invalidated.sessions.count, 2)
-        XCTAssertTrue(invalidated.sessions.last === replacement)
+        XCTAssertEqual(invalidated.sessions.count, 4)
+        XCTAssertTrue(invalidated.sessions.contains { $0 === replacement })
+        XCTAssertTrue(invalidated.sessions.contains { $0 === replacementLocal })
     }
 
     func testModelGatewaySwapsItsSessionForResume() async throws {

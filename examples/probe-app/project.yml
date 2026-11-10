@@ -250,6 +250,10 @@ targets:
       - path: PhoneDSHProbe/LegacyTaskInspectionModel.swift
       - path: PhoneDSHProbe/LegacyTaskInspectionSection.swift
       - path: PhoneDSHProbe/BluetoothDevicesPage.swift
+      # The App-side Bot MCP listener supervisor is host-free and links the
+      # real PhoneDSHBot recovery result, so the three lifecycle timings run
+      # against an injected fake listener without constructing ChatModel.
+      - path: PhoneDSHProbe/Bot/BotMCPListenerSupervisor.swift
       # The scripted model upstream, the smoke evidence readers (WAL
       # replay/journal/step formats) and the kill-matrix support ship as the
       # regular SwiftPM target `PhoneDSHHarness`; this target links its
@@ -276,6 +280,8 @@ targets:
         product: PhoneDSHAgentCore
       - package: PhoneDSH
         product: PhoneDSHDeviceTasks
+      - package: PhoneDSH
+        product: PhoneDSHBot
       - package: PhoneDSH
         product: PhoneDSHBLE
       # The simulator suites import the linked shell provider exposed by the
@@ -367,6 +373,10 @@ targets:
       - path: PhoneDSHProbe/LegacyTaskInspectionModel.swift
       - path: PhoneDSHProbe/LegacyTaskInspectionSection.swift
       - path: PhoneDSHProbe/BluetoothDevicesPage.swift
+      # The App-side Bot MCP listener supervisor is host-free and links the
+      # real PhoneDSHBot recovery result, so the three lifecycle timings run
+      # against an injected fake listener without constructing ChatModel.
+      - path: PhoneDSHProbe/Bot/BotMCPListenerSupervisor.swift
     dependencies:
       - target: PhoneDSHProbe
       - target: ProbeKit
@@ -388,6 +398,8 @@ targets:
         product: PhoneDSHAgentCore
       - package: PhoneDSH
         product: PhoneDSHDeviceTasks
+      - package: PhoneDSH
+        product: PhoneDSHBot
       - package: PhoneDSH
         product: PhoneDSHBLE
       - package: PhoneDSH

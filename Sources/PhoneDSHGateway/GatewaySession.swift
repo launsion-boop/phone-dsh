@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: MIT
 // phone-dsh phone DSH — PhoneDSHGateway: upstream transport.
 //
-// One long-lived `URLSession` carries every model/tool request. The delegate
-// object below turns URLSession callbacks into an ordered event stream so the
-// gateway can make retry decisions before it writes the first downstream byte,
-// while still forwarding SSE/chunked bodies as they arrive. The attempt object
-// is intentionally not an `AsyncSequence` consumer of the downstream stream:
-// a downstream cancellation only sets a flag, it never cancels the URLSession
-// task, so the full upstream response is still received and recorded.
+// One long-lived `URLSession` carries external model/tool requests; a second
+// local-only session carries loopback upstreams with fast-fail timeouts. The
+// delegate object below turns URLSession callbacks into an ordered event stream
+// so the gateway can make retry decisions before it writes the first downstream
+// byte, while still forwarding SSE/chunked bodies as they arrive. The attempt
+// object is intentionally not an `AsyncSequence` consumer of the downstream
+// stream: a downstream cancellation only sets a flag, it never cancels the
+// URLSession task, so the full upstream response is still received and recorded.
 
 import Foundation
 import PhoneDSHAgentCore
@@ -229,10 +230,11 @@ final class GatewaySessionCoordinator: NSObject, URLSessionDataDelegate, URLSess
     /// actually invalidated instead of only dereferenced.
     private let sessionInvalidator: @Sendable (URLSession) -> Void
     private let lock = NSLock()
-    private var attempts: [Int: UpstreamAttempt] = [:]
-    private var credentialRedirects: [Int: GatewayCredentialRedirect] = [:]
-    private var timings: [Int: GatewayUpstreamTiming] = [:]
+    private var attempts: [ObjectIdentifier: UpstreamAttempt] = [:]
+    private var credentialRedirects: [ObjectIdentifier: GatewayCredentialRedirect] = [:]
+    private var timings: [ObjectIdentifier: GatewayUpstreamTiming] = [:]
     private var sessionStorage: URLSession?
+    private var localSessionStorage: URLSession?
     private var lastReuse: Bool?
     private var shutDown = false
     let delegateQueue: OperationQueue
@@ -259,19 +261,21 @@ final class GatewaySessionCoordinator: NSObject, URLSessionDataDelegate, URLSess
 
     func makeSession(timeout: TimeInterval) -> URLSession {
         let session = buildSession(timeout: timeout)
+        let localSession = buildLocalSession(timeout: timeout)
         lock.lock()
         sessionStorage = session
+        localSessionStorage = localSession
         lock.unlock()
         return session
     }
 
-    /// Swaps the one URLSession without entering the gateway's shutdown state.
+    /// Swaps both URLSessions without entering the gateway's shutdown state.
     ///
-    /// The new session is built before the lock is taken, so a concurrent
-    /// `begin` sees exactly the old session or exactly the new one. The old
-    /// session is invalidated after the swap: a request already on the wire is
-    /// cancelled (park drained/cancelled them), while every new request uses
-    /// the fresh, prewarmed pool.
+    /// The new sessions are built before the lock is taken, so a concurrent
+    /// `begin` sees exactly the old pair or exactly the new pair. The old
+    /// sessions are invalidated after the swap: a request already on the wire
+    /// is cancelled (park drained/cancelled them), while every new request
+    /// uses the fresh, prewarmed pool.
     @discardableResult
     func replaceSession(timeout: TimeInterval) -> URLSession? {
         lock.lock()
@@ -280,11 +284,17 @@ final class GatewaySessionCoordinator: NSObject, URLSessionDataDelegate, URLSess
             return nil
         }
         let old = sessionStorage
+        let oldLocal = localSessionStorage
         let session = buildSession(timeout: timeout)
+        let localSession = buildLocalSession(timeout: timeout)
         sessionStorage = session
+        localSessionStorage = localSession
         lock.unlock()
         if let old, old !== session {
             sessionInvalidator(old)
+        }
+        if let oldLocal, oldLocal !== localSession {
+            sessionInvalidator(oldLocal)
         }
         return session
     }
@@ -306,19 +316,62 @@ final class GatewaySessionCoordinator: NSObject, URLSessionDataDelegate, URLSess
         return URLSession(configuration: configuration, delegate: self, delegateQueue: delegateQueue)
     }
 
+    /// The local-upstream pool. A loopback port the App stopped listening on
+    /// is a dead endpoint, not "the radio is down": `waitsForConnectivity`
+    /// would hide the refusal and hold the Worker's `host.start()`/resume for
+    /// `timeoutIntervalForResource` (600 s). Keep the resource window long for
+    /// a streaming body, but fail a closed/failed connection immediately and
+    /// bound the request (idle) timeout to 30 s.
+    private func buildLocalSession(timeout: TimeInterval) -> URLSession {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.waitsForConnectivity = false
+        configuration.httpMaximumConnectionsPerHost = 8
+        configuration.httpShouldSetCookies = false
+        configuration.urlCache = nil
+        configuration.timeoutIntervalForRequest = min(max(1, timeout), 30)
+        configuration.timeoutIntervalForResource = max(600, timeout)
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        return URLSession(configuration: configuration, delegate: self, delegateQueue: delegateQueue)
+    }
+
+    /// `127.0.0.1`, `::1` and `localhost` are the App's own listeners. URL
+    /// serialization may keep the IPv6 brackets, so both spellings match.
+    static func isLoopbackHost(_ host: String?) -> Bool {
+        switch host?.lowercased() {
+        case "127.0.0.1", "localhost", "::1", "[::1]": return true
+        default: return false
+        }
+    }
+
     func session() -> URLSession? {
         lock.lock()
         defer { lock.unlock() }
         return sessionStorage
     }
 
+    func localSession() -> URLSession? {
+        lock.lock()
+        defer { lock.unlock() }
+        return localSessionStorage
+    }
+
+    /// The session a request to `url` will use.
+    func session(for url: URL) -> URLSession? {
+        lock.lock()
+        defer { lock.unlock() }
+        return Self.isLoopbackHost(url.host) ? localSessionStorage : sessionStorage
+    }
+
     func invalidate() {
         lock.lock()
         let session = sessionStorage
+        let localSession = localSessionStorage
         sessionStorage = nil
+        localSessionStorage = nil
         shutDown = true
         lock.unlock()
         if let session { sessionInvalidator(session) }
+        if let localSession { sessionInvalidator(localSession) }
     }
 
     var isShutDown: Bool {
@@ -334,21 +387,24 @@ final class GatewaySessionCoordinator: NSObject, URLSessionDataDelegate, URLSess
         // Hold the lock across session lookup and task creation so a resume
         // session swap cannot invalidate the session between the two.
         lock.lock()
-        guard let session = sessionStorage else {
+        let selected = Self.isLoopbackHost(request.url?.host)
+            ? localSessionStorage : sessionStorage
+        guard let session = selected else {
             lock.unlock()
             attempt.complete(error: URLError(.cannotConnectToHost))
             return attempt
         }
         let task = session.dataTask(with: request)
+        let key = ObjectIdentifier(task)
         attempt.attach(task)
-        attempts[task.taskIdentifier] = attempt
-        timings[task.taskIdentifier] = GatewayUpstreamTiming(
+        attempts[key] = attempt
+        timings[key] = GatewayUpstreamTiming(
             host: request.url?.host ?? "unknown",
             startedAt: diagnostics.now())
         if carriesHostCredential, let url = request.url,
            let scope = GatewayCredentialRedirectScope(url),
            let credential {
-            credentialRedirects[task.taskIdentifier] = GatewayCredentialRedirect(
+            credentialRedirects[key] = GatewayCredentialRedirect(
                 scope: scope,
                 credential: credential)
         }
@@ -494,39 +550,39 @@ final class GatewaySessionCoordinator: NSObject, URLSessionDataDelegate, URLSess
     private func recordFirstByte(for task: URLSessionTask, status: Int?) {
         let now = diagnostics.now()
         lock.lock()
-        guard var timing = timings[task.taskIdentifier] else {
+        guard var timing = timings[ObjectIdentifier(task)] else {
             lock.unlock()
             return
         }
         if timing.firstByteAt == nil { timing.firstByteAt = now }
         if let status { timing.status = status }
-        timings[task.taskIdentifier] = timing
+        timings[ObjectIdentifier(task)] = timing
         lock.unlock()
     }
 
     private func removeTiming(for task: URLSessionTask) -> GatewayUpstreamTiming? {
         lock.lock()
         defer { lock.unlock() }
-        return timings.removeValue(forKey: task.taskIdentifier)
+        return timings.removeValue(forKey: ObjectIdentifier(task))
     }
 
     private func attempt(for task: URLSessionTask) -> UpstreamAttempt? {
         lock.lock()
         defer { lock.unlock() }
-        return attempts[task.taskIdentifier]
+        return attempts[ObjectIdentifier(task)]
     }
 
     private func credentialRedirect(for task: URLSessionTask) -> GatewayCredentialRedirect? {
         lock.lock()
         defer { lock.unlock() }
-        return credentialRedirects[task.taskIdentifier]
+        return credentialRedirects[ObjectIdentifier(task)]
     }
 
     private func removeAttempt(for task: URLSessionTask) -> UpstreamAttempt? {
         lock.lock()
         defer { lock.unlock() }
-        credentialRedirects.removeValue(forKey: task.taskIdentifier)
-        return attempts.removeValue(forKey: task.taskIdentifier)
+        credentialRedirects.removeValue(forKey: ObjectIdentifier(task))
+        return attempts.removeValue(forKey: ObjectIdentifier(task))
     }
 }
 

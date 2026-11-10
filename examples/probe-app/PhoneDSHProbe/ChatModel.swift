@@ -548,6 +548,8 @@ final class ChatModel {
 
     private var host: PhoneDSHHost?
     private var botLaunch: BotRuntimeComposition.Launch?
+    /// Heals the App-owned Bot MCP listener before foreground/resume/cold boot.
+    private var botListenerSupervisor: BotMCPListenerSupervisor?
     /// UI-visible Bot runtime state; set by the composition whenever the Host
     /// rebinds, a recovery fails, or the runtime stops.
     private(set) var botRuntimeState: BotRuntimeState = .idle
@@ -1061,6 +1063,9 @@ final class ChatModel {
 
     private func prepareBotRuntime() async -> Bool {
         if let launch = botLaunch {
+            if botListenerSupervisor == nil {
+                botListenerSupervisor = BotMCPListenerSupervisor(listener: launch.composition)
+            }
             botRuntimeState = launch.composition.state
             return true
         }
@@ -1072,6 +1077,7 @@ final class ChatModel {
                 self?.botRuntimeState = state
             }
             botLaunch = launch
+            botListenerSupervisor = BotMCPListenerSupervisor(listener: launch.composition)
             botRuntimeState = launch.composition.state
             return true
         } catch {
@@ -1121,6 +1127,9 @@ final class ChatModel {
         busy = true
         defer { busy = false }
         guard await prepareBotRuntime() else { return }
+        // Every Host build reads the Bot MCP URL into the Worker environment;
+        // heal a reaped listener before that snapshot is taken.
+        _ = await botListenerSupervisor?.willStartEngine()
         guard let launch = makeHostLaunch() else { return }
         hostResumeWatchdogTimeout = launch.resumeWatchdogTimeout
         // Show the last conversation from disk immediately; the engine boots
@@ -1367,6 +1376,7 @@ final class ChatModel {
         let host = PhoneDSHHost(configuration: configuration, engineFactory: { configuration in
             await anchor.makeEngine(configuration)
         })
+        botListenerSupervisor?.recordHostBuild()
         return HostLaunch(host: host,
                           budgets: configuration.budgets,
                           selectedProfile: selectedProfile,
@@ -1435,6 +1445,9 @@ final class ChatModel {
         // missing, anchor not in a window) and clearing the reset state before
         // that would drop the only path back to a working engine.
         guard await prepareBotRuntime() else { return }
+        // Every Host build reads the Bot MCP URL into the Worker environment;
+        // heal a reaped listener before that snapshot is taken.
+        _ = await botListenerSupervisor?.willStartEngine()
         guard let launch = makeHostLaunch() else { return }
         hostResumeWatchdogTimeout = launch.resumeWatchdogTimeout
         failedHost = nil
@@ -2076,6 +2089,17 @@ final class ChatModel {
             }
             await parkHost(host)
         case .active:
+            // iOS may have reaped the Bot MCP listener while suspended. Heal it
+            // before deciding whether this foreground return can continue the
+            // existing Host.
+            _ = await botListenerSupervisor?.foregroundBecameActive()
+            if let supervisor = botListenerSupervisor,
+               !supervisor.hostEndpointIsCurrent,
+               !hostLifecycleTransition, !engineRebuildInProgress {
+                appendStatus("Bot MCP listener recovered on a new port; rebuilding the engine so the Worker gets the new URL")
+                await rebuildEngineForMCPListenerChange(previousHost: host)
+                return
+            }
             if keepingAlive {
                 stopBackgroundHeartbeat()
                 keepAlive.stop()
@@ -2148,6 +2172,19 @@ final class ChatModel {
     private func resumeHost(_ host: PhoneDSHHost) async {
         guard parked, !hostLifecycleTransition else { return }
         hostLifecycleTransition = true
+        // The Worker booted with the URL captured at Host construction. If the
+        // listener had to move to a new port, resuming would just replay the
+        // old, dead URL; rebuild instead so the next Worker receives the new
+        // environment. A same-port rebind keeps the URL valid and resumes.
+        if let supervisor = botListenerSupervisor {
+            _ = await supervisor.willResumeHost()
+            if !supervisor.hostEndpointIsCurrent {
+                hostLifecycleTransition = false
+                appendStatus("Bot MCP listener recovered on a new port; rebuilding instead of resuming the old Worker URL")
+                await rebuildEngineForMCPListenerChange(previousHost: host)
+                return
+            }
+        }
         beginResumeRecoveryObservation()
         // The host owns the short resume budgets. This watchdog is only the
         // last resort behind them; when it fires it starts the same automatic
@@ -2270,12 +2307,29 @@ final class ChatModel {
     /// looking at. The old host's `stop()` is retried briefly because a watchdog
     /// may fire while the host is still finishing its own resume teardown.
     private func rebuildEngineAfterResumeFailure(previousHost: PhoneDSHHost) async {
+        await rebuildEngine(previousHost: previousHost,
+                            status: ChatResumeRecovery.slowText,
+                            reason: "Resume did not finish; rebuilding the engine once")
+    }
+
+    /// A listener rebind that changed the port invalidates the URL the current
+    /// Host captured for its Worker. Cold-boot a replacement instead of
+    /// resuming or retrying an incarnation that can only reach a dead port.
+    private func rebuildEngineForMCPListenerChange(previousHost: PhoneDSHHost) async {
+        await rebuildEngine(previousHost: previousHost,
+                            status: "重启引擎…",
+                            reason: "Bot MCP listener recovered on a new port; rebuilding so the Worker gets the new URL")
+    }
+
+    private func rebuildEngine(previousHost: PhoneDSHHost,
+                               status: String,
+                               reason: String) async {
         guard !engineRebuildInProgress else { return }
         engineRebuildInProgress = true
         resumeSlowNotice = true
         let desiredSessionID = sessionID
-        statusLine = ChatResumeRecovery.slowText
-        appendStatus("Resume did not finish; rebuilding the engine once")
+        statusLine = status
+        appendStatus(reason)
         defer { engineRebuildInProgress = false }
         var stopped = false
         var lastStopError: Error?

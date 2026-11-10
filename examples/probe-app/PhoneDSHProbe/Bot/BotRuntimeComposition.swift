@@ -58,7 +58,10 @@ final class BotRuntimeComposition {
     struct Launch {
         let composition: BotRuntimeComposition
         let environment: BotProductionEnvironment
-        let workerEnvironment: [String: String]
+        /// The Worker environment for the next Host build. It is read from the
+        /// composition so a listener that healed onto a new port is reflected
+        /// without rebuilding the composition.
+        @MainActor var workerEnvironment: [String: String] { composition.workerEnvironment }
     }
 
     let environment: BotProductionEnvironment
@@ -73,6 +76,10 @@ final class BotRuntimeComposition {
     let routineOutbox: BotRoutineOutbox
     let rows: BotProductionRowService
     let info: BotProductionInfoService
+
+    /// The Worker environment carrying the Bot MCP endpoint/token. Only the
+    /// URL changes on recovery; the token remains the process-lifetime bearer.
+    private(set) var workerEnvironment: [String: String] = [:]
 
     private var host: PhoneDSHHost?
     private var hostTask: Task<Void, Never>?
@@ -144,10 +151,11 @@ final class BotRuntimeComposition {
         let composition = await BotRuntimeComposition(
             environment: environment, runtime: runtime, handler: handler, server: server,
             remote: remote, wakeInbox: inbox, botID: botID)
-        return Launch(composition: composition, environment: environment, workerEnvironment: [
+        composition.workerEnvironment = [
             "PDSH_PHONE_MCP_URL": url.absoluteString,
             "PDSH_PHONE_MCP_TOKEN": workerTokenPlaceholder,
-        ])
+        ]
+        return Launch(composition: composition, environment: environment)
     }
 
     private init(environment: BotProductionEnvironment, runtime: BotMCPRuntime,
@@ -176,6 +184,34 @@ final class BotRuntimeComposition {
             available: { [remote] _ in await remote.isAvailable() },
             busy: { [remote] _ in await remote.isMainTurnBusy() },
             leaseOwner: "bot-runtime-composition")
+        // A rebind that was not requested through ensureListening() (for
+        // example a future automatic recovery) still updates the environment
+        // the next Host build reads.
+        server.onEndpointChange = { [weak self] url in
+            Task { @MainActor [weak self] in self?.applyWorkerEndpoint(url) }
+        }
+    }
+
+    /// The endpoint currently published by the Bot MCP listener.
+    var url: URL? { server.url }
+
+    /// Heals the Bot MCP listener and keeps the Worker environment in sync.
+    /// A same-port rebind is silent for callers because their URL stays valid;
+    /// a new port is written to ``workerEnvironment`` before the next
+    /// `makeHostLaunch`, and the App rebuilds a Host that captured the old one.
+    func ensureListening() async -> BotMCPListenerRecovery {
+        let result = await server.ensureListening()
+        if let url = result.url {
+            applyWorkerEndpoint(url)
+        }
+        return result
+    }
+
+    private func applyWorkerEndpoint(_ url: URL) {
+        let value = url.absoluteString
+        guard workerEnvironment["PDSH_PHONE_MCP_URL"] != value else { return }
+        workerEnvironment["PDSH_PHONE_MCP_URL"] = value
+        print("[BotRuntimeComposition] Bot MCP endpoint recovered at \(value)")
     }
 
     /// Attaches to `newHost` and rebinds every dependency the old Host owned.
@@ -438,6 +474,10 @@ final class BotRuntimeComposition {
         }
     }
 }
+
+/// The Bot composition is the production implementation of the App's three
+/// listener-recovery timings.
+extension BotRuntimeComposition: BotMCPListenerEnsuring {}
 
 #if canImport(PhoneDSHADB) && canImport(PhoneDSHLoopback)
 /// Adapts any native JSON-RPC server to the Bot handler without adding a
