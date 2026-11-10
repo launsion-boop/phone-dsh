@@ -76,7 +76,15 @@ final class WorkspaceModels {
     var drawerPhase: PCDrawerPhase {
         PCLinkDrawerPolicy.phase(selected: selected,
                                  hasRecord: pcLink.record != nil,
-                                 connection: pcLink.connection)
+                                 presence: pcLink.presence)
+    }
+
+    /// One-line note above a cached PC list while the PC is not reachable.
+    var pcCachedListNote: String? {
+        guard !isPhoneSelected else { return nil }
+        return PCLinkDrawerPolicy.cachedListNote(presence: pcLink.presence,
+                                                 capturedAt: currentManagement?.cacheCapturedAt,
+                                                 hasRows: !(currentManagement?.sessions.isEmpty ?? true))
     }
 
     var currentConnection: PCWorkspaceConnection {
@@ -84,7 +92,7 @@ final class WorkspaceModels {
     }
 
     var isCurrentOnline: Bool {
-        selected == .phone || pcLink.isOnline
+        selected == .phone || pcLink.presence.isOnline
     }
 
     /// PC display name for the default drawer group and the ChatPage subtitle.

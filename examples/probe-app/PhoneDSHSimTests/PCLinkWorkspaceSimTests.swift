@@ -200,15 +200,24 @@ final class PCLinkWorkspaceSimTests: XCTestCase {
     func testOfflinePCSelectionNeverFallsBackToPhone() {
         let pc = BackendID.pc(machineId: "pc-machine")
         XCTAssertEqual(PCLinkDrawerPolicy.phase(selected: .pc, hasRecord: true,
-                                                connection: .offline(.peerOffline)), .offline)
+                                                presence: .init(reachability: .offline,
+                                                                offlineReason: .peerOffline)), .offline)
         XCTAssertEqual(PCLinkDrawerPolicy.phase(selected: .pc, hasRecord: true,
-                                                connection: .offline(.network)), .offline)
+                                                presence: .init(reachability: .offline,
+                                                                offlineReason: .network)), .offline)
         XCTAssertEqual(PCLinkDrawerPolicy.phase(selected: .pc, hasRecord: false,
-                                                connection: .unpaired), .pair)
+                                                presence: .init(reachability: .offline)), .pair)
         XCTAssertEqual(PCLinkDrawerPolicy.phase(selected: .pc, hasRecord: true,
-                                                connection: .online), .ready)
+                                                presence: .init(reachability: .online)), .ready)
         XCTAssertEqual(PCLinkDrawerPolicy.phase(selected: .phone, hasRecord: true,
-                                                connection: .offline(.peerOffline)), .phone)
+                                                presence: .init(reachability: .offline)), .phone)
+        // A resume in flight is not an offline PC (§10,
+        // PC-20261110-pclink-foreground-resume-presence): the drawer keeps the
+        // connecting state instead of the offline card and copy.
+        XCTAssertEqual(PCLinkDrawerPolicy.phase(selected: .pc, hasRecord: true,
+                                                presence: .init(reachability: .reconnecting)), .connecting)
+        XCTAssertNotEqual(PCLinkDrawerPolicy.phase(selected: .pc, hasRecord: true,
+                                                   presence: .init(reachability: .reconnecting)), .offline)
         XCTAssertEqual(WorkspaceStorageKeys.currentSession(for: pc),
                        "chat.dsh.currentSession.pc:pc-machine")
         XCTAssertEqual(SessionStorageKey(backend: pc, sessionID: "abc").encoded,
@@ -644,6 +653,39 @@ final class PCLinkWorkspaceSimTests: XCTestCase {
                                          documentsDirectory: documents)
         XCTAssertNil(defaults.data(forKey: pcKey))
         XCTAssertNotNil(defaults.data(forKey: phoneKey))
+    }
+
+    // W4: the projection must never turn a reconnect the phone opened into an
+    // offline claim before the grace window has passed.
+    func testPresenceProjectionAndCachedListNote() {
+        let seen = Date(timeIntervalSince1970: 1_700_000_000)
+        XCTAssertEqual(PCWorkspacePresence.project(.online, graceExpired: false,
+                                                   lastSeenAt: seen).reachability, .online)
+        XCTAssertEqual(PCWorkspacePresence.project(.connecting, graceExpired: true,
+                                                   lastSeenAt: seen).reachability, .reconnecting,
+                       "a dial in flight is reconnecting even after the grace window")
+        let early = PCWorkspacePresence.project(.offline(.peerOffline), graceExpired: false,
+                                                lastSeenAt: seen)
+        XCTAssertEqual(early.reachability, .reconnecting)
+        XCTAssertNil(early.offlineReason, "the reason belongs to a settled offline state")
+        let settled = PCWorkspacePresence.project(.offline(.peerOffline), graceExpired: true,
+                                                  lastSeenAt: seen)
+        XCTAssertEqual(settled.reachability, .offline)
+        XCTAssertEqual(settled.offlineReason, .peerOffline)
+        XCTAssertEqual(settled.lastSeenAt, seen)
+
+        // The strip only appears above cached rows while not reachable.
+        XCTAssertNil(PCLinkDrawerPolicy.cachedListNote(presence: .init(reachability: .online),
+                                                       capturedAt: seen, hasRows: true))
+        XCTAssertNil(PCLinkDrawerPolicy.cachedListNote(presence: .init(reachability: .offline),
+                                                       capturedAt: seen, hasRows: false))
+        XCTAssertEqual(PCLinkDrawerPolicy.cachedListNote(presence: .init(reachability: .reconnecting),
+                                                         capturedAt: seen, hasRows: true),
+                       PCLinkWorkspaceText.cachedReconnecting)
+        let offlineNote = PCLinkWorkspaceText.cachedOffline(capturedAt: seen,
+                                                            locale: Locale(identifier: "zh_CN"),
+                                                            timeZone: TimeZone(identifier: "UTC")!)
+        XCTAssertTrue(offlineNote.contains("2023年11月14日"), offlineNote)
     }
 
     // P18 (PC-20261110-pclink-workspace-cache): the transcript tail is bounded,

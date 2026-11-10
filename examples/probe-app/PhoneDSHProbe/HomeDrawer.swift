@@ -48,9 +48,17 @@ struct HomeDrawer: View {
                         .padding(.horizontal, 16)
                         .padding(.top, 10)
                         .padding(.bottom, 10)
-                    if showsPCState {
+                    if showsPCState && management.sessions.isEmpty {
+                        // Nothing cached and nothing reachable: the offline or
+                        // connecting card is all there is to show.
                         PCDrawerStateView(onPair: { showPairing = true })
                     } else {
+                        if let note = models.pcCachedListNote {
+                            // A cached list stays readable while the phone
+                            // reconnects or the PC is unreachable; the strip
+                            // dates it so it is never mistaken for live rows.
+                            pcCachedListNote(note)
+                        }
                         if let message = errorMessage {
                             errorRow(message)
                                 .transition(.opacity)
@@ -256,6 +264,22 @@ struct HomeDrawer: View {
     /// failure afterwards.
     private var errorMessage: String? {
         chat.isSwitchingSession ? nil : management.error ?? chat.userFacingError
+    }
+
+    /// Strip above a cached PC list. Plain text: the recovery action lives in
+    /// the segment's empty state, and a new Button here would be a new
+    /// page-contract action.
+    private func pcCachedListNote(_ note: String) -> some View {
+        Text(note)
+            .font(.system(size: 12))
+            .foregroundStyle(HomeSpec.textSecondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(HomeSpec.userBubble, in: RoundedRectangle(cornerRadius: 10))
+            .padding(.horizontal, HomeSpec.contentInset)
+            .padding(.bottom, 8)
+            .accessibilityIdentifier("pc-cached-list-note")
     }
 
     private func errorRow(_ message: String) -> some View {

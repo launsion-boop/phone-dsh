@@ -81,6 +81,21 @@ final class PCLinkWorkspace {
     /// alert stays dismissed until a new prompt arrives.
     private(set) var suppressedUnpairedPrompt = false
 
+    /// What the drawer and the chat page render. `reconnecting` covers the
+    /// bounded window after a foreground resume or a suspended socket; the
+    /// grace timer below turns it into `offline` only after a failed dial has
+    /// had time to retry.
+    private(set) var presence = PCWorkspacePresence(reachability: .reconnecting)
+    /// Last time an established session existed. Shown next to a cached list.
+    private(set) var lastSeenAt: Date?
+    /// True once the reconnect grace window has passed without a session.
+    private(set) var graceExpired = false
+    /// How long a non-online connection still counts as reconnecting. The
+    /// first retry after a resume is capped at 1 s (§10), so this only hides
+    /// real failures for a moment, and keeps a normal resume from flashing
+    /// "电脑离线".
+    static let reconnectGrace: TimeInterval = 8
+
     /// Called after every status refresh so `WorkspaceModels` can create or
     /// replace the PC `ChatModel`/`DSHManagementModel` when the record changes.
     var onStatusChanged: ((PCLinkClientStatus) -> Void)?
@@ -92,6 +107,7 @@ final class PCLinkWorkspace {
     /// Last transition written to the diagnostics log, so a steady state does
     /// not spam it.
     @ObservationIgnored private var loggedPresenceKey: String?
+    @ObservationIgnored private var graceTask: Task<Void, Never>?
 
     init(client: any PCLinkClientProtocol) {
         self.client = client
@@ -244,6 +260,7 @@ final class PCLinkWorkspace {
 
     private func apply(_ state: PCLinkClientState) {
         connection = PCWorkspaceConnection(state)
+        updatePresence()
         recordPresence(connection)
         switch connection {
         case .online, .versionWarning:
@@ -260,25 +277,49 @@ final class PCLinkWorkspace {
         }
     }
 
+    /// Recomputes the projected presence and arms or clears the grace timer.
+    /// `online` stamps `lastSeenAt`; leaving it starts the grace window.
+    private func updatePresence() {
+        if connection.isOnline {
+            lastSeenAt = Date()
+            graceExpired = false
+            graceTask?.cancel()
+            graceTask = nil
+            presence = PCWorkspacePresence.project(connection, graceExpired: false,
+                                                   lastSeenAt: lastSeenAt)
+            return
+        }
+        presence = PCWorkspacePresence.project(connection, graceExpired: graceExpired,
+                                               lastSeenAt: lastSeenAt)
+        guard status.record != nil, graceTask == nil, !graceExpired else { return }
+        graceTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Self.reconnectGrace))
+            guard !Task.isCancelled, let self else { return }
+            self.graceTask = nil
+            guard !self.connection.isOnline, self.status.record != nil else { return }
+            self.graceExpired = true
+            self.presence = PCWorkspacePresence.project(self.connection, graceExpired: true,
+                                                        lastSeenAt: self.lastSeenAt)
+            self.recordPresence(self.connection)
+        }
+    }
+
     /// One line per projected presence change. The file is the only way to
     /// answer "the drawer said the PC was offline while it was working" from a
     /// device, so it records the state, the reason case and how long the phone
     /// had been without a connection (PC-20261110-pclink-workspace-cache).
     private func recordPresence(_ connection: PCWorkspaceConnection) {
-        let state: String
-        var reason: String?
         switch connection {
-        case .online, .versionWarning:
-            state = "online"
-        case .connecting:
-            state = "reconnecting"
-        case .offline(let offline):
-            state = "offline"
-            reason = PCLinkDiagnosticsLog.reasonName(offline)
         case .unpaired:
-            state = "unpaired"
+            return
+        default:
+            break
         }
-        guard state != "unpaired" else { return }
+        let state = presence.reachability.rawValue
+        var reason: String?
+        if let offline = presence.offlineReason {
+            reason = PCLinkDiagnosticsLog.reasonName(offline)
+        }
         let key = state + "/" + (reason ?? "-")
         guard key != loggedPresenceKey else { return }
         loggedPresenceKey = key
@@ -304,6 +345,7 @@ final class PCLinkWorkspace {
     private func refreshStatus() async {
         status = await client.status()
         connection = PCWorkspaceConnection(status.state)
+        updatePresence()
         recordPresence(connection)
         if status.pcUnpairedPrompt == nil { suppressedUnpairedPrompt = false }
         if status.record == nil {

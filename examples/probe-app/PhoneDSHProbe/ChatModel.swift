@@ -1992,6 +1992,11 @@ final class ChatModel {
                                         isStillWanted: () -> Bool) async throws -> Bool {
         try Task.checkCancellation()
         guard isStillWanted() else { return false }
+        // A switch to a session this phone already has on disk paints that tail
+        // before the network round trip. `session/open` + `session/page` still
+        // replace it in one transaction when they land, and
+        // `isShowingCachedTranscript` keeps the cache from being re-persisted.
+        paintCachedTranscriptIfSwitching(to: id)
         let session = try await harness.openSession(HarnessSessionRequest(
             sessionID: id, preset: preset,
             workspace: pcRuntime == nil ? "/dsh/workspace" : nil))
@@ -4207,6 +4212,22 @@ final class ChatModel {
             }
         }
         return nil
+    }
+
+    /// Shows the cached tail of the session being opened, when it is a different
+    /// session and the cache is still readable. Does nothing on a re-open of the
+    /// current session (its live items are already newer) or when no cache
+    /// exists, so a first-ever switch behaves exactly as before.
+    private func paintCachedTranscriptIfSwitching(to id: String?) {
+        guard let id, id != sessionID else { return }
+        guard let cached = readCachedTranscript(sessionID: id) else { return }
+        let cachedItems = Self.chatItems(from: cached.items)
+        guard !cachedItems.isEmpty else { return }
+        flushStreamingText()
+        items = cachedItems
+        transcriptReady = true
+        isShowingCachedTranscript = true
+        statusLine = "显示上次对话，正在同步…"
     }
 
     private static func chatItems(from cached: [CachedTranscriptItem]) -> [ChatItem] {
