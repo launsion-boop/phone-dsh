@@ -413,6 +413,41 @@ class ChatPageTest {
     }
 
     @Test
+    fun `the engine-stopped line is hidden behind the no-engine empty state`() {
+        // iOS `ChatEngineStoppedNoticePolicy`: the empty card already carries
+        // the engine fact and the start action, so the top line is a duplicate.
+        val state = ChatScreenState.from(emptyList()).copy(
+            userFacingError = "引擎停了：host start failed",
+            banners = listOf(BannerState("engine-stopped", "引擎停了：host start failed", "failed", false, false)),
+        )
+        show(state)
+        compose.onNodeWithTag(UiPageTags.CHAT_EMPTY_ENGINE).assertIsDisplayed()
+        compose.onNodeWithTag(UiTags.FAIL_LOUD_BANNER).assertDoesNotExist()
+    }
+
+    @Test
+    fun `the engine-stopped line returns once a transcript is on screen`() {
+        val state = state(case = "chat-basic").copy(
+            userFacingError = "引擎停了",
+            empty = ChatEmpty.ENGINE_NOT_STARTED,
+            banners = listOf(BannerState("engine-stopped", "引擎停了", "failed", false, false)),
+        )
+        show(state)
+        compose.onNodeWithTag(UiTags.FAIL_LOUD_BANNER).assertIsDisplayed()
+        compose.onNodeWithText("引擎停了").assertIsDisplayed()
+    }
+
+    @Test
+    fun `a different failure keeps its top banner behind the empty state`() {
+        val state = ChatScreenState.from(emptyList()).copy(
+            userFacingError = "消息发送失败（timeout）",
+            banners = listOf(BannerState("send-failed", "消息发送失败（timeout）", "failed", false, false)),
+        )
+        show(state)
+        compose.onNodeWithTag(UiTags.FAIL_LOUD_BANNER).assertIsDisplayed()
+    }
+
+    @Test
     fun `engine failure banner exposes the explicit restart acknowledgement`() {
         var restarted = 0
         val state = state(case = "chat-basic").copy(

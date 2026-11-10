@@ -143,6 +143,15 @@ final class DSHManagementModel {
     private var transport: (any DSHRemoteTransport)?
     private var workspaceMux: (any DSHMuxConnection)?
     private var workspaceTask: Task<Void, Never>?
+    /// The last drawer tap that still needs to run. One worker owns the switch
+    /// so two opens never overlap; a newer tap replaces this request and the
+    /// in-flight one abandons at its next generation check.
+    private struct OptimisticSelect {
+        let session: ManagedSession
+        let generation: Int
+    }
+    private var pendingOptimisticSelect: OptimisticSelect?
+    private var optimisticSelectTask: Task<Void, Never>?
 
     var activeSessions: [ManagedSession] { sessions.filter { !archivedIDs.contains($0.id) } }
     var archivedSessions: [ManagedSession] { sessions.filter { archivedIDs.contains($0.id) } }
@@ -358,9 +367,96 @@ final class DSHManagementModel {
         } catch { self.error = error.localizedDescription }
     }
 
+    /// Opens a session from a page that keeps its own presentation (the session
+    /// browser). It waits for the open, like before; the drawer stages the
+    /// switch with ``stageOptimisticSelect(_:title:)`` instead.
     func select(_ session: ManagedSession) async -> Bool {
+        switch await performSelect(session, generation: nil) {
+        case .opened:
+            return true
+        case .failed(let message):
+            error = message
+            return false
+        case .superseded:
+            return false
+        }
+    }
+
+    /// The drawer's optimistic tap, lightweight half: paint the target
+    /// selected/titled now and remember what to open. No engine or Worker work
+    /// runs until ``startStagedOptimisticSelect()`` releases it, after the phone
+    /// drawer's close animation (or one runloop for the persistent sidebar).
+    @discardableResult
+    func stageOptimisticSelect(_ session: ManagedSession, title: String) -> Int {
+        let generation = ChatModel.shared.beginSessionSwitch(sessionID: session.id, title: title)
+        pendingOptimisticSelect = OptimisticSelect(session: session, generation: generation)
+        return generation
+    }
+
+    /// Starts the single switch worker for whatever target is staged. Safe to
+    /// call more than once: the worker is created once and always reads the
+    /// latest staged target, so a newer tap replaces an in-flight one without
+    /// opening two sessions at once.
+    func startStagedOptimisticSelect() {
+        guard pendingOptimisticSelect != nil, optimisticSelectTask == nil else { return }
+        optimisticSelectTask = Task { @MainActor [weak self] in
+            await self?.runOptimisticSelectWorker()
+        }
+    }
+
+    /// The wide sidebar does not close, so its tap just needs one runloop for
+    /// SwiftUI to commit the highlighted row/title before the open starts.
+    func startStagedOptimisticSelectOnNextRunloop() {
+        Task { @MainActor [weak self] in
+            await Task.yield()
+            self?.startStagedOptimisticSelect()
+        }
+    }
+
+    private enum SelectOutcome: Equatable {
+        case opened
+        case failed(String)
+        case superseded
+    }
+
+    private func runOptimisticSelectWorker() async {
+        defer { optimisticSelectTask = nil }
+        while let request = pendingOptimisticSelect {
+            pendingOptimisticSelect = nil
+            // The drawer has closed (or the sidebar yielded): only now does the
+            // 300ms loading-pill timer start, and only now may heavy open work
+            // run. A superseded request cannot mark a newer tap as started.
+            ChatModel.shared.markSessionSwitchWorkStarted(request.generation)
+            let outcome = await performSelect(request.session, generation: request.generation)
+            // A newer tap is now the latest intent. Loop to it; do not let this
+            // completion clear or overwrite its pending title/selection.
+            guard ChatModel.shared.isSessionSwitchCurrent(request.generation) else {
+                continue
+            }
+            switch outcome {
+            case .opened:
+                ChatModel.shared.finishSessionSwitch(request.generation)
+            case .failed(let message):
+                ChatModel.shared.finishSessionSwitch(request.generation)
+                error = message
+                // The drawer is closed and must not be reopened; the chat
+                // page's existing error banner is the lightweight notice.
+                ChatModel.shared.reportSessionSwitchFailure(message)
+            case .superseded:
+                ChatModel.shared.finishSessionSwitch(request.generation)
+            }
+        }
+    }
+
+    private func performSelect(_ session: ManagedSession,
+                               generation: Int?) async -> SelectOutcome {
         let chat = ChatModel.shared
-        if chat.currentSessionID == session.id { error = nil; return true }
+        let isStillWanted: () -> Bool = {
+            guard let generation else { return true }
+            return chat.isSessionSwitchCurrent(generation)
+        }
+        guard isStillWanted() else { return .superseded }
+        if chat.currentSessionID == session.id { error = nil; return .opened }
         // A drawer tap must work from any state the user can actually be in:
         // a stopped host (cold launch, manual stop) or a parked one (after a
         // trip to another app) gets started/resumed first, and a running turn
@@ -368,29 +464,30 @@ final class DSHManagementModel {
         // cannot be read".
         if !chat.isStarted {
             await chat.start()
+            guard isStillWanted() else { return .superseded }
             guard chat.isStarted else {
-                error = chat.userFacingError ?? "主机没有启动，无法打开会话"
-                return false
+                return .failed(chat.userFacingError ?? "主机没有启动，无法打开会话")
             }
         }
         if chat.parked {
             await chat.resumeParkedHost()
+            guard isStillWanted() else { return .superseded }
         }
         if chat.turnRunning || chat.pendingPermission != nil || chat.pendingQuestion != nil {
             await chat.cancelTurn()
             chat.dismissPendingRequests()
+            guard isStillWanted() else { return .superseded }
             guard !chat.turnRunning else {
-                error = "当前回合停不下来，请稍后重试或重启主机"
-                return false
+                return .failed("当前回合停不下来，请稍后重试或重启主机")
             }
         }
-        await chat.selectSession(session.id)
+        await chat.selectSession(session.id, switchGeneration: generation)
+        guard isStillWanted() else { return .superseded }
         guard chat.currentSessionID == session.id else {
-            error = chat.userFacingError ?? "无法打开会话 \(session.id.prefix(8))"
-            return false
+            return .failed(chat.userFacingError ?? "无法打开会话 \(session.id.prefix(8))")
         }
         error = nil
-        return true
+        return .opened
     }
 
     func rename(_ session: ManagedSession, to title: String) async {

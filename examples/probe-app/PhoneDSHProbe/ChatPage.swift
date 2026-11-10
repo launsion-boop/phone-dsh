@@ -33,6 +33,12 @@ struct ChatPage: View {
     @State private var hitProbe = ""
     #endif
     @State private var previousSessionKey = ""
+    /// The delayed, layout-free session-switch pill. Its timer starts when the
+    /// switch worker really begins, not at the tap: the 0.22s drawer close is
+    /// not load time, so a switch that lands inside
+    /// `SessionSwitchPresentationPolicy.indicatorDelay` of that start leaves
+    /// this false for its whole lifetime and no loading state flashes.
+    @State private var showsSessionSwitchIndicator = false
     @AppStorage("chat.drafts.v1") private var savedDrafts = "{}"
     private var busyEnterMode: String { preferences.busyEnterMode }
     /// Official default is completion-time folding; the `On next message`
@@ -167,6 +173,9 @@ struct ChatPage: View {
 
     private var sessionKey: String { model.currentSessionID ?? "new" }
     private var sessionTitle: String {
+        // The tapped session's title is painted as soon as the row is tapped;
+        // the old session stays current in the model until its history lands.
+        if let pending = model.switchingSessionTitle, !pending.isEmpty { return pending }
         guard let id = model.currentSessionID else { return "新会话" }
         let title = management.sessions.first(where: { $0.id == id })?.title ?? ""
         if title.isEmpty || ["new conversation", "conversation"].contains(title.lowercased()) {
@@ -342,8 +351,14 @@ struct ChatPage: View {
             chatHeader
             // A failure that belongs to one message is rendered under it; every
             // other failure (send refused, session open, stream error) needed a
-            // surface too — it used to be invisible on this page.
-            if model.failedItemID == nil, let error = model.userFacingError {
+            // surface too — it used to be invisible on this page. The
+            // engine-stopped line is the one exception: the no-engine empty
+            // card below already says it and offers the start button.
+            if model.failedItemID == nil,
+               let error = model.userFacingError,
+               ChatEngineStoppedNoticePolicy.shouldShow(
+                   message: error,
+                   engineEmptyStateVisible: visibleItems.isEmpty && !model.isStarted) {
                 errorBanner(error)
             }
             if let error = model.commandsError { commandErrorBanner(error) }
@@ -685,6 +700,18 @@ struct ChatPage: View {
             pendingPreviewPath = nil
             attachmentError = nil
             previewTarget = .workspaceFile(match.relativePath)
+        }
+        .task(id: model.isSessionSwitchWorkStarted) {
+            // The pill is an overlay, not page state: delay it past the common
+            // fast open. The timer starts when the worker begins, after the
+            // drawer close, so that animation is never counted as load time.
+            if model.isSessionSwitchWorkStarted {
+                try? await Task.sleep(for: SessionSwitchPresentationPolicy.indicatorDelay)
+                guard !Task.isCancelled, model.isSessionSwitchWorkStarted else { return }
+                showsSessionSwitchIndicator = true
+            } else if showsSessionSwitchIndicator {
+                showsSessionSwitchIndicator = false
+            }
         }
         .task(id: model.currentSessionID) {
             guard let id = model.currentSessionID else {
@@ -1119,7 +1146,16 @@ struct ChatPage: View {
                             .frame(maxWidth: .infinity, alignment: .center)
                             .padding(.vertical, 4)
                         }
-                        if visibleItems.isEmpty { emptyTimeline(viewportHeight: viewport.size.height) }
+                        if visibleItems.isEmpty {
+                            if model.isSwitchingSession,
+                               SessionSwitchPresentationPolicy.backdrop(for: oldPageDuringSwitch) == .placeholder {
+                                sessionSwitchPlaceholder(viewportHeight: viewport.size.height)
+                            } else {
+                                // Keep the old page's empty-state card exactly as
+                                // it was; it is content, not a placeholder.
+                                emptyTimeline(viewportHeight: viewport.size.height)
+                            }
+                        }
                         let snapshot = timelineSnapshot
                         let rows = snapshot.rows
                         ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
@@ -1279,6 +1315,22 @@ struct ChatPage: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // While a tap's history is still loading the old transcript or empty
+        // state stays put. The indicator floats above it after the 300 ms
+        // delay, so it cannot change the transcript's height or move rows.
+        .overlay(alignment: .top) {
+            Group {
+                if showsSessionSwitchIndicator {
+                    sessionSwitchIndicator
+                        .padding(.top, 8)
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
+                }
+            }
+            // Only the pill fades. The transcript's one-shot content swap is
+            // outside this subtree, so it stays animation-free.
+            .animation(.easeInOut(duration: 0.16), value: showsSessionSwitchIndicator)
+        }
         // A tap anywhere in the transcript area — rows or the empty space
         // below them — hands the keyboard back. The content shape makes the
         // blank area hit-testable; simultaneous, so rows keep their own taps.
@@ -1412,6 +1464,44 @@ struct ChatPage: View {
             model.flushStreamingText()
             scrollToTail(proxy, viewportHeight: viewportHeight)
         }
+    }
+
+    /// What the page was already drawing when the switch began. `emptyTimeline`
+    /// is exhaustive — engine, provider or new-session card — so an empty
+    /// transcript still has a card to keep; the blank case is a defensive
+    /// fallback for a page that truly rendered nothing.
+    private var oldPageDuringSwitch: SessionSwitchPresentationPolicy.OldPage {
+        visibleItems.isEmpty ? .emptyStateCard : .transcriptRows
+    }
+
+    /// The lightweight state while a tapped session's history is loading. It is
+    /// a top overlay: the old transcript or empty-state card stays untouched
+    /// underneath, and this view never takes part in layout.
+    private var sessionSwitchIndicator: some View {
+        HStack(spacing: 6) {
+            ProgressView().controlSize(.mini)
+            Text("正在打开会话…")
+                .font(.system(size: 12))
+                .foregroundStyle(ChatPage.inkSecondary)
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 28)
+        .background(HomeSpec.surface, in: Capsule())
+        .overlay(Capsule().strokeBorder(HomeSpec.borderList, lineWidth: 0.5))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("正在打开会话")
+    }
+
+    /// Only a page that rendered nothing at all uses this. It keeps exactly the
+    /// ready empty state's transcript height, and the delayed pill above is the
+    /// only thing drawn; no card flashes in and out.
+    private func sessionSwitchPlaceholder(viewportHeight: CGFloat) -> some View {
+        let topInset: CGFloat = 22
+        let bottomInset: CGFloat = 48
+        return Color.clear
+            .frame(maxWidth: .infinity)
+            .frame(height: max(0, viewportHeight - topInset - bottomInset))
+            .accessibilityHidden(true)
     }
 
     /// 新会话空屏。三种状态互斥,同一时刻只渲染一种;三者都在滚动区里,

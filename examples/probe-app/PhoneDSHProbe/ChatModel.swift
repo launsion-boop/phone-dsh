@@ -571,6 +571,27 @@ final class ChatModel {
     private var harness: (any AgentHarness)?
     private var sessionID: String?
     var currentSessionID: String? { sessionID }
+    /// The row the last drawer tap selected, painted immediately while the
+    /// engine/Worker open runs in the background. `sessionID` and `items` stay
+    /// on the old session until the new history is durable, so a failed or
+    /// superseded open has nothing to roll back.
+    private(set) var pendingSessionSwitch: HomeDrawerSwitchPolicy.Pending?
+    private var sessionSwitchGeneration = 0
+    /// True only once the switch worker actually starts. It is deliberately
+    /// separate from `pendingSessionSwitch`: the target title/row is painted in
+    /// the tap frame, while the delayed loading pill's 300ms timer must not
+    /// start until the drawer has closed and the worker runs.
+    private(set) var isSessionSwitchWorkStarted = false
+    var switchingSessionID: String? { pendingSessionSwitch?.target.id }
+    var switchingSessionTitle: String? { pendingSessionSwitch?.target.title }
+    var isSwitchingSession: Bool { pendingSessionSwitch != nil }
+    /// The row to mark selected: the optimistic target while a switch runs,
+    /// the committed session otherwise.
+    var displayedSessionID: String? {
+        HomeDrawerSwitchPolicy.displayed(
+            current: sessionID.map { HomeDrawerSwitchPolicy.Session(id: $0, title: "") },
+            pending: pendingSessionSwitch)?.id
+    }
     private var transcriptReady = false
     var isTranscriptReady: Bool { transcriptReady }
     /// The last transcript is on screen from disk while the engine boots.
@@ -645,6 +666,60 @@ final class ChatModel {
     private(set) var lastCommandExecution: NativeCommandExecution?
 
     func clearError() { userFacingError = nil }
+
+    /// Starts the optimistic half of a drawer switch: the target title/row is
+    /// drawn at once, a scheduled auto-reload is cancelled, and the old error
+    /// line is cleared. The switch worker owns the actual open.
+    @discardableResult
+    func beginSessionSwitch(sessionID: String, title: String) -> Int {
+        cancelSessionReload()
+        sessionSwitchGeneration &+= 1
+        let pending = HomeDrawerSwitchPolicy.Pending(
+            target: HomeDrawerSwitchPolicy.Session(id: sessionID, title: title),
+            generation: sessionSwitchGeneration)
+        pendingSessionSwitch = pending
+        isSessionSwitchWorkStarted = false
+        clearError()
+        return pending.generation
+    }
+
+    /// Records that the worker for `generation` really began. The delayed pill
+    /// starts its timer here, so the 0.22s drawer close is not counted as load
+    /// time. A stale generation cannot start a newer tap's timer.
+    @discardableResult
+    func markSessionSwitchWorkStarted(_ generation: Int) -> Bool {
+        guard isSessionSwitchCurrent(generation) else { return false }
+        isSessionSwitchWorkStarted = true
+        return true
+    }
+
+    /// True while `generation` is still the last tap. A new tap bumps it, so an
+    /// in-flight open abandons at the next `isStillWanted` checkpoint.
+    func isSessionSwitchCurrent(_ generation: Int) -> Bool {
+        guard let pendingSessionSwitch else { return false }
+        return HomeDrawerSwitchPolicy.isLatest(generation, latest: pendingSessionSwitch.generation)
+    }
+
+    /// The switch reached its terminal state (success, failure, or stop): stop
+    /// painting the pending target. Stale generations are ignored.
+    @discardableResult
+    func finishSessionSwitch(_ generation: Int) -> Bool {
+        guard isSessionSwitchCurrent(generation) else { return false }
+        pendingSessionSwitch = nil
+        isSessionSwitchWorkStarted = false
+        return true
+    }
+
+    /// A failed optimistic switch keeps the old transcript/session but needs a
+    /// visible, non-modal line. The chat page's existing error banner is that
+    /// surface; the drawer is not reopened.
+    func reportSessionSwitchFailure(_ message: String) {
+        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        userFacingError = trimmed
+        statusLine = trimmed
+        Self.persistStatus("error: \(NativeLogRedaction.value(trimmed))")
+    }
 
     /// The composer surfaces this text in its own notice row; the page-level
     /// banner must not repeat it.
@@ -1508,17 +1583,26 @@ final class ChatModel {
     }
 
     /// Resumes an existing DSH session by its server-issued identifier.
-    func selectSession(_ id: String) async {
+    func selectSession(_ id: String, switchGeneration: Int? = nil) async {
         let requested = id.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !requested.isEmpty else { reportError("Session ID cannot be empty"); return }
-        await openManagedSession(id: requested)
+        await openManagedSession(id: requested, switchGeneration: switchGeneration)
     }
 
     @discardableResult
-    private func openManagedSession(id: String?, preset: String? = nil) async -> Bool {
+    private func openManagedSession(id: String?,
+                                    preset: String? = nil,
+                                    switchGeneration: Int? = nil) async -> Bool {
         // A person asking for another session supersedes any automatic reload;
-        // the pending reload must not land after this switch.
+        // the pending reload must not land after this switch. The switch token
+        // is checked after every await inside `openAndActivateSession`, so an
+        // older optimistic open cannot land after a newer tap either.
         cancelSessionReload()
+        let isStillWanted: () -> Bool = { [weak self] in
+            guard let self else { return false }
+            guard let switchGeneration else { return true }
+            return self.isSessionSwitchCurrent(switchGeneration)
+        }
         if let id, DeviceSessionCoordinator.shared.isDeviceSession(id) {
             reportError("设备会话只能以只读监视方式打开")
             return false
@@ -1544,8 +1628,9 @@ final class ChatModel {
                 self.harness = harness
             }
             let applied = try await openAndActivateSession(
-                id: id, preset: preset, harness: harness, isStillWanted: { true })
+                id: id, preset: preset, harness: harness, isStillWanted: isStillWanted)
             guard applied else { return false }
+            guard isStillWanted() else { return false }
             appendStatus("Session \(id == nil ? "created" : "resumed"): \(sessionID ?? "")")
             return true
         } catch is CancellationError {
@@ -1596,7 +1681,18 @@ final class ChatModel {
         }
         try Task.checkCancellation()
         guard isStillWanted() else { return false }
+        // Load the chrome that decides the composer/dock heights beside the
+        // history and apply it in the same update as `items`. Letting the
+        // post-switch refresh tasks fill these one at a time is what moved the
+        // stats line and the todo/plan docks after the drawer had closed.
+        async let projectionsCall = loadProjectionValues(sessionID: session.id, transport: transport)
+        async let goalCall = loadSessionGoal(sessionID: session.id, harness: harness)
         let history = try await loadSessionHistory(sessionID: session.id, transport: transport)
+        let projectionValues = await projectionsCall
+        let goal = await goalCall
+        let projectionSnapshot = await Task.detached(priority: .userInitiated) {
+            Self.projectionSnapshot(projectionValues)
+        }.value
         try Task.checkCancellation()
         guard isStillWanted() else { return false }
         pumpTask?.cancel()
@@ -1605,7 +1701,11 @@ final class ChatModel {
         UserDefaults.standard.set(session.id, forKey: Self.currentSessionDefaultsKey)
         lastSeq = history.after
         flushStreamingText()
+        // One transaction: the new history, stats, todos, plan and goal all
+        // replace the old session before SwiftUI renders the page.
         items = history.items
+        applyProjectionSnapshot(projectionSnapshot)
+        self.goal = goal
         turnStartTimes = history.turnFacts.starts
         turnEndReasons = history.turnFacts.endReasons
         turnEndTimes = history.turnFacts.ends
@@ -1820,6 +1920,8 @@ final class ChatModel {
     /// 不让用户停在一个已经不在列表里的对话上。不关宿主、不动别的会话。
     func detachArchivedSession() async {
         cancelSessionReload()
+        pendingSessionSwitch = nil
+        isSessionSwitchWorkStarted = false
         pumpTask?.cancel(); pumpTask = nil
         eventStreamRecovering = false
         if let harness, let sessionID { await harness.closeSession(sessionID) }
@@ -1838,6 +1940,8 @@ final class ChatModel {
     func stop() async {
         cancelBackoffRetry()
         cancelSessionReload()
+        pendingSessionSwitch = nil
+        isSessionSwitchWorkStarted = false
         guard let host else {
             await botLaunch?.composition.stop()
             if let composition = botLaunch?.composition {
@@ -1886,6 +1990,7 @@ final class ChatModel {
         contextPressure = nil
         contextBreakdown = nil
         projectionValues = nil
+        goal = nil
         eventStreamRecovering = false
         activeTurn = nil
         activeStep = nil
@@ -2467,6 +2572,18 @@ final class ChatModel {
         var ends: [Int: Date] = [:]
     }
 
+    /// All layout-bearing composer values from one session projection snapshot.
+    /// The switch computes this as one value off the main actor and commits it
+    /// with the transcript, so stats/todos/plan cannot arrive in separate
+    /// frames after the page has changed.
+    private struct SessionProjectionSnapshot {
+        var values: JSONValue?
+        var stats: NativeSessionStats?
+        var usage: NativeTokenUsage?
+        var pressure: NativeContextPressure?
+        var breakdown: NativeContextBreakdown?
+    }
+
     /// Reads DSH's durable event log directly so user prompts, which are not
     /// projected by AgentHarness.events, appear in their original position.
     private func loadSessionHistory(sessionID: String,
@@ -2539,11 +2656,43 @@ final class ChatModel {
                   let row = sessions["items"]?.arrayValue?.first(where: { $0["sessionId"]?.stringValue == sessionID }) {
             running = row["running"]?.boolValue
         } else { running = nil }
-        return SessionHistory(items: Self.transcriptItems(from: records, sessionID: sessionID), after: after,
-                              turnRunning: running ?? Self.isTurnRunning(in: records),
-                              hasMore: hasMore, beforeSeq: beforeSeq,
-                              throughSeq: cursor >= 0 ? cursor : nil,
-                              turnFacts: Self.turnFacts(in: records), inputReceipts: inputReceipts)
+        // The raw history page is JSON-loaded above (off the main actor), but
+        // projecting up to 60 durable messages into ChatItems and its turn
+        // facts is synchronous work. Do it off the main actor; the caller
+        // applies the finished snapshot in one update.
+        let projectedRecords = records
+        let projectedHasMore = hasMore
+        let projectedBeforeSeq = beforeSeq
+        return await Task.detached(priority: .userInitiated) {
+            Self.projectHistory(records: projectedRecords,
+                                sessionID: sessionID,
+                                after: after,
+                                running: running,
+                                hasMore: projectedHasMore,
+                                beforeSeq: projectedBeforeSeq,
+                                cursor: cursor,
+                                inputReceipts: inputReceipts)
+        }.value
+    }
+
+    /// One detached projection of a loaded history page. It is `nonisolated`
+    /// so a switch never builds items on the main actor.
+    private nonisolated static func projectHistory(records: [JSONValue],
+                                                    sessionID: String,
+                                                    after: UInt64?,
+                                                    running: Bool?,
+                                                    hasMore: Bool,
+                                                    beforeSeq: Int?,
+                                                    cursor: Int,
+                                                    inputReceipts: [String: Int]) -> SessionHistory {
+        SessionHistory(items: transcriptItems(from: records, sessionID: sessionID),
+                       after: after,
+                       turnRunning: running ?? isTurnRunning(in: records),
+                       hasMore: hasMore,
+                       beforeSeq: beforeSeq,
+                       throughSeq: cursor >= 0 ? cursor : nil,
+                       turnFacts: turnFacts(in: records),
+                       inputReceipts: inputReceipts)
     }
 
     /// Loads one older message-aligned page and prepends unseen durable events.
@@ -2711,7 +2860,7 @@ final class ChatModel {
         }.sorted { $0.seq < $1.seq }
     }
 
-    private static func transcriptItems(from records: [JSONValue], sessionID: String) -> [ChatItem] {
+    private nonisolated static func transcriptItems(from records: [JSONValue], sessionID: String) -> [ChatItem] {
         let markers = compactionMarkers(in: records, sessionID: sessionID)
         guard !markers.isEmpty else {
             return NativeTranscriptProjector.items(from: records, sessionID: sessionID)
@@ -2754,7 +2903,7 @@ final class ChatModel {
 
     /// Seq carried by a projected item id (`<sessionID>:<seq>` or
     /// `<sessionID>:<seq>:block-N`).
-    private static func transcriptSeq(of id: String, sessionID: String) -> Int? {
+    private nonisolated static func transcriptSeq(of id: String, sessionID: String) -> Int? {
         let prefix = "\(sessionID):"
         guard id.hasPrefix(prefix) else { return nil }
         let rest = id.dropFirst(prefix.count)
@@ -2770,7 +2919,7 @@ final class ChatModel {
     /// The generic projector instead emits 上下文已整理 per lifecycle event and
     /// shows the replacement as injected context, which is neither one row nor
     /// the truth; this fold replaces it. Keyed by the checkpoint's seq.
-    private static func compactionMarkers(in records: [JSONValue], sessionID: String) -> [Int: ChatItem] {
+    private nonisolated static func compactionMarkers(in records: [JSONValue], sessionID: String) -> [Int: ChatItem] {
         struct SummaryFacts {
             var summary: String?
             var itemCount: Int?
@@ -2833,7 +2982,7 @@ final class ChatModel {
         return markers
     }
 
-    private static func turnFacts(in records: [JSONValue]) -> TurnFacts {
+    private nonisolated static func turnFacts(in records: [JSONValue]) -> TurnFacts {
         var facts = TurnFacts()
         for event in records {
             guard let type = event["type"]?.stringValue else { continue }
@@ -2853,7 +3002,7 @@ final class ChatModel {
         return facts
     }
 
-    private static func isTurnRunning(in records: [JSONValue]) -> Bool {
+    private nonisolated static func isTurnRunning(in records: [JSONValue]) -> Bool {
         var running = false
         for event in records {
             switch event["type"]?.stringValue {
@@ -3312,6 +3461,52 @@ final class ChatModel {
         }
     }
 
+    /// One projection read for the optimistic session hand-off. Failure is not
+    /// fatal: the normal background refresh retries once the page is up.
+    private func loadProjectionValues(sessionID: String,
+                                      transport: any DSHRemoteTransport) async -> JSONValue? {
+        do {
+            let response = try await transport.call("session/projections", args: .object([
+                "request": .object(["sessionId": .string(sessionID)]),
+            ]))
+            return response["values"]
+        } catch {
+            return nil
+        }
+    }
+
+    private func loadSessionGoal(sessionID: String,
+                                 harness: any AgentHarness) async -> HarnessGoal? {
+        try? await harness.goal(sessionID: sessionID)
+    }
+
+    /// Applies one projection snapshot to every layout-bearing composer value
+    /// at once. Called both by the optimistic hand-off and by the background
+    /// refresh, so they cannot disagree about the order of updates.
+    private func applyProjectionValues(_ values: JSONValue?) {
+        applyProjectionSnapshot(Self.projectionSnapshot(values))
+    }
+
+    private func applyProjectionSnapshot(_ snapshot: SessionProjectionSnapshot) {
+        projectionValues = snapshot.values
+        sessionStats = snapshot.stats
+        tokenUsage = snapshot.usage
+        contextPressure = snapshot.pressure
+        contextBreakdown = snapshot.breakdown
+    }
+
+    /// Computes the whole snapshot in one nonisolated pass. The session switch
+    /// runs it off the main actor; the background refresh uses the same code
+    /// path, so both write exactly the same fields.
+    private nonisolated static func projectionSnapshot(_ values: JSONValue?) -> SessionProjectionSnapshot {
+        SessionProjectionSnapshot(
+            values: values,
+            stats: NativeSessionStats(value: values?["sessionStats"]),
+            usage: NativeTokenUsage(value: values?["tokenUsage"]),
+            pressure: NativeContextPressure(value: values?["contextPressure"]),
+            breakdown: NativeContextBreakdown(value: values?["contextBreakdown"]))
+    }
+
     func refreshNativeMetrics() async {
         guard let sessionID else { return }
         do {
@@ -3320,12 +3515,7 @@ final class ChatModel {
                 "request": .object(["sessionId": .string(sessionID)]),
             ]))
             guard self.sessionID == sessionID else { return }
-            let values = response["values"]
-            projectionValues = values
-            sessionStats = NativeSessionStats(value: values?["sessionStats"])
-            tokenUsage = NativeTokenUsage(value: values?["tokenUsage"])
-            contextPressure = NativeContextPressure(value: values?["contextPressure"])
-            contextBreakdown = NativeContextBreakdown(value: values?["contextBreakdown"])
+            applyProjectionValues(response["values"])
         } catch {
             appendStatus("Native conversation metrics unavailable: \(NativeLogRedaction.localizedError(error))")
         }

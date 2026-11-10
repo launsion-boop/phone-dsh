@@ -246,6 +246,9 @@ targets:
       - path: PhoneDSHProbe/NativeChatTheme.swift
       - path: PhoneDSHProbe/HomeSpec.swift
       - path: PhoneDSHProbe/HomeDrawerNewSessionPolicy.swift
+      - path: PhoneDSHProbe/HomeDrawerSwitchPolicy.swift
+      - path: PhoneDSHProbe/SessionSwitchPresentationPolicy.swift
+      - path: PhoneDSHProbe/ChatEngineStoppedNoticePolicy.swift
       - path: PhoneDSHProbe/NativeChatPreferences.swift
       - path: PhoneDSHProbe/LegacyTaskInspectionModel.swift
       - path: PhoneDSHProbe/LegacyTaskInspectionSection.swift
@@ -363,6 +366,9 @@ targets:
       - path: PhoneDSHProbe/NativeChatTheme.swift
       - path: PhoneDSHProbe/HomeSpec.swift
       - path: PhoneDSHProbe/HomeDrawerNewSessionPolicy.swift
+      - path: PhoneDSHProbe/HomeDrawerSwitchPolicy.swift
+      - path: PhoneDSHProbe/SessionSwitchPresentationPolicy.swift
+      - path: PhoneDSHProbe/ChatEngineStoppedNoticePolicy.swift
       - path: PhoneDSHProbe/NativeChatPreferences.swift
       - path: PhoneDSHProbe/LegacyTaskInspectionModel.swift
       - path: PhoneDSHProbe/LegacyTaskInspectionSection.swift
