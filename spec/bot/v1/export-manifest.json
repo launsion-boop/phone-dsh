@@ -17,6 +17,7 @@
     "held-inbox.json",
     "held-inbox.phone.json",
     "llm-ledger.json",
+    "mcp-egress.phone.json",
     "memory-fact.json",
     "memory-injection.json",
     "memory-policy.json",
@@ -61,6 +62,7 @@
   "phoneOverlays": [
     "card-payload.phone.json",
     "held-inbox.phone.json",
+    "mcp-egress.phone.json",
     "row-protocol.phone.json",
     "tool-catalog.phone.json",
     "tool-effects.phone.json",
@@ -79,6 +81,7 @@
     "held-inbox.json": "0970f8f2fdfb28fe76a6cf39268cefaec0df6c287080c9513f24f11533ec311b",
     "held-inbox.phone.json": "e16b874df320dc5db0214d3f2bc3f6c57a12418fbb50a28503228b4ff9f93b63",
     "llm-ledger.json": "16111b95d4dcbfd5861858539077b6b58fab563f3697d8d2c6e250ed15968315",
+    "mcp-egress.phone.json": "91d91654aea4cc5c611857c994f77395204c992e411a7b809e97fb72ba0a0ead",
     "memory-fact.json": "f7e004974ce5d4a7dddf7b9497e5e253b347cbebd983f8184b406d6846cefb20",
     "memory-injection.json": "66659f0b731aeafd944175876b3e38aa61e29a7d7aaf7b24bc0cce989cbca058",
     "memory-policy.json": "6cb55041a4066087245e4107ad3b4506e44f2ba24f42b1c2ad5c6623b657ba52",
