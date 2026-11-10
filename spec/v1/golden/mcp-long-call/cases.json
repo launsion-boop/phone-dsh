@@ -1,0 +1,22 @@
+{
+  "contract": "pdsh.bot-mcp-long-call/1",
+  "note": "spec/bot/v1/mcp-endpoint.md §2 Long tool calls. Timings are the production values; tests may scale them down but must keep the framing and the decision table exactly.",
+  "constants": {
+    "stream_after_ms": 5000,
+    "keepalive_interval_ms": 15000,
+    "keepalive_bytes": ": keepalive\n\n",
+    "event_prefix": "event: message\ndata: ",
+    "event_suffix": "\n\n",
+    "content_type": "text/event-stream"
+  },
+  "decisions": [
+    {"name": "slow call, client accepts SSE", "method": "tools/call", "batch": false, "accept": "application/json, text/event-stream", "slow": true, "expect": "stream"},
+    {"name": "SSE first in Accept, with a parameter", "method": "tools/call", "batch": false, "accept": "text/event-stream;q=0.9, application/json", "slow": true, "expect": "stream"},
+    {"name": "fast call stays JSON", "method": "tools/call", "batch": false, "accept": "application/json, text/event-stream", "slow": false, "expect": "json"},
+    {"name": "client without SSE", "method": "tools/call", "batch": false, "accept": "application/json", "slow": true, "expect": "json"},
+    {"name": "no Accept header", "method": "tools/call", "batch": false, "accept": null, "slow": true, "expect": "json"},
+    {"name": "wildcard is not an explicit SSE accept", "method": "tools/call", "batch": false, "accept": "*/*", "slow": true, "expect": "json"},
+    {"name": "other method", "method": "tools/list", "batch": false, "accept": "application/json, text/event-stream", "slow": true, "expect": "json"},
+    {"name": "batch", "method": "tools/call", "batch": true, "accept": "application/json, text/event-stream", "slow": true, "expect": "json"}
+  ]
+}

@@ -58,9 +58,34 @@ public final class BotMCPHTTPServer: @unchecked Sendable {
     private var recoveryInFlight: Task<BotMCPListenerRecovery, Never>?
     private var endpointChangeHandler: (@Sendable (URL) -> Void)?
 
-    public init(handler: BotMCPHandler, token: String? = nil) {
+    /// When a long `tools/call` switches to SSE and how often it sends a keepalive
+    /// (mcp-endpoint.md §2; golden/mcp-long-call.json). Tests scale these down.
+    public struct LongCallTiming: Sendable {
+        public var streamAfter: Duration
+        public var keepaliveInterval: Duration
+        public init(streamAfter: Duration, keepaliveInterval: Duration) {
+            self.streamAfter = streamAfter
+            self.keepaliveInterval = keepaliveInterval
+        }
+        public static let standard = LongCallTiming(streamAfter: .seconds(5), keepaliveInterval: .seconds(15))
+    }
+
+    public static let keepaliveBytes = Data(": keepalive\n\n".utf8)
+    public let longCallTiming: LongCallTiming
+
+    public init(handler: BotMCPHandler, token: String? = nil, longCallTiming: LongCallTiming = .standard) {
         self.handler = handler
         self.token = token ?? Self.randomToken()
+        self.longCallTiming = longCallTiming
+    }
+
+    /// The §2 decision: only a single `tools/call` from a client that explicitly accepts SSE.
+    public static func streamsLongCall(method: String, batch: Bool, accept: String?) -> Bool {
+        guard method == "tools/call", !batch, let accept else { return false }
+        return accept.split(separator: ",").contains { range in
+            let mediaType = range.split(separator: ";").first.map(String.init) ?? ""
+            return mediaType.trimmingCharacters(in: .whitespaces).lowercased() == "text/event-stream"
+        }
     }
 
     public var url: URL? {
@@ -430,6 +455,13 @@ public final class BotMCPHTTPServer: @unchecked Sendable {
             let reply = await handler.approval(value)
             send(.json(200, reply), on: connection)
         case "/mcp":
+            if value.arrayValue == nil, case .object(let object) = value,
+               case .string(let method)? = object["method"], let id = object["id"],
+               Self.streamsLongCall(method: method, batch: false, accept: request.headers["accept"]) {
+                await respondAllowingStream(method: method, params: object["params"] ?? .object([:]), id: id,
+                                            headers: request.headers, on: connection)
+                return
+            }
             let messages = value.arrayValue ?? [value]
             var replies: [BotJSONValue] = []
             for message in messages {
@@ -451,6 +483,39 @@ public final class BotMCPHTTPServer: @unchecked Sendable {
             }
         default:
             send(.text(404, #"{"error":"not found"}"#), on: connection)
+        }
+    }
+
+    /// A reply ready within `streamAfter` is the usual JSON; a later one is an SSE stream:
+    /// head now, `: keepalive` every `keepaliveInterval`, then one `event: message` (§2).
+    private func respondAllowingStream(method: String, params: BotJSONValue, id: BotJSONValue,
+                                       headers: [String: String], on connection: NWConnection) async {
+        let reply = BotReplyBox()
+        let handler = self.handler
+        Task { reply.finish(await handler.rpc(method: method, params: params, id: id, headers: headers)) }
+        if let ready = await reply.wait(upTo: longCallTiming.streamAfter) {
+            send(.json(200, ready, session: true), on: connection)
+            return
+        }
+        var head = "HTTP/1.1 200 OK\r\n"
+        head += "Content-Type: text/event-stream\r\n"
+        head += "Cache-Control: no-cache\r\n"
+        head += "Mcp-Session-Id: \(handler.mcpSessionId)\r\n"
+        head += "Connection: close\r\n\r\n"
+        let peer = BotStreamPeer()
+        connection.send(content: Data(head.utf8), completion: .contentProcessed { error in if error != nil { peer.lost() } })
+        while true {
+            if let value = await reply.wait(upTo: longCallTiming.keepaliveInterval) {
+                let json = (try? value.encoded()) ?? Data(#"{"error":"encoding failed"}"#.utf8)
+                var event = Data("event: message\ndata: ".utf8)
+                event.append(json)
+                event.append(Data("\n\n".utf8))
+                connection.send(content: event, completion: .contentProcessed { _ in connection.cancel() })
+                return
+            }
+            // The peer went away: the call keeps running and its receipt stays the authority.
+            if peer.isLost { connection.cancel(); return }
+            connection.send(content: Self.keepaliveBytes, completion: .contentProcessed { error in if error != nil { peer.lost() } })
         }
     }
 
@@ -598,4 +663,47 @@ private struct BotHTTPResponse {
         self.body = body
         self.session = session
     }
+}
+
+/// One JSON-RPC reply, awaited with a deadline by any number of waiters.
+final class BotReplyBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: BotJSONValue?
+    private var waiters: [UUID: CheckedContinuation<BotJSONValue?, Never>] = [:]
+
+    func finish(_ reply: BotJSONValue) {
+        let pending: [CheckedContinuation<BotJSONValue?, Never>] = lock.withLock {
+            value = reply
+            defer { waiters.removeAll() }
+            return Array(waiters.values)
+        }
+        pending.forEach { $0.resume(returning: reply) }
+    }
+
+    /// The reply, or nil if it is not ready after `limit`.
+    func wait(upTo limit: Duration) async -> BotJSONValue? {
+        if let ready = lock.withLock({ value }) { return ready }
+        let token = UUID()
+        return await withCheckedContinuation { continuation in
+            let ready: BotJSONValue? = lock.withLock {
+                if let value { return value }
+                waiters[token] = continuation
+                return nil
+            }
+            if let ready { continuation.resume(returning: ready); return }
+            Task {
+                try? await Task.sleep(for: limit)
+                let expired = self.lock.withLock { self.waiters.removeValue(forKey: token) }
+                expired?.resume(returning: nil)
+            }
+        }
+    }
+}
+
+/// Set when a stream write fails (the client hung up).
+final class BotStreamPeer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var gone = false
+    func lost() { lock.withLock { gone = true } }
+    var isLost: Bool { lock.withLock { gone } }
 }
