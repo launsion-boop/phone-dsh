@@ -560,6 +560,92 @@ final class PCLinkWorkspaceSimTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: phoneDir.appendingPathComponent("s-1.json").path))
     }
 
+    // P18 (PC-20261110-pclink-pc-roster-snapshot): each backend has its own
+    // roster cache key, so a PC list can never be read as phone state.
+    func testRosterSnapshotKeysAreBackendScoped() {
+        let phone = BackendID.phone
+        let first = BackendID.pc(machineId: "pc-one")
+        let second = BackendID.pc(machineId: "pc-two")
+        XCTAssertEqual(WorkspaceStorageKeys.sessionSnapshotKey(for: phone),
+                       "dsh.management.sessionSnapshot.v1")
+        XCTAssertEqual(WorkspaceStorageKeys.sessionSnapshotKey(for: first),
+                       "phone-dsh.pc.session-snapshot.pc-one")
+        XCTAssertNotEqual(WorkspaceStorageKeys.sessionSnapshotKey(for: first),
+                          WorkspaceStorageKeys.sessionSnapshotKey(for: second))
+        XCTAssertNotEqual(WorkspaceStorageKeys.sessionSnapshotKey(for: phone),
+                          WorkspaceStorageKeys.sessionSnapshotKey(for: first))
+    }
+
+    // The envelope carries the capture date and the backend; a bare value (the
+    // phone's historical format) and an unknown version both stay readable /
+    // ignorable instead of erasing the list.
+    func testRosterSnapshotEnvelopeRoundTripsAndDegrades() throws {
+        let pc = BackendID.pc(machineId: "pc-one")
+        let snapshot = ChatSessionSnapshot(
+            sessions: [.init(id: "s-1", title: "会话一",
+                             updatedAtMilliseconds: 1_700_000_000_000,
+                             running: true, blank: false, cwd: "/tmp")],
+            workspaces: [.init(id: "w-1", title: "工作区", path: "/tmp", sessionIDs: ["s-1"])],
+            workspaceOrder: ["w-1"],
+            pinnedSessionIDs: ["s-1"],
+            archivedIDs: [])
+        let capturedAt = Date(timeIntervalSince1970: 1_700_000_500)
+        let data = try XCTUnwrap(CachedSessionSnapshotCodec.encode(snapshot,
+                                                                  backend: pc,
+                                                                  capturedAt: capturedAt))
+        let envelope = try JSONDecoder().decode(CachedSessionSnapshotEnvelope.self, from: data)
+        XCTAssertEqual(envelope.v, CachedSessionSnapshotEnvelope.currentVersion)
+        XCTAssertEqual(envelope.backend, "pc:pc-one")
+        let stored = try XCTUnwrap(CachedSessionSnapshotCodec.decode(data))
+        XCTAssertEqual(stored.snapshot, snapshot)
+        XCTAssertEqual(try XCTUnwrap(stored.capturedAt).timeIntervalSince1970,
+                       capturedAt.timeIntervalSince1970, accuracy: 0.001)
+
+        // Bare format: still accepted, and it carries no date.
+        let bare = try XCTUnwrap(snapshot.encoded())
+        let legacy = try XCTUnwrap(CachedSessionSnapshotCodec.decode(bare))
+        XCTAssertEqual(legacy.snapshot, snapshot)
+        XCTAssertNil(legacy.capturedAt)
+
+        // Unknown version and corrupt bytes are ignored, never guessed.
+        var future = envelope
+        future.v = CachedSessionSnapshotEnvelope.currentVersion + 1
+        let futureData = try JSONEncoder().encode(future)
+        XCTAssertNil(CachedSessionSnapshotCodec.decode(futureData))
+        XCTAssertNil(CachedSessionSnapshotCodec.decode(Data("not json".utf8)))
+        XCTAssertNil(CachedSessionSnapshotCodec.encode(ChatSessionSnapshot(),
+                                                        backend: pc, capturedAt: capturedAt),
+                     "an empty roster is never persisted")
+    }
+
+    // Unpairing removes the roster cache of that machine only.
+    func testRosterSnapshotIsRemovedOnUnpairOnlyForThatBackend() throws {
+        let store = TestDefaults()
+        defer { store.remove() }
+        let defaults = store.defaults
+        let pc = BackendID.pc(machineId: "pc-one")
+        let snapshot = ChatSessionSnapshot(
+            sessions: [.init(id: "s-1", title: "PC 会话",
+                             updatedAtMilliseconds: 1_700_000_000_000,
+                             running: false, blank: false)],
+            workspaces: [], workspaceOrder: [], pinnedSessionIDs: [], archivedIDs: [])
+        let pcKey = WorkspaceStorageKeys.sessionSnapshotKey(for: pc)
+        let phoneKey = WorkspaceStorageKeys.sessionSnapshotKey(for: .phone)
+        defaults.set(try XCTUnwrap(CachedSessionSnapshotCodec.encode(snapshot, backend: pc,
+                                                                     capturedAt: Date())),
+                     forKey: pcKey)
+        defaults.set(try XCTUnwrap(snapshot.encoded()), forKey: phoneKey)
+
+        let documents = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pclink-roster-unpair-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: documents, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: documents) }
+        WorkspaceStorage.removeLocalData(for: pc, defaults: defaults,
+                                         documentsDirectory: documents)
+        XCTAssertNil(defaults.data(forKey: pcKey))
+        XCTAssertNotNil(defaults.data(forKey: phoneKey))
+    }
+
     func testPairedAtIsLocalizedNotISO() {
         let value = PCLinkWorkspaceText.pairedAtDisplay(
             "2026-11-10T03:13:00Z",

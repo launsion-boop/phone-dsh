@@ -92,10 +92,10 @@ final class DSHManagementModel {
 
     private let chatProvider: @MainActor () -> ChatModel
 
-    /// The phone singleton restores the latest phone snapshot before its first
-    /// paint. A per-backend instance (D2 PC) is created through `init(chat:)`
-    /// and starts empty: the snapshot cache is phone state today (see the P18
-    /// note on `cachedSnapshotKey`).
+    /// Every instance restores its own backend's snapshot before the first
+    /// paint. A PC instance is created through `init(chat:)` when the pairing
+    /// record appears, so the drawer can render the last known roster while the
+    /// relay is still re-handshaking.
     private init() {
         self.chatProvider = { ChatModel.shared }
         restoreCachedSnapshot()
@@ -103,6 +103,7 @@ final class DSHManagementModel {
 
     init(chat: @escaping @MainActor () -> ChatModel) {
         self.chatProvider = chat
+        restoreCachedSnapshot()
     }
 
     private var chat: ChatModel { chatProvider() }
@@ -189,12 +190,18 @@ final class DSHManagementModel {
     /// Last successful `session/list` projection, restored on launch and after
     /// a park so the drawer and the chat title never wait for the engine.
     ///
-    /// P18 follow-up (reported, not changed here): this key is not yet
-    /// backend-scoped. It is phone state and a PC `DSHManagementModel` must not
-    /// read or write it until it moves under `WorkspaceStorageKeys` with a
-    /// `(BackendID)` suffix. It is a session-list cache, so the scope is the
-    /// backend, not `(BackendID, sessionID)`.
-    private static let cachedSnapshotKey = "dsh.management.sessionSnapshot.v1"
+    /// P18: the key is backend-scoped. The phone keeps its historical bare key;
+    /// a PC writes a dated envelope under `pc:<machineId>`
+    /// (PC-20261110-pclink-pc-roster-snapshot). It is a session-list cache, so
+    /// the scope is the backend, not `(BackendID, sessionID)`.
+    private var cachedSnapshotKey: String {
+        WorkspaceStorageKeys.sessionSnapshotKey(for: backendID)
+    }
+
+    /// When the restored snapshot was captured. `nil` for the phone's bare
+    /// value and for a live (uncached) list. Wired to the drawer's staleness
+    /// copy in the next work package.
+    private(set) var cacheCapturedAt: Date?
 
     /// One cached grouping snapshot. All drawer/list accessors below read it,
     /// so a SwiftUI body evaluation is O(1) after the first build and a
@@ -346,16 +353,12 @@ final class DSHManagementModel {
 
     private func performRefresh() async {
         guard chat.isStarted else {
-            // The engine is booting/rebuilding: keep the last phone snapshot
-            // visible (the title row and drawer render from it) instead of
-            // blanking. A PC backend has no local Worker to wait for and its
-            // list must never be filled from the phone's cache.
-            if backendID == .phone {
-                restoreCachedSnapshot()
-            } else {
-                sessions = []
-                archivedIDs = []
-            }
+            // Nothing to read yet: keep the last known roster visible instead of
+            // blanking, for both backends. Each one restores its own scoped key,
+            // so a PC list can never be filled from the phone's cache (P18).
+            // Only fill an empty list: a live list must not be rolled back to an
+            // older cache because the backend went away.
+            if sessions.isEmpty { restoreCachedSnapshot() }
             error = nil
             return
         }
@@ -409,16 +412,14 @@ final class DSHManagementModel {
                !workspaces.contains(where: { $0.id == stored }) {
                 WorkspaceStorage.setLastWorkspaceID(nil, for: backendID)
             }
-            // The phone snapshot cache is not backend-scoped yet (P18 report
-            // item); only the phone backend may read or write it.
-            if backendID == .phone {
-                persistCachedSnapshot()
-            }
+            // Every backend writes only its own scoped key, and only after a
+            // successful refresh (P18, PC-20261110-pclink-pc-roster-snapshot).
+            persistCachedSnapshot()
             error = nil
         } catch {
             // A failed refresh is not a reason to erase the usable snapshot;
             // the next successful engine answer replaces it.
-            if backendID == .phone, sessions.isEmpty { restoreCachedSnapshot() }
+            if sessions.isEmpty { restoreCachedSnapshot() }
             self.error = error.localizedDescription
         }
     }
@@ -426,9 +427,14 @@ final class DSHManagementModel {
     /// Restores the last successful session/list projection. Safe to call
     /// repeatedly; an empty or corrupt snapshot leaves the live values alone.
     private func restoreCachedSnapshot() {
-        guard let data = UserDefaults.standard.data(forKey: Self.cachedSnapshotKey),
-              let snapshot = ChatSessionSnapshot.decode(data),
-              snapshot.isEmpty == false else { return }
+        // `CachedSessionSnapshotCodec` accepts the PC envelope and the phone's
+        // bare value, and returns nil for an unknown version or corrupt bytes so
+        // the live list is never erased by a bad cache.
+        guard let data = UserDefaults.standard.data(forKey: cachedSnapshotKey),
+              let stored = CachedSessionSnapshotCodec.decode(data),
+              stored.snapshot.isEmpty == false else { return }
+        let snapshot = stored.snapshot
+        cacheCapturedAt = stored.capturedAt
         sessions = snapshot.sessions.map { row in
             ManagedSession(
                 id: row.id, title: row.title,
@@ -465,8 +471,12 @@ final class DSHManagementModel {
             workspaceOrder: workspaceOrder,
             pinnedSessionIDs: pinnedSessionIDs,
             archivedIDs: Array(archivedIDs))
-        guard snapshot.isEmpty == false, let data = snapshot.encoded() else { return }
-        UserDefaults.standard.set(data, forKey: Self.cachedSnapshotKey)
+        let capturedAt = Date()
+        guard let data = CachedSessionSnapshotCodec.encode(snapshot,
+                                                           backend: backendID,
+                                                           capturedAt: capturedAt) else { return }
+        UserDefaults.standard.set(data, forKey: cachedSnapshotKey)
+        cacheCapturedAt = capturedAt
     }
 
     func createSession(workspaceID: String? = nil) async -> String? {

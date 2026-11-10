@@ -82,3 +82,69 @@ public struct ChatSessionSnapshot: Codable, Equatable, Sendable {
     /// snapshot is not persisted.
     public var isEmpty: Bool { sessions.isEmpty && workspaces.isEmpty }
 }
+
+// MARK: - Persisted roster envelope (P18)
+
+/// Versioned wrapper for a persisted session-list projection.
+///
+/// `ChatSessionSnapshot` itself stays unwrapped so the phone's pre-existing
+/// `dsh.management.sessionSnapshot.v1` value (and any rollback build reading it)
+/// keeps working. A PC workspace writes this envelope under
+/// `phone-dsh.pc.session-snapshot.<machineId>`, which lets a stale value be
+/// dated and a future format be rejected instead of misread
+/// (PC-20261110-pclink-pc-roster-snapshot).
+public struct CachedSessionSnapshotEnvelope: Codable, Equatable, Sendable {
+    /// The only format this build writes. An unknown `v` is ignored on read.
+    public static let currentVersion = 1
+
+    public var v: Int
+    public var capturedAtMilliseconds: Double
+    public var backend: String
+    public var payload: ChatSessionSnapshot
+
+    public init(capturedAt: Date, backend: BackendID, payload: ChatSessionSnapshot) {
+        self.v = Self.currentVersion
+        self.capturedAtMilliseconds = capturedAt.timeIntervalSince1970 * 1_000
+        self.backend = backend.storageScope
+        self.payload = payload
+    }
+
+    public var capturedAt: Date {
+        Date(timeIntervalSince1970: capturedAtMilliseconds / 1_000)
+    }
+}
+
+/// Reads and writes the roster cache. Every read tolerates the bare format so a
+/// value written by an older build (or by hand) is still usable, and every
+/// failure returns `nil` instead of erasing what is on screen.
+public enum CachedSessionSnapshotCodec {
+    public struct Stored: Equatable, Sendable {
+        public var snapshot: ChatSessionSnapshot
+        /// `nil` for a bare (unwrapped) value, which carries no date.
+        public var capturedAt: Date?
+
+        public init(snapshot: ChatSessionSnapshot, capturedAt: Date?) {
+            self.snapshot = snapshot
+            self.capturedAt = capturedAt
+        }
+    }
+
+    public static func encode(_ snapshot: ChatSessionSnapshot,
+                              backend: BackendID,
+                              capturedAt: Date) -> Data? {
+        guard !snapshot.isEmpty else { return nil }
+        let envelope = CachedSessionSnapshotEnvelope(capturedAt: capturedAt,
+                                                    backend: backend,
+                                                    payload: snapshot)
+        return try? JSONEncoder().encode(envelope)
+    }
+
+    public static func decode(_ data: Data) -> Stored? {
+        if let envelope = try? JSONDecoder().decode(CachedSessionSnapshotEnvelope.self, from: data) {
+            guard envelope.v == CachedSessionSnapshotEnvelope.currentVersion else { return nil }
+            return Stored(snapshot: envelope.payload, capturedAt: envelope.capturedAt)
+        }
+        guard let bare = ChatSessionSnapshot.decode(data) else { return nil }
+        return Stored(snapshot: bare, capturedAt: nil)
+    }
+}
