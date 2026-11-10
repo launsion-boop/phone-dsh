@@ -1,64 +1,126 @@
 // SPDX-License-Identifier: MIT
 // BotCardKit: the one card system every Bot card is built from, on the home
-// design spec (HomeSpec). A card is a white r18 list card with a 1pt #E2E2E2
-// edge and 16pt padding. Inside, text uses four sizes only:
+// design spec (HomeSpec). A card is a white r16 list card with a 1pt #E2E2E2
+// edge and 12pt padding, capped at the Bot reply's 86% content width. Inside,
+// text uses this compact scale only:
 //
-//   eyebrow  13 medium  #888   what the card is (选择 · 进度 · 文档 …)
-//   title    16 semibold #1A1A1A, 24 line
-//   body     15 regular  #555, 22 line   summaries, help, details
-//   row      15 regular  #1A1A1A, 22 line   list rows inside a card
-//   meta     13 regular  #888, 18 line   counts, sites, sizes, times
+//   eyebrow  12 medium  #888   what the card is (选择 · 进度 · 文档 …)
+//   title    15 semibold #1A1A1A, 22 line
+//   body     14 regular  #555, 20 line   summaries, help, details
+//   row      14 regular  #1A1A1A, 20 line   list rows inside a card
+//   meta     12 regular  #888, 18 line   counts, sites, sizes, times
 //
 // Rows are at least 44pt with 0.5pt hairlines between them; glyphs are 17pt
-// in a 20pt column (or a 36pt gray tile for objects); buttons are 44pt
+// in a 20pt column (or a 32pt gray tile for objects); buttons are 44pt
 // capsules. Color is monochrome: green and red mark only success and failure.
 
 import SwiftUI
 
 enum BotCardMetrics {
-    static let padding: CGFloat = 16
-    static let radius: CGFloat = HomeSpec.listCardRadius
+    // MARK: - Shared width
+
+    /// Bot replies and cards both stop at this share of the transcript column.
+    /// The column itself (and its 20pt inset) belongs to `BotChatPage`.
+    static let contentWidthRatio: CGFloat = 0.86
+
+    // MARK: - Card surface
+
+    static let padding: CGFloat = 12
+    static let radius: CGFloat = 16
     static let rowMinHeight: CGFloat = 44
     static let glyphColumn: CGFloat = 20
-    static let tile: CGFloat = 36
+    static let tile: CGFloat = 32
     static let buttonHeight: CGFloat = 44
     /// Eyebrow → title → body.
     static let headingGap: CGFloat = 4
     /// Between the heading and the card's content, and between blocks.
-    static let blockGap: CGFloat = 12
+    static let blockGap: CGFloat = 10
+
+    // MARK: - Type (size / line height)
+
+    static let titleSize: CGFloat = 15
+    static let titleLine: CGFloat = 22
+    static let bodySize: CGFloat = 14
+    static let bodyLine: CGFloat = 20
+    static let metaSize: CGFloat = 12
+    static let metaLine: CGFloat = 18
 }
 
 extension View {
     func botCardEyebrow() -> some View {
-        font(.system(size: 13, weight: .medium)).foregroundStyle(HomeSpec.textPlaceholder)
+        font(.system(size: BotCardMetrics.metaSize, weight: .medium))
+            .foregroundStyle(HomeSpec.textPlaceholder)
     }
 
     func botCardTitle() -> some View {
-        font(.system(size: HomeSpec.bodySize, weight: .semibold))
-            .lineSpacing(HomeSpec.lineSpacing(size: HomeSpec.bodySize, lineHeight: HomeSpec.bodyLine))
+        font(.system(size: BotCardMetrics.titleSize, weight: .semibold))
+            .lineSpacing(HomeSpec.lineSpacing(size: BotCardMetrics.titleSize,
+                                             lineHeight: BotCardMetrics.titleLine))
             .foregroundStyle(HomeSpec.textPrimary)
     }
 
     func botCardBody() -> some View {
-        font(.system(size: HomeSpec.processSize))
-            .lineSpacing(HomeSpec.lineSpacing(size: HomeSpec.processSize, lineHeight: 22))
+        font(.system(size: BotCardMetrics.bodySize))
+            .lineSpacing(HomeSpec.lineSpacing(size: BotCardMetrics.bodySize,
+                                             lineHeight: BotCardMetrics.bodyLine))
             .foregroundStyle(HomeSpec.textSecondary)
     }
 
     func botCardRow(weight: Font.Weight = .regular) -> some View {
-        font(.system(size: HomeSpec.processSize, weight: weight))
-            .lineSpacing(HomeSpec.lineSpacing(size: HomeSpec.processSize, lineHeight: 22))
+        font(.system(size: BotCardMetrics.bodySize, weight: weight))
+            .lineSpacing(HomeSpec.lineSpacing(size: BotCardMetrics.bodySize,
+                                             lineHeight: BotCardMetrics.bodyLine))
             .foregroundStyle(HomeSpec.textPrimary)
     }
 
     func botCardMeta() -> some View {
-        font(.system(size: 13))
-            .lineSpacing(HomeSpec.lineSpacing(size: 13, lineHeight: 18))
+        font(.system(size: BotCardMetrics.metaSize))
+            .lineSpacing(HomeSpec.lineSpacing(size: BotCardMetrics.metaSize,
+                                             lineHeight: BotCardMetrics.metaLine))
             .foregroundStyle(HomeSpec.textPlaceholder)
     }
 }
 
-/// The card surface: white, r18, 1pt #E2E2E2, 16pt padding, full column.
+/// The shared width rule for the Bot's own content: reply text and every card
+/// stop at 86% of the column, leading aligned, and stay content-sized when
+/// narrower instead of filling the column.
+struct BotContentWidth<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        BotAdaptiveBubbleLayout(ratio: BotCardMetrics.contentWidthRatio, trailing: false) {
+            content
+        }
+    }
+}
+
+/// Shared by the Bot reply bubble, every card, and the user bubble (with its
+/// own 0.80 cap): propose the capped width, then place the content-sized child
+/// on the leading or trailing edge.
+struct BotAdaptiveBubbleLayout: Layout {
+    typealias Cache = CGSize
+
+    let ratio: CGFloat
+    let trailing: Bool
+
+    func makeCache(subviews: Subviews) -> CGSize { .zero }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout CGSize) -> CGSize {
+        guard let child = subviews.first, let width = proposal.width else { return .zero }
+        cache = child.sizeThatFits(ProposedViewSize(width: width * ratio, height: proposal.height))
+        return CGSize(width: width, height: cache.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout CGSize) {
+        guard let child = subviews.first else { return }
+        let x = trailing ? bounds.maxX - cache.width : bounds.minX
+        child.place(at: CGPoint(x: x, y: bounds.minY),
+                    proposal: ProposedViewSize(width: cache.width, height: cache.height))
+    }
+}
+
+/// A card surface: white, r16, 1pt #E2E2E2, 12pt padding. It takes the width
+/// its content asks for; the parent `BotContentWidth` supplies the 86% cap.
 struct BotCardSurface<Content: View>: View {
     var padding: CGFloat = BotCardMetrics.padding
     @ViewBuilder var content: Content
@@ -66,7 +128,6 @@ struct BotCardSurface<Content: View>: View {
     var body: some View {
         content
             .padding(padding)
-            .frame(maxWidth: .infinity, alignment: .leading)
             .background(HomeSpec.surface,
                         in: RoundedRectangle(cornerRadius: BotCardMetrics.radius, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: BotCardMetrics.radius, style: .continuous)
@@ -159,7 +220,7 @@ struct BotCardDivider: View {
 }
 
 /// A list row inside a card: optional 17pt glyph in a 20pt column, the
-/// 15pt label (no line cap) with an optional 13pt detail, a trailing view.
+/// 14pt label (no line cap) with an optional 12pt detail, a trailing view.
 struct BotCardRow<Leading: View, Trailing: View>: View {
     var label: String
     var detail: String?
@@ -206,7 +267,7 @@ struct BotCardGlyph: View {
     }
 }
 
-/// A 36pt gray tile with an 17pt glyph, for files, links and routines.
+/// A 32pt gray tile with an 17pt glyph, for files, links and routines.
 struct BotCardTile: View {
     let systemImage: String
 

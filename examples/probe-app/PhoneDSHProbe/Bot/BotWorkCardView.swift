@@ -282,7 +282,7 @@ private struct BotApprovalCardView: View {
     }
 
     var body: some View {
-        BotCardSurface(padding: pending ? BotCardMetrics.padding : 12) {
+        BotCardSurface {
             if pending { pendingContent } else { decidedContent }
         }
         .accessibilityElement(children: .contain)
@@ -474,7 +474,6 @@ private struct BotNoticeCardView: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .foregroundStyle(denial ? HomeSpec.textPlaceholder : NativeParityTokens.error)
-        .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityIdentifier("bot.card.notice")
     }
 }
