@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
-// PC pairing page (D2). Camera scan is the preferred path; a paste field is
-// always available (DEBUG and release) for the simulator and camera-less
-// setups, and the manual 16-character code uses the default relay origin.
-// The page shows this phone's own 12-character fingerprint and the §4.6
-// full-owner warning before the explicit confirmation.
+// PC pairing page (P09, pclink-qr-approval). One screen: one install command,
+// one scan action, the other entries folded away, and one permission line. The
+// phone's scan/code entry is the approval (v1.6); there is no fingerprint card
+// and no "type this fingerprint on the PC" copy. The fingerprint lives on
+// 我的 › 已连接的电脑 for verification.
 
 import AVFoundation
 import PhoneDSHPCLink
@@ -14,38 +14,38 @@ import UIKit
 struct PCPairingPage: View {
     @Environment(\.workspaceModels) private var models
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var flow: PCPairingFlow?
     @State private var pasteURI = ""
     @State private var manualCode = ""
     @State private var showScanner = false
-    @State private var showManual = false
+    @State private var showOther = false
     @State private var cameraDenied = false
-    @State private var localError: String?
+    @State private var interrupted = false
+    @State private var showOldPCHint = false
     @State private var autoEnteredWorkspace = false
 
     private var state: PCPairingPageState { flow?.state ?? .idle }
-    private var fingerprint: String {
-        let own = flow?.state.prompt?.ownFingerprint ?? models.pcLink.ownFingerprint
-        return own.isEmpty ? "读取中…" : own
-    }
 
     var body: some View {
         List {
-            pluginInstallSection
-            fingerprintSection
-            if case .awaitingApproval(let prompt) = state {
-                approvalSection(prompt)
-            } else if case .paired(let record) = state {
-                pairedSection(record)
-            } else if case .failed(let message) = state {
-                failureSection(message)
-            } else if state.isBusy {
-                busySection
-            } else {
+            switch state {
+            case .idle, .joining:
+                installSection
                 scanSection
-                manualSection
-                warningSection
+                otherSection
+                if case .joining = state { joiningSection }
+                permissionSection
+            case .connecting(let prompt):
+                connectingSection(prompt)
+                if interrupted { interruptionNotice }
+                permissionSection
+            case .paired(let record):
+                pairedSection(record)
+            case .failed(let message):
+                failureSection(message)
+                permissionSection
             }
         }
         .homeGroupedList()
@@ -61,11 +61,6 @@ struct PCPairingPage: View {
         }
         .task {
             if flow == nil { flow = PCPairingFlow(client: models.pcLink.client) }
-            // Load/create the phone identity so the fingerprint is available
-            // before the PC's approval prompt.
-            if models.pcLink.ownFingerprint.isEmpty {
-                await models.pcLink.retry()
-            }
             #if DEBUG
             await runDebugPairingIfRequested()
             #endif
@@ -74,11 +69,12 @@ struct PCPairingPage: View {
             flow?.sync(clientStatus: status)
         }
         .onChange(of: flow?.state) { _, state in
-            // Pairing completion is driven by the client's pairing update
-            // stream after the authenticated pair.confirm. Enter the PC
-            // workspace automatically; the approval button remains the
-            // explicit consent / timeout-retry entry.
             if case .paired = state { enterPCWorkspace() }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            // Lock/background during the hand-off drops the relay socket on a
+            // real device. Keep the page open and say so instead of spinning.
+            if phase != .active, state.isBusy { interrupted = true }
         }
         .sheet(isPresented: $showScanner) {
             NavigationStack {
@@ -87,7 +83,7 @@ struct PCPairingPage: View {
                     pasteURI = code
                     startQR(code)
                 }
-                .navigationTitle("扫码")
+                .navigationTitle("扫码连接")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
@@ -99,10 +95,8 @@ struct PCPairingPage: View {
     }
 
     #if DEBUG
-    /// Unattended simulator E2E: paste the pairing URI through the same
-    /// `PCPairingFlow` the text field uses, then optionally perform the explicit
-    /// confirm after a delay long enough for a reviewer to capture the
-    /// compared-fingerprint state. Never compiled into release.
+    /// Unattended simulator E2E: paste the URI through the same production
+    /// flow. The flow auto-submits `pair.auth`; there is no approval button.
     private func runDebugPairingIfRequested() async {
         let env = ProcessInfo.processInfo.environment
         if let uri = env["PDSH_PCLINK_PAIR_URI"],
@@ -110,13 +104,6 @@ struct PCPairingPage: View {
            flow?.state == .idle {
             pasteURI = uri
             await flow?.begin(qrURI: uri)
-        }
-        if env["PDSH_PCLINK_AUTOCONFIRM"] == "1" {
-            let milliseconds = Int(env["PDSH_PCLINK_AUTOCONFIRM_DELAY_MS"] ?? "") ?? 2000
-            try? await Task.sleep(for: .milliseconds(max(0, milliseconds)))
-            if case .awaitingApproval = flow?.state {
-                await flow?.confirm()
-            }
         }
         if env["PDSH_PCLINK_AUTOCLOSE_PAIRING"] == "1", case .paired = flow?.state {
             try? await Task.sleep(for: .milliseconds(1500))
@@ -127,37 +114,13 @@ struct PCPairingPage: View {
 
     // MARK: Sections
 
-    /// pclink-pacing: the same copyable install/pairing guide as the drawer
-    /// empty state. The command text has one owner in ProbeKit next to the
-    /// relay-origin configuration.
-    private var pluginInstallSection: some View {
+    private var installSection: some View {
         Section {
-            PCPluginInstallGuide()
-                .listRowInsets(EdgeInsets(top: 10, leading: 16,
-                                          bottom: 10, trailing: 16))
-        } header: {
-            Text(PCLinkInstallGuide.title)
-        } footer: {
-            Text("在电脑终端运行上面的命令，按提示用手机扫码。脚本会检查环境、安装插件、加载 dsh web 并显示配对二维码。")
-        }
-    }
-
-    private var fingerprintSection: some View {
-        Section {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("本机指纹")
-                    .font(.system(size: 13))
-                    .foregroundStyle(HomeSpec.textSecondary)
-                Text(fingerprint)
-                    .font(.system(size: 26, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(HomeSpec.textPrimary)
-                    .textSelection(.enabled)
-                Text("在电脑上输入这串指纹来批准配对。电脑只会显示手机名称，不会显示指纹。")
-                    .font(.system(size: 13))
-                    .foregroundStyle(HomeSpec.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(.vertical, 6)
+            Text("在电脑终端运行：")
+                .font(.system(size: HomeSpec.bodySize))
+                .foregroundStyle(HomeSpec.textPrimary)
+            PCInstallCommandCard()
+                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
         }
     }
 
@@ -168,128 +131,135 @@ struct PCPairingPage: View {
             } label: {
                 HStack(spacing: 10) {
                     Image(systemName: "qrcode.viewfinder")
-                        .font(.system(size: 18))
-                    Text("扫码配对")
-                        .font(.system(size: HomeSpec.bodySize, weight: .medium))
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(HomeSpec.textPlaceholder)
+                        .font(.system(size: 18, weight: .semibold))
+                    Text("扫码连接")
+                        .font(.system(size: HomeSpec.bodySize, weight: .semibold))
+                    Spacer(minLength: 0)
                 }
-                .frame(minHeight: 48)
+                .foregroundStyle(HomeSpec.primaryButtonInk)
+                .frame(maxWidth: .infinity)
+                .frame(height: 50)
+                .background(HomeSpec.primaryButton, in: Capsule())
             }
+            .buttonStyle(.plain)
+            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+            Text("扫描终端里出现的二维码")
+                .font(.system(size: 13))
+                .foregroundStyle(HomeSpec.textSecondary)
             if cameraDenied {
-                Text("相机不可用或未授权。请在系统设置里允许相机，或使用下面的粘贴链接/手动输码。")
+                Text("相机不可用或未授权。请允许相机，或使用「其他方式」。")
                     .font(.system(size: 13))
                     .foregroundStyle(HomeSpec.textSecondary)
-            }
-            VStack(alignment: .leading, spacing: 10) {
-                Text("粘贴配对链接")
-                    .font(.system(size: 13))
-                    .foregroundStyle(HomeSpec.textSecondary)
-                TextField("pclink://pair?…", text: $pasteURI, axis: .vertical)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .font(.system(size: 14, design: .monospaced))
-                    .lineLimit(2...4)
-                    .accessibilityLabel("配对链接")
-                Button("用链接配对") { startQR(pasteURI) }
-                    .font(.system(size: HomeSpec.bodySize, weight: .semibold))
-                    .frame(minHeight: 44)
-                    .disabled(pasteURI.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
-            .padding(.vertical, 4)
-        } header: {
-            Text("扫码或链接")
-        } footer: {
-            if let localError {
-                Text(localError).foregroundStyle(NativePagePalette.danger)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
 
-    private var manualSection: some View {
+    private var otherSection: some View {
         Section {
-            Button(showManual ? "收起手动输码" : "手动输入配对码") {
-                withAnimation(.easeOut(duration: 0.18)) { showManual.toggle() }
+            Button(showOther ? "收起其他方式" : "其他方式") {
+                withAnimation(.easeOut(duration: 0.18)) { showOther.toggle() }
             }
             .frame(minHeight: 44)
-            if showManual {
-                TextField("XXXX-XXXX-XXXX-XXXX", text: $manualCode)
-                    .textInputAutocapitalization(.characters)
-                    .autocorrectionDisabled()
-                    .font(.system(size: 18, design: .monospaced))
-                    .onChange(of: manualCode) { _, value in
-                        manualCode = Self.formatManualCode(value)
-                    }
-                    .accessibilityLabel("配对码")
-                Text("16 位，单次使用，5 分钟内有效。使用默认中继地址 \(PCLinkRelayConfiguration.manualPairingOrigin)。")
-                    .font(.system(size: 12))
-                    .foregroundStyle(HomeSpec.textSecondary)
-                Button("手动配对") { startManual() }
-                    .font(.system(size: HomeSpec.bodySize, weight: .semibold))
-                    .frame(minHeight: 44)
-                    .disabled(manualCode.count != 19)
+            if showOther {
+                VStack(alignment: .leading, spacing: 8) {
+                    TextField("pclink://pair?…", text: $pasteURI, axis: .vertical)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .font(.system(size: 14, design: .monospaced))
+                        .lineLimit(1...3)
+                        .accessibilityLabel("配对链接")
+                    Button("用链接配对") { startQR(pasteURI) }
+                        .font(.system(size: HomeSpec.bodySize, weight: .semibold))
+                        .frame(minHeight: 44)
+                        .disabled(pasteURI.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+                .padding(.vertical, 2)
+                VStack(alignment: .leading, spacing: 8) {
+                    TextField("XXXX-XXXX-XXXX-XXXX", text: $manualCode)
+                        .textInputAutocapitalization(.characters)
+                        .autocorrectionDisabled()
+                        .font(.system(size: 18, design: .monospaced))
+                        .onChange(of: manualCode) { _, value in
+                            manualCode = Self.formatManualCode(value)
+                        }
+                        .accessibilityLabel("配对码")
+                    Text("16 位，单次使用，5 分钟内有效。")
+                        .font(.system(size: 12))
+                        .foregroundStyle(HomeSpec.textSecondary)
+                    Button("手动连接") { startManual() }
+                        .font(.system(size: HomeSpec.bodySize, weight: .semibold))
+                        .frame(minHeight: 44)
+                        .disabled(manualCode.count != 19)
+                }
+                .padding(.vertical, 2)
             }
-        } header: {
-            Text("手动配对码")
-        } footer: {
-            Text("电脑上没有相机或扫码不可用时使用。")
         }
     }
 
-    private var warningSection: some View {
+    private var permissionSection: some View {
         Section {
             Text(PCLinkPairingPrompt.fullOwnerWarning)
-                .font(.system(size: 14))
-                .foregroundStyle(HomeSpec.textPrimary)
+                .font(.system(size: 13))
+                .foregroundStyle(HomeSpec.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
-        } header: {
-            Text("配对后")
-        } footer: {
-            Text("电脑会要求本机操作员核对上面的指纹；指纹不符时配对被作废。")
         }
     }
 
-    private var busySection: some View {
+    private var joiningSection: some View {
         Section {
             HStack(spacing: 10) {
                 ProgressView()
-                Text(state.isBusy ? "正在连接中继并等待电脑…" : "")
+                Text("正在连接电脑…")
                     .font(.system(size: 14))
                     .foregroundStyle(HomeSpec.textSecondary)
             }
-            .frame(minHeight: 48)
+            .frame(minHeight: 44)
             Button("取消配对") { Task { await flow?.cancel() } }
                 .foregroundStyle(.red)
         }
     }
 
-    private func approvalSection(_ prompt: PCPairingApproval) -> some View {
+    private func connectingSection(_ prompt: PCPairingApproval) -> some View {
         Section {
-            Text("已找到电脑：\(prompt.pcName)")
-                .font(.system(size: 16, weight: .semibold))
-            Text("请在电脑上输入本机指纹批准：\(prompt.ownFingerprint)")
-                .font(.system(size: 14))
-                .foregroundStyle(HomeSpec.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-            Text(prompt.warningText)
-                .font(.system(size: 14))
-                .foregroundStyle(HomeSpec.textPrimary)
-                .fixedSize(horizontal: false, vertical: true)
-            Button("我已批准，继续配对") {
-                Task { await flow?.confirm() }
+            HStack(spacing: 10) {
+                ProgressView()
+                Text(PCLinkWorkspaceText.pairingConnecting(prompt.pcName))
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(HomeSpec.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .font(.system(size: HomeSpec.bodySize, weight: .semibold))
             .frame(minHeight: 48)
+            if showOldPCHint {
+                Text(PCLinkWorkspaceText.pairingOldPCConfirm)
+                    .font(.system(size: 13))
+                    .foregroundStyle(HomeSpec.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             Button("取消配对") { Task { await flow?.cancel() } }
                 .foregroundStyle(.red)
                 .frame(minHeight: 44)
-        } header: {
-            Text("等待电脑批准")
-        } footer: {
-            Text("点一次即提交。电脑批准后会自动完成配对并进入 PC 工作区；超过时限或失败时，这里保留为重新提交的兜底入口。")
-                .fixedSize(horizontal: false, vertical: true)
+        }
+        .task(id: prompt.id) {
+            // A v1.6 PC confirms in one round trip. Only an old PC can still be
+            // waiting for its own operator; say so without mentioning a
+            // fingerprint and without blocking the success path.
+            try? await Task.sleep(for: .seconds(3))
+            if case .connecting = state { showOldPCHint = true }
+        }
+    }
+
+    private var interruptionNotice: some View {
+        Section {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "wifi.exclamationmark")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(NativePagePalette.warning)
+                Text(PCLinkWorkspaceText.pairingInterrupted)
+                    .font(.system(size: 13))
+                    .foregroundStyle(HomeSpec.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
@@ -298,14 +268,9 @@ struct PCPairingPage: View {
             Label("已连接 \(record.peerName)", systemImage: "checkmark.circle.fill")
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(HomeSpec.success)
-            Text("电脑指纹 \(record.fingerprint)")
-                .font(.system(size: 13))
-                .foregroundStyle(HomeSpec.textSecondary)
             Button("完成") { dismiss() }
                 .font(.system(size: HomeSpec.bodySize, weight: .semibold))
                 .frame(minHeight: 48)
-        } footer: {
-            Text("现在可以切到「PC」分段查看电脑上的会话。")
         }
     }
 
@@ -315,15 +280,20 @@ struct PCPairingPage: View {
                 .font(.system(size: 14))
                 .foregroundStyle(NativePagePalette.danger)
                 .fixedSize(horizontal: false, vertical: true)
-            Button("重新开始") {
-                localError = nil
-                flow?.reset()
+            if interrupted, message != PCLinkWorkspaceText.pairingInterrupted {
+                Text(PCLinkWorkspaceText.pairingInterrupted)
+                    .font(.system(size: 13))
+                    .foregroundStyle(HomeSpec.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+            Button("重试") {
+                interrupted = false
+                showOldPCHint = false
+                flow?.reset()
+                openScanner()
+            }
+            .font(.system(size: HomeSpec.bodySize, weight: .semibold))
             .frame(minHeight: 44)
-        } header: {
-            Text("配对没有完成")
-        } footer: {
-            Text("超时、电脑拒绝、指纹不符或配对槽被销毁都会停在这里。重新开始会打开一次新的配对。")
         }
     }
 
@@ -332,7 +302,6 @@ struct PCPairingPage: View {
     private func openScanner() {
         guard AVCaptureDevice.default(for: .video) != nil else {
             cameraDenied = true
-            localError = "这台设备没有可用相机，请粘贴配对链接或手动输入配对码。"
             return
         }
         AVCaptureDevice.requestAccess(for: .video) { granted in
@@ -345,7 +314,8 @@ struct PCPairingPage: View {
     private func startQR(_ raw: String) {
         let code = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !code.isEmpty else { return }
-        localError = nil
+        interrupted = false
+        showOldPCHint = false
         Task { await flow?.begin(qrURI: code) }
     }
 
@@ -362,7 +332,8 @@ struct PCPairingPage: View {
     }
 
     private func startManual() {
-        localError = nil
+        interrupted = false
+        showOldPCHint = false
         let code = manualCode
         Task {
             await flow?.beginManual(code: code,
@@ -387,7 +358,7 @@ private struct PCPairingScannerView: View {
             if AVCaptureDevice.default(for: .video) == nil {
                 ContentUnavailableView("没有可用相机",
                                        systemImage: "camera",
-                                       description: Text("模拟器或这台设备没有相机。请返回并使用粘贴配对链接或手动输入配对码。"))
+                                       description: Text("模拟器或这台设备没有相机。请返回并使用「其他方式」。"))
             } else {
                 CameraScannerRepresentable(onCode: onCode)
                     .ignoresSafeArea()

@@ -13,19 +13,19 @@
   "source": {
     "file": "PCPairingPage.swift",
     "path": "examples/probe-app/PhoneDSHProbe/PCPairingPage.swift",
-    "lines": 456,
+    "lines": 427,
     "structLine": 14,
     "renderedFrom": [
       "body",
-      "pluginInstallSection",
-      "fingerprintSection",
-      "approvalSection",
-      "pairedSection",
-      "failureSection",
-      "busySection",
+      "installSection",
       "scanSection",
-      "manualSection",
-      "warningSection"
+      "otherSection",
+      "joiningSection",
+      "permissionSection",
+      "connectingSection",
+      "interruptionNotice",
+      "pairedSection",
+      "failureSection"
     ],
     "sectionOrder": "declaration order inside the page struct"
   },
@@ -36,50 +36,7 @@
   },
   "sections": [
     {
-      "id": "section-134",
-      "title": null,
-      "titleTemplate": null,
-      "dynamicTitle": false,
-      "titleExpression": "PCLinkInstallGuide.title",
-      "titleSource": "expression",
-      "condition": null,
-      "collection": null,
-      "rows": [
-        {
-          "id": "custom-135",
-          "label": null,
-          "labelExpr": "PCPluginInstallGuide",
-          "kind": "custom",
-          "value": null,
-          "valueExpr": null,
-          "clickable": false,
-          "destination": null,
-          "writes": false,
-          "condition": null,
-          "provenance": "PCPairingPage.swift:135",
-          "anchor": "PCPluginInstallGuide()",
-          "extraction": "manual",
-          "template": "PCPluginInstallGuide"
-        }
-      ],
-      "provenance": "PCPairingPage.swift:139",
-      "anchor": "Text(PCLinkInstallGuide.title)",
-      "extraction": "syntax",
-      "criterion": {
-        "kind": "first-row-expression",
-        "labelExpr": "PCPluginInstallGuide",
-        "provenance": "PCPairingPage.swift:135"
-      },
-      "hasHeader": true,
-      "footer": {
-        "text": "在电脑终端运行上面的命令，按提示用手机扫码。脚本会检查环境、安装插件、加载 dsh web 并显示配对二维码。",
-        "labelExpr": null,
-        "provenance": "PCPairingPage.swift:141",
-        "anchor": "Text(\"在电脑终端运行上面的命令，按提示用手机扫码。脚本会检查环境、安装插件、加载 dsh web 并显示配对二维码。\")"
-      }
-    },
-    {
-      "id": "section-146",
+      "id": "section-118",
       "title": null,
       "titleTemplate": null,
       "dynamicTitle": false,
@@ -89,8 +46,8 @@
       "collection": null,
       "rows": [
         {
-          "id": "本机指纹",
-          "label": "本机指纹",
+          "id": "在电脑终端运行",
+          "label": "在电脑终端运行：",
           "labelExpr": null,
           "kind": "text",
           "value": null,
@@ -99,63 +56,49 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "PCPairingPage.swift:148",
-          "anchor": "Text(\"本机指纹\")",
+          "provenance": "PCPairingPage.swift:119",
+          "anchor": "Text(\"在电脑终端运行：\")",
           "extraction": "syntax"
         },
         {
-          "id": "text-151",
+          "id": "custom-122",
           "label": null,
-          "labelExpr": "fingerprint",
-          "kind": "text",
+          "labelExpr": "PCInstallCommandCard",
+          "kind": "custom",
           "value": null,
           "valueExpr": null,
           "clickable": false,
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "PCPairingPage.swift:151",
-          "anchor": "Text(fingerprint)",
-          "extraction": "manual"
-        },
-        {
-          "id": "在电脑上输入这串指纹来批准配对-电脑只会显示手机名称-不会显示指纹",
-          "label": "在电脑上输入这串指纹来批准配对。电脑只会显示手机名称，不会显示指纹。",
-          "labelExpr": null,
-          "kind": "text",
-          "value": null,
-          "valueExpr": null,
-          "clickable": false,
-          "destination": null,
-          "writes": false,
-          "condition": null,
-          "provenance": "PCPairingPage.swift:155",
-          "anchor": "Text(\"在电脑上输入这串指纹来批准配对。电脑只会显示手机名称，不会显示指纹。\")",
-          "extraction": "syntax"
+          "provenance": "PCPairingPage.swift:122",
+          "anchor": "PCInstallCommandCard()",
+          "extraction": "manual",
+          "template": "PCInstallCommandCard"
         }
       ],
-      "provenance": "PCPairingPage.swift:146",
+      "provenance": "PCPairingPage.swift:118",
       "anchor": "Section {",
       "extraction": "syntax",
       "criterion": {
         "kind": "first-row",
-        "label": "本机指纹",
-        "provenance": "PCPairingPage.swift:148"
+        "label": "在电脑终端运行：",
+        "provenance": "PCPairingPage.swift:119"
       }
     },
     {
-      "id": "扫码或链接",
-      "title": "扫码或链接",
+      "id": "section-128",
+      "title": null,
       "titleTemplate": null,
       "dynamicTitle": false,
       "titleExpression": null,
-      "titleSource": "header",
+      "titleSource": "absent",
       "condition": null,
       "collection": null,
       "rows": [
         {
-          "id": "扫码配对",
-          "label": "扫码配对",
+          "id": "扫码连接",
+          "label": "扫码连接",
           "labelExpr": null,
           "kind": "action",
           "value": null,
@@ -164,28 +107,13 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "PCPairingPage.swift:172",
-          "anchor": "Text(\"扫码配对\")",
+          "provenance": "PCPairingPage.swift:135",
+          "anchor": "Text(\"扫码连接\")",
           "extraction": "syntax"
         },
         {
-          "id": "相机不可用或未授权-请在系统设置里允许相机-或使用下面的粘贴链接-手动输码",
-          "label": "相机不可用或未授权。请在系统设置里允许相机，或使用下面的粘贴链接/手动输码。",
-          "labelExpr": null,
-          "kind": "text",
-          "value": null,
-          "valueExpr": null,
-          "clickable": false,
-          "destination": null,
-          "writes": false,
-          "condition": "cameraDenied",
-          "provenance": "PCPairingPage.swift:182",
-          "anchor": "Text(\"相机不可用或未授权。请在系统设置里允许相机，或使用下面的粘贴链接/手动输码。\")",
-          "extraction": "syntax"
-        },
-        {
-          "id": "粘贴配对链接",
-          "label": "粘贴配对链接",
+          "id": "扫描终端里出现的二维码",
+          "label": "扫描终端里出现的二维码",
           "labelExpr": null,
           "kind": "text",
           "value": null,
@@ -194,8 +122,58 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "PCPairingPage.swift:187",
-          "anchor": "Text(\"粘贴配对链接\")",
+          "provenance": "PCPairingPage.swift:146",
+          "anchor": "Text(\"扫描终端里出现的二维码\")",
+          "extraction": "syntax"
+        },
+        {
+          "id": "相机不可用或未授权-请允许相机-或使用-其他方式",
+          "label": "相机不可用或未授权。请允许相机，或使用「其他方式」。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "cameraDenied",
+          "provenance": "PCPairingPage.swift:150",
+          "anchor": "Text(\"相机不可用或未授权。请允许相机，或使用「其他方式」。\")",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "PCPairingPage.swift:128",
+      "anchor": "Section {",
+      "extraction": "syntax",
+      "criterion": {
+        "kind": "first-clickable-row",
+        "label": "扫码连接",
+        "provenance": "PCPairingPage.swift:135"
+      }
+    },
+    {
+      "id": "section-159",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "absent",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "其他方式",
+          "label": "其他方式",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "PCPairingPage.swift:160",
+          "anchor": "Button(showOther ? \"收起其他方式\" : \"其他方式\") {",
           "extraction": "syntax"
         },
         {
@@ -208,8 +186,8 @@
           "clickable": true,
           "destination": null,
           "writes": true,
-          "condition": null,
-          "provenance": "PCPairingPage.swift:190",
+          "condition": "showOther",
+          "provenance": "PCPairingPage.swift:166",
           "anchor": "TextField(\"pclink://pair?…\", text: $pasteURI, axis: .vertical)",
           "extraction": "syntax"
         },
@@ -223,46 +201,9 @@
           "clickable": true,
           "destination": null,
           "writes": false,
-          "condition": null,
-          "provenance": "PCPairingPage.swift:196",
+          "condition": "showOther",
+          "provenance": "PCPairingPage.swift:172",
           "anchor": "Button(\"用链接配对\") { startQR(pasteURI) }",
-          "extraction": "syntax"
-        }
-      ],
-      "provenance": "PCPairingPage.swift:203",
-      "anchor": "Text(\"扫码或链接\")",
-      "extraction": "syntax",
-      "hasHeader": true,
-      "footer": {
-        "text": null,
-        "labelExpr": "localError",
-        "provenance": "PCPairingPage.swift:206",
-        "anchor": "Text(localError).foregroundStyle(NativePagePalette.danger)"
-      }
-    },
-    {
-      "id": "手动配对码",
-      "title": "手动配对码",
-      "titleTemplate": null,
-      "dynamicTitle": false,
-      "titleExpression": null,
-      "titleSource": "header",
-      "condition": null,
-      "collection": null,
-      "rows": [
-        {
-          "id": "手动输入配对码",
-          "label": "手动输入配对码",
-          "labelExpr": null,
-          "kind": "action",
-          "value": null,
-          "valueExpr": null,
-          "clickable": true,
-          "destination": null,
-          "writes": true,
-          "condition": null,
-          "provenance": "PCPairingPage.swift:213",
-          "anchor": "Button(showManual ? \"收起手动输码\" : \"手动输入配对码\") {",
           "extraction": "syntax"
         },
         {
@@ -275,14 +216,14 @@
           "clickable": true,
           "destination": null,
           "writes": true,
-          "condition": "showManual",
-          "provenance": "PCPairingPage.swift:218",
+          "condition": "showOther",
+          "provenance": "PCPairingPage.swift:179",
           "anchor": "TextField(\"XXXX-XXXX-XXXX-XXXX\", text: $manualCode)",
           "extraction": "syntax"
         },
         {
-          "id": "16-位-单次使用-5-分钟内有效-使用默认中继地址-pclinkrelayconfiguration-manualpairingorigin",
-          "label": "16 位，单次使用，5 分钟内有效。使用默认中继地址 {PCLinkRelayConfiguration.manualPairingOrigin}。",
+          "id": "16-位-单次使用-5-分钟内有效",
+          "label": "16 位，单次使用，5 分钟内有效。",
           "labelExpr": null,
           "kind": "text",
           "value": null,
@@ -290,15 +231,14 @@
           "clickable": false,
           "destination": null,
           "writes": false,
-          "condition": "showManual",
-          "provenance": "PCPairingPage.swift:226",
-          "anchor": "Text(\"16 位，单次使用，5 分钟内有效。使用默认中继地址 \\(PCLinkRelayConfiguration.manualPairingOrigin)",
-          "extraction": "manual",
-          "dynamicLabel": true
+          "condition": "showOther",
+          "provenance": "PCPairingPage.swift:187",
+          "anchor": "Text(\"16 位，单次使用，5 分钟内有效。\")",
+          "extraction": "syntax"
         },
         {
-          "id": "手动配对",
-          "label": "手动配对",
+          "id": "手动连接",
+          "label": "手动连接",
           "labelExpr": null,
           "kind": "action",
           "value": null,
@@ -306,62 +246,23 @@
           "clickable": true,
           "destination": null,
           "writes": false,
-          "condition": "showManual",
-          "provenance": "PCPairingPage.swift:229",
-          "anchor": "Button(\"手动配对\") { startManual() }",
+          "condition": "showOther",
+          "provenance": "PCPairingPage.swift:190",
+          "anchor": "Button(\"手动连接\") { startManual() }",
           "extraction": "syntax"
         }
       ],
-      "provenance": "PCPairingPage.swift:235",
-      "anchor": "Text(\"手动配对码\")",
+      "provenance": "PCPairingPage.swift:159",
+      "anchor": "Section {",
       "extraction": "syntax",
-      "hasHeader": true,
-      "footer": {
-        "text": "电脑上没有相机或扫码不可用时使用。",
-        "labelExpr": null,
-        "provenance": "PCPairingPage.swift:237",
-        "anchor": "Text(\"电脑上没有相机或扫码不可用时使用。\")"
+      "criterion": {
+        "kind": "first-clickable-row",
+        "label": "配对链接",
+        "provenance": "PCPairingPage.swift:166"
       }
     },
     {
-      "id": "配对后",
-      "title": "配对后",
-      "titleTemplate": null,
-      "dynamicTitle": false,
-      "titleExpression": null,
-      "titleSource": "header",
-      "condition": null,
-      "collection": null,
-      "rows": [
-        {
-          "id": "text-243",
-          "label": null,
-          "labelExpr": "PCLinkPairingPrompt.fullOwnerWarning",
-          "kind": "text",
-          "value": null,
-          "valueExpr": null,
-          "clickable": false,
-          "destination": null,
-          "writes": false,
-          "condition": null,
-          "provenance": "PCPairingPage.swift:243",
-          "anchor": "Text(PCLinkPairingPrompt.fullOwnerWarning)",
-          "extraction": "manual"
-        }
-      ],
-      "provenance": "PCPairingPage.swift:248",
-      "anchor": "Text(\"配对后\")",
-      "extraction": "syntax",
-      "hasHeader": true,
-      "footer": {
-        "text": "电脑会要求本机操作员核对上面的指纹；指纹不符时配对被作废。",
-        "labelExpr": null,
-        "provenance": "PCPairingPage.swift:250",
-        "anchor": "Text(\"电脑会要求本机操作员核对上面的指纹；指纹不符时配对被作废。\")"
-      }
-    },
-    {
-      "id": "section-255",
+      "id": "section-201",
       "title": null,
       "titleTemplate": null,
       "dynamicTitle": false,
@@ -371,7 +272,42 @@
       "collection": null,
       "rows": [
         {
-          "id": "loading-257",
+          "id": "text-202",
+          "label": null,
+          "labelExpr": "PCLinkPairingPrompt.fullOwnerWarning",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "PCPairingPage.swift:202",
+          "anchor": "Text(PCLinkPairingPrompt.fullOwnerWarning)",
+          "extraction": "manual"
+        }
+      ],
+      "provenance": "PCPairingPage.swift:201",
+      "anchor": "Section {",
+      "extraction": "syntax",
+      "criterion": {
+        "kind": "first-row-expression",
+        "labelExpr": "PCLinkPairingPrompt.fullOwnerWarning",
+        "provenance": "PCPairingPage.swift:202"
+      }
+    },
+    {
+      "id": "section-210",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "absent",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "loading-212",
           "label": null,
           "labelExpr": null,
           "kind": "loading",
@@ -381,14 +317,144 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "PCPairingPage.swift:257",
+          "provenance": "PCPairingPage.swift:212",
           "anchor": "ProgressView()",
           "extraction": "manual"
         },
         {
-          "id": "正在连接中继并等待电脑",
-          "label": "正在连接中继并等待电脑…",
+          "id": "正在连接电脑",
+          "label": "正在连接电脑…",
           "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "PCPairingPage.swift:213",
+          "anchor": "Text(\"正在连接电脑…\")",
+          "extraction": "syntax"
+        },
+        {
+          "id": "取消配对",
+          "label": "取消配对",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "PCPairingPage.swift:218",
+          "anchor": "Button(\"取消配对\") { Task { await flow?.cancel() } }",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "PCPairingPage.swift:210",
+      "anchor": "Section {",
+      "extraction": "syntax",
+      "criterion": {
+        "kind": "first-clickable-row",
+        "label": "取消配对",
+        "provenance": "PCPairingPage.swift:218"
+      }
+    },
+    {
+      "id": "section-224",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "absent",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "loading-226",
+          "label": null,
+          "labelExpr": null,
+          "kind": "loading",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "PCPairingPage.swift:226",
+          "anchor": "ProgressView()",
+          "extraction": "manual"
+        },
+        {
+          "id": "text-227",
+          "label": null,
+          "labelExpr": "PCLinkWorkspaceText.pairingConnecting(prompt.pcName)",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "PCPairingPage.swift:227",
+          "anchor": "Text(PCLinkWorkspaceText.pairingConnecting(prompt.pcName))",
+          "extraction": "manual"
+        },
+        {
+          "id": "text-234",
+          "label": null,
+          "labelExpr": "PCLinkWorkspaceText.pairingOldPCConfirm",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "showOldPCHint",
+          "provenance": "PCPairingPage.swift:234",
+          "anchor": "Text(PCLinkWorkspaceText.pairingOldPCConfirm)",
+          "extraction": "manual"
+        },
+        {
+          "id": "取消配对",
+          "label": "取消配对",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "PCPairingPage.swift:239",
+          "anchor": "Button(\"取消配对\") { Task { await flow?.cancel() } }",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "PCPairingPage.swift:224",
+      "anchor": "Section {",
+      "extraction": "syntax",
+      "criterion": {
+        "kind": "first-clickable-row",
+        "label": "取消配对",
+        "provenance": "PCPairingPage.swift:239"
+      }
+    },
+    {
+      "id": "section-253",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "absent",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "text-258",
+          "label": null,
+          "labelExpr": "PCLinkWorkspaceText.pairingInterrupted",
           "kind": "text",
           "value": null,
           "valueExpr": null,
@@ -397,135 +463,21 @@
           "writes": false,
           "condition": null,
           "provenance": "PCPairingPage.swift:258",
-          "anchor": "Text(state.isBusy ? \"正在连接中继并等待电脑…\" : \"\")",
-          "extraction": "syntax"
-        },
-        {
-          "id": "取消配对",
-          "label": "取消配对",
-          "labelExpr": null,
-          "kind": "action",
-          "value": null,
-          "valueExpr": null,
-          "clickable": true,
-          "destination": null,
-          "writes": true,
-          "condition": null,
-          "provenance": "PCPairingPage.swift:263",
-          "anchor": "Button(\"取消配对\") { Task { await flow?.cancel() } }",
-          "extraction": "syntax"
+          "anchor": "Text(PCLinkWorkspaceText.pairingInterrupted)",
+          "extraction": "manual"
         }
       ],
-      "provenance": "PCPairingPage.swift:255",
+      "provenance": "PCPairingPage.swift:253",
       "anchor": "Section {",
       "extraction": "syntax",
       "criterion": {
-        "kind": "first-clickable-row",
-        "label": "取消配对",
-        "provenance": "PCPairingPage.swift:263"
+        "kind": "first-row-expression",
+        "labelExpr": "PCLinkWorkspaceText.pairingInterrupted",
+        "provenance": "PCPairingPage.swift:258"
       }
     },
     {
-      "id": "等待电脑批准",
-      "title": "等待电脑批准",
-      "titleTemplate": null,
-      "dynamicTitle": false,
-      "titleExpression": null,
-      "titleSource": "header",
-      "condition": null,
-      "collection": null,
-      "rows": [
-        {
-          "id": "已找到电脑-prompt-pcname",
-          "label": "已找到电脑：{prompt.pcName}",
-          "labelExpr": null,
-          "kind": "text",
-          "value": null,
-          "valueExpr": null,
-          "clickable": false,
-          "destination": null,
-          "writes": false,
-          "condition": null,
-          "provenance": "PCPairingPage.swift:270",
-          "anchor": "Text(\"已找到电脑：\\(prompt.pcName)\")",
-          "extraction": "manual",
-          "dynamicLabel": true
-        },
-        {
-          "id": "请在电脑上输入本机指纹批准-prompt-ownfingerprint",
-          "label": "请在电脑上输入本机指纹批准：{prompt.ownFingerprint}",
-          "labelExpr": null,
-          "kind": "text",
-          "value": null,
-          "valueExpr": null,
-          "clickable": false,
-          "destination": null,
-          "writes": false,
-          "condition": null,
-          "provenance": "PCPairingPage.swift:272",
-          "anchor": "Text(\"请在电脑上输入本机指纹批准：\\(prompt.ownFingerprint)\")",
-          "extraction": "manual",
-          "dynamicLabel": true
-        },
-        {
-          "id": "text-276",
-          "label": null,
-          "labelExpr": "prompt.warningText",
-          "kind": "text",
-          "value": null,
-          "valueExpr": null,
-          "clickable": false,
-          "destination": null,
-          "writes": false,
-          "condition": null,
-          "provenance": "PCPairingPage.swift:276",
-          "anchor": "Text(prompt.warningText)",
-          "extraction": "manual"
-        },
-        {
-          "id": "我已批准-继续配对",
-          "label": "我已批准，继续配对",
-          "labelExpr": null,
-          "kind": "action",
-          "value": null,
-          "valueExpr": null,
-          "clickable": true,
-          "destination": null,
-          "writes": true,
-          "condition": null,
-          "provenance": "PCPairingPage.swift:280",
-          "anchor": "Button(\"我已批准，继续配对\") {",
-          "extraction": "syntax"
-        },
-        {
-          "id": "取消配对",
-          "label": "取消配对",
-          "labelExpr": null,
-          "kind": "action",
-          "value": null,
-          "valueExpr": null,
-          "clickable": true,
-          "destination": null,
-          "writes": true,
-          "condition": null,
-          "provenance": "PCPairingPage.swift:285",
-          "anchor": "Button(\"取消配对\") { Task { await flow?.cancel() } }",
-          "extraction": "syntax"
-        }
-      ],
-      "provenance": "PCPairingPage.swift:289",
-      "anchor": "Text(\"等待电脑批准\")",
-      "extraction": "syntax",
-      "hasHeader": true,
-      "footer": {
-        "text": "点一次即提交。电脑批准后会自动完成配对并进入 PC 工作区；超过时限或失败时，这里保留为重新提交的兜底入口。",
-        "labelExpr": null,
-        "provenance": "PCPairingPage.swift:291",
-        "anchor": "Text(\"点一次即提交。电脑批准后会自动完成配对并进入 PC 工作区；超过时限或失败时，这里保留为重新提交的兜底入口。\")"
-      }
-    },
-    {
-      "id": "section-297",
+      "id": "section-267",
       "title": null,
       "titleTemplate": null,
       "dynamicTitle": false,
@@ -545,24 +497,8 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "PCPairingPage.swift:298",
+          "provenance": "PCPairingPage.swift:268",
           "anchor": "Label(\"已连接 \\(record.peerName)\", systemImage: \"checkmark.circle.fill\")",
-          "extraction": "manual",
-          "dynamicLabel": true
-        },
-        {
-          "id": "电脑指纹-record-fingerprint",
-          "label": "电脑指纹 {record.fingerprint}",
-          "labelExpr": null,
-          "kind": "text",
-          "value": null,
-          "valueExpr": null,
-          "clickable": false,
-          "destination": null,
-          "writes": false,
-          "condition": null,
-          "provenance": "PCPairingPage.swift:301",
-          "anchor": "Text(\"电脑指纹 \\(record.fingerprint)\")",
           "extraction": "manual",
           "dynamicLabel": true
         },
@@ -577,38 +513,32 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "PCPairingPage.swift:304",
+          "provenance": "PCPairingPage.swift:271",
           "anchor": "Button(\"完成\") { dismiss() }",
           "extraction": "syntax"
         }
       ],
-      "provenance": "PCPairingPage.swift:297",
+      "provenance": "PCPairingPage.swift:267",
       "anchor": "Section {",
       "extraction": "syntax",
       "criterion": {
         "kind": "first-clickable-row",
         "label": "完成",
-        "provenance": "PCPairingPage.swift:304"
-      },
-      "footer": {
-        "text": "现在可以切到「PC」分段查看电脑上的会话。",
-        "labelExpr": null,
-        "provenance": "PCPairingPage.swift:308",
-        "anchor": "Text(\"现在可以切到「PC」分段查看电脑上的会话。\")"
+        "provenance": "PCPairingPage.swift:271"
       }
     },
     {
-      "id": "配对没有完成",
-      "title": "配对没有完成",
+      "id": "section-278",
+      "title": null,
       "titleTemplate": null,
       "dynamicTitle": false,
       "titleExpression": null,
-      "titleSource": "header",
+      "titleSource": "absent",
       "condition": null,
       "collection": null,
       "rows": [
         {
-          "id": "text-314",
+          "id": "text-279",
           "label": null,
           "labelExpr": "message",
           "kind": "text",
@@ -618,13 +548,28 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "PCPairingPage.swift:314",
+          "provenance": "PCPairingPage.swift:279",
           "anchor": "Text(message)",
           "extraction": "manual"
         },
         {
-          "id": "重新开始",
-          "label": "重新开始",
+          "id": "text-284",
+          "label": null,
+          "labelExpr": "PCLinkWorkspaceText.pairingInterrupted",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "interrupted, message != PCLinkWorkspaceText.pairingInterrupted",
+          "provenance": "PCPairingPage.swift:284",
+          "anchor": "Text(PCLinkWorkspaceText.pairingInterrupted)",
+          "extraction": "manual"
+        },
+        {
+          "id": "重试",
+          "label": "重试",
           "labelExpr": null,
           "kind": "action",
           "value": null,
@@ -633,27 +578,25 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "PCPairingPage.swift:318",
-          "anchor": "Button(\"重新开始\") {",
+          "provenance": "PCPairingPage.swift:289",
+          "anchor": "Button(\"重试\") {",
           "extraction": "syntax"
         }
       ],
-      "provenance": "PCPairingPage.swift:324",
-      "anchor": "Text(\"配对没有完成\")",
+      "provenance": "PCPairingPage.swift:278",
+      "anchor": "Section {",
       "extraction": "syntax",
-      "hasHeader": true,
-      "footer": {
-        "text": "超时、电脑拒绝、指纹不符或配对槽被销毁都会停在这里。重新开始会打开一次新的配对。",
-        "labelExpr": null,
-        "provenance": "PCPairingPage.swift:326",
-        "anchor": "Text(\"超时、电脑拒绝、指纹不符或配对槽被销毁都会停在这里。重新开始会打开一次新的配对。\")"
+      "criterion": {
+        "kind": "first-clickable-row",
+        "label": "重试",
+        "provenance": "PCPairingPage.swift:289"
       }
     }
   ],
   "actions": [
     {
-      "id": "扫码配对",
-      "label": "扫码配对",
+      "id": "扫码连接",
+      "label": "扫码连接",
       "labelExpr": null,
       "kind": "button",
       "trigger": "tap",
@@ -661,10 +604,27 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "PCPairingPage.swift:172",
-      "anchor": "Text(\"扫码配对\")",
+      "provenance": "PCPairingPage.swift:135",
+      "anchor": "Text(\"扫码连接\")",
       "extraction": "syntax",
       "labelAlternatives": []
+    },
+    {
+      "id": "其他方式",
+      "label": "其他方式",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ withAnimation(.easeOut(duration: 0.18)) { showOther.toggle() }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "PCPairingPage.swift:160",
+      "anchor": "Button(showOther ? \"收起其他方式\" : \"其他方式\") {",
+      "extraction": "syntax",
+      "labelAlternatives": [
+        "收起其他方式"
+      ]
     },
     {
       "id": "用链接配对",
@@ -676,31 +636,14 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "PCPairingPage.swift:196",
+      "provenance": "PCPairingPage.swift:172",
       "anchor": "Button(\"用链接配对\") { startQR(pasteURI) }",
       "extraction": "syntax",
       "labelAlternatives": []
     },
     {
-      "id": "手动输入配对码",
-      "label": "手动输入配对码",
-      "labelExpr": null,
-      "kind": "button",
-      "trigger": "tap",
-      "semantic": "{ withAnimation(.easeOut(duration: 0.18)) { showManual.toggle() }",
-      "writes": true,
-      "destination": null,
-      "condition": null,
-      "provenance": "PCPairingPage.swift:213",
-      "anchor": "Button(showManual ? \"收起手动输码\" : \"手动输入配对码\") {",
-      "extraction": "syntax",
-      "labelAlternatives": [
-        "收起手动输码"
-      ]
-    },
-    {
-      "id": "手动配对",
-      "label": "手动配对",
+      "id": "手动连接",
+      "label": "手动连接",
       "labelExpr": null,
       "kind": "button",
       "trigger": "tap",
@@ -708,8 +651,8 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "PCPairingPage.swift:229",
-      "anchor": "Button(\"手动配对\") { startManual() }",
+      "provenance": "PCPairingPage.swift:190",
+      "anchor": "Button(\"手动连接\") { startManual() }",
       "extraction": "syntax",
       "labelAlternatives": []
     },
@@ -723,27 +666,12 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "PCPairingPage.swift:263",
+      "provenance": "PCPairingPage.swift:218",
       "anchor": "Button(\"取消配对\") { Task { await flow?.cancel() } }",
       "extraction": "syntax",
       "labelAlternatives": []
     },
     {
-      "id": "我已批准-继续配对",
-      "label": "我已批准，继续配对",
-      "labelExpr": null,
-      "kind": "button",
-      "trigger": "tap",
-      "semantic": "{ Task { await flow?.confirm() }",
-      "writes": true,
-      "destination": null,
-      "condition": null,
-      "provenance": "PCPairingPage.swift:280",
-      "anchor": "Button(\"我已批准，继续配对\") {",
-      "extraction": "syntax",
-      "labelAlternatives": []
-    },
-    {
       "id": "取消配对",
       "label": "取消配对",
       "labelExpr": null,
@@ -753,7 +681,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "PCPairingPage.swift:285",
+      "provenance": "PCPairingPage.swift:239",
       "anchor": "Button(\"取消配对\") { Task { await flow?.cancel() } }",
       "extraction": "syntax",
       "labelAlternatives": []
@@ -768,23 +696,23 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "PCPairingPage.swift:304",
+      "provenance": "PCPairingPage.swift:271",
       "anchor": "Button(\"完成\") { dismiss() }",
       "extraction": "syntax",
       "labelAlternatives": []
     },
     {
-      "id": "重新开始",
-      "label": "重新开始",
+      "id": "重试",
+      "label": "重试",
       "labelExpr": null,
       "kind": "button",
       "trigger": "tap",
-      "semantic": "{ localError = nil flow?.reset()",
+      "semantic": "{ interrupted = false showOldPCHint = false flow?.reset() openScanner()",
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "PCPairingPage.swift:318",
-      "anchor": "Button(\"重新开始\") {",
+      "provenance": "PCPairingPage.swift:289",
+      "anchor": "Button(\"重试\") {",
       "extraction": "syntax",
       "labelAlternatives": []
     },
@@ -812,15 +740,15 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "PCPairingPage.swift:94",
+      "provenance": "PCPairingPage.swift:90",
       "anchor": "Button(\"取消\") { showScanner = false }",
       "extraction": "syntax",
-      "presents": "sheet-83"
+      "presents": "sheet-79"
     }
   ],
   "presentations": [
     {
-      "id": "sheet-83",
+      "id": "sheet-79",
       "kind": "sheet",
       "title": null,
       "destination": "NavigationStack",
@@ -828,10 +756,10 @@
         "showScanner"
       ],
       "span": [
-        83,
-        98
+        79,
+        94
       ],
-      "provenance": "PCPairingPage.swift:83",
+      "provenance": "PCPairingPage.swift:79",
       "anchor": ".sheet(isPresented: $showScanner) {",
       "triggered": true
     }
@@ -840,29 +768,10 @@
     "advisory": true,
     "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
     "sites": {
-      "empty": [
-        {
-          "renders": "电脑上没有相机或扫码不可用时使用。",
-          "when": null,
-          "provenance": "PCPairingPage.swift:237",
-          "anchor": "Text(\"电脑上没有相机或扫码不可用时使用。\")"
-        },
-        {
-          "renders": "配对没有完成",
-          "when": null,
-          "provenance": "PCPairingPage.swift:324",
-          "anchor": "Text(\"配对没有完成\")"
-        },
-        {
-          "renders": "这台设备没有可用相机，请粘贴配对链接或手动输入配对码。",
-          "when": null,
-          "provenance": "PCPairingPage.swift:335",
-          "anchor": "localError = \"这台设备没有可用相机，请粘贴配对链接或手动输入配对码。\""
-        }
-      ],
+      "empty": [],
       "data": [
         {
-          "renders": "untitled section at 139 | untitled section at 146 | 扫码或链接 | 手动配对码 | 配对后 | untitled section at 255 | 等待电脑批准 | untitled section at 297 | 配对没有完成",
+          "renders": "untitled section at 118 | untitled section at 128 | untitled section at 159 | untitled section at 201 | untitled section at 210 | untitled section at 224 | untitled section at 253 | untitled section at 267 | untitled section at 278",
           "when": null,
           "provenance": "PCPairingPage.swift:14",
           "anchor": "struct PCPairingPage: View {",
@@ -871,49 +780,44 @@
       ],
       "failure": [
         {
-          "renders": "点一次即提交。电脑批准后会自动完成配对并进入 PC 工作区；超过时限或失败时，这里保留为重新提交的兜底入口。",
+          "renders": "重试",
           "when": null,
-          "provenance": "PCPairingPage.swift:291",
-          "anchor": "Text(\"点一次即提交。电脑批准后会自动完成配对并进入 PC 工作区；超过时限或失败时，这里保留为重新提交的兜底入口。\")"
+          "provenance": "PCPairingPage.swift:289",
+          "anchor": "Button(\"重试\") {"
         }
       ],
       "unknown": [],
       "loading": [
         {
-          "renders": "读取中…",
+          "renders": "正在连接电脑…",
           "when": null,
-          "provenance": "PCPairingPage.swift:30",
-          "anchor": "return own.isEmpty ? \"读取中…\" : own"
-        },
-        {
-          "renders": "正在连接中继并等待电脑…",
-          "when": null,
-          "provenance": "PCPairingPage.swift:258",
-          "anchor": "Text(state.isBusy ? \"正在连接中继并等待电脑…\" : \"\")"
-        },
-        {
-          "renders": "等待电脑批准",
-          "when": null,
-          "provenance": "PCPairingPage.swift:289",
-          "anchor": "Text(\"等待电脑批准\")"
+          "provenance": "PCPairingPage.swift:213",
+          "anchor": "Text(\"正在连接电脑…\")"
         },
         {
           "renders": "ProgressView",
           "when": null,
-          "provenance": "PCPairingPage.swift:257",
+          "provenance": "PCPairingPage.swift:212",
+          "anchor": "ProgressView()"
+        },
+        {
+          "renders": "ProgressView",
+          "when": null,
+          "provenance": "PCPairingPage.swift:226",
           "anchor": "ProgressView()"
         }
       ]
     },
     "absent": [
+      "empty",
       "unknown"
     ],
     "coverage": {
-      "empty": 3,
+      "empty": 0,
       "data": 1,
       "failure": 1,
       "unknown": 0,
-      "loading": 4
+      "loading": 3
     }
   },
   "subpages": [],

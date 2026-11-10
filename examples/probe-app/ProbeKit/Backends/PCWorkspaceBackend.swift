@@ -211,23 +211,26 @@ public final class PCWorkspaceBackendLifecycle: WorkspaceBackendLifecycle {
 /// The pairing page's serialized states. `PCPairingFlow` runs the real
 /// `PCLinkClient` pairing calls; the simulator suite drives the same flow with
 /// a fake client to cover success, timeout, rejection and a destroyed slot.
+///
+/// v1.6 has no "waiting for the user to approve on the PC" state: scanning or
+/// submitting the code is the approval. `.connecting` covers both auto-auth
+/// submission and a pre-v1.6 PC that still asks its operator to confirm.
 public enum PCPairingPageState: Equatable, Sendable {
     case idle
     case joining
-    case awaitingApproval(PCPairingApproval)
-    case confirming
+    case connecting(PCPairingApproval)
     case paired(PCLinkPairingRecord)
     case failed(String)
 
     public var isBusy: Bool {
         switch self {
-        case .joining, .confirming: return true
+        case .joining, .connecting: return true
         default: return false
         }
     }
 
     public var prompt: PCPairingApproval? {
-        if case .awaitingApproval(let prompt) = self { return prompt }
+        if case .connecting(let prompt) = self { return prompt }
         return nil
     }
 }
@@ -248,10 +251,14 @@ public final class PCPairingFlow {
         state = .joining
         do {
             let prompt = try await client.startPairing(qrURI: trimmed(qrURI))
-            state = .awaitingApproval(prompt)
+            state = .connecting(prompt)
             observePairingUpdates()
+            // The QR scan is the consent and the approval. Submit `pair.auth`
+            // immediately; the PC auto-approves it and sends `pair.confirm`.
+            await confirm()
         } catch {
             state = .failed(Self.message(for: error))
+            stopObserving()
         }
     }
 
@@ -261,22 +268,25 @@ public final class PCPairingFlow {
         do {
             let prompt = try await client.startManualPairing(
                 code: code, relayOrigin: relayOrigin, pcName: nil)
-            state = .awaitingApproval(prompt)
+            state = .connecting(prompt)
             observePairingUpdates()
+            await confirm()
         } catch {
             state = .failed(Self.message(for: error))
+            stopObserving()
         }
     }
 
-    /// The user confirmed the full-owner warning. Writes the durable record
-    /// only after the PC's `pair.confirm` verifies (§4.4/§4.6).
+    /// Submit `pair.auth` and wait for the authenticated `pair.confirm`. The
+    /// page calls this automatically after `begin`; it stays public as the
+    /// retry entry for a failed submit that did not destroy the slot.
     public func confirm() async {
-        guard case .awaitingApproval(let prompt) = state else { return }
-        state = .confirming
+        guard case .connecting(let prompt) = state else { return }
         do {
             let record = try await client.confirmPairingApproval(prompt.id)
             finish(record)
         } catch {
+            if case .paired = state { return }
             state = .failed(Self.message(for: error))
             stopObserving()
         }
@@ -293,11 +303,10 @@ public final class PCPairingFlow {
         state = .idle
     }
 
-    /// Completion is driven by the client's pairing stream, not by a second
-    /// button press: after the PC approval arrives as `pair.confirm`, the
-    /// client emits `.completed` and the page moves to `.paired` even while a
-    /// pending `confirm()` call is still returning. The approval button stays
-    /// as the explicit consent / timeout retry entry.
+    /// Completion is driven by the client's pairing stream as well as by the
+    /// pending `confirm()` call: after the authenticated `pair.confirm`, the
+    /// client emits `.completed` and the page moves to `.paired` even while
+    /// the submit call is still returning.
     private func observePairingUpdates() {
         stopObserving()
         updateTask = Task { [weak self] in
@@ -310,15 +319,11 @@ public final class PCPairingFlow {
                     finish(record)
                     return
                 case .failed(let error):
-                    switch state {
-                    case .awaitingApproval, .confirming:
+                    if case .connecting = state {
                         state = .failed(Self.message(for: error))
                         return
-                    default:
-                        return
                     }
-                case .awaitingApproval:
-                    continue
+                    return
                 }
             }
         }
@@ -336,10 +341,10 @@ public final class PCPairingFlow {
     }
 
     /// The client owns the timeout/rejection clock. When it has left pairing
-    /// and the page still waits for approval, show the error instead of a
-    /// spinner forever. Called from the page's state-stream observation.
+    /// and the page is still connecting, show the error instead of a spinner
+    /// forever. Called from the page's state-stream observation.
     public func sync(clientStatus status: PCLinkClientStatus) {
-        guard case .awaitingApproval(let prompt) = state else { return }
+        guard case .connecting(let prompt) = state else { return }
         if let current = status.pairingPrompt, current.id == prompt.id { return }
         if status.pcUnpairedPrompt != nil {
             stopObserving()
@@ -362,6 +367,10 @@ public final class PCPairingFlow {
             state = .failed(status.lastError.map(Self.message(for:))
                 ?? "配对已取消或超时，请重新开始。")
         case .offline, .pairing, .connecting:
+            if case .pairing(.failed(let error)) = status.state {
+                stopObserving()
+                state = .failed(Self.message(for: error))
+            }
             return
         }
     }
@@ -371,7 +380,34 @@ public final class PCPairingFlow {
     }
 
     private static func message(for error: Error) -> String {
-        if let error = error as? PCLinkError { return error.description }
+        if let error = error as? PCLinkError {
+            switch error {
+            case .peerOffline, .unavailable:
+                // A phone lock/background during the hand-off drops the relay
+                // socket; tell the user to keep the page open and retry.
+                if error == .peerOffline || error.message.localizedCaseInsensitiveContains("peer_offline")
+                    || error.message.localizedCaseInsensitiveContains("connection") {
+                    return PCLinkWorkspaceText.pairingInterrupted
+                }
+                return "连接没有完成，请重试。"
+            case .badFrame:
+                return "配对链接或配对码无效，请重新扫码或粘贴。"
+            case .authFailed:
+                return "连接没有被电脑接受，请重新配对。"
+            case .pairingRejected:
+                return "电脑拒绝了这次配对。"
+            case .pairingTimedOut:
+                return "配对超时，请重新扫码。"
+            case .rendezvousExpired:
+                return "二维码已过期，请在电脑上重新显示后再扫。"
+            case .rendezvousExhausted:
+                return "二维码已被使用，请重新显示后再扫。"
+            case .alreadyPaired:
+                return "这台手机已经配对了一台电脑，请先在「已连接的电脑」解除。"
+            default:
+                return error.description
+            }
+        }
         return error.localizedDescription
     }
 }
@@ -417,6 +453,27 @@ public enum PCLinkUnpairedPromptPolicy {
 
 public enum PCLinkWorkspaceText {
     public static let longOffline = PCLinkNotices.longOfflineHint
+
+    /// Inline progress on the pairing page (the connector replaces the name).
+    public static func pairingConnecting(_ pcName: String) -> String {
+        "正在连接 \(pcName)…"
+    }
+
+    /// Covers a pre-v1.6 PC that still asks its own operator to confirm; it
+    /// deliberately never mentions a fingerprint.
+    public static let pairingOldPCConfirm = "如果这台电脑仍要求确认，请在电脑上完成确认。"
+
+    /// Phone lock/background or a dropped relay connection.
+    public static let pairingInterrupted = "连接中断，请保持此页面打开后重试。"
+
+    /// Pairing mode shown on the completed-computer page.
+    public static func pairingMode(_ mode: PCLinkPairingMode?) -> String {
+        switch mode {
+        case .qr: return "扫码"
+        case .manual: return "手动码"
+        case nil: return "旧版配对（未记录方式）"
+        }
+    }
 
     public static func noticeBanner(_ notice: PCLinkNotice) -> String {
         noticeBanner(name: notice.name, fingerprint: notice.fingerprint)

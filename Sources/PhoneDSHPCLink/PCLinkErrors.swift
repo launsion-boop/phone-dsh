@@ -104,7 +104,7 @@ public enum PCLinkError: Error, Equatable, CustomStringConvertible, Sendable {
         case .pairingCancelled:
             return "the pairing was cancelled"
         case .pairingRejected:
-            return "the PC operator rejected the pairing"
+            return "the computer rejected the pairing"
         case .pairingTimedOut:
             return "the pairing timed out"
         }

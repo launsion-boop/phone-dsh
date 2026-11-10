@@ -29,8 +29,12 @@ public enum PCLinkPairingPhase: Equatable, Sendable {
     case idle
     case joining
     case waitingForPC
-    case awaitingUser
+    /// The verified `pair.hello` is available; the App may submit `pair.auth`.
+    /// v1.6 has no phone-side approval prompt and no PC operator fingerprint.
+    case readyToConfirm
     case authenticating
+    /// `pair.auth` was sent; waiting for the authenticated `pair.confirm`.
+    /// This also covers an old PC that still asks its operator to confirm.
     case awaitingConfirmation
     case completed
     case failed(PCLinkError)
@@ -118,8 +122,10 @@ public struct PCLinkPairingPrompt: Equatable, Sendable {
     public var warningText: String
     public var expiresAt: Date
 
+    /// P09 one-line full-owner permission line (shown once on the pairing
+    /// page). The PC terminal keeps its equivalent longer warning.
     public static let fullOwnerWarning =
-        "此手机将能完整操作这台电脑上的 DSH：对话、在电脑上执行 Shell 和读写文件、处理审批、修改设置和插件。"
+        "连接后，这台手机可以完整使用这台电脑上的 DSH（对话、Shell、文件、审批与设置）。"
 }
 
 public struct PCLinkPairingResult: Equatable, Sendable {
@@ -129,9 +135,10 @@ public struct PCLinkPairingResult: Equatable, Sendable {
 
 /// Client-driven pairing progress. `.completed` is emitted only after the PC's
 /// authenticated `pair.confirm` and the durable local record write, so the
-/// pairing page can leave the waiting state without polling (§4.4/4.6).
+/// pairing page can leave the waiting state without polling (§4.4/4.6). There
+/// is deliberately no "waiting for the user to approve on the PC" update:
+/// scanning the QR / submitting the code is the approval (v1.6).
 public enum PCLinkPairingUpdate: Equatable, Sendable {
-    case awaitingApproval(PCLinkPairingPrompt)
     case completed(PCLinkPairingRecord)
     case failed(PCLinkError)
 }
@@ -2182,8 +2189,7 @@ public actor PCLinkClient {
             context.prompt = prompt
             context.expiresAt = prompt.expiresAt
             armPairingTimeout(context)
-            setState(.pairing(.awaitingUser))
-            emitPairingUpdate(.awaitingApproval(prompt))
+            setState(.pairing(.readyToConfirm))
             return prompt
         } catch {
             let mapped = (error as? PCLinkError) ?? .unavailable("pairing failed: \(error)")
@@ -2248,7 +2254,8 @@ public actor PCLinkClient {
                 peerName: hello.name,
                 pairedAt: PCLinkValidation.nowTimestamp(),
                 relayOrigin: context.offer.relayOrigin,
-                connectionMode: .relay)
+                connectionMode: .relay,
+                pairingMode: context.offer.mode)
             do {
                 try pairingStore.save(record, phoneMachineId: identity.machineId)
             } catch {

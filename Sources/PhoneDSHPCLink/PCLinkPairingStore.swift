@@ -16,15 +16,20 @@ public struct PCLinkPairingRecord: Equatable, Sendable {
     public var pairedAt: String
     public var relayOrigin: String
     public var connectionMode: PCLinkConnectionMode
+    /// The phone-side pairing action for display (v1.6, optional). It is not an
+    /// approval field and the PC never reads the phone record.
+    public var pairingMode: PCLinkPairingMode?
 
     public init(peerMachineId: String, peerPublicKey: Data, peerName: String,
-                pairedAt: String, relayOrigin: String, connectionMode: PCLinkConnectionMode = .relay) {
+                pairedAt: String, relayOrigin: String, connectionMode: PCLinkConnectionMode = .relay,
+                pairingMode: PCLinkPairingMode? = nil) {
         self.peerMachineId = peerMachineId
         self.peerPublicKey = peerPublicKey
         self.peerName = peerName
         self.pairedAt = pairedAt
         self.relayOrigin = relayOrigin
         self.connectionMode = connectionMode
+        self.pairingMode = pairingMode
     }
 
     public var fingerprint: String {
@@ -32,19 +37,22 @@ public struct PCLinkPairingRecord: Equatable, Sendable {
     }
 
     public var json: PCLinkJSON {
-        .object([
+        var object: PCLinkJSONObject = [
             "peerMachineId": .string(peerMachineId),
             "peerPublicKey": .string(PCLinkBase64URL.encode(peerPublicKey)),
             "peerName": .string(peerName),
             "pairedAt": .string(pairedAt),
             "relayOrigin": .string(relayOrigin),
             "connection": .object(["mode": .string(connectionMode.rawValue)]),
-        ])
+        ]
+        if let pairingMode { object["pairingMode"] = .string(pairingMode.rawValue) }
+        return .object(object)
     }
 
     public init(json value: PCLinkJSON) throws {
         let object = try value.closedObject(required: ["peerMachineId", "peerPublicKey", "peerName",
-                                                       "pairedAt", "relayOrigin", "connection"])
+                                                       "pairedAt", "relayOrigin", "connection"],
+                                            optional: ["pairingMode"])
         try PCLinkValidation.requireMachineId(try value.requiredString("peerMachineId"))
         let publicKey = try PCLinkBase64URL.decode(try value.requiredString("peerPublicKey"), expectedBytes: 32)
         guard PCLinkBase32.machineId(fromPublicKey: publicKey) == (try value.requiredString("peerMachineId")) else {
@@ -66,20 +74,34 @@ public struct PCLinkPairingRecord: Equatable, Sendable {
         guard mode == .relay else {
             throw PCLinkError.versionUnsupported("connection.mode \(mode.rawValue) is not callable in v1")
         }
+        let pairingMode: PCLinkPairingMode?
+        if let rawMode = object["pairingMode"] {
+            guard let text = rawMode.stringValue, let parsed = PCLinkPairingMode(rawValue: text) else {
+                throw PCLinkError.storage("unknown phone pairingMode")
+            }
+            pairingMode = parsed
+        } else {
+            pairingMode = nil
+        }
         self.init(peerMachineId: try value.requiredString("peerMachineId"),
                   peerPublicKey: publicKey,
                   peerName: try value.requiredString("peerName"),
                   pairedAt: pairedAt,
                   relayOrigin: relayOrigin,
-                  connectionMode: mode)
+                  connectionMode: mode,
+                  pairingMode: pairingMode)
     }
 
     /// Explicitly rejects the PC-only approval fields on a phone record.
     static func validatePhoneRecordJSON(_ value: PCLinkJSON) throws {
         let object = try value.closedObject(required: ["peerMachineId", "peerPublicKey", "peerName",
-                                                       "pairedAt", "relayOrigin", "connection"])
+                                                       "pairedAt", "relayOrigin", "connection"],
+                                            optional: ["pairingMode"])
         if object["approvedAt"] != nil || object["approvedVia"] != nil {
             throw PCLinkError.storage("phone records must not carry approvedAt/approvedVia")
+        }
+        if let mode = object["pairingMode"], mode.stringValue.flatMap(PCLinkPairingMode.init(rawValue:)) == nil {
+            throw PCLinkError.storage("phone records pairingMode must be qr|manual")
         }
     }
 
@@ -89,8 +111,8 @@ public struct PCLinkPairingRecord: Equatable, Sendable {
                                                        "pairedAt", "relayOrigin", "connection",
                                                        "approvedAt", "approvedVia"])
         let approvedVia = try value.requiredString("approvedVia")
-        guard approvedVia == "cli" || approvedVia == "webui" else {
-            throw PCLinkError.badFrame("approvedVia must be cli|webui")
+        guard ["qr", "manual", "cli", "webui"].contains(approvedVia) else {
+            throw PCLinkError.badFrame("approvedVia must be qr|manual (legacy cli|webui)")
         }
         let approvedAt = try value.requiredString("approvedAt")
         guard PCLinkValidation.timestamp(approvedAt) else {

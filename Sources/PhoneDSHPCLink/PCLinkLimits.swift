@@ -17,7 +17,7 @@ public enum PCLinkLimits {
     public static let softByteThreshold: UInt64 = 1 << 30      // 1 GiB
     public static let hardByteThreshold: UInt64 = 1 << 31      // 2 GiB
     public static let handshakeStepTimeout: TimeInterval = 10
-    public static let pairingApprovalTimeout: TimeInterval = 120
+    public static let pairingApprovalTimeout: TimeInterval = 120 // legacy name: the maximum wait for `pair.confirm` (auto-approved in v1.6)
     public static let pairingSlotLifetime: TimeInterval = 300
     public static let pairingJoinLimit = 10
     public static let pairingSlotsPerConnection = 2

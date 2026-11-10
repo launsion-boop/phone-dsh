@@ -110,13 +110,15 @@ private actor FakePCLinkClient: PCLinkClientProtocol {
 // MARK: - Fixtures
 
 private func makeRecord(name: String = "My PC",
-                        machineId: String = "abcdefghijklmnopqrstuvwxyz") -> PCLinkPairingRecord {
+                        machineId: String = "abcdefghijklmnopqrstuvwxyz",
+                        pairingMode: PCLinkPairingMode? = nil) -> PCLinkPairingRecord {
     PCLinkPairingRecord(peerMachineId: machineId,
                         peerPublicKey: Data(repeating: 1, count: 32),
                         peerName: name,
                         pairedAt: "2026-11-10T00:00:00Z",
                         relayOrigin: "ws://127.0.0.1:3240",
-                        connectionMode: .relay)
+                        connectionMode: .relay,
+                        pairingMode: pairingMode)
 }
 
 private func makeApproval(id: UUID = UUID()) -> PCPairingApproval {
@@ -337,24 +339,19 @@ final class PCLinkWorkspaceSimTests: XCTestCase {
         _ = try await onlineBackend.harness()
     }
 
-    func testPairingFlowSuccessAndRefusals() async {
+    func testPairingFlowAutoSubmitsAuthAndHandlesRefusals() async {
         let approval = makeApproval()
-        let record = makeRecord()
+        let record = makeRecord(pairingMode: .qr)
         let success = FakePCLinkClient(startPairingResult: .success(approval),
                                        confirmResult: .success(record))
         let flow = PCPairingFlow(client: success)
         await flow.begin(qrURI: "pclink://pair?v=1")
         let began = await flow.state
-        guard case .awaitingApproval(let shown) = began else {
-            return XCTFail("expected awaitingApproval")
-        }
-        XCTAssertEqual(shown.id, approval.id)
-        await flow.confirm()
-        let finished = await flow.state
-        guard case .paired(let pairedRecord) = finished else {
-            return XCTFail("expected paired")
+        guard case .paired(let pairedRecord) = began else {
+            return XCTFail("scanning must auto-submit auth and reach paired")
         }
         XCTAssertEqual(pairedRecord.peerMachineId, record.peerMachineId)
+        XCTAssertEqual(pairedRecord.pairingMode, .qr)
         let confirmCalls = await success.confirmCalls
         XCTAssertEqual(confirmCalls, 1)
 
@@ -395,26 +392,22 @@ final class PCLinkWorkspaceSimTests: XCTestCase {
         }
     }
 
-    /// After the PC approves, the authenticated `pair.confirm` reaches the
-    /// client's pairing stream while the explicit confirmation call is still
-    /// pending; the page must move to paired without a second button press.
-    func testPairingCompletesFromClientUpdateStreamAfterPCConfirm() async {
+    /// The authenticated `pair.confirm` can arrive on the client's pairing
+    /// stream while the auto-submitted `confirm()` call is still pending; the
+    /// page must move to paired without a second button press.
+    func testPairingCompletesFromClientUpdateStreamAfterConfirm() async {
         let approval = makeApproval()
-        let record = makeRecord()
+        let record = makeRecord(pairingMode: .qr)
         let client = FakePCLinkClient(startPairingResult: .success(approval),
                                       confirmResult: .success(record),
                                       gateConfirm: true)
         let flow = PCPairingFlow(client: client)
-        await flow.begin(qrURI: "pclink://pair?v=1")
-        guard case .awaitingApproval = flow.state else {
-            return XCTFail("expected awaitingApproval")
-        }
-        let confirmTask = Task { await flow.confirm() }
-        let confirming = await waitForPairingState(flow) {
-            if case .confirming = $0 { return true }
+        let beginTask = Task { await flow.begin(qrURI: "pclink://pair?v=1") }
+        let connecting = await waitForPairingState(flow) {
+            if case .connecting = $0 { return true }
             return false
         }
-        XCTAssertTrue(confirming, "the explicit confirmation should be pending")
+        XCTAssertTrue(connecting, "the auto-submitted auth should be pending")
 
         await client.emitPairingUpdate(.completed(record))
         let pairedFromStream = await waitForPairingState(flow) {
@@ -426,11 +419,22 @@ final class PCLinkWorkspaceSimTests: XCTestCase {
         XCTAssertEqual(calls, 1, "no second button press is needed")
 
         await client.releaseConfirm()
-        await confirmTask.value
+        await beginTask.value
         guard case .paired(let pairedRecord) = flow.state else {
             return XCTFail("expected paired after the pending call returns")
         }
         XCTAssertEqual(pairedRecord.peerMachineId, record.peerMachineId)
+    }
+
+    func testPairingPageCopyCoversOldPCAndInterruptionWithoutFingerprint() {
+        XCTAssertEqual(PCLinkWorkspaceText.pairingConnecting("My PC"), "正在连接 My PC…")
+        XCTAssertEqual(PCLinkWorkspaceText.pairingOldPCConfirm,
+                       "如果这台电脑仍要求确认，请在电脑上完成确认。")
+        XCTAssertEqual(PCLinkWorkspaceText.pairingInterrupted,
+                       "连接中断，请保持此页面打开后重试。")
+        XCTAssertEqual(PCLinkWorkspaceText.pairingMode(.qr), "扫码")
+        XCTAssertEqual(PCLinkWorkspaceText.pairingMode(.manual), "手动码")
+        XCTAssertFalse(PCLinkWorkspaceText.pairingOldPCConfirm.contains("指纹"))
     }
 
     private func waitForPairingState(_ flow: PCPairingFlow,
@@ -452,7 +456,7 @@ final class PCLinkWorkspaceSimTests: XCTestCase {
                        "电脑新配对了一台设备：iPhone 15 abcd-efgh-ijkl")
         XCTAssertTrue(PCLinkNotice.warning.contains("撤销全部配对"))
         XCTAssertEqual(PCLinkPairingPrompt.fullOwnerWarning,
-                       "此手机将能完整操作这台电脑上的 DSH：对话、在电脑上执行 Shell 和读写文件、处理审批、修改设置和插件。")
+                       "连接后，这台手机可以完整使用这台电脑上的 DSH（对话、Shell、文件、审批与设置）。")
     }
 
     // Real `@AppStorage` stores the legacy drafts map as a JSON string. A
