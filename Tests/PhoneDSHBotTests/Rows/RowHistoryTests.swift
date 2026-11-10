@@ -10,7 +10,8 @@ final class RowHistoryTests: XCTestCase {
         let turnStart = BotDSHSessionEvent(type: "turn/start", seq: 3, time: 3_000,
                                            data: ["turn": .number(2)])
         let hidden = RowTestSupport.dshText(seq: 4, time: 4_000, role: "user",
-                                            text: "[SAND_HIDDEN_PROMPT] wake", turn: 2)
+                                            text: "[SAND_HIDDEN_PROMPT] wake", turn: 2,
+                                            sourceKind: "user", rpcId: "routine:run-row-history")
         let hiddenAssistant = RowTestSupport.dshText(seq: 5, time: 5_000, role: "assistant",
                                                      text: "隐藏散文", turn: 2)
         let progress1 = RowTestSupport.progress(id: "evt-progress-1", commitSeq: 1, time: 6_000, percent: 50)

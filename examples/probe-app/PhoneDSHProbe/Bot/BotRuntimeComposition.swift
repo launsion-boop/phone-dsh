@@ -828,7 +828,7 @@ extension BotRuntimeComposition: BotTeamHost {
             agentCommTracker.setActive(
                 .init(depth: request.hop, chain: request.chain), for: request.target.id)
             defer { agentCommTracker.clearActive(for: request.target.id) }
-            let result = try await unit.remote.sendUserMessage(
+            let result = try await unit.remote.sendAgentMessage(
                 request.promptText, requestId: request.requestId)
             guard result.status == "completed" else {
                 throw BotTeamHostError.deliveryFailed(

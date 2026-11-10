@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { LlmAttemptId, ToolCallId } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, LlmAttemptId, ToolCallId } from '@deepseek-ai/dsh-llm'
 import { SessionSeq } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
@@ -12,6 +12,15 @@ import { BotRuntimeRemote, BotStreamHub } from '../bot-runtime/src/channel.ts'
 import type { BotStreamFrame } from '../bot-runtime/src/channel.ts'
 import dshbotStreamForward from '../bot-runtime/src/stream-forward.ts'
 import { steerInsertedMessage } from '../bot-runtime/src/steering.ts'
+import { turnOriginOfMessage } from '../bot-runtime/src/turn-origin.ts'
+
+/** A user message carrying the host-minted DSH source.rpcId. */
+function userMessageWithOrigin(text: string, rpcId: string) {
+  return createUserMessage({
+    content: [{ type: 'text', text }],
+    source: { kind: 'user', rpcId } as never,
+  })
+}
 import { createAgent, executeTool, mountRuntime, ScriptAdapter, userMessage } from './bot-runtime-test-kit.ts'
 import { botStreamHub, registerBotStreamHub } from '../bot-runtime/src/runtime-registry.ts'
 
@@ -173,13 +182,77 @@ test('hidden prompt suppression clears at turn end rather than attempt end', asy
     registerBotStreamHub(ctx, hub)
     await ctx.plugin(dshbotStreamForward, { hub })
     const agent = { id: 'gb-hidden', session: { id: 'gb-hidden' } } as unknown as Agent
-    ctx.emit('agent/inbox/inserted', { agent, message: userMessage('[SAND_HIDDEN_PROMPT] hidden') })
+    ctx.emit('agent/inbox/inserted', { agent, message: userMessageWithOrigin('[SAND_HIDDEN_PROMPT] hidden', 'routine:run-1') })
     const frames = await driveAttemptsAcrossTurnEnd(ctx, agent, hub)
     assert.deepEqual(frames, ['allowed after turn end'])
   } finally {
     hub.close()
     await ctx.fiber.dispose()
   }
+})
+
+test('a user message starting with [SAND_HIDDEN_PROMPT] stays visible, steerable and streamed', async () => {
+  const ctx = new Context()
+  const hub = new BotStreamHub()
+  try {
+    await ctx.plugin(SystemPrompt, {})
+    await ctx.plugin(ToolRuntime, {})
+    await ctx.plugin(NativeToolExecutor)
+    registerBotStreamHub(ctx, hub)
+    await ctx.plugin(dshbotStreamForward, { hub })
+    const message = userMessageWithOrigin('[SAND_HIDDEN_PROMPT] ordinary user text', 'user-action:n')
+    let steered = false
+    let removed = false
+    const running = {
+      id: 'gb-visible', session: { id: 'gb-visible' }, status: 'running',
+      inbox: { nextTurn: [message], remove: () => { removed = true; return true } },
+      steer: () => { steered = true },
+      followup: () => {},
+    } as unknown as Agent
+    assert.equal(steerInsertedMessage(running, message, new WeakSet()), true)
+    assert.equal(removed, true)
+    assert.equal(steered, true)
+
+    const agent = { id: 'gb-visible', session: { id: 'gb-visible' } } as unknown as Agent
+    const frames: BotStreamFrame[] = []
+    const stream = hub.subscribe('gb-visible')
+    const collecting = (async () => {
+      for await (const frame of stream) {
+        frames.push(frame)
+        if (frame.type === 'end') break
+      }
+    })()
+    ctx.emit('agent/inbox/inserted', { agent, message })
+    ctx.emit('agent/assistant-stream', { agent, frame: { type: 'start', revision: 1, turn: 1, step: 1, attemptId: LlmAttemptId('marker') } })
+    ctx.emit('agent/assistant-stream', { agent, frame: { type: 'chunk', revision: 1, time: 1, attemptId: LlmAttemptId('marker'), index: 0, chunk: { type: 'text-delta', index: 0, text: 'visible' } } })
+    ctx.emit('agent/assistant-stream', { agent, frame: { type: 'end', revision: 1, index: 1, attemptId: LlmAttemptId('marker'), outcome: { kind: 'committed', eventType: 'assistant/message', seq: SessionSeq(1) } } })
+    await collecting
+    assert.deepEqual(frames.map(frame => frame.type), ['start', 'text', 'end'])
+    assert.equal(frames[1]?.text, 'visible')
+  } finally {
+    hub.close()
+    await ctx.fiber.dispose()
+  }
+})
+
+test('a routine rpcId is hidden even when the message text has no marker', () => {
+  const message = userMessageWithOrigin('no marker here', 'routine:run-1')
+  let steered = false
+  let removed = false
+  const running = {
+    id: 'gb-hidden', session: { id: 'gb-hidden' }, status: 'running',
+    inbox: { nextTurn: [message], remove: () => { removed = true; return true } },
+    steer: () => { steered = true },
+    followup: () => {},
+  } as unknown as Agent
+  assert.equal(steerInsertedMessage(running, message, new WeakSet()), false)
+  assert.equal(steered, false)
+  assert.equal(removed, false)
+})
+
+test('agent and unknown sources remain visible', () => {
+  assert.equal(turnOriginOfMessage(userMessageWithOrigin('hello', 'agent:call_1')).hidden, false)
+  assert.equal(turnOriginOfMessage(userMessageWithOrigin('legacy', 'call_01J8Z9K3Q4')).hidden, false)
 })
 
 async function driveAttemptsAcrossTurnEnd(ctx: Context, agent: Agent, hub: BotStreamHub): Promise<string[]> {

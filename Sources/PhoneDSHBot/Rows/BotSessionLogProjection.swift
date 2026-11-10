@@ -198,15 +198,22 @@ public struct BotSessionLogProjector: Sendable {
                 let source = objectValue(event.data["source"]) ?? objectValue(message["source"])
                 let sourceKind = source.flatMap { stringValue($0["kind"]) }
                 let rawText = contentText(event.data["content"] ?? message["content"])
-                if rawText.hasPrefix("[SAND_HIDDEN_PROMPT]") {
+                let origin = BotTurnOrigin.from(source: source)
+                if origin.hidden {
                     if turn > 0 { hiddenTurns.insert(turn) } else { hiddenFallback = true }
                     awaitingCard = false
                     continue
                 }
                 awaitingCard = false
+                // The text prefix is only a fallback for pre-source records;
+                // a record that carries `source` is never classified by text.
+                let injected = source == nil && isInjected(rawText)
                 guard role == "user", surfaceOp == "append", !rawText.isEmpty,
-                      !isInjected(rawText), sourceKind == nil || sourceKind == "user" else { continue }
-                let visibleText = stripHeldMessages(rawText)
+                      !injected, sourceKind == nil || sourceKind == "user" else { continue }
+                // Another Bot's immediate message already has its agent-comm
+                // row; it is not a user bubble.
+                if origin.kind == .agent { continue }
+                let visibleText = origin.held ? stripHeldMessages(rawText) : rawText
                 let parsed = BotAttachmentPrompt.parse(visibleText)
                 var fields = fieldsFrom(message)
                 fields["text"] = .string(parsed.text)
@@ -228,8 +235,9 @@ public struct BotSessionLogProjector: Sendable {
                                   role: "user", body: BotRowBody(type: .text, additionalProperties: fields),
                                   trust: BotRowProvenance.ownerDirect)
                 draft.chatActionNonce = chatActionNonce(source)
-                if sourceKind == "user", let requestID = stringValue(source?["rpcId"]), requestID.hasPrefix("held:") {
-                    draft.chatActionNonce = heldActionNonces[turn] ?? heldRequestNonces[requestID]
+                if origin.held {
+                    draft.chatActionNonce = heldActionNonces[turn]
+                        ?? source.flatMap { stringValue($0["rpcId"]) }.flatMap { heldRequestNonces[$0] }
                 }
                 result.append(.upsert(draft, order))
             case "assistant/message":
@@ -740,12 +748,8 @@ private func isApprovalTool(_ name: String) -> Bool {
 }
 
 private func chatActionNonce(_ source: [String: BotJSONValue]?) -> String? {
-    let prefix = "user-action:"
-    guard stringValue(source?["kind"]) == "user",
-          let id = stringValue(source?["rpcId"]), id.hasPrefix(prefix), id.count > prefix.count else {
-        return nil
-    }
-    return String(id.dropFirst(prefix.count))
+    guard stringValue(source?["kind"]) == "user" else { return nil }
+    return BotTurnOrigin.userActionNonce(from: stringValue(source?["rpcId"]))
 }
 
 private func approvalStatus(_ text: String) -> String {
