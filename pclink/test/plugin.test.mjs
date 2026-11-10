@@ -655,7 +655,7 @@ test('runtime config normalization and unsupported-profile behavior', async () =
   assert.equal(resolvePluginConfig({ relayUrl: 'wss://relay.example/' }).relayOrigin, 'https://relay.example')
   assert.equal(resolvePluginConfig({ relayUrl: 'http://127.0.0.1:3210' }).relayOrigin, 'http://127.0.0.1:3210')
   const config = resolvePluginConfig({})
-  assert.equal(config.relayOrigin, 'https://relay.example.invalid')
+  assert.equal(config.relayOrigin, 'https://pclink.tonoai.cn')
   const context = { get: () => undefined }
   await apply(context, {})
 })

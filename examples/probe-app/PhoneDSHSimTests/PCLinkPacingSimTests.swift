@@ -83,12 +83,13 @@ final class PCLinkPacingSimTests: XCTestCase {
                        .empty)
     }
 
-    func testInstallGuideIsTheTestedShortCommandShape() {
+    func testInstallGuideIsTheSingleOneCommandShape() {
         XCTAssertEqual(PCLinkInstallGuide.installCommand,
-                       "dsh plugin --profile web add 'github:launsion-boop/phone-dsh#main&path:/pclink'")
-        XCTAssertEqual(PCLinkInstallGuide.pairingCommand,
-                       "~/.dsh/profiles/web/node_modules/.bin/pclink pair")
+                       "curl -fsSL https://raw.githubusercontent.com/launsion-boop/phone-dsh/main/pclink/install.sh | bash")
+        XCTAssertTrue(PCLinkInstallGuide.installCommand.contains("pclink/install.sh | bash"))
         XCTAssertTrue(PCLinkInstallGuide.requirement.contains("0.2.2"))
-        XCTAssertTrue(PCLinkInstallGuide.restartHint.contains("dsh web"))
+        XCTAssertTrue(PCLinkInstallGuide.requirement.contains("22"))
+        XCTAssertTrue(PCLinkInstallGuide.hint.contains("手机扫码"))
+        XCTAssertTrue(PCLinkInstallGuide.hint.contains("dsh web"))
     }
 }

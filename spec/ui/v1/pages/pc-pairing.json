@@ -72,10 +72,10 @@
       },
       "hasHeader": true,
       "footer": {
-        "text": "安装后重启 dsh web，再运行配对命令。只有电脑上的 DSH 已运行时，二维码或配对链接才会出现。",
+        "text": "在电脑终端运行上面的命令，按提示用手机扫码。脚本会检查环境、安装插件、加载 dsh web 并显示配对二维码。",
         "labelExpr": null,
         "provenance": "PCPairingPage.swift:141",
-        "anchor": "Text(\"安装后重启 dsh web，再运行配对命令。只有电脑上的 DSH 已运行时，二维码或配对链接才会出现。\")"
+        "anchor": "Text(\"在电脑终端运行上面的命令，按提示用手机扫码。脚本会检查环境、安装插件、加载 dsh web 并显示配对二维码。\")"
       }
     },
     {

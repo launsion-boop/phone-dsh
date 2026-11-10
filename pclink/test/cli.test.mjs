@@ -17,6 +17,7 @@ import {
   createCliAdminClient,
   packageSha256,
   printStatus,
+  renderQrCode,
   resolvePairTarget,
   runPair,
   runRotateIdentity,
@@ -106,6 +107,19 @@ test('runPair propagates a fingerprint mismatch as auth_failed', async () => {
   }
   await assert.rejects(() => runPair({ client, output, stdinIsTTY: true, pollMs: 1, ask: async () => '2222-2222-2222' }), error => error.code === 'auth_failed')
   assert.equal(calls.length, 0)
+})
+
+test('renderQrCode prefers qrencode and falls back to the bundled encoder', () => {
+  const uri = 'pclink://pair?v=1&r=https%3A%2F%2Fpclink.tonoai.cn&m=7gdxeackpmfrjk3ylal74yyubv&k=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&s=AAAAAAAAAAAAAAAAAAAAAA&n=My%20PC'
+  const external = collector()
+  assert.equal(renderQrCode(uri, external, { spawnSyncImpl: () => ({ status: 0, stdout: 'EXTERNAL-QR', stderr: '' }) }), true)
+  assert.equal(external.text, 'EXTERNAL-QR\n')
+
+  const bundled = collector()
+  assert.equal(renderQrCode(uri, bundled, { spawnSyncImpl: () => ({ status: 127, stdout: '', stderr: '' }), ansi: false }), true)
+  assert.match(bundled.text, /[▀▄█]/)
+  assert.doesNotMatch(bundled.text, /未找到 qrencode/)
+  assert.doesNotMatch(bundled.text, /无法在终端渲染二维码/)
 })
 
 test('resolvePairTarget matches exact machineId, name and normalized fingerprint', () => {

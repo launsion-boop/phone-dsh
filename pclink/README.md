@@ -7,49 +7,72 @@ authenticated before it reaches the untrusted relay. The frozen contract is
 `dsh-pclink` (Cordis plugin), `npx pclink` CLI and the shared Node core. It has
 no npm runtime dependencies beyond Node built-ins.
 
-## Install (copy-paste, same string as the App)
+## Install (one command, same string as the App)
 
-The App shows this exact command (owner: `PCLinkInstallGuide` in
-`examples/probe-app/ProbeKit/Backends/PCLinkRelayConfiguration.swift`, next to the
-relay-origin configuration). `dsh plugin` forwards to pnpm, whose git
-subdirectory syntax is `github:<owner>/<repo>#<ref>&path:/<dir>`; `pclink/` is
-the package root because it carries `core/`, `plugin/` and `cli/`. `#main` only
-resolves after the PR adding `pclink/` is merged.
+On the PC, in a terminal, run exactly this (the App shows the same string via
+`PCLinkInstallGuide` in
+`examples/probe-app/ProbeKit/Backends/PCLinkRelayConfiguration.swift`):
 
 ```sh
-dsh plugin --profile web add 'github:launsion-boop/phone-dsh#main&path:/pclink'
+curl -fsSL https://raw.githubusercontent.com/launsion-boop/phone-dsh/main/pclink/install.sh | bash
 ```
 
-Restart `dsh web` after the install, then get the QR/link from the installed
-CLI (the package exposes `bin.pclink` in the profile):
+The script checks the environment, installs the plugin into the `web` profile,
+lets `dsh web` load it, waits for the loopback admin API, then prints the
+pairing QR and waits for the phone. It is safe to rerun: an existing install is
+upgraded/verified instead of duplicated.
 
-```sh
-~/.dsh/profiles/web/node_modules/.bin/pclink pair
-```
+What each step does, and what a failure looks like:
 
-The computer needs DSH 0.2.2 or newer. On a source checkout the longer
-`node pclink/cli/bin.mjs install` path still exists and additionally checks the
-pin, prints the plugin SHA-256 and offers to restart `dsh web`.
-
-`install` finds `dsh` (`DSH_BIN`, `PATH`, or `DSH_SOURCE`/`DSH_PIN_ROOT`),
-checks the tested range `>=0.2.2-rc.1 <0.3.0`, checks the host native module
-(`native/system/packages/darwin-arm64/bin/system.node` for a source checkout),
-prints the plugin package SHA-256, runs
-`dsh plugin --profile web add <spec>`, warns that a build-script approval may
-appear, asks whether to restart `dsh web`, waits for the loopback admin API, and
-starts QR pairing.
-
-For a published/git form, set the package spec explicitly:
-
-```sh
-PCLINK_PLUGIN_SPEC='github:<owner>/<repo>#<commit>&path:/pclink' \
-  node pclink/cli/bin.mjs install --spec "$PCLINK_PLUGIN_SPEC"
-```
+1. **Environment.** Refuses Windows explicitly (v1 is macOS/Linux only). Checks
+   Node.js 22+, pnpm and `dsh` (`DSH_BIN` or `PATH`), then runs `dsh -V`. A dsh
+   outside `>=0.2.2-rc.1 <0.3.0` produces a warning and one `[y/N]` question;
+   `N` cancels without installing. No TTY means an immediate error — pairing
+   approval can never be automated.
+2. **Plugin.** Runs `dsh plugin --profile web add <spec>`. If pnpm reports a
+   build-script approval, the terminal prompt is inherited from `/dev/tty`;
+   approve it and rerun the same command. A failed install prints the pnpm
+   output and exits non-zero.
+3. **Load.** The `web` profile uses live patch reload (`dsh-base` enables the
+   HMR configuration watcher), so the plugin usually appears without a restart;
+   the script waits for `$DSH_HOME/pclink/admin.json` and a successful
+   `pclink status`. If the profile declares `patchReload: "startup"` (or no
+   reload is observed), it prints the exact restart command for launchd
+   (`ai.deepseek.dsh`), a systemd user unit, or a foreground `dsh web`, asks the
+   operator to restart once, then waits again. It never executes a restart of a
+   service it did not start.
+4. **Pair.** Executes the profile-installed CLI, not a hard-coded
+   `~/.dsh` path: `<DSH_HOME>/profiles/web/node_modules/.bin/pclink pair`.
+   stdin/stdout are `/dev/tty`, so `curl | bash` still gets the QR and the
+   fingerprint prompt. The operator types the fingerprint shown on the phone;
+   the script never approves on its own.
 
 The installable package root is **`pclink/`** because it carries `core/`,
-`plugin/` and `cli/`. `pclink/plugin/` also declares the same bundle; a local
-`dsh plugin add /abs/path/to/pclink/plugin` works through pnpm's `link:`, while
-git installs should use the `/pclink` package root above.
+`plugin/` and `cli/`. `dsh plugin` forwards to pnpm, whose git subdirectory
+syntax is `github:<owner>/<repo>#<ref>&path:/<dir>`; `pclink/plugin/` also
+declares the bundle, and a local `PCLINK_PLUGIN_SPEC=link:/abs/path/to/pclink`
+is the supported test/mirror form.
+
+### Optional environment variables
+
+Set them on the **bash side of the pipe**, not on `curl`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/launsion-boop/phone-dsh/main/pclink/install.sh \
+  | PCLINK_REF=my-branch bash
+```
+
+| Variable | Default | Used by | Meaning |
+|---|---|---|---|
+| `PCLINK_REF` | `main` | installer | Git ref in the default spec: `github:launsion-boop/phone-dsh#<ref>&path:/pclink`. |
+| `PCLINK_PLUGIN_SPEC` | GitHub spec above | installer | Replaces the whole `dsh plugin add` spec, e.g. a domestic mirror, self-hosted fork, or `link:/abs/path/to/pclink` for a local checkout. |
+| `PCLINK_RELAY_URL` | `https://pclink.tonoai.cn` | plugin process | Relay origin/`ws(s)` URL override. The plugin reads its own process environment, so set it in the shell that starts `dsh web`; setting it only on the installer does not reconfigure an already-running web process. |
+| `DSH_BIN` | `dsh` from `PATH` | installer | Absolute path to the `dsh` executable when it is not on `PATH` (for example a pinned source checkout wrapper). |
+| `DSH_HOME` | `$HOME/.dsh` | installer + plugin | DSH home; state is `$DSH_HOME/pclink/`, profile is `$DSH_HOME/profiles/web/`. |
+| `PCLINK_PC_NAME` | hostname | plugin | PC display name, 1–64 UTF-8 bytes, NFC, no C0/C1/Cf. |
+
+The plugin logs `unsupported-profile` and does not dial the relay when the DSH
+profile has no `typertGateway`; it never starts a degraded unary-only service.
 
 ## Pairing and approval
 
@@ -57,7 +80,7 @@ Default pairing is QR only; explicit `--manual` (CLI) or `mode:"manual"` (API)
 is the only way to open the 80-bit manual-code slot.
 
 ```sh
-pclink pair            # QR URI (and a terminal QR if qrencode is installed)
+pclink pair            # terminal QR + pclink://pair URI (built-in renderer)
 pclink pair --manual   # XXXX-XXXX-XXXX-XXXX (Crockford, 80 bit)
 pclink status
 pclink unpair <name|machineId|fingerprint>
@@ -83,10 +106,14 @@ non-TTY stdin never approve. The phone's own fingerprint is the only one the
 operator compares; the PC never prints the pending peer's machineId,
 publicKey or fingerprint while approval is pending.
 
-The terminal QR renderer is optional: with `qrencode` on `PATH` the CLI prints
-an ANSI QR, otherwise it prints the standard `pclink://pair?...` URI and says
-so. The URI is the complete pairing payload and can be rendered by a future Web
-UI page.
+The terminal QR renderer needs no external package: `core/qr.mjs` implements
+Byte mode, ECC M and automatic versions 1–40, and `pclink pair` renders the
+matrix with Unicode half blocks, four quiet modules and ANSI 256-colour cells so
+the QR scans on both light and dark terminals. When `qrencode` is on `PATH` the
+CLI still prefers it; the built-in renderer is the fallback, so the URI is no
+longer the only output on a machine without `qrencode`. If terminal rendering
+fails, the standard `pclink://pair?...` URI is printed as the complete pairing
+payload.
 
 ## Web UI
 
@@ -127,14 +154,15 @@ most recent successful pairing. The CLI is the supported UI in this phase.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `PCLINK_RELAY_URL` | `wss://relay.example.invalid` | Relay origin or `ws(s)://` URL. **The default is a placeholder; replace it before pairing.** Origin must be lowercase `https://host[:port]`, default port omitted. |
+| `PCLINK_RELAY_URL` | `https://pclink.tonoai.cn` | Relay origin or `ws(s)://` URL read by the plugin process. Origin must be lowercase `https://host[:port]`, default port omitted. |
 | `PCLINK_PC_NAME` | hostname | PC display name, 1–64 UTF-8 bytes, NFC, no C0/C1/Cf. |
-| `DSH_HOME` | `$HOME/.dsh` | State is `$DSH_HOME/pclink/`. |
-| `PCLINK_PLUGIN_SPEC` | this checkout | Package spec used by `install`. |
+| `DSH_HOME` | `$HOME/.dsh` | State is `$DSH_HOME/pclink/`; the web profile is `$DSH_HOME/profiles/web/`. |
+| `PCLINK_REF` | `main` | Git ref used by `pclink/install.sh`'s default GitHub spec. |
+| `PCLINK_PLUGIN_SPEC` | GitHub spec | Full `dsh plugin add` spec used by `pclink/install.sh`. |
+| `DSH_BIN` | `dsh` from `PATH` | dsh executable used by `pclink/install.sh`. |
 
-A still-placeholder relay is reported as a warning in admin status. The plugin
-logs `unsupported-profile` and does not dial the relay when the DSH profile has
-no `typertGateway`; it never starts a degraded unary-only service.
+There is no placeholder-relay warning any more: the default is the hosted
+relay, and an explicit `PCLINK_RELAY_URL` is honored as an operator override.
 
 ## State files
 
@@ -194,15 +222,18 @@ replace (temp file in the same directory, fsync, rename, directory fsync):
 core/     pure Node built-ins: canonical JSON, strict JSON reader, b64url,
           base32, machineId, Ed25519/X25519, relay auth, handshake, HKDF,
           ChaCha20-Poly1305 frames, chunking, pairing, records/audit,
-          inner codecs, admin client, backoff and schema subset
+          inner codecs, admin client, backoff, schema subset and a
+          dependency-free QR encoder/renderer (Byte mode, ECC M)
 plugin/   Cordis bundle (`inject=['connection']`): relay supervisor,
           pairing state machine, per-session owner Peer + shared fetch,
           unary/stream forwarding, chunking/backpressure/cancel, admin
           plane/loopback server, owner `/api/pclink.admin/*` routes
-cli/      `pclink` bin: install, pair (TTY compare-the-phone), status,
-          unpair, rotate-identity; prints the package SHA-256
+cli/      `pclink` bin: install, pair (built-in QR + TTY compare-the-phone),
+          status, unpair, rotate-identity; prints the package SHA-256
 test/     node:test suites plus a test-only relay double and phone client;
-          the integration test boots the real pinned `dsh web`
+          the integration test boots the real pinned `dsh web`; the QR suite
+          pins a module-for-module v1-M reference and a v9-M pair URI, and
+          `install-script.test.mjs` drives the installer branches
 ```
 
 The plugin opens one owner `interactions:'answer'` Peer per E2E session and
@@ -237,11 +268,13 @@ npm ci
 npm test
 ```
 
-`npm test` runs 80+ `node:test` cases: the full golden vector document and every
+`npm test` runs 90+ `node:test` cases: the full golden vector document and every
 invalid crypto/model row through the real codecs/state machines, every schema
 sample through the shared validator, plugin pairing/admin/unpair/fail-closed
-tests, CLI TTY/install planning, a real-DSH integration, and a real-relay
-restart regression. `test/relay-restart.test.mjs` imports `relay/src/server.mjs`
+tests, CLI TTY/install planning, the QR encoder against a pinned independent
+v1-M matrix plus a v9-M pairing URI, `install.sh`'s no-TTY/Windows/version/no-dsh
+branches, a real-DSH integration, and a real-relay restart regression.
+`test/relay-restart.test.mjs` imports `relay/src/server.mjs`
 itself (not the test double), authenticates the real `RelayLink`, closes the
 relay, starts a fresh one on the same origin/port, and asserts a new
 `peer.auth` plus a re-sent `relay.allow` inside the §10 backoff ceiling.

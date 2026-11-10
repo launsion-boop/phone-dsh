@@ -16,7 +16,7 @@ export const name = 'dsh-pclink'
 export const inject = ['connection']
 
 const LOG_PREFIX = '[pclink]'
-const DEFAULT_RELAY = 'wss://relay.example.invalid'
+const DEFAULT_RELAY = 'https://pclink.tonoai.cn'
 
 function log(...args) {
   console.log(LOG_PREFIX, ...args)
